@@ -140,3 +140,61 @@ func TestCloudWatchLogsJanitor_DefaultInterval(t *testing.T) {
 		})
 	}
 }
+
+func TestCloudWatchLogsJanitor_SweepOnce_RespectsContext(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		cancelBeforeSweep bool
+		wantEvents        int
+	}{
+		{
+			name:              "active_context_sweeps",
+			cancelBeforeSweep: false,
+			wantEvents:        0,
+		},
+		{
+			name:              "cancelled_context_skips_sweep",
+			cancelBeforeSweep: true,
+			wantEvents:        1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+
+			_, err := b.CreateLogGroup("test-group")
+			require.NoError(t, err)
+
+			_, err = b.CreateLogStream("test-group", "test-stream")
+			require.NoError(t, err)
+
+			days := int32(1)
+			require.NoError(t, b.SetRetentionPolicy("test-group", &days))
+
+			oldTimestampMs := time.Now().Add(-48 * time.Hour).UnixMilli()
+			_, err = b.PutLogEvents("test-group", "test-stream", []cloudwatchlogs.InputLogEvent{
+				{Timestamp: oldTimestampMs, Message: "old event"},
+			})
+			require.NoError(t, err)
+
+			j := cloudwatchlogs.NewJanitor(b, time.Minute)
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tt.cancelBeforeSweep {
+				cancel()
+			}
+
+			j.SweepOnce(ctx)
+
+			events, _, _, getErr := b.GetLogEvents("test-group", "test-stream", nil, nil, 100, "", true)
+			require.NoError(t, getErr)
+			assert.Len(t, events, tt.wantEvents)
+		})
+	}
+}

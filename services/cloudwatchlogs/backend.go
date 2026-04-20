@@ -82,6 +82,8 @@ const (
 	defaultDeliveryWorkers = 8
 	// defaultDeliveryTimeout is the per-delivery timeout applied to each subscription filter call.
 	defaultDeliveryTimeout = 10 * time.Second
+	// defaultParsedQueryCacheSize caps the number of parsed Insights queries cached in memory.
+	defaultParsedQueryCacheSize = 256
 )
 
 // SubscriptionDeliverer delivers encoded log event payloads to a subscription filter destination.
@@ -175,6 +177,7 @@ type InMemoryBackend struct {
 	events              map[string]map[string][]*OutputLogEvent
 	subscriptionFilters map[string][]*SubscriptionFilter
 	queries             map[string]*storedQuery
+	parsedQueries       map[string]*insightsQuery
 	exportTasks         map[string]*ExportTask
 	importTasks         map[string]*ImportTask
 	deliveries          map[string]*Delivery
@@ -188,9 +191,11 @@ type InMemoryBackend struct {
 	accountID           string
 	region              string
 	queriesOrder        []string
+	parsedQueriesOrder  []string
 	wg                  sync.WaitGroup
 	queryTTL            time.Duration
 	maxQueries          int
+	maxParsedQueries    int
 	deliveryTimeout     time.Duration
 }
 
@@ -223,6 +228,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		events:              make(map[string]map[string][]*OutputLogEvent),
 		subscriptionFilters: make(map[string][]*SubscriptionFilter),
 		queries:             make(map[string]*storedQuery),
+		parsedQueries:       make(map[string]*insightsQuery),
 		exportTasks:         make(map[string]*ExportTask),
 		importTasks:         make(map[string]*ImportTask),
 		deliveries:          make(map[string]*Delivery),
@@ -234,6 +240,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		mu:                  lockmetrics.New("cloudwatchlogs"),
 		queryTTL:            defaultQueryTTL,
 		maxQueries:          defaultMaxQueries,
+		maxParsedQueries:    defaultParsedQueryCacheSize,
 		ctx:                 ctx,
 		cancel:              cancel,
 		workerSem:           make(chan struct{}, defaultDeliveryWorkers),
@@ -458,13 +465,16 @@ func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken string
 // PutLogEvents appends log events to a stream and returns the next sequence token.
 func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []InputLogEvent) (string, error) {
 	b.mu.Lock("PutLogEvents")
-	defer b.mu.Unlock()
 
 	if _, exists := b.groups[groupName]; !exists {
+		b.mu.Unlock()
+
 		return "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
 	if _, exists := b.streams[groupName][streamName]; !exists {
+		b.mu.Unlock()
+
 		return "", fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
 	}
 
@@ -479,13 +489,15 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 	filters := b.matchingFilters(groupName, events)
 	deliverer := b.deliverer
 	accountID := b.accountID
+	timeout := b.deliveryTimeout
+	workerSem := b.workerSem
+	ctx := b.ctx
+	eventsForDelivery := append([]InputLogEvent(nil), events...)
+	filtersForDelivery := cloneSubscriptionFilters(filters)
+
+	b.mu.Unlock()
 
 	if len(filters) > 0 && deliverer != nil {
-		// Capture all state needed by the goroutine while holding the lock.
-		timeout := b.deliveryTimeout
-		workerSem := b.workerSem
-		ctx := b.ctx
-
 		b.wg.Go(func() {
 			// Acquire a worker slot or abort if the backend is shutting down.
 			select {
@@ -495,14 +507,16 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 				return
 			}
 
-			delivCtx := ctx
-			if timeout > 0 {
-				var cancel context.CancelFunc
-				delivCtx, cancel = context.WithTimeout(ctx, timeout)
-				defer cancel()
-			}
-
-			b.deliverToFilters(delivCtx, groupName, streamName, accountID, events, filters, deliverer)
+			b.deliverToFilters(
+				ctx,
+				groupName,
+				streamName,
+				accountID,
+				eventsForDelivery,
+				filtersForDelivery,
+				deliverer,
+				timeout,
+			)
 		})
 	}
 
@@ -817,6 +831,7 @@ func (b *InMemoryBackend) deliverToFilters(
 	events []InputLogEvent,
 	filters []*SubscriptionFilter,
 	deliverer SubscriptionDeliverer,
+	timeout time.Duration,
 ) {
 	filterNames := make([]string, len(filters))
 	for i, f := range filters {
@@ -850,7 +865,15 @@ func (b *InMemoryBackend) deliverToFilters(
 	}
 
 	for _, f := range filters {
-		deliverErr := deliverer.DeliverLogEvents(ctx, f.DestinationArn, encoded)
+		deliverCtx := ctx
+		cancel := func() {}
+		if timeout > 0 {
+			deliverCtx, cancel = context.WithTimeout(ctx, timeout)
+		}
+
+		deliverErr := deliverer.DeliverLogEvents(deliverCtx, f.DestinationArn, encoded)
+		cancel()
+
 		if deliverErr != nil {
 			logger.Load(ctx).WarnContext(ctx, "cloudwatchlogs: failed to deliver log events to subscription filter",
 				"logGroup", groupName, "filterName", f.FilterName, "destination", f.DestinationArn, "error", deliverErr)
@@ -1091,6 +1114,20 @@ func parseNextToken(token string) int {
 	return idx
 }
 
+func cloneSubscriptionFilters(filters []*SubscriptionFilter) []*SubscriptionFilter {
+	if len(filters) == 0 {
+		return nil
+	}
+
+	out := make([]*SubscriptionFilter, len(filters))
+	for i, f := range filters {
+		cp := *f
+		out[i] = &cp
+	}
+
+	return out
+}
+
 // removeFromOrder removes the first occurrence of queryID from queriesOrder.
 // It must be called while holding the write lock.
 func (b *InMemoryBackend) removeFromOrder(queryID string) {
@@ -1142,6 +1179,38 @@ func (b *InMemoryBackend) enforceCap() {
 	b.queriesOrder = b.queriesOrder[excess:]
 }
 
+func (b *InMemoryBackend) getParsedInsightsQuery(queryString string) (*insightsQuery, error) {
+	b.mu.RLock("getParsedInsightsQueryRead")
+	cached, ok := b.parsedQueries[queryString]
+	b.mu.RUnlock()
+	if ok {
+		return cloneInsightsQuery(cached), nil
+	}
+
+	parsed, parseErr := parseInsightsQuery(queryString)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	b.mu.Lock("getParsedInsightsQueryWrite")
+	defer b.mu.Unlock()
+
+	if cached, ok = b.parsedQueries[queryString]; ok {
+		return cloneInsightsQuery(cached), nil
+	}
+
+	if b.maxParsedQueries > 0 && len(b.parsedQueriesOrder) >= b.maxParsedQueries {
+		evictKey := b.parsedQueriesOrder[0]
+		b.parsedQueriesOrder = b.parsedQueriesOrder[1:]
+		delete(b.parsedQueries, evictKey)
+	}
+
+	b.parsedQueries[queryString] = cloneInsightsQuery(parsed)
+	b.parsedQueriesOrder = append(b.parsedQueriesOrder, queryString)
+
+	return cloneInsightsQuery(parsed), nil
+}
+
 // StartQuery stores a new insights query and executes it immediately against in-memory events.
 // collectQueryEvents scans events in the given log groups within [startTime, endTime].
 // It must be called while holding at least a read lock.
@@ -1177,7 +1246,7 @@ func (b *InMemoryBackend) collectQueryEvents(
 func (b *InMemoryBackend) StartQuery(
 	queryID, queryString string, logGroupNames []string, startTime, endTime int64,
 ) (*QueryInfo, error) {
-	q, parseErr := parseInsightsQuery(queryString)
+	q, parseErr := b.getParsedInsightsQuery(queryString)
 	if parseErr != nil {
 		return nil, fmt.Errorf("invalid query: %w", parseErr)
 	}
@@ -1332,6 +1401,8 @@ func (b *InMemoryBackend) Reset() {
 	b.subscriptionFilters = make(map[string][]*SubscriptionFilter)
 	b.queries = make(map[string]*storedQuery)
 	b.queriesOrder = nil
+	b.parsedQueries = make(map[string]*insightsQuery)
+	b.parsedQueriesOrder = nil
 	b.exportTasks = make(map[string]*ExportTask)
 	b.importTasks = make(map[string]*ImportTask)
 	b.deliveries = make(map[string]*Delivery)

@@ -2,6 +2,7 @@ package cloudwatchlogs
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -73,23 +74,18 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 // Stream metadata (FirstEventTimestamp, LastEventTimestamp, LastIngestionTime)
 // is updated to reflect the remaining events.
 func (j *Janitor) sweepRetention(ctx context.Context) {
-	j.Backend.mu.Lock("JanitorSweepRetention")
-
 	evicted := 0
-
-	for groupName, group := range j.Backend.groups {
-		if group.RetentionInDays == nil || *group.RetentionInDays <= 0 {
-			continue
+	for _, target := range j.retentionTargets(time.Now()) {
+		select {
+		case <-ctx.Done():
+			return
+		default:
 		}
 
-		cutoffMs := time.Now().
-			AddDate(0, 0, -int(*group.RetentionInDays)).
-			UnixMilli()
-
-		evicted += j.sweepGroupStreams(groupName, cutoffMs)
+		j.Backend.mu.Lock("JanitorSweepRetention")
+		evicted += j.sweepGroupStreams(target.groupName, target.cutoffMs)
+		j.Backend.mu.Unlock()
 	}
-
-	j.Backend.mu.Unlock()
 
 	telemetry.RecordWorkerTask(cwlWorkerService, retentionSweeperName, "success")
 
@@ -101,6 +97,37 @@ func (j *Janitor) sweepRetention(ctx context.Context) {
 	logger.Load(ctx).InfoContext(ctx,
 		"CloudWatch Logs janitor: evicted log events past retention policy",
 		"evicted", evicted)
+}
+
+type retentionTarget struct {
+	groupName string
+	cutoffMs  int64
+}
+
+func (j *Janitor) retentionTargets(now time.Time) []retentionTarget {
+	j.Backend.mu.RLock("JanitorRetentionTargets")
+	defer j.Backend.mu.RUnlock()
+
+	groupNames := make([]string, 0, len(j.Backend.groups))
+	for groupName := range j.Backend.groups {
+		groupNames = append(groupNames, groupName)
+	}
+	slices.Sort(groupNames)
+
+	targets := make([]retentionTarget, 0, len(groupNames))
+	for _, groupName := range groupNames {
+		group := j.Backend.groups[groupName]
+		if group.RetentionInDays == nil || *group.RetentionInDays <= 0 {
+			continue
+		}
+
+		targets = append(targets, retentionTarget{
+			groupName: groupName,
+			cutoffMs:  now.AddDate(0, 0, -int(*group.RetentionInDays)).UnixMilli(),
+		})
+	}
+
+	return targets
 }
 
 // sweepGroupStreams evicts events older than cutoffMs for all streams in groupName.

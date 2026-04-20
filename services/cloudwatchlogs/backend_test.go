@@ -1059,6 +1059,94 @@ func TestCloudWatchLogsBackend_PutLogEvents_BoundedWorkerPool(t *testing.T) {
 	b.Drain()
 }
 
+func TestCloudWatchLogsBackend_PutLogEvents_SubscriptionDelivery_PerDeliveryTimeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		timeout              time.Duration
+		wantFastCtxCancelled bool
+	}{
+		{
+			name:                 "fresh_timeout_per_delivery",
+			timeout:              20 * time.Millisecond,
+			wantFastCtxCancelled: false,
+		},
+		{
+			name:                 "timeout_disabled",
+			timeout:              0,
+			wantFastCtxCancelled: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			const (
+				slowDestination = "arn:aws:lambda:us-east-1:123456789012:function:slow"
+				fastDestination = "arn:aws:lambda:us-east-1:123456789012:function:fast"
+			)
+
+			var (
+				mu               sync.Mutex
+				fastCtxCancelled bool
+			)
+			fastCalled := make(chan struct{}, 1)
+
+			deliverer := cloudwatchlogs.SubscriptionDelivererFunc(
+				func(ctx context.Context, dst string, _ []byte) error {
+					switch dst {
+					case slowDestination:
+						if tt.timeout <= 0 {
+							return nil
+						}
+						<-ctx.Done()
+
+						return ctx.Err()
+					case fastDestination:
+						mu.Lock()
+						fastCtxCancelled = ctx.Err() != nil
+						mu.Unlock()
+						select {
+						case fastCalled <- struct{}{}:
+						default:
+						}
+					}
+
+					return nil
+				},
+			)
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			b.SetDeliveryTimeout(tt.timeout)
+			b.SetSubscriptionDeliverer(deliverer)
+
+			_, _ = b.CreateLogGroup("grp")
+			_, _ = b.CreateLogStream("grp", "stream")
+			_ = b.PutSubscriptionFilter("grp", "slow-filter", "", slowDestination)
+			_ = b.PutSubscriptionFilter("grp", "fast-filter", "", fastDestination)
+
+			_, err := b.PutLogEvents("grp", "stream", []cloudwatchlogs.InputLogEvent{
+				{Message: "hello", Timestamp: 1},
+			})
+			require.NoError(t, err)
+
+			b.Drain()
+
+			select {
+			case <-fastCalled:
+			default:
+				require.FailNow(t, "expected fast destination delivery call")
+			}
+
+			mu.Lock()
+			assert.Equal(t, tt.wantFastCtxCancelled, fastCtxCancelled)
+			mu.Unlock()
+		})
+	}
+}
+
 func TestCloudWatchLogsBackend_Close_CancelsInFlightDeliveries(t *testing.T) {
 	t.Parallel()
 
@@ -1496,6 +1584,41 @@ func TestCloudWatchLogsBackend_QueryEviction_MaxCap(t *testing.T) {
 					assert.NotContains(t, ids, tt.wantLackID)
 				}
 			}
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_StartQuery_ParsedQueryCache(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		queryStrings  []string
+		wantCacheSize int
+	}{
+		{
+			name:          "same_query_reused",
+			queryStrings:  []string{"fields @message", "fields @message", "fields @message"},
+			wantCacheSize: 1,
+		},
+		{
+			name:          "different_queries_cached",
+			queryStrings:  []string{"fields @message", "fields @timestamp"},
+			wantCacheSize: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			for i, queryString := range tt.queryStrings {
+				_, err := b.StartQuery(fmt.Sprintf("q-%d", i), queryString, []string{}, 0, 0)
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, tt.wantCacheSize, b.GetParsedInsightsQueryCacheSize())
 		})
 	}
 }
