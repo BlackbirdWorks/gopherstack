@@ -562,11 +562,11 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 		wantTypes []string
 	}{
 		{
-			name: "scheduled_rotation_is_aws_kms",
+			name: "enable_rotation_creates_no_immediate_record",
 			setup: func(b *kms.InMemoryBackend, keyID string) error {
 				return b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID})
 			},
-			wantTypes: []string{"AWS_KMS"},
+			wantTypes: []string{},
 		},
 		{
 			name: "on_demand_rotation_is_imported",
@@ -578,7 +578,7 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 			wantTypes: []string{"IMPORTED"},
 		},
 		{
-			name: "mixed_rotations_preserve_types",
+			name: "enable_then_on_demand_rotation_has_one_record",
 			setup: func(b *kms.InMemoryBackend, keyID string) error {
 				if err := b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID}); err != nil {
 					return err
@@ -587,7 +587,7 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 
 				return err
 			},
-			wantTypes: []string{"AWS_KMS", "IMPORTED"},
+			wantTypes: []string{"IMPORTED"},
 		},
 	}
 
@@ -616,9 +616,9 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 	}
 }
 
-// TestListKeyRotationsLegacyFallback verifies that rotations via EnableKeyRotation
-// (AWS_KMS) and RotateKeyOnDemand (IMPORTED) are stored with correct types and
-// returned with distinct RotationType values.
+// TestListKeyRotationsLegacyFallback verifies that RotateKeyOnDemand creates an IMPORTED
+// rotation record. EnableKeyRotation no longer causes an immediate rotation; only on-demand
+// rotation creates a record.
 func TestListKeyRotationsLegacyFallback(t *testing.T) {
 	t.Parallel()
 
@@ -628,17 +628,18 @@ func TestListKeyRotationsLegacyFallback(t *testing.T) {
 
 	keyID := key.KeyMetadata.KeyID
 
-	// Perform two rotations: one scheduled, one on-demand.
+	// Enabling rotation does not create an immediate rotation record.
 	require.NoError(t, b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID}))
+
+	// On-demand rotation creates a record with type IMPORTED.
 	_, err = b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
 	require.NoError(t, err)
 
-	// List rotations - should have exactly 2 with correct types.
+	// List rotations - should have exactly 1 record (on-demand only).
 	out, err := b.ListKeyRotations(&kms.ListKeyRotationsInput{KeyID: keyID})
 	require.NoError(t, err)
-	require.Len(t, out.Rotations, 2)
-	assert.Equal(t, "AWS_KMS", out.Rotations[0].RotationType)
-	assert.Equal(t, "IMPORTED", out.Rotations[1].RotationType)
+	require.Len(t, out.Rotations, 1)
+	assert.Equal(t, "IMPORTED", out.Rotations[0].RotationType)
 }
 
 func TestCancelKeyDeletionOutput(t *testing.T) {

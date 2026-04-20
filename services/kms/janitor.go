@@ -72,58 +72,83 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 
 // sweepExpiredKeys removes keys in PendingDeletion state whose deletion date has
 // passed, permanently purging their key material and associated aliases and grants.
+// It also expires imported key material (EXTERNAL-origin keys) whose ValidTo has passed.
 func (j *Janitor) sweepExpiredKeys(ctx context.Context) {
 	now := float64(time.Now().UnixNano()) / nanoToSeconds
 	purged := 0
+	expired := 0
 
 	j.Backend.mu.Lock("sweepExpiredKeys")
 
 	for keyID, key := range j.Backend.keys {
-		if key.KeyState != KeyStatePendingDeletion {
+		if key.KeyState == KeyStatePendingDeletion {
+			if key.DeletionDate == 0 || now < key.DeletionDate {
+				continue
+			}
+
+			// Purge key material (current and history).
+			delete(j.Backend.keyMaterials, keyID)
+			delete(j.Backend.keyMaterialHistory, keyID)
+
+			// Remove aliases pointing to this key.
+			for aliasName, alias := range j.Backend.aliases {
+				if alias.TargetKeyID == keyID {
+					delete(j.Backend.aliases, aliasName)
+				}
+			}
+
+			// Remove grants associated with this key.
+			for grantID, grant := range j.Backend.grants {
+				if grant.KeyID == keyID {
+					delete(j.Backend.grants, grantID)
+				}
+			}
+
+			// Remove the key itself.
+			delete(j.Backend.keys, keyID)
+			delete(j.Backend.policies, keyID)
+			purged++
+
 			continue
 		}
 
-		if key.DeletionDate == 0 || now < key.DeletionDate {
-			continue
+		// Expire imported key material when the ValidTo date has passed.
+		if key.Origin == KeyOriginExternal &&
+			key.ExpirationModel == expirationModelExpires &&
+			key.ValidTo > 0 &&
+			now >= key.ValidTo &&
+			key.KeyState == KeyStateEnabled {
+			delete(j.Backend.keyMaterials, keyID)
+			delete(j.Backend.keyMaterialHistory, keyID)
+			key.KeyState = KeyStatePendingImport
+			key.Enabled = false
+			key.ValidTo = 0
+			key.ExpirationModel = ""
+			expired++
 		}
-
-		// Purge key material (current and history).
-		delete(j.Backend.keyMaterials, keyID)
-		delete(j.Backend.keyMaterialHistory, keyID)
-
-		// Remove aliases pointing to this key.
-		for aliasName, alias := range j.Backend.aliases {
-			if alias.TargetKeyID == keyID {
-				delete(j.Backend.aliases, aliasName)
-			}
-		}
-
-		// Remove grants associated with this key.
-		for grantID, grant := range j.Backend.grants {
-			if grant.KeyID == keyID {
-				delete(j.Backend.grants, grantID)
-			}
-		}
-
-		// Remove the key itself.
-		delete(j.Backend.keys, keyID)
-		delete(j.Backend.policies, keyID)
-		purged++
 	}
 
-	if purged > 0 {
+	if purged > 0 || expired > 0 {
 		j.Backend.clearResolutionCache()
 	}
 
 	j.Backend.mu.Unlock()
 
-	telemetry.RecordWorkerTask(kmsJanitorServiceName, kmsJanitorComponent, "success")
+	if purged > 0 {
+		telemetry.RecordWorkerItems(kmsJanitorServiceName, kmsJanitorComponent, purged)
+		logger.Load(ctx).InfoContext(ctx, "KMS janitor: expired keys purged", "count", purged)
+	}
 
-	if purged == 0 {
+	if expired > 0 {
+		telemetry.RecordWorkerItems(kmsJanitorServiceName, kmsJanitorComponent, expired)
+		logger.Load(ctx).InfoContext(ctx, "KMS janitor: imported key material expired", "count", expired)
+	}
+
+	if purged == 0 && expired == 0 {
+		telemetry.RecordWorkerTask(kmsJanitorServiceName, kmsJanitorComponent, "success")
+
 		return
 	}
 
-	telemetry.RecordWorkerItems(kmsJanitorServiceName, kmsJanitorComponent, purged)
-
-	logger.Load(ctx).InfoContext(ctx, "KMS janitor: expired keys purged", "count", purged)
+	telemetry.RecordWorkerTask(kmsJanitorServiceName, kmsJanitorComponent, "success")
 }

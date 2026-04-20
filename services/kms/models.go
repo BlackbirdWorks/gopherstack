@@ -39,14 +39,15 @@ type RotationRecord struct {
 
 // Key represents a KMS customer-managed key.
 type Key struct {
-	Origin        string `json:"Origin,omitempty"`
-	PrimaryRegion string `json:"PrimaryRegion,omitempty"`
-	Description   string `json:"Description,omitempty"`
-	KeyState      string `json:"KeyState"`
-	KeyUsage      string `json:"KeyUsage"`
-	KeySpec       string `json:"KeySpec,omitempty"`
-	KeyID         string `json:"KeyId"`
-	Arn           string `json:"Arn"`
+	Origin          string `json:"Origin,omitempty"`
+	PrimaryRegion   string `json:"PrimaryRegion,omitempty"`
+	Description     string `json:"Description,omitempty"`
+	KeyState        string `json:"KeyState"`
+	KeyUsage        string `json:"KeyUsage"`
+	KeySpec         string `json:"KeySpec,omitempty"`
+	KeyID           string `json:"KeyId"`
+	Arn             string `json:"Arn"`
+	ExpirationModel string `json:"ExpirationModel,omitempty"`
 	// Rotations stores all rotation events with their types. The separate
 	// RotationDates and OnDemandRotationDates slices are kept for JSON
 	// backwards-compatibility with existing snapshots.
@@ -55,6 +56,7 @@ type Key struct {
 	OnDemandRotationDates []float64        `json:"OnDemandRotationDates,omitempty"`
 	CreationDate          float64          `json:"CreationDate"`
 	DeletionDate          float64          `json:"DeletionDate,omitempty"`
+	ValidTo               float64          `json:"ValidTo,omitempty"`
 	PendingWindowInDays   int              `json:"PendingWindowInDays,omitempty"`
 	RotationPeriodInDays  int32            `json:"RotationPeriodInDays,omitempty"`
 	Enabled               bool             `json:"Enabled"`
@@ -75,12 +77,14 @@ type KeyMetadata struct {
 	KeyID                       string   `json:"KeyId"`
 	CustomerMasterKeySpec       string   `json:"CustomerMasterKeySpec,omitempty"`
 	MultiRegionKeyType          string   `json:"MultiRegionKeyType,omitempty"`
+	ExpirationModel             string   `json:"ExpirationModel,omitempty"`
 	MacAlgorithms               []string `json:"MacAlgorithms,omitempty"`
 	SigningAlgorithms           []string `json:"SigningAlgorithms,omitempty"`
 	KeyAgreementAlgorithms      []string `json:"KeyAgreementAlgorithms,omitempty"`
 	EncryptionAlgorithms        []string `json:"EncryptionAlgorithms,omitempty"`
 	CreationDate                float64  `json:"CreationDate"`
 	DeletionDate                float64  `json:"DeletionDate,omitempty"`
+	ValidTo                     float64  `json:"ValidTo,omitempty"`
 	PendingDeletionWindowInDays int      `json:"PendingDeletionWindowInDays,omitempty"`
 	MultiRegion                 bool     `json:"MultiRegion"`
 	Enabled                     bool     `json:"Enabled"`
@@ -386,9 +390,10 @@ type CreateGrantOutput struct {
 
 // ListGrantsInput is the request payload for ListGrants.
 type ListGrantsInput struct {
-	Limit  *int32 `json:"Limit,omitempty"`
-	KeyID  string `json:"KeyId"`
-	Marker string `json:"Marker,omitempty"`
+	Limit   *int32 `json:"Limit,omitempty"`
+	KeyID   string `json:"KeyId"`
+	GrantID string `json:"GrantId,omitempty"`
+	Marker  string `json:"Marker,omitempty"`
 }
 
 // ListGrantsOutput is the response payload for ListGrants.

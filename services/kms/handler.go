@@ -147,17 +147,24 @@ func (h *Handler) copyTagsToReplica(sourceKeyID, replicaKeyID string, inputTags 
 }
 
 // applyInputTags converts a []Tag slice to a map and stores it for the given resource ID.
-func (h *Handler) applyInputTags(resourceID string, inputTags []Tag) {
+// Returns an error if any tag key/value fails validation.
+func (h *Handler) applyInputTags(resourceID string, inputTags []Tag) error {
 	if len(inputTags) == 0 {
-		return
+		return nil
 	}
 
 	kv := make(map[string]string, len(inputTags))
 	for _, t := range inputTags {
+		if err := validateTag(t.TagKey, t.TagValue); err != nil {
+			return err
+		}
+
 		kv[t.TagKey] = t.TagValue
 	}
 
 	h.setTags(resourceID, kv)
+
+	return nil
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
@@ -343,7 +350,9 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 				return nil, err
 			}
 
-			h.applyInputTags(out.KeyMetadata.KeyID, input.Tags)
+			if tagErr := h.applyInputTags(out.KeyMetadata.KeyID, input.Tags); tagErr != nil {
+				return nil, tagErr
+			}
 
 			return out, nil
 		},
@@ -595,6 +604,18 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 				return nil, err
 			}
 
+			// AWS KMS only supports the "default" policy name.
+			if input.PolicyName != "" && input.PolicyName != "default" {
+				return nil, fmt.Errorf(
+					"%w: PolicyName must be \"default\"; got %q",
+					ErrValidation, input.PolicyName,
+				)
+			}
+
+			if input.PolicyName == "" {
+				input.PolicyName = "default"
+			}
+
 			return struct{}{}, h.Backend.PutKeyPolicy(&input)
 		},
 		"GetKeyPolicy": func(_ string, b []byte) (any, error) {
@@ -674,6 +695,10 @@ func (h *Handler) tagResource(b []byte) (any, error) {
 
 	newTags := make(map[string]string, len(input.Tags))
 	for _, t := range input.Tags {
+		if err := validateTag(t.TagKey, t.TagValue); err != nil {
+			return nil, err
+		}
+
 		newTags[t.TagKey] = t.TagValue
 	}
 
@@ -684,6 +709,36 @@ func (h *Handler) tagResource(b []byte) (any, error) {
 	h.setTags(input.KeyID, newTags)
 
 	return struct{}{}, nil
+}
+
+// validateTag checks that a tag key and value satisfy AWS KMS length and content constraints.
+func validateTag(key, value string) error {
+	if key == "" {
+		return fmt.Errorf("%w: tag key must not be empty", ErrValidation)
+	}
+
+	if len(key) > maxTagKeyLength {
+		return fmt.Errorf(
+			"%w: tag key %q exceeds maximum length of %d characters",
+			ErrValidation, key, maxTagKeyLength,
+		)
+	}
+
+	if strings.HasPrefix(key, "aws:") {
+		return fmt.Errorf(
+			"%w: tag key %q must not start with the reserved prefix 'aws:'",
+			ErrValidation, key,
+		)
+	}
+
+	if len(value) > maxTagValueLength {
+		return fmt.Errorf(
+			"%w: tag value for key %q exceeds maximum length of %d characters",
+			ErrValidation, key, maxTagValueLength,
+		)
+	}
+
+	return nil
 }
 
 // validateTagCount returns an error if adding newTags to keyID would exceed the max tag limit.
