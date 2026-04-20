@@ -91,11 +91,11 @@ func (h *Handler) dispatchDashboardCBOR(op string, input cbor.Map, c *echo.Conte
 	case "DeleteDashboards":
 		return h.cborDeleteDashboards(input, c)
 	default:
-		return h.dispatchExtendedCBOR(op, input, c)
+		return h.dispatchResourceManagementCBOR(op, input, c)
 	}
 }
 
-func (h *Handler) dispatchExtendedCBOR(op string, input cbor.Map, c *echo.Context) error {
+func (h *Handler) dispatchResourceManagementCBOR(op string, input cbor.Map, c *echo.Context) error {
 	switch op {
 	case "PutAlarmMuteRule":
 		return h.cborPutAlarmMuteRule(input, c)
@@ -956,6 +956,14 @@ func (h *Handler) cborPutAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 }
 
 func (h *Handler) cborUpdateAlarmMuteRule(input cbor.Map, c *echo.Context) error {
+	muteName := cborStr(input, "MuteName")
+	if muteName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+	if _, err := h.Backend.GetAlarmMuteRule(muteName); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
 	return h.cborPutAlarmMuteRule(input, c)
 }
 
@@ -998,7 +1006,10 @@ func (h *Handler) cborDeleteAlarmMuteRule(input cbor.Map, c *echo.Context) error
 }
 
 func (h *Handler) cborPutInsightRule(input cbor.Map, c *echo.Context) error {
-	ruleName := cborStr(input, "RuleName")
+	return h.cborPutInsightRuleWithName(cborStr(input, "RuleName"), input, c)
+}
+
+func (h *Handler) cborPutInsightRuleWithName(ruleName string, input cbor.Map, c *echo.Context) error {
 	if ruleName == "" {
 		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
 	}
@@ -1015,13 +1026,15 @@ func (h *Handler) cborPutInsightRule(input cbor.Map, c *echo.Context) error {
 }
 
 func (h *Handler) cborUpdateInsightRule(input cbor.Map, c *echo.Context) error {
-	if cborStr(input, "RuleName") == "" {
-		if name := cborStr(input, "Name"); name != "" {
-			input["RuleName"] = cbor.String(name)
-		}
+	ruleName := cborStr(input, "RuleName")
+	if ruleName == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
+	}
+	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 
-	return h.cborPutInsightRule(input, c)
+	return h.cborPutInsightRuleWithName(ruleName, input, c)
 }
 
 func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
@@ -1044,5 +1057,13 @@ func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 }
 
 func (h *Handler) cborUpdateMetricStream(input cbor.Map, c *echo.Context) error {
+	name := cborStr(input, "Name")
+	if name == "" {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+	if _, err := h.Backend.GetMetricStream(name); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
 	return h.cborPutMetricStream(input, c)
 }

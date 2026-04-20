@@ -741,6 +741,11 @@ func TestCloudWatchHandler_AlarmMuteRule(t *testing.T) {
 			wantContains: []string{"UpdateAlarmMuteRuleResponse"},
 		},
 		{
+			name:     "UpdateAlarmMuteRule/not found",
+			body:     "Action=UpdateAlarmMuteRule&MuteName=missing-mute",
+			wantCode: http.StatusBadRequest,
+		},
+		{
 			name: "GetAlarmMuteRule/success",
 			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
@@ -946,6 +951,11 @@ func TestCloudWatchHandler_InsightRules(t *testing.T) {
 			wantContains: []string{"UpdateInsightRuleResponse"},
 		},
 		{
+			name:     "UpdateInsightRule/not found",
+			body:     "Action=UpdateInsightRule&RuleName=missing-rule",
+			wantCode: http.StatusBadRequest,
+		},
+		{
 			name: "DescribeInsightRules/success",
 			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
@@ -1082,6 +1092,11 @@ func TestCloudWatchHandler_MetricStream(t *testing.T) {
 			body:         "Action=UpdateMetricStream&Name=my-stream&OutputFormat=opentelemetry0.7",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"UpdateMetricStreamResponse"},
+		},
+		{
+			name:     "UpdateMetricStream/not found",
+			body:     "Action=UpdateMetricStream&Name=missing-stream",
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "DeleteMetricStream/success",

@@ -42,6 +42,9 @@ var ErrAnomalyDetectorNotFound = errors.New("ResourceNotFoundException")
 // ErrMetricStreamNotFound is returned when a requested metric stream does not exist.
 var ErrMetricStreamNotFound = errors.New("ResourceNotFoundException")
 
+// ErrInsightRuleNotFound is returned when a requested insight rule does not exist.
+var ErrInsightRuleNotFound = errors.New("ResourceNotFoundException")
+
 // ErrValidation is returned when a caller provides an invalid or missing parameter.
 var ErrValidation = errors.New("InvalidParameterValue")
 
@@ -127,10 +130,12 @@ type StorageBackend interface {
 	) (page.Page[AnomalyDetector], error)
 	DeleteInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
 	PutInsightRule(rule *InsightRule) error
+	GetInsightRule(name string) (*InsightRule, error)
 	DescribeInsightRules(nextToken string, maxResults int) (page.Page[InsightRule], error)
 	DisableInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
 	EnableInsightRules(ruleNames []string) ([]InsightRuleFailure, error)
 	PutMetricStream(stream *MetricStream) error
+	GetMetricStream(name string) (*MetricStream, error)
 	DeleteMetricStream(name string) error
 	DescribeAlarmContributors(alarmName, nextToken string) (page.Page[AlarmContributor], error)
 }
@@ -1200,7 +1205,7 @@ func anomalyDetectorKey(namespace, metricName, stat string) string {
 // PutAlarmMuteRule creates or updates an alarm mute rule by name.
 func (b *InMemoryBackend) PutAlarmMuteRule(rule *AlarmMuteRule) error {
 	if strings.TrimSpace(rule.MuteName) == "" {
-		return fmt.Errorf("%w: MuteName is required", ErrValidation)
+		return fmt.Errorf("%w: MuteName parameter is required", ErrValidation)
 	}
 
 	b.PutAlarmMuteRuleInternal(rule)
@@ -1351,12 +1356,27 @@ func (b *InMemoryBackend) DeleteInsightRules(ruleNames []string) ([]InsightRuleF
 // PutInsightRule creates or updates an insight rule.
 func (b *InMemoryBackend) PutInsightRule(rule *InsightRule) error {
 	if strings.TrimSpace(rule.Name) == "" {
-		return fmt.Errorf("%w: RuleName is required", ErrValidation)
+		return fmt.Errorf("%w: RuleName parameter is required", ErrValidation)
 	}
 
 	b.PutInsightRuleInternal(rule)
 
 	return nil
+}
+
+// GetInsightRule returns an insight rule by name.
+func (b *InMemoryBackend) GetInsightRule(name string) (*InsightRule, error) {
+	b.mu.RLock("GetInsightRule")
+	defer b.mu.RUnlock()
+
+	rule, ok := b.insightRules[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInsightRuleNotFound, name)
+	}
+
+	cp := *rule
+
+	return &cp, nil
 }
 
 // PutInsightRuleInternal creates or updates an insight rule (used for test seeding).
@@ -1454,12 +1474,27 @@ func (b *InMemoryBackend) EnableInsightRules(ruleNames []string) ([]InsightRuleF
 // PutMetricStream creates or updates a metric stream by name.
 func (b *InMemoryBackend) PutMetricStream(stream *MetricStream) error {
 	if strings.TrimSpace(stream.Name) == "" {
-		return fmt.Errorf("%w: Name is required", ErrValidation)
+		return fmt.Errorf("%w: Name parameter is required for metric stream", ErrValidation)
 	}
 
 	b.PutMetricStreamInternal(stream)
 
 	return nil
+}
+
+// GetMetricStream returns a metric stream by name.
+func (b *InMemoryBackend) GetMetricStream(name string) (*MetricStream, error) {
+	b.mu.RLock("GetMetricStream")
+	defer b.mu.RUnlock()
+
+	stream, ok := b.metricStreams[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrMetricStreamNotFound, name)
+	}
+
+	cp := *stream
+
+	return &cp, nil
 }
 
 // DeleteMetricStream removes a metric stream by name.

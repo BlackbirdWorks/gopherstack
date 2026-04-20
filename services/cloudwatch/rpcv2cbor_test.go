@@ -274,6 +274,24 @@ func TestCBOR(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
+			name:     "UpdateAlarmMuteRule/not found",
+			op:       "UpdateAlarmMuteRule",
+			body:     cbor.Map{"MuteName": cbor.String("missing-mute")},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "UpdateInsightRule/not found",
+			op:       "UpdateInsightRule",
+			body:     cbor.Map{"RuleName": cbor.String("missing-rule")},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "UpdateMetricStream/not found",
+			op:       "UpdateMetricStream",
+			body:     cbor.Map{"Name": cbor.String("missing-stream")},
+			wantCode: http.StatusBadRequest,
+		},
+		{
 			name: "DescribeAlarms",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
 				t.Helper()

@@ -3,6 +3,7 @@ package cloudwatch
 import (
 	"encoding/xml"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -342,11 +343,15 @@ func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *
 	case "DescribeAlarmContributors":
 		return h.handleDescribeAlarmContributors(form, c)
 	default:
-		return h.dispatchPutUpdateFormAction(action, form, c)
+		return h.dispatchResourceUpsertFormAction(action, form, c)
 	}
 }
 
-func (h *Handler) dispatchPutUpdateFormAction(action string, form url.Values, c *echo.Context) error {
+func (h *Handler) dispatchResourceUpsertFormAction(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) error {
 	switch action {
 	case "PutAlarmMuteRule":
 		return h.handlePutAlarmMuteRule(form, c)
@@ -1264,7 +1269,22 @@ func (h *Handler) putAlarmMuteRuleFromForm(form url.Values, c *echo.Context) err
 		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
 	}
 
-	muteDuration, _ := strconv.ParseInt(form.Get("MuteDuration"), 10, 32)
+	var muteDuration int64
+	if rawDuration := form.Get("MuteDuration"); rawDuration != "" {
+		parsedDuration, err := strconv.ParseInt(rawDuration, 10, 32)
+		if err != nil {
+			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteDuration must be an integer")
+		}
+		if parsedDuration < 0 || parsedDuration > math.MaxInt32 {
+			return h.xmlError(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameterValue",
+				"MuteDuration must be between 0 and 2147483647",
+			)
+		}
+		muteDuration = parsedDuration
+	}
 
 	rule := &AlarmMuteRule{
 		MuteName:      muteName,
@@ -1304,6 +1324,14 @@ func (h *Handler) handlePutAlarmMuteRule(form url.Values, c *echo.Context) error
 }
 
 func (h *Handler) handleUpdateAlarmMuteRule(form url.Values, c *echo.Context) error {
+	muteName := form.Get("MuteName")
+	if muteName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	}
+	if _, err := h.Backend.GetAlarmMuteRule(muteName); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
 	if err := h.putAlarmMuteRuleFromForm(form, c); err != nil {
 		return err
 	}
@@ -1457,7 +1485,7 @@ func (h *Handler) handleDescribeAnomalyDetectors(form url.Values, c *echo.Contex
 }
 
 func (h *Handler) handlePutInsightRule(form url.Values, c *echo.Context) error {
-	if err := h.putInsightRuleFromForm(form, c); err != nil {
+	if err := h.putInsightRule(form.Get("RuleName"), form, c); err != nil {
 		return err
 	}
 
@@ -1470,8 +1498,7 @@ func (h *Handler) handlePutInsightRule(form url.Values, c *echo.Context) error {
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
-func (h *Handler) putInsightRuleFromForm(form url.Values, c *echo.Context) error {
-	ruleName := form.Get("RuleName")
+func (h *Handler) putInsightRule(ruleName string, form url.Values, c *echo.Context) error {
 	if ruleName == "" {
 		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
 	}
@@ -1490,14 +1517,13 @@ func (h *Handler) putInsightRuleFromForm(form url.Values, c *echo.Context) error
 func (h *Handler) handleUpdateInsightRule(form url.Values, c *echo.Context) error {
 	ruleName := form.Get("RuleName")
 	if ruleName == "" {
-		ruleName = form.Get("Name")
-	}
-	if ruleName == "" {
 		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
 	}
-	form.Set("RuleName", ruleName)
+	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
 
-	if err := h.putInsightRuleFromForm(form, c); err != nil {
+	if err := h.putInsightRule(ruleName, form, c); err != nil {
 		return err
 	}
 
@@ -1659,6 +1685,14 @@ func (h *Handler) handlePutMetricStream(form url.Values, c *echo.Context) error 
 }
 
 func (h *Handler) handleUpdateMetricStream(form url.Values, c *echo.Context) error {
+	name := form.Get("Name")
+	if name == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+	if _, err := h.Backend.GetMetricStream(name); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
 	if err := h.putMetricStreamFromForm(form, c); err != nil {
 		return err
 	}
