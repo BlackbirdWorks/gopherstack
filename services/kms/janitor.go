@@ -111,6 +111,10 @@ func (j *Janitor) sweepExpiredKeys(ctx context.Context) {
 		purged++
 	}
 
+	if purged > 0 {
+		j.Backend.clearResolutionCache()
+	}
+
 	j.Backend.mu.Unlock()
 
 	telemetry.RecordWorkerTask(kmsJanitorServiceName, kmsJanitorComponent, "success")

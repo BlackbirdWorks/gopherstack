@@ -254,7 +254,11 @@ func (b *InMemoryBackend) resolveARNKeyID(keyID string) (string, error) {
 }
 
 func (b *InMemoryBackend) clearResolutionCache() {
-	b.keyIDResolutionCache = sync.Map{}
+	b.keyIDResolutionCache.Range(func(key, _ any) bool {
+		b.keyIDResolutionCache.Delete(key)
+
+		return true
+	})
 }
 
 func (b *InMemoryBackend) keyRegion(keyARN string) string {
