@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import { Activity, Zap, Box, Shield, Settings, Terminal, BarChart3, Cloud, Layout, Boxes, Search, Globe, Cpu, Database, Flame, Gauge, HardDrive, KeyRound, Laptop, ListTree, MousePointer2, Network, Radio, Radar, Route, Scan, SearchCode, Server, Share2, ShieldAlert, ShieldCheck, ShieldQuestion, Sliders, Smartphone, Target, Timer, TrendingUp, UserCircle, Wifi, Workflow, ZapOff } from 'lucide-svelte';
+	import { Activity, BarChart3, Cpu, Flame, Gauge, Layout, Server, Settings, Target, Terminal, Zap, ZapOff } from 'lucide-svelte';
 	import { dashboardClient } from '$lib/api/connect-client';
-	import type { CapturedRequest } from '$lib/api/gopherstack/dashboard/v1/dashboard_pb';
-	import { sidebarCategories } from '$lib/nav';
+	import type { CapturedRequest, DashboardMetrics } from '$lib/api/gopherstack/dashboard/v1/dashboard_pb';
 
 	type PortAllocation = {
 		label: string;
@@ -16,19 +15,100 @@
 		start: number;
 	};
 
-	const totalServices = sidebarCategories.reduce((acc, cat) => acc + cat.routes.length, 0);
+	type ChaosQueryResponse = {
+		activity?: unknown[];
+		effects?: {
+			jitter?: number;
+			latency?: number;
+		};
+		faults?: unknown[];
+	};
+
 	const maxLiveEvents = 8;
 
 	let events = $state<CapturedRequest[]>([]);
 	let eventStreamConnected = $state(false);
-	let abortController: AbortController | null = null;
+	let eventAbortController: AbortController | null = null;
+	let metricsAbortController: AbortController | null = null;
 	let destroying = false;
+
+	let metrics = $state<DashboardMetrics | null>(null);
+	let metricsStreamConnected = $state(false);
 
 	let portRangeStart = $state(5000);
 	let portRangeEnd = $state(10000);
 	let allocatedPorts = $state<PortAllocation[]>([]);
 	let hoveredBucket = $state<PortBucket | null>(null);
+
+	let chaosFaultCount = $state(0);
+	let chaosEffectsEnabled = $state(false);
+
 	let systemStateTimer: ReturnType<typeof setInterval> | null = null;
+
+	const totalRequests = $derived.by(() => {
+		const operations = metrics?.operations ?? [];
+		return operations.reduce((sum, operation) => sum + Number(operation.count), 0);
+	});
+
+	const activeServiceCount = $derived.by(() => {
+		const count = Number(metrics?.runtime?.numServices ?? 0);
+		return count > 0 ? count : null;
+	});
+
+	const avgP95Latency = $derived.by(() => {
+		const p95Values = (metrics?.operations ?? [])
+			.map((operation) => Number(operation.p95Ms))
+			.filter((value) => Number.isFinite(value) && value >= 0);
+		if (p95Values.length === 0) {
+			return null;
+		}
+
+		return p95Values.reduce((sum, value) => sum + value, 0) / p95Values.length;
+	});
+
+	const cloudFaultsLabel = $derived.by(() => {
+		if (chaosFaultCount > 0) {
+			return `${chaosFaultCount} active`;
+		}
+		if (chaosEffectsEnabled) {
+			return 'effects only';
+		}
+
+		return 'none';
+	});
+
+	const chaosEngineLabel = $derived.by(() => {
+		if (chaosFaultCount > 0) {
+			return `${chaosFaultCount}_FAULTS`;
+		}
+		if (chaosEffectsEnabled) {
+			return 'NET_EFFECTS';
+		}
+		if (metricsStreamConnected || eventStreamConnected) {
+			return 'NOMINAL';
+		}
+
+		return 'UNKNOWN';
+	});
+
+	const densityBars = $derived.by(() => {
+		const counts = (metrics?.operations ?? [])
+			.map((operation) => Number(operation.count))
+			.filter((value) => Number.isFinite(value) && value > 0)
+			.toSorted((a, b) => b - a)
+			.slice(0, 3);
+		if (counts.length === 0) {
+			return [0, 0, 0];
+		}
+
+		const maxCount = Math.max(...counts, 1);
+		const normalized = counts.map((count) => Math.max(5, Math.round((count / maxCount) * 100)));
+		while (normalized.length < 3) {
+			normalized.push(0);
+		}
+
+		return normalized;
+	});
 
 	const portBuckets = $derived.by(() => {
 		const bucketCount = 40;
@@ -54,6 +134,13 @@
 		return buckets;
 	});
 
+	const systemStats = $derived.by(() => [
+		{ label: 'Active Services', value: activeServiceCount === null ? 'n/a' : String(activeServiceCount), icon: Server, color: 'text-emerald-500' },
+		{ label: 'Requests', value: String(totalRequests), icon: Activity, color: 'text-indigo-500' },
+		{ label: 'P95 Latency', value: avgP95Latency === null ? 'n/a' : `${avgP95Latency.toFixed(1)}ms`, icon: Gauge, color: 'text-cyan-500' },
+		{ label: 'Cloud Faults', value: cloudFaultsLabel, icon: Flame, color: 'text-rose-500' },
+	]);
+
 	function guessService(req: CapturedRequest): string {
 		const headers = req.headers ?? {};
 		if (headers['X-Amz-Target']) {
@@ -63,7 +150,7 @@
 			return 'IMDS';
 		}
 
-		const auth = headers['Authorization'] ?? '';
+		const auth = headers.Authorization ?? '';
 		if (auth.includes('Credential=')) {
 			const parts = auth.split('Credential=')[1]?.split('/');
 			if (parts && parts.length > 3) {
@@ -125,10 +212,26 @@
 		}
 	}
 
-	async function startEventStream() {
-		abortController = new AbortController();
+	async function loadChaosState() {
 		try {
-			const stream = await dashboardClient.streamConsole({}, { signal: abortController.signal });
+			const response = await fetch('/_gopherstack/chaos/query');
+			if (!response.ok) {
+				return;
+			}
+			const payload = (await response.json()) as ChaosQueryResponse;
+			chaosFaultCount = payload.faults?.length ?? 0;
+			const latency = Number(payload.effects?.latency ?? 0);
+			const jitter = Number(payload.effects?.jitter ?? 0);
+			chaosEffectsEnabled = latency > 0 || jitter > 0;
+		} catch {
+			// Keep the dashboard view resilient when chaos-state polling fails.
+		}
+	}
+
+	async function startEventStream() {
+		eventAbortController = new AbortController();
+		try {
+			const stream = await dashboardClient.streamConsole({}, { signal: eventAbortController.signal });
 			eventStreamConnected = true;
 			for await (const response of stream) {
 				if (response.request) {
@@ -136,44 +239,67 @@
 				}
 			}
 		} catch (err: unknown) {
-			const e = err as Error;
-			if (e.name !== 'AbortError' && !destroying) {
+			const error = err as Error;
+			if (error.name !== 'AbortError' && !destroying) {
 				eventStreamConnected = false;
 			}
 		}
 	}
 
+	async function startMetricsStream() {
+		metricsAbortController = new AbortController();
+		try {
+			const stream = await dashboardClient.streamMetrics({}, { signal: metricsAbortController.signal });
+			metricsStreamConnected = true;
+			for await (const response of stream) {
+				if (response.dashboard) {
+					metrics = response.dashboard;
+				}
+			}
+		} catch (err: unknown) {
+			const error = err as Error;
+			if (error.name !== 'AbortError' && !destroying) {
+				metricsStreamConnected = false;
+			}
+		}
+	}
+
 	function stopEventStream() {
-		if (abortController) {
-			abortController.abort();
-			abortController = null;
+		if (eventAbortController) {
+			eventAbortController.abort();
+			eventAbortController = null;
 			eventStreamConnected = false;
+		}
+	}
+
+	function stopMetricsStream() {
+		if (metricsAbortController) {
+			metricsAbortController.abort();
+			metricsAbortController = null;
+			metricsStreamConnected = false;
 		}
 	}
 
 	onMount(() => {
 		void loadSystemState();
+		void loadChaosState();
 		void startEventStream();
+		void startMetricsStream();
 		systemStateTimer = setInterval(() => {
 			void loadSystemState();
+			void loadChaosState();
 		}, 3000);
 	});
 
 	onDestroy(() => {
 		destroying = true;
 		stopEventStream();
+		stopMetricsStream();
 		if (systemStateTimer) {
 			clearInterval(systemStateTimer);
 			systemStateTimer = null;
 		}
 	});
-	
-	const systemStats = [
-		{ label: 'Active Services', value: totalServices, icon: Server, color: 'text-emerald-500' },
-		{ label: 'Uptime', value: '99.98%', icon: Activity, color: 'text-indigo-500' },
-		{ label: 'Latency', value: '1ms', icon: Gauge, color: 'text-cyan-500' },
-		{ label: 'Cloud Faults', value: 'Active', icon: Flame, color: 'text-rose-500' },
-	];
 
 	const quickLinks = [
 		{ label: 'FIS Chaos', href: '/dashboard/fis', icon: ZapOff, desc: 'Inject faults & test resilience' },
@@ -218,13 +344,13 @@
 						</div>
 						<div>
 							<div class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Stack Density</div>
-							<div class="text-2xl font-black text-white italic tabular-nums">{totalServices} Services</div>
+							<div class="text-2xl font-black text-white italic tabular-nums">{activeServiceCount === null ? 'n/a' : `${activeServiceCount}`} Services</div>
 						</div>
 					</div>
 					<div class="space-y-2">
-						{#each [75, 45, 90] as width}
+						{#each densityBars as width}
 							<div class="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
-								<div class="h-full bg-indigo-500/50 rounded-full animate-in slide-in-from-left duration-1000 ease-out" style="width: {width}%"></div>
+								<div class="h-full bg-indigo-500/50 rounded-full animate-in slide-in-from-left duration-1000 ease-out" style={`width: ${width}%`}></div>
 							</div>
 						{/each}
 					</div>
@@ -237,7 +363,7 @@
 						</div>
 						<div>
 							<div class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Chaos Engine</div>
-							<div class="text-2xl font-black text-white italic tracking-tighter uppercase whitespace-nowrap">TLS_ARMED</div>
+							<div class="text-2xl font-black text-white italic tracking-tighter uppercase whitespace-nowrap">{chaosEngineLabel}</div>
 						</div>
 					</div>
 				</div>
