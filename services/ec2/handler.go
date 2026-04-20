@@ -82,6 +82,9 @@ func (h *Handler) Name() string {
 
 // GetSupportedOperations returns the list of supported EC2 operations.
 func (h *Handler) GetSupportedOperations() []string {
+	extOps := append(deepDiveSupportedOperations(), refinement2SupportedOperations()...)
+	extOps = append(extOps, refinement3SupportedOperations()...)
+
 	return append([]string{
 		"RunInstances",
 		"DescribeInstances",
@@ -178,7 +181,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeByoipCidrs",
 		"DescribeHosts",
 		"DescribeVpcPeeringConnections",
-	}, append(deepDiveSupportedOperations(), refinement2SupportedOperations()...)...)
+	}, extOps...)
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -399,6 +402,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerDeepDiveOps(h, ops)
 	registerAcceptAndAdvancedOps(h, ops)
 	registerRefinement2Ops(h, ops)
+	registerRefinement3Ops(h, ops)
 
 	return ops
 }

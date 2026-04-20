@@ -18,6 +18,10 @@ import {
 	DescribeSubnetsCommand,
 	DescribeVolumesCommand,
 	DescribeSnapshotsCommand,
+	DescribeAddressesCommand,
+	DescribeInternetGatewaysCommand,
+	DescribeRouteTablesCommand,
+	DescribeNatGatewaysCommand,
 	DeleteLaunchTemplateCommand,
 	DeleteVpcEndpointsCommand,
 	DeleteSnapshotCommand,
@@ -33,6 +37,10 @@ import {
 	type Subnet,
 	type Volume,
 	type Snapshot,
+	type Address,
+	type InternetGateway,
+	type RouteTable,
+	type NatGateway,
 	_InstanceType
 } from '@aws-sdk/client-ec2';
 import { toast } from 'svelte-sonner';
@@ -53,12 +61,13 @@ type EC2Instance = {
 	VpcId?: string;
 };
 
-type TabName = 'instances' | 'secgroups' | 'keypairs' | 'amis' | 'launchtemplates' | 'vpcendpoints' | 'nacls' | 'vpcs' | 'volumes' | 'snapshots';
+type TabName = 'instances' | 'secgroups' | 'keypairs' | 'amis' | 'launchtemplates' | 'vpcendpoints' | 'nacls' | 'vpcs' | 'volumes' | 'snapshots' | 'eips' | 'igws' | 'routetables' | 'natgateways';
 
 let instances = $state<EC2Instance[]>([]);
 let loading = $state(true);
 let search = $state('');
 let stateFilter = $state('all');
+let vpcFilter = $state('all');
 let showLaunchModal = $state(false);
 let showCreateLTModal = $state(false);
 let selectedInstance = $state<EC2Instance | null>(null);
@@ -79,6 +88,10 @@ let vpcs = $state<Vpc[]>([]);
 let subnets = $state<Subnet[]>([]);
 let volumes = $state<Volume[]>([]);
 let snapshots = $state<Snapshot[]>([]);
+let elasticIPs = $state<Address[]>([]);
+let internetGateways = $state<InternetGateway[]>([]);
+let routeTables = $state<RouteTable[]>([]);
+let natGateways = $state<NatGateway[]>([]);
 let sgSearch = $state('');
 let kpSearch = $state('');
 let amiSearch = $state('');
@@ -88,6 +101,10 @@ let naclSearch = $state('');
 let vpcSearch = $state('');
 let volSearch = $state('');
 let snapSearch = $state('');
+let eipSearch = $state('');
+let igwSearch = $state('');
+let rtSearch = $state('');
+let natSearch = $state('');
 
 const instanceTypes = ['t3.micro', 't3.small', 't3.medium', 't3.large', 'm5.large', 'c5.large', 'r5.large'];
 
@@ -219,6 +236,54 @@ async function loadSnapshots() {
 	}
 }
 
+async function loadElasticIPs() {
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeAddressesCommand({}));
+		elasticIPs = data.Addresses || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load Elastic IPs');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadInternetGateways() {
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeInternetGatewaysCommand({}));
+		internetGateways = data.InternetGateways || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load internet gateways');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadRouteTables() {
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeRouteTablesCommand({}));
+		routeTables = data.RouteTables || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load route tables');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadNatGateways() {
+	try {
+		loading = true;
+		const data = await ec2.send(new DescribeNatGatewaysCommand({}));
+		natGateways = data.NatGateways || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load NAT gateways');
+	} finally {
+		loading = false;
+	}
+}
+
 async function selectTab(t: TabName) {
 	activeTab = t;
 	if (t === 'instances' && instances.length === 0) await loadInstances();
@@ -231,6 +296,10 @@ async function selectTab(t: TabName) {
 	else if (t === 'vpcs' && vpcs.length === 0) await loadVpcs();
 	else if (t === 'volumes' && volumes.length === 0) await loadVolumes();
 	else if (t === 'snapshots' && snapshots.length === 0) await loadSnapshots();
+	else if (t === 'eips' && elasticIPs.length === 0) await loadElasticIPs();
+	else if (t === 'igws' && internetGateways.length === 0) await loadInternetGateways();
+	else if (t === 'routetables' && routeTables.length === 0) await loadRouteTables();
+	else if (t === 'natgateways' && natGateways.length === 0) await loadNatGateways();
 }
 
 async function refresh() {
@@ -243,6 +312,10 @@ async function refresh() {
 	else if (activeTab === 'nacls') { networkAcls = []; await loadNetworkAcls(); }
 	else if (activeTab === 'vpcs') { vpcs = []; subnets = []; await loadVpcs(); }
 	else if (activeTab === 'volumes') { volumes = []; await loadVolumes(); }
+	else if (activeTab === 'eips') { elasticIPs = []; await loadElasticIPs(); }
+	else if (activeTab === 'igws') { internetGateways = []; await loadInternetGateways(); }
+	else if (activeTab === 'routetables') { routeTables = []; await loadRouteTables(); }
+	else if (activeTab === 'natgateways') { natGateways = []; await loadNatGateways(); }
 	else { snapshots = []; await loadSnapshots(); }
 }
 
@@ -384,11 +457,13 @@ let filtered = $derived(instances.filter(i => {
 	const id = (i.InstanceId || '').toLowerCase();
 	const matchSearch = !search || name.includes(search.toLowerCase()) || id.includes(search.toLowerCase());
 	const matchState = stateFilter === 'all' || i.State?.Name === stateFilter;
-	return matchSearch && matchState;
+	const matchVpc = vpcFilter === 'all' || i.VpcId === vpcFilter;
+	return matchSearch && matchState && matchVpc;
 }));
 
 let runningCount = $derived(instances.filter(i => i.State?.Name === 'running').length);
 let stoppedCount = $derived(instances.filter(i => i.State?.Name === 'stopped').length);
+let uniqueVPCs = $derived([...new Set(instances.map(i => i.VpcId).filter(Boolean))]);
 let filteredSGs = $derived(securityGroups.filter(sg =>
 	!sgSearch || sg.GroupName?.toLowerCase().includes(sgSearch.toLowerCase()) || sg.GroupId?.toLowerCase().includes(sgSearch.toLowerCase())
 ));
@@ -415,6 +490,18 @@ let filteredVolumes = $derived(volumes.filter(v =>
 ));
 let filteredSnapshots = $derived(snapshots.filter(s =>
 	!snapSearch || s.SnapshotId?.toLowerCase().includes(snapSearch.toLowerCase()) || s.Description?.toLowerCase().includes(snapSearch.toLowerCase())
+));
+let filteredEIPs = $derived(elasticIPs.filter(a =>
+	!eipSearch || a.PublicIp?.includes(eipSearch) || a.AllocationId?.includes(eipSearch) || (a.InstanceId || '').includes(eipSearch)
+));
+let filteredIGWs = $derived(internetGateways.filter(igw =>
+	!igwSearch || igw.InternetGatewayId?.includes(igwSearch)
+));
+let filteredRTs = $derived(routeTables.filter(rt =>
+	!rtSearch || rt.RouteTableId?.includes(rtSearch) || rt.VpcId?.includes(rtSearch)
+));
+let filteredNATs = $derived(natGateways.filter(nat =>
+	!natSearch || nat.NatGatewayId?.includes(natSearch) || nat.VpcId?.includes(natSearch)
 ));
 </script>
 
@@ -506,6 +593,18 @@ let filteredSnapshots = $derived(snapshots.filter(s =>
 			<button onclick={() => selectTab('snapshots')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'snapshots' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
 				<Camera class="w-4 h-4" /> Snapshots {#if snapshots.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{snapshots.length}</span>{/if}
 			</button>
+			<button onclick={() => selectTab('eips')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'eips' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Network class="w-4 h-4" /> Elastic IPs {#if elasticIPs.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{elasticIPs.length}</span>{/if}
+			</button>
+			<button onclick={() => selectTab('igws')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'igws' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Route class="w-4 h-4" /> Internet Gateways {#if internetGateways.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{internetGateways.length}</span>{/if}
+			</button>
+			<button onclick={() => selectTab('routetables')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'routetables' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Layers class="w-4 h-4" /> Route Tables {#if routeTables.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{routeTables.length}</span>{/if}
+			</button>
+			<button onclick={() => selectTab('natgateways')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'natgateways' ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Network class="w-4 h-4" /> NAT Gateways {#if natGateways.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{natGateways.length}</span>{/if}
+			</button>
 		</nav>
 	</div>
 
@@ -529,6 +628,12 @@ let filteredSnapshots = $derived(snapshots.filter(s =>
 			<option value="stopped">Stopped</option>
 			<option value="pending">Pending</option>
 			<option value="terminated">Terminated</option>
+		</select>
+		<select bind:value={vpcFilter} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
+			<option value="all">All VPCs</option>
+			{#each uniqueVPCs as vpcId}
+				<option value={vpcId}>{vpcId}</option>
+			{/each}
 		</select>
 	</div>
 
@@ -1021,6 +1126,168 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <Trash2 class="w-4 h-4" />
 </button>
 </td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+<!-- Elastic IPs Tab -->
+{#if activeTab === 'eips'}
+<div class="relative">
+<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+<input type="text" placeholder="Search Elastic IPs..." bind:value={eipSearch}
+class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+</div>
+{#if loading}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+{:else if filteredEIPs.length === 0}
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+<Network class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+<p class="text-slate-500 dark:text-slate-400">No Elastic IPs allocated</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-slate-50 dark:bg-slate-700">
+<tr>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Allocation ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Public IP</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Associated Instance</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Association ID</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each filteredEIPs as addr}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{addr.AllocationId || '—'}</td>
+<td class="px-4 py-3 text-slate-900 dark:text-white font-mono">{addr.PublicIp || '—'}</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{#if addr.InstanceId}{addr.InstanceId}{:else}<span class="italic text-slate-400">unassociated</span>{/if}</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{addr.AssociationId || '—'}</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+<!-- Internet Gateways Tab -->
+{#if activeTab === 'igws'}
+<div class="relative">
+<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+<input type="text" placeholder="Search Internet Gateways..." bind:value={igwSearch}
+class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+</div>
+{#if loading}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+{:else if filteredIGWs.length === 0}
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+<Route class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+<p class="text-slate-500 dark:text-slate-400">No Internet Gateways found</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-slate-50 dark:bg-slate-700">
+<tr>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Gateway ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Attached VPC</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">State</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each filteredIGWs as igw}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{igw.InternetGatewayId || '—'}</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{#if igw.Attachments?.[0]?.VpcId}{igw.Attachments[0].VpcId}{:else}<span class="italic text-slate-400">detached</span>{/if}</td>
+<td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs {(igw.Attachments?.length ?? 0) > 0 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}">{(igw.Attachments?.length ?? 0) > 0 ? 'attached' : 'detached'}</span></td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+<!-- Route Tables Tab -->
+{#if activeTab === 'routetables'}
+<div class="relative">
+<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+<input type="text" placeholder="Search Route Tables..." bind:value={rtSearch}
+class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+</div>
+{#if loading}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+{:else if filteredRTs.length === 0}
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+<Layers class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+<p class="text-slate-500 dark:text-slate-400">No Route Tables found</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-slate-50 dark:bg-slate-700">
+<tr>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Route Table ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Routes</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Associations</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Main</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each filteredRTs as rt}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{rt.RouteTableId || '—'}</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{rt.VpcId || '—'}</td>
+<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{rt.Routes?.length ?? 0}</td>
+<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{rt.Associations?.length ?? 0}</td>
+<td class="px-4 py-3">{#if rt.Associations?.some(a => a.Main)}<span class="px-2 py-0.5 rounded text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">Main</span>{:else}—{/if}</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+<!-- NAT Gateways Tab -->
+{#if activeTab === 'natgateways'}
+<div class="relative">
+<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+<input type="text" placeholder="Search NAT Gateways..." bind:value={natSearch}
+class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+</div>
+{#if loading}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+{:else if filteredNATs.length === 0}
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+<Network class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+<p class="text-slate-500 dark:text-slate-400">No NAT Gateways found</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-slate-50 dark:bg-slate-700">
+<tr>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Gateway ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Subnet</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Public IP</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">State</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+{#each filteredNATs as nat}
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{nat.NatGatewayId || '—'}</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{nat.VpcId || '—'}</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{nat.SubnetId || '—'}</td>
+<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{nat.NatGatewayAddresses?.[0]?.PublicIp || '—'}</td>
+<td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs {nat.State === 'available' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}">{nat.State || '—'}</span></td>
 </tr>
 {/each}
 </tbody>

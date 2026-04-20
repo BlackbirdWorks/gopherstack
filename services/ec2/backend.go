@@ -187,6 +187,7 @@ type InMemoryBackend struct {
 	dedicatedHosts                 map[string]*Host
 	snapshots                      map[string]*Snapshot
 	networkACLs                    map[string]*StoredNetworkACL
+	transitGateways                map[string]*TransitGateway
 	mu                             *lockmetrics.RWMutex
 	eniIDByAttachment              map[string]string
 	eniIDsByInstance               map[string]map[string]struct{}
@@ -231,6 +232,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		dedicatedHosts:                 make(map[string]*Host),
 		snapshots:                      make(map[string]*Snapshot),
 		networkACLs:                    make(map[string]*StoredNetworkACL),
+		transitGateways:                make(map[string]*TransitGateway),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),

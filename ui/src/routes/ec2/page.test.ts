@@ -41,7 +41,7 @@ describe("EC2 Page", () => {
   it("renders page title", () => {
     mockSend.mockResolvedValue({ Reservations: [] });
     render(EC2Page);
-    expect(screen.getByText("EC2 Instances")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "EC2", level: 1 })).toBeInTheDocument();
   });
 
   it("shows Launch Instance button", () => {

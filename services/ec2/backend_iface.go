@@ -387,6 +387,49 @@ type Backend interface {
 	// DescribeVpcPeeringConnections returns VPC peering connections, optionally filtered by IDs.
 	DescribeVpcPeeringConnections(ids []string) []*VpcPeeringConnection
 
+	// CreateVpcPeeringConnection creates a new pending VPC peering connection.
+	CreateVpcPeeringConnection(requesterVPCID, accepterVPCID string) (*VpcPeeringConnection, error)
+
+	// DeleteVpcPeeringConnection removes a VPC peering connection.
+	DeleteVpcPeeringConnection(id string) error
+
+	// ---- NACL: replace/reassociate ----
+
+	// ReplaceNetworkACLEntry replaces a NACL rule by (ruleNumber, egress).
+	ReplaceNetworkACLEntry(
+		aclID string, ruleNumber int, protocol, action, cidr string,
+		egress bool, fromPort, toPort int,
+	) error
+
+	// ReplaceNetworkACLAssociation moves a subnet to a different NACL.
+	ReplaceNetworkACLAssociation(aclID, subnetID string) (string, error)
+
+	// ---- VPC endpoint services ----
+
+	// DescribeVpcEndpointServices returns available AWS endpoint service names.
+	DescribeVpcEndpointServices() []string
+
+	// ---- Key pair export ----
+
+	// ExportKeyPair returns the public-key material for a key pair.
+	ExportKeyPair(name string) (string, error)
+
+	// ---- Instance type offerings ----
+
+	// DescribeInstanceTypeOfferings returns available instance type / AZ pairs.
+	DescribeInstanceTypeOfferings() []InstanceTypeOffering
+
+	// ---- Transit gateways ----
+
+	// DescribeTransitGateways returns transit gateways, optionally filtered by IDs.
+	DescribeTransitGateways(ids []string) []*TransitGateway
+
+	// CreateTransitGateway creates a new transit gateway stub.
+	CreateTransitGateway(description string) (*TransitGateway, error)
+
+	// DeleteTransitGateway removes a transit gateway by ID.
+	DeleteTransitGateway(id string) error
+
 	// ---- reset ----
 
 	// Reset clears all resource state, returning the backend to its initial state.
