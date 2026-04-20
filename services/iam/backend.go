@@ -95,6 +95,7 @@ type StorageBackend interface {
 	ListAttachedUserPolicies(userName string) ([]AttachedPolicy, error)
 	ListAttachedRolePolicies(roleName string) ([]AttachedPolicy, error)
 	GetPolicy(policyArn string) (*Policy, error)
+	ListPolicyVersions(policyArn string) ([]StoredPolicyVersion, error)
 	GetPolicyVersion(policyArn, versionID string) (*Policy, error)
 
 	// Inline Policies - Users
@@ -175,18 +176,28 @@ type StorageBackend interface {
 
 	// Account Aliases
 	CreateAccountAlias(alias string) error
+	ListAccountAliases() []string
+	DeleteAccountAlias(alias string) error
 
 	// Policy Versions
 	CreatePolicyVersion(policyArn, policyDocument string, setAsDefault bool) (*StoredPolicyVersion, error)
+	SetDefaultPolicyVersion(policyArn, versionID string) error
+	DeletePolicyVersion(policyArn, versionID string) error
 
 	// Service-Linked Roles
 	CreateServiceLinkedRole(awsServiceName, description, customSuffix string) (*Role, error)
+	GetServiceLinkedRoleDeletionStatus(deletionTaskID string) (string, error)
 
 	// Service-Specific Credentials
 	CreateServiceSpecificCredential(userName, serviceName string) (*ServiceSpecificCredential, error)
+	ListServiceSpecificCredentials(userName, serviceName string) ([]ServiceSpecificCredential, error)
+	DeleteServiceSpecificCredential(userName, credentialID string) error
+	UpdateServiceSpecificCredential(userName, credentialID, status string) error
 
 	// Virtual MFA Devices
 	CreateVirtualMFADevice(virtualMFADeviceName, path string) (*VirtualMFADevice, error)
+	ListVirtualMFADevices(marker string, maxItems int) (page.Page[VirtualMFADevice], error)
+	DeleteVirtualMFADevice(serialNumber string) error
 
 	// Delegation Requests
 	CreateDelegationRequest(targetAccountID string) (*DelegationRequest, error)
@@ -198,6 +209,34 @@ type StorageBackend interface {
 
 	// OIDC Client IDs
 	AddClientIDToOpenIDConnectProvider(providerArn, clientID string) error
+	RemoveClientIDFromOpenIDConnectProvider(providerArn, clientID string) error
+
+	// Access Key management
+	UpdateAccessKey(userName, accessKeyID, status string) error
+	GetAccessKeyLastUsed(accessKeyID string) (*AccessKeyLastUsed, error)
+
+	// Group membership queries
+	ListGroupsForUser(userName string) ([]Group, error)
+
+	// Account Password Policy
+	GetAccountPasswordPolicy() *PasswordPolicy
+	UpdateAccountPasswordPolicy(pp PasswordPolicy) error
+	DeleteAccountPasswordPolicy() error
+
+	// Policy entity queries
+	ListEntitiesForPolicy(policyArn, entityFilter string) (*PolicyEntities, error)
+
+	// Entity mutations
+	UpdateUser(userName, newPath, newUserName string) error
+	UpdateRole(roleName, description string) error
+	UpdateGroup(groupName, newPath, newGroupName string) error
+
+	// Instance profiles extended
+	GetInstanceProfile(name string) (*InstanceProfile, error)
+	ListInstanceProfilesForRole(roleName string) ([]InstanceProfile, error)
+
+	// Simulation
+	SimulateCustomPolicy(policyInputList, actionNames, resourceArns []string) ([]SimulationResult, error)
 
 	// Dashboard helpers
 	ListAllUsers() []User
@@ -217,11 +256,15 @@ type StorageBackend interface {
 // iamDefaultMaxItems is the default page size for IAM list operations.
 const iamDefaultMaxItems = 100
 
+// accessKeyStatusActive is the "Active" access-key status string.
+const accessKeyStatusActive = "Active"
+
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	rolePolicies         map[string][]string
-	loginProfiles        map[string]LoginProfile
+	roleByARN            map[string]string
+	mu                   *lockmetrics.RWMutex
 	policies             map[string]Policy
+	policyByARN          map[string]string
 	groups               map[string]Group
 	accessKeys           map[string]AccessKey
 	instanceProfiles     map[string]InstanceProfile
@@ -229,19 +272,28 @@ type InMemoryBackend struct {
 	groupMembers         map[string][]string
 	groupPolicies        map[string][]string
 	userPolicies         map[string][]string
+	policyAttachments    map[string]policyAttachmentRefs
+	loginProfiles        map[string]LoginProfile
+	passwordPolicy       *PasswordPolicy
 	roles                map[string]Role
-	users                map[string]User
 	oidcProviders        map[string]OIDCProvider
 	userInlinePolicies   map[string]map[string]string
 	roleInlinePolicies   map[string]map[string]string
 	groupInlinePolicies  map[string]map[string]string
-	mu                   *lockmetrics.RWMutex
+	rolePolicies         map[string][]string
 	policyVersions       map[string][]StoredPolicyVersion
 	serviceSpecificCreds map[string]ServiceSpecificCredential
 	virtualMFADevices    map[string]VirtualMFADevice
 	delegationRequests   map[string]DelegationRequest
+	users                map[string]User
 	accountID            string
 	accountAliases       []string
+}
+
+type policyAttachmentRefs struct {
+	users  map[string]struct{}
+	roles  map[string]struct{}
+	groups map[string]struct{}
 }
 
 // NewInMemoryBackend creates a new empty IAM InMemoryBackend with default account ID.
@@ -254,7 +306,9 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
 		users:                make(map[string]User),
 		roles:                make(map[string]Role),
+		roleByARN:            make(map[string]string),
 		policies:             make(map[string]Policy),
+		policyByARN:          make(map[string]string),
 		groups:               make(map[string]Group),
 		accessKeys:           make(map[string]AccessKey),
 		instanceProfiles:     make(map[string]InstanceProfile),
@@ -268,6 +322,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		userInlinePolicies:   make(map[string]map[string]string),
 		roleInlinePolicies:   make(map[string]map[string]string),
 		groupInlinePolicies:  make(map[string]map[string]string),
+		policyAttachments:    make(map[string]policyAttachmentRefs),
 		accountAliases:       nil,
 		policyVersions:       make(map[string][]StoredPolicyVersion),
 		serviceSpecificCreds: make(map[string]ServiceSpecificCredential),
@@ -291,6 +346,110 @@ func normPath(path string) string {
 	}
 
 	return path
+}
+
+func (b *InMemoryBackend) addPolicyAttachmentLocked(policyArn, entityName, entityType string) {
+	refs := b.policyAttachments[policyArn]
+	if refs.users == nil {
+		refs.users = make(map[string]struct{})
+	}
+
+	if refs.roles == nil {
+		refs.roles = make(map[string]struct{})
+	}
+
+	if refs.groups == nil {
+		refs.groups = make(map[string]struct{})
+	}
+
+	switch entityType {
+	case "user":
+		refs.users[entityName] = struct{}{}
+	case "role":
+		refs.roles[entityName] = struct{}{}
+	case "group":
+		refs.groups[entityName] = struct{}{}
+	}
+
+	b.policyAttachments[policyArn] = refs
+}
+
+func (b *InMemoryBackend) removePolicyAttachmentLocked(policyArn, entityName, entityType string) {
+	refs, exists := b.policyAttachments[policyArn]
+	if !exists {
+		return
+	}
+
+	switch entityType {
+	case "user":
+		delete(refs.users, entityName)
+	case "role":
+		delete(refs.roles, entityName)
+	case "group":
+		delete(refs.groups, entityName)
+	}
+
+	if len(refs.users) == 0 && len(refs.roles) == 0 && len(refs.groups) == 0 {
+		delete(b.policyAttachments, policyArn)
+
+		return
+	}
+
+	b.policyAttachments[policyArn] = refs
+}
+
+// firstKey returns an arbitrary key from a set-like map, or an empty string if the map is empty.
+func firstKey(values map[string]struct{}) string {
+	for value := range values {
+		return value
+	}
+
+	return ""
+}
+
+func (b *InMemoryBackend) getPolicyByARNLocked(policyArn string) (Policy, bool) {
+	policyName, exists := b.policyByARN[policyArn]
+	if !exists {
+		return Policy{}, false
+	}
+
+	pol, exists := b.policies[policyName]
+	if !exists {
+		return Policy{}, false
+	}
+
+	return pol, true
+}
+
+func (b *InMemoryBackend) rebuildIndexesLocked() {
+	b.roleByARN = make(map[string]string, len(b.roles))
+	for roleName, role := range b.roles {
+		b.roleByARN[role.Arn] = roleName
+	}
+
+	b.policyByARN = make(map[string]string, len(b.policies))
+	for policyName, policy := range b.policies {
+		b.policyByARN[policy.Arn] = policyName
+	}
+
+	b.policyAttachments = make(map[string]policyAttachmentRefs)
+	for userName, policyARNs := range b.userPolicies {
+		for _, policyARN := range policyARNs {
+			b.addPolicyAttachmentLocked(policyARN, userName, "user")
+		}
+	}
+
+	for roleName, policyARNs := range b.rolePolicies {
+		for _, policyARN := range policyARNs {
+			b.addPolicyAttachmentLocked(policyARN, roleName, "role")
+		}
+	}
+
+	for groupName, policyARNs := range b.groupPolicies {
+		for _, policyARN := range policyARNs {
+			b.addPolicyAttachmentLocked(policyARN, groupName, "group")
+		}
+	}
 }
 
 // ---- Users ----
@@ -410,6 +569,7 @@ func (b *InMemoryBackend) CreateRole(
 		PermissionsBoundary:      permissionsBoundary,
 	}
 	b.roles[roleName] = r
+	b.roleByARN[r.Arn] = roleName
 
 	return &r, nil
 }
@@ -431,7 +591,9 @@ func (b *InMemoryBackend) DeleteRole(roleName string) error {
 		return fmt.Errorf("%w: role %q has inline policies", ErrDeleteConflict, roleName)
 	}
 
+	role := b.roles[roleName]
 	delete(b.roles, roleName)
+	delete(b.roleByARN, role.Arn)
 
 	return nil
 }
@@ -441,14 +603,7 @@ func (b *InMemoryBackend) ListRoles(marker string, maxItems int) (page.Page[Role
 	b.mu.RLock("ListRoles")
 	defer b.mu.RUnlock()
 
-	roles := make([]Role, 0, len(b.roles))
-	for _, r := range b.roles {
-		roles = append(roles, r)
-	}
-
-	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
-
-	return page.New(roles, marker, maxItems, iamDefaultMaxItems), nil
+	return page.New(sortedRoles(b.roles), marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // GetRole retrieves a single IAM role by name.
@@ -469,13 +624,17 @@ func (b *InMemoryBackend) GetRoleByArn(roleArn string) (*Role, error) {
 	b.mu.RLock("GetRoleByArn")
 	defer b.mu.RUnlock()
 
-	for _, r := range b.roles {
-		if r.Arn == roleArn {
-			return &r, nil
-		}
+	roleName, exists := b.roleByARN[roleArn]
+	if !exists {
+		return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
 	}
 
-	return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
+	role, exists := b.roles[roleName]
+	if !exists {
+		return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
+	}
+
+	return &role, nil
 }
 
 // UpdateRoleMaxSessionDuration sets the maximum session duration for a role.
@@ -519,6 +678,7 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 		CreateDate:     time.Now().UTC(),
 	}
 	b.policies[policyName] = pol
+	b.policyByARN[pol.Arn] = policyName
 
 	return &pol, nil
 }
@@ -528,29 +688,31 @@ func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
 
-	// Check for attachment conflicts before deleting — iterating the policy maps
-	// directly avoids a redundant join through b.users / b.roles.
-	for userName, attached := range b.userPolicies {
-		if slices.Contains(attached, policyArn) {
+	if refs, exists := b.policyAttachments[policyArn]; exists {
+		if userName := firstKey(refs.users); userName != "" {
 			return fmt.Errorf("%w: policy %q is attached to user %q", ErrDeleteConflict, policyArn, userName)
 		}
-	}
 
-	for roleName, attached := range b.rolePolicies {
-		if slices.Contains(attached, policyArn) {
+		if roleName := firstKey(refs.roles); roleName != "" {
 			return fmt.Errorf("%w: policy %q is attached to role %q", ErrDeleteConflict, policyArn, roleName)
 		}
-	}
 
-	for name, p := range b.policies {
-		if p.Arn == policyArn {
-			delete(b.policies, name)
-
-			return nil
+		if groupName := firstKey(refs.groups); groupName != "" {
+			return fmt.Errorf("%w: policy %q is attached to group %q", ErrDeleteConflict, policyArn, groupName)
 		}
 	}
 
-	return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	policyName, exists := b.policyByARN[policyArn]
+	if !exists {
+		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	delete(b.policies, policyName)
+	delete(b.policyByARN, policyArn)
+	delete(b.policyAttachments, policyArn)
+	delete(b.policyVersions, policyArn)
+
+	return nil
 }
 
 // ListPolicies returns a paginated list of IAM policies sorted by name.
@@ -558,14 +720,7 @@ func (b *InMemoryBackend) ListPolicies(marker string, maxItems int) (page.Page[P
 	b.mu.RLock("ListPolicies")
 	defer b.mu.RUnlock()
 
-	policies := make([]Policy, 0, len(b.policies))
-	for _, p := range b.policies {
-		policies = append(policies, p)
-	}
-
-	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
-
-	return page.New(policies, marker, maxItems, iamDefaultMaxItems), nil
+	return page.New(sortedPolicies(b.policies), marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // AttachUserPolicy attaches a policy to a user.
@@ -582,6 +737,7 @@ func (b *InMemoryBackend) AttachUserPolicy(userName, policyArn string) error {
 	}
 
 	b.userPolicies[userName] = append(b.userPolicies[userName], policyArn)
+	b.addPolicyAttachmentLocked(policyArn, userName, "user")
 
 	return nil
 }
@@ -599,6 +755,7 @@ func (b *InMemoryBackend) DetachUserPolicy(userName, policyArn string) error {
 	for i, p := range policies {
 		if p == policyArn {
 			b.userPolicies[userName] = append(policies[:i], policies[i+1:]...)
+			b.removePolicyAttachmentLocked(policyArn, userName, "user")
 
 			return nil
 		}
@@ -621,6 +778,7 @@ func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
 	}
 
 	b.rolePolicies[roleName] = append(b.rolePolicies[roleName], policyArn)
+	b.addPolicyAttachmentLocked(policyArn, roleName, "role")
 
 	return nil
 }
@@ -638,6 +796,7 @@ func (b *InMemoryBackend) DetachRolePolicy(roleName, policyArn string) error {
 	for i, p := range policies {
 		if p == policyArn {
 			b.rolePolicies[roleName] = append(policies[:i], policies[i+1:]...)
+			b.removePolicyAttachmentLocked(policyArn, roleName, "role")
 
 			return nil
 		}
@@ -769,6 +928,7 @@ func (b *InMemoryBackend) AttachGroupPolicy(groupName, policyArn string) error {
 	}
 
 	b.groupPolicies[groupName] = append(b.groupPolicies[groupName], policyArn)
+	b.addPolicyAttachmentLocked(policyArn, groupName, "group")
 
 	return nil
 }
@@ -786,6 +946,7 @@ func (b *InMemoryBackend) DetachGroupPolicy(groupName, policyArn string) error {
 	for i, p := range policies {
 		if p == policyArn {
 			b.groupPolicies[groupName] = append(policies[:i], policies[i+1:]...)
+			b.removePolicyAttachmentLocked(policyArn, groupName, "group")
 
 			return nil
 		}
@@ -819,14 +980,7 @@ func (b *InMemoryBackend) ListGroups(marker string, maxItems int) (page.Page[Gro
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
-	groups := make([]Group, 0, len(b.groups))
-	for _, g := range b.groups {
-		groups = append(groups, g)
-	}
-
-	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
-
-	return page.New(groups, marker, maxItems, iamDefaultMaxItems), nil
+	return page.New(sortedGroups(b.groups), marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // ---- Access Keys ----
@@ -937,16 +1091,7 @@ func (b *InMemoryBackend) ListInstanceProfiles(marker string, maxItems int) (pag
 	b.mu.RLock("ListInstanceProfiles")
 	defer b.mu.RUnlock()
 
-	profiles := make([]InstanceProfile, 0, len(b.instanceProfiles))
-	for _, ip := range b.instanceProfiles {
-		profiles = append(profiles, ip)
-	}
-
-	sort.Slice(profiles, func(i, j int) bool {
-		return profiles[i].InstanceProfileName < profiles[j].InstanceProfileName
-	})
-
-	return page.New(profiles, marker, maxItems, iamDefaultMaxItems), nil
+	return page.New(sortedInstanceProfiles(b.instanceProfiles), marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // AddRoleToInstanceProfile adds a role to an IAM instance profile.
@@ -1175,21 +1320,39 @@ func (b *InMemoryBackend) GetPolicy(policyArn string) (*Policy, error) {
 	b.mu.RLock("GetPolicy")
 	defer b.mu.RUnlock()
 
-	for _, p := range b.policies {
-		if p.Arn == policyArn {
-			pol := p
-
-			return &pol, nil
-		}
+	pol, exists := b.getPolicyByARNLocked(policyArn)
+	if !exists {
+		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
-	return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	return &pol, nil
 }
 
-// GetPolicyVersion returns the default (only) version of a policy document.
-// Gopherstack stores a single version per policy; version ID "v1" is always returned.
-func (b *InMemoryBackend) GetPolicyVersion(policyArn, _ string) (*Policy, error) {
-	return b.GetPolicy(policyArn)
+// GetPolicyVersion returns a policy document for the requested version.
+func (b *InMemoryBackend) GetPolicyVersion(policyArn, versionID string) (*Policy, error) {
+	b.mu.RLock("GetPolicyVersion")
+	defer b.mu.RUnlock()
+
+	policy, exists := b.getPolicyByARNLocked(policyArn)
+	if !exists {
+		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	for _, version := range b.policyVersions[policyArn] {
+		if version.VersionID != versionID {
+			continue
+		}
+
+		policy.PolicyDocument = version.PolicyDocument
+
+		return &policy, nil
+	}
+
+	if versionID == "" || versionID == "v1" {
+		return &policy, nil
+	}
+
+	return nil, fmt.Errorf("%w: policy version %q not found", ErrPolicyNotFound, versionID)
 }
 
 // policyNameFromARN extracts the policy name from an ARN.
@@ -1237,13 +1400,12 @@ func (b *InMemoryBackend) GetPoliciesForUser(userName string) ([]string, error) 
 	docs := make([]string, 0, len(arns))
 
 	for _, policyArn := range arns {
-		for _, p := range b.policies {
-			if p.Arn == policyArn && p.PolicyDocument != "" {
-				docs = append(docs, p.PolicyDocument)
-
-				break
-			}
+		policy, exists := b.getPolicyByARNLocked(policyArn)
+		if !exists || policy.PolicyDocument == "" {
+			continue
 		}
+
+		docs = append(docs, policy.PolicyDocument)
 	}
 
 	return docs, nil
@@ -1622,6 +1784,10 @@ type AccountSummary struct {
 	Policies          int
 	InstanceProfiles  int
 	AccessKeysPerUser int
+	ActiveAccessKeys  int
+	AttachedPolicies  int
+	AccountAliases    int
+	OIDCProviders     int
 	SAMLProviders     int
 	MFADevices        int
 }
@@ -1826,71 +1992,6 @@ func (b *InMemoryBackend) collectEntityPolicies(
 	return docs
 }
 
-// credentialReportHeader is the CSV header for the credential report.
-const credentialReportHeader = "user,arn,user_creation_time,password_enabled,password_last_used," +
-	"password_last_changed,password_next_rotation,mfa_active," +
-	"access_key_1_active,access_key_1_last_rotated,access_key_1_last_used_date," +
-	"access_key_1_last_used_region,access_key_1_last_used_service," +
-	"access_key_2_active,access_key_2_last_rotated,access_key_2_last_used_date," +
-	"access_key_2_last_used_region,access_key_2_last_used_service," +
-	"cert_1_active,cert_1_last_rotated,cert_2_active,cert_2_last_rotated"
-
-// GetCredentialReport generates and returns a base64-encoded CSV credential report.
-// The report always includes the root account row followed by all IAM users.
-func (b *InMemoryBackend) GetCredentialReport() string {
-	b.mu.RLock("GetCredentialReport")
-	defer b.mu.RUnlock()
-
-	notApplicable := "N/A"
-	falseStr := "false"
-	noInfo := "no_information"
-
-	users := sortedUsers(b.users)
-	// 2 = header line + root account line
-	const extraRows = 2
-	lines := make([]string, 0, extraRows+len(users))
-	lines = append(lines, credentialReportHeader)
-
-	// Root account row.
-	rootArn := "arn:aws:iam::" + b.accountID + ":root"
-	lines = append(lines, strings.Join([]string{
-		"<root_account>", rootArn, time.Now().UTC().Format(time.RFC3339),
-		notApplicable, noInfo, notApplicable, notApplicable, falseStr,
-		falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
-		falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
-		falseStr, notApplicable, falseStr, notApplicable,
-	}, ","))
-
-	// One row per user, sorted by name.
-	for _, u := range users {
-		createdAt := u.CreateDate.UTC().Format(time.RFC3339)
-		lines = append(lines, strings.Join([]string{
-			u.UserName, u.Arn, createdAt,
-			falseStr, noInfo, notApplicable, notApplicable, falseStr,
-			falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
-			falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
-			falseStr, notApplicable, falseStr, notApplicable,
-		}, ","))
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-// GetAccountSummary returns summary counts for the IAM account.
-func (b *InMemoryBackend) GetAccountSummary() AccountSummary {
-	b.mu.RLock("GetAccountSummary")
-	defer b.mu.RUnlock()
-
-	return AccountSummary{
-		Users:            len(b.users),
-		Groups:           len(b.groups),
-		Roles:            len(b.roles),
-		Policies:         len(b.policies),
-		InstanceProfiles: len(b.instanceProfiles),
-		SAMLProviders:    len(b.samlProviders),
-	}
-}
-
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
@@ -1899,7 +2000,10 @@ func (b *InMemoryBackend) Reset() {
 
 	b.users = make(map[string]User)
 	b.roles = make(map[string]Role)
+	b.roleByARN = make(map[string]string)
 	b.policies = make(map[string]Policy)
+	b.policyByARN = make(map[string]string)
+	b.policyAttachments = make(map[string]policyAttachmentRefs)
 	b.groups = make(map[string]Group)
 	b.accessKeys = make(map[string]AccessKey)
 	b.instanceProfiles = make(map[string]InstanceProfile)
@@ -1937,6 +2041,7 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	b.purgeInstanceProfilesLocked(cutoff)
 	b.purgeSAMLProvidersLocked(cutoff)
 	b.purgeOIDCProvidersLocked(cutoff)
+	b.rebuildIndexesLocked()
 }
 
 // purgeUsersLocked removes users created before cutoff and cleans up associated data.

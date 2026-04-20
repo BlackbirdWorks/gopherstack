@@ -43,26 +43,14 @@ func (b *InMemoryBackend) CreatePolicyVersion(
 	b.mu.Lock("CreatePolicyVersion")
 	defer b.mu.Unlock()
 
-	polName := policyNameFromARN(policyArn)
+	polName, exists := b.policyByARN[policyArn]
+	if !exists {
+		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
 
 	pol, exists := b.policies[polName]
-	if !exists || pol.Arn != policyArn {
-		// Fall back to ARN scan in case name extraction fails.
-		found := false
-
-		for _, p := range b.policies {
-			if p.Arn == policyArn {
-				pol = p
-				polName = p.PolicyName
-				found = true
-
-				break
-			}
-		}
-
-		if !found {
-			return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
-		}
+	if !exists {
+		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
 	versions := b.policyVersions[policyArn]
@@ -103,6 +91,37 @@ func (b *InMemoryBackend) CreatePolicyVersion(
 	b.policyVersions[policyArn] = versions
 
 	return &newVersion, nil
+}
+
+// ListPolicyVersions returns all stored versions for a managed policy, including v1.
+func (b *InMemoryBackend) ListPolicyVersions(policyArn string) ([]StoredPolicyVersion, error) {
+	b.mu.RLock("ListPolicyVersions")
+	defer b.mu.RUnlock()
+
+	policy, exists := b.getPolicyByARNLocked(policyArn)
+	if !exists {
+		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	storedVersions := b.policyVersions[policyArn]
+	isV1Default := true
+	for _, storedVersion := range storedVersions {
+		if storedVersion.IsDefaultVersion {
+			isV1Default = false
+
+			break
+		}
+	}
+
+	versions := make([]StoredPolicyVersion, 0, len(storedVersions)+1)
+	versions = append(versions, StoredPolicyVersion{
+		VersionID:        "v1",
+		PolicyDocument:   policy.PolicyDocument,
+		CreateDate:       policy.CreateDate,
+		IsDefaultVersion: isV1Default,
+	})
+
+	return append(versions, storedVersions...), nil
 }
 
 // ---- Service-Linked Roles ----
@@ -154,6 +173,7 @@ func (b *InMemoryBackend) CreateServiceLinkedRole(
 	}
 
 	b.roles[roleName] = role
+	b.roleByARN[role.Arn] = roleName
 
 	return &role, nil
 }

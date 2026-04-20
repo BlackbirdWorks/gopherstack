@@ -521,8 +521,11 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			wantContain: "ListRolePoliciesResponse",
 		},
 		{
-			name:        "ListInstanceProfilesForRole_success",
-			action:      "ListInstanceProfilesForRole",
+			name:   "ListInstanceProfilesForRole_success",
+			action: "ListInstanceProfilesForRole",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateRole("any-role", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+			},
 			params:      map[string]string{"RoleName": "any-role"},
 			wantCode:    http.StatusOK,
 			wantContain: "ListInstanceProfilesForRoleResponse",

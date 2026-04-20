@@ -86,8 +86,8 @@ func (h *Handler) Name() string {
 // GetSupportedOperations returns the list of supported IAM operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateUser", "DeleteUser", "ListUsers", "GetUser",
-		"CreateRole", "DeleteRole", "ListRoles", "GetRole",
+		"CreateUser", "DeleteUser", "ListUsers", "GetUser", "UpdateUser",
+		"CreateRole", "DeleteRole", "ListRoles", "GetRole", "UpdateRole", "UpdateRoleDescription",
 		"CreatePolicy", "DeletePolicy", "ListPolicies",
 		"GetPolicy", "GetPolicyVersion",
 		"AttachUserPolicy", "DetachUserPolicy", "AttachRolePolicy",
@@ -102,27 +102,48 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetAccountAuthorizationDetails",
 		"SimulatePrincipalPolicy",
 		"GenerateCredentialReport", "GetCredentialReport",
-		"CreateGroup", "DeleteGroup", "AddUserToGroup", "ListGroups",
+		"CreateGroup", "DeleteGroup", "AddUserToGroup", "ListGroups", "UpdateGroup",
 		"RemoveUserFromGroup", "GetGroup",
 		"AttachGroupPolicy", "DetachGroupPolicy", "ListAttachedGroupPolicies",
 		"CreateAccessKey", "DeleteAccessKey", "ListAccessKeys",
-		"CreateInstanceProfile", "DeleteInstanceProfile", "ListInstanceProfiles",
-		"AddRoleToInstanceProfile", "RemoveRoleFromInstanceProfile",
+		"UpdateAccessKey", "GetAccessKeyLastUsed",
+		"CreateInstanceProfile", "DeleteInstanceProfile", "ListInstanceProfiles", "GetInstanceProfile",
+		"AddRoleToInstanceProfile", "RemoveRoleFromInstanceProfile", "ListInstanceProfilesForRole",
 		"ListRoleTags", "TagRole", "UntagRole",
 		"ListPolicyTags", "TagPolicy", "UntagPolicy",
 		"ListUserTags", "TagUser", "UntagUser",
+		"ListGroupTags", "TagGroup", "UntagGroup",
 		// SAML Providers
 		"CreateSAMLProvider", "UpdateSAMLProvider", "DeleteSAMLProvider",
 		"GetSAMLProvider", "ListSAMLProviders",
 		// OIDC Providers
 		"CreateOpenIDConnectProvider", "UpdateOpenIDConnectProviderThumbprint",
 		"DeleteOpenIDConnectProvider", "GetOpenIDConnectProvider", "ListOpenIDConnectProviders",
+		"RemoveClientIDFromOpenIDConnectProvider",
 		// Login Profiles
 		"CreateLoginProfile", "UpdateLoginProfile", "DeleteLoginProfile", "GetLoginProfile",
+		// Account Aliases
+		"ListAccountAliases", "DeleteAccountAlias",
+		// Account Password Policy
+		"GetAccountPasswordPolicy", "UpdateAccountPasswordPolicy", "DeleteAccountPasswordPolicy",
+		// Policy Versions
+		"ListPolicyVersions", "SetDefaultPolicyVersion", "DeletePolicyVersion",
+		// Virtual MFA Devices
+		"ListVirtualMFADevices", "DeleteVirtualMFADevice",
+		// Groups
+		"ListGroupsForUser",
+		// Policy entity queries
+		"ListEntitiesForPolicy",
+		// Service-Specific Credentials
+		"ListServiceSpecificCredentials", "DeleteServiceSpecificCredential",
+		// Simulation
+		"SimulateCustomPolicy",
+		// Service Linked Role status
+		"GetServiceLinkedRoleDeletionStatus",
 		// Miscellaneous
 		"GetServiceLastAccessedDetails", "SetSecurityTokenServicePreferences",
 		"GetAccountSummary",
-		// New operations
+		// New operations (first pass)
 		"AcceptDelegationRequest",
 		"AddClientIDToOpenIDConnectProvider",
 		"AssociateDelegationRequest",
@@ -133,6 +154,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateServiceLinkedRole",
 		"CreateServiceSpecificCredential",
 		"CreateVirtualMFADevice",
+		// New operations (second pass)
+		"UpdateServiceSpecificCredential",
+		"GetUserPermissionsBoundary",
+		"GetRolePermissionsBoundary",
+		"GetContextKeysForCustomPolicy",
+		"GetContextKeysForPrincipalPolicy",
+		"GetMFADevice",
 	}
 }
 
@@ -318,6 +346,8 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 		h.iamLoginProfileDispatchTable(),
 		h.iamMiscDispatchTable(),
 		h.iamNewOpsDispatchTable(),
+		h.iamRefinementDispatchTable(),
+		h.iamRefinement2DispatchTable(), // overrides with PathPrefix filtering + new ops
 	}
 
 	combined := make(map[string]iamActionFn)
@@ -530,26 +560,25 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListPolicyVersions": func(_ url.Values, reqID string) (any, error) {
-			type policyVersionXML struct {
-				VersionID        string `xml:"VersionId"`
-				IsDefaultVersion bool   `xml:"IsDefaultVersion"`
-			}
-			type listPolicyVersionsResult struct {
-				XMLName  xml.Name           `xml:"ListPolicyVersionsResult"`
-				Versions []policyVersionXML `xml:"Versions>member"`
-			}
-			type listPolicyVersionsResponse struct {
-				XMLName                  xml.Name                 `xml:"ListPolicyVersionsResponse"`
-				Xmlns                    string                   `xml:"xmlns,attr"`
-				ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
-				ListPolicyVersionsResult listPolicyVersionsResult `xml:"ListPolicyVersionsResult"`
+		"ListPolicyVersions": func(vals url.Values, reqID string) (any, error) {
+			versions, err := h.Backend.ListPolicyVersions(vals.Get("PolicyArn"))
+			if err != nil {
+				return nil, err
 			}
 
-			return &listPolicyVersionsResponse{
+			xmlVersions := make([]PolicyVersionXML, 0, len(versions))
+			for i := range versions {
+				xmlVersions = append(xmlVersions, PolicyVersionXML{
+					VersionID:        versions[i].VersionID,
+					CreateDate:       isoTime(versions[i].CreateDate),
+					IsDefaultVersion: versions[i].IsDefaultVersion,
+				})
+			}
+
+			return &ListPolicyVersionsResponse{
 				Xmlns: iamXMLNS,
-				ListPolicyVersionsResult: listPolicyVersionsResult{
-					Versions: []policyVersionXML{{VersionID: "v1", IsDefaultVersion: true}},
+				ListPolicyVersionsResult: ListPolicyVersionsResult{
+					Versions: xmlVersions,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -1469,6 +1498,7 @@ func toRoleXML(r *Role) RoleXML {
 		CreateDate:               isoTime(r.CreateDate),
 		AssumeRolePolicyDocument: r.AssumeRolePolicyDocument,
 		MaxSessionDuration:       r.MaxSessionDuration,
+		Description:              r.Description,
 	}
 
 	if r.PermissionsBoundary != "" {

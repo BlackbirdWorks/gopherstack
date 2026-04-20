@@ -1512,7 +1512,7 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 	currentInv := inv
 
 	for attempt := range maxRetries + 1 {
-		result, ok, containerTimedOut := waitForAsyncResult(srv, currentInv, timeout, maxEventAgeDL)
+		result, ok, containerTimedOut := waitForAsyncResult(srv, currentInv, timeout)
 		if !ok {
 			// A container timeout means the process is hung; evict it so the next
 			// invocation gets a fresh container, matching the synchronous timeout path.
@@ -1578,20 +1578,12 @@ func (b *InMemoryBackend) readAsyncRetryConfig(
 // handleNext stored (preventing a memory leak).
 // Returns:
 //   - (result, true, false)  — container responded in time
-//   - (zero, false, false)   — event too old; no container was involved
 //   - (zero, false, true)    — container timed out; the caller should clean up the runtime
 func waitForAsyncResult(
 	srv *runtimeServer,
 	inv *pendingInvocation,
 	timeout time.Duration,
-	maxEventAgeDL time.Time,
 ) (invocationResult, bool, bool) {
-	if !maxEventAgeDL.IsZero() && time.Now().After(maxEventAgeDL) {
-		srv.pending.LoadAndDelete(inv.requestID)
-
-		return invocationResult{}, false, false
-	}
-
 	waitTimer := time.NewTimer(timeout + containerResponseGracePeriod)
 	defer func() {
 		if !waitTimer.Stop() {

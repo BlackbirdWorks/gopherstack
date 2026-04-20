@@ -32,6 +32,7 @@ type Role struct {
 	Path                     string    `json:"Path"`
 	AssumeRolePolicyDocument string    `json:"AssumeRolePolicyDocument"`
 	PermissionsBoundary      string    `json:"PermissionsBoundary,omitempty"`
+	Description              string    `json:"Description,omitempty"`
 	// MaxSessionDuration is the maximum session duration (in seconds) for role credentials.
 	// A value of 0 means the default system maximum applies (43200 seconds / 12 hours).
 	MaxSessionDuration int32 `json:"MaxSessionDuration,omitempty"`
@@ -176,6 +177,7 @@ type RoleXML struct {
 	Arn                      string                  `xml:"Arn"`
 	CreateDate               string                  `xml:"CreateDate"`
 	AssumeRolePolicyDocument string                  `xml:"AssumeRolePolicyDocument"`
+	Description              string                  `xml:"Description,omitempty"`
 	MaxSessionDuration       int32                   `xml:"MaxSessionDuration,omitempty"`
 }
 
@@ -555,6 +557,19 @@ type GetPolicyVersionResponse struct {
 // GetPolicyVersionResult contains the policy version details.
 type GetPolicyVersionResult struct {
 	PolicyVersion PolicyVersionXML `xml:"PolicyVersion"`
+}
+
+// ListPolicyVersionsResult contains the policy version list.
+type ListPolicyVersionsResult struct {
+	Versions []PolicyVersionXML `xml:"Versions>member"`
+}
+
+// ListPolicyVersionsResponse is the XML response for ListPolicyVersions.
+type ListPolicyVersionsResponse struct {
+	XMLName                  xml.Name                 `xml:"ListPolicyVersionsResponse"`
+	Xmlns                    string                   `xml:"xmlns,attr"`
+	ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
+	ListPolicyVersionsResult ListPolicyVersionsResult `xml:"ListPolicyVersionsResult"`
 }
 
 // ---- Inline Policy XML responses ----
