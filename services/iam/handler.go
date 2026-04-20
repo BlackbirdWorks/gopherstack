@@ -154,6 +154,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateServiceLinkedRole",
 		"CreateServiceSpecificCredential",
 		"CreateVirtualMFADevice",
+		// New operations (second pass)
+		"UpdateServiceSpecificCredential",
+		"GetUserPermissionsBoundary",
+		"GetRolePermissionsBoundary",
+		"GetContextKeysForCustomPolicy",
+		"GetContextKeysForPrincipalPolicy",
+		"GetMFADevice",
 	}
 }
 
@@ -340,6 +347,7 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 		h.iamMiscDispatchTable(),
 		h.iamNewOpsDispatchTable(),
 		h.iamRefinementDispatchTable(),
+		h.iamRefinement2DispatchTable(), // overrides with PathPrefix filtering + new ops
 	}
 
 	combined := make(map[string]iamActionFn)

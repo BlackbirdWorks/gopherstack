@@ -12,7 +12,7 @@ import (
 
 // UpdateAccessKey updates the status of an access key (Active or Inactive).
 func (b *InMemoryBackend) UpdateAccessKey(userName, accessKeyID, status string) error {
-	if status != "Active" && status != "Inactive" {
+	if status != accessKeyStatusActive && status != "Inactive" {
 		return fmt.Errorf("%w: status must be Active or Inactive", ErrInvalidAction)
 	}
 

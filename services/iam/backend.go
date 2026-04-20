@@ -192,6 +192,7 @@ type StorageBackend interface {
 	CreateServiceSpecificCredential(userName, serviceName string) (*ServiceSpecificCredential, error)
 	ListServiceSpecificCredentials(userName, serviceName string) ([]ServiceSpecificCredential, error)
 	DeleteServiceSpecificCredential(userName, credentialID string) error
+	UpdateServiceSpecificCredential(userName, credentialID, status string) error
 
 	// Virtual MFA Devices
 	CreateVirtualMFADevice(virtualMFADeviceName, path string) (*VirtualMFADevice, error)
@@ -254,6 +255,9 @@ type StorageBackend interface {
 
 // iamDefaultMaxItems is the default page size for IAM list operations.
 const iamDefaultMaxItems = 100
+
+// accessKeyStatusActive is the "Active" access-key status string.
+const accessKeyStatusActive = "Active"
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
@@ -599,14 +603,7 @@ func (b *InMemoryBackend) ListRoles(marker string, maxItems int) (page.Page[Role
 	b.mu.RLock("ListRoles")
 	defer b.mu.RUnlock()
 
-	roles := make([]Role, 0, len(b.roles))
-	for _, r := range b.roles {
-		roles = append(roles, r)
-	}
-
-	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
-
-	return page.New(roles, marker, maxItems, iamDefaultMaxItems), nil
+	return page.New(sortedRoles(b.roles), marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // GetRole retrieves a single IAM role by name.
@@ -723,14 +720,7 @@ func (b *InMemoryBackend) ListPolicies(marker string, maxItems int) (page.Page[P
 	b.mu.RLock("ListPolicies")
 	defer b.mu.RUnlock()
 
-	policies := make([]Policy, 0, len(b.policies))
-	for _, p := range b.policies {
-		policies = append(policies, p)
-	}
-
-	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
-
-	return page.New(policies, marker, maxItems, iamDefaultMaxItems), nil
+	return page.New(sortedPolicies(b.policies), marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // AttachUserPolicy attaches a policy to a user.
@@ -990,14 +980,7 @@ func (b *InMemoryBackend) ListGroups(marker string, maxItems int) (page.Page[Gro
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
-	groups := make([]Group, 0, len(b.groups))
-	for _, g := range b.groups {
-		groups = append(groups, g)
-	}
-
-	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
-
-	return page.New(groups, marker, maxItems, iamDefaultMaxItems), nil
+	return page.New(sortedGroups(b.groups), marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // ---- Access Keys ----
@@ -1108,16 +1091,7 @@ func (b *InMemoryBackend) ListInstanceProfiles(marker string, maxItems int) (pag
 	b.mu.RLock("ListInstanceProfiles")
 	defer b.mu.RUnlock()
 
-	profiles := make([]InstanceProfile, 0, len(b.instanceProfiles))
-	for _, ip := range b.instanceProfiles {
-		profiles = append(profiles, ip)
-	}
-
-	sort.Slice(profiles, func(i, j int) bool {
-		return profiles[i].InstanceProfileName < profiles[j].InstanceProfileName
-	})
-
-	return page.New(profiles, marker, maxItems, iamDefaultMaxItems), nil
+	return page.New(sortedInstanceProfiles(b.instanceProfiles), marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // AddRoleToInstanceProfile adds a role to an IAM instance profile.
@@ -1810,6 +1784,10 @@ type AccountSummary struct {
 	Policies          int
 	InstanceProfiles  int
 	AccessKeysPerUser int
+	ActiveAccessKeys  int
+	AttachedPolicies  int
+	AccountAliases    int
+	OIDCProviders     int
 	SAMLProviders     int
 	MFADevices        int
 }
@@ -2012,71 +1990,6 @@ func (b *InMemoryBackend) collectEntityPolicies(
 	}
 
 	return docs
-}
-
-// credentialReportHeader is the CSV header for the credential report.
-const credentialReportHeader = "user,arn,user_creation_time,password_enabled,password_last_used," +
-	"password_last_changed,password_next_rotation,mfa_active," +
-	"access_key_1_active,access_key_1_last_rotated,access_key_1_last_used_date," +
-	"access_key_1_last_used_region,access_key_1_last_used_service," +
-	"access_key_2_active,access_key_2_last_rotated,access_key_2_last_used_date," +
-	"access_key_2_last_used_region,access_key_2_last_used_service," +
-	"cert_1_active,cert_1_last_rotated,cert_2_active,cert_2_last_rotated"
-
-// GetCredentialReport generates and returns a base64-encoded CSV credential report.
-// The report always includes the root account row followed by all IAM users.
-func (b *InMemoryBackend) GetCredentialReport() string {
-	b.mu.RLock("GetCredentialReport")
-	defer b.mu.RUnlock()
-
-	notApplicable := "N/A"
-	falseStr := "false"
-	noInfo := "no_information"
-
-	users := sortedUsers(b.users)
-	// 2 = header line + root account line
-	const extraRows = 2
-	lines := make([]string, 0, extraRows+len(users))
-	lines = append(lines, credentialReportHeader)
-
-	// Root account row.
-	rootArn := "arn:aws:iam::" + b.accountID + ":root"
-	lines = append(lines, strings.Join([]string{
-		"<root_account>", rootArn, time.Now().UTC().Format(time.RFC3339),
-		notApplicable, noInfo, notApplicable, notApplicable, falseStr,
-		falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
-		falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
-		falseStr, notApplicable, falseStr, notApplicable,
-	}, ","))
-
-	// One row per user, sorted by name.
-	for _, u := range users {
-		createdAt := u.CreateDate.UTC().Format(time.RFC3339)
-		lines = append(lines, strings.Join([]string{
-			u.UserName, u.Arn, createdAt,
-			falseStr, noInfo, notApplicable, notApplicable, falseStr,
-			falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
-			falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
-			falseStr, notApplicable, falseStr, notApplicable,
-		}, ","))
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-// GetAccountSummary returns summary counts for the IAM account.
-func (b *InMemoryBackend) GetAccountSummary() AccountSummary {
-	b.mu.RLock("GetAccountSummary")
-	defer b.mu.RUnlock()
-
-	return AccountSummary{
-		Users:            len(b.users),
-		Groups:           len(b.groups),
-		Roles:            len(b.roles),
-		Policies:         len(b.policies),
-		InstanceProfiles: len(b.instanceProfiles),
-		SAMLProviders:    len(b.samlProviders),
-	}
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
