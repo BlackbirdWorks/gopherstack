@@ -199,9 +199,11 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 func (b *InMemoryBackend) resolveKeyID(keyID string) (string, error) {
 	if cached, ok := b.keyIDResolutionCache.Load(keyID); ok {
 		resolved, resolvedOK := cached.(string)
-		if resolvedOK {
-			return resolved, nil
+		if !resolvedOK {
+			return "", fmt.Errorf("%w: invalid key resolution cache entry", ErrValidation)
 		}
+
+		return resolved, nil
 	}
 
 	if strings.HasPrefix(keyID, "alias/") {
@@ -252,11 +254,7 @@ func (b *InMemoryBackend) resolveARNKeyID(keyID string) (string, error) {
 }
 
 func (b *InMemoryBackend) clearResolutionCache() {
-	b.keyIDResolutionCache.Range(func(key, _ any) bool {
-		b.keyIDResolutionCache.Delete(key)
-
-		return true
-	})
+	b.keyIDResolutionCache = sync.Map{}
 }
 
 func (b *InMemoryBackend) keyRegion(keyARN string) string {
@@ -1007,9 +1005,9 @@ func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error
 		return err
 	}
 
-	rotateErr := b.rotateKeyMaterialLocked(key)
-	if rotateErr != nil {
-		return rotateErr
+	err = b.rotateKeyMaterialLocked(key)
+	if err != nil {
+		return err
 	}
 
 	key.RotationEnabled = true
@@ -1057,9 +1055,9 @@ func (b *InMemoryBackend) RotateKeyOnDemand(input *RotateKeyOnDemandInput) (*Rot
 		return nil, err
 	}
 
-	rotateErr := b.rotateKeyMaterialLocked(key)
-	if rotateErr != nil {
-		return nil, rotateErr
+	err = b.rotateKeyMaterialLocked(key)
+	if err != nil {
+		return nil, err
 	}
 
 	return &RotateKeyOnDemandOutput{KeyID: key.KeyID}, nil
@@ -1825,14 +1823,14 @@ func (b *InMemoryBackend) ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyO
 	}
 
 	if km := b.keyMaterials[sourceKey.KeyID]; km != nil {
-		serialized, marshalErr := marshalKeyMaterial(km)
-		if marshalErr != nil {
-			return nil, fmt.Errorf("serializing key material for replication: %w", marshalErr)
+		serialized, err := marshalKeyMaterial(km)
+		if err != nil {
+			return nil, fmt.Errorf("serializing key material for replication: %w", err)
 		}
 
-		cloned, unmarshalErr := unmarshalKeyMaterial(serialized)
-		if unmarshalErr != nil {
-			return nil, fmt.Errorf("deserializing replicated key material: %w", unmarshalErr)
+		cloned, err := unmarshalKeyMaterial(serialized)
+		if err != nil {
+			return nil, fmt.Errorf("deserializing replicated key material: %w", err)
 		}
 
 		b.keyMaterials[replica.KeyID] = cloned

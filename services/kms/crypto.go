@@ -585,16 +585,16 @@ func marshalKeyMaterial(km *keyMaterial) (serializedKeyMaterial, error) {
 // unmarshalKeyMaterial deserializes key material from a serializedKeyMaterial.
 func unmarshalKeyMaterial(s serializedKeyMaterial) (*keyMaterial, error) {
 	if len(s.SymmetricKey) > 0 {
-		km := &keyMaterial{symmetricKey: s.SymmetricKey}
 		if len(s.SymmetricKey) == aes256Bytes {
 			symmetricKM, err := newSymmetricKeyMaterial(s.SymmetricKey)
 			if err != nil {
 				return nil, err
 			}
-			km.gcm = symmetricKM.gcm
+
+			return symmetricKM, nil
 		}
 
-		return km, nil
+		return &keyMaterial{symmetricKey: s.SymmetricKey}, nil
 	}
 
 	if len(s.PrivKeyDER) == 0 {
