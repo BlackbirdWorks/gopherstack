@@ -95,6 +95,13 @@ const (
 	// maxPendingWindowDays is the maximum number of days allowed for key deletion pending window.
 	// Per AWS docs, the range is [7, 30]. The default and maximum share the same value.
 	maxPendingWindowDays = 30
+	// defaultRotationPeriodDays is the default automatic rotation period when not specified.
+	// AWS KMS defaults to 365 days.
+	defaultRotationPeriodDays = 365
+	// minRotationPeriodDays is the minimum rotation period AWS KMS allows.
+	minRotationPeriodDays = 1
+	// maxRotationPeriodDays is the maximum rotation period AWS KMS allows.
+	maxRotationPeriodDays = 2560
 )
 
 // StorageBackend defines the interface for the KMS in-memory backend.
@@ -412,6 +419,7 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		PrimaryRegion: region,
 		CreationDate:  UnixTimeFloat(time.Now()),
 		Enabled:       keyState == KeyStateEnabled,
+		MultiRegion:   input.MultiRegion,
 	}
 
 	if origin != KeyOriginExternal {
@@ -425,9 +433,11 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 
 	b.keys[keyID] = key
 
-	return &CreateKeyOutput{
+	out := &CreateKeyOutput{
 		KeyMetadata: keyToMetadata(key),
-	}, nil
+	}
+
+	return out, nil
 }
 
 // DescribeKey returns metadata for the specified key.
@@ -873,6 +883,14 @@ func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyO
 
 // CreateAlias creates an alias pointing to a key.
 func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
+	if !strings.HasPrefix(input.AliasName, "alias/") {
+		return fmt.Errorf("%w: alias name must start with alias/", ErrValidation)
+	}
+
+	if strings.HasPrefix(input.AliasName, "alias/aws/") {
+		return fmt.Errorf("%w: alias names that begin with alias/aws/ are reserved for AWS managed keys", ErrValidation)
+	}
+
 	b.mu.Lock("CreateAlias")
 	defer b.mu.Unlock()
 
@@ -889,11 +907,14 @@ func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
 		return ErrKeyNotFound
 	}
 
+	now := UnixTimeFloat(time.Now())
 	aliasArn := gopherarn.Build("kms", b.region, b.accountID, input.AliasName)
 	b.aliases[input.AliasName] = &Alias{
-		AliasName:   input.AliasName,
-		AliasArn:    aliasArn,
-		TargetKeyID: targetID,
+		AliasName:       input.AliasName,
+		AliasArn:        aliasArn,
+		TargetKeyID:     targetID,
+		CreationDate:    now,
+		LastUpdatedDate: now,
 	}
 	b.clearResolutionCache()
 
@@ -921,6 +942,7 @@ func (b *InMemoryBackend) UpdateAlias(input *UpdateAliasInput) error {
 	}
 
 	alias.TargetKeyID = targetID
+	alias.LastUpdatedDate = UnixTimeFloat(time.Now())
 	b.clearResolutionCache()
 
 	return nil
@@ -1009,12 +1031,41 @@ func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error
 		return err
 	}
 
+	// Only SYMMETRIC_DEFAULT keys with AWS_KMS origin support rotation.
+	if key.KeySpec != keySpecSymmetric {
+		return fmt.Errorf(
+			"%w: key rotation is only supported for symmetric SYMMETRIC_DEFAULT keys; key %q has spec %s",
+			ErrUnsupportedOrigin, key.KeyID, key.KeySpec,
+		)
+	}
+
+	if key.Origin == KeyOriginExternal {
+		return fmt.Errorf(
+			"%w: key rotation is not supported for EXTERNAL-origin keys",
+			ErrUnsupportedOrigin,
+		)
+	}
+
 	err = b.rotateKeyMaterialLocked(key)
 	if err != nil {
 		return err
 	}
 
+	rotationPeriod := int32(defaultRotationPeriodDays)
+	if input.RotationPeriodInDays != nil && *input.RotationPeriodInDays > 0 {
+		period := *input.RotationPeriodInDays
+		if period < minRotationPeriodDays || period > maxRotationPeriodDays {
+			return fmt.Errorf(
+				"%w: RotationPeriodInDays must be between %d and %d, got %d",
+				ErrValidation, minRotationPeriodDays, maxRotationPeriodDays, period,
+			)
+		}
+
+		rotationPeriod = period
+	}
+
 	key.RotationEnabled = true
+	key.RotationPeriodInDays = rotationPeriod
 
 	return nil
 }
@@ -1067,7 +1118,7 @@ func (b *InMemoryBackend) RotateKeyOnDemand(input *RotateKeyOnDemandInput) (*Rot
 	return &RotateKeyOnDemandOutput{KeyID: key.KeyID}, nil
 }
 
-// GetKeyRotationStatus returns whether rotation is enabled for the specified key.
+// GetKeyRotationStatus returns rotation configuration and schedule for the specified key.
 func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput) (*GetKeyRotationStatusOutput, error) {
 	b.mu.RLock("GetKeyRotationStatus")
 	defer b.mu.RUnlock()
@@ -1077,10 +1128,31 @@ func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput)
 		return nil, err
 	}
 
-	return &GetKeyRotationStatusOutput{
+	out := &GetKeyRotationStatusOutput{
 		KeyRotationEnabled: key.RotationEnabled,
 		KeyID:              key.KeyID,
-	}, nil
+	}
+
+	if key.RotationEnabled {
+		period := key.RotationPeriodInDays
+		if period <= 0 {
+			period = defaultRotationPeriodDays
+		}
+
+		out.RotationPeriodInDays = period
+
+		var lastRotation float64
+
+		if len(key.RotationDates) > 0 {
+			lastRotation = key.RotationDates[len(key.RotationDates)-1]
+		} else {
+			lastRotation = key.CreationDate
+		}
+
+		out.NextRotationDate = lastRotation + float64(period)*float64(24*time.Hour/time.Second)
+	}
+
+	return out, nil
 }
 
 // DisableKey disables the specified key.
@@ -1158,11 +1230,13 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (
 	key.KeyState = KeyStatePendingDeletion
 	key.Enabled = false
 	key.DeletionDate = UnixTimeFloat(deletionDate)
+	key.PendingWindowInDays = days
 
 	return &ScheduleKeyDeletionOutput{
-		KeyID:        key.KeyID,
-		DeletionDate: key.DeletionDate,
-		KeyState:     key.KeyState,
+		KeyID:               key.KeyID,
+		DeletionDate:        key.DeletionDate,
+		KeyState:            key.KeyState,
+		PendingWindowInDays: days,
 	}, nil
 }
 
@@ -1272,12 +1346,23 @@ func keyToMetadata(k *Key) KeyMetadata {
 		KeyManager:            "CUSTOMER",
 		Origin:                origin,
 		MultiRegion:           k.MultiRegion,
+		PrimaryRegion:         k.PrimaryRegion,
 		Enabled:               k.Enabled,
 	}
 
-	// DeletionDate is only meaningful (and set by AWS) for PendingDeletion keys.
+	// DeletionDate and PendingWindowInDays are only meaningful for PendingDeletion keys.
 	if k.KeyState == KeyStatePendingDeletion {
 		meta.DeletionDate = k.DeletionDate
+		meta.PendingDeletionWindowInDays = k.PendingWindowInDays
+	}
+
+	// MultiRegionKeyType: PRIMARY if this is the source region's key, REPLICA otherwise.
+	if k.MultiRegion {
+		if k.PrimaryRegion != "" && k.PrimaryRegion == extractRegionFromARN(k.Arn) {
+			meta.MultiRegionKeyType = "PRIMARY"
+		} else if k.PrimaryRegion != "" {
+			meta.MultiRegionKeyType = "REPLICA"
+		}
 	}
 
 	switch k.KeyUsage {
@@ -1296,6 +1381,16 @@ func keyToMetadata(k *Key) KeyMetadata {
 	}
 
 	return meta
+}
+
+// extractRegionFromARN parses the region component from a KMS ARN.
+func extractRegionFromARN(arnStr string) string {
+	parsed, err := awsarn.Parse(arnStr)
+	if err != nil {
+		return ""
+	}
+
+	return parsed.Region
 }
 
 // dataKeySize returns the number of bytes for a data key based on spec and override.
@@ -1799,6 +1894,14 @@ func (b *InMemoryBackend) ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyO
 		return nil, err
 	}
 
+	// Only Enabled keys can be replicated; PendingDeletion / PendingImport / Disabled are rejected.
+	if sourceKey.KeyState != KeyStateEnabled {
+		return nil, fmt.Errorf(
+			"%w: only Enabled keys can be replicated; key %q is in state %s",
+			ErrKeyInvalidState, sourceKey.KeyID, sourceKey.KeyState,
+		)
+	}
+
 	newKeyID := uuid.New().String()
 	description := sourceKey.Description
 	if input.Description != "" {
@@ -1807,18 +1910,19 @@ func (b *InMemoryBackend) ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyO
 
 	replicaARN := gopherarn.Build("kms", input.ReplicaRegion, b.accountID, "key/"+newKeyID)
 	replica := &Key{
-		KeyID:           newKeyID,
-		Arn:             replicaARN,
-		Description:     description,
-		KeyState:        sourceKey.KeyState,
-		KeyUsage:        sourceKey.KeyUsage,
-		KeySpec:         sourceKey.KeySpec,
-		Origin:          sourceKey.Origin,
-		CreationDate:    UnixTimeFloat(time.Now()),
-		RotationEnabled: sourceKey.RotationEnabled,
-		MultiRegion:     true,
-		PrimaryRegion:   b.keyRegion(sourceKey.Arn),
-		Enabled:         sourceKey.Enabled,
+		KeyID:                newKeyID,
+		Arn:                  replicaARN,
+		Description:          description,
+		KeyState:             sourceKey.KeyState,
+		KeyUsage:             sourceKey.KeyUsage,
+		KeySpec:              sourceKey.KeySpec,
+		Origin:               sourceKey.Origin,
+		CreationDate:         UnixTimeFloat(time.Now()),
+		RotationEnabled:      sourceKey.RotationEnabled,
+		RotationPeriodInDays: sourceKey.RotationPeriodInDays,
+		MultiRegion:          true,
+		PrimaryRegion:        b.keyRegion(sourceKey.Arn),
+		Enabled:              sourceKey.Enabled,
 	}
 
 	sourceKey.MultiRegion = true

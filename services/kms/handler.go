@@ -128,6 +128,38 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	h.tags[resourceID].Merge(kv)
 }
 
+// copyTagsToReplica copies the source key's tags to the replica and overlays any input tags.
+func (h *Handler) copyTagsToReplica(sourceKeyID, replicaKeyID string, inputTags []Tag) {
+	if sourceKeyID != "" {
+		if srcTags := h.getTags(sourceKeyID); len(srcTags) > 0 {
+			h.setTags(replicaKeyID, srcTags)
+		}
+	}
+
+	if len(inputTags) > 0 {
+		kv := make(map[string]string, len(inputTags))
+		for _, t := range inputTags {
+			kv[t.TagKey] = t.TagValue
+		}
+
+		h.setTags(replicaKeyID, kv)
+	}
+}
+
+// applyInputTags converts a []Tag slice to a map and stores it for the given resource ID.
+func (h *Handler) applyInputTags(resourceID string, inputTags []Tag) {
+	if len(inputTags) == 0 {
+		return
+	}
+
+	kv := make(map[string]string, len(inputTags))
+	for _, t := range inputTags {
+		kv[t.TagKey] = t.TagValue
+	}
+
+	h.setTags(resourceID, kv)
+}
+
 func (h *Handler) removeTags(resourceID string, keys []string) {
 	h.tagsMu.RLock("removeTags")
 	t := h.tags[resourceID]
@@ -306,7 +338,14 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 			}
 			input.Region = region
 
-			return h.Backend.CreateKey(&input)
+			out, err := h.Backend.CreateKey(&input)
+			if err != nil {
+				return nil, err
+			}
+
+			h.applyInputTags(out.KeyMetadata.KeyID, input.Tags)
+
+			return out, nil
 		},
 		"DescribeKey": func(_ string, b []byte) (any, error) {
 			var input DescribeKeyInput
@@ -779,7 +818,20 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 				return nil, err
 			}
 
-			return h.Backend.ReplicateKey(&input)
+			// Capture source key ID for tag copying before we replicate.
+			var sourceKeyID string
+			if desc, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr == nil {
+				sourceKeyID = desc.KeyMetadata.KeyID
+			}
+
+			out, err := h.Backend.ReplicateKey(&input)
+			if err != nil {
+				return nil, err
+			}
+
+			h.copyTagsToReplica(sourceKeyID, out.ReplicaKeyMetadata.KeyID, input.Tags)
+
+			return out, nil
 		},
 		"RotateKeyOnDemand": func(_ string, b []byte) (any, error) {
 			var input RotateKeyOnDemandInput
