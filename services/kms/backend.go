@@ -2037,7 +2037,8 @@ func (b *InMemoryBackend) GetParametersForImport(
 	if input.WrappingAlgorithm != "" {
 		if _, ok := validWrappingAlgorithms[input.WrappingAlgorithm]; !ok {
 			return nil, fmt.Errorf(
-				"%w: WrappingAlgorithm %q is not valid; must be one of RSAES_PKCS1_V1_5, RSAES_OAEP_SHA_1, RSAES_OAEP_SHA_256, RSA_AES_KEY_WRAP_SHA_1, or RSA_AES_KEY_WRAP_SHA_256",
+				"%w: WrappingAlgorithm %q is not valid; must be one of RSAES_PKCS1_V1_5, "+
+					"RSAES_OAEP_SHA_1, RSAES_OAEP_SHA_256, RSA_AES_KEY_WRAP_SHA_1, or RSA_AES_KEY_WRAP_SHA_256",
 				ErrValidation,
 				input.WrappingAlgorithm,
 			)

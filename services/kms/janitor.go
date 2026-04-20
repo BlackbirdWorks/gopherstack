@@ -90,7 +90,8 @@ func (j *Janitor) sweepExpiredKeys(ctx context.Context) {
 
 // sweepKeys iterates over all keys and purges/expires them as needed.
 // Must be called with the backend write lock held.
-func (j *Janitor) sweepKeys(now float64) (purged, expired int) {
+func (j *Janitor) sweepKeys(now float64) (int, int) {
+	var purged, expired int
 	for keyID, key := range j.Backend.keys {
 		if key.KeyState == KeyStatePendingDeletion {
 			if key.DeletionDate != 0 && now >= key.DeletionDate {
