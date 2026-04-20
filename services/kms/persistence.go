@@ -167,6 +167,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.customKeyStores = snap.CustomKeyStores
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.clearResolutionCache()
 
 	return nil
 }

@@ -860,10 +860,18 @@ func TestGetSupportedOperations_NewOps(t *testing.T) {
 		"DeriveSharedSecret",
 		"DescribeCustomKeyStores",
 		"DisconnectCustomKeyStore",
+		"GetParametersForImport",
 		"GenerateDataKeyPair",
 		"GenerateDataKeyPairWithoutPlaintext",
 		"GenerateMac",
 		"GenerateRandom",
+		"ListKeyPolicies",
+		"ListKeyRotations",
+		"ReplicateKey",
+		"RotateKeyOnDemand",
+		"UpdateCustomKeyStore",
+		"UpdateKeyDescription",
+		"UpdatePrimaryRegion",
 	}
 
 	for _, op := range newOps {
@@ -977,4 +985,234 @@ func TestCustomKeyStoreHandler_ViaHTTP(t *testing.T) {
 	deleteBody, _ := json.Marshal(map[string]string{"CustomKeyStoreId": storeID})
 	rec = postKMSOp(t, h, "DeleteCustomKeyStore", string(deleteBody))
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestKMSBackendNewMaintenanceOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *kms.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "GetParametersForImport",
+			run: func(t *testing.T, b *kms.InMemoryBackend) {
+				t.Helper()
+
+				key, err := b.CreateKey(&kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+				require.NoError(t, err)
+
+				out, err := b.GetParametersForImport(&kms.GetParametersForImportInput{KeyID: key.KeyMetadata.KeyID})
+				require.NoError(t, err)
+				assert.Equal(t, key.KeyMetadata.KeyID, out.KeyID)
+				assert.NotEmpty(t, out.ImportToken)
+				assert.NotEmpty(t, out.PublicKey)
+			},
+		},
+		{
+			name: "ListKeyPolicies",
+			run: func(t *testing.T, b *kms.InMemoryBackend) {
+				t.Helper()
+
+				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+
+				out, err := b.ListKeyPolicies(&kms.ListKeyPoliciesInput{KeyID: key.KeyMetadata.KeyID})
+				require.NoError(t, err)
+				assert.Equal(t, []string{"default"}, out.PolicyNames)
+			},
+		},
+		{
+			name: "ListKeyRotations_after_on_demand_rotation",
+			run: func(t *testing.T, b *kms.InMemoryBackend) {
+				t.Helper()
+
+				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+
+				_, err = b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: key.KeyMetadata.KeyID})
+				require.NoError(t, err)
+
+				out, err := b.ListKeyRotations(&kms.ListKeyRotationsInput{KeyID: key.KeyMetadata.KeyID})
+				require.NoError(t, err)
+				require.Len(t, out.Rotations, 1)
+				assert.Positive(t, out.Rotations[0].RotationDate)
+			},
+		},
+		{
+			name: "ReplicateKey",
+			run: func(t *testing.T, b *kms.InMemoryBackend) {
+				t.Helper()
+
+				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+
+				out, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+					KeyID:         key.KeyMetadata.KeyID,
+					ReplicaRegion: "us-west-2",
+				})
+				require.NoError(t, err)
+				assert.True(t, out.ReplicaKeyMetadata.MultiRegion)
+				assert.Contains(t, out.ReplicaKeyMetadata.Arn, ":us-west-2:")
+			},
+		},
+		{
+			name: "UpdateCustomKeyStore",
+			run: func(t *testing.T, b *kms.InMemoryBackend) {
+				t.Helper()
+
+				created, err := b.CreateCustomKeyStore(
+					&kms.CreateCustomKeyStoreInput{CustomKeyStoreName: "before-name"},
+				)
+				require.NoError(t, err)
+
+				err = b.UpdateCustomKeyStore(&kms.UpdateCustomKeyStoreInput{
+					CustomKeyStoreID:      created.CustomKeyStoreID,
+					NewCustomKeyStoreName: "after-name",
+				})
+				require.NoError(t, err)
+
+				desc, err := b.DescribeCustomKeyStores(&kms.DescribeCustomKeyStoresInput{
+					CustomKeyStoreID: created.CustomKeyStoreID,
+				})
+				require.NoError(t, err)
+				require.Len(t, desc.CustomKeyStores, 1)
+				assert.Equal(t, "after-name", desc.CustomKeyStores[0].CustomKeyStoreName)
+			},
+		},
+		{
+			name: "UpdateKeyDescription",
+			run: func(t *testing.T, b *kms.InMemoryBackend) {
+				t.Helper()
+
+				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+
+				err = b.UpdateKeyDescription(&kms.UpdateKeyDescriptionInput{
+					KeyID:       key.KeyMetadata.KeyID,
+					Description: "updated description",
+				})
+				require.NoError(t, err)
+
+				desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: key.KeyMetadata.KeyID})
+				require.NoError(t, err)
+				assert.Equal(t, "updated description", desc.KeyMetadata.Description)
+			},
+		},
+		{
+			name: "UpdatePrimaryRegion",
+			run: func(t *testing.T, b *kms.InMemoryBackend) {
+				t.Helper()
+
+				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+
+				err = b.UpdatePrimaryRegion(&kms.UpdatePrimaryRegionInput{
+					KeyID:         key.KeyMetadata.KeyID,
+					PrimaryRegion: "eu-west-1",
+				})
+				require.NoError(t, err)
+
+				replica, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+					KeyID:         key.KeyMetadata.KeyID,
+					ReplicaRegion: "us-west-2",
+				})
+				require.NoError(t, err)
+				assert.True(t, replica.ReplicaKeyMetadata.MultiRegion)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t, kms.NewInMemoryBackend())
+		})
+	}
+}
+
+func TestKMSHandlerNewMaintenanceOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, b *kms.InMemoryBackend) string
+		name       string
+		action     string
+		wantField  string
+		wantStatus int
+	}{
+		{
+			name:   "GetParametersForImport",
+			action: "GetParametersForImport",
+			setup: func(t *testing.T, b *kms.InMemoryBackend) string {
+				t.Helper()
+				key, err := b.CreateKey(&kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+				require.NoError(t, err)
+
+				return `{"KeyId":"` + key.KeyMetadata.KeyID + `"}`
+			},
+			wantStatus: http.StatusOK,
+			wantField:  "ImportToken",
+		},
+		{
+			name:   "ListKeyPolicies",
+			action: "ListKeyPolicies",
+			setup: func(t *testing.T, b *kms.InMemoryBackend) string {
+				t.Helper()
+				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+
+				return `{"KeyId":"` + key.KeyMetadata.KeyID + `"}`
+			},
+			wantStatus: http.StatusOK,
+			wantField:  "PolicyNames",
+		},
+		{
+			name:   "RotateKeyOnDemand",
+			action: "RotateKeyOnDemand",
+			setup: func(t *testing.T, b *kms.InMemoryBackend) string {
+				t.Helper()
+				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+
+				return `{"KeyId":"` + key.KeyMetadata.KeyID + `"}`
+			},
+			wantStatus: http.StatusOK,
+			wantField:  "KeyId",
+		},
+		{
+			name:   "UpdateKeyDescription",
+			action: "UpdateKeyDescription",
+			setup: func(t *testing.T, b *kms.InMemoryBackend) string {
+				t.Helper()
+				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+
+				return `{"KeyId":"` + key.KeyMetadata.KeyID + `","Description":"handler update"}`
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			h := kms.NewHandler(b)
+			body := tt.setup(t, b)
+
+			rec := postKMSOp(t, h, tt.action, body)
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantField == "" {
+				return
+			}
+
+			var payload map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+			_, ok := payload[tt.wantField]
+			assert.True(t, ok)
+		})
+	}
 }

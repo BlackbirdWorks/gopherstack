@@ -183,22 +183,30 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GenerateRandom",
 		"GetKeyPolicy",
 		"GetKeyRotationStatus",
+		"GetParametersForImport",
 		"GetPublicKey",
 		"ImportKeyMaterial",
 		"ListAliases",
 		"ListGrants",
+		"ListKeyPolicies",
+		"ListKeyRotations",
 		"ListKeys",
 		"ListResourceTags",
 		"ListRetirableGrants",
 		"PutKeyPolicy",
 		"ReEncrypt",
+		"ReplicateKey",
 		"RetireGrant",
 		"RevokeGrant",
+		"RotateKeyOnDemand",
 		"ScheduleKeyDeletion",
 		"Sign",
 		"TagResource",
 		"UntagResource",
 		"UpdateAlias",
+		"UpdateCustomKeyStore",
+		"UpdateKeyDescription",
+		"UpdatePrimaryRegion",
 		"Verify",
 		"VerifyMac",
 	}
@@ -628,12 +636,13 @@ func (h *Handler) buildTagActions() map[string]kmsActionFn {
 	}
 }
 
-// buildNewOpsActions returns dispatch entries for the 10 newly implemented operations.
+// buildNewOpsActions returns dispatch entries for newly implemented KMS operations.
 // Delegates to sub-builders to stay within gocognit limits.
 func (h *Handler) buildNewOpsActions() map[string]kmsActionFn {
 	m := make(map[string]kmsActionFn)
 	maps.Copy(m, h.buildCustomKeyStoreActions())
 	maps.Copy(m, h.buildGenerateAndMacActions())
+	maps.Copy(m, h.buildReplicationAndMaintenanceActions())
 
 	return m
 }
@@ -734,6 +743,75 @@ func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 			}
 
 			return h.Backend.VerifyMac(&input)
+		},
+	}
+}
+
+func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn {
+	return map[string]kmsActionFn{
+		"GetParametersForImport": func(_ string, b []byte) (any, error) {
+			var input GetParametersForImportInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetParametersForImport(&input)
+		},
+		"ListKeyPolicies": func(_ string, b []byte) (any, error) {
+			var input ListKeyPoliciesInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListKeyPolicies(&input)
+		},
+		"ListKeyRotations": func(_ string, b []byte) (any, error) {
+			var input ListKeyRotationsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListKeyRotations(&input)
+		},
+		"ReplicateKey": func(_ string, b []byte) (any, error) {
+			var input ReplicateKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ReplicateKey(&input)
+		},
+		"RotateKeyOnDemand": func(_ string, b []byte) (any, error) {
+			var input RotateKeyOnDemandInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.RotateKeyOnDemand(&input)
+		},
+		"UpdateCustomKeyStore": func(_ string, b []byte) (any, error) {
+			var input UpdateCustomKeyStoreInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.UpdateCustomKeyStore(&input)
+		},
+		"UpdateKeyDescription": func(_ string, b []byte) (any, error) {
+			var input UpdateKeyDescriptionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.UpdateKeyDescription(&input)
+		},
+		"UpdatePrimaryRegion": func(_ string, b []byte) (any, error) {
+			var input UpdatePrimaryRegionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.UpdatePrimaryRegion(&input)
 		},
 	}
 }

@@ -73,6 +73,7 @@ var (
 
 // keyMaterial holds the actual cryptographic key bytes or keypairs for a KMS key.
 type keyMaterial struct {
+	gcm          cipher.AEAD
 	rsaKey       *rsa.PrivateKey
 	ecKey        *ecdsa.PrivateKey
 	symmetricKey []byte
@@ -95,7 +96,7 @@ func generateKeyMaterial(keySpec string) (*keyMaterial, error) {
 			return nil, fmt.Errorf("generating AES key: %w", err)
 		}
 
-		return &keyMaterial{symmetricKey: key}, nil
+		return newSymmetricKeyMaterial(key)
 	case keySpecRSA2048:
 		return generateRSAKeyMaterial(rsaBits2048)
 	case keySpecRSA3072:
@@ -144,6 +145,20 @@ func generateHMACKeyMaterial(size int) (*keyMaterial, error) {
 	}
 
 	return &keyMaterial{symmetricKey: key}, nil
+}
+
+func newSymmetricKeyMaterial(key []byte) (*keyMaterial, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("creating AES cipher: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("creating GCM: %w", err)
+	}
+
+	return &keyMaterial{symmetricKey: key, gcm: gcm}, nil
 }
 
 // computeHMAC computes an HMAC tag over message using the key material and algorithm.
@@ -283,14 +298,9 @@ func encryptSymmetric(plaintext []byte, keyID string, encCtx map[string]string, 
 		return nil, errMissingSymmetricKey
 	}
 
-	block, err := aes.NewCipher(km.symmetricKey)
+	gcm, err := symmetricAEAD(km)
 	if err != nil {
-		return nil, fmt.Errorf("creating AES cipher: %w", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("creating GCM: %w", err)
+		return nil, err
 	}
 
 	nonce := make([]byte, gcm.NonceSize())
@@ -324,12 +334,7 @@ func decryptSymmetric(blob []byte, encCtx map[string]string, km *keyMaterial) ([
 	keyID := strings.TrimRight(string(blob[:keyIDPrefixLen]), "\x00")
 	encrypted := blob[keyIDPrefixLen:]
 
-	block, err := aes.NewCipher(km.symmetricKey)
-	if err != nil {
-		return nil, "", fmt.Errorf("creating AES cipher: %w", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
+	gcm, err := symmetricAEAD(km)
 	if err != nil {
 		return nil, "", fmt.Errorf("creating GCM: %w", err)
 	}
@@ -580,7 +585,16 @@ func marshalKeyMaterial(km *keyMaterial) (serializedKeyMaterial, error) {
 // unmarshalKeyMaterial deserializes key material from a serializedKeyMaterial.
 func unmarshalKeyMaterial(s serializedKeyMaterial) (*keyMaterial, error) {
 	if len(s.SymmetricKey) > 0 {
-		return &keyMaterial{symmetricKey: s.SymmetricKey}, nil
+		km := &keyMaterial{symmetricKey: s.SymmetricKey}
+		if len(s.SymmetricKey) == aes256Bytes {
+			symmetricKM, err := newSymmetricKeyMaterial(s.SymmetricKey)
+			if err != nil {
+				return nil, err
+			}
+			km.gcm = symmetricKM.gcm
+		}
+
+		return km, nil
 	}
 
 	if len(s.PrivKeyDER) == 0 {
@@ -600,6 +614,24 @@ func unmarshalKeyMaterial(s serializedKeyMaterial) (*keyMaterial, error) {
 	default:
 		return nil, fmt.Errorf("%w: %T", errUnsupportedKeyType, priv)
 	}
+}
+
+func symmetricAEAD(km *keyMaterial) (cipher.AEAD, error) {
+	if km.gcm != nil {
+		return km.gcm, nil
+	}
+
+	block, err := aes.NewCipher(km.symmetricKey)
+	if err != nil {
+		return nil, fmt.Errorf("creating AES cipher: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("creating GCM: %w", err)
+	}
+
+	return gcm, nil
 }
 
 // defaultSigningAlgorithms returns the supported signing algorithms for a key spec.
