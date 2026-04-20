@@ -13,12 +13,15 @@ type secretSnapshot struct {
 	DeletedDate       *float64                  `json:"deletedDate,omitempty"`
 	LastChangedDate   *float64                  `json:"lastChangedDate,omitempty"`
 	LastRotatedDate   *float64                  `json:"lastRotatedDate,omitempty"`
+	LastAccessedDate  *float64                  `json:"lastAccessedDate,omitempty"`
+	CreatedDate       *float64                  `json:"createdDate,omitempty"`
 	Versions          map[string]*SecretVersion `json:"versions"`
 	ARN               string                    `json:"arn"`
 	Name              string                    `json:"name"`
 	Description       string                    `json:"description,omitempty"`
 	KmsKeyID          string                    `json:"kmsKeyID,omitempty"`
 	RotationLambdaARN string                    `json:"rotationLambdaARN,omitempty"`
+	RotationRules     *RotationRulesType        `json:"rotationRules,omitempty"`
 	CurrentVersionID  string                    `json:"currentVersionID"`
 	RotationEnabled   bool                      `json:"rotationEnabled,omitempty"`
 }
@@ -45,10 +48,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			Description:       s.Description,
 			KmsKeyID:          s.KmsKeyID,
 			RotationLambdaARN: s.RotationLambdaARN,
+			RotationRules:     cloneRotationRules(s.RotationRules),
 			Tags:              s.Tags,
 			DeletedDate:       s.DeletedDate,
 			LastChangedDate:   s.LastChangedDate,
 			LastRotatedDate:   s.LastRotatedDate,
+			LastAccessedDate:  s.LastAccessedDate,
+			CreatedDate:       s.CreatedDate,
 			Versions:          s.Versions,
 			CurrentVersionID:  s.CurrentVersionID,
 			RotationEnabled:   s.RotationEnabled,
@@ -110,10 +116,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			Description:       ss.Description,
 			KmsKeyID:          ss.KmsKeyID,
 			RotationLambdaARN: ss.RotationLambdaARN,
+			RotationRules:     cloneRotationRules(ss.RotationRules),
 			Tags:              ss.Tags,
 			DeletedDate:       ss.DeletedDate,
 			LastChangedDate:   ss.LastChangedDate,
 			LastRotatedDate:   ss.LastRotatedDate,
+			LastAccessedDate:  ss.LastAccessedDate,
+			CreatedDate:       ss.CreatedDate,
 			Versions:          ss.Versions,
 			CurrentVersionID:  ss.CurrentVersionID,
 			RotationEnabled:   ss.RotationEnabled,
@@ -136,6 +145,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.replicationConfigs = snap.ReplicationConfigs
 
 	b.ensureNonNilMaps()
+	for _, secret := range b.secrets {
+		if secret.RotationRules != nil && secret.RotationEnabled {
+			b.ensureRotationScheduler()
+
+			break
+		}
+	}
 
 	return nil
 }

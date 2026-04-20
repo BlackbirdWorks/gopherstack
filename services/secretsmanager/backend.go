@@ -3,13 +3,17 @@ package secretsmanager
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -38,7 +42,22 @@ var (
 	ErrSecretValueTooLarge = errors.New("InvalidParameterException")
 	// ErrInvalidParameter is returned when an invalid parameter value is provided.
 	ErrInvalidParameter = errors.New("InvalidParameterException")
+	// ErrInvalidSecretName is returned when a secret name does not match the allowed pattern.
+	ErrInvalidSecretName = errors.New("InvalidParameterException")
 )
+
+// secretNamePattern is the set of characters allowed in secret names by AWS.
+// AWS allows letters, digits, and the following special characters: /_+=.@-.
+var secretNamePattern = regexp.MustCompile(`^[a-zA-Z0-9/_+=.@-]+$`)
+
+// maxSecretNameLength is the maximum allowed length of a secret name.
+const maxSecretNameLength = 512
+
+// defaultRecoveryWindowDays is the default recovery window in days for soft-deleted secrets.
+const defaultRecoveryWindowDays = 30
+
+// minRecoveryWindowDays is the minimum recovery window in days.
+const minRecoveryWindowDays = 7
 
 const (
 	// defaultMaxResults is the default maximum number of secrets to list.
@@ -56,6 +75,14 @@ const (
 	maxVersionsPerSecret = 100
 	// maxSecretValueBytes is the maximum allowed size of a secret value in bytes (64 KB).
 	maxSecretValueBytes = 65536
+	// rotationSchedulerInterval controls the background schedule evaluation cadence.
+	rotationSchedulerInterval = time.Second
+	// hoursPerDay is the number of hours in a day, used for day-granularity truncation.
+	hoursPerDay = 24
+	// maxSmallPoolSize is the maximum pool size for which the rejection-sampling fast path is used.
+	maxSmallPoolSize = 256
+	// randomBufMultiplier is the over-allocation factor for the random byte buffer.
+	randomBufMultiplier = 4
 )
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
@@ -64,8 +91,10 @@ type InMemoryBackend struct {
 	resourcePolicies   map[string]string
 	replicationConfigs map[string][]ReplicationStatusType
 	mu                 *lockmetrics.RWMutex
+	now                func() time.Time
 	accountID          string
 	region             string
+	schedulerOnce      sync.Once
 }
 
 // NewInMemoryBackend creates and returns a new empty Secrets Manager backend with default account/region.
@@ -82,6 +111,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		accountID:          accountID,
 		region:             region,
 		mu:                 lockmetrics.New("secretsmanager"),
+		now:                time.Now,
 	}
 }
 
@@ -119,8 +149,36 @@ func (b *InMemoryBackend) buildARNWithRegion(region, name, suffix string) string
 	return arn.Build("secretsmanager", region, b.accountID, "secret:"+name+"-"+suffix)
 }
 
+// validateSecretName returns an error when the name is empty, too long, or contains invalid chars.
+func validateSecretName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: secret name must not be empty", ErrInvalidSecretName)
+	}
+
+	if len(name) > maxSecretNameLength {
+		return fmt.Errorf(
+			"%w: secret name must be %d characters or fewer",
+			ErrInvalidSecretName,
+			maxSecretNameLength,
+		)
+	}
+
+	if !secretNamePattern.MatchString(name) {
+		return fmt.Errorf(
+			"%w: secret name must match pattern [a-zA-Z0-9/_+=.@-]+",
+			ErrInvalidSecretName,
+		)
+	}
+
+	return nil
+}
+
 // CreateSecret creates a new secret with an optional initial value.
 func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretOutput, error) {
+	if err := validateSecretName(input.Name); err != nil {
+		return nil, err
+	}
+
 	if err := validateSecretSize(input.SecretString, input.SecretBinary); err != nil {
 		return nil, err
 	}
@@ -150,6 +208,9 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 		KmsKeyID:    input.KmsKeyID,
 		Versions:    make(map[string]*SecretVersion),
 	}
+
+	createdNow := UnixTimeFloat(time.Now())
+	secret.CreatedDate = &createdNow
 
 	if len(input.Tags) > 0 {
 		secret.Tags = tags.New(secret.Name + ".tags")
@@ -182,6 +243,7 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 	}
 
 	b.secrets[input.Name] = secret
+	b.syncReplicationStatusLocked(secret)
 
 	return &CreateSecretOutput{
 		ARN:       arn,
@@ -192,8 +254,8 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 
 // GetSecretValue retrieves the value of a secret version.
 func (b *InMemoryBackend) GetSecretValue(input *GetSecretValueInput) (*GetSecretValueOutput, error) {
-	b.mu.RLock("GetSecretValue")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetSecretValue")
+	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
@@ -210,6 +272,22 @@ func (b *InMemoryBackend) GetSecretValue(input *GetSecretValueInput) (*GetSecret
 	if version == nil {
 		return nil, ErrVersionNotFound
 	}
+
+	// When both VersionId and VersionStage are supplied, they must agree.
+	if input.VersionID != "" && input.VersionStage != "" {
+		if !slices.Contains(version.StagingLabels, input.VersionStage) {
+			return nil, fmt.Errorf(
+				"%w: staging label %s not found on version %s",
+				ErrInvalidParameter,
+				input.VersionStage,
+				input.VersionID,
+			)
+		}
+	}
+
+	// Track access date (truncated to day granularity as AWS does).
+	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
+	secret.LastAccessedDate = &accessDay
 
 	return &GetSecretValueOutput{
 		ARN:           secret.ARN,
@@ -268,6 +346,18 @@ func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecret
 		versionID = uuid.New().String()
 	}
 
+	// Idempotency: if the version ID already exists with identical content, return it.
+	if existing, ok := secret.Versions[versionID]; ok {
+		if existing.SecretString == input.SecretString && string(existing.SecretBinary) == string(input.SecretBinary) {
+			return &PutSecretValueOutput{
+				ARN:           secret.ARN,
+				Name:          secret.Name,
+				VersionID:     existing.VersionID,
+				VersionStages: existing.StagingLabels,
+			}, nil
+		}
+	}
+
 	b.rotateStagingLabels(secret)
 
 	// Determine staging labels: AWSCURRENT is always applied; any additional
@@ -292,6 +382,7 @@ func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecret
 	secret.Versions[versionID] = version
 	secret.CurrentVersionID = versionID
 	secret.LastChangedDate = &now
+	b.syncReplicationStatusLocked(secret)
 
 	pruneVersions(secret)
 
@@ -395,7 +486,7 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 		return nil, ErrSecretNotFound
 	}
 
-	now := UnixTimeFloat(time.Now())
+	now := UnixTimeFloat(b.now())
 
 	if input.ForceDeleteWithoutRecovery {
 		if secret.Tags != nil {
@@ -413,12 +504,35 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 		}, nil
 	}
 
+	// Reject deletion of an already soft-deleted secret.
+	if secret.DeletedDate != nil {
+		return nil, fmt.Errorf(
+			"%w: you can't delete a secret that's already scheduled for deletion",
+			ErrInvalidParameter,
+		)
+	}
+
+	// Validate recovery window if provided.
+	recoveryDays := int64(defaultRecoveryWindowDays)
+	if input.RecoveryWindowInDays != nil {
+		recoveryDays = *input.RecoveryWindowInDays
+		if recoveryDays < minRecoveryWindowDays || recoveryDays > defaultRecoveryWindowDays {
+			return nil, fmt.Errorf(
+				"%w: RecoveryWindowInDays must be between %d and %d",
+				ErrInvalidParameter,
+				minRecoveryWindowDays,
+				defaultRecoveryWindowDays,
+			)
+		}
+	}
+
 	secret.DeletedDate = &now
+	deletionDate := UnixTimeFloat(b.now().Add(time.Duration(recoveryDays) * hoursPerDay * time.Hour))
 
 	return &DeleteSecretOutput{
 		ARN:          secret.ARN,
 		Name:         secret.Name,
-		DeletionDate: now,
+		DeletionDate: deletionDate,
 	}, nil
 }
 
@@ -442,6 +556,10 @@ func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutp
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
+		if strings.EqualFold(input.SortOrder, "desc") {
+			return entries[i].Name > entries[j].Name
+		}
+
 		return entries[i].Name < entries[j].Name
 	})
 
@@ -475,27 +593,38 @@ func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutp
 // secretMatchesFilters returns true if the secret matches all provided filters.
 func secretMatchesFilters(s *Secret, filters []SecretFilter) bool {
 	for _, f := range filters {
-		switch f.Key {
-		case "name":
-			if !anyMatchPrefix(f.Values, s.Name) {
-				return false
-			}
-		case "description":
-			if !anyMatchPrefix(f.Values, s.Description) {
-				return false
-			}
-		case "tag-key":
-			if !secretHasTagKey(s, f.Values) {
-				return false
-			}
-		case "tag-value":
-			if !secretHasTagValue(s, f.Values) {
-				return false
-			}
+		if !secretMatchesFilter(s, f) {
+			return false
 		}
 	}
 
 	return true
+}
+
+// secretMatchesFilter returns true if the secret matches a single filter.
+func secretMatchesFilter(s *Secret, f SecretFilter) bool {
+	switch f.Key {
+	case "name":
+		return anyMatchPrefix(f.Values, s.Name)
+	case "description":
+		return anyMatchPrefix(f.Values, s.Description)
+	case "tag-key":
+		return secretHasTagKey(s, f.Values)
+	case "tag-value":
+		return secretHasTagValue(s, f.Values)
+	case "all":
+		// "all" matches any of the filterable string fields.
+		return anyMatchPrefix(f.Values, s.Name) ||
+			anyMatchPrefix(f.Values, s.Description) ||
+			secretHasTagKey(s, f.Values) ||
+			secretHasTagValue(s, f.Values)
+	case "primary-region":
+		// In a single-region mock every secret belongs to the single region;
+		// the filter always passes (no cross-region replication routing needed).
+		return true
+	default:
+		return true
+	}
 }
 
 // anyMatchPrefix returns true if target has any of the given values as a prefix.
@@ -626,20 +755,55 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 		versionIDsToStages[vID] = v.StagingLabels
 	}
 
-	return &DescribeSecretOutput{
+	out := &DescribeSecretOutput{
 		ARN:                secret.ARN,
 		Name:               secret.Name,
 		Description:        secret.Description,
 		KmsKeyID:           secret.KmsKeyID,
 		RotationLambdaARN:  secret.RotationLambdaARN,
+		RotationRules:      cloneRotationRules(secret.RotationRules),
 		Tags:               secret.Tags,
+		CreatedDate:        secret.CreatedDate,
 		DeletedDate:        secret.DeletedDate,
 		LastChangedDate:    secret.LastChangedDate,
 		LastRotatedDate:    secret.LastRotatedDate,
+		LastAccessedDate:   secret.LastAccessedDate,
 		VersionIDsToStages: versionIDsToStages,
 		RotationEnabled:    secret.RotationEnabled,
 		ReplicationStatus:  b.replicationConfigs[name],
-	}, nil
+	}
+
+	// Compute NextRotationDate from the last rotation base + interval.
+	out.NextRotationDate = computeNextRotationDate(secret)
+
+	return out, nil
+}
+
+// computeNextRotationDate returns the predicted next rotation timestamp for a secret, or nil if
+// rotation is not configured or cannot be computed.
+func computeNextRotationDate(secret *Secret) *float64 {
+	if !secret.RotationEnabled || secret.RotationRules == nil {
+		return nil
+	}
+
+	interval, ok := rotationInterval(secret.RotationRules)
+	if !ok {
+		return nil
+	}
+
+	base := secret.LastRotatedDate
+	if base == nil {
+		base = secret.LastChangedDate
+	}
+
+	if base == nil {
+		return nil
+	}
+
+	baseTime := time.Unix(0, int64(*base*float64(time.Second)))
+	nextFloat := UnixTimeFloat(baseTime.Add(interval))
+
+	return &nextFloat
 }
 
 // UpdateSecret updates the description of a secret and optionally creates a new version.
@@ -666,10 +830,29 @@ func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretO
 		secret.Description = input.Description
 	}
 
+	if input.KmsKeyID != "" {
+		secret.KmsKeyID = input.KmsKeyID
+	}
+
 	var versionID string
 
 	if input.SecretString != "" || len(input.SecretBinary) > 0 {
-		versionID = uuid.New().String()
+		versionID = input.ClientRequestToken
+		if versionID == "" {
+			versionID = uuid.New().String()
+		}
+
+		// Idempotency: if a version with this token already exists and content matches, skip.
+		if existing, ok := secret.Versions[versionID]; ok {
+			if existing.SecretString == input.SecretString &&
+				string(existing.SecretBinary) == string(input.SecretBinary) {
+				return &UpdateSecretOutput{
+					ARN:       secret.ARN,
+					Name:      secret.Name,
+					VersionID: versionID,
+				}, nil
+			}
+		}
 
 		b.rotateStagingLabels(secret)
 
@@ -685,6 +868,7 @@ func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretO
 		secret.Versions[versionID] = version
 		secret.CurrentVersionID = versionID
 		secret.LastChangedDate = &now
+		b.syncReplicationStatusLocked(secret)
 
 		pruneVersions(secret)
 	}
@@ -706,6 +890,16 @@ func (b *InMemoryBackend) RestoreSecret(input *RestoreSecretInput) (*RestoreSecr
 	secret, exists := b.secrets[name]
 	if !exists {
 		return nil, ErrSecretNotFound
+	}
+
+	// AWS returns InvalidRequestException when trying to restore a secret that
+	// is not in a deleted (pending deletion) state.
+	if secret.DeletedDate == nil {
+		return nil, fmt.Errorf(
+			"%w: secret %s is not in a deleted state",
+			ErrInvalidParameter,
+			input.SecretID,
+		)
 	}
 
 	secret.DeletedDate = nil
@@ -737,11 +931,18 @@ func (b *InMemoryBackend) ListAll() []SecretListEntry {
 // secretToListEntry converts a Secret to a SecretListEntry.
 func secretToListEntry(s *Secret) SecretListEntry {
 	return SecretListEntry{
-		ARN:         s.ARN,
-		Name:        s.Name,
-		Description: s.Description,
-		DeletedDate: s.DeletedDate,
-		Tags:        s.Tags,
+		ARN:               s.ARN,
+		Name:              s.Name,
+		Description:       s.Description,
+		KmsKeyID:          s.KmsKeyID,
+		RotationLambdaARN: s.RotationLambdaARN,
+		RotationEnabled:   s.RotationEnabled,
+		DeletedDate:       s.DeletedDate,
+		LastChangedDate:   s.LastChangedDate,
+		LastAccessedDate:  s.LastAccessedDate,
+		LastRotatedDate:   s.LastRotatedDate,
+		CreatedDate:       s.CreatedDate,
+		Tags:              s.Tags,
 	}
 }
 
@@ -821,42 +1022,106 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 		return nil, ErrSecretDeleted
 	}
 
-	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
-	if currentVer == nil {
-		return nil, ErrVersionNotFound
-	}
-
-	versionID := generateVersionID()
-
-	newVer := &SecretVersion{
-		VersionID:     versionID,
-		SecretString:  currentVer.SecretString,
-		SecretBinary:  currentVer.SecretBinary,
-		StagingLabels: []string{"AWSPENDING"},
-		CreatedDate:   UnixTimeFloat(time.Now()),
-	}
-	secret.Versions[versionID] = newVer
-
-	b.rotateStagingLabels(secret)
-	newVer.StagingLabels = []string{StagingLabelCurrent}
-	secret.CurrentVersionID = versionID
-	secret.RotationEnabled = true
-
 	if input.RotationLambdaARN != "" {
 		secret.RotationLambdaARN = input.RotationLambdaARN
 	}
 
-	now := UnixTimeFloat(time.Now())
-	secret.LastChangedDate = &now
-	secret.LastRotatedDate = &now
+	if input.RotationRules != nil {
+		if err := validateRotationRules(input.RotationRules); err != nil {
+			return nil, err
+		}
 
-	pruneVersions(secret)
+		secret.RotationRules = cloneRotationRules(input.RotationRules)
+		secret.RotationEnabled = true
+		b.ensureRotationScheduler()
+	}
+
+	rotateImmediately := true
+	if input.RotateImmediately != nil {
+		rotateImmediately = *input.RotateImmediately
+	}
+
+	if !rotateImmediately {
+		return &RotateSecretOutput{
+			ARN:  secret.ARN,
+			Name: secret.Name,
+		}, nil
+	}
+
+	versionID, err := b.rotateSecretLocked(secret)
+	if err != nil {
+		return nil, err
+	}
 
 	return &RotateSecretOutput{
 		ARN:       secret.ARN,
 		Name:      secret.Name,
 		VersionID: versionID,
 	}, nil
+}
+
+func (b *InMemoryBackend) rotateSecretLocked(secret *Secret) (string, error) {
+	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
+	if currentVer == nil {
+		return "", ErrVersionNotFound
+	}
+
+	versionID := generateVersionID()
+	newVer := &SecretVersion{
+		VersionID:     versionID,
+		SecretString:  currentVer.SecretString,
+		SecretBinary:  currentVer.SecretBinary,
+		StagingLabels: []string{"AWSPENDING"},
+		CreatedDate:   UnixTimeFloat(b.now()),
+	}
+	secret.Versions[versionID] = newVer
+	b.rotateStagingLabels(secret)
+	newVer.StagingLabels = []string{StagingLabelCurrent}
+	secret.CurrentVersionID = versionID
+	secret.RotationEnabled = true
+	now := UnixTimeFloat(b.now())
+	secret.LastChangedDate = &now
+	secret.LastRotatedDate = &now
+	pruneVersions(secret)
+	b.syncReplicationStatusLocked(secret)
+
+	return versionID, nil
+}
+
+func cloneRotationRules(rules *RotationRulesType) *RotationRulesType {
+	if rules == nil {
+		return nil
+	}
+
+	cloned := *rules
+	if rules.AutomaticallyAfterDays != nil {
+		days := *rules.AutomaticallyAfterDays
+		cloned.AutomaticallyAfterDays = &days
+	}
+
+	return &cloned
+}
+
+// validateRotationRules checks that rotation rule values are within AWS-allowed bounds.
+func validateRotationRules(rules *RotationRulesType) error {
+	const (
+		minRotationDays = 1
+		maxRotationDays = 365
+	)
+
+	if rules.AutomaticallyAfterDays != nil {
+		days := *rules.AutomaticallyAfterDays
+		if days < minRotationDays || days > maxRotationDays {
+			return fmt.Errorf(
+				"%w: AutomaticallyAfterDays must be between %d and %d",
+				ErrInvalidParameter,
+				minRotationDays,
+				maxRotationDays,
+			)
+		}
+	}
+
+	return nil
 }
 
 // GetRandomPassword generates a cryptographically random password according to the given constraints.
@@ -959,7 +1224,65 @@ func buildPasswordCharset(input *GetRandomPasswordInput) ([]rune, []string, erro
 }
 
 // randomRunes fills a slice of runes with random characters drawn from pool.
+// It uses a single io.ReadFull call to fetch a random byte buffer, eliminating
+// per-character big.Int allocations that are costly for long passwords.
 func randomRunes(pool []rune, length int) ([]rune, error) {
+	if len(pool) == 0 || length == 0 {
+		return make([]rune, length), nil
+	}
+
+	poolSize := len(pool)
+
+	// Use rejection sampling with a power-of-two mask when pool is small enough
+	// to avoid modulo bias while minimising random bytes consumed.
+	// For pool sizes > maxSmallPoolSize fall back to per-character cryptoRandInt.
+	if poolSize <= maxSmallPoolSize {
+		return randomRunesSmallPool(pool, length)
+	}
+
+	return randomRunesLargePool(pool, length)
+}
+
+// randomRunesSmallPool fills a rune slice using rejection-sampling with a byte buffer.
+// It is used when pool size fits in one byte (≤ maxSmallPoolSize).
+func randomRunesSmallPool(pool []rune, length int) ([]rune, error) {
+	pw := make([]rune, length)
+	poolSize := len(pool)
+
+	// Find smallest mask that covers poolSize.
+	mask := byte(1)
+	for int(mask) < poolSize {
+		mask = (mask << 1) | 1
+	}
+
+	buf := make([]byte, length*randomBufMultiplier)
+	filled := 0
+	offset := len(buf) // trigger initial fill
+
+	for filled < length {
+		if offset >= len(buf) {
+			if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+				return nil, fmt.Errorf("random password generation: %w", err)
+			}
+
+			offset = 0
+		}
+
+		idx := int(buf[offset] & mask)
+		offset++
+
+		if idx < poolSize {
+			pw[filled] = pool[idx]
+			filled++
+		}
+	}
+
+	return pw, nil
+}
+
+// randomRunesLargePool fills a rune slice using per-character cryptoRandInt.
+// It is used when pool size exceeds maxSmallPoolSize.
+func randomRunesLargePool(pool []rune, length int) ([]rune, error) {
 	pw := make([]rune, length)
 
 	for i := range pw {
@@ -1396,7 +1719,11 @@ func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput)
 }
 
 // replicationStatusInSync is the status used for in-sync replicas.
-const replicationStatusInSync = "InSync"
+const (
+	replicationStatusFailed     = "Failed"
+	replicationStatusInProgress = "InProgress"
+	replicationStatusInSync     = "InSync"
+)
 
 // ReplicateSecretToRegions adds replication configuration for the specified regions.
 func (b *InMemoryBackend) ReplicateSecretToRegions(
@@ -1425,9 +1752,10 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 
 	for _, replica := range input.AddReplicaRegions {
 		status := ReplicationStatusType{
-			Region:   replica.Region,
-			KmsKeyID: replica.KmsKeyID,
-			Status:   replicationStatusInSync,
+			Region:        replica.Region,
+			KmsKeyID:      replica.KmsKeyID,
+			Status:        replicationStatusInProgress,
+			StatusMessage: "replication queued",
 		}
 
 		if idx, found := existingByRegion[replica.Region]; found {
@@ -1438,10 +1766,11 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 	}
 
 	b.replicationConfigs[name] = existing
+	b.syncReplicationStatusLocked(secret)
 
 	return &ReplicateSecretToRegionsOutput{
 		ARN:               secret.ARN,
-		ReplicationStatus: existing,
+		ReplicationStatus: b.replicationConfigs[name],
 	}, nil
 }
 
@@ -1616,6 +1945,120 @@ func (b *InMemoryBackend) Reset() {
 	b.replicationConfigs = make(map[string][]ReplicationStatusType)
 }
 
+func (b *InMemoryBackend) ensureRotationScheduler() {
+	b.schedulerOnce.Do(func() {
+		go b.rotationSchedulerLoop()
+	})
+}
+
+func (b *InMemoryBackend) rotationSchedulerLoop() {
+	ticker := time.NewTicker(rotationSchedulerInterval)
+	defer ticker.Stop()
+
+	for now := range ticker.C {
+		b.runScheduledRotations(now)
+	}
+}
+
+func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
+	b.mu.Lock("rotationScheduler")
+	defer b.mu.Unlock()
+
+	for _, secret := range b.secrets {
+		if secret.DeletedDate != nil || !secret.RotationEnabled || secret.RotationRules == nil {
+			continue
+		}
+
+		interval, ok := rotationInterval(secret.RotationRules)
+		if !ok {
+			continue
+		}
+
+		base := secret.LastRotatedDate
+		if base == nil {
+			base = secret.LastChangedDate
+		}
+		if base == nil || now.Before(time.Unix(0, int64(*base*float64(time.Second)))) {
+			continue
+		}
+
+		if now.Sub(time.Unix(0, int64(*base*float64(time.Second)))) < interval {
+			continue
+		}
+
+		_, _ = b.rotateSecretLocked(secret)
+	}
+}
+
+func rotationInterval(rules *RotationRulesType) (time.Duration, bool) {
+	const rateExpressionParts = 2
+
+	if rules == nil {
+		return 0, false
+	}
+
+	if rules.AutomaticallyAfterDays != nil && *rules.AutomaticallyAfterDays > 0 {
+		return time.Duration(*rules.AutomaticallyAfterDays) * 24 * time.Hour, true
+	}
+
+	expr := strings.TrimSpace(rules.ScheduleExpression)
+	if expr == "" {
+		return 0, false
+	}
+	if !strings.HasPrefix(expr, "rate(") || !strings.HasSuffix(expr, ")") {
+		return 0, false
+	}
+
+	payload := strings.TrimSuffix(strings.TrimPrefix(expr, "rate("), ")")
+	parts := strings.Fields(payload)
+	if len(parts) != rateExpressionParts {
+		return 0, false
+	}
+
+	n, err := strconv.Atoi(parts[0])
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+
+	switch parts[1] {
+	case "second", "seconds":
+		return time.Duration(n) * time.Second, true
+	case "minute", "minutes":
+		return time.Duration(n) * time.Minute, true
+	case "hour", "hours":
+		return time.Duration(n) * time.Hour, true
+	case "day", "days":
+		return time.Duration(n) * 24 * time.Hour, true
+	default:
+		return 0, false
+	}
+}
+
+func (b *InMemoryBackend) syncReplicationStatusLocked(secret *Secret) {
+	statuses, exists := b.replicationConfigs[secret.Name]
+	if !exists || len(statuses) == 0 {
+		return
+	}
+
+	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
+	if currentVer == nil {
+		for i := range statuses {
+			statuses[i].Status = replicationStatusFailed
+			statuses[i].StatusMessage = "no current secret version to replicate"
+		}
+		b.replicationConfigs[secret.Name] = statuses
+
+		return
+	}
+
+	for i := range statuses {
+		statuses[i].Status = replicationStatusInSync
+		statuses[i].StatusMessage = "replicated version " + currentVer.VersionID
+	}
+
+	b.replicationConfigs[secret.Name] = statuses
+}
+
 // AccountID returns the AWS account ID configured for this backend.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
@@ -1626,4 +2069,61 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // Must not be called concurrently with other operations.
 func (b *InMemoryBackend) AddSecretInternal(s *Secret) {
 	b.secrets[s.Name] = s
+}
+
+// ValidateResourcePolicy validates a resource-based policy document for a secret.
+// It performs basic structural validation and returns any detected issues.
+func (b *InMemoryBackend) ValidateResourcePolicy(
+	input *ValidateResourcePolicyInput,
+) (*ValidateResourcePolicyOutput, error) {
+	if input.ResourcePolicy == "" {
+		return nil, fmt.Errorf("%w: ResourcePolicy must not be empty", ErrInvalidParameter)
+	}
+
+	// If a secret ID is provided, verify the secret exists.
+	if input.SecretID != "" {
+		b.mu.RLock("ValidateResourcePolicy")
+		defer b.mu.RUnlock()
+
+		name := resolveSecretID(input.SecretID)
+		if _, ok := b.secrets[name]; !ok {
+			return nil, ErrSecretNotFound
+		}
+	}
+
+	// Parse the JSON policy document.
+	var policy map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input.ResourcePolicy), &policy); err != nil {
+		return &ValidateResourcePolicyOutput{
+			PolicyValidationPassed: false,
+			ValidationErrors: []PolicyValidationException{
+				{
+					CheckName:    "SyntaxCheck",
+					ErrorMessage: "Policy document is not valid JSON: " + err.Error(),
+				},
+			},
+		}, nil
+	}
+
+	var errs []PolicyValidationException
+
+	// Validate required top-level fields.
+	if _, hasVersion := policy["Version"]; !hasVersion {
+		errs = append(errs, PolicyValidationException{
+			CheckName:    "VersionCheck",
+			ErrorMessage: "Policy document must include a Version element.",
+		})
+	}
+
+	if _, hasStatement := policy["Statement"]; !hasStatement {
+		errs = append(errs, PolicyValidationException{
+			CheckName:    "StatementCheck",
+			ErrorMessage: "Policy document must include a Statement element.",
+		})
+	}
+
+	return &ValidateResourcePolicyOutput{
+		PolicyValidationPassed: len(errs) == 0,
+		ValidationErrors:       errs,
+	}, nil
 }

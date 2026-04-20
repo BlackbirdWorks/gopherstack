@@ -47,6 +47,10 @@ type Secret struct {
 	LastChangedDate *float64 `json:"-"`
 	// LastRotatedDate is the Unix timestamp of the most recent successful rotation.
 	LastRotatedDate *float64 `json:"-"`
+	// LastAccessedDate is the Unix timestamp of the most recent GetSecretValue call.
+	LastAccessedDate *float64 `json:"-"`
+	// CreatedDate is the Unix timestamp when this secret was created.
+	CreatedDate *float64 `json:"-"`
 	// ARN is the full ARN of the secret.
 	ARN string `json:"ARN"`
 	// Name is the human-readable name of the secret.
@@ -57,10 +61,22 @@ type Secret struct {
 	KmsKeyID string `json:"-"`
 	// RotationLambdaARN is the ARN of the Lambda used for rotation.
 	RotationLambdaARN string `json:"-"`
+	// RotationRules configures automatic secret rotation schedules.
+	RotationRules *RotationRulesType `json:"-"`
 	// CurrentVersionId is the VersionId with the AWSCURRENT label.
 	CurrentVersionID string `json:"-"`
 	// RotationEnabled is true after RotateSecret has been called at least once.
 	RotationEnabled bool `json:"-"`
+}
+
+// RotationRulesType configures automatic secret rotation scheduling.
+type RotationRulesType struct {
+	// AutomaticallyAfterDays rotates the secret after this many days.
+	AutomaticallyAfterDays *int64 `json:"AutomaticallyAfterDays,omitempty"`
+	// Duration is an optional ISO-8601 duration window for rotation.
+	Duration string `json:"Duration,omitempty"`
+	// ScheduleExpression is an optional cron/rate expression for rotation scheduling.
+	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
 }
 
 // CreateSecretInput is the request payload for CreateSecret.
@@ -146,6 +162,9 @@ type PutSecretValueOutput struct {
 
 // DeleteSecretInput is the request payload for DeleteSecret.
 type DeleteSecretInput struct {
+	// RecoveryWindowInDays is the number of days before the secret can be deleted.
+	// Must be between 7 and 30 inclusive. Defaults to 30 when not set.
+	RecoveryWindowInDays *int64 `json:"RecoveryWindowInDays,omitempty"`
 	// SecretId is the name or ARN of the secret to delete.
 	SecretID string `json:"SecretId"`
 	// ForceDeleteWithoutRecovery deletes immediately when true.
@@ -164,17 +183,25 @@ type DeleteSecretOutput struct {
 
 // SecretListEntry is a brief secret descriptor used in ListSecrets.
 type SecretListEntry struct {
-	DeletedDate *float64   `json:"DeletedDate,omitempty"`
-	Tags        *tags.Tags `json:"Tags,omitempty"`
-	ARN         string     `json:"ARN"`
-	Name        string     `json:"Name"`
-	Description string     `json:"Description,omitempty"`
+	DeletedDate       *float64   `json:"DeletedDate,omitempty"`
+	LastChangedDate   *float64   `json:"LastChangedDate,omitempty"`
+	LastAccessedDate  *float64   `json:"LastAccessedDate,omitempty"`
+	LastRotatedDate   *float64   `json:"LastRotatedDate,omitempty"`
+	CreatedDate       *float64   `json:"CreatedDate,omitempty"`
+	Tags              *tags.Tags `json:"Tags,omitempty"`
+	ARN               string     `json:"ARN"`
+	Name              string     `json:"Name"`
+	Description       string     `json:"Description,omitempty"`
+	KmsKeyID          string     `json:"KmsKeyId,omitempty"`
+	RotationLambdaARN string     `json:"RotationLambdaARN,omitempty"`
+	RotationEnabled   bool       `json:"RotationEnabled,omitempty"`
 }
 
 // ListSecretsInput is the request payload for ListSecrets.
 type ListSecretsInput struct {
 	MaxResults     *int64         `json:"MaxResults,omitempty"`
 	NextToken      string         `json:"NextToken,omitempty"`
+	SortOrder      string         `json:"SortOrder,omitempty"` // "asc" or "desc"
 	Filters        []SecretFilter `json:"Filters,omitempty"`
 	IncludeDeleted bool           `json:"IncludeDeleted,omitempty"`
 }
@@ -203,28 +230,30 @@ type DescribeSecretInput struct {
 type DescribeSecretOutput struct {
 	Tags               *tags.Tags              `json:"Tags,omitempty"`
 	DeletedDate        *float64                `json:"DeletedDate,omitempty"`
+	CreatedDate        *float64                `json:"CreatedDate,omitempty"`
 	LastChangedDate    *float64                `json:"LastChangedDate,omitempty"`
 	LastRotatedDate    *float64                `json:"LastRotatedDate,omitempty"`
+	LastAccessedDate   *float64                `json:"LastAccessedDate,omitempty"`
+	NextRotationDate   *float64                `json:"NextRotationDate,omitempty"`
 	VersionIDsToStages map[string][]string     `json:"VersionIdsToStages,omitempty"`
 	ARN                string                  `json:"ARN"`
 	Name               string                  `json:"Name"`
 	Description        string                  `json:"Description,omitempty"`
 	KmsKeyID           string                  `json:"KmsKeyId,omitempty"`
 	RotationLambdaARN  string                  `json:"RotationLambdaARN,omitempty"`
+	RotationRules      *RotationRulesType      `json:"RotationRules,omitempty"`
 	ReplicationStatus  []ReplicationStatusType `json:"ReplicationStatus,omitempty"`
 	RotationEnabled    bool                    `json:"RotationEnabled"`
 }
 
 // UpdateSecretInput is the request payload for UpdateSecret.
 type UpdateSecretInput struct {
-	// SecretId is the name or ARN of the secret.
-	SecretID string `json:"SecretId"`
-	// Description is the new description (empty string clears it).
-	Description string `json:"Description,omitempty"`
-	// SecretString is a new string value, creating a new version.
-	SecretString string `json:"SecretString,omitempty"`
-	// SecretBinary is a new binary value, creating a new version.
-	SecretBinary []byte `json:"SecretBinary,omitempty"`
+	SecretID           string `json:"SecretId"`
+	Description        string `json:"Description,omitempty"`
+	KmsKeyID           string `json:"KmsKeyId,omitempty"`
+	SecretString       string `json:"SecretString,omitempty"`
+	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	SecretBinary       []byte `json:"SecretBinary,omitempty"`
 }
 
 // UpdateSecretOutput is the response payload for UpdateSecret.
@@ -265,9 +294,11 @@ type UntagResourceInput struct {
 
 // RotateSecretInput is the request payload for RotateSecret.
 type RotateSecretInput struct {
-	SecretID           string `json:"SecretId"`
-	RotationLambdaARN  string `json:"RotationLambdaARN,omitempty"`
-	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	SecretID           string             `json:"SecretId"`
+	RotationLambdaARN  string             `json:"RotationLambdaARN,omitempty"`
+	RotationRules      *RotationRulesType `json:"RotationRules,omitempty"`
+	RotateImmediately  *bool              `json:"RotateImmediately,omitempty"`
+	ClientRequestToken string             `json:"ClientRequestToken,omitempty"`
 }
 
 // RotateSecretOutput is the response payload for RotateSecret.
@@ -542,4 +573,28 @@ type UpdateSecretVersionStageOutput struct {
 	ARN string `json:"ARN"`
 	// Name is the name of the secret.
 	Name string `json:"Name"`
+}
+
+// ValidateResourcePolicyInput is the request payload for ValidateResourcePolicy.
+type ValidateResourcePolicyInput struct {
+	// SecretId is the optional name or ARN of the secret to validate the policy against.
+	SecretID string `json:"SecretId,omitempty"`
+	// ResourcePolicy is the resource-based policy document to validate.
+	ResourcePolicy string `json:"ResourcePolicy"`
+}
+
+// PolicyValidationException represents a single policy validation failure.
+type PolicyValidationException struct {
+	// CheckName identifies the validation rule.
+	CheckName string `json:"CheckName"`
+	// ErrorMessage describes the issue.
+	ErrorMessage string `json:"ErrorMessage"`
+}
+
+// ValidateResourcePolicyOutput is the response payload for ValidateResourcePolicy.
+type ValidateResourcePolicyOutput struct {
+	// ValidationErrors is the list of validation errors (empty when PolicyValidationPassed is true).
+	ValidationErrors []PolicyValidationException `json:"ValidationErrors,omitempty"`
+	// PolicyValidationPassed is true when no validation errors were found.
+	PolicyValidationPassed bool `json:"PolicyValidationPassed"`
 }

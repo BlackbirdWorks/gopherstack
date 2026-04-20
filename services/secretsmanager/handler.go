@@ -87,6 +87,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UntagResource",
 		"UpdateSecret",
 		"UpdateSecretVersionStage",
+		"ValidateResourcePolicy",
 	}
 }
 
@@ -231,6 +232,14 @@ func (h *Handler) smExtendedActions() map[string]smActionFn {
 			}
 
 			return h.Backend.StopReplicationToReplica(&input)
+		},
+		"ValidateResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input ValidateResourcePolicyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ValidateResourcePolicy(&input)
 		},
 	}
 }
@@ -398,7 +407,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "InvalidRequestException"
 	case errors.Is(reqErr, ErrSecretValueTooLarge),
 		errors.Is(reqErr, ErrInvalidPasswordParameters),
-		errors.Is(reqErr, ErrInvalidParameter):
+		errors.Is(reqErr, ErrInvalidParameter),
+		errors.Is(reqErr, ErrInvalidSecretName):
 		errorType = "InvalidParameterException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"
