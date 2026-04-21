@@ -41,6 +41,11 @@ import { Waves, Search, RefreshCw, Plus, Trash2, Send, Download, Tag, Shield, Ac
 
 const kinesis = getKinesisClient();
 
+// Converts a Uint8Array to a base64 string.
+function toBase64(arr: Uint8Array): string {
+  return btoa(arr.reduce((s, b) => s + String.fromCodePoint(b), ''));
+}
+
 // ─── Streams list ───────────────────────────────────────────────
 let loading = $state(false);
 let streams = $state<string[]>([]);
@@ -384,7 +389,6 @@ const recRes = await kinesis.send(new GetRecordsCommand({
 ShardIterator: iterator,
 Limit: 50
 }));
-const toBase64 = (arr: Uint8Array) => btoa(arr.reduce((s, b) => s + String.fromCharCode(b), ''));
 records = (recRes.Records ?? []).map((r) => {
     let data = '';
     let rawData = '';

@@ -151,7 +151,7 @@ type StreamInfo struct {
 
 // ShardIterator holds the position within a shard for GetRecords.
 type ShardIterator struct {
-	CreatedAt      time.Time `json:"CreatedAt,omitempty"`
+	CreatedAt      time.Time `json:"CreatedAt"`
 	StreamName     string    `json:"StreamName"`
 	ShardID        string    `json:"ShardID"`
 	SequenceNumber string    `json:"SequenceNumber"`
