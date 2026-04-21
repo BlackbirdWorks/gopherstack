@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -75,6 +76,35 @@ type StorageBackend interface {
 	CreateEndpoint(input CreateEndpointInput) (*Endpoint, error)
 	DeauthorizeConnection(name string) (*Connection, error)
 	DeleteAPIDestination(name string) error
+	DeleteArchive(name string) error
+	DescribeArchive(name string) (*Archive, error)
+	ListArchives(namePrefix, nextToken string) ([]Archive, string, error)
+	UpdateArchive(input UpdateArchiveInput) (*Archive, error)
+	DeleteConnection(name string) error
+	DescribeConnection(name string) (*Connection, error)
+	ListConnections(namePrefix, nextToken string) ([]Connection, string, error)
+	UpdateConnection(input UpdateConnectionInput) (*Connection, error)
+	DeleteEndpoint(name string) error
+	DescribeEndpoint(name string) (*Endpoint, error)
+	ListEndpoints(namePrefix, nextToken string) ([]Endpoint, string, error)
+	UpdateEndpoint(input UpdateEndpointInput) (*Endpoint, error)
+	DescribeAPIDestination(name string) (*APIDestination, error)
+	ListAPIDestinations(namePrefix, nextToken string) ([]APIDestination, string, error)
+	UpdateAPIDestination(input UpdateAPIDestinationInput) (*APIDestination, error)
+	DescribeEventSource(name string) (*EventSource, error)
+	ListEventSources(namePrefix, nextToken string) ([]EventSource, string, error)
+	DescribePartnerEventSource(name string) (*PartnerEventSource, error)
+	DeletePartnerEventSource(name string) error
+	ListPartnerEventSources(namePrefix, nextToken string) ([]PartnerEventSource, string, error)
+	PutPartnerEvents(entries []EventEntry) []EventResultEntry
+	DescribeReplay(name string) (*Replay, error)
+	ListReplays(namePrefix, nextToken string) ([]Replay, string, error)
+	StartReplay(input StartReplayInput) (*Replay, error)
+	ListRuleNamesByTarget(targetARN, eventBusName, nextToken string) ([]string, string, error)
+	TestEventPattern(pattern, event string) (bool, error)
+	UpdateEventBus(input UpdateEventBusInput) (*EventBus, error)
+	PutPermission(input PutPermissionInput) error
+	RemovePermission(input RemovePermissionInput) error
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -273,6 +303,9 @@ func (b *InMemoryBackend) getOrCompilePattern(patternJSON string) (*compiledPatt
 }
 
 func (b *InMemoryBackend) addRuleToIndex(rule *Rule) {
+	if rule.compiledPattern == nil && rule.EventPattern == "" {
+		return
+	}
 	indexes := b.ruleIndex[rule.EventBusName]
 	if indexes == nil {
 		indexes = make(map[ruleIndexKey]map[string]*Rule)

@@ -72,8 +72,8 @@ func (s *Scheduler) initLastFired(lastFired map[string]time.Time, now time.Time)
 func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired map[string]time.Time) {
 	s.backend.mu.RLock("processTick")
 	type ruleInfo struct {
-		rule    Rule
 		busName string
+		rule    Rule
 	}
 
 	var scheduled []ruleInfo
