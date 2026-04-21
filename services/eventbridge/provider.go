@@ -38,6 +38,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	// Attach the scheduled-rules scheduler so it runs as a BackgroundWorker.
 	scheduler := NewScheduler(backend, 0 /* default tick interval */)
 	handler.SetScheduler(scheduler)
+	handler.SetArchiveJanitor(NewArchiveJanitor(backend, 0))
 
 	return handler, nil
 }

@@ -20,6 +20,8 @@ type Rule struct {
 	Description        string `json:"Description,omitempty"`
 	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
 	RoleArn            string `json:"RoleArn,omitempty"`
+	compiledPattern    *compiledPattern
+	indexKeys          []ruleIndexKey
 }
 
 // Target represents an EventBridge rule target.

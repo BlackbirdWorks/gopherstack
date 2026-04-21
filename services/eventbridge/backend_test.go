@@ -584,3 +584,168 @@ func TestBackend_DeliveryTimeout_ContextPassedToTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestPutRule_PatternCompilationCache(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantSecondError error
+		name            string
+		firstPattern    string
+		secondPattern   string
+		wantCacheSize   int
+	}{
+		{
+			name:          "same_pattern_reuses_cached_compilation",
+			firstPattern:  `{"source":["svc-a"]}`,
+			secondPattern: `{"source":["svc-a"]}`,
+			wantCacheSize: 1,
+		},
+		{
+			name:          "different_patterns_cache_separately",
+			firstPattern:  `{"source":["svc-a"]}`,
+			secondPattern: `{"source":["svc-b"]}`,
+			wantCacheSize: 2,
+		},
+		{
+			name:            "invalid_pattern_returns_invalid_parameter",
+			firstPattern:    `{"source":["svc-a"]}`,
+			secondPattern:   `{"source":[}`,
+			wantCacheSize:   1,
+			wantSecondError: eventbridge.ErrInvalidParameter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+			_, err := backend.PutRule(eventbridge.PutRuleInput{
+				Name:         "rule-1",
+				EventPattern: tt.firstPattern,
+			})
+			require.NoError(t, err)
+
+			_, err = backend.PutRule(eventbridge.PutRuleInput{
+				Name:         "rule-2",
+				EventPattern: tt.secondPattern,
+			})
+			if tt.wantSecondError != nil {
+				require.ErrorIs(t, err, tt.wantSecondError)
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, tt.wantCacheSize, backend.PatternCacheSize())
+		})
+	}
+}
+
+func TestPutRule_RuleIndexUpdatedOnRuleUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		firstSource string
+		nextSource  string
+	}{
+		{
+			name:        "updated_rule_stops_matching_old_source",
+			firstSource: "source-a",
+			nextSource:  "source-b",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sqsSender := newMockSQSSender()
+			backend := eventbridge.NewInMemoryBackend()
+			backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{SQS: sqsSender})
+
+			_, err := backend.PutRule(eventbridge.PutRuleInput{
+				Name:         "idx-rule",
+				EventPattern: `{"source":["` + tt.firstSource + `"],"detail-type":["first"]}`,
+				State:        "ENABLED",
+			})
+			require.NoError(t, err)
+
+			_, err = backend.PutTargets("idx-rule", "default", []eventbridge.Target{
+				{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:index-queue"},
+			})
+			require.NoError(t, err)
+
+			_, err = backend.PutRule(eventbridge.PutRuleInput{
+				Name:         "idx-rule",
+				EventPattern: `{"source":["` + tt.nextSource + `"],"detail-type":["first"]}`,
+				State:        "ENABLED",
+			})
+			require.NoError(t, err)
+
+			backend.PutEvents([]eventbridge.EventEntry{
+				{Source: tt.firstSource, DetailType: "first", Detail: `{}`},
+				{Source: tt.nextSource, DetailType: "first", Detail: `{}`},
+			})
+
+			require.Eventually(t, func() bool {
+				return len(sqsSender.MessagesFor("arn:aws:sqs:us-east-1:123456789012:index-queue")) == 1
+			}, 2*time.Second, 10*time.Millisecond)
+		})
+	}
+}
+
+func TestArchiveJanitor_SweepOnce(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		archiveName    string
+		retentionDays  int
+		age            time.Duration
+		expectArchived bool
+	}{
+		{
+			name:           "expired_archive_is_removed",
+			archiveName:    "expired",
+			retentionDays:  1,
+			age:            48 * time.Hour,
+			expectArchived: false,
+		},
+		{
+			name:           "archive_without_retention_is_kept",
+			archiveName:    "keep-forever",
+			retentionDays:  0,
+			age:            365 * 24 * time.Hour,
+			expectArchived: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			_, err := backend.CreateArchive(eventbridge.CreateArchiveInput{
+				ArchiveName:    tt.archiveName,
+				EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/default",
+				RetentionDays:  tt.retentionDays,
+			})
+			require.NoError(t, err)
+
+			err = backend.SetArchiveCreationTimeForTest(tt.archiveName, time.Now().Add(-tt.age))
+			require.NoError(t, err)
+
+			janitor := eventbridge.NewArchiveJanitor(backend, time.Millisecond)
+			janitor.SweepOnce(t.Context())
+
+			if tt.expectArchived {
+				assert.Equal(t, 1, backend.ArchiveCount())
+			} else {
+				assert.Equal(t, 0, backend.ArchiveCount())
+			}
+		})
+	}
+}

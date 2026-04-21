@@ -107,11 +107,12 @@ type untagResourceInput struct {
 
 // Handler is the Echo HTTP service handler for EventBridge operations.
 type Handler struct {
-	Backend   StorageBackend
-	ops       map[string]actionFn
-	scheduler *Scheduler
-	tags      map[string]*svcTags.Tags
-	tagsMu    *lockmetrics.RWMutex
+	Backend        StorageBackend
+	ops            map[string]actionFn
+	scheduler      *Scheduler
+	archiveJanitor *ArchiveJanitor
+	tags           map[string]*svcTags.Tags
+	tagsMu         *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new EventBridge handler.
@@ -161,11 +162,19 @@ func (h *Handler) SetScheduler(s *Scheduler) {
 	h.scheduler = s
 }
 
+// SetArchiveJanitor attaches an archive janitor to the handler.
+func (h *Handler) SetArchiveJanitor(j *ArchiveJanitor) {
+	h.archiveJanitor = j
+}
+
 // StartWorker implements service.BackgroundWorker.
 // It starts the EventBridge scheduled-rules scheduler as a background goroutine.
 func (h *Handler) StartWorker(ctx context.Context) error {
 	if h.scheduler != nil {
 		go h.scheduler.Run(ctx)
+	}
+	if h.archiveJanitor != nil {
+		go h.archiveJanitor.Run(ctx)
 	}
 
 	return nil

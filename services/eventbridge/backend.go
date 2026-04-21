@@ -40,7 +40,13 @@ const (
 	defaultShutdownTimeout = 5 * time.Second
 	// defaultDeliveryTimeout is the default maximum time allowed for a single target delivery call.
 	defaultDeliveryTimeout = 30 * time.Second
+	ruleIndexAny           = "\x00"
 )
+
+type ruleIndexKey struct {
+	source     string
+	detailType string
+}
 
 // StorageBackend is the interface for an EventBridge in-memory store.
 type StorageBackend interface {
@@ -74,27 +80,29 @@ type StorageBackend interface {
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	ctx             context.Context
-	deliveryTargets *DeliveryTargets
-	buses           map[string]*EventBus
+	mu              *lockmetrics.RWMutex
+	connections     map[string]*Connection
 	rules           map[string]map[string]*Rule
 	targets         map[string]map[string]*Target
 	eventSources    map[string]*EventSource
 	replays         map[string]*Replay
 	apiDestinations map[string]*APIDestination
-	archives        map[string]*Archive
-	connections     map[string]*Connection
-	endpoints       map[string]*Endpoint
-	partnerSources  map[string]*PartnerEventSource
-	mu              *lockmetrics.RWMutex
 	cancel          context.CancelFunc
+	deliveryTargets *DeliveryTargets
+	endpoints       map[string]*Endpoint
+	buses           map[string]*EventBus
+	partnerSources  map[string]*PartnerEventSource
+	archives        map[string]*Archive
 	workerSem       chan struct{}
-	accountID       string
+	ruleIndex       map[string]map[ruleIndexKey]map[string]*Rule
+	patternCache    sync.Map
 	region          string
+	accountID       string
 	eventLog        []EventLogEntry
 	wg              sync.WaitGroup
-	closing         atomic.Bool
 	shutdownTimeout time.Duration
 	deliveryTimeout time.Duration
+	closing         atomic.Bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -139,6 +147,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		workerSem:       make(chan struct{}, defaultDeliveryWorkers),
 		shutdownTimeout: defaultShutdownTimeout,
 		deliveryTimeout: defaultDeliveryTimeout,
+		ruleIndex:       make(map[string]map[ruleIndexKey]map[string]*Rule),
 	}
 	// Create the default event bus.
 	b.buses[defaultEventBusName] = &EventBus{
@@ -241,6 +250,93 @@ func (b *InMemoryBackend) targetKey(busName, ruleName string) string {
 	return busName + "/" + ruleName
 }
 
+func (b *InMemoryBackend) getOrCompilePattern(patternJSON string) (*compiledPattern, error) {
+	if cached, ok := b.patternCache.Load(patternJSON); ok {
+		compiled, castOK := cached.(*compiledPattern)
+		if castOK {
+			return compiled, nil
+		}
+	}
+
+	compiled, err := compilePattern(patternJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	actual, _ := b.patternCache.LoadOrStore(patternJSON, compiled)
+	cachedCompiled, castOK := actual.(*compiledPattern)
+	if castOK {
+		return cachedCompiled, nil
+	}
+
+	return compiled, nil
+}
+
+func (b *InMemoryBackend) addRuleToIndex(rule *Rule) {
+	indexes := b.ruleIndex[rule.EventBusName]
+	if indexes == nil {
+		indexes = make(map[ruleIndexKey]map[string]*Rule)
+		b.ruleIndex[rule.EventBusName] = indexes
+	}
+
+	keys := indexKeysFromRule(rule)
+	for _, key := range keys {
+		bucket := indexes[key]
+		if bucket == nil {
+			bucket = make(map[string]*Rule)
+			indexes[key] = bucket
+		}
+		bucket[rule.Name] = rule
+	}
+	rule.indexKeys = keys
+}
+
+func (b *InMemoryBackend) removeRuleFromIndex(rule *Rule) {
+	indexes := b.ruleIndex[rule.EventBusName]
+	if indexes == nil {
+		return
+	}
+
+	for _, key := range rule.indexKeys {
+		bucket := indexes[key]
+		if bucket == nil {
+			continue
+		}
+		delete(bucket, rule.Name)
+		if len(bucket) == 0 {
+			delete(indexes, key)
+		}
+	}
+
+	if len(indexes) == 0 {
+		delete(b.ruleIndex, rule.EventBusName)
+	}
+}
+
+func indexKeysFromRule(rule *Rule) []ruleIndexKey {
+	sources := []string{ruleIndexAny}
+	detailTypes := []string{ruleIndexAny}
+
+	if rule.compiledPattern != nil && len(rule.compiledPattern.sourceExactValues) > 0 {
+		sources = rule.compiledPattern.sourceExactValues
+	}
+	if rule.compiledPattern != nil && len(rule.compiledPattern.detailTypeExactValues) > 0 {
+		detailTypes = rule.compiledPattern.detailTypeExactValues
+	}
+
+	keys := make([]ruleIndexKey, 0, len(sources)*len(detailTypes))
+	for _, source := range sources {
+		for _, detailType := range detailTypes {
+			keys = append(keys, ruleIndexKey{
+				source:     source,
+				detailType: detailType,
+			})
+		}
+	}
+
+	return keys
+}
+
 // CreateEventBus creates a new event bus.
 func (b *InMemoryBackend) CreateEventBus(name, description string) (*EventBus, error) {
 	if name == "" {
@@ -280,6 +376,7 @@ func (b *InMemoryBackend) DeleteEventBus(name string) error {
 	}
 
 	delete(b.buses, name)
+	delete(b.ruleIndex, name)
 
 	// Clean up all rules for this bus.
 	if busRules, ok := b.rules[name]; ok {
@@ -354,6 +451,15 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		busName = defaultEventBusName
 	}
 
+	var compiled *compiledPattern
+	if input.EventPattern != "" {
+		var err error
+		compiled, err = b.getOrCompilePattern(input.EventPattern)
+		if err != nil {
+			return nil, fmt.Errorf("%w: EventPattern is not valid JSON", ErrInvalidParameter)
+		}
+	}
+
 	b.mu.Lock("PutRule")
 	defer b.mu.Unlock()
 
@@ -379,8 +485,14 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		Description:        input.Description,
 		ScheduleExpression: input.ScheduleExpression,
 		RoleArn:            input.RoleArn,
+		compiledPattern:    compiled,
+	}
+
+	if existing, exists := b.rules[busName][input.Name]; exists {
+		b.removeRuleFromIndex(existing)
 	}
 	b.rules[busName][input.Name] = rule
+	b.addRuleToIndex(rule)
 
 	return rule, nil
 }
@@ -399,10 +511,12 @@ func (b *InMemoryBackend) DeleteRule(name, eventBusName string) error {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
-	if _, ruleExists := busRules[name]; !ruleExists {
+	rule, ruleExists := busRules[name]
+	if !ruleExists {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
+	b.removeRuleFromIndex(rule)
 	delete(busRules, name)
 	// Also remove targets for this rule.
 	delete(b.targets, b.targetKey(eventBusName, name))
@@ -707,6 +821,8 @@ func (b *InMemoryBackend) Reset() {
 	b.connections = make(map[string]*Connection)
 	b.endpoints = make(map[string]*Endpoint)
 	b.partnerSources = make(map[string]*PartnerEventSource)
+	b.ruleIndex = make(map[string]map[ruleIndexKey]map[string]*Rule)
+	b.patternCache = sync.Map{}
 
 	// Re-create the default event bus so it is always available after reset.
 	b.buses[defaultEventBusName] = &EventBus{
