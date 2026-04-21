@@ -830,8 +830,19 @@ func (e *Executor) executeParallel(
 
 	var wg sync.WaitGroup
 	for i, branch := range state.Branches {
+		// Stop spawning new goroutines if context already cancelled.
+		if err := ctx.Err(); err != nil {
+			return "", nil, err
+		}
+
 		wg.Add(1)
-		e.execSem <- struct{}{} // acquire global sub-executor slot before spawning
+		select {
+		case e.execSem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+
+			break
+		}
 
 		go func(idx int, b Branch) {
 			defer wg.Done()
@@ -853,6 +864,10 @@ func (e *Executor) executeParallel(
 	}
 
 	wg.Wait()
+
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
 
 	for _, err := range errs {
 		if err != nil {
@@ -900,9 +915,33 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 
 	var wg sync.WaitGroup
 	for i, item := range items {
+		// Stop spawning new goroutines if context already cancelled.
+		if err := ctx.Err(); err != nil {
+			break
+		}
+
 		wg.Add(1)
-		e.execSem <- struct{}{} // acquire global sub-executor slot before spawning
-		sem <- struct{}{}
+		// Use select for both semaphore acquisitions to respect context cancellation.
+		acquired := true
+		select {
+		case e.execSem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			acquired = false
+		}
+
+		if !acquired {
+			break
+		}
+
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			<-e.execSem
+			wg.Done()
+
+			break
+		}
 
 		go func(idx int, it any) {
 			defer wg.Done()
@@ -921,6 +960,10 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 	}
 
 	wg.Wait()
+
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
 
 	for _, err := range errs {
 		if err != nil {

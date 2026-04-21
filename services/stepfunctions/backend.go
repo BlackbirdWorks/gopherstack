@@ -20,16 +20,20 @@ import (
 )
 
 var (
-	ErrStateMachineAlreadyExists = errors.New("StateMachineAlreadyExists")
-	ErrStateMachineDoesNotExist  = errors.New("StateMachineDoesNotExist")
-	ErrExecutionAlreadyExists    = errors.New("ExecutionAlreadyExists")
-	ErrExecutionDoesNotExist     = errors.New("ExecutionDoesNotExist")
-	ErrInvalidDefinition         = errors.New("InvalidDefinition")
-	ErrInvalidExecutionType      = errors.New("InvalidExecutionType")
-	ErrActivityAlreadyExists     = errors.New("ActivityAlreadyExists")
-	ErrActivityDoesNotExist      = errors.New("ActivityDoesNotExist")
-	ErrTaskTokenNotFound         = errors.New("TaskTokenNotFound")
-	ErrActivityTaskFailed        = errors.New("ActivityTaskFailed")
+	ErrStateMachineAlreadyExists      = errors.New("StateMachineAlreadyExists")
+	ErrStateMachineDoesNotExist       = errors.New("StateMachineDoesNotExist")
+	ErrStateMachineVersionDoesNotExist = errors.New("StateMachineVersionDoesNotExist")
+	ErrStateMachineAliasAlreadyExists = errors.New("StateMachineAliasAlreadyExists")
+	ErrStateMachineAliasDoesNotExist  = errors.New("StateMachineAliasDoesNotExist")
+	ErrExecutionAlreadyExists         = errors.New("ExecutionAlreadyExists")
+	ErrExecutionDoesNotExist          = errors.New("ExecutionDoesNotExist")
+	ErrExecutionNotRedrivable         = errors.New("ExecutionNotRedrivable")
+	ErrInvalidDefinition              = errors.New("InvalidDefinition")
+	ErrInvalidExecutionType           = errors.New("InvalidExecutionType")
+	ErrActivityAlreadyExists          = errors.New("ActivityAlreadyExists")
+	ErrActivityDoesNotExist           = errors.New("ActivityDoesNotExist")
+	ErrTaskTokenNotFound              = errors.New("TaskTokenNotFound")
+	ErrActivityTaskFailed             = errors.New("ActivityTaskFailed")
 )
 
 const (
@@ -55,10 +59,21 @@ type StorageBackend interface {
 	ListStateMachines(nextToken string, maxResults int) ([]StateMachine, string, error)
 	DescribeStateMachine(arn string) (*StateMachine, error)
 	UpdateStateMachine(arn, definition, roleArn string) (float64, error)
+	PublishStateMachineVersion(smARN, description, revisionID string) (*StateMachineVersion, error)
+	DescribeStateMachineVersion(versionARN string) (*StateMachineVersion, error)
+	DeleteStateMachineVersion(versionARN string) error
+	ListStateMachineVersions(smARN, nextToken string, maxResults int) ([]StateMachineVersion, string, error)
+	CreateStateMachineAlias(smARN, name, description string, routing []AliasRoutingConfig) (*StateMachineAlias, error)
+	UpdateStateMachineAlias(aliasARN, description string, routing []AliasRoutingConfig) (*StateMachineAlias, error)
+	DeleteStateMachineAlias(aliasARN string) error
+	DescribeStateMachineAlias(aliasARN string) (*StateMachineAlias, error)
+	ListStateMachineAliases(smARN, nextToken string, maxResults int) ([]StateMachineAlias, string, error)
 	StartExecution(stateMachineArn, name, input string) (*Execution, error)
 	StartSyncExecution(stateMachineArn, name, input string) (*SyncExecutionResult, error)
 	StopExecution(executionArn, errCode, cause string) error
+	RedriveExecution(executionARN string) (*Execution, error)
 	DescribeExecution(executionArn string) (*Execution, error)
+	DescribeStateMachineForExecution(executionARN string) (*StateMachine, error)
 	ListExecutions(stateMachineArn, statusFilter, nextToken string, maxResults int) ([]Execution, string, error)
 	GetExecutionHistory(
 		executionArn, nextToken string,
@@ -99,8 +114,18 @@ type InMemoryBackend struct {
 	pendingTaskQueues map[string]chan *activityTaskEntry
 	// tasksByToken maps task token → task entry for SendTaskSuccess/Failure.
 	tasksByToken map[string]*activityTaskEntry
-	logger       *slog.Logger
-	mu           *lockmetrics.RWMutex
+	// versions maps version ARN → version for PublishStateMachineVersion.
+	versions map[string]*StateMachineVersion
+	// smVersions maps state machine ARN → ordered list of version ARNs.
+	smVersions map[string][]string
+	// aliases maps alias ARN → alias for CreateStateMachineAlias.
+	aliases map[string]*StateMachineAlias
+	// smAliases maps state machine ARN → list of alias ARNs.
+	smAliases map[string][]string
+	// executionDefinitions maps execution ARN → the SM definition that was active at start time.
+	executionDefinitions map[string]string
+	logger               *slog.Logger
+	mu                   *lockmetrics.RWMutex
 	// svcCtx is the service lifecycle context. Execution goroutines derive their
 	// contexts from it so that all active executions are cancelled on server shutdown.
 	svcCtx    context.Context
@@ -149,22 +174,27 @@ func newInMemoryBackend(svcCtx context.Context, accountID, region string) *InMem
 	}
 
 	return &InMemoryBackend{
-		accountID:         accountID,
-		region:            region,
-		svcCtx:            svcCtx,
-		stateMachines:     make(map[string]*StateMachine),
-		executions:        make(map[string]*Execution),
-		history:           make(map[string][]*HistoryEvent),
-		nameIndex:         make(map[string]string),
-		smExecutions:      make(map[string][]string),
-		cancelFns:         make(map[string]context.CancelFunc),
-		deletedExecs:      make(map[string]bool),
-		activities:        make(map[string]*Activity),
-		activityNameIndex: make(map[string]string),
-		pendingTaskQueues: make(map[string]chan *activityTaskEntry),
-		tasksByToken:      make(map[string]*activityTaskEntry),
-		logger:            slog.Default(),
-		mu:                lockmetrics.New("stepfunctions"),
+		accountID:            accountID,
+		region:               region,
+		svcCtx:               svcCtx,
+		stateMachines:        make(map[string]*StateMachine),
+		executions:           make(map[string]*Execution),
+		history:              make(map[string][]*HistoryEvent),
+		nameIndex:            make(map[string]string),
+		smExecutions:         make(map[string][]string),
+		cancelFns:            make(map[string]context.CancelFunc),
+		deletedExecs:         make(map[string]bool),
+		activities:           make(map[string]*Activity),
+		activityNameIndex:    make(map[string]string),
+		pendingTaskQueues:    make(map[string]chan *activityTaskEntry),
+		tasksByToken:         make(map[string]*activityTaskEntry),
+		versions:             make(map[string]*StateMachineVersion),
+		smVersions:           make(map[string][]string),
+		aliases:              make(map[string]*StateMachineAlias),
+		smAliases:            make(map[string][]string),
+		executionDefinitions: make(map[string]string),
+		logger:               slog.Default(),
+		mu:                   lockmetrics.New("stepfunctions"),
 	}
 }
 
@@ -242,6 +272,14 @@ func (b *InMemoryBackend) activityARN(name string) string {
 	return arn.Build("states", b.region, b.accountID, "activity:"+name)
 }
 
+func (b *InMemoryBackend) versionARN(smName string, version int) string {
+	return arn.Build("states", b.region, b.accountID, fmt.Sprintf("stateMachine:%s:%d", smName, version))
+}
+
+func (b *InMemoryBackend) aliasARN(smName, aliasName string) string {
+	return arn.Build("states", b.region, b.accountID, "stateMachine:"+smName+":"+aliasName)
+}
+
 // CreateStateMachine creates and stores a new state machine.
 func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType string) (*StateMachine, error) {
 	if smType == "" {
@@ -305,9 +343,22 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 
 		delete(b.executions, execARN)
 		delete(b.history, execARN)
+		delete(b.executionDefinitions, execARN)
 	}
 
 	delete(b.smExecutions, arn)
+
+	// Remove all versions for this state machine.
+	for _, vARN := range b.smVersions[arn] {
+		delete(b.versions, vARN)
+	}
+	delete(b.smVersions, arn)
+
+	// Remove all aliases for this state machine.
+	for _, aARN := range b.smAliases[arn] {
+		delete(b.aliases, aARN)
+	}
+	delete(b.smAliases, arn)
 
 	return nil
 }
@@ -491,6 +542,9 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		Input:           input,
 	}
 	b.executions[execArn] = exec
+
+	// Snapshot the definition at execution start time for DescribeStateMachineForExecution.
+	b.executionDefinitions[execArn] = definition
 
 	b.history[execArn] = []*HistoryEvent{
 		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
@@ -945,6 +999,11 @@ func (b *InMemoryBackend) Reset() {
 	b.activityNameIndex = make(map[string]string)
 	b.pendingTaskQueues = make(map[string]chan *activityTaskEntry)
 	b.tasksByToken = make(map[string]*activityTaskEntry)
+	b.versions = make(map[string]*StateMachineVersion)
+	b.smVersions = make(map[string][]string)
+	b.aliases = make(map[string]*StateMachineAlias)
+	b.smAliases = make(map[string][]string)
+	b.executionDefinitions = make(map[string]string)
 
 	b.mu.Unlock()
 }
@@ -1035,6 +1094,371 @@ func (b *InMemoryBackend) ListActivities(nextToken string, maxResults int) ([]Ac
 	acts, token := paginate(all, nextToken, maxResults)
 
 	return acts, token, nil
+}
+
+// PublishStateMachineVersion creates an immutable snapshot version of a state machine.
+func (b *InMemoryBackend) PublishStateMachineVersion(smARN, description, revisionID string) (*StateMachineVersion, error) {
+	b.mu.Lock("PublishStateMachineVersion")
+	defer b.mu.Unlock()
+
+	sm, exists := b.stateMachines[smARN]
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, smARN)
+	}
+
+	versionNum := len(b.smVersions[smARN]) + 1
+	vARN := b.versionARN(sm.Name, versionNum)
+
+	v := &StateMachineVersion{
+		StateMachineVersionArn: vARN,
+		StateMachineArn:        smARN,
+		Name:                   sm.Name,
+		Definition:             sm.Definition,
+		RoleArn:                sm.RoleArn,
+		Type:                   sm.Type,
+		Status:                 statusActive,
+		Description:            description,
+		RevisionID:             revisionID,
+		CreationDate:           float64(time.Now().Unix()),
+	}
+
+	b.versions[vARN] = v
+	b.smVersions[smARN] = append(b.smVersions[smARN], vARN)
+
+	cp := *v
+
+	return &cp, nil
+}
+
+// DescribeStateMachineVersion returns details for a specific version.
+func (b *InMemoryBackend) DescribeStateMachineVersion(versionARN string) (*StateMachineVersion, error) {
+	b.mu.RLock("DescribeStateMachineVersion")
+	defer b.mu.RUnlock()
+
+	v, exists := b.versions[versionARN]
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", ErrStateMachineVersionDoesNotExist, versionARN)
+	}
+
+	cp := *v
+
+	return &cp, nil
+}
+
+// DeleteStateMachineVersion removes a specific version.
+func (b *InMemoryBackend) DeleteStateMachineVersion(versionARN string) error {
+	b.mu.Lock("DeleteStateMachineVersion")
+	defer b.mu.Unlock()
+
+	v, exists := b.versions[versionARN]
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrStateMachineVersionDoesNotExist, versionARN)
+	}
+
+	delete(b.versions, versionARN)
+
+	// Remove from the SM's version list.
+	smARN := v.StateMachineArn
+	versions := b.smVersions[smARN]
+	updated := make([]string, 0, len(versions))
+	for _, vv := range versions {
+		if vv != versionARN {
+			updated = append(updated, vv)
+		}
+	}
+	b.smVersions[smARN] = updated
+
+	return nil
+}
+
+// ListStateMachineVersions returns all versions for a state machine.
+func (b *InMemoryBackend) ListStateMachineVersions(smARN, nextToken string, maxResults int) ([]StateMachineVersion, string, error) {
+	b.mu.RLock("ListStateMachineVersions")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.stateMachines[smARN]; !exists {
+		return nil, "", fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, smARN)
+	}
+
+	vARNs := b.smVersions[smARN]
+	all := make([]StateMachineVersion, 0, len(vARNs))
+	for _, vARN := range vARNs {
+		if v := b.versions[vARN]; v != nil {
+			all = append(all, *v)
+		}
+	}
+
+	// Return newest first.
+	sort.Slice(all, func(i, j int) bool { return all[i].CreationDate > all[j].CreationDate })
+
+	versions, token := paginate(all, nextToken, maxResults)
+
+	return versions, token, nil
+}
+
+// CreateStateMachineAlias creates a named routing alias for one or more state machine versions.
+func (b *InMemoryBackend) CreateStateMachineAlias(
+	smARN, name, description string,
+	routing []AliasRoutingConfig,
+) (*StateMachineAlias, error) {
+	b.mu.Lock("CreateStateMachineAlias")
+	defer b.mu.Unlock()
+
+	sm, exists := b.stateMachines[smARN]
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, smARN)
+	}
+
+	aARN := b.aliasARN(sm.Name, name)
+
+	if _, already := b.aliases[aARN]; already {
+		return nil, fmt.Errorf("%w: %s", ErrStateMachineAliasAlreadyExists, name)
+	}
+
+	now := float64(time.Now().Unix())
+	alias := &StateMachineAlias{
+		StateMachineAliasArn: aARN,
+		Name:                 name,
+		Description:          description,
+		RoutingConfiguration: routing,
+		CreationDate:         now,
+	}
+
+	b.aliases[aARN] = alias
+	b.smAliases[smARN] = append(b.smAliases[smARN], aARN)
+
+	cp := *alias
+
+	return &cp, nil
+}
+
+// UpdateStateMachineAlias updates an alias's description and/or routing configuration.
+func (b *InMemoryBackend) UpdateStateMachineAlias(
+	aliasARN, description string,
+	routing []AliasRoutingConfig,
+) (*StateMachineAlias, error) {
+	b.mu.Lock("UpdateStateMachineAlias")
+	defer b.mu.Unlock()
+
+	alias, exists := b.aliases[aliasARN]
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", ErrStateMachineAliasDoesNotExist, aliasARN)
+	}
+
+	if description != "" {
+		alias.Description = description
+	}
+
+	if len(routing) > 0 {
+		alias.RoutingConfiguration = routing
+	}
+
+	alias.UpdatedDate = float64(time.Now().Unix())
+
+	cp := *alias
+
+	return &cp, nil
+}
+
+// DeleteStateMachineAlias removes a state machine alias.
+func (b *InMemoryBackend) DeleteStateMachineAlias(aliasARN string) error {
+	b.mu.Lock("DeleteStateMachineAlias")
+	defer b.mu.Unlock()
+
+	alias, exists := b.aliases[aliasARN]
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrStateMachineAliasDoesNotExist, aliasARN)
+	}
+
+	// Remove from the SM's alias list — find parent SM ARN via alias's routing or by scanning smAliases.
+	for smARN, aARNs := range b.smAliases {
+		updated := make([]string, 0, len(aARNs))
+		for _, aARN := range aARNs {
+			if aARN != aliasARN {
+				updated = append(updated, aARN)
+			}
+		}
+		if len(updated) != len(aARNs) {
+			b.smAliases[smARN] = updated
+		}
+	}
+
+	_ = alias
+	delete(b.aliases, aliasARN)
+
+	return nil
+}
+
+// DescribeStateMachineAlias returns details for a state machine alias.
+func (b *InMemoryBackend) DescribeStateMachineAlias(aliasARN string) (*StateMachineAlias, error) {
+	b.mu.RLock("DescribeStateMachineAlias")
+	defer b.mu.RUnlock()
+
+	alias, exists := b.aliases[aliasARN]
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", ErrStateMachineAliasDoesNotExist, aliasARN)
+	}
+
+	cp := *alias
+
+	return &cp, nil
+}
+
+// ListStateMachineAliases returns all aliases for a state machine.
+func (b *InMemoryBackend) ListStateMachineAliases(smARN, nextToken string, maxResults int) ([]StateMachineAlias, string, error) {
+	b.mu.RLock("ListStateMachineAliases")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.stateMachines[smARN]; !exists {
+		return nil, "", fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, smARN)
+	}
+
+	aARNs := b.smAliases[smARN]
+	all := make([]StateMachineAlias, 0, len(aARNs))
+	for _, aARN := range aARNs {
+		if a := b.aliases[aARN]; a != nil {
+			all = append(all, *a)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	aliases, token := paginate(all, nextToken, maxResults)
+
+	return aliases, token, nil
+}
+
+// RedriveExecution re-runs a FAILED or ABORTED execution starting from its last known state.
+// AWS Step Functions re-runs from the last state that was reached before failure.
+// In this implementation we restart the entire execution with the original input (AWS parity for STANDARD executions).
+func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, error) {
+	b.mu.Lock("RedriveExecution")
+
+	exec, exists := b.executions[executionARN]
+	if !exists {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, executionARN)
+	}
+
+	if exec.Status != statusFailed && exec.Status != statusAborted {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: execution %s is in status %s; only FAILED or ABORTED executions can be redriven",
+			ErrExecutionNotRedrivable, executionARN, exec.Status)
+	}
+
+	smARN := exec.StateMachineArn
+	originalInput := exec.Input
+
+	sm, smExists := b.stateMachines[smARN]
+	if !smExists {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: state machine %s no longer exists", ErrStateMachineDoesNotExist, smARN)
+	}
+
+	definition := sm.Definition
+	smName := sm.Name
+	parsedSM, parseErr := asl.Parse(definition)
+	if parseErr != nil {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
+	}
+
+	// Reset the execution to RUNNING.
+	now := float64(time.Now().Unix())
+	exec.Status = statusRunning
+	exec.Output = ""
+	exec.Error = ""
+	exec.Cause = ""
+	exec.StopDate = nil
+	exec.StartDate = now
+
+	// Reset history.
+	b.history[executionARN] = []*HistoryEvent{
+		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
+	}
+
+	// Snapshot the (possibly-updated) definition.
+	b.executionDefinitions[executionARN] = definition
+
+	lambdaInvoker := b.lambdaInvoker
+	sqsIntegration := b.sqsIntegration
+	snsIntegration := b.snsIntegration
+	ddbIntegration := b.ddbIntegration
+
+	ctx, cancel := context.WithCancel(b.svcCtx) //nolint:gosec
+	b.cancelFns[executionARN] = cancel
+
+	// Ensure execution is tracked under the SM.
+	alreadyTracked := false
+	for _, eARN := range b.smExecutions[smARN] {
+		if eARN == executionARN {
+			alreadyTracked = true
+
+			break
+		}
+	}
+	if !alreadyTracked {
+		b.smExecutions[smARN] = append(b.smExecutions[smARN], executionARN)
+	}
+
+	var activityInvoker asl.ActivityInvoker = b
+
+	_ = smName
+	b.mu.Unlock()
+
+	go b.runParsedExecution(
+		ctx, executionARN, parsedSM, originalInput,
+		lambdaInvoker, sqsIntegration, snsIntegration, ddbIntegration, activityInvoker,
+	)
+
+	b.mu.RLock("RedriveExecution.result")
+	cp := *b.executions[executionARN]
+	b.mu.RUnlock()
+
+	return &cp, nil
+}
+
+// DescribeStateMachineForExecution returns the state machine definition that was active
+// when the given execution was started.
+func (b *InMemoryBackend) DescribeStateMachineForExecution(executionARN string) (*StateMachine, error) {
+	b.mu.RLock("DescribeStateMachineForExecution")
+	defer b.mu.RUnlock()
+
+	exec, exists := b.executions[executionARN]
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, executionARN)
+	}
+
+	definition, hasSnapshot := b.executionDefinitions[executionARN]
+	if !hasSnapshot {
+		// Fall back to the current definition if no snapshot was taken (pre-snapshot executions).
+		sm, smExists := b.stateMachines[exec.StateMachineArn]
+		if !smExists {
+			return nil, fmt.Errorf("%w: state machine %s no longer exists", ErrStateMachineDoesNotExist, exec.StateMachineArn)
+		}
+
+		cp := *sm
+
+		return &cp, nil
+	}
+
+	sm, smExists := b.stateMachines[exec.StateMachineArn]
+	if !smExists {
+		// SM was deleted but execution still exists — return a synthetic SM with the snapshot.
+		return &StateMachine{
+			StateMachineArn: exec.StateMachineArn,
+			Definition:      definition,
+		}, nil
+	}
+
+	cp := *sm
+	cp.Definition = definition
+
+	return &cp, nil
 }
 
 // GetActivityTask long-polls for a pending task (up to 60 seconds).

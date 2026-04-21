@@ -55,7 +55,7 @@ func TestRefinement1_HandlerOpsLenHelper(t *testing.T) {
 
 	b := stepfunctions.NewInMemoryBackend()
 	h := stepfunctions.NewHandler(b)
-	assert.Equal(t, 24, h.HandlerOpsLen())
+	assert.Equal(t, 34, h.HandlerOpsLen())
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
@@ -176,7 +176,27 @@ func TestRefinement1_ListStateMachineVersions(t *testing.T) {
 	t.Parallel()
 
 	h, e := newSFNHandler(t)
-	rec := sfnPost(t.Context(), t, h, e, "ListStateMachineVersions", `{}`)
+
+	// Create a state machine first so ListStateMachineVersions can find it.
+	createBody, err := json.Marshal(map[string]string{
+		"name":       "ver-sm",
+		"definition": validPassDef,
+		"roleArn":    "arn:aws:iam::000:role/r",
+		"type":       "STANDARD",
+	})
+	require.NoError(t, err)
+
+	createRec := sfnPost(t.Context(), t, h, e, "CreateStateMachine", string(createBody))
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	smARN := createResp["stateMachineArn"].(string)
+
+	listBody, merr := json.Marshal(map[string]string{"stateMachineArn": smARN})
+	require.NoError(t, merr)
+
+	rec := sfnPost(t.Context(), t, h, e, "ListStateMachineVersions", string(listBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
