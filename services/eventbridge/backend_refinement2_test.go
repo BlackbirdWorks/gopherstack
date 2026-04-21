@@ -25,9 +25,9 @@ func TestRefinement2_CreateEventBus_RejectsAWSPrefix(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		busName string
-		wantErr error
 	}{
 		{
 			name:    "aws.partner prefix rejected",
@@ -79,13 +79,17 @@ func TestRefinement2_PutRule_MutualExclusion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		input   eventbridge.PutRuleInput
 		wantErr error
+		input   eventbridge.PutRuleInput
+		name    string
 	}{
 		{
-			name:    "both set rejects",
-			input:   eventbridge.PutRuleInput{Name: "r", ScheduleExpression: "rate(1 minute)", EventPattern: `{"source":["x"]}`},
+			name: "both set rejects",
+			input: eventbridge.PutRuleInput{
+				Name:               "r",
+				ScheduleExpression: "rate(1 minute)",
+				EventPattern:       `{"source":["x"]}`,
+			},
 			wantErr: eventbridge.ErrInvalidParameter,
 		},
 		{
@@ -127,9 +131,9 @@ func TestRefinement2_CreateAPIDestination_HTTPMethodValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		method  string
-		wantErr error
 	}{
 		{name: "GET allowed", method: "GET"},
 		{name: "POST allowed", method: "POST"},
@@ -172,9 +176,9 @@ func TestRefinement2_CreateConnection_AuthTypeValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr  error
 		name     string
 		authType string
-		wantErr  error
 	}{
 		{name: "API_KEY allowed", authType: "API_KEY"},
 		{name: "BASIC allowed", authType: "BASIC"},
@@ -208,13 +212,17 @@ func TestRefinement2_CreateArchive_NameLengthValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr     error
 		name        string
 		archiveName string
-		wantErr     error
 	}{
 		{name: "normal name ok", archiveName: "my-archive"},
 		{name: "exactly 48 chars ok", archiveName: "12345678901234567890123456789012345678901234567a"},
-		{name: "49 chars rejected", archiveName: "1234567890123456789012345678901234567890123456789", wantErr: eventbridge.ErrInvalidParameter},
+		{
+			name:        "49 chars rejected",
+			archiveName: "1234567890123456789012345678901234567890123456789",
+			wantErr:     eventbridge.ErrInvalidParameter,
+		},
 	}
 
 	for _, tt := range tests {
@@ -299,10 +307,10 @@ func TestRefinement2_StartReplay_TimeOrdering(t *testing.T) {
 	later := now.Add(2 * time.Hour)
 
 	tests := []struct {
-		name    string
 		start   time.Time
 		end     time.Time
 		wantErr error
+		name    string
 	}{
 		{name: "start before end ok", start: earlier, end: now, wantErr: nil},
 		{name: "start equals end rejected", start: now, end: now, wantErr: eventbridge.ErrInvalidParameter},
@@ -337,10 +345,10 @@ func TestRefinement2_TestEventPattern_EventJSONValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		pattern string
 		event   string
-		wantErr error
 		wantOk  bool
 	}{
 		{
@@ -388,6 +396,7 @@ func TestRefinement2_TestEventPattern_EventJSONValidation(t *testing.T) {
 			ok, err := b.TestEventPattern(tt.pattern, tt.event)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -404,16 +413,16 @@ func TestRefinement2_UpdateArchive(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		setup   func(*eventbridge.InMemoryBackend)
-		input   eventbridge.UpdateArchiveInput
-		wantErr error
+		wantErr  error
+		setup    func(*eventbridge.InMemoryBackend)
+		name     string
 		wantDesc string
+		input    eventbridge.UpdateArchiveInput
 	}{
 		{
-			name:     "not found returns error",
-			input:    eventbridge.UpdateArchiveInput{ArchiveName: "no-such"},
-			wantErr:  eventbridge.ErrNotFound,
+			name:    "not found returns error",
+			input:   eventbridge.UpdateArchiveInput{ArchiveName: "no-such"},
+			wantErr: eventbridge.ErrNotFound,
 		},
 		{
 			name: "updates description",
@@ -439,6 +448,7 @@ func TestRefinement2_UpdateArchive(t *testing.T) {
 			got, err := b.UpdateArchive(tt.input)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -610,10 +620,10 @@ func TestRefinement2_APIDestinationCRUD(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
 		b.AddAPIDestinationInternal(&eventbridge.APIDestination{
-			Name:               "dst1",
-			ConnectionArn:      "arn:aws:events:us-east-1:123:connection/c1",
-			HTTPMethod:         "POST",
-			InvocationEndpoint: "https://example.com/hook",
+			Name:                "dst1",
+			ConnectionArn:       "arn:aws:events:us-east-1:123:connection/c1",
+			HTTPMethod:          "POST",
+			InvocationEndpoint:  "https://example.com/hook",
 			APIDestinationState: "ACTIVE",
 		})
 
@@ -819,9 +829,9 @@ func TestRefinement2_UpdateEventBus(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		input   eventbridge.UpdateEventBusInput
-		wantErr error
+		name     string
+		input    eventbridge.UpdateEventBusInput
+		wantErr  error
 		wantDesc string
 	}{
 		{
@@ -843,6 +853,7 @@ func TestRefinement2_UpdateEventBus(t *testing.T) {
 			got, err := b.UpdateEventBus(tt.input)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)

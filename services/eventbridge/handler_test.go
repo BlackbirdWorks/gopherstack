@@ -367,8 +367,9 @@ func TestHandler_DescribeRule(t *testing.T) {
 		wantState       string
 	}{
 		{
-			name:            "describe rule returns name description and state",
-			putBody:         `{"Name":"desc-rule","Description":"a description","State":"DISABLED","ScheduleExpression":"rate(1 minute)"}`,
+			name: "describe rule returns name description and state",
+			putBody: `{"Name":"desc-rule","Description":"a description",` +
+				`"State":"DISABLED","ScheduleExpression":"rate(1 minute)"}`,
 			describeBody:    `{"Name":"desc-rule"}`,
 			wantRuleName:    "desc-rule",
 			wantDescription: "a description",
@@ -423,7 +424,13 @@ func TestHandler_EnableDisableRule(t *testing.T) {
 			backend := eventbridge.NewInMemoryBackend()
 			handler := eventbridge.NewHandler(backend)
 
-			makeRequestWithHandler(t, handler, e, "PutRule", `{"Name":"`+tt.ruleName+`","State":"ENABLED","ScheduleExpression":"rate(1 minute)"}`)
+			makeRequestWithHandler(
+				t,
+				handler,
+				e,
+				"PutRule",
+				`{"Name":"`+tt.ruleName+`","State":"ENABLED","ScheduleExpression":"rate(1 minute)"}`,
+			)
 
 			rec := makeRequestWithHandler(t, handler, e, "DisableRule", `{"Name":"`+tt.ruleName+`"}`)
 			assert.Equal(t, http.StatusOK, rec.Code)
@@ -474,7 +481,13 @@ func TestHandler_PutTargetsListAndRemove(t *testing.T) {
 			backend := eventbridge.NewInMemoryBackend()
 			handler := eventbridge.NewHandler(backend)
 
-			makeRequestWithHandler(t, handler, e, "PutRule", `{"Name":"`+tt.ruleName+`","ScheduleExpression":"rate(1 minute)"}`)
+			makeRequestWithHandler(
+				t,
+				handler,
+				e,
+				"PutRule",
+				`{"Name":"`+tt.ruleName+`","ScheduleExpression":"rate(1 minute)"}`,
+			)
 
 			rec := makeRequestWithHandler(t, handler, e, "PutTargets",
 				`{"Rule":"`+tt.ruleName+`","Targets":`+tt.targets+`}`)

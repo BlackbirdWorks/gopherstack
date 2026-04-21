@@ -182,7 +182,9 @@ func TestEnableDisableRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "toggle-rule", State: "ENABLED", EventPattern: `{"source":["test"]}`})
+	_, err := b.PutRule(
+		eventbridge.PutRuleInput{Name: "toggle-rule", State: "ENABLED", EventPattern: `{"source":["test"]}`},
+	)
 	require.NoError(t, err)
 
 	err = b.DisableRule("toggle-rule", "")
@@ -294,8 +296,12 @@ func TestPutRule(t *testing.T) {
 			wantState: "ENABLED",
 		},
 		{
-			name:    "UnknownBus",
-			input:   eventbridge.PutRuleInput{Name: "r", EventBusName: "nonexistent", EventPattern: `{"source":["test"]}`},
+			name: "UnknownBus",
+			input: eventbridge.PutRuleInput{
+				Name:         "r",
+				EventBusName: "nonexistent",
+				EventPattern: `{"source":["test"]}`,
+			},
 			wantErr: eventbridge.ErrEventBusNotFound,
 		},
 	}

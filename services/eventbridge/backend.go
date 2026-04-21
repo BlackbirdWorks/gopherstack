@@ -678,7 +678,12 @@ func (b *InMemoryBackend) PutTargets(ruleName, eventBusName string, targets []Ta
 
 	// Reject if adding these targets would exceed the per-rule limit.
 	if len(b.targets[key])+len(targets) > maxTargetsPerRule {
-		return nil, fmt.Errorf("%w: rule %s already has the maximum number of targets (%d)", ErrInvalidParameter, ruleName, maxTargetsPerRule)
+		return nil, fmt.Errorf(
+			"%w: rule %s already has the maximum number of targets (%d)",
+			ErrInvalidParameter,
+			ruleName,
+			maxTargetsPerRule,
+		)
 	}
 
 	var failed []FailedEntry
@@ -994,7 +999,10 @@ func (b *InMemoryBackend) CreateAPIDestination(input CreateAPIDestinationInput) 
 	}
 
 	if !isValidHTTPMethod(input.HTTPMethod) {
-		return nil, fmt.Errorf("%w: HttpMethod must be one of GET, HEAD, POST, OPTIONS, PUT, DELETE, PATCH", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: HttpMethod must be one of GET, HEAD, POST, OPTIONS, PUT, DELETE, PATCH",
+			ErrInvalidParameter,
+		)
 	}
 
 	b.mu.Lock("CreateAPIDestination")
@@ -1031,7 +1039,11 @@ func (b *InMemoryBackend) CreateArchive(input CreateArchiveInput) (*Archive, err
 	}
 
 	if len(input.ArchiveName) > maxArchiveNameLength {
-		return nil, fmt.Errorf("%w: ArchiveName must be %d characters or fewer", ErrInvalidParameter, maxArchiveNameLength)
+		return nil, fmt.Errorf(
+			"%w: ArchiveName must be %d characters or fewer",
+			ErrInvalidParameter,
+			maxArchiveNameLength,
+		)
 	}
 
 	if input.EventSourceArn == "" {
@@ -1077,7 +1089,10 @@ func (b *InMemoryBackend) CreateConnection(input CreateConnectionInput) (*Connec
 	}
 
 	if !isValidConnectionAuthType(input.AuthorizationType) {
-		return nil, fmt.Errorf("%w: AuthorizationType must be one of API_KEY, BASIC, OAUTH_CLIENT_CREDENTIALS", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: AuthorizationType must be one of API_KEY, BASIC, OAUTH_CLIENT_CREDENTIALS",
+			ErrInvalidParameter,
+		)
 	}
 
 	b.mu.Lock("CreateConnection")
@@ -1664,7 +1679,8 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 		return nil, fmt.Errorf("%w: EventSourceArn is required", ErrInvalidParameter)
 	}
 
-	if !input.EventStartTime.IsZero() && !input.EventEndTime.IsZero() && !input.EventStartTime.Before(input.EventEndTime) {
+	if !input.EventStartTime.IsZero() && !input.EventEndTime.IsZero() &&
+		!input.EventStartTime.Before(input.EventEndTime) {
 		return nil, fmt.Errorf("%w: EventStartTime must be before EventEndTime", ErrInvalidParameter)
 	}
 
@@ -1844,38 +1860,37 @@ func (b *InMemoryBackend) AddPartnerSourceInternal(src *PartnerEventSource) {
 	b.partnerSources[src.Name] = &cp
 }
 
-// validHTTPMethods contains the HTTP methods that AWS EventBridge API Destinations support.
-var validHTTPMethods = map[string]struct{}{
-	"GET":     {},
-	"HEAD":    {},
-	"POST":    {},
-	"OPTIONS": {},
-	"PUT":     {},
-	"DELETE":  {},
-	"PATCH":   {},
-}
-
 // isValidHTTPMethod reports whether method is a supported API Destination HTTP method.
 func isValidHTTPMethod(method string) bool {
-	_, ok := validHTTPMethods[strings.ToUpper(method)]
-	return ok
-}
+	validMethods := map[string]struct{}{
+		"GET":     {},
+		"HEAD":    {},
+		"POST":    {},
+		"OPTIONS": {},
+		"PUT":     {},
+		"DELETE":  {},
+		"PATCH":   {},
+	}
+	_, ok := validMethods[strings.ToUpper(method)]
 
-// validConnectionAuthTypes contains the allowed AuthorizationType values.
-var validConnectionAuthTypes = map[string]struct{}{
-	"API_KEY":                  {},
-	"BASIC":                    {},
-	"OAUTH_CLIENT_CREDENTIALS": {},
+	return ok
 }
 
 // isValidConnectionAuthType reports whether authType is a valid connection authorization type.
 func isValidConnectionAuthType(authType string) bool {
-	_, ok := validConnectionAuthTypes[authType]
+	validAuthTypes := map[string]struct{}{
+		"API_KEY":                  {},
+		"BASIC":                    {},
+		"OAUTH_CLIENT_CREDENTIALS": {},
+	}
+	_, ok := validAuthTypes[authType]
+
 	return ok
 }
 
 // isValidJSON reports whether s is valid JSON.
 func isValidJSON(s string) bool {
 	var v any
+
 	return json.Unmarshal([]byte(s), &v) == nil
 }

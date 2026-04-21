@@ -386,7 +386,6 @@
 								<p class="font-medium text-slate-900 dark:text-white">{archive.ArchiveName}</p>
 								<span class="px-2 py-0.5 text-xs rounded-full {archive.State === 'ENABLED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}">{archive.State}</span>
 							</div>
-							{#if archive.Description}<p class="text-xs text-slate-500 dark:text-slate-400 mb-1">{archive.Description}</p>{/if}
 							<p class="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">Source: {archive.EventSourceArn}</p>
 							<p class="text-xs text-slate-400 dark:text-slate-500">Retention: {archive.RetentionDays ? `${archive.RetentionDays} days` : 'Indefinite'} · Events: {archive.EventCount ?? 0}</p>
 						</div>
@@ -414,7 +413,6 @@
 								<p class="font-medium text-slate-900 dark:text-white">{connection.Name}</p>
 								<span class="px-2 py-0.5 text-xs rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{connection.ConnectionState ?? 'AUTHORIZED'}</span>
 							</div>
-							{#if connection.Description}<p class="text-xs text-slate-500 dark:text-slate-400 mb-1">{connection.Description}</p>{/if}
 							<p class="text-xs text-slate-500 dark:text-slate-400">Auth: {connection.AuthorizationType}</p>
 						</div>
 						<button onclick={() => deleteConnection(connection.Name ?? '')} class="ml-3 p-1.5 text-slate-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
@@ -511,7 +509,7 @@
 				<div><label for="eb-archive-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Archive Name <span class="text-slate-400">(max 48 chars)</span></label><input id="eb-archive-name" type="text" bind:value={newArchiveName} maxlength={48} placeholder="e.g. my-event-archive" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required /></div>
 				<div><label for="eb-archive-source" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Event Source ARN</label><input id="eb-archive-source" type="text" bind:value={newArchiveSource} placeholder="arn:aws:events:us-east-1:123456789012:event-bus/default" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm" required /></div>
 				<div><label for="eb-archive-retention" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Retention Days <span class="text-slate-400">(0 = indefinite)</span></label><input id="eb-archive-retention" type="number" bind:value={newArchiveRetention} min={0} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
-				<div><label for="eb-archive-pattern" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Event Pattern (optional)</label><textarea id="eb-archive-pattern" bind:value={newArchivePattern} rows={3} placeholder='{"source":["my.app"]}' class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"></textarea></div>
+				<div><label for="eb-archive-pattern" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Event Pattern (optional)</label><textarea id="eb-archive-pattern" bind:value={newArchivePattern} rows={3} placeholder={'{"source":["my.app"]}'} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"></textarea></div>
 				<div class="flex justify-end gap-3">
 					<button type="button" onclick={() => { showCreateArchiveModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
 					<button type="submit" disabled={creatingArchive} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">{creatingArchive ? 'Creating...' : 'Create Archive'}</button>
