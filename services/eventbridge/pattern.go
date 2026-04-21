@@ -7,6 +7,52 @@ import (
 	"strings"
 )
 
+type compiledPattern struct {
+	pattern               map[string]any
+	sourceExactValues     []string
+	detailTypeExactValues []string
+}
+
+func compilePattern(patternJSON string) (*compiledPattern, error) {
+	if patternJSON == "" {
+		return &compiledPattern{}, nil
+	}
+
+	var pattern map[string]any
+	if err := json.Unmarshal([]byte(patternJSON), &pattern); err != nil {
+		return nil, err
+	}
+
+	return &compiledPattern{
+		pattern:               pattern,
+		sourceExactValues:     exactStringMatcherValues(pattern, "source"),
+		detailTypeExactValues: exactStringMatcherValues(pattern, "detail-type"),
+	}, nil
+}
+
+func exactStringMatcherValues(pattern map[string]any, key string) []string {
+	v, ok := pattern[key]
+	if !ok {
+		return nil
+	}
+
+	values, ok := v.([]any)
+	if !ok || len(values) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		s, isString := value.(string)
+		if !isString {
+			return nil
+		}
+		out = append(out, s)
+	}
+
+	return out
+}
+
 // matchPattern reports whether an EventBridge event matches the given pattern JSON.
 // The pattern is a JSON object where each key is an event field and the value is
 // either an array of exact-match strings/numbers, or a special matcher object.
@@ -24,13 +70,17 @@ import (
 //	Nested objects are matched recursively.
 //	If the event field value is an array, any element matching the pattern satisfies it.
 func matchPattern(patternJSON, event string) bool {
-	if patternJSON == "" {
-		return true
+	compiled, err := compilePattern(patternJSON)
+	if err != nil {
+		return false
 	}
 
-	var pattern map[string]any
-	if err := json.Unmarshal([]byte(patternJSON), &pattern); err != nil {
-		return false
+	return matchCompiledPattern(compiled, event)
+}
+
+func matchCompiledPattern(compiled *compiledPattern, event string) bool {
+	if compiled == nil || len(compiled.pattern) == 0 {
+		return true
 	}
 
 	var eventData map[string]any
@@ -38,7 +88,7 @@ func matchPattern(patternJSON, event string) bool {
 		return false
 	}
 
-	return matchObject(pattern, eventData)
+	return matchObject(compiled.pattern, eventData)
 }
 
 // matchObject checks whether all fields in pattern are satisfied by the eventData object.

@@ -1592,7 +1592,8 @@ func TestTerraform_StepFunctions(t *testing.T) {
 	}
 }
 
-// TestTerraform_EventBridge provisions an EventBridge bus and rule and verifies the rule.
+// TestTerraform_EventBridge provisions an EventBridge bus, rule, archive, connection and
+// API destination via Terraform, then verifies each resource via the AWS SDK.
 func TestTerraform_EventBridge(t *testing.T) {
 	t.Parallel()
 
@@ -1605,19 +1606,46 @@ func TestTerraform_EventBridge(t *testing.T) {
 				id := uuid.NewString()[:8]
 
 				return map[string]any{
-					"BusName":  "tf-bus-" + id,
-					"RuleName": "tf-rule-" + id,
+					"BusName":            "tf-bus-" + id,
+					"RuleName":           "tf-rule-" + id,
+					"ArchiveName":        "tf-arc-" + id,
+					"ConnectionName":     "tf-conn-" + id,
+					"APIDestinationName": "tf-dst-" + id,
 				}
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createEventBridgeClient(t)
+
+				// Verify rule.
 				out, err := client.DescribeRule(ctx, &ebsvc.DescribeRuleInput{
 					Name:         aws.String(vars["RuleName"].(string)),
 					EventBusName: aws.String(vars["BusName"].(string)),
 				})
 				require.NoError(t, err, "DescribeRule should succeed after terraform apply")
 				assert.Equal(t, vars["RuleName"].(string), aws.ToString(out.Name))
+
+				// Verify archive.
+				archOut, err := client.DescribeArchive(ctx, &ebsvc.DescribeArchiveInput{
+					ArchiveName: aws.String(vars["ArchiveName"].(string)),
+				})
+				require.NoError(t, err, "DescribeArchive should succeed after terraform apply")
+				assert.Equal(t, vars["ArchiveName"].(string), aws.ToString(archOut.ArchiveName))
+				assert.Equal(t, aws.Int32(7), archOut.RetentionDays)
+
+				// Verify connection.
+				connOut, err := client.DescribeConnection(ctx, &ebsvc.DescribeConnectionInput{
+					Name: aws.String(vars["ConnectionName"].(string)),
+				})
+				require.NoError(t, err, "DescribeConnection should succeed after terraform apply")
+				assert.Equal(t, vars["ConnectionName"].(string), aws.ToString(connOut.Name))
+
+				// Verify API destination.
+				dstOut, err := client.DescribeApiDestination(ctx, &ebsvc.DescribeApiDestinationInput{
+					Name: aws.String(vars["APIDestinationName"].(string)),
+				})
+				require.NoError(t, err, "DescribeApiDestination should succeed after terraform apply")
+				assert.Equal(t, vars["APIDestinationName"].(string), aws.ToString(dstOut.Name))
 			},
 		},
 	}

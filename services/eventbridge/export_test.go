@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -95,4 +96,31 @@ func (b *InMemoryBackend) PartnerSourceCount() int {
 // HandlerOpsLen returns the number of pre-built handler operations.
 func (h *Handler) HandlerOpsLen() int {
 	return len(h.ops)
+}
+
+// PatternCacheSize returns the number of compiled patterns in cache.
+func (b *InMemoryBackend) PatternCacheSize() int {
+	size := 0
+	b.patternCache.Range(func(_, _ any) bool {
+		size++
+
+		return true
+	})
+
+	return size
+}
+
+// SetArchiveCreationTimeForTest overrides an archive creation time.
+func (b *InMemoryBackend) SetArchiveCreationTimeForTest(name string, creationTime time.Time) error {
+	b.mu.Lock("SetArchiveCreationTimeForTest")
+	defer b.mu.Unlock()
+
+	archive, exists := b.archives[name]
+	if !exists {
+		return fmt.Errorf("%w: archive %s not found", ErrNotFound, name)
+	}
+
+	archive.CreationTime = creationTime
+
+	return nil
 }

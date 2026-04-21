@@ -3,7 +3,9 @@ package eventbridge
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -45,6 +47,7 @@ func (b *InMemoryBackend) deliverEvents(
 	// inner maps (PutRule/DeleteRule/PutTargets/RemoveTargets) cannot race with
 	// the iteration below.
 	busRules := deepCopyBusRules(b.rules)
+	busRuleIndex := deepCopyRuleIndex(b.ruleIndex, busRules)
 	busTargets := deepCopyBusTargets(b.targets)
 	accountID := b.accountID
 	region := b.region
@@ -56,7 +59,8 @@ func (b *InMemoryBackend) deliverEvents(
 			busName = defaultEventBusName
 		}
 
-		rules := busRules[busName]
+		eventEnvelope := buildEventEnvelope(entry)
+		rules := indexedRulesForEvent(busRuleIndex[busName], entry.Source, entry.DetailType)
 		for _, rule := range rules {
 			if rule.State != "ENABLED" {
 				continue
@@ -66,9 +70,7 @@ func (b *InMemoryBackend) deliverEvents(
 				continue
 			}
 
-			// Build a normalized event envelope for pattern matching.
-			eventEnvelope := buildEventEnvelope(entry)
-			if !matchPattern(rule.EventPattern, eventEnvelope) {
+			if !matchCompiledPattern(rule.compiledPattern, eventEnvelope) {
 				continue
 			}
 
@@ -80,9 +82,14 @@ func (b *InMemoryBackend) deliverEvents(
 			// bounded context so a hung downstream service cannot block the
 			// goroutine beyond the configured timeout.
 			key := b.targetKey(busName, rule.Name)
+			var wg sync.WaitGroup
 			for _, t := range busTargets[key] {
-				deliverToTargetBounded(ctx, t, deliveryEnvelope, targets, timeout)
+				target := t
+				wg.Go(func() {
+					deliverToTargetBounded(ctx, target, deliveryEnvelope, targets, timeout)
+				})
 			}
+			wg.Wait()
 		}
 	}
 }
@@ -122,6 +129,63 @@ func deepCopyBusRules(src map[string]map[string]*Rule) map[string]map[string]*Ru
 	}
 
 	return dst
+}
+
+func deepCopyRuleIndex(
+	src map[string]map[ruleIndexKey]map[string]*Rule,
+	rules map[string]map[string]*Rule,
+) map[string]map[ruleIndexKey]map[string]*Rule {
+	dst := make(map[string]map[ruleIndexKey]map[string]*Rule, len(src))
+	for bus, indexMap := range src {
+		copiedBusRules := rules[bus]
+		copiedIndexMap := make(map[ruleIndexKey]map[string]*Rule, len(indexMap))
+		for indexKey, ruleMap := range indexMap {
+			copiedRuleMap := make(map[string]*Rule, len(ruleMap))
+			for name := range ruleMap {
+				rule, exists := copiedBusRules[name]
+				if exists {
+					copiedRuleMap[name] = rule
+				}
+			}
+			if len(copiedRuleMap) > 0 {
+				copiedIndexMap[indexKey] = copiedRuleMap
+			}
+		}
+		if len(copiedIndexMap) > 0 {
+			dst[bus] = copiedIndexMap
+		}
+	}
+
+	return dst
+}
+
+func indexedRulesForEvent(
+	index map[ruleIndexKey]map[string]*Rule,
+	source, detailType string,
+) []*Rule {
+	if len(index) == 0 {
+		return nil
+	}
+
+	candidateKeys := []ruleIndexKey{
+		{source: source, detailType: detailType},
+		{source: source, detailType: ruleIndexAny},
+		{source: ruleIndexAny, detailType: detailType},
+		{source: ruleIndexAny, detailType: ruleIndexAny},
+	}
+
+	rulesByName := make(map[string]*Rule)
+	for _, key := range candidateKeys {
+		bucket := index[key]
+		maps.Copy(rulesByName, bucket)
+	}
+
+	rules := make([]*Rule, 0, len(rulesByName))
+	for _, rule := range rulesByName {
+		rules = append(rules, rule)
+	}
+
+	return rules
 }
 
 // deepCopyBusTargets returns a deep copy of the target-key-to-targets map so

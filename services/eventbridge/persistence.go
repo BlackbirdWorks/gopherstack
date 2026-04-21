@@ -3,6 +3,7 @@ package eventbridge
 import (
 	"encoding/json"
 	"log/slog"
+	"sync"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -68,45 +69,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Buses == nil {
-		snap.Buses = make(map[string]*EventBus)
-	}
-
-	if snap.Rules == nil {
-		snap.Rules = make(map[string]map[string]*Rule)
-	}
-
-	if snap.Targets == nil {
-		snap.Targets = make(map[string]map[string]*Target)
-	}
-
-	if snap.EventSources == nil {
-		snap.EventSources = make(map[string]*EventSource)
-	}
-
-	if snap.Replays == nil {
-		snap.Replays = make(map[string]*Replay)
-	}
-
-	if snap.APIDestinations == nil {
-		snap.APIDestinations = make(map[string]*APIDestination)
-	}
-
-	if snap.Archives == nil {
-		snap.Archives = make(map[string]*Archive)
-	}
-
-	if snap.Connections == nil {
-		snap.Connections = make(map[string]*Connection)
-	}
-
-	if snap.Endpoints == nil {
-		snap.Endpoints = make(map[string]*Endpoint)
-	}
-
-	if snap.PartnerSources == nil {
-		snap.PartnerSources = make(map[string]*PartnerEventSource)
-	}
+	ensureBackendSnapshotMaps(&snap)
 
 	b.buses = snap.Buses
 	b.rules = snap.Rules
@@ -121,6 +84,62 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.eventLog = snap.EventLog
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.ruleIndex = make(map[string]map[ruleIndexKey]map[string]*Rule)
+	b.patternCache = sync.Map{}
+
+	if err := b.rebuildRuleIndexesLocked(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensureBackendSnapshotMaps(snap *backendSnapshot) {
+	if snap.Buses == nil {
+		snap.Buses = make(map[string]*EventBus)
+	}
+	if snap.Rules == nil {
+		snap.Rules = make(map[string]map[string]*Rule)
+	}
+	if snap.Targets == nil {
+		snap.Targets = make(map[string]map[string]*Target)
+	}
+	if snap.EventSources == nil {
+		snap.EventSources = make(map[string]*EventSource)
+	}
+	if snap.Replays == nil {
+		snap.Replays = make(map[string]*Replay)
+	}
+	if snap.APIDestinations == nil {
+		snap.APIDestinations = make(map[string]*APIDestination)
+	}
+	if snap.Archives == nil {
+		snap.Archives = make(map[string]*Archive)
+	}
+	if snap.Connections == nil {
+		snap.Connections = make(map[string]*Connection)
+	}
+	if snap.Endpoints == nil {
+		snap.Endpoints = make(map[string]*Endpoint)
+	}
+	if snap.PartnerSources == nil {
+		snap.PartnerSources = make(map[string]*PartnerEventSource)
+	}
+}
+
+func (b *InMemoryBackend) rebuildRuleIndexesLocked() error {
+	for _, busRules := range b.rules {
+		for _, rule := range busRules {
+			if rule.EventPattern != "" {
+				compiled, err := b.getOrCompilePattern(rule.EventPattern)
+				if err != nil {
+					return err
+				}
+				rule.compiledPattern = compiled
+			}
+			b.addRuleToIndex(rule)
+		}
+	}
 
 	return nil
 }

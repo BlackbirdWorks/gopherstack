@@ -18,35 +18,9 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := eventbridge.NewInMemoryBackend()
 	h := eventbridge.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &eventbridgesdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteArchive",
-		"DeleteConnection",
-		"DeleteEndpoint",
-		"DeletePartnerEventSource",
-		"DescribeApiDestination",
-		"DescribeArchive",
-		"DescribeConnection",
-		"DescribeEndpoint",
-		"DescribeEventSource",
-		"DescribePartnerEventSource",
-		"DescribeReplay",
-		"ListApiDestinations",
-		"ListArchives",
-		"ListConnections",
-		"ListEndpoints",
-		"ListEventSources",
+		// ListPartnerEventSourceAccounts returns accounts that have been granted
+		// access to a partner event source. This is a cross-account metadata
+		// operation that has no meaningful in-process simulation.
 		"ListPartnerEventSourceAccounts",
-		"ListPartnerEventSources",
-		"ListReplays",
-		"ListRuleNamesByTarget",
-		"PutPartnerEvents",
-		"PutPermission",
-		"RemovePermission",
-		"StartReplay",
-		"TestEventPattern",
-		"UpdateApiDestination",
-		"UpdateArchive",
-		"UpdateConnection",
-		"UpdateEndpoint",
-		"UpdateEventBus",
 	})
 }
