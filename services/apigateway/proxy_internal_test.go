@@ -12,12 +12,15 @@ func TestAuthorizerCacheSet(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(*authorizerCache)
-		name    string
-		key     string
-		ttl     time.Duration
-		wantHit bool
-		wantVal bool
+		setup         func(*authorizerCache)
+		name          string
+		key           string
+		retainedKey   string
+		evictedKey    string
+		ttl           time.Duration
+		wantHit       bool
+		wantVal       bool
+		checkEviction bool
 	}{
 		{
 			name:    "stores_and_reads_entry",
@@ -33,10 +36,13 @@ func TestAuthorizerCacheSet(t *testing.T) {
 				cache.set("b", false, time.Minute)
 				_, _ = cache.get("a")
 			},
-			key:     "c",
-			ttl:     time.Minute,
-			wantHit: true,
-			wantVal: true,
+			key:           "c",
+			ttl:           time.Minute,
+			wantHit:       true,
+			wantVal:       true,
+			checkEviction: true,
+			retainedKey:   "a",
+			evictedKey:    "b",
 		},
 		{
 			name: "zero_ttl_is_not_cached",
@@ -59,11 +65,11 @@ func TestAuthorizerCacheSet(t *testing.T) {
 			assert.Equal(t, tt.wantHit, gotHit)
 			assert.Equal(t, tt.wantVal, gotVal)
 
-			if tt.name == "evicts_lru_when_max_entries_reached" {
-				_, hitA := cache.get("a")
-				_, hitB := cache.get("b")
-				require.True(t, hitA)
-				assert.False(t, hitB)
+			if tt.checkEviction {
+				_, retainedHit := cache.get(tt.retainedKey)
+				_, evictedHit := cache.get(tt.evictedKey)
+				require.True(t, retainedHit)
+				assert.False(t, evictedHit)
 			}
 		})
 	}
@@ -72,74 +78,94 @@ func TestAuthorizerCacheSet(t *testing.T) {
 func TestFindMatchingResource(t *testing.T) {
 	t.Parallel()
 
+	type findMatchingResourceArgs struct {
+		requestPath string
+		stageName   string
+		resources   []Resource
+	}
+
+	type findMatchingResourceWant struct {
+		params     map[string]string
+		resourceID string
+		wantNil    bool
+	}
+
 	tests := []struct {
-		run  func(t *testing.T)
 		name string
+		args findMatchingResourceArgs
+		want findMatchingResourceWant
 	}{
 		{
 			name: "exact_match_preferred_over_greedy",
-			run: func(t *testing.T) {
-				t.Helper()
-
-				resource, params := findMatchingResource([]Resource{
+			args: findMatchingResourceArgs{
+				resources: []Resource{
 					{ID: "greedy", Path: "/items/{proxy+}"},
 					{ID: "exact", Path: "/items/special"},
-				}, "/items/special", "prod")
-
-				require.NotNil(t, resource)
-				assert.Equal(t, "exact", resource.ID)
-				assert.Empty(t, params)
+				},
+				requestPath: "/items/special",
+				stageName:   "prod",
+			},
+			want: findMatchingResourceWant{
+				resourceID: "exact",
+				params:     map[string]string{},
 			},
 		},
 		{
 			name: "single_segment_parameter",
-			run: func(t *testing.T) {
-				t.Helper()
-
-				resource, params := findMatchingResource([]Resource{
+			args: findMatchingResourceArgs{
+				resources: []Resource{
 					{ID: "param", Path: "/items/{id}"},
-				}, "/items/42", "prod")
-
-				require.NotNil(t, resource)
-				require.NotNil(t, params)
-				assert.Equal(t, "param", resource.ID)
-				assert.Equal(t, "42", params["id"])
+				},
+				requestPath: "/items/42",
+				stageName:   "prod",
+			},
+			want: findMatchingResourceWant{
+				resourceID: "param",
+				params:     map[string]string{"id": "42"},
 			},
 		},
 		{
 			name: "stage_prefix_is_stripped",
-			run: func(t *testing.T) {
-				t.Helper()
-
-				resource, params := findMatchingResource([]Resource{
+			args: findMatchingResourceArgs{
+				resources: []Resource{
 					{ID: "param", Path: "/items/{id}"},
-				}, "/prod/items/42", "prod")
-
-				require.NotNil(t, resource)
-				require.NotNil(t, params)
-				assert.Equal(t, "param", resource.ID)
-				assert.Equal(t, "42", params["id"])
+				},
+				requestPath: "/prod/items/42",
+				stageName:   "prod",
+			},
+			want: findMatchingResourceWant{
+				resourceID: "param",
+				params:     map[string]string{"id": "42"},
 			},
 		},
 		{
 			name: "non_terminal_greedy_pattern_is_ignored",
-			run: func(t *testing.T) {
-				t.Helper()
-
-				resource, params := findMatchingResource([]Resource{
+			args: findMatchingResourceArgs{
+				resources: []Resource{
 					{ID: "bad", Path: "/{proxy+}/suffix"},
-				}, "/anything/suffix", "prod")
-
-				assert.Nil(t, resource)
-				assert.Nil(t, params)
+				},
+				requestPath: "/anything/suffix",
+				stageName:   "prod",
 			},
+			want: findMatchingResourceWant{wantNil: true},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.run(t)
+
+			resource, params := findMatchingResource(tt.args.resources, tt.args.requestPath, tt.args.stageName)
+			if tt.want.wantNil {
+				assert.Nil(t, resource)
+				assert.Nil(t, params)
+
+				return
+			}
+
+			require.NotNil(t, resource)
+			assert.Equal(t, tt.want.resourceID, resource.ID)
+			assert.Equal(t, tt.want.params, params)
 		})
 	}
 }
