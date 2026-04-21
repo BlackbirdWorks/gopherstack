@@ -1631,7 +1631,7 @@ func TestTerraform_EventBridge(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeArchive should succeed after terraform apply")
 				assert.Equal(t, vars["ArchiveName"].(string), aws.ToString(archOut.ArchiveName))
-				assert.Equal(t, int32(7), archOut.RetentionDays)
+				assert.Equal(t, aws.Int32(7), archOut.RetentionDays)
 
 				// Verify connection.
 				connOut, err := client.DescribeConnection(ctx, &ebsvc.DescribeConnectionInput{

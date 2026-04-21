@@ -59,9 +59,10 @@ func TestEventBridgeDashboard_Rules(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = stack.EventBridgeHandler.Backend.PutRule(ebbackend.PutRuleInput{
-		Name:         "test-rule",
-		EventBusName: "rules-bus",
-		State:        "ENABLED",
+		Name:               "test-rule",
+		EventBusName:       "rules-bus",
+		State:              "ENABLED",
+		ScheduleExpression: "rate(5 minutes)",
 	})
 	require.NoError(t, err)
 
