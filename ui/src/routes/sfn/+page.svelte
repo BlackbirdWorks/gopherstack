@@ -23,7 +23,8 @@
 		type ExecutionListItem,
 		type DescribeExecutionOutput,
 		type HistoryEvent,
-		type ActivityListItem
+		type ActivityListItem,
+		type StateMachineType
 	} from '@aws-sdk/client-sfn';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -57,11 +58,12 @@
 	// History
 	let historyEvents = $state<HistoryEvent[]>([]);
 	let loadingHistory = $state(false);
-	let historyNextToken = $state<string | undefined>(undefined);
+	let historyNextToken = $state<string>('');
 	let historyHasMore = $state(false);
 
 	// Versions
-	let versions = $state<any[]>([]);
+	interface VersionSummary { stateMachineVersionArn?: string; description?: string; creationDate?: Date; }
+	let versions = $state<VersionSummary[]>([]);
 	let loadingVersions = $state(false);
 
 	// Activities
@@ -185,7 +187,7 @@
 				maxResults: 50, nextToken: token
 			}));
 			historyEvents = token ? [...historyEvents, ...(r.events ?? [])] : (r.events ?? []);
-			historyNextToken = r.nextToken;
+			historyNextToken = r.nextToken ?? '';
 			historyHasMore = !!r.nextToken;
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loadingHistory = false; }
@@ -220,7 +222,7 @@
 		creating = true;
 		try {
 			await sfn.send(new CreateStateMachineCommand({
-				name: newSMName, definition: newSMDefinition, roleArn: newSMRoleArn, type: newSMType as any
+				name: newSMName, definition: newSMDefinition, roleArn: newSMRoleArn, type: newSMType as StateMachineType
 			}));
 			toast.success('Created ' + newSMName);
 			showCreateModal = false; newSMName = '';
@@ -262,7 +264,7 @@
 		loadingVersions = true;
 		try {
 			const r = await sfn.send(new ListStateMachineVersionsCommand({ stateMachineArn: selectedSM.stateMachineArn }));
-			versions = (r as any).stateMachineVersions ?? [];
+			versions = (r as { stateMachineVersions?: VersionSummary[] }).stateMachineVersions ?? [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loadingVersions = false; }
 	}
@@ -288,7 +290,9 @@
 			try {
 				await sfn.send(new CreateStateMachineCommand({name:d.name,definition:d.def,roleArn:'arn:aws:iam::000000000000:role/StepFunctionsRole',type:d.type}));
 				c++;
-			} catch { /* already exists */ }
+			} catch {
+				// skip: state machine may already exist
+			}
 		}
 		toast.success('Seeded ' + c + ' demo workflow(s)');
 		await loadStateMachines();
@@ -371,7 +375,7 @@
 				<div class="p-3 border-b border-slate-200 dark:border-slate-700/50 space-y-2">
 					<div class="relative">
 						<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-						<input type="text" bind:value={searchQuery} placeholder="Search..." class="w-full pl-9 pr-3 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-pink-500 outline-none" />
+						<input type="text" bind:value={searchQuery} placeholder="Search workflows..." class="w-full pl-9 pr-3 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-pink-500 outline-none" />
 					</div>
 					<div class="flex gap-1">
 						{#each ['ALL','STANDARD','EXPRESS'] as f}
@@ -393,7 +397,7 @@
 								<div class="text-[8px] text-slate-400 font-mono truncate">{sm.stateMachineArn?.split(':').pop()}</div>
 							</div>
 						{/each}
-						{#if !filteredSMs.length}<div class="p-10 text-center text-slate-400 text-xs italic">{searchQuery ? 'No matches.' : 'No state machines.'}</div>{/if}
+						{#if !filteredSMs.length}<div class="p-10 text-center text-slate-400 text-xs italic">{searchQuery ? 'No matches.' : 'No state machines found.'}</div>{/if}
 					{/if}
 				</div>
 			</div>

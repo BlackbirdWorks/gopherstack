@@ -402,8 +402,8 @@ type listStateMachineVersionsInput struct {
 }
 
 type listStateMachineVersionsOutput struct {
-	StateMachineVersions []StateMachineVersion `json:"stateMachineVersions"`
 	NextToken            string                `json:"nextToken,omitempty"`
+	StateMachineVersions []StateMachineVersion `json:"stateMachineVersions"`
 }
 
 type createStateMachineAliasInput struct {
@@ -434,8 +434,8 @@ type listStateMachineAliasesInput struct {
 }
 
 type listStateMachineAliasesOutput struct {
-	StateMachineAliases []StateMachineAlias `json:"stateMachineAliases"`
 	NextToken           string              `json:"nextToken,omitempty"`
+	StateMachineAliases []StateMachineAlias `json:"stateMachineAliases"`
 }
 
 // ── RedriveExecution / DescribeStateMachineForExecution ───────────────────────
@@ -563,7 +563,10 @@ func (h *Handler) versionActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			versions, next, err := h.Backend.ListStateMachineVersions(input.StateMachineArn, input.NextToken, input.MaxResults)
+
+			versions, next, err := h.Backend.ListStateMachineVersions(
+				input.StateMachineArn, input.NextToken, input.MaxResults,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -582,7 +585,9 @@ func (h *Handler) aliasActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.CreateStateMachineAlias(input.StateMachineArn, input.Name, input.Description, input.RoutingConfiguration)
+			return h.Backend.CreateStateMachineAlias(
+				input.StateMachineArn, input.Name, input.Description, input.RoutingConfiguration,
+			)
 		},
 		"UpdateStateMachineAlias": func(b []byte) (any, error) {
 			var input updateStateMachineAliasInput
@@ -590,7 +595,9 @@ func (h *Handler) aliasActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.UpdateStateMachineAlias(input.StateMachineAliasArn, input.Description, input.RoutingConfiguration)
+			return h.Backend.UpdateStateMachineAlias(
+				input.StateMachineAliasArn, input.Description, input.RoutingConfiguration,
+			)
 		},
 		"DeleteStateMachineAlias": func(b []byte) (any, error) {
 			var input deleteStateMachineAliasInput
@@ -616,7 +623,10 @@ func (h *Handler) aliasActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			aliases, next, err := h.Backend.ListStateMachineAliases(input.StateMachineArn, input.NextToken, input.MaxResults)
+
+			aliases, next, err := h.Backend.ListStateMachineAliases(
+				input.StateMachineArn, input.NextToken, input.MaxResults,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -670,14 +680,14 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 
 func (h *Handler) executionActions() map[string]actionFn {
 	return map[string]actionFn{
-		"StartExecution":                    h.handleStartExecution,
-		"StartSyncExecution":                h.handleStartSyncExecution,
-		"StopExecution":                     h.handleStopExecution,
-		"RedriveExecution":                  h.handleRedriveExecution,
-		"DescribeExecution":                 h.handleDescribeExecution,
-		"DescribeStateMachineForExecution":  h.handleDescribeStateMachineForExecution,
-		"ListExecutions":                    h.handleListExecutions,
-		"GetExecutionHistory":               h.handleGetExecutionHistory,
+		"StartExecution":                   h.handleStartExecution,
+		"StartSyncExecution":               h.handleStartSyncExecution,
+		"StopExecution":                    h.handleStopExecution,
+		"RedriveExecution":                 h.handleRedriveExecution,
+		"DescribeExecution":                h.handleDescribeExecution,
+		"DescribeStateMachineForExecution": h.handleDescribeStateMachineForExecution,
+		"ListExecutions":                   h.handleListExecutions,
+		"GetExecutionHistory":              h.handleGetExecutionHistory,
 	}
 }
 
@@ -993,38 +1003,36 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 }
 
 func classifyError(reqErr error) (string, int) {
-	switch {
-	case errors.Is(reqErr, ErrStateMachineDoesNotExist):
-		return "StateMachineDoesNotExist", http.StatusNotFound
-	case errors.Is(reqErr, ErrStateMachineVersionDoesNotExist):
-		return "StateMachineVersionDoesNotExist", http.StatusNotFound
-	case errors.Is(reqErr, ErrStateMachineAliasDoesNotExist):
-		return "StateMachineAliasDoesNotExist", http.StatusNotFound
-	case errors.Is(reqErr, ErrExecutionDoesNotExist):
-		return "ExecutionDoesNotExist", http.StatusNotFound
-	case errors.Is(reqErr, ErrActivityDoesNotExist):
-		return "ActivityDoesNotExist", http.StatusNotFound
-	case errors.Is(reqErr, ErrTaskTokenNotFound):
-		return "TaskDoesNotExist", http.StatusNotFound
-	case errors.Is(reqErr, ErrStateMachineAlreadyExists):
-		return "StateMachineAlreadyExists", http.StatusConflict
-	case errors.Is(reqErr, ErrStateMachineAliasAlreadyExists):
-		return "StateMachineAliasAlreadyExists", http.StatusConflict
-	case errors.Is(reqErr, ErrExecutionAlreadyExists):
-		return "ExecutionAlreadyExists", http.StatusConflict
-	case errors.Is(reqErr, ErrActivityAlreadyExists):
-		return "ActivityAlreadyExists", http.StatusConflict
-	case errors.Is(reqErr, ErrExecutionNotRedrivable):
-		return "ExecutionNotRedrivable", http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidDefinition):
-		return "InvalidDefinition", http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidExecutionType):
-		return "InvalidExecutionType", http.StatusBadRequest
-	case errors.Is(reqErr, errUnknownOperation):
-		return "UnknownOperationException", http.StatusBadRequest
-	default:
-		return "InternalServerError", http.StatusInternalServerError
+	type mapping struct {
+		err    error
+		kind   string
+		status int
 	}
+
+	mappings := []mapping{
+		{ErrStateMachineDoesNotExist, "StateMachineDoesNotExist", http.StatusNotFound},
+		{ErrStateMachineVersionDoesNotExist, "StateMachineVersionDoesNotExist", http.StatusNotFound},
+		{ErrStateMachineAliasDoesNotExist, "StateMachineAliasDoesNotExist", http.StatusNotFound},
+		{ErrExecutionDoesNotExist, "ExecutionDoesNotExist", http.StatusNotFound},
+		{ErrActivityDoesNotExist, "ActivityDoesNotExist", http.StatusNotFound},
+		{ErrTaskTokenNotFound, "TaskDoesNotExist", http.StatusNotFound},
+		{ErrStateMachineAlreadyExists, "StateMachineAlreadyExists", http.StatusConflict},
+		{ErrStateMachineAliasAlreadyExists, "StateMachineAliasAlreadyExists", http.StatusConflict},
+		{ErrExecutionAlreadyExists, "ExecutionAlreadyExists", http.StatusConflict},
+		{ErrActivityAlreadyExists, "ActivityAlreadyExists", http.StatusConflict},
+		{ErrExecutionNotRedrivable, "ExecutionNotRedrivable", http.StatusBadRequest},
+		{ErrInvalidDefinition, "InvalidDefinition", http.StatusBadRequest},
+		{ErrInvalidExecutionType, "InvalidExecutionType", http.StatusBadRequest},
+		{errUnknownOperation, "UnknownOperationException", http.StatusBadRequest},
+	}
+
+	for _, m := range mappings {
+		if errors.Is(reqErr, m.err) {
+			return m.kind, m.status
+		}
+	}
+
+	return "InternalServerError", http.StatusInternalServerError
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

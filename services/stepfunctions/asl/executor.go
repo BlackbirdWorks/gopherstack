@@ -831,16 +831,21 @@ func (e *Executor) executeParallel(
 	var wg sync.WaitGroup
 	for i, branch := range state.Branches {
 		// Stop spawning new goroutines if context already cancelled.
-		if err := ctx.Err(); err != nil {
-			return "", nil, err
+		if ctx.Err() != nil {
+			return "", nil, ctx.Err()
 		}
 
 		wg.Add(1)
+
+		acquired := true
 		select {
 		case e.execSem <- struct{}{}:
 		case <-ctx.Done():
 			wg.Done()
+			acquired = false
+		}
 
+		if !acquired {
 			break
 		}
 
@@ -901,22 +906,13 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 	results := make([]any, len(items))
 	errs := make([]error, len(items))
 
-	concurrency := state.MaxConcurrency
-	if concurrency <= 0 {
-		// AWS MaxConcurrency=0 means unlimited; apply safety cap to avoid goroutine explosion.
-		concurrency = min(len(items), maxMapConcurrencyLimit)
-	}
-
-	if concurrency == 0 {
-		concurrency = 1
-	}
-
+	concurrency := resolveMapConcurrency(state.MaxConcurrency, len(items))
 	sem := make(chan struct{}, concurrency)
 
 	var wg sync.WaitGroup
 	for i, item := range items {
 		// Stop spawning new goroutines if context already cancelled.
-		if err := ctx.Err(); err != nil {
+		if ctx.Err() != nil {
 			break
 		}
 
@@ -934,12 +930,16 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 			break
 		}
 
+		semAcquired := true
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
 			<-e.execSem
 			wg.Done()
+			semAcquired = false
+		}
 
+		if !semAcquired {
 			break
 		}
 
@@ -948,30 +948,59 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 			defer func() { <-e.execSem }()
 			defer func() { <-sem }()
 
-			exec := e.newSubExecutor(iterator)
-			res, execErr := exec.Execute(ctx, executionARN, marshalInput(it))
-			if execErr != nil {
-				errs[idx] = execErr
-
-				return
-			}
-			results[idx] = res.Output
+			e.runMapItem(ctx, executionARN, iterator, idx, it, results, errs)
 		}(i, item)
 	}
 
 	wg.Wait()
 
-	if err := ctx.Err(); err != nil {
-		return "", nil, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", nil, ctxErr
 	}
 
-	for _, err := range errs {
-		if err != nil {
-			return "", nil, err
+	for _, iterErr := range errs {
+		if iterErr != nil {
+			return "", nil, iterErr
 		}
 	}
 
 	return state.Next, results, nil
+}
+
+// runMapItem executes a single map iteration item in the sub-executor.
+func (e *Executor) runMapItem(
+	ctx context.Context,
+	executionARN string,
+	iterator *StateMachine,
+	idx int,
+	it any,
+	results []any,
+	errs []error,
+) {
+	exec := e.newSubExecutor(iterator)
+
+	res, execErr := exec.Execute(ctx, executionARN, marshalInput(it))
+	if execErr != nil {
+		errs[idx] = execErr
+
+		return
+	}
+
+	results[idx] = res.Output
+}
+
+// resolveMapConcurrency determines the effective concurrency for a Map state.
+func resolveMapConcurrency(maxConcurrency, itemCount int) int {
+	if maxConcurrency > 0 {
+		return maxConcurrency
+	}
+
+	c := min(itemCount, maxMapConcurrencyLimit)
+	if c == 0 {
+		return 1
+	}
+
+	return c
 }
 
 // FailError represents the error from a Fail state.

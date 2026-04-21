@@ -8,32 +8,32 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
 var (
-	ErrStateMachineAlreadyExists      = errors.New("StateMachineAlreadyExists")
-	ErrStateMachineDoesNotExist       = errors.New("StateMachineDoesNotExist")
+	ErrStateMachineAlreadyExists       = errors.New("StateMachineAlreadyExists")
+	ErrStateMachineDoesNotExist        = errors.New("StateMachineDoesNotExist")
 	ErrStateMachineVersionDoesNotExist = errors.New("StateMachineVersionDoesNotExist")
-	ErrStateMachineAliasAlreadyExists = errors.New("StateMachineAliasAlreadyExists")
-	ErrStateMachineAliasDoesNotExist  = errors.New("StateMachineAliasDoesNotExist")
-	ErrExecutionAlreadyExists         = errors.New("ExecutionAlreadyExists")
-	ErrExecutionDoesNotExist          = errors.New("ExecutionDoesNotExist")
-	ErrExecutionNotRedrivable         = errors.New("ExecutionNotRedrivable")
-	ErrInvalidDefinition              = errors.New("InvalidDefinition")
-	ErrInvalidExecutionType           = errors.New("InvalidExecutionType")
-	ErrActivityAlreadyExists          = errors.New("ActivityAlreadyExists")
-	ErrActivityDoesNotExist           = errors.New("ActivityDoesNotExist")
-	ErrTaskTokenNotFound              = errors.New("TaskTokenNotFound")
-	ErrActivityTaskFailed             = errors.New("ActivityTaskFailed")
+	ErrStateMachineAliasAlreadyExists  = errors.New("StateMachineAliasAlreadyExists")
+	ErrStateMachineAliasDoesNotExist   = errors.New("StateMachineAliasDoesNotExist")
+	ErrExecutionAlreadyExists          = errors.New("ExecutionAlreadyExists")
+	ErrExecutionDoesNotExist           = errors.New("ExecutionDoesNotExist")
+	ErrExecutionNotRedrivable          = errors.New("ExecutionNotRedrivable")
+	ErrInvalidDefinition               = errors.New("InvalidDefinition")
+	ErrInvalidExecutionType            = errors.New("InvalidExecutionType")
+	ErrActivityAlreadyExists           = errors.New("ActivityAlreadyExists")
+	ErrActivityDoesNotExist            = errors.New("ActivityDoesNotExist")
+	ErrTaskTokenNotFound               = errors.New("TaskTokenNotFound")
+	ErrActivityTaskFailed              = errors.New("ActivityTaskFailed")
 )
 
 const (
@@ -1097,7 +1097,9 @@ func (b *InMemoryBackend) ListActivities(nextToken string, maxResults int) ([]Ac
 }
 
 // PublishStateMachineVersion creates an immutable snapshot version of a state machine.
-func (b *InMemoryBackend) PublishStateMachineVersion(smARN, description, revisionID string) (*StateMachineVersion, error) {
+func (b *InMemoryBackend) PublishStateMachineVersion(
+	smARN, description, revisionID string,
+) (*StateMachineVersion, error) {
 	b.mu.Lock("PublishStateMachineVersion")
 	defer b.mu.Unlock()
 
@@ -1172,7 +1174,9 @@ func (b *InMemoryBackend) DeleteStateMachineVersion(versionARN string) error {
 }
 
 // ListStateMachineVersions returns all versions for a state machine.
-func (b *InMemoryBackend) ListStateMachineVersions(smARN, nextToken string, maxResults int) ([]StateMachineVersion, string, error) {
+func (b *InMemoryBackend) ListStateMachineVersions(
+	smARN, nextToken string, maxResults int,
+) ([]StateMachineVersion, string, error) {
 	b.mu.RLock("ListStateMachineVersions")
 	defer b.mu.RUnlock()
 
@@ -1305,7 +1309,9 @@ func (b *InMemoryBackend) DescribeStateMachineAlias(aliasARN string) (*StateMach
 }
 
 // ListStateMachineAliases returns all aliases for a state machine.
-func (b *InMemoryBackend) ListStateMachineAliases(smARN, nextToken string, maxResults int) ([]StateMachineAlias, string, error) {
+func (b *InMemoryBackend) ListStateMachineAliases(
+	smARN, nextToken string, maxResults int,
+) ([]StateMachineAlias, string, error) {
 	b.mu.RLock("ListStateMachineAliases")
 	defer b.mu.RUnlock()
 
@@ -1389,19 +1395,12 @@ func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, err
 	snsIntegration := b.snsIntegration
 	ddbIntegration := b.ddbIntegration
 
-	ctx, cancel := context.WithCancel(b.svcCtx) //nolint:gosec
+	//nolint:gosec // cancel is stored in cancelFns for StopExecution/DeleteStateMachine
+	ctx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFns[executionARN] = cancel
 
 	// Ensure execution is tracked under the SM.
-	alreadyTracked := false
-	for _, eARN := range b.smExecutions[smARN] {
-		if eARN == executionARN {
-			alreadyTracked = true
-
-			break
-		}
-	}
-	if !alreadyTracked {
+	if !slices.Contains(b.smExecutions[smARN], executionARN) {
 		b.smExecutions[smARN] = append(b.smExecutions[smARN], executionARN)
 	}
 
@@ -1438,7 +1437,9 @@ func (b *InMemoryBackend) DescribeStateMachineForExecution(executionARN string) 
 		// Fall back to the current definition if no snapshot was taken (pre-snapshot executions).
 		sm, smExists := b.stateMachines[exec.StateMachineArn]
 		if !smExists {
-			return nil, fmt.Errorf("%w: state machine %s no longer exists", ErrStateMachineDoesNotExist, exec.StateMachineArn)
+			return nil, fmt.Errorf(
+				"%w: state machine %s no longer exists", ErrStateMachineDoesNotExist, exec.StateMachineArn,
+			)
 		}
 
 		cp := *sm
