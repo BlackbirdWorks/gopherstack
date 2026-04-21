@@ -527,10 +527,26 @@ func TestActivity_InvokeCancellationRemovesTaskToken(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
+		sendResult func(*stepfunctions.InMemoryBackend, string) error
+		name       string
 	}{
 		{
-			name: "cancelled_invoke_cleans_task_token",
+			name: "cancelled_invoke_rejects_send_task_success",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskSuccess(taskToken, `{"status":"late"}`)
+			},
+		},
+		{
+			name: "cancelled_invoke_rejects_send_task_failure",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskFailure(taskToken, "ActivityFailed", "late failure")
+			},
 		},
 	}
 
@@ -570,7 +586,7 @@ func TestActivity_InvokeCancellationRemovesTaskToken(t *testing.T) {
 				}
 			}, 2*time.Second, 25*time.Millisecond)
 
-			err = b.SendTaskSuccess(task.TaskToken, `{"status":"late"}`)
+			err = tt.sendResult(b, task.TaskToken)
 			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
 		})
 	}
@@ -580,10 +596,26 @@ func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
+		sendResult func(*stepfunctions.InMemoryBackend, string) error
+		name       string
 	}{
 		{
-			name: "delete_activity_cleans_outstanding_tokens",
+			name: "delete_activity_rejects_send_task_failure",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskFailure(taskToken, "ActivityFailed", "worker failed")
+			},
+		},
+		{
+			name: "delete_activity_rejects_send_task_success",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskSuccess(taskToken, `{"ok":true}`)
+			},
 		},
 	}
 
@@ -615,7 +647,7 @@ func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
 			err = b.DeleteActivity(a.ActivityArn)
 			require.NoError(t, err)
 
-			err = b.SendTaskFailure(task.TaskToken, "ActivityFailed", "worker failed")
+			err = tt.sendResult(b, task.TaskToken)
 			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
 
 			cancelInvoke()

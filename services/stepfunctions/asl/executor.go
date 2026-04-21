@@ -1023,10 +1023,10 @@ func jsonPathGet(path string, value any, pathCache *sync.Map) (any, error) {
 	}
 
 	parts := getCachedJSONPathParts(path, pathCache)
-	for index, part := range parts {
+	for remainingIndex, part := range parts {
 		m, ok := value.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("%w: %q", ErrCannotIndexNonObject, strings.Join(parts[index:], "."))
+			return nil, fmt.Errorf("%w: %q", ErrCannotIndexNonObject, strings.Join(parts[remainingIndex:], "."))
 		}
 
 		child, ok := m[part]
@@ -1040,11 +1040,13 @@ func jsonPathGet(path string, value any, pathCache *sync.Map) (any, error) {
 	return value, nil
 }
 
+// getCachedJSONPathParts returns cached JSONPath segments or computes and stores
+// them when unavailable.
 func getCachedJSONPathParts(path string, pathCache *sync.Map) []string {
 	if pathCache != nil {
-		if cached, ok := pathCache.Load(path); ok {
-			parts, castOK := cached.([]string)
-			if castOK {
+		if cached, found := pathCache.Load(path); found {
+			parts, ok := cached.([]string)
+			if ok {
 				return parts
 			}
 		}
