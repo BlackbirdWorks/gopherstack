@@ -74,6 +74,13 @@ jobs:
           go-version: '1.26'
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
       - name: Build Releaser
         if: (github.event.inputs.use_ai_releaser != 'false') && (env.COPILOT_TOKEN != '')
         run: go build -o releaser ./pkgs/releaser/cmd/releaser
