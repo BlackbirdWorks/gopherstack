@@ -76,3 +76,33 @@ type SyncExecutionResult struct {
 	StopDate        float64 `json:"stopDate"`
 	StartDate       float64 `json:"startDate"`
 }
+
+// StateMachineVersion represents an immutable versioned snapshot of a state machine.
+type StateMachineVersion struct {
+	StateMachineVersionArn string  `json:"stateMachineVersionArn"`
+	StateMachineArn        string  `json:"stateMachineArn"`
+	Name                   string  `json:"name"`
+	Definition             string  `json:"definition"`
+	RoleArn                string  `json:"roleArn"`
+	Type                   string  `json:"type"`
+	Status                 string  `json:"status"`
+	Description            string  `json:"description,omitempty"`
+	RevisionID             string  `json:"revisionId,omitempty"`
+	CreationDate           float64 `json:"creationDate"`
+}
+
+// StateMachineAlias represents a routing alias for one or more state machine versions.
+type StateMachineAlias struct {
+	StateMachineAliasArn string               `json:"stateMachineAliasArn"`
+	Name                 string               `json:"name"`
+	Description          string               `json:"description,omitempty"`
+	RoutingConfiguration []AliasRoutingConfig `json:"routingConfiguration"`
+	CreationDate         float64              `json:"creationDate"`
+	UpdatedDate          float64              `json:"updatedDate,omitempty"`
+}
+
+// AliasRoutingConfig represents a weighted routing target for a state machine alias.
+type AliasRoutingConfig struct {
+	StateMachineVersionArn string `json:"stateMachineVersionArn"`
+	Weight                 int    `json:"weight"`
+}

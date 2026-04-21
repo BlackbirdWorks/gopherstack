@@ -522,3 +522,143 @@ func TestActivity_GetActivityTask_Timeout(t *testing.T) {
 		})
 	}
 }
+
+func TestActivity_InvokeCancellationRemovesTaskToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sendResult func(*stepfunctions.InMemoryBackend, string) error
+		name       string
+	}{
+		{
+			name: "cancelled_invoke_rejects_send_task_success",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskSuccess(taskToken, `{"status":"late"}`)
+			},
+		},
+		{
+			name: "cancelled_invoke_rejects_send_task_failure",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskFailure(taskToken, "ActivityFailed", "late failure")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+			a, err := b.CreateActivity("cancel-act-" + tt.name)
+			require.NoError(t, err)
+
+			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
+			defer cancelInvoke()
+
+			invokeErrCh := make(chan error, 1)
+			go func() {
+				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`)
+				invokeErrCh <- invokeErr
+			}()
+
+			pollCtx, cancelPoll := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancelPoll()
+
+			task, err := b.GetActivityTask(pollCtx, a.ActivityArn, "worker-1")
+			require.NoError(t, err)
+			require.NotNil(t, task)
+			require.NotEmpty(t, task.TaskToken)
+
+			cancelInvoke()
+
+			require.Eventually(t, func() bool {
+				select {
+				case invokeErr := <-invokeErrCh:
+					return errors.Is(invokeErr, context.Canceled)
+				default:
+					return false
+				}
+			}, 2*time.Second, 25*time.Millisecond)
+
+			err = tt.sendResult(b, task.TaskToken)
+			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
+		})
+	}
+}
+
+func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sendResult func(*stepfunctions.InMemoryBackend, string) error
+		name       string
+	}{
+		{
+			name: "delete_activity_rejects_send_task_failure",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskFailure(taskToken, "ActivityFailed", "worker failed")
+			},
+		},
+		{
+			name: "delete_activity_rejects_send_task_success",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskSuccess(taskToken, `{"ok":true}`)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+			a, err := b.CreateActivity("delete-act-" + tt.name)
+			require.NoError(t, err)
+
+			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
+			defer cancelInvoke()
+
+			invokeErrCh := make(chan error, 1)
+			go func() {
+				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`)
+				invokeErrCh <- invokeErr
+			}()
+
+			pollCtx, cancelPoll := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancelPoll()
+
+			task, err := b.GetActivityTask(pollCtx, a.ActivityArn, "worker-1")
+			require.NoError(t, err)
+			require.NotNil(t, task)
+			require.NotEmpty(t, task.TaskToken)
+
+			err = b.DeleteActivity(a.ActivityArn)
+			require.NoError(t, err)
+
+			err = tt.sendResult(b, task.TaskToken)
+			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
+
+			cancelInvoke()
+			require.Eventually(t, func() bool {
+				select {
+				case invokeErr := <-invokeErrCh:
+					return errors.Is(invokeErr, context.Canceled)
+				default:
+					return false
+				}
+			}, 2*time.Second, 25*time.Millisecond)
+		})
+	}
+}

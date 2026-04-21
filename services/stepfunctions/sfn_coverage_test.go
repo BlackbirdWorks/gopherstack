@@ -238,7 +238,7 @@ func TestHandler_ListStateMachineVersions(t *testing.T) {
 	}{
 		{
 			name:     "success_empty_list",
-			body:     `{"stateMachineArn":"arn:aws:states:us-east-1:123456:stateMachine:my-sm"}`,
+			body:     "", // will be filled in using created SM ARN
 			wantCode: http.StatusOK,
 		},
 	}
@@ -249,8 +249,16 @@ func TestHandler_ListStateMachineVersions(t *testing.T) {
 
 			ctx := t.Context()
 			h, e := newSFNHandler(t)
+			smARN := createSM(ctx, t, h, e, "ver-sm-"+tt.name)
 
-			rec := sfnPost(ctx, t, h, e, "ListStateMachineVersions", tt.body)
+			body := tt.body
+			if body == "" {
+				b, err := json.Marshal(map[string]string{"stateMachineArn": smARN})
+				require.NoError(t, err)
+				body = string(b)
+			}
+
+			rec := sfnPost(ctx, t, h, e, "ListStateMachineVersions", body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any

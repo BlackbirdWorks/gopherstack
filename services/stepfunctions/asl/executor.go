@@ -118,29 +118,33 @@ type Executor struct {
 	// execSem limits the total number of concurrently running sub-executors
 	// (spawned by Parallel/Map states) to prevent goroutine explosion.
 	execSem chan struct{}
+	// jsonPathCache stores parsed JSONPath segments for reuse across executions.
+	jsonPathCache *sync.Map
 }
 
 // NewExecutor creates an Executor for the given state machine.
 func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder) *Executor {
 	return &Executor{
-		sm:      sm,
-		lambda:  lambda,
-		history: history,
-		execSem: make(chan struct{}, maxConcurrentSubExecutors),
+		sm:            sm,
+		lambda:        lambda,
+		history:       history,
+		execSem:       make(chan struct{}, maxConcurrentSubExecutors),
+		jsonPathCache: &sync.Map{},
 	}
 }
 
 // newSubExecutor creates a sub-executor sharing this executor's semaphore and integrations.
 func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 	return &Executor{
-		sm:       sm,
-		lambda:   e.lambda,
-		sqs:      e.sqs,
-		sns:      e.sns,
-		dynamodb: e.dynamodb,
-		history:  e.history,
-		activity: e.activity,
-		execSem:  e.execSem,
+		sm:            sm,
+		lambda:        e.lambda,
+		sqs:           e.sqs,
+		sns:           e.sns,
+		dynamodb:      e.dynamodb,
+		history:       e.history,
+		activity:      e.activity,
+		execSem:       e.execSem,
+		jsonPathCache: e.jsonPathCache,
 	}
 }
 
@@ -202,7 +206,7 @@ func (e *Executor) runStates(
 		}
 
 		// Apply InputPath.
-		effectiveInput, err := applyPath(state.InputPath, value)
+		effectiveInput, err := applyPath(state.InputPath, value, e.jsonPathCache)
 		if err != nil {
 			return nil, fmt.Errorf("InputPath error in state %q: %w", current, err)
 		}
@@ -325,7 +329,7 @@ func (e *Executor) executeWait(ctx context.Context, state *State, input any) (st
 		waitDuration = time.Duration(state.Seconds) * time.Second
 
 	case state.SecondsPath != "":
-		val, err := applyPath(state.SecondsPath, input)
+		val, err := applyPath(state.SecondsPath, input, e.jsonPathCache)
 		if err != nil {
 			return "", nil, fmt.Errorf("SecondsPath error: %w", err)
 		}
@@ -350,7 +354,7 @@ func (e *Executor) executeWait(ctx context.Context, state *State, input any) (st
 		}
 
 	case state.TimestampPath != "":
-		val, err := applyPath(state.TimestampPath, input)
+		val, err := applyPath(state.TimestampPath, input, e.jsonPathCache)
 		if err != nil {
 			return "", nil, fmt.Errorf("TimestampPath error: %w", err)
 		}
@@ -371,8 +375,18 @@ func (e *Executor) executeWait(ctx context.Context, state *State, input any) (st
 	}
 
 	if waitDuration > 0 {
+		timer := time.NewTimer(waitDuration)
+		defer func() {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+		}()
+
 		select {
-		case <-time.After(waitDuration):
+		case <-timer.C:
 		case <-ctx.Done():
 			return "", nil, ctx.Err()
 		}
@@ -384,7 +398,7 @@ func (e *Executor) executeWait(ctx context.Context, state *State, input any) (st
 // executeChoice handles Choice state.
 func (e *Executor) executeChoice(state *State, input any) (string, any, error) {
 	for _, rule := range state.Choices {
-		if evaluateChoiceRule(&rule, input) {
+		if evaluateChoiceRule(&rule, input, e.jsonPathCache) {
 			if rule.Next == "" {
 				return "", nil, ErrChoiceNoNext
 			}
@@ -816,8 +830,24 @@ func (e *Executor) executeParallel(
 
 	var wg sync.WaitGroup
 	for i, branch := range state.Branches {
+		// Stop spawning new goroutines if context already cancelled.
+		if ctx.Err() != nil {
+			return "", nil, ctx.Err()
+		}
+
 		wg.Add(1)
-		e.execSem <- struct{}{} // acquire global sub-executor slot before spawning
+
+		acquired := true
+		select {
+		case e.execSem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			acquired = false
+		}
+
+		if !acquired {
+			break
+		}
 
 		go func(idx int, b Branch) {
 			defer wg.Done()
@@ -839,6 +869,10 @@ func (e *Executor) executeParallel(
 	}
 
 	wg.Wait()
+
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
 
 	for _, err := range errs {
 		if err != nil {
@@ -872,49 +906,101 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 	results := make([]any, len(items))
 	errs := make([]error, len(items))
 
-	concurrency := state.MaxConcurrency
-	if concurrency <= 0 {
-		// AWS MaxConcurrency=0 means unlimited; apply safety cap to avoid goroutine explosion.
-		concurrency = min(len(items), maxMapConcurrencyLimit)
-	}
-
-	if concurrency == 0 {
-		concurrency = 1
-	}
-
+	concurrency := resolveMapConcurrency(state.MaxConcurrency, len(items))
 	sem := make(chan struct{}, concurrency)
 
 	var wg sync.WaitGroup
 	for i, item := range items {
+		// Stop spawning new goroutines if context already cancelled.
+		if ctx.Err() != nil {
+			break
+		}
+
 		wg.Add(1)
-		e.execSem <- struct{}{} // acquire global sub-executor slot before spawning
-		sem <- struct{}{}
+		// Use select for both semaphore acquisitions to respect context cancellation.
+		acquired := true
+		select {
+		case e.execSem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			acquired = false
+		}
+
+		if !acquired {
+			break
+		}
+
+		semAcquired := true
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			<-e.execSem
+			wg.Done()
+			semAcquired = false
+		}
+
+		if !semAcquired {
+			break
+		}
 
 		go func(idx int, it any) {
 			defer wg.Done()
 			defer func() { <-e.execSem }()
 			defer func() { <-sem }()
 
-			exec := e.newSubExecutor(iterator)
-			res, execErr := exec.Execute(ctx, executionARN, marshalInput(it))
-			if execErr != nil {
-				errs[idx] = execErr
-
-				return
-			}
-			results[idx] = res.Output
+			e.runMapItem(ctx, executionARN, iterator, idx, it, results, errs)
 		}(i, item)
 	}
 
 	wg.Wait()
 
-	for _, err := range errs {
-		if err != nil {
-			return "", nil, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", nil, ctxErr
+	}
+
+	for _, iterErr := range errs {
+		if iterErr != nil {
+			return "", nil, iterErr
 		}
 	}
 
 	return state.Next, results, nil
+}
+
+// runMapItem executes a single map iteration item in the sub-executor.
+func (e *Executor) runMapItem(
+	ctx context.Context,
+	executionARN string,
+	iterator *StateMachine,
+	idx int,
+	it any,
+	results []any,
+	errs []error,
+) {
+	exec := e.newSubExecutor(iterator)
+
+	res, execErr := exec.Execute(ctx, executionARN, marshalInput(it))
+	if execErr != nil {
+		errs[idx] = execErr
+
+		return
+	}
+
+	results[idx] = res.Output
+}
+
+// resolveMapConcurrency determines the effective concurrency for a Map state.
+func resolveMapConcurrency(maxConcurrency, itemCount int) int {
+	if maxConcurrency > 0 {
+		return maxConcurrency
+	}
+
+	c := min(itemCount, maxMapConcurrencyLimit)
+	if c == 0 {
+		return 1
+	}
+
+	return c
 }
 
 // FailError represents the error from a Fail state.
@@ -934,7 +1020,12 @@ func (e *FailError) Error() string {
 // applyPath applies an InputPath or OutputPath to a value.
 // If path is "" or "$", returns value unchanged.
 // If path starts with "$.", it's a JSONPath reference.
-func applyPath(path string, value any) (any, error) {
+func applyPath(path string, value any, pathCache ...*sync.Map) (any, error) {
+	var cache *sync.Map
+	if len(pathCache) > 0 {
+		cache = pathCache[0]
+	}
+
 	if path == "" || path == "$" {
 		return value, nil
 	}
@@ -945,7 +1036,7 @@ func applyPath(path string, value any) (any, error) {
 
 	// Simple dot-notation JSONPath: $.field.subfield
 	if strings.HasPrefix(path, "$.") {
-		return jsonPathGet(path[2:], value)
+		return jsonPathGet(path[2:], value, cache)
 	}
 
 	return nil, fmt.Errorf("%w: %q", ErrUnsupportedPathExpr, path)
@@ -998,33 +1089,52 @@ func applyResultPath(resultPath string, input, result any) (any, error) {
 }
 
 // jsonPathGet performs a simple dot-notation JSONPath get on a value.
-func jsonPathGet(path string, value any) (any, error) {
+func jsonPathGet(path string, value any, pathCache *sync.Map) (any, error) {
 	if path == "" {
 		return value, nil
 	}
 
-	const splitPathParts = 2
-	parts := strings.SplitN(path, ".", splitPathParts)
-	m, ok := value.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrCannotIndexNonObject, path)
+	parts := getCachedJSONPathParts(path, pathCache)
+	for remainingIndex, part := range parts {
+		m, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%w: %q", ErrCannotIndexNonObject, strings.Join(parts[remainingIndex:], "."))
+		}
+
+		child, ok := m[part]
+		if !ok {
+			return nil, fmt.Errorf("%w: %q", ErrFieldNotFound, part)
+		}
+
+		value = child
 	}
 
-	child, ok := m[parts[0]]
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrFieldNotFound, parts[0])
+	return value, nil
+}
+
+// getCachedJSONPathParts returns cached JSONPath segments or computes and stores
+// them when unavailable.
+func getCachedJSONPathParts(path string, pathCache *sync.Map) []string {
+	if pathCache != nil {
+		if cached, found := pathCache.Load(path); found {
+			parts, ok := cached.([]string)
+			if ok {
+				return parts
+			}
+		}
 	}
 
-	if len(parts) == 1 {
-		return child, nil
+	parts := strings.Split(path, ".")
+	if pathCache != nil {
+		pathCache.Store(path, parts)
 	}
 
-	return jsonPathGet(parts[1], child)
+	return parts
 }
 
 // evaluateChoiceRule checks whether a ChoiceRule matches the given input.
-func evaluateChoiceRule(rule *ChoiceRule, input any) bool {
-	if result, handled := evaluateLogicalOp(rule, input); handled {
+func evaluateChoiceRule(rule *ChoiceRule, input any, pathCache *sync.Map) bool {
+	if result, handled := evaluateLogicalOp(rule, input, pathCache); handled {
 		return result
 	}
 
@@ -1032,15 +1142,15 @@ func evaluateChoiceRule(rule *ChoiceRule, input any) bool {
 		return false
 	}
 
-	return evaluateVariableComparison(rule, input)
+	return evaluateVariableComparison(rule, input, pathCache)
 }
 
 // evaluateLogicalOp handles And/Or/Not logical operators.
 // Returns (result, true) if a logical operator was found, or (false, false) otherwise.
-func evaluateLogicalOp(rule *ChoiceRule, input any) (bool, bool) {
+func evaluateLogicalOp(rule *ChoiceRule, input any, pathCache *sync.Map) (bool, bool) {
 	if len(rule.And) > 0 {
 		for i := range rule.And {
-			if !evaluateChoiceRule(&rule.And[i], input) {
+			if !evaluateChoiceRule(&rule.And[i], input, pathCache) {
 				return false, true
 			}
 		}
@@ -1050,7 +1160,7 @@ func evaluateLogicalOp(rule *ChoiceRule, input any) (bool, bool) {
 
 	if len(rule.Or) > 0 {
 		for i := range rule.Or {
-			if evaluateChoiceRule(&rule.Or[i], input) {
+			if evaluateChoiceRule(&rule.Or[i], input, pathCache) {
 				return true, true
 			}
 		}
@@ -1059,15 +1169,15 @@ func evaluateLogicalOp(rule *ChoiceRule, input any) (bool, bool) {
 	}
 
 	if rule.Not != nil {
-		return !evaluateChoiceRule(rule.Not, input), true
+		return !evaluateChoiceRule(rule.Not, input, pathCache), true
 	}
 
 	return false, false
 }
 
 // evaluateVariableComparison resolves the variable and checks condition comparisons.
-func evaluateVariableComparison(rule *ChoiceRule, input any) bool {
-	varVal, err := applyPath(rule.Variable, input)
+func evaluateVariableComparison(rule *ChoiceRule, input any, pathCache *sync.Map) bool {
+	varVal, err := applyPath(rule.Variable, input, pathCache)
 	if err != nil {
 		if rule.IsPresent != nil {
 			return !*rule.IsPresent
@@ -1113,25 +1223,25 @@ func evaluateVariableComparison(rule *ChoiceRule, input any) bool {
 		return (parseErr == nil) == *rule.IsTimestamp
 	}
 
-	return matchVariableCondition(rule, varVal, input)
+	return matchVariableCondition(rule, varVal, input, pathCache)
 }
 
 // matchVariableCondition checks all value-comparison conditions by delegating to
 // type-specific sub-functions.
-func matchVariableCondition(rule *ChoiceRule, varVal, input any) bool {
-	if result, matched := matchStringCondition(rule, varVal, input); matched {
+func matchVariableCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) bool {
+	if result, matched := matchStringCondition(rule, varVal, input, pathCache); matched {
 		return result
 	}
 
-	if result, matched := matchNumericCondition(rule, varVal, input); matched {
+	if result, matched := matchNumericCondition(rule, varVal, input, pathCache); matched {
 		return result
 	}
 
-	if result, matched := matchBooleanCondition(rule, varVal, input); matched {
+	if result, matched := matchBooleanCondition(rule, varVal, input, pathCache); matched {
 		return result
 	}
 
-	if result, matched := matchTimestampCondition(rule, varVal, input); matched {
+	if result, matched := matchTimestampCondition(rule, varVal, input, pathCache); matched {
 		return result
 	}
 
@@ -1141,7 +1251,7 @@ func matchVariableCondition(rule *ChoiceRule, varVal, input any) bool {
 // matchStringCondition checks string comparison conditions.
 //
 //nolint:gocyclo,cyclop,gocognit,funlen // many string comparison operators
-func matchStringCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
+func matchStringCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
 	if rule.StringEquals != nil {
 		s, ok := varVal.(string)
 
@@ -1173,7 +1283,7 @@ func matchStringCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.StringEqualsPath != nil {
-		ref, err := applyPath(*rule.StringEqualsPath, input)
+		ref, err := applyPath(*rule.StringEqualsPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1185,7 +1295,7 @@ func matchStringCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.StringLessThanPath != nil {
-		ref, err := applyPath(*rule.StringLessThanPath, input)
+		ref, err := applyPath(*rule.StringLessThanPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1197,7 +1307,7 @@ func matchStringCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.StringGreaterThanPath != nil {
-		ref, err := applyPath(*rule.StringGreaterThanPath, input)
+		ref, err := applyPath(*rule.StringGreaterThanPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1209,7 +1319,7 @@ func matchStringCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.StringLessThanEqualsPath != nil {
-		ref, err := applyPath(*rule.StringLessThanEqualsPath, input)
+		ref, err := applyPath(*rule.StringLessThanEqualsPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1221,7 +1331,7 @@ func matchStringCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.StringGreaterThanEqualsPath != nil {
-		ref, err := applyPath(*rule.StringGreaterThanEqualsPath, input)
+		ref, err := applyPath(*rule.StringGreaterThanEqualsPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1238,7 +1348,7 @@ func matchStringCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 // matchNumericCondition checks numeric comparison conditions.
 //
 //nolint:gocyclo,cyclop,gocognit,funlen // many numeric comparison operators
-func matchNumericCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
+func matchNumericCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
 	if rule.NumericEquals != nil {
 		n, ok := toFloat(varVal)
 
@@ -1270,7 +1380,7 @@ func matchNumericCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.NumericEqualsPath != nil {
-		ref, err := applyPath(*rule.NumericEqualsPath, input)
+		ref, err := applyPath(*rule.NumericEqualsPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1282,7 +1392,7 @@ func matchNumericCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.NumericLessThanPath != nil {
-		ref, err := applyPath(*rule.NumericLessThanPath, input)
+		ref, err := applyPath(*rule.NumericLessThanPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1294,7 +1404,7 @@ func matchNumericCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.NumericGreaterThanPath != nil {
-		ref, err := applyPath(*rule.NumericGreaterThanPath, input)
+		ref, err := applyPath(*rule.NumericGreaterThanPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1306,7 +1416,7 @@ func matchNumericCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.NumericLessThanEqualsPath != nil {
-		ref, err := applyPath(*rule.NumericLessThanEqualsPath, input)
+		ref, err := applyPath(*rule.NumericLessThanEqualsPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1318,7 +1428,7 @@ func matchNumericCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.NumericGreaterThanEqualsPath != nil {
-		ref, err := applyPath(*rule.NumericGreaterThanEqualsPath, input)
+		ref, err := applyPath(*rule.NumericGreaterThanEqualsPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1333,7 +1443,7 @@ func matchNumericCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 }
 
 // matchBooleanCondition checks boolean comparison conditions.
-func matchBooleanCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
+func matchBooleanCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
 	if rule.BooleanEquals != nil {
 		b, ok := varVal.(bool)
 
@@ -1341,7 +1451,7 @@ func matchBooleanCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.BooleanEqualsPath != nil {
-		ref, err := applyPath(*rule.BooleanEqualsPath, input)
+		ref, err := applyPath(*rule.BooleanEqualsPath, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1358,7 +1468,7 @@ func matchBooleanCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 // matchTimestampCondition checks timestamp comparison conditions.
 //
 //nolint:cyclop // many timestamp comparison operators
-func matchTimestampCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
+func matchTimestampCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
 	if rule.TimestampEquals != nil {
 		t1, err1 := parseTimestamp(varVal)
 		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampEquals)
@@ -1395,31 +1505,31 @@ func matchTimestampCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	}
 
 	if rule.TimestampEqualsPath != nil {
-		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampEqualsPath, input)
+		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampEqualsPath, input, pathCache)
 
 		return err == nil && t1.Equal(t2), true
 	}
 
 	if rule.TimestampLessThanPath != nil {
-		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampLessThanPath, input)
+		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampLessThanPath, input, pathCache)
 
 		return err == nil && t1.Before(t2), true
 	}
 
 	if rule.TimestampGreaterThanPath != nil {
-		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampGreaterThanPath, input)
+		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampGreaterThanPath, input, pathCache)
 
 		return err == nil && t1.After(t2), true
 	}
 
 	if rule.TimestampLessThanEqualsPath != nil {
-		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampLessThanEqualsPath, input)
+		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampLessThanEqualsPath, input, pathCache)
 
 		return err == nil && !t1.After(t2), true
 	}
 
 	if rule.TimestampGreaterThanEqualsPath != nil {
-		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampGreaterThanEqualsPath, input)
+		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampGreaterThanEqualsPath, input, pathCache)
 
 		return err == nil && !t1.Before(t2), true
 	}
@@ -1438,13 +1548,13 @@ func parseTimestamp(v any) (time.Time, error) {
 }
 
 // resolveTimestampPath resolves a path reference and returns both timestamps.
-func resolveTimestampPath(varVal any, path string, input any) (time.Time, time.Time, error) {
+func resolveTimestampPath(varVal any, path string, input any, pathCache *sync.Map) (time.Time, time.Time, error) {
 	t1, err := parseTimestamp(varVal)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
 
-	ref, err := applyPath(path, input)
+	ref, err := applyPath(path, input, pathCache)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}

@@ -152,18 +152,27 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateActivity",
 		"CreateStateMachine",
+		"CreateStateMachineAlias",
 		"DeleteActivity",
 		"DeleteStateMachine",
+		"DeleteStateMachineAlias",
+		"DeleteStateMachineVersion",
 		"DescribeActivity",
 		"DescribeExecution",
 		"DescribeStateMachine",
+		"DescribeStateMachineAlias",
+		"DescribeStateMachineForExecution",
+		"DescribeStateMachineVersion",
 		"GetActivityTask",
 		"GetExecutionHistory",
 		"ListActivities",
 		"ListExecutions",
+		"ListStateMachineAliases",
 		"ListStateMachineVersions",
 		"ListStateMachines",
 		"ListTagsForResource",
+		"PublishStateMachineVersion",
+		"RedriveExecution",
 		"SendTaskFailure",
 		"SendTaskHeartbeat",
 		"SendTaskSuccess",
@@ -173,6 +182,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"UpdateStateMachine",
+		"UpdateStateMachineAlias",
 		"ValidateStateMachineDefinition",
 	}
 }
@@ -309,10 +319,6 @@ type validateStateMachineDefinitionOutput struct {
 	Diagnostics []any  `json:"diagnostics"`
 }
 
-type listStateMachineVersionsOutput struct {
-	StateMachineVersions []any `json:"stateMachineVersions"`
-}
-
 type createActivityInput struct {
 	Name string `json:"name"`
 }
@@ -372,6 +378,79 @@ type sendTaskHeartbeatInput struct {
 }
 
 type sendTaskHeartbeatOutput struct{}
+
+// ── Version / Alias request/response types ────────────────────────────────────
+
+type publishStateMachineVersionInput struct {
+	StateMachineArn string `json:"stateMachineArn"`
+	Description     string `json:"description"`
+	RevisionID      string `json:"revisionId"`
+}
+
+type describeStateMachineVersionInput struct {
+	StateMachineVersionArn string `json:"stateMachineVersionArn"`
+}
+
+type deleteStateMachineVersionInput struct {
+	StateMachineVersionArn string `json:"stateMachineVersionArn"`
+}
+
+type listStateMachineVersionsInput struct {
+	StateMachineArn string `json:"stateMachineArn"`
+	NextToken       string `json:"nextToken"`
+	MaxResults      int    `json:"maxResults"`
+}
+
+type listStateMachineVersionsOutput struct {
+	NextToken            string                `json:"nextToken,omitempty"`
+	StateMachineVersions []StateMachineVersion `json:"stateMachineVersions"`
+}
+
+type createStateMachineAliasInput struct {
+	Name                 string               `json:"name"`
+	StateMachineArn      string               `json:"stateMachineArn"`
+	Description          string               `json:"description"`
+	RoutingConfiguration []AliasRoutingConfig `json:"routingConfiguration"`
+}
+
+type updateStateMachineAliasInput struct {
+	StateMachineAliasArn string               `json:"stateMachineAliasArn"`
+	Description          string               `json:"description"`
+	RoutingConfiguration []AliasRoutingConfig `json:"routingConfiguration"`
+}
+
+type deleteStateMachineAliasInput struct {
+	StateMachineAliasArn string `json:"stateMachineAliasArn"`
+}
+
+type describeStateMachineAliasInput struct {
+	StateMachineAliasArn string `json:"stateMachineAliasArn"`
+}
+
+type listStateMachineAliasesInput struct {
+	StateMachineArn string `json:"stateMachineArn"`
+	NextToken       string `json:"nextToken"`
+	MaxResults      int    `json:"maxResults"`
+}
+
+type listStateMachineAliasesOutput struct {
+	NextToken           string              `json:"nextToken,omitempty"`
+	StateMachineAliases []StateMachineAlias `json:"stateMachineAliases"`
+}
+
+// ── RedriveExecution / DescribeStateMachineForExecution ───────────────────────
+
+type redriveExecutionInput struct {
+	ExecutionArn string `json:"executionArn"`
+}
+
+type redriveExecutionOutput struct {
+	RedriveDate float64 `json:"redriveDate"`
+}
+
+type describeStateMachineForExecutionInput struct {
+	ExecutionArn string `json:"executionArn"`
+}
 
 func (h *Handler) stateMachineActions() map[string]actionFn {
 	m := map[string]actionFn{
@@ -443,8 +522,118 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 		},
 	}
 	maps.Copy(m, h.stateMachineTagActions())
+	maps.Copy(m, h.versionActions())
+	maps.Copy(m, h.aliasActions())
 
 	return m
+}
+
+// versionActions returns handler functions for state machine version operations.
+func (h *Handler) versionActions() map[string]actionFn {
+	return map[string]actionFn{
+		"PublishStateMachineVersion": func(b []byte) (any, error) {
+			var input publishStateMachineVersionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.PublishStateMachineVersion(input.StateMachineArn, input.Description, input.RevisionID)
+		},
+		"DescribeStateMachineVersion": func(b []byte) (any, error) {
+			var input describeStateMachineVersionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeStateMachineVersion(input.StateMachineVersionArn)
+		},
+		"DeleteStateMachineVersion": func(b []byte) (any, error) {
+			var input deleteStateMachineVersionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			if err := h.Backend.DeleteStateMachineVersion(input.StateMachineVersionArn); err != nil {
+				return nil, err
+			}
+
+			return map[string]any{}, nil
+		},
+		"ListStateMachineVersions": func(b []byte) (any, error) {
+			var input listStateMachineVersionsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			versions, next, err := h.Backend.ListStateMachineVersions(
+				input.StateMachineArn, input.NextToken, input.MaxResults,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &listStateMachineVersionsOutput{StateMachineVersions: versions, NextToken: next}, nil
+		},
+	}
+}
+
+// aliasActions returns handler functions for state machine alias operations.
+func (h *Handler) aliasActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CreateStateMachineAlias": func(b []byte) (any, error) {
+			var input createStateMachineAliasInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateStateMachineAlias(
+				input.StateMachineArn, input.Name, input.Description, input.RoutingConfiguration,
+			)
+		},
+		"UpdateStateMachineAlias": func(b []byte) (any, error) {
+			var input updateStateMachineAliasInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.UpdateStateMachineAlias(
+				input.StateMachineAliasArn, input.Description, input.RoutingConfiguration,
+			)
+		},
+		"DeleteStateMachineAlias": func(b []byte) (any, error) {
+			var input deleteStateMachineAliasInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			if err := h.Backend.DeleteStateMachineAlias(input.StateMachineAliasArn); err != nil {
+				return nil, err
+			}
+
+			return map[string]any{}, nil
+		},
+		"DescribeStateMachineAlias": func(b []byte) (any, error) {
+			var input describeStateMachineAliasInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeStateMachineAlias(input.StateMachineAliasArn)
+		},
+		"ListStateMachineAliases": func(b []byte) (any, error) {
+			var input listStateMachineAliasesInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			aliases, next, err := h.Backend.ListStateMachineAliases(
+				input.StateMachineArn, input.NextToken, input.MaxResults,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &listStateMachineAliasesOutput{StateMachineAliases: aliases, NextToken: next}, nil
+		},
+	}
 }
 
 // stateMachineTagActions returns tag-related actions for state machines.
@@ -491,13 +680,38 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 
 func (h *Handler) executionActions() map[string]actionFn {
 	return map[string]actionFn{
-		"StartExecution":      h.handleStartExecution,
-		"StartSyncExecution":  h.handleStartSyncExecution,
-		"StopExecution":       h.handleStopExecution,
-		"DescribeExecution":   h.handleDescribeExecution,
-		"ListExecutions":      h.handleListExecutions,
-		"GetExecutionHistory": h.handleGetExecutionHistory,
+		"StartExecution":                   h.handleStartExecution,
+		"StartSyncExecution":               h.handleStartSyncExecution,
+		"StopExecution":                    h.handleStopExecution,
+		"RedriveExecution":                 h.handleRedriveExecution,
+		"DescribeExecution":                h.handleDescribeExecution,
+		"DescribeStateMachineForExecution": h.handleDescribeStateMachineForExecution,
+		"ListExecutions":                   h.handleListExecutions,
+		"GetExecutionHistory":              h.handleGetExecutionHistory,
 	}
+}
+
+func (h *Handler) handleRedriveExecution(b []byte) (any, error) {
+	var input redriveExecutionInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	exec, err := h.Backend.RedriveExecution(input.ExecutionArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &redriveExecutionOutput{RedriveDate: exec.StartDate}, nil
+}
+
+func (h *Handler) handleDescribeStateMachineForExecution(b []byte) (any, error) {
+	var input describeStateMachineForExecutionInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	return h.Backend.DescribeStateMachineForExecution(input.ExecutionArn)
 }
 
 func (h *Handler) handleStartExecution(b []byte) (any, error) {
@@ -698,7 +912,7 @@ type validateStateMachineDefinitionInput struct {
 	Definition string `json:"definition"`
 }
 
-// utilActions returns stubs for utility operations like definition validation.
+// utilActions returns utility operations like definition validation.
 func (h *Handler) utilActions() map[string]actionFn {
 	return map[string]actionFn{
 		"ValidateStateMachineDefinition": func(b []byte) (any, error) {
@@ -719,9 +933,6 @@ func (h *Handler) utilActions() map[string]actionFn {
 			}
 
 			return &validateStateMachineDefinitionOutput{Result: "OK", Diagnostics: []any{}}, nil
-		},
-		"ListStateMachineVersions": func(_ []byte) (any, error) {
-			return &listStateMachineVersionsOutput{StateMachineVersions: []any{}}, nil
 		},
 	}
 }
@@ -792,30 +1003,36 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 }
 
 func classifyError(reqErr error) (string, int) {
-	switch {
-	case errors.Is(reqErr, ErrStateMachineDoesNotExist):
-		return "StateMachineDoesNotExist", http.StatusNotFound
-	case errors.Is(reqErr, ErrExecutionDoesNotExist):
-		return "ExecutionDoesNotExist", http.StatusNotFound
-	case errors.Is(reqErr, ErrActivityDoesNotExist):
-		return "ActivityDoesNotExist", http.StatusNotFound
-	case errors.Is(reqErr, ErrTaskTokenNotFound):
-		return "TaskDoesNotExist", http.StatusNotFound
-	case errors.Is(reqErr, ErrStateMachineAlreadyExists):
-		return "StateMachineAlreadyExists", http.StatusConflict
-	case errors.Is(reqErr, ErrExecutionAlreadyExists):
-		return "ExecutionAlreadyExists", http.StatusConflict
-	case errors.Is(reqErr, ErrActivityAlreadyExists):
-		return "ActivityAlreadyExists", http.StatusConflict
-	case errors.Is(reqErr, ErrInvalidDefinition):
-		return "InvalidDefinition", http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidExecutionType):
-		return "InvalidExecutionType", http.StatusBadRequest
-	case errors.Is(reqErr, errUnknownOperation):
-		return "UnknownOperationException", http.StatusBadRequest
-	default:
-		return "InternalServerError", http.StatusInternalServerError
+	type mapping struct {
+		err    error
+		kind   string
+		status int
 	}
+
+	mappings := []mapping{
+		{ErrStateMachineDoesNotExist, "StateMachineDoesNotExist", http.StatusNotFound},
+		{ErrStateMachineVersionDoesNotExist, "StateMachineVersionDoesNotExist", http.StatusNotFound},
+		{ErrStateMachineAliasDoesNotExist, "StateMachineAliasDoesNotExist", http.StatusNotFound},
+		{ErrExecutionDoesNotExist, "ExecutionDoesNotExist", http.StatusNotFound},
+		{ErrActivityDoesNotExist, "ActivityDoesNotExist", http.StatusNotFound},
+		{ErrTaskTokenNotFound, "TaskDoesNotExist", http.StatusNotFound},
+		{ErrStateMachineAlreadyExists, "StateMachineAlreadyExists", http.StatusConflict},
+		{ErrStateMachineAliasAlreadyExists, "StateMachineAliasAlreadyExists", http.StatusConflict},
+		{ErrExecutionAlreadyExists, "ExecutionAlreadyExists", http.StatusConflict},
+		{ErrActivityAlreadyExists, "ActivityAlreadyExists", http.StatusConflict},
+		{ErrExecutionNotRedrivable, "ExecutionNotRedrivable", http.StatusBadRequest},
+		{ErrInvalidDefinition, "InvalidDefinition", http.StatusBadRequest},
+		{ErrInvalidExecutionType, "InvalidExecutionType", http.StatusBadRequest},
+		{errUnknownOperation, "UnknownOperationException", http.StatusBadRequest},
+	}
+
+	for _, m := range mappings {
+		if errors.Is(reqErr, m.err) {
+			return m.kind, m.status
+		}
+	}
+
+	return "InternalServerError", http.StatusInternalServerError
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
