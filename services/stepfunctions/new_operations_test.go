@@ -522,3 +522,111 @@ func TestActivity_GetActivityTask_Timeout(t *testing.T) {
 		})
 	}
 }
+
+func TestActivity_InvokeCancellationRemovesTaskToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{
+			name: "cancelled_invoke_cleans_task_token",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+			a, err := b.CreateActivity("cancel-act-" + tt.name)
+			require.NoError(t, err)
+
+			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
+			defer cancelInvoke()
+
+			invokeErrCh := make(chan error, 1)
+			go func() {
+				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`)
+				invokeErrCh <- invokeErr
+			}()
+
+			pollCtx, cancelPoll := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancelPoll()
+
+			task, err := b.GetActivityTask(pollCtx, a.ActivityArn, "worker-1")
+			require.NoError(t, err)
+			require.NotNil(t, task)
+			require.NotEmpty(t, task.TaskToken)
+
+			cancelInvoke()
+
+			require.Eventually(t, func() bool {
+				select {
+				case invokeErr := <-invokeErrCh:
+					return errors.Is(invokeErr, context.Canceled)
+				default:
+					return false
+				}
+			}, 2*time.Second, 25*time.Millisecond)
+
+			err = b.SendTaskSuccess(task.TaskToken, `{"status":"late"}`)
+			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
+		})
+	}
+}
+
+func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{
+			name: "delete_activity_cleans_outstanding_tokens",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+			a, err := b.CreateActivity("delete-act-" + tt.name)
+			require.NoError(t, err)
+
+			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
+			defer cancelInvoke()
+
+			invokeErrCh := make(chan error, 1)
+			go func() {
+				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`)
+				invokeErrCh <- invokeErr
+			}()
+
+			pollCtx, cancelPoll := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancelPoll()
+
+			task, err := b.GetActivityTask(pollCtx, a.ActivityArn, "worker-1")
+			require.NoError(t, err)
+			require.NotNil(t, task)
+			require.NotEmpty(t, task.TaskToken)
+
+			err = b.DeleteActivity(a.ActivityArn)
+			require.NoError(t, err)
+
+			err = b.SendTaskFailure(task.TaskToken, "ActivityFailed", "worker failed")
+			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
+
+			cancelInvoke()
+			require.Eventually(t, func() bool {
+				select {
+				case invokeErr := <-invokeErrCh:
+					return errors.Is(invokeErr, context.Canceled)
+				default:
+					return false
+				}
+			}, 2*time.Second, 25*time.Millisecond)
+		})
+	}
+}

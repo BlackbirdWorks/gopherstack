@@ -110,9 +110,10 @@ type InMemoryBackend struct {
 
 // activityTaskEntry holds a pending activity task and its result channel.
 type activityTaskEntry struct {
-	resultCh  chan activityTaskResult
-	taskToken string
-	input     string
+	activityArn string
+	resultCh    chan activityTaskResult
+	taskToken   string
+	input       string
 }
 
 // activityTaskResult holds the result of an activity task.
@@ -991,6 +992,12 @@ func (b *InMemoryBackend) DeleteActivity(activityArn string) error {
 		delete(b.pendingTaskQueues, activityArn)
 	}
 
+	for taskToken, entry := range b.tasksByToken {
+		if entry.activityArn == activityArn {
+			delete(b.tasksByToken, taskToken)
+		}
+	}
+
 	return nil
 }
 
@@ -1070,7 +1077,10 @@ func (b *InMemoryBackend) SendTaskSuccess(taskToken, output string) error {
 	delete(b.tasksByToken, taskToken)
 	b.mu.Unlock()
 
-	entry.resultCh <- activityTaskResult{output: output, succeeded: true}
+	select {
+	case entry.resultCh <- activityTaskResult{output: output, succeeded: true}:
+	default:
+	}
 
 	return nil
 }
@@ -1089,7 +1099,10 @@ func (b *InMemoryBackend) SendTaskFailure(taskToken, errCode, cause string) erro
 	delete(b.tasksByToken, taskToken)
 	b.mu.Unlock()
 
-	entry.resultCh <- activityTaskResult{errCode: errCode, cause: cause, succeeded: false}
+	select {
+	case entry.resultCh <- activityTaskResult{errCode: errCode, cause: cause, succeeded: false}:
+	default:
+	}
 
 	return nil
 }
@@ -1120,9 +1133,10 @@ func (b *InMemoryBackend) InvokeActivity(ctx context.Context, activityArn, input
 	taskToken := base64.URLEncoding.EncodeToString(tokenBytes)
 
 	entry := &activityTaskEntry{
-		taskToken: taskToken,
-		input:     inputJSON,
-		resultCh:  make(chan activityTaskResult, 1),
+		activityArn: activityArn,
+		taskToken:   taskToken,
+		input:       inputJSON,
+		resultCh:    make(chan activityTaskResult, 1),
 	}
 
 	b.mu.Lock("InvokeActivity")
@@ -1157,6 +1171,10 @@ func (b *InMemoryBackend) InvokeActivity(ctx context.Context, activityArn, input
 
 		return "", fmt.Errorf("%w: %s", ErrActivityTaskFailed, result.errCode)
 	case <-ctx.Done():
+		b.mu.Lock("InvokeActivity.wait.cancel")
+		delete(b.tasksByToken, taskToken)
+		b.mu.Unlock()
+
 		return "", ctx.Err()
 	}
 }
