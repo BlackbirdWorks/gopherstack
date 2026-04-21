@@ -270,6 +270,7 @@ jobs:
         uses: opentofu/setup-opentofu@v2
         with:
           tofu_wrapper: false
+          tofu_version: "1.11.6"
 
       - name: Cache OpenTofu providers
         uses: actions/cache@v5
