@@ -2,7 +2,6 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -437,21 +436,9 @@ func (b *InMemoryBackend) ListEventBuses(namePrefix, nextToken string) ([]EventB
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(all) {
-		return []EventBus{}, "", nil
-	}
+	page, outToken := paginate(all, nextToken)
 
-	const defaultLimit = 100
-	end := startIdx + defaultLimit
-	var outToken string
-	if end < len(all) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return all[startIdx:end], outToken, nil
+	return page, outToken, nil
 }
 
 // DescribeEventBus returns details for a single event bus.
@@ -576,21 +563,9 @@ func (b *InMemoryBackend) ListRules(eventBusName, namePrefix, nextToken string) 
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(all) {
-		return []Rule{}, "", nil
-	}
+	page, outToken := paginate(all, nextToken)
 
-	const defaultLimit = 100
-	end := startIdx + defaultLimit
-	var outToken string
-	if end < len(all) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return all[startIdx:end], outToken, nil
+	return page, outToken, nil
 }
 
 // DescribeRule returns a single rule.
@@ -738,21 +713,9 @@ func (b *InMemoryBackend) ListTargetsByRule(ruleName, eventBusName, nextToken st
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(all) {
-		return []Target{}, "", nil
-	}
+	page, outToken := paginate(all, nextToken)
 
-	const defaultLimit = 100
-	end := startIdx + defaultLimit
-	var outToken string
-	if end < len(all) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return all[startIdx:end], outToken, nil
+	return page, outToken, nil
 }
 
 // PutEvents records events in the event log and returns result entries.
@@ -835,6 +798,27 @@ func parseNextToken(token string) int {
 	}
 
 	return idx
+}
+
+// paginate applies offset-based pagination to a pre-sorted slice.
+// It returns the page slice and the next-page token (or "").
+func paginate[T any](all []T, nextToken string) ([]T, string) {
+	const defaultLimit = 100
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []T{}, ""
+	}
+
+	end := startIdx + defaultLimit
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
@@ -1147,6 +1131,592 @@ func (b *InMemoryBackend) DeleteAPIDestination(name string) error {
 
 	delete(b.apiDestinations, name)
 
+	return nil
+}
+
+// DeleteArchive deletes an archive.
+func (b *InMemoryBackend) DeleteArchive(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteArchive")
+	defer b.mu.Unlock()
+
+	if _, exists := b.archives[name]; !exists {
+		return fmt.Errorf("%w: archive %s not found", ErrNotFound, name)
+	}
+
+	delete(b.archives, name)
+
+	return nil
+}
+
+// DescribeArchive returns a single archive by name.
+func (b *InMemoryBackend) DescribeArchive(name string) (*Archive, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeArchive")
+	defer b.mu.RUnlock()
+
+	archive, exists := b.archives[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: archive %s not found", ErrNotFound, name)
+	}
+
+	cp := *archive
+
+	return &cp, nil
+}
+
+// ListArchives returns archives optionally filtered by name prefix, with pagination.
+func (b *InMemoryBackend) ListArchives(namePrefix, nextToken string) ([]Archive, string, error) {
+	b.mu.RLock("ListArchives")
+	defer b.mu.RUnlock()
+
+	all := make([]Archive, 0, len(b.archives))
+	for _, a := range b.archives {
+		if namePrefix == "" || strings.HasPrefix(a.ArchiveName, namePrefix) {
+			all = append(all, *a)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ArchiveName < all[j].ArchiveName })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// UpdateArchive updates an existing archive.
+func (b *InMemoryBackend) UpdateArchive(input UpdateArchiveInput) (*Archive, error) {
+	if input.ArchiveName == "" {
+		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UpdateArchive")
+	defer b.mu.Unlock()
+
+	archive, exists := b.archives[input.ArchiveName]
+	if !exists {
+		return nil, fmt.Errorf("%w: archive %s not found", ErrNotFound, input.ArchiveName)
+	}
+
+	if input.Description != "" {
+		archive.Description = input.Description
+	}
+	if input.EventPattern != "" {
+		archive.EventPattern = input.EventPattern
+	}
+	if input.RetentionDays >= 0 {
+		archive.RetentionDays = input.RetentionDays
+	}
+
+	cp := *archive
+
+	return &cp, nil
+}
+
+// DeleteConnection deletes a connection.
+func (b *InMemoryBackend) DeleteConnection(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteConnection")
+	defer b.mu.Unlock()
+
+	if _, exists := b.connections[name]; !exists {
+		return fmt.Errorf("%w: connection %s not found", ErrNotFound, name)
+	}
+
+	delete(b.connections, name)
+
+	return nil
+}
+
+// DescribeConnection returns a single connection by name.
+func (b *InMemoryBackend) DescribeConnection(name string) (*Connection, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeConnection")
+	defer b.mu.RUnlock()
+
+	conn, exists := b.connections[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: connection %s not found", ErrNotFound, name)
+	}
+
+	cp := *conn
+
+	return &cp, nil
+}
+
+// ListConnections returns connections optionally filtered by name prefix, with pagination.
+func (b *InMemoryBackend) ListConnections(namePrefix, nextToken string) ([]Connection, string, error) {
+	b.mu.RLock("ListConnections")
+	defer b.mu.RUnlock()
+
+	all := make([]Connection, 0, len(b.connections))
+	for _, c := range b.connections {
+		if namePrefix == "" || strings.HasPrefix(c.Name, namePrefix) {
+			all = append(all, *c)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// UpdateConnection updates an existing connection.
+func (b *InMemoryBackend) UpdateConnection(input UpdateConnectionInput) (*Connection, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UpdateConnection")
+	defer b.mu.Unlock()
+
+	conn, exists := b.connections[input.Name]
+	if !exists {
+		return nil, fmt.Errorf("%w: connection %s not found", ErrNotFound, input.Name)
+	}
+
+	if input.Description != "" {
+		conn.Description = input.Description
+	}
+	if input.AuthorizationType != "" {
+		conn.AuthorizationType = input.AuthorizationType
+	}
+	conn.LastModifiedTime = time.Now()
+
+	cp := *conn
+
+	return &cp, nil
+}
+
+// DeleteEndpoint deletes an endpoint.
+func (b *InMemoryBackend) DeleteEndpoint(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteEndpoint")
+	defer b.mu.Unlock()
+
+	if _, exists := b.endpoints[name]; !exists {
+		return fmt.Errorf("%w: endpoint %s not found", ErrNotFound, name)
+	}
+
+	delete(b.endpoints, name)
+
+	return nil
+}
+
+// DescribeEndpoint returns a single endpoint by name.
+func (b *InMemoryBackend) DescribeEndpoint(name string) (*Endpoint, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeEndpoint")
+	defer b.mu.RUnlock()
+
+	ep, exists := b.endpoints[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, name)
+	}
+
+	cp := *ep
+
+	return &cp, nil
+}
+
+// ListEndpoints returns endpoints optionally filtered by name prefix, with pagination.
+func (b *InMemoryBackend) ListEndpoints(namePrefix, nextToken string) ([]Endpoint, string, error) {
+	b.mu.RLock("ListEndpoints")
+	defer b.mu.RUnlock()
+
+	all := make([]Endpoint, 0, len(b.endpoints))
+	for _, ep := range b.endpoints {
+		if namePrefix == "" || strings.HasPrefix(ep.Name, namePrefix) {
+			all = append(all, *ep)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// UpdateEndpoint updates an existing endpoint.
+func (b *InMemoryBackend) UpdateEndpoint(input UpdateEndpointInput) (*Endpoint, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UpdateEndpoint")
+	defer b.mu.Unlock()
+
+	ep, exists := b.endpoints[input.Name]
+	if !exists {
+		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, input.Name)
+	}
+
+	if input.Description != "" {
+		ep.Description = input.Description
+	}
+	if input.RoleArn != "" {
+		ep.RoleArn = input.RoleArn
+	}
+	if input.RoutingConfig != nil {
+		ep.RoutingConfig = input.RoutingConfig
+	}
+	if input.ReplicationConfig != nil {
+		ep.ReplicationConfig = input.ReplicationConfig
+	}
+	if len(input.EventBuses) > 0 {
+		ep.EventBuses = input.EventBuses
+	}
+	ep.LastModifiedTime = time.Now()
+
+	cp := *ep
+
+	return &cp, nil
+}
+
+// DescribeAPIDestination returns a single API destination by name.
+func (b *InMemoryBackend) DescribeAPIDestination(name string) (*APIDestination, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeAPIDestination")
+	defer b.mu.RUnlock()
+
+	dst, exists := b.apiDestinations[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: API destination %s not found", ErrNotFound, name)
+	}
+
+	cp := *dst
+
+	return &cp, nil
+}
+
+// ListAPIDestinations returns API destinations optionally filtered by name prefix, with pagination.
+func (b *InMemoryBackend) ListAPIDestinations(namePrefix, nextToken string) ([]APIDestination, string, error) {
+	b.mu.RLock("ListAPIDestinations")
+	defer b.mu.RUnlock()
+
+	all := make([]APIDestination, 0, len(b.apiDestinations))
+	for _, d := range b.apiDestinations {
+		if namePrefix == "" || strings.HasPrefix(d.Name, namePrefix) {
+			all = append(all, *d)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// UpdateAPIDestination updates an existing API destination.
+func (b *InMemoryBackend) UpdateAPIDestination(input UpdateAPIDestinationInput) (*APIDestination, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UpdateAPIDestination")
+	defer b.mu.Unlock()
+
+	dst, exists := b.apiDestinations[input.Name]
+	if !exists {
+		return nil, fmt.Errorf("%w: API destination %s not found", ErrNotFound, input.Name)
+	}
+
+	if input.ConnectionArn != "" {
+		dst.ConnectionArn = input.ConnectionArn
+	}
+	if input.Description != "" {
+		dst.Description = input.Description
+	}
+	if input.HTTPMethod != "" {
+		dst.HTTPMethod = input.HTTPMethod
+	}
+	if input.InvocationEndpoint != "" {
+		dst.InvocationEndpoint = input.InvocationEndpoint
+	}
+	if input.InvocationRateLimitPerSecond > 0 {
+		dst.InvocationRateLimitPerSecond = input.InvocationRateLimitPerSecond
+	}
+	dst.LastModifiedTime = time.Now()
+
+	cp := *dst
+
+	return &cp, nil
+}
+
+// DescribeEventSource returns a single event source by name.
+func (b *InMemoryBackend) DescribeEventSource(name string) (*EventSource, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeEventSource")
+	defer b.mu.RUnlock()
+
+	src, exists := b.eventSources[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
+	}
+
+	cp := *src
+
+	return &cp, nil
+}
+
+// ListEventSources returns event sources optionally filtered by name prefix, with pagination.
+func (b *InMemoryBackend) ListEventSources(namePrefix, nextToken string) ([]EventSource, string, error) {
+	b.mu.RLock("ListEventSources")
+	defer b.mu.RUnlock()
+
+	all := make([]EventSource, 0, len(b.eventSources))
+	for _, s := range b.eventSources {
+		if namePrefix == "" || strings.HasPrefix(s.Name, namePrefix) {
+			all = append(all, *s)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// DescribePartnerEventSource returns a single partner event source by name.
+func (b *InMemoryBackend) DescribePartnerEventSource(name string) (*PartnerEventSource, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribePartnerEventSource")
+	defer b.mu.RUnlock()
+
+	src, exists := b.partnerSources[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: partner event source %s not found", ErrNotFound, name)
+	}
+
+	cp := *src
+
+	return &cp, nil
+}
+
+// DeletePartnerEventSource deletes a partner event source.
+func (b *InMemoryBackend) DeletePartnerEventSource(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeletePartnerEventSource")
+	defer b.mu.Unlock()
+
+	if _, exists := b.partnerSources[name]; !exists {
+		return fmt.Errorf("%w: partner event source %s not found", ErrNotFound, name)
+	}
+
+	delete(b.partnerSources, name)
+
+	return nil
+}
+
+// ListPartnerEventSources returns partner event sources optionally filtered by name prefix.
+func (b *InMemoryBackend) ListPartnerEventSources(namePrefix, nextToken string) ([]PartnerEventSource, string, error) {
+	b.mu.RLock("ListPartnerEventSources")
+	defer b.mu.RUnlock()
+
+	all := make([]PartnerEventSource, 0, len(b.partnerSources))
+	for _, s := range b.partnerSources {
+		if namePrefix == "" || strings.HasPrefix(s.Name, namePrefix) {
+			all = append(all, *s)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// PutPartnerEvents records partner events (same as PutEvents but intended for partner sources).
+func (b *InMemoryBackend) PutPartnerEvents(entries []EventEntry) []EventResultEntry {
+	return b.PutEvents(entries)
+}
+
+// DescribeReplay returns a single replay by name.
+func (b *InMemoryBackend) DescribeReplay(name string) (*Replay, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: ReplayName is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeReplay")
+	defer b.mu.RUnlock()
+
+	replay, exists := b.replays[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: replay %s not found", ErrNotFound, name)
+	}
+
+	cp := *replay
+
+	return &cp, nil
+}
+
+// ListReplays returns replays optionally filtered by name prefix, with pagination.
+func (b *InMemoryBackend) ListReplays(namePrefix, nextToken string) ([]Replay, string, error) {
+	b.mu.RLock("ListReplays")
+	defer b.mu.RUnlock()
+
+	all := make([]Replay, 0, len(b.replays))
+	for _, r := range b.replays {
+		if namePrefix == "" || strings.HasPrefix(r.ReplayName, namePrefix) {
+			all = append(all, *r)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ReplayName < all[j].ReplayName })
+
+	page, outToken := paginate(all, nextToken)
+
+	return page, outToken, nil
+}
+
+// StartReplay creates a new replay in the STARTING state.
+func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
+	if input.ReplayName == "" {
+		return nil, fmt.Errorf("%w: ReplayName is required", ErrInvalidParameter)
+	}
+
+	if input.EventSourceArn == "" {
+		return nil, fmt.Errorf("%w: EventSourceArn is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("StartReplay")
+	defer b.mu.Unlock()
+
+	if _, exists := b.replays[input.ReplayName]; exists {
+		return nil, fmt.Errorf("%w: replay %s already exists", ErrAlreadyExists, input.ReplayName)
+	}
+
+	replay := &Replay{
+		EventSourceArn:  input.EventSourceArn,
+		EventStartTime:  input.EventStartTime,
+		EventEndTime:    input.EventEndTime,
+		ReplayArn:       b.replayARN(input.ReplayName),
+		ReplayName:      input.ReplayName,
+		ReplayStartTime: time.Now(),
+		State:           "STARTING",
+		StateReason:     input.Description,
+	}
+	b.replays[input.ReplayName] = replay
+
+	cp := *replay
+
+	return &cp, nil
+}
+
+// ListRuleNamesByTarget returns rule names that have a target matching the given ARN.
+func (b *InMemoryBackend) ListRuleNamesByTarget(targetARN, eventBusName, nextToken string) ([]string, string, error) {
+	if eventBusName == "" {
+		eventBusName = defaultEventBusName
+	}
+
+	b.mu.RLock("ListRuleNamesByTarget")
+	defer b.mu.RUnlock()
+
+	var names []string
+	for ruleName, tMap := range b.targets {
+		prefix := eventBusName + "/"
+		if !strings.HasPrefix(ruleName, prefix) {
+			continue
+		}
+		for _, t := range tMap {
+			if t.Arn == targetARN {
+				names = append(names, strings.TrimPrefix(ruleName, prefix))
+
+				break
+			}
+		}
+	}
+
+	sort.Strings(names)
+
+	page, outToken := paginate(names, nextToken)
+
+	return page, outToken, nil
+}
+
+// TestEventPattern tests an event pattern against an event JSON string.
+func (b *InMemoryBackend) TestEventPattern(pattern, event string) (bool, error) {
+	if pattern == "" {
+		return false, fmt.Errorf("%w: EventPattern is required", ErrInvalidParameter)
+	}
+
+	if event == "" {
+		return false, fmt.Errorf("%w: Event is required", ErrInvalidParameter)
+	}
+
+	compiled, err := b.getOrCompilePattern(pattern)
+	if err != nil {
+		return false, fmt.Errorf("%w: EventPattern is not valid JSON", ErrInvalidParameter)
+	}
+
+	return matchCompiledPattern(compiled, event), nil
+}
+
+// UpdateEventBus updates an existing event bus description.
+func (b *InMemoryBackend) UpdateEventBus(input UpdateEventBusInput) (*EventBus, error) {
+	busName := input.Name
+	if busName == "" {
+		busName = defaultEventBusName
+	}
+
+	b.mu.Lock("UpdateEventBus")
+	defer b.mu.Unlock()
+
+	bus, exists := b.buses[busName]
+	if !exists {
+		return nil, fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
+	}
+
+	bus.Description = input.Description
+
+	cp := *bus
+
+	return &cp, nil
+}
+
+// PutPermission is a no-op that simulates adding a resource-based policy statement.
+func (b *InMemoryBackend) PutPermission(_ PutPermissionInput) error {
+	return nil
+}
+
+// RemovePermission is a no-op that simulates removing a resource-based policy statement.
+func (b *InMemoryBackend) RemovePermission(_ RemovePermissionInput) error {
 	return nil
 }
 

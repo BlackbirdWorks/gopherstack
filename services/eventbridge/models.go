@@ -241,3 +241,73 @@ type CreateEndpointInput struct {
 	RoleArn           string             `json:"RoleArn,omitempty"`
 	EventBuses        []EndpointEventBus `json:"EventBuses"`
 }
+
+// UpdateArchiveInput is the input for UpdateArchive.
+type UpdateArchiveInput struct {
+	ArchiveName   string `json:"ArchiveName"`
+	Description   string `json:"Description,omitempty"`
+	EventPattern  string `json:"EventPattern,omitempty"`
+	RetentionDays int    `json:"RetentionDays,omitempty"`
+}
+
+// UpdateConnectionInput is the input for UpdateConnection.
+type UpdateConnectionInput struct {
+	AuthorizationType string `json:"AuthorizationType,omitempty"`
+	Description       string `json:"Description,omitempty"`
+	Name              string `json:"Name"`
+}
+
+// UpdateEndpointInput is the input for UpdateEndpoint.
+type UpdateEndpointInput struct {
+	ReplicationConfig *ReplicationConfig `json:"ReplicationConfig,omitempty"`
+	RoutingConfig     *RoutingConfig     `json:"RoutingConfig,omitempty"`
+	Description       string             `json:"Description,omitempty"`
+	Name              string             `json:"Name"`
+	RoleArn           string             `json:"RoleArn,omitempty"`
+	EventBuses        []EndpointEventBus `json:"EventBuses,omitempty"`
+}
+
+// UpdateAPIDestinationInput is the input for UpdateApiDestination.
+type UpdateAPIDestinationInput struct {
+	ConnectionArn                string `json:"ConnectionArn,omitempty"`
+	Description                  string `json:"Description,omitempty"`
+	HTTPMethod                   string `json:"HttpMethod,omitempty"`
+	InvocationEndpoint           string `json:"InvocationEndpoint,omitempty"`
+	Name                         string `json:"Name"`
+	InvocationRateLimitPerSecond int    `json:"InvocationRateLimitPerSecond,omitempty"`
+}
+
+// ReplayDestination specifies the destination for a replay.
+type ReplayDestination struct {
+	Arn string `json:"Arn"`
+}
+
+// StartReplayInput is the input for StartReplay.
+type StartReplayInput struct {
+	EventEndTime   time.Time          `json:"EventEndTime"`
+	EventStartTime time.Time          `json:"EventStartTime"`
+	Destination    *ReplayDestination `json:"Destination,omitempty"`
+	Description    string             `json:"Description,omitempty"`
+	EventSourceArn string             `json:"EventSourceArn"`
+	ReplayName     string             `json:"ReplayName"`
+}
+
+// UpdateEventBusInput is the input for UpdateEventBus.
+type UpdateEventBusInput struct {
+	Description string `json:"Description,omitempty"`
+	Name        string `json:"Name"`
+}
+
+// PutPermissionInput is the input for PutPermission.
+type PutPermissionInput struct {
+	Action       string `json:"Action,omitempty"`
+	EventBusName string `json:"EventBusName,omitempty"`
+	Principal    string `json:"Principal,omitempty"`
+	StatementID  string `json:"StatementId,omitempty"`
+}
+
+// RemovePermissionInput is the input for RemovePermission.
+type RemovePermissionInput struct {
+	EventBusName string `json:"EventBusName,omitempty"`
+	StatementID  string `json:"StatementId,omitempty"`
+}

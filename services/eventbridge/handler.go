@@ -219,6 +219,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteEventBus",
 		"ListEventBuses",
 		"DescribeEventBus",
+		"UpdateEventBus",
 		"PutRule",
 		"DeleteRule",
 		"ListRules",
@@ -228,20 +229,48 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutTargets",
 		"RemoveTargets",
 		"ListTargetsByRule",
+		"ListRuleNamesByTarget",
 		"PutEvents",
+		"PutPartnerEvents",
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
 		"ActivateEventSource",
-		"CancelReplay",
-		"CreateApiDestination",
-		"CreateArchive",
-		"CreateConnection",
-		"CreateEndpoint",
-		"CreatePartnerEventSource",
 		"DeactivateEventSource",
-		"DeauthorizeConnection",
+		"DescribeEventSource",
+		"ListEventSources",
+		"CancelReplay",
+		"DescribeReplay",
+		"ListReplays",
+		"StartReplay",
+		"CreateApiDestination",
 		"DeleteApiDestination",
+		"DescribeApiDestination",
+		"ListApiDestinations",
+		"UpdateApiDestination",
+		"CreateArchive",
+		"DeleteArchive",
+		"DescribeArchive",
+		"ListArchives",
+		"UpdateArchive",
+		"CreateConnection",
+		"DeleteConnection",
+		"DescribeConnection",
+		"ListConnections",
+		"UpdateConnection",
+		"DeauthorizeConnection",
+		"CreateEndpoint",
+		"DeleteEndpoint",
+		"DescribeEndpoint",
+		"ListEndpoints",
+		"UpdateEndpoint",
+		"CreatePartnerEventSource",
+		"DeletePartnerEventSource",
+		"DescribePartnerEventSource",
+		"ListPartnerEventSources",
+		"TestEventPattern",
+		"PutPermission",
+		"RemovePermission",
 	}
 }
 
@@ -826,11 +855,493 @@ func (h *Handler) apiDestinationAndArchiveActions() map[string]actionFn {
 	}
 }
 
+// extendedArchiveActions returns CRUD actions for archives beyond Create.
+func (h *Handler) extendedArchiveActions() map[string]actionFn {
+	return map[string]actionFn{
+		"DeleteArchive": func(b []byte) (any, error) {
+			var input struct {
+				ArchiveName string `json:"ArchiveName"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.DeleteArchive(input.ArchiveName)
+		},
+		"DescribeArchive": func(b []byte) (any, error) {
+			var input struct {
+				ArchiveName string `json:"ArchiveName"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeArchive(input.ArchiveName)
+		},
+		"ListArchives": func(b []byte) (any, error) {
+			var input struct {
+				NamePrefix string `json:"NamePrefix"`
+				NextToken  string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			archives, next, err := h.Backend.ListArchives(input.NamePrefix, input.NextToken)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken string    `json:"NextToken,omitempty"`
+				Archives  []Archive `json:"Archives"`
+			}{Archives: archives, NextToken: next}, nil
+		},
+		"UpdateArchive": func(b []byte) (any, error) {
+			var input UpdateArchiveInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			archive, err := h.Backend.UpdateArchive(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				ArchiveArn   string    `json:"ArchiveArn"`
+				CreationTime time.Time `json:"CreationTime"`
+				State        string    `json:"State"`
+				StateReason  string    `json:"StateReason,omitempty"`
+			}{
+				ArchiveArn:   archive.ArchiveArn,
+				CreationTime: archive.CreationTime,
+				State:        archive.State,
+				StateReason:  archive.StateReason,
+			}, nil
+		},
+	}
+}
+
+// extendedConnectionActions returns CRUD actions for connections beyond Create/Deauthorize.
+func (h *Handler) extendedConnectionActions() map[string]actionFn {
+	return map[string]actionFn{
+		"DeleteConnection": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.DeleteConnection(input.Name)
+		},
+		"DescribeConnection": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeConnection(input.Name)
+		},
+		"ListConnections": func(b []byte) (any, error) {
+			var input struct {
+				NamePrefix string `json:"NamePrefix"`
+				NextToken  string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			conns, next, err := h.Backend.ListConnections(input.NamePrefix, input.NextToken)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken   string       `json:"NextToken,omitempty"`
+				Connections []Connection `json:"Connections"`
+			}{Connections: conns, NextToken: next}, nil
+		},
+		"UpdateConnection": func(b []byte) (any, error) {
+			var input UpdateConnectionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			conn, err := h.Backend.UpdateConnection(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				CreationTime     time.Time `json:"CreationTime"`
+				LastModifiedTime time.Time `json:"LastModifiedTime"`
+				ConnectionArn    string    `json:"ConnectionArn"`
+				ConnectionState  string    `json:"ConnectionState"`
+			}{
+				ConnectionArn:    conn.ConnectionArn,
+				ConnectionState:  conn.ConnectionState,
+				CreationTime:     conn.CreationTime,
+				LastModifiedTime: conn.LastModifiedTime,
+			}, nil
+		},
+	}
+}
+
+// extendedEndpointActions returns CRUD actions for endpoints beyond Create.
+func (h *Handler) extendedEndpointActions() map[string]actionFn {
+	return map[string]actionFn{
+		"DeleteEndpoint": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.DeleteEndpoint(input.Name)
+		},
+		"DescribeEndpoint": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeEndpoint(input.Name)
+		},
+		"ListEndpoints": func(b []byte) (any, error) {
+			var input struct {
+				NamePrefix string `json:"NamePrefix"`
+				NextToken  string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			eps, next, err := h.Backend.ListEndpoints(input.NamePrefix, input.NextToken)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken string     `json:"NextToken,omitempty"`
+				Endpoints []Endpoint `json:"Endpoints"`
+			}{Endpoints: eps, NextToken: next}, nil
+		},
+		"UpdateEndpoint": func(b []byte) (any, error) {
+			var input UpdateEndpointInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			ep, err := h.Backend.UpdateEndpoint(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				Arn         string `json:"Arn"`
+				EndpointID  string `json:"EndpointId"`
+				EndpointURL string `json:"EndpointUrl"`
+				State       string `json:"State"`
+			}{
+				Arn:         ep.Arn,
+				EndpointID:  ep.EndpointID,
+				EndpointURL: ep.EndpointURL,
+				State:       ep.State,
+			}, nil
+		},
+	}
+}
+
+// extendedAPIDestinationActions returns Describe/List/Update for API destinations.
+func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
+	return map[string]actionFn{
+		"DescribeApiDestination": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeAPIDestination(input.Name)
+		},
+		"ListApiDestinations": func(b []byte) (any, error) {
+			var input struct {
+				NamePrefix string `json:"NamePrefix"`
+				NextToken  string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			dsts, next, err := h.Backend.ListAPIDestinations(input.NamePrefix, input.NextToken)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken       string           `json:"NextToken,omitempty"`
+				APIDestinations []APIDestination `json:"ApiDestinations"`
+			}{APIDestinations: dsts, NextToken: next}, nil
+		},
+		"UpdateApiDestination": func(b []byte) (any, error) {
+			var input UpdateAPIDestinationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			dst, err := h.Backend.UpdateAPIDestination(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				CreationTime        time.Time `json:"CreationTime"`
+				LastModifiedTime    time.Time `json:"LastModifiedTime"`
+				APIDestinationArn   string    `json:"ApiDestinationArn"`
+				APIDestinationState string    `json:"ApiDestinationState"`
+			}{
+				APIDestinationArn:   dst.APIDestinationArn,
+				APIDestinationState: dst.APIDestinationState,
+				CreationTime:        dst.CreationTime,
+				LastModifiedTime:    dst.LastModifiedTime,
+			}, nil
+		},
+	}
+}
+
+// extendedEventSourceActions returns Describe/List for event sources.
+func (h *Handler) extendedEventSourceActions() map[string]actionFn {
+	return map[string]actionFn{
+		"DescribeEventSource": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeEventSource(input.Name)
+		},
+		"ListEventSources": func(b []byte) (any, error) {
+			var input struct {
+				NamePrefix string `json:"NamePrefix"`
+				NextToken  string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			srcs, next, err := h.Backend.ListEventSources(input.NamePrefix, input.NextToken)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken    string        `json:"NextToken,omitempty"`
+				EventSources []EventSource `json:"EventSources"`
+			}{EventSources: srcs, NextToken: next}, nil
+		},
+	}
+}
+
+// extendedPartnerSourceActions returns CRUD actions for partner event sources beyond Create.
+func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
+	return map[string]actionFn{
+		"DeletePartnerEventSource": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.DeletePartnerEventSource(input.Name)
+		},
+		"DescribePartnerEventSource": func(b []byte) (any, error) {
+			var input struct {
+				Name string `json:"Name"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribePartnerEventSource(input.Name)
+		},
+		"ListPartnerEventSources": func(b []byte) (any, error) {
+			var input struct {
+				NamePrefix string `json:"NamePrefix"`
+				NextToken  string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			srcs, next, err := h.Backend.ListPartnerEventSources(input.NamePrefix, input.NextToken)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken           string               `json:"NextToken,omitempty"`
+				PartnerEventSources []PartnerEventSource `json:"PartnerEventSources"`
+			}{PartnerEventSources: srcs, NextToken: next}, nil
+		},
+		"PutPartnerEvents": func(b []byte) (any, error) {
+			var input putEventsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			entries := h.Backend.PutPartnerEvents(input.Entries)
+
+			return &putEventsOutput{
+				FailedEntryCount: 0,
+				Entries:          entries,
+			}, nil
+		},
+	}
+}
+
+// extendedReplayActions returns Describe/List/Start replay actions.
+func (h *Handler) extendedReplayActions() map[string]actionFn {
+	return map[string]actionFn{
+		"DescribeReplay": func(b []byte) (any, error) {
+			var input struct {
+				ReplayName string `json:"ReplayName"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeReplay(input.ReplayName)
+		},
+		"ListReplays": func(b []byte) (any, error) {
+			var input struct {
+				NamePrefix string `json:"NamePrefix"`
+				NextToken  string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			replays, next, err := h.Backend.ListReplays(input.NamePrefix, input.NextToken)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken string   `json:"NextToken,omitempty"`
+				Replays   []Replay `json:"Replays"`
+			}{Replays: replays, NextToken: next}, nil
+		},
+		"StartReplay": func(b []byte) (any, error) {
+			var input StartReplayInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			replay, err := h.Backend.StartReplay(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				ReplayArn       string    `json:"ReplayArn"`
+				ReplayStartTime time.Time `json:"ReplayStartTime"`
+				State           string    `json:"State"`
+				StateReason     string    `json:"StateReason,omitempty"`
+			}{
+				ReplayArn:       replay.ReplayArn,
+				ReplayStartTime: replay.ReplayStartTime,
+				State:           replay.State,
+				StateReason:     replay.StateReason,
+			}, nil
+		},
+	}
+}
+
+// extendedMiscActions returns misc new operations.
+func (h *Handler) extendedMiscActions() map[string]actionFn {
+	return map[string]actionFn{
+		"ListRuleNamesByTarget": func(b []byte) (any, error) {
+			var input struct {
+				EventBusName string `json:"EventBusName"`
+				NextToken    string `json:"NextToken"`
+				TargetArn    string `json:"TargetArn"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			names, next, err := h.Backend.ListRuleNamesByTarget(input.TargetArn, input.EventBusName, input.NextToken)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				NextToken string   `json:"NextToken,omitempty"`
+				RuleNames []string `json:"RuleNames"`
+			}{RuleNames: names, NextToken: next}, nil
+		},
+		"TestEventPattern": func(b []byte) (any, error) {
+			var input struct {
+				Event        string `json:"Event"`
+				EventPattern string `json:"EventPattern"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			result, err := h.Backend.TestEventPattern(input.EventPattern, input.Event)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				Result bool `json:"Result"`
+			}{Result: result}, nil
+		},
+		"UpdateEventBus": func(b []byte) (any, error) {
+			var input UpdateEventBusInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			bus, err := h.Backend.UpdateEventBus(input)
+			if err != nil {
+				return nil, err
+			}
+
+			return &struct {
+				Arn         string `json:"Arn"`
+				Description string `json:"Description,omitempty"`
+				Name        string `json:"Name"`
+			}{Arn: bus.Arn, Description: bus.Description, Name: bus.Name}, nil
+		},
+		"PutPermission": func(b []byte) (any, error) {
+			var input PutPermissionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.PutPermission(input)
+		},
+		"RemovePermission": func(b []byte) (any, error) {
+			var input RemovePermissionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return &struct{}{}, h.Backend.RemovePermission(input)
+		},
+	}
+}
+
 func (h *Handler) newOpsActions() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.eventSourceActions())
 	maps.Copy(table, h.replayAndConnectionActions())
 	maps.Copy(table, h.apiDestinationAndArchiveActions())
+	maps.Copy(table, h.extendedArchiveActions())
+	maps.Copy(table, h.extendedConnectionActions())
+	maps.Copy(table, h.extendedEndpointActions())
+	maps.Copy(table, h.extendedAPIDestinationActions())
+	maps.Copy(table, h.extendedEventSourceActions())
+	maps.Copy(table, h.extendedPartnerSourceActions())
+	maps.Copy(table, h.extendedReplayActions())
+	maps.Copy(table, h.extendedMiscActions())
 
 	return table
 }
