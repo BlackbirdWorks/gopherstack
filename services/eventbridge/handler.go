@@ -635,24 +635,24 @@ func (h *Handler) tagActions() map[string]actionFn {
 }
 
 type createAPIDestinationOutput struct {
-	CreationTime        time.Time `json:"CreationTime"`
-	LastModifiedTime    time.Time `json:"LastModifiedTime"`
-	APIDestinationArn   string    `json:"ApiDestinationArn"`
-	APIDestinationState string    `json:"ApiDestinationState"`
+	APIDestinationArn   string  `json:"ApiDestinationArn"`
+	APIDestinationState string  `json:"ApiDestinationState"`
+	CreationTime        float64 `json:"CreationTime"`
+	LastModifiedTime    float64 `json:"LastModifiedTime"`
 }
 
 type createArchiveOutput struct {
-	ArchiveArn   string    `json:"ArchiveArn"`
-	CreationTime time.Time `json:"CreationTime"`
-	State        string    `json:"State"`
-	StateReason  string    `json:"StateReason,omitempty"`
+	ArchiveArn   string  `json:"ArchiveArn"`
+	State        string  `json:"State"`
+	StateReason  string  `json:"StateReason,omitempty"`
+	CreationTime float64 `json:"CreationTime"`
 }
 
 type createConnectionOutput struct {
-	CreationTime     time.Time `json:"CreationTime"`
-	LastModifiedTime time.Time `json:"LastModifiedTime"`
-	ConnectionArn    string    `json:"ConnectionArn"`
-	ConnectionState  string    `json:"ConnectionState"`
+	ConnectionArn    string  `json:"ConnectionArn"`
+	ConnectionState  string  `json:"ConnectionState"`
+	CreationTime     float64 `json:"CreationTime"`
+	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
 type createEndpointOutput struct {
@@ -673,14 +673,121 @@ type cancelReplayOutput struct {
 }
 
 type deauthorizeConnectionOutput struct {
-	LastModifiedTime time.Time `json:"LastModifiedTime"`
-	ConnectionArn    string    `json:"ConnectionArn"`
-	ConnectionState  string    `json:"ConnectionState"`
+	ConnectionArn    string  `json:"ConnectionArn"`
+	ConnectionState  string  `json:"ConnectionState"`
+	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
 type activateEventSourceOutput struct{}
 type deactivateEventSourceOutput struct{}
 type deleteAPIDestinationOutput struct{}
+
+// archiveResponse is the handler-level DTO for Archive objects.
+// Timestamps are float64 Unix epoch seconds as required by the AWS JSON protocol.
+type archiveResponse struct {
+	ArchiveName    string  `json:"ArchiveName"`
+	ArchiveArn     string  `json:"ArchiveArn"`
+	Description    string  `json:"Description,omitempty"`
+	EventPattern   string  `json:"EventPattern,omitempty"`
+	EventSourceArn string  `json:"EventSourceArn"`
+	State          string  `json:"State"`
+	StateReason    string  `json:"StateReason,omitempty"`
+	CreationTime   float64 `json:"CreationTime"`
+	EventCount     int64   `json:"EventCount"`
+	RetentionDays  int     `json:"RetentionDays,omitempty"`
+	SizeBytes      int64   `json:"SizeBytes"`
+}
+
+func archiveToResponse(a *Archive) *archiveResponse {
+	if a == nil {
+		return nil
+	}
+
+	return &archiveResponse{
+		CreationTime:   float64(a.CreationTime.Unix()),
+		ArchiveName:    a.ArchiveName,
+		ArchiveArn:     a.ArchiveArn,
+		Description:    a.Description,
+		EventPattern:   a.EventPattern,
+		EventSourceArn: a.EventSourceArn,
+		State:          a.State,
+		StateReason:    a.StateReason,
+		EventCount:     a.EventCount,
+		RetentionDays:  a.RetentionDays,
+		SizeBytes:      a.SizeBytes,
+	}
+}
+
+// connectionResponse is the handler-level DTO for Connection objects.
+type connectionResponse struct {
+	ConnectionArn      string  `json:"ConnectionArn"`
+	AuthorizationType  string  `json:"AuthorizationType"`
+	ConnectionState    string  `json:"ConnectionState"`
+	Description        string  `json:"Description,omitempty"`
+	Name               string  `json:"Name"`
+	SecretArn          string  `json:"SecretArn,omitempty"`
+	StateReason        string  `json:"StateReason,omitempty"`
+	CreationTime       float64 `json:"CreationTime"`
+	LastAuthorizedTime float64 `json:"LastAuthorizedTime,omitempty"`
+	LastModifiedTime   float64 `json:"LastModifiedTime"`
+}
+
+func connectionToResponse(c *Connection) *connectionResponse {
+	if c == nil {
+		return nil
+	}
+
+	r := &connectionResponse{
+		ConnectionArn:     c.ConnectionArn,
+		AuthorizationType: c.AuthorizationType,
+		ConnectionState:   c.ConnectionState,
+		CreationTime:      float64(c.CreationTime.Unix()),
+		Description:       c.Description,
+		LastModifiedTime:  float64(c.LastModifiedTime.Unix()),
+		Name:              c.Name,
+		SecretArn:         c.SecretArn,
+		StateReason:       c.StateReason,
+	}
+
+	if !c.LastAuthorizedTime.IsZero() {
+		r.LastAuthorizedTime = float64(c.LastAuthorizedTime.Unix())
+	}
+
+	return r
+}
+
+// apiDestinationResponse is the handler-level DTO for APIDestination objects.
+type apiDestinationResponse struct {
+	APIDestinationArn            string  `json:"ApiDestinationArn"`
+	APIDestinationState          string  `json:"ApiDestinationState"`
+	ConnectionArn                string  `json:"ConnectionArn"`
+	Description                  string  `json:"Description,omitempty"`
+	HTTPMethod                   string  `json:"HttpMethod"`
+	InvocationEndpoint           string  `json:"InvocationEndpoint"`
+	Name                         string  `json:"Name"`
+	CreationTime                 float64 `json:"CreationTime"`
+	LastModifiedTime             float64 `json:"LastModifiedTime"`
+	InvocationRateLimitPerSecond int     `json:"InvocationRateLimitPerSecond,omitempty"`
+}
+
+func apiDestinationToResponse(d *APIDestination) *apiDestinationResponse {
+	if d == nil {
+		return nil
+	}
+
+	return &apiDestinationResponse{
+		CreationTime:                 float64(d.CreationTime.Unix()),
+		LastModifiedTime:             float64(d.LastModifiedTime.Unix()),
+		APIDestinationArn:            d.APIDestinationArn,
+		APIDestinationState:          d.APIDestinationState,
+		ConnectionArn:                d.ConnectionArn,
+		Description:                  d.Description,
+		HTTPMethod:                   d.HTTPMethod,
+		InvocationEndpoint:           d.InvocationEndpoint,
+		Name:                         d.Name,
+		InvocationRateLimitPerSecond: d.InvocationRateLimitPerSecond,
+	}
+}
 
 func (h *Handler) eventSourceActions() map[string]actionFn {
 	return map[string]actionFn{
@@ -761,8 +868,8 @@ func (h *Handler) replayAndConnectionActions() map[string]actionFn {
 			return &createConnectionOutput{
 				ConnectionArn:    conn.ConnectionArn,
 				ConnectionState:  conn.ConnectionState,
-				CreationTime:     conn.CreationTime,
-				LastModifiedTime: conn.LastModifiedTime,
+				CreationTime:     float64(conn.CreationTime.Unix()),
+				LastModifiedTime: float64(conn.LastModifiedTime.Unix()),
 			}, nil
 		},
 		"DeauthorizeConnection": func(b []byte) (any, error) {
@@ -780,7 +887,7 @@ func (h *Handler) replayAndConnectionActions() map[string]actionFn {
 			return &deauthorizeConnectionOutput{
 				ConnectionArn:    conn.ConnectionArn,
 				ConnectionState:  conn.ConnectionState,
-				LastModifiedTime: conn.LastModifiedTime,
+				LastModifiedTime: float64(conn.LastModifiedTime.Unix()),
 			}, nil
 		},
 	}
@@ -801,8 +908,8 @@ func (h *Handler) apiDestinationAndArchiveActions() map[string]actionFn {
 			return &createAPIDestinationOutput{
 				APIDestinationArn:   dst.APIDestinationArn,
 				APIDestinationState: dst.APIDestinationState,
-				CreationTime:        dst.CreationTime,
-				LastModifiedTime:    dst.LastModifiedTime,
+				CreationTime:        float64(dst.CreationTime.Unix()),
+				LastModifiedTime:    float64(dst.LastModifiedTime.Unix()),
 			}, nil
 		},
 		"CreateArchive": func(b []byte) (any, error) {
@@ -817,7 +924,7 @@ func (h *Handler) apiDestinationAndArchiveActions() map[string]actionFn {
 
 			return &createArchiveOutput{
 				ArchiveArn:   archive.ArchiveArn,
-				CreationTime: archive.CreationTime,
+				CreationTime: float64(archive.CreationTime.Unix()),
 				State:        archive.State,
 				StateReason:  archive.StateReason,
 			}, nil
@@ -876,7 +983,12 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeArchive(input.ArchiveName)
+			archive, err := h.Backend.DescribeArchive(input.ArchiveName)
+			if err != nil {
+				return nil, err
+			}
+
+			return archiveToResponse(archive), nil
 		},
 		"ListArchives": func(b []byte) (any, error) {
 			var input struct {
@@ -891,10 +1003,15 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 				return nil, err
 			}
 
+			archiveResponses := make([]archiveResponse, len(archives))
+			for i, a := range archives {
+				archiveResponses[i] = *archiveToResponse(&a)
+			}
+
 			return &struct {
-				NextToken string    `json:"NextToken,omitempty"`
-				Archives  []Archive `json:"Archives"`
-			}{Archives: archives, NextToken: next}, nil
+				NextToken string            `json:"NextToken,omitempty"`
+				Archives  []archiveResponse `json:"Archives"`
+			}{Archives: archiveResponses, NextToken: next}, nil
 		},
 		"UpdateArchive": func(b []byte) (any, error) {
 			var input UpdateArchiveInput
@@ -907,13 +1024,13 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 			}
 
 			return &struct {
-				ArchiveArn   string    `json:"ArchiveArn"`
-				CreationTime time.Time `json:"CreationTime"`
-				State        string    `json:"State"`
-				StateReason  string    `json:"StateReason,omitempty"`
+				ArchiveArn   string  `json:"ArchiveArn"`
+				State        string  `json:"State"`
+				StateReason  string  `json:"StateReason,omitempty"`
+				CreationTime float64 `json:"CreationTime"`
 			}{
 				ArchiveArn:   archive.ArchiveArn,
-				CreationTime: archive.CreationTime,
+				CreationTime: float64(archive.CreationTime.Unix()),
 				State:        archive.State,
 				StateReason:  archive.StateReason,
 			}, nil
@@ -942,7 +1059,12 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeConnection(input.Name)
+			conn, err := h.Backend.DescribeConnection(input.Name)
+			if err != nil {
+				return nil, err
+			}
+
+			return connectionToResponse(conn), nil
 		},
 		"ListConnections": func(b []byte) (any, error) {
 			var input struct {
@@ -957,10 +1079,15 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 				return nil, err
 			}
 
+			connResponses := make([]connectionResponse, len(conns))
+			for i, c := range conns {
+				connResponses[i] = *connectionToResponse(&c)
+			}
+
 			return &struct {
-				NextToken   string       `json:"NextToken,omitempty"`
-				Connections []Connection `json:"Connections"`
-			}{Connections: conns, NextToken: next}, nil
+				NextToken   string               `json:"NextToken,omitempty"`
+				Connections []connectionResponse `json:"Connections"`
+			}{Connections: connResponses, NextToken: next}, nil
 		},
 		"UpdateConnection": func(b []byte) (any, error) {
 			var input UpdateConnectionInput
@@ -973,15 +1100,15 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 			}
 
 			return &struct {
-				CreationTime     time.Time `json:"CreationTime"`
-				LastModifiedTime time.Time `json:"LastModifiedTime"`
-				ConnectionArn    string    `json:"ConnectionArn"`
-				ConnectionState  string    `json:"ConnectionState"`
+				ConnectionArn    string  `json:"ConnectionArn"`
+				ConnectionState  string  `json:"ConnectionState"`
+				CreationTime     float64 `json:"CreationTime"`
+				LastModifiedTime float64 `json:"LastModifiedTime"`
 			}{
 				ConnectionArn:    conn.ConnectionArn,
 				ConnectionState:  conn.ConnectionState,
-				CreationTime:     conn.CreationTime,
-				LastModifiedTime: conn.LastModifiedTime,
+				CreationTime:     float64(conn.CreationTime.Unix()),
+				LastModifiedTime: float64(conn.LastModifiedTime.Unix()),
 			}, nil
 		},
 	}
@@ -1064,7 +1191,12 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return h.Backend.DescribeAPIDestination(input.Name)
+			dst, err := h.Backend.DescribeAPIDestination(input.Name)
+			if err != nil {
+				return nil, err
+			}
+
+			return apiDestinationToResponse(dst), nil
 		},
 		"ListApiDestinations": func(b []byte) (any, error) {
 			var input struct {
@@ -1079,10 +1211,15 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 				return nil, err
 			}
 
+			dstResponses := make([]apiDestinationResponse, len(dsts))
+			for i, d := range dsts {
+				dstResponses[i] = *apiDestinationToResponse(&d)
+			}
+
 			return &struct {
-				NextToken       string           `json:"NextToken,omitempty"`
-				APIDestinations []APIDestination `json:"ApiDestinations"`
-			}{APIDestinations: dsts, NextToken: next}, nil
+				NextToken       string                   `json:"NextToken,omitempty"`
+				APIDestinations []apiDestinationResponse `json:"ApiDestinations"`
+			}{APIDestinations: dstResponses, NextToken: next}, nil
 		},
 		"UpdateApiDestination": func(b []byte) (any, error) {
 			var input UpdateAPIDestinationInput
@@ -1095,15 +1232,15 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 			}
 
 			return &struct {
-				CreationTime        time.Time `json:"CreationTime"`
-				LastModifiedTime    time.Time `json:"LastModifiedTime"`
-				APIDestinationArn   string    `json:"ApiDestinationArn"`
-				APIDestinationState string    `json:"ApiDestinationState"`
+				APIDestinationArn   string  `json:"ApiDestinationArn"`
+				APIDestinationState string  `json:"ApiDestinationState"`
+				CreationTime        float64 `json:"CreationTime"`
+				LastModifiedTime    float64 `json:"LastModifiedTime"`
 			}{
 				APIDestinationArn:   dst.APIDestinationArn,
 				APIDestinationState: dst.APIDestinationState,
-				CreationTime:        dst.CreationTime,
-				LastModifiedTime:    dst.LastModifiedTime,
+				CreationTime:        float64(dst.CreationTime.Unix()),
+				LastModifiedTime:    float64(dst.LastModifiedTime.Unix()),
 			}, nil
 		},
 	}
