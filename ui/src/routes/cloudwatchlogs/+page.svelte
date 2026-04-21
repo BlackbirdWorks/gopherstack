@@ -80,7 +80,7 @@
 	let deletingGroup = $state<string | null>(null);
 	let groupSortField = $state<'name' | 'size' | 'created'>('name');
 	let groupSortDesc = $state(false);
-	let groupNextToken = $state<string | undefined>(undefined);
+	let groupNextToken = $state<string | undefined>();
 
 	// Log Streams
 	let logStreams = $state<LogStream[]>([]);
@@ -190,7 +190,7 @@
 		let list = logGroups.filter((g) =>
 			!searchQuery || (g.logGroupName ?? '').toLowerCase().includes(searchQuery.toLowerCase())
 		);
-		list = [...list].sort((a, b) => {
+		list = list.toSorted((a, b) => {
 			let cmp = 0;
 			if (groupSortField === 'name') cmp = (a.logGroupName ?? '').localeCompare(b.logGroupName ?? '');
 			else if (groupSortField === 'size') cmp = (a.storedBytes ?? 0) - (b.storedBytes ?? 0);
@@ -318,11 +318,9 @@
 		autoRefresh = !autoRefresh;
 		if (autoRefresh) {
 			autoRefreshInterval = setInterval(() => loadEvents(), 5000);
-		} else {
-			if (autoRefreshInterval !== null) {
-				clearInterval(autoRefreshInterval);
-				autoRefreshInterval = null;
-			}
+		} else if (autoRefreshInterval !== null) {
+			clearInterval(autoRefreshInterval);
+			autoRefreshInterval = null;
 		}
 	}
 
@@ -798,7 +796,7 @@
 					? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
 					: 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}"
 			>
-				<svelte:component this={tab.icon} class="w-4 h-4" />
+			<svelte:component this={tab.icon} class="w-4 h-4" />
 				{tab.label}
 			</button>
 		{/each}
@@ -1370,11 +1368,11 @@
 									<td class="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">{task.logGroupName}</td>
 									<td class="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400 max-w-xs truncate">{task.destination}</td>
 									<td class="px-4 py-3">
-										<span class="px-2 py-0.5 rounded-full text-xs font-medium {exportStatusColor(task.status?.statusCode)}">{task.status?.statusCode ?? '—'}</span>
+										<span class="px-2 py-0.5 rounded-full text-xs font-medium {exportStatusColor(task.status?.code)}">{task.status?.code ?? '—'}</span>
 									</td>
 									<td class="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">{formatTimestamp(task.executionInfo?.creationTime)}</td>
 									<td class="px-4 py-3">
-										{#if task.status?.statusCode === 'PENDING' || task.status?.statusCode === 'RUNNING'}
+										{#if task.status?.code === 'PENDING' || task.status?.code === 'RUNNING'}
 											<button onclick={() => cancelExportTask(task.taskId ?? '')} disabled={cancellingExport === task.taskId}
 												class="text-red-500 hover:text-red-700 text-xs disabled:opacity-40">Cancel</button>
 										{/if}
