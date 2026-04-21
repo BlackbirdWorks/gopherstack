@@ -16,10 +16,10 @@ func ParseThrottlePercentageForTest(s string) float64 {
 
 // InjectExpiredThroughputFaultForTest directly inserts an expired fault entry
 // for the given stream name without starting a cleanup goroutine, allowing
-// tests to exercise the lazy-eviction path in isThroughputFaultActiveLocked.
+// tests to exercise the lazy-eviction path in isThroughputFaultActive.
 func (b *InMemoryBackend) InjectExpiredThroughputFaultForTest(streamName string) {
-	b.mu.Lock("InjectExpiredThroughputFaultForTest")
-	defer b.mu.Unlock()
+	b.faultsMu.Lock("InjectExpiredThroughputFaultForTest")
+	defer b.faultsMu.Unlock()
 
 	b.fisThroughputFaults[streamName] = &kinesisThrottleFault{
 		expiry:      time.Now().Add(-time.Hour), // already expired
@@ -38,8 +38,8 @@ func (b *InMemoryBackend) ScheduleThroughputFaultCleanupForTest(
 
 // InjectFaultForTest inserts an active (non-expired) throughput fault for testing.
 func (b *InMemoryBackend) InjectFaultForTest(streamName string) {
-	b.mu.Lock("InjectFaultForTest")
-	defer b.mu.Unlock()
+	b.faultsMu.Lock("InjectFaultForTest")
+	defer b.faultsMu.Unlock()
 
 	b.fisThroughputFaults[streamName] = &kinesisThrottleFault{
 		probability: 1.0,
@@ -48,8 +48,8 @@ func (b *InMemoryBackend) InjectFaultForTest(streamName string) {
 
 // HasFaultForTest reports whether a fault entry exists for streamName.
 func (b *InMemoryBackend) HasFaultForTest(streamName string) bool {
-	b.mu.RLock("HasFaultForTest")
-	defer b.mu.RUnlock()
+	b.faultsMu.RLock("HasFaultForTest")
+	defer b.faultsMu.RUnlock()
 
 	_, ok := b.fisThroughputFaults[streamName]
 
@@ -59,12 +59,16 @@ func (b *InMemoryBackend) HasFaultForTest(streamName string) bool {
 // ShardRecordCountForTest returns the number of records in shard i of the named stream.
 func (b *InMemoryBackend) ShardRecordCountForTest(streamName string, shardIdx int) int {
 	b.mu.RLock("ShardRecordCountForTest")
-	defer b.mu.RUnlock()
 
 	stream, ok := b.streams[streamName]
 	if !ok || shardIdx >= len(stream.Shards) {
+		b.mu.RUnlock()
+
 		return -1
 	}
+	stream.mu.RLock("ShardRecordCountForTest.stream")
+	b.mu.RUnlock()
+	defer stream.mu.RUnlock()
 
 	return stream.Shards[shardIdx].Records.len()
 }
@@ -88,6 +92,8 @@ func (b *InMemoryBackend) SetRetentionPeriodForTest(streamName string, hours int
 	if !ok {
 		return ErrStreamNotFound
 	}
+	stream.mu.Lock("SetRetentionPeriodForTest.stream")
+	defer stream.mu.Unlock()
 
 	stream.RetentionPeriod = hours
 
@@ -104,6 +110,8 @@ func (b *InMemoryBackend) PushOldRecordForTest(streamName string, shardIdx int, 
 	if !ok {
 		return ErrStreamNotFound
 	}
+	stream.mu.Lock("PushOldRecordForTest.stream")
+	defer stream.mu.Unlock()
 
 	if shardIdx >= len(stream.Shards) {
 		return ErrInvalidArgument

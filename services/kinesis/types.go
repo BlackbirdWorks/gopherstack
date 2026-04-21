@@ -3,6 +3,7 @@ package kinesis
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -24,6 +25,12 @@ const (
 
 	// maxRecordsPerShard is the maximum number of records stored per shard.
 	maxRecordsPerShard = 10000
+
+	// defaultMaxRecordSizeBytes is the default per-record data size limit (1 MiB).
+	defaultMaxRecordSizeBytes = 1_048_576
+
+	// absoluteMaxRecordSizeBytes is the maximum allowed record size after UpdateMaxRecordSize (10 MiB).
+	absoluteMaxRecordSizeBytes = 10_485_760
 
 	// iteratorTypeTrimHorizon reads from the oldest record.
 	iteratorTypeTrimHorizon = "TRIM_HORIZON"
@@ -86,6 +93,9 @@ const (
 
 	// streamStatusDeleting is the status when a stream is being deleted.
 	streamStatusDeleting = "DELETING"
+
+	// iteratorTTL is the maximum age of a shard iterator before it expires.
+	iteratorTTL = 300 * time.Second
 )
 
 const streamModeProvisioned = StreamModeProvisioned
@@ -93,7 +103,8 @@ const streamModeOnDemand = StreamModeOnDemand
 
 // Stream represents an in-memory Kinesis stream.
 type Stream struct {
-	CreatedAt          time.Time            `json:"createdAt"`
+	CreatedAt          time.Time `json:"createdAt"`
+	mu                 *lockmetrics.RWMutex
 	Tags               *tags.Tags           `json:"tags,omitempty"`
 	Consumers          map[string]*Consumer `json:"consumers,omitempty"`
 	Name               string               `json:"name"`
@@ -105,6 +116,9 @@ type Stream struct {
 	Shards             []*Shard             `json:"shards"`
 	EnhancedMonitoring []string             `json:"enhancedMonitoring,omitempty"`
 	RetentionPeriod    int                  `json:"retentionPeriod"`
+	// MaxRecordSizeBytes is the per-record data payload size limit for this stream.
+	// Defaults to defaultMaxRecordSizeBytes (1 MiB); updatable via UpdateMaxRecordSize.
+	MaxRecordSizeBytes int `json:"maxRecordSizeBytes,omitempty"`
 }
 
 // Shard represents a single Kinesis shard within a stream.
@@ -137,10 +151,11 @@ type StreamInfo struct {
 
 // ShardIterator holds the position within a shard for GetRecords.
 type ShardIterator struct {
-	StreamName     string `json:"StreamName"`
-	ShardID        string `json:"ShardID"`
-	SequenceNumber string `json:"SequenceNumber"`
-	Position       int    `json:"Position"`
+	CreatedAt      time.Time `json:"CreatedAt"`
+	StreamName     string    `json:"StreamName"`
+	ShardID        string    `json:"ShardID"`
+	SequenceNumber string    `json:"SequenceNumber"`
+	Position       int       `json:"Position"`
 }
 
 // --- Input/Output types ---
@@ -215,6 +230,7 @@ type PutRecordInput struct {
 type PutRecordOutput struct {
 	ShardID        string
 	SequenceNumber string
+	EncryptionType string
 }
 
 // PutRecordsEntry is a single entry in a PutRecords request.
@@ -284,7 +300,14 @@ type ListShardsInput struct {
 	StreamName            string
 	NextToken             string
 	ExclusiveStartShardID string
-	MaxResults            int
+	// ShardFilter controls which shards are returned.
+	// Supported values: "FROM_TRIM_HORIZON" (all shards including closed),
+	// "AT_LATEST" (open shards only), "AFTER_SHARD_ID", "AT_TIMESTAMP", "FROM_TIMESTAMP".
+	// Empty string defaults to open shards only.
+	ShardFilter        string
+	ShardFilterType    string
+	ShardFilterShardID string
+	MaxResults         int
 }
 
 // ListShardsOutput is the output for ListShards.
@@ -502,4 +525,37 @@ type UpdateStreamModeInput struct {
 // StreamModeDetails describes the mode of a Kinesis stream.
 type StreamModeDetails struct {
 	StreamMode string
+}
+
+// UpdateAccountSettingsInput is the input for UpdateAccountSettings.
+type UpdateAccountSettingsInput struct {
+	// OnDemandStreamCountLimit sets the account-level limit for ON_DEMAND streams.
+	OnDemandStreamCountLimit int
+}
+
+// UpdateMaxRecordSizeInput is the input for UpdateMaxRecordSize.
+type UpdateMaxRecordSizeInput struct {
+	StreamName         string
+	StreamARN          string
+	MaxRecordSizeBytes int
+}
+
+// UpdateStreamWarmThroughputInput is the input for UpdateStreamWarmThroughput.
+type UpdateStreamWarmThroughputInput struct {
+	StreamName         string
+	StreamARN          string
+	WriteCapacityUnits int64
+	ReadCapacityUnits  int64
+}
+
+// TagResourceInput is the input for TagResource (ARN-based tagging).
+type TagResourceInput struct {
+	Tags        map[string]string
+	ResourceARN string
+}
+
+// UntagResourceInput is the input for UntagResource (ARN-based tag removal).
+type UntagResourceInput struct {
+	ResourceARN string
+	TagKeys     []string
 }

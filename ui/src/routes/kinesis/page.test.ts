@@ -112,7 +112,7 @@ describe("Kinesis Page", () => {
     render(KinesisPage);
     expect(screen.getByText("Total Streams")).toBeInTheDocument();
     expect(screen.getByText("Open Shards")).toBeInTheDocument();
-    expect(screen.getByText("Records Fetched")).toBeInTheDocument();
-    expect(screen.getByText("Selected Status")).toBeInTheDocument();
+    expect(screen.getByText("Consumers")).toBeInTheDocument();
+    expect(screen.getByText("Shards Used/Limit")).toBeInTheDocument();
   });
 });

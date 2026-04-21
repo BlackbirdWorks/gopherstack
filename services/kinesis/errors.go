@@ -26,4 +26,5 @@ var (
 		"ProvisionedThroughputExceededException",
 		errRateExceeded,
 	)
+	ErrTagLimitExceeded = awserr.New("LimitExceededException", awserr.ErrInvalidParameter)
 )
