@@ -54,6 +54,16 @@ func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Durati
 		if len(taskTimeout) > 0 {
 			j.TaskTimeout = taskTimeout[0]
 		}
+		// Wire the cleanup callback so that when a stream is purged from the backend
+		// the handler-level tag registry for that stream is also closed and removed.
+		mem.OnStreamPurged = func(streamName string) {
+			h.tagsMu.Lock("OnStreamPurged")
+			if t := h.tags[streamName]; t != nil {
+				t.Close()
+			}
+			delete(h.tags, streamName)
+			h.tagsMu.Unlock()
+		}
 		h.janitor = j
 	}
 
@@ -119,6 +129,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AddTagsToStream",
 		"RemoveTagsFromStream",
 		"ListTagsForStream",
+		"TagResource",
+		"UntagResource",
 		"IncreaseStreamRetentionPeriod",
 		"DecreaseStreamRetentionPeriod",
 		"RegisterStreamConsumer",
@@ -131,6 +143,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DisableEnhancedMonitoring",
 		"DescribeLimits",
 		"DescribeAccountSettings",
+		"UpdateAccountSettings",
+		"UpdateMaxRecordSize",
+		"UpdateStreamWarmThroughput",
 		"MergeShards",
 		"SplitShard",
 		"StartStreamEncryption",
@@ -237,10 +252,15 @@ func (h *Handler) buildOps() map[string]kinesisDispatchFn {
 		"AddTagsToStream":               h.handleAddTagsToStream,
 		"RemoveTagsFromStream":          h.handleRemoveTagsFromStream,
 		"ListTagsForStream":             h.handleListTagsForStream,
+		"TagResource":                   h.handleTagResource,
+		"UntagResource":                 h.handleUntagResource,
 		"IncreaseStreamRetentionPeriod": h.handleIncreaseStreamRetentionPeriod,
 		"DecreaseStreamRetentionPeriod": h.handleDecreaseStreamRetentionPeriod,
 		"DescribeLimits":                h.handleDescribeLimits,
 		"DescribeAccountSettings":       h.handleDescribeAccountSettings,
+		"UpdateAccountSettings":         h.handleUpdateAccountSettings,
+		"UpdateMaxRecordSize":           h.handleUpdateMaxRecordSize,
+		"UpdateStreamWarmThroughput":    h.handleUpdateStreamWarmThroughput,
 		"MergeShards":                   h.handleMergeShards,
 		"SplitShard":                    h.handleSplitShard,
 		"StartStreamEncryption":         h.handleStartStreamEncryption,
@@ -316,8 +336,9 @@ type jsonPutRecordReq struct {
 }
 
 type jsonPutRecordEntry struct {
-	PartitionKey string `json:"PartitionKey"`
-	Data         []byte `json:"Data"`
+	PartitionKey    string `json:"PartitionKey"`
+	ExplicitHashKey string `json:"ExplicitHashKey,omitempty"`
+	Data            []byte `json:"Data"`
 }
 
 type jsonPutRecordsReq struct {
@@ -342,7 +363,9 @@ type jsonListShardsReq struct {
 	StreamName            string `json:"StreamName"`
 	NextToken             string `json:"NextToken"`
 	ExclusiveStartShardID string `json:"ExclusiveStartShardId,omitempty"`
-	MaxResults            int    `json:"MaxResults"`
+	// ShardFilter controls which shards are returned. Pass "FROM_TRIM_HORIZON" to include closed shards.
+	ShardFilter string `json:"ShardFilter,omitempty"`
+	MaxResults  int    `json:"MaxResults"`
 }
 
 type jsonShardDescription struct {
@@ -374,6 +397,8 @@ type jsonStreamDescriptionSummary struct {
 	StreamCreationTimestamp float64                `json:"StreamCreationTimestamp,omitempty"`
 	RetentionPeriodHours    int                    `json:"RetentionPeriodHours"`
 	OpenShardCount          int                    `json:"OpenShardCount"`
+	// ConsumerCount is the number of registered enhanced fan-out consumers.
+	ConsumerCount int `json:"ConsumerCount"`
 }
 
 type jsonStreamDescription struct {
@@ -552,10 +577,14 @@ func (h *Handler) handleDescribeStream(
 
 	shards := make([]jsonShardDescription, 0, len(out.Shards))
 	for _, s := range out.Shards {
+		// By convention (matching LocalStack), DescribeStream only returns open shards.
+		// Closed shards (post merge/split) are accessible via ListShards with FROM_TRIM_HORIZON.
 		if s.Closed {
 			continue
 		}
 
+		// AWS DescribeStream returns ALL shards including closed ones.
+		// Closed shards have a non-empty EndingSequenceNumber.
 		shards = append(shards, jsonShardDescription{
 			ShardID:               s.ShardID,
 			ParentShardID:         s.ParentShardID,
@@ -610,6 +639,13 @@ func (h *Handler) handleDescribeStreamSummary(
 		}
 	}
 
+	// Fetch the live consumer count.
+	consumerList, _ := h.Backend.ListStreamConsumers(&ListStreamConsumersInput{StreamARN: out.StreamARN})
+	consumerCount := 0
+	if consumerList != nil {
+		consumerCount = len(consumerList.Consumers)
+	}
+
 	return jsonDescribeStreamSummaryResp{
 		StreamDescriptionSummary: jsonStreamDescriptionSummary{
 			StreamName:              out.StreamName,
@@ -617,6 +653,7 @@ func (h *Handler) handleDescribeStreamSummary(
 			StreamStatus:            out.StreamStatus,
 			RetentionPeriodHours:    out.RetentionPeriodHours,
 			OpenShardCount:          openCount,
+			ConsumerCount:           consumerCount,
 			EncryptionType:          out.EncryptionType,
 			KeyID:                   out.KeyID,
 			EnhancedMonitoring:      out.EnhancedMonitoring,
@@ -697,8 +734,9 @@ func (h *Handler) handlePutRecords(
 	entries := make([]PutRecordsEntry, numRecords)
 	for i, r := range req.Records {
 		entries[i] = PutRecordsEntry{
-			PartitionKey: r.PartitionKey,
-			Data:         r.Data,
+			PartitionKey:    r.PartitionKey,
+			ExplicitHashKey: r.ExplicitHashKey,
+			Data:            r.Data,
 		}
 	}
 
@@ -802,6 +840,7 @@ func (h *Handler) handleListShards(
 		NextToken:             req.NextToken,
 		MaxResults:            req.MaxResults,
 		ExclusiveStartShardID: req.ExclusiveStartShardID,
+		ShardFilter:           req.ShardFilter,
 	})
 	if err != nil {
 		return nil, err
@@ -809,10 +848,7 @@ func (h *Handler) handleListShards(
 
 	shards := make([]jsonShardDescription, 0, len(out.Shards))
 	for _, s := range out.Shards {
-		if s.Closed {
-			continue
-		}
-
+		// The backend already applies ShardFilter; no additional filtering here.
 		shards = append(shards, jsonShardDescription{
 			ShardID:               s.ShardID,
 			ParentShardID:         s.ParentShardID,
@@ -1702,4 +1738,147 @@ func (h *Handler) handleUpdateStreamMode(_ context.Context, _ *http.Request, bod
 		StreamARN:         req.StreamARN,
 		StreamModeDetails: StreamModeDetails{StreamMode: req.StreamModeDetails.StreamMode},
 	})
+}
+
+// --- Handler functions for TagResource, UntagResource, and new account/stream operations ---
+
+type jsonTagResourceReq struct {
+ResourceARN string            `json:"ResourceARN"`
+Tags        map[string]string `json:"Tags"`
+}
+
+type jsonUntagResourceReq struct {
+ResourceARN string   `json:"ResourceARN"`
+TagKeys     []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleTagResource(
+_ context.Context,
+_ *http.Request,
+body []byte,
+) (any, error) {
+var req jsonTagResourceReq
+if err := json.Unmarshal(body, &req); err != nil {
+return nil, ErrInvalidArgument
+}
+
+if err := h.Backend.TagResource(&TagResourceInput{
+ResourceARN: req.ResourceARN,
+Tags:        req.Tags,
+}); err != nil {
+return nil, err
+}
+
+// Mirror into the handler-level tag store for ListTagsForStream compatibility.
+streamName := streamNameFromARN(req.ResourceARN)
+if streamName != "" {
+h.setTags(streamName, req.Tags)
+}
+
+return struct{}{}, nil
+}
+
+func (h *Handler) handleUntagResource(
+_ context.Context,
+_ *http.Request,
+body []byte,
+) (any, error) {
+var req jsonUntagResourceReq
+if err := json.Unmarshal(body, &req); err != nil {
+return nil, ErrInvalidArgument
+}
+
+if err := h.Backend.UntagResource(&UntagResourceInput{
+ResourceARN: req.ResourceARN,
+TagKeys:     req.TagKeys,
+}); err != nil {
+return nil, err
+}
+
+// Mirror removal into the handler-level tag store.
+streamName := streamNameFromARN(req.ResourceARN)
+if streamName != "" {
+h.removeTags(streamName, req.TagKeys)
+}
+
+return struct{}{}, nil
+}
+
+type jsonUpdateAccountSettingsReq struct {
+OnDemandStreamCountLimit int `json:"OnDemandStreamCountLimit"`
+}
+
+func (h *Handler) handleUpdateAccountSettings(
+_ context.Context,
+_ *http.Request,
+body []byte,
+) (any, error) {
+var req jsonUpdateAccountSettingsReq
+if err := json.Unmarshal(body, &req); err != nil {
+return nil, ErrInvalidArgument
+}
+
+if err := h.Backend.UpdateAccountSettings(&UpdateAccountSettingsInput{
+OnDemandStreamCountLimit: req.OnDemandStreamCountLimit,
+}); err != nil {
+return nil, err
+}
+
+return struct{}{}, nil
+}
+
+type jsonUpdateMaxRecordSizeReq struct {
+StreamName         string `json:"StreamName"`
+StreamARN          string `json:"StreamARN"`
+MaxRecordSizeBytes int    `json:"MaxRecordSizeBytes"`
+}
+
+func (h *Handler) handleUpdateMaxRecordSize(
+_ context.Context,
+_ *http.Request,
+body []byte,
+) (any, error) {
+var req jsonUpdateMaxRecordSizeReq
+if err := json.Unmarshal(body, &req); err != nil {
+return nil, ErrInvalidArgument
+}
+
+if err := h.Backend.UpdateMaxRecordSize(&UpdateMaxRecordSizeInput{
+StreamName:         req.StreamName,
+StreamARN:          req.StreamARN,
+MaxRecordSizeBytes: req.MaxRecordSizeBytes,
+}); err != nil {
+return nil, err
+}
+
+return struct{}{}, nil
+}
+
+type jsonUpdateStreamWarmThroughputReq struct {
+StreamName         string `json:"StreamName"`
+StreamARN          string `json:"StreamARN"`
+WriteCapacityUnits int64  `json:"WriteCapacityUnits"`
+ReadCapacityUnits  int64  `json:"ReadCapacityUnits"`
+}
+
+func (h *Handler) handleUpdateStreamWarmThroughput(
+_ context.Context,
+_ *http.Request,
+body []byte,
+) (any, error) {
+var req jsonUpdateStreamWarmThroughputReq
+if err := json.Unmarshal(body, &req); err != nil {
+return nil, ErrInvalidArgument
+}
+
+if err := h.Backend.UpdateStreamWarmThroughput(&UpdateStreamWarmThroughputInput{
+StreamName:         req.StreamName,
+StreamARN:          req.StreamARN,
+WriteCapacityUnits: req.WriteCapacityUnits,
+ReadCapacityUnits:  req.ReadCapacityUnits,
+}); err != nil {
+return nil, err
+}
+
+return struct{}{}, nil
 }

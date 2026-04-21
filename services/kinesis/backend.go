@@ -52,7 +52,12 @@ type StorageBackend interface {
 	GetResourcePolicy(input *GetResourcePolicyInput) (*GetResourcePolicyOutput, error)
 	PutResourcePolicy(input *PutResourcePolicyInput) error
 	ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error)
+	TagResource(input *TagResourceInput) error
+	UntagResource(input *UntagResourceInput) error
 	UpdateStreamMode(input *UpdateStreamModeInput) error
+	UpdateAccountSettings(input *UpdateAccountSettingsInput) error
+	UpdateMaxRecordSize(input *UpdateMaxRecordSizeInput) error
+	UpdateStreamWarmThroughput(input *UpdateStreamWarmThroughputInput) error
 	DescribeAccountSettings() (*DescribeAccountSettingsOutput, error)
 	CountOpenShards() int
 	ListAll() []StreamInfo
@@ -105,6 +110,12 @@ type InMemoryBackend struct {
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
+	// onDemandStreamCountLimit is the account-level limit for ON_DEMAND streams.
+	// Mutable via UpdateAccountSettings.
+	onDemandStreamCountLimit int
+	// OnStreamPurged is an optional callback invoked with the stream name whenever
+	// a stream is removed by Purge. It is called without any backend locks held.
+	OnStreamPurged func(string)
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -115,13 +126,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		streams:             make(map[string]*Stream),
-		fisThroughputFaults: make(map[string]*kinesisThrottleFault),
-		faultsMu:            lockmetrics.New("kinesis.faults"),
-		resourcePolicies:    make(map[string]string),
-		accountID:           accountID,
-		region:              region,
-		mu:                  lockmetrics.New("kinesis"),
+		streams:                  make(map[string]*Stream),
+		fisThroughputFaults:      make(map[string]*kinesisThrottleFault),
+		faultsMu:                 lockmetrics.New("kinesis.faults"),
+		resourcePolicies:         make(map[string]string),
+		accountID:                accountID,
+		region:                   region,
+		mu:                       lockmetrics.New("kinesis"),
+		onDemandStreamCountLimit: defaultOnDemandStreamCountLimit,
 	}
 }
 
@@ -147,6 +159,9 @@ func initializeStreamRuntime(stream *Stream, streamName string) {
 	}
 	if stream.EnhancedMonitoring == nil {
 		stream.EnhancedMonitoring = []string{}
+	}
+	if stream.MaxRecordSizeBytes <= 0 {
+		stream.MaxRecordSizeBytes = defaultMaxRecordSizeBytes
 	}
 }
 
@@ -284,6 +299,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		RetentionPeriod: defaultRetentionHours,
 		Consumers:       make(map[string]*Consumer),
 		StreamMode:      streamMode,
+		MaxRecordSizeBytes: defaultMaxRecordSizeBytes,
 	}
 
 	return nil
@@ -420,8 +436,22 @@ func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, er
 		return nil, ErrProvisionedThroughputExceeded
 	}
 
+	// Reject writes if the stream is not active (e.g. CREATING/DELETING).
+	if stream.Status != streamStatusActive {
+		return nil, ErrInvalidArgument
+	}
+
 	// Validate partition key length (AWS requires 1–256 chars).
 	if len(input.PartitionKey) == 0 || len(input.PartitionKey) > maxPartitionKeyLen {
+		return nil, ErrInvalidArgument
+	}
+
+	// Enforce per-record data size limit (default 1 MiB; updatable via UpdateMaxRecordSize).
+	maxSize := stream.MaxRecordSizeBytes
+	if maxSize <= 0 {
+		maxSize = defaultMaxRecordSizeBytes
+	}
+	if len(input.Data) > maxSize {
 		return nil, ErrInvalidArgument
 	}
 
@@ -476,9 +506,10 @@ func (b *InMemoryBackend) PutRecords(input *PutRecordsInput) (*PutRecordsOutput,
 
 	for i, entry := range input.Records {
 		out, err := b.PutRecord(&PutRecordInput{
-			StreamName:   input.StreamName,
-			PartitionKey: entry.PartitionKey,
-			Data:         entry.Data,
+			StreamName:      input.StreamName,
+			PartitionKey:    entry.PartitionKey,
+			ExplicitHashKey: entry.ExplicitHashKey,
+			Data:            entry.Data,
 		})
 		if err != nil {
 			errCode := putRecordErrorCode(err)
@@ -650,9 +681,15 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		Position:   end,
 	}
 
-	nextToken, err := encodeIterator(newIt)
-	if err != nil {
-		return nil, err
+	// AWS returns an empty NextShardIterator when a shard has been closed
+	// (due to MergeShards or SplitShard) and all records have been consumed.
+	nextToken := ""
+	if !shard.Closed || end < shard.Records.len() {
+		var tokenErr error
+		nextToken, tokenErr = encodeIterator(newIt)
+		if tokenErr != nil {
+			return nil, tokenErr
+		}
 	}
 
 	millisBehind := int64(0)
@@ -665,6 +702,12 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		NextShardIterator:  nextToken,
 		MillisBehindLatest: millisBehind,
 	}, nil
+}
+
+// shardFilterIncludesAll reports whether the given ShardFilter value requests all shards
+// (open and closed). Used by ListShards.
+func shardFilterIncludesAll(filter string) bool {
+	return filter == "FROM_TRIM_HORIZON" || filter == "AT_TIMESTAMP" || filter == "FROM_TIMESTAMP"
 }
 
 // ListShards returns the shards for a stream.
@@ -681,14 +724,22 @@ func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput,
 	b.mu.RUnlock()
 	defer stream.mu.RUnlock()
 
+	includeAll := shardFilterIncludesAll(input.ShardFilter)
 	skip := input.ExclusiveStartShardID != ""
 	result := make([]ShardDescription, 0, len(stream.Shards))
+
 	for _, s := range stream.Shards {
 		if skip {
 			if s.ID == input.ExclusiveStartShardID {
 				skip = false
 			}
 
+			continue
+		}
+
+		// By default only open shards are returned. Include closed shards when
+		// the caller requests FROM_TRIM_HORIZON or other inclusive filter types.
+		if s.Closed && !includeAll {
 			continue
 		}
 
@@ -1530,7 +1581,7 @@ func (b *InMemoryBackend) DescribeAccountSettings() (*DescribeAccountSettingsOut
 	return &DescribeAccountSettingsOutput{
 		ShardLimit:               kinesisDefaultShardLimit,
 		OnDemandStreamCount:      onDemandCount,
-		OnDemandStreamCountLimit: defaultOnDemandStreamCountLimit,
+		OnDemandStreamCountLimit: b.onDemandStreamCountLimit,
 	}, nil
 }
 
@@ -1561,13 +1612,15 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 		return
 	}
 
+	// Collect purged stream names so the callback can be invoked without locks.
+	var purgedNames []string
+
 	b.mu.Lock("Purge")
-	defer b.mu.Unlock()
 
 	// 1. Purge streams
 	for name, s := range b.streams {
 		if ctx.Err() != nil {
-			return
+			break
 		}
 		s.mu.Lock("Purge.stream")
 		if s.CreatedAt.Before(cutoff) {
@@ -1580,6 +1633,8 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			b.faultsMu.Unlock()
 			s.mu.Unlock()
 
+			purgedNames = append(purgedNames, name)
+
 			continue
 		}
 
@@ -1587,6 +1642,14 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 		for cName, c := range s.Consumers {
 			if ctx.Err() != nil {
 				s.mu.Unlock()
+				b.mu.Unlock()
+
+				// Still fire callbacks for any streams already purged.
+				for _, n := range purgedNames {
+					if b.OnStreamPurged != nil {
+						b.OnStreamPurged(n)
+					}
+				}
 
 				return
 			}
@@ -1595,6 +1658,15 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			}
 		}
 		s.mu.Unlock()
+	}
+
+	b.mu.Unlock()
+
+	// Fire callbacks outside of any lock to avoid lock-order inversion.
+	if b.OnStreamPurged != nil {
+		for _, name := range purgedNames {
+			b.OnStreamPurged(name)
+		}
 	}
 }
 
@@ -1615,6 +1687,122 @@ func (b *InMemoryBackend) CountOpenShards() int {
 	}
 
 	return count
+}
+
+// UpdateAccountSettings updates account-level settings such as the ON_DEMAND stream count limit.
+func (b *InMemoryBackend) UpdateAccountSettings(input *UpdateAccountSettingsInput) error {
+	b.mu.Lock("UpdateAccountSettings")
+	defer b.mu.Unlock()
+
+	if input.OnDemandStreamCountLimit < 0 {
+		return ErrInvalidArgument
+	}
+
+	if input.OnDemandStreamCountLimit > 0 {
+		b.onDemandStreamCountLimit = input.OnDemandStreamCountLimit
+	}
+
+	return nil
+}
+
+// UpdateMaxRecordSize changes the per-record data payload size limit for a stream.
+// The value must be between defaultMaxRecordSizeBytes (1 MiB) and
+// absoluteMaxRecordSizeBytes (10 MiB).
+func (b *InMemoryBackend) UpdateMaxRecordSize(input *UpdateMaxRecordSizeInput) error {
+	b.mu.RLock("UpdateMaxRecordSize")
+
+	streamName := input.StreamName
+	if streamName == "" {
+		streamName = streamNameFromARN(input.StreamARN)
+	}
+
+	stream, ok := b.streams[streamName]
+	if !ok {
+		b.mu.RUnlock()
+
+		return ErrStreamNotFound
+	}
+	stream.mu.Lock("UpdateMaxRecordSize.stream")
+	b.mu.RUnlock()
+	defer stream.mu.Unlock()
+
+	if input.MaxRecordSizeBytes < defaultMaxRecordSizeBytes || input.MaxRecordSizeBytes > absoluteMaxRecordSizeBytes {
+		return ErrInvalidArgument
+	}
+
+	stream.MaxRecordSizeBytes = input.MaxRecordSizeBytes
+
+	return nil
+}
+
+// UpdateStreamWarmThroughput configures pre-warmed throughput for a stream.
+// This is a no-op in the in-memory backend (no actual warm-up is needed).
+func (b *InMemoryBackend) UpdateStreamWarmThroughput(input *UpdateStreamWarmThroughputInput) error {
+	b.mu.RLock("UpdateStreamWarmThroughput")
+
+	streamName := input.StreamName
+	if streamName == "" {
+		streamName = streamNameFromARN(input.StreamARN)
+	}
+
+	_, ok := b.streams[streamName]
+	b.mu.RUnlock()
+
+	if !ok {
+		return ErrStreamNotFound
+	}
+
+	return nil
+}
+
+// TagResource adds or updates tags on a stream identified by its ARN.
+// This is the ARN-based counterpart to AddTagsToStream.
+func (b *InMemoryBackend) TagResource(input *TagResourceInput) error {
+	b.mu.RLock("TagResource")
+
+	streamName := streamNameFromARN(input.ResourceARN)
+	stream, ok := b.streams[streamName]
+
+	if !ok {
+		b.mu.RUnlock()
+
+		return ErrStreamNotFound
+	}
+	stream.mu.Lock("TagResource.stream")
+	b.mu.RUnlock()
+	defer stream.mu.Unlock()
+
+	if stream.Tags == nil {
+		stream.Tags = tags.New("kinesis.stream." + streamName + ".tags")
+	}
+
+	stream.Tags.Merge(input.Tags)
+
+	return nil
+}
+
+// UntagResource removes tags from a stream identified by its ARN.
+// This is the ARN-based counterpart to RemoveTagsFromStream.
+func (b *InMemoryBackend) UntagResource(input *UntagResourceInput) error {
+	b.mu.RLock("UntagResource")
+
+	streamName := streamNameFromARN(input.ResourceARN)
+	stream, ok := b.streams[streamName]
+
+	if !ok {
+		b.mu.RUnlock()
+
+		return ErrStreamNotFound
+	}
+	stream.mu.Lock("UntagResource.stream")
+	b.mu.RUnlock()
+	defer stream.mu.Unlock()
+
+	if stream.Tags != nil {
+		stream.Tags.DeleteKeys(input.TagKeys)
+	}
+
+	return nil
 }
 
 // AddStreamInternal seeds a stream directly into the backend for testing.

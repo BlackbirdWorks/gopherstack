@@ -808,9 +808,18 @@ func TestRefinement2_ListShards_IncludesClosedShards(t *testing.T) {
 				AdjacentShardToMerge: ds.Shards[1].ShardID,
 			}))
 
-			out, err := b.ListShards(&kinesis.ListShardsInput{StreamName: tt.streamName})
+			// Use FROM_TRIM_HORIZON filter to retrieve all shards including closed ones.
+			out, err := b.ListShards(&kinesis.ListShardsInput{
+				StreamName:  tt.streamName,
+				ShardFilter: "FROM_TRIM_HORIZON",
+			})
 			require.NoError(t, err)
 			assert.Len(t, out.Shards, tt.wantTotalShards)
+
+			// Without a filter, only open shards are returned (matching AWS default behavior).
+			openOut, err := b.ListShards(&kinesis.ListShardsInput{StreamName: tt.streamName})
+			require.NoError(t, err)
+			assert.Len(t, openOut.Shards, 1, "expected only the 1 open (merged) shard without filter")
 		})
 	}
 }

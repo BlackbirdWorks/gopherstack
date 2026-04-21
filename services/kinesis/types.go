@@ -26,6 +26,12 @@ const (
 	// maxRecordsPerShard is the maximum number of records stored per shard.
 	maxRecordsPerShard = 10000
 
+	// defaultMaxRecordSizeBytes is the default per-record data size limit (1 MiB).
+	defaultMaxRecordSizeBytes = 1_048_576
+
+	// absoluteMaxRecordSizeBytes is the maximum allowed record size after UpdateMaxRecordSize (10 MiB).
+	absoluteMaxRecordSizeBytes = 10_485_760
+
 	// iteratorTypeTrimHorizon reads from the oldest record.
 	iteratorTypeTrimHorizon = "TRIM_HORIZON"
 	// iteratorTypeLatest reads only new records after the iterator is created.
@@ -107,6 +113,9 @@ type Stream struct {
 	Shards             []*Shard             `json:"shards"`
 	EnhancedMonitoring []string             `json:"enhancedMonitoring,omitempty"`
 	RetentionPeriod    int                  `json:"retentionPeriod"`
+	// MaxRecordSizeBytes is the per-record data payload size limit for this stream.
+	// Defaults to defaultMaxRecordSizeBytes (1 MiB); updatable via UpdateMaxRecordSize.
+	MaxRecordSizeBytes int `json:"maxRecordSizeBytes,omitempty"`
 }
 
 // Shard represents a single Kinesis shard within a stream.
@@ -286,7 +295,12 @@ type ListShardsInput struct {
 	StreamName            string
 	NextToken             string
 	ExclusiveStartShardID string
-	MaxResults            int
+	// ShardFilter controls which shards are returned.
+	// Supported values: "FROM_TRIM_HORIZON" (all shards including closed),
+	// "AT_LATEST" (open shards only), "AFTER_SHARD_ID", "AT_TIMESTAMP", "FROM_TIMESTAMP".
+	// Empty string defaults to open shards only.
+	ShardFilter string
+	MaxResults  int
 }
 
 // ListShardsOutput is the output for ListShards.
@@ -504,4 +518,37 @@ type UpdateStreamModeInput struct {
 // StreamModeDetails describes the mode of a Kinesis stream.
 type StreamModeDetails struct {
 	StreamMode string
+}
+
+// UpdateAccountSettingsInput is the input for UpdateAccountSettings.
+type UpdateAccountSettingsInput struct {
+	// OnDemandStreamCountLimit sets the account-level limit for ON_DEMAND streams.
+	OnDemandStreamCountLimit int
+}
+
+// UpdateMaxRecordSizeInput is the input for UpdateMaxRecordSize.
+type UpdateMaxRecordSizeInput struct {
+	StreamName         string
+	StreamARN          string
+	MaxRecordSizeBytes int
+}
+
+// UpdateStreamWarmThroughputInput is the input for UpdateStreamWarmThroughput.
+type UpdateStreamWarmThroughputInput struct {
+	StreamName         string
+	StreamARN          string
+	WriteCapacityUnits int64
+	ReadCapacityUnits  int64
+}
+
+// TagResourceInput is the input for TagResource (ARN-based tagging).
+type TagResourceInput struct {
+	ResourceARN string
+	Tags        map[string]string
+}
+
+// UntagResourceInput is the input for UntagResource (ARN-based tag removal).
+type UntagResourceInput struct {
+	ResourceARN string
+	TagKeys     []string
 }
