@@ -31,8 +31,34 @@ type InputLogEvent struct {
 // OutputLogEvent represents a single log event returned by GetLogEvents/FilterLogEvents.
 type OutputLogEvent struct {
 	Message       string `json:"message"`
+	Ptr           string `json:"ptr,omitempty"`
 	IngestionTime int64  `json:"ingestionTime"`
 	Timestamp     int64  `json:"timestamp"`
+}
+
+// LogGroupField is a field name and estimated percentage of log events that contain the field.
+type LogGroupField struct {
+	Name    string `json:"name"`
+	Percent int32  `json:"percent"`
+}
+
+// Anomaly represents a detected log anomaly.
+type Anomaly struct {
+	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
+	AnomalyID          string `json:"anomalyId"`
+	Description        string `json:"description"`
+	FirstSeen          int64  `json:"firstSeen"`
+	LastSeen           int64  `json:"lastSeen"`
+	Active             bool   `json:"active"`
+}
+
+// ScheduledQueryRunSummary describes a single scheduled query execution.
+type ScheduledQueryRunSummary struct {
+	Arn            string `json:"arn"`
+	FailureReason  string `json:"failureReason,omitempty"`
+	RunStatus      string `json:"runStatus"`
+	ExecutionTime  int64  `json:"executionTime"`
+	InvocationTime int64  `json:"invocationTime"`
 }
 
 // SubscriptionFilter represents a CloudWatch Logs subscription filter.
@@ -155,4 +181,38 @@ type AccountPolicy struct {
 	PolicyName     string `json:"policyName"`
 	PolicyType     string `json:"policyType"`
 	PolicyDocument string `json:"policyDocument,omitempty"`
+}
+
+// MetricTransformation describes how to extract a metric from a log event.
+type MetricTransformation struct {
+	DefaultValue    *float64 `json:"defaultValue,omitempty"`
+	MetricNamespace string   `json:"metricNamespace"`
+	MetricName      string   `json:"metricName"`
+	MetricValue     string   `json:"metricValue"`
+}
+
+// MetricFilter represents a CloudWatch Logs metric filter.
+type MetricFilter struct {
+	RetentionInDays       *int32                 `json:"retentionInDays,omitempty"`
+	FilterPattern         string                 `json:"filterPattern"`
+	FilterName            string                 `json:"filterName"`
+	LogGroupName          string                 `json:"logGroupName"`
+	MetricTransformations []MetricTransformation `json:"metricTransformations"`
+	CreationTime          int64                  `json:"creationTime"`
+}
+
+// MetricFilterMatchRecord represents one event that matched a TestMetricFilter call.
+type MetricFilterMatchRecord struct {
+	ExtractedValues map[string]string `json:"extractedValues"`
+	EventMessage    string            `json:"eventMessage"`
+	EventNumber     int64             `json:"eventNumber"`
+}
+
+// QueryDefinition represents a saved CloudWatch Logs Insights query definition.
+type QueryDefinition struct {
+	QueryDefinitionID string   `json:"queryDefinitionId"`
+	Name              string   `json:"name"`
+	QueryString       string   `json:"queryString"`
+	LogGroupNames     []string `json:"logGroupNames,omitempty"`
+	LastModified      int64    `json:"lastModified"`
 }

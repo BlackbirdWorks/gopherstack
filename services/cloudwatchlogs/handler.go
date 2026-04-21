@@ -24,7 +24,9 @@ import (
 var errUnknownOperation = errors.New("UnknownOperationException")
 
 type createLogGroupInput struct {
-	LogGroupName string `json:"logGroupName"`
+	Tags         map[string]string `json:"tags,omitempty"`
+	LogGroupName string            `json:"logGroupName"`
+	KmsKeyID     string            `json:"kmsKeyId,omitempty"`
 }
 
 type deleteLogGroupInput struct {
@@ -46,7 +48,9 @@ type describeLogStreamsInput struct {
 	LogGroupName        string `json:"logGroupName"`
 	LogStreamNamePrefix string `json:"logStreamNamePrefix"`
 	NextToken           string `json:"nextToken"`
+	OrderBy             string `json:"orderBy"`
 	Limit               int    `json:"limit"`
+	Descending          bool   `json:"descending"`
 }
 
 type deleteLogStreamInput struct {
@@ -397,6 +401,36 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateLogAnomalyDetector",
 		"CreateScheduledQuery",
 		"DeleteAccountPolicy",
+		"DescribeExportTasks",
+		"DescribeImportTasks",
+		"DescribeDeliveries",
+		"GetDelivery",
+		"DeleteDelivery",
+		"DeleteLogAnomalyDetector",
+		"ListLogAnomalyDetectors",
+		"UpdateLogAnomalyDetector",
+		"DeleteScheduledQuery",
+		"ListScheduledQueries",
+		"UpdateScheduledQuery",
+		"PutAccountPolicy",
+		"DescribeAccountPolicies",
+		"DisassociateKmsKey",
+		"PutMetricFilter",
+		"DescribeMetricFilters",
+		"DeleteMetricFilter",
+		"TestMetricFilter",
+		"PutQueryDefinition",
+		"DescribeQueryDefinitions",
+		"DeleteQueryDefinition",
+		"GetLogAnomalyDetector",
+		"GetScheduledQuery",
+		"GetLogGroupFields",
+		"GetLogRecord",
+		"ListAnomalies",
+		"ListLogGroupsForQuery",
+		"GetScheduledQueryHistory",
+		"UpdateAnomaly",
+		"ListLogGroups",
 	}
 }
 
@@ -533,6 +567,302 @@ type describeSubscriptionFiltersOutput struct {
 
 type deleteSubscriptionFilterOutput struct{}
 
+// --- DescribeExportTasks ---.
+type describeExportTasksInput struct {
+	TaskID     string `json:"taskId"`
+	StatusCode string `json:"statusCode"`
+	NextToken  string `json:"nextToken"`
+	Limit      int    `json:"limit"`
+}
+
+type describeExportTasksOutput struct {
+	NextToken   string       `json:"nextToken,omitempty"`
+	ExportTasks []ExportTask `json:"exportTasks"`
+}
+
+// --- DescribeImportTasks ---.
+type describeImportTasksInput struct {
+	TaskID    string `json:"taskId"`
+	NextToken string `json:"nextToken"`
+	Limit     int    `json:"limit"`
+}
+
+type describeImportTasksOutput struct {
+	NextToken   string       `json:"nextToken,omitempty"`
+	ImportTasks []ImportTask `json:"importTasks"`
+}
+
+// --- DescribeDeliveries ---.
+type describeDeliveriesInput struct {
+	NextToken string `json:"nextToken"`
+	Limit     int    `json:"limit"`
+}
+
+type describeDeliveriesOutput struct {
+	NextToken  string     `json:"nextToken,omitempty"`
+	Deliveries []Delivery `json:"deliveries"`
+}
+
+// --- GetDelivery ---.
+type getDeliveryInput struct {
+	ID string `json:"id"`
+}
+
+type getDeliveryOutput struct {
+	Delivery *Delivery `json:"delivery,omitempty"`
+}
+
+// --- DeleteDelivery ---.
+type deleteDeliveryInput struct {
+	ID string `json:"id"`
+}
+
+type deleteDeliveryOutput struct{}
+
+// --- DeleteLogAnomalyDetector ---.
+type deleteLogAnomalyDetectorInput struct {
+	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
+}
+
+type deleteLogAnomalyDetectorOutput struct{}
+
+// --- ListLogAnomalyDetectors ---.
+type listLogAnomalyDetectorsInput struct {
+	NextToken             string   `json:"nextToken"`
+	FilterLogGroupArnList []string `json:"filterLogGroupArnList"`
+	Limit                 int      `json:"limit"`
+}
+
+type listLogAnomalyDetectorsOutput struct {
+	NextToken        string               `json:"nextToken,omitempty"`
+	AnomalyDetectors []LogAnomalyDetector `json:"anomalyDetectors"`
+}
+
+// --- UpdateLogAnomalyDetector ---.
+type updateLogAnomalyDetectorInput struct {
+	AnomalyDetectorArn    string `json:"anomalyDetectorArn"`
+	EvaluationFrequency   string `json:"evaluationFrequency"`
+	AnomalyVisibilityTime int64  `json:"anomalyVisibilityTime"`
+}
+
+type updateLogAnomalyDetectorOutput struct{}
+
+// --- DeleteScheduledQuery ---.
+type deleteScheduledQueryInput struct {
+	ScheduledQueryArn string `json:"scheduledQueryArn"`
+}
+
+type deleteScheduledQueryOutput struct{}
+
+// --- ListScheduledQueries ---.
+type listScheduledQueriesInput struct {
+	NextToken  string `json:"nextToken"`
+	MaxResults int    `json:"maxResults"`
+}
+
+type listScheduledQueriesOutput struct {
+	NextToken        string           `json:"nextToken,omitempty"`
+	ScheduledQueries []ScheduledQuery `json:"scheduledQueries"`
+}
+
+// --- UpdateScheduledQuery ---.
+type updateScheduledQueryInput struct {
+	ScheduledQueryArn string `json:"scheduledQueryArn"`
+	State             string `json:"state"`
+}
+
+type updateScheduledQueryOutput struct{}
+
+// --- PutAccountPolicy ---.
+type putAccountPolicyInput struct {
+	PolicyDocument string `json:"policyDocument"`
+	PolicyName     string `json:"policyName"`
+	PolicyType     string `json:"policyType"`
+}
+
+type putAccountPolicyOutput struct {
+	AccountPolicy *AccountPolicy `json:"accountPolicy,omitempty"`
+}
+
+// --- DescribeAccountPolicies ---.
+type describeAccountPoliciesInput struct {
+	PolicyName string `json:"policyName"`
+	PolicyType string `json:"policyType"`
+}
+
+type describeAccountPoliciesOutput struct {
+	AccountPolicies []AccountPolicy `json:"accountPolicies"`
+}
+
+// --- DisassociateKmsKey ---.
+type disassociateKmsKeyInput struct {
+	LogGroupName       string `json:"logGroupName"`
+	ResourceIdentifier string `json:"resourceIdentifier"`
+}
+
+type disassociateKmsKeyOutput struct{}
+
+// --- PutMetricFilter ---.
+type putMetricFilterInput struct {
+	FilterPattern         string                 `json:"filterPattern"`
+	FilterName            string                 `json:"filterName"`
+	LogGroupName          string                 `json:"logGroupName"`
+	MetricTransformations []MetricTransformation `json:"metricTransformations"`
+}
+
+type putMetricFilterOutput struct{}
+
+// --- DescribeMetricFilters ---.
+type describeMetricFiltersInput struct {
+	FilterNamePrefix string `json:"filterNamePrefix"`
+	LogGroupName     string `json:"logGroupName"`
+	MetricName       string `json:"metricName"`
+	MetricNamespace  string `json:"metricNamespace"`
+	NextToken        string `json:"nextToken"`
+	Limit            int    `json:"limit"`
+}
+
+type describeMetricFiltersOutput struct {
+	NextToken     string         `json:"nextToken,omitempty"`
+	MetricFilters []MetricFilter `json:"metricFilters"`
+}
+
+// --- DeleteMetricFilter ---.
+type deleteMetricFilterInput struct {
+	FilterName   string `json:"filterName"`
+	LogGroupName string `json:"logGroupName"`
+}
+
+type deleteMetricFilterOutput struct{}
+
+// --- TestMetricFilter ---.
+type testMetricFilterInput struct {
+	FilterPattern    string   `json:"filterPattern"`
+	LogEventMessages []string `json:"logEventMessages"`
+}
+
+type testMetricFilterOutput struct {
+	Matches []MetricFilterMatchRecord `json:"matches"`
+}
+
+// --- PutQueryDefinition ---.
+type putQueryDefinitionInput struct {
+	Name              string   `json:"name"`
+	QueryDefinitionID string   `json:"queryDefinitionId"`
+	QueryString       string   `json:"queryString"`
+	LogGroupNames     []string `json:"logGroupNames"`
+}
+
+type putQueryDefinitionOutput struct {
+	QueryDefinitionID string `json:"queryDefinitionId,omitempty"`
+}
+
+// --- DescribeQueryDefinitions ---.
+type describeQueryDefinitionsInput struct {
+	QueryDefinitionNamePrefix string `json:"queryDefinitionNamePrefix"`
+	NextToken                 string `json:"nextToken"`
+	MaxResults                int    `json:"maxResults"`
+}
+
+type describeQueryDefinitionsOutput struct {
+	NextToken        string            `json:"nextToken,omitempty"`
+	QueryDefinitions []QueryDefinition `json:"queryDefinitions"`
+}
+
+// --- DeleteQueryDefinition ---.
+type deleteQueryDefinitionInput struct {
+	QueryDefinitionID string `json:"queryDefinitionId"`
+}
+
+type deleteQueryDefinitionOutput struct {
+	Success bool `json:"success"`
+}
+
+// --- GetLogAnomalyDetector ---.
+type getLogAnomalyDetectorInput struct {
+	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
+}
+
+type getLogAnomalyDetectorOutput struct {
+	AnomalyDetector *LogAnomalyDetector `json:"anomalyDetector,omitempty"`
+}
+
+// --- GetScheduledQuery ---.
+type getScheduledQueryInput struct {
+	ScheduledQueryArn string `json:"scheduledQueryArn"`
+}
+
+type getScheduledQueryOutput struct {
+	ScheduledQuery *ScheduledQuery `json:"scheduledQuery,omitempty"`
+}
+
+// --- GetLogGroupFields ---.
+type getLogGroupFieldsInput struct {
+	LogGroupName string `json:"logGroupName"`
+}
+
+type getLogGroupFieldsOutput struct {
+	LogGroupFields []LogGroupField `json:"logGroupFields"`
+}
+
+// --- GetLogRecord ---.
+type getLogRecordInput struct {
+	LogRecordPointer string `json:"logRecordPointer"`
+}
+
+type getLogRecordOutput struct {
+	LogRecord map[string]string `json:"logRecord"`
+}
+
+// --- ListAnomalies ---.
+type listAnomaliesInput struct {
+	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
+	NextToken          string `json:"nextToken"`
+	Limit              int    `json:"limit"`
+}
+
+type listAnomaliesOutput struct {
+	NextToken string    `json:"nextToken,omitempty"`
+	Anomalies []Anomaly `json:"anomalies"`
+}
+
+// --- ListLogGroupsForQuery ---.
+type listLogGroupsForQueryInput struct {
+	QueryID string `json:"queryId"`
+}
+
+type listLogGroupsForQueryOutput struct {
+	LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
+}
+
+// --- GetScheduledQueryHistory ---.
+type getScheduledQueryHistoryInput struct {
+	ScheduledQueryArn string `json:"scheduledQueryArn"`
+	NextToken         string `json:"nextToken"`
+	MaxResults        int    `json:"maxResults"`
+}
+
+type getScheduledQueryHistoryOutput struct {
+	NextToken                  string                     `json:"nextToken,omitempty"`
+	ScheduledQueryRunSummaries []ScheduledQueryRunSummary `json:"scheduledQueryRunSummaries"`
+}
+
+// --- UpdateAnomaly ---.
+type updateAnomalyInput struct {
+	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
+	AnomalyID          string `json:"anomalyId"`
+	SuppressionType    string `json:"suppressionType"`
+}
+
+type updateAnomalyOutput struct{}
+
+// --- ListLogGroups ---.
+type listLogGroupsInput struct {
+	LogGroupNamePrefix string `json:"logGroupNamePrefix"`
+	NextToken          string `json:"nextToken"`
+	Limit              int    `json:"limit"`
+}
+
 func (h *Handler) logGroupActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateLogGroup": func(b []byte) (any, error) {
@@ -542,6 +872,9 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			}
 			if _, err := h.Backend.CreateLogGroup(input.LogGroupName); err != nil {
 				return nil, err
+			}
+			if len(input.Tags) > 0 {
+				h.setTags(input.LogGroupName, input.Tags)
 			}
 
 			return &createLogGroupOutput{}, nil
@@ -602,7 +935,13 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 				return nil, err
 			}
 			streams, next, err := h.Backend.DescribeLogStreams(
-				input.LogGroupName, input.LogStreamNamePrefix, input.NextToken, input.Limit)
+				input.LogGroupName,
+				input.LogStreamNamePrefix,
+				input.NextToken,
+				input.OrderBy,
+				input.Descending,
+				input.Limit,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -1050,6 +1389,410 @@ func (h *Handler) handleDeleteAccountPolicy(b []byte) (any, error) {
 	return &deleteAccountPolicyOutput{}, nil
 }
 
+func (h *Handler) handleDescribeExportTasks(b []byte) (any, error) {
+	var input describeExportTasksInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	tasks, next, err := h.Backend.DescribeExportTasks(input.TaskID, input.StatusCode, input.Limit, input.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeExportTasksOutput{ExportTasks: tasks, NextToken: next}, nil
+}
+
+func (h *Handler) handleDescribeImportTasks(b []byte) (any, error) {
+	var input describeImportTasksInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	tasks, next, err := h.Backend.DescribeImportTasks(input.TaskID, input.Limit, input.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeImportTasksOutput{ImportTasks: tasks, NextToken: next}, nil
+}
+
+func (h *Handler) handleDescribeDeliveries(b []byte) (any, error) {
+	var input describeDeliveriesInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	deliveries, next, err := h.Backend.DescribeDeliveries(input.Limit, input.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeDeliveriesOutput{Deliveries: deliveries, NextToken: next}, nil
+}
+
+func (h *Handler) handleGetDelivery(b []byte) (any, error) {
+	var input getDeliveryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	d, err := h.Backend.GetDelivery(input.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getDeliveryOutput{Delivery: d}, nil
+}
+
+func (h *Handler) handleDeleteDelivery(b []byte) (any, error) {
+	var input deleteDeliveryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.DeleteDelivery(input.ID); err != nil {
+		return nil, err
+	}
+
+	return &deleteDeliveryOutput{}, nil
+}
+
+func (h *Handler) handleDeleteLogAnomalyDetector(b []byte) (any, error) {
+	var input deleteLogAnomalyDetectorInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.DeleteLogAnomalyDetector(input.AnomalyDetectorArn); err != nil {
+		return nil, err
+	}
+
+	return &deleteLogAnomalyDetectorOutput{}, nil
+}
+
+func (h *Handler) handleListLogAnomalyDetectors(b []byte) (any, error) {
+	var input listLogAnomalyDetectorsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	detectors, next, err := h.Backend.ListLogAnomalyDetectors(input.FilterLogGroupArnList, input.Limit, input.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listLogAnomalyDetectorsOutput{AnomalyDetectors: detectors, NextToken: next}, nil
+}
+
+func (h *Handler) handleUpdateLogAnomalyDetector(b []byte) (any, error) {
+	var input updateLogAnomalyDetectorInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.UpdateLogAnomalyDetector(
+		input.AnomalyDetectorArn,
+		input.EvaluationFrequency,
+		input.AnomalyVisibilityTime,
+	); err != nil {
+		return nil, err
+	}
+
+	return &updateLogAnomalyDetectorOutput{}, nil
+}
+
+func (h *Handler) handleDeleteScheduledQuery(b []byte) (any, error) {
+	var input deleteScheduledQueryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.DeleteScheduledQuery(input.ScheduledQueryArn); err != nil {
+		return nil, err
+	}
+
+	return &deleteScheduledQueryOutput{}, nil
+}
+
+func (h *Handler) handleListScheduledQueries(b []byte) (any, error) {
+	var input listScheduledQueriesInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	queries, next, err := h.Backend.ListScheduledQueries(input.MaxResults, input.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listScheduledQueriesOutput{ScheduledQueries: queries, NextToken: next}, nil
+}
+
+func (h *Handler) handleUpdateScheduledQuery(b []byte) (any, error) {
+	var input updateScheduledQueryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.UpdateScheduledQuery(input.ScheduledQueryArn, input.State); err != nil {
+		return nil, err
+	}
+
+	return &updateScheduledQueryOutput{}, nil
+}
+
+func (h *Handler) handlePutAccountPolicy(b []byte) (any, error) {
+	var input putAccountPolicyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	policy, err := h.Backend.PutAccountPolicy(input.PolicyName, input.PolicyType, input.PolicyDocument)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putAccountPolicyOutput{AccountPolicy: policy}, nil
+}
+
+func (h *Handler) handleDescribeAccountPolicies(b []byte) (any, error) {
+	var input describeAccountPoliciesInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	policies, err := h.Backend.DescribeAccountPolicies(input.PolicyType, input.PolicyName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeAccountPoliciesOutput{AccountPolicies: policies}, nil
+}
+
+func (h *Handler) handleDisassociateKmsKey(b []byte) (any, error) {
+	var input disassociateKmsKeyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.DisassociateKmsKey(input.LogGroupName, input.ResourceIdentifier); err != nil {
+		return nil, err
+	}
+
+	return &disassociateKmsKeyOutput{}, nil
+}
+
+func (h *Handler) handlePutMetricFilter(b []byte) (any, error) {
+	var input putMetricFilterInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.PutMetricFilter(
+		input.LogGroupName,
+		input.FilterName,
+		input.FilterPattern,
+		input.MetricTransformations,
+	); err != nil {
+		return nil, err
+	}
+
+	return &putMetricFilterOutput{}, nil
+}
+
+func (h *Handler) handleDescribeMetricFilters(b []byte) (any, error) {
+	var input describeMetricFiltersInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	filters, next, err := h.Backend.DescribeMetricFilters(
+		input.LogGroupName,
+		input.FilterNamePrefix,
+		input.MetricName,
+		input.MetricNamespace,
+		input.NextToken,
+		input.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeMetricFiltersOutput{MetricFilters: filters, NextToken: next}, nil
+}
+
+func (h *Handler) handleDeleteMetricFilter(b []byte) (any, error) {
+	var input deleteMetricFilterInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.DeleteMetricFilter(input.LogGroupName, input.FilterName); err != nil {
+		return nil, err
+	}
+
+	return &deleteMetricFilterOutput{}, nil
+}
+
+func (h *Handler) handleTestMetricFilter(b []byte) (any, error) {
+	var input testMetricFilterInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	matches, err := h.Backend.TestMetricFilter(input.FilterPattern, input.LogEventMessages)
+	if err != nil {
+		return nil, err
+	}
+
+	return &testMetricFilterOutput{Matches: matches}, nil
+}
+
+func (h *Handler) handlePutQueryDefinition(b []byte) (any, error) {
+	var input putQueryDefinitionInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	id, err := h.Backend.PutQueryDefinition(input.Name, input.QueryString, input.QueryDefinitionID, input.LogGroupNames)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putQueryDefinitionOutput{QueryDefinitionID: id}, nil
+}
+
+func (h *Handler) handleDescribeQueryDefinitions(b []byte) (any, error) {
+	var input describeQueryDefinitionsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	defs, next, err := h.Backend.DescribeQueryDefinitions(
+		input.QueryDefinitionNamePrefix,
+		input.MaxResults,
+		input.NextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeQueryDefinitionsOutput{QueryDefinitions: defs, NextToken: next}, nil
+}
+
+func (h *Handler) handleDeleteQueryDefinition(b []byte) (any, error) {
+	var input deleteQueryDefinitionInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.DeleteQueryDefinition(input.QueryDefinitionID); err != nil {
+		return nil, err
+	}
+
+	return &deleteQueryDefinitionOutput{Success: true}, nil
+}
+
+func (h *Handler) handleGetLogAnomalyDetector(b []byte) (any, error) {
+	var input getLogAnomalyDetectorInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	d, err := h.Backend.GetLogAnomalyDetector(input.AnomalyDetectorArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getLogAnomalyDetectorOutput{AnomalyDetector: d}, nil
+}
+
+func (h *Handler) handleGetScheduledQuery(b []byte) (any, error) {
+	var input getScheduledQueryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	sq, err := h.Backend.GetScheduledQuery(input.ScheduledQueryArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getScheduledQueryOutput{ScheduledQuery: sq}, nil
+}
+
+func (h *Handler) handleGetLogGroupFields(b []byte) (any, error) {
+	var input getLogGroupFieldsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	fields, err := h.Backend.GetLogGroupFields(input.LogGroupName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getLogGroupFieldsOutput{LogGroupFields: fields}, nil
+}
+
+func (h *Handler) handleGetLogRecord(b []byte) (any, error) {
+	var input getLogRecordInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	record, err := h.Backend.GetLogRecord(input.LogRecordPointer)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getLogRecordOutput{LogRecord: record}, nil
+}
+
+func (h *Handler) handleListAnomalies(b []byte) (any, error) {
+	var input listAnomaliesInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	anomalies, next, err := h.Backend.ListAnomalies(input.AnomalyDetectorArn, input.Limit, input.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listAnomaliesOutput{Anomalies: anomalies, NextToken: next}, nil
+}
+
+func (h *Handler) handleListLogGroupsForQuery(b []byte) (any, error) {
+	var input listLogGroupsForQueryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	groups, err := h.Backend.ListLogGroupsForQuery(input.QueryID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listLogGroupsForQueryOutput{LogGroupIdentifiers: groups}, nil
+}
+
+func (h *Handler) handleGetScheduledQueryHistory(b []byte) (any, error) {
+	var input getScheduledQueryHistoryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	summaries, next, err := h.Backend.GetScheduledQueryHistory(
+		input.ScheduledQueryArn,
+		input.NextToken,
+		input.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getScheduledQueryHistoryOutput{ScheduledQueryRunSummaries: summaries, NextToken: next}, nil
+}
+
+func (h *Handler) handleUpdateAnomaly(b []byte) (any, error) {
+	var input updateAnomalyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.UpdateAnomaly(input.AnomalyID, input.AnomalyDetectorArn, input.SuppressionType); err != nil {
+		return nil, err
+	}
+
+	return &updateAnomalyOutput{}, nil
+}
+
+func (h *Handler) handleListLogGroups(b []byte) (any, error) {
+	var input listLogGroupsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	groups, next, err := h.Backend.ListLogGroups(input.LogGroupNamePrefix, input.NextToken, input.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLogGroupsOutput{LogGroups: groups, NextToken: next}, nil
+}
+
 func (h *Handler) newOperationsActions() map[string]actionFn {
 	return map[string]actionFn{
 		"AssociateKmsKey":                     h.handleAssociateKmsKey,
@@ -1062,6 +1805,36 @@ func (h *Handler) newOperationsActions() map[string]actionFn {
 		"CreateLogAnomalyDetector":            h.handleCreateLogAnomalyDetector,
 		"CreateScheduledQuery":                h.handleCreateScheduledQuery,
 		"DeleteAccountPolicy":                 h.handleDeleteAccountPolicy,
+		"DescribeExportTasks":                 h.handleDescribeExportTasks,
+		"DescribeImportTasks":                 h.handleDescribeImportTasks,
+		"DescribeDeliveries":                  h.handleDescribeDeliveries,
+		"GetDelivery":                         h.handleGetDelivery,
+		"DeleteDelivery":                      h.handleDeleteDelivery,
+		"DeleteLogAnomalyDetector":            h.handleDeleteLogAnomalyDetector,
+		"ListLogAnomalyDetectors":             h.handleListLogAnomalyDetectors,
+		"UpdateLogAnomalyDetector":            h.handleUpdateLogAnomalyDetector,
+		"DeleteScheduledQuery":                h.handleDeleteScheduledQuery,
+		"ListScheduledQueries":                h.handleListScheduledQueries,
+		"UpdateScheduledQuery":                h.handleUpdateScheduledQuery,
+		"PutAccountPolicy":                    h.handlePutAccountPolicy,
+		"DescribeAccountPolicies":             h.handleDescribeAccountPolicies,
+		"DisassociateKmsKey":                  h.handleDisassociateKmsKey,
+		"PutMetricFilter":                     h.handlePutMetricFilter,
+		"DescribeMetricFilters":               h.handleDescribeMetricFilters,
+		"DeleteMetricFilter":                  h.handleDeleteMetricFilter,
+		"TestMetricFilter":                    h.handleTestMetricFilter,
+		"PutQueryDefinition":                  h.handlePutQueryDefinition,
+		"DescribeQueryDefinitions":            h.handleDescribeQueryDefinitions,
+		"DeleteQueryDefinition":               h.handleDeleteQueryDefinition,
+		"GetLogAnomalyDetector":               h.handleGetLogAnomalyDetector,
+		"GetScheduledQuery":                   h.handleGetScheduledQuery,
+		"GetLogGroupFields":                   h.handleGetLogGroupFields,
+		"GetLogRecord":                        h.handleGetLogRecord,
+		"ListAnomalies":                       h.handleListAnomalies,
+		"ListLogGroupsForQuery":               h.handleListLogGroupsForQuery,
+		"GetScheduledQueryHistory":            h.handleGetScheduledQueryHistory,
+		"UpdateAnomaly":                       h.handleUpdateAnomaly,
+		"ListLogGroups":                       h.handleListLogGroups,
 	}
 }
 
@@ -1105,7 +1878,10 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	switch {
 	case errors.Is(reqErr, ErrLogGroupNotFound), errors.Is(reqErr, ErrLogStreamNotFound),
 		errors.Is(reqErr, ErrSubscriptionFilterNotFound), errors.Is(reqErr, ErrQueryNotFound),
-		errors.Is(reqErr, ErrExportTaskNotFound), errors.Is(reqErr, ErrImportTaskNotFound):
+		errors.Is(reqErr, ErrExportTaskNotFound), errors.Is(reqErr, ErrImportTaskNotFound),
+		errors.Is(reqErr, ErrDeliveryNotFound), errors.Is(reqErr, ErrLogAnomalyDetectorNotFound),
+		errors.Is(reqErr, ErrScheduledQueryNotFound), errors.Is(reqErr, ErrMetricFilterNotFound),
+		errors.Is(reqErr, ErrQueryDefinitionNotFound):
 		errType = "ResourceNotFoundException"
 		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrLogGroupAlreadyExists), errors.Is(reqErr, ErrLogStreamAlreadyExist):

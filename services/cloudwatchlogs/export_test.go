@@ -64,3 +64,11 @@ func AddDeliveryInternal(b *InMemoryBackend, delivery Delivery) {
 func AddLogAnomalyDetectorInternal(b *InMemoryBackend, detector LogAnomalyDetector) {
 	b.AddLogAnomalyDetectorInternal(detector)
 }
+
+// GetParsedInsightsQueryCacheSize returns the parsed Insights query cache size.
+func (b *InMemoryBackend) GetParsedInsightsQueryCacheSize() int {
+	b.mu.RLock("GetParsedInsightsQueryCacheSize")
+	defer b.mu.RUnlock()
+
+	return len(b.parsedQueries)
+}

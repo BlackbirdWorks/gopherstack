@@ -54,6 +54,18 @@ func parseInsightsQuery(query string) (*insightsQuery, error) {
 	return q, nil
 }
 
+func cloneInsightsQuery(q *insightsQuery) *insightsQuery {
+	if q == nil {
+		return nil
+	}
+
+	cp := *q
+	cp.fields = append([]string(nil), q.fields...)
+	cp.filters = append([]filterCondition(nil), q.filters...)
+
+	return &cp
+}
+
 // regexState tracks parser state while inside a regex literal /.../.
 type regexState struct {
 	inCharClass bool
