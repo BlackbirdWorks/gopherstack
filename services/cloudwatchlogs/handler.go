@@ -24,7 +24,9 @@ import (
 var errUnknownOperation = errors.New("UnknownOperationException")
 
 type createLogGroupInput struct {
-	LogGroupName string `json:"logGroupName"`
+	Tags         map[string]string `json:"tags,omitempty"`
+	LogGroupName string            `json:"logGroupName"`
+	KmsKeyID     string            `json:"kmsKeyId,omitempty"`
 }
 
 type deleteLogGroupInput struct {
@@ -46,7 +48,9 @@ type describeLogStreamsInput struct {
 	LogGroupName        string `json:"logGroupName"`
 	LogStreamNamePrefix string `json:"logStreamNamePrefix"`
 	NextToken           string `json:"nextToken"`
+	OrderBy             string `json:"orderBy"`
 	Limit               int    `json:"limit"`
+	Descending          bool   `json:"descending"`
 }
 
 type deleteLogStreamInput struct {
@@ -418,6 +422,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutQueryDefinition",
 		"DescribeQueryDefinitions",
 		"DeleteQueryDefinition",
+		"GetLogAnomalyDetector",
+		"GetScheduledQuery",
+		"GetLogGroupFields",
+		"GetLogRecord",
+		"ListAnomalies",
+		"ListLogGroupsForQuery",
+		"GetScheduledQueryHistory",
+		"UpdateAnomaly",
+		"ListLogGroups",
 	}
 }
 
@@ -765,6 +778,91 @@ type deleteQueryDefinitionOutput struct {
 	Success bool `json:"success"`
 }
 
+// --- GetLogAnomalyDetector ---.
+type getLogAnomalyDetectorInput struct {
+	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
+}
+
+type getLogAnomalyDetectorOutput struct {
+	AnomalyDetector *LogAnomalyDetector `json:"anomalyDetector,omitempty"`
+}
+
+// --- GetScheduledQuery ---.
+type getScheduledQueryInput struct {
+	ScheduledQueryArn string `json:"scheduledQueryArn"`
+}
+
+type getScheduledQueryOutput struct {
+	ScheduledQuery *ScheduledQuery `json:"scheduledQuery,omitempty"`
+}
+
+// --- GetLogGroupFields ---.
+type getLogGroupFieldsInput struct {
+	LogGroupName string `json:"logGroupName"`
+}
+
+type getLogGroupFieldsOutput struct {
+	LogGroupFields []LogGroupField `json:"logGroupFields"`
+}
+
+// --- GetLogRecord ---.
+type getLogRecordInput struct {
+	LogRecordPointer string `json:"logRecordPointer"`
+}
+
+type getLogRecordOutput struct {
+	LogRecord map[string]string `json:"logRecord"`
+}
+
+// --- ListAnomalies ---.
+type listAnomaliesInput struct {
+	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
+	NextToken          string `json:"nextToken"`
+	Limit              int    `json:"limit"`
+}
+
+type listAnomaliesOutput struct {
+	NextToken string    `json:"nextToken,omitempty"`
+	Anomalies []Anomaly `json:"anomalies"`
+}
+
+// --- ListLogGroupsForQuery ---.
+type listLogGroupsForQueryInput struct {
+	QueryID string `json:"queryId"`
+}
+
+type listLogGroupsForQueryOutput struct {
+	LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
+}
+
+// --- GetScheduledQueryHistory ---.
+type getScheduledQueryHistoryInput struct {
+	ScheduledQueryArn string `json:"scheduledQueryArn"`
+	NextToken         string `json:"nextToken"`
+	MaxResults        int    `json:"maxResults"`
+}
+
+type getScheduledQueryHistoryOutput struct {
+	NextToken                  string                     `json:"nextToken,omitempty"`
+	ScheduledQueryRunSummaries []ScheduledQueryRunSummary `json:"scheduledQueryRunSummaries"`
+}
+
+// --- UpdateAnomaly ---.
+type updateAnomalyInput struct {
+	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
+	AnomalyID          string `json:"anomalyId"`
+	SuppressionType    string `json:"suppressionType"`
+}
+
+type updateAnomalyOutput struct{}
+
+// --- ListLogGroups ---.
+type listLogGroupsInput struct {
+	LogGroupNamePrefix string `json:"logGroupNamePrefix"`
+	NextToken          string `json:"nextToken"`
+	Limit              int    `json:"limit"`
+}
+
 func (h *Handler) logGroupActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateLogGroup": func(b []byte) (any, error) {
@@ -774,6 +872,9 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			}
 			if _, err := h.Backend.CreateLogGroup(input.LogGroupName); err != nil {
 				return nil, err
+			}
+			if len(input.Tags) > 0 {
+				h.setTags(input.LogGroupName, input.Tags)
 			}
 
 			return &createLogGroupOutput{}, nil
@@ -834,7 +935,13 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 				return nil, err
 			}
 			streams, next, err := h.Backend.DescribeLogStreams(
-				input.LogGroupName, input.LogStreamNamePrefix, input.NextToken, input.Limit)
+				input.LogGroupName,
+				input.LogStreamNamePrefix,
+				input.NextToken,
+				input.OrderBy,
+				input.Descending,
+				input.Limit,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -1566,6 +1673,126 @@ func (h *Handler) handleDeleteQueryDefinition(b []byte) (any, error) {
 	return &deleteQueryDefinitionOutput{Success: true}, nil
 }
 
+func (h *Handler) handleGetLogAnomalyDetector(b []byte) (any, error) {
+	var input getLogAnomalyDetectorInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	d, err := h.Backend.GetLogAnomalyDetector(input.AnomalyDetectorArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getLogAnomalyDetectorOutput{AnomalyDetector: d}, nil
+}
+
+func (h *Handler) handleGetScheduledQuery(b []byte) (any, error) {
+	var input getScheduledQueryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	sq, err := h.Backend.GetScheduledQuery(input.ScheduledQueryArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getScheduledQueryOutput{ScheduledQuery: sq}, nil
+}
+
+func (h *Handler) handleGetLogGroupFields(b []byte) (any, error) {
+	var input getLogGroupFieldsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	fields, err := h.Backend.GetLogGroupFields(input.LogGroupName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getLogGroupFieldsOutput{LogGroupFields: fields}, nil
+}
+
+func (h *Handler) handleGetLogRecord(b []byte) (any, error) {
+	var input getLogRecordInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	record, err := h.Backend.GetLogRecord(input.LogRecordPointer)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getLogRecordOutput{LogRecord: record}, nil
+}
+
+func (h *Handler) handleListAnomalies(b []byte) (any, error) {
+	var input listAnomaliesInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	anomalies, next, err := h.Backend.ListAnomalies(input.AnomalyDetectorArn, input.Limit, input.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listAnomaliesOutput{Anomalies: anomalies, NextToken: next}, nil
+}
+
+func (h *Handler) handleListLogGroupsForQuery(b []byte) (any, error) {
+	var input listLogGroupsForQueryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	groups, err := h.Backend.ListLogGroupsForQuery(input.QueryID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listLogGroupsForQueryOutput{LogGroupIdentifiers: groups}, nil
+}
+
+func (h *Handler) handleGetScheduledQueryHistory(b []byte) (any, error) {
+	var input getScheduledQueryHistoryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	summaries, next, err := h.Backend.GetScheduledQueryHistory(
+		input.ScheduledQueryArn,
+		input.NextToken,
+		input.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getScheduledQueryHistoryOutput{ScheduledQueryRunSummaries: summaries, NextToken: next}, nil
+}
+
+func (h *Handler) handleUpdateAnomaly(b []byte) (any, error) {
+	var input updateAnomalyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.UpdateAnomaly(input.AnomalyID, input.AnomalyDetectorArn, input.SuppressionType); err != nil {
+		return nil, err
+	}
+
+	return &updateAnomalyOutput{}, nil
+}
+
+func (h *Handler) handleListLogGroups(b []byte) (any, error) {
+	var input listLogGroupsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	groups, next, err := h.Backend.ListLogGroups(input.LogGroupNamePrefix, input.NextToken, input.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLogGroupsOutput{LogGroups: groups, NextToken: next}, nil
+}
+
 func (h *Handler) newOperationsActions() map[string]actionFn {
 	return map[string]actionFn{
 		"AssociateKmsKey":                     h.handleAssociateKmsKey,
@@ -1599,6 +1826,15 @@ func (h *Handler) newOperationsActions() map[string]actionFn {
 		"PutQueryDefinition":                  h.handlePutQueryDefinition,
 		"DescribeQueryDefinitions":            h.handleDescribeQueryDefinitions,
 		"DeleteQueryDefinition":               h.handleDeleteQueryDefinition,
+		"GetLogAnomalyDetector":               h.handleGetLogAnomalyDetector,
+		"GetScheduledQuery":                   h.handleGetScheduledQuery,
+		"GetLogGroupFields":                   h.handleGetLogGroupFields,
+		"GetLogRecord":                        h.handleGetLogRecord,
+		"ListAnomalies":                       h.handleListAnomalies,
+		"ListLogGroupsForQuery":               h.handleListLogGroupsForQuery,
+		"GetScheduledQueryHistory":            h.handleGetScheduledQueryHistory,
+		"UpdateAnomaly":                       h.handleUpdateAnomaly,
+		"ListLogGroups":                       h.handleListLogGroups,
 	}
 }
 
@@ -1642,10 +1878,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	switch {
 	case errors.Is(reqErr, ErrLogGroupNotFound), errors.Is(reqErr, ErrLogStreamNotFound),
 		errors.Is(reqErr, ErrSubscriptionFilterNotFound), errors.Is(reqErr, ErrQueryNotFound),
-		errors.Is(reqErr, ErrExportTaskNotFound), errors.Is(reqErr, ErrImportTaskNotFound):
-		errType = "ResourceNotFoundException"
-		statusCode = http.StatusNotFound
-	case errors.Is(reqErr, ErrDeliveryNotFound), errors.Is(reqErr, ErrLogAnomalyDetectorNotFound),
+		errors.Is(reqErr, ErrExportTaskNotFound), errors.Is(reqErr, ErrImportTaskNotFound),
+		errors.Is(reqErr, ErrDeliveryNotFound), errors.Is(reqErr, ErrLogAnomalyDetectorNotFound),
 		errors.Is(reqErr, ErrScheduledQueryNotFound), errors.Is(reqErr, ErrMetricFilterNotFound),
 		errors.Is(reqErr, ErrQueryDefinitionNotFound):
 		errType = "ResourceNotFoundException"

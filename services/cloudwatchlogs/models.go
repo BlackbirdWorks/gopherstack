@@ -31,8 +31,34 @@ type InputLogEvent struct {
 // OutputLogEvent represents a single log event returned by GetLogEvents/FilterLogEvents.
 type OutputLogEvent struct {
 	Message       string `json:"message"`
+	Ptr           string `json:"ptr,omitempty"`
 	IngestionTime int64  `json:"ingestionTime"`
 	Timestamp     int64  `json:"timestamp"`
+}
+
+// LogGroupField is a field name and estimated percentage of log events that contain the field.
+type LogGroupField struct {
+	Name    string `json:"name"`
+	Percent int32  `json:"percent"`
+}
+
+// Anomaly represents a detected log anomaly.
+type Anomaly struct {
+	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
+	AnomalyID          string `json:"anomalyId"`
+	Description        string `json:"description"`
+	FirstSeen          int64  `json:"firstSeen"`
+	LastSeen           int64  `json:"lastSeen"`
+	Active             bool   `json:"active"`
+}
+
+// ScheduledQueryRunSummary describes a single scheduled query execution.
+type ScheduledQueryRunSummary struct {
+	Arn            string `json:"arn"`
+	FailureReason  string `json:"failureReason,omitempty"`
+	RunStatus      string `json:"runStatus"`
+	ExecutionTime  int64  `json:"executionTime"`
+	InvocationTime int64  `json:"invocationTime"`
 }
 
 // SubscriptionFilter represents a CloudWatch Logs subscription filter.
