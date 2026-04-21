@@ -126,7 +126,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 }
 
 func newStreamLock(streamName string) *lockmetrics.RWMutex {
-	return lockmetrics.New("kinesis.stream." + streamName)
+	return lockmetrics.New(fmt.Sprintf("kinesis.stream.%s", streamName))
 }
 
 func initializeStreamRuntime(stream *Stream, streamName string) {
@@ -890,10 +890,13 @@ func (b *InMemoryBackend) RegisterStreamConsumer(
 func (b *InMemoryBackend) DescribeStreamConsumer(
 	input *DescribeStreamConsumerInput,
 ) (*DescribeStreamConsumerOutput, error) {
-	sName := streamNameFromARN(input.StreamARN)
-	cName := input.ConsumerName
+	var sName string
+	var cName string
 	if input.ConsumerARN != "" {
 		sName, cName = consumerInfoFromARN(input.ConsumerARN)
+	} else {
+		sName = streamNameFromARN(input.StreamARN)
+		cName = input.ConsumerName
 	}
 
 	b.mu.RLock("DescribeStreamConsumer")
@@ -956,9 +959,6 @@ func (b *InMemoryBackend) DeregisterStreamConsumer(input *DeregisterStreamConsum
 
 		return streamNameFromARN(input.StreamARN), input.ConsumerName
 	}()
-	if sName == "" {
-		sName = streamNameFromARN(input.StreamARN)
-	}
 
 	b.mu.RLock("DeregisterStreamConsumer")
 	stream, ok := b.streams[sName]
