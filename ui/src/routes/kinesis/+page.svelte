@@ -1,6 +1,6 @@
 <script lang="ts">
 import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount } from 'svelte';
+import { onMount, onDestroy } from 'svelte';
 import { getKinesisClient } from '$lib/aws-client';
 import {
 ListStreamsCommand,
@@ -75,10 +75,20 @@ let puttingBatch = $state(false);
 let batchRecordsJson = $state('[{"PartitionKey":"pk1","Data":"hello"},{"PartitionKey":"pk2","Data":"world"}]');
 
 // ─── Get records ────────────────────────────────────────────────
-let records = $state<Array<{ sequenceNumber: string; data: string; partitionKey: string; arrivedAt: string }>>([]);
+let records = $state<Array<{ sequenceNumber: string; data: string; rawData: string; partitionKey: string; arrivedAt: string }>>([]);
 let gettingRecords = $state(false);
 let selectedShardForRead = $state('');
 let selectedIteratorType = $state('TRIM_HORIZON');
+let recordDisplayMode = $state<'text' | 'base64'>('text');
+let shardExhausted = $state(false);
+let shardRecordCounts = $state<Record<string, number>>({});
+
+// ─── Auto-refresh ────────────────────────────────────────────────
+let autoRefresh = $state(false);
+let autoRefreshInterval = $state<ReturnType<typeof setInterval> | null>(null);
+
+// ─── Demo data ───────────────────────────────────────────────────
+let loadingDemo = $state(false);
 
 // ─── Consumers ──────────────────────────────────────────────────
 let consumers = $state<Array<{ consumerName: string; consumerARN: string; consumerStatus: string }>>([]);
@@ -361,6 +371,7 @@ deregisteringConsumerArn = null;
 async function getRecords() {
 if (!selectedStream || !selectedShardForRead) return;
 gettingRecords = true;
+shardExhausted = false;
 try {
 const iterRes = await kinesis.send(new GetShardIteratorCommand({
 StreamName: selectedStream,
@@ -373,12 +384,18 @@ const recRes = await kinesis.send(new GetRecordsCommand({
 ShardIterator: iterator,
 Limit: 50
 }));
-records = (recRes.Records ?? []).map((r) => ({
-sequenceNumber: r.SequenceNumber ?? '',
-partitionKey: r.PartitionKey ?? '',
-arrivedAt: r.ApproximateArrivalTimestamp ? new Date(r.ApproximateArrivalTimestamp).toLocaleTimeString() : '',
-data: r.Data ? new TextDecoder().decode(r.Data) : ''
-}));
+const toBase64 = (arr: Uint8Array) => btoa(arr.reduce((s, b) => s + String.fromCharCode(b), ''));
+records = (recRes.Records ?? []).map((r) => {
+    let data = '';
+    let rawData = '';
+    if (r.Data) {
+        rawData = toBase64(r.Data);
+        try { data = new TextDecoder().decode(r.Data); } catch { data = rawData; }
+    }
+    return { sequenceNumber: r.SequenceNumber ?? '', partitionKey: r.PartitionKey ?? '', arrivedAt: r.ApproximateArrivalTimestamp ? new Date(r.ApproximateArrivalTimestamp).toLocaleTimeString() : '', data, rawData };
+});
+shardExhausted = !recRes.NextShardIterator;
+shardRecordCounts = { ...shardRecordCounts, [selectedShardForRead]: records.length };
 if (records.length === 0) toast.info('No records in this shard');
 else toast.success(`Fetched ${recRes.Records?.length ?? 0} record(s)`);
 } catch (err: unknown) {
@@ -599,7 +616,37 @@ const monitoringEnabled = $derived(
 new Set<string>((streamDetail?.EnhancedMonitoring ?? []).flatMap(e => e.ShardLevelMetrics ?? [] as string[]))
 );
 
+function toggleAutoRefresh() {
+autoRefresh = !autoRefresh;
+if (autoRefresh) {
+    autoRefreshInterval = setInterval(() => loadStreams(), 10000);
+} else if (autoRefreshInterval !== null) {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = null;
+}
+}
+
+async function loadDemoData() {
+loadingDemo = true;
+try {
+    await kinesis.send(new CreateStreamCommand({ StreamName: 'demo-events', ShardCount: 1, StreamModeDetails: { StreamMode: 'PROVISIONED' } }));
+    const demoRecords = [
+        { PartitionKey: 'user-1', Data: new TextEncoder().encode(JSON.stringify({ event: 'page_view', userId: 'user-1', page: '/home' })) },
+        { PartitionKey: 'user-2', Data: new TextEncoder().encode(JSON.stringify({ event: 'click', userId: 'user-2', element: 'buy-button' })) },
+        { PartitionKey: 'user-1', Data: new TextEncoder().encode(JSON.stringify({ event: 'purchase', userId: 'user-1', amount: 49.99 })) },
+    ];
+    await kinesis.send(new PutRecordsCommand({ StreamName: 'demo-events', Records: demoRecords }));
+    toast.success('Demo stream "demo-events" created with 3 records');
+    await loadStreams();
+} catch (err: unknown) {
+    toast.error(`Demo load failed: ${(err as Error).message}`);
+} finally {
+    loadingDemo = false;
+}
+}
+
 onMount(() => { loadStreams(); });
+onDestroy(() => { if (autoRefreshInterval !== null) clearInterval(autoRefreshInterval); });
 </script>
 
 <div class="space-y-6">
@@ -615,7 +662,7 @@ onMount(() => { loadStreams(); });
 </div>
 </div>
 <div class="flex items-center gap-2">
-<button onclick={() => loadStreams()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
+<button onclick={() => toggleAutoRefresh()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white {autoRefresh ? 'text-green-600 dark:text-green-400' : ''}" title="Auto-refresh (10s)">
 <RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 </button>
 <button onclick={() => { showCreateModal = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
@@ -673,7 +720,12 @@ onMount(() => { loadStreams(); });
 {:else if filteredStreams.length === 0}
 <div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-8 text-center">
 <Waves class="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-<p class="text-slate-500 dark:text-slate-400">No streams found</p>
+<p class="text-slate-500 dark:text-slate-400 mb-3">No streams found</p>
+{#if streams.length === 0 && !loading}
+<button onclick={() => loadDemoData()} disabled={loadingDemo} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm">
+    {loadingDemo ? 'Creating…' : 'Load Demo Data'}
+</button>
+{/if}
 </div>
 {:else}
 {#each filteredStreams as stream}
@@ -756,12 +808,21 @@ class="px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-col
 { label: 'Stream Mode', value: streamDetail.StreamModeDetails?.StreamMode ?? 'PROVISIONED' },
 { label: 'Consumers', value: String(consumers.length) },
 { label: 'Enhanced Metrics', value: String((streamDetail.EnhancedMonitoring ?? []).flatMap(e => e.ShardLevelMetrics ?? []).length) },
+{ label: 'Created', value: streamDetail.StreamCreationTimestamp ? new Date((streamDetail.StreamCreationTimestamp as unknown as number) * 1000).toLocaleString() : '—' },
 ] as kv}
 <div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
 <p class="text-xs text-slate-500 dark:text-slate-400">{kv.label}</p>
 <p class="text-sm font-semibold text-slate-900 dark:text-white mt-0.5 truncate">{kv.value}</p>
 </div>
 {/each}
+</div>
+<!-- ARN row -->
+<div class="mt-3 flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+<span class="text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">ARN:</span>
+<span class="text-xs font-mono text-slate-700 dark:text-slate-300 truncate flex-1">{streamDetail.StreamARN}</span>
+<button onclick={() => navigator.clipboard.writeText(streamDetail?.StreamARN ?? '')} class="p-1 text-slate-400 hover:text-indigo-500 flex-shrink-0" title="Copy ARN">
+    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+</button>
 </div>
 {#if streamDetail.KeyId}
 <div class="mt-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
@@ -787,14 +848,22 @@ class="px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-col
 <div class="space-y-2 max-h-72 overflow-y-auto">
 {#each allShards as shard}
 <div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-3">
-<div class="flex items-center justify-between mb-1">
+<div class="flex items-center gap-2 mb-1">
 <p class="text-sm font-mono font-semibold text-slate-900 dark:text-white">{shard.ShardId}</p>
+{#if shard.SequenceNumberRange?.EndingSequenceNumber}
+<span class="text-xs px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-600 text-slate-500 dark:text-slate-400">CLOSED</span>
+{:else}
+<span class="text-xs px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">ACTIVE</span>
+{/if}
 </div>
 <p class="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
 {shard.HashKeyRange?.StartingHashKey?.slice(0,16)}…–{shard.HashKeyRange?.EndingHashKey?.slice(-16)}
 </p>
 {#if shard.ParentShardId}
 <p class="text-xs text-indigo-500 mt-0.5">Parent: {shard.ParentShardId}</p>
+{/if}
+{#if shardRecordCounts[shard.ShardId ?? '']}
+<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{shardRecordCounts[shard.ShardId ?? '']} records fetched</p>
 {/if}
 </div>
 {/each}
