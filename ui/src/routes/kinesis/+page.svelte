@@ -8,6 +8,9 @@
 		CreateStreamCommand,
 		DeleteStreamCommand,
 		PutRecordCommand,
+		RegisterStreamConsumerCommand,
+		ListStreamConsumersCommand,
+		DeregisterStreamConsumerCommand,
 		GetShardIteratorCommand,
 		GetRecordsCommand,
 		ListShardsCommand,
@@ -41,6 +44,11 @@
 	// Records
 	let records = $state<Array<{ sequenceNumber: string; data: string; partitionKey: string }>>([]);
 	let gettingRecords = $state(false);
+	let consumers = $state<Array<{ consumerName: string; consumerARN: string; consumerStatus: string }>>([]);
+	let loadingConsumers = $state(false);
+	let registeringConsumer = $state(false);
+	let deregisteringConsumerArn = $state<string | null>(null);
+	let newConsumerName = $state('');
 
 	const filteredStreams = $derived(
 		streams.filter((s) => s.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -69,14 +77,40 @@
 		selectedStream = name;
 		streamDetail = null;
 		records = [];
+		consumers = [];
 		loadingDetail = true;
 		try {
 			const res = await kinesis.send(new DescribeStreamSummaryCommand({ StreamName: name }));
 			streamDetail = res.StreamDescriptionSummary ?? null;
+			if (streamDetail?.StreamARN) {
+				await loadConsumers(streamDetail.StreamARN);
+			}
 		} catch (err: unknown) {
 			toast.error(`Failed to describe stream: ${(err as Error).message}`);
 		} finally {
 			loadingDetail = false;
+		}
+	}
+
+	async function refreshSelectedStreamSummary() {
+		if (!selectedStream) return;
+		const res = await kinesis.send(new DescribeStreamSummaryCommand({ StreamName: selectedStream }));
+		streamDetail = res.StreamDescriptionSummary ?? null;
+	}
+
+	async function loadConsumers(streamARN: string) {
+		loadingConsumers = true;
+		try {
+			const res = await kinesis.send(new ListStreamConsumersCommand({ StreamARN: streamARN }));
+			consumers = (res.Consumers ?? []).map((consumer) => ({
+				consumerName: consumer.ConsumerName ?? '',
+				consumerARN: consumer.ConsumerARN ?? '',
+				consumerStatus: consumer.ConsumerStatus ?? ''
+			}));
+		} catch (err: unknown) {
+			toast.error(`Failed to list consumers: ${(err as Error).message}`);
+		} finally {
+			loadingConsumers = false;
 		}
 	}
 
@@ -132,6 +166,45 @@
 			toast.error(`Put record failed: ${(err as Error).message}`);
 		} finally {
 			putting = false;
+		}
+	}
+
+	async function registerConsumer() {
+		if (!streamDetail?.StreamARN || !newConsumerName.trim()) return;
+		registeringConsumer = true;
+		try {
+			await kinesis.send(new RegisterStreamConsumerCommand({
+				StreamARN: streamDetail.StreamARN,
+				ConsumerName: newConsumerName.trim()
+			}));
+			newConsumerName = '';
+			await Promise.all([
+				loadConsumers(streamDetail.StreamARN),
+				refreshSelectedStreamSummary()
+			]);
+			toast.success('Consumer registered');
+		} catch (err: unknown) {
+			toast.error(`Register consumer failed: ${(err as Error).message}`);
+		} finally {
+			registeringConsumer = false;
+		}
+	}
+
+	async function deregisterConsumer(consumerARN: string) {
+		if (!streamDetail?.StreamARN) return;
+		if (!await confirmDestructive({ title: 'Deregister Consumer', message: 'Deregister this stream consumer?' })) return;
+		deregisteringConsumerArn = consumerARN;
+		try {
+			await kinesis.send(new DeregisterStreamConsumerCommand({ ConsumerARN: consumerARN }));
+			await Promise.all([
+				loadConsumers(streamDetail.StreamARN),
+				refreshSelectedStreamSummary()
+			]);
+			toast.success('Consumer deregistered');
+		} catch (err: unknown) {
+			toast.error(`Deregister consumer failed: ${(err as Error).message}`);
+		} finally {
+			deregisteringConsumerArn = null;
 		}
 	}
 
@@ -327,6 +400,37 @@
 							</div>
 						</div>
 					{/if}
+					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+						<div class="flex items-center justify-between mb-3">
+							<h3 class="font-semibold text-slate-900 dark:text-white">Consumers</h3>
+							<span class="text-xs text-slate-500 dark:text-slate-400">{consumers.length}</span>
+						</div>
+						<form onsubmit={(e) => { e.preventDefault(); registerConsumer(); }} class="flex gap-2 mb-3">
+							<input type="text" bind:value={newConsumerName} placeholder="Consumer name" class="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+							<button type="submit" disabled={registeringConsumer || !newConsumerName.trim()} class="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm">
+								{registeringConsumer ? 'Adding...' : 'Add'}
+							</button>
+						</form>
+						{#if loadingConsumers}
+							<p class="text-sm text-slate-500 dark:text-slate-400">Loading consumers...</p>
+						{:else if consumers.length === 0}
+							<p class="text-sm text-slate-500 dark:text-slate-400">No consumers</p>
+						{:else}
+							<div class="space-y-2">
+								{#each consumers as consumer}
+									<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-3 flex items-center justify-between gap-3">
+										<div class="min-w-0">
+											<p class="text-sm font-medium text-slate-900 dark:text-white truncate">{consumer.consumerName}</p>
+											<p class="text-xs text-slate-500 dark:text-slate-400 truncate">{consumer.consumerStatus} · {consumer.consumerARN.split('/').pop()}</p>
+										</div>
+										<button onclick={() => deregisterConsumer(consumer.consumerARN)} disabled={deregisteringConsumerArn === consumer.consumerARN} class="px-2 py-1 text-xs bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-900/50 disabled:opacity-50">
+											{deregisteringConsumerArn === consumer.consumerARN ? '...' : 'Remove'}
+										</button>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
 				</div>
 			{:else}
 				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
@@ -380,7 +484,7 @@
 					<input id="kinesis-partition-key" type="text" bind:value={putPartitionKey} placeholder="e.g. user-123" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
 				</div>
 				<div>
-					<label for="kinesis-data" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Data (text, will be base64 encoded)</label>
+					<label for="kinesis-data" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Data (raw text; SDK handles encoding)</label>
 					<textarea id="kinesis-data" bind:value={putData} rows={4} placeholder="Enter JSON or text data to stream..." class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" required></textarea>
 				</div>
 				<div class="flex justify-end gap-3 pt-2">

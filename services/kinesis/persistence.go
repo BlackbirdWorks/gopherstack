@@ -55,6 +55,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.ResourcePolicies == nil {
 		snap.ResourcePolicies = make(map[string]string)
 	}
+	for name, stream := range snap.Streams {
+		if stream == nil {
+			delete(snap.Streams, name)
+
+			continue
+		}
+		initializeStreamRuntime(stream, name)
+	}
 
 	b.streams = snap.Streams
 	b.accountID = snap.AccountID

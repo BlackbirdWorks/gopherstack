@@ -100,7 +100,8 @@ type kinesisThrottleFault struct {
 type InMemoryBackend struct {
 	streams             map[string]*Stream
 	fisThroughputFaults map[string]*kinesisThrottleFault // keyed by stream name
-	resourcePolicies    map[string]string                // keyed by resource ARN
+	faultsMu            *lockmetrics.RWMutex
+	resourcePolicies    map[string]string // keyed by resource ARN
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
@@ -116,10 +117,36 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		streams:             make(map[string]*Stream),
 		fisThroughputFaults: make(map[string]*kinesisThrottleFault),
+		faultsMu:            lockmetrics.New("kinesis.faults"),
 		resourcePolicies:    make(map[string]string),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("kinesis"),
+	}
+}
+
+func newStreamLock(streamName string) *lockmetrics.RWMutex {
+	return lockmetrics.New("kinesis.stream." + streamName)
+}
+
+func initializeStreamRuntime(stream *Stream, streamName string) {
+	if stream.Name == "" {
+		stream.Name = streamName
+	}
+	if stream.Consumers == nil {
+		stream.Consumers = map[string]*Consumer{}
+	}
+	if stream.mu == nil {
+		stream.mu = newStreamLock(stream.Name)
+	}
+	if stream.Shards == nil {
+		stream.Shards = []*Shard{}
+	}
+	if stream.StreamMode == "" {
+		stream.StreamMode = streamModeProvisioned
+	}
+	if stream.EnhancedMonitoring == nil {
+		stream.EnhancedMonitoring = []string{}
 	}
 }
 
@@ -251,6 +278,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		ARN:             streamARN,
 		Status:          streamStatusActive,
 		Shards:          shards,
+		mu:              newStreamLock(input.StreamName),
 		Tags:            tags.New("kinesis.stream." + input.StreamName + ".tags"),
 		CreatedAt:       time.Now(),
 		RetentionPeriod: defaultRetentionHours,
@@ -264,12 +292,15 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 // DeleteStream removes a stream.
 func (b *InMemoryBackend) DeleteStream(input *DeleteStreamInput) error {
 	b.mu.Lock("DeleteStream")
-	defer b.mu.Unlock()
 
 	stream, exists := b.streams[input.StreamName]
 	if !exists {
+		b.mu.Unlock()
+
 		return ErrStreamNotFound
 	}
+	stream.mu.Lock("DeleteStream.stream")
+	defer stream.mu.Unlock()
 
 	if stream.Tags != nil {
 		stream.Tags.Close()
@@ -278,7 +309,10 @@ func (b *InMemoryBackend) DeleteStream(input *DeleteStreamInput) error {
 	// Mark the stream as deleting before removing it (AWS-realistic status transition).
 	stream.Status = streamStatusDeleting
 	delete(b.streams, input.StreamName)
+	b.mu.Unlock()
+	b.faultsMu.Lock("DeleteStream.faults")
 	delete(b.fisThroughputFaults, input.StreamName)
+	b.faultsMu.Unlock()
 
 	return nil
 }
@@ -286,12 +320,16 @@ func (b *InMemoryBackend) DeleteStream(input *DeleteStreamInput) error {
 // DescribeStream returns full stream details including shards.
 func (b *InMemoryBackend) DescribeStream(input *DescribeStreamInput) (*DescribeStreamOutput, error) {
 	b.mu.RLock("DescribeStream")
-	defer b.mu.RUnlock()
 
 	stream, exists := b.streams[input.StreamName]
 	if !exists {
+		b.mu.RUnlock()
+
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.RLock("DescribeStream.stream")
+	b.mu.RUnlock()
+	defer stream.mu.RUnlock()
 
 	shards := make([]ShardDescription, len(stream.Shards))
 	for i, s := range stream.Shards {
@@ -366,15 +404,19 @@ func (b *InMemoryBackend) ListStreams(input *ListStreamsInput) (*ListStreamsOutp
 
 // PutRecord writes a single record to a stream shard.
 func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, error) {
-	b.mu.Lock("PutRecord")
-	defer b.mu.Unlock()
+	b.mu.RLock("PutRecord")
 
 	stream, exists := b.streams[input.StreamName]
 	if !exists {
+		b.mu.RUnlock()
+
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.Lock("PutRecord.stream")
+	b.mu.RUnlock()
+	defer stream.mu.Unlock()
 
-	if b.isThroughputFaultActiveLocked(input.StreamName) {
+	if b.isThroughputFaultActive(input.StreamName) {
 		return nil, ErrProvisionedThroughputExceeded
 	}
 
@@ -487,12 +529,16 @@ func decodeIterator(token string) (*ShardIterator, error) {
 // GetShardIterator returns an iterator for reading records from a shard.
 func (b *InMemoryBackend) GetShardIterator(input *GetShardIteratorInput) (*GetShardIteratorOutput, error) {
 	b.mu.RLock("GetShardIterator")
-	defer b.mu.RUnlock()
 
 	stream, exists := b.streams[input.StreamName]
 	if !exists {
+		b.mu.RUnlock()
+
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.RLock("GetShardIterator.stream")
+	b.mu.RUnlock()
+	defer stream.mu.RUnlock()
 
 	// Find the shard
 	shard := findShard(stream.Shards, input.ShardID)
@@ -551,16 +597,19 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		return nil, err
 	}
 
-	// Use a write lock so isThroughputFaultActiveLocked can lazily evict expired entries.
-	b.mu.Lock("GetRecords")
-	defer b.mu.Unlock()
+	b.mu.RLock("GetRecords")
 
 	stream, exists := b.streams[it.StreamName]
 	if !exists {
+		b.mu.RUnlock()
+
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.RLock("GetRecords.stream")
+	b.mu.RUnlock()
+	defer stream.mu.RUnlock()
 
-	if b.isThroughputFaultActiveLocked(it.StreamName) {
+	if b.isThroughputFaultActive(it.StreamName) {
 		return nil, ErrProvisionedThroughputExceeded
 	}
 
@@ -621,12 +670,16 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 // ListShards returns the shards for a stream.
 func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput, error) {
 	b.mu.RLock("ListShards")
-	defer b.mu.RUnlock()
 
 	stream, exists := b.streams[input.StreamName]
 	if !exists {
+		b.mu.RUnlock()
+
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.RLock("ListShards.stream")
+	b.mu.RUnlock()
+	defer stream.mu.RUnlock()
 
 	skip := input.ExclusiveStartShardID != ""
 	result := make([]ShardDescription, 0, len(stream.Shards))
@@ -676,23 +729,27 @@ func (b *InMemoryBackend) ListAll() []StreamInfo {
 
 	result := make([]StreamInfo, 0, len(b.streams))
 	for _, s := range b.streams {
+		s.mu.RLock("ListAll.stream")
 		result = append(result, StreamInfo{
 			Name:       s.Name,
 			ARN:        s.ARN,
 			Status:     s.Status,
 			ShardCount: len(s.Shards),
 		})
+		s.mu.RUnlock()
 	}
 
 	return result
 }
 
-// isThroughputFaultActiveLocked reports whether a FIS throughput exception should be
+// isThroughputFaultActive reports whether a FIS throughput exception should be
 // applied to the current request for the given stream name, using probability-based
 // sampling when percentage < 100.
-// Caller MUST hold a write lock (b.mu.Lock) on b.mu — this function lazily removes
-// expired fault entries to prevent unbounded map growth.
-func (b *InMemoryBackend) isThroughputFaultActiveLocked(streamName string) bool {
+// The method lazily removes expired fault entries to prevent unbounded map growth.
+func (b *InMemoryBackend) isThroughputFaultActive(streamName string) bool {
+	b.faultsMu.Lock("isThroughputFaultActive")
+	defer b.faultsMu.Unlock()
+
 	fault, ok := b.fisThroughputFaults[streamName]
 	if !ok || fault == nil {
 		return false
@@ -791,15 +848,19 @@ func removeStrings(ss, remove []string) []string {
 func (b *InMemoryBackend) RegisterStreamConsumer(
 	input *RegisterStreamConsumerInput,
 ) (*RegisterStreamConsumerOutput, error) {
-	b.mu.Lock("RegisterStreamConsumer")
-	defer b.mu.Unlock()
+	b.mu.RLock("RegisterStreamConsumer")
 
 	streamName := streamNameFromARN(input.StreamARN)
 	stream, ok := b.streams[streamName]
 
 	if !ok {
+		b.mu.RUnlock()
+
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.Lock("RegisterStreamConsumer.stream")
+	b.mu.RUnlock()
+	defer stream.mu.Unlock()
 
 	if stream.Consumers == nil {
 		stream.Consumers = make(map[string]*Consumer)
@@ -829,62 +890,49 @@ func (b *InMemoryBackend) RegisterStreamConsumer(
 func (b *InMemoryBackend) DescribeStreamConsumer(
 	input *DescribeStreamConsumerInput,
 ) (*DescribeStreamConsumerOutput, error) {
-	b.mu.RLock("DescribeStreamConsumer")
-	defer b.mu.RUnlock()
+	sName := streamNameFromARN(input.StreamARN)
+	cName := input.ConsumerName
+	if input.ConsumerARN != "" {
+		sName, cName = consumerInfoFromARN(input.ConsumerARN)
+	}
 
-	consumer, err := b.findConsumer(input.StreamARN, input.ConsumerARN, input.ConsumerName)
-	if err != nil {
-		return nil, err
+	b.mu.RLock("DescribeStreamConsumer")
+	stream, ok := b.streams[sName]
+	if !ok {
+		b.mu.RUnlock()
+		if input.ConsumerARN != "" {
+			return nil, ErrConsumerNotFound
+		}
+
+		return nil, ErrStreamNotFound
+	}
+	stream.mu.RLock("DescribeStreamConsumer.stream")
+	b.mu.RUnlock()
+	defer stream.mu.RUnlock()
+
+	consumer, ok := stream.Consumers[cName]
+	if !ok {
+		return nil, ErrConsumerNotFound
 	}
 
 	return &DescribeStreamConsumerOutput{ConsumerDescription: *consumer}, nil
 }
 
-// findConsumer locates a consumer by ARN or by (streamARN + consumerName).
-// The caller must hold a read lock.
-func (b *InMemoryBackend) findConsumer(streamARN, consumerARN, consumerName string) (*Consumer, error) {
-	if consumerARN != "" {
-		sName, cName := consumerInfoFromARN(consumerARN)
-		stream, ok := b.streams[sName]
-
-		if !ok {
-			return nil, ErrConsumerNotFound
-		}
-
-		c, ok := stream.Consumers[cName]
-		if !ok {
-			return nil, ErrConsumerNotFound
-		}
-
-		return c, nil
-	}
-
-	sName := streamNameFromARN(streamARN)
-	stream, ok := b.streams[sName]
-
-	if !ok {
-		return nil, ErrStreamNotFound
-	}
-
-	c, ok := stream.Consumers[consumerName]
-	if !ok {
-		return nil, ErrConsumerNotFound
-	}
-
-	return c, nil
-}
-
 // ListStreamConsumers lists all registered consumers for a stream.
 func (b *InMemoryBackend) ListStreamConsumers(input *ListStreamConsumersInput) (*ListStreamConsumersOutput, error) {
 	b.mu.RLock("ListStreamConsumers")
-	defer b.mu.RUnlock()
 
 	streamName := streamNameFromARN(input.StreamARN)
 	stream, ok := b.streams[streamName]
 
 	if !ok {
+		b.mu.RUnlock()
+
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.RLock("ListStreamConsumers.stream")
+	b.mu.RUnlock()
+	defer stream.mu.RUnlock()
 
 	consumers := make([]Consumer, 0, len(stream.Consumers))
 	for _, c := range stream.Consumers {
@@ -901,13 +949,6 @@ func (b *InMemoryBackend) ListStreamConsumers(input *ListStreamConsumersInput) (
 
 // DeregisterStreamConsumer removes a registered consumer from a stream.
 func (b *InMemoryBackend) DeregisterStreamConsumer(input *DeregisterStreamConsumerInput) error {
-	b.mu.Lock("DeregisterStreamConsumer")
-	defer b.mu.Unlock()
-
-	if _, err := b.findConsumer(input.StreamARN, input.ConsumerARN, input.ConsumerName); err != nil {
-		return err
-	}
-
 	sName, cName := func() (string, string) {
 		if input.ConsumerARN != "" {
 			return consumerInfoFromARN(input.ConsumerARN)
@@ -915,8 +956,26 @@ func (b *InMemoryBackend) DeregisterStreamConsumer(input *DeregisterStreamConsum
 
 		return streamNameFromARN(input.StreamARN), input.ConsumerName
 	}()
+	if sName == "" {
+		sName = streamNameFromARN(input.StreamARN)
+	}
 
-	delete(b.streams[sName].Consumers, cName)
+	b.mu.RLock("DeregisterStreamConsumer")
+	stream, ok := b.streams[sName]
+	if !ok {
+		b.mu.RUnlock()
+
+		return ErrStreamNotFound
+	}
+	stream.mu.Lock("DeregisterStreamConsumer.stream")
+	b.mu.RUnlock()
+	defer stream.mu.Unlock()
+
+	if _, ok = stream.Consumers[cName]; !ok {
+		return ErrConsumerNotFound
+	}
+
+	delete(stream.Consumers, cName)
 
 	return nil
 }
@@ -927,12 +986,16 @@ func (b *InMemoryBackend) SubscribeToShard(input *SubscribeToShardInput) (*Subsc
 	sName, cName := consumerInfoFromARN(input.ConsumerARN)
 
 	b.mu.RLock("SubscribeToShard")
-	defer b.mu.RUnlock()
 
 	stream, ok := b.streams[sName]
 	if !ok {
+		b.mu.RUnlock()
+
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.RLock("SubscribeToShard.stream")
+	b.mu.RUnlock()
+	defer stream.mu.RUnlock()
 
 	if _, exists := stream.Consumers[cName]; !exists {
 		return nil, ErrConsumerNotFound
@@ -1007,6 +1070,8 @@ func (b *InMemoryBackend) UpdateShardCount(input *UpdateShardCountInput) (*Updat
 	if !ok {
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.Lock("UpdateShardCount.stream")
+	defer stream.mu.Unlock()
 
 	if input.TargetShardCount <= 0 {
 		return nil, ErrInvalidArgument
@@ -1069,6 +1134,8 @@ func (b *InMemoryBackend) EnableEnhancedMonitoring(
 	if !ok {
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.Lock("EnableEnhancedMonitoring.stream")
+	defer stream.mu.Unlock()
 
 	current := make([]string, len(stream.EnhancedMonitoring))
 	copy(current, stream.EnhancedMonitoring)
@@ -1097,6 +1164,8 @@ func (b *InMemoryBackend) DisableEnhancedMonitoring(
 	if !ok {
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.Lock("DisableEnhancedMonitoring.stream")
+	defer stream.mu.Unlock()
 
 	current := make([]string, len(stream.EnhancedMonitoring))
 	copy(current, stream.EnhancedMonitoring)
@@ -1126,6 +1195,8 @@ func (b *InMemoryBackend) IncreaseStreamRetentionPeriod(
 	if !ok {
 		return ErrStreamNotFound
 	}
+	stream.mu.Lock("IncreaseStreamRetentionPeriod.stream")
+	defer stream.mu.Unlock()
 
 	// Idempotent: same value → no-op.
 	if input.RetentionPeriodHours == stream.RetentionPeriod {
@@ -1155,6 +1226,8 @@ func (b *InMemoryBackend) DecreaseStreamRetentionPeriod(
 	if !ok {
 		return ErrStreamNotFound
 	}
+	stream.mu.Lock("DecreaseStreamRetentionPeriod.stream")
+	defer stream.mu.Unlock()
 
 	// Idempotent: same value → no-op.
 	if input.RetentionPeriodHours == stream.RetentionPeriod {
@@ -1201,6 +1274,8 @@ func (b *InMemoryBackend) MergeShards(input *MergeShardsInput) error {
 	if !ok {
 		return ErrStreamNotFound
 	}
+	stream.mu.Lock("MergeShards.stream")
+	defer stream.mu.Unlock()
 
 	shard1 := findShard(stream.Shards, input.ShardToMerge)
 	shard2 := findShard(stream.Shards, input.AdjacentShardToMerge)
@@ -1265,6 +1340,8 @@ func (b *InMemoryBackend) SplitShard(input *SplitShardInput) error {
 	if !ok {
 		return ErrStreamNotFound
 	}
+	stream.mu.Lock("SplitShard.stream")
+	defer stream.mu.Unlock()
 
 	shard := findShard(stream.Shards, input.ShardToSplit)
 	if shard == nil {
@@ -1338,6 +1415,8 @@ func (b *InMemoryBackend) StartStreamEncryption(input *StartStreamEncryptionInpu
 	if !ok {
 		return ErrStreamNotFound
 	}
+	stream.mu.Lock("StartStreamEncryption.stream")
+	defer stream.mu.Unlock()
 
 	if input.EncryptionType != encryptionTypeKMS {
 		return ErrInvalidArgument
@@ -1363,6 +1442,8 @@ func (b *InMemoryBackend) StopStreamEncryption(input *StopStreamEncryptionInput)
 	if !ok {
 		return ErrStreamNotFound
 	}
+	stream.mu.Lock("StopStreamEncryption.stream")
+	defer stream.mu.Unlock()
 
 	stream.EncryptionType = encryptionTypeNone
 	stream.KeyID = ""
@@ -1411,14 +1492,18 @@ func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput)
 // Tags are those stored on the stream's internal Tags store (set via TagResource).
 func (b *InMemoryBackend) ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error) {
 	b.mu.RLock("ListTagsForResource")
-	defer b.mu.RUnlock()
 
 	streamName := streamNameFromARN(input.ResourceARN)
 	stream, ok := b.streams[streamName]
 
 	if !ok {
+		b.mu.RUnlock()
+
 		return nil, ErrStreamNotFound
 	}
+	stream.mu.RLock("ListTagsForResource.stream")
+	b.mu.RUnlock()
+	defer stream.mu.RUnlock()
 
 	result := map[string]string{}
 	if stream.Tags != nil {
@@ -1435,9 +1520,11 @@ func (b *InMemoryBackend) DescribeAccountSettings() (*DescribeAccountSettingsOut
 
 	onDemandCount := 0
 	for _, s := range b.streams {
+		s.mu.RLock("DescribeAccountSettings.stream")
 		if s.StreamMode == streamModeOnDemand {
 			onDemandCount++
 		}
+		s.mu.RUnlock()
 	}
 
 	return &DescribeAccountSettingsOutput{
@@ -1454,13 +1541,17 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	for _, stream := range b.streams {
+		stream.mu.Lock("Reset.stream")
 		if stream.Tags != nil {
 			stream.Tags.Close()
 		}
+		stream.mu.Unlock()
 	}
 
 	b.streams = make(map[string]*Stream)
+	b.faultsMu.Lock("Reset.faults")
 	b.fisThroughputFaults = make(map[string]*kinesisThrottleFault)
+	b.faultsMu.Unlock()
 	b.resourcePolicies = make(map[string]string)
 }
 
@@ -1478,12 +1569,16 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 		if ctx.Err() != nil {
 			return
 		}
+		s.mu.Lock("Purge.stream")
 		if s.CreatedAt.Before(cutoff) {
 			if s.Tags != nil {
 				s.Tags.Close()
 			}
 			delete(b.streams, name)
+			b.faultsMu.Lock("Purge.faults")
 			delete(b.fisThroughputFaults, name)
+			b.faultsMu.Unlock()
+			s.mu.Unlock()
 
 			continue
 		}
@@ -1491,12 +1586,15 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 		// 2. Purge consumers within active streams
 		for cName, c := range s.Consumers {
 			if ctx.Err() != nil {
+				s.mu.Unlock()
+
 				return
 			}
 			if c.ConsumerCreationTimestamp.Before(cutoff) {
 				delete(s.Consumers, cName)
 			}
 		}
+		s.mu.Unlock()
 	}
 }
 
@@ -1507,11 +1605,13 @@ func (b *InMemoryBackend) CountOpenShards() int {
 
 	count := 0
 	for _, s := range b.streams {
+		s.mu.RLock("CountOpenShards.stream")
 		for _, sh := range s.Shards {
 			if !sh.Closed {
 				count++
 			}
 		}
+		s.mu.RUnlock()
 	}
 
 	return count
@@ -1523,21 +1623,7 @@ func (b *InMemoryBackend) AddStreamInternal(stream *Stream) {
 	b.mu.Lock("AddStreamInternal")
 	defer b.mu.Unlock()
 
-	if stream.Consumers == nil {
-		stream.Consumers = map[string]*Consumer{}
-	}
-
-	if stream.Shards == nil {
-		stream.Shards = []*Shard{}
-	}
-
-	if stream.StreamMode == "" {
-		stream.StreamMode = streamModeProvisioned
-	}
-
-	if stream.EnhancedMonitoring == nil {
-		stream.EnhancedMonitoring = []string{}
-	}
+	initializeStreamRuntime(stream, stream.Name)
 
 	b.streams[stream.Name] = stream
 }
@@ -1552,6 +1638,8 @@ func (b *InMemoryBackend) UpdateStreamMode(input *UpdateStreamModeInput) error {
 	if !ok {
 		return ErrStreamNotFound
 	}
+	stream.mu.Lock("UpdateStreamMode.stream")
+	defer stream.mu.Unlock()
 
 	if input.StreamModeDetails.StreamMode != streamModeProvisioned &&
 		input.StreamModeDetails.StreamMode != streamModeOnDemand {

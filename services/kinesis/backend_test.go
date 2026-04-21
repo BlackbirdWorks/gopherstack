@@ -406,3 +406,55 @@ func TestPutRecords_ThroughputErrorCode(t *testing.T) {
 	assert.Equal(t, "ProvisionedThroughputExceededException", out.Records[0].ErrorCode)
 	assert.Equal(t, 1, out.FailedRecordCount)
 }
+
+func TestDeregisterStreamConsumer_ByIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input         func(consumerARN string) *kinesis.DeregisterStreamConsumerInput
+		name          string
+		wantRemaining int
+	}{
+		{
+			name: "by_consumer_arn",
+			input: func(consumerARN string) *kinesis.DeregisterStreamConsumerInput {
+				return &kinesis.DeregisterStreamConsumerInput{ConsumerARN: consumerARN}
+			},
+			wantRemaining: 0,
+		},
+		{
+			name: "by_stream_arn_and_name",
+			input: func(_ string) *kinesis.DeregisterStreamConsumerInput {
+				return &kinesis.DeregisterStreamConsumerInput{
+					StreamARN:    "arn:aws:kinesis:us-east-1:123456789012:stream/consumer-stream",
+					ConsumerName: "consumer-a",
+				}
+			},
+			wantRemaining: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := kinesis.NewInMemoryBackend()
+			require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "consumer-stream"}))
+
+			registered, err := bk.RegisterStreamConsumer(&kinesis.RegisterStreamConsumerInput{
+				StreamARN:    "arn:aws:kinesis:us-east-1:123456789012:stream/consumer-stream",
+				ConsumerName: "consumer-a",
+			})
+			require.NoError(t, err)
+
+			err = bk.DeregisterStreamConsumer(tt.input(registered.Consumer.ConsumerARN))
+			require.NoError(t, err)
+
+			listOut, err := bk.ListStreamConsumers(&kinesis.ListStreamConsumersInput{
+				StreamARN: "arn:aws:kinesis:us-east-1:123456789012:stream/consumer-stream",
+			})
+			require.NoError(t, err)
+			assert.Len(t, listOut.Consumers, tt.wantRemaining)
+		})
+	}
+}

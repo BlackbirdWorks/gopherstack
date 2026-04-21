@@ -65,7 +65,7 @@ func (b *InMemoryBackend) activateThroughputFault(
 		expiry = time.Now().Add(dur)
 	}
 
-	b.mu.Lock("FISThroughputException")
+	b.faultsMu.Lock("FISThroughputException")
 
 	for _, name := range names {
 		b.fisThroughputFaults[name] = &kinesisThrottleFault{
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) activateThroughputFault(
 		}
 	}
 
-	b.mu.Unlock()
+	b.faultsMu.Unlock()
 
 	if dur > 0 {
 		// Time-limited: clear after duration or on cancellation.
@@ -88,8 +88,8 @@ func (b *InMemoryBackend) activateThroughputFault(
 		go func() {
 			<-ctx.Done()
 
-			b.mu.Lock("FISThroughputException-ctxcancel")
-			defer b.mu.Unlock()
+			b.faultsMu.Lock("FISThroughputException-ctxcancel")
+			defer b.faultsMu.Unlock()
 
 			for _, name := range names {
 				delete(b.fisThroughputFaults, name)
@@ -113,8 +113,8 @@ func (b *InMemoryBackend) scheduleThroughputFaultCleanup(ctx context.Context, na
 	case <-time.After(dur):
 	}
 
-	b.mu.Lock("FISThroughputException-cleanup")
-	defer b.mu.Unlock()
+	b.faultsMu.Lock("FISThroughputException-cleanup")
+	defer b.faultsMu.Unlock()
 
 	now := time.Now()
 

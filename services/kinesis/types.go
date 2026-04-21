@@ -3,6 +3,7 @@ package kinesis
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -93,7 +94,8 @@ const streamModeOnDemand = StreamModeOnDemand
 
 // Stream represents an in-memory Kinesis stream.
 type Stream struct {
-	CreatedAt          time.Time            `json:"createdAt"`
+	CreatedAt          time.Time `json:"createdAt"`
+	mu                 *lockmetrics.RWMutex
 	Tags               *tags.Tags           `json:"tags,omitempty"`
 	Consumers          map[string]*Consumer `json:"consumers,omitempty"`
 	Name               string               `json:"name"`
