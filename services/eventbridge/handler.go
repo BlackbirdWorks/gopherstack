@@ -682,6 +682,12 @@ type activateEventSourceOutput struct{}
 type deactivateEventSourceOutput struct{}
 type deleteAPIDestinationOutput struct{}
 
+// timeToEpochSeconds converts a time.Time to a float64 Unix epoch seconds value,
+// as required by the AWS JSON protocol for timestamp fields.
+func timeToEpochSeconds(t time.Time) float64 {
+	return float64(t.Unix())
+}
+
 // archiveResponse is the handler-level DTO for Archive objects.
 // Timestamps are float64 Unix epoch seconds as required by the AWS JSON protocol.
 type archiveResponse struct {
@@ -704,7 +710,7 @@ func archiveToResponse(a *Archive) *archiveResponse {
 	}
 
 	return &archiveResponse{
-		CreationTime:   float64(a.CreationTime.Unix()),
+		CreationTime:   timeToEpochSeconds(a.CreationTime),
 		ArchiveName:    a.ArchiveName,
 		ArchiveArn:     a.ArchiveArn,
 		Description:    a.Description,
@@ -741,16 +747,16 @@ func connectionToResponse(c *Connection) *connectionResponse {
 		ConnectionArn:     c.ConnectionArn,
 		AuthorizationType: c.AuthorizationType,
 		ConnectionState:   c.ConnectionState,
-		CreationTime:      float64(c.CreationTime.Unix()),
+		CreationTime:      timeToEpochSeconds(c.CreationTime),
 		Description:       c.Description,
-		LastModifiedTime:  float64(c.LastModifiedTime.Unix()),
+		LastModifiedTime:  timeToEpochSeconds(c.LastModifiedTime),
 		Name:              c.Name,
 		SecretArn:         c.SecretArn,
 		StateReason:       c.StateReason,
 	}
 
 	if !c.LastAuthorizedTime.IsZero() {
-		r.LastAuthorizedTime = float64(c.LastAuthorizedTime.Unix())
+		r.LastAuthorizedTime = timeToEpochSeconds(c.LastAuthorizedTime)
 	}
 
 	return r
@@ -776,8 +782,8 @@ func apiDestinationToResponse(d *APIDestination) *apiDestinationResponse {
 	}
 
 	return &apiDestinationResponse{
-		CreationTime:                 float64(d.CreationTime.Unix()),
-		LastModifiedTime:             float64(d.LastModifiedTime.Unix()),
+		CreationTime:                 timeToEpochSeconds(d.CreationTime),
+		LastModifiedTime:             timeToEpochSeconds(d.LastModifiedTime),
 		APIDestinationArn:            d.APIDestinationArn,
 		APIDestinationState:          d.APIDestinationState,
 		ConnectionArn:                d.ConnectionArn,
@@ -868,8 +874,8 @@ func (h *Handler) replayAndConnectionActions() map[string]actionFn {
 			return &createConnectionOutput{
 				ConnectionArn:    conn.ConnectionArn,
 				ConnectionState:  conn.ConnectionState,
-				CreationTime:     float64(conn.CreationTime.Unix()),
-				LastModifiedTime: float64(conn.LastModifiedTime.Unix()),
+				CreationTime:     timeToEpochSeconds(conn.CreationTime),
+				LastModifiedTime: timeToEpochSeconds(conn.LastModifiedTime),
 			}, nil
 		},
 		"DeauthorizeConnection": func(b []byte) (any, error) {
@@ -887,7 +893,7 @@ func (h *Handler) replayAndConnectionActions() map[string]actionFn {
 			return &deauthorizeConnectionOutput{
 				ConnectionArn:    conn.ConnectionArn,
 				ConnectionState:  conn.ConnectionState,
-				LastModifiedTime: float64(conn.LastModifiedTime.Unix()),
+				LastModifiedTime: timeToEpochSeconds(conn.LastModifiedTime),
 			}, nil
 		},
 	}
@@ -908,8 +914,8 @@ func (h *Handler) apiDestinationAndArchiveActions() map[string]actionFn {
 			return &createAPIDestinationOutput{
 				APIDestinationArn:   dst.APIDestinationArn,
 				APIDestinationState: dst.APIDestinationState,
-				CreationTime:        float64(dst.CreationTime.Unix()),
-				LastModifiedTime:    float64(dst.LastModifiedTime.Unix()),
+				CreationTime:        timeToEpochSeconds(dst.CreationTime),
+				LastModifiedTime:    timeToEpochSeconds(dst.LastModifiedTime),
 			}, nil
 		},
 		"CreateArchive": func(b []byte) (any, error) {
@@ -924,7 +930,7 @@ func (h *Handler) apiDestinationAndArchiveActions() map[string]actionFn {
 
 			return &createArchiveOutput{
 				ArchiveArn:   archive.ArchiveArn,
-				CreationTime: float64(archive.CreationTime.Unix()),
+				CreationTime: timeToEpochSeconds(archive.CreationTime),
 				State:        archive.State,
 				StateReason:  archive.StateReason,
 			}, nil
@@ -1030,7 +1036,7 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 				CreationTime float64 `json:"CreationTime"`
 			}{
 				ArchiveArn:   archive.ArchiveArn,
-				CreationTime: float64(archive.CreationTime.Unix()),
+				CreationTime: timeToEpochSeconds(archive.CreationTime),
 				State:        archive.State,
 				StateReason:  archive.StateReason,
 			}, nil
@@ -1107,8 +1113,8 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 			}{
 				ConnectionArn:    conn.ConnectionArn,
 				ConnectionState:  conn.ConnectionState,
-				CreationTime:     float64(conn.CreationTime.Unix()),
-				LastModifiedTime: float64(conn.LastModifiedTime.Unix()),
+				CreationTime:     timeToEpochSeconds(conn.CreationTime),
+				LastModifiedTime: timeToEpochSeconds(conn.LastModifiedTime),
 			}, nil
 		},
 	}
@@ -1239,8 +1245,8 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 			}{
 				APIDestinationArn:   dst.APIDestinationArn,
 				APIDestinationState: dst.APIDestinationState,
-				CreationTime:        float64(dst.CreationTime.Unix()),
-				LastModifiedTime:    float64(dst.LastModifiedTime.Unix()),
+				CreationTime:        timeToEpochSeconds(dst.CreationTime),
+				LastModifiedTime:    timeToEpochSeconds(dst.LastModifiedTime),
 			}, nil
 		},
 	}
