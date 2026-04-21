@@ -103,19 +103,15 @@ type kinesisThrottleFault struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	streams             map[string]*Stream
-	fisThroughputFaults map[string]*kinesisThrottleFault // keyed by stream name
-	faultsMu            *lockmetrics.RWMutex
-	resourcePolicies    map[string]string // keyed by resource ARN
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
-	// onDemandStreamCountLimit is the account-level limit for ON_DEMAND streams.
-	// Mutable via UpdateAccountSettings.
+	streams                  map[string]*Stream
+	fisThroughputFaults      map[string]*kinesisThrottleFault
+	faultsMu                 *lockmetrics.RWMutex
+	resourcePolicies         map[string]string
+	mu                       *lockmetrics.RWMutex
+	OnStreamPurged           func(string)
+	accountID                string
+	region                   string
 	onDemandStreamCountLimit int
-	// OnStreamPurged is an optional callback invoked with the stream name whenever
-	// a stream is removed by Purge. It is called without any backend locks held.
-	OnStreamPurged func(string)
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -289,16 +285,16 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 	streamARN := arn.Build("kinesis", region, accountID, "stream/"+input.StreamName)
 
 	b.streams[input.StreamName] = &Stream{
-		Name:            input.StreamName,
-		ARN:             streamARN,
-		Status:          streamStatusActive,
-		Shards:          shards,
-		mu:              newStreamLock(input.StreamName),
-		Tags:            tags.New("kinesis.stream." + input.StreamName + ".tags"),
-		CreatedAt:       time.Now(),
-		RetentionPeriod: defaultRetentionHours,
-		Consumers:       make(map[string]*Consumer),
-		StreamMode:      streamMode,
+		Name:               input.StreamName,
+		ARN:                streamARN,
+		Status:             streamStatusActive,
+		Shards:             shards,
+		mu:                 newStreamLock(input.StreamName),
+		Tags:               tags.New("kinesis.stream." + input.StreamName + ".tags"),
+		CreatedAt:          time.Now(),
+		RetentionPeriod:    defaultRetentionHours,
+		Consumers:          make(map[string]*Consumer),
+		StreamMode:         streamMode,
 		MaxRecordSizeBytes: defaultMaxRecordSizeBytes,
 	}
 
@@ -1606,68 +1602,64 @@ func (b *InMemoryBackend) Reset() {
 	b.resourcePolicies = make(map[string]string)
 }
 
+// purgeStreamEntry removes s from b.streams when it predates cutoff, or evicts its stale
+// consumers otherwise. Must be called with b.mu held. Returns true when the stream was removed.
+func (b *InMemoryBackend) purgeStreamEntry(name string, s *Stream, cutoff time.Time) bool {
+	s.mu.Lock("Purge.stream")
+	defer s.mu.Unlock()
+
+	if s.CreatedAt.Before(cutoff) {
+		if s.Tags != nil {
+			s.Tags.Close()
+		}
+		delete(b.streams, name)
+		b.faultsMu.Lock("Purge.faults")
+		delete(b.fisThroughputFaults, name)
+		b.faultsMu.Unlock()
+
+		return true
+	}
+
+	// Stream is still live; evict stale consumers only.
+	for cName, c := range s.Consumers {
+		if c.ConsumerCreationTimestamp.Before(cutoff) {
+			delete(s.Consumers, cName)
+		}
+	}
+
+	return false
+}
+
+// fireStreamPurgedCallbacks invokes OnStreamPurged for every name, without holding any lock.
+func (b *InMemoryBackend) fireStreamPurgedCallbacks(names []string) {
+	if b.OnStreamPurged == nil {
+		return
+	}
+	for _, name := range names {
+		b.OnStreamPurged(name)
+	}
+}
+
 // Purge removes all Kinesis streams and consumers created before the cutoff time.
 func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	if ctx.Err() != nil {
 		return
 	}
 
-	// Collect purged stream names so the callback can be invoked without locks.
 	var purgedNames []string
 
 	b.mu.Lock("Purge")
-
-	// 1. Purge streams
 	for name, s := range b.streams {
 		if ctx.Err() != nil {
 			break
 		}
-		s.mu.Lock("Purge.stream")
-		if s.CreatedAt.Before(cutoff) {
-			if s.Tags != nil {
-				s.Tags.Close()
-			}
-			delete(b.streams, name)
-			b.faultsMu.Lock("Purge.faults")
-			delete(b.fisThroughputFaults, name)
-			b.faultsMu.Unlock()
-			s.mu.Unlock()
-
+		if b.purgeStreamEntry(name, s, cutoff) {
 			purgedNames = append(purgedNames, name)
-
-			continue
 		}
-
-		// 2. Purge consumers within active streams
-		for cName, c := range s.Consumers {
-			if ctx.Err() != nil {
-				s.mu.Unlock()
-				b.mu.Unlock()
-
-				// Still fire callbacks for any streams already purged.
-				for _, n := range purgedNames {
-					if b.OnStreamPurged != nil {
-						b.OnStreamPurged(n)
-					}
-				}
-
-				return
-			}
-			if c.ConsumerCreationTimestamp.Before(cutoff) {
-				delete(s.Consumers, cName)
-			}
-		}
-		s.mu.Unlock()
 	}
-
 	b.mu.Unlock()
 
-	// Fire callbacks outside of any lock to avoid lock-order inversion.
-	if b.OnStreamPurged != nil {
-		for _, name := range purgedNames {
-			b.OnStreamPurged(name)
-		}
-	}
+	b.fireStreamPurgedCallbacks(purgedNames)
 }
 
 // CountOpenShards returns the total number of open (non-closed) shards across all streams.

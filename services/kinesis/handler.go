@@ -733,11 +733,7 @@ func (h *Handler) handlePutRecords(
 	}
 	entries := make([]PutRecordsEntry, numRecords)
 	for i, r := range req.Records {
-		entries[i] = PutRecordsEntry{
-			PartitionKey:    r.PartitionKey,
-			ExplicitHashKey: r.ExplicitHashKey,
-			Data:            r.Data,
-		}
+		entries[i] = PutRecordsEntry(r)
 	}
 
 	out, err := h.Backend.PutRecords(&PutRecordsInput{
@@ -1743,142 +1739,142 @@ func (h *Handler) handleUpdateStreamMode(_ context.Context, _ *http.Request, bod
 // --- Handler functions for TagResource, UntagResource, and new account/stream operations ---
 
 type jsonTagResourceReq struct {
-ResourceARN string            `json:"ResourceARN"`
-Tags        map[string]string `json:"Tags"`
+	Tags        map[string]string `json:"Tags"`
+	ResourceARN string            `json:"ResourceARN"`
 }
 
 type jsonUntagResourceReq struct {
-ResourceARN string   `json:"ResourceARN"`
-TagKeys     []string `json:"TagKeys"`
+	ResourceARN string   `json:"ResourceARN"`
+	TagKeys     []string `json:"TagKeys"`
 }
 
 func (h *Handler) handleTagResource(
-_ context.Context,
-_ *http.Request,
-body []byte,
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
 ) (any, error) {
-var req jsonTagResourceReq
-if err := json.Unmarshal(body, &req); err != nil {
-return nil, ErrInvalidArgument
-}
+	var req jsonTagResourceReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
 
-if err := h.Backend.TagResource(&TagResourceInput{
-ResourceARN: req.ResourceARN,
-Tags:        req.Tags,
-}); err != nil {
-return nil, err
-}
+	if err := h.Backend.TagResource(&TagResourceInput{
+		ResourceARN: req.ResourceARN,
+		Tags:        req.Tags,
+	}); err != nil {
+		return nil, err
+	}
 
-// Mirror into the handler-level tag store for ListTagsForStream compatibility.
-streamName := streamNameFromARN(req.ResourceARN)
-if streamName != "" {
-h.setTags(streamName, req.Tags)
-}
+	// Mirror into the handler-level tag store for ListTagsForStream compatibility.
+	streamName := streamNameFromARN(req.ResourceARN)
+	if streamName != "" {
+		h.setTags(streamName, req.Tags)
+	}
 
-return struct{}{}, nil
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleUntagResource(
-_ context.Context,
-_ *http.Request,
-body []byte,
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
 ) (any, error) {
-var req jsonUntagResourceReq
-if err := json.Unmarshal(body, &req); err != nil {
-return nil, ErrInvalidArgument
-}
+	var req jsonUntagResourceReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
 
-if err := h.Backend.UntagResource(&UntagResourceInput{
-ResourceARN: req.ResourceARN,
-TagKeys:     req.TagKeys,
-}); err != nil {
-return nil, err
-}
+	if err := h.Backend.UntagResource(&UntagResourceInput{
+		ResourceARN: req.ResourceARN,
+		TagKeys:     req.TagKeys,
+	}); err != nil {
+		return nil, err
+	}
 
-// Mirror removal into the handler-level tag store.
-streamName := streamNameFromARN(req.ResourceARN)
-if streamName != "" {
-h.removeTags(streamName, req.TagKeys)
-}
+	// Mirror removal into the handler-level tag store.
+	streamName := streamNameFromARN(req.ResourceARN)
+	if streamName != "" {
+		h.removeTags(streamName, req.TagKeys)
+	}
 
-return struct{}{}, nil
+	return struct{}{}, nil
 }
 
 type jsonUpdateAccountSettingsReq struct {
-OnDemandStreamCountLimit int `json:"OnDemandStreamCountLimit"`
+	OnDemandStreamCountLimit int `json:"OnDemandStreamCountLimit"`
 }
 
 func (h *Handler) handleUpdateAccountSettings(
-_ context.Context,
-_ *http.Request,
-body []byte,
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
 ) (any, error) {
-var req jsonUpdateAccountSettingsReq
-if err := json.Unmarshal(body, &req); err != nil {
-return nil, ErrInvalidArgument
-}
+	var req jsonUpdateAccountSettingsReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
 
-if err := h.Backend.UpdateAccountSettings(&UpdateAccountSettingsInput{
-OnDemandStreamCountLimit: req.OnDemandStreamCountLimit,
-}); err != nil {
-return nil, err
-}
+	if err := h.Backend.UpdateAccountSettings(&UpdateAccountSettingsInput{
+		OnDemandStreamCountLimit: req.OnDemandStreamCountLimit,
+	}); err != nil {
+		return nil, err
+	}
 
-return struct{}{}, nil
+	return struct{}{}, nil
 }
 
 type jsonUpdateMaxRecordSizeReq struct {
-StreamName         string `json:"StreamName"`
-StreamARN          string `json:"StreamARN"`
-MaxRecordSizeBytes int    `json:"MaxRecordSizeBytes"`
+	StreamName         string `json:"StreamName"`
+	StreamARN          string `json:"StreamARN"`
+	MaxRecordSizeBytes int    `json:"MaxRecordSizeBytes"`
 }
 
 func (h *Handler) handleUpdateMaxRecordSize(
-_ context.Context,
-_ *http.Request,
-body []byte,
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
 ) (any, error) {
-var req jsonUpdateMaxRecordSizeReq
-if err := json.Unmarshal(body, &req); err != nil {
-return nil, ErrInvalidArgument
-}
+	var req jsonUpdateMaxRecordSizeReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
 
-if err := h.Backend.UpdateMaxRecordSize(&UpdateMaxRecordSizeInput{
-StreamName:         req.StreamName,
-StreamARN:          req.StreamARN,
-MaxRecordSizeBytes: req.MaxRecordSizeBytes,
-}); err != nil {
-return nil, err
-}
+	if err := h.Backend.UpdateMaxRecordSize(&UpdateMaxRecordSizeInput{
+		StreamName:         req.StreamName,
+		StreamARN:          req.StreamARN,
+		MaxRecordSizeBytes: req.MaxRecordSizeBytes,
+	}); err != nil {
+		return nil, err
+	}
 
-return struct{}{}, nil
+	return struct{}{}, nil
 }
 
 type jsonUpdateStreamWarmThroughputReq struct {
-StreamName         string `json:"StreamName"`
-StreamARN          string `json:"StreamARN"`
-WriteCapacityUnits int64  `json:"WriteCapacityUnits"`
-ReadCapacityUnits  int64  `json:"ReadCapacityUnits"`
+	StreamName         string `json:"StreamName"`
+	StreamARN          string `json:"StreamARN"`
+	WriteCapacityUnits int64  `json:"WriteCapacityUnits"`
+	ReadCapacityUnits  int64  `json:"ReadCapacityUnits"`
 }
 
 func (h *Handler) handleUpdateStreamWarmThroughput(
-_ context.Context,
-_ *http.Request,
-body []byte,
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
 ) (any, error) {
-var req jsonUpdateStreamWarmThroughputReq
-if err := json.Unmarshal(body, &req); err != nil {
-return nil, ErrInvalidArgument
-}
+	var req jsonUpdateStreamWarmThroughputReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
 
-if err := h.Backend.UpdateStreamWarmThroughput(&UpdateStreamWarmThroughputInput{
-StreamName:         req.StreamName,
-StreamARN:          req.StreamARN,
-WriteCapacityUnits: req.WriteCapacityUnits,
-ReadCapacityUnits:  req.ReadCapacityUnits,
-}); err != nil {
-return nil, err
-}
+	if err := h.Backend.UpdateStreamWarmThroughput(&UpdateStreamWarmThroughputInput{
+		StreamName:         req.StreamName,
+		StreamARN:          req.StreamARN,
+		WriteCapacityUnits: req.WriteCapacityUnits,
+		ReadCapacityUnits:  req.ReadCapacityUnits,
+	}); err != nil {
+		return nil, err
+	}
 
-return struct{}{}, nil
+	return struct{}{}, nil
 }

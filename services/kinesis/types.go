@@ -543,8 +543,8 @@ type UpdateStreamWarmThroughputInput struct {
 
 // TagResourceInput is the input for TagResource (ARN-based tagging).
 type TagResourceInput struct {
-	ResourceARN string
 	Tags        map[string]string
+	ResourceARN string
 }
 
 // UntagResourceInput is the input for UntagResource (ARN-based tag removal).
