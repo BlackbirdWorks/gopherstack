@@ -93,6 +93,9 @@ const (
 
 	// streamStatusDeleting is the status when a stream is being deleted.
 	streamStatusDeleting = "DELETING"
+
+	// iteratorTTL is the maximum age of a shard iterator before it expires.
+	iteratorTTL = 300 * time.Second
 )
 
 const streamModeProvisioned = StreamModeProvisioned
@@ -148,10 +151,11 @@ type StreamInfo struct {
 
 // ShardIterator holds the position within a shard for GetRecords.
 type ShardIterator struct {
-	StreamName     string `json:"StreamName"`
-	ShardID        string `json:"ShardID"`
-	SequenceNumber string `json:"SequenceNumber"`
-	Position       int    `json:"Position"`
+	CreatedAt      time.Time `json:"CreatedAt,omitempty"`
+	StreamName     string    `json:"StreamName"`
+	ShardID        string    `json:"ShardID"`
+	SequenceNumber string    `json:"SequenceNumber"`
+	Position       int       `json:"Position"`
 }
 
 // --- Input/Output types ---
@@ -226,6 +230,7 @@ type PutRecordInput struct {
 type PutRecordOutput struct {
 	ShardID        string
 	SequenceNumber string
+	EncryptionType string
 }
 
 // PutRecordsEntry is a single entry in a PutRecords request.
@@ -299,8 +304,10 @@ type ListShardsInput struct {
 	// Supported values: "FROM_TRIM_HORIZON" (all shards including closed),
 	// "AT_LATEST" (open shards only), "AFTER_SHARD_ID", "AT_TIMESTAMP", "FROM_TIMESTAMP".
 	// Empty string defaults to open shards only.
-	ShardFilter string
-	MaxResults  int
+	ShardFilter        string
+	ShardFilterType    string
+	ShardFilterShardID string
+	MaxResults         int
 }
 
 // ListShardsOutput is the output for ListShards.

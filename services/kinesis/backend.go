@@ -479,9 +479,15 @@ func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, er
 
 	shard.Records.push(record)
 
+	enc := stream.EncryptionType
+	if enc == "" {
+		enc = encryptionTypeNone
+	}
+
 	return &PutRecordOutput{
 		ShardID:        shard.ID,
 		SequenceNumber: seq,
+		EncryptionType: enc,
 	}, nil
 }
 
@@ -550,6 +556,10 @@ func decodeIterator(token string) (*ShardIterator, error) {
 		return nil, ErrShardIteratorExpired
 	}
 
+	if !it.CreatedAt.IsZero() && time.Since(it.CreatedAt) > iteratorTTL {
+		return nil, ErrShardIteratorExpired
+	}
+
 	return &it, nil
 }
 
@@ -581,10 +591,15 @@ func (b *InMemoryBackend) GetShardIterator(input *GetShardIteratorInput) (*GetSh
 		position = 0
 	case iteratorTypeLatest:
 		position = shard.Records.len()
-	case iteratorTypeAtSequenceNumber:
-		position = findSequencePosition(&shard.Records, input.StartingSequenceNumber, false)
-	case iteratorTypeAfterSequenceNumber:
-		position = findSequencePosition(&shard.Records, input.StartingSequenceNumber, true)
+	case iteratorTypeAtSequenceNumber, iteratorTypeAfterSequenceNumber:
+		if input.StartingSequenceNumber == "" {
+			return nil, ErrInvalidArgument
+		}
+		position = findSequencePosition(
+			&shard.Records,
+			input.StartingSequenceNumber,
+			input.ShardIteratorType == iteratorTypeAfterSequenceNumber,
+		)
 	case iteratorTypeAtTimestamp:
 		position = findTimestampPosition(&shard.Records, input.Timestamp)
 	default:
@@ -596,6 +611,7 @@ func (b *InMemoryBackend) GetShardIterator(input *GetShardIteratorInput) (*GetSh
 		ShardID:        input.ShardID,
 		Position:       position,
 		SequenceNumber: input.StartingSequenceNumber,
+		CreatedAt:      time.Now(),
 	}
 
 	token, err := encodeIterator(it)
@@ -690,7 +706,7 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 
 	millisBehind := int64(0)
 	if end < shard.Records.len() {
-		millisBehind = time.Since(shard.Records.last().ApproximateArrivalTimestamp).Milliseconds()
+		millisBehind = time.Since(shard.Records.at(end).ApproximateArrivalTimestamp).Milliseconds()
 	}
 
 	return &GetRecordsOutput{
@@ -701,6 +717,47 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 }
 
 // shardFilterIncludesAll reports whether the given ShardFilter value requests all shards
+// shardDescription builds a ShardDescription from a Shard.
+func shardDescription(s *Shard) ShardDescription {
+	seqStart := "0"
+	if s.Records.len() > 0 {
+		seqStart = s.Records.at(0).SequenceNumber
+	}
+
+	var seqEnd string
+	if s.Closed || s.Records.len() > 0 {
+		if s.Records.len() > 0 {
+			seqEnd = s.Records.last().SequenceNumber
+		} else {
+			seqEnd = "0"
+		}
+	}
+
+	return ShardDescription{
+		ShardID:                  s.ID,
+		HashKeyRangeStart:        s.HashKeyRangeStart,
+		HashKeyRangeEnd:          s.HashKeyRangeEnd,
+		SequenceNumberRangeStart: seqStart,
+		SequenceNumberRangeEnd:   seqEnd,
+		ParentShardID:            s.ParentShardID,
+		AdjacentParentShardID:    s.AdjacentParentShardID,
+		Closed:                   s.Closed,
+	}
+}
+
+// listShardsAtShardID returns shards matching the AT_SHARD_ID filter.
+func listShardsAtShardID(shards []*Shard, targetID string) []ShardDescription {
+	result := make([]ShardDescription, 0)
+	for _, s := range shards {
+		if s.ID != targetID && s.ParentShardID != targetID && s.AdjacentParentShardID != targetID {
+			continue
+		}
+		result = append(result, shardDescription(s))
+	}
+
+	return result
+}
+
 // (open and closed). Used by ListShards.
 func shardFilterIncludesAll(filter string) bool {
 	return filter == "FROM_TRIM_HORIZON" || filter == "AT_TIMESTAMP" || filter == "FROM_TIMESTAMP"
@@ -719,6 +776,10 @@ func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput,
 	stream.mu.RLock("ListShards.stream")
 	b.mu.RUnlock()
 	defer stream.mu.RUnlock()
+
+	if input.ShardFilterType == "AT_SHARD_ID" && input.ShardFilterShardID != "" {
+		return &ListShardsOutput{Shards: listShardsAtShardID(stream.Shards, input.ShardFilterShardID)}, nil
+	}
 
 	includeAll := shardFilterIncludesAll(input.ShardFilter)
 	skip := input.ExclusiveStartShardID != ""
@@ -739,31 +800,7 @@ func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput,
 			continue
 		}
 
-		seqStart := "0"
-		if s.Records.len() > 0 {
-			seqStart = s.Records.at(0).SequenceNumber
-		}
-
-		var seqEnd string
-		if s.Closed {
-			seqEnd = "0"
-			if s.Records.len() > 0 {
-				seqEnd = s.Records.last().SequenceNumber
-			}
-		} else if s.Records.len() > 0 {
-			seqEnd = s.Records.last().SequenceNumber
-		}
-
-		result = append(result, ShardDescription{
-			ShardID:                  s.ID,
-			HashKeyRangeStart:        s.HashKeyRangeStart,
-			HashKeyRangeEnd:          s.HashKeyRangeEnd,
-			SequenceNumberRangeStart: seqStart,
-			SequenceNumberRangeEnd:   seqEnd,
-			ParentShardID:            s.ParentShardID,
-			AdjacentParentShardID:    s.AdjacentParentShardID,
-			Closed:                   s.Closed,
-		})
+		result = append(result, shardDescription(s))
 	}
 
 	return &ListShardsOutput{Shards: result}, nil
@@ -1120,6 +1157,10 @@ func (b *InMemoryBackend) UpdateShardCount(input *UpdateShardCountInput) (*Updat
 	stream.mu.Lock("UpdateShardCount.stream")
 	defer stream.mu.Unlock()
 
+	if stream.StreamMode == streamModeOnDemand {
+		return nil, ErrInvalidArgument
+	}
+
 	if input.TargetShardCount <= 0 {
 		return nil, ErrInvalidArgument
 	}
@@ -1340,6 +1381,12 @@ func (b *InMemoryBackend) MergeShards(input *MergeShardsInput) error {
 	s1End.SetString(shard1.HashKeyRangeEnd, hashKeyDecimalBase)
 	s2End := new(big.Int)
 	s2End.SetString(shard2.HashKeyRangeEnd, hashKeyDecimalBase)
+
+	s1EndPlusOne := new(big.Int).Add(s1End, big.NewInt(1))
+	s2EndPlusOne := new(big.Int).Add(s2End, big.NewInt(1))
+	if s1EndPlusOne.Cmp(s2Start) != 0 && s2EndPlusOne.Cmp(s1Start) != 0 {
+		return ErrInvalidArgument
+	}
 
 	startKey := s1Start
 	if s2Start.Cmp(s1Start) < 0 {
