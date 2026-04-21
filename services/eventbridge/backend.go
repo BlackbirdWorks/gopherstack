@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -41,6 +42,13 @@ const (
 	// defaultDeliveryTimeout is the default maximum time allowed for a single target delivery call.
 	defaultDeliveryTimeout = 30 * time.Second
 	ruleIndexAny           = "\x00"
+
+	// maxEventBusNameLength is the maximum allowed event bus name length (AWS limit).
+	maxEventBusNameLength = 256
+	// maxArchiveNameLength is the maximum allowed archive name length (AWS limit).
+	maxArchiveNameLength = 48
+	// maxTargetsPerRule is the maximum number of targets allowed per rule (AWS default limit).
+	maxTargetsPerRule = 5
 )
 
 type ruleIndexKey struct {
@@ -375,6 +383,14 @@ func (b *InMemoryBackend) CreateEventBus(name, description string) (*EventBus, e
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	if len(name) > maxEventBusNameLength {
+		return nil, fmt.Errorf("%w: Name must be %d characters or fewer", ErrInvalidParameter, maxEventBusNameLength)
+	}
+
+	if strings.HasPrefix(name, "aws.") {
+		return nil, fmt.Errorf("%w: Event bus name cannot start with the reserved prefix \"aws.\"", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateEventBus")
 	defer b.mu.Unlock()
 
@@ -464,6 +480,14 @@ func (b *InMemoryBackend) DescribeEventBus(name string) (*EventBus, error) {
 func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	if input.EventPattern != "" && input.ScheduleExpression != "" {
+		return nil, fmt.Errorf("%w: ScheduleExpression and EventPattern are mutually exclusive", ErrInvalidParameter)
+	}
+
+	if input.EventPattern == "" && input.ScheduleExpression == "" {
+		return nil, fmt.Errorf("%w: either EventPattern or ScheduleExpression must be provided", ErrInvalidParameter)
 	}
 
 	busName := input.EventBusName
@@ -631,6 +655,10 @@ func (b *InMemoryBackend) PutTargets(ruleName, eventBusName string, targets []Ta
 		eventBusName = defaultEventBusName
 	}
 
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("%w: at least one target is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("PutTargets")
 	defer b.mu.Unlock()
 
@@ -646,6 +674,11 @@ func (b *InMemoryBackend) PutTargets(ruleName, eventBusName string, targets []Ta
 	key := b.targetKey(eventBusName, ruleName)
 	if b.targets[key] == nil {
 		b.targets[key] = make(map[string]*Target)
+	}
+
+	// Reject if adding these targets would exceed the per-rule limit.
+	if len(b.targets[key])+len(targets) > maxTargetsPerRule {
+		return nil, fmt.Errorf("%w: rule %s already has the maximum number of targets (%d)", ErrInvalidParameter, ruleName, maxTargetsPerRule)
 	}
 
 	var failed []FailedEntry
@@ -960,6 +993,10 @@ func (b *InMemoryBackend) CreateAPIDestination(input CreateAPIDestinationInput) 
 		return nil, fmt.Errorf("%w: HttpMethod is required", ErrInvalidParameter)
 	}
 
+	if !isValidHTTPMethod(input.HTTPMethod) {
+		return nil, fmt.Errorf("%w: HttpMethod must be one of GET, HEAD, POST, OPTIONS, PUT, DELETE, PATCH", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateAPIDestination")
 	defer b.mu.Unlock()
 
@@ -993,8 +1030,16 @@ func (b *InMemoryBackend) CreateArchive(input CreateArchiveInput) (*Archive, err
 		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
 	}
 
+	if len(input.ArchiveName) > maxArchiveNameLength {
+		return nil, fmt.Errorf("%w: ArchiveName must be %d characters or fewer", ErrInvalidParameter, maxArchiveNameLength)
+	}
+
 	if input.EventSourceArn == "" {
 		return nil, fmt.Errorf("%w: EventSourceArn is required", ErrInvalidParameter)
+	}
+
+	if input.RetentionDays < 0 {
+		return nil, fmt.Errorf("%w: RetentionDays must be 0 (indefinite) or a positive integer", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("CreateArchive")
@@ -1029,6 +1074,10 @@ func (b *InMemoryBackend) CreateConnection(input CreateConnectionInput) (*Connec
 
 	if input.AuthorizationType == "" {
 		return nil, fmt.Errorf("%w: AuthorizationType is required", ErrInvalidParameter)
+	}
+
+	if !isValidConnectionAuthType(input.AuthorizationType) {
+		return nil, fmt.Errorf("%w: AuthorizationType must be one of API_KEY, BASIC, OAUTH_CLIENT_CREDENTIALS", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("CreateConnection")
@@ -1615,6 +1664,10 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 		return nil, fmt.Errorf("%w: EventSourceArn is required", ErrInvalidParameter)
 	}
 
+	if !input.EventStartTime.IsZero() && !input.EventEndTime.IsZero() && !input.EventStartTime.Before(input.EventEndTime) {
+		return nil, fmt.Errorf("%w: EventStartTime must be before EventEndTime", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("StartReplay")
 	defer b.mu.Unlock()
 
@@ -1678,6 +1731,10 @@ func (b *InMemoryBackend) TestEventPattern(pattern, event string) (bool, error) 
 
 	if event == "" {
 		return false, fmt.Errorf("%w: Event is required", ErrInvalidParameter)
+	}
+
+	if !isValidJSON(event) {
+		return false, fmt.Errorf("%w: Event must be valid JSON", ErrInvalidParameter)
 	}
 
 	compiled, err := b.getOrCompilePattern(pattern)
@@ -1785,4 +1842,40 @@ func (b *InMemoryBackend) AddPartnerSourceInternal(src *PartnerEventSource) {
 
 	cp := *src
 	b.partnerSources[src.Name] = &cp
+}
+
+// validHTTPMethods contains the HTTP methods that AWS EventBridge API Destinations support.
+var validHTTPMethods = map[string]struct{}{
+	"GET":     {},
+	"HEAD":    {},
+	"POST":    {},
+	"OPTIONS": {},
+	"PUT":     {},
+	"DELETE":  {},
+	"PATCH":   {},
+}
+
+// isValidHTTPMethod reports whether method is a supported API Destination HTTP method.
+func isValidHTTPMethod(method string) bool {
+	_, ok := validHTTPMethods[strings.ToUpper(method)]
+	return ok
+}
+
+// validConnectionAuthTypes contains the allowed AuthorizationType values.
+var validConnectionAuthTypes = map[string]struct{}{
+	"API_KEY":                  {},
+	"BASIC":                    {},
+	"OAUTH_CLIENT_CREDENTIALS": {},
+}
+
+// isValidConnectionAuthType reports whether authType is a valid connection authorization type.
+func isValidConnectionAuthType(authType string) bool {
+	_, ok := validConnectionAuthTypes[authType]
+	return ok
+}
+
+// isValidJSON reports whether s is valid JSON.
+func isValidJSON(s string) bool {
+	var v any
+	return json.Unmarshal([]byte(s), &v) == nil
 }

@@ -155,7 +155,7 @@ func TestDescribeRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "r1", Description: "desc"})
+	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "r1", Description: "desc", EventPattern: `{"source":["test"]}`})
 	require.NoError(t, err)
 
 	rule, err := b.DescribeRule("r1", "")
@@ -168,7 +168,7 @@ func TestDeleteRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "del-rule"})
+	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "del-rule", ScheduleExpression: "rate(1 minute)"})
 	require.NoError(t, err)
 
 	err = b.DeleteRule("del-rule", "")
@@ -182,7 +182,7 @@ func TestEnableDisableRule(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "toggle-rule", State: "ENABLED"})
+	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "toggle-rule", State: "ENABLED", EventPattern: `{"source":["test"]}`})
 	require.NoError(t, err)
 
 	err = b.DisableRule("toggle-rule", "")
@@ -204,7 +204,7 @@ func TestPutAndListTargets(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "rule-with-targets"})
+	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "rule-with-targets", ScheduleExpression: "rate(1 minute)"})
 	require.NoError(t, err)
 
 	targets := []eventbridge.Target{
@@ -226,7 +226,7 @@ func TestRemoveTargets(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "rule-remove"})
+	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "rule-remove", ScheduleExpression: "rate(1 minute)"})
 	require.NoError(t, err)
 
 	_, err = b.PutTargets("rule-remove", "", []eventbridge.Target{
@@ -290,12 +290,12 @@ func TestPutRule(t *testing.T) {
 	}{
 		{
 			name:      "DefaultState",
-			input:     eventbridge.PutRuleInput{Name: "no-state-rule"},
+			input:     eventbridge.PutRuleInput{Name: "no-state-rule", EventPattern: `{"source":["test"]}`},
 			wantState: "ENABLED",
 		},
 		{
 			name:    "UnknownBus",
-			input:   eventbridge.PutRuleInput{Name: "r", EventBusName: "nonexistent"},
+			input:   eventbridge.PutRuleInput{Name: "r", EventBusName: "nonexistent", EventPattern: `{"source":["test"]}`},
 			wantErr: eventbridge.ErrEventBusNotFound,
 		},
 	}
