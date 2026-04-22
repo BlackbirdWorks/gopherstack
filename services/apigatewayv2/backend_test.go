@@ -14,9 +14,9 @@ func TestInMemoryBackend_CreateGetAPI(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		input    apigatewayv2.CreateAPIInput
 		wantName string
 		wantProt string
+		input    apigatewayv2.CreateAPIInput
 	}{
 		{
 			name:     "http_api",

@@ -347,6 +347,10 @@ func randomID() string {
 
 // CreateAPI creates a new HTTP API.
 func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrBadRequest)
+	}
+
 	b.mu.Lock("CreateAPI")
 	defer b.mu.Unlock()
 
@@ -355,17 +359,35 @@ func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
 		return nil, fmt.Errorf("%w: protocolType must be HTTP or WEBSOCKET", ErrBadRequest)
 	}
 
+	// Apply AWS-realistic default RouteSelectionExpression when not provided.
+	rse := input.RouteSelectionExpression
+	if rse == "" {
+		if input.ProtocolType == "WEBSOCKET" {
+			rse = "$request.body.action"
+		} else {
+			rse = "${request.method} ${request.path}"
+		}
+	}
+
 	id := randomID()
 	api := API{
-		APIID:                    id,
-		Name:                     input.Name,
-		Description:              input.Description,
-		ProtocolType:             input.ProtocolType,
-		RouteSelectionExpression: input.RouteSelectionExpression,
-		Version:                  input.Version,
-		Tags:                     input.Tags,
-		APIEndpoint:              "https://" + id + ".execute-api.us-east-1.amazonaws.com",
-		CreatedDate:              isoTime{time.Now()},
+		APIID:                     id,
+		Name:                      input.Name,
+		Description:               input.Description,
+		ProtocolType:              input.ProtocolType,
+		RouteSelectionExpression:  rse,
+		Version:                   input.Version,
+		Tags:                      copyTags(input.Tags),
+		APIEndpoint:               "https://" + id + ".execute-api.us-east-1.amazonaws.com",
+		CreatedDate:               isoTime{time.Now()},
+		APIKeySelectionExpression: input.APIKeySelectionExpression,
+		DisableSchemaValidation:   input.DisableSchemaValidation,
+		DisableExecuteAPIEndpoint: input.DisableExecuteAPIEndpoint,
+	}
+
+	if input.CorsConfiguration != nil {
+		clone := *input.CorsConfiguration
+		api.CorsConfiguration = &clone
 	}
 
 	b.apis[id] = &apiData{
@@ -456,7 +478,16 @@ func (b *InMemoryBackend) UpdateAPI(apiID string, input UpdateAPIInput) (*API, e
 	}
 
 	if input.Tags != nil {
-		d.api.Tags = input.Tags
+		d.api.Tags = copyTags(input.Tags)
+	}
+
+	if input.APIKeySelectionExpression != "" {
+		d.api.APIKeySelectionExpression = input.APIKeySelectionExpression
+	}
+
+	if input.CorsConfiguration != nil {
+		clone := *input.CorsConfiguration
+		d.api.CorsConfiguration = &clone
 	}
 
 	cp := d.api
@@ -476,16 +507,27 @@ func (b *InMemoryBackend) CreateStage(apiID string, input CreateStageInput) (*St
 		return nil, ErrAPINotFound
 	}
 
+	if input.StageName == "" {
+		return nil, fmt.Errorf("%w: stageName is required", ErrBadRequest)
+	}
+
+	if _, exists := d.stages[input.StageName]; exists {
+		return nil, fmt.Errorf("%w: stage %q already exists", ErrAlreadyExists, input.StageName)
+	}
+
 	now := isoTime{time.Now()}
 	stage := &Stage{
-		StageName:       input.StageName,
-		APIID:           apiID,
-		DeploymentID:    input.DeploymentID,
-		Description:     input.Description,
-		AutoDeploy:      input.AutoDeploy,
-		StageVariables:  input.StageVariables,
-		CreatedDate:     now,
-		LastUpdatedDate: now,
+		StageName:            input.StageName,
+		APIID:                apiID,
+		DeploymentID:         input.DeploymentID,
+		Description:          input.Description,
+		AutoDeploy:           input.AutoDeploy,
+		StageVariables:       input.StageVariables,
+		CreatedDate:          now,
+		LastUpdatedDate:      now,
+		AccessLogSettings:    input.AccessLogSettings,
+		DefaultRouteSettings: input.DefaultRouteSettings,
+		RouteSettings:        input.RouteSettings,
 	}
 
 	d.stages[input.StageName] = stage
@@ -587,6 +629,20 @@ func (b *InMemoryBackend) UpdateStage(apiID, stageName string, input UpdateStage
 		s.StageVariables = input.StageVariables
 	}
 
+	if input.AccessLogSettings != nil {
+		clone := *input.AccessLogSettings
+		s.AccessLogSettings = &clone
+	}
+
+	if input.DefaultRouteSettings != nil {
+		clone := *input.DefaultRouteSettings
+		s.DefaultRouteSettings = &clone
+	}
+
+	if input.RouteSettings != nil {
+		s.RouteSettings = input.RouteSettings
+	}
+
 	s.LastUpdatedDate = isoTime{time.Now()}
 
 	cp := *s
@@ -606,6 +662,10 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		return nil, ErrAPINotFound
 	}
 
+	if input.RouteKey == "" {
+		return nil, fmt.Errorf("%w: routeKey is required", ErrBadRequest)
+	}
+
 	for _, existing := range d.routes {
 		if existing.RouteKey == input.RouteKey {
 			return nil, fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
@@ -614,13 +674,16 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 
 	id := randomID()
 	route := &Route{
-		RouteID:           id,
-		APIID:             apiID,
-		RouteKey:          input.RouteKey,
-		Target:            input.Target,
-		AuthorizationType: input.AuthorizationType,
-		AuthorizerID:      input.AuthorizerID,
-		OperationName:     input.OperationName,
+		RouteID:                  id,
+		APIID:                    apiID,
+		RouteKey:                 input.RouteKey,
+		Target:                   input.Target,
+		AuthorizationType:        input.AuthorizationType,
+		AuthorizerID:             input.AuthorizerID,
+		OperationName:            input.OperationName,
+		ModelSelectionExpression: input.ModelSelectionExpression,
+		RequestModels:            input.RequestModels,
+		RequestParameters:        input.RequestParameters,
 	}
 
 	d.routes[id] = route
@@ -726,6 +789,18 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 		r.OperationName = input.OperationName
 	}
 
+	if input.ModelSelectionExpression != "" {
+		r.ModelSelectionExpression = input.ModelSelectionExpression
+	}
+
+	if input.RequestModels != nil {
+		r.RequestModels = input.RequestModels
+	}
+
+	if input.RequestParameters != nil {
+		r.RequestParameters = input.RequestParameters
+	}
+
 	cp := *r
 
 	return &cp, nil
@@ -751,18 +826,34 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 		)
 	}
 
+	// Apply AWS-realistic defaults.
+	payloadFmtVer := input.PayloadFormatVersion
+	if payloadFmtVer == "" && input.IntegrationType == "AWS_PROXY" {
+		payloadFmtVer = "1.0"
+	}
+
+	timeoutMs := input.TimeoutInMillis
+	if timeoutMs == 0 {
+		timeoutMs = 29000
+	}
+
 	id := randomID()
 	integration := &Integration{
-		IntegrationID:        id,
-		APIID:                apiID,
-		IntegrationType:      input.IntegrationType,
-		IntegrationMethod:    input.IntegrationMethod,
-		IntegrationURI:       input.IntegrationURI,
-		Description:          input.Description,
-		PayloadFormatVersion: input.PayloadFormatVersion,
-		ConnectionType:       input.ConnectionType,
-		ConnectionID:         input.ConnectionID,
-		TimeoutInMillis:      input.TimeoutInMillis,
+		IntegrationID:               id,
+		APIID:                       apiID,
+		IntegrationType:             input.IntegrationType,
+		IntegrationSubtype:          input.IntegrationSubtype,
+		IntegrationMethod:           input.IntegrationMethod,
+		IntegrationURI:              input.IntegrationURI,
+		Description:                 input.Description,
+		PayloadFormatVersion:        payloadFmtVer,
+		ConnectionType:              input.ConnectionType,
+		ConnectionID:                input.ConnectionID,
+		TimeoutInMillis:             timeoutMs,
+		RequestParameters:           input.RequestParameters,
+		RequestTemplates:            input.RequestTemplates,
+		TemplateSelectionExpression: input.TemplateSelectionExpression,
+		PassthroughBehavior:         input.PassthroughBehavior,
 	}
 
 	d.integrations[id] = integration
@@ -834,25 +925,14 @@ func (b *InMemoryBackend) DeleteIntegration(apiID, integrationID string) error {
 }
 
 // UpdateIntegration updates fields on an existing integration.
-func (b *InMemoryBackend) UpdateIntegration(
-	apiID, integrationID string,
-	input UpdateIntegrationInput,
-) (*Integration, error) {
-	b.mu.Lock("UpdateIntegration")
-	defer b.mu.Unlock()
-
-	d, ok := b.apis[apiID]
-	if !ok {
-		return nil, ErrAPINotFound
-	}
-
-	i, ok := d.integrations[integrationID]
-	if !ok {
-		return nil, ErrIntegrationNotFound
-	}
-
+// applyIntegrationUpdate copies non-zero fields from input onto the integration.
+func applyIntegrationUpdate(i *Integration, input UpdateIntegrationInput) {
 	if input.IntegrationType != "" {
 		i.IntegrationType = input.IntegrationType
+	}
+
+	if input.IntegrationSubtype != "" {
+		i.IntegrationSubtype = input.IntegrationSubtype
 	}
 
 	if input.IntegrationMethod != "" {
@@ -883,6 +963,43 @@ func (b *InMemoryBackend) UpdateIntegration(
 		i.TimeoutInMillis = input.TimeoutInMillis
 	}
 
+	if input.RequestParameters != nil {
+		i.RequestParameters = input.RequestParameters
+	}
+
+	if input.RequestTemplates != nil {
+		i.RequestTemplates = input.RequestTemplates
+	}
+
+	if input.TemplateSelectionExpression != "" {
+		i.TemplateSelectionExpression = input.TemplateSelectionExpression
+	}
+
+	if input.PassthroughBehavior != "" {
+		i.PassthroughBehavior = input.PassthroughBehavior
+	}
+}
+
+// UpdateIntegration updates fields on an existing integration.
+func (b *InMemoryBackend) UpdateIntegration(
+	apiID, integrationID string,
+	input UpdateIntegrationInput,
+) (*Integration, error) {
+	b.mu.Lock("UpdateIntegration")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	i, ok := d.integrations[integrationID]
+	if !ok {
+		return nil, ErrIntegrationNotFound
+	}
+
+	applyIntegrationUpdate(i, input)
+
 	cp := *i
 
 	return &cp, nil
@@ -910,6 +1027,13 @@ func (b *InMemoryBackend) CreateDeployment(apiID string, input CreateDeploymentI
 	}
 
 	d.deployments[id] = deployment
+
+	// When a stage name is provided, link the deployment to that stage (AWS behaviour).
+	if input.StageName != "" {
+		if s, stageExists := d.stages[input.StageName]; stageExists {
+			s.DeploymentID = id
+		}
+	}
 
 	cp := *deployment
 
@@ -996,14 +1120,21 @@ func (b *InMemoryBackend) CreateAuthorizer(apiID string, input CreateAuthorizerI
 
 	id := randomID()
 	authorizer := &Authorizer{
-		AuthorizerID:                 id,
-		APIID:                        apiID,
-		Name:                         input.Name,
-		AuthorizerType:               input.AuthorizerType,
-		AuthorizerURI:                input.AuthorizerURI,
-		IdentitySource:               input.IdentitySource,
-		AuthorizerCredentialsArn:     input.AuthorizerCredentialsArn,
-		AuthorizerResultTTLInSeconds: input.AuthorizerResultTTLInSeconds,
+		AuthorizerID:                   id,
+		APIID:                          apiID,
+		Name:                           input.Name,
+		AuthorizerType:                 input.AuthorizerType,
+		AuthorizerURI:                  input.AuthorizerURI,
+		IdentitySource:                 input.IdentitySource,
+		AuthorizerCredentialsArn:       input.AuthorizerCredentialsArn,
+		AuthorizerResultTTLInSeconds:   input.AuthorizerResultTTLInSeconds,
+		AuthorizerPayloadFormatVersion: input.AuthorizerPayloadFormatVersion,
+		EnableSimpleResponses:          input.EnableSimpleResponses,
+	}
+
+	if input.JwtConfiguration != nil {
+		clone := *input.JwtConfiguration
+		authorizer.JwtConfiguration = &clone
 	}
 
 	d.authorizers[id] = authorizer
@@ -1114,6 +1245,19 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 
 	if input.AuthorizerResultTTLInSeconds != 0 {
 		a.AuthorizerResultTTLInSeconds = input.AuthorizerResultTTLInSeconds
+	}
+
+	if input.AuthorizerPayloadFormatVersion != "" {
+		a.AuthorizerPayloadFormatVersion = input.AuthorizerPayloadFormatVersion
+	}
+
+	if input.EnableSimpleResponses {
+		a.EnableSimpleResponses = input.EnableSimpleResponses
+	}
+
+	if input.JwtConfiguration != nil {
+		clone := *input.JwtConfiguration
+		a.JwtConfiguration = &clone
 	}
 
 	cp := *a
