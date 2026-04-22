@@ -8,8 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestBackend() *rds.InMemoryBackend {
-	return rds.NewInMemoryBackend("123456789012", "us-east-1")
+func newTestBackend(t *testing.T) *rds.InMemoryBackend {
+	t.Helper()
+	b := rds.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(b.Close)
+
+	return b
 }
 
 func TestCreateEventSubscription(t *testing.T) {
@@ -47,7 +51,7 @@ func TestCreateEventSubscription(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if tt.name == "already exists" {
 				_, err := b.CreateEventSubscription(tt.subName, tt.snsARN, tt.sourceType, tt.sourceIDs)
 				require.NoError(t, err)
@@ -84,7 +88,7 @@ func TestDeleteEventSubscription(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if !tt.wantErr {
 				_, err := b.CreateEventSubscription(tt.subName, "arn:aws:sns:us-east-1:123456789012:topic", "", nil)
 				require.NoError(t, err)
@@ -118,7 +122,7 @@ func TestDescribeEventSubscriptions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			_, err := b.CreateEventSubscription("sub-1", "arn:aws:sns:us-east-1:123456789012:t", "", nil)
 			require.NoError(t, err)
 			_, err = b.CreateEventSubscription("sub-2", "arn:aws:sns:us-east-1:123456789012:t", "", nil)
@@ -173,7 +177,7 @@ func TestModifyEventSubscription(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if !tt.wantErr {
 				_, err := b.CreateEventSubscription(tt.subName, "arn:aws:sns:us-east-1:123456789012:old", "", nil)
 				require.NoError(t, err)
@@ -210,7 +214,7 @@ func TestDescribeEvents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			got, err := b.DescribeEvents(tt.sourceID, tt.sourceType, tt.durationMinutes)
 			require.NoError(t, err)
 			assert.GreaterOrEqual(t, len(got), tt.wantMinCount)
@@ -231,7 +235,7 @@ func TestDescribeEventCategories(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			got, err := b.DescribeEventCategories(tt.sourceType)
 			require.NoError(t, err)
 			assert.Len(t, got, tt.wantLen)
@@ -255,7 +259,7 @@ func TestDescribeBlueGreenDeployments(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if tt.name == "not found" {
 				_, err := b.DescribeBlueGreenDeployments("nonexistent-id")
 				require.Error(t, err)
@@ -294,7 +298,7 @@ func TestDeleteBlueGreenDeployment(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if tt.wantErr {
 				_, err := b.DeleteBlueGreenDeployment("nonexistent-id")
 				require.Error(t, err)
@@ -324,7 +328,7 @@ func TestSwitchoverBlueGreenDeployment(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if tt.wantErr {
 				_, err := b.SwitchoverBlueGreenDeployment("nonexistent-id")
 				require.Error(t, err)
@@ -357,7 +361,7 @@ func TestDescribeDBSecurityGroups(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			b.AddSecurityGroupInternal("sg-1", "Security group 1")
 			b.AddSecurityGroupInternal("sg-2", "Security group 2")
 			got, err := b.DescribeDBSecurityGroups(tt.filter)
@@ -388,7 +392,7 @@ func TestDeleteDBSecurityGroup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if tt.name == "success" {
 				b.AddSecurityGroupInternal(tt.sgName, "desc")
 			}
@@ -432,7 +436,7 @@ func TestRevokeDBSecurityGroupIngress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if tt.name != "group not found" {
 				b.AddSecurityGroupInternal("sg-1", "desc")
 				_, err := b.AuthorizeDBSecurityGroupIngress("sg-1", "10.0.0.0/8")
@@ -471,7 +475,7 @@ func TestFailoverDBCluster(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if tt.name == "success" {
 				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0)
 				require.NoError(t, err)
@@ -509,7 +513,7 @@ func TestRebootDBCluster(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if !tt.wantErr {
 				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0)
 				require.NoError(t, err)
@@ -542,7 +546,7 @@ func TestDeleteDBClusterParameterGroup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if tt.name == "success" {
 				_, err := b.CreateDBClusterParameterGroup(tt.pgName, "aurora-mysql8.0", "desc")
 				require.NoError(t, err)
@@ -583,7 +587,7 @@ func TestModifyDBClusterParameterGroup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if !tt.wantErr {
 				_, err := b.CreateDBClusterParameterGroup(tt.pgName, "aurora-mysql8.0", "desc")
 				require.NoError(t, err)
@@ -616,7 +620,7 @@ func TestDescribeDBClusterParameters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if !tt.wantErr {
 				_, err := b.CreateDBClusterParameterGroup(tt.pgName, "aurora-mysql8.0", "desc")
 				require.NoError(t, err)
@@ -656,7 +660,7 @@ func TestResetDBClusterParameterGroup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if !tt.wantErr {
 				_, err := b.CreateDBClusterParameterGroup(tt.pgName, "aurora-mysql8.0", "desc")
 				require.NoError(t, err)
@@ -705,7 +709,7 @@ func TestModifyDBSubnetGroup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if !tt.wantErr {
 				_, err := b.CreateDBSubnetGroup(tt.sgName, "original desc", "", []string{"subnet-old"})
 				require.NoError(t, err)
@@ -752,7 +756,7 @@ func TestModifyDBClusterEndpoint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newTestBackend()
+			b := newTestBackend(t)
 			if !tt.wantErr {
 				_, err := b.CreateDBCluster("my-cluster", "aurora-mysql", "admin", "", "", 0)
 				require.NoError(t, err)

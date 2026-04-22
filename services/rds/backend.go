@@ -341,6 +341,7 @@ type InMemoryBackend struct {
 	dbSecurityGroups       map[string]*DBSecurityGroup
 	blueGreenDeployments   map[string]*BlueGreenDeployment
 	fisFailoverFaults      map[string]time.Time
+	stopCh                 chan struct{}
 	accountID              string
 	region                 string
 	events                 []Event
@@ -369,6 +370,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		dbSecurityGroups:       make(map[string]*DBSecurityGroup),
 		blueGreenDeployments:   make(map[string]*BlueGreenDeployment),
 		fisFailoverFaults:      make(map[string]time.Time),
+		stopCh:                 make(chan struct{}),
 		accountID:              accountID,
 		region:                 region,
 		mu:                     lockmetrics.New("rds"),
@@ -377,6 +379,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	go b.runReconciler()
 
 	return b
+}
+
+// Close stops the background reconciler goroutine.
+func (b *InMemoryBackend) Close() {
+	close(b.stopCh)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -443,15 +450,20 @@ func (b *InMemoryBackend) reconcileInstancesLocked() {
 }
 
 // runReconciler periodically transitions DB instances that have passed their
-// ready-at timestamp. It runs as a long-lived background goroutine.
+// ready-at timestamp. It runs as a long-lived background goroutine until Close() is called.
 func (b *InMemoryBackend) runReconciler() {
 	ticker := time.NewTicker(instanceTransitionDelay / reconcilerDivisor)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		b.mu.Lock("runReconciler")
-		b.reconcileInstancesLocked()
-		b.mu.Unlock()
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case <-ticker.C:
+			b.mu.Lock("runReconciler")
+			b.reconcileInstancesLocked()
+			b.mu.Unlock()
+		}
 	}
 }
 
