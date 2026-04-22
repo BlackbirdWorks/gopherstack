@@ -310,7 +310,8 @@ type UpdateDeploymentInput struct {
 
 // UpdateDomainNameInput is the input for UpdateDomainName (PATCH).
 type UpdateDomainNameInput struct {
-	Tags map[string]string `json:"tags,omitempty"`
+	Tags                     map[string]string         `json:"tags,omitempty"`
+	DomainNameConfigurations []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`
 }
 
 // UpdateIntegrationResponseInput is the input for UpdateIntegrationResponse (PATCH).

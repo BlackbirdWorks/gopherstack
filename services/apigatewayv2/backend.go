@@ -460,6 +460,15 @@ func (b *InMemoryBackend) DeleteAPI(apiID string) error {
 
 	delete(b.apis, apiID)
 
+	// Clean up stale API mappings pointing to this API.
+	for _, mappings := range b.apiMappings {
+		for id, m := range mappings {
+			if m.APIID == apiID {
+				delete(mappings, id)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -697,6 +706,10 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		authType = "NONE"
 	}
 
+	if authType == "JWT" && input.AuthorizerID == "" {
+		return nil, fmt.Errorf("%w: authorizerId is required for JWT authorization", ErrBadRequest)
+	}
+
 	id := randomID()
 	route := &Route{
 		RouteID:                  id,
@@ -775,6 +788,7 @@ func (b *InMemoryBackend) DeleteRoute(apiID, routeID string) error {
 	}
 
 	delete(d.routes, routeID)
+	delete(d.routeResponses, routeID)
 
 	return nil
 }
@@ -795,6 +809,12 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 	}
 
 	if input.RouteKey != "" {
+		// Check for duplicate route key (excluding the current route).
+		for id, existing := range d.routes {
+			if id != routeID && existing.RouteKey == input.RouteKey {
+				return nil, fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
+			}
+		}
 		r.RouteKey = input.RouteKey
 	}
 
@@ -857,6 +877,11 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 		payloadFmtVer = "1.0"
 	}
 
+	passthroughBehavior := input.PassthroughBehavior
+	if passthroughBehavior == "" && input.IntegrationType == "HTTP_PROXY" {
+		passthroughBehavior = "WHEN_NO_MATCH"
+	}
+
 	timeoutMs := input.TimeoutInMillis
 	if timeoutMs == 0 {
 		timeoutMs = 29000
@@ -878,7 +903,7 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 		RequestParameters:           input.RequestParameters,
 		RequestTemplates:            input.RequestTemplates,
 		TemplateSelectionExpression: input.TemplateSelectionExpression,
-		PassthroughBehavior:         input.PassthroughBehavior,
+		PassthroughBehavior:         passthroughBehavior,
 	}
 
 	d.integrations[id] = integration
@@ -945,6 +970,7 @@ func (b *InMemoryBackend) DeleteIntegration(apiID, integrationID string) error {
 	}
 
 	delete(d.integrations, integrationID)
+	delete(d.integrationResponses, integrationID)
 
 	return nil
 }
@@ -1055,9 +1081,12 @@ func (b *InMemoryBackend) CreateDeployment(apiID string, input CreateDeploymentI
 
 	// When a stage name is provided, link the deployment to that stage (AWS behaviour).
 	if input.StageName != "" {
-		if s, stageExists := d.stages[input.StageName]; stageExists {
-			s.DeploymentID = id
+		s, stageExists := d.stages[input.StageName]
+		if !stageExists {
+			return nil, ErrStageNotFound
 		}
+
+		s.DeploymentID = id
 	}
 
 	cp := *deployment
@@ -1136,6 +1165,10 @@ func (b *InMemoryBackend) CreateAuthorizer(apiID string, input CreateAuthorizerI
 	d, ok := b.apis[apiID]
 	if !ok {
 		return nil, ErrAPINotFound
+	}
+
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrBadRequest)
 	}
 
 	validTypes := map[string]bool{"JWT": true, "REQUEST": true, "CUSTOM": true}
@@ -1641,6 +1674,10 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrBadRequest)
+	}
+
+	if len(input.SubnetIDs) == 0 {
+		return nil, fmt.Errorf("%w: subnetIds is required", ErrBadRequest)
 	}
 
 	b.mu.Lock("CreateVpcLink")
@@ -2581,6 +2618,12 @@ func (b *InMemoryBackend) UpdateDomainName(domainName string, input UpdateDomain
 			dn.Tags = make(map[string]string)
 		}
 		maps.Copy(dn.Tags, input.Tags)
+	}
+
+	if len(input.DomainNameConfigurations) > 0 {
+		configs := make([]DomainNameConfiguration, len(input.DomainNameConfigurations))
+		copy(configs, input.DomainNameConfigurations)
+		dn.DomainNameConfigurations = configs
 	}
 
 	cp := *dn

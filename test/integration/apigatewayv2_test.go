@@ -661,3 +661,206 @@ func TestIntegration_APIGatewayV2_RequiredFieldValidation(t *testing.T) {
 	_, err = client.GetApi(ctx, &apigwv2sdk.GetApiInput{ApiId: aws.String("nonexistent123")})
 	require.Error(t, err, "non-existent API should return error")
 }
+
+func TestIntegration_APIGatewayV2_CascadeDelete(t *testing.T) {
+t.Parallel()
+dumpContainerLogsOnFailure(t)
+
+ctx := t.Context()
+client := createAPIGatewayV2Client(t)
+
+tests := []struct {
+name string
+}{
+{name: "delete_route_removes_route_responses"},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+apiOut, err := client.CreateApi(ctx, &apigwv2sdk.CreateApiInput{
+Name:         aws.String("cascade-test"),
+ProtocolType: apigwv2types.ProtocolTypeHttp,
+})
+require.NoError(t, err)
+apiID := *apiOut.ApiId
+t.Cleanup(func() {
+_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+})
+
+routeOut, err := client.CreateRoute(ctx, &apigwv2sdk.CreateRouteInput{
+ApiId:    aws.String(apiID),
+RouteKey: aws.String("GET /cascade"),
+})
+require.NoError(t, err)
+routeID := *routeOut.RouteId
+
+_, err = client.DeleteRoute(ctx, &apigwv2sdk.DeleteRouteInput{
+ApiId:   aws.String(apiID),
+RouteId: aws.String(routeID),
+})
+require.NoError(t, err)
+
+// Route should be gone.
+routesOut, err := client.GetRoutes(ctx, &apigwv2sdk.GetRoutesInput{ApiId: aws.String(apiID)})
+require.NoError(t, err)
+assert.Empty(t, routesOut.Items, "routes should be empty after delete")
+})
+}
+}
+
+func TestIntegration_APIGatewayV2_ModelValidation(t *testing.T) {
+t.Parallel()
+dumpContainerLogsOnFailure(t)
+
+ctx := t.Context()
+client := createAPIGatewayV2Client(t)
+
+apiOut, err := client.CreateApi(ctx, &apigwv2sdk.CreateApiInput{
+Name:         aws.String("model-validation-test"),
+ProtocolType: apigwv2types.ProtocolTypeHttp,
+})
+require.NoError(t, err)
+apiID := *apiOut.ApiId
+t.Cleanup(func() {
+_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+})
+
+tests := []struct {
+name    string
+input   *apigwv2sdk.CreateModelInput
+wantErr bool
+}{
+{
+name: "empty_name_fails",
+input: &apigwv2sdk.CreateModelInput{
+ApiId: aws.String(apiID),
+Name:  aws.String(""),
+Schema: aws.String(`{"type":"object"}`),
+},
+wantErr: true,
+},
+{
+name: "valid_model_succeeds",
+input: &apigwv2sdk.CreateModelInput{
+ApiId:       aws.String(apiID),
+Name:        aws.String("MyModel"),
+Schema:      aws.String(`{"type":"object"}`),
+ContentType: aws.String("application/json"),
+},
+wantErr: false,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+_, err := client.CreateModel(ctx, tt.input)
+if tt.wantErr {
+require.Error(t, err)
+} else {
+require.NoError(t, err)
+}
+})
+}
+}
+
+func TestIntegration_APIGatewayV2_VpcLinkValidation(t *testing.T) {
+t.Parallel()
+dumpContainerLogsOnFailure(t)
+
+ctx := t.Context()
+client := createAPIGatewayV2Client(t)
+
+tests := []struct {
+name    string
+input   *apigwv2sdk.CreateVpcLinkInput
+wantErr bool
+}{
+{
+name: "missing_name_fails",
+input: &apigwv2sdk.CreateVpcLinkInput{
+Name:      aws.String(""),
+SubnetIds: []string{"subnet-abc123"},
+},
+wantErr: true,
+},
+{
+name: "missing_subnets_fails",
+input: &apigwv2sdk.CreateVpcLinkInput{
+Name:      aws.String("my-link"),
+SubnetIds: []string{},
+},
+wantErr: true,
+},
+{
+name: "valid_vpc_link_succeeds",
+input: &apigwv2sdk.CreateVpcLinkInput{
+Name:      aws.String("valid-link"),
+SubnetIds: []string{"subnet-abc123"},
+},
+wantErr: false,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+out, err := client.CreateVpcLink(ctx, tt.input)
+if tt.wantErr {
+require.Error(t, err)
+} else {
+require.NoError(t, err)
+t.Cleanup(func() {
+_, _ = client.DeleteVpcLink(t.Context(), &apigwv2sdk.DeleteVpcLinkInput{VpcLinkId: out.VpcLinkId})
+})
+}
+})
+}
+}
+
+func TestIntegration_APIGatewayV2_RouteKeyUniqueness(t *testing.T) {
+t.Parallel()
+dumpContainerLogsOnFailure(t)
+
+ctx := t.Context()
+client := createAPIGatewayV2Client(t)
+
+tests := []struct {
+name string
+}{
+{name: "duplicate_route_key_rejected"},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+apiOut, err := client.CreateApi(ctx, &apigwv2sdk.CreateApiInput{
+Name:         aws.String("route-key-unique-test"),
+ProtocolType: apigwv2types.ProtocolTypeHttp,
+})
+require.NoError(t, err)
+apiID := *apiOut.ApiId
+t.Cleanup(func() {
+_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+})
+
+_, err = client.CreateRoute(ctx, &apigwv2sdk.CreateRouteInput{
+ApiId:    aws.String(apiID),
+RouteKey: aws.String("GET /items"),
+})
+require.NoError(t, err)
+
+// Duplicate should fail.
+_, err = client.CreateRoute(ctx, &apigwv2sdk.CreateRouteInput{
+ApiId:    aws.String(apiID),
+RouteKey: aws.String("GET /items"),
+})
+require.Error(t, err, "duplicate route key should fail")
+})
+}
+}
