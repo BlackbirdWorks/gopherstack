@@ -17,6 +17,8 @@ import (
 const (
 	apiIDChars  = "abcdefghijklmnopqrstuvwxyz0123456789"
 	apiIDLength = 10
+
+	authorizerTypeJWT = "JWT"
 )
 
 var (
@@ -706,7 +708,7 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		authType = "NONE"
 	}
 
-	if authType == "JWT" && input.AuthorizerID == "" {
+	if authType == authorizerTypeJWT && input.AuthorizerID == "" {
 		return nil, fmt.Errorf("%w: authorizerId is required for JWT authorization", ErrBadRequest)
 	}
 
@@ -1171,19 +1173,19 @@ func (b *InMemoryBackend) CreateAuthorizer(apiID string, input CreateAuthorizerI
 		return nil, fmt.Errorf("%w: name is required", ErrBadRequest)
 	}
 
-	validTypes := map[string]bool{"JWT": true, "REQUEST": true, "CUSTOM": true}
+	validTypes := map[string]bool{authorizerTypeJWT: true, "REQUEST": true, "CUSTOM": true}
 	if !validTypes[input.AuthorizerType] {
 		return nil, fmt.Errorf("%w: authorizerType must be JWT, REQUEST, or CUSTOM", ErrBadRequest)
 	}
 
 	// Validate JWT authorizer requires JwtConfiguration.
-	if input.AuthorizerType == "JWT" && input.JwtConfiguration == nil {
+	if input.AuthorizerType == authorizerTypeJWT && input.JwtConfiguration == nil {
 		return nil, fmt.Errorf("%w: jwtConfiguration is required for JWT authorizers", ErrBadRequest)
 	}
 
 	// Apply AWS-realistic defaults for IdentitySource.
 	identitySource := input.IdentitySource
-	if len(identitySource) == 0 && input.AuthorizerType == "JWT" {
+	if len(identitySource) == 0 && input.AuthorizerType == authorizerTypeJWT {
 		identitySource = []string{"$request.header.Authorization"}
 	}
 
