@@ -42,6 +42,8 @@ const (
 	apiGWSegModels             = "models"
 	apiGWSegUsagePlans         = "usageplans"
 	apiGWSegUsagePlanKeys      = "keys"
+	apiGWSegGatewayResponses   = "gatewayresponses"
+	apiGWSegClientCerts        = "clientcertificates"
 
 	// apiGWMinTagPathSegs is the minimum number of path segments for a /tags/{arn} path.
 	apiGWMinTagPathSegs = 2
@@ -483,6 +485,8 @@ func (h *Handler) getHTTPClient() *http.Client {
 func (h *Handler) Name() string { return "APIGateway" }
 
 // GetSupportedOperations returns all mocked API Gateway operations.
+//
+//nolint:funlen // enumerating all supported ops necessarily results in a long function
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateRestApi",
@@ -569,6 +573,27 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"TestInvokeMethod",
+		"UpdateUsagePlan",
+		"UpdateDomainName",
+		"UpdateBasePathMapping",
+		"UpdateDocumentationPart",
+		"UpdateDocumentationVersion",
+		"UpdateMethod",
+		"UpdateIntegration",
+		"UpdateIntegrationResponse",
+		"UpdateMethodResponse",
+		"UpdateAccount",
+		"TestInvokeAuthorizer",
+		"GetModelTemplate",
+		"GetGatewayResponse",
+		"GetGatewayResponses",
+		"PutGatewayResponse",
+		"DeleteGatewayResponse",
+		"GenerateClientCertificate",
+		"GetClientCertificate",
+		"GetClientCertificates",
+		"DeleteClientCertificate",
+		"GetUsage",
 	}
 }
 
@@ -583,6 +608,8 @@ func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion
 
 // RouteMatcher returns a matcher for API Gateway requests.
 // Matches X-Amz-Target (JSON protocol) and REST paths (/restapis/..., /apikeys, /domainnames/..., /usageplans/...).
+// The /tags/{arn} path is only matched when the ARN belongs to an API Gateway resource
+// (contains ":apigateway:") so that other services (e.g. FIS) can own their own tag routes.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "APIGateway.") {
@@ -591,12 +618,24 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/restapis") ||
+		if strings.HasPrefix(path, "/restapis") ||
 			strings.HasPrefix(path, "/apikeys") ||
 			strings.HasPrefix(path, "/domainnames") ||
 			strings.HasPrefix(path, "/usageplans") ||
 			strings.HasPrefix(path, "/account") ||
-			strings.HasPrefix(path, "/tags")
+			strings.HasPrefix(path, "/"+apiGWSegClientCerts) {
+			return true
+		}
+
+		// /tags/{arn} — only claim this path when the ARN is an API Gateway resource.
+		// API Gateway ARNs contain ":apigateway:" (e.g. arn:aws:apigateway:us-east-1::/restapis/xyz).
+		if after, ok := strings.CutPrefix(path, "/tags/"); ok {
+			rest := after
+
+			return strings.Contains(rest, ":apigateway:")
+		}
+
+		return false
 	}
 }
 
@@ -664,7 +703,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			strings.HasPrefix(path, "/domainnames") ||
 			strings.HasPrefix(path, "/usageplans") ||
 			strings.HasPrefix(path, "/account") ||
-			strings.HasPrefix(path, "/tags")
+			strings.HasPrefix(path, "/"+apiGWSegClientCerts) ||
+			(strings.HasPrefix(path, "/tags/") && strings.Contains(strings.TrimPrefix(path, "/tags/"), ":apigateway:"))
 
 		if isRESTPath && !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "APIGateway.") {
 			return h.handleRESTAPI(c)
@@ -810,6 +850,8 @@ func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 		return parseAPIGWAccountPath(method, segs, n)
 	case "tags":
 		return parseAPIGWTagsPath(method, segs, n)
+	case apiGWSegClientCerts:
+		return parseAPIGWClientCertificatesPath(method, segs, n)
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -820,6 +862,30 @@ func parseAPIGWAccountPath(method string, _ []string, n int) (string, map[string
 	// GET /account → GetAccount
 	if n == 1 && method == http.MethodGet {
 		return "GetAccount", nil, true
+	}
+	// PATCH /account → UpdateAccount
+	if n == 1 && method == http.MethodPatch {
+		return "UpdateAccount", nil, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWClientCertificatesPath handles /clientcertificates/... paths.
+func parseAPIGWClientCertificatesPath(method string, segs []string, n int) (string, map[string]string, bool) {
+	switch {
+	// GET /clientcertificates → GetClientCertificates
+	case n == 1 && method == http.MethodGet:
+		return "GetClientCertificates", nil, true
+	// POST /clientcertificates → GenerateClientCertificate
+	case n == 1 && method == http.MethodPost:
+		return "GenerateClientCertificate", nil, true
+	// GET /clientcertificates/{id} → GetClientCertificate
+	case n == 2 && method == http.MethodGet:
+		return "GetClientCertificate", map[string]string{"clientCertificateId": segs[1]}, true
+	// DELETE /clientcertificates/{id} → DeleteClientCertificate
+	case n == 2 && method == http.MethodDelete:
+		return "DeleteClientCertificate", map[string]string{"clientCertificateId": segs[1]}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -888,6 +954,9 @@ func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map
 	// DELETE /domainnames/{name} → DeleteDomainName
 	case n == 2 && method == http.MethodDelete:
 		return "DeleteDomainName", map[string]string{"domainName": segs[1]}, true
+	// PATCH /domainnames/{name} → UpdateDomainName
+	case n == 2 && method == http.MethodPatch:
+		return "UpdateDomainName", map[string]string{"domainName": segs[1]}, true
 	// GET /domainnames/{name}/basepathmappings → GetBasePathMappings
 	case n == 3 && segs[2] == apiGWSegBasePathMappings && method == http.MethodGet:
 		return "GetBasePathMappings", map[string]string{"domainName": segs[1]}, true
@@ -897,6 +966,9 @@ func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map
 	// GET /domainnames/{name}/basepathmappings/{basePath} → GetBasePathMapping
 	case n == 4 && segs[2] == apiGWSegBasePathMappings && method == http.MethodGet:
 		return "GetBasePathMapping", map[string]string{"domainName": segs[1], "basePath": segs[3]}, true
+	// PATCH /domainnames/{name}/basepathmappings/{basePath} → UpdateBasePathMapping
+	case n == 4 && segs[2] == apiGWSegBasePathMappings && method == http.MethodPatch:
+		return "UpdateBasePathMapping", map[string]string{"domainName": segs[1], "basePath": segs[3]}, true
 	// DELETE /domainnames/{name}/basepathmappings/{basePath} → DeleteBasePathMapping
 	case n == 4 && segs[2] == apiGWSegBasePathMappings && method == http.MethodDelete:
 		return "DeleteBasePathMapping", map[string]string{"domainName": segs[1], "basePath": segs[3]}, true
@@ -925,6 +997,12 @@ func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[
 	// DELETE /usageplans/{id} → DeleteUsagePlan
 	case n == 2 && method == http.MethodDelete:
 		return "DeleteUsagePlan", map[string]string{"usagePlanId": segs[1]}, true
+	// PATCH /usageplans/{id} → UpdateUsagePlan
+	case n == 2 && method == http.MethodPatch:
+		return "UpdateUsagePlan", map[string]string{"usagePlanId": segs[1]}, true
+	// GET /usageplans/{id}/usage → GetUsage
+	case n == 3 && segs[2] == "usage" && method == http.MethodGet:
+		return "GetUsage", map[string]string{"usagePlanId": segs[1]}, true
 	// GET /usageplans/{id}/keys → GetUsagePlanKeys
 	case n == 3 && segs[2] == apiGWSegUsagePlanKeys && method == http.MethodGet:
 		return "GetUsagePlanKeys", map[string]string{"usagePlanId": segs[1]}, true
@@ -1089,6 +1167,33 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 			"restApiId":            segs[1],
 			"documentationVersion": segs[4],
 		}, true
+	// PATCH /restapis/{id}/documentation/parts/{docPartId} → UpdateDocumentationPart
+	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodPatch:
+		return "UpdateDocumentationPart", map[string]string{"restApiId": segs[1], "docPartId": segs[4]}, true
+	// PATCH /restapis/{id}/documentation/versions/{docVersion} → UpdateDocumentationVersion
+	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodPatch:
+		return "UpdateDocumentationVersion", map[string]string{
+			"restApiId":            segs[1],
+			"documentationVersion": segs[4],
+		}, true
+	// GET /restapis/{id}/gatewayresponses → GetGatewayResponses
+	case n == 3 && segs[2] == apiGWSegGatewayResponses && method == http.MethodGet:
+		return "GetGatewayResponses", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/gatewayresponses/{responseType} → GetGatewayResponse
+	case n == 4 && segs[2] == apiGWSegGatewayResponses && method == http.MethodGet:
+		return "GetGatewayResponse", map[string]string{"restApiId": segs[1], "responseType": segs[3]}, true
+	// PUT /restapis/{id}/gatewayresponses/{responseType} → PutGatewayResponse
+	case n == 4 && segs[2] == apiGWSegGatewayResponses && method == http.MethodPut:
+		return "PutGatewayResponse", map[string]string{"restApiId": segs[1], "responseType": segs[3]}, true
+	// DELETE /restapis/{id}/gatewayresponses/{responseType} → DeleteGatewayResponse
+	case n == 4 && segs[2] == apiGWSegGatewayResponses && method == http.MethodDelete:
+		return "DeleteGatewayResponse", map[string]string{"restApiId": segs[1], "responseType": segs[3]}, true
+	// GET /restapis/{id}/models/{modelName}/default_template → GetModelTemplate
+	case n == 5 && segs[2] == apiGWSegModels && segs[4] == "default_template" && method == http.MethodGet:
+		return "GetModelTemplate", map[string]string{"restApiId": segs[1], "modelName": segs[3]}, true
+	// POST /restapis/{id}/authorizers/{authId}/invocations → TestInvokeAuthorizer
+	case n == 5 && segs[2] == apiGWSegAuthorizers && segs[4] == "invocations" && method == http.MethodPost:
+		return "TestInvokeAuthorizer", map[string]string{"restApiId": segs[1], "authorizerId": segs[3]}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1096,7 +1201,7 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 
 // parseAPIGWMethodPath handles paths under /restapis/{id}/resources/{resId}/methods/{httpMethod}.
 //
-//nolint:cyclop,gocognit // method path routing table is inherently a multi-branch switch
+//nolint:cyclop,gocognit,nestif,gocyclo,funlen // method path routing table is inherently a multi-branch switch
 func parseAPIGWMethodPath(method string, segs []string) (string, map[string]string, bool) {
 	// segs: [restapis, {id}, resources, {resId}, methods, {httpMethod}, ...]
 	const (
@@ -1190,6 +1295,42 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 		return "DeleteMethod", baseParams, true
 	case http.MethodPost:
 		return "TestInvokeMethod", baseParams, true
+	case http.MethodPatch:
+		return "UpdateMethod", baseParams, true
+	}
+
+	// Integration PATCH
+	if len(segs) > idxIntegSeg && segs[idxIntegSeg] == apiGWSegInteg {
+		if method == http.MethodPatch {
+			if len(segs) > idxRespSeg && segs[idxRespSeg] == apiGWSegResponses {
+				if len(segs) > idxRespSeg+1 {
+					params := map[string]string{
+						"restApiId":  apiID,
+						"resourceId": resID,
+						"httpMethod": httpMethod,
+						"statusCode": segs[idxRespSeg+1],
+					}
+
+					return "UpdateIntegrationResponse", params, true
+				}
+			} else {
+				return "UpdateIntegration", baseParams, true
+			}
+		}
+	}
+
+	// MethodResponse PATCH
+	if len(segs) > idxIntegSeg && segs[idxIntegSeg] == apiGWSegResponses {
+		if method == http.MethodPatch && len(segs) > idxIntegSeg+1 {
+			params := map[string]string{
+				"restApiId":  apiID,
+				"resourceId": resID,
+				"httpMethod": httpMethod,
+				"statusCode": segs[idxIntegSeg+1],
+			}
+
+			return "UpdateMethodResponse", params, true
+		}
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -2419,7 +2560,7 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 	}
 }
 
-//nolint:cyclop,gocognit // action table - one closure per op; complexity unavoidable
+//nolint:cyclop,gocognit,gocyclo,funlen // action table - one closure per op; complexity unavoidable
 func (h *Handler) updatePatchActions() map[string]actionFn {
 	return map[string]actionFn{
 		"UpdateRestApi": func(b []byte) (int, any, error) {
@@ -2506,6 +2647,267 @@ func (h *Handler) updatePatchActions() map[string]actionFn {
 				return 0, nil, err
 			}
 			out, err := h.Backend.TestInvokeMethod(input.TestInvokeMethodInput)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"UpdateUsagePlan": func(b []byte) (int, any, error) {
+			var input UpdateUsagePlanInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.UpdateUsagePlan(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"UpdateDomainName": func(b []byte) (int, any, error) {
+			var input UpdateDomainNameInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.UpdateDomainName(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"UpdateBasePathMapping": func(b []byte) (int, any, error) {
+			var input UpdateBasePathMappingInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.UpdateBasePathMapping(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"UpdateDocumentationPart": func(b []byte) (int, any, error) {
+			var input UpdateDocumentationPartInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.UpdateDocumentationPart(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"UpdateDocumentationVersion": func(b []byte) (int, any, error) {
+			var input UpdateDocumentationVersionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.UpdateDocumentationVersion(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"UpdateMethod": func(b []byte) (int, any, error) {
+			var input UpdateMethodInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.UpdateMethod(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"UpdateIntegration": func(b []byte) (int, any, error) {
+			var input UpdateIntegrationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.UpdateIntegration(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"UpdateIntegrationResponse": func(b []byte) (int, any, error) {
+			var input UpdateIntegrationResponseInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.UpdateIntegrationResponse(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"UpdateMethodResponse": func(b []byte) (int, any, error) {
+			var input UpdateMethodResponseInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.UpdateMethodResponse(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"UpdateAccount": func(b []byte) (int, any, error) {
+			var input UpdateAccountInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.UpdateAccount(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"TestInvokeAuthorizer": func(b []byte) (int, any, error) {
+			var input TestInvokeAuthorizerInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.TestInvokeAuthorizer(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"GetModelTemplate": func(b []byte) (int, any, error) {
+			var params struct {
+				RestAPIID string `json:"restApiId"`
+				ModelName string `json:"modelName"`
+			}
+			if err := json.Unmarshal(b, &params); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.GetModelTemplate(params.RestAPIID, params.ModelName)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"value": out}, nil
+		},
+		"GetGatewayResponse": func(b []byte) (int, any, error) {
+			var params struct {
+				RestAPIID    string `json:"restApiId"`
+				ResponseType string `json:"responseType"`
+			}
+			if err := json.Unmarshal(b, &params); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.GetGatewayResponse(params.RestAPIID, params.ResponseType)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"GetGatewayResponses": func(b []byte) (int, any, error) {
+			var params struct {
+				RestAPIID string `json:"restApiId"`
+			}
+			if err := json.Unmarshal(b, &params); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.GetGatewayResponses(params.RestAPIID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": out}, nil
+		},
+		"PutGatewayResponse": func(b []byte) (int, any, error) {
+			var input PutGatewayResponseInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.PutGatewayResponse(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, out, nil
+		},
+		"DeleteGatewayResponse": func(b []byte) (int, any, error) {
+			var params struct {
+				RestAPIID    string `json:"restApiId"`
+				ResponseType string `json:"responseType"`
+			}
+			if err := json.Unmarshal(b, &params); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteGatewayResponse(params.RestAPIID, params.ResponseType); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, nil, nil
+		},
+		"GenerateClientCertificate": func(b []byte) (int, any, error) {
+			var input GenerateClientCertificateInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.GenerateClientCertificate(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, out, nil
+		},
+		"GetClientCertificate": func(b []byte) (int, any, error) {
+			var params struct {
+				ClientCertificateID string `json:"clientCertificateId"`
+			}
+			if err := json.Unmarshal(b, &params); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.GetClientCertificate(params.ClientCertificateID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
+		},
+		"GetClientCertificates": func(_ []byte) (int, any, error) {
+			out, err := h.Backend.GetClientCertificates()
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": out}, nil
+		},
+		"DeleteClientCertificate": func(b []byte) (int, any, error) {
+			var params struct {
+				ClientCertificateID string `json:"clientCertificateId"`
+			}
+			if err := json.Unmarshal(b, &params); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteClientCertificate(params.ClientCertificateID); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, nil, nil
+		},
+		"GetUsage": func(b []byte) (int, any, error) {
+			var input GetUsageInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.GetUsage(input)
 			if err != nil {
 				return 0, nil, err
 			}

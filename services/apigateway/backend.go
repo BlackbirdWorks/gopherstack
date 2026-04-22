@@ -36,6 +36,7 @@ var (
 	ErrUsagePlanNotFound                   = errors.New("NotFoundException")
 	ErrUsagePlanKeyNotFound                = errors.New("NotFoundException")
 	ErrStageNotFound                       = errors.New("NotFoundException")
+	ErrNotFound                            = errors.New("NotFoundException")
 	ErrAlreadyExists                       = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	ErrInvalidParameter                    = errors.New("BadRequestException")
 )
@@ -183,6 +184,35 @@ type StorageBackend interface {
 
 	// Test Invocation
 	TestInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMethodOutput, error)
+
+	// Update operations.
+	UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePlan, error)
+	UpdateDomainName(input UpdateDomainNameInput) (*DomainName, error)
+	UpdateBasePathMapping(input UpdateBasePathMappingInput) (*BasePathMapping, error)
+	UpdateDocumentationPart(input UpdateDocumentationPartInput) (*DocumentationPart, error)
+	UpdateDocumentationVersion(input UpdateDocumentationVersionInput) (*DocumentationVersion, error)
+	UpdateMethod(input UpdateMethodInput) (*Method, error)
+	UpdateIntegration(input UpdateIntegrationInput) (*Integration, error)
+	UpdateIntegrationResponse(input UpdateIntegrationResponseInput) (*IntegrationResponse, error)
+	UpdateMethodResponse(input UpdateMethodResponseInput) (*MethodResponse, error)
+	UpdateAccount(input UpdateAccountInput) (*Account, error)
+	TestInvokeAuthorizer(input TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error)
+	GetModelTemplate(restAPIID, modelName string) (string, error)
+
+	// Gateway response operations.
+	GetGatewayResponse(restAPIID, responseType string) (*GatewayResponse, error)
+	GetGatewayResponses(restAPIID string) ([]GatewayResponse, error)
+	PutGatewayResponse(input PutGatewayResponseInput) (*GatewayResponse, error)
+	DeleteGatewayResponse(restAPIID, responseType string) error
+
+	// Client certificate operations.
+	GenerateClientCertificate(input GenerateClientCertificateInput) (*ClientCertificate, error)
+	GetClientCertificate(id string) (*ClientCertificate, error)
+	GetClientCertificates() ([]ClientCertificate, error)
+	DeleteClientCertificate(id string) error
+
+	// Usage operations.
+	GetUsage(input GetUsageInput) (*UsageData, error)
 }
 
 const apiIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -201,6 +231,10 @@ const (
 
 	// defaultPageSize is used when no limit is specified in paginated list operations.
 	defaultPageSize = 500
+
+	// clientCertValidityDays is the number of days a generated client certificate is valid.
+	// AWS issues certificates with a 2-year validity period.
+	clientCertValidityDays = 730
 )
 
 // stageInvokeURL returns the gopherstack proxy path for a deployed stage.
@@ -271,6 +305,7 @@ type apiData struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	account                      *Account
 	apis                         map[string]*apiData
 	apiKeys                      map[string]*APIKey
 	basePathMappings             map[string]*BasePathMapping // key: domainName + "#" + basePath
@@ -278,12 +313,22 @@ type InMemoryBackend struct {
 	domainNameAccessAssociations map[string]*DomainNameAccessAssociation
 	usagePlans                   map[string]*UsagePlan
 	usagePlanKeys                map[string]map[string]*UsagePlanKey // usagePlanID → keyID → key
+	gatewayResponses             map[string]*GatewayResponse         // key: restAPIID + "#" + responseType
+	clientCertificates           map[string]*ClientCertificate       // key: clientCertificateID
 	mu                           *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
+		account: &Account{
+			ThrottleSettings: &ThrottleSettings{
+				BurstLimit: defaultBurstLimit,
+				RateLimit:  defaultRateLimit,
+			},
+			Features:      []string{"UsagePlans"},
+			APIKeyVersion: "1",
+		},
 		apis:                         make(map[string]*apiData),
 		apiKeys:                      make(map[string]*APIKey),
 		basePathMappings:             make(map[string]*BasePathMapping),
@@ -291,6 +336,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		domainNameAccessAssociations: make(map[string]*DomainNameAccessAssociation),
 		usagePlans:                   make(map[string]*UsagePlan),
 		usagePlanKeys:                make(map[string]map[string]*UsagePlanKey),
+		gatewayResponses:             make(map[string]*GatewayResponse),
+		clientCertificates:           make(map[string]*ClientCertificate),
 		mu:                           lockmetrics.New("apigateway"),
 	}
 }
@@ -2241,14 +2288,10 @@ func (b *InMemoryBackend) UpdateDeployment(
 
 // GetAccount returns the mock API Gateway account settings.
 func (b *InMemoryBackend) GetAccount() (*Account, error) {
-	return &Account{
-		ThrottleSettings: &ThrottleSettings{
-			BurstLimit: defaultBurstLimit,
-			RateLimit:  defaultRateLimit,
-		},
-		Features:      []string{"UsagePlans"},
-		APIKeyVersion: "1",
-	}, nil
+	b.mu.RLock("GetAccount")
+	defer b.mu.RUnlock()
+
+	return b.account, nil
 }
 
 // GetResourceTags returns the tags for a resource identified by its ARN.
@@ -2404,4 +2447,561 @@ func (b *InMemoryBackend) GetUsagePlansPage(limit int, position string) ([]Usage
 	page, pos := paginatePage(all, limit, position)
 
 	return page, pos, nil
+}
+
+// UpdateUsagePlan updates a usage plan's name, description, throttle, or quota.
+func (b *InMemoryBackend) UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePlan, error) {
+	b.mu.Lock("UpdateUsagePlan")
+	defer b.mu.Unlock()
+
+	p, ok := b.usagePlans[input.UsagePlanID]
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
+	}
+
+	if input.Name != "" {
+		p.Name = input.Name
+	}
+
+	if input.Description != "" {
+		p.Description = input.Description
+	}
+
+	if input.Throttle != nil {
+		p.Throttle = input.Throttle
+	}
+
+	if input.Quota != nil {
+		p.Quota = input.Quota
+	}
+
+	return p, nil
+}
+
+// UpdateDomainName updates a domain name's certificate ARN.
+func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*DomainName, error) {
+	b.mu.Lock("UpdateDomainName")
+	defer b.mu.Unlock()
+
+	d, ok := b.domainNames[input.DomainName]
+	if !ok {
+		return nil, fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, input.DomainName)
+	}
+
+	if input.CertificateARN != "" {
+		d.CertificateARN = input.CertificateARN
+	}
+
+	return d, nil
+}
+
+// UpdateBasePathMapping updates an existing base path mapping.
+func (b *InMemoryBackend) UpdateBasePathMapping(input UpdateBasePathMappingInput) (*BasePathMapping, error) {
+	b.mu.Lock("UpdateBasePathMapping")
+	defer b.mu.Unlock()
+
+	key := input.DomainName + "#" + input.BasePath
+	m, ok := b.basePathMappings[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: base path mapping %s/%s not found", ErrNotFound, input.DomainName, input.BasePath)
+	}
+
+	if input.RestAPIID != "" {
+		m.RestAPIID = input.RestAPIID
+	}
+
+	if input.Stage != "" {
+		m.Stage = input.Stage
+	}
+
+	return m, nil
+}
+
+// UpdateDocumentationPart updates the properties of a documentation part.
+func (b *InMemoryBackend) UpdateDocumentationPart(input UpdateDocumentationPartInput) (*DocumentationPart, error) {
+	b.mu.Lock("UpdateDocumentationPart")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	part, ok := d.documentationParts[input.DocPartID]
+	if !ok {
+		return nil, fmt.Errorf("%w: documentation part %s not found", ErrNotFound, input.DocPartID)
+	}
+
+	if input.Properties != "" {
+		part.Properties = input.Properties
+	}
+
+	return part, nil
+}
+
+// UpdateDocumentationVersion updates a documentation version's description.
+func (b *InMemoryBackend) UpdateDocumentationVersion(
+	input UpdateDocumentationVersionInput,
+) (*DocumentationVersion, error) {
+	b.mu.Lock("UpdateDocumentationVersion")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	ver, ok := d.documentationVersions[input.DocumentationVersion]
+	if !ok {
+		return nil, fmt.Errorf("%w: documentation version %s not found", ErrNotFound, input.DocumentationVersion)
+	}
+
+	if input.Description != "" {
+		ver.Description = input.Description
+	}
+
+	return ver, nil
+}
+
+// UpdateMethod updates method settings (authorization, API key requirement, etc.)
+func (b *InMemoryBackend) UpdateMethod(input UpdateMethodInput) (*Method, error) {
+	b.mu.Lock("UpdateMethod")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	r, ok := d.resources[input.ResourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	m, ok := r.ResourceMethods[input.HTTPMethod]
+	if !ok {
+		return nil, fmt.Errorf("%w: method %s not found", ErrMethodNotFound, input.HTTPMethod)
+	}
+
+	if input.AuthorizationType != "" {
+		m.AuthorizationType = input.AuthorizationType
+	}
+
+	if input.AuthorizerID != "" {
+		m.AuthorizerID = input.AuthorizerID
+	}
+
+	if input.APIKeyRequired != nil {
+		m.APIKeyRequired = *input.APIKeyRequired
+	}
+
+	if input.OperationName != "" {
+		m.OperationName = input.OperationName
+	}
+
+	return m, nil
+}
+
+// UpdateIntegration updates an integration's URI or type.
+func (b *InMemoryBackend) UpdateIntegration(input UpdateIntegrationInput) (*Integration, error) {
+	b.mu.Lock("UpdateIntegration")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	r, ok := d.resources[input.ResourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	m, ok := r.ResourceMethods[input.HTTPMethod]
+	if !ok {
+		return nil, fmt.Errorf("%w: method %s not found", ErrMethodNotFound, input.HTTPMethod)
+	}
+
+	if m.MethodIntegration == nil {
+		m.MethodIntegration = &Integration{}
+	}
+
+	if input.URI != "" {
+		m.MethodIntegration.URI = input.URI
+	}
+
+	if input.IntegrationType != "" {
+		m.MethodIntegration.Type = input.IntegrationType
+	}
+
+	if len(input.RequestTemplates) > 0 {
+		m.MethodIntegration.RequestTemplates = input.RequestTemplates
+	}
+
+	if input.PassthroughBehavior != "" {
+		m.MethodIntegration.PassthroughBehavior = input.PassthroughBehavior
+	}
+
+	if input.TimeoutInMillis > 0 {
+		m.MethodIntegration.TimeoutInMillis = input.TimeoutInMillis
+	}
+
+	return m.MethodIntegration, nil
+}
+
+// UpdateIntegrationResponse updates an integration response's templates or selection pattern.
+func (b *InMemoryBackend) UpdateIntegrationResponse(
+	input UpdateIntegrationResponseInput,
+) (*IntegrationResponse, error) {
+	b.mu.Lock("UpdateIntegrationResponse")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	r, ok := d.resources[input.ResourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	m, ok := r.ResourceMethods[input.HTTPMethod]
+	if !ok {
+		return nil, fmt.Errorf("%w: method %s not found", ErrMethodNotFound, input.HTTPMethod)
+	}
+
+	if m.MethodIntegration == nil {
+		return nil, fmt.Errorf("%w: no integration on method %s", ErrNotFound, input.HTTPMethod)
+	}
+
+	ir, ok := m.MethodIntegration.IntegrationResponses[input.StatusCode]
+	if !ok {
+		return nil, fmt.Errorf("%w: integration response %s not found", ErrNotFound, input.StatusCode)
+	}
+
+	if input.SelectionPattern != "" {
+		ir.SelectionPattern = input.SelectionPattern
+	}
+
+	if len(input.ResponseTemplates) > 0 {
+		ir.ResponseTemplates = input.ResponseTemplates
+	}
+
+	if len(input.ResponseParameters) > 0 {
+		ir.ResponseParameters = input.ResponseParameters
+	}
+
+	m.MethodIntegration.IntegrationResponses[input.StatusCode] = ir
+
+	return ir, nil
+}
+
+// UpdateMethodResponse updates a method response's models or parameters.
+func (b *InMemoryBackend) UpdateMethodResponse(input UpdateMethodResponseInput) (*MethodResponse, error) {
+	b.mu.Lock("UpdateMethodResponse")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	r, ok := d.resources[input.ResourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	m, ok := r.ResourceMethods[input.HTTPMethod]
+	if !ok {
+		return nil, fmt.Errorf("%w: method %s not found", ErrMethodNotFound, input.HTTPMethod)
+	}
+
+	mr, ok := m.MethodResponses[input.StatusCode]
+	if !ok {
+		return nil, fmt.Errorf("%w: method response %s not found", ErrNotFound, input.StatusCode)
+	}
+
+	if len(input.ResponseModels) > 0 {
+		mr.ResponseModels = input.ResponseModels
+	}
+
+	if len(input.ResponseParameters) > 0 {
+		mr.ResponseParameters = input.ResponseParameters
+	}
+
+	m.MethodResponses[input.StatusCode] = mr
+
+	return mr, nil
+}
+
+// UpdateAccount updates the account's throttle settings.
+func (b *InMemoryBackend) UpdateAccount(input UpdateAccountInput) (*Account, error) {
+	b.mu.Lock("UpdateAccount")
+	defer b.mu.Unlock()
+
+	if input.ThrottleSettings != nil {
+		b.account.ThrottleSettings = input.ThrottleSettings
+	}
+
+	return b.account, nil
+}
+
+// TestInvokeAuthorizer performs a mock test invocation of an authorizer.
+func (b *InMemoryBackend) TestInvokeAuthorizer(input TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error) {
+	b.mu.RLock("TestInvokeAuthorizer")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	a, ok := d.authorizers[input.AuthorizerID]
+	if !ok {
+		return nil, fmt.Errorf("%w: authorizer %s not found", ErrNotFound, input.AuthorizerID)
+	}
+
+	_ = a
+
+	return &TestInvokeAuthorizerOutput{
+		PrincipalID:         "test-principal",
+		AuthorizationStatus: http.StatusOK,
+		ClientStatus:        http.StatusOK,
+		Latency:             1,
+		Log:                 "Test authorizer invocation (mock)",
+		Context:             map[string]string{"principalId": "test-principal"},
+	}, nil
+}
+
+// GetModelTemplate returns the default template for a model.
+func (b *InMemoryBackend) GetModelTemplate(restAPIID, modelName string) (string, error) {
+	b.mu.RLock("GetModelTemplate")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return "", fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	m, ok := d.models[modelName]
+	if !ok {
+		return "", fmt.Errorf("%w: model %s not found", ErrNotFound, modelName)
+	}
+
+	if m.Schema != "" {
+		return m.Schema, nil
+	}
+
+	return `#set($inputRoot = $input.path('$'))\n{}`, nil
+}
+
+// GatewayResponseKey generates a storage key for gateway responses.
+func gatewayResponseKey(restAPIID, responseType string) string {
+	return restAPIID + "#" + responseType
+}
+
+// GetGatewayResponse retrieves a gateway response by type.
+func (b *InMemoryBackend) GetGatewayResponse(restAPIID, responseType string) (*GatewayResponse, error) {
+	b.mu.RLock("GetGatewayResponse")
+	defer b.mu.RUnlock()
+
+	key := gatewayResponseKey(restAPIID, responseType)
+	gr, ok := b.gatewayResponses[key]
+	if !ok {
+		// Return default response (AWS returns default responses even when not explicitly set).
+		return &GatewayResponse{
+			RestAPIID:       restAPIID,
+			ResponseType:    responseType,
+			DefaultResponse: true,
+			StatusCode:      gatewayResponseDefaultStatus(responseType),
+		}, nil
+	}
+
+	return gr, nil
+}
+
+// gatewayResponseDefaultStatus returns the default HTTP status for a gateway response type.
+func gatewayResponseDefaultStatus(responseType string) string {
+	switch responseType {
+	case "UNAUTHORIZED", "ACCESS_DENIED":
+		return "401"
+	case "RESOURCE_NOT_FOUND":
+		return "404"
+	case "THROTTLED", "QUOTA_EXCEEDED":
+		return "429"
+	case "BAD_REQUEST_BODY", "BAD_REQUEST_PARAMETERS":
+		return "400"
+	case "REQUEST_TOO_LARGE":
+		return "413"
+	case "AUTHORIZER_FAILURE", "AUTHORIZER_CONFIGURATION_ERROR":
+		return "500"
+	case "DEFAULT_4XX":
+		return "400"
+	case "DEFAULT_5XX":
+		return "500"
+	default:
+		return "500"
+	}
+}
+
+// GetGatewayResponses retrieves all gateway responses for a REST API.
+func (b *InMemoryBackend) GetGatewayResponses(restAPIID string) ([]GatewayResponse, error) {
+	b.mu.RLock("GetGatewayResponses")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[restAPIID]; !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	defaultTypes := []string{
+		"UNAUTHORIZED", "ACCESS_DENIED", "RESOURCE_NOT_FOUND",
+		"THROTTLED", "QUOTA_EXCEEDED", "BAD_REQUEST_BODY",
+		"BAD_REQUEST_PARAMETERS", "REQUEST_TOO_LARGE",
+		"AUTHORIZER_FAILURE", "AUTHORIZER_CONFIGURATION_ERROR",
+		"DEFAULT_4XX", "DEFAULT_5XX",
+	}
+
+	result := make([]GatewayResponse, 0, len(defaultTypes))
+
+	for _, rt := range defaultTypes {
+		key := gatewayResponseKey(restAPIID, rt)
+		if gr, ok := b.gatewayResponses[key]; ok {
+			result = append(result, *gr)
+		} else {
+			result = append(result, GatewayResponse{
+				RestAPIID:       restAPIID,
+				ResponseType:    rt,
+				DefaultResponse: true,
+				StatusCode:      gatewayResponseDefaultStatus(rt),
+			})
+		}
+	}
+
+	return result, nil
+}
+
+// PutGatewayResponse creates or updates a gateway response.
+func (b *InMemoryBackend) PutGatewayResponse(input PutGatewayResponseInput) (*GatewayResponse, error) {
+	b.mu.Lock("PutGatewayResponse")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[input.RestAPIID]; !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	key := gatewayResponseKey(input.RestAPIID, input.ResponseType)
+
+	gr := &GatewayResponse{
+		RestAPIID:          input.RestAPIID,
+		ResponseType:       input.ResponseType,
+		StatusCode:         input.StatusCode,
+		ResponseParameters: input.ResponseParameters,
+		ResponseTemplates:  input.ResponseTemplates,
+		DefaultResponse:    false,
+	}
+
+	if gr.StatusCode == "" {
+		gr.StatusCode = gatewayResponseDefaultStatus(input.ResponseType)
+	}
+
+	b.gatewayResponses[key] = gr
+
+	return gr, nil
+}
+
+// DeleteGatewayResponse removes a custom gateway response, reverting to default.
+func (b *InMemoryBackend) DeleteGatewayResponse(restAPIID, responseType string) error {
+	b.mu.Lock("DeleteGatewayResponse")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[restAPIID]; !ok {
+		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	key := gatewayResponseKey(restAPIID, responseType)
+	delete(b.gatewayResponses, key)
+
+	return nil
+}
+
+// GenerateClientCertificate creates a new client certificate for mutual TLS.
+func (b *InMemoryBackend) GenerateClientCertificate(input GenerateClientCertificateInput) (*ClientCertificate, error) {
+	b.mu.Lock("GenerateClientCertificate")
+	defer b.mu.Unlock()
+
+	id := randomID(apiIDLength)
+	now := time.Now()
+	cert := &ClientCertificate{
+		ClientCertificateID:   id,
+		Description:           input.Description,
+		PemEncodedCertificate: "-----BEGIN CERTIFICATE-----\nMIICpDCCAYwCCQDU...(mock)...\n-----END CERTIFICATE-----",
+		CreatedDate:           unixEpochTime{now},
+		ExpirationDate:        unixEpochTime{now.AddDate(0, 0, clientCertValidityDays)},
+	}
+
+	b.clientCertificates[id] = cert
+
+	return cert, nil
+}
+
+// GetClientCertificate returns a client certificate by ID.
+func (b *InMemoryBackend) GetClientCertificate(id string) (*ClientCertificate, error) {
+	b.mu.RLock("GetClientCertificate")
+	defer b.mu.RUnlock()
+
+	cert, ok := b.clientCertificates[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: client certificate %s not found", ErrNotFound, id)
+	}
+
+	return cert, nil
+}
+
+// GetClientCertificates returns all client certificates.
+func (b *InMemoryBackend) GetClientCertificates() ([]ClientCertificate, error) {
+	b.mu.RLock("GetClientCertificates")
+	defer b.mu.RUnlock()
+
+	result := make([]ClientCertificate, 0, len(b.clientCertificates))
+	for _, c := range b.clientCertificates {
+		result = append(result, *c)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ClientCertificateID < result[j].ClientCertificateID
+	})
+
+	return result, nil
+}
+
+// DeleteClientCertificate removes a client certificate.
+func (b *InMemoryBackend) DeleteClientCertificate(id string) error {
+	b.mu.Lock("DeleteClientCertificate")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clientCertificates[id]; !ok {
+		return fmt.Errorf("%w: client certificate %s not found", ErrNotFound, id)
+	}
+
+	delete(b.clientCertificates, id)
+
+	return nil
+}
+
+// GetUsage returns mock usage data for a usage plan.
+func (b *InMemoryBackend) GetUsage(input GetUsageInput) (*UsageData, error) {
+	b.mu.RLock("GetUsage")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.usagePlans[input.UsagePlanID]; !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
+	}
+
+	return &UsageData{
+		UsagePlanID: input.UsagePlanID,
+		StartDate:   input.StartDate,
+		EndDate:     input.EndDate,
+		Items:       map[string][]any{},
+	}, nil
 }

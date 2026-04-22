@@ -57,6 +57,7 @@ type Method struct {
 	AuthorizationType  string                     `json:"authorizationType"`
 	AuthorizerID       string                     `json:"authorizerId,omitempty"`
 	RequestValidatorID string                     `json:"requestValidatorId,omitempty"`
+	OperationName      string                     `json:"operationName,omitempty"`
 	APIKeyRequired     bool                       `json:"apiKeyRequired"`
 }
 
@@ -68,6 +69,7 @@ type Integration struct {
 	HTTPMethod           string                          `json:"httpMethod,omitempty"`
 	URI                  string                          `json:"uri,omitempty"`
 	PassthroughBehavior  string                          `json:"passthroughBehavior,omitempty"`
+	TimeoutInMillis      int                             `json:"timeoutInMillis,omitempty"`
 }
 
 // IntegrationResponse represents a response from an integration.
@@ -458,4 +460,171 @@ type TestInvokeMethodOutput struct {
 	Body    string            `json:"body,omitempty"`
 	Status  int               `json:"status"`
 	Latency int64             `json:"latency"`
+}
+
+// UpdateUsagePlanInput is the input for UpdateUsagePlan.
+type UpdateUsagePlanInput struct {
+	Throttle    *ThrottleSettings `json:"throttle,omitempty"`
+	Quota       *QuotaSettings    `json:"quota,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Description string            `json:"description,omitempty"`
+	UsagePlanID string            `json:"usagePlanId"`
+}
+
+// UpdateDomainNameInput is the input for UpdateDomainName.
+type UpdateDomainNameInput struct {
+	CertificateARN string `json:"certificateArn,omitempty"`
+	DomainName     string `json:"domainName"`
+}
+
+// UpdateBasePathMappingInput is the input for UpdateBasePathMapping.
+type UpdateBasePathMappingInput struct {
+	DomainName string `json:"domainName"`
+	BasePath   string `json:"basePath"`
+	RestAPIID  string `json:"restApiId,omitempty"`
+	Stage      string `json:"stage,omitempty"`
+}
+
+// UpdateDocumentationPartInput is the input for UpdateDocumentationPart.
+type UpdateDocumentationPartInput struct {
+	RestAPIID  string `json:"restApiId"`
+	DocPartID  string `json:"docPartId"`
+	Properties string `json:"properties,omitempty"`
+}
+
+// UpdateDocumentationVersionInput is the input for UpdateDocumentationVersion.
+type UpdateDocumentationVersionInput struct {
+	RestAPIID            string `json:"restApiId"`
+	DocumentationVersion string `json:"documentationVersion"`
+	Description          string `json:"description,omitempty"`
+}
+
+// UpdateMethodInput is the input for UpdateMethod.
+type UpdateMethodInput struct {
+	RestAPIID         string `json:"restApiId"`
+	ResourceID        string `json:"resourceId"`
+	HTTPMethod        string `json:"httpMethod"`
+	AuthorizationType string `json:"authorizationType,omitempty"`
+	AuthorizerID      string `json:"authorizerId,omitempty"`
+	APIKeyRequired    *bool  `json:"apiKeyRequired,omitempty"`
+	OperationName     string `json:"operationName,omitempty"`
+}
+
+// UpdateIntegrationInput is the input for UpdateIntegration.
+type UpdateIntegrationInput struct {
+	RestAPIID             string            `json:"restApiId"`
+	ResourceID            string            `json:"resourceId"`
+	HTTPMethod            string            `json:"httpMethod"`
+	URI                   string            `json:"uri,omitempty"`
+	IntegrationType       string            `json:"type,omitempty"`
+	IntegrationHTTPMethod string            `json:"integrationHttpMethod,omitempty"`
+	RequestTemplates      map[string]string `json:"requestTemplates,omitempty"`
+	PassthroughBehavior   string            `json:"passthroughBehavior,omitempty"`
+	TimeoutInMillis       int               `json:"timeoutInMillis,omitempty"`
+}
+
+// UpdateIntegrationResponseInput is the input for UpdateIntegrationResponse.
+type UpdateIntegrationResponseInput struct {
+	ResponseTemplates  map[string]string `json:"responseTemplates,omitempty"`
+	ResponseParameters map[string]string `json:"responseParameters,omitempty"`
+	RestAPIID          string            `json:"restApiId"`
+	ResourceID         string            `json:"resourceId"`
+	HTTPMethod         string            `json:"httpMethod"`
+	StatusCode         string            `json:"statusCode"`
+	SelectionPattern   string            `json:"selectionPattern,omitempty"`
+}
+
+// UpdateMethodResponseInput is the input for UpdateMethodResponse.
+type UpdateMethodResponseInput struct {
+	ResponseModels     map[string]string `json:"responseModels,omitempty"`
+	ResponseParameters map[string]bool   `json:"responseParameters,omitempty"`
+	RestAPIID          string            `json:"restApiId"`
+	ResourceID         string            `json:"resourceId"`
+	HTTPMethod         string            `json:"httpMethod"`
+	StatusCode         string            `json:"statusCode"`
+}
+
+// UpdateAccountInput is the input for UpdateAccount.
+type UpdateAccountInput struct {
+	ThrottleSettings *ThrottleSettings `json:"throttleSettings,omitempty"`
+}
+
+// TestInvokeAuthorizerInput is the input for TestInvokeAuthorizer.
+type TestInvokeAuthorizerInput struct {
+	Headers        map[string]string `json:"headers,omitempty"`
+	StageVariables map[string]string `json:"stageVariables,omitempty"`
+	Body           string            `json:"body,omitempty"`
+	RestAPIID      string            `json:"restApiId"`
+	AuthorizerID   string            `json:"authorizerId"`
+	Identity       string            `json:"identity,omitempty"`
+}
+
+// TestInvokeAuthorizerOutput is the output from TestInvokeAuthorizer.
+type TestInvokeAuthorizerOutput struct {
+	Claims              map[string]string `json:"claims,omitempty"`
+	Context             map[string]string `json:"context,omitempty"`
+	Log                 string            `json:"log,omitempty"`
+	PrincipalID         string            `json:"principalId"`
+	PolicyDocument      string            `json:"policy,omitempty"`
+	ClientStatus        int               `json:"clientStatus"`
+	Latency             int64             `json:"latency"`
+	AuthorizationStatus int               `json:"authorization"`
+}
+
+// GatewayResponse represents a gateway response configuration.
+type GatewayResponse struct {
+	StatusCode         string            `json:"statusCode,omitempty"`
+	ResponseParameters map[string]string `json:"responseParameters,omitempty"`
+	ResponseTemplates  map[string]string `json:"responseTemplates,omitempty"`
+	ResponseType       string            `json:"responseType"`
+	RestAPIID          string            `json:"restApiId"`
+	DefaultResponse    bool              `json:"defaultResponse,omitempty"`
+}
+
+// PutGatewayResponseInput is the input for PutGatewayResponse.
+type PutGatewayResponseInput struct {
+	StatusCode         string            `json:"statusCode,omitempty"`
+	ResponseParameters map[string]string `json:"responseParameters,omitempty"`
+	ResponseTemplates  map[string]string `json:"responseTemplates,omitempty"`
+	RestAPIID          string            `json:"restApiId"`
+	ResponseType       string            `json:"responseType"`
+}
+
+// ClientCertificate represents an API Gateway client certificate.
+type ClientCertificate struct {
+	CreatedDate           unixEpochTime `json:"createdDate"`
+	ExpirationDate        unixEpochTime `json:"expirationDate"`
+	PemEncodedCertificate string        `json:"pemEncodedCertificate"`
+	Description           string        `json:"description"`
+	ClientCertificateID   string        `json:"clientCertificateId"`
+}
+
+// GenerateClientCertificateInput is the input for GenerateClientCertificate.
+type GenerateClientCertificateInput struct {
+	Tags        map[string]string `json:"tags,omitempty"`
+	Description string            `json:"description,omitempty"`
+}
+
+// GetUsageInput is the input for GetUsage.
+type GetUsageInput struct {
+	UsagePlanID string `json:"usagePlanId"`
+	StartDate   string `json:"startDate"`
+	EndDate     string `json:"endDate"`
+	Position    string `json:"position,omitempty"`
+	Limit       int    `json:"limit,omitempty"`
+}
+
+// UsageData represents the usage data response.
+type UsageData struct {
+	Items       map[string][]any `json:"items"`
+	StartDate   string           `json:"startDate"`
+	EndDate     string           `json:"endDate"`
+	UsagePlanID string           `json:"usagePlanId"`
+	Position    string           `json:"position,omitempty"`
+}
+
+// ImportRestAPIInput is the input for ImportRestApi.
+type ImportRestAPIInput struct {
+	Body           []byte `json:"body,omitempty"`
+	FailOnWarnings bool   `json:"failOnWarnings,omitempty"`
 }

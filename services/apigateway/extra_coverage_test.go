@@ -371,6 +371,98 @@ func (n *noopBackend) GetUsagePlansPage(_ int, _ string) ([]apigateway.UsagePlan
 	return nil, "", errNoopNotImplemented
 }
 
+func (n *noopBackend) UpdateUsagePlan(_ apigateway.UpdateUsagePlanInput) (*apigateway.UsagePlan, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateDomainName(_ apigateway.UpdateDomainNameInput) (*apigateway.DomainName, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateBasePathMapping(
+	_ apigateway.UpdateBasePathMappingInput,
+) (*apigateway.BasePathMapping, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateDocumentationPart(
+	_ apigateway.UpdateDocumentationPartInput,
+) (*apigateway.DocumentationPart, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateDocumentationVersion(
+	_ apigateway.UpdateDocumentationVersionInput,
+) (*apigateway.DocumentationVersion, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateMethod(_ apigateway.UpdateMethodInput) (*apigateway.Method, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateIntegration(_ apigateway.UpdateIntegrationInput) (*apigateway.Integration, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateIntegrationResponse(
+	_ apigateway.UpdateIntegrationResponseInput,
+) (*apigateway.IntegrationResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateMethodResponse(_ apigateway.UpdateMethodResponseInput) (*apigateway.MethodResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateAccount(_ apigateway.UpdateAccountInput) (*apigateway.Account, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) TestInvokeAuthorizer(
+	_ apigateway.TestInvokeAuthorizerInput,
+) (*apigateway.TestInvokeAuthorizerOutput, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetModelTemplate(_ string, _ string) (string, error) {
+	return "", errNoopNotImplemented
+}
+
+func (n *noopBackend) GetGatewayResponse(_ string, _ string) (*apigateway.GatewayResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetGatewayResponses(_ string) ([]apigateway.GatewayResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) PutGatewayResponse(_ apigateway.PutGatewayResponseInput) (*apigateway.GatewayResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) DeleteGatewayResponse(_ string, _ string) error { return errNoopNotImplemented }
+
+func (n *noopBackend) GenerateClientCertificate(
+	_ apigateway.GenerateClientCertificateInput,
+) (*apigateway.ClientCertificate, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetClientCertificate(_ string) (*apigateway.ClientCertificate, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetClientCertificates() ([]apigateway.ClientCertificate, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) DeleteClientCertificate(_ string) error { return errNoopNotImplemented }
+
+func (n *noopBackend) GetUsage(_ apigateway.GetUsageInput) (*apigateway.UsageData, error) {
+	return nil, errNoopNotImplemented
+}
+
 // restRequest sends a REST-style request (no X-Amz-Target header) to the handler.
 func restRequest(t *testing.T, handler *apigateway.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
