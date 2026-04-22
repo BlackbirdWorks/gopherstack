@@ -122,9 +122,64 @@ type StorageBackend interface {
 
 	// Security group operations
 	AuthorizeDBSecurityGroupIngress(groupName, cidrIP string) (*DBSecurityGroup, error)
+	CreateDBSecurityGroup(name, description string) (*DBSecurityGroup, error)
 
 	// Blue/Green Deployment operations
 	CreateBlueGreenDeployment(name, source string) (*BlueGreenDeployment, error)
+
+	// Global cluster membership operations
+	RemoveFromGlobalCluster(globalClusterID, dbClusterARN string) (*GlobalCluster, error)
+	FailoverGlobalCluster(globalClusterID, targetDBClusterIdentifier string) (*GlobalCluster, error)
+	SwitchoverGlobalCluster(globalClusterID, targetDBClusterIdentifier string) (*GlobalCluster, error)
+
+	// Read replica promotion operations
+	SwitchoverReadReplica(instanceID string) (*DBInstance, error)
+	PromoteReadReplicaDBCluster(clusterID string) (*DBCluster, error)
+
+	// Account and certificate operations
+	DescribeAccountAttributes() []AccountAttribute
+	DescribeCertificates(certID string) ([]Certificate, error)
+	ModifyCertificates(certID string) (*Certificate, error)
+	DescribePendingMaintenanceActions(resourceARN string) []PendingMaintenanceAction
+	DescribeSourceRegions(regionName string) []SourceRegion
+	DescribeDBMajorEngineVersions(engine string) []DBMajorEngineVersion
+	DescribeEngineDefaultParameters(dbParameterGroupFamily string) []DBParameter
+	DescribeEngineDefaultClusterParameters(dbParameterGroupFamily string) []DBParameter
+
+	// Snapshot attribute operations
+	DescribeDBSnapshotAttributes(snapshotID string) (*DBSnapshotAttributesResult, error)
+	ModifyDBSnapshot(snapshotID, optionGroupName, engineVersion string) (*DBSnapshot, error)
+	ModifyDBSnapshotAttribute(
+		snapshotID, attributeName string,
+		valuesToAdd, valuesToRemove []string,
+	) (*DBSnapshotAttributesResult, error)
+	DescribeDBClusterSnapshotAttributes(snapshotID string) (*DBClusterSnapshotAttributesResult, error)
+	ModifyDBClusterSnapshotAttribute(
+		snapshotID, attributeName string,
+		valuesToAdd, valuesToRemove []string,
+	) (*DBClusterSnapshotAttributesResult, error)
+	DescribeDBClusterBacktracks(clusterID string) ([]DBClusterBacktrack, error)
+
+	// HTTP endpoint operations
+	EnableHTTPEndpoint(resourceARN string) error
+	DisableHTTPEndpoint(resourceARN string) error
+	ModifyCurrentDBClusterCapacity(clusterID string, capacity int) (*DBCluster, error)
+
+	// S3 restore operations
+	RestoreDBInstanceFromS3(id, engine, dbInstanceClass, s3Bucket string) (*DBInstance, error)
+	RestoreDBClusterFromS3(id, engine, masterUsername, s3Bucket string) (*DBCluster, error)
+
+	// Recommendation operations
+	ModifyDBRecommendation(recID, status string) (*DBRecommendation, error)
+	DescribeDBRecommendations(recID, status string) []DBRecommendation
+
+	// Reserved instance operations
+	PurchaseReservedDBInstancesOffering(
+		offeringID, reservedDBInstanceID string,
+		dbInstanceCount int,
+	) (*ReservedDBInstance, error)
+	DescribeReservedDBInstances(reservedDBInstanceID, dbInstanceClass string) []ReservedDBInstance
+	DescribeReservedDBInstancesOfferings(offeringID, dbInstanceClass string) []ReservedDBInstancesOffering
 }
 
 // Ensure InMemoryBackend satisfies the StorageBackend interface at compile time.

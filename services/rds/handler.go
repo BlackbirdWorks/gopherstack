@@ -47,6 +47,14 @@ func (h *Handler) Name() string { return "RDS" }
 
 // GetSupportedOperations returns supported RDS operations.
 func (h *Handler) GetSupportedOperations() []string {
+	ops := make([]string, 0, len(supportedOpsBase())+len(supportedOpsExtended()))
+	ops = append(ops, supportedOpsBase()...)
+	ops = append(ops, supportedOpsExtended()...)
+
+	return ops
+}
+
+func supportedOpsBase() []string {
 	return []string{
 		"AddRoleToDBCluster",
 		"AddRoleToDBInstance",
@@ -69,6 +77,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateDBInstance",
 		"CreateDBInstanceReadReplica",
 		"CreateDBParameterGroup",
+		"CreateDBSecurityGroup",
 		"CreateDBSnapshot",
 		"CreateDBSubnetGroup",
 		"CreateEventSubscription",
@@ -87,20 +96,34 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteEventSubscription",
 		"DeleteGlobalCluster",
 		"DeleteOptionGroup",
+		"DescribeAccountAttributes",
 		"DescribeBlueGreenDeployments",
+		"DescribeCertificates",
+		"DescribeDBClusterBacktracks",
 		"DescribeDBClusterEndpoints",
 		"DescribeDBClusterParameterGroups",
 		"DescribeDBClusterParameters",
+		"DescribeDBClusterSnapshotAttributes",
 		"DescribeDBClusterSnapshots",
 		"DescribeDBClusters",
 		"DescribeDBEngineVersions",
 		"DescribeDBInstances",
 		"DescribeDBLogFiles",
+		"DescribeDBMajorEngineVersions",
 		"DescribeDBParameterGroups",
 		"DescribeDBParameters",
+		"DescribeDBRecommendations",
 		"DescribeDBSecurityGroups",
+		"DescribeDBSnapshotAttributes",
 		"DescribeDBSnapshots",
 		"DescribeDBSubnetGroups",
+	}
+}
+
+func supportedOpsExtended() []string {
+	return []string{
+		"DescribeEngineDefaultClusterParameters",
+		"DescribeEngineDefaultParameters",
 		"DescribeEventCategories",
 		"DescribeEventSubscriptions",
 		"DescribeEvents",
@@ -109,31 +132,49 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeOptionGroupOptions",
 		"DescribeOptionGroups",
 		"DescribeOrderableDBInstanceOptions",
+		"DescribePendingMaintenanceActions",
+		"DescribeReservedDBInstances",
+		"DescribeReservedDBInstancesOfferings",
+		"DescribeSourceRegions",
 		"DescribeValidDBInstanceModifications",
+		"DisableHttpEndpoint",
 		"DownloadDBLogFilePortion",
+		"EnableHttpEndpoint",
 		"FailoverDBCluster",
+		"FailoverGlobalCluster",
 		"ListTagsForResource",
+		"ModifyCertificates",
+		"ModifyCurrentDBClusterCapacity",
 		"ModifyDBCluster",
 		"ModifyDBClusterEndpoint",
 		"ModifyDBClusterParameterGroup",
+		"ModifyDBClusterSnapshotAttribute",
 		"ModifyDBInstance",
 		"ModifyDBParameterGroup",
+		"ModifyDBRecommendation",
+		"ModifyDBSnapshot",
+		"ModifyDBSnapshotAttribute",
 		"ModifyDBSubnetGroup",
 		"ModifyEventSubscription",
 		"ModifyGlobalCluster",
 		"ModifyOptionGroup",
 		"PromoteReadReplica",
+		"PromoteReadReplicaDBCluster",
+		"PurchaseReservedDBInstancesOffering",
 		"RebootDBCluster",
 		"RebootDBInstance",
+		"RemoveFromGlobalCluster",
 		"RemoveRoleFromDBCluster",
 		"RemoveRoleFromDBInstance",
 		"RemoveSourceIdentifierFromSubscription",
 		"RemoveTagsFromResource",
 		"ResetDBClusterParameterGroup",
 		"ResetDBParameterGroup",
+		"RestoreDBClusterFromS3",
 		"RestoreDBClusterFromSnapshot",
 		"RestoreDBClusterToPointInTime",
 		"RestoreDBInstanceFromDBSnapshot",
+		"RestoreDBInstanceFromS3",
 		"RestoreDBInstanceToPointInTime",
 		"RevokeDBSecurityGroupIngress",
 		"StartDBCluster",
@@ -142,6 +183,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"StopDBCluster",
 		"StopDBInstance",
 		"SwitchoverBlueGreenDeployment",
+		"SwitchoverGlobalCluster",
+		"SwitchoverReadReplica",
 	}
 }
 

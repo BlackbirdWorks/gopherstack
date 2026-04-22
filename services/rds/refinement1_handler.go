@@ -2,7 +2,6 @@ package rds
 
 import (
 	"encoding/xml"
-	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -62,7 +61,7 @@ func (h *Handler) dispatchExtended8(action string, vals url.Values) (any, error)
 	case "ModifyDBClusterEndpoint":
 		return h.handleModifyDBClusterEndpoint(vals)
 	default:
-		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
+		return h.dispatchExtended9(action, vals)
 	}
 }
 

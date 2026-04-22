@@ -7,26 +7,30 @@ import (
 )
 
 type backendSnapshot struct {
-	Instances              map[string]*DBInstance          `json:"instances"`
-	Snapshots              map[string]*DBSnapshot          `json:"snapshots"`
-	SubnetGroups           map[string]*DBSubnetGroup       `json:"subnetGroups"`
-	Tags                   map[string][]Tag                `json:"tags"`
-	ParameterGroups        map[string]*DBParameterGroup    `json:"parameterGroups"`
-	ClusterParameterGroups map[string]*DBParameterGroup    `json:"clusterParameterGroups"`
-	OptionGroups           map[string]*OptionGroup         `json:"optionGroups"`
-	Clusters               map[string]*DBCluster           `json:"clusters"`
-	ClusterSnapshots       map[string]*DBClusterSnapshot   `json:"clusterSnapshots"`
-	ClusterEndpoints       map[string]*DBClusterEndpoint   `json:"clusterEndpoints"`
-	ExportTasks            map[string]*ExportTask          `json:"exportTasks"`
-	GlobalClusters         map[string]*GlobalCluster       `json:"globalClusters"`
-	ClusterRoles           map[string][]string             `json:"clusterRoles"`
-	InstanceRoles          map[string][]string             `json:"instanceRoles"`
-	EventSubscriptions     map[string]*EventSubscription   `json:"eventSubscriptions"`
-	DBSecurityGroups       map[string]*DBSecurityGroup     `json:"dbSecurityGroups"`
-	BlueGreenDeployments   map[string]*BlueGreenDeployment `json:"blueGreenDeployments"`
-	InstanceReadyAt        map[string]time.Time            `json:"instanceReadyAt"`
-	AccountID              string                          `json:"accountID"`
-	Region                 string                          `json:"region"`
+	Instances                 map[string]*DBInstance                        `json:"instances"`
+	Snapshots                 map[string]*DBSnapshot                        `json:"snapshots"`
+	SubnetGroups              map[string]*DBSubnetGroup                     `json:"subnetGroups"`
+	Tags                      map[string][]Tag                              `json:"tags"`
+	ParameterGroups           map[string]*DBParameterGroup                  `json:"parameterGroups"`
+	ClusterParameterGroups    map[string]*DBParameterGroup                  `json:"clusterParameterGroups"`
+	OptionGroups              map[string]*OptionGroup                       `json:"optionGroups"`
+	Clusters                  map[string]*DBCluster                         `json:"clusters"`
+	ClusterSnapshots          map[string]*DBClusterSnapshot                 `json:"clusterSnapshots"`
+	ClusterEndpoints          map[string]*DBClusterEndpoint                 `json:"clusterEndpoints"`
+	ExportTasks               map[string]*ExportTask                        `json:"exportTasks"`
+	GlobalClusters            map[string]*GlobalCluster                     `json:"globalClusters"`
+	ClusterRoles              map[string][]string                           `json:"clusterRoles"`
+	InstanceRoles             map[string][]string                           `json:"instanceRoles"`
+	EventSubscriptions        map[string]*EventSubscription                 `json:"eventSubscriptions"`
+	DBSecurityGroups          map[string]*DBSecurityGroup                   `json:"dbSecurityGroups"`
+	BlueGreenDeployments      map[string]*BlueGreenDeployment               `json:"blueGreenDeployments"`
+	SnapshotAttributes        map[string]*DBSnapshotAttributesResult        `json:"snapshotAttributes"`
+	ClusterSnapshotAttributes map[string]*DBClusterSnapshotAttributesResult `json:"clusterSnapshotAttributes"`
+	ReservedInstances         map[string]*ReservedDBInstance                `json:"reservedInstances"`
+	Recommendations           map[string]*DBRecommendation                  `json:"recommendations"`
+	InstanceReadyAt           map[string]time.Time                          `json:"instanceReadyAt"`
+	AccountID                 string                                        `json:"accountID"`
+	Region                    string                                        `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -36,26 +40,30 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Instances:              b.instances,
-		Snapshots:              b.snapshots,
-		SubnetGroups:           b.subnetGroups,
-		Tags:                   b.tags,
-		ParameterGroups:        b.parameterGroups,
-		ClusterParameterGroups: b.clusterParameterGroups,
-		OptionGroups:           b.optionGroups,
-		Clusters:               b.clusters,
-		ClusterSnapshots:       b.clusterSnapshots,
-		ClusterEndpoints:       b.clusterEndpoints,
-		ExportTasks:            b.exportTasks,
-		GlobalClusters:         b.globalClusters,
-		ClusterRoles:           b.clusterRoles,
-		InstanceRoles:          b.instanceRoles,
-		EventSubscriptions:     b.eventSubscriptions,
-		DBSecurityGroups:       b.dbSecurityGroups,
-		BlueGreenDeployments:   b.blueGreenDeployments,
-		InstanceReadyAt:        b.instanceReadyAt,
-		AccountID:              b.accountID,
-		Region:                 b.region,
+		Instances:                 b.instances,
+		Snapshots:                 b.snapshots,
+		SubnetGroups:              b.subnetGroups,
+		Tags:                      b.tags,
+		ParameterGroups:           b.parameterGroups,
+		ClusterParameterGroups:    b.clusterParameterGroups,
+		OptionGroups:              b.optionGroups,
+		Clusters:                  b.clusters,
+		ClusterSnapshots:          b.clusterSnapshots,
+		ClusterEndpoints:          b.clusterEndpoints,
+		ExportTasks:               b.exportTasks,
+		GlobalClusters:            b.globalClusters,
+		ClusterRoles:              b.clusterRoles,
+		InstanceRoles:             b.instanceRoles,
+		EventSubscriptions:        b.eventSubscriptions,
+		DBSecurityGroups:          b.dbSecurityGroups,
+		BlueGreenDeployments:      b.blueGreenDeployments,
+		SnapshotAttributes:        b.snapshotAttributes,
+		ClusterSnapshotAttributes: b.clusterSnapshotAttributes,
+		ReservedInstances:         b.reservedInstances,
+		Recommendations:           b.recommendations,
+		InstanceReadyAt:           b.instanceReadyAt,
+		AccountID:                 b.accountID,
+		Region:                    b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -99,6 +107,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.eventSubscriptions = snap.EventSubscriptions
 	b.dbSecurityGroups = snap.DBSecurityGroups
 	b.blueGreenDeployments = snap.BlueGreenDeployments
+	b.snapshotAttributes = snap.SnapshotAttributes
+	b.clusterSnapshotAttributes = snap.ClusterSnapshotAttributes
+	b.reservedInstances = snap.ReservedInstances
+	b.recommendations = snap.Recommendations
 	b.instanceReadyAt = snap.InstanceReadyAt
 	b.accountID = snap.AccountID
 	b.region = snap.Region
@@ -172,7 +184,8 @@ func ensureNonNilCoreMaps(snap *backendSnapshot) {
 }
 
 // ensureNonNilExtendedMaps initialises the extended resource maps added later
-// (cluster/instance roles, event subscriptions, security groups, blue/green deployments).
+// (cluster/instance roles, event subscriptions, security groups, blue/green deployments,
+// snapshot attributes, reserved instances, and recommendations).
 func ensureNonNilExtendedMaps(snap *backendSnapshot) {
 	if snap.ClusterRoles == nil {
 		snap.ClusterRoles = make(map[string][]string)
@@ -192,6 +205,22 @@ func ensureNonNilExtendedMaps(snap *backendSnapshot) {
 
 	if snap.BlueGreenDeployments == nil {
 		snap.BlueGreenDeployments = make(map[string]*BlueGreenDeployment)
+	}
+
+	if snap.SnapshotAttributes == nil {
+		snap.SnapshotAttributes = make(map[string]*DBSnapshotAttributesResult)
+	}
+
+	if snap.ClusterSnapshotAttributes == nil {
+		snap.ClusterSnapshotAttributes = make(map[string]*DBClusterSnapshotAttributesResult)
+	}
+
+	if snap.ReservedInstances == nil {
+		snap.ReservedInstances = make(map[string]*ReservedDBInstance)
+	}
+
+	if snap.Recommendations == nil {
+		snap.Recommendations = make(map[string]*DBRecommendation)
 	}
 }
 

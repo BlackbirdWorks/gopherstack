@@ -132,6 +132,7 @@ type DBSnapshot struct {
 	EngineVersion        string `json:"engineVersion"`
 	Status               string `json:"status"`
 	StorageType          string `json:"storageType"`
+	OptionGroupName      string `json:"optionGroupName"`
 	AllocatedStorage     int    `json:"allocatedStorage"`
 	Port                 int    `json:"port"`
 	StorageEncrypted     bool   `json:"storageEncrypted"`
@@ -195,6 +196,8 @@ type DBCluster struct {
 	DBClusterParameterGroupName string `json:"dbClusterParameterGroupName"`
 	Endpoint                    string `json:"endpoint"`
 	Port                        int    `json:"port"`
+	ServerlessCapacity          int    `json:"serverlessCapacity"`
+	HTTPEndpointEnabled         bool   `json:"httpEndpointEnabled"`
 }
 
 // DBClusterSnapshot represents an RDS cluster snapshot.
@@ -224,12 +227,13 @@ type ExportTask struct {
 
 // GlobalCluster represents an RDS global cluster.
 type GlobalCluster struct {
-	GlobalClusterIdentifier string `json:"globalClusterIdentifier"`
-	Engine                  string `json:"engine"`
-	EngineVersion           string `json:"engineVersion"`
-	Status                  string `json:"status"`
-	StorageEncrypted        bool   `json:"storageEncrypted"`
-	DeletionProtection      bool   `json:"deletionProtection"`
+	GlobalClusterIdentifier string   `json:"globalClusterIdentifier"`
+	Engine                  string   `json:"engine"`
+	EngineVersion           string   `json:"engineVersion"`
+	Status                  string   `json:"status"`
+	ClusterARNs             []string `json:"clusterARNs"`
+	StorageEncrypted        bool     `json:"storageEncrypted"`
+	DeletionProtection      bool     `json:"deletionProtection"`
 }
 
 // DBEngineVersion represents an available RDS engine version.
@@ -237,6 +241,107 @@ type DBEngineVersion struct {
 	Engine              string `json:"engine"`
 	EngineVersion       string `json:"engineVersion"`
 	DBEngineDescription string `json:"dbEngineDescription"`
+}
+
+// DBSnapshotAttribute represents an attribute of a DB snapshot.
+type DBSnapshotAttribute struct {
+	AttributeName   string   `json:"attributeName"`
+	AttributeValues []string `json:"attributeValues"`
+}
+
+// DBSnapshotAttributesResult holds attributes for a DB snapshot.
+type DBSnapshotAttributesResult struct {
+	DBSnapshotIdentifier string                `json:"dbSnapshotIdentifier"`
+	DBSnapshotAttributes []DBSnapshotAttribute `json:"dbSnapshotAttributes"`
+}
+
+// DBClusterSnapshotAttributesResult holds attributes for a cluster snapshot.
+type DBClusterSnapshotAttributesResult struct {
+	DBClusterSnapshotIdentifier string                `json:"dbClusterSnapshotIdentifier"`
+	DBClusterSnapshotAttributes []DBSnapshotAttribute `json:"dbClusterSnapshotAttributes"`
+}
+
+// Certificate represents an RDS CA certificate.
+type Certificate struct {
+	CertificateIdentifier string `json:"certificateIdentifier"`
+	CertificateType       string `json:"certificateType"`
+	ValidTill             string `json:"validTill"`
+	ValidFrom             string `json:"validFrom"`
+	Thumbprint            string `json:"thumbprint"`
+	CustomerOverride      bool   `json:"customerOverride"`
+}
+
+// AccountAttribute represents an RDS account quota attribute.
+type AccountAttribute struct {
+	AttributeName string `json:"attributeName"`
+	Used          int    `json:"used"`
+	Max           int    `json:"max"`
+}
+
+// PendingMaintenanceAction represents a pending maintenance action for a resource.
+type PendingMaintenanceAction struct {
+	ResourceIdentifier   string `json:"resourceIdentifier"`
+	Action               string `json:"action"`
+	AutoAppliedAfterDate string `json:"autoAppliedAfterDate"`
+	CurrentApplyDate     string `json:"currentApplyDate"`
+	Description          string `json:"description"`
+}
+
+// SourceRegion represents an available source region for cross-region operations.
+type SourceRegion struct {
+	RegionName string `json:"regionName"`
+	Endpoint   string `json:"endpoint"`
+	Status     string `json:"status"`
+}
+
+// DBMajorEngineVersion represents a major engine version.
+type DBMajorEngineVersion struct {
+	Engine             string `json:"engine"`
+	MajorEngineVersion string `json:"majorEngineVersion"`
+	Status             string `json:"status"`
+}
+
+// ReservedDBInstance represents a purchased reserved DB instance.
+type ReservedDBInstance struct {
+	ReservedDBInstanceID          string  `json:"reservedDBInstanceId"`
+	ReservedDBInstancesOfferingID string  `json:"reservedDBInstancesOfferingId"`
+	DBInstanceClass               string  `json:"dbInstanceClass"`
+	StartTime                     string  `json:"startTime"`
+	ProductDescription            string  `json:"productDescription"`
+	OfferingType                  string  `json:"offeringType"`
+	State                         string  `json:"state"`
+	CurrencyCode                  string  `json:"currencyCode"`
+	FixedPrice                    float64 `json:"fixedPrice"`
+	UsagePrice                    float64 `json:"usagePrice"`
+	Duration                      int     `json:"duration"`
+	DBInstanceCount               int     `json:"dbInstanceCount"`
+	MultiAZ                       bool    `json:"multiAZ"`
+}
+
+// ReservedDBInstancesOffering represents an available reserved DB instance offering.
+type ReservedDBInstancesOffering struct {
+	ReservedDBInstancesOfferingID string  `json:"reservedDBInstancesOfferingId"`
+	DBInstanceClass               string  `json:"dbInstanceClass"`
+	ProductDescription            string  `json:"productDescription"`
+	OfferingType                  string  `json:"offeringType"`
+	CurrencyCode                  string  `json:"currencyCode"`
+	FixedPrice                    float64 `json:"fixedPrice"`
+	UsagePrice                    float64 `json:"usagePrice"`
+	Duration                      int     `json:"duration"`
+	MultiAZ                       bool    `json:"multiAZ"`
+}
+
+// DBRecommendation represents an RDS performance recommendation.
+type DBRecommendation struct {
+	RecommendationID string `json:"recommendationId"`
+	TypeID           string `json:"typeId"`
+	Severity         string `json:"severity"`
+	Status           string `json:"status"`
+	Description      string `json:"description"`
+	Reason           string `json:"reason"`
+	ResourceARN      string `json:"resourceArn"`
+	UpdatedTime      string `json:"updatedTime"`
+	CreatedTime      string `json:"createdTime"`
 }
 
 // OrderableDBInstanceOption represents an orderable DB instance option.
@@ -320,60 +425,68 @@ type DBInstanceOptions struct {
 
 // InMemoryBackend is the in-memory store for RDS resources.
 type InMemoryBackend struct {
-	dnsRegistrar           DNSRegistrar
-	clusterEndpoints       map[string]*DBClusterEndpoint
-	parameterGroups        map[string]*DBParameterGroup
-	snapshots              map[string]*DBSnapshot
-	subnetGroups           map[string]*DBSubnetGroup
-	tags                   map[string][]Tag
-	instances              map[string]*DBInstance
-	clusterParameterGroups map[string]*DBParameterGroup
-	optionGroups           map[string]*OptionGroup
-	clusters               map[string]*DBCluster
-	instanceReadyAt        map[string]time.Time
-	clusterSnapshots       map[string]*DBClusterSnapshot
-	eventSubscriptions     map[string]*EventSubscription
-	globalClusters         map[string]*GlobalCluster
-	clusterRoles           map[string][]string
-	instanceRoles          map[string][]string
-	exportTasks            map[string]*ExportTask
-	mu                     *lockmetrics.RWMutex
-	dbSecurityGroups       map[string]*DBSecurityGroup
-	blueGreenDeployments   map[string]*BlueGreenDeployment
-	fisFailoverFaults      map[string]time.Time
-	stopCh                 chan struct{}
-	accountID              string
-	region                 string
-	events                 []Event
+	dnsRegistrar              DNSRegistrar
+	clusterEndpoints          map[string]*DBClusterEndpoint
+	parameterGroups           map[string]*DBParameterGroup
+	snapshots                 map[string]*DBSnapshot
+	subnetGroups              map[string]*DBSubnetGroup
+	tags                      map[string][]Tag
+	instances                 map[string]*DBInstance
+	clusterParameterGroups    map[string]*DBParameterGroup
+	optionGroups              map[string]*OptionGroup
+	clusters                  map[string]*DBCluster
+	instanceReadyAt           map[string]time.Time
+	clusterSnapshots          map[string]*DBClusterSnapshot
+	eventSubscriptions        map[string]*EventSubscription
+	globalClusters            map[string]*GlobalCluster
+	clusterRoles              map[string][]string
+	instanceRoles             map[string][]string
+	exportTasks               map[string]*ExportTask
+	mu                        *lockmetrics.RWMutex
+	dbSecurityGroups          map[string]*DBSecurityGroup
+	blueGreenDeployments      map[string]*BlueGreenDeployment
+	snapshotAttributes        map[string]*DBSnapshotAttributesResult
+	clusterSnapshotAttributes map[string]*DBClusterSnapshotAttributesResult
+	reservedInstances         map[string]*ReservedDBInstance
+	recommendations           map[string]*DBRecommendation
+	fisFailoverFaults         map[string]time.Time
+	stopCh                    chan struct{}
+	accountID                 string
+	region                    string
+	events                    []Event
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background reconciler.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		instances:              make(map[string]*DBInstance),
-		instanceReadyAt:        make(map[string]time.Time),
-		snapshots:              make(map[string]*DBSnapshot),
-		subnetGroups:           make(map[string]*DBSubnetGroup),
-		tags:                   make(map[string][]Tag),
-		parameterGroups:        make(map[string]*DBParameterGroup),
-		clusterParameterGroups: make(map[string]*DBParameterGroup),
-		optionGroups:           make(map[string]*OptionGroup),
-		clusters:               make(map[string]*DBCluster),
-		clusterSnapshots:       make(map[string]*DBClusterSnapshot),
-		clusterEndpoints:       make(map[string]*DBClusterEndpoint),
-		exportTasks:            make(map[string]*ExportTask),
-		globalClusters:         make(map[string]*GlobalCluster),
-		clusterRoles:           make(map[string][]string),
-		instanceRoles:          make(map[string][]string),
-		eventSubscriptions:     make(map[string]*EventSubscription),
-		events:                 make([]Event, 0),
-		dbSecurityGroups:       make(map[string]*DBSecurityGroup),
-		blueGreenDeployments:   make(map[string]*BlueGreenDeployment),
-		fisFailoverFaults:      make(map[string]time.Time),
-		stopCh:                 make(chan struct{}),
-		accountID:              accountID,
-		region:                 region,
-		mu:                     lockmetrics.New("rds"),
+		instances:                 make(map[string]*DBInstance),
+		instanceReadyAt:           make(map[string]time.Time),
+		snapshots:                 make(map[string]*DBSnapshot),
+		subnetGroups:              make(map[string]*DBSubnetGroup),
+		tags:                      make(map[string][]Tag),
+		parameterGroups:           make(map[string]*DBParameterGroup),
+		clusterParameterGroups:    make(map[string]*DBParameterGroup),
+		optionGroups:              make(map[string]*OptionGroup),
+		clusters:                  make(map[string]*DBCluster),
+		clusterSnapshots:          make(map[string]*DBClusterSnapshot),
+		clusterEndpoints:          make(map[string]*DBClusterEndpoint),
+		exportTasks:               make(map[string]*ExportTask),
+		globalClusters:            make(map[string]*GlobalCluster),
+		clusterRoles:              make(map[string][]string),
+		instanceRoles:             make(map[string][]string),
+		eventSubscriptions:        make(map[string]*EventSubscription),
+		events:                    make([]Event, 0),
+		dbSecurityGroups:          make(map[string]*DBSecurityGroup),
+		blueGreenDeployments:      make(map[string]*BlueGreenDeployment),
+		fisFailoverFaults:         make(map[string]time.Time),
+		snapshotAttributes:        make(map[string]*DBSnapshotAttributesResult),
+		clusterSnapshotAttributes: make(map[string]*DBClusterSnapshotAttributesResult),
+		reservedInstances:         make(map[string]*ReservedDBInstance),
+		recommendations:           make(map[string]*DBRecommendation),
+		stopCh:                    make(chan struct{}),
+		accountID:                 accountID,
+		region:                    region,
+		mu:                        lockmetrics.New("rds"),
 	}
 
 	go b.runReconciler()
@@ -417,6 +530,10 @@ func (b *InMemoryBackend) Reset() {
 	b.dbSecurityGroups = make(map[string]*DBSecurityGroup)
 	b.blueGreenDeployments = make(map[string]*BlueGreenDeployment)
 	b.fisFailoverFaults = make(map[string]time.Time)
+	b.snapshotAttributes = make(map[string]*DBSnapshotAttributesResult)
+	b.clusterSnapshotAttributes = make(map[string]*DBClusterSnapshotAttributesResult)
+	b.reservedInstances = make(map[string]*ReservedDBInstance)
+	b.recommendations = make(map[string]*DBRecommendation)
 }
 
 // SetDNSRegistrar wires a DNS server so RDS instance hostnames are auto-registered.
