@@ -162,7 +162,7 @@ func TestIntegration_APIGatewayV2_FullLifecycle(t *testing.T) {
 	// Default PayloadFormatVersion for AWS_PROXY should be "1.0"
 	assert.Equal(t, "1.0", aws.ToString(integOut.PayloadFormatVersion))
 	// Default TimeoutInMillis should be 29000
-	assert.EqualValues(t, 29000, integOut.TimeoutInMillis)
+	assert.Equal(t, int32(29000), aws.ToInt32(integOut.TimeoutInMillis))
 
 	// 16. GetIntegration
 	getIntegOut, err := client.GetIntegration(ctx, &apigwv2sdk.GetIntegrationInput{

@@ -239,8 +239,8 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		{segs: segCountDeepRes, seg1: collRouteSettings, method: http.MethodDelete}: "DeleteRouteSettings",
 		// /v2/apis/{apiId}/routes/{routeId}/requestparameters/{requestParameterKey} DELETE
 		{segs: segCountDeepRes, seg1: collRequestParameters, method: http.MethodDelete}: "DeleteRouteRequestParameter",
-		// /v2/apis/{apiId}/stages/{stageName}/cache DELETE
-		{segs: segCountDeepColl, seg1: "cache", method: http.MethodDelete}: "ResetAuthorizersCache",
+		// /v2/apis/{apiId}/stages/{stageName}/cache/authorizers DELETE
+		{segs: segCountDeepRes, seg1: "cache", method: http.MethodDelete}: "ResetAuthorizersCache",
 		// /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses/{id} PATCH
 		{segs: segCountDeepRes, seg1: collIntegrationResponses, method: http.MethodPatch}: "UpdateIntegrationResponse",
 		// /v2/apis/{apiId}/routes/{routeId}/routeresponses/{id} PATCH
@@ -733,9 +733,6 @@ func (h *Handler) handleDeepCollection(
 		},
 		{http.MethodGet, collTemplate}: func(c *echo.Context, apiID, resourceID string) error {
 			return h.handleGetModelTemplate(c, apiID, resourceID)
-		},
-		{http.MethodDelete, "cache"}: func(c *echo.Context, apiID, resourceID string) error {
-			return h.handleResetAuthorizersCache(c, apiID, resourceID)
 		},
 	}
 
@@ -1231,7 +1228,11 @@ func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
 }
 
 func (h *Handler) handleDeleteCorsConfiguration(c *echo.Context, apiID string) error {
-	if _, err := h.Backend.GetAPI(apiID); err != nil {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeleteCorsConfiguration(apiID); err != nil {
+		log.Error("apigatewayv2: delete cors configuration failed", "apiId", apiID, "error", err)
+
 		if errors.Is(err, ErrAPINotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
@@ -1267,7 +1268,12 @@ func (h *Handler) handleGetModelTemplate(c *echo.Context, apiID, modelID string)
 }
 
 func (h *Handler) handleDeleteAccessLogSettings(c *echo.Context, apiID, stageName string) error {
-	if _, err := h.Backend.GetStage(apiID, stageName); err != nil {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeleteAccessLogSettings(apiID, stageName); err != nil {
+		log.Error("apigatewayv2: delete access log settings failed",
+			"apiId", apiID, "stageName", stageName, "error", err)
+
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
@@ -1283,7 +1289,12 @@ func (h *Handler) handleDeleteRouteSettings(c *echo.Context, apiID, stageName, r
 		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: "routeKey is required"})
 	}
 
-	if _, err := h.Backend.GetStage(apiID, stageName); err != nil {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeleteRouteSettings(apiID, stageName, routeKey); err != nil {
+		log.Error("apigatewayv2: delete route settings failed",
+			"apiId", apiID, "stageName", stageName, "routeKey", routeKey, "error", err)
+
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
@@ -1299,7 +1310,12 @@ func (h *Handler) handleDeleteRouteRequestParameter(c *echo.Context, apiID, rout
 		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: "requestParameterKey is required"})
 	}
 
-	if _, err := h.Backend.GetRoute(apiID, routeID); err != nil {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeleteRouteRequestParameter(apiID, routeID, requestParameterKey); err != nil {
+		log.Error("apigatewayv2: delete route request parameter failed",
+			"apiId", apiID, "routeId", routeID, "key", requestParameterKey, "error", err)
+
 		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
@@ -1900,6 +1916,9 @@ func (h *Handler) handleDeepResource(
 	if method == http.MethodDelete && subCollection == collRequestParameters && parentCollection == collRoutes {
 		return h.handleDeleteRouteRequestParameter(c, apiID, resourceID, subResourceID)
 	}
+	if method == http.MethodDelete && subCollection == "cache" && subResourceID == "authorizers" {
+		return h.handleResetAuthorizersCache(c, apiID, resourceID)
+	}
 
 	type threeArgHandler func(*echo.Context, string, string, string) error
 
@@ -2129,7 +2148,7 @@ func extractTagsOp(path, method string) string {
 	switch method {
 	case http.MethodGet:
 		return "GetTags"
-	case http.MethodPut:
+	case http.MethodPost:
 		return "TagResource"
 	case http.MethodDelete:
 		return "UntagResource"
@@ -2147,7 +2166,7 @@ func (h *Handler) handleTagsPath(c *echo.Context, method, path string) error {
 	switch method {
 	case http.MethodGet:
 		return h.handleGetTags(c, resourceARN)
-	case http.MethodPut:
+	case http.MethodPost:
 		return h.handleTagResource(c, resourceARN)
 	case http.MethodDelete:
 		return h.handleUntagResource(c, resourceARN)
@@ -2163,7 +2182,8 @@ func (h *Handler) handleGetTags(c *echo.Context, resourceARN string) error {
 	if err != nil {
 		log.Error("apigatewayv2: get tags failed", "resourceArn", resourceARN, "error", err)
 
-		if errors.Is(err, ErrAPINotFound) {
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
+			errors.Is(err, ErrDomainNameNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
 
@@ -2188,7 +2208,8 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 	if err := h.Backend.TagResource(resourceARN, input.Tags); err != nil {
 		log.Error("apigatewayv2: tag resource failed", "resourceArn", resourceARN, "error", err)
 
-		if errors.Is(err, ErrAPINotFound) {
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
+			errors.Is(err, ErrDomainNameNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
 
@@ -2201,21 +2222,14 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error {
 	log := logger.Load(c.Request().Context())
 
-	tagKeysRaw := c.Request().URL.Query().Get("tagKeys")
-	tagKeys := strings.Split(tagKeysRaw, ",")
+	// AWS SDK sends tagKeys as repeated query parameters: ?tagKeys=key1&tagKeys=key2
+	tagKeys := c.Request().URL.Query()["tagKeys"]
 
-	// Filter out empty strings that result from missing/empty query parameter.
-	filtered := make([]string, 0, len(tagKeys))
-	for _, k := range tagKeys {
-		if k != "" {
-			filtered = append(filtered, k)
-		}
-	}
-
-	if err := h.Backend.UntagResource(resourceARN, filtered); err != nil {
+	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
 		log.Error("apigatewayv2: untag resource failed", "resourceArn", resourceARN, "error", err)
 
-		if errors.Is(err, ErrAPINotFound) {
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
+			errors.Is(err, ErrDomainNameNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
 

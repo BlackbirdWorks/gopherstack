@@ -393,7 +393,10 @@ func TestInMemoryBackend_Deployments(t *testing.T) {
 func TestInMemoryBackend_Authorizers(t *testing.T) {
 	t.Parallel()
 
+	jwtConfig := &apigatewayv2.JwtConfiguration{Issuer: "https://issuer.example.com", Audience: []string{"client-id"}}
+
 	tests := []struct {
+		jwtConfig      *apigatewayv2.JwtConfiguration
 		name           string
 		authorizerName string
 		authType       string
@@ -402,6 +405,7 @@ func TestInMemoryBackend_Authorizers(t *testing.T) {
 			name:           "jwt_authorizer",
 			authorizerName: "my-jwt-auth",
 			authType:       "JWT",
+			jwtConfig:      jwtConfig,
 		},
 		{
 			name:           "request_authorizer",
@@ -420,8 +424,9 @@ func TestInMemoryBackend_Authorizers(t *testing.T) {
 			require.NoError(t, err)
 
 			authorizer, err := b.CreateAuthorizer(api.APIID, apigatewayv2.CreateAuthorizerInput{
-				Name:           tt.authorizerName,
-				AuthorizerType: tt.authType,
+				Name:             tt.authorizerName,
+				AuthorizerType:   tt.authType,
+				JwtConfiguration: tt.jwtConfig,
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.authorizerName, authorizer.Name)
@@ -575,6 +580,10 @@ func TestInMemoryBackend_UpdateAuthorizer_AllFields(t *testing.T) {
 	auth, err := b.CreateAuthorizer(api.APIID, apigatewayv2.CreateAuthorizerInput{
 		Name:           "auth",
 		AuthorizerType: "JWT",
+		JwtConfiguration: &apigatewayv2.JwtConfiguration{
+			Issuer:   "https://issuer.example.com",
+			Audience: []string{"client-id"},
+		},
 	})
 	require.NoError(t, err)
 
@@ -654,6 +663,13 @@ func TestInMemoryBackend_CreateAuthorizer_ApiNotFound(t *testing.T) {
 
 	b := apigatewayv2.NewInMemoryBackend()
 
-	_, err := b.CreateAuthorizer("bad-api", apigatewayv2.CreateAuthorizerInput{Name: "auth", AuthorizerType: "JWT"})
+	_, err := b.CreateAuthorizer("bad-api", apigatewayv2.CreateAuthorizerInput{
+		Name:           "auth",
+		AuthorizerType: "JWT",
+		JwtConfiguration: &apigatewayv2.JwtConfiguration{
+			Issuer:   "https://issuer.example.com",
+			Audience: []string{"client-id"},
+		},
+	})
 	require.ErrorIs(t, err, apigatewayv2.ErrAPINotFound)
 }

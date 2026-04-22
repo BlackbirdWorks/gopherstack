@@ -174,6 +174,8 @@ type CreateAPIInput struct {
 type UpdateAPIInput struct {
 	CorsConfiguration         *CorsConfiguration `json:"corsConfiguration,omitempty"`
 	Tags                      map[string]string  `json:"tags,omitempty"`
+	DisableSchemaValidation   *bool              `json:"disableSchemaValidation,omitempty"`
+	DisableExecuteAPIEndpoint *bool              `json:"disableExecuteApiEndpoint,omitempty"`
 	Name                      string             `json:"name,omitempty"`
 	Description               string             `json:"description,omitempty"`
 	RouteSelectionExpression  string             `json:"routeSelectionExpression,omitempty"`

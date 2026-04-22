@@ -1294,6 +1294,10 @@ func TestHandler_Authorizers(t *testing.T) {
 			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/authorizers", apiID), map[string]any{
 				"name":           tt.authorizerName,
 				"authorizerType": "JWT",
+				"jwtConfiguration": map[string]any{
+					"issuer":   "https://issuer.example.com",
+					"audience": []string{"client-id"},
+				},
 			})
 			require.Equal(t, tt.wantCreateCode, rr.Code)
 
@@ -3906,7 +3910,7 @@ func TestHandler_Tags(t *testing.T) {
 			arn := "arn:aws:apigateway:us-east-1::/apis/" + apiID
 
 			if len(tt.tagsToSet) > 0 {
-				rr := doRequest(t, h, http.MethodPut, "/v2/tags/"+arn, map[string]any{
+				rr := doRequest(t, h, http.MethodPost, "/v2/tags/"+arn, map[string]any{
 					"tags": tt.tagsToSet,
 				})
 				assert.Equal(t, http.StatusCreated, rr.Code)
@@ -3950,8 +3954,8 @@ func TestHandler_Tags_NotFound(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "put_not_found",
-			method:     http.MethodPut,
+			name:       "post_not_found",
+			method:     http.MethodPost,
 			wantStatus: http.StatusNotFound,
 		},
 		{
@@ -3969,7 +3973,7 @@ func TestHandler_Tags_NotFound(t *testing.T) {
 			arn := "arn:aws:apigateway:us-east-1::/apis/nonexistent"
 
 			var rr *httptest.ResponseRecorder
-			if tt.method == http.MethodPut {
+			if tt.method == http.MethodPost {
 				rr = doRequest(t, h, tt.method, "/v2/tags/"+arn, map[string]any{"tags": map[string]string{}})
 			} else {
 				rr = doRequest(t, h, tt.method, "/v2/tags/"+arn, nil)
@@ -4125,7 +4129,7 @@ func TestHandler_ExtractOperation_NewOps(t *testing.T) {
 		},
 		{
 			name:   "tag_resource",
-			method: http.MethodPut,
+			method: http.MethodPost,
 			path:   "/v2/tags/arn:aws:apigateway:us-east-1::/apis/abc123",
 			wantOp: "TagResource",
 		},
@@ -5043,7 +5047,7 @@ func TestHandler_ResetAuthorizersCache(t *testing.T) {
 			apiID, stageName := tt.setup(h)
 
 			rr := doRequest(t, h, http.MethodDelete,
-				fmt.Sprintf("/v2/apis/%s/stages/%s/cache", apiID, stageName), nil)
+				fmt.Sprintf("/v2/apis/%s/stages/%s/cache/authorizers", apiID, stageName), nil)
 
 			assert.Equal(t, tt.wantStatus, rr.Code)
 		})
@@ -5138,8 +5142,15 @@ func TestHandler_CreateAuthorizer_InvalidType(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "valid_jwt",
-			body:       map[string]any{"name": "my-auth", "authorizerType": "JWT"},
+			name: "valid_jwt",
+			body: map[string]any{
+				"name":           "my-auth",
+				"authorizerType": "JWT",
+				"jwtConfiguration": map[string]any{
+					"issuer":   "https://issuer.example.com",
+					"audience": []string{"client-id"},
+				},
+			},
 			wantStatus: http.StatusCreated,
 		},
 		{
