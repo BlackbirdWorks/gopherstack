@@ -17,32 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := apigatewayv2.NewInMemoryBackend()
 	h := apigatewayv2.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &apigatewayv2sdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateRoutingRule",
-		"CreateVpcLink",
-		"DeleteAccessLogSettings",
-		"DeleteCorsConfiguration",
-		"DeletePortalProductSharingPolicy",
-		"DeleteRouteRequestParameter",
-		"DeleteRouteSettings",
-		"DeleteRoutingRule",
-		"DeleteVpcLink",
-		"DisablePortal",
-		"ExportApi",
-		"GetModelTemplate",
-		"GetPortalProductSharingPolicy",
-		"GetRoutingRule",
-		"GetVpcLink",
-		"GetVpcLinks",
-		"ImportApi",
-		"ListRoutingRules",
-		"PreviewPortal",
-		"PublishPortal",
-		"PutPortalProductSharingPolicy",
-		"PutRoutingRule",
-		"ReimportApi",
-		"UpdateProductPage",
-		"UpdateProductRestEndpointPage",
-		"UpdateVpcLink",
-	})
+	sdkcheck.CheckCompleteness(t, &apigatewayv2sdk.Client{}, h.GetSupportedOperations(), []string{})
 }

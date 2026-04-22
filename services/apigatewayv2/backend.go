@@ -54,6 +54,10 @@ var (
 	ErrProductPageNotFound = errors.New("NotFoundException")
 	// ErrProductREPageNotFound is returned when a requested product REST endpoint page does not exist.
 	ErrProductREPageNotFound = errors.New("NotFoundException")
+	// ErrVpcLinkNotFound is returned when a requested VPC link does not exist.
+	ErrVpcLinkNotFound = errors.New("NotFoundException")
+	// ErrRoutingRuleNotFound is returned when a requested routing rule does not exist.
+	ErrRoutingRuleNotFound = errors.New("NotFoundException")
 )
 
 // StorageBackend is the interface for the API Gateway v2 in-memory store.
@@ -132,6 +136,25 @@ type StorageBackend interface {
 		input CreateProductRestEndpointPageInput,
 	) (*ProductRestEndpointPage, error)
 
+	// VPC links
+	CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, error)
+	GetVpcLink(vpcLinkID string) (*VpcLink, error)
+	GetVpcLinks() ([]VpcLink, error)
+	UpdateVpcLink(vpcLinkID string, input UpdateVpcLinkInput) (*VpcLink, error)
+	DeleteVpcLink(vpcLinkID string) error
+
+	// Routing rules
+	CreateRoutingRule(domainName string, input CreateRoutingRuleInput) (*RoutingRule, error)
+	GetRoutingRule(domainName, routingRuleID string) (*RoutingRule, error)
+	ListRoutingRules(domainName string) ([]RoutingRule, error)
+	PutRoutingRule(domainName, routingRuleID string, input PutRoutingRuleInput) (*RoutingRule, error)
+	DeleteRoutingRule(domainName, routingRuleID string) error
+
+	// Portal sharing policy
+	GetPortalProductSharingPolicy(portalProductID string) (*PortalProductSharingPolicy, error)
+	PutPortalProductSharingPolicy(portalProductID, policyDocument string) (*PortalProductSharingPolicy, error)
+	DeletePortalProductSharingPolicy(portalProductID string) error
+
 	// Domain Names - Get/Delete
 	GetDomainName(domainName string) (*DomainName, error)
 	GetDomainNames() ([]DomainName, error)
@@ -203,6 +226,15 @@ type StorageBackend interface {
 	// UpdatePortalProduct
 	UpdatePortalProduct(portalProductID string, input UpdatePortalProductInput) (*PortalProduct, error)
 
+	// UpdateProductPage
+	UpdateProductPage(portalProductID, pageID string, input UpdateProductPageInput) (*ProductPage, error)
+
+	// UpdateProductRestEndpointPage
+	UpdateProductRestEndpointPage(
+		portalProductID, pageID string,
+		input UpdateProductRestEndpointPageInput,
+	) (*ProductRestEndpointPage, error)
+
 	// DeletePortal
 	DeletePortal(portalID string) error
 
@@ -240,27 +272,33 @@ type apiData struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	apis           map[string]*apiData
-	domainNames    map[string]*DomainName
-	apiMappings    map[string]map[string]*APIMapping
-	portals        map[string]*Portal
-	portalProducts map[string]*PortalProduct
-	productPages   map[string][]*ProductPage             // key: portalProductID
-	productREPages map[string][]*ProductRestEndpointPage // key: portalProductID
-	mu             *lockmetrics.RWMutex
+	apis                         map[string]*apiData
+	domainNames                  map[string]*DomainName
+	apiMappings                  map[string]map[string]*APIMapping
+	portals                      map[string]*Portal
+	portalProducts               map[string]*PortalProduct
+	portalProductSharingPolicies map[string]string
+	productPages                 map[string][]*ProductPage             // key: portalProductID
+	productREPages               map[string][]*ProductRestEndpointPage // key: portalProductID
+	vpcLinks                     map[string]*VpcLink
+	routingRules                 map[string]map[string]*RoutingRule
+	mu                           *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		apis:           make(map[string]*apiData),
-		domainNames:    make(map[string]*DomainName),
-		apiMappings:    make(map[string]map[string]*APIMapping),
-		portals:        make(map[string]*Portal),
-		portalProducts: make(map[string]*PortalProduct),
-		productPages:   make(map[string][]*ProductPage),
-		productREPages: make(map[string][]*ProductRestEndpointPage),
-		mu:             lockmetrics.New("apigatewayv2"),
+		apis:                         make(map[string]*apiData),
+		domainNames:                  make(map[string]*DomainName),
+		apiMappings:                  make(map[string]map[string]*APIMapping),
+		portals:                      make(map[string]*Portal),
+		portalProducts:               make(map[string]*PortalProduct),
+		portalProductSharingPolicies: make(map[string]string),
+		productPages:                 make(map[string][]*ProductPage),
+		productREPages:               make(map[string][]*ProductRestEndpointPage),
+		vpcLinks:                     make(map[string]*VpcLink),
+		routingRules:                 make(map[string]map[string]*RoutingRule),
+		mu:                           lockmetrics.New("apigatewayv2"),
 	}
 }
 
@@ -283,8 +321,11 @@ func (b *InMemoryBackend) Reset() {
 	b.apiMappings = make(map[string]map[string]*APIMapping)
 	b.portals = make(map[string]*Portal)
 	b.portalProducts = make(map[string]*PortalProduct)
+	b.portalProductSharingPolicies = make(map[string]string)
 	b.productPages = make(map[string][]*ProductPage)
 	b.productREPages = make(map[string][]*ProductRestEndpointPage)
+	b.vpcLinks = make(map[string]*VpcLink)
+	b.routingRules = make(map[string]map[string]*RoutingRule)
 }
 
 // randomID generates a cryptographically random 10-character alphanumeric ID.
@@ -1414,6 +1455,245 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 	return &cp, nil
 }
 
+// --- VPC Links ---
+
+// CreateVpcLink creates a new VPC link.
+func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrBadRequest)
+	}
+
+	b.mu.Lock("CreateVpcLink")
+	defer b.mu.Unlock()
+
+	now := isoTime{time.Now()}
+	id := randomID()
+	vpcLink := &VpcLink{
+		CreatedDate:      now,
+		VpcLinkID:        id,
+		Name:             input.Name,
+		SecurityGroupIDs: input.SecurityGroupIDs,
+		SubnetIDs:        input.SubnetIDs,
+		Tags:             copyTags(input.Tags),
+		VpcLinkStatus:    "AVAILABLE",
+	}
+	b.vpcLinks[id] = vpcLink
+
+	cp := *vpcLink
+
+	return &cp, nil
+}
+
+// GetVpcLink retrieves a VPC link by ID.
+func (b *InMemoryBackend) GetVpcLink(vpcLinkID string) (*VpcLink, error) {
+	b.mu.RLock("GetVpcLink")
+	defer b.mu.RUnlock()
+
+	vpcLink, ok := b.vpcLinks[vpcLinkID]
+	if !ok {
+		return nil, ErrVpcLinkNotFound
+	}
+
+	cp := *vpcLink
+
+	return &cp, nil
+}
+
+// GetVpcLinks retrieves all VPC links.
+func (b *InMemoryBackend) GetVpcLinks() ([]VpcLink, error) {
+	b.mu.RLock("GetVpcLinks")
+	defer b.mu.RUnlock()
+
+	out := make([]VpcLink, 0, len(b.vpcLinks))
+	for _, item := range b.vpcLinks {
+		out = append(out, *item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].VpcLinkID < out[j].VpcLinkID })
+
+	return out, nil
+}
+
+// UpdateVpcLink updates a VPC link.
+func (b *InMemoryBackend) UpdateVpcLink(vpcLinkID string, input UpdateVpcLinkInput) (*VpcLink, error) {
+	b.mu.Lock("UpdateVpcLink")
+	defer b.mu.Unlock()
+
+	vpcLink, ok := b.vpcLinks[vpcLinkID]
+	if !ok {
+		return nil, ErrVpcLinkNotFound
+	}
+	if input.Name != "" {
+		vpcLink.Name = input.Name
+	}
+
+	cp := *vpcLink
+
+	return &cp, nil
+}
+
+// DeleteVpcLink removes a VPC link.
+func (b *InMemoryBackend) DeleteVpcLink(vpcLinkID string) error {
+	b.mu.Lock("DeleteVpcLink")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vpcLinks[vpcLinkID]; !ok {
+		return ErrVpcLinkNotFound
+	}
+	delete(b.vpcLinks, vpcLinkID)
+
+	return nil
+}
+
+// --- Routing Rules ---
+
+// CreateRoutingRule creates a routing rule under a domain name.
+func (b *InMemoryBackend) CreateRoutingRule(domainName string, input CreateRoutingRuleInput) (*RoutingRule, error) {
+	b.mu.Lock("CreateRoutingRule")
+	defer b.mu.Unlock()
+
+	if _, ok := b.domainNames[domainName]; !ok {
+		return nil, ErrDomainNameNotFound
+	}
+	if _, ok := b.routingRules[domainName]; !ok {
+		b.routingRules[domainName] = make(map[string]*RoutingRule)
+	}
+	id := randomID()
+	rule := &RoutingRule{
+		RoutingRuleID:  id,
+		RoutingRuleARN: "arn:aws:apigateway:us-east-1::/domainnames/" + domainName + "/routingrules/" + id,
+		DomainName:     domainName,
+		Priority:       input.Priority,
+		Actions:        input.Actions,
+		Conditions:     input.Conditions,
+	}
+	b.routingRules[domainName][id] = rule
+
+	cp := *rule
+
+	return &cp, nil
+}
+
+// GetRoutingRule retrieves a routing rule.
+func (b *InMemoryBackend) GetRoutingRule(domainName, routingRuleID string) (*RoutingRule, error) {
+	b.mu.RLock("GetRoutingRule")
+	defer b.mu.RUnlock()
+
+	rules, ok := b.routingRules[domainName]
+	if !ok {
+		return nil, ErrDomainNameNotFound
+	}
+	rule, ok := rules[routingRuleID]
+	if !ok {
+		return nil, ErrRoutingRuleNotFound
+	}
+
+	cp := *rule
+
+	return &cp, nil
+}
+
+// ListRoutingRules lists routing rules for a domain.
+func (b *InMemoryBackend) ListRoutingRules(domainName string) ([]RoutingRule, error) {
+	b.mu.RLock("ListRoutingRules")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.domainNames[domainName]; !ok {
+		return nil, ErrDomainNameNotFound
+	}
+	rules := b.routingRules[domainName]
+	out := make([]RoutingRule, 0, len(rules))
+	for _, rule := range rules {
+		out = append(out, *rule)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].RoutingRuleID < out[j].RoutingRuleID })
+
+	return out, nil
+}
+
+// PutRoutingRule updates an existing routing rule.
+func (b *InMemoryBackend) PutRoutingRule(
+	domainName, routingRuleID string,
+	input PutRoutingRuleInput,
+) (*RoutingRule, error) {
+	b.mu.Lock("PutRoutingRule")
+	defer b.mu.Unlock()
+
+	rules, ok := b.routingRules[domainName]
+	if !ok {
+		return nil, ErrDomainNameNotFound
+	}
+	rule, ok := rules[routingRuleID]
+	if !ok {
+		return nil, ErrRoutingRuleNotFound
+	}
+	rule.Priority = input.Priority
+	rule.Actions = input.Actions
+	rule.Conditions = input.Conditions
+
+	cp := *rule
+
+	return &cp, nil
+}
+
+// DeleteRoutingRule deletes a routing rule.
+func (b *InMemoryBackend) DeleteRoutingRule(domainName, routingRuleID string) error {
+	b.mu.Lock("DeleteRoutingRule")
+	defer b.mu.Unlock()
+
+	rules, ok := b.routingRules[domainName]
+	if !ok {
+		return ErrDomainNameNotFound
+	}
+	if _, exists := rules[routingRuleID]; !exists {
+		return ErrRoutingRuleNotFound
+	}
+	delete(rules, routingRuleID)
+
+	return nil
+}
+
+// --- Portal Product Sharing Policy ---
+
+// GetPortalProductSharingPolicy gets sharing policy for a portal product.
+func (b *InMemoryBackend) GetPortalProductSharingPolicy(portalProductID string) (*PortalProductSharingPolicy, error) {
+	b.mu.RLock("GetPortalProductSharingPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return nil, ErrPortalProductNotFound
+	}
+
+	return &PortalProductSharingPolicy{PolicyDocument: b.portalProductSharingPolicies[portalProductID]}, nil
+}
+
+// PutPortalProductSharingPolicy stores sharing policy for a portal product.
+func (b *InMemoryBackend) PutPortalProductSharingPolicy(
+	portalProductID, policyDocument string,
+) (*PortalProductSharingPolicy, error) {
+	b.mu.Lock("PutPortalProductSharingPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return nil, ErrPortalProductNotFound
+	}
+	b.portalProductSharingPolicies[portalProductID] = policyDocument
+
+	return &PortalProductSharingPolicy{PolicyDocument: policyDocument}, nil
+}
+
+// DeletePortalProductSharingPolicy deletes sharing policy for a portal product.
+func (b *InMemoryBackend) DeletePortalProductSharingPolicy(portalProductID string) error {
+	b.mu.Lock("DeletePortalProductSharingPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return ErrPortalProductNotFound
+	}
+	delete(b.portalProductSharingPolicies, portalProductID)
+
+	return nil
+}
+
 // --- Get/Delete Domain Names ---
 
 // GetDomainName retrieves a domain name by name.
@@ -2184,6 +2464,9 @@ func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput)
 	if input.LogoURI != "" {
 		p.LogoURI = input.LogoURI
 	}
+	if input.Status != "" {
+		p.Status = input.Status
+	}
 
 	cp := *p
 
@@ -2221,6 +2504,60 @@ func (b *InMemoryBackend) UpdatePortalProduct(
 	cp := *pp
 
 	return &cp, nil
+}
+
+// UpdateProductPage updates a product page.
+func (b *InMemoryBackend) UpdateProductPage(
+	portalProductID, pageID string,
+	input UpdateProductPageInput,
+) (*ProductPage, error) {
+	b.mu.Lock("UpdateProductPage")
+	defer b.mu.Unlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return nil, ErrPortalProductNotFound
+	}
+	for _, page := range b.productPages[portalProductID] {
+		if page.ProductPageID == pageID {
+			now := isoTime{time.Now()}
+			if input.DisplayContent != nil {
+				page.DisplayContent = input.DisplayContent
+			}
+			page.LastModified = &now
+			cp := *page
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrProductPageNotFound
+}
+
+// UpdateProductRestEndpointPage updates a product REST endpoint page.
+func (b *InMemoryBackend) UpdateProductRestEndpointPage(
+	portalProductID, pageID string,
+	input UpdateProductRestEndpointPageInput,
+) (*ProductRestEndpointPage, error) {
+	b.mu.Lock("UpdateProductRestEndpointPage")
+	defer b.mu.Unlock()
+
+	if _, ok := b.portalProducts[portalProductID]; !ok {
+		return nil, ErrPortalProductNotFound
+	}
+	for _, page := range b.productREPages[portalProductID] {
+		if page.ProductRestEndpointPageID == pageID {
+			now := isoTime{time.Now()}
+			if input.DisplayContent != nil {
+				page.DisplayContent = input.DisplayContent
+			}
+			page.LastModified = &now
+			cp := *page
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrProductREPageNotFound
 }
 
 // DeletePortal removes a portal by ID.

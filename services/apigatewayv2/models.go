@@ -252,6 +252,7 @@ type UpdateRouteResponseInput struct {
 type UpdatePortalInput struct {
 	Tags    map[string]string `json:"tags,omitempty"`
 	LogoURI string            `json:"logoUri,omitempty"`
+	Status  string            `json:"status,omitempty"`
 }
 
 // UpdatePortalProductInput is the input for UpdatePortalProduct (PATCH).
@@ -259,6 +260,21 @@ type UpdatePortalProductInput struct {
 	Tags        map[string]string `json:"tags,omitempty"`
 	DisplayName string            `json:"displayName,omitempty"`
 	Description string            `json:"description,omitempty"`
+}
+
+// UpdateProductPageInput is the input for UpdateProductPage (PATCH).
+type UpdateProductPageInput struct {
+	DisplayContent map[string]any `json:"displayContent,omitempty"`
+}
+
+// UpdateProductRestEndpointPageInput is the input for UpdateProductRestEndpointPage (PATCH).
+type UpdateProductRestEndpointPageInput struct {
+	DisplayContent map[string]any `json:"displayContent,omitempty"`
+}
+
+// PublishPortalInput is the input for PublishPortal (POST).
+type PublishPortalInput struct {
+	Description string `json:"description,omitempty"`
 }
 
 // listApisOutput is the response body for GetAPIs.
@@ -410,9 +426,10 @@ type CreatePortalProductInput struct {
 
 // ProductPage represents a product page within a portal product.
 type ProductPage struct {
-	LastModified    *isoTime `json:"lastModified,omitempty"`
-	ProductPageID   string   `json:"productPageId"`
-	PortalProductID string   `json:"-"`
+	LastModified    *isoTime       `json:"lastModified,omitempty"`
+	DisplayContent  map[string]any `json:"displayContent,omitempty"`
+	ProductPageID   string         `json:"productPageId"`
+	PortalProductID string         `json:"-"`
 }
 
 // CreateProductPageInput is the input for CreateProductPage.
@@ -422,9 +439,10 @@ type CreateProductPageInput struct {
 
 // ProductRestEndpointPage represents a REST endpoint page within a portal product.
 type ProductRestEndpointPage struct {
-	LastModified              *isoTime `json:"lastModified,omitempty"`
-	ProductRestEndpointPageID string   `json:"productRestEndpointPageId"`
-	PortalProductID           string   `json:"-"`
+	LastModified              *isoTime       `json:"lastModified,omitempty"`
+	DisplayContent            map[string]any `json:"displayContent,omitempty"`
+	ProductRestEndpointPageID string         `json:"productRestEndpointPageId"`
+	PortalProductID           string         `json:"-"`
 }
 
 // CreateProductRestEndpointPageInput is the input for CreateProductRestEndpointPage.
@@ -501,6 +519,71 @@ type listProductPagesOutput struct {
 type listProductREPagesOutput struct {
 	NextToken string                    `json:"nextToken,omitempty"`
 	Items     []ProductRestEndpointPage `json:"items"`
+}
+
+// VpcLink represents a v2 VPC link.
+type VpcLink struct {
+	CreatedDate      isoTime           `json:"createdDate"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	VpcLinkID        string            `json:"vpcLinkId"`
+	Name             string            `json:"name"`
+	VpcLinkStatus    string            `json:"vpcLinkStatus,omitempty"`
+	SecurityGroupIDs []string          `json:"securityGroupIds,omitempty"`
+	SubnetIDs        []string          `json:"subnetIds,omitempty"`
+}
+
+// CreateVpcLinkInput is the input for CreateVpcLink.
+type CreateVpcLinkInput struct {
+	Tags             map[string]string `json:"tags,omitempty"`
+	Name             string            `json:"name"`
+	SecurityGroupIDs []string          `json:"securityGroupIds,omitempty"`
+	SubnetIDs        []string          `json:"subnetIds,omitempty"`
+}
+
+// UpdateVpcLinkInput is the input for UpdateVpcLink.
+type UpdateVpcLinkInput struct {
+	Name string `json:"name,omitempty"`
+}
+
+// RoutingRule represents an API Gateway domain routing rule.
+type RoutingRule struct {
+	DomainName     string           `json:"-"`
+	RoutingRuleID  string           `json:"routingRuleId"`
+	RoutingRuleARN string           `json:"routingRuleArn,omitempty"`
+	Actions        []map[string]any `json:"actions,omitempty"`
+	Conditions     []map[string]any `json:"conditions,omitempty"`
+	Priority       int32            `json:"priority"`
+}
+
+// CreateRoutingRuleInput is the input for CreateRoutingRule.
+type CreateRoutingRuleInput struct {
+	Actions    []map[string]any `json:"actions,omitempty"`
+	Conditions []map[string]any `json:"conditions,omitempty"`
+	Priority   int32            `json:"priority"`
+}
+
+// PutRoutingRuleInput is the input for PutRoutingRule.
+type PutRoutingRuleInput struct {
+	Actions    []map[string]any `json:"actions,omitempty"`
+	Conditions []map[string]any `json:"conditions,omitempty"`
+	Priority   int32            `json:"priority"`
+}
+
+// PortalProductSharingPolicy is the response body for portal product sharing policy operations.
+type PortalProductSharingPolicy struct {
+	PolicyDocument string `json:"policyDocument,omitempty"`
+}
+
+// listVpcLinksOutput is the response body for GetVpcLinks.
+type listVpcLinksOutput struct {
+	NextToken string    `json:"nextToken,omitempty"`
+	Items     []VpcLink `json:"items"`
+}
+
+// listRoutingRulesOutput is the response body for ListRoutingRules.
+type listRoutingRulesOutput struct {
+	NextToken string        `json:"nextToken,omitempty"`
+	Items     []RoutingRule `json:"items"`
 }
 
 // getTagsOutput is the response body for GetTags.
