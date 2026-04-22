@@ -31,6 +31,7 @@ func TestSDK_RDS_Refinement3_DBProxy(t *testing.T) {
 		DBProxyName:  aws.String(proxyName),
 		EngineFamily: rdstypes.EngineFamilyMysql,
 		RoleArn:      aws.String("arn:aws:iam::000000000000:role/proxy-role"),
+		VpcSubnetIds: []string{"subnet-1", "subnet-2"},
 		Auth: []rdstypes.UserAuthConfig{
 			{
 				AuthScheme: rdstypes.AuthSchemeSecrets,
