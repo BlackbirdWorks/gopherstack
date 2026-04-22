@@ -25,6 +25,7 @@
     "@aws-sdk/client-amplify": "3.1032.0",
     "@aws-sdk/client-api-gateway": "3.1032.0",
     "@aws-sdk/client-apigatewaymanagementapi": "3.1032.0",
+    "@aws-sdk/client-apigatewayv2": "3.1032.0",
     "@aws-sdk/client-appconfig": "3.1032.0",
     "@aws-sdk/client-appfabric": "3.1032.0",
     "@aws-sdk/client-apprunner": "3.1032.0",

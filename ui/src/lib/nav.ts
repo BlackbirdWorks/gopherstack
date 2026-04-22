@@ -20,6 +20,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "autoscaling",
   "acm",
   "apigateway",
+  "apigatewayv2",
   "apprunner",
   "appsync",
   "backup",

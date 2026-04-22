@@ -31,54 +31,105 @@ func (t *isoTime) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// CorsConfiguration holds CORS settings for an HTTP API.
+type CorsConfiguration struct {
+	AllowOrigins     []string `json:"allowOrigins,omitempty"`
+	AllowMethods     []string `json:"allowMethods,omitempty"`
+	AllowHeaders     []string `json:"allowHeaders,omitempty"`
+	ExposeHeaders    []string `json:"exposeHeaders,omitempty"`
+	MaxAge           int32    `json:"maxAge,omitempty"`
+	AllowCredentials bool     `json:"allowCredentials,omitempty"`
+}
+
+// JwtConfiguration holds JWT authorizer configuration.
+type JwtConfiguration struct {
+	Issuer   string   `json:"issuer,omitempty"`
+	Audience []string `json:"audience,omitempty"`
+}
+
+// AccessLogSettings holds access log destination settings for a stage.
+type AccessLogSettings struct {
+	DestinationArn string `json:"destinationArn,omitempty"`
+	Format         string `json:"format,omitempty"`
+}
+
+// RouteSettings holds per-route throttling and logging settings for a stage.
+type RouteSettings struct {
+	LoggingLevel           string  `json:"loggingLevel,omitempty"`
+	ThrottlingRateLimit    float64 `json:"throttlingRateLimit,omitempty"`
+	ThrottlingBurstLimit   int32   `json:"throttlingBurstLimit,omitempty"`
+	DataTraceEnabled       bool    `json:"dataTraceEnabled,omitempty"`
+	DetailedMetricsEnabled bool    `json:"detailedMetricsEnabled,omitempty"`
+}
+
+// RouteRequiredParameter indicates whether a request parameter is required.
+type RouteRequiredParameter struct {
+	Required bool `json:"required"`
+}
+
 // API represents an HTTP API (API Gateway v2).
 type API struct {
-	CreatedDate              isoTime           `json:"createdDate"`
-	Tags                     map[string]string `json:"tags,omitempty"`
-	APIID                    string            `json:"apiId"`
-	Name                     string            `json:"name"`
-	Description              string            `json:"description,omitempty"`
-	ProtocolType             string            `json:"protocolType"`
-	RouteSelectionExpression string            `json:"routeSelectionExpression,omitempty"`
-	APIEndpoint              string            `json:"apiEndpoint,omitempty"`
-	Version                  string            `json:"version,omitempty"`
+	CorsConfiguration         *CorsConfiguration `json:"corsConfiguration,omitempty"`
+	CreatedDate               isoTime            `json:"createdDate"`
+	Tags                      map[string]string  `json:"tags,omitempty"`
+	APIID                     string             `json:"apiId"`
+	Name                      string             `json:"name"`
+	Description               string             `json:"description,omitempty"`
+	ProtocolType              string             `json:"protocolType"`
+	RouteSelectionExpression  string             `json:"routeSelectionExpression,omitempty"`
+	APIEndpoint               string             `json:"apiEndpoint,omitempty"`
+	Version                   string             `json:"version,omitempty"`
+	APIKeySelectionExpression string             `json:"apiKeySelectionExpression,omitempty"`
+	DisableSchemaValidation   bool               `json:"disableSchemaValidation,omitempty"`
+	DisableExecuteAPIEndpoint bool               `json:"disableExecuteApiEndpoint,omitempty"`
 }
 
 // Stage represents a deployment stage for an HTTP API.
 type Stage struct {
-	CreatedDate     isoTime           `json:"createdDate"`
-	LastUpdatedDate isoTime           `json:"lastUpdatedDate"`
-	StageVariables  map[string]string `json:"stageVariables,omitempty"`
-	StageName       string            `json:"stageName"`
-	APIID           string            `json:"-"`
-	DeploymentID    string            `json:"deploymentId,omitempty"`
-	Description     string            `json:"description,omitempty"`
-	AutoDeploy      bool              `json:"autoDeploy"`
+	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
+	DefaultRouteSettings *RouteSettings           `json:"defaultRouteSettings,omitempty"`
+	RouteSettings        map[string]RouteSettings `json:"routeSettings,omitempty"`
+	CreatedDate          isoTime                  `json:"createdDate"`
+	LastUpdatedDate      isoTime                  `json:"lastUpdatedDate"`
+	StageVariables       map[string]string        `json:"stageVariables,omitempty"`
+	StageName            string                   `json:"stageName"`
+	APIID                string                   `json:"-"`
+	DeploymentID         string                   `json:"deploymentId,omitempty"`
+	Description          string                   `json:"description,omitempty"`
+	AutoDeploy           bool                     `json:"autoDeploy"`
 }
 
 // Route represents a route in an HTTP API.
 type Route struct {
-	RouteID           string `json:"routeId"`
-	APIID             string `json:"-"`
-	RouteKey          string `json:"routeKey"`
-	Target            string `json:"target,omitempty"`
-	AuthorizationType string `json:"authorizationType,omitempty"`
-	AuthorizerID      string `json:"authorizerId,omitempty"`
-	OperationName     string `json:"operationName,omitempty"`
+	RequestModels            map[string]string                 `json:"requestModels,omitempty"`
+	RequestParameters        map[string]RouteRequiredParameter `json:"requestParameters,omitempty"`
+	RouteID                  string                            `json:"routeId"`
+	APIID                    string                            `json:"-"`
+	RouteKey                 string                            `json:"routeKey"`
+	Target                   string                            `json:"target,omitempty"`
+	AuthorizationType        string                            `json:"authorizationType,omitempty"`
+	AuthorizerID             string                            `json:"authorizerId,omitempty"`
+	OperationName            string                            `json:"operationName,omitempty"`
+	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
 }
 
 // Integration represents a backend integration for a route.
 type Integration struct {
-	IntegrationID        string `json:"integrationId"`
-	APIID                string `json:"-"`
-	IntegrationType      string `json:"integrationType"`
-	IntegrationMethod    string `json:"integrationMethod,omitempty"`
-	IntegrationURI       string `json:"integrationUri,omitempty"`
-	Description          string `json:"description,omitempty"`
-	PayloadFormatVersion string `json:"payloadFormatVersion,omitempty"`
-	ConnectionType       string `json:"connectionType,omitempty"`
-	ConnectionID         string `json:"connectionId,omitempty"`
-	TimeoutInMillis      int32  `json:"timeoutInMillis,omitempty"`
+	RequestParameters           map[string]string `json:"requestParameters,omitempty"`
+	RequestTemplates            map[string]string `json:"requestTemplates,omitempty"`
+	IntegrationID               string            `json:"integrationId"`
+	APIID                       string            `json:"-"`
+	IntegrationType             string            `json:"integrationType"`
+	IntegrationSubtype          string            `json:"integrationSubtype,omitempty"`
+	IntegrationMethod           string            `json:"integrationMethod,omitempty"`
+	IntegrationURI              string            `json:"integrationUri,omitempty"`
+	Description                 string            `json:"description,omitempty"`
+	PayloadFormatVersion        string            `json:"payloadFormatVersion,omitempty"`
+	ConnectionType              string            `json:"connectionType,omitempty"`
+	ConnectionID                string            `json:"connectionId,omitempty"`
+	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
+	PassthroughBehavior         string            `json:"passthroughBehavior,omitempty"`
+	TimeoutInMillis             int32             `json:"timeoutInMillis,omitempty"`
 }
 
 // Deployment represents an API deployment.
@@ -92,93 +143,125 @@ type Deployment struct {
 
 // Authorizer represents an authorizer for an HTTP API.
 type Authorizer struct {
-	AuthorizerID             string `json:"authorizerId"`
-	APIID                    string `json:"-"`
-	Name                     string `json:"name"`
-	AuthorizerType           string `json:"authorizerType"`
-	AuthorizerURI            string `json:"authorizerUri,omitempty"`
-	IdentitySource           string `json:"identitySource,omitempty"`
-	AuthorizerCredentialsArn string `json:"authorizerCredentialsArn,omitempty"`
-	// AuthorizerResultTTLInSeconds uses 'Ttl' (not 'TTL') in the JSON tag to match the AWS API wire format.
-	AuthorizerResultTTLInSeconds int32 `json:"authorizerResultTtlInSeconds,omitempty"`
+	JwtConfiguration               *JwtConfiguration `json:"jwtConfiguration,omitempty"`
+	AuthorizerID                   string            `json:"authorizerId"`
+	APIID                          string            `json:"-"`
+	Name                           string            `json:"name"`
+	AuthorizerType                 string            `json:"authorizerType"`
+	AuthorizerURI                  string            `json:"authorizerUri,omitempty"`
+	AuthorizerCredentialsArn       string            `json:"authorizerCredentialsArn,omitempty"`
+	AuthorizerPayloadFormatVersion string            `json:"authorizerPayloadFormatVersion,omitempty"`
+	IdentitySource                 []string          `json:"identitySource,omitempty"`
+	AuthorizerResultTTLInSeconds   int32             `json:"authorizerResultTtlInSeconds,omitempty"`
+	EnableSimpleResponses          bool              `json:"enableSimpleResponses,omitempty"`
 }
 
 // CreateAPIInput is the input for CreateAPI.
 type CreateAPIInput struct {
-	Tags                     map[string]string `json:"tags,omitempty"`
-	Name                     string            `json:"name"`
-	Description              string            `json:"description,omitempty"`
-	ProtocolType             string            `json:"protocolType"`
-	RouteSelectionExpression string            `json:"routeSelectionExpression,omitempty"`
-	Version                  string            `json:"version,omitempty"`
+	CorsConfiguration         *CorsConfiguration `json:"corsConfiguration,omitempty"`
+	Tags                      map[string]string  `json:"tags,omitempty"`
+	Name                      string             `json:"name"`
+	Description               string             `json:"description,omitempty"`
+	ProtocolType              string             `json:"protocolType"`
+	RouteSelectionExpression  string             `json:"routeSelectionExpression,omitempty"`
+	Version                   string             `json:"version,omitempty"`
+	APIKeySelectionExpression string             `json:"apiKeySelectionExpression,omitempty"`
+	DisableSchemaValidation   bool               `json:"disableSchemaValidation,omitempty"`
+	DisableExecuteAPIEndpoint bool               `json:"disableExecuteApiEndpoint,omitempty"`
 }
 
 // UpdateAPIInput is the input for UpdateAPI (PATCH).
 type UpdateAPIInput struct {
-	Tags                     map[string]string `json:"tags,omitempty"`
-	Name                     string            `json:"name,omitempty"`
-	Description              string            `json:"description,omitempty"`
-	RouteSelectionExpression string            `json:"routeSelectionExpression,omitempty"`
-	Version                  string            `json:"version,omitempty"`
+	CorsConfiguration         *CorsConfiguration `json:"corsConfiguration,omitempty"`
+	Tags                      map[string]string  `json:"tags,omitempty"`
+	DisableSchemaValidation   *bool              `json:"disableSchemaValidation,omitempty"`
+	DisableExecuteAPIEndpoint *bool              `json:"disableExecuteApiEndpoint,omitempty"`
+	Name                      string             `json:"name,omitempty"`
+	Description               string             `json:"description,omitempty"`
+	RouteSelectionExpression  string             `json:"routeSelectionExpression,omitempty"`
+	Version                   string             `json:"version,omitempty"`
+	APIKeySelectionExpression string             `json:"apiKeySelectionExpression,omitempty"`
 }
 
 // CreateStageInput is the input for CreateStage.
 type CreateStageInput struct {
-	StageVariables map[string]string `json:"stageVariables,omitempty"`
-	StageName      string            `json:"stageName"`
-	DeploymentID   string            `json:"deploymentId,omitempty"`
-	Description    string            `json:"description,omitempty"`
-	AutoDeploy     bool              `json:"autoDeploy"`
+	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
+	DefaultRouteSettings *RouteSettings           `json:"defaultRouteSettings,omitempty"`
+	RouteSettings        map[string]RouteSettings `json:"routeSettings,omitempty"`
+	StageVariables       map[string]string        `json:"stageVariables,omitempty"`
+	StageName            string                   `json:"stageName"`
+	DeploymentID         string                   `json:"deploymentId,omitempty"`
+	Description          string                   `json:"description,omitempty"`
+	AutoDeploy           bool                     `json:"autoDeploy"`
 }
 
 // UpdateStageInput is the input for UpdateStage (PATCH).
 type UpdateStageInput struct {
-	StageVariables map[string]string `json:"stageVariables,omitempty"`
-	AutoDeploy     *bool             `json:"autoDeploy,omitempty"`
-	DeploymentID   string            `json:"deploymentId,omitempty"`
-	Description    string            `json:"description,omitempty"`
+	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
+	DefaultRouteSettings *RouteSettings           `json:"defaultRouteSettings,omitempty"`
+	RouteSettings        map[string]RouteSettings `json:"routeSettings,omitempty"`
+	StageVariables       map[string]string        `json:"stageVariables,omitempty"`
+	AutoDeploy           *bool                    `json:"autoDeploy,omitempty"`
+	DeploymentID         string                   `json:"deploymentId,omitempty"`
+	Description          string                   `json:"description,omitempty"`
 }
 
 // CreateRouteInput is the input for CreateRoute.
 type CreateRouteInput struct {
-	RouteKey          string `json:"routeKey"`
-	Target            string `json:"target,omitempty"`
-	AuthorizationType string `json:"authorizationType,omitempty"`
-	AuthorizerID      string `json:"authorizerId,omitempty"`
-	OperationName     string `json:"operationName,omitempty"`
+	RequestModels            map[string]string                 `json:"requestModels,omitempty"`
+	RequestParameters        map[string]RouteRequiredParameter `json:"requestParameters,omitempty"`
+	RouteKey                 string                            `json:"routeKey"`
+	Target                   string                            `json:"target,omitempty"`
+	AuthorizationType        string                            `json:"authorizationType,omitempty"`
+	AuthorizerID             string                            `json:"authorizerId,omitempty"`
+	OperationName            string                            `json:"operationName,omitempty"`
+	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
 }
 
 // UpdateRouteInput is the input for UpdateRoute (PATCH).
 type UpdateRouteInput struct {
-	RouteKey          string `json:"routeKey,omitempty"`
-	Target            string `json:"target,omitempty"`
-	AuthorizationType string `json:"authorizationType,omitempty"`
-	AuthorizerID      string `json:"authorizerId,omitempty"`
-	OperationName     string `json:"operationName,omitempty"`
+	RequestModels            map[string]string                 `json:"requestModels,omitempty"`
+	RequestParameters        map[string]RouteRequiredParameter `json:"requestParameters,omitempty"`
+	RouteKey                 string                            `json:"routeKey,omitempty"`
+	Target                   string                            `json:"target,omitempty"`
+	AuthorizationType        string                            `json:"authorizationType,omitempty"`
+	AuthorizerID             string                            `json:"authorizerId,omitempty"`
+	OperationName            string                            `json:"operationName,omitempty"`
+	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
 }
 
 // CreateIntegrationInput is the input for CreateIntegration.
 type CreateIntegrationInput struct {
-	IntegrationType      string `json:"integrationType"`
-	IntegrationMethod    string `json:"integrationMethod,omitempty"`
-	IntegrationURI       string `json:"integrationUri,omitempty"`
-	Description          string `json:"description,omitempty"`
-	PayloadFormatVersion string `json:"payloadFormatVersion,omitempty"`
-	ConnectionType       string `json:"connectionType,omitempty"`
-	ConnectionID         string `json:"connectionId,omitempty"`
-	TimeoutInMillis      int32  `json:"timeoutInMillis,omitempty"`
+	RequestParameters           map[string]string `json:"requestParameters,omitempty"`
+	RequestTemplates            map[string]string `json:"requestTemplates,omitempty"`
+	IntegrationType             string            `json:"integrationType"`
+	IntegrationSubtype          string            `json:"integrationSubtype,omitempty"`
+	IntegrationMethod           string            `json:"integrationMethod,omitempty"`
+	IntegrationURI              string            `json:"integrationUri,omitempty"`
+	Description                 string            `json:"description,omitempty"`
+	PayloadFormatVersion        string            `json:"payloadFormatVersion,omitempty"`
+	ConnectionType              string            `json:"connectionType,omitempty"`
+	ConnectionID                string            `json:"connectionId,omitempty"`
+	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
+	PassthroughBehavior         string            `json:"passthroughBehavior,omitempty"`
+	TimeoutInMillis             int32             `json:"timeoutInMillis,omitempty"`
 }
 
 // UpdateIntegrationInput is the input for UpdateIntegration (PATCH).
 type UpdateIntegrationInput struct {
-	IntegrationType      string `json:"integrationType,omitempty"`
-	IntegrationMethod    string `json:"integrationMethod,omitempty"`
-	IntegrationURI       string `json:"integrationUri,omitempty"`
-	Description          string `json:"description,omitempty"`
-	PayloadFormatVersion string `json:"payloadFormatVersion,omitempty"`
-	ConnectionType       string `json:"connectionType,omitempty"`
-	ConnectionID         string `json:"connectionId,omitempty"`
-	TimeoutInMillis      int32  `json:"timeoutInMillis,omitempty"`
+	RequestParameters           map[string]string `json:"requestParameters,omitempty"`
+	RequestTemplates            map[string]string `json:"requestTemplates,omitempty"`
+	IntegrationType             string            `json:"integrationType,omitempty"`
+	IntegrationSubtype          string            `json:"integrationSubtype,omitempty"`
+	IntegrationMethod           string            `json:"integrationMethod,omitempty"`
+	IntegrationURI              string            `json:"integrationUri,omitempty"`
+	Description                 string            `json:"description,omitempty"`
+	PayloadFormatVersion        string            `json:"payloadFormatVersion,omitempty"`
+	ConnectionType              string            `json:"connectionType,omitempty"`
+	ConnectionID                string            `json:"connectionId,omitempty"`
+	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
+	PassthroughBehavior         string            `json:"passthroughBehavior,omitempty"`
+	TimeoutInMillis             int32             `json:"timeoutInMillis,omitempty"`
 }
 
 // CreateDeploymentInput is the input for CreateDeployment.
@@ -189,22 +272,28 @@ type CreateDeploymentInput struct {
 
 // CreateAuthorizerInput is the input for CreateAuthorizer.
 type CreateAuthorizerInput struct {
-	Name                         string `json:"name"`
-	AuthorizerType               string `json:"authorizerType"`
-	AuthorizerURI                string `json:"authorizerUri,omitempty"`
-	IdentitySource               string `json:"identitySource,omitempty"`
-	AuthorizerCredentialsArn     string `json:"authorizerCredentialsArn,omitempty"`
-	AuthorizerResultTTLInSeconds int32  `json:"authorizerResultTtlInSeconds,omitempty"`
+	JwtConfiguration               *JwtConfiguration `json:"jwtConfiguration,omitempty"`
+	Name                           string            `json:"name"`
+	AuthorizerType                 string            `json:"authorizerType"`
+	AuthorizerURI                  string            `json:"authorizerUri,omitempty"`
+	AuthorizerCredentialsArn       string            `json:"authorizerCredentialsArn,omitempty"`
+	AuthorizerPayloadFormatVersion string            `json:"authorizerPayloadFormatVersion,omitempty"`
+	IdentitySource                 []string          `json:"identitySource,omitempty"`
+	AuthorizerResultTTLInSeconds   int32             `json:"authorizerResultTtlInSeconds,omitempty"`
+	EnableSimpleResponses          bool              `json:"enableSimpleResponses,omitempty"`
 }
 
 // UpdateAuthorizerInput is the input for UpdateAuthorizer (PATCH).
 type UpdateAuthorizerInput struct {
-	Name                         string `json:"name,omitempty"`
-	AuthorizerType               string `json:"authorizerType,omitempty"`
-	AuthorizerURI                string `json:"authorizerUri,omitempty"`
-	IdentitySource               string `json:"identitySource,omitempty"`
-	AuthorizerCredentialsArn     string `json:"authorizerCredentialsArn,omitempty"`
-	AuthorizerResultTTLInSeconds int32  `json:"authorizerResultTtlInSeconds,omitempty"`
+	JwtConfiguration               *JwtConfiguration `json:"jwtConfiguration,omitempty"`
+	Name                           string            `json:"name,omitempty"`
+	AuthorizerType                 string            `json:"authorizerType,omitempty"`
+	AuthorizerURI                  string            `json:"authorizerUri,omitempty"`
+	AuthorizerCredentialsArn       string            `json:"authorizerCredentialsArn,omitempty"`
+	AuthorizerPayloadFormatVersion string            `json:"authorizerPayloadFormatVersion,omitempty"`
+	IdentitySource                 []string          `json:"identitySource,omitempty"`
+	AuthorizerResultTTLInSeconds   int32             `json:"authorizerResultTtlInSeconds,omitempty"`
+	EnableSimpleResponses          bool              `json:"enableSimpleResponses,omitempty"`
 }
 
 // UpdateAPIMappingInput is the input for UpdateAPIMapping (PATCH).
@@ -221,7 +310,8 @@ type UpdateDeploymentInput struct {
 
 // UpdateDomainNameInput is the input for UpdateDomainName (PATCH).
 type UpdateDomainNameInput struct {
-	Tags map[string]string `json:"tags,omitempty"`
+	Tags                     map[string]string         `json:"tags,omitempty"`
+	DomainNameConfigurations []DomainNameConfiguration `json:"domainNameConfigurations,omitempty"`
 }
 
 // UpdateIntegrationResponseInput is the input for UpdateIntegrationResponse (PATCH).
@@ -252,6 +342,7 @@ type UpdateRouteResponseInput struct {
 type UpdatePortalInput struct {
 	Tags    map[string]string `json:"tags,omitempty"`
 	LogoURI string            `json:"logoUri,omitempty"`
+	Status  string            `json:"status,omitempty"`
 }
 
 // UpdatePortalProductInput is the input for UpdatePortalProduct (PATCH).
@@ -259,6 +350,21 @@ type UpdatePortalProductInput struct {
 	Tags        map[string]string `json:"tags,omitempty"`
 	DisplayName string            `json:"displayName,omitempty"`
 	Description string            `json:"description,omitempty"`
+}
+
+// UpdateProductPageInput is the input for UpdateProductPage (PATCH).
+type UpdateProductPageInput struct {
+	DisplayContent map[string]any `json:"displayContent,omitempty"`
+}
+
+// UpdateProductRestEndpointPageInput is the input for UpdateProductRestEndpointPage (PATCH).
+type UpdateProductRestEndpointPageInput struct {
+	DisplayContent map[string]any `json:"displayContent,omitempty"`
+}
+
+// PublishPortalInput is the input for PublishPortal (POST).
+type PublishPortalInput struct {
+	Description string `json:"description,omitempty"`
 }
 
 // listApisOutput is the response body for GetAPIs.
@@ -410,9 +516,10 @@ type CreatePortalProductInput struct {
 
 // ProductPage represents a product page within a portal product.
 type ProductPage struct {
-	LastModified    *isoTime `json:"lastModified,omitempty"`
-	ProductPageID   string   `json:"productPageId"`
-	PortalProductID string   `json:"-"`
+	LastModified    *isoTime       `json:"lastModified,omitempty"`
+	DisplayContent  map[string]any `json:"displayContent,omitempty"`
+	ProductPageID   string         `json:"productPageId"`
+	PortalProductID string         `json:"-"`
 }
 
 // CreateProductPageInput is the input for CreateProductPage.
@@ -422,9 +529,10 @@ type CreateProductPageInput struct {
 
 // ProductRestEndpointPage represents a REST endpoint page within a portal product.
 type ProductRestEndpointPage struct {
-	LastModified              *isoTime `json:"lastModified,omitempty"`
-	ProductRestEndpointPageID string   `json:"productRestEndpointPageId"`
-	PortalProductID           string   `json:"-"`
+	LastModified              *isoTime       `json:"lastModified,omitempty"`
+	DisplayContent            map[string]any `json:"displayContent,omitempty"`
+	ProductRestEndpointPageID string         `json:"productRestEndpointPageId"`
+	PortalProductID           string         `json:"-"`
 }
 
 // CreateProductRestEndpointPageInput is the input for CreateProductRestEndpointPage.
@@ -501,6 +609,71 @@ type listProductPagesOutput struct {
 type listProductREPagesOutput struct {
 	NextToken string                    `json:"nextToken,omitempty"`
 	Items     []ProductRestEndpointPage `json:"items"`
+}
+
+// VpcLink represents a v2 VPC link.
+type VpcLink struct {
+	CreatedDate      isoTime           `json:"createdDate"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	VpcLinkID        string            `json:"vpcLinkId"`
+	Name             string            `json:"name"`
+	VpcLinkStatus    string            `json:"vpcLinkStatus,omitempty"`
+	SecurityGroupIDs []string          `json:"securityGroupIds,omitempty"`
+	SubnetIDs        []string          `json:"subnetIds,omitempty"`
+}
+
+// CreateVpcLinkInput is the input for CreateVpcLink.
+type CreateVpcLinkInput struct {
+	Tags             map[string]string `json:"tags,omitempty"`
+	Name             string            `json:"name"`
+	SecurityGroupIDs []string          `json:"securityGroupIds,omitempty"`
+	SubnetIDs        []string          `json:"subnetIds,omitempty"`
+}
+
+// UpdateVpcLinkInput is the input for UpdateVpcLink.
+type UpdateVpcLinkInput struct {
+	Name string `json:"name,omitempty"`
+}
+
+// RoutingRule represents an API Gateway domain routing rule.
+type RoutingRule struct {
+	DomainName     string           `json:"-"`
+	RoutingRuleID  string           `json:"routingRuleId"`
+	RoutingRuleARN string           `json:"routingRuleArn,omitempty"`
+	Actions        []map[string]any `json:"actions,omitempty"`
+	Conditions     []map[string]any `json:"conditions,omitempty"`
+	Priority       int32            `json:"priority"`
+}
+
+// CreateRoutingRuleInput is the input for CreateRoutingRule.
+type CreateRoutingRuleInput struct {
+	Actions    []map[string]any `json:"actions,omitempty"`
+	Conditions []map[string]any `json:"conditions,omitempty"`
+	Priority   int32            `json:"priority"`
+}
+
+// PutRoutingRuleInput is the input for PutRoutingRule.
+type PutRoutingRuleInput struct {
+	Actions    []map[string]any `json:"actions,omitempty"`
+	Conditions []map[string]any `json:"conditions,omitempty"`
+	Priority   int32            `json:"priority"`
+}
+
+// PortalProductSharingPolicy is the response body for portal product sharing policy operations.
+type PortalProductSharingPolicy struct {
+	PolicyDocument string `json:"policyDocument,omitempty"`
+}
+
+// listVpcLinksOutput is the response body for GetVpcLinks.
+type listVpcLinksOutput struct {
+	NextToken string    `json:"nextToken,omitempty"`
+	Items     []VpcLink `json:"items"`
+}
+
+// listRoutingRulesOutput is the response body for ListRoutingRules.
+type listRoutingRulesOutput struct {
+	NextToken string        `json:"nextToken,omitempty"`
+	Items     []RoutingRule `json:"items"`
 }
 
 // getTagsOutput is the response body for GetTags.

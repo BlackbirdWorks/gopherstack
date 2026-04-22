@@ -1294,6 +1294,10 @@ func TestHandler_Authorizers(t *testing.T) {
 			rr := doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/authorizers", apiID), map[string]any{
 				"name":           tt.authorizerName,
 				"authorizerType": "JWT",
+				"jwtConfiguration": map[string]any{
+					"issuer":   "https://issuer.example.com",
+					"audience": []string{"client-id"},
+				},
 			})
 			require.Equal(t, tt.wantCreateCode, rr.Code)
 
@@ -3906,7 +3910,7 @@ func TestHandler_Tags(t *testing.T) {
 			arn := "arn:aws:apigateway:us-east-1::/apis/" + apiID
 
 			if len(tt.tagsToSet) > 0 {
-				rr := doRequest(t, h, http.MethodPut, "/v2/tags/"+arn, map[string]any{
+				rr := doRequest(t, h, http.MethodPost, "/v2/tags/"+arn, map[string]any{
 					"tags": tt.tagsToSet,
 				})
 				assert.Equal(t, http.StatusCreated, rr.Code)
@@ -3950,8 +3954,8 @@ func TestHandler_Tags_NotFound(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "put_not_found",
-			method:     http.MethodPut,
+			name:       "post_not_found",
+			method:     http.MethodPost,
 			wantStatus: http.StatusNotFound,
 		},
 		{
@@ -3969,7 +3973,7 @@ func TestHandler_Tags_NotFound(t *testing.T) {
 			arn := "arn:aws:apigateway:us-east-1::/apis/nonexistent"
 
 			var rr *httptest.ResponseRecorder
-			if tt.method == http.MethodPut {
+			if tt.method == http.MethodPost {
 				rr = doRequest(t, h, tt.method, "/v2/tags/"+arn, map[string]any{"tags": map[string]string{}})
 			} else {
 				rr = doRequest(t, h, tt.method, "/v2/tags/"+arn, nil)
@@ -4125,7 +4129,7 @@ func TestHandler_ExtractOperation_NewOps(t *testing.T) {
 		},
 		{
 			name:   "tag_resource",
-			method: http.MethodPut,
+			method: http.MethodPost,
 			path:   "/v2/tags/arn:aws:apigateway:us-east-1::/apis/abc123",
 			wantOp: "TagResource",
 		},
@@ -4134,6 +4138,114 @@ func TestHandler_ExtractOperation_NewOps(t *testing.T) {
 			method: http.MethodDelete,
 			path:   "/v2/tags/arn:aws:apigateway:us-east-1::/apis/abc123",
 			wantOp: "UntagResource",
+		},
+		{
+			name:   "create_vpc_link",
+			method: http.MethodPost,
+			path:   "/v2/vpclinks",
+			wantOp: "CreateVpcLink",
+		},
+		{
+			name:   "get_vpc_link",
+			method: http.MethodGet,
+			path:   "/v2/vpclinks/vpc1",
+			wantOp: "GetVpcLink",
+		},
+		{
+			name:   "list_routing_rules",
+			method: http.MethodGet,
+			path:   "/v2/domainnames/example.com/routingrules",
+			wantOp: "ListRoutingRules",
+		},
+		{
+			name:   "put_routing_rule",
+			method: http.MethodPut,
+			path:   "/v2/domainnames/example.com/routingrules/rule1",
+			wantOp: "PutRoutingRule",
+		},
+		{
+			name:   "delete_access_log_settings",
+			method: http.MethodDelete,
+			path:   "/v2/apis/abc123/stages/prod/accesslogsettings",
+			wantOp: "DeleteAccessLogSettings",
+		},
+		{
+			name:   "delete_cors_configuration",
+			method: http.MethodDelete,
+			path:   "/v2/apis/abc123/cors",
+			wantOp: "DeleteCorsConfiguration",
+		},
+		{
+			name:   "sharing_policy_get",
+			method: http.MethodGet,
+			path:   "/v2/portalproducts/pp1/sharingpolicy",
+			wantOp: "GetPortalProductSharingPolicy",
+		},
+		{
+			name:   "delete_route_request_parameter",
+			method: http.MethodDelete,
+			path:   "/v2/apis/abc123/routes/r1/requestparameters/param",
+			wantOp: "DeleteRouteRequestParameter",
+		},
+		{
+			name:   "delete_route_settings",
+			method: http.MethodDelete,
+			path:   "/v2/apis/abc123/stages/prod/routesettings/$default",
+			wantOp: "DeleteRouteSettings",
+		},
+		{
+			name:   "disable_portal",
+			method: http.MethodDelete,
+			path:   "/v2/portals/p1/publish",
+			wantOp: "DisablePortal",
+		},
+		{
+			name:   "preview_portal",
+			method: http.MethodPost,
+			path:   "/v2/portals/p1/preview",
+			wantOp: "PreviewPortal",
+		},
+		{
+			name:   "publish_portal",
+			method: http.MethodPost,
+			path:   "/v2/portals/p1/publish",
+			wantOp: "PublishPortal",
+		},
+		{
+			name:   "export_api",
+			method: http.MethodGet,
+			path:   "/v2/apis/abc123/exports/oas30",
+			wantOp: "ExportApi",
+		},
+		{
+			name:   "import_api",
+			method: http.MethodPut,
+			path:   "/v2/apis",
+			wantOp: "ImportApi",
+		},
+		{
+			name:   "reimport_api",
+			method: http.MethodPut,
+			path:   "/v2/apis/abc123",
+			wantOp: "ReimportApi",
+		},
+		{
+			name:   "get_model_template",
+			method: http.MethodGet,
+			path:   "/v2/apis/abc123/models/m1/template",
+			wantOp: "GetModelTemplate",
+		},
+		{
+			name:   "update_product_page",
+			method: http.MethodPatch,
+			path:   "/v2/portalproducts/p1/productpages/page1",
+			wantOp: "UpdateProductPage",
+		},
+		{
+			name:   "update_product_rest_endpoint_page",
+			method: http.MethodPatch,
+			path:   "/v2/portalproducts/p1/productrestendpointpages/page1",
+			wantOp: "UpdateProductRestEndpointPage",
 		},
 	}
 
@@ -4935,7 +5047,7 @@ func TestHandler_ResetAuthorizersCache(t *testing.T) {
 			apiID, stageName := tt.setup(h)
 
 			rr := doRequest(t, h, http.MethodDelete,
-				fmt.Sprintf("/v2/apis/%s/stages/%s/cache", apiID, stageName), nil)
+				fmt.Sprintf("/v2/apis/%s/stages/%s/cache/authorizers", apiID, stageName), nil)
 
 			assert.Equal(t, tt.wantStatus, rr.Code)
 		})
@@ -5030,8 +5142,15 @@ func TestHandler_CreateAuthorizer_InvalidType(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "valid_jwt",
-			body:       map[string]any{"name": "my-auth", "authorizerType": "JWT"},
+			name: "valid_jwt",
+			body: map[string]any{
+				"name":           "my-auth",
+				"authorizerType": "JWT",
+				"jwtConfiguration": map[string]any{
+					"issuer":   "https://issuer.example.com",
+					"audience": []string{"client-id"},
+				},
+			},
 			wantStatus: http.StatusCreated,
 		},
 		{

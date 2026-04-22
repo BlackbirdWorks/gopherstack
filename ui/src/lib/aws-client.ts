@@ -16,6 +16,7 @@ import { CognitoIdentityClient } from "@aws-sdk/client-cognito-identity";
 import { GuardDutyClient } from "@aws-sdk/client-guardduty";
 import { KafkaClient } from "@aws-sdk/client-kafka";
 import { APIGatewayClient } from "@aws-sdk/client-api-gateway";
+import { ApiGatewayV2Client } from "@aws-sdk/client-apigatewayv2";
 import { BedrockClient } from "@aws-sdk/client-bedrock";
 import { SchedulerClient } from "@aws-sdk/client-scheduler";
 import { AppRunnerClient } from "@aws-sdk/client-apprunner";
@@ -274,6 +275,10 @@ export function getMSKClient(region?: string): KafkaClient {
 
 export function getAPIGatewayClient(region?: string): APIGatewayClient {
   return new APIGatewayClient(clientConfig(region));
+}
+
+export function getAPIGatewayV2Client(region?: string): ApiGatewayV2Client {
+  return new ApiGatewayV2Client(clientConfig(region));
 }
 
 export function getBedrockClient(region?: string): BedrockClient {

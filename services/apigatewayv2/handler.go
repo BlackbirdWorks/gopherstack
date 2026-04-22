@@ -3,6 +3,7 @@ package apigatewayv2
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ const (
 	domainNamesPrefix    = "/v2/domainnames"
 	portalsPrefix        = "/v2/portals"
 	portalProductsPrefix = "/v2/portalproducts"
+	vpcLinksPrefix       = "/v2/vpclinks"
 
 	// path segment count constants.
 	segCountAPIs     = 0
@@ -49,13 +51,26 @@ const (
 	collIntegrationResponses = "integrationresponses"
 	collRouteResponses       = "routeresponses"
 	collAPIMappings          = "apimappings"
+	collRoutingRules         = "routingrules"
+	collAccessLogSettings    = "accesslogsettings"
+	collRouteSettings        = "routesettings"
+	collRequestParameters    = "requestparameters"
+	collCors                 = "cors"
+	collExports              = "exports"
 	collProductPages         = "productpages"
 	collProductREPages       = "productrestendpointpages"
+	collSharingPolicy        = "sharingpolicy"
+	collTemplate             = "template"
+	collPreview              = "preview"
+	collPublish              = "publish"
+	collCache                = "cache"
 
 	// error messages.
 	msgNotFound         = "Not Found"
 	msgMethodNotAllowed = "Method Not Allowed"
 	msgInvalidBody      = "invalid request body"
+	exportedOpenAPIDoc  = "{\"openapi\":\"3.0.1\"}"
+	emptyModelTemplate  = "{}"
 
 	// opUnknown is returned when no matching operation is found.
 	opUnknown = "Unknown"
@@ -85,19 +100,27 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateAuthorizer", "GetAuthorizer", "GetAuthorizers", "DeleteAuthorizer", "UpdateAuthorizer",
 		"CreateApiMapping", "GetApiMapping", "GetApiMappings", "DeleteApiMapping",
 		"CreateDomainName", "GetDomainName", "GetDomainNames", "DeleteDomainName",
+		"CreateVpcLink", "DeleteVpcLink", "GetVpcLink", "GetVpcLinks", "UpdateVpcLink",
+		"CreateRoutingRule", "DeleteRoutingRule", "GetRoutingRule", "ListRoutingRules", "PutRoutingRule",
 		"CreateIntegrationResponse", "GetIntegrationResponse", "GetIntegrationResponses", "DeleteIntegrationResponse",
 		"CreateModel", "GetModel", "GetModels", "DeleteModel",
 		"CreatePortal", "GetPortal", "ListPortals",
 		"CreatePortalProduct", "GetPortalProduct", "ListPortalProducts",
 		"CreateProductPage", "ListProductPages",
 		"CreateProductRestEndpointPage", "ListProductRestEndpointPages",
+		"GetPortalProductSharingPolicy", "PutPortalProductSharingPolicy", "DeletePortalProductSharingPolicy",
 		"CreateRouteResponse", "GetRouteResponse", "GetRouteResponses", "DeleteRouteResponse",
 		"GetTags", "TagResource", "UntagResource",
 		"UpdateApiMapping", "UpdateDeployment", "UpdateDomainName", "UpdateIntegrationResponse",
 		"UpdateModel", "UpdatePortal", "UpdatePortalProduct", "UpdateRouteResponse",
+		"UpdateProductPage", "UpdateProductRestEndpointPage",
 		"DeletePortal", "DeletePortalProduct",
 		"DeleteProductPage", "DeleteProductRestEndpointPage",
 		"GetProductPage", "GetProductRestEndpointPage",
+		"DeleteAccessLogSettings", "DeleteCorsConfiguration",
+		"DeleteRouteRequestParameter", "DeleteRouteSettings",
+		"DisablePortal", "PreviewPortal", "PublishPortal",
+		"ExportApi", "ImportApi", "ReimportApi", "GetModelTemplate",
 		"ResetAuthorizersCache",
 	}
 }
@@ -120,6 +143,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/") ||
 			path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/") ||
 			path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/") ||
+			path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/") ||
 			strings.HasPrefix(path, tagsPrefix+"/")
 	}
 }
@@ -142,10 +166,14 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		// /v2/apis
 		{segs: segCountAPIs, method: http.MethodPost}: "CreateApi",
 		{segs: segCountAPIs, method: http.MethodGet}:  "GetApis",
+		{segs: segCountAPIs, method: http.MethodPut}:  "ImportApi",
 		// /v2/apis/{apiId}
 		{segs: segCountAPIByID, method: http.MethodGet}:    "GetApi",
 		{segs: segCountAPIByID, method: http.MethodDelete}: "DeleteApi",
 		{segs: segCountAPIByID, method: http.MethodPatch}:  "UpdateApi",
+		{segs: segCountAPIByID, method: http.MethodPut}:    "ReimportApi",
+		// /v2/apis/{apiId}/cors
+		{segs: segCountSubColl, seg1: collCors, method: http.MethodDelete}: "DeleteCorsConfiguration",
 		// /v2/apis/{apiId}/stages
 		{segs: segCountSubColl, seg1: collStages, method: http.MethodPost}: "CreateStage",
 		{segs: segCountSubColl, seg1: collStages, method: http.MethodGet}:  "GetStages",
@@ -188,8 +216,12 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		// /v2/apis/{apiId}/models/{modelId}
 		{segs: segCountSubRes, seg1: collModels, method: http.MethodGet}:    "GetModel",
 		{segs: segCountSubRes, seg1: collModels, method: http.MethodDelete}: "DeleteModel",
+		// /v2/apis/{apiId}/exports/{specification}
+		{segs: segCountSubRes, seg1: collExports, method: http.MethodGet}: "ExportApi",
 		// /v2/apis/{apiId}/models/{modelId} PATCH
 		{segs: segCountSubRes, seg1: collModels, method: http.MethodPatch}: "UpdateModel",
+		// /v2/apis/{apiId}/models/{modelId}/template
+		{segs: segCountDeepColl, seg1: collTemplate, method: http.MethodGet}: "GetModelTemplate",
 		// /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses
 		{segs: segCountDeepColl, seg1: collIntegrationResponses, method: http.MethodPost}: "CreateIntegrationResponse",
 		{segs: segCountDeepColl, seg1: collIntegrationResponses, method: http.MethodGet}:  "GetIntegrationResponses",
@@ -202,8 +234,14 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		// /v2/apis/{apiId}/routes/{routeId}/routeresponses/{id}
 		{segs: segCountDeepRes, seg1: collRouteResponses, method: http.MethodGet}:    "GetRouteResponse",
 		{segs: segCountDeepRes, seg1: collRouteResponses, method: http.MethodDelete}: "DeleteRouteResponse",
-		// /v2/apis/{apiId}/stages/{stageName}/cache DELETE
-		{segs: segCountDeepColl, seg1: "cache", method: http.MethodDelete}: "ResetAuthorizersCache",
+		// /v2/apis/{apiId}/stages/{stageName}/accesslogsettings DELETE
+		{segs: segCountDeepColl, seg1: collAccessLogSettings, method: http.MethodDelete}: "DeleteAccessLogSettings",
+		// /v2/apis/{apiId}/stages/{stageName}/routesettings/{routeKey} DELETE
+		{segs: segCountDeepRes, seg1: collRouteSettings, method: http.MethodDelete}: "DeleteRouteSettings",
+		// /v2/apis/{apiId}/routes/{routeId}/requestparameters/{requestParameterKey} DELETE
+		{segs: segCountDeepRes, seg1: collRequestParameters, method: http.MethodDelete}: "DeleteRouteRequestParameter",
+		// /v2/apis/{apiId}/stages/{stageName}/cache/authorizers DELETE
+		{segs: segCountDeepRes, seg1: collCache, method: http.MethodDelete}: "ResetAuthorizersCache",
 		// /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses/{id} PATCH
 		{segs: segCountDeepRes, seg1: collIntegrationResponses, method: http.MethodPatch}: "UpdateIntegrationResponse",
 		// /v2/apis/{apiId}/routes/{routeId}/routeresponses/{id} PATCH
@@ -224,6 +262,8 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return extractPortalsOp(path, method)
 	case path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/"):
 		return extractPortalProductsOp(path, method)
+	case path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/"):
+		return extractVpcLinksOp(path, method)
 	case strings.HasPrefix(path, tagsPrefix+"/"):
 		return extractTagsOp(path, method)
 	}
@@ -273,32 +313,46 @@ func extractDomainNameByIDOp(method string) string {
 }
 
 func extractAPIMappingsCollOp(collection, method string) string {
-	if collection != collAPIMappings {
-		return opUnknown
-	}
-
-	switch method {
-	case http.MethodPost:
-		return "CreateApiMapping"
-	case http.MethodGet:
-		return "GetApiMappings"
+	switch collection {
+	case collAPIMappings:
+		switch method {
+		case http.MethodPost:
+			return "CreateApiMapping"
+		case http.MethodGet:
+			return "GetApiMappings"
+		}
+	case collRoutingRules:
+		switch method {
+		case http.MethodPost:
+			return "CreateRoutingRule"
+		case http.MethodGet:
+			return "ListRoutingRules"
+		}
 	}
 
 	return opUnknown
 }
 
 func extractAPIMappingResourceOp(collection, method string) string {
-	if collection != collAPIMappings {
-		return opUnknown
-	}
-
-	switch method {
-	case http.MethodGet:
-		return "GetApiMapping"
-	case http.MethodDelete:
-		return "DeleteApiMapping"
-	case http.MethodPatch:
-		return "UpdateApiMapping"
+	switch collection {
+	case collAPIMappings:
+		switch method {
+		case http.MethodGet:
+			return "GetApiMapping"
+		case http.MethodDelete:
+			return "DeleteApiMapping"
+		case http.MethodPatch:
+			return "UpdateApiMapping"
+		}
+	case collRoutingRules:
+		switch method {
+		case http.MethodGet:
+			return "GetRoutingRule"
+		case http.MethodDelete:
+			return "DeleteRoutingRule"
+		case http.MethodPut:
+			return "PutRoutingRule"
+		}
 	}
 
 	return opUnknown
@@ -327,6 +381,17 @@ func extractPortalsOp(path, method string) string {
 			return "UpdatePortal"
 		case http.MethodDelete:
 			return "DeletePortal"
+		}
+	}
+	if len(parts) == pathPartTwo && parts[1] == collPreview && method == http.MethodPost {
+		return "PreviewPortal"
+	}
+	if len(parts) == pathPartTwo && parts[1] == collPublish {
+		switch method {
+		case http.MethodPost:
+			return "PublishPortal"
+		case http.MethodDelete:
+			return "DisablePortal"
 		}
 	}
 
@@ -390,6 +455,15 @@ func extractPortalProductSubCollOp(collection, method string) string {
 		case http.MethodGet:
 			return "ListProductRestEndpointPages"
 		}
+	case collSharingPolicy:
+		switch method {
+		case http.MethodGet:
+			return "GetPortalProductSharingPolicy"
+		case http.MethodPut:
+			return "PutPortalProductSharingPolicy"
+		case http.MethodDelete:
+			return "DeletePortalProductSharingPolicy"
+		}
 	}
 
 	return opUnknown
@@ -403,6 +477,8 @@ func extractPortalProductPageOp(collection, method string) string {
 			return "GetProductPage"
 		case http.MethodDelete:
 			return "DeleteProductPage"
+		case http.MethodPatch:
+			return "UpdateProductPage"
 		}
 	case collProductREPages:
 		switch method {
@@ -410,10 +486,37 @@ func extractPortalProductPageOp(collection, method string) string {
 			return "GetProductRestEndpointPage"
 		case http.MethodDelete:
 			return "DeleteProductRestEndpointPage"
+		case http.MethodPatch:
+			return "UpdateProductRestEndpointPage"
 		}
 	}
 
 	return opUnknown
+}
+
+func extractVpcLinksOp(path, method string) string {
+	suffix := strings.Trim(strings.TrimPrefix(path, vpcLinksPrefix), "/")
+	if suffix == "" {
+		switch method {
+		case http.MethodPost:
+			return "CreateVpcLink"
+		case http.MethodGet:
+			return "GetVpcLinks"
+		}
+
+		return opUnknown
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "GetVpcLink"
+	case http.MethodDelete:
+		return "DeleteVpcLink"
+	case http.MethodPatch:
+		return "UpdateVpcLink"
+	default:
+		return opUnknown
+	}
 }
 
 func extractAPIsOp(path, method string) string {
@@ -466,6 +569,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handlePortalsPath(c, method, path)
 		case path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/"):
 			return h.handlePortalProductsPath(c, method, path)
+		case path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/"):
+			return h.handleVpcLinksPath(c, method, path)
 		case path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/"):
 			return h.handleAPIsPath(c, method, path)
 		case strings.HasPrefix(path, tagsPrefix+"/"):
@@ -507,6 +612,8 @@ func (h *Handler) handleAPIs(c *echo.Context, method string) error {
 		return h.handleCreateAPI(c)
 	case http.MethodGet:
 		return h.handleGetAPIs(c)
+	case http.MethodPut:
+		return h.handleImportAPI(c)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
 	}
@@ -521,6 +628,8 @@ func (h *Handler) handleAPI(c *echo.Context, method, apiID string) error {
 		return h.handleDeleteAPI(c, apiID)
 	case http.MethodPatch:
 		return h.handleUpdateAPI(c, apiID)
+	case http.MethodPut:
+		return h.handleReimportAPI(c, apiID)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
 	}
@@ -547,6 +656,7 @@ func (h *Handler) handleSubCollection(c *echo.Context, method, apiID, collection
 		{http.MethodGet, collAuthorizers}:   h.handleGetAuthorizers,
 		{http.MethodPost, collModels}:       h.handleCreateModel,
 		{http.MethodGet, collModels}:        h.handleGetModels,
+		{http.MethodDelete, collCors}:       h.handleDeleteCorsConfiguration,
 	}
 
 	if fn, ok := dispatch[subDispatchKey{method, collection}]; ok {
@@ -579,6 +689,7 @@ func (h *Handler) handleSubResource(c *echo.Context, method, apiID, collection, 
 		{http.MethodGet, collModels}:          h.handleGetModel,
 		{http.MethodDelete, collModels}:       h.handleDeleteModel,
 		{http.MethodPatch, collModels}:        h.handleUpdateModel,
+		{http.MethodGet, collExports}:         h.handleExportAPI,
 	}
 
 	if fn, ok := dispatch[subDispatchKey{method, collection}]; ok {
@@ -618,8 +729,11 @@ func (h *Handler) handleDeepCollection(
 		{http.MethodGet, collRouteResponses}: func(c *echo.Context, apiID, resourceID string) error {
 			return h.handleGetRouteResponses(c, apiID, resourceID)
 		},
-		{http.MethodDelete, "cache"}: func(c *echo.Context, apiID, resourceID string) error {
-			return h.handleResetAuthorizersCache(c, apiID, resourceID)
+		{http.MethodDelete, collAccessLogSettings}: func(c *echo.Context, apiID, resourceID string) error {
+			return h.handleDeleteAccessLogSettings(c, apiID, resourceID)
+		},
+		{http.MethodGet, collTemplate}: func(c *echo.Context, apiID, resourceID string) error {
+			return h.handleGetModelTemplate(c, apiID, resourceID)
 		},
 	}
 
@@ -665,9 +779,15 @@ func (h *Handler) handleDomainNamesPath(c *echo.Context, method, path string) er
 		if parts[1] == collAPIMappings {
 			return h.handleAPIMappingsCollection(c, method, parts[0])
 		}
+		if parts[1] == collRoutingRules {
+			return h.handleRoutingRulesCollection(c, method, parts[0])
+		}
 	case maxPathParts:
 		if parts[1] == collAPIMappings {
 			return h.handleAPIMappingResource(c, method, parts[0], parts[pathPartTwo])
+		}
+		if parts[1] == collRoutingRules {
+			return h.handleRoutingRuleResource(c, method, parts[0], parts[pathPartTwo])
 		}
 	}
 
@@ -702,6 +822,64 @@ func (h *Handler) handleAPIMappingResource(c *echo.Context, method, domainName, 
 	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 }
 
+func (h *Handler) handleRoutingRulesCollection(c *echo.Context, method, domainName string) error {
+	switch method {
+	case http.MethodPost:
+		return handleCreate(c, domainName, "routing rule", ErrDomainNameNotFound,
+			func(input CreateRoutingRuleInput) (*RoutingRule, error) {
+				return h.Backend.CreateRoutingRule(domainName, input)
+			})
+	case http.MethodGet:
+		rules, err := h.Backend.ListRoutingRules(domainName)
+		if err != nil {
+			if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrRoutingRuleNotFound) {
+				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			}
+
+			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		}
+
+		return c.JSON(http.StatusOK, listRoutingRulesOutput{Items: rules})
+	}
+
+	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+}
+
+func (h *Handler) handleRoutingRuleResource(c *echo.Context, method, domainName, ruleID string) error {
+	switch method {
+	case http.MethodGet:
+		rule, err := h.Backend.GetRoutingRule(domainName, ruleID)
+		if err != nil {
+			if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrRoutingRuleNotFound) {
+				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			}
+
+			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		}
+
+		return c.JSON(http.StatusOK, rule)
+	case http.MethodPut:
+		return handleUpdate(c, domainName, ruleID, "routing rule",
+			func(input PutRoutingRuleInput) (*RoutingRule, error) {
+				return h.Backend.PutRoutingRule(domainName, ruleID, input)
+			},
+			ErrDomainNameNotFound, ErrRoutingRuleNotFound)
+	case http.MethodDelete:
+		err := h.Backend.DeleteRoutingRule(domainName, ruleID)
+		if err != nil {
+			if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrRoutingRuleNotFound) {
+				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			}
+
+			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	}
+
+	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+}
+
 // handlePortalsPath handles requests for /v2/portals and /v2/portals/{portalId}/...
 func (h *Handler) handlePortalsPath(c *echo.Context, method, path string) error {
 	suffix := strings.TrimPrefix(path, portalsPrefix)
@@ -731,8 +909,33 @@ func (h *Handler) handlePortalsPath(c *echo.Context, method, path string) error 
 			return h.handleDeletePortal(c, parts[0])
 		}
 	}
+	if len(parts) == pathPartTwo {
+		return h.handlePortalSubAction(c, method, parts[0], parts[1])
+	}
 
 	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+}
+
+func (h *Handler) handlePortalSubAction(c *echo.Context, method, portalID, action string) error {
+	switch {
+	case action == collPreview && method == http.MethodPost:
+		p, err := h.Backend.GetPortal(portalID)
+		if err != nil {
+			if errors.Is(err, ErrPortalNotFound) {
+				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			}
+
+			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		}
+
+		return c.JSON(http.StatusOK, p)
+	case action == collPublish && method == http.MethodPost:
+		return h.handlePublishPortal(c, portalID)
+	case action == collPublish && method == http.MethodDelete:
+		return h.handleDisablePortal(c, portalID)
+	default:
+		return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+	}
 }
 
 // handlePortalProductsPath handles requests for /v2/portalproducts and nested paths.
@@ -801,6 +1004,16 @@ func (h *Handler) handlePortalProductSubCollection(
 			return h.handleListProductPages(c, portalProductID)
 		case collProductREPages:
 			return h.handleListProductRestEndpointPages(c, portalProductID)
+		case collSharingPolicy:
+			return h.handleGetPortalProductSharingPolicy(c, portalProductID)
+		}
+	case http.MethodPut:
+		if subColl == collSharingPolicy {
+			return h.handlePutPortalProductSharingPolicy(c, portalProductID)
+		}
+	case http.MethodDelete:
+		if subColl == collSharingPolicy {
+			return h.handleDeletePortalProductSharingPolicy(c, portalProductID)
 		}
 	}
 
@@ -817,6 +1030,8 @@ func (h *Handler) handlePortalProductPage(
 			return h.handleGetProductPage(c, portalProductID, pageID)
 		case http.MethodDelete:
 			return h.handleDeleteProductPage(c, portalProductID, pageID)
+		case http.MethodPatch:
+			return h.handleUpdateProductPage(c, portalProductID, pageID)
 		}
 	case collProductREPages:
 		switch method {
@@ -824,10 +1039,63 @@ func (h *Handler) handlePortalProductPage(
 			return h.handleGetProductRestEndpointPage(c, portalProductID, pageID)
 		case http.MethodDelete:
 			return h.handleDeleteProductRestEndpointPage(c, portalProductID, pageID)
+		case http.MethodPatch:
+			return h.handleUpdateProductRestEndpointPage(c, portalProductID, pageID)
 		}
 	}
 
 	return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+}
+
+func (h *Handler) handleVpcLinksPath(c *echo.Context, method, path string) error {
+	suffix := strings.Trim(strings.TrimPrefix(path, vpcLinksPrefix), "/")
+	if suffix == "" {
+		switch method {
+		case http.MethodPost:
+			return handleCreateNoParent(c, "vpc link", func(input CreateVpcLinkInput) (*VpcLink, error) {
+				return h.Backend.CreateVpcLink(input)
+			})
+		case http.MethodGet:
+			links, err := h.Backend.GetVpcLinks()
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+			}
+
+			return c.JSON(http.StatusOK, listVpcLinksOutput{Items: links})
+		default:
+			return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+		}
+	}
+
+	switch method {
+	case http.MethodGet:
+		vpcLink, err := h.Backend.GetVpcLink(suffix)
+		if err != nil {
+			if errors.Is(err, ErrVpcLinkNotFound) {
+				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			}
+
+			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		}
+
+		return c.JSON(http.StatusOK, vpcLink)
+	case http.MethodPatch:
+		return handleUpdate(c, suffix, "", "vpc link",
+			func(input UpdateVpcLinkInput) (*VpcLink, error) { return h.Backend.UpdateVpcLink(suffix, input) },
+			ErrVpcLinkNotFound)
+	case http.MethodDelete:
+		if err := h.Backend.DeleteVpcLink(suffix); err != nil {
+			if errors.Is(err, ErrVpcLinkNotFound) {
+				return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+			}
+
+			return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	default:
+		return c.JSON(http.StatusMethodNotAllowed, notFoundResponse{Message: msgMethodNotAllowed})
+	}
 }
 
 func (h *Handler) handleCreateAPI(c *echo.Context) error {
@@ -918,6 +1186,145 @@ func (h *Handler) handleUpdateAPI(c *echo.Context, apiID string) error {
 	}
 
 	return c.JSON(http.StatusOK, api)
+}
+
+func (h *Handler) handleImportAPI(c *echo.Context) error {
+	var input struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+	}
+
+	api, err := h.Backend.CreateAPI(CreateAPIInput{
+		Name:         "imported-api",
+		ProtocolType: "HTTP",
+		Description:  input.Body,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusCreated, api)
+}
+
+func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
+	var input struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+	}
+
+	api, err := h.Backend.UpdateAPI(apiID, UpdateAPIInput{Description: input.Body})
+	if err != nil {
+		if errors.Is(err, ErrAPINotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusCreated, api)
+}
+
+func (h *Handler) handleDeleteCorsConfiguration(c *echo.Context, apiID string) error {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeleteCorsConfiguration(apiID); err != nil {
+		log.Error("apigatewayv2: delete cors configuration failed", "apiId", apiID, "error", err)
+
+		if errors.Is(err, ErrAPINotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) error {
+	if _, err := h.Backend.GetAPI(apiID); err != nil {
+		if errors.Is(err, ErrAPINotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"body": exportedOpenAPIDoc, "specification": specification})
+}
+
+func (h *Handler) handleGetModelTemplate(c *echo.Context, apiID, modelID string) error {
+	if _, err := h.Backend.GetModel(apiID, modelID); err != nil {
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrModelNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"value": emptyModelTemplate})
+}
+
+func (h *Handler) handleDeleteAccessLogSettings(c *echo.Context, apiID, stageName string) error {
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeleteAccessLogSettings(apiID, stageName); err != nil {
+		log.Error("apigatewayv2: delete access log settings failed",
+			"apiId", apiID, "stageName", stageName, "error", err)
+
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleDeleteRouteSettings(c *echo.Context, apiID, stageName, routeKey string) error {
+	if routeKey == "" {
+		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: "routeKey is required"})
+	}
+
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeleteRouteSettings(apiID, stageName, routeKey); err != nil {
+		log.Error("apigatewayv2: delete route settings failed",
+			"apiId", apiID, "stageName", stageName, "routeKey", routeKey, "error", err)
+
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleDeleteRouteRequestParameter(c *echo.Context, apiID, routeID, requestParameterKey string) error {
+	if requestParameterKey == "" {
+		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: "requestParameterKey is required"})
+	}
+
+	log := logger.Load(c.Request().Context())
+
+	if err := h.Backend.DeleteRouteRequestParameter(apiID, routeID, requestParameterKey); err != nil {
+		log.Error("apigatewayv2: delete route request parameter failed",
+			"apiId", apiID, "routeId", routeID, "key", requestParameterKey, "error", err)
+
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }
 
 // --- Stage handlers ---
@@ -1502,8 +1909,18 @@ func (h *Handler) handleDeleteRouteResponse(c *echo.Context, apiID, routeID, res
 // handleDeepResource handles GET/DELETE on /v2/apis/{apiId}/{coll}/{resourceId}/{subColl}/{subResourceId}.
 func (h *Handler) handleDeepResource(
 	c *echo.Context,
-	method, apiID, _ /* parentCollection */, resourceID, subCollection, subResourceID string,
+	method, apiID, parentCollection, resourceID, subCollection, subResourceID string,
 ) error {
+	if method == http.MethodDelete && subCollection == collRouteSettings && parentCollection == collStages {
+		return h.handleDeleteRouteSettings(c, apiID, resourceID, subResourceID)
+	}
+	if method == http.MethodDelete && subCollection == collRequestParameters && parentCollection == collRoutes {
+		return h.handleDeleteRouteRequestParameter(c, apiID, resourceID, subResourceID)
+	}
+	if method == http.MethodDelete && subCollection == collCache && subResourceID == "authorizers" {
+		return h.handleResetAuthorizersCache(c, apiID, resourceID)
+	}
+
 	type threeArgHandler func(*echo.Context, string, string, string) error
 
 	dispatch := map[subDispatchKey]threeArgHandler{
@@ -1732,7 +2149,7 @@ func extractTagsOp(path, method string) string {
 	switch method {
 	case http.MethodGet:
 		return "GetTags"
-	case http.MethodPut:
+	case http.MethodPost:
 		return "TagResource"
 	case http.MethodDelete:
 		return "UntagResource"
@@ -1750,7 +2167,7 @@ func (h *Handler) handleTagsPath(c *echo.Context, method, path string) error {
 	switch method {
 	case http.MethodGet:
 		return h.handleGetTags(c, resourceARN)
-	case http.MethodPut:
+	case http.MethodPost:
 		return h.handleTagResource(c, resourceARN)
 	case http.MethodDelete:
 		return h.handleUntagResource(c, resourceARN)
@@ -1766,7 +2183,8 @@ func (h *Handler) handleGetTags(c *echo.Context, resourceARN string) error {
 	if err != nil {
 		log.Error("apigatewayv2: get tags failed", "resourceArn", resourceARN, "error", err)
 
-		if errors.Is(err, ErrAPINotFound) {
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
+			errors.Is(err, ErrDomainNameNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
 
@@ -1791,7 +2209,8 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 	if err := h.Backend.TagResource(resourceARN, input.Tags); err != nil {
 		log.Error("apigatewayv2: tag resource failed", "resourceArn", resourceARN, "error", err)
 
-		if errors.Is(err, ErrAPINotFound) {
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
+			errors.Is(err, ErrDomainNameNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
 
@@ -1804,21 +2223,14 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error {
 	log := logger.Load(c.Request().Context())
 
-	tagKeysRaw := c.Request().URL.Query().Get("tagKeys")
-	tagKeys := strings.Split(tagKeysRaw, ",")
+	// AWS SDK sends tagKeys as repeated query parameters: ?tagKeys=key1&tagKeys=key2
+	tagKeys := c.Request().URL.Query()["tagKeys"]
 
-	// Filter out empty strings that result from missing/empty query parameter.
-	filtered := make([]string, 0, len(tagKeys))
-	for _, k := range tagKeys {
-		if k != "" {
-			filtered = append(filtered, k)
-		}
-	}
-
-	if err := h.Backend.UntagResource(resourceARN, filtered); err != nil {
+	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
 		log.Error("apigatewayv2: untag resource failed", "resourceArn", resourceARN, "error", err)
 
-		if errors.Is(err, ErrAPINotFound) {
+		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
+			errors.Is(err, ErrDomainNameNotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
 
@@ -1884,6 +2296,37 @@ func (h *Handler) handleUpdatePortal(c *echo.Context, portalID string) error {
 		ErrPortalNotFound)
 }
 
+func (h *Handler) handlePublishPortal(c *echo.Context, portalID string) error {
+	var input PublishPortalInput
+	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil && !errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+	}
+
+	p, err := h.Backend.UpdatePortal(portalID, UpdatePortalInput{Status: "PUBLISHED"})
+	if err != nil {
+		if errors.Is(err, ErrPortalNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, p)
+}
+
+func (h *Handler) handleDisablePortal(c *echo.Context, portalID string) error {
+	p, err := h.Backend.UpdatePortal(portalID, UpdatePortalInput{Status: "DISABLED"})
+	if err != nil {
+		if errors.Is(err, ErrPortalNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, p)
+}
+
 func (h *Handler) handleDeletePortal(c *echo.Context, portalID string) error {
 	log := logger.Load(c.Request().Context())
 
@@ -1906,6 +2349,65 @@ func (h *Handler) handleUpdatePortalProduct(c *echo.Context, portalProductID str
 			return h.Backend.UpdatePortalProduct(portalProductID, input)
 		},
 		ErrPortalProductNotFound)
+}
+
+func (h *Handler) handleGetPortalProductSharingPolicy(c *echo.Context, portalProductID string) error {
+	policy, err := h.Backend.GetPortalProductSharingPolicy(portalProductID)
+	if err != nil {
+		if errors.Is(err, ErrPortalProductNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, policy)
+}
+
+func (h *Handler) handlePutPortalProductSharingPolicy(c *echo.Context, portalProductID string) error {
+	var input PortalProductSharingPolicy
+	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
+	}
+
+	policy, err := h.Backend.PutPortalProductSharingPolicy(portalProductID, input.PolicyDocument)
+	if err != nil {
+		if errors.Is(err, ErrPortalProductNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, policy)
+}
+
+func (h *Handler) handleDeletePortalProductSharingPolicy(c *echo.Context, portalProductID string) error {
+	if err := h.Backend.DeletePortalProductSharingPolicy(portalProductID); err != nil {
+		if errors.Is(err, ErrPortalProductNotFound) {
+			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
+		}
+
+		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleUpdateProductPage(c *echo.Context, portalProductID, pageID string) error {
+	return handleUpdate(c, portalProductID, pageID, "product page",
+		func(input UpdateProductPageInput) (*ProductPage, error) {
+			return h.Backend.UpdateProductPage(portalProductID, pageID, input)
+		},
+		ErrPortalProductNotFound, ErrProductPageNotFound)
+}
+
+func (h *Handler) handleUpdateProductRestEndpointPage(c *echo.Context, portalProductID, pageID string) error {
+	return handleUpdate(c, portalProductID, pageID, "product rest endpoint page",
+		func(input UpdateProductRestEndpointPageInput) (*ProductRestEndpointPage, error) {
+			return h.Backend.UpdateProductRestEndpointPage(portalProductID, pageID, input)
+		},
+		ErrPortalProductNotFound, ErrProductREPageNotFound)
 }
 
 func (h *Handler) handleDeletePortalProduct(c *echo.Context, portalProductID string) error {
