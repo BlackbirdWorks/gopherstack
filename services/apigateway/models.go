@@ -413,3 +413,47 @@ type UpdateStageInput struct {
 	DeploymentID string            `json:"deploymentId,omitempty"`
 	Description  string            `json:"description,omitempty"`
 }
+
+// Account represents the API Gateway account settings.
+type Account struct {
+	ThrottleSettings  *ThrottleSettings `json:"throttleSettings,omitempty"`
+	APIKeyVersion     string            `json:"apiKeyVersion,omitempty"`
+	CloudwatchRoleARN string            `json:"cloudwatchRoleArn,omitempty"`
+	Features          []string          `json:"features,omitempty"`
+}
+
+// UpdateRestAPIInput is the input for UpdateRestApi.
+type UpdateRestAPIInput struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// UpdateDeploymentInput is the input for UpdateDeployment.
+type UpdateDeploymentInput struct {
+	Description string `json:"description,omitempty"`
+}
+
+// UpdateResourceInput is the input for UpdateResource (rename pathPart).
+type UpdateResourceInput struct {
+	PathPart string `json:"pathPart,omitempty"`
+}
+
+// TestInvokeMethodInput is the input for TestInvokeMethod.
+type TestInvokeMethodInput struct {
+	Headers             map[string]string `json:"headers,omitempty"`
+	StageVariables      map[string]string `json:"stageVariables,omitempty"`
+	PathWithQueryString string            `json:"pathWithQueryString,omitempty"`
+	Body                string            `json:"body,omitempty"`
+	RestAPIID           string            `json:"restApiId"`
+	ResourceID          string            `json:"resourceId"`
+	HTTPMethod          string            `json:"httpMethod"`
+}
+
+// TestInvokeMethodOutput is the output from TestInvokeMethod.
+type TestInvokeMethodOutput struct {
+	Headers map[string]string `json:"headers,omitempty"`
+	Log     string            `json:"log,omitempty"`
+	Body    string            `json:"body,omitempty"`
+	Status  int               `json:"status"`
+	Latency int64             `json:"latency"`
+}

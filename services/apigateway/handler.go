@@ -42,6 +42,9 @@ const (
 	apiGWSegModels             = "models"
 	apiGWSegUsagePlans         = "usageplans"
 	apiGWSegUsagePlanKeys      = "keys"
+
+	// apiGWMinTagPathSegs is the minimum number of path segments for a /tags/{arn} path.
+	apiGWMinTagPathSegs = 2
 )
 
 type createRestAPIInput struct {
@@ -390,6 +393,41 @@ type deleteDocumentationVersionInput struct {
 	DocVersion string `json:"documentationVersion"`
 }
 
+type updateRestAPIHandlerInput struct {
+	UpdateRestAPIInput
+	RestAPIID string `json:"restApiId"`
+}
+
+type updateDeploymentHandlerInput struct {
+	UpdateDeploymentInput
+	RestAPIID    string `json:"restApiId"`
+	DeploymentID string `json:"deploymentId"`
+}
+
+type updateResourceHandlerInput struct {
+	UpdateResourceInput
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+}
+
+type getTagsInput struct {
+	ResourceARN string `json:"resourceArn"`
+}
+
+type tagResourceInput struct {
+	Tags        map[string]string `json:"tags"`
+	ResourceARN string            `json:"resourceArn"`
+}
+
+type untagResourceInput struct {
+	ResourceARN string   `json:"resourceArn"`
+	TagKeys     []string `json:"tagKeys"`
+}
+
+type testInvokeMethodHandlerInput struct {
+	TestInvokeMethodInput
+}
+
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend    StorageBackend
@@ -508,6 +546,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetUsagePlanKey",
 		"GetUsagePlanKeys",
 		"DeleteUsagePlanKey",
+		"UpdateRestApi",
+		"UpdateDeployment",
+		"UpdateResource",
+		"GetAccount",
+		"GetTags",
+		"TagResource",
+		"UntagResource",
+		"TestInvokeMethod",
 	}
 }
 
@@ -533,7 +579,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		return strings.HasPrefix(path, "/restapis") ||
 			strings.HasPrefix(path, "/apikeys") ||
 			strings.HasPrefix(path, "/domainnames") ||
-			strings.HasPrefix(path, "/usageplans")
+			strings.HasPrefix(path, "/usageplans") ||
+			strings.HasPrefix(path, "/account") ||
+			strings.HasPrefix(path, "/tags")
 	}
 }
 
@@ -599,7 +647,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		isRESTPath := strings.HasPrefix(path, "/restapis") ||
 			strings.HasPrefix(path, "/apikeys") ||
 			strings.HasPrefix(path, "/domainnames") ||
-			strings.HasPrefix(path, "/usageplans")
+			strings.HasPrefix(path, "/usageplans") ||
+			strings.HasPrefix(path, "/account") ||
+			strings.HasPrefix(path, "/tags")
 
 		if isRESTPath && !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "APIGateway.") {
 			return h.handleRESTAPI(c)
@@ -734,6 +784,43 @@ func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 		return parseAPIGWDomainNamesPath(method, segs, n)
 	case apiGWSegUsagePlans:
 		return parseAPIGWUsagePlansPath(method, segs, n)
+	case "account":
+		return parseAPIGWAccountPath(method, segs, n)
+	case "tags":
+		return parseAPIGWTagsPath(method, segs, n)
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWAccountPath handles /account paths.
+func parseAPIGWAccountPath(method string, _ []string, n int) (string, map[string]string, bool) {
+	// GET /account → GetAccount
+	if n == 1 && method == http.MethodGet {
+		return "GetAccount", nil, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWTagsPath handles /tags/{resourceArn} paths.
+func parseAPIGWTagsPath(method string, segs []string, n int) (string, map[string]string, bool) {
+	if n < apiGWMinTagPathSegs {
+		return apiGWUnknownOp, nil, false
+	}
+	// Re-join remaining segs to reconstruct the ARN (which may contain slashes).
+	arn := strings.Join(segs[1:], "/")
+
+	switch method {
+	// GET /tags/{resourceArn} → GetTags
+	case http.MethodGet:
+		return "GetTags", map[string]string{"resourceArn": arn}, true
+	// PUT /tags/{resourceArn} → TagResource
+	case http.MethodPut:
+		return "TagResource", map[string]string{"resourceArn": arn}, true
+	// DELETE /tags/{resourceArn} → UntagResource
+	case http.MethodDelete:
+		return "UntagResource", map[string]string{"resourceArn": arn}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -850,6 +937,9 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 	// DELETE /restapis/{id} → DeleteRestApi
 	case n == 2 && method == http.MethodDelete:
 		return "DeleteRestApi", map[string]string{"restApiId": segs[1]}, true
+	// PATCH /restapis/{id} → UpdateRestApi
+	case n == 2 && method == http.MethodPatch:
+		return "UpdateRestApi", map[string]string{"restApiId": segs[1]}, true
 	// GET /restapis/{id}/resources → GetResources
 	case n == 3 && segs[2] == apiGWSegResources && method == http.MethodGet:
 		return "GetResources", map[string]string{"restApiId": segs[1]}, true
@@ -859,6 +949,9 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 	// POST /restapis/{id}/resources/{parentId} → CreateResource
 	case n == 4 && segs[2] == apiGWSegResources && method == http.MethodPost:
 		return "CreateResource", map[string]string{"restApiId": segs[1], "parentId": segs[3]}, true
+	// PATCH /restapis/{id}/resources/{resId} → UpdateResource
+	case n == 4 && segs[2] == apiGWSegResources && method == http.MethodPatch:
+		return "UpdateResource", map[string]string{"restApiId": segs[1], "resourceId": segs[3]}, true
 	// DELETE /restapis/{id}/resources/{resId} → DeleteResource
 	case n == 4 && segs[2] == apiGWSegResources && method == http.MethodDelete:
 		return "DeleteResource", map[string]string{"restApiId": segs[1], "resourceId": segs[3]}, true
@@ -874,6 +967,9 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 	// GET /restapis/{id}/deployments/{deplId} → GetDeployment
 	case n == 4 && segs[2] == apiGWSegDeployment && method == http.MethodGet:
 		return "GetDeployment", map[string]string{"restApiId": segs[1], "deploymentId": segs[3]}, true
+	// PATCH /restapis/{id}/deployments/{deplId} → UpdateDeployment
+	case n == 4 && segs[2] == apiGWSegDeployment && method == http.MethodPatch:
+		return "UpdateDeployment", map[string]string{"restApiId": segs[1], "deploymentId": segs[3]}, true
 	// DELETE /restapis/{id}/deployments/{deplId} → DeleteDeployment
 	case n == 4 && segs[2] == apiGWSegDeployment && method == http.MethodDelete:
 		return "DeleteDeployment", map[string]string{"restApiId": segs[1], "deploymentId": segs[3]}, true
@@ -1070,6 +1166,8 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 		return "GetMethod", baseParams, true
 	case http.MethodDelete:
 		return "DeleteMethod", baseParams, true
+	case http.MethodPost:
+		return "TestInvokeMethod", baseParams, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1709,6 +1807,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.requestValidatorActions())
 	maps.Copy(table, h.newResourceActions())
 	maps.Copy(table, h.getDeleteUpdateActions())
+	maps.Copy(table, h.updatePatchActions())
 
 	return table
 }
@@ -2258,6 +2357,102 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 			}
 
 			return http.StatusAccepted, map[string]any{}, nil
+		},
+	}
+}
+
+//nolint:cyclop,gocognit // action table - one closure per op; complexity unavoidable
+func (h *Handler) updatePatchActions() map[string]actionFn {
+	return map[string]actionFn{
+		"UpdateRestApi": func(b []byte) (int, any, error) {
+			var input updateRestAPIHandlerInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			api, err := h.Backend.UpdateRestAPI(input.RestAPIID, input.UpdateRestAPIInput)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, api, nil
+		},
+		"UpdateDeployment": func(b []byte) (int, any, error) {
+			var input updateDeploymentHandlerInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			depl, err := h.Backend.UpdateDeployment(input.RestAPIID, input.DeploymentID, input.UpdateDeploymentInput)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, depl, nil
+		},
+		"UpdateResource": func(b []byte) (int, any, error) {
+			var input updateResourceHandlerInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			res, err := h.Backend.UpdateResource(input.RestAPIID, input.ResourceID, input.UpdateResourceInput)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, res, nil
+		},
+		"GetAccount": func(_ []byte) (int, any, error) {
+			acct, err := h.Backend.GetAccount()
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, acct, nil
+		},
+		"GetTags": func(b []byte) (int, any, error) {
+			var input getTagsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			t, err := h.Backend.GetResourceTags(input.ResourceARN)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"tags": t}, nil
+		},
+		"TagResource": func(b []byte) (int, any, error) {
+			var input tagResourceInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.TagResource(input.ResourceARN, input.Tags); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusNoContent, map[string]any{}, nil
+		},
+		"UntagResource": func(b []byte) (int, any, error) {
+			var input untagResourceInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.UntagResource(input.ResourceARN, input.TagKeys); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusNoContent, map[string]any{}, nil
+		},
+		"TestInvokeMethod": func(b []byte) (int, any, error) {
+			var input testInvokeMethodHandlerInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			out, err := h.Backend.TestInvokeMethod(input.TestInvokeMethodInput)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, out, nil
 		},
 	}
 }

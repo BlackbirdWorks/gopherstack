@@ -319,6 +319,46 @@ func (n *noopBackend) DeleteDocumentationVersion(_ string, _ string) error {
 	return errNoopNotImplemented
 }
 
+func (n *noopBackend) UpdateRestAPI(_ string, _ apigateway.UpdateRestAPIInput) (*apigateway.RestAPI, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateResource(
+	_ string,
+	_ string,
+	_ apigateway.UpdateResourceInput,
+) (*apigateway.Resource, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateDeployment(
+	_ string,
+	_ string,
+	_ apigateway.UpdateDeploymentInput,
+) (*apigateway.Deployment, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetAccount() (*apigateway.Account, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetResourceTags(_ string) (map[string]string, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) TagResource(_ string, _ map[string]string) error {
+	return errNoopNotImplemented
+}
+
+func (n *noopBackend) UntagResource(_ string, _ []string) error {
+	return errNoopNotImplemented
+}
+
+func (n *noopBackend) TestInvokeMethod(_ apigateway.TestInvokeMethodInput) (*apigateway.TestInvokeMethodOutput, error) {
+	return nil, errNoopNotImplemented
+}
+
 // restRequest sends a REST-style request (no X-Amz-Target header) to the handler.
 func restRequest(t *testing.T, handler *apigateway.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()

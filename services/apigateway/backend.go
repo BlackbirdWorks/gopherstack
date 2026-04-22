@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,12 +47,14 @@ type StorageBackend interface {
 	DeleteRestAPI(restAPIID string) error
 	GetRestAPI(restAPIID string) (*RestAPI, error)
 	GetRestAPIs(limit int, position string) ([]RestAPI, string, error)
+	UpdateRestAPI(restAPIID string, input UpdateRestAPIInput) (*RestAPI, error)
 
 	// Resources
 	GetResources(restAPIID, position string, limit int) ([]Resource, string, error)
 	GetResource(restAPIID, resourceID string) (*Resource, error)
 	CreateResource(restAPIID, parentID, pathPart string) (*Resource, error)
 	DeleteResource(restAPIID, resourceID string) error
+	UpdateResource(restAPIID, resourceID string, input UpdateResourceInput) (*Resource, error)
 
 	// Methods
 	PutMethod(
@@ -87,6 +90,7 @@ type StorageBackend interface {
 	GetDeployment(restAPIID, deploymentID string) (*Deployment, error)
 	GetDeployments(restAPIID string) ([]Deployment, error)
 	DeleteDeployment(restAPIID, deploymentID string) error
+	UpdateDeployment(restAPIID, deploymentID string, input UpdateDeploymentInput) (*Deployment, error)
 
 	// Stages
 	GetStages(restAPIID string) ([]Stage, error)
@@ -165,6 +169,17 @@ type StorageBackend interface {
 	GetUsagePlanKey(usagePlanID, keyID string) (*UsagePlanKey, error)
 	GetUsagePlanKeys(usagePlanID string) ([]UsagePlanKey, error)
 	DeleteUsagePlanKey(usagePlanID, keyID string) error
+
+	// Account
+	GetAccount() (*Account, error)
+
+	// Tags
+	GetResourceTags(resourceARN string) (map[string]string, error)
+	TagResource(resourceARN string, tags map[string]string) error
+	UntagResource(resourceARN string, tagKeys []string) error
+
+	// Test Invocation
+	TestInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMethodOutput, error)
 }
 
 const apiIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -173,6 +188,13 @@ const (
 	apiIDLength       = 10
 	resourceIDLength  = 6
 	apiKeyValueLength = 40 // AWS generates a 40-character alphanumeric key value
+
+	// defaultBurstLimit and defaultRateLimit match AWS API Gateway defaults.
+	defaultBurstLimit = 5000
+	defaultRateLimit  = 10000.0
+
+	// arnSplitParts is used when splitting ARNs at a specific substring.
+	arnSplitParts = 2
 )
 
 // randomID generates a cryptographically random alphanumeric ID of the given length.
@@ -2095,4 +2117,208 @@ func (b *InMemoryBackend) DeleteDocumentationVersion(restAPIID, version string) 
 	delete(d.documentationVersions, version)
 
 	return nil
+}
+
+// UpdateRestAPI updates the name and/or description of a REST API.
+func (b *InMemoryBackend) UpdateRestAPI(restAPIID string, input UpdateRestAPIInput) (*RestAPI, error) {
+	b.mu.Lock("UpdateRestAPI")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	if input.Name != "" {
+		d.api.Name = input.Name
+	}
+
+	if input.Description != "" {
+		d.api.Description = input.Description
+	}
+
+	cp := d.api
+
+	return &cp, nil
+}
+
+// UpdateResource updates the pathPart of a resource (recomputes path if changed).
+func (b *InMemoryBackend) UpdateResource(restAPIID, resourceID string, input UpdateResourceInput) (*Resource, error) {
+	b.mu.Lock("UpdateResource")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	res, ok := d.resources[resourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
+	}
+
+	if input.PathPart != "" {
+		var parentPath string
+		if res.ParentID != "" {
+			if parent, exists := d.resources[res.ParentID]; exists {
+				parentPath = parent.Path
+			}
+		}
+
+		res.PathPart = input.PathPart
+		res.Path = computePath(parentPath, input.PathPart)
+	}
+
+	cp := *res
+
+	return &cp, nil
+}
+
+// UpdateDeployment updates the description of a deployment.
+func (b *InMemoryBackend) UpdateDeployment(
+	restAPIID, deploymentID string,
+	input UpdateDeploymentInput,
+) (*Deployment, error) {
+	b.mu.Lock("UpdateDeployment")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	depl, ok := d.deployments[deploymentID]
+	if !ok {
+		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+	}
+
+	if input.Description != "" {
+		depl.Description = input.Description
+	}
+
+	cp := *depl
+
+	return &cp, nil
+}
+
+// GetAccount returns the mock API Gateway account settings.
+func (b *InMemoryBackend) GetAccount() (*Account, error) {
+	return &Account{
+		ThrottleSettings: &ThrottleSettings{
+			BurstLimit: defaultBurstLimit,
+			RateLimit:  defaultRateLimit,
+		},
+		Features:      []string{"UsagePlans"},
+		APIKeyVersion: "1",
+	}, nil
+}
+
+// GetResourceTags returns the tags for a resource identified by its ARN.
+// For simplicity, we parse the ARN to extract the resource type and ID.
+func (b *InMemoryBackend) GetResourceTags(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("GetResourceTags")
+	defer b.mu.RUnlock()
+
+	// ARN format: arn:aws:apigateway:{region}::/restapis/{id}
+	// We strip down to find the resource.
+	parts := strings.SplitN(resourceARN, "/restapis/", arnSplitParts)
+	if len(parts) != arnSplitParts {
+		return map[string]string{}, nil
+	}
+
+	apiID := strings.Split(parts[1], "/")[0]
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return map[string]string{}, nil
+	}
+
+	return d.api.Tags.Clone(), nil
+}
+
+// TagResource adds or updates tags on a resource identified by its ARN.
+func (b *InMemoryBackend) TagResource(resourceARN string, newTags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	parts := strings.SplitN(resourceARN, "/restapis/", arnSplitParts)
+	if len(parts) != arnSplitParts {
+		return fmt.Errorf("%w: unsupported resource ARN format", ErrInvalidParameter)
+	}
+
+	apiID := strings.Split(parts[1], "/")[0]
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, apiID)
+	}
+
+	for k, v := range newTags {
+		d.api.Tags.Set(k, v)
+	}
+
+	return nil
+}
+
+// UntagResource removes tags from a resource identified by its ARN.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	parts := strings.SplitN(resourceARN, "/restapis/", arnSplitParts)
+	if len(parts) != arnSplitParts {
+		return fmt.Errorf("%w: unsupported resource ARN format", ErrInvalidParameter)
+	}
+
+	apiID := strings.Split(parts[1], "/")[0]
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, apiID)
+	}
+
+	for _, k := range tagKeys {
+		d.api.Tags.Delete(k)
+	}
+
+	return nil
+}
+
+// TestInvokeMethod performs a test invocation of a method, returning a mock 200 response.
+func (b *InMemoryBackend) TestInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMethodOutput, error) {
+	b.mu.RLock("TestInvokeMethod")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	r, ok := d.resources[input.ResourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	m, ok := r.ResourceMethods[input.HTTPMethod]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: method %s not found on resource %s",
+			ErrMethodNotFound,
+			input.HTTPMethod,
+			input.ResourceID,
+		)
+	}
+
+	body := "{}"
+	if m.MethodIntegration != nil && m.MethodIntegration.Type == "MOCK" {
+		body = `{"statusCode": 200}`
+	}
+
+	return &TestInvokeMethodOutput{
+		Status:  http.StatusOK,
+		Body:    body,
+		Latency: 1,
+		Log:     "Test invocation (mock)",
+		Headers: map[string]string{"Content-Type": "application/json"},
+	}, nil
 }
