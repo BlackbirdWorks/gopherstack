@@ -94,6 +94,8 @@ type Stage struct {
 	RestAPIID       string            `json:"-"`
 	DeploymentID    string            `json:"deploymentId"`
 	Description     string            `json:"description,omitempty"`
+	// InvokeURL is the invoke URL for this stage (non-AWS field used by gopherstack UI).
+	InvokeURL string `json:"invokeUrl,omitempty"`
 }
 
 // Deployment represents a REST API deployment.

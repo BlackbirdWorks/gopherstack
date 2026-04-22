@@ -197,6 +197,12 @@ const (
 	arnSplitParts = 2
 )
 
+// stageInvokeURL returns the gopherstack proxy path for a deployed stage.
+// The full URL is relative — clients prepend their gopherstack base URL.
+func stageInvokeURL(restAPIID, stageName string) string {
+	return "/proxy/" + restAPIID + "/" + stageName
+}
+
 // randomID generates a cryptographically random alphanumeric ID of the given length.
 func randomID(length int) string {
 	b := make([]byte, length)
@@ -931,7 +937,9 @@ func (b *InMemoryBackend) GetStages(restAPIID string) ([]Stage, error) {
 
 	all := make([]Stage, 0, len(d.stages))
 	for _, s := range d.stages {
-		all = append(all, *s)
+		cp := *s
+		cp.InvokeURL = stageInvokeURL(restAPIID, s.StageName)
+		all = append(all, cp)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].StageName < all[j].StageName })
 
@@ -952,6 +960,7 @@ func (b *InMemoryBackend) GetStage(restAPIID, stageName string) (*Stage, error) 
 		return nil, fmt.Errorf("%w: stage %s not found", ErrResourceNotFound, stageName)
 	}
 	cp := *s
+	cp.InvokeURL = stageInvokeURL(restAPIID, stageName)
 
 	return &cp, nil
 }
