@@ -63,6 +63,7 @@ const (
 	collTemplate             = "template"
 	collPreview              = "preview"
 	collPublish              = "publish"
+	collCache                = "cache"
 
 	// error messages.
 	msgNotFound         = "Not Found"
@@ -240,7 +241,7 @@ var onceOpTable = sync.OnceValue(func() map[operationKey]string {
 		// /v2/apis/{apiId}/routes/{routeId}/requestparameters/{requestParameterKey} DELETE
 		{segs: segCountDeepRes, seg1: collRequestParameters, method: http.MethodDelete}: "DeleteRouteRequestParameter",
 		// /v2/apis/{apiId}/stages/{stageName}/cache/authorizers DELETE
-		{segs: segCountDeepRes, seg1: "cache", method: http.MethodDelete}: "ResetAuthorizersCache",
+		{segs: segCountDeepRes, seg1: collCache, method: http.MethodDelete}: "ResetAuthorizersCache",
 		// /v2/apis/{apiId}/integrations/{integrationId}/integrationresponses/{id} PATCH
 		{segs: segCountDeepRes, seg1: collIntegrationResponses, method: http.MethodPatch}: "UpdateIntegrationResponse",
 		// /v2/apis/{apiId}/routes/{routeId}/routeresponses/{id} PATCH
@@ -1916,7 +1917,7 @@ func (h *Handler) handleDeepResource(
 	if method == http.MethodDelete && subCollection == collRequestParameters && parentCollection == collRoutes {
 		return h.handleDeleteRouteRequestParameter(c, apiID, resourceID, subResourceID)
 	}
-	if method == http.MethodDelete && subCollection == "cache" && subResourceID == "authorizers" {
+	if method == http.MethodDelete && subCollection == collCache && subResourceID == "authorizers" {
 		return h.handleResetAuthorizersCache(c, apiID, resourceID)
 	}
 

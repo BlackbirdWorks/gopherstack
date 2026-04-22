@@ -2342,6 +2342,10 @@ const (
 	arnResourceTypeAPIs        = "apis"
 	arnResourceTypeVpcLinks    = "vpclinks"
 	arnResourceTypeDomainNames = "domainnames"
+
+	// arnMinPartsWithResourceType is the minimum number of slash-separated
+	// parts in an ARN that carries an explicit resource type segment.
+	arnMinPartsWithResourceType = 2
 )
 
 // arnResourceType returns the resource type and ID extracted from an ARN.
@@ -2351,7 +2355,7 @@ const (
 // defaults to "apis" to preserve backwards-compatible behaviour.
 func arnResourceType(arn string) (string, string) {
 	parts := strings.Split(arn, "/")
-	if len(parts) >= 2 { //nolint:mnd // an ARN with a resource type has at least 2 slash-separated parts
+	if len(parts) >= arnMinPartsWithResourceType {
 		return parts[len(parts)-2], parts[len(parts)-1]
 	}
 
