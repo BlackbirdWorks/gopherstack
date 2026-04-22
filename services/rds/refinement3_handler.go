@@ -579,9 +579,9 @@ type registerDBProxyTargetsResponse struct {
 type deregisterDBProxyTargetsResult struct{}
 
 type deregisterDBProxyTargetsResponse struct {
+	Result  deregisterDBProxyTargetsResult `xml:"DeregisterDBProxyTargetsResult"`
 	XMLName xml.Name                       `xml:"DeregisterDBProxyTargetsResponse"`
 	Xmlns   string                         `xml:"xmlns,attr"`
-	Result  deregisterDBProxyTargetsResult `xml:"DeregisterDBProxyTargetsResult"`
 }
 
 type describeDBProxyTargetsResponse struct {
