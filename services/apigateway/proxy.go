@@ -1,14 +1,15 @@
 package apigateway
 
 import (
+	"container/list"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,8 @@ import (
 
 // defaultAuthorizerTTL is the default authorizer result cache TTL (AWS default: 300 s).
 const defaultAuthorizerTTL = 300 * time.Second
+
+const defaultAuthorizerCacheMaxEntries = 1024
 
 // LambdaInvoker can invoke a Lambda function by name/ARN.
 type LambdaInvoker interface {
@@ -126,17 +129,32 @@ func BuildProxyEvent(
 // authorizerCacheEntry holds a cached authorizer result.
 type authorizerCacheEntry struct {
 	expiresAt time.Time
+	key       string
 	allowed   bool
 }
 
 // authorizerCache caches Lambda authorizer results keyed by authorizerID + cacheKey.
 type authorizerCache struct {
-	entries map[string]authorizerCacheEntry
-	mu      sync.Mutex
+	entries    map[string]*list.Element
+	order      *list.List
+	maxEntries int
+	mu         sync.Mutex
 }
 
 func newAuthorizerCache() *authorizerCache {
-	return &authorizerCache{entries: make(map[string]authorizerCacheEntry)}
+	return newAuthorizerCacheWithMaxEntries(defaultAuthorizerCacheMaxEntries)
+}
+
+func newAuthorizerCacheWithMaxEntries(maxEntries int) *authorizerCache {
+	if maxEntries <= 0 {
+		maxEntries = 1
+	}
+
+	return &authorizerCache{
+		entries:    make(map[string]*list.Element),
+		order:      list.New(),
+		maxEntries: maxEntries,
+	}
 }
 
 // get returns (allowed, found) for the given cache key.
@@ -144,12 +162,25 @@ func (c *authorizerCache) get(key string) (bool, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	e, ok := c.entries[key]
-	if !ok || time.Now().After(e.expiresAt) {
-		delete(c.entries, key)
+	elem, ok := c.entries[key]
+	if !ok {
+		return false, false
+	}
+
+	e, ok := elem.Value.(authorizerCacheEntry)
+	if !ok {
+		c.removeElement(elem)
 
 		return false, false
 	}
+
+	if time.Now().After(e.expiresAt) {
+		c.removeElement(elem)
+
+		return false, false
+	}
+
+	c.order.MoveToFront(elem)
 
 	return e.allowed, true
 }
@@ -163,7 +194,54 @@ func (c *authorizerCache) set(key string, allowed bool, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.entries[key] = authorizerCacheEntry{allowed: allowed, expiresAt: time.Now().Add(ttl)}
+	if elem, ok := c.entries[key]; ok {
+		entry, valueOk := elem.Value.(authorizerCacheEntry)
+		if !valueOk {
+			c.removeElement(elem)
+		} else {
+			entry.allowed = allowed
+			entry.expiresAt = time.Now().Add(ttl)
+			elem.Value = entry
+			c.order.MoveToFront(elem)
+
+			return
+		}
+	}
+
+	elem := c.order.PushFront(authorizerCacheEntry{
+		key:       key,
+		allowed:   allowed,
+		expiresAt: time.Now().Add(ttl),
+	})
+	c.entries[key] = elem
+
+	for len(c.entries) > c.maxEntries {
+		c.removeElement(c.order.Back())
+	}
+}
+
+// flush removes all entries from the cache (used by FlushStageAuthorizersCache).
+func (c *authorizerCache) flush() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries = make(map[string]*list.Element)
+	c.order.Init()
+}
+
+func (c *authorizerCache) removeElement(elem *list.Element) {
+	if elem == nil {
+		return
+	}
+
+	entry, ok := elem.Value.(authorizerCacheEntry)
+	if !ok {
+		c.order.Remove(elem)
+
+		return
+	}
+
+	delete(c.entries, entry.key)
+	c.order.Remove(elem)
 }
 
 // handleProxyRequest handles a single HTTP request for a Lambda proxy integration.
@@ -862,7 +940,7 @@ func parseStatusCode(s string) int {
 
 // findMatchingResource finds a resource whose path pattern matches the request path.
 // It supports exact path segments, single-segment path variables ({param}), and
-// greedy path variables ({proxy+} or {param+}).  The most-specific match wins.
+// greedy path variables ({proxy+} or {param+}). The most-specific match wins.
 // Returns the matched resource and extracted path parameters, or nil if no match.
 // Stage name prefix is stripped from the request path before matching.
 func findMatchingResource(resources []Resource, requestPath, stageName string) (*Resource, map[string]string) {
@@ -877,46 +955,136 @@ func findMatchingResource(resources []Resource, requestPath, stageName string) (
 		stripped = "/"
 	}
 
-	// Sort resources by specificity so the most specific match wins.
-	sorted := make([]Resource, len(resources))
-	copy(sorted, resources)
-	sort.Slice(sorted, func(i, j int) bool {
-		return resourceSpecificity(sorted[i].Path) > resourceSpecificity(sorted[j].Path)
-	})
+	trie := newResourcePathTrie()
+	for _, resource := range resources {
+		trie.insert(resource)
+	}
 
-	for i := range sorted {
-		params, ok := matchResourcePath(sorted[i].Path, stripped)
-		if ok {
-			return &sorted[i], params
+	return trie.match(stripped)
+}
+
+type resourcePathTrie struct {
+	root *resourcePathTrieNode
+}
+
+type resourcePathTrieNode struct {
+	literalChildren map[string]*resourcePathTrieNode
+	paramChild      *resourcePathTrieNode
+	greedyChild     *resourcePathTrieNode
+	resource        *Resource
+	paramName       string
+	greedyParamName string
+}
+
+func newResourcePathTrie() *resourcePathTrie {
+	return &resourcePathTrie{
+		root: &resourcePathTrieNode{
+			literalChildren: make(map[string]*resourcePathTrieNode),
+		},
+	}
+}
+
+func (t *resourcePathTrie) insert(resource Resource) {
+	segs := splitPathSegs(resource.Path)
+	node := t.root
+
+	for i, seg := range segs {
+		isLast := i == len(segs)-1
+
+		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "+}") {
+			if !isLast {
+				return
+			}
+
+			if node.greedyChild == nil {
+				node.greedyChild = &resourcePathTrieNode{
+					literalChildren: make(map[string]*resourcePathTrieNode),
+					greedyParamName: seg[1 : len(seg)-2],
+				}
+			}
+
+			node = node.greedyChild
+
+			continue
 		}
+
+		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}") {
+			if node.paramChild == nil {
+				node.paramChild = &resourcePathTrieNode{
+					literalChildren: make(map[string]*resourcePathTrieNode),
+					paramName:       seg[1 : len(seg)-1],
+				}
+			}
+
+			node = node.paramChild
+
+			continue
+		}
+
+		child, ok := node.literalChildren[seg]
+		if !ok {
+			child = &resourcePathTrieNode{
+				literalChildren: make(map[string]*resourcePathTrieNode),
+			}
+			node.literalChildren[seg] = child
+		}
+
+		node = child
+	}
+
+	resourceCopy := resource
+	node.resource = &resourceCopy
+}
+
+func (t *resourcePathTrie) match(path string) (*Resource, map[string]string) {
+	return t.root.match(splitPathSegs(path), 0, map[string]string{})
+}
+
+func (n *resourcePathTrieNode) match(
+	urlSegs []string,
+	index int,
+	params map[string]string,
+) (*Resource, map[string]string) {
+	if index == len(urlSegs) {
+		if n.resource == nil {
+			return nil, nil
+		}
+
+		return n.resource, params
+	}
+
+	seg := urlSegs[index]
+
+	if child, ok := n.literalChildren[seg]; ok {
+		if res, matchedParams := child.match(urlSegs, index+1, params); res != nil {
+			return res, matchedParams
+		}
+	}
+
+	if n.paramChild != nil {
+		nextParams := clonePathParams(params)
+		nextParams[n.paramChild.paramName] = seg
+
+		if res, matchedParams := n.paramChild.match(urlSegs, index+1, nextParams); res != nil {
+			return res, matchedParams
+		}
+	}
+
+	if n.greedyChild != nil && n.greedyChild.resource != nil {
+		nextParams := clonePathParams(params)
+		nextParams[n.greedyChild.greedyParamName] = "/" + strings.Join(urlSegs[index:], "/")
+
+		return n.greedyChild.resource, nextParams
 	}
 
 	return nil, nil
 }
 
-// resourceSpecificity returns a score for the given resource path pattern.
-// Higher scores indicate more specific patterns.
-// Each exact literal segment contributes 2 points and each non-greedy path variable
-// contributes 1 point.  A greedy variable ({proxy+}) contributes 0.
-// Path length (in segments) is used as a secondary factor to prefer longer matches.
-func resourceSpecificity(pattern string) int {
-	const segLengthFactor = 10 // multiply path length to prioritise longer paths
+func clonePathParams(params map[string]string) map[string]string {
+	clone := make(map[string]string, len(params)+1)
+	maps.Copy(clone, params)
 
-	segs := splitPathSegs(pattern)
-	score := len(segs) * segLengthFactor
-
-	for _, seg := range segs {
-		switch {
-		case strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "+}"):
-			// greedy variable — no extra points
-		case strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}"):
-			score++ // parameterized variable
-		default:
-			score += 2 // exact literal
-		}
-	}
-
-	return score
+	return clone
 }
 
 // splitPathSegs splits a URL path into non-empty segments, ignoring leading and trailing slashes.
@@ -927,65 +1095,6 @@ func splitPathSegs(path string) []string {
 	}
 
 	return strings.Split(trimmed, "/")
-}
-
-// matchResourcePath tries to match urlPath against a resource path pattern.
-// Returns extracted path parameters and true on a successful match.
-func matchResourcePath(pattern, urlPath string) (map[string]string, bool) {
-	patternSegs := splitPathSegs(pattern)
-	urlSegs := splitPathSegs(urlPath)
-
-	// Root resource matches only the root path.
-	if len(patternSegs) == 0 {
-		if len(urlSegs) == 0 {
-			return map[string]string{}, true
-		}
-
-		return nil, false
-	}
-
-	params := make(map[string]string)
-
-	for i, seg := range patternSegs {
-		// Greedy variable {param+} must be the last pattern segment.
-		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "+}") {
-			// If the greedy segment is not the last, the pattern is malformed.
-			// Return non-matching so callers receive a 404 rather than an incorrect match.
-			// Real AWS API Gateway disallows greedy variables in non-terminal position.
-			if i != len(patternSegs)-1 {
-				return nil, false
-			}
-
-			if i >= len(urlSegs) {
-				return nil, false
-			}
-
-			paramName := seg[1 : len(seg)-2] // strip '{' and '+}'
-			params[paramName] = "/" + strings.Join(urlSegs[i:], "/")
-
-			return params, true
-		}
-
-		if i >= len(urlSegs) {
-			return nil, false
-		}
-
-		urlSeg := urlSegs[i]
-
-		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}") {
-			paramName := seg[1 : len(seg)-1] // strip '{' and '}'
-			params[paramName] = urlSeg
-		} else if seg != urlSeg {
-			return nil, false
-		}
-	}
-
-	// All pattern segments consumed — reject if URL has additional segments.
-	if len(urlSegs) != len(patternSegs) {
-		return nil, false
-	}
-
-	return params, true
 }
 
 // ExtractLambdaFunctionName extracts a Lambda function name (or short ARN) from either:

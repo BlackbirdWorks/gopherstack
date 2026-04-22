@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +35,8 @@ var (
 	ErrModelNotFound                       = errors.New("NotFoundException")
 	ErrUsagePlanNotFound                   = errors.New("NotFoundException")
 	ErrUsagePlanKeyNotFound                = errors.New("NotFoundException")
+	ErrStageNotFound                       = errors.New("NotFoundException")
+	ErrNotFound                            = errors.New("NotFoundException")
 	ErrAlreadyExists                       = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	ErrInvalidParameter                    = errors.New("BadRequestException")
 )
@@ -45,12 +48,14 @@ type StorageBackend interface {
 	DeleteRestAPI(restAPIID string) error
 	GetRestAPI(restAPIID string) (*RestAPI, error)
 	GetRestAPIs(limit int, position string) ([]RestAPI, string, error)
+	UpdateRestAPI(restAPIID string, input UpdateRestAPIInput) (*RestAPI, error)
 
 	// Resources
 	GetResources(restAPIID, position string, limit int) ([]Resource, string, error)
 	GetResource(restAPIID, resourceID string) (*Resource, error)
 	CreateResource(restAPIID, parentID, pathPart string) (*Resource, error)
 	DeleteResource(restAPIID, resourceID string) error
+	UpdateResource(restAPIID, resourceID string, input UpdateResourceInput) (*Resource, error)
 
 	// Methods
 	PutMethod(
@@ -86,6 +91,7 @@ type StorageBackend interface {
 	GetDeployment(restAPIID, deploymentID string) (*Deployment, error)
 	GetDeployments(restAPIID string) ([]Deployment, error)
 	DeleteDeployment(restAPIID, deploymentID string) error
+	UpdateDeployment(restAPIID, deploymentID string, input UpdateDeploymentInput) (*Deployment, error)
 
 	// Stages
 	GetStages(restAPIID string) ([]Stage, error)
@@ -108,18 +114,36 @@ type StorageBackend interface {
 
 	// API Keys
 	CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
+	GetAPIKey(id string) (*APIKey, error)
+	GetAPIKeys() ([]APIKey, error)
+	GetAPIKeysPage(limit int, position string) ([]APIKey, string, error)
+	DeleteAPIKey(id string) error
+	UpdateAPIKey(id string, input UpdateAPIKeyInput) (*APIKey, error)
 
 	// Base Path Mappings
 	CreateBasePathMapping(input CreateBasePathMappingInput) (*BasePathMapping, error)
+	GetBasePathMapping(domainName, basePath string) (*BasePathMapping, error)
+	GetBasePathMappings(domainName string) ([]BasePathMapping, error)
+	DeleteBasePathMapping(domainName, basePath string) error
 
 	// Documentation Parts (per-API)
 	CreateDocumentationPart(input CreateDocumentationPartInput) (*DocumentationPart, error)
+	GetDocumentationPart(restAPIID, docPartID string) (*DocumentationPart, error)
+	GetDocumentationParts(restAPIID string) ([]DocumentationPart, error)
+	DeleteDocumentationPart(restAPIID, docPartID string) error
 
 	// Documentation Versions (per-API)
 	CreateDocumentationVersion(input CreateDocumentationVersionInput) (*DocumentationVersion, error)
+	GetDocumentationVersion(restAPIID, version string) (*DocumentationVersion, error)
+	GetDocumentationVersions(restAPIID string) ([]DocumentationVersion, error)
+	DeleteDocumentationVersion(restAPIID, version string) error
 
 	// Domain Names
 	CreateDomainName(input CreateDomainNameInput) (*DomainName, error)
+	GetDomainName(name string) (*DomainName, error)
+	GetDomainNames() ([]DomainName, error)
+	GetDomainNamesPage(limit int, position string) ([]DomainName, string, error)
+	DeleteDomainName(name string) error
 
 	// Domain Name Access Associations
 	CreateDomainNameAccessAssociation(
@@ -128,15 +152,67 @@ type StorageBackend interface {
 
 	// Models (per-API)
 	CreateModel(input CreateModelInput) (*Model, error)
+	GetModel(restAPIID, modelName string) (*Model, error)
+	GetModels(restAPIID string) ([]Model, error)
+	DeleteModel(restAPIID, modelName string) error
+	UpdateModel(restAPIID, modelName string, input UpdateModelInput) (*Model, error)
 
 	// Standalone Stage creation
 	CreateStage(input CreateStageInput) (*Stage, error)
+	UpdateStage(restAPIID, stageName string, input UpdateStageInput) (*Stage, error)
 
 	// Usage Plans
 	CreateUsagePlan(input CreateUsagePlanInput) (*UsagePlan, error)
+	GetUsagePlan(id string) (*UsagePlan, error)
+	GetUsagePlans() ([]UsagePlan, error)
+	GetUsagePlansPage(limit int, position string) ([]UsagePlan, string, error)
+	DeleteUsagePlan(id string) error
 
 	// Usage Plan Keys
 	CreateUsagePlanKey(input CreateUsagePlanKeyInput) (*UsagePlanKey, error)
+	GetUsagePlanKey(usagePlanID, keyID string) (*UsagePlanKey, error)
+	GetUsagePlanKeys(usagePlanID string) ([]UsagePlanKey, error)
+	DeleteUsagePlanKey(usagePlanID, keyID string) error
+
+	// Account
+	GetAccount() (*Account, error)
+
+	// Tags
+	GetResourceTags(resourceARN string) (map[string]string, error)
+	TagResource(resourceARN string, tags map[string]string) error
+	UntagResource(resourceARN string, tagKeys []string) error
+
+	// Test Invocation
+	TestInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMethodOutput, error)
+
+	// Update operations.
+	UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePlan, error)
+	UpdateDomainName(input UpdateDomainNameInput) (*DomainName, error)
+	UpdateBasePathMapping(input UpdateBasePathMappingInput) (*BasePathMapping, error)
+	UpdateDocumentationPart(input UpdateDocumentationPartInput) (*DocumentationPart, error)
+	UpdateDocumentationVersion(input UpdateDocumentationVersionInput) (*DocumentationVersion, error)
+	UpdateMethod(input UpdateMethodInput) (*Method, error)
+	UpdateIntegration(input UpdateIntegrationInput) (*Integration, error)
+	UpdateIntegrationResponse(input UpdateIntegrationResponseInput) (*IntegrationResponse, error)
+	UpdateMethodResponse(input UpdateMethodResponseInput) (*MethodResponse, error)
+	UpdateAccount(input UpdateAccountInput) (*Account, error)
+	TestInvokeAuthorizer(input TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error)
+	GetModelTemplate(restAPIID, modelName string) (string, error)
+
+	// Gateway response operations.
+	GetGatewayResponse(restAPIID, responseType string) (*GatewayResponse, error)
+	GetGatewayResponses(restAPIID string) ([]GatewayResponse, error)
+	PutGatewayResponse(input PutGatewayResponseInput) (*GatewayResponse, error)
+	DeleteGatewayResponse(restAPIID, responseType string) error
+
+	// Client certificate operations.
+	GenerateClientCertificate(input GenerateClientCertificateInput) (*ClientCertificate, error)
+	GetClientCertificate(id string) (*ClientCertificate, error)
+	GetClientCertificates() ([]ClientCertificate, error)
+	DeleteClientCertificate(id string) error
+
+	// Usage operations.
+	GetUsage(input GetUsageInput) (*UsageData, error)
 }
 
 const apiIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -145,7 +221,50 @@ const (
 	apiIDLength       = 10
 	resourceIDLength  = 6
 	apiKeyValueLength = 40 // AWS generates a 40-character alphanumeric key value
+
+	// defaultBurstLimit and defaultRateLimit match AWS API Gateway defaults.
+	defaultBurstLimit = 5000
+	defaultRateLimit  = 10000.0
+
+	// arnSplitParts is used when splitting ARNs at a specific substring.
+	arnSplitParts = 2
+
+	// defaultPageSize is used when no limit is specified in paginated list operations.
+	defaultPageSize = 500
+
+	// clientCertValidityDays is the number of days a generated client certificate is valid.
+	// AWS issues certificates with a 2-year validity period.
+	clientCertValidityDays = 730
 )
+
+// stageInvokeURL returns the gopherstack proxy path for a deployed stage.
+// The full URL is relative — clients prepend their gopherstack base URL.
+func stageInvokeURL(restAPIID, stageName string) string {
+	return "/proxy/" + restAPIID + "/" + stageName
+}
+
+// paginatePage applies limit/position-based cursor pagination to a pre-sorted slice.
+// It returns the page slice and the next position cursor (empty string if last page).
+func paginatePage[T any](all []T, limit int, position string) ([]T, string) {
+	startIdx := parsePosition(position)
+	if startIdx >= len(all) {
+		return []T{}, ""
+	}
+
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	end := startIdx + limit
+
+	var outPosition string
+	if end < len(all) {
+		outPosition = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outPosition
+}
 
 // randomID generates a cryptographically random alphanumeric ID of the given length.
 func randomID(length int) string {
@@ -186,6 +305,7 @@ type apiData struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	account                      *Account
 	apis                         map[string]*apiData
 	apiKeys                      map[string]*APIKey
 	basePathMappings             map[string]*BasePathMapping // key: domainName + "#" + basePath
@@ -193,12 +313,22 @@ type InMemoryBackend struct {
 	domainNameAccessAssociations map[string]*DomainNameAccessAssociation
 	usagePlans                   map[string]*UsagePlan
 	usagePlanKeys                map[string]map[string]*UsagePlanKey // usagePlanID → keyID → key
+	gatewayResponses             map[string]*GatewayResponse         // key: restAPIID + "#" + responseType
+	clientCertificates           map[string]*ClientCertificate       // key: clientCertificateID
 	mu                           *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
+		account: &Account{
+			ThrottleSettings: &ThrottleSettings{
+				BurstLimit: defaultBurstLimit,
+				RateLimit:  defaultRateLimit,
+			},
+			Features:      []string{"UsagePlans"},
+			APIKeyVersion: "1",
+		},
 		apis:                         make(map[string]*apiData),
 		apiKeys:                      make(map[string]*APIKey),
 		basePathMappings:             make(map[string]*BasePathMapping),
@@ -206,6 +336,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		domainNameAccessAssociations: make(map[string]*DomainNameAccessAssociation),
 		usagePlans:                   make(map[string]*UsagePlan),
 		usagePlanKeys:                make(map[string]map[string]*UsagePlanKey),
+		gatewayResponses:             make(map[string]*GatewayResponse),
+		clientCertificates:           make(map[string]*ClientCertificate),
 		mu:                           lockmetrics.New("apigateway"),
 	}
 }
@@ -881,7 +1013,9 @@ func (b *InMemoryBackend) GetStages(restAPIID string) ([]Stage, error) {
 
 	all := make([]Stage, 0, len(d.stages))
 	for _, s := range d.stages {
-		all = append(all, *s)
+		cp := *s
+		cp.InvokeURL = stageInvokeURL(restAPIID, s.StageName)
+		all = append(all, cp)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].StageName < all[j].StageName })
 
@@ -902,6 +1036,7 @@ func (b *InMemoryBackend) GetStage(restAPIID, stageName string) (*Stage, error) 
 		return nil, fmt.Errorf("%w: stage %s not found", ErrResourceNotFound, stageName)
 	}
 	cp := *s
+	cp.InvokeURL = stageInvokeURL(restAPIID, stageName)
 
 	return &cp, nil
 }
@@ -1619,4 +1754,1251 @@ func (b *InMemoryBackend) CreateUsagePlanKey(input CreateUsagePlanKeyInput) (*Us
 	cp := *upk
 
 	return &cp, nil
+}
+
+// GetAPIKey retrieves an API key by ID.
+func (b *InMemoryBackend) GetAPIKey(id string) (*APIKey, error) {
+	b.mu.RLock("GetAPIKey")
+	defer b.mu.RUnlock()
+	key, ok := b.apiKeys[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
+	}
+	cp := *key
+
+	return &cp, nil
+}
+
+// GetAPIKeys returns all API keys sorted by ID.
+func (b *InMemoryBackend) GetAPIKeys() ([]APIKey, error) {
+	b.mu.RLock("GetAPIKeys")
+	defer b.mu.RUnlock()
+	all := make([]APIKey, 0, len(b.apiKeys))
+	for _, k := range b.apiKeys {
+		all = append(all, *k)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	return all, nil
+}
+
+// DeleteAPIKey removes an API key by ID.
+func (b *InMemoryBackend) DeleteAPIKey(id string) error {
+	b.mu.Lock("DeleteAPIKey")
+	defer b.mu.Unlock()
+	if _, ok := b.apiKeys[id]; !ok {
+		return fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
+	}
+	delete(b.apiKeys, id)
+
+	return nil
+}
+
+// UpdateAPIKey updates mutable fields on an existing API key.
+func (b *InMemoryBackend) UpdateAPIKey(id string, input UpdateAPIKeyInput) (*APIKey, error) {
+	b.mu.Lock("UpdateAPIKey")
+	defer b.mu.Unlock()
+	key, ok := b.apiKeys[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
+	}
+	if input.Name != "" {
+		key.Name = input.Name
+	}
+	if input.Description != "" {
+		key.Description = input.Description
+	}
+	if input.Enabled != nil {
+		key.Enabled = *input.Enabled
+	}
+	key.LastUpdatedDate = unixEpochTime{time.Now()}
+	cp := *key
+
+	return &cp, nil
+}
+
+// GetDomainName retrieves a domain name by value.
+func (b *InMemoryBackend) GetDomainName(name string) (*DomainName, error) {
+	b.mu.RLock("GetDomainName")
+	defer b.mu.RUnlock()
+	dn, ok := b.domainNames[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, name)
+	}
+	cp := *dn
+
+	return &cp, nil
+}
+
+// GetDomainNames returns all domain names sorted by name.
+func (b *InMemoryBackend) GetDomainNames() ([]DomainName, error) {
+	b.mu.RLock("GetDomainNames")
+	defer b.mu.RUnlock()
+	all := make([]DomainName, 0, len(b.domainNames))
+	for _, dn := range b.domainNames {
+		all = append(all, *dn)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].DomainNameValue < all[j].DomainNameValue })
+
+	return all, nil
+}
+
+// DeleteDomainName removes a domain name by value.
+func (b *InMemoryBackend) DeleteDomainName(name string) error {
+	b.mu.Lock("DeleteDomainName")
+	defer b.mu.Unlock()
+	if _, ok := b.domainNames[name]; !ok {
+		return fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, name)
+	}
+	delete(b.domainNames, name)
+
+	return nil
+}
+
+// GetBasePathMapping retrieves a base path mapping by domain + path.
+func (b *InMemoryBackend) GetBasePathMapping(domainName, basePath string) (*BasePathMapping, error) {
+	b.mu.RLock("GetBasePathMapping")
+	defer b.mu.RUnlock()
+	mapKey := domainName + "#" + basePath
+	bpm, ok := b.basePathMappings[mapKey]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: base path mapping not found for domain %q path %q",
+			ErrBasePathMappingNotFound,
+			domainName,
+			basePath,
+		)
+	}
+	cp := *bpm
+
+	return &cp, nil
+}
+
+// GetBasePathMappings returns all base path mappings for a domain name.
+func (b *InMemoryBackend) GetBasePathMappings(domainName string) ([]BasePathMapping, error) {
+	b.mu.RLock("GetBasePathMappings")
+	defer b.mu.RUnlock()
+	var all []BasePathMapping
+	prefix := domainName + "#"
+	for k, bpm := range b.basePathMappings {
+		if strings.HasPrefix(k, prefix) {
+			all = append(all, *bpm)
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].BasePath < all[j].BasePath })
+
+	return all, nil
+}
+
+// DeleteBasePathMapping removes a base path mapping by domain + path.
+func (b *InMemoryBackend) DeleteBasePathMapping(domainName, basePath string) error {
+	b.mu.Lock("DeleteBasePathMapping")
+	defer b.mu.Unlock()
+	mapKey := domainName + "#" + basePath
+	if _, ok := b.basePathMappings[mapKey]; !ok {
+		return fmt.Errorf(
+			"%w: base path mapping not found for domain %q path %q",
+			ErrBasePathMappingNotFound,
+			domainName,
+			basePath,
+		)
+	}
+	delete(b.basePathMappings, mapKey)
+
+	return nil
+}
+
+// GetModel retrieves a model by name within a REST API.
+func (b *InMemoryBackend) GetModel(restAPIID, modelName string) (*Model, error) {
+	b.mu.RLock("GetModel")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	for _, m := range d.models {
+		if m.Name == modelName {
+			cp := *m
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: model %q not found", ErrModelNotFound, modelName)
+}
+
+// GetModels returns all models for a REST API sorted by name.
+func (b *InMemoryBackend) GetModels(restAPIID string) ([]Model, error) {
+	b.mu.RLock("GetModels")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	all := make([]Model, 0, len(d.models))
+	for _, m := range d.models {
+		all = append(all, *m)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	return all, nil
+}
+
+// DeleteModel removes a model from a REST API by name.
+func (b *InMemoryBackend) DeleteModel(restAPIID, modelName string) error {
+	b.mu.Lock("DeleteModel")
+	defer b.mu.Unlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	for id, m := range d.models {
+		if m.Name == modelName {
+			delete(d.models, id)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: model %q not found", ErrModelNotFound, modelName)
+}
+
+// UpdateModel updates description and schema on a model.
+func (b *InMemoryBackend) UpdateModel(restAPIID, modelName string, input UpdateModelInput) (*Model, error) {
+	b.mu.Lock("UpdateModel")
+	defer b.mu.Unlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	for _, m := range d.models {
+		if m.Name == modelName {
+			if input.Description != "" {
+				m.Description = input.Description
+			}
+			if input.Schema != "" {
+				m.Schema = input.Schema
+			}
+			cp := *m
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: model %q not found", ErrModelNotFound, modelName)
+}
+
+// UpdateStage updates mutable fields on a deployment stage.
+func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateStageInput) (*Stage, error) {
+	b.mu.Lock("UpdateStage")
+	defer b.mu.Unlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	stage, ok := d.stages[stageName]
+	if !ok {
+		return nil, fmt.Errorf("%w: stage %q not found", ErrStageNotFound, stageName)
+	}
+	if input.Description != "" {
+		stage.Description = input.Description
+	}
+	if input.DeploymentID != "" {
+		stage.DeploymentID = input.DeploymentID
+	}
+	if input.Variables != nil {
+		stage.Variables = input.Variables
+	}
+	stage.LastUpdatedDate = unixEpochTime{time.Now()}
+	cp := *stage
+
+	return &cp, nil
+}
+
+// GetUsagePlan retrieves a usage plan by ID.
+func (b *InMemoryBackend) GetUsagePlan(id string) (*UsagePlan, error) {
+	b.mu.RLock("GetUsagePlan")
+	defer b.mu.RUnlock()
+	p, ok := b.usagePlans[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, id)
+	}
+	cp := *p
+
+	return &cp, nil
+}
+
+// GetUsagePlans returns all usage plans sorted by ID.
+func (b *InMemoryBackend) GetUsagePlans() ([]UsagePlan, error) {
+	b.mu.RLock("GetUsagePlans")
+	defer b.mu.RUnlock()
+	all := make([]UsagePlan, 0, len(b.usagePlans))
+	for _, p := range b.usagePlans {
+		all = append(all, *p)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	return all, nil
+}
+
+// DeleteUsagePlan removes a usage plan by ID along with its key associations.
+func (b *InMemoryBackend) DeleteUsagePlan(id string) error {
+	b.mu.Lock("DeleteUsagePlan")
+	defer b.mu.Unlock()
+	if _, ok := b.usagePlans[id]; !ok {
+		return fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, id)
+	}
+	delete(b.usagePlans, id)
+	delete(b.usagePlanKeys, id)
+
+	return nil
+}
+
+// GetUsagePlanKey retrieves a single key from a usage plan.
+func (b *InMemoryBackend) GetUsagePlanKey(usagePlanID, keyID string) (*UsagePlanKey, error) {
+	b.mu.RLock("GetUsagePlanKey")
+	defer b.mu.RUnlock()
+	keys, ok := b.usagePlanKeys[usagePlanID]
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
+	}
+	k, ok := keys[keyID]
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
+	}
+	cp := *k
+
+	return &cp, nil
+}
+
+// GetUsagePlanKeys returns all keys for a usage plan sorted by ID.
+func (b *InMemoryBackend) GetUsagePlanKeys(usagePlanID string) ([]UsagePlanKey, error) {
+	b.mu.RLock("GetUsagePlanKeys")
+	defer b.mu.RUnlock()
+	keys, ok := b.usagePlanKeys[usagePlanID]
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
+	}
+	all := make([]UsagePlanKey, 0, len(keys))
+	for _, k := range keys {
+		all = append(all, *k)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	return all, nil
+}
+
+// DeleteUsagePlanKey removes a key from a usage plan.
+func (b *InMemoryBackend) DeleteUsagePlanKey(usagePlanID, keyID string) error {
+	b.mu.Lock("DeleteUsagePlanKey")
+	defer b.mu.Unlock()
+	keys, ok := b.usagePlanKeys[usagePlanID]
+	if !ok {
+		return fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
+	}
+	if _, exists := keys[keyID]; !exists {
+		return fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
+	}
+	delete(keys, keyID)
+
+	return nil
+}
+
+// GetDocumentationPart retrieves a documentation part by ID.
+func (b *InMemoryBackend) GetDocumentationPart(restAPIID, docPartID string) (*DocumentationPart, error) {
+	b.mu.RLock("GetDocumentationPart")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	p, ok := d.documentationParts[docPartID]
+	if !ok {
+		return nil, fmt.Errorf("%w: documentation part %s not found", ErrDocumentationPartNotFound, docPartID)
+	}
+	cp := *p
+
+	return &cp, nil
+}
+
+// GetDocumentationParts returns all documentation parts for a REST API sorted by ID.
+func (b *InMemoryBackend) GetDocumentationParts(restAPIID string) ([]DocumentationPart, error) {
+	b.mu.RLock("GetDocumentationParts")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	all := make([]DocumentationPart, 0, len(d.documentationParts))
+	for _, p := range d.documentationParts {
+		all = append(all, *p)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	return all, nil
+}
+
+// DeleteDocumentationPart removes a documentation part by ID.
+func (b *InMemoryBackend) DeleteDocumentationPart(restAPIID, docPartID string) error {
+	b.mu.Lock("DeleteDocumentationPart")
+	defer b.mu.Unlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	if _, exists := d.documentationParts[docPartID]; !exists {
+		return fmt.Errorf("%w: documentation part %s not found", ErrDocumentationPartNotFound, docPartID)
+	}
+	delete(d.documentationParts, docPartID)
+
+	return nil
+}
+
+// GetDocumentationVersion retrieves a documentation version by version string.
+func (b *InMemoryBackend) GetDocumentationVersion(restAPIID, version string) (*DocumentationVersion, error) {
+	b.mu.RLock("GetDocumentationVersion")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	v, ok := d.documentationVersions[version]
+	if !ok {
+		return nil, fmt.Errorf("%w: documentation version %q not found", ErrDocumentationVersionNotFound, version)
+	}
+	cp := *v
+
+	return &cp, nil
+}
+
+// GetDocumentationVersions returns all documentation versions for a REST API sorted by version.
+func (b *InMemoryBackend) GetDocumentationVersions(restAPIID string) ([]DocumentationVersion, error) {
+	b.mu.RLock("GetDocumentationVersions")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	all := make([]DocumentationVersion, 0, len(d.documentationVersions))
+	for _, v := range d.documentationVersions {
+		all = append(all, *v)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Version < all[j].Version })
+
+	return all, nil
+}
+
+// DeleteDocumentationVersion removes a documentation version by version string.
+func (b *InMemoryBackend) DeleteDocumentationVersion(restAPIID, version string) error {
+	b.mu.Lock("DeleteDocumentationVersion")
+	defer b.mu.Unlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	if _, exists := d.documentationVersions[version]; !exists {
+		return fmt.Errorf("%w: documentation version %q not found", ErrDocumentationVersionNotFound, version)
+	}
+	delete(d.documentationVersions, version)
+
+	return nil
+}
+
+// UpdateRestAPI updates the name and/or description of a REST API.
+func (b *InMemoryBackend) UpdateRestAPI(restAPIID string, input UpdateRestAPIInput) (*RestAPI, error) {
+	b.mu.Lock("UpdateRestAPI")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	if input.Name != "" {
+		d.api.Name = input.Name
+	}
+
+	if input.Description != "" {
+		d.api.Description = input.Description
+	}
+
+	cp := d.api
+
+	return &cp, nil
+}
+
+// UpdateResource updates the pathPart of a resource (recomputes path if changed).
+func (b *InMemoryBackend) UpdateResource(restAPIID, resourceID string, input UpdateResourceInput) (*Resource, error) {
+	b.mu.Lock("UpdateResource")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	res, ok := d.resources[resourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
+	}
+
+	if input.PathPart != "" {
+		var parentPath string
+		if res.ParentID != "" {
+			if parent, exists := d.resources[res.ParentID]; exists {
+				parentPath = parent.Path
+			}
+		}
+
+		res.PathPart = input.PathPart
+		res.Path = computePath(parentPath, input.PathPart)
+	}
+
+	cp := *res
+
+	return &cp, nil
+}
+
+// UpdateDeployment updates the description of a deployment.
+func (b *InMemoryBackend) UpdateDeployment(
+	restAPIID, deploymentID string,
+	input UpdateDeploymentInput,
+) (*Deployment, error) {
+	b.mu.Lock("UpdateDeployment")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	depl, ok := d.deployments[deploymentID]
+	if !ok {
+		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+	}
+
+	if input.Description != "" {
+		depl.Description = input.Description
+	}
+
+	cp := *depl
+
+	return &cp, nil
+}
+
+// GetAccount returns the mock API Gateway account settings.
+func (b *InMemoryBackend) GetAccount() (*Account, error) {
+	b.mu.RLock("GetAccount")
+	defer b.mu.RUnlock()
+
+	return b.account, nil
+}
+
+// GetResourceTags returns the tags for a resource identified by its ARN.
+// For simplicity, we parse the ARN to extract the resource type and ID.
+func (b *InMemoryBackend) GetResourceTags(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("GetResourceTags")
+	defer b.mu.RUnlock()
+
+	// ARN format: arn:aws:apigateway:{region}::/restapis/{id}
+	// We strip down to find the resource.
+	parts := strings.SplitN(resourceARN, "/restapis/", arnSplitParts)
+	if len(parts) != arnSplitParts {
+		return map[string]string{}, nil
+	}
+
+	apiID := strings.Split(parts[1], "/")[0]
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return map[string]string{}, nil
+	}
+
+	return d.api.Tags.Clone(), nil
+}
+
+// TagResource adds or updates tags on a resource identified by its ARN.
+func (b *InMemoryBackend) TagResource(resourceARN string, newTags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	parts := strings.SplitN(resourceARN, "/restapis/", arnSplitParts)
+	if len(parts) != arnSplitParts {
+		return fmt.Errorf("%w: unsupported resource ARN format", ErrInvalidParameter)
+	}
+
+	apiID := strings.Split(parts[1], "/")[0]
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, apiID)
+	}
+
+	for k, v := range newTags {
+		d.api.Tags.Set(k, v)
+	}
+
+	return nil
+}
+
+// UntagResource removes tags from a resource identified by its ARN.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	parts := strings.SplitN(resourceARN, "/restapis/", arnSplitParts)
+	if len(parts) != arnSplitParts {
+		return fmt.Errorf("%w: unsupported resource ARN format", ErrInvalidParameter)
+	}
+
+	apiID := strings.Split(parts[1], "/")[0]
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, apiID)
+	}
+
+	for _, k := range tagKeys {
+		d.api.Tags.Delete(k)
+	}
+
+	return nil
+}
+
+// TestInvokeMethod performs a test invocation of a method, returning a mock 200 response.
+func (b *InMemoryBackend) TestInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMethodOutput, error) {
+	b.mu.RLock("TestInvokeMethod")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	r, ok := d.resources[input.ResourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	m, ok := r.ResourceMethods[input.HTTPMethod]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: method %s not found on resource %s",
+			ErrMethodNotFound,
+			input.HTTPMethod,
+			input.ResourceID,
+		)
+	}
+
+	body := "{}"
+	if m.MethodIntegration != nil && m.MethodIntegration.Type == "MOCK" {
+		body = `{"statusCode": 200}`
+	}
+
+	return &TestInvokeMethodOutput{
+		Status:  http.StatusOK,
+		Body:    body,
+		Latency: 1,
+		Log:     "Test invocation (mock)",
+		Headers: map[string]string{"Content-Type": "application/json"},
+	}, nil
+}
+
+// GetAPIKeysPage returns API keys with cursor-based pagination.
+func (b *InMemoryBackend) GetAPIKeysPage(limit int, position string) ([]APIKey, string, error) {
+	b.mu.RLock("GetAPIKeysPage")
+	defer b.mu.RUnlock()
+
+	all := make([]APIKey, 0, len(b.apiKeys))
+	for _, k := range b.apiKeys {
+		all = append(all, *k)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	page, pos := paginatePage(all, limit, position)
+
+	return page, pos, nil
+}
+
+// GetDomainNamesPage returns domain names with cursor-based pagination.
+func (b *InMemoryBackend) GetDomainNamesPage(limit int, position string) ([]DomainName, string, error) {
+	b.mu.RLock("GetDomainNamesPage")
+	defer b.mu.RUnlock()
+
+	all := make([]DomainName, 0, len(b.domainNames))
+	for _, d := range b.domainNames {
+		all = append(all, *d)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].DomainNameValue < all[j].DomainNameValue })
+	page, pos := paginatePage(all, limit, position)
+
+	return page, pos, nil
+}
+
+// GetUsagePlansPage returns usage plans with cursor-based pagination.
+func (b *InMemoryBackend) GetUsagePlansPage(limit int, position string) ([]UsagePlan, string, error) {
+	b.mu.RLock("GetUsagePlansPage")
+	defer b.mu.RUnlock()
+
+	all := make([]UsagePlan, 0, len(b.usagePlans))
+	for _, p := range b.usagePlans {
+		all = append(all, *p)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	page, pos := paginatePage(all, limit, position)
+
+	return page, pos, nil
+}
+
+// UpdateUsagePlan updates a usage plan's name, description, throttle, or quota.
+func (b *InMemoryBackend) UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePlan, error) {
+	b.mu.Lock("UpdateUsagePlan")
+	defer b.mu.Unlock()
+
+	p, ok := b.usagePlans[input.UsagePlanID]
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
+	}
+
+	if input.Name != "" {
+		p.Name = input.Name
+	}
+
+	if input.Description != "" {
+		p.Description = input.Description
+	}
+
+	if input.Throttle != nil {
+		p.Throttle = input.Throttle
+	}
+
+	if input.Quota != nil {
+		p.Quota = input.Quota
+	}
+
+	return p, nil
+}
+
+// UpdateDomainName updates a domain name's certificate ARN.
+func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*DomainName, error) {
+	b.mu.Lock("UpdateDomainName")
+	defer b.mu.Unlock()
+
+	d, ok := b.domainNames[input.DomainName]
+	if !ok {
+		return nil, fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, input.DomainName)
+	}
+
+	if input.CertificateARN != "" {
+		d.CertificateARN = input.CertificateARN
+	}
+
+	return d, nil
+}
+
+// UpdateBasePathMapping updates an existing base path mapping.
+func (b *InMemoryBackend) UpdateBasePathMapping(input UpdateBasePathMappingInput) (*BasePathMapping, error) {
+	b.mu.Lock("UpdateBasePathMapping")
+	defer b.mu.Unlock()
+
+	key := input.DomainName + "#" + input.BasePath
+	m, ok := b.basePathMappings[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: base path mapping %s/%s not found", ErrNotFound, input.DomainName, input.BasePath)
+	}
+
+	if input.RestAPIID != "" {
+		m.RestAPIID = input.RestAPIID
+	}
+
+	if input.Stage != "" {
+		m.Stage = input.Stage
+	}
+
+	return m, nil
+}
+
+// UpdateDocumentationPart updates the properties of a documentation part.
+func (b *InMemoryBackend) UpdateDocumentationPart(input UpdateDocumentationPartInput) (*DocumentationPart, error) {
+	b.mu.Lock("UpdateDocumentationPart")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	part, ok := d.documentationParts[input.DocPartID]
+	if !ok {
+		return nil, fmt.Errorf("%w: documentation part %s not found", ErrNotFound, input.DocPartID)
+	}
+
+	if input.Properties != "" {
+		part.Properties = input.Properties
+	}
+
+	return part, nil
+}
+
+// UpdateDocumentationVersion updates a documentation version's description.
+func (b *InMemoryBackend) UpdateDocumentationVersion(
+	input UpdateDocumentationVersionInput,
+) (*DocumentationVersion, error) {
+	b.mu.Lock("UpdateDocumentationVersion")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	ver, ok := d.documentationVersions[input.DocumentationVersion]
+	if !ok {
+		return nil, fmt.Errorf("%w: documentation version %s not found", ErrNotFound, input.DocumentationVersion)
+	}
+
+	if input.Description != "" {
+		ver.Description = input.Description
+	}
+
+	return ver, nil
+}
+
+// UpdateMethod updates method settings (authorization, API key requirement, etc.)
+func (b *InMemoryBackend) UpdateMethod(input UpdateMethodInput) (*Method, error) {
+	b.mu.Lock("UpdateMethod")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	r, ok := d.resources[input.ResourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	m, ok := r.ResourceMethods[input.HTTPMethod]
+	if !ok {
+		return nil, fmt.Errorf("%w: method %s not found", ErrMethodNotFound, input.HTTPMethod)
+	}
+
+	if input.AuthorizationType != "" {
+		m.AuthorizationType = input.AuthorizationType
+	}
+
+	if input.AuthorizerID != "" {
+		m.AuthorizerID = input.AuthorizerID
+	}
+
+	if input.APIKeyRequired != nil {
+		m.APIKeyRequired = *input.APIKeyRequired
+	}
+
+	if input.OperationName != "" {
+		m.OperationName = input.OperationName
+	}
+
+	return m, nil
+}
+
+// UpdateIntegration updates an integration's URI or type.
+func (b *InMemoryBackend) UpdateIntegration(input UpdateIntegrationInput) (*Integration, error) {
+	b.mu.Lock("UpdateIntegration")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	r, ok := d.resources[input.ResourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	m, ok := r.ResourceMethods[input.HTTPMethod]
+	if !ok {
+		return nil, fmt.Errorf("%w: method %s not found", ErrMethodNotFound, input.HTTPMethod)
+	}
+
+	if m.MethodIntegration == nil {
+		m.MethodIntegration = &Integration{}
+	}
+
+	if input.URI != "" {
+		m.MethodIntegration.URI = input.URI
+	}
+
+	if input.IntegrationType != "" {
+		m.MethodIntegration.Type = input.IntegrationType
+	}
+
+	if len(input.RequestTemplates) > 0 {
+		m.MethodIntegration.RequestTemplates = input.RequestTemplates
+	}
+
+	if input.PassthroughBehavior != "" {
+		m.MethodIntegration.PassthroughBehavior = input.PassthroughBehavior
+	}
+
+	if input.TimeoutInMillis > 0 {
+		m.MethodIntegration.TimeoutInMillis = input.TimeoutInMillis
+	}
+
+	return m.MethodIntegration, nil
+}
+
+// UpdateIntegrationResponse updates an integration response's templates or selection pattern.
+func (b *InMemoryBackend) UpdateIntegrationResponse(
+	input UpdateIntegrationResponseInput,
+) (*IntegrationResponse, error) {
+	b.mu.Lock("UpdateIntegrationResponse")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	r, ok := d.resources[input.ResourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	m, ok := r.ResourceMethods[input.HTTPMethod]
+	if !ok {
+		return nil, fmt.Errorf("%w: method %s not found", ErrMethodNotFound, input.HTTPMethod)
+	}
+
+	if m.MethodIntegration == nil {
+		return nil, fmt.Errorf("%w: no integration on method %s", ErrNotFound, input.HTTPMethod)
+	}
+
+	ir, ok := m.MethodIntegration.IntegrationResponses[input.StatusCode]
+	if !ok {
+		return nil, fmt.Errorf("%w: integration response %s not found", ErrNotFound, input.StatusCode)
+	}
+
+	if input.SelectionPattern != "" {
+		ir.SelectionPattern = input.SelectionPattern
+	}
+
+	if len(input.ResponseTemplates) > 0 {
+		ir.ResponseTemplates = input.ResponseTemplates
+	}
+
+	if len(input.ResponseParameters) > 0 {
+		ir.ResponseParameters = input.ResponseParameters
+	}
+
+	m.MethodIntegration.IntegrationResponses[input.StatusCode] = ir
+
+	return ir, nil
+}
+
+// UpdateMethodResponse updates a method response's models or parameters.
+func (b *InMemoryBackend) UpdateMethodResponse(input UpdateMethodResponseInput) (*MethodResponse, error) {
+	b.mu.Lock("UpdateMethodResponse")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	r, ok := d.resources[input.ResourceID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
+	}
+
+	m, ok := r.ResourceMethods[input.HTTPMethod]
+	if !ok {
+		return nil, fmt.Errorf("%w: method %s not found", ErrMethodNotFound, input.HTTPMethod)
+	}
+
+	mr, ok := m.MethodResponses[input.StatusCode]
+	if !ok {
+		return nil, fmt.Errorf("%w: method response %s not found", ErrNotFound, input.StatusCode)
+	}
+
+	if len(input.ResponseModels) > 0 {
+		mr.ResponseModels = input.ResponseModels
+	}
+
+	if len(input.ResponseParameters) > 0 {
+		mr.ResponseParameters = input.ResponseParameters
+	}
+
+	m.MethodResponses[input.StatusCode] = mr
+
+	return mr, nil
+}
+
+// UpdateAccount updates the account's throttle settings.
+func (b *InMemoryBackend) UpdateAccount(input UpdateAccountInput) (*Account, error) {
+	b.mu.Lock("UpdateAccount")
+	defer b.mu.Unlock()
+
+	if input.ThrottleSettings != nil {
+		b.account.ThrottleSettings = input.ThrottleSettings
+	}
+
+	return b.account, nil
+}
+
+// TestInvokeAuthorizer performs a mock test invocation of an authorizer.
+func (b *InMemoryBackend) TestInvokeAuthorizer(input TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error) {
+	b.mu.RLock("TestInvokeAuthorizer")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[input.RestAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	if _, authOK := d.authorizers[input.AuthorizerID]; !authOK {
+		return nil, fmt.Errorf("%w: authorizer %s not found", ErrNotFound, input.AuthorizerID)
+	}
+
+	return &TestInvokeAuthorizerOutput{
+		PrincipalID:         "test-principal",
+		AuthorizationStatus: http.StatusOK,
+		ClientStatus:        http.StatusOK,
+		Latency:             1,
+		Log:                 "Test authorizer invocation (mock)",
+		Context:             map[string]string{"principalId": "test-principal"},
+	}, nil
+}
+
+// GetModelTemplate returns the default template for a model.
+func (b *InMemoryBackend) GetModelTemplate(restAPIID, modelName string) (string, error) {
+	b.mu.RLock("GetModelTemplate")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return "", fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	m, ok := d.models[modelName]
+	if !ok {
+		return "", fmt.Errorf("%w: model %s not found", ErrNotFound, modelName)
+	}
+
+	if m.Schema != "" {
+		return m.Schema, nil
+	}
+
+	return "#set($inputRoot = $input.path('$'))\n{}", nil
+}
+
+// GatewayResponseKey generates a storage key for gateway responses.
+func gatewayResponseKey(restAPIID, responseType string) string {
+	return restAPIID + "#" + responseType
+}
+
+// GetGatewayResponse retrieves a gateway response by type.
+func (b *InMemoryBackend) GetGatewayResponse(restAPIID, responseType string) (*GatewayResponse, error) {
+	b.mu.RLock("GetGatewayResponse")
+	defer b.mu.RUnlock()
+
+	key := gatewayResponseKey(restAPIID, responseType)
+	gr, ok := b.gatewayResponses[key]
+	if !ok {
+		// Return default response (AWS returns default responses even when not explicitly set).
+		return &GatewayResponse{
+			RestAPIID:       restAPIID,
+			ResponseType:    responseType,
+			DefaultResponse: true,
+			StatusCode:      gatewayResponseDefaultStatus(responseType),
+		}, nil
+	}
+
+	return gr, nil
+}
+
+// gatewayResponseDefaultStatus returns the default HTTP status for a gateway response type.
+func gatewayResponseDefaultStatus(responseType string) string {
+	switch responseType {
+	case "UNAUTHORIZED", "ACCESS_DENIED":
+		return "401"
+	case "RESOURCE_NOT_FOUND":
+		return "404"
+	case "THROTTLED", "QUOTA_EXCEEDED":
+		return "429"
+	case "BAD_REQUEST_BODY", "BAD_REQUEST_PARAMETERS":
+		return "400"
+	case "REQUEST_TOO_LARGE":
+		return "413"
+	case "AUTHORIZER_FAILURE", "AUTHORIZER_CONFIGURATION_ERROR":
+		return "500"
+	case "DEFAULT_4XX":
+		return "400"
+	case "DEFAULT_5XX":
+		return "500"
+	default:
+		return "500"
+	}
+}
+
+// GetGatewayResponses retrieves all gateway responses for a REST API.
+func (b *InMemoryBackend) GetGatewayResponses(restAPIID string) ([]GatewayResponse, error) {
+	b.mu.RLock("GetGatewayResponses")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[restAPIID]; !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	defaultTypes := []string{
+		"UNAUTHORIZED", "ACCESS_DENIED", "RESOURCE_NOT_FOUND",
+		"THROTTLED", "QUOTA_EXCEEDED", "BAD_REQUEST_BODY",
+		"BAD_REQUEST_PARAMETERS", "REQUEST_TOO_LARGE",
+		"AUTHORIZER_FAILURE", "AUTHORIZER_CONFIGURATION_ERROR",
+		"DEFAULT_4XX", "DEFAULT_5XX",
+	}
+
+	result := make([]GatewayResponse, 0, len(defaultTypes))
+
+	for _, rt := range defaultTypes {
+		key := gatewayResponseKey(restAPIID, rt)
+		if gr, ok := b.gatewayResponses[key]; ok {
+			result = append(result, *gr)
+		} else {
+			result = append(result, GatewayResponse{
+				RestAPIID:       restAPIID,
+				ResponseType:    rt,
+				DefaultResponse: true,
+				StatusCode:      gatewayResponseDefaultStatus(rt),
+			})
+		}
+	}
+
+	return result, nil
+}
+
+// PutGatewayResponse creates or updates a gateway response.
+func (b *InMemoryBackend) PutGatewayResponse(input PutGatewayResponseInput) (*GatewayResponse, error) {
+	b.mu.Lock("PutGatewayResponse")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[input.RestAPIID]; !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	key := gatewayResponseKey(input.RestAPIID, input.ResponseType)
+
+	gr := &GatewayResponse{
+		RestAPIID:          input.RestAPIID,
+		ResponseType:       input.ResponseType,
+		StatusCode:         input.StatusCode,
+		ResponseParameters: input.ResponseParameters,
+		ResponseTemplates:  input.ResponseTemplates,
+		DefaultResponse:    false,
+	}
+
+	if gr.StatusCode == "" {
+		gr.StatusCode = gatewayResponseDefaultStatus(input.ResponseType)
+	}
+
+	b.gatewayResponses[key] = gr
+
+	return gr, nil
+}
+
+// DeleteGatewayResponse removes a custom gateway response, reverting to default.
+func (b *InMemoryBackend) DeleteGatewayResponse(restAPIID, responseType string) error {
+	b.mu.Lock("DeleteGatewayResponse")
+	defer b.mu.Unlock()
+
+	if _, ok := b.apis[restAPIID]; !ok {
+		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	key := gatewayResponseKey(restAPIID, responseType)
+	delete(b.gatewayResponses, key)
+
+	return nil
+}
+
+// GenerateClientCertificate creates a new client certificate for mutual TLS.
+func (b *InMemoryBackend) GenerateClientCertificate(input GenerateClientCertificateInput) (*ClientCertificate, error) {
+	b.mu.Lock("GenerateClientCertificate")
+	defer b.mu.Unlock()
+
+	id := randomID(apiIDLength)
+	now := time.Now()
+	cert := &ClientCertificate{
+		ClientCertificateID:   id,
+		Description:           input.Description,
+		PemEncodedCertificate: "-----BEGIN CERTIFICATE-----\nMIICpDCCAYwCCQDU...(mock)...\n-----END CERTIFICATE-----",
+		CreatedDate:           unixEpochTime{now},
+		ExpirationDate:        unixEpochTime{now.AddDate(0, 0, clientCertValidityDays)},
+	}
+
+	b.clientCertificates[id] = cert
+
+	return cert, nil
+}
+
+// GetClientCertificate returns a client certificate by ID.
+func (b *InMemoryBackend) GetClientCertificate(id string) (*ClientCertificate, error) {
+	b.mu.RLock("GetClientCertificate")
+	defer b.mu.RUnlock()
+
+	cert, ok := b.clientCertificates[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: client certificate %s not found", ErrNotFound, id)
+	}
+
+	return cert, nil
+}
+
+// GetClientCertificates returns all client certificates.
+func (b *InMemoryBackend) GetClientCertificates() ([]ClientCertificate, error) {
+	b.mu.RLock("GetClientCertificates")
+	defer b.mu.RUnlock()
+
+	result := make([]ClientCertificate, 0, len(b.clientCertificates))
+	for _, c := range b.clientCertificates {
+		result = append(result, *c)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ClientCertificateID < result[j].ClientCertificateID
+	})
+
+	return result, nil
+}
+
+// DeleteClientCertificate removes a client certificate.
+func (b *InMemoryBackend) DeleteClientCertificate(id string) error {
+	b.mu.Lock("DeleteClientCertificate")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clientCertificates[id]; !ok {
+		return fmt.Errorf("%w: client certificate %s not found", ErrNotFound, id)
+	}
+
+	delete(b.clientCertificates, id)
+
+	return nil
+}
+
+// GetUsage returns mock usage data for a usage plan.
+func (b *InMemoryBackend) GetUsage(input GetUsageInput) (*UsageData, error) {
+	b.mu.RLock("GetUsage")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.usagePlans[input.UsagePlanID]; !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
+	}
+
+	return &UsageData{
+		UsagePlanID: input.UsagePlanID,
+		StartDate:   input.StartDate,
+		EndDate:     input.EndDate,
+		Items:       map[string][]any{},
+	}, nil
 }
