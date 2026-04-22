@@ -490,26 +490,31 @@
 	}
 
 	// ─── Helpers ─────────────────────────────────────────────────────────────────
-	function buildResourceTree(resources: Resource[]): Array<Resource & { depth: number }> {
-		const byId = new Map(resources.map((r) => [r.id!, { ...r, depth: 0 }]));
-		const result: Array<Resource & { depth: number }> = [];
+	type ResourceNode = Resource & { depth: number };
+
+	function buildResourceTree(resources: Resource[]): ResourceNode[] {
+		const byId: Record<string, ResourceNode> = {};
+		for (const r of resources) {
+			if (r.id) byId[r.id] = { ...r, depth: 0 };
+		}
+		const result: ResourceNode[] = [];
 		const visited = new Set<string>();
 
 		function visit(id: string, depth: number) {
 			if (visited.has(id)) return;
 			visited.add(id);
-			const node = byId.get(id);
+			const node = byId[id];
 			if (!node) return;
 			node.depth = depth;
 			result.push(node);
-			for (const [, child] of byId) {
+			for (const child of Object.values(byId)) {
 				if (child.parentId === id) visit(child.id!, depth + 1);
 			}
 		}
 
 		// Start from roots (no parent or parent not in map)
-		for (const [id, r] of byId) {
-			if (!r.parentId || !byId.has(r.parentId)) visit(id, 0);
+		for (const [id, r] of Object.entries(byId)) {
+			if (!r.parentId || !byId[r.parentId]) visit(id, 0);
 		}
 
 		return result;
@@ -552,22 +557,24 @@
 
 	<!-- Top Tabs -->
 	<div class="flex border-b overflow-x-auto">
-		{#each [
-			{ id: 'apis', label: 'REST APIs', icon: Globe },
-			{ id: 'apikeys', label: 'API Keys', icon: KeyRound },
-			{ id: 'usageplans', label: 'Usage Plans', icon: BarChart2 },
-			{ id: 'domainnames', label: 'Domain Names', icon: Link },
-			{ id: 'metrics', label: 'Metrics', icon: BarChart2 },
-			{ id: 'docs', label: 'Docs', icon: BookOpen },
-		] as t}
-			<button
-				onclick={() => switchTopTab(t.id as typeof topTab)}
-				class="flex items-center gap-1.5 whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors {topTab === t.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
-			>
-				<t.icon class="h-4 w-4" />
-				{t.label}
-			</button>
-		{/each}
+		<button onclick={() => switchTopTab('apis')} class="flex items-center gap-1.5 whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors {topTab === 'apis' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+			<Globe class="h-4 w-4" />REST APIs
+		</button>
+		<button onclick={() => switchTopTab('apikeys')} class="flex items-center gap-1.5 whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors {topTab === 'apikeys' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+			<KeyRound class="h-4 w-4" />API Keys
+		</button>
+		<button onclick={() => switchTopTab('usageplans')} class="flex items-center gap-1.5 whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors {topTab === 'usageplans' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+			<BarChart2 class="h-4 w-4" />Usage Plans
+		</button>
+		<button onclick={() => switchTopTab('domainnames')} class="flex items-center gap-1.5 whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors {topTab === 'domainnames' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+			<Link class="h-4 w-4" />Domain Names
+		</button>
+		<button onclick={() => switchTopTab('metrics')} class="flex items-center gap-1.5 whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors {topTab === 'metrics' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+			<BarChart2 class="h-4 w-4" />Metrics
+		</button>
+		<button onclick={() => switchTopTab('docs')} class="flex items-center gap-1.5 whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors {topTab === 'docs' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+			<BookOpen class="h-4 w-4" />Docs
+		</button>
 	</div>
 
 	<!-- ═══════════════════════════ REST APIs Tab ═══════════════════════════ -->
@@ -664,21 +671,21 @@
 
 				<!-- Detail sub-tabs -->
 				<div class="flex border-b gap-1">
-					{#each [
-						{ id: 'resources', label: 'Resources', icon: Layers },
-						{ id: 'stages', label: 'Stages', icon: Rocket },
-						{ id: 'deployments', label: 'Deployments', icon: ChevronRight },
-						{ id: 'authorizers', label: 'Authorizers', icon: Shield },
-						{ id: 'models', label: 'Models', icon: Code2 },
-					] as sub}
-						<button
-							onclick={() => { apiDetailTab = sub.id as typeof apiDetailTab; }}
-							class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors {apiDetailTab === sub.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
-						>
-							<sub.icon class="h-3.5 w-3.5" />
-							{sub.label}
-						</button>
-					{/each}
+					<button onclick={() => { apiDetailTab = 'resources'; }} class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors {apiDetailTab === 'resources' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+						<Layers class="h-3.5 w-3.5" />Resources
+					</button>
+					<button onclick={() => { apiDetailTab = 'stages'; }} class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors {apiDetailTab === 'stages' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+						<Rocket class="h-3.5 w-3.5" />Stages
+					</button>
+					<button onclick={() => { apiDetailTab = 'deployments'; }} class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors {apiDetailTab === 'deployments' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+						<ChevronRight class="h-3.5 w-3.5" />Deployments
+					</button>
+					<button onclick={() => { apiDetailTab = 'authorizers'; }} class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors {apiDetailTab === 'authorizers' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+						<Shield class="h-3.5 w-3.5" />Authorizers
+					</button>
+					<button onclick={() => { apiDetailTab = 'models'; }} class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors {apiDetailTab === 'models' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}">
+						<Code2 class="h-3.5 w-3.5" />Models
+					</button>
 				</div>
 
 				{#if loadingApiDetail}

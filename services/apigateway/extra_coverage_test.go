@@ -359,6 +359,18 @@ func (n *noopBackend) TestInvokeMethod(_ apigateway.TestInvokeMethodInput) (*api
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) GetAPIKeysPage(_ int, _ string) ([]apigateway.APIKey, string, error) {
+	return nil, "", errNoopNotImplemented
+}
+
+func (n *noopBackend) GetDomainNamesPage(_ int, _ string) ([]apigateway.DomainName, string, error) {
+	return nil, "", errNoopNotImplemented
+}
+
+func (n *noopBackend) GetUsagePlansPage(_ int, _ string) ([]apigateway.UsagePlan, string, error) {
+	return nil, "", errNoopNotImplemented
+}
+
 // restRequest sends a REST-style request (no X-Amz-Target header) to the handler.
 func restRequest(t *testing.T, handler *apigateway.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()

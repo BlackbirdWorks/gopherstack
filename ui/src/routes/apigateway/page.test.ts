@@ -128,14 +128,14 @@ describe("API Gateway Page", () => {
     expect(screen.getByText("CreateRestApi")).toBeInTheDocument();
   });
 
-  it("shows Demo Data button", async () => {
+  it("shows Demo Data button", () => {
     mockSend.mockResolvedValue({ items: [] });
     render(APIGatewayPage);
     expect(screen.getByText("Demo Data")).toBeInTheDocument();
   });
 
   it("displays API keys with toggle", async () => {
-    mockSend.mockResolvedValueOnce({ items: [] }); // initial load
+    mockSend.mockResolvedValueOnce({ items: [] });
     mockSend.mockResolvedValueOnce({
       items: [
         {

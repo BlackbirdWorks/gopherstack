@@ -115,6 +115,7 @@ type StorageBackend interface {
 	CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 	GetAPIKey(id string) (*APIKey, error)
 	GetAPIKeys() ([]APIKey, error)
+	GetAPIKeysPage(limit int, position string) ([]APIKey, string, error)
 	DeleteAPIKey(id string) error
 	UpdateAPIKey(id string, input UpdateAPIKeyInput) (*APIKey, error)
 
@@ -140,6 +141,7 @@ type StorageBackend interface {
 	CreateDomainName(input CreateDomainNameInput) (*DomainName, error)
 	GetDomainName(name string) (*DomainName, error)
 	GetDomainNames() ([]DomainName, error)
+	GetDomainNamesPage(limit int, position string) ([]DomainName, string, error)
 	DeleteDomainName(name string) error
 
 	// Domain Name Access Associations
@@ -162,6 +164,7 @@ type StorageBackend interface {
 	CreateUsagePlan(input CreateUsagePlanInput) (*UsagePlan, error)
 	GetUsagePlan(id string) (*UsagePlan, error)
 	GetUsagePlans() ([]UsagePlan, error)
+	GetUsagePlansPage(limit int, position string) ([]UsagePlan, string, error)
 	DeleteUsagePlan(id string) error
 
 	// Usage Plan Keys
@@ -195,12 +198,38 @@ const (
 
 	// arnSplitParts is used when splitting ARNs at a specific substring.
 	arnSplitParts = 2
+
+	// defaultPageSize is used when no limit is specified in paginated list operations.
+	defaultPageSize = 500
 )
 
 // stageInvokeURL returns the gopherstack proxy path for a deployed stage.
 // The full URL is relative — clients prepend their gopherstack base URL.
 func stageInvokeURL(restAPIID, stageName string) string {
 	return "/proxy/" + restAPIID + "/" + stageName
+}
+
+// paginatePage applies limit/position-based cursor pagination to a pre-sorted slice.
+// It returns the page slice and the next position cursor (empty string if last page).
+func paginatePage[T any](all []T, limit int, position string) ([]T, string) {
+	startIdx := parsePosition(position)
+	if startIdx >= len(all) {
+		return []T{}, ""
+	}
+
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	end := startIdx + limit
+
+	var outPosition string
+	if end < len(all) {
+		outPosition = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outPosition
 }
 
 // randomID generates a cryptographically random alphanumeric ID of the given length.
@@ -2330,4 +2359,49 @@ func (b *InMemoryBackend) TestInvokeMethod(input TestInvokeMethodInput) (*TestIn
 		Log:     "Test invocation (mock)",
 		Headers: map[string]string{"Content-Type": "application/json"},
 	}, nil
+}
+
+// GetAPIKeysPage returns API keys with cursor-based pagination.
+func (b *InMemoryBackend) GetAPIKeysPage(limit int, position string) ([]APIKey, string, error) {
+	b.mu.RLock("GetAPIKeysPage")
+	defer b.mu.RUnlock()
+
+	all := make([]APIKey, 0, len(b.apiKeys))
+	for _, k := range b.apiKeys {
+		all = append(all, *k)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	page, pos := paginatePage(all, limit, position)
+
+	return page, pos, nil
+}
+
+// GetDomainNamesPage returns domain names with cursor-based pagination.
+func (b *InMemoryBackend) GetDomainNamesPage(limit int, position string) ([]DomainName, string, error) {
+	b.mu.RLock("GetDomainNamesPage")
+	defer b.mu.RUnlock()
+
+	all := make([]DomainName, 0, len(b.domainNames))
+	for _, d := range b.domainNames {
+		all = append(all, *d)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].DomainNameValue < all[j].DomainNameValue })
+	page, pos := paginatePage(all, limit, position)
+
+	return page, pos, nil
+}
+
+// GetUsagePlansPage returns usage plans with cursor-based pagination.
+func (b *InMemoryBackend) GetUsagePlansPage(limit int, position string) ([]UsagePlan, string, error) {
+	b.mu.RLock("GetUsagePlansPage")
+	defer b.mu.RUnlock()
+
+	all := make([]UsagePlan, 0, len(b.usagePlans))
+	for _, p := range b.usagePlans {
+		all = append(all, *p)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	page, pos := paginatePage(all, limit, position)
+
+	return page, pos, nil
 }

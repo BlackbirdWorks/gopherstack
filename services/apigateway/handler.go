@@ -281,6 +281,21 @@ type getAPIKeyInput struct {
 	APIKeyID string `json:"apiKeyId"`
 }
 
+type getAPIKeysPageInput struct {
+	Position string `json:"position"`
+	Limit    int    `json:"limit"`
+}
+
+type getDomainNamesPageInput struct {
+	Position string `json:"position"`
+	Limit    int    `json:"limit"`
+}
+
+type getUsagePlansPageInput struct {
+	Position string `json:"position"`
+	Limit    int    `json:"limit"`
+}
+
 type deleteAPIKeyInput struct {
 	APIKeyID string `json:"apiKeyId"`
 }
@@ -730,6 +745,13 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 	// Merge path parameters into the JSON body so existing handlers can read them.
 	for k, v := range pathParams {
 		body = injectJSONFieldAPIGW(body, k, v)
+	}
+
+	// Merge query string parameters (e.g., limit, position) into the JSON body.
+	for k, v := range c.Request().URL.Query() {
+		if len(v) > 0 {
+			body = injectJSONFieldAPIGW(body, k, v[0])
+		}
 	}
 
 	statusCode, response, reqErr := h.dispatch(ctx, action, body)
@@ -2049,13 +2071,25 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusOK, key, nil
 		},
-		"GetApiKeys": func(_ []byte) (int, any, error) {
-			keys, err := h.Backend.GetAPIKeys()
+		"GetApiKeys": func(b []byte) (int, any, error) {
+			var input getAPIKeysPageInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if input.Limit == 0 && input.Position == "" {
+				keys, err := h.Backend.GetAPIKeys()
+				if err != nil {
+					return 0, nil, err
+				}
+
+				return http.StatusOK, map[string]any{"item": keys}, nil
+			}
+			keys, position, err := h.Backend.GetAPIKeysPage(input.Limit, input.Position)
 			if err != nil {
 				return 0, nil, err
 			}
 
-			return http.StatusOK, map[string]any{"item": keys}, nil
+			return http.StatusOK, map[string]any{"item": keys, "position": position}, nil
 		},
 		"DeleteApiKey": func(b []byte) (int, any, error) {
 			var input deleteAPIKeyInput
@@ -2092,13 +2126,25 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusOK, dn, nil
 		},
-		"GetDomainNames": func(_ []byte) (int, any, error) {
-			dns, err := h.Backend.GetDomainNames()
+		"GetDomainNames": func(b []byte) (int, any, error) {
+			var input getDomainNamesPageInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if input.Limit == 0 && input.Position == "" {
+				dns, err := h.Backend.GetDomainNames()
+				if err != nil {
+					return 0, nil, err
+				}
+
+				return http.StatusOK, map[string]any{"item": dns}, nil
+			}
+			dns, position, err := h.Backend.GetDomainNamesPage(input.Limit, input.Position)
 			if err != nil {
 				return 0, nil, err
 			}
 
-			return http.StatusOK, map[string]any{"item": dns}, nil
+			return http.StatusOK, map[string]any{"item": dns, "position": position}, nil
 		},
 		"DeleteDomainName": func(b []byte) (int, any, error) {
 			var input deleteDomainNameInput
@@ -2234,13 +2280,25 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusOK, p, nil
 		},
-		"GetUsagePlans": func(_ []byte) (int, any, error) {
-			ps, err := h.Backend.GetUsagePlans()
+		"GetUsagePlans": func(b []byte) (int, any, error) {
+			var input getUsagePlansPageInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if input.Limit == 0 && input.Position == "" {
+				ps, err := h.Backend.GetUsagePlans()
+				if err != nil {
+					return 0, nil, err
+				}
+
+				return http.StatusOK, map[string]any{"item": ps}, nil
+			}
+			ps, position, err := h.Backend.GetUsagePlansPage(input.Limit, input.Position)
 			if err != nil {
 				return 0, nil, err
 			}
 
-			return http.StatusOK, map[string]any{"item": ps}, nil
+			return http.StatusOK, map[string]any{"item": ps, "position": position}, nil
 		},
 		"DeleteUsagePlan": func(b []byte) (int, any, error) {
 			var input deleteUsagePlanInput
