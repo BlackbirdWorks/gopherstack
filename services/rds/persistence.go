@@ -24,6 +24,7 @@ type backendSnapshot struct {
 	EventSubscriptions     map[string]*EventSubscription   `json:"eventSubscriptions"`
 	DBSecurityGroups       map[string]*DBSecurityGroup     `json:"dbSecurityGroups"`
 	BlueGreenDeployments   map[string]*BlueGreenDeployment `json:"blueGreenDeployments"`
+	InstanceReadyAt        map[string]time.Time            `json:"instanceReadyAt"`
 	AccountID              string                          `json:"accountID"`
 	Region                 string                          `json:"region"`
 }
@@ -52,6 +53,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		EventSubscriptions:     b.eventSubscriptions,
 		DBSecurityGroups:       b.dbSecurityGroups,
 		BlueGreenDeployments:   b.blueGreenDeployments,
+		InstanceReadyAt:        b.instanceReadyAt,
 		AccountID:              b.accountID,
 		Region:                 b.region,
 	}
@@ -97,6 +99,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.eventSubscriptions = snap.EventSubscriptions
 	b.dbSecurityGroups = snap.DBSecurityGroups
 	b.blueGreenDeployments = snap.BlueGreenDeployments
+	b.instanceReadyAt = snap.InstanceReadyAt
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	// FIS fault state is transient — clear it on restore so stale faults are not retained.
@@ -161,6 +164,10 @@ func ensureNonNilCoreMaps(snap *backendSnapshot) {
 
 	if snap.GlobalClusters == nil {
 		snap.GlobalClusters = make(map[string]*GlobalCluster)
+	}
+
+	if snap.InstanceReadyAt == nil {
+		snap.InstanceReadyAt = make(map[string]time.Time)
 	}
 }
 

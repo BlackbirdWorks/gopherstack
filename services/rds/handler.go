@@ -71,19 +71,26 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateDBParameterGroup",
 		"CreateDBSnapshot",
 		"CreateDBSubnetGroup",
+		"CreateEventSubscription",
 		"CreateGlobalCluster",
 		"CreateOptionGroup",
+		"DeleteBlueGreenDeployment",
 		"DeleteDBCluster",
 		"DeleteDBClusterEndpoint",
+		"DeleteDBClusterParameterGroup",
 		"DeleteDBClusterSnapshot",
 		"DeleteDBInstance",
 		"DeleteDBParameterGroup",
+		"DeleteDBSecurityGroup",
 		"DeleteDBSnapshot",
 		"DeleteDBSubnetGroup",
+		"DeleteEventSubscription",
 		"DeleteGlobalCluster",
 		"DeleteOptionGroup",
+		"DescribeBlueGreenDeployments",
 		"DescribeDBClusterEndpoints",
 		"DescribeDBClusterParameterGroups",
+		"DescribeDBClusterParameters",
 		"DescribeDBClusterSnapshots",
 		"DescribeDBClusters",
 		"DescribeDBEngineVersions",
@@ -91,8 +98,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeDBLogFiles",
 		"DescribeDBParameterGroups",
 		"DescribeDBParameters",
+		"DescribeDBSecurityGroups",
 		"DescribeDBSnapshots",
 		"DescribeDBSubnetGroups",
+		"DescribeEventCategories",
+		"DescribeEventSubscriptions",
+		"DescribeEvents",
 		"DescribeExportTasks",
 		"DescribeGlobalClusters",
 		"DescribeOptionGroupOptions",
@@ -100,28 +111,37 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeOrderableDBInstanceOptions",
 		"DescribeValidDBInstanceModifications",
 		"DownloadDBLogFilePortion",
+		"FailoverDBCluster",
 		"ListTagsForResource",
 		"ModifyDBCluster",
+		"ModifyDBClusterEndpoint",
+		"ModifyDBClusterParameterGroup",
 		"ModifyDBInstance",
 		"ModifyDBParameterGroup",
+		"ModifyDBSubnetGroup",
+		"ModifyEventSubscription",
 		"ModifyGlobalCluster",
 		"ModifyOptionGroup",
 		"PromoteReadReplica",
+		"RebootDBCluster",
 		"RebootDBInstance",
 		"RemoveRoleFromDBCluster",
 		"RemoveRoleFromDBInstance",
 		"RemoveSourceIdentifierFromSubscription",
 		"RemoveTagsFromResource",
+		"ResetDBClusterParameterGroup",
 		"ResetDBParameterGroup",
 		"RestoreDBClusterFromSnapshot",
 		"RestoreDBClusterToPointInTime",
 		"RestoreDBInstanceFromDBSnapshot",
 		"RestoreDBInstanceToPointInTime",
+		"RevokeDBSecurityGroupIngress",
 		"StartDBCluster",
 		"StartDBInstance",
 		"StartExportTask",
 		"StopDBCluster",
 		"StopDBInstance",
+		"SwitchoverBlueGreenDeployment",
 	}
 }
 
@@ -431,7 +451,7 @@ func (h *Handler) dispatchExtended6(action string, vals url.Values) (any, error)
 	case "RemoveSourceIdentifierFromSubscription":
 		return h.handleRemoveSourceIdentifierFromSubscription(vals)
 	default:
-		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
+		return h.dispatchExtended7(action, vals)
 	}
 }
 
@@ -2664,6 +2684,7 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 		SnsTopicArn:        sub.SnsTopicArn,
 		Status:             sub.Status,
 		SourceType:         sub.SourceType,
+		Enabled:            sub.Enabled,
 		SourceIDsList:      xmlSourceIDList{Members: ids},
 	}
 }
@@ -2721,6 +2742,7 @@ type xmlEventSubscription struct {
 	Status             string          `xml:"Status"`
 	SourceType         string          `xml:"SourceType,omitempty"`
 	SourceIDsList      xmlSourceIDList `xml:"SourceIdsList"`
+	Enabled            bool            `xml:"Enabled,omitempty"`
 }
 
 type addSourceIdentifierToSubscriptionResponse struct {

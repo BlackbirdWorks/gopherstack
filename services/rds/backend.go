@@ -94,6 +94,7 @@ const (
 	blueGreenDeploymentStatusAvailable = "available"
 	ipRangeStatusAuthorized            = "authorized"
 	instanceTransitionDelay            = 250 * time.Millisecond
+	reconcilerDivisor                  = 5
 	maxEvents                          = 512
 )
 
@@ -259,6 +260,7 @@ type EventSubscription struct {
 	Status           string   `json:"status"`
 	SourceType       string   `json:"sourceType"`
 	SourceIDs        []string `json:"sourceIds"`
+	Enabled          bool     `json:"enabled"`
 }
 
 // Event represents a published RDS lifecycle event.
@@ -344,9 +346,9 @@ type InMemoryBackend struct {
 	events                 []Event
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with a background reconciler.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		instances:              make(map[string]*DBInstance),
 		instanceReadyAt:        make(map[string]time.Time),
 		snapshots:              make(map[string]*DBSnapshot),
@@ -371,6 +373,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:                 region,
 		mu:                     lockmetrics.New("rds"),
 	}
+
+	go b.runReconciler()
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -433,6 +439,19 @@ func (b *InMemoryBackend) reconcileInstancesLocked() {
 			delete(b.instanceReadyAt, id)
 			b.publishInstanceEventLocked(id, "DB instance is now available")
 		}
+	}
+}
+
+// runReconciler periodically transitions DB instances that have passed their
+// ready-at timestamp. It runs as a long-lived background goroutine.
+func (b *InMemoryBackend) runReconciler() {
+	ticker := time.NewTicker(instanceTransitionDelay / reconcilerDivisor)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		b.mu.Lock("runReconciler")
+		b.reconcileInstancesLocked()
+		b.mu.Unlock()
 	}
 }
 
@@ -578,18 +597,17 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 
 // DescribeDBInstances returns instances. If id is non-empty, returns only that instance.
 func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
-	b.mu.Lock("DescribeDBInstances")
-	b.reconcileInstancesLocked()
+	b.mu.RLock("DescribeDBInstances")
 
 	if id != "" {
 		inst, exists := b.instances[id]
 		if !exists {
-			b.mu.Unlock()
+			b.mu.RUnlock()
 
 			return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 		}
 		cp := *inst
-		b.mu.Unlock()
+		b.mu.RUnlock()
 
 		return []DBInstance{cp}, nil
 	}
@@ -598,7 +616,7 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 	for _, inst := range b.instances {
 		instances = append(instances, *inst)
 	}
-	b.mu.Unlock()
+	b.mu.RUnlock()
 
 	return instances, nil
 }
