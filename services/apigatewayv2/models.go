@@ -149,12 +149,11 @@ type Authorizer struct {
 	Name                           string            `json:"name"`
 	AuthorizerType                 string            `json:"authorizerType"`
 	AuthorizerURI                  string            `json:"authorizerUri,omitempty"`
-	IdentitySource                 string            `json:"identitySource,omitempty"`
 	AuthorizerCredentialsArn       string            `json:"authorizerCredentialsArn,omitempty"`
 	AuthorizerPayloadFormatVersion string            `json:"authorizerPayloadFormatVersion,omitempty"`
-	// AuthorizerResultTTLInSeconds uses 'Ttl' (not 'TTL') in the JSON tag to match the AWS API wire format.
-	AuthorizerResultTTLInSeconds int32 `json:"authorizerResultTtlInSeconds,omitempty"`
-	EnableSimpleResponses        bool  `json:"enableSimpleResponses,omitempty"`
+	IdentitySource                 []string          `json:"identitySource,omitempty"`
+	AuthorizerResultTTLInSeconds   int32             `json:"authorizerResultTtlInSeconds,omitempty"`
+	EnableSimpleResponses          bool              `json:"enableSimpleResponses,omitempty"`
 }
 
 // CreateAPIInput is the input for CreateAPI.
@@ -275,9 +274,9 @@ type CreateAuthorizerInput struct {
 	Name                           string            `json:"name"`
 	AuthorizerType                 string            `json:"authorizerType"`
 	AuthorizerURI                  string            `json:"authorizerUri,omitempty"`
-	IdentitySource                 string            `json:"identitySource,omitempty"`
 	AuthorizerCredentialsArn       string            `json:"authorizerCredentialsArn,omitempty"`
 	AuthorizerPayloadFormatVersion string            `json:"authorizerPayloadFormatVersion,omitempty"`
+	IdentitySource                 []string          `json:"identitySource,omitempty"`
 	AuthorizerResultTTLInSeconds   int32             `json:"authorizerResultTtlInSeconds,omitempty"`
 	EnableSimpleResponses          bool              `json:"enableSimpleResponses,omitempty"`
 }
@@ -288,9 +287,9 @@ type UpdateAuthorizerInput struct {
 	Name                           string            `json:"name,omitempty"`
 	AuthorizerType                 string            `json:"authorizerType,omitempty"`
 	AuthorizerURI                  string            `json:"authorizerUri,omitempty"`
-	IdentitySource                 string            `json:"identitySource,omitempty"`
 	AuthorizerCredentialsArn       string            `json:"authorizerCredentialsArn,omitempty"`
 	AuthorizerPayloadFormatVersion string            `json:"authorizerPayloadFormatVersion,omitempty"`
+	IdentitySource                 []string          `json:"identitySource,omitempty"`
 	AuthorizerResultTTLInSeconds   int32             `json:"authorizerResultTtlInSeconds,omitempty"`
 	EnableSimpleResponses          bool              `json:"enableSimpleResponses,omitempty"`
 }

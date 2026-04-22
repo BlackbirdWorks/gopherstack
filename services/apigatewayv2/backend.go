@@ -1235,7 +1235,7 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 		a.AuthorizerURI = input.AuthorizerURI
 	}
 
-	if input.IdentitySource != "" {
+	if len(input.IdentitySource) > 0 {
 		a.IdentitySource = input.IdentitySource
 	}
 

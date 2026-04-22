@@ -582,7 +582,7 @@ func TestInMemoryBackend_UpdateAuthorizer_AllFields(t *testing.T) {
 		Name:                         "new-auth",
 		AuthorizerType:               "REQUEST",
 		AuthorizerURI:                "https://auth.example.com",
-		IdentitySource:               "$request.header.Authorization",
+		IdentitySource:               []string{"$request.header.Authorization"},
 		AuthorizerCredentialsArn:     "arn:aws:iam::123:role/role",
 		AuthorizerResultTTLInSeconds: 300,
 	})

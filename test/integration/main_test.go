@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	acmsdk "github.com/aws/aws-sdk-go-v2/service/acm"
+	apigwv2sdk "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	autoscalingsdk "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	batchsdk "github.com/aws/aws-sdk-go-v2/service/batch"
@@ -1183,5 +1184,23 @@ func createTimestreamWriteClient(t *testing.T) *timestreamwritesdk.Client {
 	return timestreamwritesdk.NewFromConfig(cfg, func(o *timestreamwritesdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 		o.EndpointDiscovery.EnableEndpointDiscovery = aws.EndpointDiscoveryDisabled
+	})
+}
+
+// createAPIGatewayV2Client returns an API Gateway v2 client pointed at the shared test container.
+func createAPIGatewayV2Client(t *testing.T) *apigwv2sdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return apigwv2sdk.NewFromConfig(cfg, func(o *apigwv2sdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
