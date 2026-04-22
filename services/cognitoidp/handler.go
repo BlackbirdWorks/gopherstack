@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -27,6 +28,7 @@ var errUnknownAction = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP handler for Cognito IDP operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	janitor *Janitor
 	ops     map[string]service.JSONOpFunc
 	region  string
 }
@@ -37,6 +39,29 @@ func NewHandler(backend *InMemoryBackend, region string) *Handler {
 	h.ops = h.dispatchTable()
 
 	return h
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// The janitor periodically evicts expired refresh tokens. interval=0 uses the default.
+// The optional taskTimeout bounds each sweep; 0 means no per-task timeout.
+func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Duration) *Handler {
+	j := NewJanitor(h.Backend, interval)
+	if len(taskTimeout) > 0 {
+		j.TaskTimeout = taskTimeout[0]
+	}
+
+	h.janitor = j
+
+	return h
+}
+
+// StartWorker starts the background janitor if it is configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Reset clears all backend state. Useful for test isolation.

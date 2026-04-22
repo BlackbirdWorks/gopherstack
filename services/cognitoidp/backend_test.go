@@ -267,6 +267,74 @@ func TestInMemoryBackend_DescribeUserPoolClient(t *testing.T) {
 	}
 }
 
+func TestInMemoryBackend_ListUserPoolClients(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		primaryNames     []string
+		secondaryNames   []string
+		wantNames        []string
+		deletePrimaryIdx int
+	}{
+		{
+			name:             "list_only_primary_pool_clients",
+			primaryNames:     []string{"web", "ios"},
+			secondaryNames:   []string{"android"},
+			deletePrimaryIdx: -1,
+			wantNames:        []string{"ios", "web"},
+		},
+		{
+			name:             "deleted_client_removed_from_indexed_listing",
+			primaryNames:     []string{"web", "ios"},
+			secondaryNames:   []string{"android"},
+			deletePrimaryIdx: 0,
+			wantNames:        []string{"ios"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			primaryPool, err := b.CreateUserPool("primary-pool")
+			require.NoError(t, err)
+
+			secondaryPool, err := b.CreateUserPool("secondary-pool")
+			require.NoError(t, err)
+
+			primaryIDs := make([]string, 0, len(tt.primaryNames))
+			for _, clientName := range tt.primaryNames {
+				client, createErr := b.CreateUserPoolClient(primaryPool.ID, clientName)
+				require.NoError(t, createErr)
+				primaryIDs = append(primaryIDs, client.ClientID)
+			}
+
+			for _, clientName := range tt.secondaryNames {
+				_, createErr := b.CreateUserPoolClient(secondaryPool.ID, clientName)
+				require.NoError(t, createErr)
+			}
+
+			if tt.deletePrimaryIdx >= 0 {
+				require.NoError(t, b.DeleteUserPoolClient(primaryPool.ID, primaryIDs[tt.deletePrimaryIdx]))
+			}
+
+			clients, listErr := b.ListUserPoolClients(primaryPool.ID)
+			require.NoError(t, listErr)
+			require.Len(t, clients, len(tt.wantNames))
+
+			gotNames := make([]string, 0, len(clients))
+			for _, client := range clients {
+				assert.Equal(t, primaryPool.ID, client.UserPoolID)
+				gotNames = append(gotNames, client.ClientName)
+			}
+
+			assert.Equal(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
 func TestInMemoryBackend_SignUp(t *testing.T) {
 	t.Parallel()
 

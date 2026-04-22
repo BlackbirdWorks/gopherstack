@@ -40,6 +40,9 @@ const (
 
 	// UserStatusForceChangePassword indicates the user must change their password on next login.
 	UserStatusForceChangePassword = "FORCE_CHANGE_PASSWORD"
+
+	// defaultRefreshTokenTTL is the lifetime for refresh tokens.
+	defaultRefreshTokenTTL = 30 * 24 * time.Hour
 )
 
 // SchemaAttribute represents a custom attribute definition for a user pool.
@@ -102,9 +105,13 @@ type InMemoryBackend struct {
 	pools       map[string]*UserPool
 	poolsByName map[string]*UserPool
 	clients     map[string]*UserPoolClient
-	users       map[string]map[string]*User
+	// clientsByPool maps userPoolID -> clientID -> client for efficient per-pool listing and deletes.
+	clientsByPool map[string]map[string]*UserPoolClient
+	users         map[string]map[string]*User
 	// refreshTokens maps refresh token → poolID/username for REFRESH_TOKEN_AUTH flow.
 	refreshTokens map[string]*refreshTokenEntry
+	// refreshTokensByClient maps clientID -> refreshToken set for efficient client cleanup.
+	refreshTokensByClient map[string]map[string]struct{}
 	// groups maps poolID → groupName → Group
 	groups map[string]map[string]*Group
 	// groupMembers maps poolID → groupName → set of usernames
@@ -116,25 +123,28 @@ type InMemoryBackend struct {
 
 // refreshTokenEntry holds the pool/user context for a refresh token.
 type refreshTokenEntry struct {
-	PoolID   string `json:"poolId"`
-	ClientID string `json:"clientId"`
-	Username string `json:"username"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	PoolID    string    `json:"poolId"`
+	ClientID  string    `json:"clientId"`
+	Username  string    `json:"username"`
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:            lockmetrics.New("cognitoidp"),
-		pools:         make(map[string]*UserPool),
-		poolsByName:   make(map[string]*UserPool),
-		clients:       make(map[string]*UserPoolClient),
-		users:         make(map[string]map[string]*User),
-		refreshTokens: make(map[string]*refreshTokenEntry),
-		groups:        make(map[string]map[string]*Group),
-		groupMembers:  make(map[string]map[string]map[string]struct{}),
-		accountID:     accountID,
-		region:        region,
-		endpoint:      endpoint,
+		mu:                    lockmetrics.New("cognitoidp"),
+		pools:                 make(map[string]*UserPool),
+		poolsByName:           make(map[string]*UserPool),
+		clients:               make(map[string]*UserPoolClient),
+		clientsByPool:         make(map[string]map[string]*UserPoolClient),
+		users:                 make(map[string]map[string]*User),
+		refreshTokens:         make(map[string]*refreshTokenEntry),
+		refreshTokensByClient: make(map[string]map[string]struct{}),
+		groups:                make(map[string]map[string]*Group),
+		groupMembers:          make(map[string]map[string]map[string]struct{}),
+		accountID:             accountID,
+		region:                region,
+		endpoint:              endpoint,
 	}
 }
 
@@ -201,14 +211,14 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	delete(b.pools, userPoolID)
 	delete(b.users, userPoolID)
 
-	maps.DeleteFunc(b.clients, func(_ string, client *UserPoolClient) bool {
-		return client.UserPoolID == userPoolID
-	})
+	if poolClients, found := b.clientsByPool[userPoolID]; found {
+		for clientID := range poolClients {
+			delete(b.clients, clientID)
+			b.deleteRefreshTokensForClientLocked(clientID)
+		}
+	}
 
-	// Clean up any refresh tokens issued for users in this pool to prevent leaks.
-	maps.DeleteFunc(b.refreshTokens, func(_ string, entry *refreshTokenEntry) bool {
-		return entry.PoolID == userPoolID
-	})
+	delete(b.clientsByPool, userPoolID)
 
 	// Clean up groups and group memberships for this pool.
 	delete(b.groups, userPoolID)
@@ -233,11 +243,15 @@ func (b *InMemoryBackend) DeleteUserPoolClient(userPoolID, clientID string) erro
 	}
 
 	delete(b.clients, clientID)
+	if poolClients, found := b.clientsByPool[client.UserPoolID]; found {
+		delete(poolClients, clientID)
+		if len(poolClients) == 0 {
+			delete(b.clientsByPool, client.UserPoolID)
+		}
+	}
 
 	// Clean up any refresh tokens issued by this client to prevent leaks.
-	maps.DeleteFunc(b.refreshTokens, func(_ string, entry *refreshTokenEntry) bool {
-		return entry.ClientID == clientID
-	})
+	b.deleteRefreshTokensForClientLocked(clientID)
 
 	return nil
 }
@@ -267,13 +281,12 @@ func (b *InMemoryBackend) ListUserPoolClients(userPoolID string) ([]*UserPoolCli
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	out := make([]*UserPoolClient, 0)
+	poolClients := b.clientsByPool[userPoolID]
+	out := make([]*UserPoolClient, 0, len(poolClients))
 
-	for _, c := range b.clients {
-		if c.UserPoolID == userPoolID {
-			cp := *c
-			out = append(out, &cp)
-		}
+	for _, c := range poolClients {
+		cp := *c
+		out = append(out, &cp)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ClientName < out[j].ClientName })
@@ -298,6 +311,10 @@ func (b *InMemoryBackend) CreateUserPoolClient(userPoolID, clientName string) (*
 	}
 
 	b.clients[client.ClientID] = client
+	if b.clientsByPool[userPoolID] == nil {
+		b.clientsByPool[userPoolID] = make(map[string]*UserPoolClient)
+	}
+	b.clientsByPool[userPoolID][client.ClientID] = client
 
 	cp := *client
 
@@ -582,9 +599,11 @@ func (b *InMemoryBackend) AdminDeleteUser(userPoolID, username string) error {
 	delete(poolUsers, username)
 
 	// Revoke any refresh tokens that belong to this user.
-	maps.DeleteFunc(b.refreshTokens, func(_ string, entry *refreshTokenEntry) bool {
-		return entry.PoolID == userPoolID && entry.Username == username
-	})
+	for token, entry := range b.refreshTokens {
+		if entry.PoolID == userPoolID && entry.Username == username {
+			b.deleteRefreshTokenLocked(token)
+		}
+	}
 
 	return nil
 }
@@ -812,11 +831,12 @@ func (b *InMemoryBackend) authenticate(
 	}
 
 	// Store the refresh token so REFRESH_TOKEN_AUTH can validate it.
-	b.refreshTokens[tokens.RefreshToken] = &refreshTokenEntry{
-		PoolID:   pool.ID,
-		ClientID: clientID,
-		Username: user.Username,
-	}
+	b.storeRefreshTokenLocked(tokens.RefreshToken, &refreshTokenEntry{
+		PoolID:    pool.ID,
+		ClientID:  clientID,
+		Username:  user.Username,
+		ExpiresAt: time.Now().UTC().Add(defaultRefreshTokenTTL),
+	})
 
 	return tokens, nil
 }
@@ -828,6 +848,11 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 
 	entry, ok := b.refreshTokens[refreshToken]
 	if !ok {
+		return nil, fmt.Errorf("%w: refresh token not found or expired", ErrNotAuthorized)
+	}
+	if !entry.ExpiresAt.IsZero() && !entry.ExpiresAt.After(time.Now().UTC()) {
+		b.deleteRefreshTokenLocked(refreshToken)
+
 		return nil, fmt.Errorf("%w: refresh token not found or expired", ErrNotAuthorized)
 	}
 
@@ -860,8 +885,9 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	}
 
 	// Rotate the refresh token: invalidate old, store new.
-	delete(b.refreshTokens, refreshToken)
-	b.refreshTokens[tokens.RefreshToken] = entry
+	b.deleteRefreshTokenLocked(refreshToken)
+	entry.ExpiresAt = time.Now().UTC().Add(defaultRefreshTokenTTL)
+	b.storeRefreshTokenLocked(tokens.RefreshToken, entry)
 
 	return tokens, nil
 }
@@ -881,7 +907,7 @@ func (b *InMemoryBackend) RevokeToken(token, clientID string) error {
 		return fmt.Errorf("%w: token was issued for a different client", ErrNotAuthorized)
 	}
 
-	delete(b.refreshTokens, token)
+	b.deleteRefreshTokenLocked(token)
 
 	return nil
 }
@@ -1233,8 +1259,10 @@ func (b *InMemoryBackend) Reset() {
 	b.pools = make(map[string]*UserPool)
 	b.poolsByName = make(map[string]*UserPool)
 	b.clients = make(map[string]*UserPoolClient)
+	b.clientsByPool = make(map[string]map[string]*UserPoolClient)
 	b.users = make(map[string]map[string]*User)
 	b.refreshTokens = make(map[string]*refreshTokenEntry)
+	b.refreshTokensByClient = make(map[string]map[string]struct{})
 	b.groups = make(map[string]map[string]*Group)
 	b.groupMembers = make(map[string]map[string]map[string]struct{})
 }
@@ -1260,6 +1288,58 @@ func (b *InMemoryBackend) AddUserPoolClientInternal(client *UserPoolClient) {
 	defer b.mu.Unlock()
 
 	b.clients[client.ClientID] = client
+	if b.clientsByPool[client.UserPoolID] == nil {
+		b.clientsByPool[client.UserPoolID] = make(map[string]*UserPoolClient)
+	}
+	b.clientsByPool[client.UserPoolID][client.ClientID] = client
+}
+
+// deleteRefreshTokenLocked deletes a refresh token and updates secondary indexes.
+// Caller must hold b.mu in write mode.
+func (b *InMemoryBackend) deleteRefreshTokenLocked(token string) {
+	entry, ok := b.refreshTokens[token]
+	if !ok {
+		return
+	}
+
+	delete(b.refreshTokens, token)
+
+	clientTokens, ok := b.refreshTokensByClient[entry.ClientID]
+	if !ok {
+		return
+	}
+
+	delete(clientTokens, token)
+	if len(clientTokens) == 0 {
+		delete(b.refreshTokensByClient, entry.ClientID)
+	}
+}
+
+// deleteRefreshTokensForClientLocked deletes all refresh tokens issued for a client.
+// Caller must hold b.mu in write mode.
+func (b *InMemoryBackend) deleteRefreshTokensForClientLocked(clientID string) {
+	clientTokens, ok := b.refreshTokensByClient[clientID]
+	if !ok {
+		return
+	}
+
+	for token := range clientTokens {
+		delete(b.refreshTokens, token)
+	}
+
+	delete(b.refreshTokensByClient, clientID)
+}
+
+// storeRefreshTokenLocked stores a refresh token and updates secondary indexes.
+// Caller must hold b.mu in write mode.
+func (b *InMemoryBackend) storeRefreshTokenLocked(token string, entry *refreshTokenEntry) {
+	b.refreshTokens[token] = entry
+
+	if b.refreshTokensByClient[entry.ClientID] == nil {
+		b.refreshTokensByClient[entry.ClientID] = make(map[string]struct{})
+	}
+
+	b.refreshTokensByClient[entry.ClientID][token] = struct{}{}
 }
 
 // AddUserInternal seeds a user directly into the backend, bypassing normal sign-up.
