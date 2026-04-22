@@ -84,6 +84,9 @@ const (
 	defaultInstanceClass    = "db.t3.micro"
 	defaultAllocatedStorage = 20
 
+	instanceStatusCreating  = "creating"
+	instanceStatusModifying = "modifying"
+	instanceStatusDeleting  = "deleting"
 	instanceStatusAvailable = "available"
 	instanceStatusStopped   = "stopped"
 
@@ -91,6 +94,7 @@ const (
 	backtrackStatusApplying            = "applying"
 	blueGreenDeploymentStatusAvailable = "available"
 	ipRangeStatusAuthorized            = "authorized"
+	instanceTransitionDelay            = 250 * time.Millisecond
 )
 
 // DBInstance represents an RDS database instance.
@@ -257,6 +261,14 @@ type EventSubscription struct {
 	SourceIDs        []string `json:"sourceIds"`
 }
 
+// Event represents a published RDS lifecycle event.
+type Event struct {
+	CreatedAt        time.Time `json:"createdAt"`
+	Message          string    `json:"message"`
+	SourceIdentifier string    `json:"sourceIdentifier"`
+	SourceType       string    `json:"sourceType"`
+}
+
 // IPRange represents a CIDR IP range authorized for a DB security group.
 type IPRange struct {
 	CIDRIP string `json:"cidrip"`
@@ -307,33 +319,38 @@ type DBInstanceOptions struct {
 // InMemoryBackend is the in-memory store for RDS resources.
 type InMemoryBackend struct {
 	dnsRegistrar           DNSRegistrar
-	instances              map[string]*DBInstance
+	clusterEndpoints       map[string]*DBClusterEndpoint
+	parameterGroups        map[string]*DBParameterGroup
+	instanceDeleteAt       map[string]time.Time
 	snapshots              map[string]*DBSnapshot
 	subnetGroups           map[string]*DBSubnetGroup
 	tags                   map[string][]Tag
-	parameterGroups        map[string]*DBParameterGroup
+	instances              map[string]*DBInstance
 	clusterParameterGroups map[string]*DBParameterGroup
 	optionGroups           map[string]*OptionGroup
 	clusters               map[string]*DBCluster
+	instanceReadyAt        map[string]time.Time
 	clusterSnapshots       map[string]*DBClusterSnapshot
-	clusterEndpoints       map[string]*DBClusterEndpoint
-	exportTasks            map[string]*ExportTask
-	globalClusters         map[string]*GlobalCluster
-	clusterRoles           map[string][]string // cluster ID → IAM role ARNs
-	instanceRoles          map[string][]string // instance ID → IAM role ARNs
 	eventSubscriptions     map[string]*EventSubscription
+	globalClusters         map[string]*GlobalCluster
+	clusterRoles           map[string][]string
+	instanceRoles          map[string][]string
+	exportTasks            map[string]*ExportTask
+	mu                     *lockmetrics.RWMutex
 	dbSecurityGroups       map[string]*DBSecurityGroup
 	blueGreenDeployments   map[string]*BlueGreenDeployment
-	fisFailoverFaults      map[string]time.Time // keyed by cluster identifier; value is expiry (zero = permanent)
-	mu                     *lockmetrics.RWMutex
+	fisFailoverFaults      map[string]time.Time
 	accountID              string
 	region                 string
+	events                 []Event
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		instances:              make(map[string]*DBInstance),
+		instanceReadyAt:        make(map[string]time.Time),
+		instanceDeleteAt:       make(map[string]time.Time),
 		snapshots:              make(map[string]*DBSnapshot),
 		subnetGroups:           make(map[string]*DBSubnetGroup),
 		tags:                   make(map[string][]Tag),
@@ -348,6 +365,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clusterRoles:           make(map[string][]string),
 		instanceRoles:          make(map[string][]string),
 		eventSubscriptions:     make(map[string]*EventSubscription),
+		events:                 make([]Event, 0),
 		dbSecurityGroups:       make(map[string]*DBSecurityGroup),
 		blueGreenDeployments:   make(map[string]*BlueGreenDeployment),
 		fisFailoverFaults:      make(map[string]time.Time),
@@ -369,6 +387,8 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.instances = make(map[string]*DBInstance)
+	b.instanceReadyAt = make(map[string]time.Time)
+	b.instanceDeleteAt = make(map[string]time.Time)
 	b.snapshots = make(map[string]*DBSnapshot)
 	b.subnetGroups = make(map[string]*DBSubnetGroup)
 	b.tags = make(map[string][]Tag)
@@ -383,6 +403,7 @@ func (b *InMemoryBackend) Reset() {
 	b.clusterRoles = make(map[string][]string)
 	b.instanceRoles = make(map[string][]string)
 	b.eventSubscriptions = make(map[string]*EventSubscription)
+	b.events = make([]Event, 0)
 	b.dbSecurityGroups = make(map[string]*DBSecurityGroup)
 	b.blueGreenDeployments = make(map[string]*BlueGreenDeployment)
 	b.fisFailoverFaults = make(map[string]time.Time)
@@ -405,6 +426,51 @@ func enginePort(engine string) int {
 	}
 }
 
+func (b *InMemoryBackend) reconcileInstancesLocked() {
+	now := time.Now()
+
+	for id, inst := range b.instances {
+		deleteAt, isDeleting := b.instanceDeleteAt[id]
+		if isDeleting && !deleteAt.IsZero() && now.After(deleteAt) {
+			b.publishInstanceEventLocked(id, "DB instance deleted")
+			if b.dnsRegistrar != nil && inst.Endpoint != "" {
+				b.dnsRegistrar.Deregister(inst.Endpoint)
+			}
+			delete(b.instances, id)
+			delete(b.instanceReadyAt, id)
+			delete(b.instanceDeleteAt, id)
+			delete(b.tags, b.rdsARN("db", id))
+			delete(b.instanceRoles, id)
+
+			continue
+		}
+
+		readyAt, hasReadyAt := b.instanceReadyAt[id]
+		if hasReadyAt && !readyAt.IsZero() && now.After(readyAt) {
+			inst.DBInstanceStatus = instanceStatusAvailable
+			delete(b.instanceReadyAt, id)
+			b.publishInstanceEventLocked(id, "DB instance is now available")
+		}
+	}
+}
+
+func (b *InMemoryBackend) publishInstanceEventLocked(id, msg string) {
+	event := Event{
+		Message:          msg,
+		SourceIdentifier: id,
+		SourceType:       "db-instance",
+		CreatedAt:        time.Now(),
+	}
+
+	// Maintain only a small rolling history to avoid unbounded growth.
+	const maxEvents = 512
+
+	b.events = append(b.events, event)
+	if len(b.events) > maxEvents {
+		b.events = b.events[len(b.events)-maxEvents:]
+	}
+}
+
 // CreateDBInstance creates a new RDS DB instance.
 func (b *InMemoryBackend) CreateDBInstance(
 	id, engine, instanceClass, dbName, masterUser, paramGroupName string,
@@ -416,6 +482,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 
 	b.mu.Lock("CreateDBInstance")
+	b.reconcileInstancesLocked()
 
 	if _, exists := b.instances[id]; exists {
 		b.mu.Unlock()
@@ -451,7 +518,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		DBInstanceClass:                  instanceClass,
 		Engine:                           engine,
 		EngineVersion:                    opts.EngineVersion,
-		DBInstanceStatus:                 instanceStatusAvailable,
+		DBInstanceStatus:                 instanceStatusCreating,
 		MasterUsername:                   masterUser,
 		DBName:                           dbName,
 		Endpoint:                         endpoint,
@@ -467,6 +534,8 @@ func (b *InMemoryBackend) CreateDBInstance(
 		DeletionProtection:               opts.DeletionProtection,
 	}
 	b.instances[id] = inst
+	inst.DBInstanceStatus = instanceStatusAvailable
+	b.publishInstanceEventLocked(id, "DB instance created")
 	cp := *inst
 
 	b.mu.Unlock()
@@ -487,6 +556,7 @@ func (b *InMemoryBackend) rdsARN(resourceType, id string) string {
 // DeleteDBInstance removes the DB instance with the given identifier.
 func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	b.mu.Lock("DeleteDBInstance")
+	b.reconcileInstancesLocked()
 
 	inst, exists := b.instances[id]
 	if !exists {
@@ -504,10 +574,21 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 		)
 	}
 
+	if inst.DBInstanceStatus == instanceStatusDeleting {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: instance %s is already being deleted", ErrInvalidDBInstanceState, id)
+	}
+
+	inst.DBInstanceStatus = instanceStatusDeleting
+	b.publishInstanceEventLocked(id, "DB instance deletion started")
 	cp := *inst
 	delete(b.instances, id)
 	delete(b.tags, b.rdsARN("db", id))
 	delete(b.instanceRoles, id)
+	delete(b.instanceReadyAt, id)
+	delete(b.instanceDeleteAt, id)
+	b.publishInstanceEventLocked(id, "DB instance deleted")
 
 	b.mu.Unlock()
 
@@ -520,22 +601,27 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 
 // DescribeDBInstances returns instances. If id is non-empty, returns only that instance.
 func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
-	b.mu.RLock("DescribeDBInstances")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeDBInstances")
+	b.reconcileInstancesLocked()
 
 	if id != "" {
 		inst, exists := b.instances[id]
 		if !exists {
+			b.mu.Unlock()
+
 			return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 		}
+		cp := *inst
+		b.mu.Unlock()
 
-		return []DBInstance{*inst}, nil
+		return []DBInstance{cp}, nil
 	}
 
 	instances := make([]DBInstance, 0, len(b.instances))
 	for _, inst := range b.instances {
 		instances = append(instances, *inst)
 	}
+	b.mu.Unlock()
 
 	return instances, nil
 }
@@ -547,6 +633,7 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	opts DBInstanceOptions,
 ) (*DBInstance, error) {
 	b.mu.Lock("ModifyDBInstance")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 
 	inst, exists := b.instances[id]
@@ -576,6 +663,9 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		inst.DeletionProtection = opts.DeletionProtection
 	}
 
+	inst.DBInstanceStatus = instanceStatusModifying
+	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.publishInstanceEventLocked(id, "DB instance modification started")
 	cp := *inst
 
 	return &cp, nil
@@ -710,6 +800,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 	}
 
 	b.mu.Lock("RestoreDBInstanceFromDBSnapshot")
+	b.reconcileInstancesLocked()
 
 	if _, exists := b.instances[id]; exists {
 		b.mu.Unlock()
@@ -742,7 +833,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		DbiResourceID:        id,
 		Engine:               snap.Engine,
 		EngineVersion:        snap.EngineVersion,
-		DBInstanceStatus:     instanceStatusAvailable,
+		DBInstanceStatus:     instanceStatusCreating,
 		Endpoint:             endpoint,
 		Port:                 port,
 		AllocatedStorage:     snap.AllocatedStorage,
@@ -753,6 +844,8 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		DeletionProtection:   opts.DeletionProtection,
 	}
 	b.instances[id] = inst
+	inst.DBInstanceStatus = instanceStatusAvailable
+	b.publishInstanceEventLocked(id, "DB instance restored from snapshot")
 	cp := *inst
 
 	b.mu.Unlock()
@@ -777,6 +870,7 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 	}
 
 	b.mu.Lock("RestoreDBInstanceToPointInTime")
+	b.reconcileInstancesLocked()
 
 	if _, exists := b.instances[id]; exists {
 		b.mu.Unlock()
@@ -805,7 +899,7 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 		DBInstanceClass:      source.DBInstanceClass,
 		Engine:               source.Engine,
 		EngineVersion:        source.EngineVersion,
-		DBInstanceStatus:     instanceStatusAvailable,
+		DBInstanceStatus:     instanceStatusCreating,
 		MasterUsername:       source.MasterUsername,
 		DBName:               source.DBName,
 		Endpoint:             endpoint,
@@ -819,6 +913,8 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 		DeletionProtection:   opts.DeletionProtection,
 	}
 	b.instances[id] = inst
+	inst.DBInstanceStatus = instanceStatusAvailable
+	b.publishInstanceEventLocked(id, "DB instance restored to point in time")
 	cp := *inst
 
 	b.mu.Unlock()
@@ -837,6 +933,7 @@ func (b *InMemoryBackend) StartDBInstance(id string) (*DBInstance, error) {
 	}
 
 	b.mu.Lock("StartDBInstance")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 
 	inst, exists := b.instances[id]
@@ -860,6 +957,7 @@ func (b *InMemoryBackend) StopDBInstance(id string) (*DBInstance, error) {
 	}
 
 	b.mu.Lock("StopDBInstance")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 
 	inst, exists := b.instances[id]
@@ -1428,6 +1526,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBI
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier must not be empty", ErrInvalidParameter)
 	}
 	b.mu.Lock("CreateDBInstanceReadReplica")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 	if _, exists := b.instances[id]; exists {
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
@@ -1443,7 +1542,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBI
 		DbiResourceID:                     id,
 		DBInstanceClass:                   source.DBInstanceClass,
 		Engine:                            source.Engine,
-		DBInstanceStatus:                  instanceStatusAvailable,
+		DBInstanceStatus:                  instanceStatusCreating,
 		MasterUsername:                    source.MasterUsername,
 		Endpoint:                          endpoint,
 		Port:                              port,
@@ -1451,6 +1550,8 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBI
 		ReplicaSourceDBInstanceIdentifier: sourceID,
 	}
 	b.instances[id] = replica
+	replica.DBInstanceStatus = instanceStatusAvailable
+	b.publishInstanceEventLocked(id, "DB read replica created")
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
 	}
@@ -1462,6 +1563,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBI
 // PromoteReadReplica promotes a read replica to a standalone instance.
 func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 	b.mu.Lock("PromoteReadReplica")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 	inst, exists := b.instances[id]
 	if !exists {
@@ -1476,12 +1578,14 @@ func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 // RebootDBInstance reboots the given instance.
 func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	b.mu.Lock("RebootDBInstance")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 	inst, exists := b.instances[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 	inst.DBInstanceStatus = instanceStatusAvailable
+	delete(b.instanceReadyAt, id)
 	cp := *inst
 
 	return &cp, nil

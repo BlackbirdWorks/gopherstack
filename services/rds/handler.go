@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -21,6 +23,8 @@ const (
 	rdsVersion = "2014-10-31"
 	rdsXMLNS   = "http://rds.amazonaws.com/doc/2014-10-31/"
 	formTrue   = "true"
+
+	rdsDescribeDefaultPageSize = 100
 )
 
 // Handler is the Echo HTTP handler for RDS operations.
@@ -509,21 +513,25 @@ func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-
 	instances, err := h.Backend.DescribeDBInstances(id)
 	if err != nil {
 		return nil, err
 	}
+	members, marker, err := paginateDescribe(vals, instances, func(a, b DBInstance) bool {
+		return a.DBInstanceIdentifier < b.DBInstanceIdentifier
+	}, func(item DBInstance) xmlDBInstance {
+		cp := item
 
-	members := make([]xmlDBInstance, 0, len(instances))
-	for _, inst := range instances {
-		cp := inst
-		members = append(members, toXMLInstance(&cp))
+		return toXMLInstance(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBInstancesResponse{
 		Xmlns:       rdsXMLNS,
 		DBInstances: xmlDBInstanceList{Members: members},
+		Marker:      marker,
 	}, nil
 }
 
@@ -595,16 +603,21 @@ func (h *Handler) handleDescribeDBSnapshots(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	members, marker, err := paginateDescribe(vals, snaps, func(a, b DBSnapshot) bool {
+		return a.DBSnapshotIdentifier < b.DBSnapshotIdentifier
+	}, func(item DBSnapshot) xmlDBSnapshot {
+		cp := item
 
-	members := make([]xmlDBSnapshot, 0, len(snaps))
-	for _, snap := range snaps {
-		cp := snap
-		members = append(members, toXMLSnapshot(&cp))
+		return toXMLSnapshot(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBSnapshotsResponse{
 		Xmlns:       rdsXMLNS,
 		DBSnapshots: xmlDBSnapshotList{Members: members},
+		Marker:      marker,
 	}, nil
 }
 
@@ -646,16 +659,21 @@ func (h *Handler) handleDescribeDBSubnetGroups(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	members, marker, err := paginateDescribe(vals, sgs, func(a, b DBSubnetGroup) bool {
+		return a.DBSubnetGroupName < b.DBSubnetGroupName
+	}, func(item DBSubnetGroup) xmlDBSubnetGroup {
+		cp := item
 
-	members := make([]xmlDBSubnetGroup, 0, len(sgs))
-	for _, sg := range sgs {
-		cp := sg
-		members = append(members, toXMLSubnetGroup(&cp))
+		return toXMLSubnetGroup(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBSubnetGroupsResponse{
 		Xmlns:          rdsXMLNS,
 		DBSubnetGroups: xmlDBSubnetGroupList{Members: members},
+		Marker:         marker,
 	}, nil
 }
 
@@ -916,6 +934,7 @@ type deleteDBInstanceResponse struct {
 type describeDBInstancesResponse struct {
 	XMLName     xml.Name          `xml:"DescribeDBInstancesResponse"`
 	Xmlns       string            `xml:"xmlns,attr"`
+	Marker      string            `xml:"DescribeDBInstancesResult>Marker,omitempty"`
 	DBInstances xmlDBInstanceList `xml:"DescribeDBInstancesResult>DBInstances"`
 }
 
@@ -956,6 +975,7 @@ type deleteDBSnapshotResponse struct {
 type describeDBSnapshotsResponse struct {
 	XMLName     xml.Name          `xml:"DescribeDBSnapshotsResponse"`
 	Xmlns       string            `xml:"xmlns,attr"`
+	Marker      string            `xml:"DescribeDBSnapshotsResult>Marker,omitempty"`
 	DBSnapshots xmlDBSnapshotList `xml:"DescribeDBSnapshotsResult>DBSnapshots"`
 }
 
@@ -993,6 +1013,7 @@ type deleteDBSubnetGroupResponse struct {
 type describeDBSubnetGroupsResponse struct {
 	XMLName        xml.Name             `xml:"DescribeDBSubnetGroupsResponse"`
 	Xmlns          string               `xml:"xmlns,attr"`
+	Marker         string               `xml:"DescribeDBSubnetGroupsResult>Marker,omitempty"`
 	DBSubnetGroups xmlDBSubnetGroupList `xml:"DescribeDBSubnetGroupsResult>DBSubnetGroups"`
 }
 
@@ -1050,6 +1071,50 @@ func parseTagKeyMembers(vals url.Values) []string {
 		}
 		keys = append(keys, k)
 	}
+}
+
+func parseDescribePagination(vals url.Values) (string, int, error) {
+	marker := vals.Get("Marker")
+	maxRecords := 0
+	rawMaxRecords := vals.Get("MaxRecords")
+	if rawMaxRecords == "" {
+		return marker, maxRecords, nil
+	}
+
+	maxRecords, err := strconv.Atoi(rawMaxRecords)
+	if err != nil {
+		return "", 0, fmt.Errorf("%w: invalid MaxRecords %q", ErrInvalidParameter, rawMaxRecords)
+	}
+
+	if maxRecords <= 0 {
+		return "", 0, fmt.Errorf("%w: MaxRecords must be greater than 0", ErrInvalidParameter)
+	}
+
+	return marker, maxRecords, nil
+}
+
+func paginateDescribe[T any, X any](
+	vals url.Values,
+	data []T,
+	less func(a, b T) bool,
+	convert func(T) X,
+) ([]X, string, error) {
+	marker, maxRecords, err := parseDescribePagination(vals)
+	if err != nil {
+		return nil, "", err
+	}
+
+	sort.Slice(data, func(i, j int) bool {
+		return less(data[i], data[j])
+	})
+
+	p := page.New(data, marker, maxRecords, rdsDescribeDefaultPageSize)
+	members := make([]X, 0, len(p.Data))
+	for _, item := range p.Data {
+		members = append(members, convert(item))
+	}
+
+	return members, p.Next, nil
 }
 
 // parseParameterMembers parses Parameters.Parameter.N.ParameterName/ParameterValue form values.
@@ -1279,15 +1344,21 @@ func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBCluster, 0, len(clusters))
-	for _, c := range clusters {
-		cp := c
-		members = append(members, toXMLCluster(&cp))
+	members, marker, err := paginateDescribe(vals, clusters, func(a, b DBCluster) bool {
+		return a.DBClusterIdentifier < b.DBClusterIdentifier
+	}, func(item DBCluster) xmlDBCluster {
+		cp := item
+
+		return toXMLCluster(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBClustersResponse{
 		Xmlns:      rdsXMLNS,
 		DBClusters: xmlDBClusterList{Members: members},
+		Marker:     marker,
 	}, nil
 }
 
@@ -1915,6 +1986,7 @@ type createDBClusterResponse struct {
 type describeDBClustersResponse struct {
 	XMLName    xml.Name         `xml:"DescribeDBClustersResponse"`
 	Xmlns      string           `xml:"xmlns,attr"`
+	Marker     string           `xml:"DescribeDBClustersResult>Marker,omitempty"`
 	DBClusters xmlDBClusterList `xml:"DescribeDBClustersResult>DBClusters"`
 }
 
