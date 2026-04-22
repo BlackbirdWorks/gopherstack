@@ -180,6 +180,36 @@ type StorageBackend interface {
 	) (*ReservedDBInstance, error)
 	DescribeReservedDBInstances(reservedDBInstanceID, dbInstanceClass string) []ReservedDBInstance
 	DescribeReservedDBInstancesOfferings(offeringID, dbInstanceClass string) []ReservedDBInstancesOffering
+
+	// DB Proxy operations
+	CreateDBProxy(name, engineFamily, roleARN string, auth []UserAuthConfig) (*DBProxy, error)
+	DeleteDBProxy(name string) (*DBProxy, error)
+	DescribeDBProxies(name string) ([]DBProxy, error)
+	ModifyDBProxy(name string, requireTLS *bool, idleClientTimeout *int, auth []UserAuthConfig) (*DBProxy, error)
+
+	// DB Proxy target operations
+	RegisterDBProxyTargets(
+		proxyName, targetGroupName string,
+		dbInstanceIDs, dbClusterIDs []string,
+	) ([]DBProxyTarget, error)
+	DeregisterDBProxyTargets(proxyName, targetGroupName string, dbInstanceIDs, dbClusterIDs []string) error
+	DescribeDBProxyTargets(proxyName, targetGroupName string) ([]DBProxyTarget, error)
+	DescribeDBProxyTargetGroups(proxyName, targetGroupName string) ([]DBProxyTargetGroup, error)
+	ModifyDBProxyTargetGroup(proxyName, targetGroupName string, cfg ConnectionPoolConfig) (*DBProxyTargetGroup, error)
+
+	// DB Proxy endpoint operations
+	CreateDBProxyEndpoint(
+		proxyName, endpointName, targetRole string,
+		vpcSubnetIDs, vpcSGIDs []string,
+	) (*DBProxyEndpoint, error)
+	DeleteDBProxyEndpoint(endpointName string) (*DBProxyEndpoint, error)
+	DescribeDBProxyEndpoints(proxyName, endpointName string) ([]DBProxyEndpoint, error)
+	ModifyDBProxyEndpoint(endpointName string, vpcSGIDs []string) (*DBProxyEndpoint, error)
+
+	// Activity stream operations
+	StartActivityStream(clusterID, kmsKeyID, mode string) (*DBCluster, error)
+	StopActivityStream(clusterID string) (*DBCluster, error)
+	ModifyActivityStream(clusterID string, auditPolicy string) (*DBCluster, error)
 }
 
 // Ensure InMemoryBackend satisfies the StorageBackend interface at compile time.

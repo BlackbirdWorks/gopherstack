@@ -28,6 +28,10 @@ type backendSnapshot struct {
 	ClusterSnapshotAttributes map[string]*DBClusterSnapshotAttributesResult `json:"clusterSnapshotAttributes"`
 	ReservedInstances         map[string]*ReservedDBInstance                `json:"reservedInstances"`
 	Recommendations           map[string]*DBRecommendation                  `json:"recommendations"`
+	Proxies                   map[string]*DBProxy                           `json:"proxies"`
+	ProxyTargetGroups         map[string]*DBProxyTargetGroup                `json:"proxyTargetGroups"`
+	ProxyTargets              map[string][]DBProxyTarget                    `json:"proxyTargets"`
+	ProxyEndpoints            map[string]*DBProxyEndpoint                   `json:"proxyEndpoints"`
 	InstanceReadyAt           map[string]time.Time                          `json:"instanceReadyAt"`
 	AccountID                 string                                        `json:"accountID"`
 	Region                    string                                        `json:"region"`
@@ -61,6 +65,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ClusterSnapshotAttributes: b.clusterSnapshotAttributes,
 		ReservedInstances:         b.reservedInstances,
 		Recommendations:           b.recommendations,
+		Proxies:                   b.proxies,
+		ProxyTargetGroups:         b.proxyTargetGroups,
+		ProxyTargets:              b.proxyTargets,
+		ProxyEndpoints:            b.proxyEndpoints,
 		InstanceReadyAt:           b.instanceReadyAt,
 		AccountID:                 b.accountID,
 		Region:                    b.region,
@@ -111,6 +119,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.clusterSnapshotAttributes = snap.ClusterSnapshotAttributes
 	b.reservedInstances = snap.ReservedInstances
 	b.recommendations = snap.Recommendations
+	b.proxies = snap.Proxies
+	b.proxyTargetGroups = snap.ProxyTargetGroups
+	b.proxyTargets = snap.ProxyTargets
+	b.proxyEndpoints = snap.ProxyEndpoints
 	b.instanceReadyAt = snap.InstanceReadyAt
 	b.accountID = snap.AccountID
 	b.region = snap.Region
@@ -221,6 +233,22 @@ func ensureNonNilExtendedMaps(snap *backendSnapshot) {
 
 	if snap.Recommendations == nil {
 		snap.Recommendations = make(map[string]*DBRecommendation)
+	}
+
+	if snap.Proxies == nil {
+		snap.Proxies = make(map[string]*DBProxy)
+	}
+
+	if snap.ProxyTargetGroups == nil {
+		snap.ProxyTargetGroups = make(map[string]*DBProxyTargetGroup)
+	}
+
+	if snap.ProxyTargets == nil {
+		snap.ProxyTargets = make(map[string][]DBProxyTarget)
+	}
+
+	if snap.ProxyEndpoints == nil {
+		snap.ProxyEndpoints = make(map[string]*DBProxyEndpoint)
 	}
 }
 

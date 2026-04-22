@@ -188,16 +188,21 @@ type OptionGroup struct {
 
 // DBCluster represents an Aurora-style RDS cluster.
 type DBCluster struct {
-	DBClusterIdentifier         string `json:"dbClusterIdentifier"`
-	Engine                      string `json:"engine"`
-	Status                      string `json:"status"`
-	MasterUsername              string `json:"masterUsername"`
-	DatabaseName                string `json:"databaseName"`
-	DBClusterParameterGroupName string `json:"dbClusterParameterGroupName"`
-	Endpoint                    string `json:"endpoint"`
-	Port                        int    `json:"port"`
-	ServerlessCapacity          int    `json:"serverlessCapacity"`
-	HTTPEndpointEnabled         bool   `json:"httpEndpointEnabled"`
+	Endpoint                        string `json:"endpoint"`
+	ActivityStreamStatus            string `json:"activityStreamStatus"`
+	Status                          string `json:"status"`
+	MasterUsername                  string `json:"masterUsername"`
+	DatabaseName                    string `json:"databaseName"`
+	DBClusterParameterGroupName     string `json:"dbClusterParameterGroupName"`
+	Engine                          string `json:"engine"`
+	ActivityStreamAuditPolicy       string `json:"activityStreamAuditPolicy"`
+	DBClusterIdentifier             string `json:"dbClusterIdentifier"`
+	ActivityStreamKinesisStreamName string `json:"activityStreamKinesisStreamName"`
+	ActivityStreamKMSKeyID          string `json:"activityStreamKmsKeyId"`
+	ActivityStreamMode              string `json:"activityStreamMode"`
+	Port                            int    `json:"port"`
+	ServerlessCapacity              int    `json:"serverlessCapacity"`
+	HTTPEndpointEnabled             bool   `json:"httpEndpointEnabled"`
 }
 
 // DBClusterSnapshot represents an RDS cluster snapshot.
@@ -449,6 +454,10 @@ type InMemoryBackend struct {
 	clusterSnapshotAttributes map[string]*DBClusterSnapshotAttributesResult
 	reservedInstances         map[string]*ReservedDBInstance
 	recommendations           map[string]*DBRecommendation
+	proxies                   map[string]*DBProxy
+	proxyTargetGroups         map[string]*DBProxyTargetGroup
+	proxyTargets              map[string][]DBProxyTarget
+	proxyEndpoints            map[string]*DBProxyEndpoint
 	fisFailoverFaults         map[string]time.Time
 	stopCh                    chan struct{}
 	accountID                 string
@@ -483,6 +492,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clusterSnapshotAttributes: make(map[string]*DBClusterSnapshotAttributesResult),
 		reservedInstances:         make(map[string]*ReservedDBInstance),
 		recommendations:           make(map[string]*DBRecommendation),
+		proxies:                   make(map[string]*DBProxy),
+		proxyTargetGroups:         make(map[string]*DBProxyTargetGroup),
+		proxyTargets:              make(map[string][]DBProxyTarget),
+		proxyEndpoints:            make(map[string]*DBProxyEndpoint),
 		stopCh:                    make(chan struct{}),
 		accountID:                 accountID,
 		region:                    region,
@@ -534,6 +547,10 @@ func (b *InMemoryBackend) Reset() {
 	b.clusterSnapshotAttributes = make(map[string]*DBClusterSnapshotAttributesResult)
 	b.reservedInstances = make(map[string]*ReservedDBInstance)
 	b.recommendations = make(map[string]*DBRecommendation)
+	b.proxies = make(map[string]*DBProxy)
+	b.proxyTargetGroups = make(map[string]*DBProxyTargetGroup)
+	b.proxyTargets = make(map[string][]DBProxyTarget)
+	b.proxyEndpoints = make(map[string]*DBProxyEndpoint)
 }
 
 // SetDNSRegistrar wires a DNS server so RDS instance hostnames are auto-registered.

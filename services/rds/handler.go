@@ -77,6 +77,8 @@ func supportedOpsBase() []string {
 		"CreateDBInstance",
 		"CreateDBInstanceReadReplica",
 		"CreateDBParameterGroup",
+		"CreateDBProxy",
+		"CreateDBProxyEndpoint",
 		"CreateDBSecurityGroup",
 		"CreateDBSnapshot",
 		"CreateDBSubnetGroup",
@@ -90,12 +92,15 @@ func supportedOpsBase() []string {
 		"DeleteDBClusterSnapshot",
 		"DeleteDBInstance",
 		"DeleteDBParameterGroup",
+		"DeleteDBProxy",
+		"DeleteDBProxyEndpoint",
 		"DeleteDBSecurityGroup",
 		"DeleteDBSnapshot",
 		"DeleteDBSubnetGroup",
 		"DeleteEventSubscription",
 		"DeleteGlobalCluster",
 		"DeleteOptionGroup",
+		"DeregisterDBProxyTargets",
 		"DescribeAccountAttributes",
 		"DescribeBlueGreenDeployments",
 		"DescribeCertificates",
@@ -112,6 +117,10 @@ func supportedOpsBase() []string {
 		"DescribeDBMajorEngineVersions",
 		"DescribeDBParameterGroups",
 		"DescribeDBParameters",
+		"DescribeDBProxies",
+		"DescribeDBProxyEndpoints",
+		"DescribeDBProxyTargetGroups",
+		"DescribeDBProxyTargets",
 		"DescribeDBRecommendations",
 		"DescribeDBSecurityGroups",
 		"DescribeDBSnapshotAttributes",
@@ -143,6 +152,7 @@ func supportedOpsExtended() []string {
 		"FailoverDBCluster",
 		"FailoverGlobalCluster",
 		"ListTagsForResource",
+		"ModifyActivityStream",
 		"ModifyCertificates",
 		"ModifyCurrentDBClusterCapacity",
 		"ModifyDBCluster",
@@ -151,6 +161,9 @@ func supportedOpsExtended() []string {
 		"ModifyDBClusterSnapshotAttribute",
 		"ModifyDBInstance",
 		"ModifyDBParameterGroup",
+		"ModifyDBProxy",
+		"ModifyDBProxyEndpoint",
+		"ModifyDBProxyTargetGroup",
 		"ModifyDBRecommendation",
 		"ModifyDBSnapshot",
 		"ModifyDBSnapshotAttribute",
@@ -163,6 +176,7 @@ func supportedOpsExtended() []string {
 		"PurchaseReservedDBInstancesOffering",
 		"RebootDBCluster",
 		"RebootDBInstance",
+		"RegisterDBProxyTargets",
 		"RemoveFromGlobalCluster",
 		"RemoveRoleFromDBCluster",
 		"RemoveRoleFromDBInstance",
@@ -177,9 +191,11 @@ func supportedOpsExtended() []string {
 		"RestoreDBInstanceFromS3",
 		"RestoreDBInstanceToPointInTime",
 		"RevokeDBSecurityGroupIngress",
+		"StartActivityStream",
 		"StartDBCluster",
 		"StartDBInstance",
 		"StartExportTask",
+		"StopActivityStream",
 		"StopDBCluster",
 		"StopDBInstance",
 		"SwitchoverBlueGreenDeployment",
@@ -1892,14 +1908,18 @@ func toXMLOptionGroup(og *OptionGroup) xmlOptionGroup {
 
 func toXMLCluster(c *DBCluster) xmlDBCluster {
 	return xmlDBCluster{
-		DBClusterIdentifier:         c.DBClusterIdentifier,
-		Engine:                      c.Engine,
-		Status:                      c.Status,
-		MasterUsername:              c.MasterUsername,
-		DatabaseName:                c.DatabaseName,
-		DBClusterParameterGroupName: c.DBClusterParameterGroupName,
-		Endpoint:                    c.Endpoint,
-		Port:                        c.Port,
+		DBClusterIdentifier:             c.DBClusterIdentifier,
+		Engine:                          c.Engine,
+		Status:                          c.Status,
+		MasterUsername:                  c.MasterUsername,
+		DatabaseName:                    c.DatabaseName,
+		DBClusterParameterGroupName:     c.DBClusterParameterGroupName,
+		Endpoint:                        c.Endpoint,
+		Port:                            c.Port,
+		ActivityStreamStatus:            c.ActivityStreamStatus,
+		ActivityStreamMode:              c.ActivityStreamMode,
+		ActivityStreamKMSKeyID:          c.ActivityStreamKMSKeyID,
+		ActivityStreamKinesisStreamName: c.ActivityStreamKinesisStreamName,
 	}
 }
 
@@ -2026,14 +2046,18 @@ type describeOptionGroupOptionsResponse struct {
 // ---- Cluster XML types ----
 
 type xmlDBCluster struct {
-	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
-	Engine                      string `xml:"Engine"`
-	Status                      string `xml:"Status"`
-	MasterUsername              string `xml:"MasterUsername"`
-	DatabaseName                string `xml:"DatabaseName,omitempty"`
-	DBClusterParameterGroupName string `xml:"DBClusterParameterGroup"`
-	Endpoint                    string `xml:"Endpoint,omitempty"`
-	Port                        int    `xml:"Port"`
+	DBClusterIdentifier             string `xml:"DBClusterIdentifier"`
+	Engine                          string `xml:"Engine"`
+	Status                          string `xml:"Status"`
+	MasterUsername                  string `xml:"MasterUsername"`
+	DatabaseName                    string `xml:"DatabaseName,omitempty"`
+	DBClusterParameterGroupName     string `xml:"DBClusterParameterGroup"`
+	Endpoint                        string `xml:"Endpoint,omitempty"`
+	ActivityStreamStatus            string `xml:"ActivityStreamStatus,omitempty"`
+	ActivityStreamMode              string `xml:"ActivityStreamMode,omitempty"`
+	ActivityStreamKMSKeyID          string `xml:"ActivityStreamKmsKeyId,omitempty"`
+	ActivityStreamKinesisStreamName string `xml:"ActivityStreamKinesisStreamName,omitempty"`
+	Port                            int    `xml:"Port"`
 }
 
 type xmlDBClusterList struct {

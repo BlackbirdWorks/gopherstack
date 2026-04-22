@@ -2,7 +2,6 @@ package rds
 
 import (
 	"encoding/xml"
-	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -90,7 +89,7 @@ func (h *Handler) dispatchExtended11(action string, vals url.Values) (any, error
 	case "DescribeReservedDBInstancesOfferings":
 		return h.handleDescribeReservedDBInstancesOfferings(vals)
 	default:
-		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
+		return h.dispatchExtended12(action, vals)
 	}
 }
 
