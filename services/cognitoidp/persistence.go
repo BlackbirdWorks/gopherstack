@@ -25,6 +25,7 @@ type userPoolSnapshot struct {
 	IssuerURL        string            `json:"issuerUrl"`
 	KeyID            string            `json:"keyId"`
 	PrivKeyPEM       string            `json:"privKeyPem"`
+	MfaConfiguration string            `json:"mfaConfiguration,omitempty"`
 	CustomAttributes []SchemaAttribute `json:"customAttributes,omitempty"`
 }
 
@@ -111,6 +112,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			KeyID:            p.issuer.keyID,
 			PrivKeyPEM:       pem,
 			CustomAttributes: p.CustomAttributes,
+			MfaConfiguration: p.MfaConfiguration,
 		}
 	}
 
@@ -184,6 +186,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.clientsByPool = buildClientsByPoolIndex(b.clients)
 	b.refreshTokens = snap.RefreshTokens
 	b.refreshTokensByClient = buildRefreshTokensByClientIndex(b.refreshTokens)
+	b.refreshTokensByUser = buildRefreshTokensByUserIndex(b.refreshTokens)
 	b.groups = snap.Groups
 	b.groupMembers = snap.GroupMembers
 	b.accountID = snap.AccountID
@@ -216,6 +219,22 @@ func buildRefreshTokensByClientIndex(
 		}
 
 		index[entry.ClientID][token] = struct{}{}
+	}
+
+	return index
+}
+
+func buildRefreshTokensByUserIndex(
+	refreshTokens map[string]*refreshTokenEntry,
+) map[string]map[string]struct{} {
+	index := make(map[string]map[string]struct{})
+	for token, entry := range refreshTokens {
+		userKey := entry.PoolID + ":" + entry.Username
+		if index[userKey] == nil {
+			index[userKey] = make(map[string]struct{})
+		}
+
+		index[userKey][token] = struct{}{}
 	}
 
 	return index
@@ -263,6 +282,7 @@ func restorePoolsFromSnapshot(
 			Name:             ps.Name,
 			ARN:              ps.ARN,
 			CustomAttributes: ps.CustomAttributes,
+			MfaConfiguration: ps.MfaConfiguration,
 		}
 
 		if rsaKey != nil {

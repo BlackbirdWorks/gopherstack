@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"strings"
@@ -112,6 +113,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AdminDisableUser",
 		"AdminEnableUser",
 		"AdminForgetDevice",
+		"ListUsersInGroup",
+		"AdminUserGlobalSignOut",
+		"GlobalSignOut",
+		"ResendConfirmationCode",
+		"SetUserPoolMfaConfig",
+		"UpdateGroup",
+		"GetSigningCertificate",
 	}
 }
 
@@ -246,6 +254,13 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"AdminDisableUser":            service.WrapOp(h.handleAdminDisableUser),
 		"AdminEnableUser":             service.WrapOp(h.handleAdminEnableUser),
 		"AdminForgetDevice":           service.WrapOp(h.handleAdminForgetDevice),
+		"ListUsersInGroup":            service.WrapOp(h.handleListUsersInGroup),
+		"AdminUserGlobalSignOut":      service.WrapOp(h.handleAdminUserGlobalSignOut),
+		"GlobalSignOut":               service.WrapOp(h.handleGlobalSignOut),
+		"ResendConfirmationCode":      service.WrapOp(h.handleResendConfirmationCode),
+		"SetUserPoolMfaConfig":        service.WrapOp(h.handleSetUserPoolMfaConfig),
+		"UpdateGroup":                 service.WrapOp(h.handleUpdateGroup),
+		"GetSigningCertificate":       service.WrapOp(h.handleGetSigningCertificate),
 	}
 }
 
@@ -384,6 +399,14 @@ type userPoolData struct {
 	LastModifiedDate   float64              `json:"LastModifiedDate"`
 }
 
+func mfaConfigOrDefault(s string) string {
+	if s == "" {
+		return "OFF"
+	}
+
+	return s
+}
+
 // poolToData converts a UserPool to the userPoolData wire format.
 func poolToData(pool *UserPool) userPoolData {
 	return userPoolData{
@@ -393,7 +416,7 @@ func poolToData(pool *UserPool) userPoolData {
 		CreationDate:       float64(pool.CreatedAt.Unix()),
 		LastModifiedDate:   float64(pool.CreatedAt.Unix()),
 		DeletionProtection: "INACTIVE",
-		MfaConfiguration:   "OFF",
+		MfaConfiguration:   mfaConfigOrDefault(pool.MfaConfiguration),
 		SchemaAttributes:   sortedCustomAttributes(pool.CustomAttributes),
 	}
 }
@@ -555,11 +578,17 @@ func (h *Handler) handleGetUserPoolMfaConfig(
 	_ context.Context,
 	in *getUserPoolMfaConfigInput,
 ) (*getUserPoolMfaConfigOutput, error) {
-	if _, err := h.Backend.DescribeUserPool(in.UserPoolID); err != nil {
+	pool, err := h.Backend.DescribeUserPool(in.UserPoolID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &getUserPoolMfaConfigOutput{MfaConfiguration: "OFF"}, nil
+	mfa := pool.MfaConfiguration
+	if mfa == "" {
+		mfa = "OFF"
+	}
+
+	return &getUserPoolMfaConfigOutput{MfaConfiguration: mfa}, nil
 }
 
 type listUserPoolClientsInput struct {
@@ -711,6 +740,24 @@ func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOut
 }
 
 func (h *Handler) handleAdminInitiateAuth(_ context.Context, in *authInput) (*authOutput, error) {
+	if in.AuthFlow == "REFRESH_TOKEN_AUTH" || in.AuthFlow == "REFRESH_TOKEN" {
+		refreshToken := in.AuthParameters["REFRESH_TOKEN"]
+		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
+		if err != nil {
+			return nil, err
+		}
+
+		return &authOutput{
+			AuthenticationResult: &authResult{
+				AccessToken:  tokens.AccessToken,
+				IDToken:      tokens.IDToken,
+				RefreshToken: tokens.RefreshToken,
+				TokenType:    "Bearer",
+				ExpiresIn:    tokens.ExpiresIn,
+			},
+		}, nil
+	}
+
 	username := in.AuthParameters["USERNAME"]
 	password := in.AuthParameters["PASSWORD"]
 
@@ -808,12 +855,18 @@ func (h *Handler) handleAdminGetUser(_ context.Context, in *adminGetUserInput) (
 		return nil, err
 	}
 
+	attrs := maps.Clone(user.Attributes)
+	if attrs == nil {
+		attrs = make(map[string]string)
+	}
+	attrs["sub"] = user.Sub
+
 	return &adminGetUserOutput{
 		Username:             user.Username,
 		UserStatus:           user.Status,
 		UserCreateDate:       float64(user.CreatedAt.Unix()),
 		UserLastModifiedDate: float64(user.CreatedAt.Unix()),
-		UserAttributes:       sortedAttributeList(user.Attributes),
+		UserAttributes:       sortedAttributeList(attrs),
 		Enabled:              user.Enabled,
 	}, nil
 }
@@ -993,9 +1046,15 @@ func (h *Handler) handleGetUser(
 		return nil, err
 	}
 
+	attrs := maps.Clone(user.Attributes)
+	if attrs == nil {
+		attrs = make(map[string]string)
+	}
+	attrs["sub"] = user.Sub
+
 	return &getUserOutput{
 		Username:       user.Username,
-		UserAttributes: sortedAttributeList(user.Attributes),
+		UserAttributes: sortedAttributeList(attrs),
 	}, nil
 }
 
@@ -1349,4 +1408,156 @@ func (h *Handler) handleAdminForgetDevice(
 	}
 
 	return &adminForgetDeviceOutput{}, nil
+}
+
+type listUsersInGroupInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	GroupName  string `json:"GroupName"`
+}
+
+type listUsersInGroupOutput struct {
+	Users []*userSummary `json:"Users"`
+}
+
+func (h *Handler) handleListUsersInGroup(
+	_ context.Context,
+	in *listUsersInGroupInput,
+) (*listUsersInGroupOutput, error) {
+	users, err := h.Backend.ListUsersInGroup(in.UserPoolID, in.GroupName)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]*userSummary, 0, len(users))
+	for _, u := range users {
+		summaries = append(summaries, &userSummary{
+			Username:         u.Username,
+			UserStatus:       u.Status,
+			UserCreateDate:   float64(u.CreatedAt.Unix()),
+			UserLastModified: float64(u.CreatedAt.Unix()),
+			Attributes:       sortedAttributeList(u.Attributes),
+			Enabled:          u.Enabled,
+		})
+	}
+
+	return &listUsersInGroupOutput{Users: summaries}, nil
+}
+
+type adminUserGlobalSignOutInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+}
+
+type adminUserGlobalSignOutOutput struct{}
+
+func (h *Handler) handleAdminUserGlobalSignOut(
+	_ context.Context,
+	in *adminUserGlobalSignOutInput,
+) (*adminUserGlobalSignOutOutput, error) {
+	if err := h.Backend.AdminUserGlobalSignOut(in.UserPoolID, in.Username); err != nil {
+		return nil, err
+	}
+
+	return &adminUserGlobalSignOutOutput{}, nil
+}
+
+type globalSignOutInput struct {
+	AccessToken string `json:"AccessToken"`
+}
+
+type globalSignOutOutput struct{}
+
+func (h *Handler) handleGlobalSignOut(_ context.Context, in *globalSignOutInput) (*globalSignOutOutput, error) {
+	if err := h.Backend.GlobalSignOut(in.AccessToken); err != nil {
+		return nil, err
+	}
+
+	return &globalSignOutOutput{}, nil
+}
+
+type resendConfirmationCodeInput struct {
+	ClientID string `json:"ClientId"`
+	Username string `json:"Username"`
+}
+
+type resendConfirmationCodeOutput struct {
+	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+}
+
+func (h *Handler) handleResendConfirmationCode(
+	_ context.Context,
+	in *resendConfirmationCodeInput,
+) (*resendConfirmationCodeOutput, error) {
+	code, err := h.Backend.ResendConfirmationCode(in.ClientID, in.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resendConfirmationCodeOutput{
+		CodeDeliveryDetails: map[string]string{
+			"DeliveryMedium":   "EMAIL",
+			"Destination":      "mock",
+			"AttributeName":    "email",
+			"ConfirmationCode": code,
+		},
+	}, nil
+}
+
+type setUserPoolMfaConfigInput struct {
+	UserPoolID       string `json:"UserPoolId"`
+	MfaConfiguration string `json:"MfaConfiguration"`
+}
+
+type setUserPoolMfaConfigOutput struct {
+	MfaConfiguration string `json:"MfaConfiguration"`
+}
+
+func (h *Handler) handleSetUserPoolMfaConfig(
+	_ context.Context,
+	in *setUserPoolMfaConfigInput,
+) (*setUserPoolMfaConfigOutput, error) {
+	if err := h.Backend.SetUserPoolMfaConfig(in.UserPoolID, in.MfaConfiguration); err != nil {
+		return nil, err
+	}
+
+	return &setUserPoolMfaConfigOutput{MfaConfiguration: in.MfaConfiguration}, nil
+}
+
+type updateGroupInput struct {
+	UserPoolID  string `json:"UserPoolId"`
+	GroupName   string `json:"GroupName"`
+	Description string `json:"Description"`
+	Precedence  int32  `json:"Precedence"`
+}
+
+type updateGroupOutput struct {
+	Group *groupSummary `json:"Group"`
+}
+
+func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*updateGroupOutput, error) {
+	g, err := h.Backend.UpdateGroup(in.UserPoolID, in.GroupName, in.Description, in.Precedence)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateGroupOutput{Group: toGroupSummary(g)}, nil
+}
+
+type getSigningCertificateInput struct {
+	UserPoolID string `json:"UserPoolId"`
+}
+
+type getSigningCertificateOutput struct {
+	Certificate string `json:"Certificate"`
+}
+
+func (h *Handler) handleGetSigningCertificate(
+	_ context.Context,
+	in *getSigningCertificateInput,
+) (*getSigningCertificateOutput, error) {
+	if _, err := h.Backend.DescribeUserPool(in.UserPoolID); err != nil {
+		return nil, err
+	}
+
+	return &getSigningCertificateOutput{}, nil
 }

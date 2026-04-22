@@ -65,6 +65,7 @@ type UserPool struct {
 	ID               string
 	Name             string
 	ARN              string
+	MfaConfiguration string
 	CustomAttributes []SchemaAttribute
 }
 
@@ -112,6 +113,8 @@ type InMemoryBackend struct {
 	refreshTokens map[string]*refreshTokenEntry
 	// refreshTokensByClient maps clientID -> refreshToken set for efficient client cleanup.
 	refreshTokensByClient map[string]map[string]struct{}
+	// refreshTokensByUser maps poolID+":"+username → refreshToken set for efficient per-user token cleanup.
+	refreshTokensByUser map[string]map[string]struct{}
 	// groups maps poolID → groupName → Group
 	groups map[string]map[string]*Group
 	// groupMembers maps poolID → groupName → set of usernames
@@ -140,6 +143,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		users:                 make(map[string]map[string]*User),
 		refreshTokens:         make(map[string]*refreshTokenEntry),
 		refreshTokensByClient: make(map[string]map[string]struct{}),
+		refreshTokensByUser:   make(map[string]map[string]struct{}),
 		groups:                make(map[string]map[string]*Group),
 		groupMembers:          make(map[string]map[string]map[string]struct{}),
 		accountID:             accountID,
@@ -598,12 +602,7 @@ func (b *InMemoryBackend) AdminDeleteUser(userPoolID, username string) error {
 
 	delete(poolUsers, username)
 
-	// Revoke any refresh tokens that belong to this user.
-	for token, entry := range b.refreshTokens {
-		if entry.PoolID == userPoolID && entry.Username == username {
-			b.deleteRefreshTokenLocked(token)
-		}
-	}
+	b.deleteRefreshTokensForUserLocked(userPoolID, username)
 
 	return nil
 }
@@ -823,6 +822,10 @@ func (b *InMemoryBackend) authenticate(
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return nil, fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
+	}
+
+	if user.Status == UserStatusForceChangePassword {
+		return nil, fmt.Errorf("%w: user must reset temporary password", ErrPasswordResetRequired)
 	}
 
 	tokens, err := pool.issuer.Issue(clientID, user.Username, user.Sub)
@@ -1251,6 +1254,138 @@ func (b *InMemoryBackend) AdminForgetDevice(userPoolID, username string) error {
 	return nil
 }
 
+// ListUsersInGroup returns all users belonging to a group, sorted by username.
+func (b *InMemoryBackend) ListUsersInGroup(userPoolID, groupName string) ([]*User, error) {
+	b.mu.RLock("ListUsersInGroup")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.groups[userPoolID][groupName]; !ok {
+		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	members := b.groupMembers[userPoolID][groupName]
+	poolUsers := b.users[userPoolID]
+	out := make([]*User, 0, len(members))
+
+	for username := range members {
+		u, ok := poolUsers[username]
+		if !ok {
+			continue
+		}
+		cp := *u
+		cp.Attributes = maps.Clone(u.Attributes)
+		out = append(out, &cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Username < out[j].Username })
+
+	return out, nil
+}
+
+// AdminUserGlobalSignOut signs out a user from all sessions by revoking their refresh tokens.
+func (b *InMemoryBackend) AdminUserGlobalSignOut(userPoolID, username string) error {
+	b.mu.Lock("AdminUserGlobalSignOut")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	b.deleteRefreshTokensForUserLocked(userPoolID, username)
+
+	return nil
+}
+
+// GlobalSignOut signs out the authenticated user by revoking their refresh tokens.
+func (b *InMemoryBackend) GlobalSignOut(accessToken string) error {
+	b.mu.Lock("GlobalSignOut")
+	defer b.mu.Unlock()
+
+	user, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return err
+	}
+
+	b.deleteRefreshTokensForUserLocked(user.UserPoolID, user.Username)
+
+	return nil
+}
+
+// ResendConfirmationCode generates a new confirmation code for an unconfirmed user.
+func (b *InMemoryBackend) ResendConfirmationCode(clientID, username string) (string, error) {
+	b.mu.Lock("ResendConfirmationCode")
+	defer b.mu.Unlock()
+
+	client, ok := b.clients[clientID]
+	if !ok {
+		return "", fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+	}
+
+	poolUsers, ok := b.users[client.UserPoolID]
+	if !ok {
+		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
+	}
+
+	user, ok := poolUsers[username]
+	if !ok {
+		return "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	if user.Status != UserStatusUnconfirmed {
+		return "", fmt.Errorf("%w: user %q is already confirmed", ErrCodeMismatch, username)
+	}
+
+	code := randomAlphanumeric(confirmCodeLen)
+	user.ConfirmCode = code
+
+	return code, nil
+}
+
+// SetUserPoolMfaConfig sets the MFA configuration for a user pool.
+func (b *InMemoryBackend) SetUserPoolMfaConfig(userPoolID, mfaConfig string) error {
+	b.mu.Lock("SetUserPoolMfaConfig")
+	defer b.mu.Unlock()
+
+	pool, ok := b.pools[userPoolID]
+	if !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	pool.MfaConfiguration = mfaConfig
+
+	return nil
+}
+
+// UpdateGroup updates a group's description and precedence.
+func (b *InMemoryBackend) UpdateGroup(userPoolID, groupName, description string, precedence int32) (*Group, error) {
+	b.mu.Lock("UpdateGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	g, ok := b.groups[userPoolID][groupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: group %q not found in pool %q", ErrGroupNotFound, groupName, userPoolID)
+	}
+
+	g.Description = description
+	g.Precedence = precedence
+
+	cp := *g
+
+	return &cp, nil
+}
+
 // Reset clears all backend state. Useful for test isolation.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
@@ -1263,6 +1398,7 @@ func (b *InMemoryBackend) Reset() {
 	b.users = make(map[string]map[string]*User)
 	b.refreshTokens = make(map[string]*refreshTokenEntry)
 	b.refreshTokensByClient = make(map[string]map[string]struct{})
+	b.refreshTokensByUser = make(map[string]map[string]struct{})
 	b.groups = make(map[string]map[string]*Group)
 	b.groupMembers = make(map[string]map[string]map[string]struct{})
 }
@@ -1304,14 +1440,21 @@ func (b *InMemoryBackend) deleteRefreshTokenLocked(token string) {
 
 	delete(b.refreshTokens, token)
 
-	clientTokens, ok := b.refreshTokensByClient[entry.ClientID]
-	if !ok {
-		return
+	clientTokens, cok := b.refreshTokensByClient[entry.ClientID]
+	if cok {
+		delete(clientTokens, token)
+		if len(clientTokens) == 0 {
+			delete(b.refreshTokensByClient, entry.ClientID)
+		}
 	}
 
-	delete(clientTokens, token)
-	if len(clientTokens) == 0 {
-		delete(b.refreshTokensByClient, entry.ClientID)
+	userKey := entry.PoolID + ":" + entry.Username
+	userTokens, uok := b.refreshTokensByUser[userKey]
+	if uok {
+		delete(userTokens, token)
+		if len(userTokens) == 0 {
+			delete(b.refreshTokensByUser, userKey)
+		}
 	}
 }
 
@@ -1330,6 +1473,33 @@ func (b *InMemoryBackend) deleteRefreshTokensForClientLocked(clientID string) {
 	delete(b.refreshTokensByClient, clientID)
 }
 
+// deleteRefreshTokensForUserLocked deletes all refresh tokens for a user in a pool.
+// Caller must hold b.mu in write mode.
+func (b *InMemoryBackend) deleteRefreshTokensForUserLocked(poolID, username string) {
+	userKey := poolID + ":" + username
+	userTokens, ok := b.refreshTokensByUser[userKey]
+	if !ok {
+		return
+	}
+
+	for token := range userTokens {
+		entry, exists := b.refreshTokens[token]
+		if !exists {
+			continue
+		}
+		clientTokens, cok := b.refreshTokensByClient[entry.ClientID]
+		if cok {
+			delete(clientTokens, token)
+			if len(clientTokens) == 0 {
+				delete(b.refreshTokensByClient, entry.ClientID)
+			}
+		}
+		delete(b.refreshTokens, token)
+	}
+
+	delete(b.refreshTokensByUser, userKey)
+}
+
 // storeRefreshTokenLocked stores a refresh token and updates secondary indexes.
 // Caller must hold b.mu in write mode.
 func (b *InMemoryBackend) storeRefreshTokenLocked(token string, entry *refreshTokenEntry) {
@@ -1340,6 +1510,12 @@ func (b *InMemoryBackend) storeRefreshTokenLocked(token string, entry *refreshTo
 	}
 
 	b.refreshTokensByClient[entry.ClientID][token] = struct{}{}
+
+	userKey := entry.PoolID + ":" + entry.Username
+	if b.refreshTokensByUser[userKey] == nil {
+		b.refreshTokensByUser[userKey] = make(map[string]struct{})
+	}
+	b.refreshTokensByUser[userKey][token] = struct{}{}
 }
 
 // AddUserInternal seeds a user directly into the backend, bypassing normal sign-up.
