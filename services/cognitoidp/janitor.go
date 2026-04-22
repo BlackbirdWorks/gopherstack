@@ -8,7 +8,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
-const defaultCognitoIDPJanitorInterval = 30 * time.Second
+const (
+	defaultCognitoIDPJanitorInterval = 30 * time.Second
+	initialExpiredTokenCapacity      = 32
+)
 
 // Janitor is the Cognito IDP background worker that evicts expired refresh tokens.
 type Janitor struct {
@@ -66,9 +69,9 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 func (j *Janitor) sweepExpiredRefreshTokens(ctx context.Context) {
 	now := time.Now().UTC()
 	b := j.Backend
-	expiredTokens := make([]string, 0)
 
 	b.mu.Lock("SweepExpiredRefreshTokens")
+	expiredTokens := make([]string, 0, initialExpiredTokenCapacity)
 	for token, entry := range b.refreshTokens {
 		if !entry.ExpiresAt.IsZero() && !entry.ExpiresAt.After(now) {
 			expiredTokens = append(expiredTokens, token)
