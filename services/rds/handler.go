@@ -1093,12 +1093,12 @@ func parseDescribePagination(vals url.Values) (string, int, error) {
 	return marker, maxRecords, nil
 }
 
-func paginateDescribe[T any, X any](
+func paginateDescribe[TData any, TXMLOutput any](
 	vals url.Values,
-	data []T,
-	less func(a, b T) bool,
-	convert func(T) X,
-) ([]X, string, error) {
+	data []TData,
+	less func(a, b TData) bool,
+	convert func(TData) TXMLOutput,
+) ([]TXMLOutput, string, error) {
 	marker, maxRecords, err := parseDescribePagination(vals)
 	if err != nil {
 		return nil, "", err
@@ -1109,7 +1109,7 @@ func paginateDescribe[T any, X any](
 	})
 
 	p := page.New(data, marker, maxRecords, rdsDescribeDefaultPageSize)
-	members := make([]X, 0, len(p.Data))
+	members := make([]TXMLOutput, 0, len(p.Data))
 	for _, item := range p.Data {
 		members = append(members, convert(item))
 	}
