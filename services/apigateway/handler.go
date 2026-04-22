@@ -763,6 +763,8 @@ func parseAPIGWAPIKeysPath(method string, segs []string, n int) (string, map[str
 }
 
 // parseAPIGWDomainNamesPath handles /domainnames/... paths.
+//
+//nolint:cyclop // path routing table is inherently a multi-branch switch
 func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	switch {
 	// GET /domainnames → GetDomainNames
@@ -798,6 +800,8 @@ func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map
 }
 
 // parseAPIGWUsagePlansPath handles /usageplans/... paths.
+//
+//nolint:cyclop // path routing table is inherently a multi-branch switch
 func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	switch {
 	// GET /usageplans → GetUsagePlans
@@ -937,7 +941,8 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 	case n == 5 && segs[2] == apiGWSegStages && segs[4] == "cache" && method == http.MethodDelete:
 		return "FlushStageCache", map[string]string{"restApiId": segs[1], "stageName": segs[3]}, true
 	// DELETE /restapis/{id}/stages/{stageName}/cache/authorizers → FlushStageAuthorizersCache
-	case n == 6 && segs[2] == apiGWSegStages && segs[4] == "cache" && segs[5] == "authorizers" && method == http.MethodDelete:
+	case n == 6 && segs[2] == apiGWSegStages && segs[4] == "cache" &&
+		segs[5] == "authorizers" && method == http.MethodDelete:
 		return "FlushStageAuthorizersCache", map[string]string{"restApiId": segs[1], "stageName": segs[3]}, true
 	// POST /restapis/{id}/documentation/parts → CreateDocumentationPart
 	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodPost:
@@ -962,7 +967,10 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 		return "GetDocumentationVersion", map[string]string{"restApiId": segs[1], "documentationVersion": segs[4]}, true
 	// DELETE /restapis/{id}/documentation/versions/{docVersion} → DeleteDocumentationVersion
 	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodDelete:
-		return "DeleteDocumentationVersion", map[string]string{"restApiId": segs[1], "documentationVersion": segs[4]}, true
+		return "DeleteDocumentationVersion", map[string]string{
+			"restApiId":            segs[1],
+			"documentationVersion": segs[4],
+		}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1927,300 +1935,329 @@ func (h *Handler) Reset() {
 	}
 }
 
-//nolint:cyclop,funlen,gocognit // action table - one closure per op; complexity unavoidable
+//nolint:cyclop,funlen,gocognit,gocyclo // action table - one closure per op; complexity unavoidable
 func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
-return map[string]actionFn{
-"GetApiKey": func(b []byte) (int, any, error) {
-var input getAPIKeyInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-key, err := h.Backend.GetAPIKey(input.APIKeyID)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, key, nil
-},
-"GetApiKeys": func(_ []byte) (int, any, error) {
-keys, err := h.Backend.GetAPIKeys()
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, map[string]any{"item": keys}, nil
-},
-"DeleteApiKey": func(b []byte) (int, any, error) {
-var input deleteAPIKeyInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-if err := h.Backend.DeleteAPIKey(input.APIKeyID); err != nil {
-return 0, nil, err
-}
-return http.StatusAccepted, map[string]any{}, nil
-},
-"UpdateApiKey": func(b []byte) (int, any, error) {
-var input updateAPIKeyInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-key, err := h.Backend.UpdateAPIKey(input.APIKeyID, input.UpdateAPIKeyInput)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, key, nil
-},
-"GetDomainName": func(b []byte) (int, any, error) {
-var input getDomainNameInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-dn, err := h.Backend.GetDomainName(input.DomainName)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, dn, nil
-},
-"GetDomainNames": func(_ []byte) (int, any, error) {
-dns, err := h.Backend.GetDomainNames()
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, map[string]any{"item": dns}, nil
-},
-"DeleteDomainName": func(b []byte) (int, any, error) {
-var input deleteDomainNameInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-if err := h.Backend.DeleteDomainName(input.DomainName); err != nil {
-return 0, nil, err
-}
-return http.StatusAccepted, map[string]any{}, nil
-},
-"GetBasePathMapping": func(b []byte) (int, any, error) {
-var input getBasePathMappingInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-bpm, err := h.Backend.GetBasePathMapping(input.DomainName, input.BasePath)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, bpm, nil
-},
-"GetBasePathMappings": func(b []byte) (int, any, error) {
-var input getBasePathMappingsInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-bpms, err := h.Backend.GetBasePathMappings(input.DomainName)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, map[string]any{"item": bpms}, nil
-},
-"DeleteBasePathMapping": func(b []byte) (int, any, error) {
-var input deleteBasePathMappingInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-if err := h.Backend.DeleteBasePathMapping(input.DomainName, input.BasePath); err != nil {
-return 0, nil, err
-}
-return http.StatusAccepted, map[string]any{}, nil
-},
-"GetModel": func(b []byte) (int, any, error) {
-var input getModelInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-m, err := h.Backend.GetModel(input.RestAPIID, input.ModelName)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, m, nil
-},
-"GetModels": func(b []byte) (int, any, error) {
-var input getModelsInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-ms, err := h.Backend.GetModels(input.RestAPIID)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, map[string]any{"item": ms}, nil
-},
-"DeleteModel": func(b []byte) (int, any, error) {
-var input deleteModelInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-if err := h.Backend.DeleteModel(input.RestAPIID, input.ModelName); err != nil {
-return 0, nil, err
-}
-return http.StatusAccepted, map[string]any{}, nil
-},
-"UpdateModel": func(b []byte) (int, any, error) {
-var input updateModelInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-m, err := h.Backend.UpdateModel(input.RestAPIID, input.ModelName, input.UpdateModelInput)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, m, nil
-},
-"UpdateStage": func(b []byte) (int, any, error) {
-var input updateStageHandlerInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-stage, err := h.Backend.UpdateStage(input.RestAPIID, input.StageName, input.UpdateStageInput)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, stage, nil
-},
-"FlushStageCache": func(b []byte) (int, any, error) {
-var input flushStageCacheInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-return http.StatusAccepted, map[string]any{}, nil
-},
-"FlushStageAuthorizersCache": func(b []byte) (int, any, error) {
-var input flushStageCacheInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-h.authCache.flush()
-return http.StatusAccepted, map[string]any{}, nil
-},
-"GetUsagePlan": func(b []byte) (int, any, error) {
-var input getUsagePlanInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-p, err := h.Backend.GetUsagePlan(input.UsagePlanID)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, p, nil
-},
-"GetUsagePlans": func(_ []byte) (int, any, error) {
-ps, err := h.Backend.GetUsagePlans()
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, map[string]any{"item": ps}, nil
-},
-"DeleteUsagePlan": func(b []byte) (int, any, error) {
-var input deleteUsagePlanInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-if err := h.Backend.DeleteUsagePlan(input.UsagePlanID); err != nil {
-return 0, nil, err
-}
-return http.StatusAccepted, map[string]any{}, nil
-},
-"GetUsagePlanKey": func(b []byte) (int, any, error) {
-var input getUsagePlanKeyInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-k, err := h.Backend.GetUsagePlanKey(input.UsagePlanID, input.KeyID)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, k, nil
-},
-"GetUsagePlanKeys": func(b []byte) (int, any, error) {
-var input getUsagePlanKeysInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-ks, err := h.Backend.GetUsagePlanKeys(input.UsagePlanID)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, map[string]any{"item": ks}, nil
-},
-"DeleteUsagePlanKey": func(b []byte) (int, any, error) {
-var input deleteUsagePlanKeyInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-if err := h.Backend.DeleteUsagePlanKey(input.UsagePlanID, input.KeyID); err != nil {
-return 0, nil, err
-}
-return http.StatusAccepted, map[string]any{}, nil
-},
-"GetDocumentationPart": func(b []byte) (int, any, error) {
-var input getDocumentationPartInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-p, err := h.Backend.GetDocumentationPart(input.RestAPIID, input.DocPartID)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, p, nil
-},
-"GetDocumentationParts": func(b []byte) (int, any, error) {
-var input getDocumentationPartsInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-ps, err := h.Backend.GetDocumentationParts(input.RestAPIID)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, map[string]any{"item": ps}, nil
-},
-"DeleteDocumentationPart": func(b []byte) (int, any, error) {
-var input deleteDocumentationPartInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-if err := h.Backend.DeleteDocumentationPart(input.RestAPIID, input.DocPartID); err != nil {
-return 0, nil, err
-}
-return http.StatusAccepted, map[string]any{}, nil
-},
-"GetDocumentationVersion": func(b []byte) (int, any, error) {
-var input getDocumentationVersionInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-v, err := h.Backend.GetDocumentationVersion(input.RestAPIID, input.DocVersion)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, v, nil
-},
-"GetDocumentationVersions": func(b []byte) (int, any, error) {
-var input getDocumentationVersionsInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-vs, err := h.Backend.GetDocumentationVersions(input.RestAPIID)
-if err != nil {
-return 0, nil, err
-}
-return http.StatusOK, map[string]any{"item": vs}, nil
-},
-"DeleteDocumentationVersion": func(b []byte) (int, any, error) {
-var input deleteDocumentationVersionInput
-if err := json.Unmarshal(b, &input); err != nil {
-return 0, nil, err
-}
-if err := h.Backend.DeleteDocumentationVersion(input.RestAPIID, input.DocVersion); err != nil {
-return 0, nil, err
-}
-return http.StatusAccepted, map[string]any{}, nil
-},
-}
+	return map[string]actionFn{
+		"GetApiKey": func(b []byte) (int, any, error) {
+			var input getAPIKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			key, err := h.Backend.GetAPIKey(input.APIKeyID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, key, nil
+		},
+		"GetApiKeys": func(_ []byte) (int, any, error) {
+			keys, err := h.Backend.GetAPIKeys()
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": keys}, nil
+		},
+		"DeleteApiKey": func(b []byte) (int, any, error) {
+			var input deleteAPIKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteAPIKey(input.APIKeyID); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, map[string]any{}, nil
+		},
+		"UpdateApiKey": func(b []byte) (int, any, error) {
+			var input updateAPIKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			key, err := h.Backend.UpdateAPIKey(input.APIKeyID, input.UpdateAPIKeyInput)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, key, nil
+		},
+		"GetDomainName": func(b []byte) (int, any, error) {
+			var input getDomainNameInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			dn, err := h.Backend.GetDomainName(input.DomainName)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, dn, nil
+		},
+		"GetDomainNames": func(_ []byte) (int, any, error) {
+			dns, err := h.Backend.GetDomainNames()
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": dns}, nil
+		},
+		"DeleteDomainName": func(b []byte) (int, any, error) {
+			var input deleteDomainNameInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteDomainName(input.DomainName); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, map[string]any{}, nil
+		},
+		"GetBasePathMapping": func(b []byte) (int, any, error) {
+			var input getBasePathMappingInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			bpm, err := h.Backend.GetBasePathMapping(input.DomainName, input.BasePath)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, bpm, nil
+		},
+		"GetBasePathMappings": func(b []byte) (int, any, error) {
+			var input getBasePathMappingsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			bpms, err := h.Backend.GetBasePathMappings(input.DomainName)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": bpms}, nil
+		},
+		"DeleteBasePathMapping": func(b []byte) (int, any, error) {
+			var input deleteBasePathMappingInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteBasePathMapping(input.DomainName, input.BasePath); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, map[string]any{}, nil
+		},
+		"GetModel": func(b []byte) (int, any, error) {
+			var input getModelInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			m, err := h.Backend.GetModel(input.RestAPIID, input.ModelName)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, m, nil
+		},
+		"GetModels": func(b []byte) (int, any, error) {
+			var input getModelsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			ms, err := h.Backend.GetModels(input.RestAPIID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": ms}, nil
+		},
+		"DeleteModel": func(b []byte) (int, any, error) {
+			var input deleteModelInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteModel(input.RestAPIID, input.ModelName); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, map[string]any{}, nil
+		},
+		"UpdateModel": func(b []byte) (int, any, error) {
+			var input updateModelInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			m, err := h.Backend.UpdateModel(input.RestAPIID, input.ModelName, input.UpdateModelInput)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, m, nil
+		},
+		"UpdateStage": func(b []byte) (int, any, error) {
+			var input updateStageHandlerInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			stage, err := h.Backend.UpdateStage(input.RestAPIID, input.StageName, input.UpdateStageInput)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, stage, nil
+		},
+		"FlushStageCache": func(b []byte) (int, any, error) {
+			var input flushStageCacheInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, map[string]any{}, nil
+		},
+		"FlushStageAuthorizersCache": func(b []byte) (int, any, error) {
+			var input flushStageCacheInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			h.authCache.flush()
+
+			return http.StatusAccepted, map[string]any{}, nil
+		},
+		"GetUsagePlan": func(b []byte) (int, any, error) {
+			var input getUsagePlanInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			p, err := h.Backend.GetUsagePlan(input.UsagePlanID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, p, nil
+		},
+		"GetUsagePlans": func(_ []byte) (int, any, error) {
+			ps, err := h.Backend.GetUsagePlans()
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": ps}, nil
+		},
+		"DeleteUsagePlan": func(b []byte) (int, any, error) {
+			var input deleteUsagePlanInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteUsagePlan(input.UsagePlanID); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, map[string]any{}, nil
+		},
+		"GetUsagePlanKey": func(b []byte) (int, any, error) {
+			var input getUsagePlanKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			k, err := h.Backend.GetUsagePlanKey(input.UsagePlanID, input.KeyID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, k, nil
+		},
+		"GetUsagePlanKeys": func(b []byte) (int, any, error) {
+			var input getUsagePlanKeysInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			ks, err := h.Backend.GetUsagePlanKeys(input.UsagePlanID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": ks}, nil
+		},
+		"DeleteUsagePlanKey": func(b []byte) (int, any, error) {
+			var input deleteUsagePlanKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteUsagePlanKey(input.UsagePlanID, input.KeyID); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, map[string]any{}, nil
+		},
+		"GetDocumentationPart": func(b []byte) (int, any, error) {
+			var input getDocumentationPartInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			p, err := h.Backend.GetDocumentationPart(input.RestAPIID, input.DocPartID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, p, nil
+		},
+		"GetDocumentationParts": func(b []byte) (int, any, error) {
+			var input getDocumentationPartsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			ps, err := h.Backend.GetDocumentationParts(input.RestAPIID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": ps}, nil
+		},
+		"DeleteDocumentationPart": func(b []byte) (int, any, error) {
+			var input deleteDocumentationPartInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteDocumentationPart(input.RestAPIID, input.DocPartID); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, map[string]any{}, nil
+		},
+		"GetDocumentationVersion": func(b []byte) (int, any, error) {
+			var input getDocumentationVersionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			v, err := h.Backend.GetDocumentationVersion(input.RestAPIID, input.DocVersion)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, v, nil
+		},
+		"GetDocumentationVersions": func(b []byte) (int, any, error) {
+			var input getDocumentationVersionsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			vs, err := h.Backend.GetDocumentationVersions(input.RestAPIID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": vs}, nil
+		},
+		"DeleteDocumentationVersion": func(b []byte) (int, any, error) {
+			var input deleteDocumentationVersionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteDocumentationVersion(input.RestAPIID, input.DocVersion); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusAccepted, map[string]any{}, nil
+		},
+	}
 }

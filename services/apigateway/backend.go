@@ -1651,408 +1651,448 @@ func (b *InMemoryBackend) CreateUsagePlanKey(input CreateUsagePlanKeyInput) (*Us
 
 // GetAPIKey retrieves an API key by ID.
 func (b *InMemoryBackend) GetAPIKey(id string) (*APIKey, error) {
-b.mu.RLock("GetAPIKey")
-defer b.mu.RUnlock()
-key, ok := b.apiKeys[id]
-if !ok {
-return nil, fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
-}
-cp := *key
-return &cp, nil
+	b.mu.RLock("GetAPIKey")
+	defer b.mu.RUnlock()
+	key, ok := b.apiKeys[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
+	}
+	cp := *key
+
+	return &cp, nil
 }
 
 // GetAPIKeys returns all API keys sorted by ID.
 func (b *InMemoryBackend) GetAPIKeys() ([]APIKey, error) {
-b.mu.RLock("GetAPIKeys")
-defer b.mu.RUnlock()
-all := make([]APIKey, 0, len(b.apiKeys))
-for _, k := range b.apiKeys {
-all = append(all, *k)
-}
-sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-return all, nil
+	b.mu.RLock("GetAPIKeys")
+	defer b.mu.RUnlock()
+	all := make([]APIKey, 0, len(b.apiKeys))
+	for _, k := range b.apiKeys {
+		all = append(all, *k)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	return all, nil
 }
 
 // DeleteAPIKey removes an API key by ID.
 func (b *InMemoryBackend) DeleteAPIKey(id string) error {
-b.mu.Lock("DeleteAPIKey")
-defer b.mu.Unlock()
-if _, ok := b.apiKeys[id]; !ok {
-return fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
-}
-delete(b.apiKeys, id)
-return nil
+	b.mu.Lock("DeleteAPIKey")
+	defer b.mu.Unlock()
+	if _, ok := b.apiKeys[id]; !ok {
+		return fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
+	}
+	delete(b.apiKeys, id)
+
+	return nil
 }
 
 // UpdateAPIKey updates mutable fields on an existing API key.
 func (b *InMemoryBackend) UpdateAPIKey(id string, input UpdateAPIKeyInput) (*APIKey, error) {
-b.mu.Lock("UpdateAPIKey")
-defer b.mu.Unlock()
-key, ok := b.apiKeys[id]
-if !ok {
-return nil, fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
-}
-if input.Name != "" {
-key.Name = input.Name
-}
-if input.Description != "" {
-key.Description = input.Description
-}
-if input.Enabled != nil {
-key.Enabled = *input.Enabled
-}
-key.LastUpdatedDate = unixEpochTime{time.Now()}
-cp := *key
-return &cp, nil
+	b.mu.Lock("UpdateAPIKey")
+	defer b.mu.Unlock()
+	key, ok := b.apiKeys[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
+	}
+	if input.Name != "" {
+		key.Name = input.Name
+	}
+	if input.Description != "" {
+		key.Description = input.Description
+	}
+	if input.Enabled != nil {
+		key.Enabled = *input.Enabled
+	}
+	key.LastUpdatedDate = unixEpochTime{time.Now()}
+	cp := *key
+
+	return &cp, nil
 }
 
 // GetDomainName retrieves a domain name by value.
 func (b *InMemoryBackend) GetDomainName(name string) (*DomainName, error) {
-b.mu.RLock("GetDomainName")
-defer b.mu.RUnlock()
-dn, ok := b.domainNames[name]
-if !ok {
-return nil, fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, name)
-}
-cp := *dn
-return &cp, nil
+	b.mu.RLock("GetDomainName")
+	defer b.mu.RUnlock()
+	dn, ok := b.domainNames[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, name)
+	}
+	cp := *dn
+
+	return &cp, nil
 }
 
 // GetDomainNames returns all domain names sorted by name.
 func (b *InMemoryBackend) GetDomainNames() ([]DomainName, error) {
-b.mu.RLock("GetDomainNames")
-defer b.mu.RUnlock()
-all := make([]DomainName, 0, len(b.domainNames))
-for _, dn := range b.domainNames {
-all = append(all, *dn)
-}
-sort.Slice(all, func(i, j int) bool { return all[i].DomainNameValue < all[j].DomainNameValue })
-return all, nil
+	b.mu.RLock("GetDomainNames")
+	defer b.mu.RUnlock()
+	all := make([]DomainName, 0, len(b.domainNames))
+	for _, dn := range b.domainNames {
+		all = append(all, *dn)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].DomainNameValue < all[j].DomainNameValue })
+
+	return all, nil
 }
 
 // DeleteDomainName removes a domain name by value.
 func (b *InMemoryBackend) DeleteDomainName(name string) error {
-b.mu.Lock("DeleteDomainName")
-defer b.mu.Unlock()
-if _, ok := b.domainNames[name]; !ok {
-return fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, name)
-}
-delete(b.domainNames, name)
-return nil
+	b.mu.Lock("DeleteDomainName")
+	defer b.mu.Unlock()
+	if _, ok := b.domainNames[name]; !ok {
+		return fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, name)
+	}
+	delete(b.domainNames, name)
+
+	return nil
 }
 
 // GetBasePathMapping retrieves a base path mapping by domain + path.
 func (b *InMemoryBackend) GetBasePathMapping(domainName, basePath string) (*BasePathMapping, error) {
-b.mu.RLock("GetBasePathMapping")
-defer b.mu.RUnlock()
-mapKey := domainName + "#" + basePath
-bpm, ok := b.basePathMappings[mapKey]
-if !ok {
-return nil, fmt.Errorf("%w: base path mapping not found for domain %q path %q", ErrBasePathMappingNotFound, domainName, basePath)
-}
-cp := *bpm
-return &cp, nil
+	b.mu.RLock("GetBasePathMapping")
+	defer b.mu.RUnlock()
+	mapKey := domainName + "#" + basePath
+	bpm, ok := b.basePathMappings[mapKey]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: base path mapping not found for domain %q path %q",
+			ErrBasePathMappingNotFound,
+			domainName,
+			basePath,
+		)
+	}
+	cp := *bpm
+
+	return &cp, nil
 }
 
 // GetBasePathMappings returns all base path mappings for a domain name.
 func (b *InMemoryBackend) GetBasePathMappings(domainName string) ([]BasePathMapping, error) {
-b.mu.RLock("GetBasePathMappings")
-defer b.mu.RUnlock()
-var all []BasePathMapping
-prefix := domainName + "#"
-for k, bpm := range b.basePathMappings {
-if strings.HasPrefix(k, prefix) {
-all = append(all, *bpm)
-}
-}
-sort.Slice(all, func(i, j int) bool { return all[i].BasePath < all[j].BasePath })
-return all, nil
+	b.mu.RLock("GetBasePathMappings")
+	defer b.mu.RUnlock()
+	var all []BasePathMapping
+	prefix := domainName + "#"
+	for k, bpm := range b.basePathMappings {
+		if strings.HasPrefix(k, prefix) {
+			all = append(all, *bpm)
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].BasePath < all[j].BasePath })
+
+	return all, nil
 }
 
 // DeleteBasePathMapping removes a base path mapping by domain + path.
 func (b *InMemoryBackend) DeleteBasePathMapping(domainName, basePath string) error {
-b.mu.Lock("DeleteBasePathMapping")
-defer b.mu.Unlock()
-mapKey := domainName + "#" + basePath
-if _, ok := b.basePathMappings[mapKey]; !ok {
-return fmt.Errorf("%w: base path mapping not found for domain %q path %q", ErrBasePathMappingNotFound, domainName, basePath)
-}
-delete(b.basePathMappings, mapKey)
-return nil
+	b.mu.Lock("DeleteBasePathMapping")
+	defer b.mu.Unlock()
+	mapKey := domainName + "#" + basePath
+	if _, ok := b.basePathMappings[mapKey]; !ok {
+		return fmt.Errorf(
+			"%w: base path mapping not found for domain %q path %q",
+			ErrBasePathMappingNotFound,
+			domainName,
+			basePath,
+		)
+	}
+	delete(b.basePathMappings, mapKey)
+
+	return nil
 }
 
 // GetModel retrieves a model by name within a REST API.
 func (b *InMemoryBackend) GetModel(restAPIID, modelName string) (*Model, error) {
-b.mu.RLock("GetModel")
-defer b.mu.RUnlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-for _, m := range d.models {
-if m.Name == modelName {
-cp := *m
-return &cp, nil
-}
-}
-return nil, fmt.Errorf("%w: model %q not found", ErrModelNotFound, modelName)
+	b.mu.RLock("GetModel")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	for _, m := range d.models {
+		if m.Name == modelName {
+			cp := *m
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: model %q not found", ErrModelNotFound, modelName)
 }
 
 // GetModels returns all models for a REST API sorted by name.
 func (b *InMemoryBackend) GetModels(restAPIID string) ([]Model, error) {
-b.mu.RLock("GetModels")
-defer b.mu.RUnlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-all := make([]Model, 0, len(d.models))
-for _, m := range d.models {
-all = append(all, *m)
-}
-sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-return all, nil
+	b.mu.RLock("GetModels")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	all := make([]Model, 0, len(d.models))
+	for _, m := range d.models {
+		all = append(all, *m)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	return all, nil
 }
 
 // DeleteModel removes a model from a REST API by name.
 func (b *InMemoryBackend) DeleteModel(restAPIID, modelName string) error {
-b.mu.Lock("DeleteModel")
-defer b.mu.Unlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-for id, m := range d.models {
-if m.Name == modelName {
-delete(d.models, id)
-return nil
-}
-}
-return fmt.Errorf("%w: model %q not found", ErrModelNotFound, modelName)
+	b.mu.Lock("DeleteModel")
+	defer b.mu.Unlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	for id, m := range d.models {
+		if m.Name == modelName {
+			delete(d.models, id)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: model %q not found", ErrModelNotFound, modelName)
 }
 
 // UpdateModel updates description and schema on a model.
 func (b *InMemoryBackend) UpdateModel(restAPIID, modelName string, input UpdateModelInput) (*Model, error) {
-b.mu.Lock("UpdateModel")
-defer b.mu.Unlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-for _, m := range d.models {
-if m.Name == modelName {
-if input.Description != "" {
-m.Description = input.Description
-}
-if input.Schema != "" {
-m.Schema = input.Schema
-}
-cp := *m
-return &cp, nil
-}
-}
-return nil, fmt.Errorf("%w: model %q not found", ErrModelNotFound, modelName)
+	b.mu.Lock("UpdateModel")
+	defer b.mu.Unlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	for _, m := range d.models {
+		if m.Name == modelName {
+			if input.Description != "" {
+				m.Description = input.Description
+			}
+			if input.Schema != "" {
+				m.Schema = input.Schema
+			}
+			cp := *m
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: model %q not found", ErrModelNotFound, modelName)
 }
 
 // UpdateStage updates mutable fields on a deployment stage.
 func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateStageInput) (*Stage, error) {
-b.mu.Lock("UpdateStage")
-defer b.mu.Unlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-stage, ok := d.stages[stageName]
-if !ok {
-return nil, fmt.Errorf("%w: stage %q not found", ErrStageNotFound, stageName)
-}
-if input.Description != "" {
-stage.Description = input.Description
-}
-if input.DeploymentID != "" {
-stage.DeploymentID = input.DeploymentID
-}
-if input.Variables != nil {
-stage.Variables = input.Variables
-}
-stage.LastUpdatedDate = unixEpochTime{time.Now()}
-cp := *stage
-return &cp, nil
+	b.mu.Lock("UpdateStage")
+	defer b.mu.Unlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	stage, ok := d.stages[stageName]
+	if !ok {
+		return nil, fmt.Errorf("%w: stage %q not found", ErrStageNotFound, stageName)
+	}
+	if input.Description != "" {
+		stage.Description = input.Description
+	}
+	if input.DeploymentID != "" {
+		stage.DeploymentID = input.DeploymentID
+	}
+	if input.Variables != nil {
+		stage.Variables = input.Variables
+	}
+	stage.LastUpdatedDate = unixEpochTime{time.Now()}
+	cp := *stage
+
+	return &cp, nil
 }
 
 // GetUsagePlan retrieves a usage plan by ID.
 func (b *InMemoryBackend) GetUsagePlan(id string) (*UsagePlan, error) {
-b.mu.RLock("GetUsagePlan")
-defer b.mu.RUnlock()
-p, ok := b.usagePlans[id]
-if !ok {
-return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, id)
-}
-cp := *p
-return &cp, nil
+	b.mu.RLock("GetUsagePlan")
+	defer b.mu.RUnlock()
+	p, ok := b.usagePlans[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, id)
+	}
+	cp := *p
+
+	return &cp, nil
 }
 
 // GetUsagePlans returns all usage plans sorted by ID.
 func (b *InMemoryBackend) GetUsagePlans() ([]UsagePlan, error) {
-b.mu.RLock("GetUsagePlans")
-defer b.mu.RUnlock()
-all := make([]UsagePlan, 0, len(b.usagePlans))
-for _, p := range b.usagePlans {
-all = append(all, *p)
-}
-sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-return all, nil
+	b.mu.RLock("GetUsagePlans")
+	defer b.mu.RUnlock()
+	all := make([]UsagePlan, 0, len(b.usagePlans))
+	for _, p := range b.usagePlans {
+		all = append(all, *p)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	return all, nil
 }
 
 // DeleteUsagePlan removes a usage plan by ID along with its key associations.
 func (b *InMemoryBackend) DeleteUsagePlan(id string) error {
-b.mu.Lock("DeleteUsagePlan")
-defer b.mu.Unlock()
-if _, ok := b.usagePlans[id]; !ok {
-return fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, id)
-}
-delete(b.usagePlans, id)
-delete(b.usagePlanKeys, id)
-return nil
+	b.mu.Lock("DeleteUsagePlan")
+	defer b.mu.Unlock()
+	if _, ok := b.usagePlans[id]; !ok {
+		return fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, id)
+	}
+	delete(b.usagePlans, id)
+	delete(b.usagePlanKeys, id)
+
+	return nil
 }
 
 // GetUsagePlanKey retrieves a single key from a usage plan.
 func (b *InMemoryBackend) GetUsagePlanKey(usagePlanID, keyID string) (*UsagePlanKey, error) {
-b.mu.RLock("GetUsagePlanKey")
-defer b.mu.RUnlock()
-keys, ok := b.usagePlanKeys[usagePlanID]
-if !ok {
-return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
-}
-k, ok := keys[keyID]
-if !ok {
-return nil, fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
-}
-cp := *k
-return &cp, nil
+	b.mu.RLock("GetUsagePlanKey")
+	defer b.mu.RUnlock()
+	keys, ok := b.usagePlanKeys[usagePlanID]
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
+	}
+	k, ok := keys[keyID]
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
+	}
+	cp := *k
+
+	return &cp, nil
 }
 
 // GetUsagePlanKeys returns all keys for a usage plan sorted by ID.
 func (b *InMemoryBackend) GetUsagePlanKeys(usagePlanID string) ([]UsagePlanKey, error) {
-b.mu.RLock("GetUsagePlanKeys")
-defer b.mu.RUnlock()
-keys, ok := b.usagePlanKeys[usagePlanID]
-if !ok {
-return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
-}
-all := make([]UsagePlanKey, 0, len(keys))
-for _, k := range keys {
-all = append(all, *k)
-}
-sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-return all, nil
+	b.mu.RLock("GetUsagePlanKeys")
+	defer b.mu.RUnlock()
+	keys, ok := b.usagePlanKeys[usagePlanID]
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
+	}
+	all := make([]UsagePlanKey, 0, len(keys))
+	for _, k := range keys {
+		all = append(all, *k)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	return all, nil
 }
 
 // DeleteUsagePlanKey removes a key from a usage plan.
 func (b *InMemoryBackend) DeleteUsagePlanKey(usagePlanID, keyID string) error {
-b.mu.Lock("DeleteUsagePlanKey")
-defer b.mu.Unlock()
-keys, ok := b.usagePlanKeys[usagePlanID]
-if !ok {
-return fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
-}
-if _, ok := keys[keyID]; !ok {
-return fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
-}
-delete(keys, keyID)
-return nil
+	b.mu.Lock("DeleteUsagePlanKey")
+	defer b.mu.Unlock()
+	keys, ok := b.usagePlanKeys[usagePlanID]
+	if !ok {
+		return fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
+	}
+	if _, exists := keys[keyID]; !exists {
+		return fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
+	}
+	delete(keys, keyID)
+
+	return nil
 }
 
 // GetDocumentationPart retrieves a documentation part by ID.
 func (b *InMemoryBackend) GetDocumentationPart(restAPIID, docPartID string) (*DocumentationPart, error) {
-b.mu.RLock("GetDocumentationPart")
-defer b.mu.RUnlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-p, ok := d.documentationParts[docPartID]
-if !ok {
-return nil, fmt.Errorf("%w: documentation part %s not found", ErrDocumentationPartNotFound, docPartID)
-}
-cp := *p
-return &cp, nil
+	b.mu.RLock("GetDocumentationPart")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	p, ok := d.documentationParts[docPartID]
+	if !ok {
+		return nil, fmt.Errorf("%w: documentation part %s not found", ErrDocumentationPartNotFound, docPartID)
+	}
+	cp := *p
+
+	return &cp, nil
 }
 
 // GetDocumentationParts returns all documentation parts for a REST API sorted by ID.
 func (b *InMemoryBackend) GetDocumentationParts(restAPIID string) ([]DocumentationPart, error) {
-b.mu.RLock("GetDocumentationParts")
-defer b.mu.RUnlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-all := make([]DocumentationPart, 0, len(d.documentationParts))
-for _, p := range d.documentationParts {
-all = append(all, *p)
-}
-sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-return all, nil
+	b.mu.RLock("GetDocumentationParts")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	all := make([]DocumentationPart, 0, len(d.documentationParts))
+	for _, p := range d.documentationParts {
+		all = append(all, *p)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	return all, nil
 }
 
 // DeleteDocumentationPart removes a documentation part by ID.
 func (b *InMemoryBackend) DeleteDocumentationPart(restAPIID, docPartID string) error {
-b.mu.Lock("DeleteDocumentationPart")
-defer b.mu.Unlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-if _, ok := d.documentationParts[docPartID]; !ok {
-return fmt.Errorf("%w: documentation part %s not found", ErrDocumentationPartNotFound, docPartID)
-}
-delete(d.documentationParts, docPartID)
-return nil
+	b.mu.Lock("DeleteDocumentationPart")
+	defer b.mu.Unlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	if _, exists := d.documentationParts[docPartID]; !exists {
+		return fmt.Errorf("%w: documentation part %s not found", ErrDocumentationPartNotFound, docPartID)
+	}
+	delete(d.documentationParts, docPartID)
+
+	return nil
 }
 
 // GetDocumentationVersion retrieves a documentation version by version string.
 func (b *InMemoryBackend) GetDocumentationVersion(restAPIID, version string) (*DocumentationVersion, error) {
-b.mu.RLock("GetDocumentationVersion")
-defer b.mu.RUnlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-v, ok := d.documentationVersions[version]
-if !ok {
-return nil, fmt.Errorf("%w: documentation version %q not found", ErrDocumentationVersionNotFound, version)
-}
-cp := *v
-return &cp, nil
+	b.mu.RLock("GetDocumentationVersion")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	v, ok := d.documentationVersions[version]
+	if !ok {
+		return nil, fmt.Errorf("%w: documentation version %q not found", ErrDocumentationVersionNotFound, version)
+	}
+	cp := *v
+
+	return &cp, nil
 }
 
 // GetDocumentationVersions returns all documentation versions for a REST API sorted by version.
 func (b *InMemoryBackend) GetDocumentationVersions(restAPIID string) ([]DocumentationVersion, error) {
-b.mu.RLock("GetDocumentationVersions")
-defer b.mu.RUnlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-all := make([]DocumentationVersion, 0, len(d.documentationVersions))
-for _, v := range d.documentationVersions {
-all = append(all, *v)
-}
-sort.Slice(all, func(i, j int) bool { return all[i].Version < all[j].Version })
-return all, nil
+	b.mu.RLock("GetDocumentationVersions")
+	defer b.mu.RUnlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	all := make([]DocumentationVersion, 0, len(d.documentationVersions))
+	for _, v := range d.documentationVersions {
+		all = append(all, *v)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Version < all[j].Version })
+
+	return all, nil
 }
 
 // DeleteDocumentationVersion removes a documentation version by version string.
 func (b *InMemoryBackend) DeleteDocumentationVersion(restAPIID, version string) error {
-b.mu.Lock("DeleteDocumentationVersion")
-defer b.mu.Unlock()
-d, ok := b.apis[restAPIID]
-if !ok {
-return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
-}
-if _, ok := d.documentationVersions[version]; !ok {
-return fmt.Errorf("%w: documentation version %q not found", ErrDocumentationVersionNotFound, version)
-}
-delete(d.documentationVersions, version)
-return nil
+	b.mu.Lock("DeleteDocumentationVersion")
+	defer b.mu.Unlock()
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
+	}
+	if _, exists := d.documentationVersions[version]; !exists {
+		return fmt.Errorf("%w: documentation version %q not found", ErrDocumentationVersionNotFound, version)
+	}
+	delete(d.documentationVersions, version)
+
+	return nil
 }
