@@ -576,9 +576,12 @@ type registerDBProxyTargetsResponse struct {
 	Targets xmlDBProxyTargetList `xml:"RegisterDBProxyTargetsResult>DBProxyTargets"`
 }
 
+type deregisterDBProxyTargetsResult struct{}
+
 type deregisterDBProxyTargetsResponse struct {
-	XMLName xml.Name `xml:"DeregisterDBProxyTargetsResponse"`
-	Xmlns   string   `xml:"xmlns,attr"`
+	XMLName xml.Name                       `xml:"DeregisterDBProxyTargetsResponse"`
+	Xmlns   string                         `xml:"xmlns,attr"`
+	Result  deregisterDBProxyTargetsResult `xml:"DeregisterDBProxyTargetsResult"`
 }
 
 type describeDBProxyTargetsResponse struct {
