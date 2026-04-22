@@ -84,6 +84,8 @@ const (
 	defaultInstanceClass    = "db.t3.micro"
 	defaultAllocatedStorage = 20
 
+	instanceStatusModifying = "modifying"
+	instanceStatusDeleting  = "deleting"
 	instanceStatusAvailable = "available"
 	instanceStatusStopped   = "stopped"
 
@@ -91,6 +93,9 @@ const (
 	backtrackStatusApplying            = "applying"
 	blueGreenDeploymentStatusAvailable = "available"
 	ipRangeStatusAuthorized            = "authorized"
+	instanceTransitionDelay            = 250 * time.Millisecond
+	reconcilerDivisor                  = 5
+	maxEvents                          = 512
 )
 
 // DBInstance represents an RDS database instance.
@@ -127,6 +132,7 @@ type DBSnapshot struct {
 	EngineVersion        string `json:"engineVersion"`
 	Status               string `json:"status"`
 	StorageType          string `json:"storageType"`
+	OptionGroupName      string `json:"optionGroupName"`
 	AllocatedStorage     int    `json:"allocatedStorage"`
 	Port                 int    `json:"port"`
 	StorageEncrypted     bool   `json:"storageEncrypted"`
@@ -182,14 +188,21 @@ type OptionGroup struct {
 
 // DBCluster represents an Aurora-style RDS cluster.
 type DBCluster struct {
-	DBClusterIdentifier         string `json:"dbClusterIdentifier"`
-	Engine                      string `json:"engine"`
-	Status                      string `json:"status"`
-	MasterUsername              string `json:"masterUsername"`
-	DatabaseName                string `json:"databaseName"`
-	DBClusterParameterGroupName string `json:"dbClusterParameterGroupName"`
-	Endpoint                    string `json:"endpoint"`
-	Port                        int    `json:"port"`
+	Endpoint                        string `json:"endpoint"`
+	ActivityStreamStatus            string `json:"activityStreamStatus"`
+	Status                          string `json:"status"`
+	MasterUsername                  string `json:"masterUsername"`
+	DatabaseName                    string `json:"databaseName"`
+	DBClusterParameterGroupName     string `json:"dbClusterParameterGroupName"`
+	Engine                          string `json:"engine"`
+	ActivityStreamAuditPolicy       string `json:"activityStreamAuditPolicy"`
+	DBClusterIdentifier             string `json:"dbClusterIdentifier"`
+	ActivityStreamKinesisStreamName string `json:"activityStreamKinesisStreamName"`
+	ActivityStreamKMSKeyID          string `json:"activityStreamKmsKeyId"`
+	ActivityStreamMode              string `json:"activityStreamMode"`
+	Port                            int    `json:"port"`
+	ServerlessCapacity              int    `json:"serverlessCapacity"`
+	HTTPEndpointEnabled             bool   `json:"httpEndpointEnabled"`
 }
 
 // DBClusterSnapshot represents an RDS cluster snapshot.
@@ -219,12 +232,13 @@ type ExportTask struct {
 
 // GlobalCluster represents an RDS global cluster.
 type GlobalCluster struct {
-	GlobalClusterIdentifier string `json:"globalClusterIdentifier"`
-	Engine                  string `json:"engine"`
-	EngineVersion           string `json:"engineVersion"`
-	Status                  string `json:"status"`
-	StorageEncrypted        bool   `json:"storageEncrypted"`
-	DeletionProtection      bool   `json:"deletionProtection"`
+	GlobalClusterIdentifier string   `json:"globalClusterIdentifier"`
+	Engine                  string   `json:"engine"`
+	EngineVersion           string   `json:"engineVersion"`
+	Status                  string   `json:"status"`
+	ClusterARNs             []string `json:"clusterARNs"`
+	StorageEncrypted        bool     `json:"storageEncrypted"`
+	DeletionProtection      bool     `json:"deletionProtection"`
 }
 
 // DBEngineVersion represents an available RDS engine version.
@@ -232,6 +246,107 @@ type DBEngineVersion struct {
 	Engine              string `json:"engine"`
 	EngineVersion       string `json:"engineVersion"`
 	DBEngineDescription string `json:"dbEngineDescription"`
+}
+
+// DBSnapshotAttribute represents an attribute of a DB snapshot.
+type DBSnapshotAttribute struct {
+	AttributeName   string   `json:"attributeName"`
+	AttributeValues []string `json:"attributeValues"`
+}
+
+// DBSnapshotAttributesResult holds attributes for a DB snapshot.
+type DBSnapshotAttributesResult struct {
+	DBSnapshotIdentifier string                `json:"dbSnapshotIdentifier"`
+	DBSnapshotAttributes []DBSnapshotAttribute `json:"dbSnapshotAttributes"`
+}
+
+// DBClusterSnapshotAttributesResult holds attributes for a cluster snapshot.
+type DBClusterSnapshotAttributesResult struct {
+	DBClusterSnapshotIdentifier string                `json:"dbClusterSnapshotIdentifier"`
+	DBClusterSnapshotAttributes []DBSnapshotAttribute `json:"dbClusterSnapshotAttributes"`
+}
+
+// Certificate represents an RDS CA certificate.
+type Certificate struct {
+	CertificateIdentifier string `json:"certificateIdentifier"`
+	CertificateType       string `json:"certificateType"`
+	ValidTill             string `json:"validTill"`
+	ValidFrom             string `json:"validFrom"`
+	Thumbprint            string `json:"thumbprint"`
+	CustomerOverride      bool   `json:"customerOverride"`
+}
+
+// AccountAttribute represents an RDS account quota attribute.
+type AccountAttribute struct {
+	AttributeName string `json:"attributeName"`
+	Used          int    `json:"used"`
+	Max           int    `json:"max"`
+}
+
+// PendingMaintenanceAction represents a pending maintenance action for a resource.
+type PendingMaintenanceAction struct {
+	ResourceIdentifier   string `json:"resourceIdentifier"`
+	Action               string `json:"action"`
+	AutoAppliedAfterDate string `json:"autoAppliedAfterDate"`
+	CurrentApplyDate     string `json:"currentApplyDate"`
+	Description          string `json:"description"`
+}
+
+// SourceRegion represents an available source region for cross-region operations.
+type SourceRegion struct {
+	RegionName string `json:"regionName"`
+	Endpoint   string `json:"endpoint"`
+	Status     string `json:"status"`
+}
+
+// DBMajorEngineVersion represents a major engine version.
+type DBMajorEngineVersion struct {
+	Engine             string `json:"engine"`
+	MajorEngineVersion string `json:"majorEngineVersion"`
+	Status             string `json:"status"`
+}
+
+// ReservedDBInstance represents a purchased reserved DB instance.
+type ReservedDBInstance struct {
+	ReservedDBInstanceID          string  `json:"reservedDBInstanceId"`
+	ReservedDBInstancesOfferingID string  `json:"reservedDBInstancesOfferingId"`
+	DBInstanceClass               string  `json:"dbInstanceClass"`
+	StartTime                     string  `json:"startTime"`
+	ProductDescription            string  `json:"productDescription"`
+	OfferingType                  string  `json:"offeringType"`
+	State                         string  `json:"state"`
+	CurrencyCode                  string  `json:"currencyCode"`
+	FixedPrice                    float64 `json:"fixedPrice"`
+	UsagePrice                    float64 `json:"usagePrice"`
+	Duration                      int     `json:"duration"`
+	DBInstanceCount               int     `json:"dbInstanceCount"`
+	MultiAZ                       bool    `json:"multiAZ"`
+}
+
+// ReservedDBInstancesOffering represents an available reserved DB instance offering.
+type ReservedDBInstancesOffering struct {
+	ReservedDBInstancesOfferingID string  `json:"reservedDBInstancesOfferingId"`
+	DBInstanceClass               string  `json:"dbInstanceClass"`
+	ProductDescription            string  `json:"productDescription"`
+	OfferingType                  string  `json:"offeringType"`
+	CurrencyCode                  string  `json:"currencyCode"`
+	FixedPrice                    float64 `json:"fixedPrice"`
+	UsagePrice                    float64 `json:"usagePrice"`
+	Duration                      int     `json:"duration"`
+	MultiAZ                       bool    `json:"multiAZ"`
+}
+
+// DBRecommendation represents an RDS performance recommendation.
+type DBRecommendation struct {
+	RecommendationID string `json:"recommendationId"`
+	TypeID           string `json:"typeId"`
+	Severity         string `json:"severity"`
+	Status           string `json:"status"`
+	Description      string `json:"description"`
+	Reason           string `json:"reason"`
+	ResourceARN      string `json:"resourceArn"`
+	UpdatedTime      string `json:"updatedTime"`
+	CreatedTime      string `json:"createdTime"`
 }
 
 // OrderableDBInstanceOption represents an orderable DB instance option.
@@ -255,6 +370,15 @@ type EventSubscription struct {
 	Status           string   `json:"status"`
 	SourceType       string   `json:"sourceType"`
 	SourceIDs        []string `json:"sourceIds"`
+	Enabled          bool     `json:"enabled"`
+}
+
+// Event represents a published RDS lifecycle event.
+type Event struct {
+	CreatedAt        time.Time `json:"createdAt"`
+	Message          string    `json:"message"`
+	SourceIdentifier string    `json:"sourceIdentifier"`
+	SourceType       string    `json:"sourceType"`
 }
 
 // IPRange represents a CIDR IP range authorized for a DB security group.
@@ -306,55 +430,86 @@ type DBInstanceOptions struct {
 
 // InMemoryBackend is the in-memory store for RDS resources.
 type InMemoryBackend struct {
-	dnsRegistrar           DNSRegistrar
-	instances              map[string]*DBInstance
-	snapshots              map[string]*DBSnapshot
-	subnetGroups           map[string]*DBSubnetGroup
-	tags                   map[string][]Tag
-	parameterGroups        map[string]*DBParameterGroup
-	clusterParameterGroups map[string]*DBParameterGroup
-	optionGroups           map[string]*OptionGroup
-	clusters               map[string]*DBCluster
-	clusterSnapshots       map[string]*DBClusterSnapshot
-	clusterEndpoints       map[string]*DBClusterEndpoint
-	exportTasks            map[string]*ExportTask
-	globalClusters         map[string]*GlobalCluster
-	clusterRoles           map[string][]string // cluster ID → IAM role ARNs
-	instanceRoles          map[string][]string // instance ID → IAM role ARNs
-	eventSubscriptions     map[string]*EventSubscription
-	dbSecurityGroups       map[string]*DBSecurityGroup
-	blueGreenDeployments   map[string]*BlueGreenDeployment
-	fisFailoverFaults      map[string]time.Time // keyed by cluster identifier; value is expiry (zero = permanent)
-	mu                     *lockmetrics.RWMutex
-	accountID              string
-	region                 string
+	dnsRegistrar              DNSRegistrar
+	clusterEndpoints          map[string]*DBClusterEndpoint
+	parameterGroups           map[string]*DBParameterGroup
+	snapshots                 map[string]*DBSnapshot
+	subnetGroups              map[string]*DBSubnetGroup
+	tags                      map[string][]Tag
+	instances                 map[string]*DBInstance
+	clusterParameterGroups    map[string]*DBParameterGroup
+	optionGroups              map[string]*OptionGroup
+	clusters                  map[string]*DBCluster
+	instanceReadyAt           map[string]time.Time
+	clusterSnapshots          map[string]*DBClusterSnapshot
+	eventSubscriptions        map[string]*EventSubscription
+	globalClusters            map[string]*GlobalCluster
+	clusterRoles              map[string][]string
+	instanceRoles             map[string][]string
+	exportTasks               map[string]*ExportTask
+	mu                        *lockmetrics.RWMutex
+	dbSecurityGroups          map[string]*DBSecurityGroup
+	blueGreenDeployments      map[string]*BlueGreenDeployment
+	snapshotAttributes        map[string]*DBSnapshotAttributesResult
+	clusterSnapshotAttributes map[string]*DBClusterSnapshotAttributesResult
+	reservedInstances         map[string]*ReservedDBInstance
+	recommendations           map[string]*DBRecommendation
+	proxies                   map[string]*DBProxy
+	proxyTargetGroups         map[string]*DBProxyTargetGroup
+	proxyTargets              map[string][]DBProxyTarget
+	proxyEndpoints            map[string]*DBProxyEndpoint
+	fisFailoverFaults         map[string]time.Time
+	stopCh                    chan struct{}
+	accountID                 string
+	region                    string
+	events                    []Event
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with a background reconciler.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		instances:              make(map[string]*DBInstance),
-		snapshots:              make(map[string]*DBSnapshot),
-		subnetGroups:           make(map[string]*DBSubnetGroup),
-		tags:                   make(map[string][]Tag),
-		parameterGroups:        make(map[string]*DBParameterGroup),
-		clusterParameterGroups: make(map[string]*DBParameterGroup),
-		optionGroups:           make(map[string]*OptionGroup),
-		clusters:               make(map[string]*DBCluster),
-		clusterSnapshots:       make(map[string]*DBClusterSnapshot),
-		clusterEndpoints:       make(map[string]*DBClusterEndpoint),
-		exportTasks:            make(map[string]*ExportTask),
-		globalClusters:         make(map[string]*GlobalCluster),
-		clusterRoles:           make(map[string][]string),
-		instanceRoles:          make(map[string][]string),
-		eventSubscriptions:     make(map[string]*EventSubscription),
-		dbSecurityGroups:       make(map[string]*DBSecurityGroup),
-		blueGreenDeployments:   make(map[string]*BlueGreenDeployment),
-		fisFailoverFaults:      make(map[string]time.Time),
-		accountID:              accountID,
-		region:                 region,
-		mu:                     lockmetrics.New("rds"),
+	b := &InMemoryBackend{
+		instances:                 make(map[string]*DBInstance),
+		instanceReadyAt:           make(map[string]time.Time),
+		snapshots:                 make(map[string]*DBSnapshot),
+		subnetGroups:              make(map[string]*DBSubnetGroup),
+		tags:                      make(map[string][]Tag),
+		parameterGroups:           make(map[string]*DBParameterGroup),
+		clusterParameterGroups:    make(map[string]*DBParameterGroup),
+		optionGroups:              make(map[string]*OptionGroup),
+		clusters:                  make(map[string]*DBCluster),
+		clusterSnapshots:          make(map[string]*DBClusterSnapshot),
+		clusterEndpoints:          make(map[string]*DBClusterEndpoint),
+		exportTasks:               make(map[string]*ExportTask),
+		globalClusters:            make(map[string]*GlobalCluster),
+		clusterRoles:              make(map[string][]string),
+		instanceRoles:             make(map[string][]string),
+		eventSubscriptions:        make(map[string]*EventSubscription),
+		events:                    make([]Event, 0),
+		dbSecurityGroups:          make(map[string]*DBSecurityGroup),
+		blueGreenDeployments:      make(map[string]*BlueGreenDeployment),
+		fisFailoverFaults:         make(map[string]time.Time),
+		snapshotAttributes:        make(map[string]*DBSnapshotAttributesResult),
+		clusterSnapshotAttributes: make(map[string]*DBClusterSnapshotAttributesResult),
+		reservedInstances:         make(map[string]*ReservedDBInstance),
+		recommendations:           make(map[string]*DBRecommendation),
+		proxies:                   make(map[string]*DBProxy),
+		proxyTargetGroups:         make(map[string]*DBProxyTargetGroup),
+		proxyTargets:              make(map[string][]DBProxyTarget),
+		proxyEndpoints:            make(map[string]*DBProxyEndpoint),
+		stopCh:                    make(chan struct{}),
+		accountID:                 accountID,
+		region:                    region,
+		mu:                        lockmetrics.New("rds"),
 	}
+
+	go b.runReconciler()
+
+	return b
+}
+
+// Close stops the background reconciler goroutine.
+func (b *InMemoryBackend) Close() {
+	close(b.stopCh)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -369,6 +524,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.instances = make(map[string]*DBInstance)
+	b.instanceReadyAt = make(map[string]time.Time)
 	b.snapshots = make(map[string]*DBSnapshot)
 	b.subnetGroups = make(map[string]*DBSubnetGroup)
 	b.tags = make(map[string][]Tag)
@@ -383,9 +539,18 @@ func (b *InMemoryBackend) Reset() {
 	b.clusterRoles = make(map[string][]string)
 	b.instanceRoles = make(map[string][]string)
 	b.eventSubscriptions = make(map[string]*EventSubscription)
+	b.events = make([]Event, 0)
 	b.dbSecurityGroups = make(map[string]*DBSecurityGroup)
 	b.blueGreenDeployments = make(map[string]*BlueGreenDeployment)
 	b.fisFailoverFaults = make(map[string]time.Time)
+	b.snapshotAttributes = make(map[string]*DBSnapshotAttributesResult)
+	b.clusterSnapshotAttributes = make(map[string]*DBClusterSnapshotAttributesResult)
+	b.reservedInstances = make(map[string]*ReservedDBInstance)
+	b.recommendations = make(map[string]*DBRecommendation)
+	b.proxies = make(map[string]*DBProxy)
+	b.proxyTargetGroups = make(map[string]*DBProxyTargetGroup)
+	b.proxyTargets = make(map[string][]DBProxyTarget)
+	b.proxyEndpoints = make(map[string]*DBProxyEndpoint)
 }
 
 // SetDNSRegistrar wires a DNS server so RDS instance hostnames are auto-registered.
@@ -405,6 +570,51 @@ func enginePort(engine string) int {
 	}
 }
 
+func (b *InMemoryBackend) reconcileInstancesLocked() {
+	now := time.Now()
+
+	for id, inst := range b.instances {
+		readyAt, hasReadyAt := b.instanceReadyAt[id]
+		if hasReadyAt && !readyAt.IsZero() && now.After(readyAt) {
+			inst.DBInstanceStatus = instanceStatusAvailable
+			delete(b.instanceReadyAt, id)
+			b.publishInstanceEventLocked(id, "DB instance is now available")
+		}
+	}
+}
+
+// runReconciler periodically transitions DB instances that have passed their
+// ready-at timestamp. It runs as a long-lived background goroutine until Close() is called.
+func (b *InMemoryBackend) runReconciler() {
+	ticker := time.NewTicker(instanceTransitionDelay / reconcilerDivisor)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		case <-ticker.C:
+			b.mu.Lock("runReconciler")
+			b.reconcileInstancesLocked()
+			b.mu.Unlock()
+		}
+	}
+}
+
+func (b *InMemoryBackend) publishInstanceEventLocked(id, msg string) {
+	event := Event{
+		Message:          msg,
+		SourceIdentifier: id,
+		SourceType:       "db-instance",
+		CreatedAt:        time.Now(),
+	}
+
+	b.events = append(b.events, event)
+	if len(b.events) > maxEvents {
+		b.events = b.events[len(b.events)-maxEvents:]
+	}
+}
+
 // CreateDBInstance creates a new RDS DB instance.
 func (b *InMemoryBackend) CreateDBInstance(
 	id, engine, instanceClass, dbName, masterUser, paramGroupName string,
@@ -416,6 +626,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 
 	b.mu.Lock("CreateDBInstance")
+	b.reconcileInstancesLocked()
 
 	if _, exists := b.instances[id]; exists {
 		b.mu.Unlock()
@@ -467,6 +678,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		DeletionProtection:               opts.DeletionProtection,
 	}
 	b.instances[id] = inst
+	b.publishInstanceEventLocked(id, "DB instance created")
 	cp := *inst
 
 	b.mu.Unlock()
@@ -487,6 +699,7 @@ func (b *InMemoryBackend) rdsARN(resourceType, id string) string {
 // DeleteDBInstance removes the DB instance with the given identifier.
 func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	b.mu.Lock("DeleteDBInstance")
+	b.reconcileInstancesLocked()
 
 	inst, exists := b.instances[id]
 	if !exists {
@@ -504,10 +717,20 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 		)
 	}
 
+	if inst.DBInstanceStatus == instanceStatusDeleting {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: instance %s is already being deleted", ErrInvalidDBInstanceState, id)
+	}
+
+	inst.DBInstanceStatus = instanceStatusDeleting
+	b.publishInstanceEventLocked(id, "DB instance deletion started")
 	cp := *inst
+	b.publishInstanceEventLocked(id, "DB instance deleted")
 	delete(b.instances, id)
 	delete(b.tags, b.rdsARN("db", id))
 	delete(b.instanceRoles, id)
+	delete(b.instanceReadyAt, id)
 
 	b.mu.Unlock()
 
@@ -521,21 +744,25 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 // DescribeDBInstances returns instances. If id is non-empty, returns only that instance.
 func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 	b.mu.RLock("DescribeDBInstances")
-	defer b.mu.RUnlock()
 
 	if id != "" {
 		inst, exists := b.instances[id]
 		if !exists {
+			b.mu.RUnlock()
+
 			return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 		}
+		cp := *inst
+		b.mu.RUnlock()
 
-		return []DBInstance{*inst}, nil
+		return []DBInstance{cp}, nil
 	}
 
 	instances := make([]DBInstance, 0, len(b.instances))
 	for _, inst := range b.instances {
 		instances = append(instances, *inst)
 	}
+	b.mu.RUnlock()
 
 	return instances, nil
 }
@@ -547,6 +774,7 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	opts DBInstanceOptions,
 ) (*DBInstance, error) {
 	b.mu.Lock("ModifyDBInstance")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 
 	inst, exists := b.instances[id]
@@ -576,6 +804,9 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		inst.DeletionProtection = opts.DeletionProtection
 	}
 
+	inst.DBInstanceStatus = instanceStatusModifying
+	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.publishInstanceEventLocked(id, "DB instance modification started")
 	cp := *inst
 
 	return &cp, nil
@@ -710,6 +941,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 	}
 
 	b.mu.Lock("RestoreDBInstanceFromDBSnapshot")
+	b.reconcileInstancesLocked()
 
 	if _, exists := b.instances[id]; exists {
 		b.mu.Unlock()
@@ -753,6 +985,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		DeletionProtection:   opts.DeletionProtection,
 	}
 	b.instances[id] = inst
+	b.publishInstanceEventLocked(id, "DB instance restored from snapshot")
 	cp := *inst
 
 	b.mu.Unlock()
@@ -777,6 +1010,7 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 	}
 
 	b.mu.Lock("RestoreDBInstanceToPointInTime")
+	b.reconcileInstancesLocked()
 
 	if _, exists := b.instances[id]; exists {
 		b.mu.Unlock()
@@ -819,6 +1053,7 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 		DeletionProtection:   opts.DeletionProtection,
 	}
 	b.instances[id] = inst
+	b.publishInstanceEventLocked(id, "DB instance restored to point in time")
 	cp := *inst
 
 	b.mu.Unlock()
@@ -837,6 +1072,7 @@ func (b *InMemoryBackend) StartDBInstance(id string) (*DBInstance, error) {
 	}
 
 	b.mu.Lock("StartDBInstance")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 
 	inst, exists := b.instances[id]
@@ -860,6 +1096,7 @@ func (b *InMemoryBackend) StopDBInstance(id string) (*DBInstance, error) {
 	}
 
 	b.mu.Lock("StopDBInstance")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 
 	inst, exists := b.instances[id]
@@ -1428,6 +1665,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBI
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier must not be empty", ErrInvalidParameter)
 	}
 	b.mu.Lock("CreateDBInstanceReadReplica")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 	if _, exists := b.instances[id]; exists {
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
@@ -1451,6 +1689,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBI
 		ReplicaSourceDBInstanceIdentifier: sourceID,
 	}
 	b.instances[id] = replica
+	b.publishInstanceEventLocked(id, "DB read replica created")
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
 	}
@@ -1462,6 +1701,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBI
 // PromoteReadReplica promotes a read replica to a standalone instance.
 func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 	b.mu.Lock("PromoteReadReplica")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 	inst, exists := b.instances[id]
 	if !exists {
@@ -1476,12 +1716,15 @@ func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 // RebootDBInstance reboots the given instance.
 func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	b.mu.Lock("RebootDBInstance")
+	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 	inst, exists := b.instances[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 	inst.DBInstanceStatus = instanceStatusAvailable
+	delete(b.instanceReadyAt, id)
+	b.publishInstanceEventLocked(id, "DB instance reboot completed")
 	cp := *inst
 
 	return &cp, nil

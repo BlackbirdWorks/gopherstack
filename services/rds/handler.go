@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -21,6 +23,8 @@ const (
 	rdsVersion = "2014-10-31"
 	rdsXMLNS   = "http://rds.amazonaws.com/doc/2014-10-31/"
 	formTrue   = "true"
+
+	rdsDescribeDefaultPageSize = 100
 )
 
 // Handler is the Echo HTTP handler for RDS operations.
@@ -43,6 +47,14 @@ func (h *Handler) Name() string { return "RDS" }
 
 // GetSupportedOperations returns supported RDS operations.
 func (h *Handler) GetSupportedOperations() []string {
+	ops := make([]string, 0, len(supportedOpsBase())+len(supportedOpsExtended()))
+	ops = append(ops, supportedOpsBase()...)
+	ops = append(ops, supportedOpsExtended()...)
+
+	return ops
+}
+
+func supportedOpsBase() []string {
 	return []string{
 		"AddRoleToDBCluster",
 		"AddRoleToDBInstance",
@@ -65,59 +77,130 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateDBInstance",
 		"CreateDBInstanceReadReplica",
 		"CreateDBParameterGroup",
+		"CreateDBProxy",
+		"CreateDBProxyEndpoint",
+		"CreateDBSecurityGroup",
 		"CreateDBSnapshot",
 		"CreateDBSubnetGroup",
+		"CreateEventSubscription",
 		"CreateGlobalCluster",
 		"CreateOptionGroup",
+		"DeleteBlueGreenDeployment",
 		"DeleteDBCluster",
 		"DeleteDBClusterEndpoint",
+		"DeleteDBClusterParameterGroup",
 		"DeleteDBClusterSnapshot",
 		"DeleteDBInstance",
 		"DeleteDBParameterGroup",
+		"DeleteDBProxy",
+		"DeleteDBProxyEndpoint",
+		"DeleteDBSecurityGroup",
 		"DeleteDBSnapshot",
 		"DeleteDBSubnetGroup",
+		"DeleteEventSubscription",
 		"DeleteGlobalCluster",
 		"DeleteOptionGroup",
+		"DeregisterDBProxyTargets",
+		"DescribeAccountAttributes",
+		"DescribeBlueGreenDeployments",
+		"DescribeCertificates",
+		"DescribeDBClusterBacktracks",
 		"DescribeDBClusterEndpoints",
 		"DescribeDBClusterParameterGroups",
+		"DescribeDBClusterParameters",
+		"DescribeDBClusterSnapshotAttributes",
 		"DescribeDBClusterSnapshots",
 		"DescribeDBClusters",
 		"DescribeDBEngineVersions",
 		"DescribeDBInstances",
 		"DescribeDBLogFiles",
+		"DescribeDBMajorEngineVersions",
 		"DescribeDBParameterGroups",
 		"DescribeDBParameters",
+		"DescribeDBProxies",
+		"DescribeDBProxyEndpoints",
+		"DescribeDBProxyTargetGroups",
+		"DescribeDBProxyTargets",
+		"DescribeDBRecommendations",
+		"DescribeDBSecurityGroups",
+		"DescribeDBSnapshotAttributes",
 		"DescribeDBSnapshots",
 		"DescribeDBSubnetGroups",
+	}
+}
+
+func supportedOpsExtended() []string {
+	return []string{
+		"DescribeEngineDefaultClusterParameters",
+		"DescribeEngineDefaultParameters",
+		"DescribeEventCategories",
+		"DescribeEventSubscriptions",
+		"DescribeEvents",
 		"DescribeExportTasks",
 		"DescribeGlobalClusters",
 		"DescribeOptionGroupOptions",
 		"DescribeOptionGroups",
 		"DescribeOrderableDBInstanceOptions",
+		"DescribePendingMaintenanceActions",
+		"DescribeReservedDBInstances",
+		"DescribeReservedDBInstancesOfferings",
+		"DescribeSourceRegions",
 		"DescribeValidDBInstanceModifications",
+		"DisableHttpEndpoint",
 		"DownloadDBLogFilePortion",
+		"EnableHttpEndpoint",
+		"FailoverDBCluster",
+		"FailoverGlobalCluster",
 		"ListTagsForResource",
+		"ModifyActivityStream",
+		"ModifyCertificates",
+		"ModifyCurrentDBClusterCapacity",
 		"ModifyDBCluster",
+		"ModifyDBClusterEndpoint",
+		"ModifyDBClusterParameterGroup",
+		"ModifyDBClusterSnapshotAttribute",
 		"ModifyDBInstance",
 		"ModifyDBParameterGroup",
+		"ModifyDBProxy",
+		"ModifyDBProxyEndpoint",
+		"ModifyDBProxyTargetGroup",
+		"ModifyDBRecommendation",
+		"ModifyDBSnapshot",
+		"ModifyDBSnapshotAttribute",
+		"ModifyDBSubnetGroup",
+		"ModifyEventSubscription",
 		"ModifyGlobalCluster",
 		"ModifyOptionGroup",
 		"PromoteReadReplica",
+		"PromoteReadReplicaDBCluster",
+		"PurchaseReservedDBInstancesOffering",
+		"RebootDBCluster",
 		"RebootDBInstance",
+		"RegisterDBProxyTargets",
+		"RemoveFromGlobalCluster",
 		"RemoveRoleFromDBCluster",
 		"RemoveRoleFromDBInstance",
 		"RemoveSourceIdentifierFromSubscription",
 		"RemoveTagsFromResource",
+		"ResetDBClusterParameterGroup",
 		"ResetDBParameterGroup",
+		"RestoreDBClusterFromS3",
 		"RestoreDBClusterFromSnapshot",
 		"RestoreDBClusterToPointInTime",
 		"RestoreDBInstanceFromDBSnapshot",
+		"RestoreDBInstanceFromS3",
 		"RestoreDBInstanceToPointInTime",
+		"RevokeDBSecurityGroupIngress",
+		"StartActivityStream",
 		"StartDBCluster",
 		"StartDBInstance",
 		"StartExportTask",
+		"StopActivityStream",
 		"StopDBCluster",
 		"StopDBInstance",
+		"SwitchoverBlueGreenDeployment",
+		"SwitchoverGlobalCluster",
+		"SwitchoverReadReplica",
 	}
 }
 
@@ -427,7 +510,7 @@ func (h *Handler) dispatchExtended6(action string, vals url.Values) (any, error)
 	case "RemoveSourceIdentifierFromSubscription":
 		return h.handleRemoveSourceIdentifierFromSubscription(vals)
 	default:
-		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
+		return h.dispatchExtended7(action, vals)
 	}
 }
 
@@ -509,21 +592,25 @@ func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-
 	instances, err := h.Backend.DescribeDBInstances(id)
 	if err != nil {
 		return nil, err
 	}
+	members, marker, err := paginateDescribe(vals, instances, func(a, b DBInstance) bool {
+		return a.DBInstanceIdentifier < b.DBInstanceIdentifier
+	}, func(item DBInstance) xmlDBInstance {
+		cp := item
 
-	members := make([]xmlDBInstance, 0, len(instances))
-	for _, inst := range instances {
-		cp := inst
-		members = append(members, toXMLInstance(&cp))
+		return toXMLInstance(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBInstancesResponse{
 		Xmlns:       rdsXMLNS,
 		DBInstances: xmlDBInstanceList{Members: members},
+		Marker:      marker,
 	}, nil
 }
 
@@ -595,16 +682,21 @@ func (h *Handler) handleDescribeDBSnapshots(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	members, marker, err := paginateDescribe(vals, snaps, func(a, b DBSnapshot) bool {
+		return a.DBSnapshotIdentifier < b.DBSnapshotIdentifier
+	}, func(item DBSnapshot) xmlDBSnapshot {
+		cp := item
 
-	members := make([]xmlDBSnapshot, 0, len(snaps))
-	for _, snap := range snaps {
-		cp := snap
-		members = append(members, toXMLSnapshot(&cp))
+		return toXMLSnapshot(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBSnapshotsResponse{
 		Xmlns:       rdsXMLNS,
 		DBSnapshots: xmlDBSnapshotList{Members: members},
+		Marker:      marker,
 	}, nil
 }
 
@@ -646,16 +738,21 @@ func (h *Handler) handleDescribeDBSubnetGroups(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	members, marker, err := paginateDescribe(vals, sgs, func(a, b DBSubnetGroup) bool {
+		return a.DBSubnetGroupName < b.DBSubnetGroupName
+	}, func(item DBSubnetGroup) xmlDBSubnetGroup {
+		cp := item
 
-	members := make([]xmlDBSubnetGroup, 0, len(sgs))
-	for _, sg := range sgs {
-		cp := sg
-		members = append(members, toXMLSubnetGroup(&cp))
+		return toXMLSubnetGroup(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBSubnetGroupsResponse{
 		Xmlns:          rdsXMLNS,
 		DBSubnetGroups: xmlDBSubnetGroupList{Members: members},
+		Marker:         marker,
 	}, nil
 }
 
@@ -916,6 +1013,7 @@ type deleteDBInstanceResponse struct {
 type describeDBInstancesResponse struct {
 	XMLName     xml.Name          `xml:"DescribeDBInstancesResponse"`
 	Xmlns       string            `xml:"xmlns,attr"`
+	Marker      string            `xml:"DescribeDBInstancesResult>Marker,omitempty"`
 	DBInstances xmlDBInstanceList `xml:"DescribeDBInstancesResult>DBInstances"`
 }
 
@@ -956,6 +1054,7 @@ type deleteDBSnapshotResponse struct {
 type describeDBSnapshotsResponse struct {
 	XMLName     xml.Name          `xml:"DescribeDBSnapshotsResponse"`
 	Xmlns       string            `xml:"xmlns,attr"`
+	Marker      string            `xml:"DescribeDBSnapshotsResult>Marker,omitempty"`
 	DBSnapshots xmlDBSnapshotList `xml:"DescribeDBSnapshotsResult>DBSnapshots"`
 }
 
@@ -993,6 +1092,7 @@ type deleteDBSubnetGroupResponse struct {
 type describeDBSubnetGroupsResponse struct {
 	XMLName        xml.Name             `xml:"DescribeDBSubnetGroupsResponse"`
 	Xmlns          string               `xml:"xmlns,attr"`
+	Marker         string               `xml:"DescribeDBSubnetGroupsResult>Marker,omitempty"`
 	DBSubnetGroups xmlDBSubnetGroupList `xml:"DescribeDBSubnetGroupsResult>DBSubnetGroups"`
 }
 
@@ -1050,6 +1150,50 @@ func parseTagKeyMembers(vals url.Values) []string {
 		}
 		keys = append(keys, k)
 	}
+}
+
+func parseDescribePagination(vals url.Values) (string, int, error) {
+	marker := vals.Get("Marker")
+	maxRecords := 0
+	rawMaxRecords := vals.Get("MaxRecords")
+	if rawMaxRecords == "" {
+		return marker, maxRecords, nil
+	}
+
+	maxRecords, err := strconv.Atoi(rawMaxRecords)
+	if err != nil {
+		return "", 0, fmt.Errorf("%w: invalid MaxRecords %q", ErrInvalidParameter, rawMaxRecords)
+	}
+
+	if maxRecords <= 0 {
+		return "", 0, fmt.Errorf("%w: MaxRecords must be greater than 0", ErrInvalidParameter)
+	}
+
+	return marker, maxRecords, nil
+}
+
+func paginateDescribe[TData any, TXMLOutput any](
+	vals url.Values,
+	data []TData,
+	less func(a, b TData) bool,
+	convert func(TData) TXMLOutput,
+) ([]TXMLOutput, string, error) {
+	marker, maxRecords, err := parseDescribePagination(vals)
+	if err != nil {
+		return nil, "", err
+	}
+
+	sort.Slice(data, func(i, j int) bool {
+		return less(data[i], data[j])
+	})
+
+	p := page.New(data, marker, maxRecords, rdsDescribeDefaultPageSize)
+	members := make([]TXMLOutput, 0, len(p.Data))
+	for _, item := range p.Data {
+		members = append(members, convert(item))
+	}
+
+	return members, p.Next, nil
 }
 
 // parseParameterMembers parses Parameters.Parameter.N.ParameterName/ParameterValue form values.
@@ -1279,15 +1423,21 @@ func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBCluster, 0, len(clusters))
-	for _, c := range clusters {
-		cp := c
-		members = append(members, toXMLCluster(&cp))
+	members, marker, err := paginateDescribe(vals, clusters, func(a, b DBCluster) bool {
+		return a.DBClusterIdentifier < b.DBClusterIdentifier
+	}, func(item DBCluster) xmlDBCluster {
+		cp := item
+
+		return toXMLCluster(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBClustersResponse{
 		Xmlns:      rdsXMLNS,
 		DBClusters: xmlDBClusterList{Members: members},
+		Marker:     marker,
 	}, nil
 }
 
@@ -1758,14 +1908,18 @@ func toXMLOptionGroup(og *OptionGroup) xmlOptionGroup {
 
 func toXMLCluster(c *DBCluster) xmlDBCluster {
 	return xmlDBCluster{
-		DBClusterIdentifier:         c.DBClusterIdentifier,
-		Engine:                      c.Engine,
-		Status:                      c.Status,
-		MasterUsername:              c.MasterUsername,
-		DatabaseName:                c.DatabaseName,
-		DBClusterParameterGroupName: c.DBClusterParameterGroupName,
-		Endpoint:                    c.Endpoint,
-		Port:                        c.Port,
+		DBClusterIdentifier:             c.DBClusterIdentifier,
+		Engine:                          c.Engine,
+		Status:                          c.Status,
+		MasterUsername:                  c.MasterUsername,
+		DatabaseName:                    c.DatabaseName,
+		DBClusterParameterGroupName:     c.DBClusterParameterGroupName,
+		Endpoint:                        c.Endpoint,
+		Port:                            c.Port,
+		ActivityStreamStatus:            c.ActivityStreamStatus,
+		ActivityStreamMode:              c.ActivityStreamMode,
+		ActivityStreamKMSKeyID:          c.ActivityStreamKMSKeyID,
+		ActivityStreamKinesisStreamName: c.ActivityStreamKinesisStreamName,
 	}
 }
 
@@ -1892,14 +2046,18 @@ type describeOptionGroupOptionsResponse struct {
 // ---- Cluster XML types ----
 
 type xmlDBCluster struct {
-	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
-	Engine                      string `xml:"Engine"`
-	Status                      string `xml:"Status"`
-	MasterUsername              string `xml:"MasterUsername"`
-	DatabaseName                string `xml:"DatabaseName,omitempty"`
-	DBClusterParameterGroupName string `xml:"DBClusterParameterGroup"`
-	Endpoint                    string `xml:"Endpoint,omitempty"`
-	Port                        int    `xml:"Port"`
+	DBClusterIdentifier             string `xml:"DBClusterIdentifier"`
+	Engine                          string `xml:"Engine"`
+	Status                          string `xml:"Status"`
+	MasterUsername                  string `xml:"MasterUsername"`
+	DatabaseName                    string `xml:"DatabaseName,omitempty"`
+	DBClusterParameterGroupName     string `xml:"DBClusterParameterGroup"`
+	Endpoint                        string `xml:"Endpoint,omitempty"`
+	ActivityStreamStatus            string `xml:"ActivityStreamStatus,omitempty"`
+	ActivityStreamMode              string `xml:"ActivityStreamMode,omitempty"`
+	ActivityStreamKMSKeyID          string `xml:"ActivityStreamKmsKeyId,omitempty"`
+	ActivityStreamKinesisStreamName string `xml:"ActivityStreamKinesisStreamName,omitempty"`
+	Port                            int    `xml:"Port"`
 }
 
 type xmlDBClusterList struct {
@@ -1915,6 +2073,7 @@ type createDBClusterResponse struct {
 type describeDBClustersResponse struct {
 	XMLName    xml.Name         `xml:"DescribeDBClustersResponse"`
 	Xmlns      string           `xml:"xmlns,attr"`
+	Marker     string           `xml:"DescribeDBClustersResult>Marker,omitempty"`
 	DBClusters xmlDBClusterList `xml:"DescribeDBClustersResult>DBClusters"`
 }
 
@@ -2592,6 +2751,7 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 		SnsTopicArn:        sub.SnsTopicArn,
 		Status:             sub.Status,
 		SourceType:         sub.SourceType,
+		Enabled:            sub.Enabled,
 		SourceIDsList:      xmlSourceIDList{Members: ids},
 	}
 }
@@ -2649,6 +2809,7 @@ type xmlEventSubscription struct {
 	Status             string          `xml:"Status"`
 	SourceType         string          `xml:"SourceType,omitempty"`
 	SourceIDsList      xmlSourceIDList `xml:"SourceIdsList"`
+	Enabled            bool            `xml:"Enabled,omitempty"`
 }
 
 type addSourceIdentifierToSubscriptionResponse struct {

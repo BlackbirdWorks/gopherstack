@@ -57,6 +57,23 @@ func EventSubscriptionCount(b *InMemoryBackend) int {
 	return len(b.eventSubscriptions)
 }
 
+// EventMessagesForSource returns published event messages for a source identifier.
+func EventMessagesForSource(b *InMemoryBackend, sourceID string) []string {
+	b.mu.RLock("EventMessagesForSource")
+	defer b.mu.RUnlock()
+
+	messages := make([]string, 0, len(b.events))
+	for _, event := range b.events {
+		if sourceID != "" && event.SourceIdentifier != sourceID {
+			continue
+		}
+
+		messages = append(messages, event.Message)
+	}
+
+	return messages
+}
+
 // SecurityGroupCount returns the number of DB security groups in the backend.
 func SecurityGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("SecurityGroupCount")
