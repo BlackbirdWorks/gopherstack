@@ -220,6 +220,14 @@ func (c *authorizerCache) set(key string, allowed bool, ttl time.Duration) {
 	}
 }
 
+// flush removes all entries from the cache (used by FlushStageAuthorizersCache).
+func (c *authorizerCache) flush() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries = make(map[string]*list.Element)
+	c.order.Init()
+}
+
 func (c *authorizerCache) removeElement(elem *list.Element) {
 	if elem == nil {
 		return

@@ -393,3 +393,23 @@ type CreateUsagePlanKeyInput struct {
 	KeyID       string `json:"keyId"`
 	KeyType     string `json:"keyType"`
 }
+
+// UpdateAPIKeyInput is the input for UpdateAPIKey.
+type UpdateAPIKeyInput struct {
+Name        string `json:"name,omitempty"`
+Description string `json:"description,omitempty"`
+Enabled     *bool  `json:"enabled,omitempty"`
+}
+
+// UpdateModelInput is the input for UpdateModel.
+type UpdateModelInput struct {
+Description string `json:"description,omitempty"`
+Schema      string `json:"schema,omitempty"`
+}
+
+// UpdateStageInput is the input for UpdateStage.
+type UpdateStageInput struct {
+Variables    map[string]string `json:"variables,omitempty"`
+DeploymentID string            `json:"deploymentId,omitempty"`
+Description  string            `json:"description,omitempty"`
+}

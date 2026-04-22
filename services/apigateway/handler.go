@@ -274,6 +274,122 @@ type deleteRequestValidatorInput struct {
 	ValidatorID string `json:"requestValidatorId"`
 }
 
+type getAPIKeyInput struct {
+	APIKeyID string `json:"apiKeyId"`
+}
+
+type deleteAPIKeyInput struct {
+	APIKeyID string `json:"apiKeyId"`
+}
+
+type updateAPIKeyInput struct {
+	UpdateAPIKeyInput
+	APIKeyID string `json:"apiKeyId"`
+}
+
+type getDomainNameInput struct {
+	DomainName string `json:"domainName"`
+}
+
+type deleteDomainNameInput struct {
+	DomainName string `json:"domainName"`
+}
+
+type getBasePathMappingInput struct {
+	DomainName string `json:"domainName"`
+	BasePath   string `json:"basePath"`
+}
+
+type getBasePathMappingsInput struct {
+	DomainName string `json:"domainName"`
+}
+
+type deleteBasePathMappingInput struct {
+	DomainName string `json:"domainName"`
+	BasePath   string `json:"basePath"`
+}
+
+type getModelInput struct {
+	RestAPIID string `json:"restApiId"`
+	ModelName string `json:"modelName"`
+}
+
+type getModelsInput struct {
+	RestAPIID string `json:"restApiId"`
+}
+
+type deleteModelInput struct {
+	RestAPIID string `json:"restApiId"`
+	ModelName string `json:"modelName"`
+}
+
+type updateModelInput struct {
+	UpdateModelInput
+	RestAPIID string `json:"restApiId"`
+	ModelName string `json:"modelName"`
+}
+
+type updateStageHandlerInput struct {
+	UpdateStageInput
+	RestAPIID string `json:"restApiId"`
+	StageName string `json:"stageName"`
+}
+
+type flushStageCacheInput struct {
+	RestAPIID string `json:"restApiId"`
+	StageName string `json:"stageName"`
+}
+
+type getUsagePlanInput struct {
+	UsagePlanID string `json:"usagePlanId"`
+}
+
+type deleteUsagePlanInput struct {
+	UsagePlanID string `json:"usagePlanId"`
+}
+
+type getUsagePlanKeyInput struct {
+	UsagePlanID string `json:"usagePlanId"`
+	KeyID       string `json:"keyId"`
+}
+
+type getUsagePlanKeysInput struct {
+	UsagePlanID string `json:"usagePlanId"`
+}
+
+type deleteUsagePlanKeyInput struct {
+	UsagePlanID string `json:"usagePlanId"`
+	KeyID       string `json:"keyId"`
+}
+
+type getDocumentationPartInput struct {
+	RestAPIID string `json:"restApiId"`
+	DocPartID string `json:"docPartId"`
+}
+
+type getDocumentationPartsInput struct {
+	RestAPIID string `json:"restApiId"`
+}
+
+type deleteDocumentationPartInput struct {
+	RestAPIID string `json:"restApiId"`
+	DocPartID string `json:"docPartId"`
+}
+
+type getDocumentationVersionInput struct {
+	RestAPIID  string `json:"restApiId"`
+	DocVersion string `json:"documentationVersion"`
+}
+
+type getDocumentationVersionsInput struct {
+	RestAPIID string `json:"restApiId"`
+}
+
+type deleteDocumentationVersionInput struct {
+	RestAPIID  string `json:"restApiId"`
+	DocVersion string `json:"documentationVersion"`
+}
+
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend    StorageBackend
@@ -354,15 +470,44 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateRequestValidator",
 		"DeleteRequestValidator",
 		"CreateApiKey",
+		"GetApiKey",
+		"GetApiKeys",
+		"DeleteApiKey",
+		"UpdateApiKey",
 		"CreateBasePathMapping",
+		"GetBasePathMapping",
+		"GetBasePathMappings",
+		"DeleteBasePathMapping",
 		"CreateDocumentationPart",
+		"GetDocumentationPart",
+		"GetDocumentationParts",
+		"DeleteDocumentationPart",
 		"CreateDocumentationVersion",
+		"GetDocumentationVersion",
+		"GetDocumentationVersions",
+		"DeleteDocumentationVersion",
 		"CreateDomainName",
+		"GetDomainName",
+		"GetDomainNames",
+		"DeleteDomainName",
 		"CreateDomainNameAccessAssociation",
 		"CreateModel",
+		"GetModel",
+		"GetModels",
+		"DeleteModel",
+		"UpdateModel",
 		"CreateStage",
+		"UpdateStage",
+		"FlushStageCache",
+		"FlushStageAuthorizersCache",
 		"CreateUsagePlan",
+		"GetUsagePlan",
+		"GetUsagePlans",
+		"DeleteUsagePlan",
 		"CreateUsagePlanKey",
+		"GetUsagePlanKey",
+		"GetUsagePlanKeys",
+		"DeleteUsagePlanKey",
 	}
 }
 
@@ -595,10 +740,23 @@ func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 }
 
 // parseAPIGWAPIKeysPath handles /apikeys/... paths.
-func parseAPIGWAPIKeysPath(method string, _ []string, n int) (string, map[string]string, bool) {
+func parseAPIGWAPIKeysPath(method string, segs []string, n int) (string, map[string]string, bool) {
+	switch {
+	// GET /apikeys → GetApiKeys
+	case n == 1 && method == http.MethodGet:
+		return "GetApiKeys", nil, true
 	// POST /apikeys → CreateAPIKey
-	if n == 1 && method == http.MethodPost {
+	case n == 1 && method == http.MethodPost:
 		return "CreateApiKey", nil, true
+	// GET /apikeys/{id} → GetApiKey
+	case n == 2 && method == http.MethodGet:
+		return "GetApiKey", map[string]string{"apiKeyId": segs[1]}, true
+	// DELETE /apikeys/{id} → DeleteApiKey
+	case n == 2 && method == http.MethodDelete:
+		return "DeleteApiKey", map[string]string{"apiKeyId": segs[1]}, true
+	// PATCH /apikeys/{id} → UpdateApiKey
+	case n == 2 && method == http.MethodPatch:
+		return "UpdateApiKey", map[string]string{"apiKeyId": segs[1]}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -607,12 +765,30 @@ func parseAPIGWAPIKeysPath(method string, _ []string, n int) (string, map[string
 // parseAPIGWDomainNamesPath handles /domainnames/... paths.
 func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	switch {
+	// GET /domainnames → GetDomainNames
+	case n == 1 && method == http.MethodGet:
+		return "GetDomainNames", nil, true
 	// POST /domainnames → CreateDomainName
 	case n == 1 && method == http.MethodPost:
 		return "CreateDomainName", nil, true
-	// POST /domainnames/{domainName}/basepathmappings → CreateBasePathMapping
+	// GET /domainnames/{name} → GetDomainName
+	case n == 2 && method == http.MethodGet:
+		return "GetDomainName", map[string]string{"domainName": segs[1]}, true
+	// DELETE /domainnames/{name} → DeleteDomainName
+	case n == 2 && method == http.MethodDelete:
+		return "DeleteDomainName", map[string]string{"domainName": segs[1]}, true
+	// GET /domainnames/{name}/basepathmappings → GetBasePathMappings
+	case n == 3 && segs[2] == apiGWSegBasePathMappings && method == http.MethodGet:
+		return "GetBasePathMappings", map[string]string{"domainName": segs[1]}, true
+	// POST /domainnames/{name}/basepathmappings → CreateBasePathMapping
 	case n == 3 && segs[2] == apiGWSegBasePathMappings && method == http.MethodPost:
 		return "CreateBasePathMapping", map[string]string{"domainName": segs[1]}, true
+	// GET /domainnames/{name}/basepathmappings/{basePath} → GetBasePathMapping
+	case n == 4 && segs[2] == apiGWSegBasePathMappings && method == http.MethodGet:
+		return "GetBasePathMapping", map[string]string{"domainName": segs[1], "basePath": segs[3]}, true
+	// DELETE /domainnames/{name}/basepathmappings/{basePath} → DeleteBasePathMapping
+	case n == 4 && segs[2] == apiGWSegBasePathMappings && method == http.MethodDelete:
+		return "DeleteBasePathMapping", map[string]string{"domainName": segs[1], "basePath": segs[3]}, true
 	// POST /domainnames/{domainName}/accessassociations → CreateDomainNameAccessAssociation
 	case n == 3 && segs[2] == apiGWSegAccessAssociations && method == http.MethodPost:
 		return "CreateDomainNameAccessAssociation", map[string]string{"domainName": segs[1]}, true
@@ -624,12 +800,30 @@ func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map
 // parseAPIGWUsagePlansPath handles /usageplans/... paths.
 func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	switch {
+	// GET /usageplans → GetUsagePlans
+	case n == 1 && method == http.MethodGet:
+		return "GetUsagePlans", nil, true
 	// POST /usageplans → CreateUsagePlan
 	case n == 1 && method == http.MethodPost:
 		return "CreateUsagePlan", nil, true
+	// GET /usageplans/{id} → GetUsagePlan
+	case n == 2 && method == http.MethodGet:
+		return "GetUsagePlan", map[string]string{"usagePlanId": segs[1]}, true
+	// DELETE /usageplans/{id} → DeleteUsagePlan
+	case n == 2 && method == http.MethodDelete:
+		return "DeleteUsagePlan", map[string]string{"usagePlanId": segs[1]}, true
+	// GET /usageplans/{id}/keys → GetUsagePlanKeys
+	case n == 3 && segs[2] == apiGWSegUsagePlanKeys && method == http.MethodGet:
+		return "GetUsagePlanKeys", map[string]string{"usagePlanId": segs[1]}, true
 	// POST /usageplans/{usagePlanId}/keys → CreateUsagePlanKey
 	case n == 3 && segs[2] == apiGWSegUsagePlanKeys && method == http.MethodPost:
 		return "CreateUsagePlanKey", map[string]string{"usagePlanId": segs[1]}, true
+	// GET /usageplans/{id}/keys/{keyId} → GetUsagePlanKey
+	case n == 4 && segs[2] == apiGWSegUsagePlanKeys && method == http.MethodGet:
+		return "GetUsagePlanKey", map[string]string{"usagePlanId": segs[1], "keyId": segs[3]}, true
+	// DELETE /usageplans/{id}/keys/{keyId} → DeleteUsagePlanKey
+	case n == 4 && segs[2] == apiGWSegUsagePlanKeys && method == http.MethodDelete:
+		return "DeleteUsagePlanKey", map[string]string{"usagePlanId": segs[1], "keyId": segs[3]}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -718,18 +912,57 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 	// DELETE /restapis/{id}/requestvalidators/{id} → DeleteRequestValidator
 	case n == 4 && segs[2] == apiGWSegValidators && method == http.MethodDelete:
 		return "DeleteRequestValidator", map[string]string{"restApiId": segs[1], "requestValidatorId": segs[3]}, true
-	// POST /restapis/{id}/stages → CreateStage (standalone)
-	case n == 3 && segs[2] == apiGWSegStages && method == http.MethodPost:
-		return "CreateStage", map[string]string{"restApiId": segs[1]}, true
 	// POST /restapis/{id}/models → CreateModel
 	case n == 3 && segs[2] == apiGWSegModels && method == http.MethodPost:
 		return "CreateModel", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/models → GetModels
+	case n == 3 && segs[2] == apiGWSegModels && method == http.MethodGet:
+		return "GetModels", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/models/{modelName} → GetModel
+	case n == 4 && segs[2] == apiGWSegModels && method == http.MethodGet:
+		return "GetModel", map[string]string{"restApiId": segs[1], "modelName": segs[3]}, true
+	// DELETE /restapis/{id}/models/{modelName} → DeleteModel
+	case n == 4 && segs[2] == apiGWSegModels && method == http.MethodDelete:
+		return "DeleteModel", map[string]string{"restApiId": segs[1], "modelName": segs[3]}, true
+	// PATCH /restapis/{id}/models/{modelName} → UpdateModel
+	case n == 4 && segs[2] == apiGWSegModels && method == http.MethodPatch:
+		return "UpdateModel", map[string]string{"restApiId": segs[1], "modelName": segs[3]}, true
+	// POST /restapis/{id}/stages → CreateStage (standalone)
+	case n == 3 && segs[2] == apiGWSegStages && method == http.MethodPost:
+		return "CreateStage", map[string]string{"restApiId": segs[1]}, true
+	// PATCH /restapis/{id}/stages/{stageName} → UpdateStage
+	case n == 4 && segs[2] == apiGWSegStages && method == http.MethodPatch:
+		return "UpdateStage", map[string]string{"restApiId": segs[1], "stageName": segs[3]}, true
+	// DELETE /restapis/{id}/stages/{stageName}/cache → FlushStageCache
+	case n == 5 && segs[2] == apiGWSegStages && segs[4] == "cache" && method == http.MethodDelete:
+		return "FlushStageCache", map[string]string{"restApiId": segs[1], "stageName": segs[3]}, true
+	// DELETE /restapis/{id}/stages/{stageName}/cache/authorizers → FlushStageAuthorizersCache
+	case n == 6 && segs[2] == apiGWSegStages && segs[4] == "cache" && segs[5] == "authorizers" && method == http.MethodDelete:
+		return "FlushStageAuthorizersCache", map[string]string{"restApiId": segs[1], "stageName": segs[3]}, true
 	// POST /restapis/{id}/documentation/parts → CreateDocumentationPart
 	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodPost:
 		return "CreateDocumentationPart", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/documentation/parts → GetDocumentationParts
+	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodGet:
+		return "GetDocumentationParts", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/documentation/parts/{docPartId} → GetDocumentationPart
+	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodGet:
+		return "GetDocumentationPart", map[string]string{"restApiId": segs[1], "docPartId": segs[4]}, true
+	// DELETE /restapis/{id}/documentation/parts/{docPartId} → DeleteDocumentationPart
+	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodDelete:
+		return "DeleteDocumentationPart", map[string]string{"restApiId": segs[1], "docPartId": segs[4]}, true
 	// POST /restapis/{id}/documentation/versions → CreateDocumentationVersion
 	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodPost:
 		return "CreateDocumentationVersion", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/documentation/versions → GetDocumentationVersions
+	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodGet:
+		return "GetDocumentationVersions", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/documentation/versions/{docVersion} → GetDocumentationVersion
+	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodGet:
+		return "GetDocumentationVersion", map[string]string{"restApiId": segs[1], "documentationVersion": segs[4]}, true
+	// DELETE /restapis/{id}/documentation/versions/{docVersion} → DeleteDocumentationVersion
+	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodDelete:
+		return "DeleteDocumentationVersion", map[string]string{"restApiId": segs[1], "documentationVersion": segs[4]}, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1467,6 +1700,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.authorizerActions())
 	maps.Copy(table, h.requestValidatorActions())
 	maps.Copy(table, h.newResourceActions())
+	maps.Copy(table, h.getDeleteUpdateActions())
 
 	return table
 }
@@ -1691,4 +1925,302 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+}
+
+//nolint:cyclop,funlen,gocognit // action table - one closure per op; complexity unavoidable
+func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
+return map[string]actionFn{
+"GetApiKey": func(b []byte) (int, any, error) {
+var input getAPIKeyInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+key, err := h.Backend.GetAPIKey(input.APIKeyID)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, key, nil
+},
+"GetApiKeys": func(_ []byte) (int, any, error) {
+keys, err := h.Backend.GetAPIKeys()
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, map[string]any{"item": keys}, nil
+},
+"DeleteApiKey": func(b []byte) (int, any, error) {
+var input deleteAPIKeyInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+if err := h.Backend.DeleteAPIKey(input.APIKeyID); err != nil {
+return 0, nil, err
+}
+return http.StatusAccepted, map[string]any{}, nil
+},
+"UpdateApiKey": func(b []byte) (int, any, error) {
+var input updateAPIKeyInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+key, err := h.Backend.UpdateAPIKey(input.APIKeyID, input.UpdateAPIKeyInput)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, key, nil
+},
+"GetDomainName": func(b []byte) (int, any, error) {
+var input getDomainNameInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+dn, err := h.Backend.GetDomainName(input.DomainName)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, dn, nil
+},
+"GetDomainNames": func(_ []byte) (int, any, error) {
+dns, err := h.Backend.GetDomainNames()
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, map[string]any{"item": dns}, nil
+},
+"DeleteDomainName": func(b []byte) (int, any, error) {
+var input deleteDomainNameInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+if err := h.Backend.DeleteDomainName(input.DomainName); err != nil {
+return 0, nil, err
+}
+return http.StatusAccepted, map[string]any{}, nil
+},
+"GetBasePathMapping": func(b []byte) (int, any, error) {
+var input getBasePathMappingInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+bpm, err := h.Backend.GetBasePathMapping(input.DomainName, input.BasePath)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, bpm, nil
+},
+"GetBasePathMappings": func(b []byte) (int, any, error) {
+var input getBasePathMappingsInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+bpms, err := h.Backend.GetBasePathMappings(input.DomainName)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, map[string]any{"item": bpms}, nil
+},
+"DeleteBasePathMapping": func(b []byte) (int, any, error) {
+var input deleteBasePathMappingInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+if err := h.Backend.DeleteBasePathMapping(input.DomainName, input.BasePath); err != nil {
+return 0, nil, err
+}
+return http.StatusAccepted, map[string]any{}, nil
+},
+"GetModel": func(b []byte) (int, any, error) {
+var input getModelInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+m, err := h.Backend.GetModel(input.RestAPIID, input.ModelName)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, m, nil
+},
+"GetModels": func(b []byte) (int, any, error) {
+var input getModelsInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+ms, err := h.Backend.GetModels(input.RestAPIID)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, map[string]any{"item": ms}, nil
+},
+"DeleteModel": func(b []byte) (int, any, error) {
+var input deleteModelInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+if err := h.Backend.DeleteModel(input.RestAPIID, input.ModelName); err != nil {
+return 0, nil, err
+}
+return http.StatusAccepted, map[string]any{}, nil
+},
+"UpdateModel": func(b []byte) (int, any, error) {
+var input updateModelInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+m, err := h.Backend.UpdateModel(input.RestAPIID, input.ModelName, input.UpdateModelInput)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, m, nil
+},
+"UpdateStage": func(b []byte) (int, any, error) {
+var input updateStageHandlerInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+stage, err := h.Backend.UpdateStage(input.RestAPIID, input.StageName, input.UpdateStageInput)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, stage, nil
+},
+"FlushStageCache": func(b []byte) (int, any, error) {
+var input flushStageCacheInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+return http.StatusAccepted, map[string]any{}, nil
+},
+"FlushStageAuthorizersCache": func(b []byte) (int, any, error) {
+var input flushStageCacheInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+h.authCache.flush()
+return http.StatusAccepted, map[string]any{}, nil
+},
+"GetUsagePlan": func(b []byte) (int, any, error) {
+var input getUsagePlanInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+p, err := h.Backend.GetUsagePlan(input.UsagePlanID)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, p, nil
+},
+"GetUsagePlans": func(_ []byte) (int, any, error) {
+ps, err := h.Backend.GetUsagePlans()
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, map[string]any{"item": ps}, nil
+},
+"DeleteUsagePlan": func(b []byte) (int, any, error) {
+var input deleteUsagePlanInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+if err := h.Backend.DeleteUsagePlan(input.UsagePlanID); err != nil {
+return 0, nil, err
+}
+return http.StatusAccepted, map[string]any{}, nil
+},
+"GetUsagePlanKey": func(b []byte) (int, any, error) {
+var input getUsagePlanKeyInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+k, err := h.Backend.GetUsagePlanKey(input.UsagePlanID, input.KeyID)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, k, nil
+},
+"GetUsagePlanKeys": func(b []byte) (int, any, error) {
+var input getUsagePlanKeysInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+ks, err := h.Backend.GetUsagePlanKeys(input.UsagePlanID)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, map[string]any{"item": ks}, nil
+},
+"DeleteUsagePlanKey": func(b []byte) (int, any, error) {
+var input deleteUsagePlanKeyInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+if err := h.Backend.DeleteUsagePlanKey(input.UsagePlanID, input.KeyID); err != nil {
+return 0, nil, err
+}
+return http.StatusAccepted, map[string]any{}, nil
+},
+"GetDocumentationPart": func(b []byte) (int, any, error) {
+var input getDocumentationPartInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+p, err := h.Backend.GetDocumentationPart(input.RestAPIID, input.DocPartID)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, p, nil
+},
+"GetDocumentationParts": func(b []byte) (int, any, error) {
+var input getDocumentationPartsInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+ps, err := h.Backend.GetDocumentationParts(input.RestAPIID)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, map[string]any{"item": ps}, nil
+},
+"DeleteDocumentationPart": func(b []byte) (int, any, error) {
+var input deleteDocumentationPartInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+if err := h.Backend.DeleteDocumentationPart(input.RestAPIID, input.DocPartID); err != nil {
+return 0, nil, err
+}
+return http.StatusAccepted, map[string]any{}, nil
+},
+"GetDocumentationVersion": func(b []byte) (int, any, error) {
+var input getDocumentationVersionInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+v, err := h.Backend.GetDocumentationVersion(input.RestAPIID, input.DocVersion)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, v, nil
+},
+"GetDocumentationVersions": func(b []byte) (int, any, error) {
+var input getDocumentationVersionsInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+vs, err := h.Backend.GetDocumentationVersions(input.RestAPIID)
+if err != nil {
+return 0, nil, err
+}
+return http.StatusOK, map[string]any{"item": vs}, nil
+},
+"DeleteDocumentationVersion": func(b []byte) (int, any, error) {
+var input deleteDocumentationVersionInput
+if err := json.Unmarshal(b, &input); err != nil {
+return 0, nil, err
+}
+if err := h.Backend.DeleteDocumentationVersion(input.RestAPIID, input.DocVersion); err != nil {
+return 0, nil, err
+}
+return http.StatusAccepted, map[string]any{}, nil
+},
+}
 }
