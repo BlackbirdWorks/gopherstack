@@ -2757,12 +2757,9 @@ func (b *InMemoryBackend) TestInvokeAuthorizer(input TestInvokeAuthorizerInput) 
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	a, ok := d.authorizers[input.AuthorizerID]
-	if !ok {
+	if _, authOK := d.authorizers[input.AuthorizerID]; !authOK {
 		return nil, fmt.Errorf("%w: authorizer %s not found", ErrNotFound, input.AuthorizerID)
 	}
-
-	_ = a
 
 	return &TestInvokeAuthorizerOutput{
 		PrincipalID:         "test-principal",
@@ -2793,7 +2790,7 @@ func (b *InMemoryBackend) GetModelTemplate(restAPIID, modelName string) (string,
 		return m.Schema, nil
 	}
 
-	return `#set($inputRoot = $input.path('$'))\n{}`, nil
+	return "#set($inputRoot = $input.path('$'))\n{}", nil
 }
 
 // GatewayResponseKey generates a storage key for gateway responses.

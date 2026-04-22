@@ -630,9 +630,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		// /tags/{arn} — only claim this path when the ARN is an API Gateway resource.
 		// API Gateway ARNs contain ":apigateway:" (e.g. arn:aws:apigateway:us-east-1::/restapis/xyz).
 		if after, ok := strings.CutPrefix(path, "/tags/"); ok {
-			rest := after
-
-			return strings.Contains(rest, ":apigateway:")
+			return strings.Contains(after, ":apigateway:")
 		}
 
 		return false
@@ -698,13 +696,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		// REST API paths: /restapis/..., /apikeys, /domainnames/..., /usageplans/...
 		path := c.Request().URL.Path
+		tagsAfter, isTagsPath := strings.CutPrefix(path, "/tags/")
+		isAPIGWTagPath := isTagsPath && strings.Contains(tagsAfter, ":apigateway:")
 		isRESTPath := strings.HasPrefix(path, "/restapis") ||
 			strings.HasPrefix(path, "/apikeys") ||
 			strings.HasPrefix(path, "/domainnames") ||
 			strings.HasPrefix(path, "/usageplans") ||
 			strings.HasPrefix(path, "/account") ||
 			strings.HasPrefix(path, "/"+apiGWSegClientCerts) ||
-			(strings.HasPrefix(path, "/tags/") && strings.Contains(strings.TrimPrefix(path, "/tags/"), ":apigateway:"))
+			isAPIGWTagPath
 
 		if isRESTPath && !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "APIGateway.") {
 			return h.handleRESTAPI(c)
