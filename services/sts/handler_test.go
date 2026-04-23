@@ -739,10 +739,16 @@ func TestGetAccessKeyInfo(t *testing.T) {
 	h := sts.NewHandler(backend)
 	e := echo.New()
 
+	// Obtain a real session key first so GetAccessKeyInfo can look it up.
+	sessionOut, err := backend.GetSessionToken(&sts.GetSessionTokenInput{DurationSeconds: 3600})
+	require.NoError(t, err)
+
+	accessKeyID := sessionOut.GetSessionTokenResult.Credentials.AccessKeyID
+
 	form := url.Values{
 		"Action":      {"GetAccessKeyInfo"},
 		"Version":     {"2011-06-15"},
-		"AccessKeyId": {"AKIAIOSFODNN7EXAMPLE"},
+		"AccessKeyId": {accessKeyID},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
@@ -752,7 +758,7 @@ func TestGetAccessKeyInfo(t *testing.T) {
 	ctxWithLogger := logger.Save(req.Context(), nil)
 	req = req.WithContext(ctxWithLogger)
 
-	err := h.Handler()(e.NewContext(req, rec))
+	err = h.Handler()(e.NewContext(req, rec))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -764,6 +770,66 @@ func TestGetAccessKeyInfo(t *testing.T) {
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, sts.MockAccountID, resp.Result.Account)
+}
+
+// TestGetAccessKeyInfo_UnknownKey verifies that a key not in any session returns InvalidClientTokenId.
+func TestGetAccessKeyInfo_UnknownKey(t *testing.T) {
+	t.Parallel()
+
+	backend := sts.NewInMemoryBackend()
+	h := sts.NewHandler(backend)
+	e := echo.New()
+
+	form := url.Values{
+		"Action":      {"GetAccessKeyInfo"},
+		"Version":     {"2011-06-15"},
+		"AccessKeyId": {"ASIAIOSFODNN7EXAMPLE"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	ctxWithLogger := logger.Save(req.Context(), nil)
+	req = req.WithContext(ctxWithLogger)
+
+	err := h.Handler()(e.NewContext(req, rec))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp sts.ErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "InvalidClientTokenId", errResp.Error.Code)
+}
+
+// TestGetAccessKeyInfo_EmptyKey verifies that an empty AccessKeyId returns ValidationError.
+func TestGetAccessKeyInfo_EmptyKey(t *testing.T) {
+	t.Parallel()
+
+	backend := sts.NewInMemoryBackend()
+	h := sts.NewHandler(backend)
+	e := echo.New()
+
+	form := url.Values{
+		"Action":      {"GetAccessKeyInfo"},
+		"Version":     {"2011-06-15"},
+		"AccessKeyId": {""},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	ctxWithLogger := logger.Save(req.Context(), nil)
+	req = req.WithContext(ctxWithLogger)
+
+	err := h.Handler()(e.NewContext(req, rec))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp sts.ErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "ValidationError", errResp.Error.Code)
 }
 
 // TestDecodeAuthorizationMessage verifies the DecodeAuthorizationMessage action.

@@ -492,18 +492,30 @@ func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoRe
 
 	accessKeyID := r.FormValue("AccessKeyId")
 
-	callerIdentity, err := h.Backend.GetCallerIdentity(accessKeyID)
-	if err != nil {
-		return nil, err
+	if accessKeyID == "" {
+		return nil, ErrEmptyAccessKeyID
 	}
 
-	return &GetAccessKeyInfoResponse{
-		Xmlns: STSNamespace,
-		GetAccessKeyInfoResult: GetAccessKeyInfoResult{
-			Account: callerIdentity.GetCallerIdentityResult.Account,
-		},
-		ResponseMetadata: callerIdentity.ResponseMetadata,
-	}, nil
+	// Look up the key in the session store; unknown keys return InvalidClientTokenId.
+	b, ok := h.Backend.(*InMemoryBackend)
+	if ok {
+		b.mu.Lock()
+		session, found := b.sessions[accessKeyID]
+		b.mu.Unlock()
+
+		if found {
+			return &GetAccessKeyInfoResponse{
+				Xmlns: STSNamespace,
+				GetAccessKeyInfoResult: GetAccessKeyInfoResult{
+					Account: session.AccountID,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+			}, nil
+		}
+	}
+
+	// Key not found in any session — treat as an unknown / foreign key.
+	return nil, ErrUnknownAccessKeyID
 }
 
 // dispatchDecodeAuthorizationMessage handles the DecodeAuthorizationMessage action.
@@ -549,17 +561,25 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 		errors.Is(reqErr, ErrMissingSAMLAssertion), errors.Is(reqErr, ErrMissingPrincipalArn),
 		errors.Is(reqErr, ErrMissingTargetPrincipal), errors.Is(reqErr, ErrMissingTaskPolicyArn),
 		errors.Is(reqErr, ErrMissingTradeInToken), errors.Is(reqErr, ErrMissingAudience),
-		errors.Is(reqErr, ErrMissingSigningAlgorithm), errors.Is(reqErr, ErrMissingEncodedMessage),
+		errors.Is(reqErr, ErrMissingSigningAlgorithm),
 		errors.Is(reqErr, ErrMFACodeRequired):
 		code = "MissingParameter"
+		httpStatus = http.StatusBadRequest
+	case errors.Is(reqErr, ErrMissingEncodedMessage):
+		// AWS returns InvalidParameter (not MissingParameter) for an empty EncodedMessage.
+		code = "InvalidParameter"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidRoleArn):
 		code = "InvalidParameterValue"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidDuration),
 		errors.Is(reqErr, ErrInvalidSessionName), errors.Is(reqErr, ErrInvalidFederationName),
-		errors.Is(reqErr, ErrTooManyTags), errors.Is(reqErr, ErrTooManyAudiences):
+		errors.Is(reqErr, ErrTooManyTags), errors.Is(reqErr, ErrTooManyAudiences),
+		errors.Is(reqErr, ErrEmptyAccessKeyID):
 		code = validationError
+		httpStatus = http.StatusBadRequest
+	case errors.Is(reqErr, ErrUnknownAccessKeyID):
+		code = "InvalidClientTokenId"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrValidation):
 		code = "InvalidParameterValue"
@@ -632,11 +652,12 @@ func parseFormValues(body []byte) map[string]string {
 }
 
 // parseSessionTags reads Tags.member.N.Key / Tags.member.N.Value form fields and
-// returns them as a []Tag slice. It supports up to MaxTagCount entries.
+// returns them as a []Tag slice. It supports up to MaxTagCount+1 entries so that
+// callers can detect and reject submissions that exceed the MaxTagCount limit.
 func parseSessionTags(r *http.Request) []Tag {
 	var tags []Tag
 
-	for i := 1; i <= MaxTagCount; i++ {
+	for i := 1; i <= MaxTagCount+1; i++ {
 		key := r.FormValue(fmt.Sprintf("Tags.member.%d.Key", i))
 		if key == "" {
 			break

@@ -81,6 +81,12 @@ var (
 	// ErrMissingEncodedMessage is returned when DecodeAuthorizationMessage is called without an EncodedMessage.
 	ErrMissingEncodedMessage = errors.New("EncodedMessage is required for DecodeAuthorizationMessage")
 
+	// ErrEmptyAccessKeyID is returned when GetAccessKeyInfo is called with an empty AccessKeyId.
+	ErrEmptyAccessKeyID = errors.New("AccessKeyId must not be empty")
+
+	// ErrUnknownAccessKeyID is returned when GetAccessKeyInfo cannot find the given key ID.
+	ErrUnknownAccessKeyID = errors.New("unknown access key ID")
+
 	// ErrValidation is returned when a parameter value fails semantic validation.
 	ErrValidation = errors.New("invalid parameter value")
 

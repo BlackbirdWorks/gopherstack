@@ -384,7 +384,8 @@ func TestRefinement2_DecodeAuthorizationMessageEmpty(t *testing.T) {
 
 	var errResp sts.ErrorResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "MissingParameter", errResp.Error.Code)
+	// AWS returns InvalidParameter (not MissingParameter) for an empty EncodedMessage.
+	assert.Equal(t, "InvalidParameter", errResp.Error.Code)
 }
 
 // TestRefinement2_PackedPolicySizeNonZero verifies AssumeRole with Policy returns non-zero PackedPolicySize.

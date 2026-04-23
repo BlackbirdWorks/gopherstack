@@ -155,8 +155,9 @@ func TestSTSDashboard_AssumeRole(t *testing.T) {
 	}))
 	require.NoError(t, assumeBtn.Click())
 
-	// Wait for credential to appear.
-	err = page.Locator("p.font-mono").WaitFor(
+	// Wait for credential to appear (use First() to avoid strict-mode violation when
+	// other p.font-mono elements are already on the page from GetCallerIdentity).
+	err = page.Locator("p.font-mono").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(15000)},
 	)
 	require.NoError(t, err)
