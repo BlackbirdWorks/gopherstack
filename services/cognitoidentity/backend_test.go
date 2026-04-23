@@ -1214,8 +1214,8 @@ func TestInMemoryBackend_Refinement2_GetID_ProviderMatching(t *testing.T) {
 
 	// Call GetId again with google + facebook: should return the same identity (not create new).
 	id2, err := b.GetID(pool.IdentityPoolID, "", map[string]string{
-		"accounts.google.com":   "g-token",
-		"graph.facebook.com": "fb-token",
+		"accounts.google.com": "g-token",
+		"graph.facebook.com":  "fb-token",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, id1.IdentityID, id2.IdentityID, "should find existing identity by provider match")
@@ -1243,7 +1243,14 @@ func TestInMemoryBackend_Refinement2_SetIdentityPoolRoles_MergePreservesExisting
 	require.NoError(t, err)
 
 	// Set both roles initially.
-	require.NoError(t, b.SetIdentityPoolRoles(pool.IdentityPoolID, "arn:aws:iam::000000000000:role/Auth", "arn:aws:iam::000000000000:role/Unauth"))
+	require.NoError(
+		t,
+		b.SetIdentityPoolRoles(
+			pool.IdentityPoolID,
+			"arn:aws:iam::000000000000:role/Auth",
+			"arn:aws:iam::000000000000:role/Unauth",
+		),
+	)
 
 	// Update only the authenticated role – the unauthenticated role must be preserved.
 	require.NoError(t, b.SetIdentityPoolRoles(pool.IdentityPoolID, "arn:aws:iam::000000000000:role/AuthV2", ""))
@@ -1251,7 +1258,12 @@ func TestInMemoryBackend_Refinement2_SetIdentityPoolRoles_MergePreservesExisting
 	roles, err := b.GetIdentityPoolRoles(pool.IdentityPoolID)
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:iam::000000000000:role/AuthV2", roles.AuthenticatedRoleARN)
-	assert.Equal(t, "arn:aws:iam::000000000000:role/Unauth", roles.UnauthenticatedRoleARN, "unauthenticated role must not be wiped")
+	assert.Equal(
+		t,
+		"arn:aws:iam::000000000000:role/Unauth",
+		roles.UnauthenticatedRoleARN,
+		"unauthenticated role must not be wiped",
+	)
 }
 
 func TestInMemoryBackend_Refinement2_DescribeIdentityPool_EmptyID(t *testing.T) {

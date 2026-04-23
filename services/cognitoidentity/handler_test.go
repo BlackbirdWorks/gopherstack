@@ -2524,263 +2524,268 @@ func TestHandler_Refinement1_MergeDeveloperIdentities_MissingRequired(t *testing
 // --- Refinement check 2 handler tests ---
 
 func TestHandler_Refinement2_GetID_EmptyPoolId_Returns400(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-rec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
-"IdentityPoolId": "",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
+		"IdentityPoolId": "",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_Refinement2_DescribeIdentityPool_EmptyPoolId_Returns400(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-rec := doCognitoIdentityRequest(t, h, "DescribeIdentityPool", map[string]any{
-"IdentityPoolId": "",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "DescribeIdentityPool", map[string]any{
+		"IdentityPoolId": "",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_Refinement2_DeleteIdentityPool_EmptyPoolId_Returns400(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-rec := doCognitoIdentityRequest(t, h, "DeleteIdentityPool", map[string]any{
-"IdentityPoolId": "",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "DeleteIdentityPool", map[string]any{
+		"IdentityPoolId": "",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_Refinement2_UpdateIdentityPool_EmptyPoolId_Returns400(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-rec := doCognitoIdentityRequest(t, h, "UpdateIdentityPool", map[string]any{
-"IdentityPoolId":                 "",
-"IdentityPoolName":               "name",
-"AllowUnauthenticatedIdentities": true,
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "UpdateIdentityPool", map[string]any{
+		"IdentityPoolId":                 "",
+		"IdentityPoolName":               "name",
+		"AllowUnauthenticatedIdentities": true,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_Refinement2_GetIdentityPoolRoles_EmptyPoolId_Returns400(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-rec := doCognitoIdentityRequest(t, h, "GetIdentityPoolRoles", map[string]any{
-"IdentityPoolId": "",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "GetIdentityPoolRoles", map[string]any{
+		"IdentityPoolId": "",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_Refinement2_GetIdentityPoolRoles_OmitsEmptyRoles(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
+	h := newTestHandler(t)
 
-// Create a pool and set only the authenticated role.
-createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
-"IdentityPoolName":               "role-omit-pool",
-"AllowUnauthenticatedIdentities": true,
-})
-require.Equal(t, http.StatusOK, createRec.Code)
+	// Create a pool and set only the authenticated role.
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "role-omit-pool",
+		"AllowUnauthenticatedIdentities": true,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
 
-var createOut map[string]any
-require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
-poolID := createOut["IdentityPoolId"].(string)
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	poolID := createOut["IdentityPoolId"].(string)
 
-setRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
-"IdentityPoolId": poolID,
-"Roles": map[string]string{
-"authenticated": "arn:aws:iam::000000000000:role/Auth",
-},
-})
-require.Equal(t, http.StatusOK, setRec.Code)
+	setRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
+		"IdentityPoolId": poolID,
+		"Roles": map[string]string{
+			"authenticated": "arn:aws:iam::000000000000:role/Auth",
+		},
+	})
+	require.Equal(t, http.StatusOK, setRec.Code)
 
-getRec := doCognitoIdentityRequest(t, h, "GetIdentityPoolRoles", map[string]any{
-"IdentityPoolId": poolID,
-})
-require.Equal(t, http.StatusOK, getRec.Code)
+	getRec := doCognitoIdentityRequest(t, h, "GetIdentityPoolRoles", map[string]any{
+		"IdentityPoolId": poolID,
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
 
-var out map[string]any
-require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
-roles := out["Roles"].(map[string]any)
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+	roles := out["Roles"].(map[string]any)
 
-assert.Contains(t, roles, "authenticated")
-assert.NotContains(t, roles, "unauthenticated", "empty unauthenticated role must be omitted")
+	assert.Contains(t, roles, "authenticated")
+	assert.NotContains(t, roles, "unauthenticated", "empty unauthenticated role must be omitted")
 }
 
 func TestHandler_Refinement2_SetIdentityPoolRoles_PreservesExistingRole(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
+	h := newTestHandler(t)
 
-createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
-"IdentityPoolName":               "role-preserve-pool",
-"AllowUnauthenticatedIdentities": true,
-})
-require.Equal(t, http.StatusOK, createRec.Code)
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "role-preserve-pool",
+		"AllowUnauthenticatedIdentities": true,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
 
-var createOut map[string]any
-require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
-poolID := createOut["IdentityPoolId"].(string)
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	poolID := createOut["IdentityPoolId"].(string)
 
-// Set both roles.
-doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
-"IdentityPoolId": poolID,
-"Roles": map[string]string{
-"authenticated":   "arn:aws:iam::000000000000:role/Auth",
-"unauthenticated": "arn:aws:iam::000000000000:role/Unauth",
-},
-})
+	// Set both roles.
+	doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
+		"IdentityPoolId": poolID,
+		"Roles": map[string]string{
+			"authenticated":   "arn:aws:iam::000000000000:role/Auth",
+			"unauthenticated": "arn:aws:iam::000000000000:role/Unauth",
+		},
+	})
 
-// Update only authenticated.
-doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
-"IdentityPoolId": poolID,
-"Roles": map[string]string{
-"authenticated": "arn:aws:iam::000000000000:role/AuthV2",
-},
-})
+	// Update only authenticated.
+	doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
+		"IdentityPoolId": poolID,
+		"Roles": map[string]string{
+			"authenticated": "arn:aws:iam::000000000000:role/AuthV2",
+		},
+	})
 
-getRec := doCognitoIdentityRequest(t, h, "GetIdentityPoolRoles", map[string]any{
-"IdentityPoolId": poolID,
-})
-require.Equal(t, http.StatusOK, getRec.Code)
+	getRec := doCognitoIdentityRequest(t, h, "GetIdentityPoolRoles", map[string]any{
+		"IdentityPoolId": poolID,
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
 
-var out map[string]any
-require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
-roles := out["Roles"].(map[string]any)
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+	roles := out["Roles"].(map[string]any)
 
-assert.Equal(t, "arn:aws:iam::000000000000:role/AuthV2", roles["authenticated"])
-assert.Equal(t, "arn:aws:iam::000000000000:role/Unauth", roles["unauthenticated"], "unauthenticated role must be preserved after partial update")
+	assert.Equal(t, "arn:aws:iam::000000000000:role/AuthV2", roles["authenticated"])
+	assert.Equal(
+		t,
+		"arn:aws:iam::000000000000:role/Unauth",
+		roles["unauthenticated"],
+		"unauthenticated role must be preserved after partial update",
+	)
 }
 
 func TestHandler_Refinement2_GetID_MergesLoginProviders(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
+	h := newTestHandler(t)
 
-createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
-"IdentityPoolName":               "login-merge-pool",
-"AllowUnauthenticatedIdentities": true,
-})
-require.Equal(t, http.StatusOK, createRec.Code)
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "login-merge-pool",
+		"AllowUnauthenticatedIdentities": true,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
 
-var createOut map[string]any
-require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
-poolID := createOut["IdentityPoolId"].(string)
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	poolID := createOut["IdentityPoolId"].(string)
 
-// First call: only google.
-rec1 := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
-"IdentityPoolId": poolID,
-"Logins":         map[string]string{"accounts.google.com": "g-tok"},
-})
-require.Equal(t, http.StatusOK, rec1.Code)
+	// First call: only google.
+	rec1 := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
+		"IdentityPoolId": poolID,
+		"Logins":         map[string]string{"accounts.google.com": "g-tok"},
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
 
-var out1 map[string]any
-require.NoError(t, json.NewDecoder(rec1.Body).Decode(&out1))
-id1 := out1["IdentityId"].(string)
+	var out1 map[string]any
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&out1))
+	id1 := out1["IdentityId"].(string)
 
-// Second call: same google + new facebook → must return same ID.
-rec2 := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
-"IdentityPoolId": poolID,
-"Logins": map[string]string{
-"accounts.google.com": "g-tok",
-"graph.facebook.com":  "fb-tok",
-},
-})
-require.Equal(t, http.StatusOK, rec2.Code)
+	// Second call: same google + new facebook → must return same ID.
+	rec2 := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
+		"IdentityPoolId": poolID,
+		"Logins": map[string]string{
+			"accounts.google.com": "g-tok",
+			"graph.facebook.com":  "fb-tok",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
 
-var out2 map[string]any
-require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out2))
-id2 := out2["IdentityId"].(string)
+	var out2 map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out2))
+	id2 := out2["IdentityId"].(string)
 
-assert.Equal(t, id1, id2, "GetId must return the same identity when any login provider matches")
+	assert.Equal(t, id1, id2, "GetId must return the same identity when any login provider matches")
 }
 
 func TestHandler_Refinement2_ListIdentityPools_NextToken(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
+	h := newTestHandler(t)
 
-for _, name := range []string{"pool-a", "pool-b", "pool-c"} {
-rec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
-"IdentityPoolName":               name,
-"AllowUnauthenticatedIdentities": false,
-})
-require.Equal(t, http.StatusOK, rec.Code)
-}
+	for _, name := range []string{"pool-a", "pool-b", "pool-c"} {
+		rec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+			"IdentityPoolName":               name,
+			"AllowUnauthenticatedIdentities": false,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
 
-// Page 1.
-rec1 := doCognitoIdentityRequest(t, h, "ListIdentityPools", map[string]any{
-"MaxResults": 2,
-})
-require.Equal(t, http.StatusOK, rec1.Code)
+	// Page 1.
+	rec1 := doCognitoIdentityRequest(t, h, "ListIdentityPools", map[string]any{
+		"MaxResults": 2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
 
-var out1 map[string]any
-require.NoError(t, json.NewDecoder(rec1.Body).Decode(&out1))
-assert.Len(t, out1["IdentityPools"], 2)
-nextToken, _ := out1["NextToken"].(string)
-assert.NotEmpty(t, nextToken)
+	var out1 map[string]any
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&out1))
+	assert.Len(t, out1["IdentityPools"], 2)
+	nextToken, _ := out1["NextToken"].(string)
+	assert.NotEmpty(t, nextToken)
 
-// Page 2 using the cursor.
-rec2 := doCognitoIdentityRequest(t, h, "ListIdentityPools", map[string]any{
-"MaxResults": 2,
-"NextToken":  nextToken,
-})
-require.Equal(t, http.StatusOK, rec2.Code)
+	// Page 2 using the cursor.
+	rec2 := doCognitoIdentityRequest(t, h, "ListIdentityPools", map[string]any{
+		"MaxResults": 2,
+		"NextToken":  nextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
 
-var out2 map[string]any
-require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out2))
-assert.Len(t, out2["IdentityPools"], 1)
+	var out2 map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out2))
+	assert.Len(t, out2["IdentityPools"], 1)
 }
 
 func TestHandler_Refinement2_ListIdentities_NextToken(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
+	h := newTestHandler(t)
 
-createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
-"IdentityPoolName":               "page-id-pool",
-"AllowUnauthenticatedIdentities": true,
-})
-require.Equal(t, http.StatusOK, createRec.Code)
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "page-id-pool",
+		"AllowUnauthenticatedIdentities": true,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
 
-var createOut map[string]any
-require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
-poolID := createOut["IdentityPoolId"].(string)
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	poolID := createOut["IdentityPoolId"].(string)
 
-for i := range 3 {
-doCognitoIdentityRequest(t, h, "GetId", map[string]any{
-"IdentityPoolId": poolID,
-"Logins":         map[string]string{"accounts.google.com": fmt.Sprintf("tok-%d", i)},
-})
-}
+	for i := range 3 {
+		doCognitoIdentityRequest(t, h, "GetId", map[string]any{
+			"IdentityPoolId": poolID,
+			"Logins":         map[string]string{"accounts.google.com": fmt.Sprintf("tok-%d", i)},
+		})
+	}
 
-// Page 1.
-rec1 := doCognitoIdentityRequest(t, h, "ListIdentities", map[string]any{
-"IdentityPoolId": poolID,
-"MaxResults":     2,
-})
-require.Equal(t, http.StatusOK, rec1.Code)
+	// Page 1.
+	rec1 := doCognitoIdentityRequest(t, h, "ListIdentities", map[string]any{
+		"IdentityPoolId": poolID,
+		"MaxResults":     2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
 
-var out1 map[string]any
-require.NoError(t, json.NewDecoder(rec1.Body).Decode(&out1))
-assert.Len(t, out1["Identities"], 2)
-nextToken, _ := out1["NextToken"].(string)
-assert.NotEmpty(t, nextToken)
+	var out1 map[string]any
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&out1))
+	assert.Len(t, out1["Identities"], 2)
+	nextToken, _ := out1["NextToken"].(string)
+	assert.NotEmpty(t, nextToken)
 
-// Page 2.
-rec2 := doCognitoIdentityRequest(t, h, "ListIdentities", map[string]any{
-"IdentityPoolId": poolID,
-"MaxResults":     2,
-"NextToken":      nextToken,
-})
-require.Equal(t, http.StatusOK, rec2.Code)
+	// Page 2.
+	rec2 := doCognitoIdentityRequest(t, h, "ListIdentities", map[string]any{
+		"IdentityPoolId": poolID,
+		"MaxResults":     2,
+		"NextToken":      nextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
 
-var out2 map[string]any
-require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out2))
-assert.Len(t, out2["Identities"], 1)
+	var out2 map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out2))
+	assert.Len(t, out2["Identities"], 1)
 }

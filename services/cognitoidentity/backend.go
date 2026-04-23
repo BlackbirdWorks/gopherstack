@@ -239,6 +239,7 @@ func (b *InMemoryBackend) ListIdentityPools(maxResults int, nextToken string) ([
 		for i, id := range keys {
 			if b.pools[id].IdentityPoolName == nextToken {
 				startIdx = i + 1
+
 				break
 			}
 		}
@@ -348,6 +349,7 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 			if updated {
 				identity.LastModifiedDate = time.Now()
 			}
+
 			return cloneIdentity(identity), nil
 		}
 	}
@@ -579,6 +581,40 @@ type DeveloperOpenIDToken struct {
 	Token      string
 }
 
+// lookupOrCreateDeveloperIdentity finds an existing identity in poolID whose logins
+// overlap with logins, merging any new providers into it.  If none is found, a new
+// identity is created.  Must be called with b.mu held.
+func (b *InMemoryBackend) lookupOrCreateDeveloperIdentity(poolID string, logins map[string]string) string {
+	for _, identity := range b.identitiesByPool[poolID] {
+		if anyLoginMatches(identity.Logins, logins) {
+			if identity.Logins == nil {
+				identity.Logins = make(map[string]string)
+			}
+
+			maps.Copy(identity.Logins, logins)
+
+			identity.LastModifiedDate = time.Now()
+
+			return identity.IdentityID
+		}
+	}
+
+	newID := b.region + ":" + uuid.New().String()
+	now := time.Now()
+	identity := &Identity{
+		IdentityID:       newID,
+		IdentityPoolID:   poolID,
+		Logins:           cloneStringMap(logins),
+		CreatedAt:        now,
+		LastModifiedDate: now,
+	}
+
+	b.identities[newID] = identity
+	b.identitiesByPool[poolID] = append(b.identitiesByPool[poolID], identity)
+
+	return newID
+}
+
 // GetOpenIDTokenForDeveloperIdentity registers or retrieves an identity for a developer
 // authenticated user, then returns a synthetic OpenID token.
 func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
@@ -607,39 +643,10 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 		if _, ok := b.identities[identityID]; !ok {
 			return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 		}
-	} else {
-		// Look up by developer login tokens or create new.
-		// Matches if any (provider, token) pair in logins is already linked to an identity.
-		for _, identity := range b.identitiesByPool[poolID] {
-			if anyLoginMatches(identity.Logins, logins) {
-				// Merge any new providers.
-				for provider, token := range logins {
-					if identity.Logins == nil {
-						identity.Logins = make(map[string]string)
-					}
-					identity.Logins[provider] = token
-				}
-				identity.LastModifiedDate = time.Now()
-				identityID = identity.IdentityID
-				break
-			}
-		}
+	}
 
-		if identityID == "" {
-			newID := b.region + ":" + uuid.New().String()
-			now := time.Now()
-			identity := &Identity{
-				IdentityID:       newID,
-				IdentityPoolID:   poolID,
-				Logins:           cloneStringMap(logins),
-				CreatedAt:        now,
-				LastModifiedDate: now,
-			}
-
-			b.identities[newID] = identity
-			b.identitiesByPool[poolID] = append(b.identitiesByPool[poolID], identity)
-			identityID = newID
-		}
+	if identityID == "" {
+		identityID = b.lookupOrCreateDeveloperIdentity(poolID, logins)
 	}
 
 	payload, err := randomAlphanumeric(tokenLen)
@@ -685,7 +692,12 @@ func (b *InMemoryBackend) GetPrincipalTagAttributeMap(poolID, providerName strin
 
 // ListIdentities returns identities associated with an identity pool, sorted by IdentityId.
 // nextToken is an opaque cursor encoding the last-returned IdentityId for pagination.
-func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool, nextToken string) (*ListIdentitiesResult, error) {
+func (b *InMemoryBackend) ListIdentities(
+	poolID string,
+	maxResults int,
+	_ bool,
+	nextToken string,
+) (*ListIdentitiesResult, error) {
 	if poolID == "" {
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
@@ -720,6 +732,7 @@ func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool, 
 		for i, id := range sorted {
 			if id.IdentityID == nextToken {
 				startIdx = i + 1
+
 				break
 			}
 		}
@@ -1194,21 +1207,6 @@ func anyLoginMatches(stored, req map[string]string) bool {
 	return false
 }
 
-// mapsEqual returns true if both maps have the same key-value pairs.
-func mapsEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-
-	return true
-}
-
 // randomAlphanumeric returns a random alphanumeric string of length n.
 // It reads a single batch of random bytes from crypto/rand and uses rejection
 // sampling to avoid modulo bias, falling back to additional reads only when
@@ -1216,16 +1214,19 @@ func mapsEqual(a, b map[string]string) bool {
 func randomAlphanumeric(n int) (string, error) {
 	const (
 		charsLen = len(alphanumChars) // 62
+		byteMax  = 256                // total number of distinct byte values
 		// cutoff is the largest multiple of charsLen that fits in a byte (0–255).
-		// Bytes in [0, cutoff) map uniformly; bytes in [cutoff, 256) are rejected.
-		cutoff = (256 / charsLen) * charsLen // 248
+		// Bytes in [0, cutoff) map uniformly; bytes in [cutoff, byteMax) are rejected.
+		cutoff = (byteMax / charsLen) * charsLen // 248
+		// batchOversize is extra bytes read per iteration to reduce retry probability.
+		batchOversize = 16
 	)
 
 	result := make([]byte, 0, n)
 
 	for len(result) < n {
 		// Over-read to reduce the chance of needing more than one batch.
-		raw := make([]byte, n+16)
+		raw := make([]byte, n+batchOversize)
 		if _, err := io.ReadFull(rand.Reader, raw); err != nil {
 			return "", fmt.Errorf("crypto/rand failure: %w", err)
 		}

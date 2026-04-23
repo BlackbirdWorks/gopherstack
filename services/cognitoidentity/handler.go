@@ -334,7 +334,7 @@ type identityPoolShortDescription struct {
 }
 
 type listIdentityPoolsOutput struct {
-	NextToken     string                          `json:"NextToken,omitempty"`
+	NextToken     string                         `json:"NextToken,omitempty"`
 	IdentityPools []identityPoolShortDescription `json:"IdentityPools"`
 }
 
@@ -534,7 +534,8 @@ func (h *Handler) handleGetIdentityPoolRoles(
 	}
 
 	// Only include roles that have been set (omit empty strings like AWS does).
-	rolesMap := make(map[string]string, 2)
+	const maxRoleTypes = 2
+	rolesMap := make(map[string]string, maxRoleTypes)
 	if roles.AuthenticatedRoleARN != "" {
 		rolesMap["authenticated"] = roles.AuthenticatedRoleARN
 	}
