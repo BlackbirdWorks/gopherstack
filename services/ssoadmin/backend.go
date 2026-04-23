@@ -32,8 +32,8 @@ const (
 	maxTagKeyLen       = 128
 	maxTagValueLen     = 256
 
-	// Default TrustedTokenIssuer type.
-	defaultTrustedTokenIssuerType = "OIDC_JWT"
+	// Default TrustedTokenIssuer type (OIDC_JWT).
+	ttiDefaultType = "OIDC_JWT"
 
 	// Region scope type for SSO instance regions.
 	regionScopeTypeAllRegions = "ALL_REGIONS"
@@ -43,20 +43,20 @@ var (
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 
-	ErrInstanceNotFound                         = errors.New("ResourceNotFoundException")
-	ErrPermissionSetNotFound                    = errors.New("ResourceNotFoundException")
-	ErrPermissionSetAlreadyExists               = errors.New("ConflictException")
-	ErrAssignmentNotFound                       = errors.New("ResourceNotFoundException")
-	ErrRequestNotFound                          = errors.New("ResourceNotFoundException")
-	ErrApplicationNotFound                      = errors.New("ResourceNotFoundException")
-	ErrApplicationAlreadyExists                 = errors.New("ConflictException")
-	ErrTrustedTokenIssuerNotFound               = errors.New("ResourceNotFoundException")
-	ErrTrustedTokenIssuerAlreadyExists          = errors.New("ConflictException")
-	ErrAccessScopeNotFound                      = errors.New("ResourceNotFoundException")
-	ErrAuthMethodNotFound                       = errors.New("ResourceNotFoundException")
-	ErrACAAlreadyExists                         = errors.New("ConflictException")
-	ErrPermissionsBoundaryNotFound              = errors.New("ResourceNotFoundException")
-	ErrTooManyTagsException                     = errors.New("TooManyTagsException")
+	ErrInstanceNotFound                = errors.New("ResourceNotFoundException")
+	ErrPermissionSetNotFound           = errors.New("ResourceNotFoundException")
+	ErrPermissionSetAlreadyExists      = errors.New("ConflictException")
+	ErrAssignmentNotFound              = errors.New("ResourceNotFoundException")
+	ErrRequestNotFound                 = errors.New("ResourceNotFoundException")
+	ErrApplicationNotFound             = errors.New("ResourceNotFoundException")
+	ErrApplicationAlreadyExists        = errors.New("ConflictException")
+	ErrTrustedTokenIssuerNotFound      = errors.New("ResourceNotFoundException")
+	ErrTrustedTokenIssuerAlreadyExists = errors.New("ConflictException")
+	ErrAccessScopeNotFound             = errors.New("ResourceNotFoundException")
+	ErrAuthMethodNotFound              = errors.New("ResourceNotFoundException")
+	ErrACAAlreadyExists                = errors.New("ConflictException")
+	ErrPermissionsBoundaryNotFound     = errors.New("ResourceNotFoundException")
+	ErrTooManyTagsException            = errors.New("TooManyTagsException")
 )
 
 // Instance represents an AWS SSO instance.
@@ -161,10 +161,10 @@ type RegionMetadata struct {
 
 // OidcJwtConfiguration holds OIDC JWT trusted token issuer configuration.
 type OidcJwtConfiguration struct {
-	IssuerURL         string `json:"IssuerUrl"`
-	ClaimAttributePath string `json:"ClaimAttributePath"`
+	IssuerURL                  string `json:"IssuerUrl"`
+	ClaimAttributePath         string `json:"ClaimAttributePath"`
 	IdentityStoreAttributePath string `json:"IdentityStoreAttributePath"`
-	JwksRetrievalOption string `json:"JwksRetrievalOption"`
+	JwksRetrievalOption        string `json:"JwksRetrievalOption"`
 }
 
 // TrustedTokenIssuerConfiguration holds the issuer-type-specific configuration.
@@ -174,19 +174,19 @@ type TrustedTokenIssuerConfiguration struct {
 
 // TrustedTokenIssuer represents a trusted token issuer.
 type TrustedTokenIssuer struct {
-	Tags                            map[string]string                 `json:"Tags"`
-	TrustedTokenIssuerArn           string                            `json:"TrustedTokenIssuerArn"`
-	InstanceArn                     string                            `json:"InstanceArn"`
-	Name                            string                            `json:"Name"`
-	TrustedTokenIssuerType          string                            `json:"TrustedTokenIssuerType"`
-	TrustedTokenIssuerConfiguration *TrustedTokenIssuerConfiguration  `json:"TrustedTokenIssuerConfiguration,omitempty"`
+	Tags                            map[string]string                `json:"Tags"`
+	TrustedTokenIssuerConfiguration *TrustedTokenIssuerConfiguration `json:"TrustedTokenIssuerConfiguration,omitempty"`
+	TrustedTokenIssuerArn           string                           `json:"TrustedTokenIssuerArn"`
+	InstanceArn                     string                           `json:"InstanceArn"`
+	Name                            string                           `json:"Name"`
+	TrustedTokenIssuerType          string                           `json:"TrustedTokenIssuerType"`
 }
 
 // InMemoryBackend is the in-memory backend for the SSO Admin service.
 type InMemoryBackend struct {
-	instances               map[string]*Instance
-	permissionSets          map[string]*PermissionSet
-	assignments             map[string][]*AccountAssignment
+	instances      map[string]*Instance
+	permissionSets map[string]*PermissionSet
+	assignments    map[string][]*AccountAssignment
 	// assignmentCreationIDs maps assignmentKey|accountID|principalType|principalID → requestID for idempotency.
 	assignmentCreationIDs   map[string]string
 	creationStatuses        map[string]*ProvisioningStatus
@@ -552,7 +552,7 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 	key := assignmentKey(instanceArn, permissionSetArn)
 
 	// Build a deterministic idempotency key for this specific assignment.
-	idempotencyKey := key + "|" + accountID + "|" + principalType + "|" + principalID
+	idempotencyKey := assignmentIdempotencyKey(key, accountID, principalType, principalID)
 
 	// Idempotency: if the same assignment already exists, return the original request ID.
 	if existingRequestID, exists := b.assignmentCreationIDs[idempotencyKey]; exists {
@@ -1109,6 +1109,12 @@ func instanceARNToID(instanceArn string) string {
 
 func assignmentKey(instanceArn, permissionSetArn string) string {
 	return instanceArn + "|" + permissionSetArn
+}
+
+// assignmentIdempotencyKey builds a deterministic key for CreateAccountAssignment idempotency.
+// The key encodes all fields that uniquely identify an assignment.
+func assignmentIdempotencyKey(baseKey, accountID, principalType, principalID string) string {
+	return baseKey + "|" + accountID + "|" + principalType + "|" + principalID
 }
 
 // AddInstanceInternal adds a pre-built Instance directly to the backend for test seeding.
@@ -2003,56 +2009,57 @@ func (b *InMemoryBackend) DetachCustomerManagedPolicyReferenceFromPermissionSet(
 
 // ListPermissionSetsProvisionedToAccount returns the permission set ARNs provisioned to a specific account.
 func (b *InMemoryBackend) ListPermissionSetsProvisionedToAccount(instanceArn, accountID string) []string {
-b.mu.RLock("ListPermissionSetsProvisionedToAccount")
-defer b.mu.RUnlock()
+	b.mu.RLock("ListPermissionSetsProvisionedToAccount")
+	defer b.mu.RUnlock()
 
-seen := map[string]struct{}{}
-for key, assignments := range b.assignments {
-// key format: instanceArn|permissionSetArn
-if !strings.HasPrefix(key, instanceArn+"|") {
-continue
-}
-for _, a := range assignments {
-if a.AccountID == accountID {
-psArn := strings.TrimPrefix(key, instanceArn+"|")
-seen[psArn] = struct{}{}
-}
-}
-}
-result := make([]string, 0, len(seen))
-for psArn := range seen {
-result = append(result, psArn)
-}
-sort.Strings(result)
+	seen := map[string]struct{}{}
+	for key, assignments := range b.assignments {
+		// key format: instanceArn|permissionSetArn
+		if !strings.HasPrefix(key, instanceArn+"|") {
+			continue
+		}
+		for _, a := range assignments {
+			if a.AccountID == accountID {
+				psArn := strings.TrimPrefix(key, instanceArn+"|")
+				seen[psArn] = struct{}{}
+			}
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for psArn := range seen {
+		result = append(result, psArn)
+	}
+	sort.Strings(result)
 
-return result
+	return result
 }
 
 // ListAccountAssignmentsForPrincipal returns account assignments for a specific principal.
 func (b *InMemoryBackend) ListAccountAssignmentsForPrincipal(
-instanceArn, principalID, principalType string,
+	instanceArn, principalID, principalType string,
 ) []*AccountAssignment {
-b.mu.RLock("ListAccountAssignmentsForPrincipal")
-defer b.mu.RUnlock()
+	b.mu.RLock("ListAccountAssignmentsForPrincipal")
+	defer b.mu.RUnlock()
 
-var result []*AccountAssignment
-for key, assignments := range b.assignments {
-if !strings.HasPrefix(key, instanceArn+"|") {
-continue
-}
-for _, a := range assignments {
-if a.PrincipalID == principalID && a.PrincipalType == principalType {
-cp := *a
-result = append(result, &cp)
-}
-}
-}
-sort.Slice(result, func(i, j int) bool {
-if result[i].AccountID != result[j].AccountID {
-return result[i].AccountID < result[j].AccountID
-}
-return result[i].PermissionSetArn < result[j].PermissionSetArn
-})
+	var result []*AccountAssignment
+	for key, assignments := range b.assignments {
+		if !strings.HasPrefix(key, instanceArn+"|") {
+			continue
+		}
+		for _, a := range assignments {
+			if a.PrincipalID == principalID && a.PrincipalType == principalType {
+				cp := *a
+				result = append(result, &cp)
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].AccountID != result[j].AccountID {
+			return result[i].AccountID < result[j].AccountID
+		}
 
-return result
+		return result[i].PermissionSetArn < result[j].PermissionSetArn
+	})
+
+	return result
 }

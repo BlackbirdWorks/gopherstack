@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
+		AddRegionCommand,
 		CreateAccountAssignmentCommand,
 		CreateApplicationCommand,
 		CreateInstanceCommand,
@@ -13,35 +14,89 @@
 		DeleteTrustedTokenIssuerCommand,
 		DescribeInstanceCommand,
 		DescribePermissionSetCommand,
+		GetInlinePolicyForPermissionSetCommand,
+		ListAccountAssignmentCreationStatusCommand,
+		ListAccountAssignmentDeletionStatusCommand,
 		ListAccountAssignmentsCommand,
 		ListApplicationsCommand,
 		ListInstancesCommand,
+		ListPermissionSetProvisioningStatusCommand,
 		ListPermissionSetsCommand,
+		ListRegionsCommand,
 		ListTrustedTokenIssuersCommand,
-		ProvisionPermissionSetCommand
+		ProvisionPermissionSetCommand,
+		RemoveRegionCommand
 	} from '@aws-sdk/client-sso-admin';
 	import { toast } from 'svelte-sonner';
 
 	import { getSSOAdminClient } from '$lib/aws-client';
+	import { confirmDestructive } from '$lib/confirm-dialog';
 
 	const ssoadmin = getSSOAdminClient();
 	const defaultAccountID = '123456789012';
 	const defaultProviderArn = 'arn:aws:sso::123456789012:applicationProvider/custom';
 
-	let activeTab = $state<'instances' | 'permissionsets' | 'assignments' | 'applications' | 'tokenissuers' | 'metrics' | 'docs'>(
-		'instances'
-	);
-	let instances = $state<Array<{ InstanceArn?: string; Name?: string; IdentityStoreId?: string }>>([]);
+	type TabId =
+		| 'instances'
+		| 'permissionsets'
+		| 'assignments'
+		| 'applications'
+		| 'tokenissuers'
+		| 'provisioning'
+		| 'metrics'
+		| 'docs';
+
+	let activeTab = $state<TabId>('instances');
+	let instances = $state<
+		Array<{ InstanceArn?: string; Name?: string; IdentityStoreId?: string; CreatedDate?: Date }>
+	>([]);
 	let permissionSetArns = $state<string[]>([]);
-	let permissionSetDetails = $state<Record<string, { Name?: string; Description?: string; SessionDuration?: string }>>({});
-	let accountAssignments = $state<Array<{ PrincipalId?: string; PrincipalType?: string; AccountId?: string }>>([]);
-	let applications = $state<Array<{ ApplicationArn?: string; Name?: string; Status?: string }>>([]);
-	let trustedTokenIssuers = $state<Array<{ TrustedTokenIssuerArn?: string; Name?: string; TrustedTokenIssuerType?: string }>>([]);
+	let permissionSetDetails = $state<
+		Record<
+			string,
+			{
+				Name?: string;
+				Description?: string;
+				SessionDuration?: string;
+				hasInlinePolicy?: boolean;
+				assignmentCount?: number;
+			}
+		>
+	>({});
+	let accountAssignments = $state<
+		Array<{ PrincipalId?: string; PrincipalType?: string; AccountId?: string }>
+	>([]);
+	let applications = $state<
+		Array<{ ApplicationArn?: string; Name?: string; Status?: string }>
+	>([]);
+	let trustedTokenIssuers = $state<
+		Array<{
+			TrustedTokenIssuerArn?: string;
+			Name?: string;
+			TrustedTokenIssuerType?: string;
+		}>
+	>([]);
+	let instanceRegions = $state<Array<{ Region?: string; RegionScopeType?: string }>>([]);
+
+	let creationStatuses = $state<
+		Array<{ RequestId?: string; Status?: string; CreatedDate?: Date }>
+	>([]);
+	let deletionStatuses = $state<
+		Array<{ RequestId?: string; Status?: string; CreatedDate?: Date }>
+	>([]);
+	let provisioningStatuses = $state<
+		Array<{ RequestId?: string; Status?: string; CreatedDate?: Date }>
+	>([]);
 
 	let selectedInstanceArn = $state('');
 	let selectedPermissionSetArn = $state('');
 	let selectedAccountID = $state(defaultAccountID);
-	let instanceDetails = $state<{ Name?: string; IdentityStoreId?: string; OwnerAccountId?: string } | null>(null);
+	let instanceDetails = $state<{
+		Name?: string;
+		IdentityStoreId?: string;
+		OwnerAccountId?: string;
+		CreatedDate?: Date;
+	} | null>(null);
 
 	let newInstanceName = $state('');
 	let newPermissionSetName = $state('');
@@ -49,13 +104,28 @@
 	let assignmentPrincipalType = $state<'USER' | 'GROUP'>('USER');
 	let newApplicationName = $state('');
 	let newTrustedTokenIssuerName = $state('');
+	let newRegionName = $state('');
 
-	// Metrics counters
 	let metricsInstanceCount = $state(0);
 	let metricsPermSetCount = $state(0);
 	let metricsAppCount = $state(0);
 	let metricsTTICount = $state(0);
 	let metricsAssignmentCount = $state(0);
+	let metricsRegionCount = $state(0);
+
+	function formatDate(d?: Date | null): string {
+		if (!d) return '\u2014';
+		return new Date(d).toLocaleString();
+	}
+
+	async function copyToClipboard(text: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+			toast.success('Copied to clipboard');
+		} catch {
+			toast.error('Failed to copy');
+		}
+	}
 
 	async function loadInstances() {
 		const out = await ssoadmin.send(new ListInstancesCommand({}));
@@ -76,9 +146,25 @@
 			? {
 					Name: out.Name,
 					IdentityStoreId: out.IdentityStoreId,
-					OwnerAccountId: out.OwnerAccountId
+					OwnerAccountId: out.OwnerAccountId,
+					CreatedDate: out.CreatedDate
 				}
 			: null;
+	}
+
+	async function loadRegions() {
+		if (!selectedInstanceArn) {
+			instanceRegions = [];
+			metricsRegionCount = 0;
+			return;
+		}
+		try {
+			const out = await ssoadmin.send(new ListRegionsCommand({ InstanceArn: selectedInstanceArn }));
+			instanceRegions = (out as unknown as { Regions?: Array<{ Region?: string; RegionScopeType?: string }> }).Regions ?? [];
+			metricsRegionCount = instanceRegions.length;
+		} catch {
+			instanceRegions = [];
+		}
 	}
 
 	async function loadPermissionSets() {
@@ -94,18 +180,44 @@
 		}
 		metricsPermSetCount = permissionSetArns.length;
 
-		// Load details for each permission set in parallel
-		const details: Record<string, { Name?: string; Description?: string; SessionDuration?: string }> = {};
+		const details: typeof permissionSetDetails = {};
 		await Promise.all(
 			permissionSetArns.map(async (arn) => {
 				try {
 					const d = await ssoadmin.send(
 						new DescribePermissionSetCommand({ InstanceArn: selectedInstanceArn, PermissionSetArn: arn })
 					);
+					let hasInlinePolicy = false;
+					try {
+						const ip = await ssoadmin.send(
+							new GetInlinePolicyForPermissionSetCommand({
+								InstanceArn: selectedInstanceArn,
+								PermissionSetArn: arn
+							})
+						);
+						hasInlinePolicy = !!(ip.InlinePolicy && ip.InlinePolicy.trim().length > 2);
+					} catch {
+						// no inline policy
+					}
+					let assignmentCount = 0;
+					try {
+						const ar = await ssoadmin.send(
+							new ListAccountAssignmentsCommand({
+								InstanceArn: selectedInstanceArn,
+								PermissionSetArn: arn,
+								AccountId: selectedAccountID || undefined
+							})
+						);
+						assignmentCount = ar.AccountAssignments?.length ?? 0;
+					} catch {
+						// ignore
+					}
 					details[arn] = {
 						Name: d.PermissionSet?.Name,
 						Description: d.PermissionSet?.Description,
-						SessionDuration: d.PermissionSet?.SessionDuration
+						SessionDuration: d.PermissionSet?.SessionDuration,
+						hasInlinePolicy,
+						assignmentCount
 					};
 				} catch {
 					details[arn] = {};
@@ -120,7 +232,6 @@
 			accountAssignments = [];
 			return;
 		}
-		// AccountId is optional; omit it to list all assignments for the permission set.
 		const out = await ssoadmin.send(
 			new ListAccountAssignmentsCommand({
 				InstanceArn: selectedInstanceArn,
@@ -148,12 +259,37 @@
 			return;
 		}
 		const out = await ssoadmin.send(
-			new ListTrustedTokenIssuersCommand({
-				InstanceArn: selectedInstanceArn
-			})
+			new ListTrustedTokenIssuersCommand({ InstanceArn: selectedInstanceArn })
 		);
 		trustedTokenIssuers = out.TrustedTokenIssuers ?? [];
 		metricsTTICount = trustedTokenIssuers.length;
+	}
+
+	async function loadProvisioningStatuses() {
+		if (!selectedInstanceArn) {
+			creationStatuses = [];
+			deletionStatuses = [];
+			provisioningStatuses = [];
+			return;
+		}
+		try {
+			const [cr, dr, pr] = await Promise.all([
+				ssoadmin.send(
+					new ListAccountAssignmentCreationStatusCommand({ InstanceArn: selectedInstanceArn })
+				),
+				ssoadmin.send(
+					new ListAccountAssignmentDeletionStatusCommand({ InstanceArn: selectedInstanceArn })
+				),
+				ssoadmin.send(
+					new ListPermissionSetProvisioningStatusCommand({ InstanceArn: selectedInstanceArn })
+				)
+			]);
+			creationStatuses = cr.AccountAssignmentsCreationStatus ?? [];
+			deletionStatuses = dr.AccountAssignmentsDeletionStatus ?? [];
+			provisioningStatuses = pr.PermissionSetsProvisioningStatus ?? [];
+		} catch {
+			// ignore errors loading status lists
+		}
 	}
 
 	async function refreshAll() {
@@ -163,7 +299,8 @@
 				describeInstance(selectedInstanceArn),
 				loadPermissionSets(),
 				loadApplications(),
-				loadTrustedTokenIssuers()
+				loadTrustedTokenIssuers(),
+				loadRegions()
 			]);
 			await loadAssignments();
 		} catch (err: unknown) {
@@ -173,12 +310,10 @@
 
 	async function seedDemoData() {
 		try {
-			// Create a demo instance
 			const instResp = await ssoadmin.send(new CreateInstanceCommand({ Name: 'demo-instance' }));
 			const demoInstanceArn = instResp.InstanceArn;
 			if (!demoInstanceArn) return;
 
-			// Create permission sets
 			await Promise.all([
 				ssoadmin.send(
 					new CreatePermissionSetCommand({
@@ -193,10 +328,11 @@
 						Name: 'ReadOnlyAccess',
 						Description: 'Read-only access'
 					})
-				)
+				),
+				ssoadmin.send(new AddRegionCommand({ InstanceArn: demoInstanceArn, RegionName: 'us-east-1' })),
+				ssoadmin.send(new AddRegionCommand({ InstanceArn: demoInstanceArn, RegionName: 'eu-west-1' }))
 			]);
 
-			// Create a demo application
 			await ssoadmin.send(
 				new CreateApplicationCommand({
 					InstanceArn: demoInstanceArn,
@@ -205,7 +341,6 @@
 				})
 			);
 
-			// Create a trusted token issuer
 			await ssoadmin.send(
 				new CreateTrustedTokenIssuerCommand({
 					InstanceArn: demoInstanceArn,
@@ -243,7 +378,8 @@
 		}
 	}
 
-	async function removeInstance(instanceArn: string) {
+	async function removeInstance(instanceArn: string, name: string) {
+		if (!(await confirmDestructive(`Delete instance "${name}"? This will remove all dependent resources.`))) return;
 		try {
 			await ssoadmin.send(new DeleteInstanceCommand({ InstanceArn: instanceArn }));
 			if (selectedInstanceArn === instanceArn) {
@@ -253,6 +389,35 @@
 			await refreshAll();
 		} catch (err: unknown) {
 			toast.error(`Failed to delete instance: ${(err as Error).message}`);
+		}
+	}
+
+	async function addRegion() {
+		if (!selectedInstanceArn || !newRegionName.trim()) {
+			toast.error('Instance and region name are required');
+			return;
+		}
+		try {
+			await ssoadmin.send(
+				new AddRegionCommand({ InstanceArn: selectedInstanceArn, RegionName: newRegionName.trim() })
+			);
+			newRegionName = '';
+			await loadRegions();
+		} catch (err: unknown) {
+			toast.error(`Failed to add region: ${(err as Error).message}`);
+		}
+	}
+
+	async function removeRegion(regionName: string) {
+		if (!selectedInstanceArn) return;
+		if (!(await confirmDestructive(`Remove region "${regionName}" from this instance?`))) return;
+		try {
+			await ssoadmin.send(
+				new RemoveRegionCommand({ InstanceArn: selectedInstanceArn, RegionName: regionName })
+			);
+			await loadRegions();
+		} catch (err: unknown) {
+			toast.error(`Failed to remove region: ${(err as Error).message}`);
 		}
 	}
 
@@ -275,10 +440,9 @@
 		}
 	}
 
-	async function removePermissionSet(permissionSetArn: string) {
-		if (!selectedInstanceArn) {
-			return;
-		}
+	async function removePermissionSet(permissionSetArn: string, name: string) {
+		if (!selectedInstanceArn) return;
+		if (!(await confirmDestructive(`Delete permission set "${name}"?`))) return;
 		try {
 			await ssoadmin.send(
 				new DeletePermissionSetCommand({
@@ -297,9 +461,7 @@
 	}
 
 	async function provisionPermissionSet(permissionSetArn: string) {
-		if (!selectedInstanceArn) {
-			return;
-		}
+		if (!selectedInstanceArn) return;
 		try {
 			await ssoadmin.send(
 				new ProvisionPermissionSetCommand({
@@ -337,10 +499,13 @@
 		}
 	}
 
-	async function removeAssignment(principalID: string, principalType: string, accountId: string) {
-		if (!selectedInstanceArn || !selectedPermissionSetArn) {
-			return;
-		}
+	async function removeAssignment(
+		principalID: string,
+		principalType: string,
+		accountId: string
+	) {
+		if (!selectedInstanceArn || !selectedPermissionSetArn) return;
+		if (!(await confirmDestructive(`Remove assignment for ${principalType} "${principalID}"?`))) return;
 		try {
 			await ssoadmin.send(
 				new DeleteAccountAssignmentCommand({
@@ -378,7 +543,8 @@
 		}
 	}
 
-	async function removeApplication(applicationArn: string) {
+	async function removeApplication(applicationArn: string, name: string) {
+		if (!(await confirmDestructive(`Delete application "${name}"?`))) return;
 		try {
 			await ssoadmin.send(new DeleteApplicationCommand({ ApplicationArn: applicationArn }));
 			await loadApplications();
@@ -415,9 +581,15 @@
 		}
 	}
 
-	async function removeTrustedTokenIssuer(trustedTokenIssuerArn: string) {
+	async function removeTrustedTokenIssuer(
+		trustedTokenIssuerArn: string,
+		name: string
+	) {
+		if (!(await confirmDestructive(`Delete trusted token issuer "${name}"?`))) return;
 		try {
-			await ssoadmin.send(new DeleteTrustedTokenIssuerCommand({ TrustedTokenIssuerArn: trustedTokenIssuerArn }));
+			await ssoadmin.send(
+				new DeleteTrustedTokenIssuerCommand({ TrustedTokenIssuerArn: trustedTokenIssuerArn })
+			);
 			await loadTrustedTokenIssuers();
 		} catch (err: unknown) {
 			toast.error(`Failed to delete trusted token issuer: ${(err as Error).message}`);
@@ -430,6 +602,7 @@
 			void loadPermissionSets();
 			void loadApplications();
 			void loadTrustedTokenIssuers();
+			void loadRegions();
 		}
 	});
 
@@ -439,18 +612,27 @@
 		}
 	});
 
+	$effect(() => {
+		if (activeTab === 'provisioning') {
+			void loadProvisioningStatuses();
+		}
+	});
+
 	onMount(() => {
 		void refreshAll();
 	});
 </script>
 
 <div class="space-y-6 p-6">
-	<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+	<div
+		class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"
+	>
 		<div class="flex items-start justify-between">
 			<div>
 				<h1 class="text-3xl font-bold text-slate-900 dark:text-white">SSO Admin</h1>
 				<p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
-					Manage IAM Identity Center instances, permission sets, account assignments, applications, and trusted token issuers.
+					Manage IAM Identity Center instances, permission sets, account assignments, applications,
+					and trusted token issuers.
 				</p>
 			</div>
 			<button
@@ -470,20 +652,23 @@
 			['assignments', 'Assignments'],
 			['applications', 'Applications'],
 			['tokenissuers', 'Token Issuers'],
+			['provisioning', 'Provisioning'],
 			['metrics', 'Metrics'],
 			['docs', 'Docs']
 		] as [tabId, label] (tabId)}
 			<button
 				type="button"
-				onclick={() => (activeTab = tabId as typeof activeTab)}
-				class={`rounded-lg border px-4 py-2 text-sm ${activeTab === tabId ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 dark:border-slate-700'}`}
+				onclick={() => (activeTab = tabId as TabId)}
+				class={`rounded-lg border px-4 py-2 text-sm ${activeTab === tabId ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 dark:border-slate-700'}`}
 			>
 				{label}
 			</button>
 		{/each}
 	</div>
 
-	<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
+	<div
+		class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4"
+	>
 		<label class="text-sm text-slate-600 dark:text-slate-300">
 			Instance
 			<select
@@ -492,82 +677,238 @@
 			>
 				<option value="">Select instance</option>
 				{#each instances as instance}
-					<option value={instance.InstanceArn}>{instance.Name} ({instance.InstanceArn})</option>
+					<option value={instance.InstanceArn}
+						>{instance.Name} ({instance.InstanceArn})</option
+					>
 				{/each}
 			</select>
 		</label>
 		{#if instanceDetails}
 			<p class="text-xs text-slate-500 dark:text-slate-400">
-				Identity Store: {instanceDetails.IdentityStoreId} · Owner: {instanceDetails.OwnerAccountId}
+				Identity Store: {instanceDetails.IdentityStoreId} &middot; Owner: {instanceDetails.OwnerAccountId}
+				{#if instanceDetails.CreatedDate}
+					&middot; Created: {formatDate(instanceDetails.CreatedDate)}
+				{/if}
 			</p>
 		{/if}
 	</div>
 
 	{#if activeTab === 'instances'}
-		<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
-			<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Instances</h2>
+		<div
+			class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4"
+		>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">
+					Instances
+					<span
+						class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700"
+						>{instances.length}</span
+					>
+				</h2>
+			</div>
 			<div class="flex gap-2">
 				<input
 					bind:value={newInstanceName}
 					placeholder="Instance name"
 					class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
 				/>
-				<button type="button" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white" onclick={createInstance}>
+				<button
+					type="button"
+					class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+					onclick={createInstance}
+				>
 					Create
 				</button>
 			</div>
 			<ul class="space-y-2 text-sm">
 				{#each instances as instance}
-					<li class="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-						<div>
-							<p class="font-medium">{instance.Name}</p>
-							<p class="text-xs text-slate-500 font-mono">{instance.InstanceArn}</p>
-							<p class="text-xs text-slate-400">Identity Store: {instance.IdentityStoreId}</p>
+					<li class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+						<div class="flex items-start justify-between">
+							<div class="min-w-0 flex-1">
+								<p class="font-medium">{instance.Name}</p>
+								<div class="mt-0.5 flex items-center gap-1">
+									<p class="truncate font-mono text-xs text-slate-500">{instance.InstanceArn}</p>
+									<button
+										type="button"
+										class="shrink-0 text-xs text-slate-400 hover:text-slate-600"
+										onclick={() => void copyToClipboard(instance.InstanceArn ?? '')}
+										title="Copy ARN"
+									>
+										&#9112;
+									</button>
+								</div>
+								<p class="text-xs text-slate-400">Identity Store: {instance.IdentityStoreId}</p>
+								{#if instance.CreatedDate}
+									<p class="text-xs text-slate-400">Created: {formatDate(instance.CreatedDate)}</p>
+								{/if}
+							</div>
+							<button
+								type="button"
+								class="ml-3 shrink-0 rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
+								onclick={() => void removeInstance(instance.InstanceArn ?? '', instance.Name ?? '')}
+							>
+								Delete
+							</button>
 						</div>
-						<button
-							type="button"
-							class="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
-							onclick={() => void removeInstance(instance.InstanceArn ?? '')}
-						>
-							Delete
-						</button>
 					</li>
 				{/each}
 			</ul>
 		</div>
+
+		{#if selectedInstanceArn}
+			<div
+				class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4"
+			>
+				<div class="flex items-center justify-between">
+					<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">
+						Regions
+						<span
+							class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700"
+							>{instanceRegions.length}</span
+						>
+					</h2>
+					<button
+						type="button"
+						class="text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+						onclick={() => void loadRegions()}
+					>
+						&#8635; Refresh
+					</button>
+				</div>
+				<div class="flex gap-2">
+					<input
+						bind:value={newRegionName}
+						placeholder="e.g. us-west-2"
+						class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+					/>
+					<button
+						type="button"
+						class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+						onclick={addRegion}
+					>
+						Add Region
+					</button>
+				</div>
+				{#if instanceRegions.length === 0}
+					<p class="text-sm italic text-slate-400">No regions configured for this instance.</p>
+				{:else}
+					<ul class="space-y-1 text-sm">
+						{#each instanceRegions as region}
+							<li
+								class="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700"
+							>
+								<div>
+									<span class="font-mono font-medium">{region.Region}</span>
+									<span class="ml-2 text-xs text-slate-400">{region.RegionScopeType}</span>
+								</div>
+								<button
+									type="button"
+									class="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
+									onclick={() => void removeRegion(region.Region ?? '')}
+								>
+									Remove
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 
 	{#if activeTab === 'permissionsets'}
-		<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
-			<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Permission Sets</h2>
+		<div
+			class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4"
+		>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">
+					Permission Sets
+					<span
+						class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700"
+						>{permissionSetArns.length}</span
+					>
+				</h2>
+			</div>
 			<div class="flex gap-2">
 				<input
 					bind:value={newPermissionSetName}
 					placeholder="Permission set name"
 					class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
 				/>
-				<button type="button" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white" onclick={createPermissionSet}>
+				<button
+					type="button"
+					class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+					onclick={createPermissionSet}
+				>
 					Create
 				</button>
 			</div>
 			<ul class="space-y-2 text-sm">
 				{#each permissionSetArns as permissionSetArn}
-					<li class="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-						<div>
-							<p class="font-medium">{permissionSetDetails[permissionSetArn]?.Name ?? '—'}</p>
-							<p class="text-xs text-slate-500 font-mono">{permissionSetArn}</p>
-							{#if permissionSetDetails[permissionSetArn]?.Description}
-								<p class="text-xs text-slate-400">{permissionSetDetails[permissionSetArn].Description}</p>
-							{/if}
-							<p class="text-xs text-slate-400">Session: {permissionSetDetails[permissionSetArn]?.SessionDuration ?? 'PT1H'}</p>
-						</div>
-						<div class="flex gap-2">
-							<button type="button" class="rounded border px-2 py-1 text-xs" onclick={() => void provisionPermissionSet(permissionSetArn)}>
-								Provision
-							</button>
-							<button type="button" class="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400" onclick={() => void removePermissionSet(permissionSetArn)}>
-								Delete
-							</button>
+					<li class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+						<div class="flex items-start justify-between">
+							<div class="min-w-0 flex-1">
+								<div class="flex flex-wrap items-center gap-2">
+									<p class="font-medium">
+										{permissionSetDetails[permissionSetArn]?.Name ?? '\u2014'}
+									</p>
+									{#if permissionSetDetails[permissionSetArn]?.hasInlinePolicy}
+										<span
+											class="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+										>
+											Inline &#10003;
+										</span>
+									{/if}
+									{#if (permissionSetDetails[permissionSetArn]?.assignmentCount ?? 0) > 0}
+										<span
+											class="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+										>
+											{permissionSetDetails[permissionSetArn]?.assignmentCount} assignment{(permissionSetDetails[permissionSetArn]?.assignmentCount ?? 0) !== 1
+												? 's'
+												: ''}
+										</span>
+									{/if}
+								</div>
+								<div class="mt-0.5 flex items-center gap-1">
+									<p class="truncate font-mono text-xs text-slate-500">{permissionSetArn}</p>
+									<button
+										type="button"
+										class="shrink-0 text-xs text-slate-400 hover:text-slate-600"
+										onclick={() => void copyToClipboard(permissionSetArn)}
+										title="Copy ARN"
+									>
+										&#9112;
+									</button>
+								</div>
+								{#if permissionSetDetails[permissionSetArn]?.Description}
+									<p class="text-xs text-slate-400">
+										{permissionSetDetails[permissionSetArn].Description}
+									</p>
+								{/if}
+								<p class="text-xs text-slate-400">
+									Session: {permissionSetDetails[permissionSetArn]?.SessionDuration ?? 'PT1H'}
+								</p>
+							</div>
+							<div class="ml-3 flex shrink-0 gap-2">
+								<button
+									type="button"
+									class="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700"
+									onclick={() => void provisionPermissionSet(permissionSetArn)}
+								>
+									Provision
+								</button>
+								<button
+									type="button"
+									class="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
+									onclick={() =>
+										void removePermissionSet(
+											permissionSetArn,
+											permissionSetDetails[permissionSetArn]?.Name ?? permissionSetArn
+										)}
+								>
+									Delete
+								</button>
+							</div>
 						</div>
 					</li>
 				{/each}
@@ -576,46 +917,92 @@
 	{/if}
 
 	{#if activeTab === 'assignments'}
-		<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
-			<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Account Assignments</h2>
+		<div
+			class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4"
+		>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">
+					Account Assignments
+					<span
+						class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700"
+						>{accountAssignments.length}</span
+					>
+				</h2>
+			</div>
 			<div class="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
 				<div>
 					<label class="text-xs text-slate-500">Permission Set</label>
-					<select bind:value={selectedPermissionSetArn} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+					<select
+						bind:value={selectedPermissionSetArn}
+						class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+					>
 						<option value="">Select permission set</option>
 						{#each permissionSetArns as permissionSetArn}
-							<option value={permissionSetArn}>{permissionSetDetails[permissionSetArn]?.Name ?? permissionSetArn}</option>
+							<option value={permissionSetArn}
+								>{permissionSetDetails[permissionSetArn]?.Name ?? permissionSetArn}</option
+							>
 						{/each}
 					</select>
 				</div>
 				<div>
-					<label class="text-xs text-slate-500">Account ID (optional)</label>
-					<input bind:value={selectedAccountID} placeholder="123456789012" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+					<label class="text-xs text-slate-500">Account ID</label>
+					<input
+						bind:value={selectedAccountID}
+						placeholder="123456789012"
+						class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+					/>
 				</div>
 				<div>
 					<label class="text-xs text-slate-500">Principal Type</label>
-					<select bind:value={assignmentPrincipalType} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+					<select
+						bind:value={assignmentPrincipalType}
+						class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+					>
 						<option value="USER">USER</option>
 						<option value="GROUP">GROUP</option>
 					</select>
 				</div>
 				<div>
 					<label class="text-xs text-slate-500">Principal ID</label>
-					<input bind:value={assignmentPrincipalID} placeholder="Principal ID" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+					<input
+						bind:value={assignmentPrincipalID}
+						placeholder="Principal ID"
+						class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+					/>
 				</div>
 			</div>
-			<button type="button" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white" onclick={createAssignment}>Create Assignment</button>
+			<button
+				type="button"
+				class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+				onclick={createAssignment}
+			>
+				Create Assignment
+			</button>
 			<ul class="space-y-2 text-sm">
 				{#each accountAssignments as assignment}
-					<li class="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+					<li
+						class="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+					>
 						<div>
-							<p class="font-medium">{assignment.PrincipalType}: {assignment.PrincipalId}</p>
-							<p class="text-xs text-slate-500">Account: {assignment.AccountId}</p>
+							<div class="flex items-center gap-2">
+								<span
+									class={`rounded px-1.5 py-0.5 text-xs ${assignment.PrincipalType === 'USER' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'}`}
+								>
+									{assignment.PrincipalType}
+								</span>
+								<p class="font-mono font-medium">{assignment.PrincipalId}</p>
+							</div>
+							<p class="mt-0.5 text-xs text-slate-500">Account: {assignment.AccountId}</p>
 						</div>
 						<button
 							type="button"
 							class="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
-							onclick={() => void removeAssignment(assignment.PrincipalId ?? '', assignment.PrincipalType ?? 'USER', assignment.AccountId ?? defaultAccountID)}
+							onclick={() =>
+								void removeAssignment(
+									assignment.PrincipalId ?? '',
+									assignment.PrincipalType ?? 'USER',
+									assignment.AccountId ?? defaultAccountID
+								)}
 						>
 							Delete
 						</button>
@@ -626,25 +1013,68 @@
 	{/if}
 
 	{#if activeTab === 'applications'}
-		<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
-			<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Applications</h2>
+		<div
+			class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4"
+		>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">
+					Applications
+					<span
+						class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700"
+						>{applications.length}</span
+					>
+				</h2>
+			</div>
 			<div class="flex gap-2">
-				<input bind:value={newApplicationName} placeholder="Application name" class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
-				<button type="button" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white" onclick={createApplication}>Create</button>
+				<input
+					bind:value={newApplicationName}
+					placeholder="Application name"
+					class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+				/>
+				<button
+					type="button"
+					class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+					onclick={createApplication}
+				>
+					Create
+				</button>
 			</div>
 			<ul class="space-y-2 text-sm">
 				{#each applications as application}
-					<li class="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-						<div>
-							<p class="font-medium">{application.Name}</p>
-							<p class="text-xs text-slate-500 font-mono">{application.ApplicationArn}</p>
-							<span class={`inline-block mt-1 rounded px-2 py-0.5 text-xs ${application.Status === 'ENABLED' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
-								{application.Status}
-							</span>
+					<li class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+						<div class="flex items-start justify-between">
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center gap-2">
+									<p class="font-medium">{application.Name}</p>
+									<span
+										class={`rounded px-1.5 py-0.5 text-xs ${application.Status === 'ENABLED' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}
+									>
+										{application.Status}
+									</span>
+								</div>
+								<div class="mt-0.5 flex items-center gap-1">
+									<p class="truncate font-mono text-xs text-slate-500">
+										{application.ApplicationArn}
+									</p>
+									<button
+										type="button"
+										class="shrink-0 text-xs text-slate-400 hover:text-slate-600"
+										onclick={() => void copyToClipboard(application.ApplicationArn ?? '')}
+										title="Copy ARN"
+									>
+										&#9112;
+									</button>
+								</div>
+							</div>
+							<button
+								type="button"
+								class="ml-3 shrink-0 rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
+								onclick={() =>
+									void removeApplication(application.ApplicationArn ?? '', application.Name ?? '')}
+							>
+								Delete
+							</button>
 						</div>
-						<button type="button" class="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400" onclick={() => void removeApplication(application.ApplicationArn ?? '')}>
-							Delete
-						</button>
 					</li>
 				{/each}
 			</ul>
@@ -652,43 +1082,191 @@
 	{/if}
 
 	{#if activeTab === 'tokenissuers'}
-		<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
-			<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Trusted Token Issuers</h2>
+		<div
+			class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4"
+		>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">
+					Trusted Token Issuers
+					<span
+						class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700"
+						>{trustedTokenIssuers.length}</span
+					>
+				</h2>
+			</div>
 			<div class="flex gap-2">
-				<input bind:value={newTrustedTokenIssuerName} placeholder="Trusted token issuer name" class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
-				<button type="button" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white" onclick={createTrustedTokenIssuer}>Create</button>
+				<input
+					bind:value={newTrustedTokenIssuerName}
+					placeholder="Trusted token issuer name"
+					class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+				/>
+				<button
+					type="button"
+					class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"
+					onclick={createTrustedTokenIssuer}
+				>
+					Create
+				</button>
 			</div>
 			<ul class="space-y-2 text-sm">
-				{#each trustedTokenIssuers as trustedTokenIssuer}
-					<li class="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-						<div>
-							<p class="font-medium">{trustedTokenIssuer.Name}</p>
-							<p class="text-xs text-slate-500 font-mono">{trustedTokenIssuer.TrustedTokenIssuerArn}</p>
-							<p class="text-xs text-slate-400">Type: {trustedTokenIssuer.TrustedTokenIssuerType}</p>
+				{#each trustedTokenIssuers as tti}
+					<li class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+						<div class="flex items-start justify-between">
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center gap-2">
+									<p class="font-medium">{tti.Name}</p>
+									<span
+										class="rounded bg-orange-100 px-1.5 py-0.5 text-xs text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+									>
+										{tti.TrustedTokenIssuerType}
+									</span>
+								</div>
+								<div class="mt-0.5 flex items-center gap-1">
+									<p class="truncate font-mono text-xs text-slate-500">
+										{tti.TrustedTokenIssuerArn}
+									</p>
+									<button
+										type="button"
+										class="shrink-0 text-xs text-slate-400 hover:text-slate-600"
+										onclick={() => void copyToClipboard(tti.TrustedTokenIssuerArn ?? '')}
+										title="Copy ARN"
+									>
+										&#9112;
+									</button>
+								</div>
+							</div>
+							<button
+								type="button"
+								class="ml-3 shrink-0 rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
+								onclick={() =>
+									void removeTrustedTokenIssuer(
+										tti.TrustedTokenIssuerArn ?? '',
+										tti.Name ?? ''
+									)}
+							>
+								Delete
+							</button>
 						</div>
-						<button
-							type="button"
-							class="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
-							onclick={() => void removeTrustedTokenIssuer(trustedTokenIssuer.TrustedTokenIssuerArn ?? '')}
-						>
-							Delete
-						</button>
 					</li>
 				{/each}
 			</ul>
 		</div>
 	{/if}
 
+	{#if activeTab === 'provisioning'}
+		<div
+			class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-6"
+		>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Provisioning Status</h2>
+				<button
+					type="button"
+					class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700"
+					onclick={() => void loadProvisioningStatuses()}
+				>
+					&#8635; Refresh
+				</button>
+			</div>
+
+			<div>
+				<h3 class="mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+					Assignment Creation
+					<span class="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700"
+						>{creationStatuses.length}</span
+					>
+				</h3>
+				{#if creationStatuses.length === 0}
+					<p class="text-sm italic text-slate-400">No creation statuses.</p>
+				{:else}
+					<ul class="space-y-1 text-xs">
+						{#each creationStatuses as s}
+							<li
+								class="flex items-center gap-3 rounded border border-slate-100 px-3 py-2 dark:border-slate-700"
+							>
+								<span
+									class={`rounded px-1.5 py-0.5 font-medium ${s.Status === 'SUCCEEDED' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : s.Status === 'FAILED' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}
+								>
+									{s.Status}
+								</span>
+								<span class="font-mono text-slate-500">{s.RequestId}</span>
+								{#if s.CreatedDate}<span class="text-slate-400">{formatDate(s.CreatedDate)}</span>{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+
+			<div>
+				<h3 class="mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+					Assignment Deletion
+					<span class="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700"
+						>{deletionStatuses.length}</span
+					>
+				</h3>
+				{#if deletionStatuses.length === 0}
+					<p class="text-sm italic text-slate-400">No deletion statuses.</p>
+				{:else}
+					<ul class="space-y-1 text-xs">
+						{#each deletionStatuses as s}
+							<li
+								class="flex items-center gap-3 rounded border border-slate-100 px-3 py-2 dark:border-slate-700"
+							>
+								<span
+									class={`rounded px-1.5 py-0.5 font-medium ${s.Status === 'SUCCEEDED' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : s.Status === 'FAILED' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}
+								>
+									{s.Status}
+								</span>
+								<span class="font-mono text-slate-500">{s.RequestId}</span>
+								{#if s.CreatedDate}<span class="text-slate-400">{formatDate(s.CreatedDate)}</span>{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+
+			<div>
+				<h3 class="mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+					Permission Set Provisioning
+					<span class="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700"
+						>{provisioningStatuses.length}</span
+					>
+				</h3>
+				{#if provisioningStatuses.length === 0}
+					<p class="text-sm italic text-slate-400">No provisioning statuses.</p>
+				{:else}
+					<ul class="space-y-1 text-xs">
+						{#each provisioningStatuses as s}
+							<li
+								class="flex items-center gap-3 rounded border border-slate-100 px-3 py-2 dark:border-slate-700"
+							>
+								<span
+									class={`rounded px-1.5 py-0.5 font-medium ${s.Status === 'SUCCEEDED' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : s.Status === 'FAILED' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}
+								>
+									{s.Status}
+								</span>
+								<span class="font-mono text-slate-500">{s.RequestId}</span>
+								{#if s.CreatedDate}<span class="text-slate-400">{formatDate(s.CreatedDate)}</span>{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+		</div>
+	{/if}
+
 	{#if activeTab === 'metrics'}
-		<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
+		<div
+			class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4"
+		>
 			<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Metrics</h2>
-			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
 				{#each [
 					['Instances', metricsInstanceCount, 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'],
 					['Permission Sets', metricsPermSetCount, 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'],
 					['Applications', metricsAppCount, 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300'],
 					['Token Issuers', metricsTTICount, 'bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'],
-					['Assignments', metricsAssignmentCount, 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300']
+					['Assignments', metricsAssignmentCount, 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'],
+					['Regions', metricsRegionCount, 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300']
 				] as [label, count, cls] (label)}
 					<div class={`rounded-xl p-4 ${cls}`}>
 						<p class="text-sm font-medium">{label}</p>
@@ -696,17 +1274,24 @@
 					</div>
 				{/each}
 			</div>
-			<button type="button" class="rounded-lg border border-slate-300 px-4 py-2 text-sm" onclick={() => void refreshAll()}>
+			<button
+				type="button"
+				class="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700"
+				onclick={() => void refreshAll()}
+			>
 				Refresh Metrics
 			</button>
 		</div>
 	{/if}
 
 	{#if activeTab === 'docs'}
-		<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-6">
+		<div
+			class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-6"
+		>
 			<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">API Documentation</h2>
 			<p class="text-sm text-slate-600 dark:text-slate-300">
-				This service emulates AWS IAM Identity Center (SSO Admin). The following operations are supported:
+				This service emulates AWS IAM Identity Center (SSO Admin). The following operations are
+				supported:
 			</p>
 
 			{#each [
@@ -714,13 +1299,13 @@
 					category: 'Instances',
 					ops: [
 						{ name: 'CreateInstance', desc: 'Create a new SSO instance.' },
-						{ name: 'DescribeInstance', desc: 'Retrieve details for a specific SSO instance.' },
+						{ name: 'DescribeInstance', desc: 'Retrieve details (including CreatedDate) for a specific SSO instance.' },
 						{ name: 'ListInstances', desc: 'List all SSO instances.' },
 						{ name: 'DeleteInstance', desc: 'Delete an SSO instance and all its dependent resources.' },
 						{ name: 'UpdateInstance', desc: 'Update the name of an SSO instance.' },
-						{ name: 'AddRegion', desc: 'Add a region to an SSO instance.' },
+						{ name: 'AddRegion', desc: 'Add a region (RegionScopeType=ALL_REGIONS) to an SSO instance. Idempotent.' },
 						{ name: 'RemoveRegion', desc: 'Remove a region from an SSO instance.' },
-						{ name: 'ListRegions', desc: 'List regions associated with an SSO instance.' }
+						{ name: 'ListRegions', desc: 'List regions with RegionScopeType associated with an SSO instance.' }
 					]
 				},
 				{
@@ -728,9 +1313,10 @@
 					ops: [
 						{ name: 'CreatePermissionSet', desc: 'Create a permission set within an instance.' },
 						{ name: 'DescribePermissionSet', desc: 'Get details of a permission set.' },
-						{ name: 'UpdatePermissionSet', desc: 'Update a permission set name, description, or session duration.' },
+						{ name: 'UpdatePermissionSet', desc: 'Update a permission set description, session duration, or relay state.' },
 						{ name: 'DeletePermissionSet', desc: 'Delete a permission set and cascade-delete its assignments.' },
 						{ name: 'ListPermissionSets', desc: 'List all permission sets for an instance.' },
+						{ name: 'ListPermissionSetsProvisionedToAccount', desc: 'List permission sets provisioned to a specific AWS account (sorted).' },
 						{ name: 'ProvisionPermissionSet', desc: 'Provision a permission set to accounts.' },
 						{ name: 'AttachManagedPolicyToPermissionSet', desc: 'Attach an AWS managed policy.' },
 						{ name: 'DetachManagedPolicyFromPermissionSet', desc: 'Detach an AWS managed policy.' },
@@ -749,20 +1335,21 @@
 				{
 					category: 'Account Assignments',
 					ops: [
-						{ name: 'CreateAccountAssignment', desc: 'Assign a permission set to a principal in an account. Idempotent.' },
+						{ name: 'CreateAccountAssignment', desc: 'Assign a permission set to a principal in an account. Deterministically idempotent.' },
 						{ name: 'DeleteAccountAssignment', desc: 'Remove an account assignment.' },
 						{ name: 'ListAccountAssignments', desc: 'List account assignments for a permission set, optionally filtered by account ID.' },
+						{ name: 'ListAccountAssignmentsForPrincipal', desc: 'List all account assignments for a specific principal (user or group), sorted.' },
 						{ name: 'DescribeAccountAssignmentCreationStatus', desc: 'Get the status of an assignment creation request.' },
 						{ name: 'DescribeAccountAssignmentDeletionStatus', desc: 'Get the status of an assignment deletion request.' },
-						{ name: 'ListAccountAssignmentCreationStatus', desc: 'List account assignment creation statuses.' },
-						{ name: 'ListAccountAssignmentDeletionStatus', desc: 'List account assignment deletion statuses.' }
+						{ name: 'ListAccountAssignmentCreationStatus', desc: 'List account assignment creation statuses (sorted by date desc).' },
+						{ name: 'ListAccountAssignmentDeletionStatus', desc: 'List account assignment deletion statuses (sorted by date desc).' }
 					]
 				},
 				{
 					category: 'Applications',
 					ops: [
-						{ name: 'CreateApplication', desc: 'Create an application within an instance.' },
-						{ name: 'DescribeApplication', desc: 'Get details of an application.' },
+						{ name: 'CreateApplication', desc: 'Create an application within an instance. Supports Tags.' },
+						{ name: 'DescribeApplication', desc: 'Get details of an application, including Tags.' },
 						{ name: 'UpdateApplication', desc: 'Update an application name, description, or status.' },
 						{ name: 'DeleteApplication', desc: 'Delete an application.' },
 						{ name: 'ListApplications', desc: 'List applications for an instance (sorted by ARN).' },
@@ -790,8 +1377,8 @@
 				{
 					category: 'Trusted Token Issuers',
 					ops: [
-						{ name: 'CreateTrustedTokenIssuer', desc: 'Create a trusted token issuer (defaults to OIDC_JWT type).' },
-						{ name: 'DescribeTrustedTokenIssuer', desc: 'Get details of a trusted token issuer.' },
+						{ name: 'CreateTrustedTokenIssuer', desc: 'Create a trusted token issuer. Accepts Tags and TrustedTokenIssuerConfiguration (OIDC JWT).' },
+						{ name: 'DescribeTrustedTokenIssuer', desc: 'Get details including TrustedTokenIssuerConfiguration.' },
 						{ name: 'UpdateTrustedTokenIssuer', desc: 'Update a trusted token issuer name or type.' },
 						{ name: 'DeleteTrustedTokenIssuer', desc: 'Delete a trusted token issuer.' },
 						{ name: 'ListTrustedTokenIssuers', desc: 'List trusted token issuers for an instance (sorted by ARN).' }
@@ -800,7 +1387,7 @@
 				{
 					category: 'ABAC / Access Control Attributes',
 					ops: [
-						{ name: 'CreateInstanceAccessControlAttributeConfiguration', desc: 'Create ABAC configuration for an instance.' },
+						{ name: 'CreateInstanceAccessControlAttributeConfiguration', desc: 'Create ABAC configuration. Returns ConflictException if already exists.' },
 						{ name: 'DescribeInstanceAccessControlAttributeConfiguration', desc: 'Get ABAC configuration.' },
 						{ name: 'UpdateInstanceAccessControlAttributeConfiguration', desc: 'Update ABAC configuration.' },
 						{ name: 'DeleteInstanceAccessControlAttributeConfiguration', desc: 'Delete ABAC configuration.' }
@@ -809,18 +1396,22 @@
 				{
 					category: 'Tags',
 					ops: [
-						{ name: 'TagResource', desc: 'Add tags to an instance, permission set, application, or trusted token issuer.' },
+						{ name: 'TagResource', desc: 'Add tags (max 50, key \u2264 128 chars, value \u2264 256 chars) to a resource.' },
 						{ name: 'UntagResource', desc: 'Remove tags from a resource.' },
-						{ name: 'ListTagsForResource', desc: 'List all tags on a resource.' }
+						{ name: 'ListTagsForResource', desc: 'List all tags on a resource (sorted by key).' }
 					]
 				}
 			] as section}
 				<div>
-					<h3 class="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">{section.category}</h3>
+					<h3 class="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+						{section.category}
+					</h3>
 					<ul class="space-y-1">
 						{#each section.ops as op}
 							<li class="flex gap-3 text-sm">
-								<span class="w-64 shrink-0 font-mono text-indigo-600 dark:text-indigo-400">{op.name}</span>
+								<span class="w-80 shrink-0 font-mono text-indigo-600 dark:text-indigo-400"
+									>{op.name}</span
+								>
 								<span class="text-slate-600 dark:text-slate-300">{op.desc}</span>
 							</li>
 						{/each}
@@ -830,4 +1421,3 @@
 		</div>
 	{/if}
 </div>
-

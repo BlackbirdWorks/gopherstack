@@ -39,6 +39,7 @@ func (h *Handler) Reset() {
 }
 
 // GetSupportedOperations returns all supported SSO Admin operations (sorted).
+// When adding a new operation, register it in this slice AND in the dispatch function below.
 func (h *Handler) GetSupportedOperations() []string {
 	ops := []string{
 		"AddRegion",
@@ -1367,10 +1368,6 @@ func (h *Handler) handleCreateInstanceAccessControlAttributeConfiguration(c *ech
 
 func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) error {
 	var req struct {
-		InstanceArn            string    `json:"InstanceArn"`
-		Name                   string    `json:"Name"`
-		TrustedTokenIssuerType string    `json:"TrustedTokenIssuerType"`
-		Tags                   []tagView `json:"Tags"`
 		TrustedTokenIssuerConfiguration *struct {
 			OidcJwtConfiguration *struct {
 				IssuerURL                  string `json:"IssuerUrl"`
@@ -1379,6 +1376,10 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 				JwksRetrievalOption        string `json:"JwksRetrievalOption"`
 			} `json:"OidcJwtConfiguration,omitempty"`
 		} `json:"TrustedTokenIssuerConfiguration,omitempty"`
+		InstanceArn            string    `json:"InstanceArn"`
+		Name                   string    `json:"Name"`
+		TrustedTokenIssuerType string    `json:"TrustedTokenIssuerType"`
+		Tags                   []tagView `json:"Tags"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -1390,7 +1391,7 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		return writeError(c, http.StatusBadRequest, "ValidationException", "Name is required")
 	}
 	if req.TrustedTokenIssuerType == "" {
-		req.TrustedTokenIssuerType = defaultTrustedTokenIssuerType
+		req.TrustedTokenIssuerType = ttiDefaultType
 	}
 
 	tags := make(map[string]string, len(req.Tags))
@@ -2269,61 +2270,61 @@ func (h *Handler) handleDetachCustomerManagedPolicyReferenceFromPermissionSet(
 }
 
 func (h *Handler) handleListPermissionSetsProvisionedToAccount(c *echo.Context, body []byte) error {
-var req struct {
-InstanceArn string `json:"InstanceArn"`
-AccountID   string `json:"AccountId"`
-}
-if err := json.Unmarshal(body, &req); err != nil {
-return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-}
-if req.InstanceArn == "" {
-return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
-}
-if req.AccountID == "" {
-return writeError(c, http.StatusBadRequest, "ValidationException", "AccountId is required")
-}
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+		AccountID   string `json:"AccountId"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.AccountID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "AccountId is required")
+	}
 
-arns := h.Backend.ListPermissionSetsProvisionedToAccount(req.InstanceArn, req.AccountID)
+	arns := h.Backend.ListPermissionSetsProvisionedToAccount(req.InstanceArn, req.AccountID)
 
-return writeJSON(c, http.StatusOK, map[string]any{
-"PermissionSets": arns,
-"NextToken":      nil,
-})
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"PermissionSets": arns,
+		"NextToken":      nil,
+	})
 }
 
 func (h *Handler) handleListAccountAssignmentsForPrincipal(c *echo.Context, body []byte) error {
-var req struct {
-InstanceArn   string `json:"InstanceArn"`
-PrincipalID   string `json:"PrincipalId"`
-PrincipalType string `json:"PrincipalType"`
-}
-if err := json.Unmarshal(body, &req); err != nil {
-return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-}
-if req.InstanceArn == "" {
-return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
-}
-if req.PrincipalID == "" {
-return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalId is required")
-}
-if req.PrincipalType == "" {
-return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalType is required")
-}
+	var req struct {
+		InstanceArn   string `json:"InstanceArn"`
+		PrincipalID   string `json:"PrincipalId"`
+		PrincipalType string `json:"PrincipalType"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PrincipalID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalId is required")
+	}
+	if req.PrincipalType == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalType is required")
+	}
 
-assignments := h.Backend.ListAccountAssignmentsForPrincipal(req.InstanceArn, req.PrincipalID, req.PrincipalType)
+	assignments := h.Backend.ListAccountAssignmentsForPrincipal(req.InstanceArn, req.PrincipalID, req.PrincipalType)
 
-views := make([]assignmentView, 0, len(assignments))
-for _, a := range assignments {
-views = append(views, assignmentView{
-AccountID:        a.AccountID,
-PermissionSetArn: a.PermissionSetArn,
-PrincipalID:      a.PrincipalID,
-PrincipalType:    a.PrincipalType,
-})
-}
+	views := make([]assignmentView, 0, len(assignments))
+	for _, a := range assignments {
+		views = append(views, assignmentView{
+			AccountID:        a.AccountID,
+			PermissionSetArn: a.PermissionSetArn,
+			PrincipalID:      a.PrincipalID,
+			PrincipalType:    a.PrincipalType,
+		})
+	}
 
-return writeJSON(c, http.StatusOK, map[string]any{
-"AccountAssignments": views,
-"NextToken":          nil,
-})
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"AccountAssignments": views,
+		"NextToken":          nil,
+	})
 }

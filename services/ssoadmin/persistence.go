@@ -109,28 +109,28 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 // ensureNonNilMaps initialises nil maps in the snapshot to empty maps.
 func ensureNonNilMaps(snap *backendSnapshot) {
-	snap.Instances = ensureMap(snap.Instances)
-	snap.PermissionSets = ensureMap(snap.PermissionSets)
-	snap.Assignments = ensureMap(snap.Assignments)
-	snap.AssignmentCreationIDs = ensureMap(snap.AssignmentCreationIDs)
-	snap.CreationStatuses = ensureMap(snap.CreationStatuses)
-	snap.DeletionStatuses = ensureMap(snap.DeletionStatuses)
-	snap.ProvisioningStatuses = ensureMap(snap.ProvisioningStatuses)
-	snap.InstanceRegions = ensureMap(snap.InstanceRegions)
-	snap.CustomerManagedPolicies = ensureMap(snap.CustomerManagedPolicies)
-	snap.Applications = ensureMap(snap.Applications)
-	snap.ApplicationAssignments = ensureMap(snap.ApplicationAssignments)
-	snap.ApplicationScopes = ensureMap(snap.ApplicationScopes)
-	snap.ApplicationAuthMethods = ensureMap(snap.ApplicationAuthMethods)
-	snap.ApplicationGrants = ensureMap(snap.ApplicationGrants)
-	snap.ApplicationAssignConfig = ensureMap(snap.ApplicationAssignConfig)
-	snap.ApplicationSessions = ensureMap(snap.ApplicationSessions)
-	snap.InstanceACAs = ensureMap(snap.InstanceACAs)
-	snap.TrustedTokenIssuers = ensureMap(snap.TrustedTokenIssuers)
-	snap.PermissionBoundaries = ensureMap(snap.PermissionBoundaries)
+	snap.Instances = ensureNonNilMap(snap.Instances)
+	snap.PermissionSets = ensureNonNilMap(snap.PermissionSets)
+	snap.Assignments = ensureNonNilMap(snap.Assignments)
+	snap.AssignmentCreationIDs = ensureNonNilMap(snap.AssignmentCreationIDs)
+	snap.CreationStatuses = ensureNonNilMap(snap.CreationStatuses)
+	snap.DeletionStatuses = ensureNonNilMap(snap.DeletionStatuses)
+	snap.ProvisioningStatuses = ensureNonNilMap(snap.ProvisioningStatuses)
+	snap.InstanceRegions = ensureNonNilMap(snap.InstanceRegions)
+	snap.CustomerManagedPolicies = ensureNonNilMap(snap.CustomerManagedPolicies)
+	snap.Applications = ensureNonNilMap(snap.Applications)
+	snap.ApplicationAssignments = ensureNonNilMap(snap.ApplicationAssignments)
+	snap.ApplicationScopes = ensureNonNilMap(snap.ApplicationScopes)
+	snap.ApplicationAuthMethods = ensureNonNilMap(snap.ApplicationAuthMethods)
+	snap.ApplicationGrants = ensureNonNilMap(snap.ApplicationGrants)
+	snap.ApplicationAssignConfig = ensureNonNilMap(snap.ApplicationAssignConfig)
+	snap.ApplicationSessions = ensureNonNilMap(snap.ApplicationSessions)
+	snap.InstanceACAs = ensureNonNilMap(snap.InstanceACAs)
+	snap.TrustedTokenIssuers = ensureNonNilMap(snap.TrustedTokenIssuers)
+	snap.PermissionBoundaries = ensureNonNilMap(snap.PermissionBoundaries)
 }
 
-func ensureMap[K comparable, V any](m map[K]V) map[K]V {
+func ensureNonNilMap[K comparable, V any](m map[K]V) map[K]V {
 	if m == nil {
 		return make(map[K]V)
 	}

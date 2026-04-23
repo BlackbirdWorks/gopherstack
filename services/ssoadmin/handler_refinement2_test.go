@@ -129,8 +129,8 @@ func TestRefinement2_DescribeTrustedTokenIssuerConfiguration(t *testing.T) {
 		"TrustedTokenIssuerType": "OIDC_JWT",
 		"TrustedTokenIssuerConfiguration": map[string]any{
 			"OidcJwtConfiguration": map[string]any{
-				"IssuerUrl":          "https://auth.example.com",
-				"ClaimAttributePath": "sub",
+				"IssuerUrl":           "https://auth.example.com",
+				"ClaimAttributePath":  "sub",
 				"JwksRetrievalOption": "OPEN_ID_DISCOVERY",
 			},
 		},
@@ -331,8 +331,8 @@ func TestRefinement2_ListPermissionSetsProvisionedToAccountMissing(t *testing.T)
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		payload    map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
