@@ -424,6 +424,7 @@ import { MediaStoreDataClient } from "@aws-sdk/client-mediastore-data";
 import { ApiGatewayManagementApiClient } from "@aws-sdk/client-apigatewaymanagementapi";
 import { CodeConnectionsClient } from "@aws-sdk/client-codeconnections";
 import { IdentitystoreClient } from "@aws-sdk/client-identitystore";
+import { SSOAdminClient } from "@aws-sdk/client-sso-admin";
 import { IoTAnalyticsClient } from "@aws-sdk/client-iotanalytics";
 import { IoTDataPlaneClient } from "@aws-sdk/client-iot-data-plane";
 import { ElasticLoadBalancingClient } from "@aws-sdk/client-elastic-load-balancing";
@@ -593,6 +594,10 @@ export function getCodeConnectionsClient(region?: string): CodeConnectionsClient
 
 export function getIdentityStoreClient(region?: string): IdentitystoreClient {
   return new IdentitystoreClient(clientConfig(region));
+}
+
+export function getSSOAdminClient(region?: string): SSOAdminClient {
+  return new SSOAdminClient(clientConfig(region));
 }
 
 export function getIoTAnalyticsClient(region?: string): IoTAnalyticsClient {

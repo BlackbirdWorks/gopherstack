@@ -133,6 +133,7 @@
     "@aws-sdk/client-sns": "3.1032.0",
     "@aws-sdk/client-sqs": "3.1032.0",
     "@aws-sdk/client-ssm": "3.1032.0",
+    "@aws-sdk/client-sso-admin": "3.1035.0",
     "@aws-sdk/client-sts": "3.1032.0",
     "@aws-sdk/client-support": "3.1032.0",
     "@aws-sdk/client-swf": "3.1032.0",

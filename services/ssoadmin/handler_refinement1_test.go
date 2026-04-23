@@ -24,7 +24,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
-	assert.Equal(t, 35, ssoadmin.HandlerOpsLen(h))
+	assert.Equal(t, 78, ssoadmin.HandlerOpsLen(h))
 }
 
 // TestRefinement1_GetSupportedOperationsSorted verifies that GetSupportedOperations is sorted.
@@ -56,12 +56,12 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 
 	h.Reset()
 
-	// After reset, list should be empty.
+	// After reset, only the default pre-seeded instance remains.
 	rec := doRequest(t, h, "ListInstances", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	resp := parseResponse(t, rec)
 	instances := resp["Instances"].([]any)
-	assert.Empty(t, instances)
+	assert.Len(t, instances, 1, "reset should re-seed the default instance")
 }
 
 // TestRefinement1_InstanceCount verifies that InstanceCount export helper works.

@@ -39,8 +39,9 @@ func (h *Handler) Reset() {
 }
 
 // GetSupportedOperations returns all supported SSO Admin operations (sorted).
+// When adding a new operation, register it in this slice AND in the dispatch function below.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
+	ops := []string{
 		"AddRegion",
 		"AttachCustomerManagedPolicyReferenceToPermissionSet",
 		"AttachManagedPolicyToPermissionSet",
@@ -56,27 +57,73 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteApplicationAccessScope",
 		"DeleteApplicationAssignment",
 		"DeleteApplicationAuthenticationMethod",
+		"DeleteApplicationGrant",
 		"DeleteInlinePolicyFromPermissionSet",
 		"DeleteInstance",
+		"DeleteInstanceAccessControlAttributeConfiguration",
 		"DeletePermissionSet",
+		"DeletePermissionsBoundaryFromPermissionSet",
+		"DeleteTrustedTokenIssuer",
+		"DescribeApplication",
 		"DescribeAccountAssignmentCreationStatus",
 		"DescribeAccountAssignmentDeletionStatus",
+		"DescribeApplicationAssignment",
+		"DescribeApplicationProvider",
 		"DescribeInstance",
+		"DescribeInstanceAccessControlAttributeConfiguration",
 		"DescribePermissionSet",
 		"DescribePermissionSetProvisioningStatus",
+		"DescribeTrustedTokenIssuer",
+		"DetachCustomerManagedPolicyReferenceFromPermissionSet",
 		"DetachManagedPolicyFromPermissionSet",
+		"GetApplicationAssignmentConfiguration",
+		"GetApplicationAccessScope",
+		"GetApplicationAuthenticationMethod",
+		"GetApplicationGrant",
+		"GetApplicationSessionConfiguration",
+		"GetPermissionsBoundaryForPermissionSet",
 		"GetInlinePolicyForPermissionSet",
+		"ListAccountAssignmentCreationStatus",
+		"ListAccountAssignmentDeletionStatus",
 		"ListAccountAssignments",
+		"ListAccountAssignmentsForPrincipal",
+		"ListAccountsForProvisionedPermissionSet",
+		"ListApplicationAccessScopes",
+		"ListApplicationAssignments",
+		"ListApplicationAssignmentsForPrincipal",
+		"ListApplicationAuthenticationMethods",
+		"ListApplicationGrants",
+		"ListApplicationProviders",
+		"ListApplications",
+		"ListCustomerManagedPolicyReferencesInPermissionSet",
 		"ListInstances",
 		"ListManagedPoliciesInPermissionSet",
+		"ListPermissionSetProvisioningStatus",
 		"ListPermissionSets",
+		"ListPermissionSetsProvisionedToAccount",
+		"ListRegions",
 		"ListTagsForResource",
+		"ListTrustedTokenIssuers",
 		"ProvisionPermissionSet",
+		"PutApplicationAccessScope",
+		"PutApplicationAssignmentConfiguration",
+		"PutApplicationAuthenticationMethod",
+		"PutApplicationGrant",
+		"PutApplicationSessionConfiguration",
 		"PutInlinePolicyToPermissionSet",
+		"PutPermissionsBoundaryToPermissionSet",
+		"RemoveRegion",
 		"TagResource",
 		"UntagResource",
+		"UpdateApplication",
+		"UpdateInstance",
+		"UpdateInstanceAccessControlAttributeConfiguration",
 		"UpdatePermissionSet",
+		"UpdateTrustedTokenIssuer",
 	}
+	sort.Strings(ops)
+
+	return ops
 }
 
 // ChaosServiceName returns the service name for chaos injection.
@@ -232,6 +279,127 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) error 
 		return h.handleDeleteApplicationAssignment(c, body)
 	case "DeleteApplicationAuthenticationMethod":
 		return h.handleDeleteApplicationAuthenticationMethod(c, body)
+	case "DetachCustomerManagedPolicyReferenceFromPermissionSet":
+		return h.handleDetachCustomerManagedPolicyReferenceFromPermissionSet(c, body)
+	default:
+		return h.dispatchNewestOps(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchNewestOps(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "DeleteApplicationGrant":
+		return h.handleDeleteApplicationGrant(c, body)
+	case "DeleteInstanceAccessControlAttributeConfiguration":
+		return h.handleDeleteInstanceAccessControlAttributeConfiguration(c, body)
+	case "DeleteTrustedTokenIssuer":
+		return h.handleDeleteTrustedTokenIssuer(c, body)
+	case "DescribeApplication":
+		return h.handleDescribeApplication(c, body)
+	case "DescribeApplicationAssignment":
+		return h.handleDescribeApplicationAssignment(c, body)
+	case "DescribeApplicationProvider":
+		return h.handleDescribeApplicationProvider(c, body)
+	case "DescribeInstanceAccessControlAttributeConfiguration":
+		return h.handleDescribeInstanceAccessControlAttributeConfiguration(c, body)
+	case "DescribeTrustedTokenIssuer":
+		return h.handleDescribeTrustedTokenIssuer(c, body)
+	case "GetPermissionsBoundaryForPermissionSet":
+		return h.handleGetPermissionsBoundaryForPermissionSet(c, body)
+	case "ListAccountAssignmentCreationStatus":
+		return h.handleListAccountAssignmentCreationStatus(c, body)
+	case "ListAccountAssignmentDeletionStatus":
+		return h.handleListAccountAssignmentDeletionStatus(c, body)
+	case "ListAccountAssignmentsForPrincipal":
+		return h.handleListAccountAssignmentsForPrincipal(c, body)
+	case "ListPermissionSetsProvisionedToAccount":
+		return h.handleListPermissionSetsProvisionedToAccount(c, body)
+	default:
+		return h.dispatchNewestAppOps(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchNewestAppOps(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "ListApplicationAccessScopes":
+		return h.handleListApplicationAccessScopes(c, body)
+	case "ListApplicationAssignments":
+		return h.handleListApplicationAssignments(c, body)
+	case "ListApplicationAuthenticationMethods":
+		return h.handleListApplicationAuthenticationMethods(c, body)
+	case "ListApplicationGrants":
+		return h.handleListApplicationGrants(c, body)
+	case "ListApplicationProviders":
+		return h.handleListApplicationProviders(c, body)
+	case "ListApplications":
+		return h.handleListApplications(c, body)
+	default:
+		return h.dispatchNewestConfigOps(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchNewestConfigOps(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "DeletePermissionsBoundaryFromPermissionSet":
+		return h.handleDeletePermissionsBoundaryFromPermissionSet(c, body)
+	case "GetApplicationAssignmentConfiguration":
+		return h.handleGetApplicationAssignmentConfiguration(c, body)
+	case "GetApplicationSessionConfiguration":
+		return h.handleGetApplicationSessionConfiguration(c, body)
+	case "ListCustomerManagedPolicyReferencesInPermissionSet":
+		return h.handleListCustomerManagedPolicyReferencesInPermissionSet(c, body)
+	case "ListPermissionSetProvisioningStatus":
+		return h.handleListPermissionSetProvisioningStatus(c, body)
+	case "ListRegions":
+		return h.handleListRegions(c, body)
+	case "ListTrustedTokenIssuers":
+		return h.handleListTrustedTokenIssuers(c, body)
+	case "PutApplicationAccessScope":
+		return h.handlePutApplicationAccessScope(c, body)
+	case "PutApplicationAssignmentConfiguration":
+		return h.handlePutApplicationAssignmentConfiguration(c, body)
+	default:
+		return h.dispatchUpdateOps(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchUpdateOps(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "PutApplicationAuthenticationMethod":
+		return h.handlePutApplicationAuthenticationMethod(c, body)
+	case "PutApplicationGrant":
+		return h.handlePutApplicationGrant(c, body)
+	case "PutApplicationSessionConfiguration":
+		return h.handlePutApplicationSessionConfiguration(c, body)
+	case "PutPermissionsBoundaryToPermissionSet":
+		return h.handlePutPermissionsBoundaryToPermissionSet(c, body)
+	case "RemoveRegion":
+		return h.handleRemoveRegion(c, body)
+	case "UpdateApplication":
+		return h.handleUpdateApplication(c, body)
+	case "UpdateInstance":
+		return h.handleUpdateInstance(c, body)
+	case "UpdateInstanceAccessControlAttributeConfiguration":
+		return h.handleUpdateInstanceAccessControlAttributeConfiguration(c, body)
+	case "UpdateTrustedTokenIssuer":
+		return h.handleUpdateTrustedTokenIssuer(c, body)
+	default:
+		return h.dispatchRefinement3Ops(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchRefinement3Ops(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "GetApplicationAccessScope":
+		return h.handleGetApplicationAccessScope(c, body)
+	case "GetApplicationAuthenticationMethod":
+		return h.handleGetApplicationAuthenticationMethod(c, body)
+	case "GetApplicationGrant":
+		return h.handleGetApplicationGrant(c, body)
+	case "ListAccountsForProvisionedPermissionSet":
+		return h.handleListAccountsForProvisionedPermissionSet(c, body)
+	case "ListApplicationAssignmentsForPrincipal":
+		return h.handleListApplicationAssignmentsForPrincipal(c, body)
 	default:
 		return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
 	}
@@ -240,11 +408,12 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) error 
 // --- request/response types ---
 
 type instanceView struct {
-	InstanceArn     string `json:"InstanceArn"`
-	OwnerAccountID  string `json:"OwnerAccountId"`
-	IdentityStoreID string `json:"IdentityStoreId"`
-	Name            string `json:"Name"`
-	Status          string `json:"Status"`
+	InstanceArn     string  `json:"InstanceArn"`
+	OwnerAccountID  string  `json:"OwnerAccountId"`
+	IdentityStoreID string  `json:"IdentityStoreId"`
+	Name            string  `json:"Name"`
+	Status          string  `json:"Status"`
+	CreatedDate     float64 `json:"CreatedDate,omitempty"`
 }
 
 type permissionSetView struct {
@@ -295,6 +464,7 @@ func (h *Handler) handleListInstances(c *echo.Context, _ []byte) error {
 			IdentityStoreID: inst.IdentityStoreID,
 			Name:            inst.Name,
 			Status:          inst.Status,
+			CreatedDate:     float64(inst.CreatedDate.Unix()),
 		})
 	}
 
@@ -340,12 +510,20 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
 	}
 
+	tagList := make([]tagView, 0, len(inst.Tags))
+	for k, v := range inst.Tags {
+		tagList = append(tagList, tagView{Key: k, Value: v})
+	}
+	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
+
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"InstanceArn":     inst.InstanceArn,
 		"OwnerAccountId":  inst.OwnerAccountID,
 		"IdentityStoreId": inst.IdentityStoreID,
 		"Name":            inst.Name,
 		"Status":          inst.Status,
+		"CreatedDate":     float64(inst.CreatedDate.Unix()),
+		"Tags":            tagList,
 	})
 }
 
@@ -479,6 +657,11 @@ func (h *Handler) handleDeletePermissionSet(c *echo.Context, body []byte) error 
 	}
 
 	if err := h.Backend.DeletePermissionSet(req.InstanceArn, req.PermissionSetArn); err != nil {
+		if errors.Is(err, ErrPermissionSetHasAssignments) {
+			return writeError(c, http.StatusConflict, "ConflictException",
+				"permission set is still associated with one or more accounts: "+req.PermissionSetArn)
+		}
+
 		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
@@ -510,7 +693,6 @@ func (h *Handler) handleUpdatePermissionSet(c *echo.Context, body []byte) error 
 	return writeJSON(c, http.StatusOK, map[string]any{})
 }
 
-//nolint:dupl // create and delete assignment handlers have similar structure but distinct semantics
 func (h *Handler) handleCreateAccountAssignment(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn      string `json:"InstanceArn"`
@@ -522,6 +704,27 @@ func (h *Handler) handleCreateAccountAssignment(c *echo.Context, body []byte) er
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+	}
+	if req.TargetID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "TargetId is required")
+	}
+	if req.TargetType != "" && req.TargetType != targetTypeAWSAccount {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "TargetType must be AWS_ACCOUNT")
+	}
+	if req.PrincipalID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalId is required")
+	}
+	if req.PrincipalType == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalType is required")
+	}
+	if req.PrincipalType != principalTypeUser && req.PrincipalType != principalTypeGroup {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalType must be USER or GROUP")
 	}
 
 	requestID, err := h.Backend.CreateAccountAssignment(
@@ -572,7 +775,6 @@ func (h *Handler) handleDescribeAccountAssignmentCreationStatus(c *echo.Context,
 	})
 }
 
-//nolint:dupl // create and delete assignment handlers have similar structure but distinct semantics
 func (h *Handler) handleDeleteAccountAssignment(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn      string `json:"InstanceArn"`
@@ -584,6 +786,12 @@ func (h *Handler) handleDeleteAccountAssignment(c *echo.Context, body []byte) er
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.PrincipalType != "" && req.PrincipalType != principalTypeUser && req.PrincipalType != principalTypeGroup {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalType must be USER or GROUP")
+	}
+	if req.TargetType != "" && req.TargetType != targetTypeAWSAccount {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "TargetType must be AWS_ACCOUNT")
 	}
 
 	requestID, err := h.Backend.DeleteAccountAssignment(
@@ -802,6 +1010,12 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+	}
 
 	requestID, err := h.Backend.ProvisionPermissionSet(req.InstanceArn, req.PermissionSetArn)
 	if err != nil {
@@ -861,6 +1075,11 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.TagResource(req.InstanceArn, req.ResourceArn, tags); err != nil {
+		if errors.Is(err, ErrTooManyTagsException) {
+			return writeError(c, http.StatusBadRequest, "TooManyTagsException",
+				"you have exceeded the maximum number of tags (50) for this resource")
+		}
+
 		return handleBackendError(c, err, "resource not found: "+req.ResourceArn)
 	}
 
@@ -1070,6 +1289,9 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, body []byte) error {
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
+	if req.ApplicationArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ApplicationArn is required")
+	}
 
 	if err := h.Backend.DeleteApplication(req.ApplicationArn); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
@@ -1181,6 +1403,11 @@ func (h *Handler) handleCreateInstanceAccessControlAttributeConfiguration(c *ech
 	}
 
 	if err := h.Backend.CreateInstanceAccessControlAttributeConfiguration(req.InstanceArn, attrs); err != nil {
+		if errors.Is(err, ErrACAAlreadyExists) {
+			return writeError(c, http.StatusConflict, "ConflictException",
+				"instance access control attribute configuration already exists for: "+req.InstanceArn)
+		}
+
 		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
 	}
 
@@ -1189,9 +1416,18 @@ func (h *Handler) handleCreateInstanceAccessControlAttributeConfiguration(c *ech
 
 func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) error {
 	var req struct {
-		InstanceArn            string `json:"InstanceArn"`
-		Name                   string `json:"Name"`
-		TrustedTokenIssuerType string `json:"TrustedTokenIssuerType"`
+		TrustedTokenIssuerConfiguration *struct {
+			OidcJwtConfiguration *struct {
+				IssuerURL                  string `json:"IssuerUrl"`
+				ClaimAttributePath         string `json:"ClaimAttributePath"`
+				IdentityStoreAttributePath string `json:"IdentityStoreAttributePath"`
+				JwksRetrievalOption        string `json:"JwksRetrievalOption"`
+			} `json:"OidcJwtConfiguration,omitempty"`
+		} `json:"TrustedTokenIssuerConfiguration,omitempty"`
+		InstanceArn            string    `json:"InstanceArn"`
+		Name                   string    `json:"Name"`
+		TrustedTokenIssuerType string    `json:"TrustedTokenIssuerType"`
+		Tags                   []tagView `json:"Tags"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -1202,8 +1438,30 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 	if req.Name == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "Name is required")
 	}
+	if req.TrustedTokenIssuerType == "" {
+		req.TrustedTokenIssuerType = ttiDefaultType
+	}
 
-	ti, err := h.Backend.CreateTrustedTokenIssuer(req.InstanceArn, req.Name, req.TrustedTokenIssuerType)
+	tags := make(map[string]string, len(req.Tags))
+	for _, t := range req.Tags {
+		tags[t.Key] = t.Value
+	}
+
+	var cfg *TrustedTokenIssuerConfiguration
+	if req.TrustedTokenIssuerConfiguration != nil {
+		cfg = &TrustedTokenIssuerConfiguration{}
+		if req.TrustedTokenIssuerConfiguration.OidcJwtConfiguration != nil {
+			oidcSrc := req.TrustedTokenIssuerConfiguration.OidcJwtConfiguration
+			cfg.OidcJwtConfiguration = &OidcJwtConfiguration{
+				IssuerURL:                  oidcSrc.IssuerURL,
+				ClaimAttributePath:         oidcSrc.ClaimAttributePath,
+				IdentityStoreAttributePath: oidcSrc.IdentityStoreAttributePath,
+				JwksRetrievalOption:        oidcSrc.JwksRetrievalOption,
+			}
+		}
+	}
+
+	ti, err := h.Backend.CreateTrustedTokenIssuer(req.InstanceArn, req.Name, req.TrustedTokenIssuerType, tags, cfg)
 	if err != nil {
 		if errors.Is(err, ErrTrustedTokenIssuerAlreadyExists) {
 			return writeError(
@@ -1219,11 +1477,1083 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"TrustedTokenIssuerArn": ti.TrustedTokenIssuerArn,
-		"TrustedTokenIssuer": trustedTokenIssuerView{
-			TrustedTokenIssuerArn:  ti.TrustedTokenIssuerArn,
-			Name:                   ti.Name,
-			InstanceArn:            ti.InstanceArn,
-			TrustedTokenIssuerType: ti.TrustedTokenIssuerType,
+	})
+}
+
+func (h *Handler) handleDeleteApplicationGrant(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+		GrantType      string `json:"GrantType"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if err := h.Backend.DeleteApplicationGrant(req.ApplicationArn, req.GrantType); err != nil {
+		return handleBackendError(c, err, "application grant not found")
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	app, err := h.Backend.DescribeApplication(req.ApplicationArn)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	tagList := make([]tagView, 0, len(app.Tags))
+	for k, v := range app.Tags {
+		tagList = append(tagList, tagView{Key: k, Value: v})
+	}
+	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Application": map[string]any{
+			"ApplicationArn":         app.ApplicationArn,
+			"ApplicationProviderArn": app.ApplicationProviderArn,
+			"Name":                   app.Name,
+			"Description":            app.Description,
+			"InstanceArn":            app.InstanceArn,
+			"Status":                 app.Status,
+			"CreatedDate":            float64(app.CreatedDate.Unix()),
+			"Tags":                   tagList,
 		},
+	})
+}
+
+func (h *Handler) handleDescribeApplicationAssignment(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+		PrincipalID    string `json:"PrincipalId"`
+		PrincipalType  string `json:"PrincipalType"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	assignment, err := h.Backend.DescribeApplicationAssignment(req.ApplicationArn, req.PrincipalID, req.PrincipalType)
+	if err != nil {
+		return handleBackendError(c, err, "application assignment not found")
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"ApplicationAssignment": map[string]any{
+			"ApplicationArn": assignment.ApplicationArn,
+			"PrincipalId":    assignment.PrincipalID,
+			"PrincipalType":  assignment.PrincipalType,
+		},
+	})
+}
+
+func (h *Handler) handleDescribeApplicationProvider(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationProviderArn string `json:"ApplicationProviderArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	provider, err := h.Backend.DescribeApplicationProvider(req.ApplicationProviderArn)
+	if err != nil {
+		return handleBackendError(c, err, "application provider not found")
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"ApplicationProviderArn": provider.ApplicationProviderArn,
+		"DisplayData":            provider.DisplayData,
+	})
+}
+
+func (h *Handler) handleListApplicationAccessScopes(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	scopes, err := h.Backend.ListApplicationAccessScopes(req.ApplicationArn)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Scopes":    scopes,
+		"NextToken": nil,
+	})
+}
+
+func (h *Handler) handleListApplicationAssignments(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	assignments, err := h.Backend.ListApplicationAssignments(req.ApplicationArn)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	sort.Slice(assignments, func(i, j int) bool {
+		if assignments[i].PrincipalType != assignments[j].PrincipalType {
+			return assignments[i].PrincipalType < assignments[j].PrincipalType
+		}
+
+		return assignments[i].PrincipalID < assignments[j].PrincipalID
+	})
+
+	out := make([]map[string]any, 0, len(assignments))
+	for _, assignment := range assignments {
+		out = append(out, map[string]any{
+			"ApplicationArn": assignment.ApplicationArn,
+			"PrincipalId":    assignment.PrincipalID,
+			"PrincipalType":  assignment.PrincipalType,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"ApplicationAssignments": out,
+		"NextToken":              nil,
+	})
+}
+
+func (h *Handler) handleListApplicationAuthenticationMethods(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	methods, err := h.Backend.ListApplicationAuthenticationMethods(req.ApplicationArn)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	out := make([]map[string]any, 0, len(methods))
+	for _, method := range methods {
+		out = append(out, map[string]any{"AuthenticationMethodType": method})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"AuthenticationMethods": out,
+		"NextToken":             nil,
+	})
+}
+
+func (h *Handler) handleListApplicationGrants(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	grants, err := h.Backend.ListApplicationGrants(req.ApplicationArn)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	out := make([]map[string]any, 0, len(grants))
+	for _, grant := range grants {
+		out = append(out, map[string]any{"GrantType": grant})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Grants":    out,
+		"NextToken": nil,
+	})
+}
+
+func (h *Handler) handleListApplicationProviders(c *echo.Context, _ []byte) error {
+	providers := h.Backend.ListApplicationProviders()
+	out := make([]map[string]any, 0, len(providers))
+	for _, provider := range providers {
+		out = append(out, map[string]any{
+			"ApplicationProviderArn": provider.ApplicationProviderArn,
+			"DisplayData":            provider.DisplayData,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"ApplicationProviders": out,
+		"NextToken":            nil,
+	})
+}
+
+func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	apps := h.Backend.ListApplications(req.InstanceArn)
+	sort.Slice(apps, func(i, j int) bool { return apps[i].ApplicationArn < apps[j].ApplicationArn })
+	out := make([]applicationView, 0, len(apps))
+	for _, app := range apps {
+		out = append(out, applicationView{
+			ApplicationArn:         app.ApplicationArn,
+			ApplicationProviderArn: app.ApplicationProviderArn,
+			Name:                   app.Name,
+			Description:            app.Description,
+			InstanceArn:            app.InstanceArn,
+			Status:                 app.Status,
+			CreatedDate:            float64(app.CreatedDate.Unix()),
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Applications": out,
+		"NextToken":    nil,
+	})
+}
+
+func (h *Handler) handlePutApplicationAccessScope(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+		Scope          string `json:"Scope"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if err := h.Backend.PutApplicationAccessScope(req.ApplicationArn, req.Scope); err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handlePutApplicationAssignmentConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn                     string `json:"ApplicationArn"`
+		AssignmentRequired                 bool   `json:"AssignmentRequired"`
+		AssignmentRequiredForAllIdentities bool   `json:"AssignmentRequiredForAllIdentities"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	required := req.AssignmentRequired || req.AssignmentRequiredForAllIdentities
+	if err := h.Backend.PutApplicationAssignmentConfiguration(req.ApplicationArn, required); err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handlePutApplicationAuthenticationMethod(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn     string `json:"ApplicationArn"`
+		AuthMethodType     string `json:"AuthenticationMethodType"`
+		AuthenticationType string `json:"AuthenticationType"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	methodType := req.AuthMethodType
+	if methodType == "" {
+		methodType = req.AuthenticationType
+	}
+	if err := h.Backend.PutApplicationAuthenticationMethod(req.ApplicationArn, methodType); err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handlePutApplicationGrant(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+		GrantType      string `json:"GrantType"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if err := h.Backend.PutApplicationGrant(req.ApplicationArn, req.GrantType); err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handlePutApplicationSessionConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn  string `json:"ApplicationArn"`
+		SessionDuration string `json:"SessionDuration"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if err := h.Backend.PutApplicationSessionConfiguration(req.ApplicationArn, req.SessionDuration); err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+		Name           string `json:"Name"`
+		Description    string `json:"Description"`
+		Status         string `json:"Status"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	app, err := h.Backend.UpdateApplication(req.ApplicationArn, req.Name, req.Description, req.Status)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Application": applicationView{
+			ApplicationArn:         app.ApplicationArn,
+			ApplicationProviderArn: app.ApplicationProviderArn,
+			Name:                   app.Name,
+			Description:            app.Description,
+			InstanceArn:            app.InstanceArn,
+			Status:                 app.Status,
+			CreatedDate:            float64(app.CreatedDate.Unix()),
+		},
+	})
+}
+
+func (h *Handler) handleDeleteTrustedTokenIssuer(c *echo.Context, body []byte) error {
+	var req struct {
+		TrustedTokenIssuerArn string `json:"TrustedTokenIssuerArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.TrustedTokenIssuerArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "TrustedTokenIssuerArn is required")
+	}
+	if err := h.Backend.DeleteTrustedTokenIssuer(req.TrustedTokenIssuerArn); err != nil {
+		return handleBackendError(c, err, "trusted token issuer not found")
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleDescribeTrustedTokenIssuer(c *echo.Context, body []byte) error {
+	var req struct {
+		TrustedTokenIssuerArn string `json:"TrustedTokenIssuerArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	issuer, err := h.Backend.DescribeTrustedTokenIssuer(req.TrustedTokenIssuerArn)
+	if err != nil {
+		return handleBackendError(c, err, "trusted token issuer not found")
+	}
+
+	tagList := make([]tagView, 0, len(issuer.Tags))
+	for k, v := range issuer.Tags {
+		tagList = append(tagList, tagView{Key: k, Value: v})
+	}
+	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
+
+	ttiMap := map[string]any{
+		"TrustedTokenIssuerArn":  issuer.TrustedTokenIssuerArn,
+		"Name":                   issuer.Name,
+		"InstanceArn":            issuer.InstanceArn,
+		"TrustedTokenIssuerType": issuer.TrustedTokenIssuerType,
+		"Tags":                   tagList,
+	}
+	if issuer.TrustedTokenIssuerConfiguration != nil {
+		cfgMap := map[string]any{}
+		if issuer.TrustedTokenIssuerConfiguration.OidcJwtConfiguration != nil {
+			oidc := issuer.TrustedTokenIssuerConfiguration.OidcJwtConfiguration
+			cfgMap["OidcJwtConfiguration"] = map[string]any{
+				"IssuerUrl":                  oidc.IssuerURL,
+				"ClaimAttributePath":         oidc.ClaimAttributePath,
+				"IdentityStoreAttributePath": oidc.IdentityStoreAttributePath,
+				"JwksRetrievalOption":        oidc.JwksRetrievalOption,
+			}
+		}
+		ttiMap["TrustedTokenIssuerConfiguration"] = cfgMap
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"TrustedTokenIssuer": ttiMap,
+	})
+}
+
+func (h *Handler) handleListTrustedTokenIssuers(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	issuers := h.Backend.ListTrustedTokenIssuers(req.InstanceArn)
+	sort.Slice(
+		issuers,
+		func(i, j int) bool { return issuers[i].TrustedTokenIssuerArn < issuers[j].TrustedTokenIssuerArn },
+	)
+	out := make([]trustedTokenIssuerView, 0, len(issuers))
+	for _, issuer := range issuers {
+		out = append(out, trustedTokenIssuerView{
+			TrustedTokenIssuerArn:  issuer.TrustedTokenIssuerArn,
+			Name:                   issuer.Name,
+			InstanceArn:            issuer.InstanceArn,
+			TrustedTokenIssuerType: issuer.TrustedTokenIssuerType,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"TrustedTokenIssuers": out,
+		"NextToken":           nil,
+	})
+}
+
+func (h *Handler) handleUpdateTrustedTokenIssuer(c *echo.Context, body []byte) error {
+	var req struct {
+		TrustedTokenIssuerConfiguration *struct {
+			OidcJwtConfiguration *struct {
+				IssuerURL                  string `json:"IssuerUrl"`
+				ClaimAttributePath         string `json:"ClaimAttributePath"`
+				IdentityStoreAttributePath string `json:"IdentityStoreAttributePath"`
+				JwksRetrievalOption        string `json:"JwksRetrievalOption"`
+			} `json:"OidcJwtConfiguration"`
+		} `json:"TrustedTokenIssuerConfiguration"`
+		TrustedTokenIssuerArn  string `json:"TrustedTokenIssuerArn"`
+		Name                   string `json:"Name"`
+		TrustedTokenIssuerType string `json:"TrustedTokenIssuerType"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	var cfg *TrustedTokenIssuerConfiguration
+	if req.TrustedTokenIssuerConfiguration != nil {
+		cfg = &TrustedTokenIssuerConfiguration{}
+		if req.TrustedTokenIssuerConfiguration.OidcJwtConfiguration != nil {
+			oidc := req.TrustedTokenIssuerConfiguration.OidcJwtConfiguration
+			cfg.OidcJwtConfiguration = &OidcJwtConfiguration{
+				IssuerURL:                  oidc.IssuerURL,
+				ClaimAttributePath:         oidc.ClaimAttributePath,
+				IdentityStoreAttributePath: oidc.IdentityStoreAttributePath,
+				JwksRetrievalOption:        oidc.JwksRetrievalOption,
+			}
+		}
+	}
+
+	issuer, err := h.Backend.UpdateTrustedTokenIssuer(
+		req.TrustedTokenIssuerArn,
+		req.Name,
+		req.TrustedTokenIssuerType,
+		cfg,
+	)
+	if err != nil {
+		return handleBackendError(c, err, "trusted token issuer not found")
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"TrustedTokenIssuer": trustedTokenIssuerView{
+			TrustedTokenIssuerArn:  issuer.TrustedTokenIssuerArn,
+			Name:                   issuer.Name,
+			InstanceArn:            issuer.InstanceArn,
+			TrustedTokenIssuerType: issuer.TrustedTokenIssuerType,
+		},
+	})
+}
+
+func (h *Handler) handleDeleteInstanceAccessControlAttributeConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if err := h.Backend.DeleteInstanceAccessControlAttributeConfiguration(req.InstanceArn); err != nil {
+		return handleBackendError(c, err, "instance access control attribute configuration not found")
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleDescribeInstanceAccessControlAttributeConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	cfg, err := h.Backend.DescribeInstanceAccessControlAttributeConfiguration(req.InstanceArn)
+	if err != nil {
+		return handleBackendError(c, err, "instance access control attribute configuration not found")
+	}
+
+	attrs := make([]map[string]any, 0, len(cfg.AccessControlAttributes))
+	for _, attr := range cfg.AccessControlAttributes {
+		attrs = append(attrs, map[string]any{
+			"Key": attr.Key,
+			"Value": map[string]any{
+				"Source": attr.Value.Source,
+			},
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"InstanceAccessControlAttributeConfiguration": map[string]any{
+			"AccessControlAttributes": attrs,
+		},
+		"Status": "ENABLED",
+	})
+}
+
+func (h *Handler) handlePutPermissionsBoundaryToPermissionSet(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn         string `json:"InstanceArn"`
+		PermissionSetArn    string `json:"PermissionSetArn"`
+		PermissionsBoundary struct {
+			ManagedPolicyArn string `json:"ManagedPolicyArn"`
+		} `json:"PermissionsBoundary"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	if err := h.Backend.PutPermissionsBoundaryToPermissionSet(
+		req.InstanceArn,
+		req.PermissionSetArn,
+		req.PermissionsBoundary.ManagedPolicyArn,
+	); err != nil {
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleGetPermissionsBoundaryForPermissionSet(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn      string `json:"InstanceArn"`
+		PermissionSetArn string `json:"PermissionSetArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	boundaryArn, err := h.Backend.GetPermissionsBoundaryForPermissionSet(req.InstanceArn, req.PermissionSetArn)
+	if err != nil {
+		return handleBackendError(c, err, "permissions boundary not found")
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"PermissionsBoundary": map[string]any{
+			"ManagedPolicyArn": boundaryArn,
+		},
+	})
+}
+
+func (h *Handler) handleListAccountAssignmentCreationStatus(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	statuses := h.Backend.ListAccountAssignmentCreationStatus(req.InstanceArn)
+
+	out := make([]provisioningStatusView, 0, len(statuses))
+	for _, status := range statuses {
+		out = append(out, provisioningStatusView{
+			RequestID:   status.RequestID,
+			Status:      status.Status,
+			CreatedDate: float64(status.CreatedDate.Unix()),
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"AccountAssignmentsCreationStatus": out,
+		"NextToken":                        nil,
+	})
+}
+
+func (h *Handler) handleListAccountAssignmentDeletionStatus(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	statuses := h.Backend.ListAccountAssignmentDeletionStatus(req.InstanceArn)
+
+	out := make([]provisioningStatusView, 0, len(statuses))
+	for _, status := range statuses {
+		out = append(out, provisioningStatusView{
+			RequestID:   status.RequestID,
+			Status:      status.Status,
+			CreatedDate: float64(status.CreatedDate.Unix()),
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"AccountAssignmentsDeletionStatus": out,
+		"NextToken":                        nil,
+	})
+}
+
+func (h *Handler) handleListPermissionSetProvisioningStatus(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	statuses := h.Backend.ListPermissionSetProvisioningStatus(req.InstanceArn)
+
+	out := make([]provisioningStatusView, 0, len(statuses))
+	for _, status := range statuses {
+		out = append(out, provisioningStatusView{
+			RequestID:   status.RequestID,
+			Status:      status.Status,
+			CreatedDate: float64(status.CreatedDate.Unix()),
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"PermissionSetsProvisioningStatus": out,
+		"NextToken":                        nil,
+	})
+}
+
+func (h *Handler) handleGetApplicationAssignmentConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.ApplicationArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ApplicationArn is required")
+	}
+	required, err := h.Backend.GetApplicationAssignmentConfiguration(req.ApplicationArn)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"AssignmentRequired": required,
+	})
+}
+
+func (h *Handler) handleGetApplicationSessionConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.ApplicationArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ApplicationArn is required")
+	}
+	dur, err := h.Backend.GetApplicationSessionConfiguration(req.ApplicationArn)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"ApplicationSessionConfiguration": map[string]any{
+			"SessionDuration": dur,
+		},
+	})
+}
+
+func (h *Handler) handleDeletePermissionsBoundaryFromPermissionSet(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn      string `json:"InstanceArn"`
+		PermissionSetArn string `json:"PermissionSetArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+	}
+	if err := h.Backend.DeletePermissionsBoundaryFromPermissionSet(req.InstanceArn, req.PermissionSetArn); err != nil {
+		return handleBackendError(c, err, "permissions boundary not found for: "+req.PermissionSetArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleListCustomerManagedPolicyReferencesInPermissionSet(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn      string `json:"InstanceArn"`
+		PermissionSetArn string `json:"PermissionSetArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	refs, err := h.Backend.ListCustomerManagedPolicyReferencesInPermissionSet(req.InstanceArn, req.PermissionSetArn)
+	if err != nil {
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
+	}
+
+	out := make([]customerManagedPolicyReferenceView, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, customerManagedPolicyReferenceView(ref))
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"CustomerManagedPolicyReferences": out,
+		"NextToken":                       nil,
+	})
+}
+
+func (h *Handler) handleRemoveRegion(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+		RegionName  string `json:"RegionName"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.RegionName == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "RegionName is required")
+	}
+	if err := h.Backend.RemoveRegion(req.InstanceArn, req.RegionName); err != nil {
+		return handleBackendError(c, err, "region not found: "+req.RegionName)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	regions, err := h.Backend.ListRegions(req.InstanceArn)
+	if err != nil {
+		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
+	}
+
+	out := make([]map[string]any, 0, len(regions))
+	for _, r := range regions {
+		out = append(out, map[string]any{
+			"Region":          r.Region,
+			"RegionScopeType": r.RegionScopeType,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Regions":   out,
+		"NextToken": nil,
+	})
+}
+
+func (h *Handler) handleUpdateInstance(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+		Name        string `json:"Name"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if err := h.Backend.UpdateInstance(req.InstanceArn, req.Name); err != nil {
+		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleUpdateInstanceAccessControlAttributeConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn                                 string `json:"InstanceArn"`
+		InstanceAccessControlAttributeConfiguration struct {
+			AccessControlAttributes []struct {
+				Key   string `json:"Key"`
+				Value struct {
+					Source []string `json:"Source"`
+				} `json:"Value"`
+			} `json:"AccessControlAttributes"`
+		} `json:"InstanceAccessControlAttributeConfiguration"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+
+	attrs := make(
+		[]AccessControlAttribute,
+		0,
+		len(req.InstanceAccessControlAttributeConfiguration.AccessControlAttributes),
+	)
+	for _, a := range req.InstanceAccessControlAttributeConfiguration.AccessControlAttributes {
+		attrs = append(attrs, AccessControlAttribute{
+			Key:   a.Key,
+			Value: AccessControlAttributeValue{Source: a.Value.Source},
+		})
+	}
+
+	if err := h.Backend.UpdateInstanceAccessControlAttributeConfiguration(req.InstanceArn, attrs); err != nil {
+		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleDetachCustomerManagedPolicyReferenceFromPermissionSet(
+	c *echo.Context,
+	body []byte,
+) error {
+	var req struct {
+		InstanceArn                    string                             `json:"InstanceArn"`
+		PermissionSetArn               string                             `json:"PermissionSetArn"`
+		CustomerManagedPolicyReference customerManagedPolicyReferenceView `json:"CustomerManagedPolicyReference"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+	}
+	if err := h.Backend.DetachCustomerManagedPolicyReferenceFromPermissionSet(
+		req.InstanceArn,
+		req.PermissionSetArn,
+		req.CustomerManagedPolicyReference.Name,
+		req.CustomerManagedPolicyReference.Path,
+	); err != nil {
+		return handleBackendError(c, err, "customer managed policy reference not found")
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleListPermissionSetsProvisionedToAccount(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+		AccountID   string `json:"AccountId"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.AccountID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "AccountId is required")
+	}
+
+	arns := h.Backend.ListPermissionSetsProvisionedToAccount(req.InstanceArn, req.AccountID)
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"PermissionSets": arns,
+		"NextToken":      nil,
+	})
+}
+
+func (h *Handler) handleListAccountAssignmentsForPrincipal(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn   string `json:"InstanceArn"`
+		PrincipalID   string `json:"PrincipalId"`
+		PrincipalType string `json:"PrincipalType"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PrincipalID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalId is required")
+	}
+	if req.PrincipalType == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalType is required")
+	}
+
+	assignments := h.Backend.ListAccountAssignmentsForPrincipal(req.InstanceArn, req.PrincipalID, req.PrincipalType)
+
+	views := make([]assignmentView, 0, len(assignments))
+	for _, a := range assignments {
+		views = append(views, assignmentView{
+			AccountID:        a.AccountID,
+			PermissionSetArn: a.PermissionSetArn,
+			PrincipalID:      a.PrincipalID,
+			PrincipalType:    a.PrincipalType,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"AccountAssignments": views,
+		"NextToken":          nil,
+	})
+}
+
+func (h *Handler) handleGetApplicationAccessScope(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+		Scope          string `json:"Scope"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.ApplicationArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ApplicationArn is required")
+	}
+	if req.Scope == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "Scope is required")
+	}
+
+	scope, err := h.Backend.GetApplicationAccessScope(req.ApplicationArn, req.Scope)
+	if err != nil {
+		return handleBackendError(c, err, "scope not found: "+req.Scope)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Scope":             scope,
+		"AuthorizedTargets": []string{},
+	})
+}
+
+func (h *Handler) handleGetApplicationAuthenticationMethod(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn           string `json:"ApplicationArn"`
+		AuthenticationMethodType string `json:"AuthenticationMethodType"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.ApplicationArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ApplicationArn is required")
+	}
+	if req.AuthenticationMethodType == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "AuthenticationMethodType is required")
+	}
+
+	authMethod, err := h.Backend.GetApplicationAuthenticationMethod(req.ApplicationArn, req.AuthenticationMethodType)
+	if err != nil {
+		return handleBackendError(c, err, "authentication method not found: "+req.AuthenticationMethodType)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"AuthenticationMethod": map[string]any{
+			"AuthenticationMethodType": authMethod,
+		},
+	})
+}
+
+func (h *Handler) handleGetApplicationGrant(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+		GrantType      string `json:"GrantType"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.ApplicationArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ApplicationArn is required")
+	}
+	if req.GrantType == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "GrantType is required")
+	}
+
+	grantType, err := h.Backend.GetApplicationGrant(req.ApplicationArn, req.GrantType)
+	if err != nil {
+		return handleBackendError(c, err, "grant not found: "+req.GrantType)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Grant": map[string]any{
+			"GrantType": grantType,
+		},
+	})
+}
+
+func (h *Handler) handleListAccountsForProvisionedPermissionSet(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn      string `json:"InstanceArn"`
+		PermissionSetArn string `json:"PermissionSetArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+	}
+
+	accounts, err := h.Backend.ListAccountsForProvisionedPermissionSet(req.InstanceArn, req.PermissionSetArn)
+	if err != nil {
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"AccountIds": accounts,
+		"NextToken":  nil,
+	})
+}
+
+func (h *Handler) handleListApplicationAssignmentsForPrincipal(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn   string `json:"InstanceArn"`
+		PrincipalID   string `json:"PrincipalId"`
+		PrincipalType string `json:"PrincipalType"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PrincipalID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalId is required")
+	}
+	if req.PrincipalType == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalType is required")
+	}
+
+	assignments := h.Backend.ListApplicationAssignmentsForPrincipal(req.InstanceArn, req.PrincipalID, req.PrincipalType)
+
+	type appAssignmentView struct {
+		ApplicationArn string `json:"ApplicationArn"`
+		PrincipalID    string `json:"PrincipalId"`
+		PrincipalType  string `json:"PrincipalType"`
+	}
+	views := make([]appAssignmentView, 0, len(assignments))
+	for _, a := range assignments {
+		views = append(views, appAssignmentView{
+			ApplicationArn: a.ApplicationArn,
+			PrincipalID:    a.PrincipalID,
+			PrincipalType:  a.PrincipalType,
+		})
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"ApplicationAssignments": views,
+		"NextToken":              nil,
 	})
 }
