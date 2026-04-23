@@ -2,6 +2,7 @@ package ssoadmin_test
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,8 +26,8 @@ func TestRefinement3_DeletePermissionSetWithAssignmentsConflict(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		wantStatus int
 		wantCode   string
+		wantStatus int
 	}{
 		{
 			name:       "delete_ps_with_assignments_returns_conflict",
@@ -709,8 +710,8 @@ func TestRefinement3_ListAccountsForProvisionedPermissionSetErrors(t *testing.T)
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		req        map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -921,14 +922,7 @@ func TestRefinement3_SDKCompletenessNoNotImplemented(t *testing.T) {
 		"ListApplicationAssignmentsForPrincipal",
 	}
 	for _, op := range expectedOps {
-		found := false
-		for _, supportedOp := range ops {
-			if supportedOp == op {
-				found = true
-
-				break
-			}
-		}
+		found := slices.Contains(ops, op)
 		assert.True(t, found, "operation %s should be in GetSupportedOperations", op)
 	}
 }

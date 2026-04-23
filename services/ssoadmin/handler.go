@@ -1918,17 +1918,17 @@ func (h *Handler) handleListTrustedTokenIssuers(c *echo.Context, body []byte) er
 
 func (h *Handler) handleUpdateTrustedTokenIssuer(c *echo.Context, body []byte) error {
 	var req struct {
-		TrustedTokenIssuerArn           string `json:"TrustedTokenIssuerArn"`
-		Name                            string `json:"Name"`
-		TrustedTokenIssuerType          string `json:"TrustedTokenIssuerType"`
 		TrustedTokenIssuerConfiguration *struct {
 			OidcJwtConfiguration *struct {
-				IssuerUrl                  string `json:"IssuerUrl"`
+				IssuerURL                  string `json:"IssuerUrl"`
 				ClaimAttributePath         string `json:"ClaimAttributePath"`
 				IdentityStoreAttributePath string `json:"IdentityStoreAttributePath"`
 				JwksRetrievalOption        string `json:"JwksRetrievalOption"`
 			} `json:"OidcJwtConfiguration"`
 		} `json:"TrustedTokenIssuerConfiguration"`
+		TrustedTokenIssuerArn  string `json:"TrustedTokenIssuerArn"`
+		Name                   string `json:"Name"`
+		TrustedTokenIssuerType string `json:"TrustedTokenIssuerType"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -1940,7 +1940,7 @@ func (h *Handler) handleUpdateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		if req.TrustedTokenIssuerConfiguration.OidcJwtConfiguration != nil {
 			oidc := req.TrustedTokenIssuerConfiguration.OidcJwtConfiguration
 			cfg.OidcJwtConfiguration = &OidcJwtConfiguration{
-				IssuerURL:                  oidc.IssuerUrl,
+				IssuerURL:                  oidc.IssuerURL,
 				ClaimAttributePath:         oidc.ClaimAttributePath,
 				IdentityStoreAttributePath: oidc.IdentityStoreAttributePath,
 				JwksRetrievalOption:        oidc.JwksRetrievalOption,
@@ -1948,7 +1948,12 @@ func (h *Handler) handleUpdateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		}
 	}
 
-	issuer, err := h.Backend.UpdateTrustedTokenIssuer(req.TrustedTokenIssuerArn, req.Name, req.TrustedTokenIssuerType, cfg)
+	issuer, err := h.Backend.UpdateTrustedTokenIssuer(
+		req.TrustedTokenIssuerArn,
+		req.Name,
+		req.TrustedTokenIssuerType,
+		cfg,
+	)
 	if err != nil {
 		return handleBackendError(c, err, "trusted token issuer not found")
 	}

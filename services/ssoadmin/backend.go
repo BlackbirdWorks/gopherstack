@@ -159,7 +159,7 @@ type AccessControlAttribute struct {
 type ApplicationProviderDisplayData struct {
 	Description string `json:"Description,omitempty"`
 	DisplayName string `json:"DisplayName,omitempty"`
-	IconUrl     string `json:"IconUrl,omitempty"`
+	IconURL     string `json:"IconUrl,omitempty"`
 }
 
 // ApplicationProvider represents an SSO application provider.
@@ -2165,7 +2165,9 @@ func (b *InMemoryBackend) GetApplicationGrant(applicationArn, grantType string) 
 }
 
 // ListAccountsForProvisionedPermissionSet returns account IDs where a permission set has assignments.
-func (b *InMemoryBackend) ListAccountsForProvisionedPermissionSet(instanceArn, permissionSetArn string) ([]string, error) {
+func (b *InMemoryBackend) ListAccountsForProvisionedPermissionSet(
+	instanceArn, permissionSetArn string,
+) ([]string, error) {
 	b.mu.RLock("ListAccountsForProvisionedPermissionSet")
 	defer b.mu.RUnlock()
 

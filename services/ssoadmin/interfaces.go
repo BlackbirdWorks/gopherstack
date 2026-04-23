@@ -68,7 +68,10 @@ type StorageBackend interface {
 	PutApplicationSessionConfiguration(applicationArn, sessionDuration string) error
 	PutPermissionsBoundaryToPermissionSet(instanceArn, permissionSetArn, managedPolicyArn string) error
 	UpdateApplication(applicationArn, name, description, status string) (*Application, error)
-	UpdateTrustedTokenIssuer(trustedTokenIssuerArn, name, issuerType string, cfg *TrustedTokenIssuerConfiguration) (*TrustedTokenIssuer, error)
+	UpdateTrustedTokenIssuer(
+		trustedTokenIssuerArn, name, issuerType string,
+		cfg *TrustedTokenIssuerConfiguration,
+	) (*TrustedTokenIssuer, error)
 	CreateApplication(
 		instanceArn, applicationProviderArn, name, description string,
 		tags map[string]string,
