@@ -18,8 +18,12 @@ type backendSnapshot struct {
 	ApplicationAssignments  map[string][]*ApplicationAssignment                     `json:"applicationAssignments"`
 	ApplicationScopes       map[string][]string                                     `json:"applicationScopes"`
 	ApplicationAuthMethods  map[string][]string                                     `json:"applicationAuthMethods"`
+	ApplicationGrants       map[string][]string                                     `json:"applicationGrants"`
+	ApplicationAssignConfig map[string]bool                                         `json:"applicationAssignConfig"`
+	ApplicationSessions     map[string]string                                       `json:"applicationSessions"`
 	InstanceACAs            map[string]*InstanceAccessControlAttributeConfiguration `json:"instanceACAs"`
 	TrustedTokenIssuers     map[string]*TrustedTokenIssuer                          `json:"trustedTokenIssuers"`
+	PermissionBoundaries    map[string]string                                       `json:"permissionBoundaries"`
 	AccountID               string                                                  `json:"accountID"`
 	Region                  string                                                  `json:"region"`
 }
@@ -42,8 +46,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ApplicationAssignments:  b.applicationAssignments,
 		ApplicationScopes:       b.applicationScopes,
 		ApplicationAuthMethods:  b.applicationAuthMethods,
+		ApplicationGrants:       b.applicationGrants,
+		ApplicationAssignConfig: b.applicationAssignConfig,
+		ApplicationSessions:     b.applicationSessions,
 		InstanceACAs:            b.instanceACAs,
 		TrustedTokenIssuers:     b.trustedTokenIssuers,
+		PermissionBoundaries:    b.permissionBoundaries,
 		AccountID:               b.accountID,
 		Region:                  b.region,
 	}
@@ -84,8 +92,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.applicationAssignments = snap.ApplicationAssignments
 	b.applicationScopes = snap.ApplicationScopes
 	b.applicationAuthMethods = snap.ApplicationAuthMethods
+	b.applicationGrants = snap.ApplicationGrants
+	b.applicationAssignConfig = snap.ApplicationAssignConfig
+	b.applicationSessions = snap.ApplicationSessions
 	b.instanceACAs = snap.InstanceACAs
 	b.trustedTokenIssuers = snap.TrustedTokenIssuers
+	b.permissionBoundaries = snap.PermissionBoundaries
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -94,61 +106,32 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 // ensureNonNilMaps initialises nil maps in the snapshot to empty maps.
 func ensureNonNilMaps(snap *backendSnapshot) {
-	if snap.Instances == nil {
-		snap.Instances = make(map[string]*Instance)
+	snap.Instances = ensureMap(snap.Instances)
+	snap.PermissionSets = ensureMap(snap.PermissionSets)
+	snap.Assignments = ensureMap(snap.Assignments)
+	snap.CreationStatuses = ensureMap(snap.CreationStatuses)
+	snap.DeletionStatuses = ensureMap(snap.DeletionStatuses)
+	snap.ProvisioningStatuses = ensureMap(snap.ProvisioningStatuses)
+	snap.InstanceRegions = ensureMap(snap.InstanceRegions)
+	snap.CustomerManagedPolicies = ensureMap(snap.CustomerManagedPolicies)
+	snap.Applications = ensureMap(snap.Applications)
+	snap.ApplicationAssignments = ensureMap(snap.ApplicationAssignments)
+	snap.ApplicationScopes = ensureMap(snap.ApplicationScopes)
+	snap.ApplicationAuthMethods = ensureMap(snap.ApplicationAuthMethods)
+	snap.ApplicationGrants = ensureMap(snap.ApplicationGrants)
+	snap.ApplicationAssignConfig = ensureMap(snap.ApplicationAssignConfig)
+	snap.ApplicationSessions = ensureMap(snap.ApplicationSessions)
+	snap.InstanceACAs = ensureMap(snap.InstanceACAs)
+	snap.TrustedTokenIssuers = ensureMap(snap.TrustedTokenIssuers)
+	snap.PermissionBoundaries = ensureMap(snap.PermissionBoundaries)
+}
+
+func ensureMap[K comparable, V any](m map[K]V) map[K]V {
+	if m == nil {
+		return make(map[K]V)
 	}
 
-	if snap.PermissionSets == nil {
-		snap.PermissionSets = make(map[string]*PermissionSet)
-	}
-
-	if snap.Assignments == nil {
-		snap.Assignments = make(map[string][]*AccountAssignment)
-	}
-
-	if snap.CreationStatuses == nil {
-		snap.CreationStatuses = make(map[string]*ProvisioningStatus)
-	}
-
-	if snap.DeletionStatuses == nil {
-		snap.DeletionStatuses = make(map[string]*ProvisioningStatus)
-	}
-
-	if snap.ProvisioningStatuses == nil {
-		snap.ProvisioningStatuses = make(map[string]*ProvisioningStatus)
-	}
-
-	if snap.InstanceRegions == nil {
-		snap.InstanceRegions = make(map[string][]string)
-	}
-
-	if snap.CustomerManagedPolicies == nil {
-		snap.CustomerManagedPolicies = make(map[string][]CustomerManagedPolicyReference)
-	}
-
-	if snap.Applications == nil {
-		snap.Applications = make(map[string]*Application)
-	}
-
-	if snap.ApplicationAssignments == nil {
-		snap.ApplicationAssignments = make(map[string][]*ApplicationAssignment)
-	}
-
-	if snap.ApplicationScopes == nil {
-		snap.ApplicationScopes = make(map[string][]string)
-	}
-
-	if snap.ApplicationAuthMethods == nil {
-		snap.ApplicationAuthMethods = make(map[string][]string)
-	}
-
-	if snap.InstanceACAs == nil {
-		snap.InstanceACAs = make(map[string]*InstanceAccessControlAttributeConfiguration)
-	}
-
-	if snap.TrustedTokenIssuers == nil {
-		snap.TrustedTokenIssuers = make(map[string]*TrustedTokenIssuer)
-	}
+	return m
 }
 
 // fixNilTagMaps ensures restored resources have non-nil tag maps.

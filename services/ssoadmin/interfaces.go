@@ -37,6 +37,35 @@ type StorageBackend interface {
 	ListTagsForResource(instanceArn, resourceARN string) (map[string]string, error)
 	AddRegion(instanceArn, regionName string) error
 	AttachCustomerManagedPolicyReferenceToPermissionSet(instanceArn, permissionSetArn, name, path string) error
+	DeleteApplicationGrant(applicationArn, grantType string) error
+	DeleteInstanceAccessControlAttributeConfiguration(instanceArn string) error
+	DeleteTrustedTokenIssuer(trustedTokenIssuerArn string) error
+	DescribeApplication(applicationArn string) (*Application, error)
+	DescribeApplicationAssignment(applicationArn, principalID, principalType string) (*ApplicationAssignment, error)
+	DescribeApplicationProvider(applicationProviderArn string) (*ApplicationProvider, error)
+	DescribeInstanceAccessControlAttributeConfiguration(
+		instanceArn string,
+	) (*InstanceAccessControlAttributeConfiguration, error)
+	DescribeTrustedTokenIssuer(trustedTokenIssuerArn string) (*TrustedTokenIssuer, error)
+	GetPermissionsBoundaryForPermissionSet(instanceArn, permissionSetArn string) (string, error)
+	ListAccountAssignmentCreationStatus(instanceArn string) []*ProvisioningStatus
+	ListAccountAssignmentDeletionStatus(instanceArn string) []*ProvisioningStatus
+	ListApplicationAccessScopes(applicationArn string) ([]string, error)
+	ListApplicationAssignments(applicationArn string) ([]*ApplicationAssignment, error)
+	ListApplicationAuthenticationMethods(applicationArn string) ([]string, error)
+	ListApplicationGrants(applicationArn string) ([]string, error)
+	ListApplicationProviders() []*ApplicationProvider
+	ListApplications(instanceArn string) []*Application
+	ListPermissionSetProvisioningStatus(instanceArn string) []*ProvisioningStatus
+	ListTrustedTokenIssuers(instanceArn string) []*TrustedTokenIssuer
+	PutApplicationAccessScope(applicationArn, scope string) error
+	PutApplicationAssignmentConfiguration(applicationArn string, assignmentRequired bool) error
+	PutApplicationAuthenticationMethod(applicationArn, authMethodType string) error
+	PutApplicationGrant(applicationArn, grantType string) error
+	PutApplicationSessionConfiguration(applicationArn, sessionDuration string) error
+	PutPermissionsBoundaryToPermissionSet(instanceArn, permissionSetArn, managedPolicyArn string) error
+	UpdateApplication(applicationArn, name, description, status string) (*Application, error)
+	UpdateTrustedTokenIssuer(trustedTokenIssuerArn, name, issuerType string) (*TrustedTokenIssuer, error)
 	CreateApplication(
 		instanceArn, applicationProviderArn, name, description string,
 		tags map[string]string,

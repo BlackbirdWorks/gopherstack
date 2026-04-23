@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -596,4 +597,439 @@ func TestCreateTrustedTokenIssuerDuplicate(t *testing.T) {
 		"TrustedTokenIssuerType": "OIDC_JWT",
 	})
 	assert.Equal(t, http.StatusConflict, rec2.Code)
+}
+
+func TestApplicationAdditionalOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *ssoadmin.Handler) map[string]any
+		name       string
+		op         string
+		wantStatus int
+	}{
+		{
+			name: "put application access scope",
+			op:   "PutApplicationAccessScope",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "app-scope-instance")
+				rec := doRequest(t, h, "CreateApplication", map[string]any{
+					"InstanceArn":            instanceArn,
+					"ApplicationProviderArn": "arn:aws:sso::123456789012:applicationProvider/custom",
+					"Name":                   "AppScope",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				appArn := parseResponse(t, rec)["ApplicationArn"].(string)
+
+				return map[string]any{"ApplicationArn": appArn, "Scope": "openid"}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "describe and list application operations",
+			op:   "DescribeApplication",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "app-describe-instance")
+				rec := doRequest(t, h, "CreateApplication", map[string]any{
+					"InstanceArn":            instanceArn,
+					"ApplicationProviderArn": "arn:aws:sso::123456789012:applicationProvider/custom",
+					"Name":                   "AppDescribe",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				appArn := parseResponse(t, rec)["ApplicationArn"].(string)
+
+				listRec := doRequest(t, h, "ListApplications", map[string]any{"InstanceArn": instanceArn})
+				require.Equal(t, http.StatusOK, listRec.Code)
+
+				return map[string]any{"ApplicationArn": appArn}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "application assignment operations",
+			op:   "DescribeApplicationAssignment",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "app-assign-instance")
+				rec := doRequest(t, h, "CreateApplication", map[string]any{
+					"InstanceArn":            instanceArn,
+					"ApplicationProviderArn": "arn:aws:sso::123456789012:applicationProvider/custom",
+					"Name":                   "AppAssign",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				appArn := parseResponse(t, rec)["ApplicationArn"].(string)
+
+				createAssignRec := doRequest(t, h, "CreateApplicationAssignment", map[string]any{
+					"ApplicationArn": appArn,
+					"PrincipalId":    "user-001",
+					"PrincipalType":  "USER",
+				})
+				require.Equal(t, http.StatusOK, createAssignRec.Code)
+
+				listAssignRec := doRequest(t, h, "ListApplicationAssignments", map[string]any{"ApplicationArn": appArn})
+				require.Equal(t, http.StatusOK, listAssignRec.Code)
+
+				return map[string]any{
+					"ApplicationArn": appArn,
+					"PrincipalId":    "user-001",
+					"PrincipalType":  "USER",
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "application grants and provider operations",
+			op:   "DeleteApplicationGrant",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "app-grant-instance")
+				rec := doRequest(t, h, "CreateApplication", map[string]any{
+					"InstanceArn":            instanceArn,
+					"ApplicationProviderArn": "arn:aws:sso::123456789012:applicationProvider/custom",
+					"Name":                   "AppGrant",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				appArn := parseResponse(t, rec)["ApplicationArn"].(string)
+
+				putGrantRec := doRequest(t, h, "PutApplicationGrant", map[string]any{
+					"ApplicationArn": appArn,
+					"GrantType":      "authorization_code",
+				})
+				require.Equal(t, http.StatusOK, putGrantRec.Code)
+
+				listGrantRec := doRequest(t, h, "ListApplicationGrants", map[string]any{"ApplicationArn": appArn})
+				require.Equal(t, http.StatusOK, listGrantRec.Code)
+
+				listProvidersRec := doRequest(t, h, "ListApplicationProviders", map[string]any{})
+				require.Equal(t, http.StatusOK, listProvidersRec.Code)
+
+				describeProviderRec := doRequest(t, h, "DescribeApplicationProvider", map[string]any{
+					"ApplicationProviderArn": "arn:aws:sso::123456789012:applicationProvider/custom",
+				})
+				require.Equal(t, http.StatusOK, describeProviderRec.Code)
+
+				return map[string]any{
+					"ApplicationArn": appArn,
+					"GrantType":      "authorization_code",
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "application configuration operations",
+			op:   "UpdateApplication",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "app-config-instance")
+				rec := doRequest(t, h, "CreateApplication", map[string]any{
+					"InstanceArn":            instanceArn,
+					"ApplicationProviderArn": "arn:aws:sso::123456789012:applicationProvider/custom",
+					"Name":                   "AppConfig",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				appArn := parseResponse(t, rec)["ApplicationArn"].(string)
+
+				ops := []struct {
+					body map[string]any
+					op   string
+				}{
+					{
+						op:   "PutApplicationAuthenticationMethod",
+						body: map[string]any{"ApplicationArn": appArn, "AuthenticationMethodType": "IAM"},
+					},
+					{
+						op:   "ListApplicationAuthenticationMethods",
+						body: map[string]any{"ApplicationArn": appArn},
+					},
+					{
+						op:   "PutApplicationAssignmentConfiguration",
+						body: map[string]any{"ApplicationArn": appArn, "AssignmentRequired": true},
+					},
+					{
+						op:   "PutApplicationSessionConfiguration",
+						body: map[string]any{"ApplicationArn": appArn, "SessionDuration": "PT2H"},
+					},
+					{
+						op:   "PutApplicationAccessScope",
+						body: map[string]any{"ApplicationArn": appArn, "Scope": "openid"},
+					},
+					{
+						op:   "ListApplicationAccessScopes",
+						body: map[string]any{"ApplicationArn": appArn},
+					},
+				}
+				for _, operation := range ops {
+					opRec := doRequest(t, h, operation.op, operation.body)
+					require.Equal(t, http.StatusOK, opRec.Code)
+				}
+
+				return map[string]any{
+					"ApplicationArn": appArn,
+					"Name":           "AppConfigUpdated",
+					"Status":         "DISABLED",
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			body := tt.setup(t, h)
+			rec := doRequest(t, h, tt.op, body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestTrustedTokenIssuerAdditionalOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *ssoadmin.Handler) map[string]any
+		name       string
+		op         string
+		wantStatus int
+	}{
+		{
+			name: "list trusted token issuers",
+			op:   "ListTrustedTokenIssuers",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "tti-list-instance")
+				createRec := doRequest(t, h, "CreateTrustedTokenIssuer", map[string]any{
+					"InstanceArn":            instanceArn,
+					"Name":                   "IssuerList",
+					"TrustedTokenIssuerType": "OIDC_JWT",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				return map[string]any{"InstanceArn": instanceArn}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "describe trusted token issuer",
+			op:   "DescribeTrustedTokenIssuer",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "tti-describe-instance")
+				createRec := doRequest(t, h, "CreateTrustedTokenIssuer", map[string]any{
+					"InstanceArn":            instanceArn,
+					"Name":                   "IssuerDescribe",
+					"TrustedTokenIssuerType": "OIDC_JWT",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				issuerArn := parseResponse(t, createRec)["TrustedTokenIssuerArn"].(string)
+
+				return map[string]any{"TrustedTokenIssuerArn": issuerArn}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "update trusted token issuer",
+			op:   "UpdateTrustedTokenIssuer",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "tti-update-instance")
+				createRec := doRequest(t, h, "CreateTrustedTokenIssuer", map[string]any{
+					"InstanceArn":            instanceArn,
+					"Name":                   "IssuerUpdate",
+					"TrustedTokenIssuerType": "OIDC_JWT",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				issuerArn := parseResponse(t, createRec)["TrustedTokenIssuerArn"].(string)
+
+				return map[string]any{"TrustedTokenIssuerArn": issuerArn, "Name": "IssuerUpdated"}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "describe deleted trusted token issuer returns not found",
+			op:   "DescribeTrustedTokenIssuer",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "tti-delete-instance")
+				createRec := doRequest(t, h, "CreateTrustedTokenIssuer", map[string]any{
+					"InstanceArn":            instanceArn,
+					"Name":                   "IssuerDelete",
+					"TrustedTokenIssuerType": "OIDC_JWT",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				issuerArn := parseResponse(t, createRec)["TrustedTokenIssuerArn"].(string)
+
+				deleteRec := doRequest(t, h, "DeleteTrustedTokenIssuer", map[string]any{
+					"TrustedTokenIssuerArn": issuerArn,
+				})
+				require.Equal(t, http.StatusOK, deleteRec.Code)
+
+				return map[string]any{"TrustedTokenIssuerArn": issuerArn}
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			body := tt.setup(t, h)
+			opRec := doRequest(t, h, tt.op, body)
+			assert.Equal(t, tt.wantStatus, opRec.Code)
+		})
+	}
+}
+
+func TestABACPermissionsBoundaryAndProvisioningListOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *ssoadmin.Handler) map[string]any
+		name       string
+		op         string
+		wantStatus int
+	}{
+		{
+			name: "describe ABAC config",
+			op:   "DescribeInstanceAccessControlAttributeConfiguration",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "abac-describe-instance")
+				createCfgRec := doRequest(t, h, "CreateInstanceAccessControlAttributeConfiguration", map[string]any{
+					"InstanceArn": instanceArn,
+					"InstanceAccessControlAttributeConfiguration": map[string]any{
+						"AccessControlAttributes": []map[string]any{
+							{
+								"Key":   "department",
+								"Value": map[string]any{"Source": []string{"${path:enterprise.department}"}},
+							},
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, createCfgRec.Code)
+
+				return map[string]any{"InstanceArn": instanceArn}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "put permissions boundary",
+			op:   "PutPermissionsBoundaryToPermissionSet",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "boundary-instance")
+				psArn := createPermissionSet(t, h, instanceArn, "boundary-ps")
+
+				return map[string]any{
+					"InstanceArn":      instanceArn,
+					"PermissionSetArn": psArn,
+					"PermissionsBoundary": map[string]any{
+						"ManagedPolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+					},
+				}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "list provisioning and assignment statuses",
+			op:   "ListPermissionSetProvisioningStatus",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "status-instance")
+				psArn := createPermissionSet(t, h, instanceArn, "status-ps")
+
+				putBoundaryRec := doRequest(t, h, "PutPermissionsBoundaryToPermissionSet", map[string]any{
+					"InstanceArn":      instanceArn,
+					"PermissionSetArn": psArn,
+					"PermissionsBoundary": map[string]any{
+						"ManagedPolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+					},
+				})
+				require.Equal(t, http.StatusOK, putBoundaryRec.Code)
+
+				getBoundaryRec := doRequest(t, h, "GetPermissionsBoundaryForPermissionSet", map[string]any{
+					"InstanceArn":      instanceArn,
+					"PermissionSetArn": psArn,
+				})
+				require.Equal(t, http.StatusOK, getBoundaryRec.Code)
+
+				createAssignmentRec := doRequest(t, h, "CreateAccountAssignment", map[string]any{
+					"InstanceArn":      instanceArn,
+					"PermissionSetArn": psArn,
+					"PrincipalType":    "USER",
+					"PrincipalId":      "user-123",
+					"TargetId":         "123456789012",
+					"TargetType":       "AWS_ACCOUNT",
+				})
+				require.Equal(t, http.StatusOK, createAssignmentRec.Code)
+
+				deleteAssignmentRec := doRequest(t, h, "DeleteAccountAssignment", map[string]any{
+					"InstanceArn":      instanceArn,
+					"PermissionSetArn": psArn,
+					"PrincipalType":    "USER",
+					"PrincipalId":      "user-123",
+					"TargetId":         "123456789012",
+					"TargetType":       "AWS_ACCOUNT",
+				})
+				require.Equal(t, http.StatusOK, deleteAssignmentRec.Code)
+
+				listCreateRec := doRequest(t, h, "ListAccountAssignmentCreationStatus", map[string]any{
+					"InstanceArn": instanceArn,
+				})
+				require.Equal(t, http.StatusOK, listCreateRec.Code)
+
+				listDeleteRec := doRequest(t, h, "ListAccountAssignmentDeletionStatus", map[string]any{
+					"InstanceArn": instanceArn,
+				})
+				require.Equal(t, http.StatusOK, listDeleteRec.Code)
+
+				provisionRec := doRequest(t, h, "ProvisionPermissionSet", map[string]any{
+					"InstanceArn":      instanceArn,
+					"PermissionSetArn": psArn,
+					"TargetType":       "ALL_PROVISIONED_ACCOUNTS",
+				})
+				require.Equal(t, http.StatusOK, provisionRec.Code)
+
+				return map[string]any{"InstanceArn": instanceArn}
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "delete ABAC config",
+			op:   "DeleteInstanceAccessControlAttributeConfiguration",
+			setup: func(t *testing.T, h *ssoadmin.Handler) map[string]any {
+				t.Helper()
+				instanceArn := createInstance(t, h, "abac-delete-instance")
+				createCfgRec := doRequest(t, h, "CreateInstanceAccessControlAttributeConfiguration", map[string]any{
+					"InstanceArn": instanceArn,
+					"InstanceAccessControlAttributeConfiguration": map[string]any{
+						"AccessControlAttributes": []map[string]any{
+							{
+								"Key":   "department",
+								"Value": map[string]any{"Source": []string{"${path:enterprise.department}"}},
+							},
+						},
+					},
+				})
+				require.Equal(t, http.StatusOK, createCfgRec.Code)
+
+				return map[string]any{"InstanceArn": instanceArn}
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			body := tt.setup(t, h)
+			rec := doRequest(t, h, tt.op, body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }

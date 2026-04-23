@@ -127,6 +127,12 @@ type AccessControlAttribute struct {
 	Value AccessControlAttributeValue `json:"Value"`
 }
 
+// ApplicationProvider represents an SSO application provider.
+type ApplicationProvider struct {
+	ApplicationProviderArn string `json:"ApplicationProviderArn"`
+	DisplayData            string `json:"DisplayData"`
+}
+
 // InstanceAccessControlAttributeConfiguration holds ABAC configuration for an instance.
 type InstanceAccessControlAttributeConfiguration struct {
 	AccessControlAttributes []AccessControlAttribute `json:"AccessControlAttributes"`
@@ -154,8 +160,12 @@ type InMemoryBackend struct {
 	applicationAssignments  map[string][]*ApplicationAssignment
 	applicationScopes       map[string][]string
 	applicationAuthMethods  map[string][]string
+	applicationGrants       map[string][]string
+	applicationAssignConfig map[string]bool
+	applicationSessions     map[string]string
 	instanceACAs            map[string]*InstanceAccessControlAttributeConfiguration
 	trustedTokenIssuers     map[string]*TrustedTokenIssuer
+	permissionBoundaries    map[string]string
 	mu                      *lockmetrics.RWMutex
 	accountID               string
 	region                  string
@@ -176,8 +186,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		applicationAssignments:  make(map[string][]*ApplicationAssignment),
 		applicationScopes:       make(map[string][]string),
 		applicationAuthMethods:  make(map[string][]string),
+		applicationGrants:       make(map[string][]string),
+		applicationAssignConfig: make(map[string]bool),
+		applicationSessions:     make(map[string]string),
 		instanceACAs:            make(map[string]*InstanceAccessControlAttributeConfiguration),
 		trustedTokenIssuers:     make(map[string]*TrustedTokenIssuer),
+		permissionBoundaries:    make(map[string]string),
 		mu:                      lockmetrics.New("ssoadmin"),
 		accountID:               accountID,
 		region:                  region,
@@ -220,8 +234,12 @@ func (b *InMemoryBackend) Reset() {
 	b.applicationAssignments = make(map[string][]*ApplicationAssignment)
 	b.applicationScopes = make(map[string][]string)
 	b.applicationAuthMethods = make(map[string][]string)
+	b.applicationGrants = make(map[string][]string)
+	b.applicationAssignConfig = make(map[string]bool)
+	b.applicationSessions = make(map[string]string)
 	b.instanceACAs = make(map[string]*InstanceAccessControlAttributeConfiguration)
 	b.trustedTokenIssuers = make(map[string]*TrustedTokenIssuer)
+	b.permissionBoundaries = make(map[string]string)
 }
 
 // AccountID returns the backend account ID.
@@ -313,6 +331,7 @@ func (b *InMemoryBackend) DeleteInstance(instanceArn string) error {
 			key := assignmentKey(instanceArn, psArn)
 			delete(b.assignments, key)
 			delete(b.customerManagedPolicies, psArn)
+			delete(b.permissionBoundaries, psArn)
 			delete(b.permissionSets, psArn)
 		}
 	}
@@ -327,6 +346,9 @@ func (b *InMemoryBackend) DeleteInstance(instanceArn string) error {
 			delete(b.applicationAssignments, appArn)
 			delete(b.applicationScopes, appArn)
 			delete(b.applicationAuthMethods, appArn)
+			delete(b.applicationGrants, appArn)
+			delete(b.applicationAssignConfig, appArn)
+			delete(b.applicationSessions, appArn)
 			delete(b.applications, appArn)
 		}
 	}
@@ -423,6 +445,7 @@ func (b *InMemoryBackend) DeletePermissionSet(instanceArn, permissionSetArn stri
 		return ErrPermissionSetNotFound
 	}
 	delete(b.permissionSets, permissionSetArn)
+	delete(b.permissionBoundaries, permissionSetArn)
 
 	return nil
 }
@@ -502,6 +525,20 @@ func (b *InMemoryBackend) DescribeAccountAssignmentCreationStatus(
 	return &cp, nil
 }
 
+// ListAccountAssignmentCreationStatus returns creation statuses.
+func (b *InMemoryBackend) ListAccountAssignmentCreationStatus(_ string) []*ProvisioningStatus {
+	b.mu.RLock("ListAccountAssignmentCreationStatus")
+	defer b.mu.RUnlock()
+
+	result := make([]*ProvisioningStatus, 0, len(b.creationStatuses))
+	for _, status := range b.creationStatuses {
+		cp := *status
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
 // ListAccountAssignments returns assignments for a permission set in an instance, optionally filtered by account.
 func (b *InMemoryBackend) ListAccountAssignments(instanceArn, permissionSetArn, accountID string) []*AccountAssignment {
 	b.mu.RLock("ListAccountAssignments")
@@ -571,6 +608,20 @@ func (b *InMemoryBackend) DescribeAccountAssignmentDeletionStatus(
 	cp := *status
 
 	return &cp, nil
+}
+
+// ListAccountAssignmentDeletionStatus returns deletion statuses.
+func (b *InMemoryBackend) ListAccountAssignmentDeletionStatus(_ string) []*ProvisioningStatus {
+	b.mu.RLock("ListAccountAssignmentDeletionStatus")
+	defer b.mu.RUnlock()
+
+	result := make([]*ProvisioningStatus, 0, len(b.deletionStatuses))
+	for _, status := range b.deletionStatuses {
+		cp := *status
+		result = append(result, &cp)
+	}
+
+	return result
 }
 
 // AttachManagedPolicyToPermissionSet attaches a managed policy to a permission set.
@@ -674,6 +725,43 @@ func (b *InMemoryBackend) DeleteInlinePolicyFromPermissionSet(instanceArn, permi
 	return nil
 }
 
+// PutPermissionsBoundaryToPermissionSet sets the permissions boundary on a permission set.
+func (b *InMemoryBackend) PutPermissionsBoundaryToPermissionSet(
+	instanceArn, permissionSetArn, managedPolicyArn string,
+) error {
+	b.mu.Lock("PutPermissionsBoundaryToPermissionSet")
+	defer b.mu.Unlock()
+
+	ps, ok := b.permissionSets[permissionSetArn]
+	if !ok || ps.InstanceArn != instanceArn {
+		return ErrPermissionSetNotFound
+	}
+	b.permissionBoundaries[permissionSetArn] = managedPolicyArn
+
+	return nil
+}
+
+// GetPermissionsBoundaryForPermissionSet returns the permissions boundary for a permission set.
+func (b *InMemoryBackend) GetPermissionsBoundaryForPermissionSet(
+	instanceArn,
+	permissionSetArn string,
+) (string, error) {
+	b.mu.RLock("GetPermissionsBoundaryForPermissionSet")
+	defer b.mu.RUnlock()
+
+	ps, ok := b.permissionSets[permissionSetArn]
+	if !ok || ps.InstanceArn != instanceArn {
+		return "", ErrPermissionSetNotFound
+	}
+
+	boundary, ok := b.permissionBoundaries[permissionSetArn]
+	if !ok {
+		return "", ErrRequestNotFound
+	}
+
+	return boundary, nil
+}
+
 // ProvisionPermissionSet initiates provisioning of a permission set to accounts.
 func (b *InMemoryBackend) ProvisionPermissionSet(instanceArn, permissionSetArn string) (string, error) {
 	b.mu.Lock("ProvisionPermissionSet")
@@ -712,6 +800,20 @@ func (b *InMemoryBackend) DescribePermissionSetProvisioningStatus(
 	cp := *status
 
 	return &cp, nil
+}
+
+// ListPermissionSetProvisioningStatus returns permission-set provisioning statuses.
+func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(_ string) []*ProvisioningStatus {
+	b.mu.RLock("ListPermissionSetProvisioningStatus")
+	defer b.mu.RUnlock()
+
+	result := make([]*ProvisioningStatus, 0, len(b.provisioningStatuses))
+	for _, status := range b.provisioningStatuses {
+		cp := *status
+		result = append(result, &cp)
+	}
+
+	return result
 }
 
 // TagResource adds tags to a resource (permission set, instance, or application).
@@ -1002,6 +1104,62 @@ func (b *InMemoryBackend) CreateApplication(
 	return copyApplication(app), nil
 }
 
+// DescribeApplication returns an application by ARN.
+func (b *InMemoryBackend) DescribeApplication(applicationArn string) (*Application, error) {
+	b.mu.RLock("DescribeApplication")
+	defer b.mu.RUnlock()
+
+	app, ok := b.applications[applicationArn]
+	if !ok {
+		return nil, ErrApplicationNotFound
+	}
+
+	return copyApplication(app), nil
+}
+
+// ListApplications returns applications for an instance.
+func (b *InMemoryBackend) ListApplications(instanceArn string) []*Application {
+	b.mu.RLock("ListApplications")
+	defer b.mu.RUnlock()
+
+	result := make([]*Application, 0, len(b.applications))
+	for _, app := range b.applications {
+		if instanceArn != "" && app.InstanceArn != instanceArn {
+			continue
+		}
+		result = append(result, copyApplication(app))
+	}
+
+	return result
+}
+
+// UpdateApplication updates mutable fields on an application.
+func (b *InMemoryBackend) UpdateApplication(
+	applicationArn,
+	name,
+	description,
+	status string,
+) (*Application, error) {
+	b.mu.Lock("UpdateApplication")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[applicationArn]
+	if !ok {
+		return nil, ErrApplicationNotFound
+	}
+	if name != "" {
+		app.Name = name
+	}
+	if description != "" {
+		app.Description = description
+	}
+	if status != "" {
+		app.Status = status
+	}
+
+	return copyApplication(app), nil
+}
+
 // DeleteApplication deletes an application.
 func (b *InMemoryBackend) DeleteApplication(applicationArn string) error {
 	b.mu.Lock("DeleteApplication")
@@ -1014,6 +1172,9 @@ func (b *InMemoryBackend) DeleteApplication(applicationArn string) error {
 	delete(b.applicationAssignments, applicationArn)
 	delete(b.applicationScopes, applicationArn)
 	delete(b.applicationAuthMethods, applicationArn)
+	delete(b.applicationGrants, applicationArn)
+	delete(b.applicationAssignConfig, applicationArn)
+	delete(b.applicationSessions, applicationArn)
 
 	return nil
 }
@@ -1043,6 +1204,48 @@ func (b *InMemoryBackend) CreateApplicationAssignment(applicationArn, principalI
 	return nil
 }
 
+// DescribeApplicationAssignment returns a specific application assignment.
+func (b *InMemoryBackend) DescribeApplicationAssignment(
+	applicationArn,
+	principalID,
+	principalType string,
+) (*ApplicationAssignment, error) {
+	b.mu.RLock("DescribeApplicationAssignment")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return nil, ErrApplicationNotFound
+	}
+	for _, assignment := range b.applicationAssignments[applicationArn] {
+		if assignment.PrincipalID == principalID && assignment.PrincipalType == principalType {
+			cp := *assignment
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrAssignmentNotFound
+}
+
+// ListApplicationAssignments returns assignments for an application.
+func (b *InMemoryBackend) ListApplicationAssignments(applicationArn string) ([]*ApplicationAssignment, error) {
+	b.mu.RLock("ListApplicationAssignments")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return nil, ErrApplicationNotFound
+	}
+
+	assignments := b.applicationAssignments[applicationArn]
+	result := make([]*ApplicationAssignment, 0, len(assignments))
+	for _, assignment := range assignments {
+		cp := *assignment
+		result = append(result, &cp)
+	}
+
+	return result, nil
+}
+
 // DeleteApplicationAssignment removes a principal assignment from an application.
 func (b *InMemoryBackend) DeleteApplicationAssignment(applicationArn, principalID, principalType string) error {
 	b.mu.Lock("DeleteApplicationAssignment")
@@ -1065,6 +1268,19 @@ func (b *InMemoryBackend) DeleteApplicationAssignment(applicationArn, principalI
 		return ErrAssignmentNotFound
 	}
 	b.applicationAssignments[applicationArn] = remaining
+
+	return nil
+}
+
+// PutApplicationAssignmentConfiguration sets assignment configuration on an application.
+func (b *InMemoryBackend) PutApplicationAssignmentConfiguration(applicationArn string, assignmentRequired bool) error {
+	b.mu.Lock("PutApplicationAssignmentConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return ErrApplicationNotFound
+	}
+	b.applicationAssignConfig[applicationArn] = assignmentRequired
 
 	return nil
 }
@@ -1095,6 +1311,34 @@ func (b *InMemoryBackend) DeleteApplicationAccessScope(applicationArn, scope str
 	return nil
 }
 
+// PutApplicationAccessScope adds an access scope to an application.
+func (b *InMemoryBackend) PutApplicationAccessScope(applicationArn, scope string) error {
+	b.mu.Lock("PutApplicationAccessScope")
+	defer b.mu.Unlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return ErrApplicationNotFound
+	}
+	if slices.Contains(b.applicationScopes[applicationArn], scope) {
+		return nil
+	}
+	b.applicationScopes[applicationArn] = append(b.applicationScopes[applicationArn], scope)
+
+	return nil
+}
+
+// ListApplicationAccessScopes lists access scopes on an application.
+func (b *InMemoryBackend) ListApplicationAccessScopes(applicationArn string) ([]string, error) {
+	b.mu.RLock("ListApplicationAccessScopes")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return nil, ErrApplicationNotFound
+	}
+
+	return slices.Clone(b.applicationScopes[applicationArn]), nil
+}
+
 // DeleteApplicationAuthenticationMethod removes an authentication method from an application.
 func (b *InMemoryBackend) DeleteApplicationAuthenticationMethod(applicationArn, authMethodType string) error {
 	b.mu.Lock("DeleteApplicationAuthenticationMethod")
@@ -1121,6 +1365,101 @@ func (b *InMemoryBackend) DeleteApplicationAuthenticationMethod(applicationArn, 
 	return nil
 }
 
+// PutApplicationAuthenticationMethod adds an authentication method to an application.
+func (b *InMemoryBackend) PutApplicationAuthenticationMethod(applicationArn, authMethodType string) error {
+	b.mu.Lock("PutApplicationAuthenticationMethod")
+	defer b.mu.Unlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return ErrApplicationNotFound
+	}
+	if slices.Contains(b.applicationAuthMethods[applicationArn], authMethodType) {
+		return nil
+	}
+	b.applicationAuthMethods[applicationArn] = append(b.applicationAuthMethods[applicationArn], authMethodType)
+
+	return nil
+}
+
+// ListApplicationAuthenticationMethods lists authentication methods on an application.
+func (b *InMemoryBackend) ListApplicationAuthenticationMethods(applicationArn string) ([]string, error) {
+	b.mu.RLock("ListApplicationAuthenticationMethods")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return nil, ErrApplicationNotFound
+	}
+
+	return slices.Clone(b.applicationAuthMethods[applicationArn]), nil
+}
+
+// PutApplicationGrant adds a grant to an application.
+func (b *InMemoryBackend) PutApplicationGrant(applicationArn, grantType string) error {
+	b.mu.Lock("PutApplicationGrant")
+	defer b.mu.Unlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return ErrApplicationNotFound
+	}
+	if slices.Contains(b.applicationGrants[applicationArn], grantType) {
+		return nil
+	}
+	b.applicationGrants[applicationArn] = append(b.applicationGrants[applicationArn], grantType)
+
+	return nil
+}
+
+// DeleteApplicationGrant removes a grant from an application.
+func (b *InMemoryBackend) DeleteApplicationGrant(applicationArn, grantType string) error {
+	b.mu.Lock("DeleteApplicationGrant")
+	defer b.mu.Unlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return ErrApplicationNotFound
+	}
+	all := b.applicationGrants[applicationArn]
+	found := false
+	var remaining []string
+	for _, grant := range all {
+		if grant == grantType {
+			found = true
+		} else {
+			remaining = append(remaining, grant)
+		}
+	}
+	if !found {
+		return ErrRequestNotFound
+	}
+	b.applicationGrants[applicationArn] = remaining
+
+	return nil
+}
+
+// ListApplicationGrants lists grants on an application.
+func (b *InMemoryBackend) ListApplicationGrants(applicationArn string) ([]string, error) {
+	b.mu.RLock("ListApplicationGrants")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return nil, ErrApplicationNotFound
+	}
+
+	return slices.Clone(b.applicationGrants[applicationArn]), nil
+}
+
+// PutApplicationSessionConfiguration sets session configuration on an application.
+func (b *InMemoryBackend) PutApplicationSessionConfiguration(applicationArn, sessionDuration string) error {
+	b.mu.Lock("PutApplicationSessionConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return ErrApplicationNotFound
+	}
+	b.applicationSessions[applicationArn] = sessionDuration
+
+	return nil
+}
+
 // CreateInstanceAccessControlAttributeConfiguration creates ABAC configuration for an SSO instance.
 func (b *InMemoryBackend) CreateInstanceAccessControlAttributeConfiguration(
 	instanceArn string,
@@ -1137,6 +1476,84 @@ func (b *InMemoryBackend) CreateInstanceAccessControlAttributeConfiguration(
 	}
 
 	return nil
+}
+
+// DescribeInstanceAccessControlAttributeConfiguration returns ABAC configuration for an instance.
+func (b *InMemoryBackend) DescribeInstanceAccessControlAttributeConfiguration(
+	instanceArn string,
+) (*InstanceAccessControlAttributeConfiguration, error) {
+	b.mu.RLock("DescribeInstanceAccessControlAttributeConfiguration")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.instances[instanceArn]; !ok {
+		return nil, ErrInstanceNotFound
+	}
+	cfg, ok := b.instanceACAs[instanceArn]
+	if !ok {
+		return nil, ErrRequestNotFound
+	}
+
+	return &InstanceAccessControlAttributeConfiguration{
+		AccessControlAttributes: copyAccessControlAttributes(cfg.AccessControlAttributes),
+	}, nil
+}
+
+// DeleteInstanceAccessControlAttributeConfiguration deletes ABAC configuration for an instance.
+func (b *InMemoryBackend) DeleteInstanceAccessControlAttributeConfiguration(instanceArn string) error {
+	b.mu.Lock("DeleteInstanceAccessControlAttributeConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.instances[instanceArn]; !ok {
+		return ErrInstanceNotFound
+	}
+	if _, ok := b.instanceACAs[instanceArn]; !ok {
+		return ErrRequestNotFound
+	}
+	delete(b.instanceACAs, instanceArn)
+
+	return nil
+}
+
+// ListApplicationProviders returns known application providers.
+func (b *InMemoryBackend) ListApplicationProviders() []*ApplicationProvider {
+	b.mu.RLock("ListApplicationProviders")
+	defer b.mu.RUnlock()
+
+	seen := map[string]struct{}{
+		"arn:aws:sso::aws:applicationProvider/custom": {},
+	}
+	for _, app := range b.applications {
+		if app.ApplicationProviderArn == "" {
+			continue
+		}
+		seen[app.ApplicationProviderArn] = struct{}{}
+	}
+
+	result := make([]*ApplicationProvider, 0, len(seen))
+	for providerArn := range seen {
+		result = append(result, &ApplicationProvider{
+			ApplicationProviderArn: providerArn,
+			DisplayData:            "custom provider",
+		})
+	}
+
+	return result
+}
+
+// DescribeApplicationProvider returns details for an application provider.
+func (b *InMemoryBackend) DescribeApplicationProvider(
+	applicationProviderArn string,
+) (*ApplicationProvider, error) {
+	providers := b.ListApplicationProviders()
+	for _, provider := range providers {
+		if provider.ApplicationProviderArn == applicationProviderArn {
+			cp := *provider
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrRequestNotFound
 }
 
 // CreateTrustedTokenIssuer creates a trusted token issuer within an SSO instance.
@@ -1164,6 +1581,76 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(instanceArn, name, issuerType
 	}
 	b.trustedTokenIssuers[arn] = ti
 	cp := *ti
+
+	return &cp, nil
+}
+
+// DeleteTrustedTokenIssuer deletes a trusted token issuer.
+func (b *InMemoryBackend) DeleteTrustedTokenIssuer(trustedTokenIssuerArn string) error {
+	b.mu.Lock("DeleteTrustedTokenIssuer")
+	defer b.mu.Unlock()
+
+	if _, ok := b.trustedTokenIssuers[trustedTokenIssuerArn]; !ok {
+		return ErrTrustedTokenIssuerNotFound
+	}
+	delete(b.trustedTokenIssuers, trustedTokenIssuerArn)
+
+	return nil
+}
+
+// DescribeTrustedTokenIssuer returns a trusted token issuer.
+func (b *InMemoryBackend) DescribeTrustedTokenIssuer(
+	trustedTokenIssuerArn string,
+) (*TrustedTokenIssuer, error) {
+	b.mu.RLock("DescribeTrustedTokenIssuer")
+	defer b.mu.RUnlock()
+
+	issuer, ok := b.trustedTokenIssuers[trustedTokenIssuerArn]
+	if !ok {
+		return nil, ErrTrustedTokenIssuerNotFound
+	}
+	cp := *issuer
+
+	return &cp, nil
+}
+
+// ListTrustedTokenIssuers lists trusted token issuers for an instance.
+func (b *InMemoryBackend) ListTrustedTokenIssuers(instanceArn string) []*TrustedTokenIssuer {
+	b.mu.RLock("ListTrustedTokenIssuers")
+	defer b.mu.RUnlock()
+
+	result := make([]*TrustedTokenIssuer, 0, len(b.trustedTokenIssuers))
+	for _, issuer := range b.trustedTokenIssuers {
+		if instanceArn != "" && issuer.InstanceArn != instanceArn {
+			continue
+		}
+		cp := *issuer
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
+// UpdateTrustedTokenIssuer updates mutable trusted token issuer fields.
+func (b *InMemoryBackend) UpdateTrustedTokenIssuer(
+	trustedTokenIssuerArn,
+	name,
+	issuerType string,
+) (*TrustedTokenIssuer, error) {
+	b.mu.Lock("UpdateTrustedTokenIssuer")
+	defer b.mu.Unlock()
+
+	issuer, ok := b.trustedTokenIssuers[trustedTokenIssuerArn]
+	if !ok {
+		return nil, ErrTrustedTokenIssuerNotFound
+	}
+	if name != "" {
+		issuer.Name = name
+	}
+	if issuerType != "" {
+		issuer.TrustedTokenIssuerType = issuerType
+	}
+	cp := *issuer
 
 	return &cp, nil
 }
