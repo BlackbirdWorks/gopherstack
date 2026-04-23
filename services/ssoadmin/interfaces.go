@@ -17,11 +17,13 @@ type StorageBackend interface {
 	) (*PermissionSet, error)
 	DescribePermissionSet(instanceArn, permissionSetArn string) (*PermissionSet, error)
 	ListPermissionSets(instanceArn string) []*PermissionSet
+	ListPermissionSetsProvisionedToAccount(instanceArn, accountID string) []string
 	DeletePermissionSet(instanceArn, permissionSetArn string) error
 	UpdatePermissionSet(instanceArn, permissionSetArn, description, sessionDuration, relayState string) error
 	CreateAccountAssignment(instanceArn, permissionSetArn, accountID, principalType, principalID string) (string, error)
 	DescribeAccountAssignmentCreationStatus(instanceArn, requestID string) (*ProvisioningStatus, error)
 	ListAccountAssignments(instanceArn, permissionSetArn, accountID string) []*AccountAssignment
+	ListAccountAssignmentsForPrincipal(instanceArn, principalID, principalType string) []*AccountAssignment
 	DeleteAccountAssignment(instanceArn, permissionSetArn, accountID, principalType, principalID string) (string, error)
 	DescribeAccountAssignmentDeletionStatus(instanceArn, requestID string) (*ProvisioningStatus, error)
 	AttachManagedPolicyToPermissionSet(instanceArn, permissionSetArn, managedPolicyARN, name string) error
@@ -57,6 +59,7 @@ type StorageBackend interface {
 	ListApplicationProviders() []*ApplicationProvider
 	ListApplications(instanceArn string) []*Application
 	ListPermissionSetProvisioningStatus(instanceArn string) []*ProvisioningStatus
+	ListRegions(instanceArn string) ([]RegionMetadata, error)
 	ListTrustedTokenIssuers(instanceArn string) []*TrustedTokenIssuer
 	PutApplicationAccessScope(applicationArn, scope string) error
 	PutApplicationAssignmentConfiguration(applicationArn string, assignmentRequired bool) error
@@ -72,7 +75,11 @@ type StorageBackend interface {
 	) (*Application, error)
 	CreateApplicationAssignment(applicationArn, principalID, principalType string) error
 	CreateInstanceAccessControlAttributeConfiguration(instanceArn string, attributes []AccessControlAttribute) error
-	CreateTrustedTokenIssuer(instanceArn, name, issuerType string) (*TrustedTokenIssuer, error)
+	CreateTrustedTokenIssuer(
+		instanceArn, name, issuerType string,
+		tags map[string]string,
+		cfg *TrustedTokenIssuerConfiguration,
+	) (*TrustedTokenIssuer, error)
 	DeleteApplication(applicationArn string) error
 	DeleteApplicationAccessScope(applicationArn, scope string) error
 	DeleteApplicationAssignment(applicationArn, principalID, principalType string) error
@@ -84,7 +91,6 @@ type StorageBackend interface {
 	ListCustomerManagedPolicyReferencesInPermissionSet(
 		instanceArn, permissionSetArn string,
 	) ([]CustomerManagedPolicyReference, error)
-	ListRegions(instanceArn string) ([]string, error)
 	RemoveRegion(instanceArn, regionName string) error
 	UpdateInstance(instanceArn, name string) error
 	UpdateInstanceAccessControlAttributeConfiguration(instanceArn string, attributes []AccessControlAttribute) error

@@ -9,10 +9,11 @@ type backendSnapshot struct {
 	Instances               map[string]*Instance                                    `json:"instances"`
 	PermissionSets          map[string]*PermissionSet                               `json:"permissionSets"`
 	Assignments             map[string][]*AccountAssignment                         `json:"assignments"`
+	AssignmentCreationIDs   map[string]string                                       `json:"assignmentCreationIDs"`
 	CreationStatuses        map[string]*ProvisioningStatus                          `json:"creationStatuses"`
 	DeletionStatuses        map[string]*ProvisioningStatus                          `json:"deletionStatuses"`
 	ProvisioningStatuses    map[string]*ProvisioningStatus                          `json:"provisioningStatuses"`
-	InstanceRegions         map[string][]string                                     `json:"instanceRegions"`
+	InstanceRegions         map[string][]RegionMetadata                             `json:"instanceRegions"`
 	CustomerManagedPolicies map[string][]CustomerManagedPolicyReference             `json:"customerManagedPolicies"`
 	Applications            map[string]*Application                                 `json:"applications"`
 	ApplicationAssignments  map[string][]*ApplicationAssignment                     `json:"applicationAssignments"`
@@ -37,6 +38,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Instances:               b.instances,
 		PermissionSets:          b.permissionSets,
 		Assignments:             b.assignments,
+		AssignmentCreationIDs:   b.assignmentCreationIDs,
 		CreationStatuses:        b.creationStatuses,
 		DeletionStatuses:        b.deletionStatuses,
 		ProvisioningStatuses:    b.provisioningStatuses,
@@ -83,6 +85,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.instances = snap.Instances
 	b.permissionSets = snap.PermissionSets
 	b.assignments = snap.Assignments
+	b.assignmentCreationIDs = snap.AssignmentCreationIDs
 	b.creationStatuses = snap.CreationStatuses
 	b.deletionStatuses = snap.DeletionStatuses
 	b.provisioningStatuses = snap.ProvisioningStatuses
@@ -109,6 +112,7 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	snap.Instances = ensureMap(snap.Instances)
 	snap.PermissionSets = ensureMap(snap.PermissionSets)
 	snap.Assignments = ensureMap(snap.Assignments)
+	snap.AssignmentCreationIDs = ensureMap(snap.AssignmentCreationIDs)
 	snap.CreationStatuses = ensureMap(snap.CreationStatuses)
 	snap.DeletionStatuses = ensureMap(snap.DeletionStatuses)
 	snap.ProvisioningStatuses = ensureMap(snap.ProvisioningStatuses)

@@ -22,9 +22,7 @@ func TestSDKCompleteness(t *testing.T) {
 		"GetApplicationAccessScope",
 		"GetApplicationAuthenticationMethod",
 		"GetApplicationGrant",
-		"ListAccountAssignmentsForPrincipal",
 		"ListAccountsForProvisionedPermissionSet",
 		"ListApplicationAssignmentsForPrincipal",
-		"ListPermissionSetsProvisionedToAccount",
 	})
 }

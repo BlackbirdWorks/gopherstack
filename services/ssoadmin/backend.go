@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,23 +26,37 @@ const (
 
 	// Default session duration for new permission sets.
 	defaultSessionDuration = "PT1H"
+
+	// AWS tag limits.
+	maxTagsPerResource = 50
+	maxTagKeyLen       = 128
+	maxTagValueLen     = 256
+
+	// Default TrustedTokenIssuer type.
+	defaultTrustedTokenIssuerType = "OIDC_JWT"
+
+	// Region scope type for SSO instance regions.
+	regionScopeTypeAllRegions = "ALL_REGIONS"
 )
 
 var (
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 
-	ErrInstanceNotFound                = errors.New("ResourceNotFoundException")
-	ErrPermissionSetNotFound           = errors.New("ResourceNotFoundException")
-	ErrPermissionSetAlreadyExists      = errors.New("ConflictException")
-	ErrAssignmentNotFound              = errors.New("ResourceNotFoundException")
-	ErrRequestNotFound                 = errors.New("ResourceNotFoundException")
-	ErrApplicationNotFound             = errors.New("ResourceNotFoundException")
-	ErrApplicationAlreadyExists        = errors.New("ConflictException")
-	ErrTrustedTokenIssuerNotFound      = errors.New("ResourceNotFoundException")
-	ErrTrustedTokenIssuerAlreadyExists = errors.New("ConflictException")
-	ErrAccessScopeNotFound             = errors.New("ResourceNotFoundException")
-	ErrAuthMethodNotFound              = errors.New("ResourceNotFoundException")
+	ErrInstanceNotFound                         = errors.New("ResourceNotFoundException")
+	ErrPermissionSetNotFound                    = errors.New("ResourceNotFoundException")
+	ErrPermissionSetAlreadyExists               = errors.New("ConflictException")
+	ErrAssignmentNotFound                       = errors.New("ResourceNotFoundException")
+	ErrRequestNotFound                          = errors.New("ResourceNotFoundException")
+	ErrApplicationNotFound                      = errors.New("ResourceNotFoundException")
+	ErrApplicationAlreadyExists                 = errors.New("ConflictException")
+	ErrTrustedTokenIssuerNotFound               = errors.New("ResourceNotFoundException")
+	ErrTrustedTokenIssuerAlreadyExists          = errors.New("ConflictException")
+	ErrAccessScopeNotFound                      = errors.New("ResourceNotFoundException")
+	ErrAuthMethodNotFound                       = errors.New("ResourceNotFoundException")
+	ErrACAAlreadyExists                         = errors.New("ConflictException")
+	ErrPermissionsBoundaryNotFound              = errors.New("ResourceNotFoundException")
+	ErrTooManyTagsException                     = errors.New("TooManyTagsException")
 )
 
 // Instance represents an AWS SSO instance.
@@ -138,13 +153,33 @@ type InstanceAccessControlAttributeConfiguration struct {
 	AccessControlAttributes []AccessControlAttribute `json:"AccessControlAttributes"`
 }
 
+// RegionMetadata represents a region associated with an SSO instance.
+type RegionMetadata struct {
+	Region          string `json:"Region"`
+	RegionScopeType string `json:"RegionScopeType"`
+}
+
+// OidcJwtConfiguration holds OIDC JWT trusted token issuer configuration.
+type OidcJwtConfiguration struct {
+	IssuerURL         string `json:"IssuerUrl"`
+	ClaimAttributePath string `json:"ClaimAttributePath"`
+	IdentityStoreAttributePath string `json:"IdentityStoreAttributePath"`
+	JwksRetrievalOption string `json:"JwksRetrievalOption"`
+}
+
+// TrustedTokenIssuerConfiguration holds the issuer-type-specific configuration.
+type TrustedTokenIssuerConfiguration struct {
+	OidcJwtConfiguration *OidcJwtConfiguration `json:"OidcJwtConfiguration,omitempty"`
+}
+
 // TrustedTokenIssuer represents a trusted token issuer.
 type TrustedTokenIssuer struct {
-	Tags                   map[string]string `json:"Tags"`
-	TrustedTokenIssuerArn  string            `json:"TrustedTokenIssuerArn"`
-	InstanceArn            string            `json:"InstanceArn"`
-	Name                   string            `json:"Name"`
-	TrustedTokenIssuerType string            `json:"TrustedTokenIssuerType"`
+	Tags                            map[string]string                 `json:"Tags"`
+	TrustedTokenIssuerArn           string                            `json:"TrustedTokenIssuerArn"`
+	InstanceArn                     string                            `json:"InstanceArn"`
+	Name                            string                            `json:"Name"`
+	TrustedTokenIssuerType          string                            `json:"TrustedTokenIssuerType"`
+	TrustedTokenIssuerConfiguration *TrustedTokenIssuerConfiguration  `json:"TrustedTokenIssuerConfiguration,omitempty"`
 }
 
 // InMemoryBackend is the in-memory backend for the SSO Admin service.
@@ -152,10 +187,12 @@ type InMemoryBackend struct {
 	instances               map[string]*Instance
 	permissionSets          map[string]*PermissionSet
 	assignments             map[string][]*AccountAssignment
+	// assignmentCreationIDs maps assignmentKey|accountID|principalType|principalID → requestID for idempotency.
+	assignmentCreationIDs   map[string]string
 	creationStatuses        map[string]*ProvisioningStatus
 	deletionStatuses        map[string]*ProvisioningStatus
 	provisioningStatuses    map[string]*ProvisioningStatus
-	instanceRegions         map[string][]string
+	instanceRegions         map[string][]RegionMetadata
 	customerManagedPolicies map[string][]CustomerManagedPolicyReference
 	applications            map[string]*Application
 	applicationAssignments  map[string][]*ApplicationAssignment
@@ -172,16 +209,39 @@ type InMemoryBackend struct {
 	region                  string
 }
 
+// seedDefaultInstance adds the default pre-seeded instance. Must be called before concurrent use.
+func (b *InMemoryBackend) seedDefaultInstance() {
+	defaultID := "d-0000000001"
+	identityStoreID := "d-" + b.accountID
+	if len(identityStoreID) > identityStoreIDMaxLen {
+		identityStoreID = identityStoreID[:identityStoreIDMaxLen]
+	}
+	defaultArn := "arn:aws:sso:::instance/ssoins-" + defaultID
+	if b.instances[defaultArn] != nil {
+		return
+	}
+	b.instances[defaultArn] = &Instance{
+		InstanceArn:     defaultArn,
+		Name:            "default",
+		OwnerAccountID:  b.accountID,
+		IdentityStoreID: identityStoreID,
+		Status:          instanceStatusActive,
+		CreatedDate:     time.Now().UTC(),
+		Tags:            make(map[string]string),
+	}
+}
+
 // NewInMemoryBackend creates a new in-memory SSO Admin backend with a default instance.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		instances:               make(map[string]*Instance),
 		permissionSets:          make(map[string]*PermissionSet),
 		assignments:             make(map[string][]*AccountAssignment),
+		assignmentCreationIDs:   make(map[string]string),
 		creationStatuses:        make(map[string]*ProvisioningStatus),
 		deletionStatuses:        make(map[string]*ProvisioningStatus),
 		provisioningStatuses:    make(map[string]*ProvisioningStatus),
-		instanceRegions:         make(map[string][]string),
+		instanceRegions:         make(map[string][]RegionMetadata),
 		customerManagedPolicies: make(map[string][]CustomerManagedPolicyReference),
 		applications:            make(map[string]*Application),
 		applicationAssignments:  make(map[string][]*ApplicationAssignment),
@@ -200,25 +260,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 	// Pre-seed a default instance to mimic AWS SSO behaviour where an instance
 	// is always present once SSO is enabled.
-	defaultID := "d-0000000001"
-	identityStoreID := "d-" + accountID
-	if len(identityStoreID) > identityStoreIDMaxLen {
-		identityStoreID = identityStoreID[:identityStoreIDMaxLen]
-	}
-	defaultArn := "arn:aws:sso:::instance/ssoins-" + defaultID
-	b.instances[defaultArn] = &Instance{
-		InstanceArn:     defaultArn,
-		Name:            "default",
-		OwnerAccountID:  accountID,
-		IdentityStoreID: identityStoreID,
-		Status:          instanceStatusActive,
-		CreatedDate:     time.Now().UTC(),
-	}
+	b.seedDefaultInstance()
 
 	return b
 }
 
-// Reset clears all backend state, including the default pre-seeded instance.
+// Reset clears all backend state and re-seeds the default instance.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
@@ -229,7 +276,8 @@ func (b *InMemoryBackend) Reset() {
 	b.creationStatuses = make(map[string]*ProvisioningStatus)
 	b.deletionStatuses = make(map[string]*ProvisioningStatus)
 	b.provisioningStatuses = make(map[string]*ProvisioningStatus)
-	b.instanceRegions = make(map[string][]string)
+	b.instanceRegions = make(map[string][]RegionMetadata)
+	b.assignmentCreationIDs = make(map[string]string)
 	b.customerManagedPolicies = make(map[string][]CustomerManagedPolicyReference)
 	b.applications = make(map[string]*Application)
 	b.applicationAssignments = make(map[string][]*ApplicationAssignment)
@@ -241,6 +289,8 @@ func (b *InMemoryBackend) Reset() {
 	b.instanceACAs = make(map[string]*InstanceAccessControlAttributeConfiguration)
 	b.trustedTokenIssuers = make(map[string]*TrustedTokenIssuer)
 	b.permissionBoundaries = make(map[string]string)
+	// Re-seed the default instance.
+	b.seedDefaultInstance()
 }
 
 // AccountID returns the backend account ID.
@@ -279,10 +329,12 @@ func (b *InMemoryBackend) CreateInstance(name, ownerAccountID, identityStoreID s
 		IdentityStoreID: identityStoreID,
 		Status:          instanceStatusActive,
 		CreatedDate:     time.Now().UTC(),
+		Tags:            make(map[string]string),
 	}
 	b.instances[instanceArn] = inst
 
 	cp := *inst
+	cp.Tags = make(map[string]string)
 
 	return &cp, nil
 }
@@ -499,16 +551,12 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 	}
 	key := assignmentKey(instanceArn, permissionSetArn)
 
-	// Idempotency: if the same assignment already exists, return the existing creation status
-	// without creating a duplicate.
-	for _, existing := range b.assignments[key] {
-		if existing.AccountID == accountID &&
-			existing.PrincipalID == principalID &&
-			existing.PrincipalType == principalType {
-			for _, status := range b.creationStatuses {
-				return status.RequestID, nil
-			}
-		}
+	// Build a deterministic idempotency key for this specific assignment.
+	idempotencyKey := key + "|" + accountID + "|" + principalType + "|" + principalID
+
+	// Idempotency: if the same assignment already exists, return the original request ID.
+	if existingRequestID, exists := b.assignmentCreationIDs[idempotencyKey]; exists {
+		return existingRequestID, nil
 	}
 
 	b.assignments[key] = append(b.assignments[key], assignment)
@@ -519,6 +567,7 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 		Status:      "SUCCEEDED",
 		CreatedDate: time.Now().UTC(),
 	}
+	b.assignmentCreationIDs[idempotencyKey] = requestID
 
 	return requestID, nil
 }
@@ -541,7 +590,7 @@ func (b *InMemoryBackend) DescribeAccountAssignmentCreationStatus(
 	return &cp, nil
 }
 
-// ListAccountAssignmentCreationStatus returns creation statuses.
+// ListAccountAssignmentCreationStatus returns creation statuses sorted by creation date descending.
 func (b *InMemoryBackend) ListAccountAssignmentCreationStatus(_ string) []*ProvisioningStatus {
 	b.mu.RLock("ListAccountAssignmentCreationStatus")
 	defer b.mu.RUnlock()
@@ -551,6 +600,9 @@ func (b *InMemoryBackend) ListAccountAssignmentCreationStatus(_ string) []*Provi
 		cp := *status
 		result = append(result, &cp)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedDate.After(result[j].CreatedDate)
+	})
 
 	return result
 }
@@ -598,6 +650,10 @@ func (b *InMemoryBackend) DeleteAccountAssignment(
 	}
 	b.assignments[key] = remaining
 
+	// Remove the idempotency index entry for this assignment.
+	idempotencyKey := key + "|" + accountID + "|" + principalType + "|" + principalID
+	delete(b.assignmentCreationIDs, idempotencyKey)
+
 	requestID := uuid.NewString()
 	b.deletionStatuses[requestID] = &ProvisioningStatus{
 		RequestID:   requestID,
@@ -626,7 +682,7 @@ func (b *InMemoryBackend) DescribeAccountAssignmentDeletionStatus(
 	return &cp, nil
 }
 
-// ListAccountAssignmentDeletionStatus returns deletion statuses.
+// ListAccountAssignmentDeletionStatus returns deletion statuses sorted by creation date descending.
 func (b *InMemoryBackend) ListAccountAssignmentDeletionStatus(_ string) []*ProvisioningStatus {
 	b.mu.RLock("ListAccountAssignmentDeletionStatus")
 	defer b.mu.RUnlock()
@@ -636,6 +692,9 @@ func (b *InMemoryBackend) ListAccountAssignmentDeletionStatus(_ string) []*Provi
 		cp := *status
 		result = append(result, &cp)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedDate.After(result[j].CreatedDate)
+	})
 
 	return result
 }
@@ -832,6 +891,40 @@ func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(_ string) []*Provi
 	return result
 }
 
+// validateTags validates tag keys and values against AWS limits.
+func validateTags(tags map[string]string) error {
+	for k, v := range tags {
+		if len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key exceeds maximum length of %d", awserr.ErrInvalidParameter, maxTagKeyLen)
+		}
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value exceeds maximum length of %d", awserr.ErrInvalidParameter, maxTagValueLen)
+		}
+	}
+
+	return nil
+}
+
+// applyTagsWithLimit applies tags to an existing map, enforcing the 50-tag limit.
+func applyTagsWithLimit(existing map[string]string, newTags map[string]string) error {
+	if err := validateTags(newTags); err != nil {
+		return err
+	}
+	// Count net-new keys (keys not already present).
+	netNew := 0
+	for k := range newTags {
+		if _, exists := existing[k]; !exists {
+			netNew++
+		}
+	}
+	if len(existing)+netNew > maxTagsPerResource {
+		return ErrTooManyTagsException
+	}
+	maps.Copy(existing, newTags)
+
+	return nil
+}
+
 // TagResource adds tags to a resource (permission set, instance, application, or trusted token issuer).
 func (b *InMemoryBackend) TagResource(instanceArn, resourceArn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
@@ -841,36 +934,32 @@ func (b *InMemoryBackend) TagResource(instanceArn, resourceArn string, tags map[
 		if ps.Tags == nil {
 			ps.Tags = make(map[string]string)
 		}
-		maps.Copy(ps.Tags, tags)
 
-		return nil
+		return applyTagsWithLimit(ps.Tags, tags)
 	}
 
 	if inst, ok := b.instances[resourceArn]; ok {
 		if inst.Tags == nil {
 			inst.Tags = make(map[string]string)
 		}
-		maps.Copy(inst.Tags, tags)
 
-		return nil
+		return applyTagsWithLimit(inst.Tags, tags)
 	}
 
 	if app, ok := b.applications[resourceArn]; ok && app.InstanceArn == instanceArn {
 		if app.Tags == nil {
 			app.Tags = make(map[string]string)
 		}
-		maps.Copy(app.Tags, tags)
 
-		return nil
+		return applyTagsWithLimit(app.Tags, tags)
 	}
 
 	if tti, ok := b.trustedTokenIssuers[resourceArn]; ok && tti.InstanceArn == instanceArn {
 		if tti.Tags == nil {
 			tti.Tags = make(map[string]string)
 		}
-		maps.Copy(tti.Tags, tags)
 
-		return nil
+		return applyTagsWithLimit(tti.Tags, tags)
 	}
 
 	return ErrInstanceNotFound
@@ -995,6 +1084,14 @@ func copyTrustedTokenIssuer(tti *TrustedTokenIssuer) *TrustedTokenIssuer {
 	cp := *tti
 	cp.Tags = make(map[string]string, len(tti.Tags))
 	maps.Copy(cp.Tags, tti.Tags)
+	if tti.TrustedTokenIssuerConfiguration != nil {
+		cfgCopy := *tti.TrustedTokenIssuerConfiguration
+		if tti.TrustedTokenIssuerConfiguration.OidcJwtConfiguration != nil {
+			oidcCopy := *tti.TrustedTokenIssuerConfiguration.OidcJwtConfiguration
+			cfgCopy.OidcJwtConfiguration = &oidcCopy
+		}
+		cp.TrustedTokenIssuerConfiguration = &cfgCopy
+	}
 
 	return &cp
 }
@@ -1089,10 +1186,15 @@ func (b *InMemoryBackend) AddRegion(instanceArn, regionName string) error {
 	if _, ok := b.instances[instanceArn]; !ok {
 		return ErrInstanceNotFound
 	}
-	if slices.Contains(b.instanceRegions[instanceArn], regionName) {
-		return nil
+	for _, r := range b.instanceRegions[instanceArn] {
+		if r.Region == regionName {
+			return nil
+		}
 	}
-	b.instanceRegions[instanceArn] = append(b.instanceRegions[instanceArn], regionName)
+	b.instanceRegions[instanceArn] = append(b.instanceRegions[instanceArn], RegionMetadata{
+		Region:          regionName,
+		RegionScopeType: regionScopeTypeAllRegions,
+	})
 
 	return nil
 }
@@ -1514,6 +1616,7 @@ func (b *InMemoryBackend) PutApplicationSessionConfiguration(applicationArn, ses
 }
 
 // CreateInstanceAccessControlAttributeConfiguration creates ABAC configuration for an SSO instance.
+// Returns ConflictException if a configuration already exists (use Update to modify).
 func (b *InMemoryBackend) CreateInstanceAccessControlAttributeConfiguration(
 	instanceArn string,
 	attributes []AccessControlAttribute,
@@ -1523,6 +1626,9 @@ func (b *InMemoryBackend) CreateInstanceAccessControlAttributeConfiguration(
 
 	if _, ok := b.instances[instanceArn]; !ok {
 		return ErrInstanceNotFound
+	}
+	if _, exists := b.instanceACAs[instanceArn]; exists {
+		return ErrACAAlreadyExists
 	}
 	b.instanceACAs[instanceArn] = &InstanceAccessControlAttributeConfiguration{
 		AccessControlAttributes: copyAccessControlAttributes(attributes),
@@ -1597,20 +1703,34 @@ func (b *InMemoryBackend) ListApplicationProviders() []*ApplicationProvider {
 func (b *InMemoryBackend) DescribeApplicationProvider(
 	applicationProviderArn string,
 ) (*ApplicationProvider, error) {
-	providers := b.ListApplicationProviders()
-	for _, provider := range providers {
-		if provider.ApplicationProviderArn == applicationProviderArn {
-			cp := *provider
+	b.mu.RLock("DescribeApplicationProvider")
+	defer b.mu.RUnlock()
 
-			return &cp, nil
+	// Check apps for a matching provider ARN.
+	seen := map[string]struct{}{
+		"arn:aws:sso::aws:applicationProvider/custom": {},
+	}
+	for _, app := range b.applications {
+		if app.ApplicationProviderArn != "" {
+			seen[app.ApplicationProviderArn] = struct{}{}
 		}
+	}
+	if _, ok := seen[applicationProviderArn]; ok {
+		return &ApplicationProvider{
+			ApplicationProviderArn: applicationProviderArn,
+			DisplayData:            "custom provider",
+		}, nil
 	}
 
 	return nil, ErrRequestNotFound
 }
 
 // CreateTrustedTokenIssuer creates a trusted token issuer within an SSO instance.
-func (b *InMemoryBackend) CreateTrustedTokenIssuer(instanceArn, name, issuerType string) (*TrustedTokenIssuer, error) {
+func (b *InMemoryBackend) CreateTrustedTokenIssuer(
+	instanceArn, name, issuerType string,
+	tags map[string]string,
+	cfg *TrustedTokenIssuerConfiguration,
+) (*TrustedTokenIssuer, error) {
 	b.mu.Lock("CreateTrustedTokenIssuer")
 	defer b.mu.Unlock()
 
@@ -1623,21 +1743,29 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(instanceArn, name, issuerType
 		}
 	}
 
+	if tags != nil {
+		if err := validateTags(tags); err != nil {
+			return nil, err
+		}
+	}
+
 	id := uuid.NewString()[:uuidShortLen]
 	instanceID := instanceARNToID(instanceArn)
 	arn := fmt.Sprintf("arn:aws:sso::%s:trustedTokenIssuer/%s/tti-%s", b.accountID, instanceID, id)
 	ti := &TrustedTokenIssuer{
-		TrustedTokenIssuerArn:  arn,
-		InstanceArn:            instanceArn,
-		Name:                   name,
-		TrustedTokenIssuerType: issuerType,
-		Tags:                   make(map[string]string),
+		TrustedTokenIssuerArn:           arn,
+		InstanceArn:                     instanceArn,
+		Name:                            name,
+		TrustedTokenIssuerType:          issuerType,
+		Tags:                            make(map[string]string),
+		TrustedTokenIssuerConfiguration: cfg,
+	}
+	if tags != nil {
+		maps.Copy(ti.Tags, tags)
 	}
 	b.trustedTokenIssuers[arn] = ti
-	cp := *ti
-	cp.Tags = make(map[string]string)
 
-	return &cp, nil
+	return copyTrustedTokenIssuer(ti), nil
 }
 
 // DeleteTrustedTokenIssuer deletes a trusted token issuer.
@@ -1779,9 +1907,9 @@ func (b *InMemoryBackend) RemoveRegion(instanceArn, regionName string) error {
 	}
 	regions := b.instanceRegions[instanceArn]
 	found := false
-	remaining := make([]string, 0, len(regions))
+	remaining := make([]RegionMetadata, 0, len(regions))
 	for _, r := range regions {
-		if r == regionName {
+		if r.Region == regionName {
 			found = true
 		} else {
 			remaining = append(remaining, r)
@@ -1796,7 +1924,7 @@ func (b *InMemoryBackend) RemoveRegion(instanceArn, regionName string) error {
 }
 
 // ListRegions returns the regions associated with an SSO instance.
-func (b *InMemoryBackend) ListRegions(instanceArn string) ([]string, error) {
+func (b *InMemoryBackend) ListRegions(instanceArn string) ([]RegionMetadata, error) {
 	b.mu.RLock("ListRegions")
 	defer b.mu.RUnlock()
 
@@ -1804,7 +1932,7 @@ func (b *InMemoryBackend) ListRegions(instanceArn string) ([]string, error) {
 		return nil, ErrInstanceNotFound
 	}
 	regions := b.instanceRegions[instanceArn]
-	result := make([]string, len(regions))
+	result := make([]RegionMetadata, len(regions))
 	copy(result, regions)
 
 	return result, nil
@@ -1871,4 +1999,60 @@ func (b *InMemoryBackend) DetachCustomerManagedPolicyReferenceFromPermissionSet(
 	b.customerManagedPolicies[permissionSetArn] = remaining
 
 	return nil
+}
+
+// ListPermissionSetsProvisionedToAccount returns the permission set ARNs provisioned to a specific account.
+func (b *InMemoryBackend) ListPermissionSetsProvisionedToAccount(instanceArn, accountID string) []string {
+b.mu.RLock("ListPermissionSetsProvisionedToAccount")
+defer b.mu.RUnlock()
+
+seen := map[string]struct{}{}
+for key, assignments := range b.assignments {
+// key format: instanceArn|permissionSetArn
+if !strings.HasPrefix(key, instanceArn+"|") {
+continue
+}
+for _, a := range assignments {
+if a.AccountID == accountID {
+psArn := strings.TrimPrefix(key, instanceArn+"|")
+seen[psArn] = struct{}{}
+}
+}
+}
+result := make([]string, 0, len(seen))
+for psArn := range seen {
+result = append(result, psArn)
+}
+sort.Strings(result)
+
+return result
+}
+
+// ListAccountAssignmentsForPrincipal returns account assignments for a specific principal.
+func (b *InMemoryBackend) ListAccountAssignmentsForPrincipal(
+instanceArn, principalID, principalType string,
+) []*AccountAssignment {
+b.mu.RLock("ListAccountAssignmentsForPrincipal")
+defer b.mu.RUnlock()
+
+var result []*AccountAssignment
+for key, assignments := range b.assignments {
+if !strings.HasPrefix(key, instanceArn+"|") {
+continue
+}
+for _, a := range assignments {
+if a.PrincipalID == principalID && a.PrincipalType == principalType {
+cp := *a
+result = append(result, &cp)
+}
+}
+}
+sort.Slice(result, func(i, j int) bool {
+if result[i].AccountID != result[j].AccountID {
+return result[i].AccountID < result[j].AccountID
+}
+return result[i].PermissionSetArn < result[j].PermissionSetArn
+})
+
+return result
 }

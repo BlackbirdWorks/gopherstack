@@ -82,6 +82,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListAccountAssignmentCreationStatus",
 		"ListAccountAssignmentDeletionStatus",
 		"ListAccountAssignments",
+		"ListAccountAssignmentsForPrincipal",
 		"ListApplicationAccessScopes",
 		"ListApplicationAssignments",
 		"ListApplicationAuthenticationMethods",
@@ -93,6 +94,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListManagedPoliciesInPermissionSet",
 		"ListPermissionSetProvisioningStatus",
 		"ListPermissionSets",
+		"ListPermissionSetsProvisionedToAccount",
 		"ListRegions",
 		"ListTagsForResource",
 		"ListTrustedTokenIssuers",
@@ -302,6 +304,10 @@ func (h *Handler) dispatchNewestOps(c *echo.Context, op string, body []byte) err
 		return h.handleListAccountAssignmentCreationStatus(c, body)
 	case "ListAccountAssignmentDeletionStatus":
 		return h.handleListAccountAssignmentDeletionStatus(c, body)
+	case "ListAccountAssignmentsForPrincipal":
+		return h.handleListAccountAssignmentsForPrincipal(c, body)
+	case "ListPermissionSetsProvisionedToAccount":
+		return h.handleListPermissionSetsProvisionedToAccount(c, body)
 	default:
 		return h.dispatchNewestAppOps(c, op, body)
 	}
@@ -485,6 +491,7 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 		"IdentityStoreId": inst.IdentityStoreID,
 		"Name":            inst.Name,
 		"Status":          inst.Status,
+		"CreatedDate":     float64(inst.CreatedDate.Unix()),
 	})
 }
 
@@ -1019,6 +1026,11 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.TagResource(req.InstanceArn, req.ResourceArn, tags); err != nil {
+		if errors.Is(err, ErrTooManyTagsException) {
+			return writeError(c, http.StatusBadRequest, "TooManyTagsException",
+				"you have exceeded the maximum number of tags (50) for this resource")
+		}
+
 		return handleBackendError(c, err, "resource not found: "+req.ResourceArn)
 	}
 
@@ -1342,6 +1354,11 @@ func (h *Handler) handleCreateInstanceAccessControlAttributeConfiguration(c *ech
 	}
 
 	if err := h.Backend.CreateInstanceAccessControlAttributeConfiguration(req.InstanceArn, attrs); err != nil {
+		if errors.Is(err, ErrACAAlreadyExists) {
+			return writeError(c, http.StatusConflict, "ConflictException",
+				"instance access control attribute configuration already exists for: "+req.InstanceArn)
+		}
+
 		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
 	}
 
@@ -1350,9 +1367,18 @@ func (h *Handler) handleCreateInstanceAccessControlAttributeConfiguration(c *ech
 
 func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) error {
 	var req struct {
-		InstanceArn            string `json:"InstanceArn"`
-		Name                   string `json:"Name"`
-		TrustedTokenIssuerType string `json:"TrustedTokenIssuerType"`
+		InstanceArn            string    `json:"InstanceArn"`
+		Name                   string    `json:"Name"`
+		TrustedTokenIssuerType string    `json:"TrustedTokenIssuerType"`
+		Tags                   []tagView `json:"Tags"`
+		TrustedTokenIssuerConfiguration *struct {
+			OidcJwtConfiguration *struct {
+				IssuerURL                  string `json:"IssuerUrl"`
+				ClaimAttributePath         string `json:"ClaimAttributePath"`
+				IdentityStoreAttributePath string `json:"IdentityStoreAttributePath"`
+				JwksRetrievalOption        string `json:"JwksRetrievalOption"`
+			} `json:"OidcJwtConfiguration,omitempty"`
+		} `json:"TrustedTokenIssuerConfiguration,omitempty"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -1364,10 +1390,29 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		return writeError(c, http.StatusBadRequest, "ValidationException", "Name is required")
 	}
 	if req.TrustedTokenIssuerType == "" {
-		req.TrustedTokenIssuerType = "OIDC_JWT"
+		req.TrustedTokenIssuerType = defaultTrustedTokenIssuerType
 	}
 
-	ti, err := h.Backend.CreateTrustedTokenIssuer(req.InstanceArn, req.Name, req.TrustedTokenIssuerType)
+	tags := make(map[string]string, len(req.Tags))
+	for _, t := range req.Tags {
+		tags[t.Key] = t.Value
+	}
+
+	var cfg *TrustedTokenIssuerConfiguration
+	if req.TrustedTokenIssuerConfiguration != nil {
+		cfg = &TrustedTokenIssuerConfiguration{}
+		if req.TrustedTokenIssuerConfiguration.OidcJwtConfiguration != nil {
+			oidcSrc := req.TrustedTokenIssuerConfiguration.OidcJwtConfiguration
+			cfg.OidcJwtConfiguration = &OidcJwtConfiguration{
+				IssuerURL:                  oidcSrc.IssuerURL,
+				ClaimAttributePath:         oidcSrc.ClaimAttributePath,
+				IdentityStoreAttributePath: oidcSrc.IdentityStoreAttributePath,
+				JwksRetrievalOption:        oidcSrc.JwksRetrievalOption,
+			}
+		}
+	}
+
+	ti, err := h.Backend.CreateTrustedTokenIssuer(req.InstanceArn, req.Name, req.TrustedTokenIssuerType, tags, cfg)
 	if err != nil {
 		if errors.Is(err, ErrTrustedTokenIssuerAlreadyExists) {
 			return writeError(
@@ -1383,12 +1428,6 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"TrustedTokenIssuerArn": ti.TrustedTokenIssuerArn,
-		"TrustedTokenIssuer": trustedTokenIssuerView{
-			TrustedTokenIssuerArn:  ti.TrustedTokenIssuerArn,
-			Name:                   ti.Name,
-			InstanceArn:            ti.InstanceArn,
-			TrustedTokenIssuerType: ti.TrustedTokenIssuerType,
-		},
 	})
 }
 
@@ -1420,15 +1459,22 @@ func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error 
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
+	tagList := make([]tagView, 0, len(app.Tags))
+	for k, v := range app.Tags {
+		tagList = append(tagList, tagView{Key: k, Value: v})
+	}
+	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Application": applicationView{
-			ApplicationArn:         app.ApplicationArn,
-			ApplicationProviderArn: app.ApplicationProviderArn,
-			Name:                   app.Name,
-			Description:            app.Description,
-			InstanceArn:            app.InstanceArn,
-			Status:                 app.Status,
-			CreatedDate:            float64(app.CreatedDate.Unix()),
+		"Application": map[string]any{
+			"ApplicationArn":         app.ApplicationArn,
+			"ApplicationProviderArn": app.ApplicationProviderArn,
+			"Name":                   app.Name,
+			"Description":            app.Description,
+			"InstanceArn":            app.InstanceArn,
+			"Status":                 app.Status,
+			"CreatedDate":            float64(app.CreatedDate.Unix()),
+			"Tags":                   tagList,
 		},
 	})
 }
@@ -1761,13 +1807,28 @@ func (h *Handler) handleDescribeTrustedTokenIssuer(c *echo.Context, body []byte)
 		return handleBackendError(c, err, "trusted token issuer not found")
 	}
 
+	ttiMap := map[string]any{
+		"TrustedTokenIssuerArn":  issuer.TrustedTokenIssuerArn,
+		"Name":                   issuer.Name,
+		"InstanceArn":            issuer.InstanceArn,
+		"TrustedTokenIssuerType": issuer.TrustedTokenIssuerType,
+	}
+	if issuer.TrustedTokenIssuerConfiguration != nil {
+		cfgMap := map[string]any{}
+		if issuer.TrustedTokenIssuerConfiguration.OidcJwtConfiguration != nil {
+			oidc := issuer.TrustedTokenIssuerConfiguration.OidcJwtConfiguration
+			cfgMap["OidcJwtConfiguration"] = map[string]any{
+				"IssuerUrl":                  oidc.IssuerURL,
+				"ClaimAttributePath":         oidc.ClaimAttributePath,
+				"IdentityStoreAttributePath": oidc.IdentityStoreAttributePath,
+				"JwksRetrievalOption":        oidc.JwksRetrievalOption,
+			}
+		}
+		ttiMap["TrustedTokenIssuerConfiguration"] = cfgMap
+	}
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"TrustedTokenIssuer": trustedTokenIssuerView{
-			TrustedTokenIssuerArn:  issuer.TrustedTokenIssuerArn,
-			Name:                   issuer.Name,
-			InstanceArn:            issuer.InstanceArn,
-			TrustedTokenIssuerType: issuer.TrustedTokenIssuerType,
-		},
+		"TrustedTokenIssuer": ttiMap,
 	})
 }
 
@@ -2107,8 +2168,16 @@ func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
 		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
 	}
 
+	out := make([]map[string]any, 0, len(regions))
+	for _, r := range regions {
+		out = append(out, map[string]any{
+			"Region":          r.Region,
+			"RegionScopeType": r.RegionScopeType,
+		})
+	}
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Regions":   regions,
+		"Regions":   out,
 		"NextToken": nil,
 	})
 }
@@ -2197,4 +2266,64 @@ func (h *Handler) handleDetachCustomerManagedPolicyReferenceFromPermissionSet(
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleListPermissionSetsProvisionedToAccount(c *echo.Context, body []byte) error {
+var req struct {
+InstanceArn string `json:"InstanceArn"`
+AccountID   string `json:"AccountId"`
+}
+if err := json.Unmarshal(body, &req); err != nil {
+return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+}
+if req.InstanceArn == "" {
+return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+}
+if req.AccountID == "" {
+return writeError(c, http.StatusBadRequest, "ValidationException", "AccountId is required")
+}
+
+arns := h.Backend.ListPermissionSetsProvisionedToAccount(req.InstanceArn, req.AccountID)
+
+return writeJSON(c, http.StatusOK, map[string]any{
+"PermissionSets": arns,
+"NextToken":      nil,
+})
+}
+
+func (h *Handler) handleListAccountAssignmentsForPrincipal(c *echo.Context, body []byte) error {
+var req struct {
+InstanceArn   string `json:"InstanceArn"`
+PrincipalID   string `json:"PrincipalId"`
+PrincipalType string `json:"PrincipalType"`
+}
+if err := json.Unmarshal(body, &req); err != nil {
+return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+}
+if req.InstanceArn == "" {
+return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+}
+if req.PrincipalID == "" {
+return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalId is required")
+}
+if req.PrincipalType == "" {
+return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalType is required")
+}
+
+assignments := h.Backend.ListAccountAssignmentsForPrincipal(req.InstanceArn, req.PrincipalID, req.PrincipalType)
+
+views := make([]assignmentView, 0, len(assignments))
+for _, a := range assignments {
+views = append(views, assignmentView{
+AccountID:        a.AccountID,
+PermissionSetArn: a.PermissionSetArn,
+PrincipalID:      a.PrincipalID,
+PrincipalType:    a.PrincipalType,
+})
+}
+
+return writeJSON(c, http.StatusOK, map[string]any{
+"AccountAssignments": views,
+"NextToken":          nil,
+})
 }
