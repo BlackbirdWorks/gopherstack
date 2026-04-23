@@ -267,6 +267,74 @@ func TestInMemoryBackend_DescribeUserPoolClient(t *testing.T) {
 	}
 }
 
+func TestInMemoryBackend_ListUserPoolClients(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		primaryNames     []string
+		secondaryNames   []string
+		wantNames        []string
+		deletePrimaryIdx int
+	}{
+		{
+			name:             "list_only_primary_pool_clients",
+			primaryNames:     []string{"web", "ios"},
+			secondaryNames:   []string{"android"},
+			deletePrimaryIdx: -1,
+			wantNames:        []string{"ios", "web"},
+		},
+		{
+			name:             "deleted_client_removed_from_indexed_listing",
+			primaryNames:     []string{"web", "ios"},
+			secondaryNames:   []string{"android"},
+			deletePrimaryIdx: 0,
+			wantNames:        []string{"ios"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			primaryPool, err := b.CreateUserPool("primary-pool")
+			require.NoError(t, err)
+
+			secondaryPool, err := b.CreateUserPool("secondary-pool")
+			require.NoError(t, err)
+
+			primaryIDs := make([]string, 0, len(tt.primaryNames))
+			for _, clientName := range tt.primaryNames {
+				client, createErr := b.CreateUserPoolClient(primaryPool.ID, clientName)
+				require.NoError(t, createErr)
+				primaryIDs = append(primaryIDs, client.ClientID)
+			}
+
+			for _, clientName := range tt.secondaryNames {
+				_, createErr := b.CreateUserPoolClient(secondaryPool.ID, clientName)
+				require.NoError(t, createErr)
+			}
+
+			if tt.deletePrimaryIdx >= 0 {
+				require.NoError(t, b.DeleteUserPoolClient(primaryPool.ID, primaryIDs[tt.deletePrimaryIdx]))
+			}
+
+			clients, listErr := b.ListUserPoolClients(primaryPool.ID)
+			require.NoError(t, listErr)
+			require.Len(t, clients, len(tt.wantNames))
+
+			gotNames := make([]string, 0, len(clients))
+			for _, client := range clients {
+				assert.Equal(t, primaryPool.ID, client.UserPoolID)
+				gotNames = append(gotNames, client.ClientName)
+			}
+
+			assert.Equal(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
 func TestInMemoryBackend_SignUp(t *testing.T) {
 	t.Parallel()
 
@@ -849,6 +917,368 @@ func TestInMemoryBackend_GetUserPoolJWKS(t *testing.T) {
 			assert.Equal(t, "sig", jwks.Keys[0].Use)
 			assert.NotEmpty(t, jwks.Keys[0].N)
 			assert.NotEmpty(t, jwks.Keys[0].E)
+		})
+	}
+}
+
+func TestInMemoryBackend_UpdateUserPool(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget        error
+		setup            func(b *cognitoidp.InMemoryBackend) string
+		name             string
+		mfaConfiguration string
+		wantMfa          string
+		wantErr          bool
+	}{
+		{
+			name: "update_mfa_to_optional",
+			setup: func(b *cognitoidp.InMemoryBackend) string {
+				p, _ := b.CreateUserPool("pool")
+
+				return p.ID
+			},
+			mfaConfiguration: "OPTIONAL",
+			wantMfa:          "OPTIONAL",
+		},
+		{
+			name: "pool_not_found",
+			setup: func(_ *cognitoidp.InMemoryBackend) string {
+				return "us-east-1_missing"
+			},
+			mfaConfiguration: "ON",
+			wantErr:          true,
+			errTarget:        cognitoidp.ErrUserPoolNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolID := tt.setup(b)
+
+			err := b.UpdateUserPool(poolID, tt.mfaConfiguration)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			pool, descErr := b.DescribeUserPool(poolID)
+			require.NoError(t, descErr)
+			assert.Equal(t, tt.wantMfa, pool.MfaConfiguration)
+		})
+	}
+}
+
+func TestInMemoryBackend_UpdateUserPoolClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		setup     func(b *cognitoidp.InMemoryBackend) (string, string)
+		name      string
+		newName   string
+		wantErr   bool
+	}{
+		{
+			name: "update_client_name",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				p, _ := b.CreateUserPool("pool")
+				c, _ := b.CreateUserPoolClient(p.ID, "old-name")
+
+				return p.ID, c.ClientID
+			},
+			newName: "new-name",
+		},
+		{
+			name: "client_not_found",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				p, _ := b.CreateUserPool("pool")
+
+				return p.ID, "nonexistent"
+			},
+			newName:   "x",
+			wantErr:   true,
+			errTarget: cognitoidp.ErrClientNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolID, clientID := tt.setup(b)
+
+			client, err := b.UpdateUserPoolClient(poolID, clientID, tt.newName)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.newName, client.ClientName)
+		})
+	}
+}
+
+func TestInMemoryBackend_AdminResetUserPassword(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		setup     func(b *cognitoidp.InMemoryBackend) (string, string)
+		name      string
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				p, _ := b.CreateUserPool("pool")
+				u, _ := b.AdminCreateUser(p.ID, "alice", "TempPass1!", nil)
+				_ = b.AdminSetUserPassword(p.ID, u.Username, "Perm1Pass!", true)
+
+				return p.ID, u.Username
+			},
+		},
+		{
+			name: "user_not_found",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				p, _ := b.CreateUserPool("pool")
+
+				return p.ID, "nobody"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolID, username := tt.setup(b)
+
+			err := b.AdminResetUserPassword(poolID, username)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			u, getErr := b.AdminGetUser(poolID, username)
+			require.NoError(t, getErr)
+			assert.Equal(t, cognitoidp.UserStatusForceChangePassword, u.Status)
+		})
+	}
+}
+
+func TestInMemoryBackend_GetGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		setup     func(b *cognitoidp.InMemoryBackend) (string, string)
+		name      string
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				p, _ := b.CreateUserPool("pool")
+				g, _ := b.CreateGroup(p.ID, "admins", "admin group", 0)
+
+				return p.ID, g.GroupName
+			},
+		},
+		{
+			name: "group_not_found",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				p, _ := b.CreateUserPool("pool")
+
+				return p.ID, "nonexistent"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrGroupNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolID, groupName := tt.setup(b)
+
+			g, err := b.GetGroup(poolID, groupName)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, groupName, g.GroupName)
+		})
+	}
+}
+
+func TestInMemoryBackend_ListUsersFiltered(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		name      string
+		filter    string
+		wantNames []string
+		wantCount int
+		wantErr   bool
+	}{
+		{
+			name:      "no_filter_returns_all",
+			filter:    "",
+			wantCount: 3,
+		},
+		{
+			name:      "username_prefix_filter",
+			filter:    `username ^= "ali"`,
+			wantCount: 1,
+			wantNames: []string{"alice"},
+		},
+		{
+			name:      "username_wildcard_filter",
+			filter:    `username = "bob*"`,
+			wantCount: 1,
+			wantNames: []string{"bob"},
+		},
+		{
+			name:      "no_match",
+			filter:    `username ^= "zzz"`,
+			wantCount: 0,
+		},
+		{
+			name:      "pool_not_found",
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserPoolNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			if !tt.wantErr {
+				p, _ := b.CreateUserPool("pool")
+				_, _ = b.AdminCreateUser(p.ID, "alice", "Pass1!", nil)
+				_, _ = b.AdminCreateUser(p.ID, "bob", "Pass1!", nil)
+				_, _ = b.AdminCreateUser(p.ID, "charlie", "Pass1!", nil)
+
+				users, err := b.ListUsersFiltered(p.ID, tt.filter)
+				require.NoError(t, err)
+				assert.Len(t, users, tt.wantCount)
+
+				if len(tt.wantNames) > 0 {
+					names := make([]string, 0, len(users))
+					for _, u := range users {
+						names = append(names, u.Username)
+					}
+					assert.Equal(t, tt.wantNames, names)
+				}
+
+				return
+			}
+
+			_, err := b.ListUsersFiltered("us-east-1_missing", tt.filter)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tt.errTarget)
+		})
+	}
+}
+
+func TestInMemoryBackend_DeleteRefreshTokensForClientCleansUserIndex(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	p, _ := b.CreateUserPool("pool")
+	c, _ := b.CreateUserPoolClient(p.ID, "client")
+	_, _ = b.AdminCreateUser(p.ID, "alice", "TempPass1!", nil)
+
+	// Authenticate to create a refresh token.
+	_ = b.AdminSetUserPassword(p.ID, "alice", "Perm1Pass!", true)
+	auth, err := b.AdminInitiateAuth(p.ID, c.ClientID, "ADMIN_USER_PASSWORD_AUTH", "alice", "Perm1Pass!")
+	require.NoError(t, err)
+	require.NotEmpty(t, auth.RefreshToken)
+
+	assert.Equal(t, 1, b.RefreshTokenCount())
+
+	// Delete the client; should clean up both refreshTokensByClient and refreshTokensByUser.
+	require.NoError(t, b.DeleteUserPoolClient(p.ID, c.ClientID))
+
+	assert.Equal(t, 0, b.RefreshTokenCount())
+}
+
+func TestInMemoryBackend_GetPoolMetrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		name      string
+		wantErr   bool
+	}{
+		{
+			name: "success",
+		},
+		{
+			name:      "pool_not_found",
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserPoolNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			if !tt.wantErr {
+				p, _ := b.CreateUserPool("pool")
+				_, _ = b.AdminCreateUser(p.ID, "user1", "Pass1!", nil)
+				_, _ = b.CreateUserPoolClient(p.ID, "client1")
+				_, _ = b.CreateGroup(p.ID, "grp", "", 0)
+
+				m, err := b.GetPoolMetrics(p.ID)
+				require.NoError(t, err)
+				assert.Equal(t, 1, m.UserCount)
+				assert.Equal(t, 1, m.ClientCount)
+				assert.Equal(t, 1, m.GroupCount)
+
+				return
+			}
+
+			_, err := b.GetPoolMetrics("us-east-1_missing")
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tt.errTarget)
 		})
 	}
 }

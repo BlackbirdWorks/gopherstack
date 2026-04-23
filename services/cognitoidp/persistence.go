@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 )
 
 var (
@@ -24,12 +25,14 @@ type userPoolSnapshot struct {
 	IssuerURL        string            `json:"issuerUrl"`
 	KeyID            string            `json:"keyId"`
 	PrivKeyPEM       string            `json:"privKeyPem"`
+	MfaConfiguration string            `json:"mfaConfiguration,omitempty"`
 	CustomAttributes []SchemaAttribute `json:"customAttributes,omitempty"`
 }
 
 // userSnapshot is a copy of User safe for JSON serialization.
 type userSnapshot struct {
 	CreatedAt    string            `json:"createdAt"`
+	UpdatedAt    string            `json:"updatedAt,omitempty"`
 	Attributes   map[string]string `json:"attributes,omitempty"`
 	Sub          string            `json:"sub"`
 	Username     string            `json:"username"`
@@ -110,6 +113,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			KeyID:            p.issuer.keyID,
 			PrivKeyPEM:       pem,
 			CustomAttributes: p.CustomAttributes,
+			MfaConfiguration: p.MfaConfiguration,
 		}
 	}
 
@@ -120,6 +124,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		for username, u := range poolUsers {
 			snaps[username] = &userSnapshot{
 				CreatedAt:    u.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				UpdatedAt:    u.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 				Attributes:   u.Attributes,
 				Sub:          u.Sub,
 				Username:     u.Username,
@@ -164,21 +169,139 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
-	// Reconstruct UserPool objects from snapshots (requires RSA key reconstruction).
-	pools := make(map[string]*UserPool, len(snap.Pools))
-	poolsByName := make(map[string]*UserPool, len(snap.Pools))
+	normalizeBackendSnapshot(&snap)
 
-	for id, ps := range snap.Pools {
+	pools, poolsByName, err := restorePoolsFromSnapshot(snap.Pools)
+	if err != nil {
+		return err
+	}
+
+	users := restoreUsersFromSnapshot(snap.Users)
+
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
+	b.pools = pools
+	b.poolsByName = poolsByName
+	b.users = users
+	b.usersBySub = buildUsersBySubIndex(users)
+	b.clients = snap.Clients
+	b.clientsByPool = buildClientsByPoolIndex(b.clients)
+	b.refreshTokens = snap.RefreshTokens
+	b.refreshTokensByClient = buildRefreshTokensByClientIndex(b.refreshTokens)
+	b.refreshTokensByUser = buildRefreshTokensByUserIndex(b.refreshTokens)
+	b.groups = snap.Groups
+	b.groupMembers = snap.GroupMembers
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+	b.endpoint = snap.Endpoint
+
+	return nil
+}
+
+func buildUsersBySubIndex(users map[string]map[string]*User) map[string]string {
+	index := make(map[string]string)
+	for poolID, poolUsers := range users {
+		for _, u := range poolUsers {
+			if u.Sub != "" {
+				index[poolID+":"+u.Sub] = u.Username
+			}
+		}
+	}
+
+	return index
+}
+
+func buildClientsByPoolIndex(clients map[string]*UserPoolClient) map[string]map[string]*UserPoolClient {
+	index := make(map[string]map[string]*UserPoolClient)
+	for _, client := range clients {
+		if index[client.UserPoolID] == nil {
+			index[client.UserPoolID] = make(map[string]*UserPoolClient)
+		}
+
+		index[client.UserPoolID][client.ClientID] = client
+	}
+
+	return index
+}
+
+func buildRefreshTokensByClientIndex(
+	refreshTokens map[string]*refreshTokenEntry,
+) map[string]map[string]struct{} {
+	index := make(map[string]map[string]struct{})
+	for token, entry := range refreshTokens {
+		if index[entry.ClientID] == nil {
+			index[entry.ClientID] = make(map[string]struct{})
+		}
+
+		index[entry.ClientID][token] = struct{}{}
+	}
+
+	return index
+}
+
+func buildRefreshTokensByUserIndex(
+	refreshTokens map[string]*refreshTokenEntry,
+) map[string]map[string]struct{} {
+	index := make(map[string]map[string]struct{})
+	for token, entry := range refreshTokens {
+		userKey := entry.PoolID + ":" + entry.Username
+		if index[userKey] == nil {
+			index[userKey] = make(map[string]struct{})
+		}
+
+		index[userKey][token] = struct{}{}
+	}
+
+	return index
+}
+
+func normalizeBackendSnapshot(snap *backendSnapshot) {
+	if snap.Clients == nil {
+		snap.Clients = make(map[string]*UserPoolClient)
+	}
+
+	if snap.RefreshTokens == nil {
+		snap.RefreshTokens = make(map[string]*refreshTokenEntry)
+	}
+
+	defaultExpiry := time.Now().UTC().Add(defaultRefreshTokenTTL)
+	for _, entry := range snap.RefreshTokens {
+		if entry.ExpiresAt.IsZero() {
+			entry.ExpiresAt = defaultExpiry
+		}
+	}
+
+	if snap.Groups == nil {
+		snap.Groups = make(map[string]map[string]*Group)
+	}
+
+	if snap.GroupMembers == nil {
+		snap.GroupMembers = make(map[string]map[string]map[string]struct{})
+	}
+}
+
+func restorePoolsFromSnapshot(
+	poolSnapshots map[string]*userPoolSnapshot,
+) (map[string]*UserPool, map[string]*UserPool, error) {
+	pools := make(map[string]*UserPool, len(poolSnapshots))
+	poolsByName := make(map[string]*UserPool, len(poolSnapshots))
+
+	for id, ps := range poolSnapshots {
 		rsaKey, err := unmarshalRSAKey(ps.PrivKeyPEM)
 		if err != nil {
-			return fmt.Errorf("restoring user pool %q: %w", id, err)
+			return nil, nil, fmt.Errorf("restoring user pool %q: %w", id, err)
 		}
+
+		createdAt, _ := time.Parse("2006-01-02T15:04:05Z", ps.CreatedAt)
 
 		pool := &UserPool{
 			ID:               ps.ID,
 			Name:             ps.Name,
 			ARN:              ps.ARN,
+			CreatedAt:        createdAt,
 			CustomAttributes: ps.CustomAttributes,
+			MfaConfiguration: ps.MfaConfiguration,
 		}
 
 		if rsaKey != nil {
@@ -189,13 +312,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		poolsByName[ps.Name] = pool
 	}
 
-	// Reconstruct User objects from snapshots.
-	users := make(map[string]map[string]*User, len(snap.Users))
-	for poolID, poolUsers := range snap.Users {
-		pUsers := make(map[string]*User, len(poolUsers))
+	return pools, poolsByName, nil
+}
 
-		for username, us := range poolUsers {
-			pUsers[username] = &User{
+func restoreUsersFromSnapshot(poolUsers map[string]map[string]*userSnapshot) map[string]map[string]*User {
+	users := make(map[string]map[string]*User, len(poolUsers))
+	for poolID, usersByName := range poolUsers {
+		restored := make(map[string]*User, len(usersByName))
+		for username, us := range usersByName {
+			createdAt, _ := time.Parse("2006-01-02T15:04:05Z", us.CreatedAt)
+			updatedAt, _ := time.Parse("2006-01-02T15:04:05Z", us.UpdatedAt)
+
+			if updatedAt.IsZero() {
+				updatedAt = createdAt
+			}
+
+			restored[username] = &User{
+				CreatedAt:    createdAt,
+				UpdatedAt:    updatedAt,
 				Attributes:   us.Attributes,
 				Sub:          us.Sub,
 				Username:     us.Username,
@@ -207,40 +341,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			}
 		}
 
-		users[poolID] = pUsers
+		users[poolID] = restored
 	}
 
-	if snap.Clients == nil {
-		snap.Clients = make(map[string]*UserPoolClient)
-	}
-
-	if snap.RefreshTokens == nil {
-		snap.RefreshTokens = make(map[string]*refreshTokenEntry)
-	}
-
-	if snap.Groups == nil {
-		snap.Groups = make(map[string]map[string]*Group)
-	}
-
-	if snap.GroupMembers == nil {
-		snap.GroupMembers = make(map[string]map[string]map[string]struct{})
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.pools = pools
-	b.poolsByName = poolsByName
-	b.users = users
-	b.clients = snap.Clients
-	b.refreshTokens = snap.RefreshTokens
-	b.groups = snap.Groups
-	b.groupMembers = snap.GroupMembers
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-	b.endpoint = snap.Endpoint
-
-	return nil
+	return users
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
