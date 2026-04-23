@@ -773,6 +773,108 @@ func (b *InMemoryBackend) MergeDeveloperIdentities(
 	return cloneIdentity(destIdentity), nil
 }
 
+// UnlinkIdentity removes login providers from an identity after validating
+// the supplied login tokens.
+func (b *InMemoryBackend) UnlinkIdentity(
+	identityID string,
+	logins map[string]string,
+	loginsToRemove []string,
+) error {
+	if identityID == "" {
+		return fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
+	}
+
+	if len(loginsToRemove) == 0 {
+		return fmt.Errorf("%w: LoginsToRemove must not be empty", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UnlinkIdentity")
+	defer b.mu.Unlock()
+
+	identity, ok := b.identities[identityID]
+	if !ok {
+		return fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
+	}
+
+	for _, providerName := range loginsToRemove {
+		loginToken, hasLoginToken := logins[providerName]
+		if !hasLoginToken {
+			return fmt.Errorf("%w: login token for provider %q is required", ErrInvalidParameter, providerName)
+		}
+
+		identityToken, exists := identity.Logins[providerName]
+		if !exists {
+			return fmt.Errorf("%w: provider %q not linked to identity", ErrIdentityPoolNotFound, providerName)
+		}
+
+		if identityToken != loginToken {
+			return fmt.Errorf("%w: invalid login token for provider %q", ErrNotAuthorized, providerName)
+		}
+
+		delete(identity.Logins, providerName)
+	}
+
+	return nil
+}
+
+// UnlinkDeveloperIdentity removes a developer-provider association from an identity.
+func (b *InMemoryBackend) UnlinkDeveloperIdentity(
+	identityID string,
+	poolID string,
+	developerProviderName string,
+	developerUserIdentifier string,
+) error {
+	if identityID == "" {
+		return fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
+	}
+
+	if poolID == "" {
+		return fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
+	if developerProviderName == "" {
+		return fmt.Errorf("%w: DeveloperProviderName is required", ErrInvalidParameter)
+	}
+
+	if developerUserIdentifier == "" {
+		return fmt.Errorf("%w: DeveloperUserIdentifier is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UnlinkDeveloperIdentity")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[poolID]; !ok {
+		return fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
+	}
+
+	identity, ok := b.identities[identityID]
+	if !ok {
+		return fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
+	}
+
+	if identity.IdentityPoolID != poolID {
+		return fmt.Errorf("%w: identity %q not found in pool %q", ErrIdentityPoolNotFound, identityID, poolID)
+	}
+
+	existingUserIdentifier, ok := identity.Logins[developerProviderName]
+	if !ok {
+		return fmt.Errorf("%w: provider %q not linked to identity", ErrIdentityPoolNotFound, developerProviderName)
+	}
+
+	if existingUserIdentifier != developerUserIdentifier {
+		return fmt.Errorf(
+			"%w: developer user identifier %q not linked to provider %q",
+			ErrIdentityPoolNotFound,
+			developerUserIdentifier,
+			developerProviderName,
+		)
+	}
+
+	delete(identity.Logins, developerProviderName)
+
+	return nil
+}
+
 // SetPrincipalTagAttributeMap configures principal tag attribute mappings for a pool and provider.
 func (b *InMemoryBackend) SetPrincipalTagAttributeMap(
 	poolID string,

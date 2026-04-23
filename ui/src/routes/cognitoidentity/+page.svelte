@@ -8,6 +8,10 @@
 		CreateIdentityPoolCommand,
 		DeleteIdentityPoolCommand,
 		GetIdentityPoolRolesCommand,
+		GetPrincipalTagAttributeMapCommand,
+		LookupDeveloperIdentityCommand,
+		MergeDeveloperIdentitiesCommand,
+		SetPrincipalTagAttributeMapCommand,
 		type IdentityPoolShortDescription,
 		type IdentityPool
 	} from '@aws-sdk/client-cognito-identity';
@@ -38,6 +42,19 @@
 	let newPoolName = $state('');
 	let newPoolUnauthenticated = $state(false);
 	let newPoolCognitoProvider = $state('');
+	let principalProviderName = $state('');
+	let principalUseDefaults = $state(true);
+	let principalTagsText = $state('');
+	let savingPrincipalTags = $state(false);
+	let lookingUpDeveloperIdentity = $state(false);
+	let mergingDeveloperIdentities = $state(false);
+	let lookupIdentityID = $state('');
+	let lookupDeveloperUserIdentifier = $state('');
+	let developerProviderName = $state('');
+	let lookupResultIdentityID = $state('');
+	let lookupResultDeveloperUsers = $state<string[]>([]);
+	let mergeSourceUserIdentifier = $state('');
+	let mergeDestinationUserIdentifier = $state('');
 
 	const filteredPools = $derived(
 		identityPools.filter(
@@ -64,6 +81,16 @@
 		loadingDetail = true;
 		selectedPool = null;
 		poolRoles = {};
+		principalProviderName = '';
+		principalUseDefaults = true;
+		principalTagsText = '';
+		lookupIdentityID = '';
+		lookupDeveloperUserIdentifier = '';
+		developerProviderName = '';
+		lookupResultIdentityID = '';
+		lookupResultDeveloperUsers = [];
+		mergeSourceUserIdentifier = '';
+		mergeDestinationUserIdentifier = '';
 		try {
 			const [detailRes, rolesRes] = await Promise.all([
 				cognitoId.send(new DescribeIdentityPoolCommand({ IdentityPoolId: pool.IdentityPoolId })),
@@ -120,6 +147,119 @@
 			toast.error(`Failed to create pool: ${e}`);
 		} finally {
 			creating = false;
+		}
+	}
+
+	function parsePrincipalTags(text: string): Record<string, string> {
+		const trimmed = text.trim();
+		if (!trimmed) return {};
+
+		try {
+			const parsed = JSON.parse(trimmed);
+			if (parsed && typeof parsed === 'object') {
+				return Object.fromEntries(
+					Object.entries(parsed).map(([k, v]) => [k, String(v ?? '')])
+				);
+			}
+		} catch {
+			// Fallback to line-based "key=value" parsing.
+		}
+
+		return Object.fromEntries(
+			trimmed
+				.split('\n')
+				.map((line) => line.trim())
+				.filter(Boolean)
+				.map((line) => {
+					const index = line.indexOf('=');
+					if (index < 0) return [line, ''];
+					return [line.slice(0, index).trim(), line.slice(index + 1).trim()];
+				})
+				.filter(([k]) => k.length > 0)
+		);
+	}
+
+	async function loadPrincipalTagMap() {
+		if (!selectedPool?.IdentityPoolId || !principalProviderName.trim()) return;
+		try {
+			const out = await cognitoId.send(
+				new GetPrincipalTagAttributeMapCommand({
+					IdentityPoolId: selectedPool.IdentityPoolId,
+					IdentityProviderName: principalProviderName.trim()
+				})
+			);
+			principalUseDefaults = out.UseDefaults ?? true;
+			principalTagsText = JSON.stringify(out.PrincipalTags ?? {}, null, 2);
+			toast.success('Principal tag map loaded');
+		} catch (e) {
+			toast.error(`Failed to load principal tag map: ${e}`);
+		}
+	}
+
+	async function savePrincipalTagMap() {
+		if (!selectedPool?.IdentityPoolId || !principalProviderName.trim()) return;
+		savingPrincipalTags = true;
+		try {
+			await cognitoId.send(
+				new SetPrincipalTagAttributeMapCommand({
+					IdentityPoolId: selectedPool.IdentityPoolId,
+					IdentityProviderName: principalProviderName.trim(),
+					UseDefaults: principalUseDefaults,
+					PrincipalTags: parsePrincipalTags(principalTagsText)
+				})
+			);
+			toast.success('Principal tag map saved');
+		} catch (e) {
+			toast.error(`Failed to save principal tag map: ${e}`);
+		} finally {
+			savingPrincipalTags = false;
+		}
+	}
+
+	async function runDeveloperIdentityLookup() {
+		if (!selectedPool?.IdentityPoolId || !developerProviderName.trim()) return;
+		if (!lookupIdentityID.trim() && !lookupDeveloperUserIdentifier.trim()) return;
+
+		lookingUpDeveloperIdentity = true;
+		lookupResultIdentityID = '';
+		lookupResultDeveloperUsers = [];
+		try {
+			const out = await cognitoId.send(
+				new LookupDeveloperIdentityCommand({
+					IdentityPoolId: selectedPool.IdentityPoolId,
+					IdentityId: lookupIdentityID.trim() || undefined,
+					DeveloperUserIdentifier: lookupDeveloperUserIdentifier.trim() || undefined
+				})
+			);
+			lookupResultIdentityID = out.IdentityId ?? '';
+			lookupResultDeveloperUsers = out.DeveloperUserIdentifierList ?? [];
+			toast.success('Developer identity lookup complete');
+		} catch (e) {
+			toast.error(`Failed to lookup developer identity: ${e}`);
+		} finally {
+			lookingUpDeveloperIdentity = false;
+		}
+	}
+
+	async function mergeDeveloperIdentityUsers() {
+		if (!selectedPool?.IdentityPoolId || !developerProviderName.trim()) return;
+		if (!mergeSourceUserIdentifier.trim() || !mergeDestinationUserIdentifier.trim()) return;
+
+		mergingDeveloperIdentities = true;
+		try {
+			await cognitoId.send(
+				new MergeDeveloperIdentitiesCommand({
+					IdentityPoolId: selectedPool.IdentityPoolId,
+					SourceUserIdentifier: mergeSourceUserIdentifier.trim(),
+					DestinationUserIdentifier: mergeDestinationUserIdentifier.trim(),
+					DeveloperProviderName: developerProviderName.trim()
+				})
+			);
+			toast.success('Developer identities merged');
+		} catch (e) {
+			toast.error(`Failed to merge developer identities: ${e}`);
+		} finally {
+			mergingDeveloperIdentities = false;
 		}
 	}
 
@@ -321,6 +461,102 @@
 					</div>
 				</div>
 			{/if}
+
+			<div class="space-y-2 rounded-lg border p-3">
+				<p class="text-sm font-medium">Principal Tag Attribute Map</p>
+				<input
+					type="text"
+					bind:value={principalProviderName}
+					placeholder="Identity provider name"
+					class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+				<label class="flex items-center gap-2 text-xs">
+					<input type="checkbox" bind:checked={principalUseDefaults} class="rounded" />
+					Use defaults
+				</label>
+				<textarea
+					bind:value={principalTagsText}
+					rows="4"
+					placeholder="JSON map or key=value lines"
+					class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+				></textarea>
+				<div class="flex gap-2">
+					<button
+						onclick={loadPrincipalTagMap}
+						disabled={!principalProviderName.trim()}
+						class="rounded-md border px-3 py-1 text-xs hover:bg-accent disabled:opacity-50"
+					>
+						Load
+					</button>
+					<button
+						onclick={savePrincipalTagMap}
+						disabled={savingPrincipalTags || !principalProviderName.trim()}
+						class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+					>
+						{savingPrincipalTags ? 'Saving...' : 'Save'}
+					</button>
+				</div>
+			</div>
+
+			<div class="space-y-2 rounded-lg border p-3">
+				<p class="text-sm font-medium">Developer Identity Tools</p>
+				<input
+					type="text"
+					bind:value={developerProviderName}
+					placeholder="Developer provider name"
+					class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+				<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+					<input
+						type="text"
+						bind:value={lookupIdentityID}
+						placeholder="Lookup by identity ID"
+						class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+					<input
+						type="text"
+						bind:value={lookupDeveloperUserIdentifier}
+						placeholder="Lookup by developer user"
+						class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<button
+					onclick={runDeveloperIdentityLookup}
+					disabled={!developerProviderName.trim() || (!lookupIdentityID.trim() && !lookupDeveloperUserIdentifier.trim()) || lookingUpDeveloperIdentity}
+					class="rounded-md border px-3 py-1 text-xs hover:bg-accent disabled:opacity-50"
+				>
+					{lookingUpDeveloperIdentity ? 'Looking up...' : 'Lookup'}
+				</button>
+
+				{#if lookupResultIdentityID}
+					<div class="rounded border bg-muted/30 p-2 text-xs">
+						<p><span class="font-medium">Identity:</span> <span class="font-mono">{lookupResultIdentityID}</span></p>
+						<p><span class="font-medium">Developer users:</span> {lookupResultDeveloperUsers.join(', ') || 'none'}</p>
+					</div>
+				{/if}
+
+				<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+					<input
+						type="text"
+						bind:value={mergeSourceUserIdentifier}
+						placeholder="Source user ID"
+						class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+					<input
+						type="text"
+						bind:value={mergeDestinationUserIdentifier}
+						placeholder="Destination user ID"
+						class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<button
+					onclick={mergeDeveloperIdentityUsers}
+					disabled={!developerProviderName.trim() || !mergeSourceUserIdentifier.trim() || !mergeDestinationUserIdentifier.trim() || mergingDeveloperIdentities}
+					class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					{mergingDeveloperIdentities ? 'Merging...' : 'Merge Developer Users'}
+				</button>
+			</div>
 		</div>
 	{/if}
 </div>

@@ -178,3 +178,99 @@ func TestIntegration_CognitoIdentity_PoolNotFound(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+func TestIntegration_CognitoIdentity_UnlinkOperations(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tests := []struct {
+		run  func(t *testing.T, client *cognitoidentitysdk.Client, poolID string)
+		name string
+	}{
+		{
+			name: "unlink_identity",
+			run: func(t *testing.T, client *cognitoidentitysdk.Client, poolID string) {
+				t.Helper()
+
+				ctx := t.Context()
+				getIDOut, err := client.GetId(ctx, &cognitoidentitysdk.GetIdInput{
+					AccountId:      aws.String("000000000000"),
+					IdentityPoolId: aws.String(poolID),
+					Logins: map[string]string{
+						"accounts.google.com": "google-token",
+						"graph.facebook.com":  "facebook-token",
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, getIDOut.IdentityId)
+
+				_, err = client.UnlinkIdentity(ctx, &cognitoidentitysdk.UnlinkIdentityInput{
+					IdentityId: getIDOut.IdentityId,
+					Logins: map[string]string{
+						"accounts.google.com": "google-token",
+					},
+					LoginsToRemove: []string{"accounts.google.com"},
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeIdentity(ctx, &cognitoidentitysdk.DescribeIdentityInput{
+					IdentityId: getIDOut.IdentityId,
+				})
+				require.NoError(t, err)
+				assert.Equal(t, []string{"graph.facebook.com"}, desc.Logins)
+			},
+		},
+		{
+			name: "unlink_developer_identity",
+			run: func(t *testing.T, client *cognitoidentitysdk.Client, poolID string) {
+				t.Helper()
+
+				ctx := t.Context()
+				tokenOut, err := client.GetOpenIdTokenForDeveloperIdentity(
+					ctx,
+					&cognitoidentitysdk.GetOpenIdTokenForDeveloperIdentityInput{
+						IdentityPoolId: aws.String(poolID),
+						Logins: map[string]string{
+							"developer.example.com": "dev-user",
+						},
+					},
+				)
+				require.NoError(t, err)
+				require.NotNil(t, tokenOut.IdentityId)
+
+				_, err = client.UnlinkDeveloperIdentity(ctx, &cognitoidentitysdk.UnlinkDeveloperIdentityInput{
+					IdentityId:              tokenOut.IdentityId,
+					IdentityPoolId:          aws.String(poolID),
+					DeveloperProviderName:   aws.String("developer.example.com"),
+					DeveloperUserIdentifier: aws.String("dev-user"),
+				})
+				require.NoError(t, err)
+
+				lookup, err := client.LookupDeveloperIdentity(ctx, &cognitoidentitysdk.LookupDeveloperIdentityInput{
+					IdentityPoolId: aws.String(poolID),
+					IdentityId:     tokenOut.IdentityId,
+				})
+				require.NoError(t, err)
+				assert.Empty(t, lookup.DeveloperUserIdentifierList)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := createCognitoIdentityClient(t)
+			ctx := t.Context()
+
+			createOut, err := client.CreateIdentityPool(ctx, &cognitoidentitysdk.CreateIdentityPoolInput{
+				IdentityPoolName:               aws.String("unlink-pool-" + tt.name),
+				AllowUnauthenticatedIdentities: true,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, createOut.IdentityPoolId)
+
+			tt.run(t, client, *createOut.IdentityPoolId)
+		})
+	}
+}

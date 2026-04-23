@@ -677,3 +677,211 @@ func TestInMemoryBackend_DeveloperLoginsFrom_EmptyProviderName(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.DeveloperUserIdentifierList)
 }
+
+func TestInMemoryBackend_UnlinkIdentity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget             error
+		logins                map[string]string
+		name                  string
+		identityID            string
+		setupIdentityProvider string
+		wantProviderRemoved   string
+		loginsToRemove        []string
+		wantErr               bool
+	}{
+		{
+			name:                  "success",
+			identityID:            "use-created-identity",
+			logins:                map[string]string{"accounts.google.com": "google-token"},
+			loginsToRemove:        []string{"accounts.google.com"},
+			setupIdentityProvider: "accounts.google.com",
+			wantProviderRemoved:   "accounts.google.com",
+		},
+		{
+			name:       "identity_not_found",
+			identityID: "us-east-1:missing",
+			logins:     map[string]string{"accounts.google.com": "google-token"},
+			loginsToRemove: []string{
+				"accounts.google.com",
+			},
+			wantErr:   true,
+			errTarget: cognitoidentity.ErrIdentityPoolNotFound,
+		},
+		{
+			name:   "missing_identity_id",
+			logins: map[string]string{"accounts.google.com": "google-token"},
+			loginsToRemove: []string{
+				"accounts.google.com",
+			},
+			wantErr:   true,
+			errTarget: cognitoidentity.ErrInvalidParameter,
+		},
+		{
+			name:       "missing_logins_to_remove",
+			identityID: "use-created-identity",
+			logins:     map[string]string{"accounts.google.com": "google-token"},
+			wantErr:    true,
+			errTarget:  cognitoidentity.ErrInvalidParameter,
+		},
+		{
+			name:       "token_mismatch",
+			identityID: "use-created-identity",
+			logins:     map[string]string{"accounts.google.com": "wrong-token"},
+			loginsToRemove: []string{
+				"accounts.google.com",
+			},
+			wantErr:   true,
+			errTarget: cognitoidentity.ErrNotAuthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			pool, err := b.CreateIdentityPool("unlink-identity-pool-"+tt.name, true, false, nil, nil, nil)
+			require.NoError(t, err)
+
+			identity, err := b.GetID(pool.IdentityPoolID, "000000000000", map[string]string{
+				"accounts.google.com": "google-token",
+				"graph.facebook.com":  "facebook-token",
+			})
+			require.NoError(t, err)
+
+			identityID := tt.identityID
+			if identityID == "use-created-identity" {
+				identityID = identity.IdentityID
+			}
+
+			err = b.UnlinkIdentity(identityID, tt.logins, tt.loginsToRemove)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			desc, err := b.DescribeIdentity(identity.IdentityID)
+			require.NoError(t, err)
+			assert.NotContains(t, desc.Logins, tt.wantProviderRemoved)
+		})
+	}
+}
+
+func TestInMemoryBackend_UnlinkDeveloperIdentity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget               error
+		name                    string
+		identityID              string
+		poolID                  string
+		developerProviderName   string
+		developerUserIdentifier string
+		wantErr                 bool
+	}{
+		{
+			name:                    "success",
+			identityID:              "use-created-identity",
+			poolID:                  "use-created-pool",
+			developerProviderName:   "developer.example.com",
+			developerUserIdentifier: "user-001",
+		},
+		{
+			name:                    "pool_not_found",
+			identityID:              "use-created-identity",
+			poolID:                  "us-east-1:missing-pool",
+			developerProviderName:   "developer.example.com",
+			developerUserIdentifier: "user-001",
+			wantErr:                 true,
+			errTarget:               cognitoidentity.ErrIdentityPoolNotFound,
+		},
+		{
+			name:                    "identity_not_found",
+			identityID:              "us-east-1:missing-identity",
+			poolID:                  "use-created-pool",
+			developerProviderName:   "developer.example.com",
+			developerUserIdentifier: "user-001",
+			wantErr:                 true,
+			errTarget:               cognitoidentity.ErrIdentityPoolNotFound,
+		},
+		{
+			name:                    "user_identifier_not_found",
+			identityID:              "use-created-identity",
+			poolID:                  "use-created-pool",
+			developerProviderName:   "developer.example.com",
+			developerUserIdentifier: "missing-user",
+			wantErr:                 true,
+			errTarget:               cognitoidentity.ErrIdentityPoolNotFound,
+		},
+		{
+			name:                    "missing_identity_id",
+			poolID:                  "use-created-pool",
+			developerProviderName:   "developer.example.com",
+			developerUserIdentifier: "user-001",
+			wantErr:                 true,
+			errTarget:               cognitoidentity.ErrInvalidParameter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			pool, err := b.CreateIdentityPool("unlink-dev-pool-"+tt.name, true, false, nil, nil, nil)
+			require.NoError(t, err)
+
+			devToken, err := b.GetOpenIDTokenForDeveloperIdentity(
+				pool.IdentityPoolID,
+				"",
+				map[string]string{"developer.example.com": "user-001"},
+				0,
+			)
+			require.NoError(t, err)
+
+			identityID := tt.identityID
+			if identityID == "use-created-identity" {
+				identityID = devToken.IdentityID
+			}
+
+			poolID := tt.poolID
+			if poolID == "use-created-pool" {
+				poolID = pool.IdentityPoolID
+			}
+
+			err = b.UnlinkDeveloperIdentity(
+				identityID,
+				poolID,
+				tt.developerProviderName,
+				tt.developerUserIdentifier,
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			result, err := b.LookupDeveloperIdentity(
+				pool.IdentityPoolID,
+				devToken.IdentityID,
+				"",
+				"developer.example.com",
+			)
+			require.NoError(t, err)
+			assert.Empty(t, result.DeveloperUserIdentifierList)
+		})
+	}
+}

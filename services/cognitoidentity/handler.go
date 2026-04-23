@@ -72,6 +72,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"MergeDeveloperIdentities",
 		"SetPrincipalTagAttributeMap",
 		"TagResource",
+		"UnlinkDeveloperIdentity",
+		"UnlinkIdentity",
 		"UntagResource",
 	}
 }
@@ -163,6 +165,8 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"MergeDeveloperIdentities":           service.WrapOp(h.handleMergeDeveloperIdentities),
 		"SetPrincipalTagAttributeMap":        service.WrapOp(h.handleSetPrincipalTagAttributeMap),
 		"TagResource":                        service.WrapOp(h.handleTagResource),
+		"UnlinkDeveloperIdentity":            service.WrapOp(h.handleUnlinkDeveloperIdentity),
+		"UnlinkIdentity":                     service.WrapOp(h.handleUnlinkIdentity),
 		"UntagResource":                      service.WrapOp(h.handleUntagResource),
 	}
 }
@@ -867,6 +871,50 @@ func (h *Handler) handleTagResource(
 	}
 
 	return &tagResourceOutput{}, nil
+}
+
+type unlinkDeveloperIdentityInput struct {
+	IdentityID              string `json:"IdentityId"`
+	IdentityPoolID          string `json:"IdentityPoolId"`
+	DeveloperProviderName   string `json:"DeveloperProviderName"`
+	DeveloperUserIdentifier string `json:"DeveloperUserIdentifier"`
+}
+
+type unlinkDeveloperIdentityOutput struct{}
+
+func (h *Handler) handleUnlinkDeveloperIdentity(
+	_ context.Context,
+	in *unlinkDeveloperIdentityInput,
+) (*unlinkDeveloperIdentityOutput, error) {
+	if err := h.Backend.UnlinkDeveloperIdentity(
+		in.IdentityID,
+		in.IdentityPoolID,
+		in.DeveloperProviderName,
+		in.DeveloperUserIdentifier,
+	); err != nil {
+		return nil, err
+	}
+
+	return &unlinkDeveloperIdentityOutput{}, nil
+}
+
+type unlinkIdentityInput struct {
+	IdentityID     string            `json:"IdentityId"`
+	Logins         map[string]string `json:"Logins"`
+	LoginsToRemove []string          `json:"LoginsToRemove"`
+}
+
+type unlinkIdentityOutput struct{}
+
+func (h *Handler) handleUnlinkIdentity(
+	_ context.Context,
+	in *unlinkIdentityInput,
+) (*unlinkIdentityOutput, error) {
+	if err := h.Backend.UnlinkIdentity(in.IdentityID, in.Logins, in.LoginsToRemove); err != nil {
+		return nil, err
+	}
+
+	return &unlinkIdentityOutput{}, nil
 }
 
 type untagResourceInput struct {

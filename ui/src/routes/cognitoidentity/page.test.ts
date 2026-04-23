@@ -93,4 +93,30 @@ describe("Cognito Identity Page", () => {
     render(CognitoIdentityPage);
     expect(screen.getByText("Federated identity pools for AWS service access")).toBeInTheDocument();
   });
+
+  it("shows principal tag and developer identity tools in pool details", async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        IdentityPools: [{ IdentityPoolId: "us-east-1:abc-123", IdentityPoolName: "my-app-pool" }],
+      })
+      .mockResolvedValueOnce({
+        IdentityPoolId: "us-east-1:abc-123",
+        IdentityPoolName: "my-app-pool",
+        AllowUnauthenticatedIdentities: true,
+      })
+      .mockResolvedValueOnce({ Roles: {} });
+
+    render(CognitoIdentityPage);
+
+    await waitFor(() => {
+      expect(screen.getByText("my-app-pool")).toBeInTheDocument();
+    });
+
+    await fireEvent.click(screen.getByText("my-app-pool"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Principal Tag Attribute Map")).toBeInTheDocument();
+      expect(screen.getByText("Developer Identity Tools")).toBeInTheDocument();
+    });
+  });
 });
