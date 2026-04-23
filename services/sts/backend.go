@@ -1307,6 +1307,9 @@ func (b *InMemoryBackend) SessionCounts() (int, int) {
 // maxSessionPolicyBytes is the AWS maximum size for a session policy document.
 const maxSessionPolicyBytes = 2048
 
+// maxPackedPolicySizePercent is the ceiling percentage for PackedPolicySize.
+const maxPackedPolicySizePercent = int32(100)
+
 // calculatePackedPolicySize returns the percentage of the maximum session-policy
 // size consumed by policy. It returns 0 when policy is empty.
 func calculatePackedPolicySize(policy string) int32 {
@@ -1314,14 +1317,13 @@ func calculatePackedPolicySize(policy string) int32 {
 		return 0
 	}
 
-	pct := int32((len(policy) * 100) / maxSessionPolicyBytes)
-	if pct < 1 {
-		pct = 1
-	}
-
-	if pct > 100 {
-		pct = 100
-	}
+	// Compute as int first to avoid overflow, then cast to int32.
+	pctInt := (len(policy) * int(maxPackedPolicySizePercent)) / maxSessionPolicyBytes
+	//nolint:gosec // len(policy) is bounded by input validation
+	pct := min(
+		max(int32(pctInt), 1),
+		maxPackedPolicySizePercent,
+	)
 
 	return pct
 }

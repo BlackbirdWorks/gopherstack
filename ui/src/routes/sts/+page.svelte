@@ -6,6 +6,7 @@
 		DecodeAuthorizationMessageCommand,
 		GetAccessKeyInfoCommand,
 		GetCallerIdentityCommand,
+		GetFederationTokenCommand,
 		GetSessionTokenCommand
 	} from '@aws-sdk/client-sts';
 	import { toast } from 'svelte-sonner';
@@ -24,6 +25,8 @@
 		} | null>(null);
 	let revealSecret = $state(false);
 	let tokenDuration = $state(3600);
+	let mfaSerialNumber = $state('');
+	let mfaTokenCode = $state('');
 	let isGenerating = $state(false);
 
 	let validatorAccessKeyId = $state('');
@@ -37,6 +40,8 @@
 
 	let assumeRoleArn = $state('arn:aws:iam::000000000000:role/MyRole');
 	let assumeRoleSessionName = $state('my-session');
+	let assumeRoleDuration = $state(3600);
+	let assumeRoleExternalId = $state('');
 	let assumedCredentials =
 		$state<{
 			AccessKeyId?: string;
@@ -47,6 +52,18 @@
 	let isAssuming = $state(false);
 	let revealAssumedSecret = $state(false);
 
+	let fedTokenName = $state('my-user');
+	let fedTokenDuration = $state(43200);
+	let fedCredentials =
+		$state<{
+			AccessKeyId?: string;
+			SecretAccessKey?: string;
+			SessionToken?: string;
+			Expiration?: Date;
+		} | null>(null);
+	let isFederating = $state(false);
+	let revealFedSecret = $state(false);
+
 	let stsMetrics = $state<{
 		activeSessions: number;
 		expiredSessions: number;
@@ -54,14 +71,27 @@
 		expiredEvictions: number;
 		totalSessionsCreated?: number;
 		opsAssumeRole?: number;
-		opsGetSessionToken?: number;
-		opsGetCallerIdentity?: number;
-		opsGetFederationToken?: number;
 		opsAssumeRoleWithSAML?: number;
 		opsAssumeRoleWithWebIdentity?: number;
+		opsAssumeRoot?: number;
+		opsGetCallerIdentity?: number;
+		opsGetFederationToken?: number;
+		opsGetSessionToken?: number;
+		opsGetWebIdentityToken?: number;
 		opsGetAccessKeyInfo?: number;
 		opsDecodeAuthorizationMessage?: number;
+		opsGetDelegatedAccessToken?: number;
 	} | null>(null);
+
+	// Format duration in seconds as a human-readable "Xh Ym" or "Ym Zs" string.
+	function formatDuration(seconds: number): string {
+		const h = Math.floor(seconds / 3600);
+		const m = Math.floor((seconds % 3600) / 60);
+		if (h > 0 && m > 0) return `${h}h ${m}m`;
+		if (h > 0) return `${h}h`;
+		if (m > 0) return `${m}m`;
+		return `${seconds}s`;
+	}
 
 	// Relative time countdown for expiration
 	function formatRelativeExpiration(exp: Date | undefined): string {
@@ -130,9 +160,14 @@
 	async function generateSessionToken() {
 		isGenerating = true;
 		try {
-			const resp = await sts.send(
-				new GetSessionTokenCommand({ DurationSeconds: Math.round(tokenDuration) })
-			);
+			const params: { DurationSeconds: number; SerialNumber?: string; TokenCode?: string } = {
+				DurationSeconds: Math.round(tokenDuration)
+			};
+			if (mfaSerialNumber.trim()) {
+				params.SerialNumber = mfaSerialNumber.trim();
+				params.TokenCode = mfaTokenCode.trim();
+			}
+			const resp = await sts.send(new GetSessionTokenCommand(params));
 			sessionToken = resp.Credentials ?? null;
 			validatorAccessKeyId = sessionToken?.AccessKeyId ?? '';
 			revealSecret = false;
@@ -152,12 +187,20 @@
 		}
 		isAssuming = true;
 		try {
-			const resp = await sts.send(
-				new AssumeRoleCommand({
-					RoleArn: assumeRoleArn.trim(),
-					RoleSessionName: assumeRoleSessionName.trim()
-				})
-			);
+			const params: {
+				RoleArn: string;
+				RoleSessionName: string;
+				DurationSeconds: number;
+				ExternalId?: string;
+			} = {
+				RoleArn: assumeRoleArn.trim(),
+				RoleSessionName: assumeRoleSessionName.trim(),
+				DurationSeconds: Math.round(assumeRoleDuration)
+			};
+			if (assumeRoleExternalId.trim()) {
+				params.ExternalId = assumeRoleExternalId.trim();
+			}
+			const resp = await sts.send(new AssumeRoleCommand(params));
 			assumedCredentials = resp.Credentials ?? null;
 			revealAssumedSecret = false;
 			toast.success('Role assumed successfully');
@@ -166,6 +209,30 @@
 			toast.error('AssumeRole failed: ' + String(e));
 		} finally {
 			isAssuming = false;
+		}
+	}
+
+	async function getFederationToken() {
+		if (!fedTokenName.trim()) {
+			toast.error('Federation token name is required');
+			return;
+		}
+		isFederating = true;
+		try {
+			const resp = await sts.send(
+				new GetFederationTokenCommand({
+					Name: fedTokenName.trim(),
+					DurationSeconds: Math.round(fedTokenDuration)
+				})
+			);
+			fedCredentials = resp.Credentials ?? null;
+			revealFedSecret = false;
+			toast.success('Federation token issued');
+			await loadSTSMetrics();
+		} catch (e) {
+			toast.error('GetFederationToken failed: ' + String(e));
+		} finally {
+			isFederating = false;
 		}
 	}
 
@@ -287,7 +354,7 @@
 			: []
 	);
 
-	// Per-operation call counter cards extracted for readability.
+	// Per-operation call counter cards — all 11 STS operations.
 	type OpCard = { label: string; value: number };
 	const opCountCards = $derived<OpCard[]>(
 		stsMetrics
@@ -298,8 +365,11 @@
 					{ label: 'GetFederationToken', value: stsMetrics.opsGetFederationToken ?? 0 },
 					{ label: 'AssumeRoleWithSAML', value: stsMetrics.opsAssumeRoleWithSAML ?? 0 },
 					{ label: 'AssumeRoleWithWI', value: stsMetrics.opsAssumeRoleWithWebIdentity ?? 0 },
+					{ label: 'AssumeRoot', value: stsMetrics.opsAssumeRoot ?? 0 },
+					{ label: 'GetWebIdentityToken', value: stsMetrics.opsGetWebIdentityToken ?? 0 },
 					{ label: 'GetAccessKeyInfo', value: stsMetrics.opsGetAccessKeyInfo ?? 0 },
-					{ label: 'DecodeAuthMessage', value: stsMetrics.opsDecodeAuthorizationMessage ?? 0 }
+					{ label: 'DecodeAuthMessage', value: stsMetrics.opsDecodeAuthorizationMessage ?? 0 },
+					{ label: 'GetDelegatedToken', value: stsMetrics.opsGetDelegatedAccessToken ?? 0 }
 				]
 			: []
 	);
@@ -377,9 +447,9 @@
 				for="token-duration"
 				class="text-xs text-gray-500 dark:text-gray-400 flex justify-between"
 			>
-				<span>Duration (seconds)</span>
+				<span>Duration</span>
 				<span class="font-medium text-gray-700 dark:text-gray-300"
-					>{tokenDuration}s ({Math.round(tokenDuration / 60)}m)</span
+					>{formatDuration(tokenDuration)}</span
 				>
 			</label>
 			<input
@@ -397,7 +467,41 @@
 			</div>
 		</div>
 
+		<!-- Optional MFA fields -->
+		<div class="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+			<div>
+				<label
+					for="mfa-serial"
+					class="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+					>MFA Serial Number <span class="text-gray-400">(optional)</span></label
+				>
+				<input
+					id="mfa-serial"
+					bind:value={mfaSerialNumber}
+					placeholder="arn:aws:iam::000000000000:mfa/MyDevice"
+					class="w-full px-3 py-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+				/>
+			</div>
+			{#if mfaSerialNumber.trim()}
+				<div>
+					<label
+						for="mfa-token-code"
+						class="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+						>MFA Token Code <span class="text-red-500">*</span></label
+					>
+					<input
+						id="mfa-token-code"
+						bind:value={mfaTokenCode}
+						placeholder="123456"
+						maxlength="6"
+						class="w-full px-3 py-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+					/>
+				</div>
+			{/if}
+		</div>
+
 		<button
+			id="gen-session-btn"
 			onclick={generateSessionToken}
 			disabled={isGenerating}
 			class="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 disabled:opacity-60 text-white rounded-lg text-sm font-medium mb-4"
@@ -534,8 +638,46 @@
 					class="w-full px-3 py-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
 				/>
 			</div>
+			<div>
+				<label
+					for="assume-role-external-id"
+					class="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+					>External ID <span class="text-gray-400">(optional)</span></label
+				>
+				<input
+					id="assume-role-external-id"
+					bind:value={assumeRoleExternalId}
+					placeholder="unique-cross-account-id"
+					class="w-full px-3 py-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+				/>
+			</div>
+			<div>
+				<label
+					for="assume-role-duration"
+					class="text-xs text-gray-500 dark:text-gray-400 flex justify-between mb-1"
+				>
+					<span>Duration</span>
+					<span class="font-medium text-gray-700 dark:text-gray-300"
+						>{formatDuration(assumeRoleDuration)}</span
+					>
+				</label>
+				<input
+					id="assume-role-duration"
+					type="range"
+					bind:value={assumeRoleDuration}
+					min="900"
+					max="43200"
+					step="900"
+					class="w-full accent-indigo-500"
+				/>
+				<div class="flex justify-between text-xs text-gray-400 mt-1">
+					<span>15m</span>
+					<span>12h</span>
+				</div>
+			</div>
 		</div>
 		<button
+			id="assume-role-btn"
 			onclick={assumeRole}
 			disabled={isAssuming}
 			class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium"
@@ -589,6 +731,25 @@
 						</button>
 					</div>
 				</div>
+				<!-- Session Token preview -->
+				<div class="flex items-center justify-between">
+					<div>
+						<p class="text-xs text-gray-500 dark:text-gray-400">Session Token</p>
+						<p class="text-sm font-mono text-gray-900 dark:text-white">
+							{assumedCredentials.SessionToken
+								? `${assumedCredentials.SessionToken.slice(0, 20)}…`
+								: ''}
+						</p>
+					</div>
+					<button
+						onclick={() =>
+							copyToClipboard(assumedCredentials?.SessionToken ?? '', 'Session Token')}
+						class="p-1 hover:bg-gray-200 dark:hover:bg-slate-600 rounded"
+						title="Copy Session Token"
+					>
+						<Copy class="w-4 h-4 text-gray-400" />
+					</button>
+				</div>
 				<div>
 					<p class="text-xs text-gray-500 dark:text-gray-400">Expiration</p>
 					<p class="text-sm text-gray-900 dark:text-white">
@@ -618,6 +779,147 @@
 		{/if}
 	</div>
 
+	<!-- Get Federation Token -->
+	<div
+		class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 space-y-4"
+	>
+		<div class="flex items-center gap-2">
+			<User class="w-5 h-5 text-teal-500" />
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Get Federation Token</h2>
+		</div>
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+			<div>
+				<label
+					for="fed-token-name"
+					class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Federated User Name</label
+				>
+				<input
+					id="fed-token-name"
+					bind:value={fedTokenName}
+					placeholder="my-user"
+					class="w-full px-3 py-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+				/>
+			</div>
+			<div>
+				<label
+					for="fed-token-duration"
+					class="text-xs text-gray-500 dark:text-gray-400 flex justify-between mb-1"
+				>
+					<span>Duration</span>
+					<span class="font-medium text-gray-700 dark:text-gray-300"
+						>{formatDuration(fedTokenDuration)}</span
+					>
+				</label>
+				<input
+					id="fed-token-duration"
+					type="range"
+					bind:value={fedTokenDuration}
+					min="900"
+					max="129600"
+					step="3600"
+					class="w-full accent-teal-500"
+				/>
+				<div class="flex justify-between text-xs text-gray-400 mt-1">
+					<span>15m</span>
+					<span>36h</span>
+				</div>
+			</div>
+		</div>
+		<button
+			id="fed-token-btn"
+			onclick={getFederationToken}
+			disabled={isFederating}
+			class="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium"
+		>
+			<User class="w-4 h-4" />
+			{isFederating ? 'Issuing...' : 'Get Federation Token'}
+		</button>
+
+		{#if fedCredentials}
+			<div class="space-y-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg p-4">
+				<div class="flex items-center justify-between">
+					<div>
+						<p class="text-xs text-gray-500 dark:text-gray-400">Access Key ID</p>
+						<p class="text-sm font-mono text-gray-900 dark:text-white">{fedCredentials.AccessKeyId}</p>
+					</div>
+					<button
+						onclick={() => copyToClipboard(fedCredentials?.AccessKeyId ?? '', 'Access Key ID')}
+						class="p-1 hover:bg-gray-200 dark:hover:bg-slate-600 rounded"
+						title="Copy Access Key ID"
+					>
+						<Copy class="w-4 h-4 text-gray-400" />
+					</button>
+				</div>
+				<div class="flex items-center justify-between">
+					<div class="flex-1 min-w-0">
+						<p class="text-xs text-gray-500 dark:text-gray-400">Secret Access Key</p>
+						<p class="text-sm font-mono text-gray-900 dark:text-white break-all">
+							{revealFedSecret ? fedCredentials.SecretAccessKey : '•'.repeat(40)}
+						</p>
+					</div>
+					<div class="flex items-center gap-1 ml-2 flex-shrink-0">
+						<button
+							onclick={() => (revealFedSecret = !revealFedSecret)}
+							class="p-1 hover:bg-gray-200 dark:hover:bg-slate-600 rounded"
+							title="{revealFedSecret ? 'Hide' : 'Reveal'} Secret"
+						>
+							{#if revealFedSecret}
+								<EyeOff class="w-4 h-4 text-gray-400" />
+							{:else}
+								<Eye class="w-4 h-4 text-gray-400" />
+							{/if}
+						</button>
+						<button
+							onclick={() =>
+								copyToClipboard(fedCredentials?.SecretAccessKey ?? '', 'Secret Access Key')}
+							class="p-1 hover:bg-gray-200 dark:hover:bg-slate-600 rounded"
+						>
+							<Copy class="w-4 h-4 text-gray-400" />
+						</button>
+					</div>
+				</div>
+				<div class="flex items-center justify-between">
+					<div>
+						<p class="text-xs text-gray-500 dark:text-gray-400">Session Token</p>
+						<p class="text-sm font-mono text-gray-900 dark:text-white">
+							{fedCredentials.SessionToken ? `${fedCredentials.SessionToken.slice(0, 20)}…` : ''}
+						</p>
+					</div>
+					<button
+						onclick={() => copyToClipboard(fedCredentials?.SessionToken ?? '', 'Session Token')}
+						class="p-1 hover:bg-gray-200 dark:hover:bg-slate-600 rounded"
+						title="Copy Session Token"
+					>
+						<Copy class="w-4 h-4 text-gray-400" />
+					</button>
+				</div>
+				<div>
+					<p class="text-xs text-gray-500 dark:text-gray-400">Expiration</p>
+					<p class="text-sm text-gray-900 dark:text-white">
+						{fedCredentials.Expiration?.toISOString()}
+						<span class="text-xs text-teal-600 dark:text-teal-400 ml-1"
+							>({formatRelativeExpiration(fedCredentials.Expiration)})</span
+						>
+					</p>
+				</div>
+				<div class="flex gap-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+					<button
+						onclick={() => copyToClipboard(buildEnvVars(fedCredentials), 'environment variables')}
+						class="flex items-center gap-1 px-3 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded hover:bg-slate-50 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300"
+					>
+						<Copy class="w-3 h-3" /> Copy as env vars
+					</button>
+					<button
+						onclick={() => copyToClipboard(buildCredJSON(fedCredentials), 'JSON credentials')}
+						class="flex items-center gap-1 px-3 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded hover:bg-slate-50 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300"
+					>
+						<Copy class="w-3 h-3" /> Copy as JSON
+					</button>
+				</div>
+			</div>
+		{/if}
+	</div>
+
 	<!-- Validator -->
 	<div
 		class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 space-y-4"
@@ -625,6 +927,7 @@
 		<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Session Token Validator</h2>
 		<div class="flex flex-col md:flex-row gap-2">
 			<input
+				id="validator-access-key-id"
 				bind:value={validatorAccessKeyId}
 				placeholder="ASIA..."
 				class="w-full px-3 py-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"

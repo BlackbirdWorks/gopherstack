@@ -345,3 +345,246 @@ func TestIntegration_STS_GetWebIdentityToken(t *testing.T) {
 	parts := strings.Split(*out.WebIdentityToken, ".")
 	assert.Len(t, parts, 3, "expected JWT with 3 parts")
 }
+
+func TestIntegration_STS_GetSessionToken(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		name            string
+		durationSeconds int32
+		wantErr         bool
+	}{
+		{
+			name:            "default_duration",
+			durationSeconds: 3600,
+		},
+		{
+			name:            "minimum_duration",
+			durationSeconds: 900,
+		},
+		{
+			name:            "maximum_duration",
+			durationSeconds: 43200,
+		},
+		{
+			name:            "below_minimum",
+			durationSeconds: 100,
+			wantErr:         true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := client.GetSessionToken(ctx, &sts.GetSessionTokenInput{
+				DurationSeconds: aws.Int32(tt.durationSeconds),
+			})
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, out.Credentials)
+			assert.True(t, strings.HasPrefix(*out.Credentials.AccessKeyId, "ASIA"),
+				"expected access key to start with ASIA, got: %s", *out.Credentials.AccessKeyId)
+			assert.NotEmpty(t, *out.Credentials.SecretAccessKey)
+			assert.NotEmpty(t, *out.Credentials.SessionToken)
+			assert.NotNil(t, out.Credentials.Expiration)
+		})
+	}
+}
+
+func TestIntegration_STS_GetSessionToken_MFARequired(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	// SerialNumber without TokenCode must return an error.
+	_, err := client.GetSessionToken(ctx, &sts.GetSessionTokenInput{
+		SerialNumber: aws.String("arn:aws:iam::000000000000:mfa/MyDevice"),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MissingParameter")
+}
+
+func TestIntegration_STS_GetFederationToken(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		name            string
+		federatedName   string
+		durationSeconds int32
+		wantErr         bool
+	}{
+		{
+			name:            "valid_name_default_duration",
+			federatedName:   "my-user",
+			durationSeconds: 3600,
+		},
+		{
+			name:            "name_with_hyphen",
+			federatedName:   "user-" + uuid.NewString()[:8],
+			durationSeconds: 7200,
+		},
+		{
+			name:            "maximum_duration_36h",
+			federatedName:   "long-session",
+			durationSeconds: 129600,
+		},
+		{
+			name:          "empty_name",
+			federatedName: "",
+			wantErr:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := client.GetFederationToken(ctx, &sts.GetFederationTokenInput{
+				Name:            aws.String(tt.federatedName),
+				DurationSeconds: aws.Int32(tt.durationSeconds),
+			})
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, out.Credentials)
+			assert.True(t, strings.HasPrefix(*out.Credentials.AccessKeyId, "ASIA"),
+				"expected ASIA prefix, got: %s", *out.Credentials.AccessKeyId)
+			assert.NotEmpty(t, *out.Credentials.SecretAccessKey)
+			assert.NotEmpty(t, *out.Credentials.SessionToken)
+			assert.NotNil(t, out.Credentials.Expiration)
+			require.NotNil(t, out.FederatedUser)
+			assert.Contains(t, *out.FederatedUser.FederatedUserId, tt.federatedName)
+		})
+	}
+}
+
+func TestIntegration_STS_DecodeAuthorizationMessage(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		name            string
+		encodedMessage  string
+		wantErrContains string
+	}{
+		{
+			name:           "valid_encoded_message",
+			encodedMessage: "dGVzdC1lbmNvZGVkLW1lc3NhZ2U=",
+		},
+		{
+			name:            "empty_message",
+			encodedMessage:  "",
+			wantErrContains: "InvalidParameter",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := client.DecodeAuthorizationMessage(ctx, &sts.DecodeAuthorizationMessageInput{
+				EncodedMessage: aws.String(tt.encodedMessage),
+			})
+			if tt.wantErrContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrContains)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.NotEmpty(t, *out.DecodedMessage)
+		})
+	}
+}
+
+func TestIntegration_STS_GetAccessKeyInfo(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	// First obtain a valid session-token key to look up.
+	tokenOut, err := client.GetSessionToken(ctx, &sts.GetSessionTokenInput{
+		DurationSeconds: aws.Int32(3600),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, tokenOut.Credentials)
+
+	accessKeyID := *tokenOut.Credentials.AccessKeyId
+
+	tests := []struct {
+		name            string
+		accessKeyID     string
+		wantErrContains string
+	}{
+		{
+			name:        "known_session_key",
+			accessKeyID: accessKeyID,
+		},
+		{
+			name:            "unknown_key",
+			accessKeyID:     "ASIAIOSFODNN7EXAMPLE",
+			wantErrContains: "InvalidClientTokenId",
+		},
+		{
+			name:            "empty_key_id",
+			accessKeyID:     "",
+			wantErrContains: "ValidationError",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			keyOut, keyErr := client.GetAccessKeyInfo(ctx, &sts.GetAccessKeyInfoInput{
+				AccessKeyId: aws.String(tt.accessKeyID),
+			})
+			if tt.wantErrContains != "" {
+				require.Error(t, keyErr)
+				assert.Contains(t, keyErr.Error(), tt.wantErrContains)
+
+				return
+			}
+			require.NoError(t, keyErr)
+			assert.Equal(t, "000000000000", aws.ToString(keyOut.Account))
+		})
+	}
+}
+
+func TestIntegration_STS_AssumeRole_TagCountExceeded(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	// Build 51 tags — one over the 50-tag limit.
+	tags := make([]stsstypes.Tag, 51)
+	for i := range tags {
+		tags[i] = stsstypes.Tag{
+			Key:   aws.String("key-" + uuid.NewString()[:8]),
+			Value: aws.String("val"),
+		}
+	}
+
+	_, err := client.AssumeRole(ctx, &sts.AssumeRoleInput{
+		RoleArn:         aws.String("arn:aws:iam::000000000000:role/tag-test-role"),
+		RoleSessionName: aws.String("tag-test"),
+		Tags:            tags,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ValidationError")
+}

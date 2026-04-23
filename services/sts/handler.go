@@ -35,6 +35,7 @@ const (
 	stsVersion       = "Version=2011-06-15"
 	unknownOperation = "Unknown"
 	invalidAction    = "InvalidAction"
+	validationError  = "ValidationError"
 	kvPairLen        = 2
 )
 
@@ -555,14 +556,10 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 	case errors.Is(reqErr, ErrInvalidRoleArn):
 		code = "InvalidParameterValue"
 		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidDuration):
-		code = "ValidationError"
-		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidSessionName), errors.Is(reqErr, ErrInvalidFederationName):
-		code = "ValidationError"
-		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrTooManyTags), errors.Is(reqErr, ErrTooManyAudiences):
-		code = "ValidationError"
+	case errors.Is(reqErr, ErrInvalidDuration),
+		errors.Is(reqErr, ErrInvalidSessionName), errors.Is(reqErr, ErrInvalidFederationName),
+		errors.Is(reqErr, ErrTooManyTags), errors.Is(reqErr, ErrTooManyAudiences):
+		code = validationError
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrValidation):
 		code = "InvalidParameterValue"
