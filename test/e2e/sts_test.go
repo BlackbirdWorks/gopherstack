@@ -93,8 +93,10 @@ func TestSTSDashboard_GenerateSessionToken(t *testing.T) {
 
 	require.NoError(t, genBtn.Click())
 
-	// Wait for the Access Key ID to appear (ASIA prefix).
-	err = page.Locator("p.font-mono").First().WaitFor(
+	// Wait for the session token credentials to appear (the result div is only rendered when
+	// the token has been returned by the server).
+	sessionResult := page.Locator("div#session-token-result")
+	err = sessionResult.WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(15000)},
 	)
 	require.NoError(t, err)

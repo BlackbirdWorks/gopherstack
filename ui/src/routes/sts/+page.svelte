@@ -511,7 +511,7 @@
 		</button>
 
 		{#if sessionToken}
-			<div class="space-y-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg p-4">
+			<div id="session-token-result" class="space-y-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg p-4">
 				<!-- Access Key ID -->
 				<div class="flex items-center justify-between">
 					<div>
