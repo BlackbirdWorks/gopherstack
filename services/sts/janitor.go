@@ -2,6 +2,7 @@ package sts
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -16,6 +17,15 @@ type Janitor struct {
 	Backend     *InMemoryBackend
 	Interval    time.Duration
 	TaskTimeout time.Duration
+
+	sweepCount       atomic.Int64
+	expiredEvictions atomic.Int64
+}
+
+// JanitorMetrics provides janitor sweep counters.
+type JanitorMetrics struct {
+	SweepCount       int64
+	ExpiredEvictions int64
 }
 
 // NewJanitor creates a new STS Janitor for the given backend.
@@ -85,11 +95,21 @@ func (j *Janitor) sweepExpiredSessions(ctx context.Context) {
 	b.mu.Unlock()
 
 	count := len(expired)
+	j.sweepCount.Add(1)
+	j.expiredEvictions.Add(int64(count))
 
 	telemetry.RecordWorkerItems("sts", "SessionSweeper", count)
 	telemetry.RecordWorkerTask("sts", "SessionSweeper", "success")
 
 	if count > 0 {
 		logger.Load(ctx).InfoContext(ctx, "STS janitor: expired sessions evicted", "count", count)
+	}
+}
+
+// Metrics returns cumulative janitor sweep counters.
+func (j *Janitor) Metrics() JanitorMetrics {
+	return JanitorMetrics{
+		SweepCount:       j.sweepCount.Load(),
+		ExpiredEvictions: j.expiredEvictions.Load(),
 	}
 }

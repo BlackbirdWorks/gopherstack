@@ -136,6 +136,78 @@ func TestJanitor_SweepOnce_STS(t *testing.T) {
 	}
 }
 
+func TestHandler_SessionMetrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		expiredCount      int
+		activeCount       int
+		wantActive        int
+		wantExpired       int
+		wantExpiredSwept  int64
+		wantSweepCount    int64
+		runImmediateSweep bool
+	}{
+		{
+			name:              "reports_active_and_expired_before_sweep",
+			expiredCount:      1,
+			activeCount:       2,
+			wantActive:        2,
+			wantExpired:       1,
+			wantExpiredSwept:  0,
+			wantSweepCount:    0,
+			runImmediateSweep: false,
+		},
+		{
+			name:              "reports_sweep_counters_after_sweep",
+			expiredCount:      2,
+			activeCount:       1,
+			wantActive:        1,
+			wantExpired:       0,
+			wantExpiredSwept:  2,
+			wantSweepCount:    1,
+			runImmediateSweep: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := sts.NewInMemoryBackend()
+			handler := sts.NewHandler(backend).WithJanitor(time.Minute)
+
+			totalSessions := tt.expiredCount + tt.activeCount
+			accessKeyIDs := make([]string, totalSessions)
+
+			for i := range totalSessions {
+				resp, err := backend.AssumeRole(&sts.AssumeRoleInput{
+					RoleArn:         "arn:aws:iam::123456789012:role/Role1",
+					RoleSessionName: fmt.Sprintf("metrics-session-%d", i),
+					DurationSeconds: 900,
+				})
+				require.NoError(t, err)
+				accessKeyIDs[i] = resp.AssumeRoleResult.Credentials.AccessKeyID
+			}
+
+			for i := range tt.expiredCount {
+				backend.SetSessionExpiration(accessKeyIDs[i], time.Now().Add(-time.Second))
+			}
+
+			if tt.runImmediateSweep {
+				handler.GetJanitor().SweepOnce(t.Context())
+			}
+
+			metrics := handler.SessionMetrics()
+			assert.Equal(t, tt.wantActive, metrics.ActiveSessions)
+			assert.Equal(t, tt.wantExpired, metrics.ExpiredSessions)
+			assert.Equal(t, tt.wantSweepCount, metrics.SweepCount)
+			assert.Equal(t, tt.wantExpiredSwept, metrics.ExpiredEvictions)
+		})
+	}
+}
+
 // TestJanitor_TaskTimeout_STS verifies that WithJanitor propagates the
 // taskTimeout variadic argument correctly for the STS handler.
 func TestJanitor_TaskTimeout_STS(t *testing.T) {

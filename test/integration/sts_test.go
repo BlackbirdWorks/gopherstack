@@ -229,6 +229,57 @@ func TestIntegration_STS_AssumeRoleWithSAML(t *testing.T) {
 	assert.NotEmpty(t, out.Issuer)
 	assert.NotEmpty(t, out.NameQualifier)
 	assert.Contains(t, *out.AssumedRoleUser.Arn, "assumed-role")
+
+	assumedClient := createSTSClientWithCreds(
+		t,
+		*out.Credentials.AccessKeyId,
+		*out.Credentials.SecretAccessKey,
+		*out.Credentials.SessionToken,
+	)
+
+	identity, err := assumedClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	require.NoError(t, err)
+	assert.Contains(t, *identity.Arn, "assumed-role")
+}
+
+func TestIntegration_STS_AssumeRoleWithWebIdentity(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSTSClient(t)
+	ctx := t.Context()
+
+	roleARN := "arn:aws:iam::000000000000:role/web-identity-role-" + uuid.NewString()[:8]
+	webIdentityToken := "eyJhbGciOiJub25lIn0." +
+		"eyJzdWIiOiJ3ZWItaWRlbnRpdHktdXNlciIsImlzcyI6Imh0dHBzOi8vaWRwLmV4YW1wbGUuY29tIiwiYXVkIjoidGVzdC1hdWQifQ."
+
+	out, err := client.AssumeRoleWithWebIdentity(ctx, &sts.AssumeRoleWithWebIdentityInput{
+		RoleArn:          aws.String(roleARN),
+		RoleSessionName:  aws.String("web-identity-session"),
+		WebIdentityToken: aws.String(webIdentityToken),
+		ProviderId:       aws.String("https://idp.example.com"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Credentials)
+	require.NotNil(t, out.AssumedRoleUser)
+
+	assert.NotEmpty(t, *out.Credentials.AccessKeyId)
+	assert.NotEmpty(t, *out.Credentials.SecretAccessKey)
+	assert.NotEmpty(t, *out.Credentials.SessionToken)
+	assert.NotNil(t, out.Credentials.Expiration)
+	assert.Contains(t, aws.ToString(out.AssumedRoleUser.Arn), "assumed-role")
+	assert.Equal(t, "web-identity-user", aws.ToString(out.SubjectFromWebIdentityToken))
+	assert.Equal(t, "https://idp.example.com", aws.ToString(out.Provider))
+
+	assumedClient := createSTSClientWithCreds(
+		t,
+		*out.Credentials.AccessKeyId,
+		*out.Credentials.SecretAccessKey,
+		*out.Credentials.SessionToken,
+	)
+
+	identity, err := assumedClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	require.NoError(t, err)
+	assert.Contains(t, *identity.Arn, "assumed-role")
 }
 
 func TestIntegration_STS_AssumeRoot(t *testing.T) {

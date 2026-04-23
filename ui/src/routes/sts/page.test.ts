@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { render, screen, waitFor, fireEvent } from "@testing-library/svelte";
 import STSPage from "./+page.svelte";
 
 const mockSend = vi.fn();
@@ -16,6 +16,18 @@ describe("STS Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => ({
+          activeSessions: 2,
+          expiredSessions: 1,
+          sweepCount: 3,
+          expiredEvictions: 4,
+        }),
+      }),
+    );
   });
 
   it("renders page title", () => {
@@ -59,6 +71,69 @@ describe("STS Page", () => {
     mockSend.mockResolvedValue({ Account: "123456789012" });
     render(STSPage);
     expect(screen.getByText("Generate Session Token")).toBeInTheDocument();
+  });
+
+  it("renders validator and decode sections", () => {
+    mockSend.mockResolvedValue({ Account: "123456789012" });
+    render(STSPage);
+    expect(screen.getByText("Session Token Validator")).toBeInTheDocument();
+    expect(screen.getByText("Decode Authorization Message")).toBeInTheDocument();
+    expect(screen.getByText("STS Janitor Metrics")).toBeInTheDocument();
+  });
+
+  it("validates access key info", async () => {
+    mockSend.mockImplementation((command: { constructor: { name: string } }) => {
+      if (command.constructor.name === "GetCallerIdentityCommand") {
+        return Promise.resolve({
+          Account: "123456789012",
+          Arn: "arn:aws:iam::123:user/test",
+          UserId: "AIDAI12345",
+        });
+      }
+      if (command.constructor.name === "GetAccessKeyInfoCommand") {
+        return Promise.resolve({ Account: "123456789012" });
+      }
+      return Promise.resolve({});
+    });
+
+    render(STSPage);
+    await fireEvent.input(screen.getByPlaceholderText("ASIA..."), {
+      target: { value: "ASIAEXAMPLEACCESSKEY" },
+    });
+    await fireEvent.click(screen.getByText("Validate"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Valid session credentials/)).toBeInTheDocument();
+    });
+  });
+
+  it("decodes authorization message", async () => {
+    mockSend.mockImplementation((command: { constructor: { name: string } }) => {
+      if (command.constructor.name === "GetCallerIdentityCommand") {
+        return Promise.resolve({
+          Account: "123456789012",
+          Arn: "arn:aws:iam::123:user/test",
+          UserId: "AIDAI12345",
+        });
+      }
+      if (command.constructor.name === "DecodeAuthorizationMessageCommand") {
+        return Promise.resolve({ DecodedMessage: '{"error":"denied"}' });
+      }
+      return Promise.resolve({});
+    });
+
+    render(STSPage);
+    await fireEvent.input(
+      screen.getByPlaceholderText("Paste base64 encoded authorization message"),
+      {
+        target: { value: "ZXJyb3I=" },
+      },
+    );
+    await fireEvent.click(screen.getByText("Decode"));
+
+    await waitFor(() => {
+      expect(screen.getByText('{"error":"denied"}')).toBeInTheDocument();
+    });
   });
 
   it("shows Account label", async () => {

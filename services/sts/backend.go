@@ -1231,3 +1231,25 @@ func (b *InMemoryBackend) Reset() {
 
 	b.sessions = make(map[string]*SessionInfo)
 }
+
+// SessionCounts returns active and expired session counts at the time of invocation.
+func (b *InMemoryBackend) SessionCounts() (int, int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	active := 0
+	expired := 0
+
+	for _, session := range b.sessions {
+		if !session.Expiration.IsZero() && !now.Before(session.Expiration) {
+			expired++
+
+			continue
+		}
+
+		active++
+	}
+
+	return active, expired
+}

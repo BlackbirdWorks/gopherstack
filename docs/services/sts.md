@@ -11,6 +11,27 @@ In-memory STS implementation for authentication, role assumption, and credential
 | `GetSessionToken` | Get temporary credentials for the current user |
 | `GetAccessKeyInfo` | Get the account ID associated with an access key |
 | `DecodeAuthorizationMessage` | Decode an authorization failure message |
+| `AssumeRoleWithWebIdentity` | Assume a role using an OIDC web identity token |
+| `AssumeRoleWithSAML` | Assume a role using a SAML assertion |
+| `GetFederationToken` | Get temporary credentials for a federated user |
+| `GetDelegatedAccessToken` | Exchange a trade-in token for delegated credentials |
+| `GetWebIdentityToken` | Mint a mock web identity token |
+| `AssumeRoot` | Generate short-lived root credentials for a target account |
+
+## Session Janitor Configuration
+
+STS runs a background janitor that evicts expired sessions from in-memory storage.
+
+- `STS_JANITOR_INTERVAL` (default: `30s`): interval between janitor sweep ticks
+- `JANITOR_TIMEOUT` (global): optional per-sweep timeout for janitor work across services
+
+Dashboard endpoint:
+
+- `GET /dashboard/api/sts/metrics` returns current STS session sweep metrics:
+  - `activeSessions`
+  - `expiredSessions`
+  - `sweepCount`
+  - `expiredEvictions`
 
 ## AWS CLI Examples
 
@@ -41,4 +62,3 @@ Assumed-role credentials return dummy access key IDs and secrets that are accept
 
 - Session policies and inline session policies are accepted but not enforced.
 - MFA token validation is not implemented.
-- `AssumeRoleWithWebIdentity` and `AssumeRoleWithSAML` are not supported.

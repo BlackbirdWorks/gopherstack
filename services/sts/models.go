@@ -230,6 +230,14 @@ type SessionInfo struct {
 	TransitiveTagKeys []string `json:"transitive_tag_keys,omitempty"`
 }
 
+// SessionMetrics represents STS session and janitor sweep metrics for dashboard views.
+type SessionMetrics struct {
+	ActiveSessions   int   `json:"activeSessions"`
+	ExpiredSessions  int   `json:"expiredSessions"`
+	SweepCount       int64 `json:"sweepCount"`
+	ExpiredEvictions int64 `json:"expiredEvictions"`
+}
+
 // GetFederationTokenInput holds the parameters for a GetFederationToken call.
 type GetFederationTokenInput struct {
 	Name            string

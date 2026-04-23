@@ -715,6 +715,14 @@ func (h *DashboardHandler) setupSubRouter() {
 		})
 	})
 
+	h.SubRouter.GET("/dashboard/api/sts/metrics", func(c *echo.Context) error {
+		if h.config.STSOps == nil {
+			return c.JSON(http.StatusOK, stsbackend.SessionMetrics{})
+		}
+
+		return c.JSON(http.StatusOK, h.config.STSOps.SessionMetrics())
+	})
+
 	h.SubRouter.POST("/dashboard/api/codestarconnections/connections", func(c *echo.Context) error {
 		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
 			return c.JSON(

@@ -682,3 +682,20 @@ func (h *Handler) Reset() {
 		b.Reset()
 	}
 }
+
+// SessionMetrics returns STS session and janitor sweep counters.
+func (h *Handler) SessionMetrics() SessionMetrics {
+	metrics := SessionMetrics{}
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		metrics.ActiveSessions, metrics.ExpiredSessions = b.SessionCounts()
+	}
+
+	if h.janitor != nil {
+		janitorMetrics := h.janitor.Metrics()
+		metrics.SweepCount = janitorMetrics.SweepCount
+		metrics.ExpiredEvictions = janitorMetrics.ExpiredEvictions
+	}
+
+	return metrics
+}
