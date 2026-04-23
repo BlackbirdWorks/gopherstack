@@ -1711,8 +1711,8 @@ func (b *InMemoryBackend) deleteRefreshTokenLocked(token string) {
 	}
 
 	userKey := entry.PoolID + ":" + entry.Username
-	userTokens, uok := b.refreshTokensByUser[userKey]
-	if uok {
+	userTokens, foundUserTokens := b.refreshTokensByUser[userKey]
+	if foundUserTokens {
 		delete(userTokens, token)
 		if len(userTokens) == 0 {
 			delete(b.refreshTokensByUser, userKey)
@@ -1737,8 +1737,8 @@ func (b *InMemoryBackend) deleteRefreshTokensForClientAndUserIndexLocked(clientI
 
 		// Also clean up the user index to prevent memory leaks.
 		userKey := entry.PoolID + ":" + entry.Username
-		userTokens, uok := b.refreshTokensByUser[userKey]
-		if uok {
+		userTokens, foundUserTokens := b.refreshTokensByUser[userKey]
+		if foundUserTokens {
 			delete(userTokens, token)
 			if len(userTokens) == 0 {
 				delete(b.refreshTokensByUser, userKey)

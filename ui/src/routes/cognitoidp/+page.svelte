@@ -644,10 +644,10 @@ onMount(() => {
 ['AdminForgetDevice', 'Forget a device for a user (stub).'],
 ['AdminDisableProviderForUser', 'Disable a federated provider for a user (stub).'],
 ['GetSigningCertificate', 'Get the signing certificate stub.'],
-] as Array<[string, string]> as opRow}
+] as Array<[string, string]> as operation}
 <div class="rounded-lg border border-slate-100 p-3 dark:border-slate-700">
-<p class="font-medium text-slate-900 dark:text-white text-xs">{opRow[0]}</p>
-<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{opRow[1]}</p>
+<p class="font-medium text-slate-900 dark:text-white text-xs">{operation[0]}</p>
+<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{operation[1]}</p>
 </div>
 {/each}
 </div>

@@ -869,11 +869,7 @@ func (h *Handler) handleAdminGetUser(_ context.Context, in *adminGetUserInput) (
 		return nil, err
 	}
 
-	attrs := maps.Clone(user.Attributes)
-	if attrs == nil {
-		attrs = make(map[string]string)
-	}
-	attrs["sub"] = user.Sub
+	attrs := userAttrsWithSub(user)
 
 	updatedAt := user.UpdatedAt
 	if updatedAt.IsZero() {
@@ -898,6 +894,18 @@ func attributeListToMap(attrs []attributeType) map[string]string {
 	}
 
 	return m
+}
+
+// userAttrsWithSub returns a copy of the user's attribute map with the 'sub' attribute injected.
+func userAttrsWithSub(u *User) map[string]string {
+	attrs := maps.Clone(u.Attributes)
+	if attrs == nil {
+		attrs = make(map[string]string)
+	}
+
+	attrs["sub"] = u.Sub
+
+	return attrs
 }
 
 // sortedAttributeList converts a map to a sorted slice of Cognito attribute types.
@@ -960,13 +968,6 @@ func (h *Handler) handleAdminDeleteUser(
 
 // toUserSummary converts a backend User to a userSummary for API responses.
 func toUserSummary(u *User) *userSummary {
-	attrs := maps.Clone(u.Attributes)
-	if attrs == nil {
-		attrs = make(map[string]string)
-	}
-
-	attrs["sub"] = u.Sub
-
 	updatedAt := u.UpdatedAt
 	if updatedAt.IsZero() {
 		updatedAt = u.CreatedAt
@@ -977,7 +978,7 @@ func toUserSummary(u *User) *userSummary {
 		UserStatus:       u.Status,
 		UserCreateDate:   float64(u.CreatedAt.Unix()),
 		UserLastModified: float64(updatedAt.Unix()),
-		Attributes:       sortedAttributeList(attrs),
+		Attributes:       sortedAttributeList(userAttrsWithSub(u)),
 		Enabled:          u.Enabled,
 	}
 }
@@ -1084,15 +1085,9 @@ func (h *Handler) handleGetUser(
 		return nil, err
 	}
 
-	attrs := maps.Clone(user.Attributes)
-	if attrs == nil {
-		attrs = make(map[string]string)
-	}
-	attrs["sub"] = user.Sub
-
 	return &getUserOutput{
 		Username:       user.Username,
-		UserAttributes: sortedAttributeList(attrs),
+		UserAttributes: sortedAttributeList(userAttrsWithSub(user)),
 	}, nil
 }
 
