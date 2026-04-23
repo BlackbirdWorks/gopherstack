@@ -112,13 +112,14 @@ toast.error('Failed to copy to clipboard');
 // ---- Sorting helpers ----
 
 let sortedUsers = $derived(() => {
+const q = userSearch.toLowerCase();
 const filtered = users.filter(
 (u) =>
-!userSearch ||
-(u.UserName ?? '').toLowerCase().includes(userSearch.toLowerCase()) ||
-(u.DisplayName ?? '').toLowerCase().includes(userSearch.toLowerCase()) ||
-(u.Emails?.[0]?.Value ?? '').toLowerCase().includes(userSearch.toLowerCase()) ||
-[(u.Name?.GivenName ?? ''), (u.Name?.FamilyName ?? '')].join(' ').toLowerCase().includes(userSearch.toLowerCase())
+!q ||
+(u.UserName ?? '').toLowerCase().includes(q) ||
+(u.DisplayName ?? '').toLowerCase().includes(q) ||
+(u.Emails?.[0]?.Value ?? '').toLowerCase().includes(q) ||
+[(u.Name?.GivenName ?? ''), (u.Name?.FamilyName ?? '')].join(' ').toLowerCase().includes(q)
 );
 	return [...filtered].toSorted((a, b) => {
 		const av = (a[userSortCol] ?? '').toLowerCase();
@@ -495,7 +496,7 @@ toast.error(`Failed to load group members: ${(err as Error).message}`);
 }
 }
 
-async function removeMemberFromGroup(membershipID?: string, userID?: string) {
+async function removeMemberFromGroup(membershipID?: string) {
 if (!membershipID || !viewMembersGroup) return;
 const id = membershipID;
 actionInProgress = { ...actionInProgress, [id]: true };
@@ -1430,7 +1431,7 @@ class="rounded border border-slate-300 px-3 py-1 text-sm dark:border-slate-600">
 type="button"
 disabled={actionInProgress[mem.MembershipId]}
 class="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
-onclick={() => void removeMemberFromGroup(mem?.MembershipId, member.UserId)}
+onclick={() => void removeMemberFromGroup(mem?.MembershipId)}
 aria-label="Remove {member.UserName} from group"
 >Remove</button>
 {/if}
