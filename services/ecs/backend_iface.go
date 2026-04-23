@@ -33,6 +33,7 @@ type Backend interface {
 	DescribeTasks(cluster string, taskArns []string) ([]Task, error)
 	StopTask(cluster, taskArn, reason string) (*Task, error)
 	ListTasks(cluster string) ([]string, error)
+	ListTasksFiltered(input ListTasksInput) ([]string, error)
 
 	// Container instances
 

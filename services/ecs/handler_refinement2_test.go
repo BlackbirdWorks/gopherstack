@@ -427,3 +427,266 @@ func TestECS_StopServiceDeployment(t *testing.T) {
 		})
 	}
 }
+
+// TestECS_RunTask_StartedBy verifies startedBy, platformVersion and tags are stored and returned.
+func TestECS_RunTask_StartedBy(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "default"})
+	doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+		"family":               "webapp",
+		"containerDefinitions": []map[string]any{{"name": "web", "image": "nginx"}},
+	})
+
+	rec := doECSRequest(t, h, "RunTask", map[string]any{
+		"taskDefinition":  "webapp",
+		"startedBy":       "ecs-agent",
+		"platformVersion": "1.4.0",
+		"tags":            []map[string]any{{"key": "env", "value": "test"}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	tasks, ok := resp["tasks"].([]any)
+	require.True(t, ok)
+	require.Len(t, tasks, 1)
+
+	task := tasks[0].(map[string]any)
+	assert.Equal(t, "ecs-agent", task["startedBy"])
+	assert.Equal(t, "1.4.0", task["platformVersion"])
+}
+
+// TestECS_RegisterTaskDefinition_CPU_Memory verifies CPU and Memory are stored.
+func TestECS_RegisterTaskDefinition_CPU_Memory(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		input          map[string]any
+		wantCPU        string
+		wantMemory     string
+		wantPlatFamily string
+	}{
+		{
+			name: "fargate with cpu and memory",
+			input: map[string]any{
+				"family":               "fargate-app",
+				"cpu":                  "256",
+				"memory":               "512",
+				"platformFamily":       "Linux",
+				"containerDefinitions": []map[string]any{{"name": "c1", "image": "nginx"}},
+			},
+			wantCPU:        "256",
+			wantMemory:     "512",
+			wantPlatFamily: "Linux",
+		},
+		{
+			name: "no cpu or memory",
+			input: map[string]any{
+				"family":               "ec2-app",
+				"containerDefinitions": []map[string]any{{"name": "c1", "image": "nginx"}},
+			},
+			wantCPU:    "",
+			wantMemory: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doECSRequest(t, h, "RegisterTaskDefinition", tt.input)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			td, ok := resp["taskDefinition"].(map[string]any)
+			require.True(t, ok)
+
+			if tt.wantCPU != "" {
+				assert.Equal(t, tt.wantCPU, td["cpu"])
+			} else {
+				assert.Nil(t, td["cpu"])
+			}
+
+			if tt.wantMemory != "" {
+				assert.Equal(t, tt.wantMemory, td["memory"])
+			} else {
+				assert.Nil(t, td["memory"])
+			}
+
+			if tt.wantPlatFamily != "" {
+				assert.Equal(t, tt.wantPlatFamily, td["platformFamily"])
+			}
+		})
+	}
+}
+
+// TestECS_ListTasksFiltered verifies ListTasks desiredStatus filter.
+func TestECS_ListTasksFiltered(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "filter-cluster"})
+	doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+		"family":               "filterapp",
+		"containerDefinitions": []map[string]any{{"name": "c1", "image": "nginx"}},
+	})
+
+	doECSRequest(t, h, "RunTask", map[string]any{
+		"cluster":        "filter-cluster",
+		"taskDefinition": "filterapp",
+		"count":          2,
+	})
+
+	// All tasks (RUNNING desired status)
+	rec := doECSRequest(t, h, "ListTasks", map[string]any{
+		"cluster":       "filter-cluster",
+		"desiredStatus": "RUNNING",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	arns, ok := resp["taskArns"].([]any)
+	require.True(t, ok)
+	assert.Len(t, arns, 2)
+
+	// STOPPED filter — should return none
+	rec2 := doECSRequest(t, h, "ListTasks", map[string]any{
+		"cluster":       "filter-cluster",
+		"desiredStatus": "STOPPED",
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+
+	arns2, ok := resp2["taskArns"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, arns2)
+}
+
+// TestECS_CreateService_Tags verifies service tags are stored and returned.
+func TestECS_CreateService_Tags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "default"})
+	doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+		"family":               "tag-svc-td",
+		"containerDefinitions": []map[string]any{{"name": "c1", "image": "nginx"}},
+	})
+
+	rec := doECSRequest(t, h, "CreateService", map[string]any{
+		"serviceName":    "tag-svc",
+		"taskDefinition": "tag-svc-td",
+		"desiredCount":   1,
+		"tags":           []map[string]any{{"key": "env", "value": "staging"}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	svc, ok := resp["service"].(map[string]any)
+	require.True(t, ok)
+
+	tags, ok := svc["tags"].([]any)
+	require.True(t, ok)
+	require.Len(t, tags, 1)
+
+	tag := tags[0].(map[string]any)
+	assert.Equal(t, "env", tag["key"])
+	assert.Equal(t, "staging", tag["value"])
+}
+
+// TestECS_StartTask_StartedBy verifies StartTask propagates startedBy field.
+func TestECS_StartTask_StartedBy(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "start-by-cluster"})
+	doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+		"family":               "startapp-by",
+		"containerDefinitions": []map[string]any{{"name": "c1", "image": "nginx"}},
+	})
+
+	ci, err := h.Backend.RegisterContainerInstance("start-by-cluster", "i-started-by")
+	require.NoError(t, err)
+
+	rec := doECSRequest(t, h, "StartTask", map[string]any{
+		"cluster":            "start-by-cluster",
+		"taskDefinition":     "startapp-by",
+		"startedBy":          "container-agent",
+		"containerInstances": []string{ci.ContainerInstanceArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	tasks, ok := resp["tasks"].([]any)
+	require.True(t, ok)
+	require.Len(t, tasks, 1)
+
+	task := tasks[0].(map[string]any)
+	assert.Equal(t, "container-agent", task["startedBy"])
+	assert.Equal(t, ci.ContainerInstanceArn, task["containerInstanceArn"])
+}
+
+// TestECS_ListTasksFiltered_ContainerInstance verifies ListTasks containerInstance filter.
+func TestECS_ListTasksFiltered_ContainerInstance(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "ci-filter-cluster"})
+	doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+		"family":               "ci-filter-td",
+		"containerDefinitions": []map[string]any{{"name": "c1", "image": "nginx"}},
+	})
+
+	ci1, err := h.Backend.RegisterContainerInstance("ci-filter-cluster", "i-aaa")
+	require.NoError(t, err)
+
+	ci2, err := h.Backend.RegisterContainerInstance("ci-filter-cluster", "i-bbb")
+	require.NoError(t, err)
+
+	// Start a task on ci1 and ci2 respectively
+	doECSRequest(t, h, "StartTask", map[string]any{
+		"cluster":            "ci-filter-cluster",
+		"taskDefinition":     "ci-filter-td",
+		"containerInstances": []string{ci1.ContainerInstanceArn},
+	})
+	doECSRequest(t, h, "StartTask", map[string]any{
+		"cluster":            "ci-filter-cluster",
+		"taskDefinition":     "ci-filter-td",
+		"containerInstances": []string{ci2.ContainerInstanceArn},
+	})
+
+	// Filter by ci1 only
+	rec := doECSRequest(t, h, "ListTasks", map[string]any{
+		"cluster":           "ci-filter-cluster",
+		"containerInstance": ci1.ContainerInstanceArn,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	arns, ok := resp["taskArns"].([]any)
+	require.True(t, ok)
+	assert.Len(t, arns, 1)
+}

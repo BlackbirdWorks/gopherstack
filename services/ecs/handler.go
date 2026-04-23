@@ -446,6 +446,9 @@ func (h *Handler) handleDeleteCluster(_ context.Context, in *deleteClusterInput)
 type registerTaskDefinitionInput struct {
 	Family               string                `json:"family"`
 	NetworkMode          string                `json:"networkMode,omitempty"`
+	CPU                  string                `json:"cpu,omitempty"`
+	Memory               string                `json:"memory,omitempty"`
+	PlatformFamily       string                `json:"platformFamily,omitempty"`
 	ContainerDefinitions []ContainerDefinition `json:"containerDefinitions"`
 }
 
@@ -460,6 +463,9 @@ func (h *Handler) handleRegisterTaskDefinition(
 	td, err := h.Backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
 		Family:               in.Family,
 		NetworkMode:          in.NetworkMode,
+		CPU:                  in.CPU,
+		Memory:               in.Memory,
+		PlatformFamily:       in.PlatformFamily,
 		ContainerDefinitions: in.ContainerDefinitions,
 	})
 	if err != nil {
@@ -548,6 +554,7 @@ type createServiceInput struct {
 	TaskDefinition     string `json:"taskDefinition"`
 	LaunchType         string `json:"launchType,omitempty"`
 	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
+	Tags               []Tag  `json:"tags,omitempty"`
 	DesiredCount       int    `json:"desiredCount"`
 }
 
@@ -562,6 +569,7 @@ func (h *Handler) handleCreateService(_ context.Context, in *createServiceInput)
 		TaskDefinition:     in.TaskDefinition,
 		LaunchType:         in.LaunchType,
 		SchedulingStrategy: in.SchedulingStrategy,
+		Tags:               in.Tags,
 		DesiredCount:       in.DesiredCount,
 	})
 	if err != nil {
@@ -666,11 +674,15 @@ func (h *Handler) handleListServices(_ context.Context, in *listServicesInput) (
 // ----- Task handlers -----
 
 type runTaskInput struct {
-	Cluster        string `json:"cluster,omitempty"`
-	TaskDefinition string `json:"taskDefinition"`
-	LaunchType     string `json:"launchType,omitempty"`
-	Group          string `json:"group,omitempty"`
-	Count          int    `json:"count,omitempty"`
+	Cluster              string `json:"cluster,omitempty"`
+	TaskDefinition       string `json:"taskDefinition"`
+	LaunchType           string `json:"launchType,omitempty"`
+	Group                string `json:"group,omitempty"`
+	StartedBy            string `json:"startedBy,omitempty"`
+	PlatformVersion      string `json:"platformVersion,omitempty"`
+	EnableECSManagedTags bool   `json:"enableECSManagedTags,omitempty"`
+	Count                int    `json:"count,omitempty"`
+	Tags                 []Tag  `json:"tags,omitempty"`
 }
 
 type runTaskOutput struct {
@@ -679,11 +691,15 @@ type runTaskOutput struct {
 
 func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOutput, error) {
 	tasks, err := h.Backend.RunTask(RunTaskInput{
-		Cluster:        in.Cluster,
-		TaskDefinition: in.TaskDefinition,
-		Count:          in.Count,
-		LaunchType:     in.LaunchType,
-		Group:          in.Group,
+		Cluster:              in.Cluster,
+		TaskDefinition:       in.TaskDefinition,
+		Count:                in.Count,
+		LaunchType:           in.LaunchType,
+		Group:                in.Group,
+		StartedBy:            in.StartedBy,
+		PlatformVersion:      in.PlatformVersion,
+		EnableECSManagedTags: in.EnableECSManagedTags,
+		Tags:                 in.Tags,
 	})
 	if err != nil {
 		return nil, err
@@ -740,9 +756,15 @@ func (h *Handler) handleStopTask(_ context.Context, in *stopTaskInput) (*stopTas
 }
 
 type listTasksInput struct {
-	Cluster    string `json:"cluster,omitempty"`
-	NextToken  string `json:"nextToken,omitempty"`
-	MaxResults int    `json:"maxResults,omitempty"`
+	Cluster           string `json:"cluster,omitempty"`
+	ContainerInstance string `json:"containerInstance,omitempty"`
+	Family            string `json:"family,omitempty"`
+	ServiceName       string `json:"serviceName,omitempty"`
+	DesiredStatus     string `json:"desiredStatus,omitempty"`
+	LaunchType        string `json:"launchType,omitempty"`
+	StartedBy         string `json:"startedBy,omitempty"`
+	NextToken         string `json:"nextToken,omitempty"`
+	MaxResults        int    `json:"maxResults,omitempty"`
 }
 
 type listTasksOutput struct {
@@ -751,7 +773,15 @@ type listTasksOutput struct {
 }
 
 func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listTasksOutput, error) {
-	arns, err := h.Backend.ListTasks(in.Cluster)
+	arns, err := h.Backend.ListTasksFiltered(ListTasksInput{
+		Cluster:           in.Cluster,
+		ContainerInstance: in.ContainerInstance,
+		Family:            in.Family,
+		ServiceName:       in.ServiceName,
+		DesiredStatus:     in.DesiredStatus,
+		LaunchType:        in.LaunchType,
+		StartedBy:         in.StartedBy,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -813,6 +843,9 @@ type taskDefinitionView struct {
 	Family               string                `json:"family"`
 	NetworkMode          string                `json:"networkMode,omitempty"`
 	Status               string                `json:"status"`
+	CPU                  string                `json:"cpu,omitempty"`
+	Memory               string                `json:"memory,omitempty"`
+	PlatformFamily       string                `json:"platformFamily,omitempty"`
 	ContainerDefinitions []ContainerDefinition `json:"containerDefinitions"`
 	RegisteredAt         float64               `json:"registeredAt"`
 	Revision             int                   `json:"revision"`
@@ -824,6 +857,9 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 		Family:               td.Family,
 		NetworkMode:          td.NetworkMode,
 		Status:               td.Status,
+		CPU:                  td.CPU,
+		Memory:               td.Memory,
+		PlatformFamily:       td.PlatformFamily,
 		ContainerDefinitions: td.ContainerDefinitions,
 		RegisteredAt:         float64(td.RegisteredAt.Unix()),
 		Revision:             td.Revision,
@@ -831,17 +867,18 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 }
 
 type serviceView struct {
-	ServiceArn         string  `json:"serviceArn"`
-	ServiceName        string  `json:"serviceName"`
-	ClusterArn         string  `json:"clusterArn"`
-	TaskDefinition     string  `json:"taskDefinition"`
-	Status             string  `json:"status"`
-	LaunchType         string  `json:"launchType,omitempty"`
-	SchedulingStrategy string  `json:"schedulingStrategy,omitempty"`
-	CreatedAt          float64 `json:"createdAt"`
-	DesiredCount       int     `json:"desiredCount"`
-	PendingCount       int     `json:"pendingCount"`
-	RunningCount       int     `json:"runningCount"`
+	ServiceArn         string   `json:"serviceArn"`
+	ServiceName        string   `json:"serviceName"`
+	ClusterArn         string   `json:"clusterArn"`
+	TaskDefinition     string   `json:"taskDefinition"`
+	Status             string   `json:"status"`
+	LaunchType         string   `json:"launchType,omitempty"`
+	SchedulingStrategy string   `json:"schedulingStrategy,omitempty"`
+	CreatedAt          float64  `json:"createdAt"`
+	Tags               []Tag    `json:"tags,omitempty"`
+	DesiredCount       int      `json:"desiredCount"`
+	PendingCount       int      `json:"pendingCount"`
+	RunningCount       int      `json:"runningCount"`
 }
 
 func toServiceView(s Service) serviceView {
@@ -854,6 +891,7 @@ func toServiceView(s Service) serviceView {
 		LaunchType:         s.LaunchType,
 		SchedulingStrategy: s.SchedulingStrategy,
 		CreatedAt:          float64(s.CreatedAt.Unix()),
+		Tags:               s.Tags,
 		DesiredCount:       s.DesiredCount,
 		PendingCount:       s.PendingCount,
 		RunningCount:       s.RunningCount,
@@ -861,28 +899,38 @@ func toServiceView(s Service) serviceView {
 }
 
 type taskView struct {
-	TaskArn           string  `json:"taskArn"`
-	ClusterArn        string  `json:"clusterArn"`
-	TaskDefinitionArn string  `json:"taskDefinitionArn"`
-	LastStatus        string  `json:"lastStatus"`
-	DesiredStatus     string  `json:"desiredStatus"`
-	StoppedReason     string  `json:"stoppedReason,omitempty"`
-	Group             string  `json:"group,omitempty"`
-	LaunchType        string  `json:"launchType,omitempty"`
-	StartedAt         float64 `json:"startedAt,omitempty"`
-	StoppedAt         float64 `json:"stoppedAt,omitempty"`
+	TaskArn              string  `json:"taskArn"`
+	ClusterArn           string  `json:"clusterArn"`
+	TaskDefinitionArn    string  `json:"taskDefinitionArn"`
+	LastStatus           string  `json:"lastStatus"`
+	DesiredStatus        string  `json:"desiredStatus"`
+	StoppedReason        string  `json:"stoppedReason,omitempty"`
+	Group                string  `json:"group,omitempty"`
+	LaunchType           string  `json:"launchType,omitempty"`
+	ContainerInstanceArn string  `json:"containerInstanceArn,omitempty"`
+	StartedBy            string  `json:"startedBy,omitempty"`
+	PlatformVersion      string  `json:"platformVersion,omitempty"`
+	PlatformFamily       string  `json:"platformFamily,omitempty"`
+	RuntimeID            string  `json:"runtimeId,omitempty"`
+	StartedAt            float64 `json:"startedAt,omitempty"`
+	StoppedAt            float64 `json:"stoppedAt,omitempty"`
 }
 
 func toTaskView(t Task) taskView {
 	v := taskView{
-		TaskArn:           t.TaskArn,
-		ClusterArn:        t.ClusterArn,
-		TaskDefinitionArn: t.TaskDefinitionArn,
-		LastStatus:        t.LastStatus,
-		DesiredStatus:     t.DesiredStatus,
-		StoppedReason:     t.StoppedReason,
-		Group:             t.Group,
-		LaunchType:        t.LaunchType,
+		TaskArn:              t.TaskArn,
+		ClusterArn:           t.ClusterArn,
+		TaskDefinitionArn:    t.TaskDefinitionArn,
+		LastStatus:           t.LastStatus,
+		DesiredStatus:        t.DesiredStatus,
+		StoppedReason:        t.StoppedReason,
+		Group:                t.Group,
+		LaunchType:           t.LaunchType,
+		ContainerInstanceArn: t.ContainerInstanceArn,
+		StartedBy:            t.StartedBy,
+		PlatformVersion:      t.PlatformVersion,
+		PlatformFamily:       t.PlatformFamily,
+		RuntimeID:            t.RuntimeID,
 	}
 
 	if t.StartedAt != nil {

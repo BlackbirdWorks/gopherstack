@@ -154,7 +154,7 @@ async function handleTabChange(tabId: string) {
 		await loadTaskSets(selectedCluster);
 	}
 	if (tabId === 'capacity' && selectedCluster) {
-		await loadCapacityProvidersForCluster(selectedCluster);
+		await loadCapacityProviders(selectedCluster);
 	}
 }
 

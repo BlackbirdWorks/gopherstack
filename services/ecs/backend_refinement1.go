@@ -178,6 +178,7 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 			Group:                input.Group,
 			LaunchType:           "EC2",
 			ContainerInstanceArn: ciArn,
+			StartedBy:            input.StartedBy,
 			StartedAt:            &now,
 		}
 

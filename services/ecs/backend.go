@@ -92,6 +92,9 @@ type TaskDefinition struct {
 	Family               string                `json:"family"`
 	NetworkMode          string                `json:"networkMode,omitempty"`
 	Status               string                `json:"status"`
+	PlatformFamily       string                `json:"platformFamily,omitempty"`
+	CPU                  string                `json:"cpu,omitempty"`
+	Memory               string                `json:"memory,omitempty"`
 	ContainerDefinitions []ContainerDefinition `json:"containerDefinitions"`
 	Revision             int                   `json:"revision"`
 }
@@ -106,6 +109,7 @@ type Service struct {
 	Status             string    `json:"status"`
 	LaunchType         string    `json:"launchType,omitempty"`
 	SchedulingStrategy string    `json:"schedulingStrategy,omitempty"`
+	Tags               []Tag     `json:"tags,omitempty"`
 	DesiredCount       int       `json:"desiredCount"`
 	PendingCount       int       `json:"pendingCount"`
 	RunningCount       int       `json:"runningCount"`
@@ -124,6 +128,11 @@ type Task struct {
 	Group                string     `json:"group,omitempty"`
 	LaunchType           string     `json:"launchType,omitempty"`
 	ContainerInstanceArn string     `json:"containerInstanceArn,omitempty"`
+	StartedBy            string     `json:"startedBy,omitempty"`
+	PlatformVersion      string     `json:"platformVersion,omitempty"`
+	PlatformFamily       string     `json:"platformFamily,omitempty"`
+	RuntimeID            string     `json:"runtimeId,omitempty"`
+	Tags                 []Tag      `json:"tags,omitempty"`
 }
 
 // CreateClusterInput holds input for CreateCluster.
@@ -135,6 +144,9 @@ type CreateClusterInput struct {
 type RegisterTaskDefinitionInput struct {
 	Family               string                `json:"family"`
 	NetworkMode          string                `json:"networkMode,omitempty"`
+	CPU                  string                `json:"cpu,omitempty"`
+	Memory               string                `json:"memory,omitempty"`
+	PlatformFamily       string                `json:"platformFamily,omitempty"`
 	ContainerDefinitions []ContainerDefinition `json:"containerDefinitions"`
 }
 
@@ -145,6 +157,7 @@ type CreateServiceInput struct {
 	TaskDefinition     string `json:"taskDefinition"`
 	LaunchType         string `json:"launchType,omitempty"`
 	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
+	Tags               []Tag  `json:"tags,omitempty"`
 	DesiredCount       int    `json:"desiredCount"`
 }
 
@@ -158,11 +171,15 @@ type UpdateServiceInput struct {
 
 // RunTaskInput holds input for RunTask.
 type RunTaskInput struct {
-	Cluster        string `json:"cluster,omitempty"`
-	TaskDefinition string `json:"taskDefinition"`
-	LaunchType     string `json:"launchType,omitempty"`
-	Group          string `json:"group,omitempty"`
-	Count          int    `json:"count,omitempty"`
+	Cluster               string `json:"cluster,omitempty"`
+	TaskDefinition        string `json:"taskDefinition"`
+	LaunchType            string `json:"launchType,omitempty"`
+	Group                 string `json:"group,omitempty"`
+	StartedBy             string `json:"startedBy,omitempty"`
+	PlatformVersion       string `json:"platformVersion,omitempty"`
+	EnableECSManagedTags  bool   `json:"enableECSManagedTags,omitempty"`
+	Count                 int    `json:"count,omitempty"`
+	Tags                  []Tag  `json:"tags,omitempty"`
 }
 
 // compile-time assertion.
@@ -441,6 +458,9 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 		),
 		Family:               input.Family,
 		NetworkMode:          input.NetworkMode,
+		CPU:                  input.CPU,
+		Memory:               input.Memory,
+		PlatformFamily:       input.PlatformFamily,
 		Status:               statusActive,
 		ContainerDefinitions: input.ContainerDefinitions,
 		Revision:             revision,
@@ -642,6 +662,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		Status:             statusActive,
 		LaunchType:         launchType,
 		SchedulingStrategy: schedulingStrategy,
+		Tags:               input.Tags,
 		DesiredCount:       input.DesiredCount,
 	}
 
@@ -847,6 +868,9 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 			DesiredStatus:     statusRunning,
 			Group:             input.Group,
 			LaunchType:        launchType,
+			StartedBy:         input.StartedBy,
+			PlatformVersion:   input.PlatformVersion,
+			Tags:              input.Tags,
 			StartedAt:         &now,
 		}
 
@@ -989,19 +1013,46 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 }
 
 // ListTasks returns task ARNs for the given cluster.
-func (b *InMemoryBackend) ListTasks(cluster string) ([]string, error) {
-	clusterName := clusterKey(b.resolveCluster(cluster))
+// ListTasksInput holds optional filters for ListTasks.
+type ListTasksInput struct {
+	Cluster           string
+	ContainerInstance string
+	Family            string
+	ServiceName       string
+	DesiredStatus     string
+	LaunchType        string
+	StartedBy         string
+}
 
-	b.mu.RLock("ListTasks")
+func (b *InMemoryBackend) ListTasks(cluster string) ([]string, error) {
+	return b.ListTasksFiltered(ListTasksInput{Cluster: cluster})
+}
+
+func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, error) {
+	clusterName := clusterKey(b.resolveCluster(input.Cluster))
+
+	b.mu.RLock("ListTasksFiltered")
 	defer b.mu.RUnlock()
 
 	clusterTasks, ok := b.tasks[clusterName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
+		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
 	}
 
 	arns := make([]string, 0, len(clusterTasks))
-	for arn := range clusterTasks {
+	for arn, task := range clusterTasks {
+		if input.ContainerInstance != "" && task.ContainerInstanceArn != input.ContainerInstance {
+			continue
+		}
+		if input.DesiredStatus != "" && !strings.EqualFold(task.DesiredStatus, input.DesiredStatus) {
+			continue
+		}
+		if input.LaunchType != "" && !strings.EqualFold(task.LaunchType, input.LaunchType) {
+			continue
+		}
+		if input.StartedBy != "" && task.StartedBy != input.StartedBy {
+			continue
+		}
 		arns = append(arns, arn)
 	}
 
