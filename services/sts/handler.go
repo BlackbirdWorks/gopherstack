@@ -475,6 +475,10 @@ func (h *Handler) dispatchGetWebIdentityToken(r *http.Request) (*GetWebIdentityT
 
 // dispatchGetAccessKeyInfo handles the GetAccessKeyInfo action.
 func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoResponse, error) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.cntGetAccessKeyInfo.Add(1)
+	}
+
 	accessKeyID := r.FormValue("AccessKeyId")
 
 	callerIdentity, err := h.Backend.GetCallerIdentity(accessKeyID)
@@ -493,6 +497,10 @@ func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoRe
 
 // dispatchDecodeAuthorizationMessage handles the DecodeAuthorizationMessage action.
 func (h *Handler) dispatchDecodeAuthorizationMessage(r *http.Request) (*DecodeAuthorizationMessageResponse, error) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.cntDecodeAuthorizationMsg.Add(1)
+	}
+
 	encoded := r.FormValue("EncodedMessage")
 
 	if encoded == "" {
@@ -508,17 +516,12 @@ func (h *Handler) dispatchDecodeAuthorizationMessage(r *http.Request) (*DecodeAu
 		}
 	}
 
-	callerIdentity, ciErr := h.Backend.GetCallerIdentity("")
-	if ciErr != nil {
-		return nil, ciErr
-	}
-
 	return &DecodeAuthorizationMessageResponse{
 		Xmlns: STSNamespace,
 		DecodeAuthorizationMessageResult: DecodeAuthorizationMessageResult{
 			DecodedMessage: string(decoded),
 		},
-		ResponseMetadata: callerIdentity.ResponseMetadata,
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil
 }
 
@@ -537,6 +540,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 		errors.Is(reqErr, ErrMissingTradeInToken), errors.Is(reqErr, ErrMissingAudience),
 		errors.Is(reqErr, ErrMissingSigningAlgorithm), errors.Is(reqErr, ErrMissingEncodedMessage):
 		code = "MissingParameter"
+		httpStatus = http.StatusBadRequest
+	case errors.Is(reqErr, ErrInvalidRoleArn):
+		code = "InvalidParameterValue"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidDuration):
 		code = "ValidationError"
@@ -689,6 +695,18 @@ func (h *Handler) SessionMetrics() SessionMetrics {
 
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		metrics.ActiveSessions, metrics.ExpiredSessions = b.SessionCounts()
+		metrics.TotalSessionsCreated = b.totalSessionsCreated.Load()
+		metrics.OpsAssumeRole = b.cntAssumeRole.Load()
+		metrics.OpsAssumeRoleWithSAML = b.cntAssumeRoleWithSAML.Load()
+		metrics.OpsAssumeRoleWithWI = b.cntAssumeRoleWithWebIdentity.Load()
+		metrics.OpsAssumeRoot = b.cntAssumeRoot.Load()
+		metrics.OpsGetCallerIdentity = b.cntGetCallerIdentity.Load()
+		metrics.OpsGetFederationToken = b.cntGetFederationToken.Load()
+		metrics.OpsGetSessionToken = b.cntGetSessionToken.Load()
+		metrics.OpsGetWebIdentityToken = b.cntGetWebIdentityToken.Load()
+		metrics.OpsGetAccessKeyInfo = b.cntGetAccessKeyInfo.Load()
+		metrics.OpsDecodeAuthMessage = b.cntDecodeAuthorizationMsg.Load()
+		metrics.OpsGetDelegatedToken = b.cntGetDelegatedAccessToken.Load()
 	}
 
 	if h.janitor != nil {

@@ -562,16 +562,14 @@ func TestProvider_Init(t *testing.T) {
 func TestAssumeRole_MalformedArn(t *testing.T) {
 	t.Parallel()
 
-	// An ARN with fewer than 6 colon-separated components triggers the fallback
-	// path in buildAssumedRoleArn.
+	// A malformed ARN (fewer than 6 colon-separated components) is now rejected
+	// by the validateRoleArn check added for AWS realism.
 	backend := sts.NewInMemoryBackend()
-	resp, err := backend.AssumeRole(&sts.AssumeRoleInput{
+	_, err := backend.AssumeRole(&sts.AssumeRoleInput{
 		RoleArn:         "short/role",
 		RoleSessionName: "session",
 	})
-	require.NoError(t, err)
-
-	assert.Contains(t, resp.AssumeRoleResult.AssumedRoleUser.Arn, "session")
+	require.ErrorIs(t, err, sts.ErrInvalidRoleArn)
 }
 
 // ---- Handler error-path tests -----------------------------------------------
