@@ -3,6 +3,7 @@ package identitystore
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -147,6 +148,7 @@ type createUserRequest struct {
 	Emails          []Email       `json:"Emails"`
 	Addresses       []Address     `json:"Addresses"`
 	PhoneNumbers    []PhoneNumber `json:"PhoneNumbers"`
+	ExternalIDs     []ExternalID  `json:"ExternalIds"`
 }
 
 type createUserResponse struct {
@@ -227,6 +229,8 @@ type externalID struct {
 type listGroupMembershipsForMemberRequest struct {
 	IdentityStoreID string   `json:"IdentityStoreId"`
 	MemberID        MemberID `json:"MemberId"`
+	NextToken       string   `json:"NextToken"`
+	MaxResults      int32    `json:"MaxResults"`
 }
 
 type isMemberInGroupsRequest struct {
@@ -250,21 +254,17 @@ type deleteUserRequest struct {
 }
 
 type listUsersRequest struct {
-	IdentityStoreID string `json:"IdentityStoreId"`
-}
-
-type describeGroupRequest struct {
-	IdentityStoreID string `json:"IdentityStoreId"`
-	GroupID         string `json:"GroupId"`
-}
-
-type deleteGroupRequest struct {
-	IdentityStoreID string `json:"IdentityStoreId"`
-	GroupID         string `json:"GroupId"`
+	IdentityStoreID string       `json:"IdentityStoreId"`
+	NextToken       string       `json:"NextToken"`
+	Filters         []ListFilter `json:"Filters"`
+	MaxResults      int32        `json:"MaxResults"`
 }
 
 type listGroupsRequest struct {
-	IdentityStoreID string `json:"IdentityStoreId"`
+	IdentityStoreID string       `json:"IdentityStoreId"`
+	NextToken       string       `json:"NextToken"`
+	Filters         []ListFilter `json:"Filters"`
+	MaxResults      int32        `json:"MaxResults"`
 }
 
 type describeGroupMembershipRequest struct {
@@ -278,6 +278,18 @@ type deleteGroupMembershipRequest struct {
 }
 
 type listGroupMembershipsRequest struct {
+	IdentityStoreID string `json:"IdentityStoreId"`
+	GroupID         string `json:"GroupId"`
+	NextToken       string `json:"NextToken"`
+	MaxResults      int32  `json:"MaxResults"`
+}
+
+type describeGroupRequest struct {
+	IdentityStoreID string `json:"IdentityStoreId"`
+	GroupID         string `json:"GroupId"`
+}
+
+type deleteGroupRequest struct {
 	IdentityStoreID string `json:"IdentityStoreId"`
 	GroupID         string `json:"GroupId"`
 }
@@ -366,6 +378,7 @@ func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
 		Emails:        req.Emails,
 		Addresses:     req.Addresses,
 		PhoneNumbers:  req.PhoneNumbers,
+		ExternalIDs:   req.ExternalIDs,
 	})
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -383,6 +396,14 @@ func (h *Handler) handleDescribeUser(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.UserID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "UserId is required")
+	}
+
 	user, err := h.Backend.DescribeUser(req.IdentityStoreID, req.UserID)
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -397,11 +418,17 @@ func (h *Handler) handleListUsers(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	users := h.Backend.ListUsers(req.IdentityStoreID)
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	all := h.Backend.ListUsers(req.IdentityStoreID)
+	filtered := applyUserFilters(all, req.Filters)
+	page, nextToken := paginateSlice(filtered, req.MaxResults, req.NextToken)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"Users":     users,
-		"NextToken": nil,
+		"Users":     page,
+		"NextToken": nextToken,
 	})
 }
 
@@ -409,6 +436,14 @@ func (h *Handler) handleUpdateUser(c *echo.Context, body []byte) error {
 	var req updateUserRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.UserID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "UserId is required")
 	}
 
 	if err := h.Backend.UpdateUser(req.IdentityStoreID, req.UserID, req.Operations); err != nil {
@@ -424,6 +459,14 @@ func (h *Handler) handleDeleteUser(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.UserID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "UserId is required")
+	}
+
 	if err := h.Backend.DeleteUser(req.IdentityStoreID, req.UserID); err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -435,6 +478,10 @@ func (h *Handler) handleGetUserID(c *echo.Context, body []byte) error {
 	var req getUserIDRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
 	}
 
 	attrPath, attrValue := extractAlternateIdentifier(req.AlternateIdentifier)
@@ -491,6 +538,14 @@ func (h *Handler) handleDescribeGroup(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.GroupID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
+	}
+
 	group, err := h.Backend.DescribeGroup(req.IdentityStoreID, req.GroupID)
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -505,11 +560,17 @@ func (h *Handler) handleListGroups(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	groups := h.Backend.ListGroups(req.IdentityStoreID)
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	all := h.Backend.ListGroups(req.IdentityStoreID)
+	filtered := applyGroupFilters(all, req.Filters)
+	page, nextToken := paginateSlice(filtered, req.MaxResults, req.NextToken)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"Groups":    groups,
-		"NextToken": nil,
+		"Groups":    page,
+		"NextToken": nextToken,
 	})
 }
 
@@ -517,6 +578,14 @@ func (h *Handler) handleUpdateGroup(c *echo.Context, body []byte) error {
 	var req updateGroupRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.GroupID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
 	}
 
 	if err := h.Backend.UpdateGroup(req.IdentityStoreID, req.GroupID, req.Operations); err != nil {
@@ -532,6 +601,14 @@ func (h *Handler) handleDeleteGroup(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.GroupID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
+	}
+
 	if err := h.Backend.DeleteGroup(req.IdentityStoreID, req.GroupID); err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -543,6 +620,10 @@ func (h *Handler) handleGetGroupID(c *echo.Context, body []byte) error {
 	var req getGroupIDRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
 	}
 
 	attrPath, attrValue := extractAlternateIdentifier(req.AlternateIdentifier)
@@ -600,6 +681,14 @@ func (h *Handler) handleDescribeGroupMembership(c *echo.Context, body []byte) er
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.MembershipID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MembershipId is required")
+	}
+
 	m, err := h.Backend.DescribeGroupMembership(req.IdentityStoreID, req.MembershipID)
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -614,11 +703,20 @@ func (h *Handler) handleListGroupMemberships(c *echo.Context, body []byte) error
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	memberships := h.Backend.ListGroupMemberships(req.IdentityStoreID, req.GroupID)
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.GroupID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
+	}
+
+	all := h.Backend.ListGroupMemberships(req.IdentityStoreID, req.GroupID)
+	page, nextToken := paginateSlice(all, req.MaxResults, req.NextToken)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"GroupMemberships": memberships,
-		"NextToken":        nil,
+		"GroupMemberships": page,
+		"NextToken":        nextToken,
 	})
 }
 
@@ -626,6 +724,14 @@ func (h *Handler) handleDeleteGroupMembership(c *echo.Context, body []byte) erro
 	var req deleteGroupMembershipRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.MembershipID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MembershipId is required")
 	}
 
 	if err := h.Backend.DeleteGroupMembership(req.IdentityStoreID, req.MembershipID); err != nil {
@@ -639,6 +745,18 @@ func (h *Handler) handleGetGroupMembershipID(c *echo.Context, body []byte) error
 	var req getGroupMembershipIDRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.GroupID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
+	}
+
+	if strings.TrimSpace(req.MemberID.UserID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
 	}
 
 	membershipID, err := h.Backend.GetGroupMembershipID(req.IdentityStoreID, req.GroupID, req.MemberID)
@@ -658,15 +776,20 @@ func (h *Handler) handleListGroupMembershipsForMember(c *echo.Context, body []by
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
 	if strings.TrimSpace(req.MemberID.UserID) == "" {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
 	}
 
-	memberships := h.Backend.ListGroupMembershipsForMember(req.IdentityStoreID, req.MemberID)
+	all := h.Backend.ListGroupMembershipsForMember(req.IdentityStoreID, req.MemberID)
+	page, nextToken := paginateSlice(all, req.MaxResults, req.NextToken)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"GroupMemberships": memberships,
-		"NextToken":        nil,
+		"GroupMemberships": page,
+		"NextToken":        nextToken,
 	})
 }
 
@@ -676,12 +799,21 @@ func (h *Handler) handleIsMemberInGroups(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
 	if strings.TrimSpace(req.MemberID.UserID) == "" {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
 	}
 
 	if len(req.GroupIDs) == 0 {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupIds must not be empty")
+	}
+
+	if len(req.GroupIDs) > maxIsMemberInGroupsIDs {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException",
+			fmt.Sprintf("GroupIds must not exceed %d items", maxIsMemberInGroupsIDs))
 	}
 
 	results := h.Backend.IsMemberInGroups(req.IdentityStoreID, req.MemberID, req.GroupIDs)
@@ -694,19 +826,28 @@ func (h *Handler) handleIsMemberInGroups(c *echo.Context, body []byte) error {
 // ----------------------------------------
 
 func (h *Handler) handleBackendError(c *echo.Context, err error) error {
-	code := http.StatusInternalServerError
-	errType := "InternalFailure"
-
 	switch {
-	case errors.Is(err, ErrUserNotFound) || errors.Is(err, ErrGroupNotFound) || errors.Is(err, ErrMembershipNotFound):
-		code = http.StatusNotFound
-		errType = "ResourceNotFoundException"
+	case errors.Is(err, ErrUserNotFound):
+		return h.writeResourceError(c, "ResourceNotFoundException", err.Error(), "USER")
+	case errors.Is(err, ErrGroupNotFound):
+		return h.writeResourceError(c, "ResourceNotFoundException", err.Error(), "GROUP")
+	case errors.Is(err, ErrMembershipNotFound):
+		return h.writeResourceError(c, "ResourceNotFoundException", err.Error(), "GROUP_MEMBERSHIP")
 	case errors.Is(err, ErrConflict):
-		code = http.StatusConflict
-		errType = "ConflictException"
+		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error())
 	}
 
-	return h.writeError(c, code, errType, err.Error())
+	return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+}
+
+// writeResourceError writes a ResourceNotFoundException with a ResourceType field for
+// AWS-compatible error responses.
+func (h *Handler) writeResourceError(c *echo.Context, errType, message, resourceType string) error {
+	return c.JSON(http.StatusNotFound, map[string]string{
+		"__type":       errType,
+		"message":      message,
+		"ResourceType": resourceType,
+	})
 }
 
 func (h *Handler) writeError(c *echo.Context, statusCode int, errType, message string) error {

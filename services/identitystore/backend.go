@@ -1,12 +1,26 @@
 package identitystore
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+)
+
+// maxIsMemberInGroupsIDs is the maximum number of GroupIds allowed per IsMemberInGroups request.
+const maxIsMemberInGroupsIDs = 100
+
+// defaultMaxResults is the page size used when MaxResults is 0 or > maxListPageSize.
+const (
+	defaultMaxResults = 100
+	// maxListPageSize is the upper bound a caller may request per page.
+	maxListPageSize = 100
+	// attrUserNameKey is the lower-cased attribute path for username lookups.
+	attrUserNameKey = "username"
 )
 
 // Sentinel errors.
@@ -61,6 +75,12 @@ type PhoneNumber struct {
 	Primary bool   `json:"Primary,omitempty"`
 }
 
+// ExternalID holds an external identity for a user (e.g. from SAML/SCIM providers).
+type ExternalID struct {
+	Issuer string `json:"Issuer"`
+	ID     string `json:"Id"`
+}
+
 // User represents an identity store user.
 type User struct {
 	UserID          string        `json:"UserId"`
@@ -78,6 +98,7 @@ type User struct {
 	Emails          []Email       `json:"Emails,omitempty"`
 	Addresses       []Address     `json:"Addresses,omitempty"`
 	PhoneNumbers    []PhoneNumber `json:"PhoneNumbers,omitempty"`
+	ExternalIDs     []ExternalID  `json:"ExternalIds,omitempty"`
 }
 
 // Group represents an identity store group.
@@ -113,16 +134,18 @@ type GroupMembershipExistence struct {
 
 // InMemoryBackend is the in-memory store for the Identity Store service.
 type InMemoryBackend struct {
-	users          map[string]*User
-	groups         map[string]*Group
-	memberships    map[string]*GroupMembership
-	usersByName    map[string]string
-	groupsByName   map[string]string
-	membershipKeys map[string]string
-	mu             *lockmetrics.RWMutex
-	accountID      string
-	region         string
-	counter        int
+	users             map[string]*User
+	groups            map[string]*Group
+	memberships       map[string]*GroupMembership
+	usersByName       map[string]string   // storeID#username -> userID
+	groupsByName      map[string]string   // storeID#displayName -> groupID
+	membershipKeys    map[string]string   // storeID#groupID#userID -> membershipID
+	usersByEmail      map[string]string   // storeID#email -> userID (primary email)
+	membershipsByUser map[string][]string // storeID#userID -> []membershipID
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
+	counter           int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the given account and region.
@@ -136,15 +159,17 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 
 	return &InMemoryBackend{
-		accountID:      accountID,
-		region:         region,
-		users:          make(map[string]*User),
-		groups:         make(map[string]*Group),
-		memberships:    make(map[string]*GroupMembership),
-		usersByName:    make(map[string]string),
-		groupsByName:   make(map[string]string),
-		membershipKeys: make(map[string]string),
-		mu:             lockmetrics.New("identitystore"),
+		accountID:         accountID,
+		region:            region,
+		users:             make(map[string]*User),
+		groups:            make(map[string]*Group),
+		memberships:       make(map[string]*GroupMembership),
+		usersByName:       make(map[string]string),
+		groupsByName:      make(map[string]string),
+		membershipKeys:    make(map[string]string),
+		usersByEmail:      make(map[string]string),
+		membershipsByUser: make(map[string][]string),
+		mu:                lockmetrics.New("identitystore"),
 	}
 }
 
@@ -177,6 +202,7 @@ type CreateUserRequest struct {
 	Emails        []Email       `json:"Emails"`
 	Addresses     []Address     `json:"Addresses"`
 	PhoneNumbers  []PhoneNumber `json:"PhoneNumbers"`
+	ExternalIDs   []ExternalID  `json:"ExternalIds"`
 }
 
 // CreateGroupRequest holds the parameters for creating a group.
@@ -214,12 +240,18 @@ func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*U
 		Emails:          req.Emails,
 		Addresses:       req.Addresses,
 		PhoneNumbers:    req.PhoneNumbers,
+		ExternalIDs:     req.ExternalIDs,
 	}
 
 	b.users[userID] = user
 
 	if req.UserName != "" {
 		b.usersByName[storeID+"#"+req.UserName] = userID
+	}
+
+	// Index primary email for O(1) GetUserID by email.
+	if pe := userPrimaryEmail(req.Emails); pe != "" {
+		b.usersByEmail[storeID+"#"+pe] = userID
 	}
 
 	return copyUser(user), nil
@@ -265,35 +297,70 @@ func (b *InMemoryBackend) UpdateUser(storeID, userID string, ops []attributeOper
 	}
 
 	oldUserName := user.UserName
+	oldEmail := userPrimaryEmail(user.Emails)
 
-	// Pre-validate any username rename to avoid partial update on conflict.
-	for _, op := range ops {
-		if strings.ToLower(op.AttributePath) == "username" {
-			newName, _ := op.AttributeValue.(string)
-			if newName != "" && newName != oldUserName {
-				if _, exists := b.usersByName[storeID+"#"+newName]; exists {
-					return fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, newName)
-				}
-			}
-		}
+	if err := b.validateUsernameRename(storeID, oldUserName, ops); err != nil {
+		return err
 	}
 
 	for _, op := range ops {
 		applyUserAttribute(user, op.AttributePath, op.AttributeValue)
 	}
 
-	// Maintain usersByName index if UserName changed.
-	if oldUserName != user.UserName {
-		if oldUserName != "" {
-			delete(b.usersByName, storeID+"#"+oldUserName)
+	b.updateUserNameIndex(storeID, userID, oldUserName, user.UserName)
+	b.updateEmailIndex(storeID, userID, oldEmail, userPrimaryEmail(user.Emails))
+
+	return nil
+}
+
+// validateUsernameRename checks that no username-rename operation would produce a conflict.
+func (b *InMemoryBackend) validateUsernameRename(storeID, oldName string, ops []attributeOperation) error {
+	for _, op := range ops {
+		if strings.ToLower(op.AttributePath) != attrUserNameKey {
+			continue
 		}
 
-		if user.UserName != "" {
-			b.usersByName[storeID+"#"+user.UserName] = userID
+		newName, _ := op.AttributeValue.(string)
+		if newName == "" || newName == oldName {
+			continue
+		}
+
+		if _, exists := b.usersByName[storeID+"#"+newName]; exists {
+			return fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, newName)
 		}
 	}
 
 	return nil
+}
+
+// updateUserNameIndex maintains the usersByName index when a username changes.
+func (b *InMemoryBackend) updateUserNameIndex(storeID, userID, oldName, newName string) {
+	if oldName == newName {
+		return
+	}
+
+	if oldName != "" {
+		delete(b.usersByName, storeID+"#"+oldName)
+	}
+
+	if newName != "" {
+		b.usersByName[storeID+"#"+newName] = userID
+	}
+}
+
+// updateEmailIndex maintains the usersByEmail index when a primary email changes.
+func (b *InMemoryBackend) updateEmailIndex(storeID, userID, oldEmail, newEmail string) {
+	if oldEmail == newEmail {
+		return
+	}
+
+	if oldEmail != "" {
+		delete(b.usersByEmail, storeID+"#"+oldEmail)
+	}
+
+	if newEmail != "" {
+		b.usersByEmail[storeID+"#"+newEmail] = userID
+	}
 }
 
 // attrDisplayName is the normalized attribute path for a group's display name.
@@ -306,7 +373,7 @@ func applyUserAttribute(user *User, path string, value any) {
 	switch strings.ToLower(path) {
 	case attrDisplayName:
 		user.DisplayName = strVal
-	case "username":
+	case attrUserNameKey:
 		user.UserName = strVal
 	case "nickname":
 		user.NickName = strVal
@@ -462,6 +529,142 @@ func valueAsBool(value any) bool {
 	return boolean
 }
 
+// userPrimaryEmail returns the Value of the first email marked Primary, or the
+// first email Value if none are marked, or "" if the slice is empty.
+func userPrimaryEmail(emails []Email) string {
+	for _, e := range emails {
+		if e.Primary {
+			return e.Value
+		}
+	}
+
+	if len(emails) > 0 {
+		return emails[0].Value
+	}
+
+	return ""
+}
+
+// paginateSlice returns a single page of items from a slice and the next-page
+// token. maxResults <= 0 means "use default". A nil token is returned when
+// there are no more pages.
+func paginateSlice[T any](items []T, maxResults int32, nextToken string) ([]T, *string) {
+	if len(items) == 0 {
+		return items, nil
+	}
+
+	// Decode the offset from the cursor token.
+	offset := 0
+	if nextToken != "" {
+		if decoded, decErr := base64.StdEncoding.DecodeString(nextToken); decErr == nil {
+			if n, atoiErr := strconv.Atoi(string(decoded)); atoiErr == nil && n >= 0 {
+				offset = n
+			}
+		}
+	}
+
+	if offset >= len(items) {
+		return nil, nil
+	}
+
+	items = items[offset:]
+
+	limit := int(maxResults)
+	if limit <= 0 || limit > maxListPageSize {
+		limit = defaultMaxResults
+	}
+
+	if limit >= len(items) {
+		return items, nil
+	}
+
+	page := items[:limit]
+	encoded := base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset + limit)))
+
+	return page, &encoded
+}
+
+// ListFilter is a single attribute-equality filter for list operations.
+type ListFilter struct {
+	AttributePath  string `json:"AttributePath"`
+	AttributeValue string `json:"AttributeValue"`
+}
+
+// applyUserFilters returns only the users matching all provided filters.
+func applyUserFilters(users []*User, filters []ListFilter) []*User {
+	if len(filters) == 0 {
+		return users
+	}
+
+	result := make([]*User, 0, len(users))
+
+	for _, u := range users {
+		if userMatchesFilters(u, filters) {
+			result = append(result, u)
+		}
+	}
+
+	return result
+}
+
+// userMatchesFilters reports whether u satisfies every filter in the slice.
+func userMatchesFilters(u *User, filters []ListFilter) bool {
+	for _, f := range filters {
+		switch strings.ToLower(f.AttributePath) {
+		case attrUserNameKey:
+			if u.UserName != f.AttributeValue {
+				return false
+			}
+		case attrDisplayName:
+			if u.DisplayName != f.AttributeValue {
+				return false
+			}
+		case "emails.value":
+			found := false
+			for _, e := range u.Emails {
+				if e.Value == f.AttributeValue {
+					found = true
+
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// applyGroupFilters returns only the groups matching all provided filters.
+func applyGroupFilters(groups []*Group, filters []ListFilter) []*Group {
+	if len(filters) == 0 {
+		return groups
+	}
+
+	result := make([]*Group, 0, len(groups))
+
+	for _, g := range groups {
+		if groupMatchesFilters(g, filters) {
+			result = append(result, g)
+		}
+	}
+
+	return result
+}
+
+// groupMatchesFilters reports whether g satisfies every filter in the slice.
+func groupMatchesFilters(g *Group, filters []ListFilter) bool {
+	for _, f := range filters {
+		if strings.ToLower(f.AttributePath) == attrDisplayName && g.DisplayName != f.AttributeValue {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DeleteUser removes a user from the identity store.
 func (b *InMemoryBackend) DeleteUser(storeID, userID string) error {
 	b.mu.Lock("DeleteUser")
@@ -476,56 +679,94 @@ func (b *InMemoryBackend) DeleteUser(storeID, userID string) error {
 		delete(b.usersByName, storeID+"#"+user.UserName)
 	}
 
+	// Remove primary email from index.
+	if pe := userPrimaryEmail(user.Emails); pe != "" {
+		delete(b.usersByEmail, storeID+"#"+pe)
+	}
+
 	delete(b.users, userID)
 
-	// Remove associated memberships using the memberships map.
-	// We must scan memberships because membershipKeys is keyed by group+user,
-	// not by membershipID. Collect IDs to remove first to avoid map mutation during iteration.
-	var toDelete []string
-
-	for id, m := range b.memberships {
-		if m.IdentityStoreID == storeID && m.MemberID.UserID == userID {
-			toDelete = append(toDelete, id)
+	// Use the inverted index for O(1) cascade membership deletion.
+	userKey := storeID + "#" + userID
+	for _, id := range b.membershipsByUser[userKey] {
+		if m, exists := b.memberships[id]; exists {
+			delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+userID)
+			delete(b.memberships, id)
 		}
 	}
 
-	for _, id := range toDelete {
-		m := b.memberships[id]
-		delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+userID)
-		delete(b.memberships, id)
-	}
+	delete(b.membershipsByUser, userKey)
 
 	return nil
 }
 
-// GetUserID looks up a user ID by alternate identifier (UserName or email).
+// GetUserID looks up a user ID by alternate identifier (UserName, email, or ExternalId).
 func (b *InMemoryBackend) GetUserID(storeID, attrPath, attrValue string) (string, error) {
 	b.mu.RLock("GetUserID")
 	defer b.mu.RUnlock()
 
-	if strings.EqualFold(attrPath, "username") {
-		if uid, ok := b.usersByName[storeID+"#"+attrValue]; ok {
-			return uid, nil
-		}
-
+	uid, found := b.resolveUserByAttr(storeID, attrPath, attrValue)
+	if !found {
 		return "", fmt.Errorf("%w: no user found with %s=%q", ErrUserNotFound, attrPath, attrValue)
 	}
 
+	return uid, nil
+}
+
+// resolveUserByAttr returns the user ID matching the given attribute path and value.
+func (b *InMemoryBackend) resolveUserByAttr(storeID, attrPath, attrValue string) (string, bool) {
+	switch {
+	case strings.EqualFold(attrPath, attrUserNameKey):
+		uid, ok := b.usersByName[storeID+"#"+attrValue]
+
+		return uid, ok
+	case strings.EqualFold(attrPath, "emails.value"):
+		return b.resolveUserByEmail(storeID, attrValue)
+	case strings.EqualFold(attrPath, "externalid"):
+		return b.resolveUserByExternalID(storeID, attrValue)
+	}
+
+	return "", false
+}
+
+// resolveUserByEmail returns the user ID matching the given email address.
+func (b *InMemoryBackend) resolveUserByEmail(storeID, email string) (string, bool) {
+	// Fast path via primary-email index.
+	if uid, ok := b.usersByEmail[storeID+"#"+email]; ok {
+		return uid, true
+	}
+
+	// Slow path: scan all non-primary emails.
 	for _, u := range b.users {
 		if u.IdentityStoreID != storeID {
 			continue
 		}
 
-		if strings.EqualFold(attrPath, "emails.value") {
-			for _, e := range u.Emails {
-				if e.Value == attrValue {
-					return u.UserID, nil
-				}
+		for _, e := range u.Emails {
+			if e.Value == email {
+				return u.UserID, true
 			}
 		}
 	}
 
-	return "", fmt.Errorf("%w: no user found with %s=%q", ErrUserNotFound, attrPath, attrValue)
+	return "", false
+}
+
+// resolveUserByExternalID returns the user ID whose ExternalIDs contain the given ID.
+func (b *InMemoryBackend) resolveUserByExternalID(storeID, extID string) (string, bool) {
+	for _, u := range b.users {
+		if u.IdentityStoreID != storeID {
+			continue
+		}
+
+		for _, ext := range u.ExternalIDs {
+			if ext.ID == extID {
+				return u.UserID, true
+			}
+		}
+	}
+
+	return "", false
 }
 
 // ----------------------------------------
@@ -693,6 +934,21 @@ func (b *InMemoryBackend) DeleteGroup(storeID, groupID string) error {
 		m := b.memberships[id]
 		delete(b.membershipKeys, storeID+"#"+groupID+"#"+m.MemberID.UserID)
 		delete(b.memberships, id)
+
+		// Remove from per-user inverted index.
+		userKey := storeID + "#" + m.MemberID.UserID
+		updated := make([]string, 0, len(b.membershipsByUser[userKey]))
+		for _, mid := range b.membershipsByUser[userKey] {
+			if mid != id {
+				updated = append(updated, mid)
+			}
+		}
+
+		if len(updated) == 0 {
+			delete(b.membershipsByUser, userKey)
+		} else {
+			b.membershipsByUser[userKey] = updated
+		}
 	}
 
 	return nil
@@ -752,6 +1008,10 @@ func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberI
 	b.memberships[membershipID] = membership
 	b.membershipKeys[key] = membershipID
 
+	// Maintain inverted index for O(1) cascade deletes on user removal.
+	userKey := storeID + "#" + memberID.UserID
+	b.membershipsByUser[userKey] = append(b.membershipsByUser[userKey], membershipID)
+
 	return copyMembership(membership), nil
 }
 
@@ -796,6 +1056,22 @@ func (b *InMemoryBackend) DeleteGroupMembership(storeID, membershipID string) er
 
 	delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+m.MemberID.UserID)
 	delete(b.memberships, membershipID)
+
+	// Remove from inverted index.
+	userKey := storeID + "#" + m.MemberID.UserID
+	ids := b.membershipsByUser[userKey]
+	updated := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != membershipID {
+			updated = append(updated, id)
+		}
+	}
+
+	if len(updated) == 0 {
+		delete(b.membershipsByUser, userKey)
+	} else {
+		b.membershipsByUser[userKey] = updated
+	}
 
 	return nil
 }
@@ -870,6 +1146,7 @@ func copyUser(u *User) *User {
 	cp.Emails = append([]Email(nil), u.Emails...)
 	cp.Addresses = append([]Address(nil), u.Addresses...)
 	cp.PhoneNumbers = append([]PhoneNumber(nil), u.PhoneNumbers...)
+	cp.ExternalIDs = append([]ExternalID(nil), u.ExternalIDs...)
 
 	return &cp
 }
@@ -896,9 +1173,15 @@ func (b *InMemoryBackend) rebuildIndexes() {
 	b.usersByName = make(map[string]string, len(b.users))
 	b.groupsByName = make(map[string]string, len(b.groups))
 	b.membershipKeys = make(map[string]string, len(b.memberships))
+	b.usersByEmail = make(map[string]string, len(b.users))
+	b.membershipsByUser = make(map[string][]string, len(b.memberships))
+
 	for id, u := range b.users {
 		if u.UserName != "" {
 			b.usersByName[u.IdentityStoreID+"#"+u.UserName] = id
+		}
+		if pe := userPrimaryEmail(u.Emails); pe != "" {
+			b.usersByEmail[u.IdentityStoreID+"#"+pe] = id
 		}
 	}
 	for id, g := range b.groups {
@@ -909,6 +1192,9 @@ func (b *InMemoryBackend) rebuildIndexes() {
 	for id, m := range b.memberships {
 		key := m.IdentityStoreID + "#" + m.GroupID + "#" + m.MemberID.UserID
 		b.membershipKeys[key] = id
+
+		userKey := m.IdentityStoreID + "#" + m.MemberID.UserID
+		b.membershipsByUser[userKey] = append(b.membershipsByUser[userKey], id)
 	}
 }
 
@@ -923,5 +1209,7 @@ func (b *InMemoryBackend) Reset() {
 	b.usersByName = make(map[string]string)
 	b.groupsByName = make(map[string]string)
 	b.membershipKeys = make(map[string]string)
+	b.usersByEmail = make(map[string]string)
+	b.membershipsByUser = make(map[string][]string)
 	b.counter = 0
 }
