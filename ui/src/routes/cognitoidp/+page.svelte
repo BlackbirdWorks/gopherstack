@@ -248,7 +248,7 @@ void loadUserPools();
 
 <div class="space-y-6 p-6">
 <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-<h1 class="text-3xl font-bold text-slate-900 dark:text-white">Cognito IDP</h1>
+<h1 class="text-3xl font-bold text-slate-900 dark:text-white">Cognito User Pools</h1>
 <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Manage Cognito user pools, users, clients, and groups</p>
 {#if selectedPool}
 <div class="mt-3 flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
@@ -417,7 +417,7 @@ void loadUserPools();
 <input name="name" bind:value={newPoolName} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="User pool name" required />
 <div class="flex justify-end gap-3">
 <button type="button" onclick={() => (showCreatePoolModal = false)} class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400">Cancel</button>
-<button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Create</button>
+<button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Create User Pool</button>
 </div>
 </form>
 </div>
