@@ -3,6 +3,7 @@ package identitystore_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -180,6 +181,24 @@ func TestUserCRUD(t *testing.T) {
 					"UserId":          userID,
 					"Operations": []map[string]any{
 						{"AttributePath": "displayName", "AttributeValue": "New Name"},
+						{
+							"AttributePath": "emails",
+							"AttributeValue": []map[string]any{
+								{"Value": "new.name@example.com", "Type": "work", "Primary": true},
+							},
+						},
+						{
+							"AttributePath": "phoneNumbers",
+							"AttributeValue": []map[string]any{
+								{"Value": "+1-555-0100", "Type": "work", "Primary": true},
+							},
+						},
+						{
+							"AttributePath": "addresses",
+							"AttributeValue": []map[string]any{
+								{"Formatted": "123 Main St, Metropolis", "Type": "work", "Primary": true},
+							},
+						},
 					},
 				})
 
@@ -189,7 +208,29 @@ func TestUserCRUD(t *testing.T) {
 					"IdentityStoreId": testStoreID,
 					"UserId":          userID,
 				})
-				assert.Equal(t, "New Name", parseResponse(t, descRec)["DisplayName"])
+				resp := parseResponse(t, descRec)
+				assert.Equal(t, "New Name", resp["DisplayName"])
+				assert.Equal(
+					t,
+					[]any{map[string]any{
+						"Value": "new.name@example.com", "Type": "work", "Primary": true,
+					}},
+					resp["Emails"],
+				)
+				assert.Equal(
+					t,
+					[]any{map[string]any{
+						"Value": "+1-555-0100", "Type": "work", "Primary": true,
+					}},
+					resp["PhoneNumbers"],
+				)
+				assert.Equal(
+					t,
+					[]any{map[string]any{
+						"Formatted": "123 Main St, Metropolis", "Type": "work", "Primary": true,
+					}},
+					resp["Addresses"],
+				)
 			},
 		},
 		{
@@ -1153,6 +1194,449 @@ func TestInvalidBodyErrors(t *testing.T) {
 			err := h.Handler()(c)
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// TestValidationErrors covers required-field validation across handlers.
+func TestValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *identitystore.Handler)
+		name string
+	}{
+		{
+			name: "create_user_missing_store_id",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateUser", map[string]any{
+					"UserName":    "no-store",
+					"DisplayName": "No Store",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_group_missing_store_id",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateGroup", map[string]any{
+					"DisplayName": "No Store Group",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_group_missing_display_name",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_membership_missing_store_id",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateGroupMembership", map[string]any{
+					"GroupId":  "group-1",
+					"MemberId": map[string]any{"UserId": "user-1"},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_membership_missing_group_id",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MemberId":        map[string]any{"UserId": "user-1"},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_membership_missing_user_id",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         "group-1",
+					"MemberId":        map[string]any{},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "list_memberships_for_member_missing_user_id",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "ListGroupMembershipsForMember", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MemberId":        map[string]any{},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "is_member_in_groups_missing_user_id",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "IsMemberInGroups", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MemberId":        map[string]any{},
+					"GroupIds":        []string{"g1"},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "is_member_in_groups_empty_group_ids",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "IsMemberInGroups", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MemberId":        map[string]any{"UserId": "user-1"},
+					"GroupIds":        []string{},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "update_user_duplicate_username",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				r1 := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "dup-rename-src",
+				})
+				require.Equal(t, http.StatusOK, r1.Code)
+				userID := parseResponse(t, r1)["UserId"].(string)
+
+				r2 := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "dup-rename-target",
+				})
+				require.Equal(t, http.StatusOK, r2.Code)
+
+				rec := doRequest(t, h, "UpdateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+					"Operations": []map[string]any{
+						{"AttributePath": "username", "AttributeValue": "dup-rename-target"},
+					},
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "update_group_duplicate_display_name",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				r1 := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "GroupA",
+				})
+				require.Equal(t, http.StatusOK, r1.Code)
+				groupID := parseResponse(t, r1)["GroupId"].(string)
+
+				r2 := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "GroupB",
+				})
+				require.Equal(t, http.StatusOK, r2.Code)
+
+				rec := doRequest(t, h, "UpdateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"Operations": []map[string]any{
+						{"AttributePath": "displayName", "AttributeValue": "GroupB"},
+					},
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "is_member_in_groups_uses_index",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				uRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "idx.user",
+				})
+				require.Equal(t, http.StatusOK, uRec.Code)
+				userID := parseResponse(t, uRec)["UserId"].(string)
+
+				gRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Idx Group",
+				})
+				require.Equal(t, http.StatusOK, gRec.Code)
+				groupID := parseResponse(t, gRec)["GroupId"].(string)
+
+				doRequest(t, h, "CreateGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"MemberId":        map[string]any{"UserId": userID},
+				})
+
+				rec := doRequest(t, h, "IsMemberInGroups", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MemberId":        map[string]any{"UserId": userID},
+					"GroupIds":        []string{groupID, "other-group"},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				resp := parseResponse(t, rec)
+				results, ok := resp["Results"].([]any)
+				require.True(t, ok)
+				require.Len(t, results, 2)
+
+				first := results[0].(map[string]any)
+				assert.Equal(t, groupID, first["GroupId"])
+				assert.Equal(t, true, first["MembershipExists"])
+
+				second := results[1].(map[string]any)
+				assert.Equal(t, "other-group", second["GroupId"])
+				assert.Equal(t, false, second["MembershipExists"])
+			},
+		},
+		{
+			name: "delete_user_removes_memberships",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				uRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "del.cascade.user",
+				})
+				require.Equal(t, http.StatusOK, uRec.Code)
+				userID := parseResponse(t, uRec)["UserId"].(string)
+
+				gRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Del Cascade Group",
+				})
+				require.Equal(t, http.StatusOK, gRec.Code)
+				groupID := parseResponse(t, gRec)["GroupId"].(string)
+
+				mRec := doRequest(t, h, "CreateGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"MemberId":        map[string]any{"UserId": userID},
+				})
+				require.Equal(t, http.StatusOK, mRec.Code)
+				membershipID := parseResponse(t, mRec)["MembershipId"].(string)
+
+				delRec := doRequest(t, h, "DeleteUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+				})
+				assert.Equal(t, http.StatusOK, delRec.Code)
+
+				descMem := doRequest(t, h, "DescribeGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MembershipId":    membershipID,
+				})
+				assert.Equal(t, http.StatusNotFound, descMem.Code)
+			},
+		},
+		{
+			name: "delete_group_removes_memberships",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				uRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "del.group.cascade.user",
+				})
+				require.Equal(t, http.StatusOK, uRec.Code)
+				userID := parseResponse(t, uRec)["UserId"].(string)
+
+				gRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Del Group Cascade",
+				})
+				require.Equal(t, http.StatusOK, gRec.Code)
+				groupID := parseResponse(t, gRec)["GroupId"].(string)
+
+				mRec := doRequest(t, h, "CreateGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"MemberId":        map[string]any{"UserId": userID},
+				})
+				require.Equal(t, http.StatusOK, mRec.Code)
+				membershipID := parseResponse(t, mRec)["MembershipId"].(string)
+
+				delRec := doRequest(t, h, "DeleteGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+				})
+				assert.Equal(t, http.StatusOK, delRec.Code)
+
+				descMem := doRequest(t, h, "DescribeGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MembershipId":    membershipID,
+				})
+				assert.Equal(t, http.StatusNotFound, descMem.Code)
+			},
+		},
+		{
+			name: "create_user_with_full_profile",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "full.profile",
+					"DisplayName":     "Full Profile",
+					"Emails": []map[string]any{
+						{"Value": "full@example.com", "Type": "work", "Primary": true},
+					},
+					"PhoneNumbers": []map[string]any{
+						{"Value": "+1-800-0000", "Type": "mobile", "Primary": true},
+					},
+					"Addresses": []map[string]any{
+						{
+							"Formatted":     "1 AWS Way",
+							"StreetAddress": "1 AWS Way",
+							"Locality":      "Seattle",
+							"Region":        "WA",
+							"PostalCode":    "98101",
+							"Country":       "US",
+							"Type":          "work",
+							"Primary":       true,
+						},
+					},
+					"Name": map[string]any{
+						"GivenName":  "Full",
+						"FamilyName": "Profile",
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				userID := parseResponse(t, rec)["UserId"].(string)
+
+				descRec := doRequest(t, h, "DescribeUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+				})
+				resp := parseResponse(t, descRec)
+				emails, ok := resp["Emails"].([]any)
+				require.True(t, ok)
+				require.Len(t, emails, 1)
+				assert.Equal(t, "full@example.com", emails[0].(map[string]any)["Value"])
+			},
+		},
+		{
+			name: "get_user_id_by_email",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				createRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "email.lookup",
+					"Emails": []map[string]any{
+						{"Value": "lookup@example.com", "Type": "work", "Primary": true},
+					},
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+				wantID := parseResponse(t, createRec)["UserId"].(string)
+
+				rec := doRequest(t, h, "GetUserId", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"AlternateIdentifier": map[string]any{
+						"UniqueAttribute": map[string]any{
+							"AttributePath":  "emails.value",
+							"AttributeValue": "lookup@example.com",
+						},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Equal(t, wantID, parseResponse(t, rec)["UserId"])
+			},
+		},
+		{
+			name: "persistence_snapshot_restore",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "persist.user",
+				})
+				doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Persist Group",
+				})
+
+				snap := h.Snapshot()
+				require.NotEmpty(t, snap)
+
+				h2 := newTestHandler()
+				require.NoError(t, h2.Restore(snap))
+
+				listRec := doRequest(t, h2, "ListUsers", map[string]any{
+					"IdentityStoreId": testStoreID,
+				})
+				assert.Equal(t, http.StatusOK, listRec.Code)
+				users := parseResponse(t, listRec)["Users"].([]any)
+				assert.Len(t, users, 1)
+
+				// Verify name index works after restore.
+				rec := doRequest(t, h2, "GetUserId", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"AlternateIdentifier": map[string]any{
+						"UniqueAttribute": map[string]any{
+							"AttributePath":  "userName",
+							"AttributeValue": "persist.user",
+						},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "list_groups_preallocated",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				for i := range 5 {
+					doRequest(t, h, "CreateGroup", map[string]any{
+						"IdentityStoreId": testStoreID,
+						"DisplayName":     fmt.Sprintf("Pre Group %d", i),
+					})
+				}
+
+				rec := doRequest(t, h, "ListGroups", map[string]any{
+					"IdentityStoreId": testStoreID,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				groups := parseResponse(t, rec)["Groups"].([]any)
+				assert.Len(t, groups, 5)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t, newTestHandler())
 		})
 	}
 }
