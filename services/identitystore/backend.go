@@ -33,6 +33,13 @@ var (
 	ErrMembershipNotFound = errors.New("ResourceNotFoundException")
 	// ErrConflict is returned when a resource already exists.
 	ErrConflict = errors.New("ConflictException")
+	// ErrValidation is returned when request validation fails.
+	ErrValidation = errors.New("ValidationException")
+)
+
+const (
+	maxUserNameLength    = 128
+	maxDisplayNameLength = 1024
 )
 
 // ----------------------------------------
@@ -103,10 +110,11 @@ type User struct {
 
 // Group represents an identity store group.
 type Group struct {
-	GroupID         string `json:"GroupId"`
-	IdentityStoreID string `json:"IdentityStoreId"`
-	DisplayName     string `json:"DisplayName,omitempty"`
-	Description     string `json:"Description,omitempty"`
+	GroupID         string       `json:"GroupId"`
+	IdentityStoreID string       `json:"IdentityStoreId"`
+	DisplayName     string       `json:"DisplayName,omitempty"`
+	Description     string       `json:"Description,omitempty"`
+	ExternalIDs     []ExternalID `json:"ExternalIds,omitempty"`
 }
 
 // MemberID holds a membership member reference.
@@ -207,8 +215,9 @@ type CreateUserRequest struct {
 
 // CreateGroupRequest holds the parameters for creating a group.
 type CreateGroupRequest struct {
-	DisplayName string `json:"DisplayName"`
-	Description string `json:"Description"`
+	DisplayName string       `json:"DisplayName"`
+	Description string       `json:"Description"`
+	ExternalIDs []ExternalID `json:"ExternalIds"`
 }
 
 // CreateUser creates a new user in the identity store.
@@ -221,6 +230,10 @@ func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*U
 		if _, exists := b.usersByName[storeID+"#"+req.UserName]; exists {
 			return nil, fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, req.UserName)
 		}
+	}
+
+	if len(req.UserName) > maxUserNameLength {
+		return nil, fmt.Errorf("%w: UserName must not exceed 128 characters", ErrValidation)
 	}
 
 	userID := b.generateID("user")
@@ -607,30 +620,75 @@ func applyUserFilters(users []*User, filters []ListFilter) []*User {
 	return result
 }
 
+// userMatchesFilter reports whether u satisfies a single filter.
+func userMatchesFilter(u *User, f ListFilter) bool {
+	attr := strings.ToLower(f.AttributePath)
+	if attr == "emails.value" || attr == "phonenumbers.value" {
+		return matchUserMultiValueFilter(u, f)
+	}
+
+	return matchUserSingleValueFilter(u, f)
+}
+
+// matchUserMultiValueFilter checks filters on multi-value fields (emails, phoneNumbers).
+// Returns true when the filter matched and passed; returns false when either the filter
+// did not apply (wrong attribute path) or the value was not found.
+func matchUserMultiValueFilter(u *User, f ListFilter) bool {
+	switch strings.ToLower(f.AttributePath) {
+	case "emails.value":
+		for _, e := range u.Emails {
+			if e.Value == f.AttributeValue {
+				return true
+			}
+		}
+
+		return false
+	case "phonenumbers.value":
+		for _, p := range u.PhoneNumbers {
+			if p.Value == f.AttributeValue {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	return false
+}
+
+// matchUserSingleValueFilter checks filters on simple scalar fields.
+func matchUserSingleValueFilter(u *User, f ListFilter) bool {
+	switch strings.ToLower(f.AttributePath) {
+	case attrUserNameKey:
+		return u.UserName == f.AttributeValue
+	case attrDisplayName:
+		return u.DisplayName == f.AttributeValue
+	case "name.givenname":
+		return u.Name != nil && u.Name.GivenName == f.AttributeValue
+	case "name.familyname":
+		return u.Name != nil && u.Name.FamilyName == f.AttributeValue
+	case "title":
+		return u.Title == f.AttributeValue
+	case "nickname":
+		return u.NickName == f.AttributeValue
+	case "usertype":
+		return u.UserType == f.AttributeValue
+	case "preferredlanguage":
+		return u.PreferredLang == f.AttributeValue
+	case "locale":
+		return u.Locale == f.AttributeValue
+	case "timezone":
+		return u.Timezone == f.AttributeValue
+	}
+
+	return true
+}
+
 // userMatchesFilters reports whether u satisfies every filter in the slice.
 func userMatchesFilters(u *User, filters []ListFilter) bool {
 	for _, f := range filters {
-		switch strings.ToLower(f.AttributePath) {
-		case attrUserNameKey:
-			if u.UserName != f.AttributeValue {
-				return false
-			}
-		case attrDisplayName:
-			if u.DisplayName != f.AttributeValue {
-				return false
-			}
-		case "emails.value":
-			found := false
-			for _, e := range u.Emails {
-				if e.Value == f.AttributeValue {
-					found = true
-
-					break
-				}
-			}
-			if !found {
-				return false
-			}
+		if !userMatchesFilter(u, f) {
+			return false
 		}
 	}
 
@@ -657,8 +715,15 @@ func applyGroupFilters(groups []*Group, filters []ListFilter) []*Group {
 // groupMatchesFilters reports whether g satisfies every filter in the slice.
 func groupMatchesFilters(g *Group, filters []ListFilter) bool {
 	for _, f := range filters {
-		if strings.ToLower(f.AttributePath) == attrDisplayName && g.DisplayName != f.AttributeValue {
-			return false
+		switch strings.ToLower(f.AttributePath) {
+		case attrDisplayName:
+			if g.DisplayName != f.AttributeValue {
+				return false
+			}
+		case "description":
+			if g.Description != f.AttributeValue {
+				return false
+			}
 		}
 	}
 
@@ -785,12 +850,17 @@ func (b *InMemoryBackend) CreateGroup(storeID string, req *CreateGroupRequest) (
 		}
 	}
 
+	if len(req.DisplayName) > maxDisplayNameLength {
+		return nil, fmt.Errorf("%w: DisplayName must not exceed 1024 characters", ErrValidation)
+	}
+
 	groupID := b.generateID("group")
 	group := &Group{
 		GroupID:         groupID,
 		IdentityStoreID: storeID,
 		DisplayName:     req.DisplayName,
 		Description:     req.Description,
+		ExternalIDs:     req.ExternalIDs,
 	}
 
 	b.groups[groupID] = group
@@ -1033,7 +1103,7 @@ func (b *InMemoryBackend) ListGroupMemberships(storeID, groupID string) []*Group
 	b.mu.RLock("ListGroupMemberships")
 	defer b.mu.RUnlock()
 
-	result := make([]*GroupMembership, 0, len(b.memberships))
+	result := make([]*GroupMembership, 0)
 
 	for _, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.GroupID == groupID {
@@ -1099,10 +1169,16 @@ func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID
 	b.mu.RLock("ListGroupMembershipsForMember")
 	defer b.mu.RUnlock()
 
-	result := make([]*GroupMembership, 0, len(b.memberships))
+	if memberID.UserID == "" {
+		return nil
+	}
 
-	for _, m := range b.memberships {
-		if m.IdentityStoreID == storeID && m.MemberID.UserID == memberID.UserID {
+	userKey := storeID + "#" + memberID.UserID
+	ids := b.membershipsByUser[userKey]
+	result := make([]*GroupMembership, 0, len(ids))
+
+	for _, id := range ids {
+		if m, ok := b.memberships[id]; ok {
 			result = append(result, copyMembership(m))
 		}
 	}
@@ -1156,6 +1232,7 @@ func copyGroup(g *Group) *Group {
 		return nil
 	}
 	cp := *g
+	cp.ExternalIDs = append([]ExternalID(nil), g.ExternalIDs...)
 
 	return &cp
 }

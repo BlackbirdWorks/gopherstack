@@ -25,15 +25,18 @@ type IdentityUser = {
 UserId?: string;
 UserName?: string;
 DisplayName?: string;
+Title?: string;
 Emails?: Array<{ Value?: string; Type?: string; Primary?: boolean }>;
 Addresses?: Array<{ Formatted?: string; Type?: string; Primary?: boolean }>;
 PhoneNumbers?: Array<{ Value?: string; Type?: string; Primary?: boolean }>;
 Name?: { GivenName?: string; FamilyName?: string };
+ExternalIds?: Array<{ Issuer?: string; Id?: string }>;
 };
 type IdentityGroup = {
 GroupId?: string;
 DisplayName?: string;
 Description?: string;
+ExternalIds?: Array<{ Issuer?: string; Id?: string }>;
 };
 type IdentityMembership = { MembershipId?: string; GroupId?: string; MemberId?: { UserId?: string } };
 
@@ -50,7 +53,7 @@ let membershipsForUser = $state<Record<string, IdentityMembership>>({});
 let groupMemberCounts = $state<Record<string, number>>({});
 
 // Sort state
-let userSortCol = $state<'UserName' | 'DisplayName'>('UserName');
+let userSortCol = $state<'UserName' | 'DisplayName' | 'Email'>('UserName');
 let userSortAsc = $state(true);
 let groupSortCol = $state<'DisplayName' | 'Description' | 'count'>('DisplayName');
 let groupSortAsc = $state(true);
@@ -73,15 +76,21 @@ let userDisplayName = $state('');
 let userGivenName = $state('');
 let userFamilyName = $state('');
 let userEmail = $state('');
+let userPhone = $state('');
 let groupDisplayName = $state('');
 let groupDescription = $state('');
 let selectedMembershipGroupID = $state('');
 let membershipUser = $state<IdentityUser | null>(null);
+let membershipLoadError = $state<string | null>(null);
+let membershipLoading = $state(false);
 let profileUser = $state<IdentityUser | null>(null);
 let profileDisplayName = $state('');
 let profileEmail = $state('');
 let profilePhone = $state('');
 let profileAddress = $state('');
+let profileGivenName = $state('');
+let profileFamilyName = $state('');
+let profileTitle = $state('');
 let editGroupTarget = $state<IdentityGroup | null>(null);
 let editGroupDisplayName = $state('');
 let editGroupDescription = $state('');
@@ -122,6 +131,11 @@ const filtered = users.filter(
 [(u.Name?.GivenName ?? ''), (u.Name?.FamilyName ?? '')].join(' ').toLowerCase().includes(q)
 );
 	return [...filtered].toSorted((a, b) => {
+		if (userSortCol === 'Email') {
+			const av = (a.Emails?.[0]?.Value ?? '').toLowerCase();
+			const bv = (b.Emails?.[0]?.Value ?? '').toLowerCase();
+			return userSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+		}
 		const av = (a[userSortCol] ?? '').toLowerCase();
 		const bv = (b[userSortCol] ?? '').toLowerCase();
 		return userSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
@@ -252,7 +266,8 @@ Name:
 userGivenName || userFamilyName
 ? { GivenName: userGivenName, FamilyName: userFamilyName }
 : undefined,
-Emails: userEmail ? [{ Value: userEmail, Type: 'work', Primary: true }] : undefined
+Emails: userEmail ? [{ Value: userEmail, Type: 'work', Primary: true }] : undefined,
+PhoneNumbers: userPhone ? [{ Value: userPhone, Type: 'work', Primary: true }] : undefined
 })
 );
 showCreateUserModal = false;
@@ -261,6 +276,7 @@ userDisplayName = '';
 userGivenName = '';
 userFamilyName = '';
 userEmail = '';
+userPhone = '';
 await loadUsers();
 toast.success('User created');
 } catch (err: unknown) {
@@ -292,15 +308,21 @@ async function openMembershipModal(user: IdentityUser) {
 membershipUser = user;
 selectedMembershipGroupID = '';
 showMembershipModal = true;
+membershipLoadError = null;
+membershipLoading = true;
 try {
 await loadMembershipsForMember(user);
 } catch (err: unknown) {
+membershipLoadError = (err as Error).message;
 toast.error(`Failed to load memberships: ${(err as Error).message}`);
+} finally {
+membershipLoading = false;
 }
 }
 
 async function addMembership() {
 if (!membershipUser?.UserId || !selectedMembershipGroupID) return;
+membershipLoading = true;
 try {
 await identityStore.send(
 new CreateGroupMembershipCommand({
@@ -311,16 +333,18 @@ MemberId: { UserId: membershipUser.UserId }
 );
 selectedMembershipGroupID = '';
 await loadMembershipsForMember(membershipUser);
-// Refresh count for that group
 void loadGroupMemberCounts(groups);
 toast.success('Membership added');
 } catch (err: unknown) {
 toast.error(`Failed to add group membership: ${(err as Error).message}`);
+} finally {
+membershipLoading = false;
 }
 }
 
 async function removeMembership(membershipID?: string) {
 if (!membershipID || !membershipUser?.UserId) return;
+membershipLoading = true;
 try {
 await identityStore.send(
 new DeleteGroupMembershipCommand({
@@ -333,6 +357,8 @@ void loadGroupMemberCounts(groups);
 toast.success('Membership removed');
 } catch (err: unknown) {
 toast.error(`Failed to remove group membership: ${(err as Error).message}`);
+} finally {
+membershipLoading = false;
 }
 }
 
@@ -342,6 +368,9 @@ profileDisplayName = user.DisplayName ?? '';
 profileEmail = user.Emails?.[0]?.Value ?? '';
 profilePhone = user.PhoneNumbers?.[0]?.Value ?? '';
 profileAddress = user.Addresses?.[0]?.Formatted ?? '';
+profileGivenName = user.Name?.GivenName ?? '';
+profileFamilyName = user.Name?.FamilyName ?? '';
+profileTitle = user.Title ?? '';
 showEditUserModal = true;
 }
 
@@ -373,7 +402,10 @@ AttributePath: 'addresses',
 AttributeValue: profileAddress
 ? [{ Formatted: profileAddress, Type: 'work', Primary: true }]
 : []
-}
+},
+{ AttributePath: 'name.givenName', AttributeValue: profileGivenName },
+{ AttributePath: 'name.familyName', AttributeValue: profileFamilyName },
+{ AttributePath: 'title', AttributeValue: profileTitle }
 ]
 })
 );
@@ -754,7 +786,12 @@ Display Name
 {#if userSortCol === 'DisplayName'}{#if userSortAsc}<ChevronUp size={12}/>{:else}<ChevronDown size={12}/>{/if}{/if}
 </button>
 </th>
-<th class="hidden py-2 pr-4 md:table-cell">Email</th>
+<th class="hidden py-2 pr-4 md:table-cell">
+<button type="button" onclick={() => toggleUserSort('Email')} class="flex items-center gap-1 hover:text-slate-900 dark:hover:text-white" aria-label="Sort by email">
+Email
+{#if userSortCol === 'Email'}{#if userSortAsc}<ChevronUp size={12}/>{:else}<ChevronDown size={12}/>{/if}{/if}
+</button>
+</th>
 <th class="py-2">Actions</th>
 </tr>
 </thead>
@@ -795,6 +832,9 @@ class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
 <Copy size={10} />
 </button>
 </div>
+{#if user.Title}
+<div class="text-xs text-slate-400 dark:text-slate-500">{user.Title}</div>
+{/if}
 </td>
 <td class="hidden py-3 pr-4 sm:table-cell">
 <div>{user.DisplayName ?? '—'}</div>
@@ -803,7 +843,10 @@ class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
 {/if}
 </td>
 <td class="hidden py-3 pr-4 text-slate-600 dark:text-slate-400 md:table-cell">
-{user.Emails?.[0]?.Value ?? '—'}
+<div>{user.Emails?.[0]?.Value ?? '—'}</div>
+{#if user.PhoneNumbers?.[0]?.Value}
+<div class="text-xs text-slate-400 dark:text-slate-500">{user.PhoneNumbers[0].Value}</div>
+{/if}
 </td>
 <td class="py-3">
 <div class="flex flex-wrap gap-1">
@@ -986,13 +1029,13 @@ All 19 AWS Identity Store API operations are implemented. The service uses the
 { op: 'DescribeUser', desc: 'Retrieve a user by UserId.' },
 { op: 'UpdateUser', desc: 'Apply attribute patch operations to a user.' },
 { op: 'DeleteUser', desc: 'Delete a user and cascade-remove their memberships.' },
-{ op: 'ListUsers', desc: 'List users with optional AttributePath filters and MaxResults/NextToken pagination.' },
+{ op: 'ListUsers', desc: 'List users with optional AttributePath filters (username, displayName, emails.value, phonenumbers.value, name.givenname, name.familyname, title, nickname, usertype) and MaxResults/NextToken pagination.' },
 { op: 'GetUserId', desc: 'Resolve a UserId from a UserName, email, or ExternalId alternate identifier.' },
 { op: 'CreateGroup', desc: 'Create a new group in the identity store.' },
 { op: 'DescribeGroup', desc: 'Retrieve a group by GroupId.' },
 { op: 'UpdateGroup', desc: 'Apply attribute patch operations to a group.' },
 { op: 'DeleteGroup', desc: 'Delete a group and cascade-remove its memberships.' },
-{ op: 'ListGroups', desc: 'List groups with optional AttributePath filters and MaxResults/NextToken pagination.' },
+{ op: 'ListGroups', desc: 'List groups with optional AttributePath filters (displayName, description) and MaxResults/NextToken pagination.' },
 { op: 'GetGroupId', desc: 'Resolve a GroupId from a DisplayName alternate identifier.' },
 { op: 'CreateGroupMembership', desc: 'Add a user to a group.' },
 { op: 'DescribeGroupMembership', desc: 'Retrieve a membership record by MembershipId.' },
@@ -1015,7 +1058,7 @@ All 19 AWS Identity Store API operations are implemented. The service uses the
 {#if activeTab === 'metrics'}
 <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
 <h2 class="mb-6 text-xl font-semibold text-slate-900 dark:text-white">Store Metrics</h2>
-<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
 <div class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Users</div>
 <div class="mt-2 text-4xl font-bold text-indigo-600 dark:text-indigo-400">{users.length}</div>
@@ -1042,6 +1085,18 @@ class="text-slate-400 hover:text-slate-600"
 >
 <Copy size={14} />
 </button>
+</div>
+</div>
+<div class="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
+<div class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Empty Groups</div>
+<div class="mt-2 text-4xl font-bold text-amber-500 dark:text-amber-400">
+{groups.filter((g) => (groupMemberCounts[g.GroupId ?? ''] ?? 0) === 0).length}
+</div>
+</div>
+<div class="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
+<div class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Avg Members / Group</div>
+<div class="mt-2 text-4xl font-bold text-indigo-600 dark:text-indigo-400">
+{groups.length > 0 ? (Object.values(groupMemberCounts).reduce((a, b) => a + b, 0) / groups.length).toFixed(1) : '—'}
 </div>
 </div>
 </div>
@@ -1115,6 +1170,12 @@ placeholder="John Doe" />
 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"
 placeholder="john.doe@example.com" />
 </div>
+<div>
+<label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300" for="cu-phone">Phone</label>
+<input id="cu-phone" name="user_phone" type="tel" bind:value={userPhone}
+class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+placeholder="+1-555-0100" />
+</div>
 <div class="flex justify-end gap-3">
 <button type="button" onclick={() => (showCreateUserModal = false)}
 class="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400">Cancel</button>
@@ -1182,17 +1243,22 @@ Memberships — {membershipUser?.UserName}
 </h2>
 <p class="text-sm text-slate-600 dark:text-slate-300">Add or remove this user from groups</p>
 </div>
-<button type="button" onclick={() => (showMembershipModal = false)} aria-label="Close membership modal"
+<button type="button" onclick={() => (showMembershipModal = false)} aria-label="Close membership modal" title="Close (Esc)"
 class="rounded border border-slate-300 px-3 py-1 text-sm dark:border-slate-600">
-<X size={14} />
+Close
 </button>
 </div>
+{#if membershipLoadError}
+<div class="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
+Failed to load memberships: {membershipLoadError}
+<button type="button" onclick={() => membershipUser && void loadMembershipsForMember(membershipUser)} class="ml-2 underline">Retry</button>
+</div>
+{/if}
 <div class="mb-4 flex gap-2">
 <div class="flex-1">
 <label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300" for="ms-group-select">Add to Group</label>
 <select id="ms-group-select" bind:value={selectedMembershipGroupID} name="membership_group"
-class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"
-aria-label="Select group to add user to">
+class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white">
 <option value="">Select group…</option>
 {#each groups as group}
 {#if group.GroupId && !membershipsForUser[group.GroupId]}
@@ -1201,7 +1267,7 @@ aria-label="Select group to add user to">
 {/each}
 </select>
 </div>
-<button type="button" disabled={!selectedMembershipGroupID}
+<button type="button" disabled={!selectedMembershipGroupID || membershipLoading}
 class="mt-5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
 onclick={() => void addMembership()}
 aria-label="Add user to selected group">
@@ -1217,13 +1283,23 @@ Add
 </tr>
 </thead>
 <tbody>
-{#if groups.length === 0}
+{#if membershipLoading}
+<tr><td colspan="3" class="py-4 text-center text-slate-500 dark:text-slate-400">Loading…</td></tr>
+{:else if groups.length === 0}
 <tr><td colspan="3" class="py-3 text-slate-500 dark:text-slate-400">No groups found</td></tr>
 {:else}
 {#each groups as group}
 {@const membership = group.GroupId ? membershipsForUser[group.GroupId] : undefined}
 <tr class="border-b border-slate-100 dark:border-slate-800">
-<td class="py-3 pr-4">{group.DisplayName}</td>
+<td class="py-3 pr-4">
+<div>{group.DisplayName}</div>
+{#if group.Description}
+<div class="text-xs text-slate-400 dark:text-slate-500">{group.Description}</div>
+{/if}
+{#if groupMemberCounts[group.GroupId ?? ''] !== undefined}
+<span class="text-xs text-slate-400 dark:text-slate-500">{groupMemberCounts[group.GroupId ?? '']} member{groupMemberCounts[group.GroupId ?? ''] === 1 ? '' : 's'}</span>
+{/if}
+</td>
 <td class="py-3 pr-4">
 {#if membership}
 <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-300">Member</span>
@@ -1269,6 +1345,26 @@ Edit Profile — {profileUser?.UserName}
 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"
 placeholder="Display name" />
 </div>
+<div class="flex gap-3">
+<div class="flex-1">
+<label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300" for="ep-given">First Name</label>
+<input id="ep-given" name="profile_given_name" bind:value={profileGivenName}
+class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+placeholder="John" />
+</div>
+<div class="flex-1">
+<label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300" for="ep-family">Last Name</label>
+<input id="ep-family" name="profile_family_name" bind:value={profileFamilyName}
+class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+placeholder="Doe" />
+</div>
+</div>
+<div>
+<label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300" for="ep-title">Title</label>
+<input id="ep-title" name="profile_title" bind:value={profileTitle}
+class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+placeholder="Engineer" />
+</div>
 <div>
 <label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300" for="ep-email">Primary Email</label>
 <input id="ep-email" name="profile_email" type="email" bind:value={profileEmail}
@@ -1287,6 +1383,18 @@ placeholder="+1-555-0100" />
 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"
 placeholder="123 Main St, City, State" />
 </div>
+{#if profileUser?.ExternalIds && profileUser.ExternalIds.length > 0}
+<div>
+<label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">External IDs</label>
+<div class="space-y-1">
+{#each profileUser.ExternalIds as extId}
+<div class="rounded bg-slate-100 px-2 py-1 text-xs font-mono dark:bg-slate-700">
+{extId.Issuer}: {extId.Id}
+</div>
+{/each}
+</div>
+</div>
+{/if}
 <div class="flex justify-end gap-3">
 <button type="button" onclick={() => (showEditUserModal = false)}
 class="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400">Cancel</button>
@@ -1397,13 +1505,20 @@ aria-labelledby="view-members-title"
 <h2 id="view-members-title" class="text-xl font-semibold text-slate-900 dark:text-white">
 Members of {viewMembersGroup?.DisplayName}
 </h2>
+<div class="flex items-center gap-2">
 <p class="text-sm text-slate-500 dark:text-slate-400">
 {membersOfGroup.length} member{membersOfGroup.length === 1 ? '' : 's'}
 </p>
+<button type="button" onclick={() => viewMembersGroup && void openViewMembersModal(viewMembersGroup)}
+class="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700"
+aria-label="Refresh member list">
+<RefreshCw size={12} />
+</button>
 </div>
-<button type="button" onclick={() => (showViewMembersModal = false)} aria-label="Close members modal"
+</div>
+<button type="button" onclick={() => (showViewMembersModal = false)} title="Close (Esc)"
 class="rounded border border-slate-300 px-3 py-1 text-sm dark:border-slate-600">
-<X size={14} />
+Close
 </button>
 </div>
 <table class="w-full text-left text-sm">

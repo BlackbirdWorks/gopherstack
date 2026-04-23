@@ -157,9 +157,10 @@ type createUserResponse struct {
 }
 
 type createGroupRequest struct {
-	IdentityStoreID string `json:"IdentityStoreId"`
-	DisplayName     string `json:"DisplayName"`
-	Description     string `json:"Description"`
+	IdentityStoreID string       `json:"IdentityStoreId"`
+	DisplayName     string       `json:"DisplayName"`
+	Description     string       `json:"Description"`
+	ExternalIDs     []ExternalID `json:"ExternalIds"`
 }
 
 type createGroupResponse struct {
@@ -521,6 +522,7 @@ func (h *Handler) handleCreateGroup(c *echo.Context, body []byte) error {
 	group, err := h.Backend.CreateGroup(req.IdentityStoreID, &CreateGroupRequest{
 		DisplayName: req.DisplayName,
 		Description: req.Description,
+		ExternalIDs: req.ExternalIDs,
 	})
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -835,6 +837,8 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 		return h.writeResourceError(c, "ResourceNotFoundException", err.Error(), "GROUP_MEMBERSHIP")
 	case errors.Is(err, ErrConflict):
 		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error())
+	case errors.Is(err, ErrValidation):
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
