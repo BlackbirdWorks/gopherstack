@@ -44,7 +44,8 @@ func TestECSDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/ecs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
+	// Wait for cluster names to be rendered in the DOM (loaded asynchronously).
+	err = page.Locator("text=demo-cluster").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

@@ -10,12 +10,14 @@ import {
 	ListContainerInstancesCommand,
 	DescribeContainerInstancesCommand,
 	DescribeTaskSetsCommand,
+	DescribeCapacityProvidersCommand,
 	type TaskDefinition,
 	type ContainerInstance,
-	type TaskSet
+	type TaskSet,
+	type CapacityProvider
 } from '@aws-sdk/client-ecs';
 import { toast } from 'svelte-sonner';
-import { Container, Plus, RefreshCw, Search, Layers, Activity, Server, ChevronRight, List, Box, Cpu, LayoutGrid } from 'lucide-svelte';
+import { Container, Plus, RefreshCw, Search, Layers, Activity, Server, ChevronRight, List, Box, Cpu, LayoutGrid, Zap } from 'lucide-svelte';
 
 const ecs = getECSClient();
 
@@ -35,10 +37,12 @@ let containerInstancesLoading = $state(false);
 let taskSets = $state<TaskSet[]>([]);
 let taskSetsLoading = $state(false);
 let taskSetsLoadedForCluster = $state<string | null>(null);
+let capacityProviders = $state<CapacityProvider[]>([]);
+let capacityProvidersLoading = $state(false);
 let search = $state('');
 let servicesByCluster = $state<Record<string, string[]>>({});
 let tasksByCluster = $state<Record<string, string[]>>({});
-let activeTab = $state<'services' | 'tasks' | 'taskdefs' | 'instances' | 'tasksets'>('services');
+let activeTab = $state<'services' | 'tasks' | 'taskdefs' | 'instances' | 'tasksets' | 'capacity'>('services');
 
 onMount(async () => {
 	await loadClusters();
@@ -52,9 +56,11 @@ async function loadClusters() {
 		clusters = data.clusterArns || [];
 		if (clusters.length > 0) {
 			selectedCluster = clusters[0];
-			await loadServices(clusters[0]);
-			await loadTasks(clusters[0]);
-			await loadContainerInstances(clusters[0]);
+			await Promise.all([
+				loadServices(clusters[0]),
+				loadTasks(clusters[0]),
+				loadContainerInstances(clusters[0])
+			]);
 		}
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load clusters');
@@ -119,6 +125,30 @@ async function loadContainerInstances(clusterArn: string) {
 	} finally {
 		containerInstancesLoading = false;
 	}
+}
+
+async function loadCapacityProviders(clusterArn: string) {
+	try {
+		capacityProvidersLoading = true;
+		// Get capacity providers attached to the cluster
+		const clustersData = await ecs.send(new ListClustersCommand({}));
+		const clusterList = clustersData.clusterArns || [];
+		if (clusterList.length === 0) {
+			capacityProviders = [];
+			return;
+		}
+		// Describe capacity providers - pass empty to get all registered ones
+		const cpData = await ecs.send(new DescribeCapacityProvidersCommand({}));
+		capacityProviders = cpData.capacityProviders || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load capacity providers');
+	} finally {
+		capacityProvidersLoading = false;
+	}
+}
+
+async function loadCapacityProvidersForCluster(_clusterArn: string) {
+	await loadCapacityProviders(_clusterArn);
 }
 
 async function loadTaskSets(clusterArn: string) {
@@ -238,6 +268,11 @@ let filteredContainerInstances = $derived(containerInstances.filter(ci =>
 let filteredTaskSets = $derived(taskSets.filter(ts =>
 	!search || (ts.taskSetArn || '').toLowerCase().includes(search.toLowerCase()) ||
 	(ts.id || '').toLowerCase().includes(search.toLowerCase())
+));
+
+let filteredCapacityProviders = $derived(capacityProviders.filter(cp =>
+	!search || (cp.name || '').toLowerCase().includes(search.toLowerCase()) ||
+	(cp.capacityProviderArn || '').toLowerCase().includes(search.toLowerCase())
 ));
 
 let totalServices = $derived(Object.values(servicesByCluster).reduce((acc, s) => acc + s.length, 0));
@@ -390,7 +425,8 @@ let taskDefFamilies = $derived(() => {
 						{ id: 'tasks', label: 'Tasks', icon: Server, count: tasks.length },
 						{ id: 'taskdefs', label: 'Task Defs', icon: Box, count: taskDefs.length },
 						{ id: 'instances', label: 'Instances', icon: Cpu, count: containerInstances.length },
-						{ id: 'tasksets', label: 'Task Sets', icon: LayoutGrid, count: taskSets.length }
+						{ id: 'tasksets', label: 'Task Sets', icon: LayoutGrid, count: taskSets.length },
+						{ id: 'capacity', label: 'Capacity', icon: Zap, count: capacityProviders.length }
 					] as tab}
 						<button
 							onclick={() => {
@@ -402,6 +438,9 @@ let taskDefFamilies = $derived(() => {
 									taskSetsLoadedForCluster !== selectedCluster
 								) {
 									loadTaskSets(selectedCluster);
+								}
+								if (tab.id === 'capacity' && selectedCluster) {
+									loadCapacityProvidersForCluster(selectedCluster);
 								}
 							}}
 							class="flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === tab.id
@@ -614,6 +653,41 @@ let taskDefFamilies = $derived(() => {
 								{/each}
 							</div>
 							<p class="text-xs text-slate-400 mt-3 text-right">{filteredTaskSets.length} task sets</p>
+						{/if}
+
+					<!-- Capacity Providers tab -->
+					{:else if activeTab === 'capacity'}
+						{#if capacityProvidersLoading}
+							<div class="text-center py-8 text-slate-500 dark:text-slate-400 text-sm">
+								<div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500 mb-2"></div>
+								<p>Loading capacity providers...</p>
+							</div>
+						{:else if filteredCapacityProviders.length === 0}
+							<div class="text-center py-10">
+								<Zap class="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2 opacity-50" />
+								<p class="text-slate-500 dark:text-slate-400 text-sm">No capacity providers found</p>
+								<p class="text-slate-400 dark:text-slate-500 text-xs mt-1">Create a capacity provider and attach it to the cluster.</p>
+							</div>
+						{:else}
+							<div class="space-y-2">
+								{#each filteredCapacityProviders as cp}
+									<div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600">
+										<div class="flex items-center justify-between">
+											<p class="font-semibold text-slate-900 dark:text-white text-sm">{cp.name || '—'}</p>
+											<span class="text-xs px-2 py-0.5 rounded-full {cp.status === 'ACTIVE'
+												? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+												: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'} font-medium">
+												{cp.status || 'UNKNOWN'}
+											</span>
+										</div>
+										<p class="text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 truncate">{cp.capacityProviderArn || '—'}</p>
+										{#if cp.updateStatus}
+											<p class="text-xs text-amber-600 dark:text-amber-400 mt-1">Update status: {cp.updateStatus}</p>
+										{/if}
+									</div>
+								{/each}
+							</div>
+							<p class="text-xs text-slate-400 mt-3 text-right">{filteredCapacityProviders.length} capacity providers</p>
 						{/if}
 					{/if}
 				</div>

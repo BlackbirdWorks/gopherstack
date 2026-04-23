@@ -95,6 +95,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateExpressGatewayService",
 		"GetTaskProtection",
 		"UpdateTaskProtection",
+		"UpdateCluster",
+		"UpdateCapacityProvider",
+		"ListTaskDefinitionFamilies",
+		"StartTask",
+		"ListServicesByNamespace",
+		"TagResource",
+		"UntagResource",
+		"ListTagsForResource",
+		"ListServiceDeployments",
+		"StopServiceDeployment",
 	}
 }
 
@@ -248,6 +258,23 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		// Task protection
 		"GetTaskProtection":    service.WrapOp(h.handleGetTaskProtection),
 		"UpdateTaskProtection": service.WrapOp(h.handleUpdateTaskProtection),
+		// Cluster management
+		"UpdateCluster": service.WrapOp(h.handleUpdateCluster),
+		// Capacity provider management
+		"UpdateCapacityProvider": service.WrapOp(h.handleUpdateCapacityProvider),
+		// Task definition families
+		"ListTaskDefinitionFamilies": service.WrapOp(h.handleListTaskDefinitionFamilies),
+		// Task placement
+		"StartTask": service.WrapOp(h.handleStartTask),
+		// Namespace-scoped service listing
+		"ListServicesByNamespace": service.WrapOp(h.handleListServicesByNamespace),
+		// Tagging
+		"TagResource":         service.WrapOp(h.handleTagResource),
+		"UntagResource":       service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
+		// Service deployments
+		"ListServiceDeployments": service.WrapOp(h.handleListServiceDeployments),
+		"StopServiceDeployment":  service.WrapOp(h.handleStopServiceDeployment),
 	}
 }
 

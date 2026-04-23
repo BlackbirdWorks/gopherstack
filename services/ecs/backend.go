@@ -183,6 +183,7 @@ type InMemoryBackend struct {
 	attributes             map[string]map[string]*Attribute // clusterName → attributeKey → Attribute
 	serviceDeployments     map[string]*ServiceDeployment
 	expressGatewayServices map[string]*ExpressGatewayService
+	resourceTags           map[string][]Tag // resourceArn → tags
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -211,6 +212,7 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 		attributes:             make(map[string]map[string]*Attribute),
 		serviceDeployments:     make(map[string]*ServiceDeployment),
 		expressGatewayServices: make(map[string]*ExpressGatewayService),
+		resourceTags:           make(map[string][]Tag),
 		mu:                     lockmetrics.New("ecs"),
 		accountID:              accountID,
 		region:                 region,
@@ -236,6 +238,7 @@ func (b *InMemoryBackend) Reset() {
 	b.attributes = make(map[string]map[string]*Attribute)
 	b.serviceDeployments = make(map[string]*ServiceDeployment)
 	b.expressGatewayServices = make(map[string]*ExpressGatewayService)
+	b.resourceTags = make(map[string][]Tag)
 }
 
 // resolveCluster returns the cluster ARN/name to use, defaulting to "default".

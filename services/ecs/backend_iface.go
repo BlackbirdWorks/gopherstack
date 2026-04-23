@@ -90,9 +90,37 @@ type Backend interface {
 
 	UpdateContainerAgent(cluster, containerInstance string) (*ContainerInstance, error)
 
+	// Cluster management
+
+	UpdateCluster(input UpdateClusterInput) (*Cluster, error)
+
+	// Capacity provider management
+
+	UpdateCapacityProvider(input UpdateCapacityProviderInput) (*CapacityProvider, error)
+
+	// Task definition families
+
+	ListTaskDefinitionFamilies(familyPrefix, status string) ([]string, error)
+
+	// Task placement
+
+	StartTask(input StartTaskInput) ([]Task, error)
+
+	// Namespace-scoped service listing
+
+	ListServicesByNamespace(cluster, namespace string) ([]string, error)
+
+	// Tagging
+
+	TagResource(resourceArn string, tags []Tag) error
+	UntagResource(resourceArn string, tagKeys []string) error
+	ListTagsForResource(resourceArn string) ([]Tag, error)
+
 	// Service deployments
 
 	DescribeServiceDeployments(serviceDeploymentArns []string) ([]ServiceDeployment, []Failure, error)
+	ListServiceDeployments(cluster, service string) ([]string, error)
+	StopServiceDeployment(serviceDeploymentArn string) (*ServiceDeployment, error)
 
 	// Express gateway services
 
