@@ -1296,9 +1296,6 @@ Add
 {#if group.Description}
 <div class="text-xs text-slate-400 dark:text-slate-500">{group.Description}</div>
 {/if}
-{#if groupMemberCounts[group.GroupId ?? ''] !== undefined}
-<span class="text-xs text-slate-400 dark:text-slate-500">{groupMemberCounts[group.GroupId ?? '']} member{groupMemberCounts[group.GroupId ?? ''] === 1 ? '' : 's'}</span>
-{/if}
 </td>
 <td class="py-3 pr-4">
 {#if membership}
