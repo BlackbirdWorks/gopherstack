@@ -153,6 +153,12 @@ func fixNilTagMaps(snap *backendSnapshot) {
 			app.Tags = make(map[string]string)
 		}
 	}
+
+	for _, tti := range snap.TrustedTokenIssuers {
+		if tti.Tags == nil {
+			tti.Tags = make(map[string]string)
+		}
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

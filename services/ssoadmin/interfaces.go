@@ -77,6 +77,17 @@ type StorageBackend interface {
 	DeleteApplicationAccessScope(applicationArn, scope string) error
 	DeleteApplicationAssignment(applicationArn, principalID, principalType string) error
 	DeleteApplicationAuthenticationMethod(applicationArn, authMethodType string) error
+	DeletePermissionsBoundaryFromPermissionSet(instanceArn, permissionSetArn string) error
+	DetachCustomerManagedPolicyReferenceFromPermissionSet(instanceArn, permissionSetArn, name, path string) error
+	GetApplicationAssignmentConfiguration(applicationArn string) (bool, error)
+	GetApplicationSessionConfiguration(applicationArn string) (string, error)
+	ListCustomerManagedPolicyReferencesInPermissionSet(
+		instanceArn, permissionSetArn string,
+	) ([]CustomerManagedPolicyReference, error)
+	ListRegions(instanceArn string) ([]string, error)
+	RemoveRegion(instanceArn, regionName string) error
+	UpdateInstance(instanceArn, name string) error
+	UpdateInstanceAccessControlAttributeConfiguration(instanceArn string, attributes []AccessControlAttribute) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

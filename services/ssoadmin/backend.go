@@ -140,10 +140,11 @@ type InstanceAccessControlAttributeConfiguration struct {
 
 // TrustedTokenIssuer represents a trusted token issuer.
 type TrustedTokenIssuer struct {
-	TrustedTokenIssuerArn  string `json:"TrustedTokenIssuerArn"`
-	InstanceArn            string `json:"InstanceArn"`
-	Name                   string `json:"Name"`
-	TrustedTokenIssuerType string `json:"TrustedTokenIssuerType"`
+	Tags                   map[string]string `json:"Tags"`
+	TrustedTokenIssuerArn  string            `json:"TrustedTokenIssuerArn"`
+	InstanceArn            string            `json:"InstanceArn"`
+	Name                   string            `json:"Name"`
+	TrustedTokenIssuerType string            `json:"TrustedTokenIssuerType"`
 }
 
 // InMemoryBackend is the in-memory backend for the SSO Admin service.
@@ -435,7 +436,7 @@ func (b *InMemoryBackend) ListPermissionSets(instanceArn string) []*PermissionSe
 	return list
 }
 
-// DeletePermissionSet removes a permission set.
+// DeletePermissionSet removes a permission set and cascades to its assignments.
 func (b *InMemoryBackend) DeletePermissionSet(instanceArn, permissionSetArn string) error {
 	b.mu.Lock("DeletePermissionSet")
 	defer b.mu.Unlock()
@@ -446,6 +447,8 @@ func (b *InMemoryBackend) DeletePermissionSet(instanceArn, permissionSetArn stri
 	}
 	delete(b.permissionSets, permissionSetArn)
 	delete(b.permissionBoundaries, permissionSetArn)
+	delete(b.customerManagedPolicies, permissionSetArn)
+	delete(b.assignments, assignmentKey(instanceArn, permissionSetArn))
 
 	return nil
 }
@@ -495,6 +498,19 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 		PrincipalType:    principalType,
 	}
 	key := assignmentKey(instanceArn, permissionSetArn)
+
+	// Idempotency: if the same assignment already exists, return the existing creation status
+	// without creating a duplicate.
+	for _, existing := range b.assignments[key] {
+		if existing.AccountID == accountID &&
+			existing.PrincipalID == principalID &&
+			existing.PrincipalType == principalType {
+			for _, status := range b.creationStatuses {
+				return status.RequestID, nil
+			}
+		}
+	}
+
 	b.assignments[key] = append(b.assignments[key], assignment)
 
 	requestID := uuid.NewString()
@@ -816,7 +832,7 @@ func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(_ string) []*Provi
 	return result
 }
 
-// TagResource adds tags to a resource (permission set, instance, or application).
+// TagResource adds tags to a resource (permission set, instance, application, or trusted token issuer).
 func (b *InMemoryBackend) TagResource(instanceArn, resourceArn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
@@ -848,6 +864,15 @@ func (b *InMemoryBackend) TagResource(instanceArn, resourceArn string, tags map[
 		return nil
 	}
 
+	if tti, ok := b.trustedTokenIssuers[resourceArn]; ok && tti.InstanceArn == instanceArn {
+		if tti.Tags == nil {
+			tti.Tags = make(map[string]string)
+		}
+		maps.Copy(tti.Tags, tags)
+
+		return nil
+	}
+
 	return ErrInstanceNotFound
 }
 
@@ -864,13 +889,25 @@ func (b *InMemoryBackend) UntagResource(instanceArn, resourceArn string, tagKeys
 		return nil
 	}
 
-	if _, ok := b.instances[resourceArn]; ok {
+	if inst, ok := b.instances[resourceArn]; ok {
+		for _, k := range tagKeys {
+			delete(inst.Tags, k)
+		}
+
 		return nil
 	}
 
 	if app, ok := b.applications[resourceArn]; ok && app.InstanceArn == instanceArn {
 		for _, k := range tagKeys {
 			delete(app.Tags, k)
+		}
+
+		return nil
+	}
+
+	if tti, ok := b.trustedTokenIssuers[resourceArn]; ok && tti.InstanceArn == instanceArn {
+		for _, k := range tagKeys {
+			delete(tti.Tags, k)
 		}
 
 		return nil
@@ -901,6 +938,13 @@ func (b *InMemoryBackend) ListTagsForResource(instanceArn, resourceArn string) (
 	if app, ok := b.applications[resourceArn]; ok && app.InstanceArn == instanceArn {
 		result := make(map[string]string, len(app.Tags))
 		maps.Copy(result, app.Tags)
+
+		return result, nil
+	}
+
+	if tti, ok := b.trustedTokenIssuers[resourceArn]; ok && tti.InstanceArn == instanceArn {
+		result := make(map[string]string, len(tti.Tags))
+		maps.Copy(result, tti.Tags)
 
 		return result, nil
 	}
@@ -944,6 +988,15 @@ func copyAccessControlAttributes(attrs []AccessControlAttribute) []AccessControl
 	}
 
 	return result
+}
+
+// copyTrustedTokenIssuer returns a deep copy of a TrustedTokenIssuer. Must be called with mu held.
+func copyTrustedTokenIssuer(tti *TrustedTokenIssuer) *TrustedTokenIssuer {
+	cp := *tti
+	cp.Tags = make(map[string]string, len(tti.Tags))
+	maps.Copy(cp.Tags, tti.Tags)
+
+	return &cp
 }
 
 // instanceARNToID extracts the instance ID segment from an instance ARN.
@@ -1578,9 +1631,11 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(instanceArn, name, issuerType
 		InstanceArn:            instanceArn,
 		Name:                   name,
 		TrustedTokenIssuerType: issuerType,
+		Tags:                   make(map[string]string),
 	}
 	b.trustedTokenIssuers[arn] = ti
 	cp := *ti
+	cp.Tags = make(map[string]string)
 
 	return &cp, nil
 }
@@ -1609,9 +1664,8 @@ func (b *InMemoryBackend) DescribeTrustedTokenIssuer(
 	if !ok {
 		return nil, ErrTrustedTokenIssuerNotFound
 	}
-	cp := *issuer
 
-	return &cp, nil
+	return copyTrustedTokenIssuer(issuer), nil
 }
 
 // ListTrustedTokenIssuers lists trusted token issuers for an instance.
@@ -1624,8 +1678,7 @@ func (b *InMemoryBackend) ListTrustedTokenIssuers(instanceArn string) []*Trusted
 		if instanceArn != "" && issuer.InstanceArn != instanceArn {
 			continue
 		}
-		cp := *issuer
-		result = append(result, &cp)
+		result = append(result, copyTrustedTokenIssuer(issuer))
 	}
 
 	return result
@@ -1650,7 +1703,172 @@ func (b *InMemoryBackend) UpdateTrustedTokenIssuer(
 	if issuerType != "" {
 		issuer.TrustedTokenIssuerType = issuerType
 	}
-	cp := *issuer
 
-	return &cp, nil
+	return copyTrustedTokenIssuer(issuer), nil
+}
+
+// GetApplicationAssignmentConfiguration returns the assignment configuration for an application.
+func (b *InMemoryBackend) GetApplicationAssignmentConfiguration(applicationArn string) (bool, error) {
+	b.mu.RLock("GetApplicationAssignmentConfiguration")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return false, ErrApplicationNotFound
+	}
+	required := b.applicationAssignConfig[applicationArn]
+
+	return required, nil
+}
+
+// GetApplicationSessionConfiguration returns the session configuration for an application.
+func (b *InMemoryBackend) GetApplicationSessionConfiguration(applicationArn string) (string, error) {
+	b.mu.RLock("GetApplicationSessionConfiguration")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationArn]; !ok {
+		return "", ErrApplicationNotFound
+	}
+	dur := b.applicationSessions[applicationArn]
+
+	return dur, nil
+}
+
+// DeletePermissionsBoundaryFromPermissionSet removes the permissions boundary from a permission set.
+func (b *InMemoryBackend) DeletePermissionsBoundaryFromPermissionSet(instanceArn, permissionSetArn string) error {
+	b.mu.Lock("DeletePermissionsBoundaryFromPermissionSet")
+	defer b.mu.Unlock()
+
+	ps, ok := b.permissionSets[permissionSetArn]
+	if !ok || ps.InstanceArn != instanceArn {
+		return ErrPermissionSetNotFound
+	}
+	if _, hasBoundary := b.permissionBoundaries[permissionSetArn]; !hasBoundary {
+		return ErrRequestNotFound
+	}
+	delete(b.permissionBoundaries, permissionSetArn)
+
+	return nil
+}
+
+// ListCustomerManagedPolicyReferencesInPermissionSet lists customer-managed policy references in a permission set.
+func (b *InMemoryBackend) ListCustomerManagedPolicyReferencesInPermissionSet(
+	instanceArn,
+	permissionSetArn string,
+) ([]CustomerManagedPolicyReference, error) {
+	b.mu.RLock("ListCustomerManagedPolicyReferencesInPermissionSet")
+	defer b.mu.RUnlock()
+
+	ps, ok := b.permissionSets[permissionSetArn]
+	if !ok || ps.InstanceArn != instanceArn {
+		return nil, ErrPermissionSetNotFound
+	}
+	refs := b.customerManagedPolicies[permissionSetArn]
+	result := make([]CustomerManagedPolicyReference, len(refs))
+	copy(result, refs)
+
+	return result, nil
+}
+
+// RemoveRegion removes a region from an SSO instance.
+func (b *InMemoryBackend) RemoveRegion(instanceArn, regionName string) error {
+	b.mu.Lock("RemoveRegion")
+	defer b.mu.Unlock()
+
+	if _, ok := b.instances[instanceArn]; !ok {
+		return ErrInstanceNotFound
+	}
+	regions := b.instanceRegions[instanceArn]
+	found := false
+	remaining := make([]string, 0, len(regions))
+	for _, r := range regions {
+		if r == regionName {
+			found = true
+		} else {
+			remaining = append(remaining, r)
+		}
+	}
+	if !found {
+		return ErrRequestNotFound
+	}
+	b.instanceRegions[instanceArn] = remaining
+
+	return nil
+}
+
+// ListRegions returns the regions associated with an SSO instance.
+func (b *InMemoryBackend) ListRegions(instanceArn string) ([]string, error) {
+	b.mu.RLock("ListRegions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.instances[instanceArn]; !ok {
+		return nil, ErrInstanceNotFound
+	}
+	regions := b.instanceRegions[instanceArn]
+	result := make([]string, len(regions))
+	copy(result, regions)
+
+	return result, nil
+}
+
+// UpdateInstance updates the name of an SSO instance.
+func (b *InMemoryBackend) UpdateInstance(instanceArn, name string) error {
+	b.mu.Lock("UpdateInstance")
+	defer b.mu.Unlock()
+
+	inst, ok := b.instances[instanceArn]
+	if !ok {
+		return ErrInstanceNotFound
+	}
+	if name != "" {
+		inst.Name = name
+	}
+
+	return nil
+}
+
+// UpdateInstanceAccessControlAttributeConfiguration updates the ABAC config for an instance.
+func (b *InMemoryBackend) UpdateInstanceAccessControlAttributeConfiguration(
+	instanceArn string,
+	attributes []AccessControlAttribute,
+) error {
+	b.mu.Lock("UpdateInstanceAccessControlAttributeConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.instances[instanceArn]; !ok {
+		return ErrInstanceNotFound
+	}
+	b.instanceACAs[instanceArn] = &InstanceAccessControlAttributeConfiguration{
+		AccessControlAttributes: copyAccessControlAttributes(attributes),
+	}
+
+	return nil
+}
+
+// DetachCustomerManagedPolicyReferenceFromPermissionSet detaches a customer-managed policy reference.
+func (b *InMemoryBackend) DetachCustomerManagedPolicyReferenceFromPermissionSet(
+	instanceArn, permissionSetArn, name, path string,
+) error {
+	b.mu.Lock("DetachCustomerManagedPolicyReferenceFromPermissionSet")
+	defer b.mu.Unlock()
+
+	ps, ok := b.permissionSets[permissionSetArn]
+	if !ok || ps.InstanceArn != instanceArn {
+		return ErrPermissionSetNotFound
+	}
+	all := b.customerManagedPolicies[permissionSetArn]
+	found := false
+	remaining := make([]CustomerManagedPolicyReference, 0, len(all))
+	for _, ref := range all {
+		if ref.Name == name && ref.Path == path {
+			found = true
+		} else {
+			remaining = append(remaining, ref)
+		}
+	}
+	if !found {
+		return ErrRequestNotFound
+	}
+	b.customerManagedPolicies[permissionSetArn] = remaining
+
+	return nil
 }

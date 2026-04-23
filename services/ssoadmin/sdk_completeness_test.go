@@ -18,22 +18,13 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := ssoadmin.NewInMemoryBackend("000000000000", "us-east-1")
 	h := ssoadmin.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &ssoadminsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeletePermissionsBoundaryFromPermissionSet",
 		"DescribeRegion",
-		"DetachCustomerManagedPolicyReferenceFromPermissionSet",
 		"GetApplicationAccessScope",
-		"GetApplicationAssignmentConfiguration",
 		"GetApplicationAuthenticationMethod",
 		"GetApplicationGrant",
-		"GetApplicationSessionConfiguration",
 		"ListAccountAssignmentsForPrincipal",
 		"ListAccountsForProvisionedPermissionSet",
 		"ListApplicationAssignmentsForPrincipal",
-		"ListCustomerManagedPolicyReferencesInPermissionSet",
 		"ListPermissionSetsProvisionedToAccount",
-		"ListRegions",
-		"RemoveRegion",
-		"UpdateInstance",
-		"UpdateInstanceAccessControlAttributeConfiguration",
 	})
 }

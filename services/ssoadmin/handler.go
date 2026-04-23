@@ -61,6 +61,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteInstance",
 		"DeleteInstanceAccessControlAttributeConfiguration",
 		"DeletePermissionSet",
+		"DeletePermissionsBoundaryFromPermissionSet",
 		"DeleteTrustedTokenIssuer",
 		"DescribeApplication",
 		"DescribeAccountAssignmentCreationStatus",
@@ -72,7 +73,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribePermissionSet",
 		"DescribePermissionSetProvisioningStatus",
 		"DescribeTrustedTokenIssuer",
+		"DetachCustomerManagedPolicyReferenceFromPermissionSet",
 		"DetachManagedPolicyFromPermissionSet",
+		"GetApplicationAssignmentConfiguration",
+		"GetApplicationSessionConfiguration",
 		"GetPermissionsBoundaryForPermissionSet",
 		"GetInlinePolicyForPermissionSet",
 		"ListAccountAssignmentCreationStatus",
@@ -84,10 +88,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListApplicationGrants",
 		"ListApplicationProviders",
 		"ListApplications",
+		"ListCustomerManagedPolicyReferencesInPermissionSet",
 		"ListInstances",
 		"ListManagedPoliciesInPermissionSet",
 		"ListPermissionSetProvisioningStatus",
 		"ListPermissionSets",
+		"ListRegions",
 		"ListTagsForResource",
 		"ListTrustedTokenIssuers",
 		"ProvisionPermissionSet",
@@ -98,9 +104,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutApplicationSessionConfiguration",
 		"PutInlinePolicyToPermissionSet",
 		"PutPermissionsBoundaryToPermissionSet",
+		"RemoveRegion",
 		"TagResource",
 		"UntagResource",
 		"UpdateApplication",
+		"UpdateInstance",
+		"UpdateInstanceAccessControlAttributeConfiguration",
 		"UpdatePermissionSet",
 		"UpdateTrustedTokenIssuer",
 	}
@@ -262,6 +271,8 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) error 
 		return h.handleDeleteApplicationAssignment(c, body)
 	case "DeleteApplicationAuthenticationMethod":
 		return h.handleDeleteApplicationAuthenticationMethod(c, body)
+	case "DetachCustomerManagedPolicyReferenceFromPermissionSet":
+		return h.handleDetachCustomerManagedPolicyReferenceFromPermissionSet(c, body)
 	default:
 		return h.dispatchNewestOps(c, op, body)
 	}
@@ -317,14 +328,31 @@ func (h *Handler) dispatchNewestAppOps(c *echo.Context, op string, body []byte) 
 
 func (h *Handler) dispatchNewestConfigOps(c *echo.Context, op string, body []byte) error {
 	switch op {
+	case "DeletePermissionsBoundaryFromPermissionSet":
+		return h.handleDeletePermissionsBoundaryFromPermissionSet(c, body)
+	case "GetApplicationAssignmentConfiguration":
+		return h.handleGetApplicationAssignmentConfiguration(c, body)
+	case "GetApplicationSessionConfiguration":
+		return h.handleGetApplicationSessionConfiguration(c, body)
+	case "ListCustomerManagedPolicyReferencesInPermissionSet":
+		return h.handleListCustomerManagedPolicyReferencesInPermissionSet(c, body)
 	case "ListPermissionSetProvisioningStatus":
 		return h.handleListPermissionSetProvisioningStatus(c, body)
+	case "ListRegions":
+		return h.handleListRegions(c, body)
 	case "ListTrustedTokenIssuers":
 		return h.handleListTrustedTokenIssuers(c, body)
 	case "PutApplicationAccessScope":
 		return h.handlePutApplicationAccessScope(c, body)
 	case "PutApplicationAssignmentConfiguration":
 		return h.handlePutApplicationAssignmentConfiguration(c, body)
+	default:
+		return h.dispatchUpdateOps(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchUpdateOps(c *echo.Context, op string, body []byte) error {
+	switch op {
 	case "PutApplicationAuthenticationMethod":
 		return h.handlePutApplicationAuthenticationMethod(c, body)
 	case "PutApplicationGrant":
@@ -333,8 +361,14 @@ func (h *Handler) dispatchNewestConfigOps(c *echo.Context, op string, body []byt
 		return h.handlePutApplicationSessionConfiguration(c, body)
 	case "PutPermissionsBoundaryToPermissionSet":
 		return h.handlePutPermissionsBoundaryToPermissionSet(c, body)
+	case "RemoveRegion":
+		return h.handleRemoveRegion(c, body)
 	case "UpdateApplication":
 		return h.handleUpdateApplication(c, body)
+	case "UpdateInstance":
+		return h.handleUpdateInstance(c, body)
+	case "UpdateInstanceAccessControlAttributeConfiguration":
+		return h.handleUpdateInstanceAccessControlAttributeConfiguration(c, body)
 	case "UpdateTrustedTokenIssuer":
 		return h.handleUpdateTrustedTokenIssuer(c, body)
 	default:
@@ -615,7 +649,6 @@ func (h *Handler) handleUpdatePermissionSet(c *echo.Context, body []byte) error 
 	return writeJSON(c, http.StatusOK, map[string]any{})
 }
 
-//nolint:dupl // create and delete assignment handlers have similar structure but distinct semantics
 func (h *Handler) handleCreateAccountAssignment(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn      string `json:"InstanceArn"`
@@ -627,6 +660,21 @@ func (h *Handler) handleCreateAccountAssignment(c *echo.Context, body []byte) er
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+	}
+	if req.TargetID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "TargetId is required")
+	}
+	if req.PrincipalID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalId is required")
+	}
+	if req.PrincipalType == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PrincipalType is required")
 	}
 
 	requestID, err := h.Backend.CreateAccountAssignment(
@@ -677,7 +725,6 @@ func (h *Handler) handleDescribeAccountAssignmentCreationStatus(c *echo.Context,
 	})
 }
 
-//nolint:dupl // create and delete assignment handlers have similar structure but distinct semantics
 func (h *Handler) handleDeleteAccountAssignment(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn      string `json:"InstanceArn"`
@@ -906,6 +953,12 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
 	}
 
 	requestID, err := h.Backend.ProvisionPermissionSet(req.InstanceArn, req.PermissionSetArn)
@@ -1175,6 +1228,9 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, body []byte) error {
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
+	if req.ApplicationArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ApplicationArn is required")
+	}
 
 	if err := h.Backend.DeleteApplication(req.ApplicationArn); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
@@ -1307,6 +1363,9 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 	if req.Name == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "Name is required")
 	}
+	if req.TrustedTokenIssuerType == "" {
+		req.TrustedTokenIssuerType = "OIDC_JWT"
+	}
 
 	ti, err := h.Backend.CreateTrustedTokenIssuer(req.InstanceArn, req.Name, req.TrustedTokenIssuerType)
 	if err != nil {
@@ -1430,7 +1489,7 @@ func (h *Handler) handleListApplicationAccessScopes(c *echo.Context, body []byte
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Scope":     scopes,
+		"Scopes":    scopes,
 		"NextToken": nil,
 	})
 }
@@ -1446,6 +1505,14 @@ func (h *Handler) handleListApplicationAssignments(c *echo.Context, body []byte)
 	if err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
+
+	sort.Slice(assignments, func(i, j int) bool {
+		if assignments[i].PrincipalType != assignments[j].PrincipalType {
+			return assignments[i].PrincipalType < assignments[j].PrincipalType
+		}
+
+		return assignments[i].PrincipalID < assignments[j].PrincipalID
+	})
 
 	out := make([]map[string]any, 0, len(assignments))
 	for _, assignment := range assignments {
@@ -1532,6 +1599,7 @@ func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	apps := h.Backend.ListApplications(req.InstanceArn)
+	sort.Slice(apps, func(i, j int) bool { return apps[i].ApplicationArn < apps[j].ApplicationArn })
 	out := make([]applicationView, 0, len(apps))
 	for _, app := range apps {
 		out = append(out, applicationView{
@@ -1670,6 +1738,9 @@ func (h *Handler) handleDeleteTrustedTokenIssuer(c *echo.Context, body []byte) e
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
+	if req.TrustedTokenIssuerArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "TrustedTokenIssuerArn is required")
+	}
 	if err := h.Backend.DeleteTrustedTokenIssuer(req.TrustedTokenIssuerArn); err != nil {
 		return handleBackendError(c, err, "trusted token issuer not found")
 	}
@@ -1708,6 +1779,10 @@ func (h *Handler) handleListTrustedTokenIssuers(c *echo.Context, body []byte) er
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	issuers := h.Backend.ListTrustedTokenIssuers(req.InstanceArn)
+	sort.Slice(
+		issuers,
+		func(i, j int) bool { return issuers[i].TrustedTokenIssuerArn < issuers[j].TrustedTokenIssuerArn },
+	)
 	out := make([]trustedTokenIssuerView, 0, len(issuers))
 	for _, issuer := range issuers {
 		out = append(out, trustedTokenIssuerView{
@@ -1907,4 +1982,219 @@ func (h *Handler) handleListPermissionSetProvisioningStatus(c *echo.Context, bod
 		"PermissionSetsProvisioningStatus": out,
 		"NextToken":                        nil,
 	})
+}
+
+func (h *Handler) handleGetApplicationAssignmentConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.ApplicationArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ApplicationArn is required")
+	}
+	required, err := h.Backend.GetApplicationAssignmentConfiguration(req.ApplicationArn)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"AssignmentRequired": required,
+	})
+}
+
+func (h *Handler) handleGetApplicationSessionConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		ApplicationArn string `json:"ApplicationArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.ApplicationArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ApplicationArn is required")
+	}
+	dur, err := h.Backend.GetApplicationSessionConfiguration(req.ApplicationArn)
+	if err != nil {
+		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"ApplicationSessionConfiguration": map[string]any{
+			"SessionDuration": dur,
+		},
+	})
+}
+
+func (h *Handler) handleDeletePermissionsBoundaryFromPermissionSet(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn      string `json:"InstanceArn"`
+		PermissionSetArn string `json:"PermissionSetArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+	}
+	if err := h.Backend.DeletePermissionsBoundaryFromPermissionSet(req.InstanceArn, req.PermissionSetArn); err != nil {
+		return handleBackendError(c, err, "permissions boundary not found for: "+req.PermissionSetArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleListCustomerManagedPolicyReferencesInPermissionSet(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn      string `json:"InstanceArn"`
+		PermissionSetArn string `json:"PermissionSetArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	refs, err := h.Backend.ListCustomerManagedPolicyReferencesInPermissionSet(req.InstanceArn, req.PermissionSetArn)
+	if err != nil {
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
+	}
+
+	out := make([]customerManagedPolicyReferenceView, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, customerManagedPolicyReferenceView(ref))
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"CustomerManagedPolicyReferences": out,
+		"NextToken":                       nil,
+	})
+}
+
+func (h *Handler) handleRemoveRegion(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+		RegionName  string `json:"RegionName"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.RegionName == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "RegionName is required")
+	}
+	if err := h.Backend.RemoveRegion(req.InstanceArn, req.RegionName); err != nil {
+		return handleBackendError(c, err, "region not found: "+req.RegionName)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	regions, err := h.Backend.ListRegions(req.InstanceArn)
+	if err != nil {
+		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Regions":   regions,
+		"NextToken": nil,
+	})
+}
+
+func (h *Handler) handleUpdateInstance(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+		Name        string `json:"Name"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if err := h.Backend.UpdateInstance(req.InstanceArn, req.Name); err != nil {
+		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleUpdateInstanceAccessControlAttributeConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn                                 string `json:"InstanceArn"`
+		InstanceAccessControlAttributeConfiguration struct {
+			AccessControlAttributes []struct {
+				Key   string `json:"Key"`
+				Value struct {
+					Source []string `json:"Source"`
+				} `json:"Value"`
+			} `json:"AccessControlAttributes"`
+		} `json:"InstanceAccessControlAttributeConfiguration"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+
+	attrs := make(
+		[]AccessControlAttribute,
+		0,
+		len(req.InstanceAccessControlAttributeConfiguration.AccessControlAttributes),
+	)
+	for _, a := range req.InstanceAccessControlAttributeConfiguration.AccessControlAttributes {
+		attrs = append(attrs, AccessControlAttribute{
+			Key:   a.Key,
+			Value: AccessControlAttributeValue{Source: a.Value.Source},
+		})
+	}
+
+	if err := h.Backend.UpdateInstanceAccessControlAttributeConfiguration(req.InstanceArn, attrs); err != nil {
+		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleDetachCustomerManagedPolicyReferenceFromPermissionSet(
+	c *echo.Context,
+	body []byte,
+) error {
+	var req struct {
+		InstanceArn                    string                             `json:"InstanceArn"`
+		PermissionSetArn               string                             `json:"PermissionSetArn"`
+		CustomerManagedPolicyReference customerManagedPolicyReferenceView `json:"CustomerManagedPolicyReference"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+	}
+	if err := h.Backend.DetachCustomerManagedPolicyReferenceFromPermissionSet(
+		req.InstanceArn,
+		req.PermissionSetArn,
+		req.CustomerManagedPolicyReference.Name,
+		req.CustomerManagedPolicyReference.Path,
+	); err != nil {
+		return handleBackendError(c, err, "customer managed policy reference not found")
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{})
 }
