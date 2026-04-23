@@ -316,6 +316,16 @@ func (h *Handler) dispatchGetFederationToken(r *http.Request) (*GetFederationTok
 		Tags:   parseSessionTags(r),
 	}
 
+	// Parse policy ARNs: PolicyArns.member.N.arn
+	for i := 1; i <= MaxPolicyArnsCount; i++ {
+		arnVal := r.FormValue(fmt.Sprintf("PolicyArns.member.%d.arn", i))
+		if arnVal == "" {
+			break
+		}
+
+		input.PolicyArns = append(input.PolicyArns, arnVal)
+	}
+
 	durationStr := r.FormValue("DurationSeconds")
 	if durationStr != "" {
 		d, err := strconv.ParseInt(durationStr, 10, 32)
@@ -538,7 +548,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 		errors.Is(reqErr, ErrMissingSAMLAssertion), errors.Is(reqErr, ErrMissingPrincipalArn),
 		errors.Is(reqErr, ErrMissingTargetPrincipal), errors.Is(reqErr, ErrMissingTaskPolicyArn),
 		errors.Is(reqErr, ErrMissingTradeInToken), errors.Is(reqErr, ErrMissingAudience),
-		errors.Is(reqErr, ErrMissingSigningAlgorithm), errors.Is(reqErr, ErrMissingEncodedMessage):
+		errors.Is(reqErr, ErrMissingSigningAlgorithm), errors.Is(reqErr, ErrMissingEncodedMessage),
+		errors.Is(reqErr, ErrMFACodeRequired):
 		code = "MissingParameter"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidRoleArn):
@@ -548,6 +559,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 		code = "ValidationError"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidSessionName), errors.Is(reqErr, ErrInvalidFederationName):
+		code = "ValidationError"
+		httpStatus = http.StatusBadRequest
+	case errors.Is(reqErr, ErrTooManyTags), errors.Is(reqErr, ErrTooManyAudiences):
 		code = "ValidationError"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrValidation):

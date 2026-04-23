@@ -255,6 +255,7 @@ type GetFederationTokenInput struct {
 	Name            string
 	Policy          string
 	Tags            []Tag
+	PolicyArns      []string
 	DurationSeconds int32
 }
 

@@ -21,6 +21,15 @@ import (
 )
 
 var (
+	// ErrMFACodeRequired is returned when SerialNumber is supplied without a TokenCode.
+	ErrMFACodeRequired = errors.New("TokenCode is required when SerialNumber is provided")
+
+	// ErrTooManyTags is returned when the number of session tags exceeds MaxTagCount.
+	ErrTooManyTags = errors.New("too many session tags: maximum is 50")
+
+	// ErrTooManyAudiences is returned when the audience list exceeds MaxAudienceCount.
+	ErrTooManyAudiences = errors.New("too many audience entries: maximum is 10")
+
 	// ErrMissingRoleArn is returned when AssumeRole is called without a RoleArn.
 	ErrMissingRoleArn = errors.New("RoleArn is required")
 
@@ -251,6 +260,10 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 		return nil, err
 	}
 
+	if len(input.Tags) > MaxTagCount {
+		return nil, fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
+	}
+
 	duration := input.DurationSeconds
 	if duration == 0 {
 		duration = DefaultDurationSeconds
@@ -342,11 +355,6 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
 
-	var packedPolicySize int32
-	if input.Policy != "" {
-		packedPolicySize = 50
-	}
-
 	result := AssumeRoleResult{
 		AssumedRoleUser: AssumedRoleUser{
 			Arn:           assumedRoleArn,
@@ -359,7 +367,7 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 			Expiration:      expiration.Format(time.RFC3339),
 		},
 		SourceIdentity:   input.SourceIdentity,
-		PackedPolicySize: packedPolicySize,
+		PackedPolicySize: calculatePackedPolicySize(input.Policy),
 	}
 
 	return &AssumeRoleResponse{
@@ -416,13 +424,21 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID string) (*GetCallerIdent
 func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error) {
 	b.cntGetSessionToken.Add(1)
 
+	// When a serial number (MFA device ARN) is provided, the token code is mandatory.
+	if input.SerialNumber != "" && input.TokenCode == "" {
+		return nil, ErrMFACodeRequired
+	}
+
 	duration := input.DurationSeconds
 	if duration == 0 {
 		duration = DefaultSessionTokenDurationSeconds
 	}
 
 	if duration < MinSessionTokenDurationSeconds || duration > MaxDurationSeconds {
-		return nil, ErrInvalidDuration
+		return nil, fmt.Errorf(
+			"%w: DurationSeconds must be between %d and %d for GetSessionToken",
+			ErrInvalidDuration, MinSessionTokenDurationSeconds, MaxDurationSeconds,
+		)
 	}
 
 	creds, err := generateCredentialSet()
@@ -474,6 +490,10 @@ func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*G
 		return nil, fmt.Errorf("%w: got length %d", ErrInvalidFederationName, len(input.Name))
 	}
 
+	if len(input.Tags) > MaxTagCount {
+		return nil, fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
+	}
+
 	duration := input.DurationSeconds
 	if duration == 0 {
 		duration = DefaultSessionTokenDurationSeconds
@@ -523,6 +543,7 @@ func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*G
 				SessionToken:    creds.SessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
+			PackedPolicySize: calculatePackedPolicySize(input.Policy),
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil
@@ -611,11 +632,6 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
 
-	var packedPolicySize int32
-	if input.Policy != "" {
-		packedPolicySize = 50
-	}
-
 	return &AssumeRoleWithWebIdentityResponse{
 		Xmlns: STSNamespace,
 		AssumeRoleWithWebIdentityResult: AssumeRoleWithWebIdentityResult{
@@ -633,7 +649,7 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 			Audience:                    audience,
 			Provider:                    provider,
 			SourceIdentity:              input.SourceIdentity,
-			PackedPolicySize:            packedPolicySize,
+			PackedPolicySize:            calculatePackedPolicySize(input.Policy),
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}
@@ -735,12 +751,13 @@ func (b *InMemoryBackend) buildSAMLResponse(
 				SessionToken:    creds.SessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
-			Audience:       input.PrincipalArn,
-			Issuer:         issuer,
-			NameQualifier:  nameQualifier,
-			SubjectType:    "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
-			Subject:        account + ":saml-subject",
-			SourceIdentity: input.SourceIdentity,
+			Audience:         input.PrincipalArn,
+			Issuer:           issuer,
+			NameQualifier:    nameQualifier,
+			SubjectType:      "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+			Subject:          account + ":saml-subject",
+			SourceIdentity:   input.SourceIdentity,
+			PackedPolicySize: calculatePackedPolicySize(input.Policy),
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}
@@ -875,6 +892,10 @@ func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (
 
 	if len(input.Audience) == 0 {
 		return nil, ErrMissingAudience
+	}
+
+	if len(input.Audience) > MaxAudienceCount {
+		return nil, fmt.Errorf("%w: got %d", ErrTooManyAudiences, len(input.Audience))
 	}
 
 	if input.SigningAlgorithm == "" {
@@ -1240,11 +1261,24 @@ func extractWebIdentityAudience(token string) string {
 
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+// Operation counters and totalSessionsCreated are also reset to zero.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	b.sessions = make(map[string]*SessionInfo)
+	b.mu.Unlock()
+
+	b.cntAssumeRole.Store(0)
+	b.cntAssumeRoleWithSAML.Store(0)
+	b.cntAssumeRoleWithWebIdentity.Store(0)
+	b.cntAssumeRoot.Store(0)
+	b.cntGetCallerIdentity.Store(0)
+	b.cntGetDelegatedAccessToken.Store(0)
+	b.cntGetFederationToken.Store(0)
+	b.cntGetSessionToken.Store(0)
+	b.cntGetWebIdentityToken.Store(0)
+	b.cntGetAccessKeyInfo.Store(0)
+	b.cntDecodeAuthorizationMsg.Store(0)
+	b.totalSessionsCreated.Store(0)
 }
 
 // SessionCounts returns active and expired session counts at the time of invocation.
@@ -1268,4 +1302,26 @@ func (b *InMemoryBackend) SessionCounts() (int, int) {
 	}
 
 	return active, expired
+}
+
+// maxSessionPolicyBytes is the AWS maximum size for a session policy document.
+const maxSessionPolicyBytes = 2048
+
+// calculatePackedPolicySize returns the percentage of the maximum session-policy
+// size consumed by policy. It returns 0 when policy is empty.
+func calculatePackedPolicySize(policy string) int32 {
+	if policy == "" {
+		return 0
+	}
+
+	pct := int32((len(policy) * 100) / maxSessionPolicyBytes)
+	if pct < 1 {
+		pct = 1
+	}
+
+	if pct > 100 {
+		pct = 100
+	}
+
+	return pct
 }
