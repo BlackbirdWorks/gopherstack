@@ -72,6 +72,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"MergeDeveloperIdentities",
 		"SetPrincipalTagAttributeMap",
 		"TagResource",
+		"UnlinkDeveloperIdentity",
+		"UnlinkIdentity",
 		"UntagResource",
 	}
 }
@@ -163,6 +165,8 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"MergeDeveloperIdentities":           service.WrapOp(h.handleMergeDeveloperIdentities),
 		"SetPrincipalTagAttributeMap":        service.WrapOp(h.handleSetPrincipalTagAttributeMap),
 		"TagResource":                        service.WrapOp(h.handleTagResource),
+		"UnlinkDeveloperIdentity":            service.WrapOp(h.handleUnlinkDeveloperIdentity),
+		"UnlinkIdentity":                     service.WrapOp(h.handleUnlinkIdentity),
 		"UntagResource":                      service.WrapOp(h.handleUntagResource),
 	}
 }
@@ -205,7 +209,12 @@ var cognitoIdentitySentinelErrors = []struct { //nolint:gochecknoglobals // pack
 func resolveErrorType(err error) (string, int) {
 	for _, entry := range cognitoIdentitySentinelErrors {
 		if errors.Is(err, entry.sentinel) {
-			return entry.typeName, http.StatusBadRequest
+			statusCode := http.StatusBadRequest
+			if errors.Is(err, ErrNotAuthorized) {
+				statusCode = http.StatusForbidden
+			}
+
+			return entry.typeName, statusCode
 		}
 	}
 
@@ -235,6 +244,7 @@ type identityPoolOutput struct {
 	IdentityPoolTags               map[string]string              `json:"IdentityPoolTags,omitempty"`
 	IdentityPoolID                 string                         `json:"IdentityPoolId"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
+	DeveloperProviderName          string                         `json:"DeveloperProviderName,omitempty"`
 	IdentityProviders              []cognitoIdentityProviderInput `json:"CognitoIdentityProviders,omitempty"`
 	AllowUnauthenticatedIdentities bool                           `json:"AllowUnauthenticatedIdentities"`
 	AllowClassicFlow               bool                           `json:"AllowClassicFlow,omitempty"`
@@ -244,6 +254,7 @@ type createIdentityPoolInput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders"`
 	Tags                           map[string]string              `json:"IdentityPoolTags"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
+	DeveloperProviderName          string                         `json:"DeveloperProviderName"`
 	IdentityProviders              []cognitoIdentityProviderInput `json:"CognitoIdentityProviders"`
 	AllowUnauthenticatedIdentities bool                           `json:"AllowUnauthenticatedIdentities"`
 	AllowClassicFlow               bool                           `json:"AllowClassicFlow"`
@@ -259,6 +270,7 @@ func (h *Handler) handleCreateIdentityPool(
 		in.IdentityPoolName,
 		in.AllowUnauthenticatedIdentities,
 		in.AllowClassicFlow,
+		in.DeveloperProviderName,
 		providers,
 		in.SupportedLoginProviders,
 		in.Tags,
@@ -280,6 +292,10 @@ func (h *Handler) handleDeleteIdentityPool(
 	_ context.Context,
 	in *deleteIdentityPoolInput,
 ) (*deleteIdentityPoolOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	if err := h.Backend.DeleteIdentityPool(in.IdentityPoolID); err != nil {
 		return nil, err
 	}
@@ -295,6 +311,10 @@ func (h *Handler) handleDescribeIdentityPool(
 	_ context.Context,
 	in *describeIdentityPoolInput,
 ) (*identityPoolOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	pool, err := h.Backend.DescribeIdentityPool(in.IdentityPoolID)
 	if err != nil {
 		return nil, err
@@ -304,7 +324,8 @@ func (h *Handler) handleDescribeIdentityPool(
 }
 
 type listIdentityPoolsInput struct {
-	MaxResults int `json:"MaxResults"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 type identityPoolShortDescription struct {
@@ -313,6 +334,7 @@ type identityPoolShortDescription struct {
 }
 
 type listIdentityPoolsOutput struct {
+	NextToken     string                         `json:"NextToken,omitempty"`
 	IdentityPools []identityPoolShortDescription `json:"IdentityPools"`
 }
 
@@ -320,7 +342,7 @@ func (h *Handler) handleListIdentityPools(
 	_ context.Context,
 	in *listIdentityPoolsInput,
 ) (*listIdentityPoolsOutput, error) {
-	pools := h.Backend.ListIdentityPools(in.MaxResults)
+	pools, nextToken := h.Backend.ListIdentityPools(in.MaxResults, in.NextToken)
 
 	items := make([]identityPoolShortDescription, 0, len(pools))
 	for _, p := range pools {
@@ -330,13 +352,15 @@ func (h *Handler) handleListIdentityPools(
 		})
 	}
 
-	return &listIdentityPoolsOutput{IdentityPools: items}, nil
+	return &listIdentityPoolsOutput{IdentityPools: items, NextToken: nextToken}, nil
 }
 
 type updateIdentityPoolInput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders"`
+	IdentityPoolTags               map[string]string              `json:"IdentityPoolTags"`
 	IdentityPoolID                 string                         `json:"IdentityPoolId"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
+	DeveloperProviderName          string                         `json:"DeveloperProviderName"`
 	IdentityProviders              []cognitoIdentityProviderInput `json:"CognitoIdentityProviders"`
 	AllowUnauthenticatedIdentities bool                           `json:"AllowUnauthenticatedIdentities"`
 	AllowClassicFlow               bool                           `json:"AllowClassicFlow"`
@@ -346,6 +370,10 @@ func (h *Handler) handleUpdateIdentityPool(
 	_ context.Context,
 	in *updateIdentityPoolInput,
 ) (*identityPoolOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	providers := toBackendProviders(in.IdentityProviders)
 
 	pool, err := h.Backend.UpdateIdentityPool(
@@ -353,8 +381,10 @@ func (h *Handler) handleUpdateIdentityPool(
 		in.IdentityPoolName,
 		in.AllowUnauthenticatedIdentities,
 		in.AllowClassicFlow,
+		in.DeveloperProviderName,
 		providers,
 		in.SupportedLoginProviders,
+		in.IdentityPoolTags,
 	)
 	if err != nil {
 		return nil, err
@@ -374,6 +404,10 @@ type getIDOutput struct {
 }
 
 func (h *Handler) handleGetID(_ context.Context, in *getIDInput) (*getIDOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	identity, err := h.Backend.GetID(in.IdentityPoolID, in.AccountID, in.Logins)
 	if err != nil {
 		return nil, err
@@ -459,10 +493,7 @@ func (h *Handler) handleSetIdentityPoolRoles(
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
-	_, hasAuth := in.Roles["authenticated"]
-	_, hasUnauth := in.Roles["unauthenticated"]
-
-	if !hasAuth && !hasUnauth {
+	if len(in.Roles) == 0 {
 		return nil, fmt.Errorf(
 			"%w: Roles must contain at least one of authenticated or unauthenticated",
 			ErrInvalidParameter,
@@ -493,17 +524,28 @@ func (h *Handler) handleGetIdentityPoolRoles(
 	_ context.Context,
 	in *getIdentityPoolRolesInput,
 ) (*getIdentityPoolRolesOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	roles, err := h.Backend.GetIdentityPoolRoles(in.IdentityPoolID)
 	if err != nil {
 		return nil, err
 	}
 
+	// Only include roles that have been set (omit empty strings like AWS does).
+	const maxRoleTypes = 2
+	rolesMap := make(map[string]string, maxRoleTypes)
+	if roles.AuthenticatedRoleARN != "" {
+		rolesMap["authenticated"] = roles.AuthenticatedRoleARN
+	}
+	if roles.UnauthenticatedRoleARN != "" {
+		rolesMap["unauthenticated"] = roles.UnauthenticatedRoleARN
+	}
+
 	return &getIdentityPoolRolesOutput{
 		IdentityPoolID: in.IdentityPoolID,
-		Roles: map[string]string{
-			"authenticated":   roles.AuthenticatedRoleARN,
-			"unauthenticated": roles.UnauthenticatedRoleARN,
-		},
+		Roles:          rolesMap,
 	}, nil
 }
 
@@ -531,6 +573,7 @@ func toIdentityPoolOutput(pool *IdentityPool) *identityPoolOutput {
 	return &identityPoolOutput{
 		IdentityPoolID:                 pool.IdentityPoolID,
 		IdentityPoolName:               pool.IdentityPoolName,
+		DeveloperProviderName:          pool.DeveloperProviderName,
 		AllowUnauthenticatedIdentities: pool.AllowUnauthenticatedIdentities,
 		AllowClassicFlow:               pool.AllowClassicFlow,
 		IdentityProviders:              providers,
@@ -697,7 +740,7 @@ func (h *Handler) handleListIdentities(
 	_ context.Context,
 	in *listIdentitiesInput,
 ) (*listIdentitiesOutput, error) {
-	result, err := h.Backend.ListIdentities(in.IdentityPoolID, in.MaxResults, in.HideDisabled)
+	result, err := h.Backend.ListIdentities(in.IdentityPoolID, in.MaxResults, in.HideDisabled, in.NextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -719,6 +762,7 @@ func (h *Handler) handleListIdentities(
 
 	return &listIdentitiesOutput{
 		IdentityPoolID: result.IdentityPoolID,
+		NextToken:      result.NextToken,
 		Identities:     items,
 	}, nil
 }
@@ -867,6 +911,50 @@ func (h *Handler) handleTagResource(
 	}
 
 	return &tagResourceOutput{}, nil
+}
+
+type unlinkDeveloperIdentityInput struct {
+	IdentityID              string `json:"IdentityId"`
+	IdentityPoolID          string `json:"IdentityPoolId"`
+	DeveloperProviderName   string `json:"DeveloperProviderName"`
+	DeveloperUserIdentifier string `json:"DeveloperUserIdentifier"`
+}
+
+type unlinkDeveloperIdentityOutput struct{}
+
+func (h *Handler) handleUnlinkDeveloperIdentity(
+	_ context.Context,
+	in *unlinkDeveloperIdentityInput,
+) (*unlinkDeveloperIdentityOutput, error) {
+	if err := h.Backend.UnlinkDeveloperIdentity(
+		in.IdentityID,
+		in.IdentityPoolID,
+		in.DeveloperProviderName,
+		in.DeveloperUserIdentifier,
+	); err != nil {
+		return nil, err
+	}
+
+	return &unlinkDeveloperIdentityOutput{}, nil
+}
+
+type unlinkIdentityInput struct {
+	IdentityID     string            `json:"IdentityId"`
+	Logins         map[string]string `json:"Logins"`
+	LoginsToRemove []string          `json:"LoginsToRemove"`
+}
+
+type unlinkIdentityOutput struct{}
+
+func (h *Handler) handleUnlinkIdentity(
+	_ context.Context,
+	in *unlinkIdentityInput,
+) (*unlinkIdentityOutput, error) {
+	if err := h.Backend.UnlinkIdentity(in.IdentityID, in.Logins, in.LoginsToRemove); err != nil {
+		return nil, err
+	}
+
+	return &unlinkIdentityOutput{}, nil
 }
 
 type untagResourceInput struct {
