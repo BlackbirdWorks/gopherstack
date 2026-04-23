@@ -132,7 +132,8 @@ describe("STS Page", () => {
     await fireEvent.click(screen.getByText("Decode"));
 
     await waitFor(() => {
-      expect(screen.getByText('{"error":"denied"}')).toBeInTheDocument();
+      // The component pretty-prints JSON, so match the pretty-printed form.
+      expect(screen.getByText(/"error":\s*"denied"/)).toBeInTheDocument();
     });
   });
 

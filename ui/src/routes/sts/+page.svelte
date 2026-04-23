@@ -668,6 +668,7 @@
 		></textarea>
 		<div class="flex gap-2 flex-wrap">
 			<button
+				id="decode-auth-btn"
 				onclick={decodeAuthMessage}
 				disabled={isDecoding}
 				class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium"

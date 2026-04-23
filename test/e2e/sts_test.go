@@ -301,10 +301,11 @@ func TestSTSDashboard_DecodeAuthMessageClear(t *testing.T) {
 	}))
 	require.NoError(t, decodeArea.Fill("dGVzdA=="))
 
-	// Decode button.
-	decodeBtn := page.Locator("button", playwright.PageLocatorOptions{
-		HasText: playwright.String("Decode"),
-	}).First()
+	// Decode button — use id selector to avoid HasText *string panic in playwright-go.
+	decodeBtn := page.Locator("button#decode-auth-btn")
+	require.NoError(t, decodeBtn.WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	}))
 	require.NoError(t, decodeBtn.Click())
 
 	// Wait for decoded output.
@@ -313,10 +314,8 @@ func TestSTSDashboard_DecodeAuthMessageClear(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Now click Clear.
-	clearBtn := page.Locator("button", playwright.PageLocatorOptions{
-		HasText: playwright.String("Clear"),
-	}).Last()
+	// Now click Clear — locate by CSS :has-text pseudo-class (plain string, no *string).
+	clearBtn := page.Locator("button:has-text('Clear')").Last()
 	require.NoError(t, clearBtn.WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(5000),
 	}))
