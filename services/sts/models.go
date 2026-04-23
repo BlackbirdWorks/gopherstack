@@ -230,11 +230,32 @@ type SessionInfo struct {
 	TransitiveTagKeys []string `json:"transitive_tag_keys,omitempty"`
 }
 
+// SessionMetrics represents STS session and janitor sweep metrics for dashboard views.
+type SessionMetrics struct {
+	ActiveSessions         int   `json:"activeSessions"`
+	ExpiredSessions        int   `json:"expiredSessions"`
+	SweepCount             int64 `json:"sweepCount"`
+	ExpiredEvictions       int64 `json:"expiredEvictions"`
+	TotalSessionsCreated   int64 `json:"totalSessionsCreated"`
+	OpsAssumeRole          int64 `json:"opsAssumeRole"`
+	OpsAssumeRoleWithSAML  int64 `json:"opsAssumeRoleWithSAML"`
+	OpsAssumeRoleWithWI    int64 `json:"opsAssumeRoleWithWebIdentity"`
+	OpsAssumeRoot          int64 `json:"opsAssumeRoot"`
+	OpsGetCallerIdentity   int64 `json:"opsGetCallerIdentity"`
+	OpsGetFederationToken  int64 `json:"opsGetFederationToken"`
+	OpsGetSessionToken     int64 `json:"opsGetSessionToken"`
+	OpsGetWebIdentityToken int64 `json:"opsGetWebIdentityToken"`
+	OpsGetAccessKeyInfo    int64 `json:"opsGetAccessKeyInfo"`
+	OpsDecodeAuthMessage   int64 `json:"opsDecodeAuthorizationMessage"`
+	OpsGetDelegatedToken   int64 `json:"opsGetDelegatedAccessToken"`
+}
+
 // GetFederationTokenInput holds the parameters for a GetFederationToken call.
 type GetFederationTokenInput struct {
 	Name            string
 	Policy          string
 	Tags            []Tag
+	PolicyArns      []string
 	DurationSeconds int32
 }
 

@@ -35,6 +35,7 @@ const (
 	stsVersion       = "Version=2011-06-15"
 	unknownOperation = "Unknown"
 	invalidAction    = "InvalidAction"
+	validationError  = "ValidationError"
 	kvPairLen        = 2
 )
 
@@ -316,6 +317,16 @@ func (h *Handler) dispatchGetFederationToken(r *http.Request) (*GetFederationTok
 		Tags:   parseSessionTags(r),
 	}
 
+	// Parse policy ARNs: PolicyArns.member.N.arn
+	for i := 1; i <= MaxPolicyArnsCount; i++ {
+		arnVal := r.FormValue(fmt.Sprintf("PolicyArns.member.%d.arn", i))
+		if arnVal == "" {
+			break
+		}
+
+		input.PolicyArns = append(input.PolicyArns, arnVal)
+	}
+
 	durationStr := r.FormValue("DurationSeconds")
 	if durationStr != "" {
 		d, err := strconv.ParseInt(durationStr, 10, 32)
@@ -475,24 +486,44 @@ func (h *Handler) dispatchGetWebIdentityToken(r *http.Request) (*GetWebIdentityT
 
 // dispatchGetAccessKeyInfo handles the GetAccessKeyInfo action.
 func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoResponse, error) {
-	accessKeyID := r.FormValue("AccessKeyId")
-
-	callerIdentity, err := h.Backend.GetCallerIdentity(accessKeyID)
-	if err != nil {
-		return nil, err
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.cntGetAccessKeyInfo.Add(1)
 	}
 
-	return &GetAccessKeyInfoResponse{
-		Xmlns: STSNamespace,
-		GetAccessKeyInfoResult: GetAccessKeyInfoResult{
-			Account: callerIdentity.GetCallerIdentityResult.Account,
-		},
-		ResponseMetadata: callerIdentity.ResponseMetadata,
-	}, nil
+	accessKeyID := r.FormValue("AccessKeyId")
+
+	if accessKeyID == "" {
+		return nil, ErrEmptyAccessKeyID
+	}
+
+	// Look up the key in the session store; unknown keys return InvalidClientTokenId.
+	b, ok := h.Backend.(*InMemoryBackend)
+	if ok {
+		b.mu.Lock()
+		session, found := b.sessions[accessKeyID]
+		b.mu.Unlock()
+
+		if found {
+			return &GetAccessKeyInfoResponse{
+				Xmlns: STSNamespace,
+				GetAccessKeyInfoResult: GetAccessKeyInfoResult{
+					Account: session.AccountID,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+			}, nil
+		}
+	}
+
+	// Key not found in any session — treat as an unknown / foreign key.
+	return nil, ErrUnknownAccessKeyID
 }
 
 // dispatchDecodeAuthorizationMessage handles the DecodeAuthorizationMessage action.
 func (h *Handler) dispatchDecodeAuthorizationMessage(r *http.Request) (*DecodeAuthorizationMessageResponse, error) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.cntDecodeAuthorizationMsg.Add(1)
+	}
+
 	encoded := r.FormValue("EncodedMessage")
 
 	if encoded == "" {
@@ -508,17 +539,12 @@ func (h *Handler) dispatchDecodeAuthorizationMessage(r *http.Request) (*DecodeAu
 		}
 	}
 
-	callerIdentity, ciErr := h.Backend.GetCallerIdentity("")
-	if ciErr != nil {
-		return nil, ciErr
-	}
-
 	return &DecodeAuthorizationMessageResponse{
 		Xmlns: STSNamespace,
 		DecodeAuthorizationMessageResult: DecodeAuthorizationMessageResult{
 			DecodedMessage: string(decoded),
 		},
-		ResponseMetadata: callerIdentity.ResponseMetadata,
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil
 }
 
@@ -535,14 +561,25 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 		errors.Is(reqErr, ErrMissingSAMLAssertion), errors.Is(reqErr, ErrMissingPrincipalArn),
 		errors.Is(reqErr, ErrMissingTargetPrincipal), errors.Is(reqErr, ErrMissingTaskPolicyArn),
 		errors.Is(reqErr, ErrMissingTradeInToken), errors.Is(reqErr, ErrMissingAudience),
-		errors.Is(reqErr, ErrMissingSigningAlgorithm), errors.Is(reqErr, ErrMissingEncodedMessage):
+		errors.Is(reqErr, ErrMissingSigningAlgorithm),
+		errors.Is(reqErr, ErrMFACodeRequired):
 		code = "MissingParameter"
 		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidDuration):
-		code = "ValidationError"
+	case errors.Is(reqErr, ErrMissingEncodedMessage):
+		// AWS returns InvalidParameter (not MissingParameter) for an empty EncodedMessage.
+		code = "InvalidParameter"
 		httpStatus = http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidSessionName), errors.Is(reqErr, ErrInvalidFederationName):
-		code = "ValidationError"
+	case errors.Is(reqErr, ErrInvalidRoleArn):
+		code = "InvalidParameterValue"
+		httpStatus = http.StatusBadRequest
+	case errors.Is(reqErr, ErrInvalidDuration),
+		errors.Is(reqErr, ErrInvalidSessionName), errors.Is(reqErr, ErrInvalidFederationName),
+		errors.Is(reqErr, ErrTooManyTags), errors.Is(reqErr, ErrTooManyAudiences),
+		errors.Is(reqErr, ErrEmptyAccessKeyID):
+		code = validationError
+		httpStatus = http.StatusBadRequest
+	case errors.Is(reqErr, ErrUnknownAccessKeyID):
+		code = "InvalidClientTokenId"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrValidation):
 		code = "InvalidParameterValue"
@@ -615,11 +652,12 @@ func parseFormValues(body []byte) map[string]string {
 }
 
 // parseSessionTags reads Tags.member.N.Key / Tags.member.N.Value form fields and
-// returns them as a []Tag slice. It supports up to MaxTagCount entries.
+// returns them as a []Tag slice. It supports up to MaxTagCount+1 entries so that
+// callers can detect and reject submissions that exceed the MaxTagCount limit.
 func parseSessionTags(r *http.Request) []Tag {
 	var tags []Tag
 
-	for i := 1; i <= MaxTagCount; i++ {
+	for i := 1; i <= MaxTagCount+1; i++ {
 		key := r.FormValue(fmt.Sprintf("Tags.member.%d.Key", i))
 		if key == "" {
 			break
@@ -681,4 +719,33 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+}
+
+// SessionMetrics returns STS session and janitor sweep counters.
+func (h *Handler) SessionMetrics() SessionMetrics {
+	metrics := SessionMetrics{}
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		metrics.ActiveSessions, metrics.ExpiredSessions = b.SessionCounts()
+		metrics.TotalSessionsCreated = b.totalSessionsCreated.Load()
+		metrics.OpsAssumeRole = b.cntAssumeRole.Load()
+		metrics.OpsAssumeRoleWithSAML = b.cntAssumeRoleWithSAML.Load()
+		metrics.OpsAssumeRoleWithWI = b.cntAssumeRoleWithWebIdentity.Load()
+		metrics.OpsAssumeRoot = b.cntAssumeRoot.Load()
+		metrics.OpsGetCallerIdentity = b.cntGetCallerIdentity.Load()
+		metrics.OpsGetFederationToken = b.cntGetFederationToken.Load()
+		metrics.OpsGetSessionToken = b.cntGetSessionToken.Load()
+		metrics.OpsGetWebIdentityToken = b.cntGetWebIdentityToken.Load()
+		metrics.OpsGetAccessKeyInfo = b.cntGetAccessKeyInfo.Load()
+		metrics.OpsDecodeAuthMessage = b.cntDecodeAuthorizationMsg.Load()
+		metrics.OpsGetDelegatedToken = b.cntGetDelegatedAccessToken.Load()
+	}
+
+	if h.janitor != nil {
+		janitorMetrics := h.janitor.Metrics()
+		metrics.SweepCount = janitorMetrics.SweepCount
+		metrics.ExpiredEvictions = janitorMetrics.ExpiredEvictions
+	}
+
+	return metrics
 }

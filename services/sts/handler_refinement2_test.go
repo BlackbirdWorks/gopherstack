@@ -384,7 +384,8 @@ func TestRefinement2_DecodeAuthorizationMessageEmpty(t *testing.T) {
 
 	var errResp sts.ErrorResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "MissingParameter", errResp.Error.Code)
+	// AWS returns InvalidParameter (not MissingParameter) for an empty EncodedMessage.
+	assert.Equal(t, "InvalidParameter", errResp.Error.Code)
 }
 
 // TestRefinement2_PackedPolicySizeNonZero verifies AssumeRole with Policy returns non-zero PackedPolicySize.
@@ -392,14 +393,18 @@ func TestRefinement2_PackedPolicySizeNonZero(t *testing.T) {
 	t.Parallel()
 
 	b := sts.NewInMemoryBackend()
+	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	resp, err := b.AssumeRole(&sts.AssumeRoleInput{
 		RoleArn:         "arn:aws:iam::000000000000:role/test-role",
 		RoleSessionName: "my-session",
-		Policy:          `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		Policy:          policy,
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, int32(50), resp.AssumeRoleResult.PackedPolicySize)
+	// PackedPolicySize is proportional to the policy length: (len*100)/2048, minimum 1.
+	expectedSize := max(int32((len(policy)*100)/2048), 1)
+	assert.Equal(t, expectedSize, resp.AssumeRoleResult.PackedPolicySize)
+	assert.Positive(t, resp.AssumeRoleResult.PackedPolicySize)
 }
 
 // TestRefinement2_PackedPolicySizeZero verifies AssumeRole without Policy returns zero PackedPolicySize.

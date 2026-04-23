@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +21,15 @@ import (
 )
 
 var (
+	// ErrMFACodeRequired is returned when SerialNumber is supplied without a TokenCode.
+	ErrMFACodeRequired = errors.New("TokenCode is required when SerialNumber is provided")
+
+	// ErrTooManyTags is returned when the number of session tags exceeds MaxTagCount.
+	ErrTooManyTags = errors.New("too many session tags: maximum is 50")
+
+	// ErrTooManyAudiences is returned when the audience list exceeds MaxAudienceCount.
+	ErrTooManyAudiences = errors.New("too many audience entries: maximum is 10")
+
 	// ErrMissingRoleArn is returned when AssumeRole is called without a RoleArn.
 	ErrMissingRoleArn = errors.New("RoleArn is required")
 
@@ -70,8 +81,20 @@ var (
 	// ErrMissingEncodedMessage is returned when DecodeAuthorizationMessage is called without an EncodedMessage.
 	ErrMissingEncodedMessage = errors.New("EncodedMessage is required for DecodeAuthorizationMessage")
 
+	// ErrEmptyAccessKeyID is returned when GetAccessKeyInfo is called with an empty AccessKeyId.
+	ErrEmptyAccessKeyID = errors.New("AccessKeyId must not be empty")
+
+	// ErrUnknownAccessKeyID is returned when GetAccessKeyInfo cannot find the given key ID.
+	ErrUnknownAccessKeyID = errors.New("unknown access key ID")
+
 	// ErrValidation is returned when a parameter value fails semantic validation.
 	ErrValidation = errors.New("invalid parameter value")
+
+	// ErrInvalidRoleArn is returned when the RoleArn is not a valid ARN.
+	ErrInvalidRoleArn = errors.New("RoleArn is not a valid ARN")
+
+	// ErrSessionExpired is returned when a session credential is presented after its expiry.
+	ErrSessionExpired = errors.New("session token has expired")
 )
 
 const (
@@ -102,10 +125,28 @@ const (
 	delegatedSessionName = "delegated"
 )
 
-// validateRoleSessionName checks that the session name meets AWS length requirements.
+// roleSessionNameRe is the AWS-allowed character set for RoleSessionName/FederationToken Name.
+// Characters: word chars (a-zA-Z0-9_), and the special set +=,.@:-.
+var roleSessionNameRe = regexp.MustCompile(`^[\w+=,.@:\-]+$`)
+
+// validateRoleSessionName checks that the session name meets AWS length and character requirements.
 func validateRoleSessionName(name string) error {
 	if len(name) < MinRoleSessionNameLen || len(name) > MaxRoleSessionNameLen {
 		return fmt.Errorf("%w: got length %d", ErrInvalidSessionName, len(name))
+	}
+
+	if !roleSessionNameRe.MatchString(name) {
+		return fmt.Errorf("%w: session name contains invalid characters", ErrInvalidSessionName)
+	}
+
+	return nil
+}
+
+// validateRoleArn checks that a role ARN looks like a valid IAM role ARN.
+func validateRoleArn(roleArn string) error {
+	parts := strings.SplitN(roleArn, ":", arnComponentCount)
+	if len(parts) < arnComponentCount || parts[0] != "arn" || parts[2] != "iam" {
+		return fmt.Errorf("%w: %q", ErrInvalidRoleArn, roleArn)
 	}
 
 	return nil
@@ -152,6 +193,22 @@ type InMemoryBackend struct {
 	sessions   map[string]*SessionInfo
 	accountID  string
 	mu         sync.Mutex
+
+	// Operation call counters — incremented atomically.
+	cntAssumeRole                atomic.Int64
+	cntAssumeRoleWithSAML        atomic.Int64
+	cntAssumeRoleWithWebIdentity atomic.Int64
+	cntAssumeRoot                atomic.Int64
+	cntGetCallerIdentity         atomic.Int64
+	cntGetDelegatedAccessToken   atomic.Int64
+	cntGetFederationToken        atomic.Int64
+	cntGetSessionToken           atomic.Int64
+	cntGetWebIdentityToken       atomic.Int64
+	cntGetAccessKeyInfo          atomic.Int64
+	cntDecodeAuthorizationMsg    atomic.Int64
+
+	// totalSessionsCreated is the lifetime count of sessions issued.
+	totalSessionsCreated atomic.Int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the default account ID.
@@ -191,8 +248,14 @@ func (b *InMemoryBackend) Region() string {
 
 // AssumeRole generates temporary credentials for the given role.
 func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleResponse, error) {
+	b.cntAssumeRole.Add(1)
+
 	if input.RoleArn == "" {
 		return nil, ErrMissingRoleArn
+	}
+
+	if err := validateRoleArn(input.RoleArn); err != nil {
+		return nil, err
 	}
 
 	if input.RoleSessionName == "" {
@@ -201,6 +264,10 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 
 	if err := validateRoleSessionName(input.RoleSessionName); err != nil {
 		return nil, err
+	}
+
+	if len(input.Tags) > MaxTagCount {
+		return nil, fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
 	}
 
 	duration := input.DurationSeconds
@@ -262,19 +329,9 @@ func (b *InMemoryBackend) validateAndGetMaxDuration(input *AssumeRoleInput) (int
 
 // issueCredentials generates credentials, stores the session, and builds the response.
 func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int32) (*AssumeRoleResponse, error) {
-	accessKeyID, err := generateAccessKeyID()
+	creds, err := generateCredentialSet()
 	if err != nil {
-		return nil, fmt.Errorf("generate access key: %w", err)
-	}
-
-	secretKey, err := generateSecretKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate secret key: %w", err)
-	}
-
-	sessionToken, err := generateSessionToken()
-	if err != nil {
-		return nil, fmt.Errorf("generate session token: %w", err)
+		return nil, err
 	}
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
@@ -291,7 +348,7 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 		AssumedRoleArn:    assumedRoleArn,
 		AccountID:         account,
 		SessionName:       input.RoleSessionName,
-		AccessKeyID:       accessKeyID,
+		AccessKeyID:       creds.AccessKeyID,
 		AssumedRoleID:     assumedRoleID,
 		SourceIdentity:    input.SourceIdentity,
 		Tags:              input.Tags,
@@ -300,13 +357,9 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 	}
 
 	b.mu.Lock()
-	b.sessions[accessKeyID] = session
+	b.sessions[creds.AccessKeyID] = session
+	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
-
-	var packedPolicySize int32
-	if input.Policy != "" {
-		packedPolicySize = 50
-	}
 
 	result := AssumeRoleResult{
 		AssumedRoleUser: AssumedRoleUser{
@@ -314,13 +367,13 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 			AssumedRoleID: assumedRoleID,
 		},
 		Credentials: Credentials{
-			AccessKeyID:     accessKeyID,
-			SecretAccessKey: secretKey,
-			SessionToken:    sessionToken,
+			AccessKeyID:     creds.AccessKeyID,
+			SecretAccessKey: creds.SecretAccessKey,
+			SessionToken:    creds.SessionToken,
 			Expiration:      expiration.Format(time.RFC3339),
 		},
 		SourceIdentity:   input.SourceIdentity,
-		PackedPolicySize: packedPolicySize,
+		PackedPolicySize: calculatePackedPolicySize(input.Policy),
 	}
 
 	return &AssumeRoleResponse{
@@ -333,6 +386,8 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 // GetCallerIdentity returns the mock caller identity.
 // When accessKeyID corresponds to an assumed-role session, returns the assumed-role ARN and user ID.
 func (b *InMemoryBackend) GetCallerIdentity(accessKeyID string) (*GetCallerIdentityResponse, error) {
+	b.cntGetCallerIdentity.Add(1)
+
 	if accessKeyID != "" {
 		b.mu.Lock()
 		session, ok := b.sessions[accessKeyID]
@@ -373,28 +428,28 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID string) (*GetCallerIdent
 
 // GetSessionToken generates temporary credentials without role assumption.
 func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error) {
+	b.cntGetSessionToken.Add(1)
+
+	// When a serial number (MFA device ARN) is provided, the token code is mandatory.
+	if input.SerialNumber != "" && input.TokenCode == "" {
+		return nil, ErrMFACodeRequired
+	}
+
 	duration := input.DurationSeconds
 	if duration == 0 {
 		duration = DefaultSessionTokenDurationSeconds
 	}
 
 	if duration < MinSessionTokenDurationSeconds || duration > MaxDurationSeconds {
-		return nil, ErrInvalidDuration
+		return nil, fmt.Errorf(
+			"%w: DurationSeconds must be between %d and %d for GetSessionToken",
+			ErrInvalidDuration, MinSessionTokenDurationSeconds, MaxDurationSeconds,
+		)
 	}
 
-	accessKeyID, err := generateAccessKeyID()
+	creds, err := generateCredentialSet()
 	if err != nil {
-		return nil, fmt.Errorf("generate access key: %w", err)
-	}
-
-	secretKey, err := generateSecretKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate secret key: %w", err)
-	}
-
-	sessionToken, err := generateSessionToken()
-	if err != nil {
-		return nil, fmt.Errorf("generate session token: %w", err)
+		return nil, err
 	}
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
@@ -405,21 +460,22 @@ func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSess
 		AssumedRoleArn: MockUserArn,
 		AccountID:      b.accountID,
 		SessionName:    "session-token",
-		AccessKeyID:    accessKeyID,
+		AccessKeyID:    creds.AccessKeyID,
 		AssumedRoleID:  MockUserID,
 	}
 
 	b.mu.Lock()
-	b.sessions[accessKeyID] = session
+	b.sessions[creds.AccessKeyID] = session
+	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
 
 	return &GetSessionTokenResponse{
 		Xmlns: STSNamespace,
 		GetSessionTokenResult: GetSessionTokenResult{
 			Credentials: Credentials{
-				AccessKeyID:     accessKeyID,
-				SecretAccessKey: secretKey,
-				SessionToken:    sessionToken,
+				AccessKeyID:     creds.AccessKeyID,
+				SecretAccessKey: creds.SecretAccessKey,
+				SessionToken:    creds.SessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
 		},
@@ -430,12 +486,18 @@ func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSess
 // GetFederationToken generates temporary credentials for a federated user.
 // The federated user ARN has the form arn:aws:sts::ACCOUNT:federated-user/NAME.
 func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*GetFederationTokenResponse, error) {
+	b.cntGetFederationToken.Add(1)
+
 	if input.Name == "" {
 		return nil, ErrMissingFederationTokenName
 	}
 
 	if len(input.Name) < MinFederationTokenNameLen || len(input.Name) > MaxFederationTokenNameLen {
 		return nil, fmt.Errorf("%w: got length %d", ErrInvalidFederationName, len(input.Name))
+	}
+
+	if len(input.Tags) > MaxTagCount {
+		return nil, fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
 	}
 
 	duration := input.DurationSeconds
@@ -450,19 +512,9 @@ func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*G
 		)
 	}
 
-	accessKeyID, err := generateAccessKeyID()
+	creds, err := generateCredentialSet()
 	if err != nil {
-		return nil, fmt.Errorf("generate access key: %w", err)
-	}
-
-	secretKey, err := generateSecretKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate secret key: %w", err)
-	}
-
-	sessionToken, err := generateSessionToken()
-	if err != nil {
-		return nil, fmt.Errorf("generate session token: %w", err)
+		return nil, err
 	}
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
@@ -474,13 +526,14 @@ func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*G
 		AssumedRoleArn: federatedUserArn,
 		AccountID:      b.accountID,
 		SessionName:    input.Name,
-		AccessKeyID:    accessKeyID,
+		AccessKeyID:    creds.AccessKeyID,
 		AssumedRoleID:  federatedUserID,
 		Tags:           input.Tags,
 	}
 
 	b.mu.Lock()
-	b.sessions[accessKeyID] = session
+	b.sessions[creds.AccessKeyID] = session
+	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
 
 	return &GetFederationTokenResponse{
@@ -491,11 +544,12 @@ func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*G
 				FederatedUserID: federatedUserID,
 			},
 			Credentials: Credentials{
-				AccessKeyID:     accessKeyID,
-				SecretAccessKey: secretKey,
-				SessionToken:    sessionToken,
+				AccessKeyID:     creds.AccessKeyID,
+				SecretAccessKey: creds.SecretAccessKey,
+				SessionToken:    creds.SessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
+			PackedPolicySize: calculatePackedPolicySize(input.Policy),
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil
@@ -507,8 +561,14 @@ func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*G
 func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 	input *AssumeRoleWithWebIdentityInput,
 ) (*AssumeRoleWithWebIdentityResponse, error) {
+	b.cntAssumeRoleWithWebIdentity.Add(1)
+
 	if input.RoleArn == "" {
 		return nil, ErrMissingRoleArn
+	}
+
+	if err := validateRoleArn(input.RoleArn); err != nil {
+		return nil, err
 	}
 
 	if input.RoleSessionName == "" {
@@ -535,21 +595,20 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 		)
 	}
 
-	accessKeyID, err := generateAccessKeyID()
+	creds, err := generateCredentialSet()
 	if err != nil {
-		return nil, fmt.Errorf("generate access key: %w", err)
+		return nil, err
 	}
 
-	secretKey, err := generateSecretKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate secret key: %w", err)
-	}
+	return b.buildWebIdentityResponse(input, creds, duration), nil
+}
 
-	sessionToken, err := generateSessionToken()
-	if err != nil {
-		return nil, fmt.Errorf("generate session token: %w", err)
-	}
-
+// buildWebIdentityResponse constructs the AssumeRoleWithWebIdentity response and persists the session.
+func (b *InMemoryBackend) buildWebIdentityResponse(
+	input *AssumeRoleWithWebIdentityInput,
+	creds credentialSet,
+	duration int32,
+) *AssumeRoleWithWebIdentityResponse {
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	roleID := deriveRoleID(input.RoleArn)
 	assumedRoleID := roleID + ":" + input.RoleSessionName
@@ -568,20 +627,16 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 		AssumedRoleArn: assumedRoleArn,
 		AccountID:      account,
 		SessionName:    input.RoleSessionName,
-		AccessKeyID:    accessKeyID,
+		AccessKeyID:    creds.AccessKeyID,
 		AssumedRoleID:  assumedRoleID,
 		Tags:           input.Tags,
 		SourceIdentity: input.SourceIdentity,
 	}
 
 	b.mu.Lock()
-	b.sessions[accessKeyID] = session
+	b.sessions[creds.AccessKeyID] = session
+	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
-
-	var packedPolicySize int32
-	if input.Policy != "" {
-		packedPolicySize = 50
-	}
 
 	return &AssumeRoleWithWebIdentityResponse{
 		Xmlns: STSNamespace,
@@ -591,26 +646,32 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 				AssumedRoleID: assumedRoleID,
 			},
 			Credentials: Credentials{
-				AccessKeyID:     accessKeyID,
-				SecretAccessKey: secretKey,
-				SessionToken:    sessionToken,
+				AccessKeyID:     creds.AccessKeyID,
+				SecretAccessKey: creds.SecretAccessKey,
+				SessionToken:    creds.SessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
 			SubjectFromWebIdentityToken: subject,
 			Audience:                    audience,
 			Provider:                    provider,
 			SourceIdentity:              input.SourceIdentity,
-			PackedPolicySize:            packedPolicySize,
+			PackedPolicySize:            calculatePackedPolicySize(input.Policy),
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
-	}, nil
+	}
 }
 
 // AssumeRoleWithSAML generates temporary credentials using a SAML 2.0 assertion.
 // In this mock, the SAMLAssertion is not cryptographically validated.
 func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*AssumeRoleWithSAMLResponse, error) {
+	b.cntAssumeRoleWithSAML.Add(1)
+
 	if input.RoleArn == "" {
 		return nil, ErrMissingRoleArn
+	}
+
+	if err := validateRoleArn(input.RoleArn); err != nil {
+		return nil, err
 	}
 
 	if input.PrincipalArn == "" {
@@ -633,21 +694,20 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*A
 		)
 	}
 
-	accessKeyID, err := generateAccessKeyID()
+	creds, err := generateCredentialSet()
 	if err != nil {
-		return nil, fmt.Errorf("generate access key: %w", err)
+		return nil, err
 	}
 
-	secretKey, err := generateSecretKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate secret key: %w", err)
-	}
+	return b.buildSAMLResponse(input, creds, duration), nil
+}
 
-	sessionToken, err := generateSessionToken()
-	if err != nil {
-		return nil, fmt.Errorf("generate session token: %w", err)
-	}
-
+// buildSAMLResponse constructs the AssumeRoleWithSAML response and persists the session.
+func (b *InMemoryBackend) buildSAMLResponse(
+	input *AssumeRoleWithSAMLInput,
+	creds credentialSet,
+	duration int32,
+) *AssumeRoleWithSAMLResponse {
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	roleID := deriveRoleID(input.RoleArn)
 
@@ -670,16 +730,16 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*A
 		AssumedRoleArn: assumedRoleArn,
 		AccountID:      account,
 		SessionName:    sessionName,
-		AccessKeyID:    accessKeyID,
+		AccessKeyID:    creds.AccessKeyID,
 		AssumedRoleID:  assumedRoleID,
 		SourceIdentity: input.SourceIdentity,
 	}
 
 	b.mu.Lock()
-	b.sessions[accessKeyID] = session
+	b.sessions[creds.AccessKeyID] = session
+	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
 
-	// Derive issuer from PrincipalArn (last segment after /).
 	issuerParts := strings.Split(input.PrincipalArn, "/")
 	issuer := issuerParts[len(issuerParts)-1]
 	nameQualifier := computeNameQualifier(issuer, account, issuer)
@@ -692,25 +752,28 @@ func (b *InMemoryBackend) AssumeRoleWithSAML(input *AssumeRoleWithSAMLInput) (*A
 				AssumedRoleID: assumedRoleID,
 			},
 			Credentials: Credentials{
-				AccessKeyID:     accessKeyID,
-				SecretAccessKey: secretKey,
-				SessionToken:    sessionToken,
+				AccessKeyID:     creds.AccessKeyID,
+				SecretAccessKey: creds.SecretAccessKey,
+				SessionToken:    creds.SessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
-			Audience:       input.PrincipalArn,
-			Issuer:         issuer,
-			NameQualifier:  nameQualifier,
-			SubjectType:    "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
-			Subject:        account + ":saml-subject",
-			SourceIdentity: input.SourceIdentity,
+			Audience:         input.PrincipalArn,
+			Issuer:           issuer,
+			NameQualifier:    nameQualifier,
+			SubjectType:      "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+			Subject:          account + ":saml-subject",
+			SourceIdentity:   input.SourceIdentity,
+			PackedPolicySize: calculatePackedPolicySize(input.Policy),
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
-	}, nil
+	}
 }
 
 // AssumeRoot generates short-term privileged credentials for a member account root.
 // In this mock, the TaskPolicyArn and TargetPrincipal are accepted as-is without validation.
 func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootResponse, error) {
+	b.cntAssumeRoot.Add(1)
+
 	if input.TargetPrincipal == "" {
 		return nil, ErrMissingTargetPrincipal
 	}
@@ -731,19 +794,9 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 		)
 	}
 
-	accessKeyID, err := generateAccessKeyID()
+	creds, err := generateCredentialSet()
 	if err != nil {
-		return nil, fmt.Errorf("generate access key: %w", err)
-	}
-
-	secretKey, err := generateSecretKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate secret key: %w", err)
-	}
-
-	sessionToken, err := generateSessionToken()
-	if err != nil {
-		return nil, fmt.Errorf("generate session token: %w", err)
+		return nil, err
 	}
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
@@ -755,21 +808,22 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 		AssumedRoleArn: assumedRoleArn,
 		AccountID:      account,
 		SessionName:    rootSessionName,
-		AccessKeyID:    accessKeyID,
+		AccessKeyID:    creds.AccessKeyID,
 		AssumedRoleID:  account + ":" + rootSessionName,
 	}
 
 	b.mu.Lock()
-	b.sessions[accessKeyID] = session
+	b.sessions[creds.AccessKeyID] = session
+	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
 
 	return &AssumeRootResponse{
 		Xmlns: STSNamespace,
 		AssumeRootResult: AssumeRootResult{
 			Credentials: Credentials{
-				AccessKeyID:     accessKeyID,
-				SecretAccessKey: secretKey,
-				SessionToken:    sessionToken,
+				AccessKeyID:     creds.AccessKeyID,
+				SecretAccessKey: creds.SecretAccessKey,
+				SessionToken:    creds.SessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
 		},
@@ -782,6 +836,8 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 func (b *InMemoryBackend) GetDelegatedAccessToken(
 	input *GetDelegatedAccessTokenInput,
 ) (*GetDelegatedAccessTokenResponse, error) {
+	b.cntGetDelegatedAccessToken.Add(1)
+
 	if input.TradeInToken == "" {
 		return nil, ErrMissingTradeInToken
 	}
@@ -798,19 +854,9 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 		)
 	}
 
-	accessKeyID, err := generateAccessKeyID()
+	creds, err := generateCredentialSet()
 	if err != nil {
-		return nil, fmt.Errorf("generate access key: %w", err)
-	}
-
-	secretKey, err := generateSecretKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate secret key: %w", err)
-	}
-
-	sessionToken, err := generateSessionToken()
-	if err != nil {
-		return nil, fmt.Errorf("generate session token: %w", err)
+		return nil, err
 	}
 
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
@@ -821,12 +867,13 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 		AssumedRoleArn: assumedPrincipal,
 		AccountID:      b.accountID,
 		SessionName:    delegatedSessionName,
-		AccessKeyID:    accessKeyID,
+		AccessKeyID:    creds.AccessKeyID,
 		AssumedRoleID:  b.accountID + ":" + delegatedSessionName,
 	}
 
 	b.mu.Lock()
-	b.sessions[accessKeyID] = session
+	b.sessions[creds.AccessKeyID] = session
+	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
 
 	return &GetDelegatedAccessTokenResponse{
@@ -834,9 +881,9 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 		GetDelegatedAccessTokenResult: GetDelegatedAccessTokenResult{
 			AssumedPrincipal: assumedPrincipal,
 			Credentials: Credentials{
-				AccessKeyID:     accessKeyID,
-				SecretAccessKey: secretKey,
-				SessionToken:    sessionToken,
+				AccessKeyID:     creds.AccessKeyID,
+				SecretAccessKey: creds.SecretAccessKey,
+				SessionToken:    creds.SessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
 		},
@@ -847,8 +894,14 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 // GetWebIdentityToken returns a signed JWT representing the caller's AWS identity.
 // In this mock, the token is an unsigned JWT containing the caller's account and audience.
 func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (*GetWebIdentityTokenResponse, error) {
+	b.cntGetWebIdentityToken.Add(1)
+
 	if len(input.Audience) == 0 {
 		return nil, ErrMissingAudience
+	}
+
+	if len(input.Audience) > MaxAudienceCount {
+		return nil, fmt.Errorf("%w: got %d", ErrTooManyAudiences, len(input.Audience))
 	}
 
 	if input.SigningAlgorithm == "" {
@@ -902,16 +955,15 @@ func (b *InMemoryBackend) GetWebIdentityToken(input *GetWebIdentityTokenInput) (
 	}, nil
 }
 
-// extractWebIdentitySubject attempts to extract the "sub" claim from a JWT token's
-// payload without validating the signature. If extraction fails, returns a placeholder.
-func extractWebIdentitySubject(token string) string {
-	// JWT format: header.payload.signature (base64url-encoded parts)
+// parseJWTPayloadClaims decodes the payload segment of a JWT (without signature verification)
+// and returns the claims map. Returns nil if the token is not a valid JWT or the payload cannot
+// be decoded.
+func parseJWTPayloadClaims(token string) map[string]any {
 	parts := strings.SplitN(token, ".", jwtPartCount)
 	if len(parts) < jwtMinParts {
-		return webIdentitySubjectPlaceholder
+		return nil
 	}
 
-	// Add padding if needed for base64url decode.
 	rawPayload := parts[1]
 	paddedPayload := rawPayload
 
@@ -922,19 +974,28 @@ func extractWebIdentitySubject(token string) string {
 		paddedPayload += "="
 	}
 
-	decoded, decodeErr := base64.URLEncoding.DecodeString(paddedPayload)
-	if decodeErr != nil {
+	decoded, err := base64.URLEncoding.DecodeString(paddedPayload)
+	if err != nil {
 		// Try RawURLEncoding as fallback (no padding).
-		var fallbackErr error
-
-		decoded, fallbackErr = base64.RawURLEncoding.DecodeString(rawPayload)
-		if fallbackErr != nil {
-			return webIdentitySubjectPlaceholder
+		decoded, err = base64.RawURLEncoding.DecodeString(rawPayload)
+		if err != nil {
+			return nil
 		}
 	}
 
 	var claims map[string]any
-	if unmarshalErr := json.Unmarshal(decoded, &claims); unmarshalErr != nil {
+	if err = json.Unmarshal(decoded, &claims); err != nil {
+		return nil
+	}
+
+	return claims
+}
+
+// extractWebIdentitySubject attempts to extract the "sub" claim from a JWT token's
+// payload without validating the signature. If extraction fails, returns a placeholder.
+func extractWebIdentitySubject(token string) string {
+	claims := parseJWTPayloadClaims(token)
+	if claims == nil {
 		return webIdentitySubjectPlaceholder
 	}
 
@@ -948,33 +1009,8 @@ func extractWebIdentitySubject(token string) string {
 // extractWebIdentityIssuer attempts to extract the "iss" claim from a JWT token's
 // payload without validating the signature. Returns an empty string if extraction fails.
 func extractWebIdentityIssuer(token string) string {
-	parts := strings.SplitN(token, ".", jwtPartCount)
-	if len(parts) < jwtMinParts {
-		return ""
-	}
-
-	rawPayload := parts[1]
-	paddedPayload := rawPayload
-
-	switch len(rawPayload) % 4 {
-	case base64Pad2:
-		paddedPayload += "=="
-	case base64Pad1:
-		paddedPayload += "="
-	}
-
-	decoded, decodeErr := base64.URLEncoding.DecodeString(paddedPayload)
-	if decodeErr != nil {
-		var fallbackErr error
-
-		decoded, fallbackErr = base64.RawURLEncoding.DecodeString(rawPayload)
-		if fallbackErr != nil {
-			return ""
-		}
-	}
-
-	var claims map[string]any
-	if unmarshalErr := json.Unmarshal(decoded, &claims); unmarshalErr != nil {
+	claims := parseJWTPayloadClaims(token)
+	if claims == nil {
 		return ""
 	}
 
@@ -1119,6 +1155,37 @@ func generateSessionToken() (string, error) {
 	return base64.StdEncoding.EncodeToString(buf), nil
 }
 
+// credentialSet holds the three components of a generated temporary credential.
+type credentialSet struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
+}
+
+// generateCredentialSet creates a new access key, secret key, and session token in one call.
+func generateCredentialSet() (credentialSet, error) {
+	accessKeyID, err := generateAccessKeyID()
+	if err != nil {
+		return credentialSet{}, fmt.Errorf("generate access key: %w", err)
+	}
+
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		return credentialSet{}, fmt.Errorf("generate secret key: %w", err)
+	}
+
+	sessionToken, err := generateSessionToken()
+	if err != nil {
+		return credentialSet{}, fmt.Errorf("generate session token: %w", err)
+	}
+
+	return credentialSet{
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretKey,
+		SessionToken:    sessionToken,
+	}, nil
+}
+
 // deriveRoleID extracts a pseudo role-ID from the ARN (uses last segment).
 func deriveRoleID(roleArn string) string {
 	parts := strings.Split(roleArn, "/")
@@ -1179,33 +1246,8 @@ func computeNameQualifier(issuer, accountID, idpName string) string {
 // payload without validating the signature. If the aud is an array, the first element is used.
 // If extraction fails, an empty string is returned.
 func extractWebIdentityAudience(token string) string {
-	parts := strings.SplitN(token, ".", jwtPartCount)
-	if len(parts) < jwtMinParts {
-		return ""
-	}
-
-	rawPayload := parts[1]
-	paddedPayload := rawPayload
-
-	switch len(rawPayload) % 4 {
-	case base64Pad2:
-		paddedPayload += "=="
-	case base64Pad1:
-		paddedPayload += "="
-	}
-
-	decoded, decodeErr := base64.URLEncoding.DecodeString(paddedPayload)
-	if decodeErr != nil {
-		var fallbackErr error
-
-		decoded, fallbackErr = base64.RawURLEncoding.DecodeString(rawPayload)
-		if fallbackErr != nil {
-			return ""
-		}
-	}
-
-	var claims map[string]any
-	if err := json.Unmarshal(decoded, &claims); err != nil {
+	claims := parseJWTPayloadClaims(token)
+	if claims == nil {
 		return ""
 	}
 
@@ -1225,9 +1267,69 @@ func extractWebIdentityAudience(token string) string {
 
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+// Operation counters and totalSessionsCreated are also reset to zero.
 func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	b.sessions = make(map[string]*SessionInfo)
+	b.mu.Unlock()
+
+	b.cntAssumeRole.Store(0)
+	b.cntAssumeRoleWithSAML.Store(0)
+	b.cntAssumeRoleWithWebIdentity.Store(0)
+	b.cntAssumeRoot.Store(0)
+	b.cntGetCallerIdentity.Store(0)
+	b.cntGetDelegatedAccessToken.Store(0)
+	b.cntGetFederationToken.Store(0)
+	b.cntGetSessionToken.Store(0)
+	b.cntGetWebIdentityToken.Store(0)
+	b.cntGetAccessKeyInfo.Store(0)
+	b.cntDecodeAuthorizationMsg.Store(0)
+	b.totalSessionsCreated.Store(0)
+}
+
+// SessionCounts returns active and expired session counts at the time of invocation.
+func (b *InMemoryBackend) SessionCounts() (int, int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.sessions = make(map[string]*SessionInfo)
+	now := time.Now().UTC()
+	active := 0
+	expired := 0
+
+	for _, session := range b.sessions {
+		// A zero expiration is treated as non-expiring in-memory session state.
+		if !session.Expiration.IsZero() && !now.Before(session.Expiration) {
+			expired++
+
+			continue
+		}
+
+		active++
+	}
+
+	return active, expired
+}
+
+// maxSessionPolicyBytes is the AWS maximum size for a session policy document.
+const maxSessionPolicyBytes = 2048
+
+// maxPackedPolicySizePercent is the ceiling percentage for PackedPolicySize.
+const maxPackedPolicySizePercent = int32(100)
+
+// calculatePackedPolicySize returns the percentage of the maximum session-policy
+// size consumed by policy. It returns 0 when policy is empty.
+func calculatePackedPolicySize(policy string) int32 {
+	if policy == "" {
+		return 0
+	}
+
+	// Compute as int first to avoid overflow, then cast to int32.
+	pctInt := (len(policy) * int(maxPackedPolicySizePercent)) / maxSessionPolicyBytes
+	//nolint:gosec // len(policy) is bounded by input validation
+	pct := min(
+		max(int32(pctInt), 1),
+		maxPackedPolicySizePercent,
+	)
+
+	return pct
 }

@@ -37,6 +37,11 @@ func (h *Handler) GetJanitorInterval() time.Duration {
 	return h.janitor.Interval
 }
 
+// GetJanitor returns the configured janitor instance for tests.
+func (h *Handler) GetJanitor() *Janitor {
+	return h.janitor
+}
+
 // HandlerOpsLen returns the number of supported operations.
 func (h *Handler) HandlerOpsLen() int {
 	return len(h.GetSupportedOperations())
