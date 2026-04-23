@@ -67,10 +67,28 @@ type Backend interface {
 	// Account settings
 
 	DeleteAccountSetting(name, principalArn string) (*AccountSetting, error)
+	ListAccountSettings(name, principalArn string) ([]AccountSetting, error)
+	PutAccountSetting(name, value, principalArn string) (*AccountSetting, error)
+	PutAccountSettingDefault(name, value string) (*AccountSetting, error)
 
 	// Attributes
 
 	DeleteAttributes(cluster string, attrs []Attribute) ([]Attribute, error)
+	ListAttributes(cluster, targetType, attributeName string) ([]Attribute, error)
+	PutAttributes(cluster string, attrs []Attribute) ([]Attribute, error)
+
+	// Cluster capacity providers and settings
+
+	PutClusterCapacityProviders(
+		cluster string,
+		capacityProviders []string,
+		defaultCapacityProviderStrategy []CapacityProviderStrategyItem,
+	) (*Cluster, error)
+	UpdateClusterSettings(cluster string, settings []ClusterSetting) (*Cluster, error)
+
+	// Container instance management
+
+	UpdateContainerAgent(cluster, containerInstance string) (*ContainerInstance, error)
 
 	// Service deployments
 
@@ -81,4 +99,15 @@ type Backend interface {
 	CreateExpressGatewayService(input CreateExpressGatewayServiceInput) (*ExpressGatewayService, error)
 	DeleteExpressGatewayService(serviceArn string) (*ExpressGatewayService, error)
 	DescribeExpressGatewayService(serviceArn string) (*ExpressGatewayService, error)
+	UpdateExpressGatewayService(input UpdateExpressGatewayServiceInput) (*ExpressGatewayService, error)
+
+	// Task protection
+
+	GetTaskProtection(cluster string, taskArns []string) ([]TaskProtection, []Failure, error)
+	UpdateTaskProtection(
+		cluster string,
+		taskArns []string,
+		protectionEnabled bool,
+		expiresInMinutes *int,
+	) ([]TaskProtection, []Failure, error)
 }

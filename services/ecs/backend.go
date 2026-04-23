@@ -2,6 +2,7 @@ package ecs
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,14 +47,17 @@ var (
 
 // Cluster represents an ECS cluster.
 type Cluster struct {
-	CreatedAt                         time.Time `json:"createdAt"`
-	ClusterArn                        string    `json:"clusterArn"`
-	ClusterName                       string    `json:"clusterName"`
-	Status                            string    `json:"status"`
-	ActiveServicesCount               int       `json:"activeServicesCount"`
-	PendingTasksCount                 int       `json:"pendingTasksCount"`
-	RegisteredContainerInstancesCount int       `json:"registeredContainerInstancesCount"`
-	RunningTasksCount                 int       `json:"runningTasksCount"`
+	CreatedAt                         time.Time                      `json:"createdAt"`
+	ClusterArn                        string                         `json:"clusterArn"`
+	ClusterName                       string                         `json:"clusterName"`
+	Status                            string                         `json:"status"`
+	DefaultCapacityProviderStrategy   []CapacityProviderStrategyItem `json:"defaultCapacityProviderStrategy,omitempty"`
+	Settings                          []ClusterSetting               `json:"settings,omitempty"`
+	CapacityProviders                 []string                       `json:"capacityProviders,omitempty"`
+	ActiveServicesCount               int                            `json:"activeServicesCount"`
+	PendingTasksCount                 int                            `json:"pendingTasksCount"`
+	RegisteredContainerInstancesCount int                            `json:"registeredContainerInstancesCount"`
+	RunningTasksCount                 int                            `json:"runningTasksCount"`
 }
 
 // ContainerDefinition represents a container definition in a task definition.
@@ -168,10 +172,12 @@ type InMemoryBackend struct {
 	runner                 TaskRunner
 	clusters               map[string]*Cluster
 	taskDefinitions        map[string][]*TaskDefinition
+	taskDefByArn           map[string]*TaskDefinition // ARN → TaskDefinition cache
 	services               map[string]map[string]*Service
 	tasks                  map[string]map[string]*Task
 	containerInstances     map[string]map[string]*ContainerInstance
 	taskSets               map[string]map[string]*TaskSet
+	taskProtections        map[string]*TaskProtection // taskArn → TaskProtection
 	capacityProviders      map[string]*CapacityProvider
 	accountSettings        map[string]*AccountSetting
 	attributes             map[string]map[string]*Attribute // clusterName → attributeKey → Attribute
@@ -194,10 +200,12 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 	return &InMemoryBackend{
 		clusters:               make(map[string]*Cluster),
 		taskDefinitions:        make(map[string][]*TaskDefinition),
+		taskDefByArn:           make(map[string]*TaskDefinition),
 		services:               make(map[string]map[string]*Service),
 		tasks:                  make(map[string]map[string]*Task),
 		containerInstances:     make(map[string]map[string]*ContainerInstance),
 		taskSets:               make(map[string]map[string]*TaskSet),
+		taskProtections:        make(map[string]*TaskProtection),
 		capacityProviders:      make(map[string]*CapacityProvider),
 		accountSettings:        make(map[string]*AccountSetting),
 		attributes:             make(map[string]map[string]*Attribute),
@@ -217,10 +225,12 @@ func (b *InMemoryBackend) Reset() {
 
 	b.clusters = make(map[string]*Cluster)
 	b.taskDefinitions = make(map[string][]*TaskDefinition)
+	b.taskDefByArn = make(map[string]*TaskDefinition)
 	b.services = make(map[string]map[string]*Service)
 	b.tasks = make(map[string]map[string]*Task)
 	b.containerInstances = make(map[string]map[string]*ContainerInstance)
 	b.taskSets = make(map[string]map[string]*TaskSet)
+	b.taskProtections = make(map[string]*TaskProtection)
 	b.capacityProviders = make(map[string]*CapacityProvider)
 	b.accountSettings = make(map[string]*AccountSetting)
 	b.attributes = make(map[string]map[string]*Attribute)
@@ -427,10 +437,16 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 	// the oldest entries to prevent unbounded memory growth.
 	if len(revisions) > maxTaskDefinitionRevisions {
 		excess := len(revisions) - maxTaskDefinitionRevisions
+
+		for _, evicted := range revisions[:excess] {
+			delete(b.taskDefByArn, evicted.TaskDefinitionArn)
+		}
+
 		revisions = revisions[excess:]
 	}
 
 	b.taskDefinitions[input.Family] = revisions
+	b.taskDefByArn[td.TaskDefinitionArn] = td
 
 	cp := *td
 
@@ -445,6 +461,32 @@ func (b *InMemoryBackend) DescribeTaskDefinition(familyOrArn string) (*TaskDefin
 	return b.findTaskDefinitionLocked(familyOrArn)
 }
 
+// findFamilyRevisionLocked looks up a task definition by "family:revision" shorthand.
+// Must be called with lock held.
+func (b *InMemoryBackend) findFamilyRevisionLocked(familyOrArn string) (*TaskDefinition, bool) {
+	idx := strings.LastIndex(familyOrArn, ":")
+	if idx <= 0 {
+		return nil, false
+	}
+
+	family := familyOrArn[:idx]
+
+	revNum, err := strconv.Atoi(familyOrArn[idx+1:])
+	if err != nil {
+		return nil, false
+	}
+
+	for _, td := range b.taskDefinitions[family] {
+		if td.Revision == revNum {
+			cp := *td
+
+			return &cp, true
+		}
+	}
+
+	return nil, false
+}
+
 // findTaskDefinitionLocked finds a task definition. Must be called with lock held.
 func (b *InMemoryBackend) findTaskDefinitionLocked(familyOrArn string) (*TaskDefinition, error) {
 	// Try direct family lookup (latest revision).
@@ -454,23 +496,16 @@ func (b *InMemoryBackend) findTaskDefinitionLocked(familyOrArn string) (*TaskDef
 		return &cp, nil
 	}
 
-	// Try ARN / family:revision lookup.
-	for _, revs := range b.taskDefinitions {
-		for _, td := range revs {
-			if td.TaskDefinitionArn == familyOrArn {
-				cp := *td
+	// Fast path: ARN cache lookup.
+	if td, ok := b.taskDefByArn[familyOrArn]; ok {
+		cp := *td
 
-				return &cp, nil
-			}
+		return &cp, nil
+	}
 
-			// Support "family:revision" shorthand.
-			short := fmt.Sprintf("%s:%d", td.Family, td.Revision)
-			if short == familyOrArn {
-				cp := *td
-
-				return &cp, nil
-			}
-		}
+	// Support "family:revision" shorthand.
+	if td, ok := b.findFamilyRevisionLocked(familyOrArn); ok {
+		return td, nil
 	}
 
 	return nil, fmt.Errorf("%w: %s", ErrTaskDefinitionNotFound, familyOrArn)

@@ -69,6 +69,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeContainerInstances",
 		"ListContainerInstances",
 		"UpdateContainerInstancesState",
+		"UpdateContainerAgent",
 		"CreateTaskSet",
 		"DeleteTaskSet",
 		"DescribeTaskSets",
@@ -78,12 +79,22 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateCapacityProvider",
 		"DeleteCapacityProvider",
 		"DescribeCapacityProviders",
+		"PutClusterCapacityProviders",
 		"DeleteAccountSetting",
+		"ListAccountSettings",
+		"PutAccountSetting",
+		"PutAccountSettingDefault",
 		"DeleteAttributes",
+		"ListAttributes",
+		"PutAttributes",
+		"UpdateClusterSettings",
 		"DescribeServiceDeployments",
 		"CreateExpressGatewayService",
 		"DeleteExpressGatewayService",
 		"DescribeExpressGatewayService",
+		"UpdateExpressGatewayService",
+		"GetTaskProtection",
+		"UpdateTaskProtection",
 	}
 }
 
@@ -200,6 +211,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"DescribeContainerInstances":    service.WrapOp(h.handleDescribeContainerInstances),
 		"ListContainerInstances":        service.WrapOp(h.handleListContainerInstances),
 		"UpdateContainerInstancesState": service.WrapOp(h.handleUpdateContainerInstancesState),
+		"UpdateContainerAgent":          service.WrapOp(h.handleUpdateContainerAgent),
 		// Task sets
 		"CreateTaskSet":               service.WrapOp(h.handleCreateTaskSet),
 		"DeleteTaskSet":               service.WrapOp(h.handleDeleteTaskSet),
@@ -209,13 +221,21 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		// ECS Exec
 		"ExecuteCommand": service.WrapOp(h.handleExecuteCommand),
 		// Capacity providers
-		"CreateCapacityProvider":    service.WrapOp(h.handleCreateCapacityProvider),
-		"DeleteCapacityProvider":    service.WrapOp(h.handleDeleteCapacityProvider),
-		"DescribeCapacityProviders": service.WrapOp(h.handleDescribeCapacityProviders),
+		"CreateCapacityProvider":      service.WrapOp(h.handleCreateCapacityProvider),
+		"DeleteCapacityProvider":      service.WrapOp(h.handleDeleteCapacityProvider),
+		"DescribeCapacityProviders":   service.WrapOp(h.handleDescribeCapacityProviders),
+		"PutClusterCapacityProviders": service.WrapOp(h.handlePutClusterCapacityProviders),
 		// Account settings
-		"DeleteAccountSetting": service.WrapOp(h.handleDeleteAccountSetting),
+		"DeleteAccountSetting":     service.WrapOp(h.handleDeleteAccountSetting),
+		"ListAccountSettings":      service.WrapOp(h.handleListAccountSettings),
+		"PutAccountSetting":        service.WrapOp(h.handlePutAccountSetting),
+		"PutAccountSettingDefault": service.WrapOp(h.handlePutAccountSettingDefault),
 		// Attributes
 		"DeleteAttributes": service.WrapOp(h.handleDeleteAttributes),
+		"ListAttributes":   service.WrapOp(h.handleListAttributes),
+		"PutAttributes":    service.WrapOp(h.handlePutAttributes),
+		// Cluster settings
+		"UpdateClusterSettings": service.WrapOp(h.handleUpdateClusterSettings),
 		// Task definitions (batch delete)
 		"DeleteTaskDefinitions": service.WrapOp(h.handleDeleteTaskDefinitions),
 		// Service deployments
@@ -224,6 +244,10 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"CreateExpressGatewayService":   service.WrapOp(h.handleCreateExpressGatewayService),
 		"DeleteExpressGatewayService":   service.WrapOp(h.handleDeleteExpressGatewayService),
 		"DescribeExpressGatewayService": service.WrapOp(h.handleDescribeExpressGatewayService),
+		"UpdateExpressGatewayService":   service.WrapOp(h.handleUpdateExpressGatewayService),
+		// Task protection
+		"GetTaskProtection":    service.WrapOp(h.handleGetTaskProtection),
+		"UpdateTaskProtection": service.WrapOp(h.handleUpdateTaskProtection),
 	}
 }
 
@@ -719,18 +743,21 @@ func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listT
 // ----- View types (JSON serialization) -----
 
 type clusterView struct {
-	ClusterArn                        string  `json:"clusterArn"`
-	ClusterName                       string  `json:"clusterName"`
-	Status                            string  `json:"status"`
-	CreatedAt                         float64 `json:"createdAt"`
-	ActiveServicesCount               int     `json:"activeServicesCount"`
-	PendingTasksCount                 int     `json:"pendingTasksCount"`
-	RegisteredContainerInstancesCount int     `json:"registeredContainerInstancesCount"`
-	RunningTasksCount                 int     `json:"runningTasksCount"`
+	ClusterArn                        string                `json:"clusterArn"`
+	ClusterName                       string                `json:"clusterName"`
+	Status                            string                `json:"status"`
+	DefaultCapacityProviderStrategy   []cpStrategyItemInput `json:"defaultCapacityProviderStrategy,omitempty"`
+	Settings                          []clusterSettingView  `json:"settings,omitempty"`
+	CapacityProviders                 []string              `json:"capacityProviders,omitempty"`
+	CreatedAt                         float64               `json:"createdAt"`
+	ActiveServicesCount               int                   `json:"activeServicesCount"`
+	PendingTasksCount                 int                   `json:"pendingTasksCount"`
+	RegisteredContainerInstancesCount int                   `json:"registeredContainerInstancesCount"`
+	RunningTasksCount                 int                   `json:"runningTasksCount"`
 }
 
 func toClusterView(c Cluster) clusterView {
-	return clusterView{
+	v := clusterView{
 		ClusterArn:                        c.ClusterArn,
 		ClusterName:                       c.ClusterName,
 		Status:                            c.Status,
@@ -739,7 +766,19 @@ func toClusterView(c Cluster) clusterView {
 		PendingTasksCount:                 c.PendingTasksCount,
 		RegisteredContainerInstancesCount: c.RegisteredContainerInstancesCount,
 		RunningTasksCount:                 c.RunningTasksCount,
+		CapacityProviders:                 c.CapacityProviders,
 	}
+
+	for _, item := range c.DefaultCapacityProviderStrategy {
+		v.DefaultCapacityProviderStrategy = append(v.DefaultCapacityProviderStrategy,
+			cpStrategyItemInput(item))
+	}
+
+	for _, s := range c.Settings {
+		v.Settings = append(v.Settings, clusterSettingView(s))
+	}
+
+	return v
 }
 
 type taskDefinitionView struct {

@@ -358,6 +358,7 @@ func (b *InMemoryBackend) DeleteTaskDefinitions(taskDefinitionArns []string) ([]
 		for i, r := range revs {
 			if r.TaskDefinitionArn == td.TaskDefinitionArn {
 				b.taskDefinitions[td.Family] = append(revs[:i], revs[i+1:]...)
+				delete(b.taskDefByArn, td.TaskDefinitionArn)
 
 				break
 			}
