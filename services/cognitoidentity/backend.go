@@ -3,8 +3,8 @@ package cognitoidentity
 import (
 	"crypto/rand"
 	"fmt"
+	"io"
 	"maps"
-	"math/big"
 	"slices"
 	"sort"
 	"time"
@@ -167,6 +167,10 @@ func (b *InMemoryBackend) CreateIdentityPool(
 // DeleteIdentityPool removes an identity pool and all associated identities, roles,
 // and principal-tag configurations.
 func (b *InMemoryBackend) DeleteIdentityPool(poolID string) error {
+	if poolID == "" {
+		return fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("DeleteIdentityPool")
 	defer b.mu.Unlock()
 
@@ -199,6 +203,10 @@ func (b *InMemoryBackend) DeleteIdentityPool(poolID string) error {
 
 // DescribeIdentityPool returns the identity pool with the given ID.
 func (b *InMemoryBackend) DescribeIdentityPool(poolID string) (*IdentityPool, error) {
+	if poolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	b.mu.RLock("DescribeIdentityPool")
 	defer b.mu.RUnlock()
 
@@ -211,7 +219,8 @@ func (b *InMemoryBackend) DescribeIdentityPool(poolID string) (*IdentityPool, er
 }
 
 // ListIdentityPools returns all identity pools sorted by name, up to maxResults (0 = all).
-func (b *InMemoryBackend) ListIdentityPools(maxResults int) []*IdentityPool {
+// nextToken is an opaque cursor that encodes the last-returned pool name for pagination.
+func (b *InMemoryBackend) ListIdentityPools(maxResults int, nextToken string) ([]*IdentityPool, string) {
 	b.mu.RLock("ListIdentityPools")
 	defer b.mu.RUnlock()
 
@@ -224,17 +233,40 @@ func (b *InMemoryBackend) ListIdentityPools(maxResults int) []*IdentityPool {
 		return b.pools[keys[i]].IdentityPoolName < b.pools[keys[j]].IdentityPoolName
 	})
 
-	out := make([]*IdentityPool, 0, len(b.pools))
+	// Apply cursor: skip all pools up to and including the one named by nextToken.
+	startIdx := 0
+	if nextToken != "" {
+		for i, id := range keys {
+			if b.pools[id].IdentityPoolName == nextToken {
+				startIdx = i + 1
+				break
+			}
+		}
+	}
 
-	for _, id := range keys {
+	keys = keys[startIdx:]
+
+	limit := len(keys)
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	out := make([]*IdentityPool, 0, limit)
+
+	for i, id := range keys {
 		out = append(out, clonePool(b.pools[id]))
 
 		if maxResults > 0 && len(out) >= maxResults {
+			// Return the name of the last item as the cursor for the next page.
+			if i+1 < len(keys) {
+				return out, b.pools[id].IdentityPoolName
+			}
+
 			break
 		}
 	}
 
-	return out
+	return out, ""
 }
 
 // UpdateIdentityPool updates the settings of an existing identity pool.
@@ -248,6 +280,10 @@ func (b *InMemoryBackend) UpdateIdentityPool(
 	supportedLoginProviders map[string]string,
 	tags map[string]string,
 ) (*IdentityPool, error) {
+	if poolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("UpdateIdentityPool")
 	defer b.mu.Unlock()
 
@@ -285,13 +321,33 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 	b.mu.Lock("GetID")
 	defer b.mu.Unlock()
 
+	if poolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	if _, ok := b.pools[poolID]; !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	// O(n pool size) but bounded to the specific pool, not all identities.
+	// AWS GetId matches an existing identity if any of the provided (provider, token) pairs
+	// already appear in the identity's logins. On a match the identity is updated with any
+	// new login providers from the current request (provider-account linking).
 	for _, identity := range b.identitiesByPool[poolID] {
-		if mapsEqual(identity.Logins, logins) {
+		if anyLoginMatches(identity.Logins, logins) {
+			// Merge any new providers into the existing identity.
+			updated := false
+			for provider, token := range logins {
+				if identity.Logins[provider] != token {
+					if identity.Logins == nil {
+						identity.Logins = make(map[string]string)
+					}
+					identity.Logins[provider] = token
+					updated = true
+				}
+			}
+			if updated {
+				identity.LastModifiedDate = time.Now()
+			}
 			return cloneIdentity(identity), nil
 		}
 	}
@@ -380,6 +436,8 @@ func (b *InMemoryBackend) GetOpenIDToken(identityID string, _ map[string]string)
 }
 
 // SetIdentityPoolRoles configures IAM roles for an identity pool.
+// Only the roles that are present (non-empty) in the provided map are updated;
+// existing roles for omitted keys are preserved.
 func (b *InMemoryBackend) SetIdentityPoolRoles(poolID, authenticatedARN, unauthenticatedARN string) error {
 	b.mu.Lock("SetIdentityPoolRoles")
 	defer b.mu.Unlock()
@@ -388,9 +446,19 @@ func (b *InMemoryBackend) SetIdentityPoolRoles(poolID, authenticatedARN, unauthe
 		return fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	b.roles[poolID] = &IdentityRoles{
-		AuthenticatedRoleARN:   authenticatedARN,
-		UnauthenticatedRoleARN: unauthenticatedARN,
+	existing, ok := b.roles[poolID]
+	if !ok {
+		existing = &IdentityRoles{}
+		b.roles[poolID] = existing
+	}
+
+	// Only update the roles that the caller provided (non-empty value = explicitly set).
+	if authenticatedARN != "" {
+		existing.AuthenticatedRoleARN = authenticatedARN
+	}
+
+	if unauthenticatedARN != "" {
+		existing.UnauthenticatedRoleARN = unauthenticatedARN
 	}
 
 	return nil
@@ -398,6 +466,10 @@ func (b *InMemoryBackend) SetIdentityPoolRoles(poolID, authenticatedARN, unauthe
 
 // GetIdentityPoolRoles returns the IAM roles configured for an identity pool.
 func (b *InMemoryBackend) GetIdentityPoolRoles(poolID string) (*IdentityRoles, error) {
+	if poolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	b.mu.RLock("GetIdentityPoolRoles")
 	defer b.mu.RUnlock()
 
@@ -537,11 +609,18 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 		}
 	} else {
 		// Look up by developer login tokens or create new.
+		// Matches if any (provider, token) pair in logins is already linked to an identity.
 		for _, identity := range b.identitiesByPool[poolID] {
-			if mapsEqual(identity.Logins, logins) {
-				// Break early: only one identity can match these exact login credentials.
+			if anyLoginMatches(identity.Logins, logins) {
+				// Merge any new providers.
+				for provider, token := range logins {
+					if identity.Logins == nil {
+						identity.Logins = make(map[string]string)
+					}
+					identity.Logins[provider] = token
+				}
+				identity.LastModifiedDate = time.Now()
 				identityID = identity.IdentityID
-
 				break
 			}
 		}
@@ -605,7 +684,8 @@ func (b *InMemoryBackend) GetPrincipalTagAttributeMap(poolID, providerName strin
 }
 
 // ListIdentities returns identities associated with an identity pool, sorted by IdentityId.
-func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool) (*ListIdentitiesResult, error) {
+// nextToken is an opaque cursor encoding the last-returned IdentityId for pagination.
+func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool, nextToken string) (*ListIdentitiesResult, error) {
 	if poolID == "" {
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
@@ -634,6 +714,19 @@ func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool) 
 		return sorted[i].IdentityID < sorted[j].IdentityID
 	})
 
+	// Apply cursor: skip items up to and including the one with the cursor ID.
+	startIdx := 0
+	if nextToken != "" {
+		for i, id := range sorted {
+			if id.IdentityID == nextToken {
+				startIdx = i + 1
+				break
+			}
+		}
+	}
+
+	sorted = sorted[startIdx:]
+
 	limit := len(sorted)
 	if maxResults > 0 && maxResults < limit {
 		limit = maxResults
@@ -655,13 +748,20 @@ func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool) 
 			IdentityID:       identity.IdentityID,
 			Logins:           logins,
 			CreationDate:     identity.CreatedAt,
-			LastModifiedDate: identity.CreatedAt,
+			LastModifiedDate: identity.LastModifiedDate,
 		})
+	}
+
+	// Emit a cursor if there are more pages.
+	var returnNextToken string
+	if maxResults > 0 && len(sorted) > maxResults {
+		returnNextToken = sorted[maxResults-1].IdentityID
 	}
 
 	return &ListIdentitiesResult{
 		IdentityPoolID: poolID,
 		Identities:     descriptions,
+		NextToken:      returnNextToken,
 	}, nil
 }
 
@@ -1081,6 +1181,19 @@ func cloneIdentity(identity *Identity) *Identity {
 	return &cp
 }
 
+// anyLoginMatches returns true if any (provider, token) pair in req also exists in stored.
+// This implements AWS GetId semantics: an existing identity is returned when any of the
+// requested login providers is already linked to it.
+func anyLoginMatches(stored, req map[string]string) bool {
+	for provider, token := range req {
+		if stored[provider] == token {
+			return true
+		}
+	}
+
+	return false
+}
+
 // mapsEqual returns true if both maps have the same key-value pairs.
 func mapsEqual(a, b map[string]string) bool {
 	if len(a) != len(b) {
@@ -1097,18 +1210,37 @@ func mapsEqual(a, b map[string]string) bool {
 }
 
 // randomAlphanumeric returns a random alphanumeric string of length n.
+// It reads a single batch of random bytes from crypto/rand and uses rejection
+// sampling to avoid modulo bias, falling back to additional reads only when
+// the initial batch has insufficient usable bytes (~3 % rejection rate).
 func randomAlphanumeric(n int) (string, error) {
-	buf := make([]byte, n)
-	for i := range buf {
-		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphanumChars))))
-		if err != nil {
+	const (
+		charsLen = len(alphanumChars) // 62
+		// cutoff is the largest multiple of charsLen that fits in a byte (0–255).
+		// Bytes in [0, cutoff) map uniformly; bytes in [cutoff, 256) are rejected.
+		cutoff = (256 / charsLen) * charsLen // 248
+	)
+
+	result := make([]byte, 0, n)
+
+	for len(result) < n {
+		// Over-read to reduce the chance of needing more than one batch.
+		raw := make([]byte, n+16)
+		if _, err := io.ReadFull(rand.Reader, raw); err != nil {
 			return "", fmt.Errorf("crypto/rand failure: %w", err)
 		}
 
-		buf[i] = alphanumChars[idx.Int64()]
+		for _, b := range raw {
+			if int(b) < cutoff {
+				result = append(result, alphanumChars[int(b)%charsLen])
+				if len(result) == n {
+					break
+				}
+			}
+		}
 	}
 
-	return string(buf), nil
+	return string(result), nil
 }
 
 // Reset clears all identity pool, identity and role state.

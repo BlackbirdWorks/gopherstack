@@ -1,6 +1,7 @@
 package cognitoidentity_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -188,10 +189,10 @@ func TestInMemoryBackend_ListIdentityPools(t *testing.T) {
 	_, err2 := b.CreateIdentityPool("pool-b", false, false, "", nil, nil, nil)
 	require.NoError(t, err2)
 
-	pools := b.ListIdentityPools(0)
+	pools, _ := b.ListIdentityPools(0, "")
 	assert.Len(t, pools, 2)
 
-	limited := b.ListIdentityPools(1)
+	limited, _ := b.ListIdentityPools(1, "")
 	assert.Len(t, limited, 1)
 }
 
@@ -597,7 +598,7 @@ func TestInMemoryBackend_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, "persist-pool", restored.IdentityPoolName)
 	assert.Equal(t, "prod", restored.Tags["env"])
 
-	result, err := b2.ListIdentities(pool.IdentityPoolID, 10, false)
+	result, err := b2.ListIdentities(pool.IdentityPoolID, 10, false, "")
 	require.NoError(t, err)
 	assert.Len(t, result.Identities, 1)
 
@@ -626,7 +627,7 @@ func TestHandler_PersistenceRoundTrip(t *testing.T) {
 
 	require.NoError(t, h2.Restore(snap))
 
-	pools := b2.ListIdentityPools(0)
+	pools, _ := b2.ListIdentityPools(0, "")
 	assert.Len(t, pools, 1)
 	assert.Equal(t, "handler-persist-pool", pools[0].IdentityPoolName)
 }
@@ -1047,7 +1048,7 @@ func TestInMemoryBackend_Refinement1_ListIdentities_EmptyPoolID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.ListIdentities("", 10, false)
+	_, err := b.ListIdentities("", 10, false, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -1177,4 +1178,184 @@ func TestInMemoryBackend_Refinement1_UpdateIdentityPool_WithTags(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "prod", updated.Tags["env"])
+}
+
+// --- Refinement check 2 tests ---
+
+func TestInMemoryBackend_Refinement2_ListIdentities_LastModifiedDate(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateIdentityPool("lmd-pool", true, false, "", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.GetID(pool.IdentityPoolID, "", map[string]string{"accounts.google.com": "tok1"})
+	require.NoError(t, err)
+
+	result, err := b.ListIdentities(pool.IdentityPoolID, 10, false, "")
+	require.NoError(t, err)
+	require.Len(t, result.Identities, 1)
+
+	id := result.Identities[0]
+	// LastModifiedDate must equal CreatedDate when first created, not be zero.
+	assert.False(t, id.LastModifiedDate.IsZero(), "LastModifiedDate must not be zero")
+}
+
+func TestInMemoryBackend_Refinement2_GetID_ProviderMatching(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateIdentityPool("pm-pool", true, false, "", nil, nil, nil)
+	require.NoError(t, err)
+
+	// Create an identity with only google.
+	id1, err := b.GetID(pool.IdentityPoolID, "", map[string]string{"accounts.google.com": "g-token"})
+	require.NoError(t, err)
+
+	// Call GetId again with google + facebook: should return the same identity (not create new).
+	id2, err := b.GetID(pool.IdentityPoolID, "", map[string]string{
+		"accounts.google.com":   "g-token",
+		"graph.facebook.com": "fb-token",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, id1.IdentityID, id2.IdentityID, "should find existing identity by provider match")
+
+	// And the facebook login should now be merged in.
+	desc, err := b.DescribeIdentity(id2.IdentityID)
+	require.NoError(t, err)
+	assert.Contains(t, desc.Logins, "graph.facebook.com", "new provider should be merged into existing identity")
+}
+
+func TestInMemoryBackend_Refinement2_GetID_EmptyPoolID(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.GetID("", "", nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
+}
+
+func TestInMemoryBackend_Refinement2_SetIdentityPoolRoles_MergePreservesExistingRole(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateIdentityPool("role-merge-pool", true, false, "", nil, nil, nil)
+	require.NoError(t, err)
+
+	// Set both roles initially.
+	require.NoError(t, b.SetIdentityPoolRoles(pool.IdentityPoolID, "arn:aws:iam::000000000000:role/Auth", "arn:aws:iam::000000000000:role/Unauth"))
+
+	// Update only the authenticated role – the unauthenticated role must be preserved.
+	require.NoError(t, b.SetIdentityPoolRoles(pool.IdentityPoolID, "arn:aws:iam::000000000000:role/AuthV2", ""))
+
+	roles, err := b.GetIdentityPoolRoles(pool.IdentityPoolID)
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/AuthV2", roles.AuthenticatedRoleARN)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/Unauth", roles.UnauthenticatedRoleARN, "unauthenticated role must not be wiped")
+}
+
+func TestInMemoryBackend_Refinement2_DescribeIdentityPool_EmptyID(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.DescribeIdentityPool("")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
+}
+
+func TestInMemoryBackend_Refinement2_DeleteIdentityPool_EmptyID(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	err := b.DeleteIdentityPool("")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
+}
+
+func TestInMemoryBackend_Refinement2_UpdateIdentityPool_EmptyID(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.UpdateIdentityPool("", "name", true, false, "", nil, nil, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
+}
+
+func TestInMemoryBackend_Refinement2_GetIdentityPoolRoles_EmptyID(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.GetIdentityPoolRoles("")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
+}
+
+func TestInMemoryBackend_Refinement2_ListIdentityPools_NextToken(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	for _, name := range []string{"pool-a", "pool-b", "pool-c"} {
+		_, err := b.CreateIdentityPool(name, true, false, "", nil, nil, nil)
+		require.NoError(t, err)
+	}
+
+	// First page of 2.
+	page1, token := b.ListIdentityPools(2, "")
+	require.Len(t, page1, 2)
+	assert.NotEmpty(t, token, "nextToken must be returned when there are more pages")
+
+	// Second page.
+	page2, token2 := b.ListIdentityPools(2, token)
+	require.Len(t, page2, 1)
+	assert.Empty(t, token2, "no further pages expected")
+
+	// All names combined should cover all pools.
+	all := append(page1, page2...) //nolint:gocritic // intentional
+	assert.Len(t, all, 3)
+}
+
+func TestInMemoryBackend_Refinement2_ListIdentities_NextToken(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateIdentityPool("page-pool", true, false, "", nil, nil, nil)
+	require.NoError(t, err)
+
+	for i := range 3 {
+		_, err = b.GetID(pool.IdentityPoolID, "", map[string]string{
+			"accounts.google.com": fmt.Sprintf("tok-%d", i),
+		})
+		require.NoError(t, err)
+	}
+
+	page1, err := b.ListIdentities(pool.IdentityPoolID, 2, false, "")
+	require.NoError(t, err)
+	require.Len(t, page1.Identities, 2)
+	require.NotEmpty(t, page1.NextToken, "nextToken must be populated when more pages exist")
+
+	page2, err := b.ListIdentities(pool.IdentityPoolID, 2, false, page1.NextToken)
+	require.NoError(t, err)
+	require.Len(t, page2.Identities, 1)
+	assert.Empty(t, page2.NextToken)
+}
+
+func TestInMemoryBackend_Refinement2_RandomAlphanumeric_NoBias(t *testing.T) {
+	t.Parallel()
+
+	// Verify that randomAlphanumeric produces strings of the requested length
+	// and only uses alphanumeric characters.  We call it many times to exercise
+	// the batch-read path and the rare fall-back path.
+	for range 50 {
+		s, err := cognitoidentity.ExportedRandomAlphanumeric(64)
+		require.NoError(t, err)
+		require.Len(t, s, 64)
+
+		for _, c := range s {
+			assert.True(t,
+				(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'),
+				"character %q is not alphanumeric", c,
+			)
+		}
+	}
 }

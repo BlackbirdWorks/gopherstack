@@ -292,6 +292,10 @@ func (h *Handler) handleDeleteIdentityPool(
 	_ context.Context,
 	in *deleteIdentityPoolInput,
 ) (*deleteIdentityPoolOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	if err := h.Backend.DeleteIdentityPool(in.IdentityPoolID); err != nil {
 		return nil, err
 	}
@@ -307,6 +311,10 @@ func (h *Handler) handleDescribeIdentityPool(
 	_ context.Context,
 	in *describeIdentityPoolInput,
 ) (*identityPoolOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	pool, err := h.Backend.DescribeIdentityPool(in.IdentityPoolID)
 	if err != nil {
 		return nil, err
@@ -316,7 +324,8 @@ func (h *Handler) handleDescribeIdentityPool(
 }
 
 type listIdentityPoolsInput struct {
-	MaxResults int `json:"MaxResults"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 type identityPoolShortDescription struct {
@@ -325,6 +334,7 @@ type identityPoolShortDescription struct {
 }
 
 type listIdentityPoolsOutput struct {
+	NextToken     string                          `json:"NextToken,omitempty"`
 	IdentityPools []identityPoolShortDescription `json:"IdentityPools"`
 }
 
@@ -332,7 +342,7 @@ func (h *Handler) handleListIdentityPools(
 	_ context.Context,
 	in *listIdentityPoolsInput,
 ) (*listIdentityPoolsOutput, error) {
-	pools := h.Backend.ListIdentityPools(in.MaxResults)
+	pools, nextToken := h.Backend.ListIdentityPools(in.MaxResults, in.NextToken)
 
 	items := make([]identityPoolShortDescription, 0, len(pools))
 	for _, p := range pools {
@@ -342,7 +352,7 @@ func (h *Handler) handleListIdentityPools(
 		})
 	}
 
-	return &listIdentityPoolsOutput{IdentityPools: items}, nil
+	return &listIdentityPoolsOutput{IdentityPools: items, NextToken: nextToken}, nil
 }
 
 type updateIdentityPoolInput struct {
@@ -360,6 +370,10 @@ func (h *Handler) handleUpdateIdentityPool(
 	_ context.Context,
 	in *updateIdentityPoolInput,
 ) (*identityPoolOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	providers := toBackendProviders(in.IdentityProviders)
 
 	pool, err := h.Backend.UpdateIdentityPool(
@@ -390,6 +404,10 @@ type getIDOutput struct {
 }
 
 func (h *Handler) handleGetID(_ context.Context, in *getIDInput) (*getIDOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	identity, err := h.Backend.GetID(in.IdentityPoolID, in.AccountID, in.Logins)
 	if err != nil {
 		return nil, err
@@ -506,17 +524,27 @@ func (h *Handler) handleGetIdentityPoolRoles(
 	_ context.Context,
 	in *getIdentityPoolRolesInput,
 ) (*getIdentityPoolRolesOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	roles, err := h.Backend.GetIdentityPoolRoles(in.IdentityPoolID)
 	if err != nil {
 		return nil, err
 	}
 
+	// Only include roles that have been set (omit empty strings like AWS does).
+	rolesMap := make(map[string]string, 2)
+	if roles.AuthenticatedRoleARN != "" {
+		rolesMap["authenticated"] = roles.AuthenticatedRoleARN
+	}
+	if roles.UnauthenticatedRoleARN != "" {
+		rolesMap["unauthenticated"] = roles.UnauthenticatedRoleARN
+	}
+
 	return &getIdentityPoolRolesOutput{
 		IdentityPoolID: in.IdentityPoolID,
-		Roles: map[string]string{
-			"authenticated":   roles.AuthenticatedRoleARN,
-			"unauthenticated": roles.UnauthenticatedRoleARN,
-		},
+		Roles:          rolesMap,
 	}, nil
 }
 
@@ -711,7 +739,7 @@ func (h *Handler) handleListIdentities(
 	_ context.Context,
 	in *listIdentitiesInput,
 ) (*listIdentitiesOutput, error) {
-	result, err := h.Backend.ListIdentities(in.IdentityPoolID, in.MaxResults, in.HideDisabled)
+	result, err := h.Backend.ListIdentities(in.IdentityPoolID, in.MaxResults, in.HideDisabled, in.NextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -733,6 +761,7 @@ func (h *Handler) handleListIdentities(
 
 	return &listIdentitiesOutput{
 		IdentityPoolID: result.IdentityPoolID,
+		NextToken:      result.NextToken,
 		Identities:     items,
 	}, nil
 }

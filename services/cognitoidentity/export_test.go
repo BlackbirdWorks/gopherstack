@@ -26,3 +26,8 @@ func (b *InMemoryBackend) PrincipalTagCount() int {
 
 	return len(b.principalTags)
 }
+
+// ExportedRandomAlphanumeric exposes randomAlphanumeric for test coverage.
+func ExportedRandomAlphanumeric(n int) (string, error) {
+	return randomAlphanumeric(n)
+}
