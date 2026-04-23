@@ -85,10 +85,8 @@ func TestSTSDashboard_GenerateSessionToken(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Locate and click the Generate Session Token button.
-	genBtn := page.Locator("button", playwright.PageLocatorOptions{
-		HasText: playwright.String("Generate Session Token"),
-	}).First()
+	// Locate and click the Generate Session Token button via id selector.
+	genBtn := page.Locator("button#gen-session-btn")
 	require.NoError(t, genBtn.WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	}))
@@ -150,10 +148,11 @@ func TestSTSDashboard_AssumeRole(t *testing.T) {
 	sessionInput := page.Locator("input#assume-role-session")
 	require.NoError(t, sessionInput.Fill("e2e-test-session"))
 
-	// Click Assume Role button.
-	assumeBtn := page.Locator("button", playwright.PageLocatorOptions{
-		HasText: playwright.String("Assume Role"),
-	}).First()
+	// Click Assume Role button via id selector.
+	assumeBtn := page.Locator("button#assume-role-btn")
+	require.NoError(t, assumeBtn.WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	}))
 	require.NoError(t, assumeBtn.Click())
 
 	// Wait for credential to appear.
@@ -207,10 +206,8 @@ func TestSTSDashboard_ValidatorClear(t *testing.T) {
 	}))
 	require.NoError(t, validatorInput.Fill("ASIAIOSFODNN7EXAMPLE"))
 
-	// Clear button should now appear.
-	clearBtn := page.Locator("button", playwright.PageLocatorOptions{
-		HasText: playwright.String("Clear"),
-	}).First()
+	// Clear button should now appear (CSS :has-text avoids *string panic).
+	clearBtn := page.Locator("button:has-text('Clear')").First()
 	require.NoError(t, clearBtn.WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(5000),
 	}))
