@@ -54,6 +54,7 @@ type IdentityPool struct {
 	IdentityPoolID                 string             `json:"identityPoolID"`
 	IdentityPoolName               string             `json:"identityPoolName"`
 	ARN                            string             `json:"arn"`
+	DeveloperProviderName          string             `json:"developerProviderName,omitempty"`
 	IdentityProviders              []IdentityProvider `json:"identityProviders,omitempty"`
 	AllowUnauthenticatedIdentities bool               `json:"allowUnauthenticatedIdentities"`
 	AllowClassicFlow               bool               `json:"allowClassicFlow"`
@@ -67,10 +68,11 @@ type IdentityRoles struct {
 
 // Identity represents a federated identity.
 type Identity struct {
-	CreatedAt      time.Time         `json:"createdAt"`
-	Logins         map[string]string `json:"logins,omitempty"`
-	IdentityID     string            `json:"identityID"`
-	IdentityPoolID string            `json:"identityPoolID"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	LastModifiedDate time.Time         `json:"lastModifiedDate"`
+	Logins           map[string]string `json:"logins,omitempty"`
+	IdentityID       string            `json:"identityID"`
+	IdentityPoolID   string            `json:"identityPoolID"`
 }
 
 // PrincipalTagMapping stores the principal tag attribute map for a pool and provider.
@@ -123,6 +125,7 @@ func (b *InMemoryBackend) CreateIdentityPool(
 	name string,
 	allowUnauthenticated bool,
 	allowClassicFlow bool,
+	developerProviderName string,
 	providers []IdentityProvider,
 	supportedLoginProviders map[string]string,
 	tags map[string]string,
@@ -145,6 +148,7 @@ func (b *InMemoryBackend) CreateIdentityPool(
 		IdentityPoolID:                 poolID,
 		IdentityPoolName:               name,
 		ARN:                            arn,
+		DeveloperProviderName:          developerProviderName,
 		AllowUnauthenticatedIdentities: allowUnauthenticated,
 		AllowClassicFlow:               allowClassicFlow,
 		IdentityProviders:              cloneProviders(providers),
@@ -176,10 +180,8 @@ func (b *InMemoryBackend) DeleteIdentityPool(poolID string) error {
 	delete(b.pools, poolID)
 	delete(b.roles, poolID)
 
-	for id, identity := range b.identities {
-		if identity.IdentityPoolID == poolID {
-			delete(b.identities, id)
-		}
+	for _, identity := range b.identitiesByPool[poolID] {
+		delete(b.identities, identity.IdentityID)
 	}
 
 	delete(b.identitiesByPool, poolID)
@@ -241,8 +243,10 @@ func (b *InMemoryBackend) UpdateIdentityPool(
 	name string,
 	allowUnauthenticated bool,
 	allowClassicFlow bool,
+	developerProviderName string,
 	providers []IdentityProvider,
 	supportedLoginProviders map[string]string,
+	tags map[string]string,
 ) (*IdentityPool, error) {
 	b.mu.Lock("UpdateIdentityPool")
 	defer b.mu.Unlock()
@@ -264,8 +268,14 @@ func (b *InMemoryBackend) UpdateIdentityPool(
 
 	pool.AllowUnauthenticatedIdentities = allowUnauthenticated
 	pool.AllowClassicFlow = allowClassicFlow
+	if developerProviderName != "" {
+		pool.DeveloperProviderName = developerProviderName
+	}
 	pool.IdentityProviders = cloneProviders(providers)
 	pool.SupportedLoginProviders = cloneStringMap(supportedLoginProviders)
+	if tags != nil {
+		pool.Tags = cloneStringMap(tags)
+	}
 
 	return clonePool(pool), nil
 }
@@ -288,11 +298,13 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 
 	// Create a new identity.
 	identityID := b.region + ":" + uuid.New().String()
+	now := time.Now()
 	identity := &Identity{
-		IdentityID:     identityID,
-		IdentityPoolID: poolID,
-		Logins:         cloneStringMap(logins),
-		CreatedAt:      time.Now(),
+		IdentityID:       identityID,
+		IdentityPoolID:   poolID,
+		Logins:           cloneStringMap(logins),
+		CreatedAt:        now,
+		LastModifiedDate: now,
 	}
 
 	b.identities[identityID] = identity
@@ -303,6 +315,10 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 
 // GetCredentialsForIdentity returns synthetic temporary AWS credentials for an identity.
 func (b *InMemoryBackend) GetCredentialsForIdentity(identityID string, _ map[string]string) (*Credentials, error) {
+	if identityID == "" {
+		return nil, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
+	}
+
 	b.mu.RLock("GetCredentialsForIdentity")
 	defer b.mu.RUnlock()
 
@@ -338,6 +354,10 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(identityID string, _ map[str
 
 // GetOpenIDToken returns a synthetic OpenID Connect token for an identity.
 func (b *InMemoryBackend) GetOpenIDToken(identityID string, _ map[string]string) (*OpenIDToken, error) {
+	if identityID == "" {
+		return nil, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
+	}
+
 	b.mu.RLock("GetOpenIDToken")
 	defer b.mu.RUnlock()
 
@@ -477,7 +497,7 @@ func (b *InMemoryBackend) DescribeIdentity(identityID string) (*IdentityDescript
 		IdentityID:       identity.IdentityID,
 		Logins:           logins,
 		CreationDate:     identity.CreatedAt,
-		LastModifiedDate: identity.CreatedAt,
+		LastModifiedDate: identity.LastModifiedDate,
 	}, nil
 }
 
@@ -493,8 +513,17 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 	poolID string,
 	identityID string,
 	logins map[string]string,
-	_ int64,
+	tokenDuration int64,
 ) (*DeveloperOpenIDToken, error) {
+	const maxTokenDuration = 86400
+
+	if tokenDuration < 0 || tokenDuration > maxTokenDuration {
+		return nil, fmt.Errorf(
+			"%w: TokenDuration must be between 0 and %d seconds",
+			ErrInvalidParameter, maxTokenDuration,
+		)
+	}
+
 	b.mu.Lock("GetOpenIDTokenForDeveloperIdentity")
 	defer b.mu.Unlock()
 
@@ -519,11 +548,13 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 
 		if identityID == "" {
 			newID := b.region + ":" + uuid.New().String()
+			now := time.Now()
 			identity := &Identity{
-				IdentityID:     newID,
-				IdentityPoolID: poolID,
-				Logins:         cloneStringMap(logins),
-				CreatedAt:      time.Now(),
+				IdentityID:       newID,
+				IdentityPoolID:   poolID,
+				Logins:           cloneStringMap(logins),
+				CreatedAt:        now,
+				LastModifiedDate: now,
 			}
 
 			b.identities[newID] = identity
@@ -553,6 +584,10 @@ func principalTagKey(poolID, providerName string) string {
 
 // GetPrincipalTagAttributeMap returns the principal tag attribute map for a pool and provider.
 func (b *InMemoryBackend) GetPrincipalTagAttributeMap(poolID, providerName string) (*PrincipalTagMapping, error) {
+	if providerName == "" {
+		return nil, fmt.Errorf("%w: IdentityProviderName is required", ErrInvalidParameter)
+	}
+
 	b.mu.RLock("GetPrincipalTagAttributeMap")
 	defer b.mu.RUnlock()
 
@@ -571,6 +606,10 @@ func (b *InMemoryBackend) GetPrincipalTagAttributeMap(poolID, providerName strin
 
 // ListIdentities returns identities associated with an identity pool, sorted by IdentityId.
 func (b *InMemoryBackend) ListIdentities(poolID string, maxResults int, _ bool) (*ListIdentitiesResult, error) {
+	if poolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	if maxResults < 0 || maxResults > listIdentitiesMaxResults {
 		return nil, fmt.Errorf(
 			"%w: MaxResults must be between 1 and %d",
@@ -653,6 +692,10 @@ func (b *InMemoryBackend) LookupDeveloperIdentity(
 	developerUserIdentifier string,
 	developerProviderName string,
 ) (*LookupDeveloperIdentityResult, error) {
+	if poolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
 	b.mu.RLock("LookupDeveloperIdentity")
 	defer b.mu.RUnlock()
 
@@ -726,6 +769,22 @@ func (b *InMemoryBackend) MergeDeveloperIdentities(
 	developerProviderName string,
 	poolID string,
 ) (*Identity, error) {
+	if poolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
+	if developerProviderName == "" {
+		return nil, fmt.Errorf("%w: DeveloperProviderName is required", ErrInvalidParameter)
+	}
+
+	if sourceUserID == "" {
+		return nil, fmt.Errorf("%w: SourceUserIdentifier is required", ErrInvalidParameter)
+	}
+
+	if destUserID == "" {
+		return nil, fmt.Errorf("%w: DestinationUserIdentifier is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("MergeDeveloperIdentities")
 	defer b.mu.Unlock()
 
@@ -756,6 +815,7 @@ func (b *InMemoryBackend) MergeDeveloperIdentities(
 
 	// Merge logins from source into destination.
 	maps.Copy(destIdentity.Logins, sourceIdentity.Logins)
+	destIdentity.LastModifiedDate = time.Now()
 
 	// Remove source identity.
 	delete(b.identities, sourceIdentity.IdentityID)
@@ -804,7 +864,7 @@ func (b *InMemoryBackend) UnlinkIdentity(
 
 		identityToken, exists := identity.Logins[providerName]
 		if !exists {
-			return fmt.Errorf("%w: provider %q not linked to identity", ErrIdentityPoolNotFound, providerName)
+			return fmt.Errorf("%w: provider %q is not linked to identity", ErrNotAuthorized, providerName)
 		}
 
 		if identityToken != loginToken {
@@ -813,6 +873,8 @@ func (b *InMemoryBackend) UnlinkIdentity(
 
 		delete(identity.Logins, providerName)
 	}
+
+	identity.LastModifiedDate = time.Now()
 
 	return nil
 }
@@ -858,19 +920,20 @@ func (b *InMemoryBackend) UnlinkDeveloperIdentity(
 
 	existingUserIdentifier, ok := identity.Logins[developerProviderName]
 	if !ok {
-		return fmt.Errorf("%w: provider %q not linked to identity", ErrIdentityPoolNotFound, developerProviderName)
+		return fmt.Errorf("%w: provider %q is not linked to identity", ErrNotAuthorized, developerProviderName)
 	}
 
 	if existingUserIdentifier != developerUserIdentifier {
 		return fmt.Errorf(
 			"%w: developer user identifier %q not linked to provider %q",
-			ErrIdentityPoolNotFound,
+			ErrNotAuthorized,
 			developerUserIdentifier,
 			developerProviderName,
 		)
 	}
 
 	delete(identity.Logins, developerProviderName)
+	identity.LastModifiedDate = time.Now()
 
 	return nil
 }
@@ -882,6 +945,10 @@ func (b *InMemoryBackend) SetPrincipalTagAttributeMap(
 	useDefaults bool,
 	principalTags map[string]string,
 ) (*PrincipalTagMapping, error) {
+	if providerName == "" {
+		return nil, fmt.Errorf("%w: IdentityProviderName is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("SetPrincipalTagAttributeMap")
 	defer b.mu.Unlock()
 
@@ -901,6 +968,10 @@ func (b *InMemoryBackend) SetPrincipalTagAttributeMap(
 
 // TagResource adds or updates tags on an identity pool resource by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	if resourceARN == "" {
+		return fmt.Errorf("%w: ResourceArn is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
@@ -920,6 +991,14 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 // UntagResource removes the given tag keys from an identity pool resource by ARN.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	if resourceARN == "" {
+		return fmt.Errorf("%w: ResourceArn is required", ErrInvalidParameter)
+	}
+
+	if len(tagKeys) == 0 {
+		return fmt.Errorf("%w: TagKeys must not be empty", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 

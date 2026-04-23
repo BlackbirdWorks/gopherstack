@@ -20,6 +20,7 @@ func TestCognitoIdentityDashboard(t *testing.T) {
 		"e2e-test-pool",
 		true,
 		false,
+		"",
 		nil,
 		nil,
 		nil,

@@ -12,8 +12,12 @@
 		LookupDeveloperIdentityCommand,
 		MergeDeveloperIdentitiesCommand,
 		SetPrincipalTagAttributeMapCommand,
+		ListIdentitiesCommand,
+		UnlinkIdentityCommand,
+		UnlinkDeveloperIdentityCommand,
 		type IdentityPoolShortDescription,
-		type IdentityPool
+		type IdentityPool,
+		type IdentityDescription
 	} from '@aws-sdk/client-cognito-identity';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -25,7 +29,11 @@
 		Eye,
 		CheckCircle,
 		XCircle,
-		KeyRound
+		KeyRound,
+		Tag,
+		LinkIcon,
+		Link2Off,
+		List
 	} from 'lucide-svelte';
 
 	const cognitoId = getCognitoIdentityClient();
@@ -37,11 +45,28 @@
 	let loadingDetail = $state(false);
 	let searchQuery = $state('');
 
+	// identities within selected pool
+	let poolIdentities = $state<IdentityDescription[]>([]);
+	let loadingIdentities = $state(false);
+
+	// unlink identity
+	let unlinkIdentityId = $state('');
+	let unlinkProvider = $state('');
+	let unlinkToken = $state('');
+	let unlinkingIdentity = $state(false);
+
+	// unlink developer identity
+	let unlinkDevIdentityId = $state('');
+	let unlinkDevProviderName = $state('');
+	let unlinkDevUserIdentifier = $state('');
+	let unlinkingDevIdentity = $state(false);
+
 	let showCreateModal = $state(false);
 	let creating = $state(false);
 	let newPoolName = $state('');
 	let newPoolUnauthenticated = $state(false);
 	let newPoolCognitoProvider = $state('');
+	let newPoolDeveloperProviderName = $state('');
 	let principalProviderName = $state('');
 	let principalUseDefaults = $state(true);
 	let principalTagsText = $state('');
@@ -81,6 +106,7 @@
 		loadingDetail = true;
 		selectedPool = null;
 		poolRoles = {};
+		poolIdentities = [];
 		principalProviderName = '';
 		principalUseDefaults = true;
 		principalTagsText = '';
@@ -91,6 +117,12 @@
 		lookupResultDeveloperUsers = [];
 		mergeSourceUserIdentifier = '';
 		mergeDestinationUserIdentifier = '';
+		unlinkIdentityId = '';
+		unlinkProvider = '';
+		unlinkToken = '';
+		unlinkDevIdentityId = '';
+		unlinkDevProviderName = '';
+		unlinkDevUserIdentifier = '';
 		try {
 			const [detailRes, rolesRes] = await Promise.all([
 				cognitoId.send(new DescribeIdentityPoolCommand({ IdentityPoolId: pool.IdentityPoolId })),
@@ -123,14 +155,11 @@
 		if (!newPoolName.trim()) return;
 		creating = true;
 		try {
-			const providers: Record<string, { ClientId?: string; ServerSideTokenCheck?: boolean }> = {};
-			if (newPoolCognitoProvider.trim()) {
-				providers[newPoolCognitoProvider.trim()] = {};
-			}
 			await cognitoId.send(
 				new CreateIdentityPoolCommand({
 					IdentityPoolName: newPoolName.trim(),
 					AllowUnauthenticatedIdentities: newPoolUnauthenticated,
+					DeveloperProviderName: newPoolDeveloperProviderName.trim() || undefined,
 					CognitoIdentityProviders:
 						newPoolCognitoProvider.trim()
 							? [{ ProviderName: newPoolCognitoProvider.trim() }]
@@ -141,6 +170,7 @@
 			showCreateModal = false;
 			newPoolName = '';
 			newPoolCognitoProvider = '';
+			newPoolDeveloperProviderName = '';
 			newPoolUnauthenticated = false;
 			await loadPools();
 		} catch (e) {
@@ -263,6 +293,71 @@
 		}
 	}
 
+	async function loadPoolIdentities() {
+		if (!selectedPool?.IdentityPoolId) return;
+		loadingIdentities = true;
+		try {
+			const out = await cognitoId.send(
+				new ListIdentitiesCommand({
+					IdentityPoolId: selectedPool.IdentityPoolId,
+					MaxResults: 20,
+					HideDisabled: false
+				})
+			);
+			poolIdentities = out.Identities ?? [];
+			toast.success(`Loaded ${poolIdentities.length} identit${poolIdentities.length === 1 ? 'y' : 'ies'}`);
+		} catch (e) {
+			toast.error(`Failed to load identities: ${e}`);
+		} finally {
+			loadingIdentities = false;
+		}
+	}
+
+	async function runUnlinkIdentity() {
+		if (!unlinkIdentityId.trim() || !unlinkProvider.trim()) return;
+		unlinkingIdentity = true;
+		try {
+			await cognitoId.send(
+				new UnlinkIdentityCommand({
+					IdentityId: unlinkIdentityId.trim(),
+					Logins: { [unlinkProvider.trim()]: unlinkToken.trim() },
+					LoginsToRemove: [unlinkProvider.trim()]
+				})
+			);
+			toast.success(`Provider "${unlinkProvider}" unlinked from identity`);
+			unlinkIdentityId = '';
+			unlinkProvider = '';
+			unlinkToken = '';
+		} catch (e) {
+			toast.error(`Failed to unlink identity: ${e}`);
+		} finally {
+			unlinkingIdentity = false;
+		}
+	}
+
+	async function runUnlinkDeveloperIdentity() {
+		if (!selectedPool?.IdentityPoolId || !unlinkDevIdentityId.trim() || !unlinkDevProviderName.trim() || !unlinkDevUserIdentifier.trim()) return;
+		unlinkingDevIdentity = true;
+		try {
+			await cognitoId.send(
+				new UnlinkDeveloperIdentityCommand({
+					IdentityId: unlinkDevIdentityId.trim(),
+					IdentityPoolId: selectedPool.IdentityPoolId,
+					DeveloperProviderName: unlinkDevProviderName.trim(),
+					DeveloperUserIdentifier: unlinkDevUserIdentifier.trim()
+				})
+			);
+			toast.success(`Developer identity unlinked`);
+			unlinkDevIdentityId = '';
+			unlinkDevProviderName = '';
+			unlinkDevUserIdentifier = '';
+		} catch (e) {
+			toast.error(`Failed to unlink developer identity: ${e}`);
+		} finally {
+			unlinkingDevIdentity = false;
+		}
+	}
+
 	onMount(() => loadPools());
 </script>
 
@@ -307,21 +402,21 @@
 			</div>
 		</div>
 		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
-			<div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-				<CheckCircle class="w-5 h-5 text-green-600 dark:text-green-400" />
-			</div>
-			<div>
-				<p class="text-2xl font-bold text-slate-900 dark:text-white">{identityPools.filter(p => selectedPool?.IdentityPoolId === p.IdentityPoolId ? (selectedPool?.AllowUnauthenticatedIdentities ?? false) : false).length}</p>
-				<p class="text-sm text-slate-500 dark:text-slate-400">Unauth Enabled</p>
-			</div>
-		</div>
-		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
 			<div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
 				<KeyRound class="w-5 h-5 text-blue-600 dark:text-blue-400" />
 			</div>
 			<div>
 				<p class="text-2xl font-bold text-slate-900 dark:text-white">{filteredPools.length}</p>
 				<p class="text-sm text-slate-500 dark:text-slate-400">Filtered Results</p>
+			</div>
+		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+				<List class="w-5 h-5 text-green-600 dark:text-green-400" />
+			</div>
+			<div>
+				<p class="text-2xl font-bold text-slate-900 dark:text-white">{poolIdentities.length}</p>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Loaded Identities</p>
 			</div>
 		</div>
 		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
@@ -405,7 +500,7 @@
 		<div class="rounded-lg border p-5 space-y-4">
 			<div class="flex items-center justify-between">
 				<h3 class="font-semibold">{selectedPool.IdentityPoolName}</h3>
-				<button onclick={() => (selectedPool = null)} class="text-xs text-muted-foreground hover:text-foreground">
+				<button onclick={() => { selectedPool = null; poolIdentities = []; }} class="text-xs text-muted-foreground hover:text-foreground">
 					Close
 				</button>
 			</div>
@@ -427,6 +522,21 @@
 						{/if}
 					</div>
 				</div>
+				{#if selectedPool.DeveloperProviderName}
+					<div>
+						<p class="text-muted-foreground">Developer Provider Name</p>
+						<p class="font-mono text-xs">{selectedPool.DeveloperProviderName}</p>
+					</div>
+				{/if}
+				{#if selectedPool.AllowClassicFlow}
+					<div>
+						<p class="text-muted-foreground">Classic Flow</p>
+						<div class="flex items-center gap-1">
+							<CheckCircle class="h-4 w-4 text-green-500" />
+							<span>Enabled</span>
+						</div>
+					</div>
+				{/if}
 			</div>
 
 			{#if (selectedPool.CognitoIdentityProviders ?? []).length > 0}
@@ -557,6 +667,152 @@
 					{mergingDeveloperIdentities ? 'Merging...' : 'Merge Developer Users'}
 				</button>
 			</div>
+
+			<!-- Supported Login Providers -->
+			{#if Object.keys(selectedPool.SupportedLoginProviders ?? {}).length > 0}
+				<div>
+					<p class="text-sm font-medium mb-2 flex items-center gap-1">
+						<LinkIcon class="h-4 w-4" />
+						Supported Login Providers
+					</p>
+					<div class="divide-y rounded border overflow-hidden">
+						{#each Object.entries(selectedPool.SupportedLoginProviders ?? {}) as [provider, appId]}
+							<div class="px-3 py-2 text-xs flex items-center justify-between">
+								<span class="font-mono">{provider}</span>
+								<span class="text-muted-foreground ml-2 truncate">{appId}</span>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Pool Tags -->
+			{#if Object.keys(selectedPool.IdentityPoolTags ?? {}).length > 0}
+				<div>
+					<p class="text-sm font-medium mb-2 flex items-center gap-1">
+						<Tag class="h-4 w-4" />
+						Tags
+					</p>
+					<div class="flex flex-wrap gap-2">
+						{#each Object.entries(selectedPool.IdentityPoolTags ?? {}) as [k, v]}
+							<span class="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium">
+								<span class="font-semibold">{k}</span>
+								<span class="text-muted-foreground">= {v}</span>
+							</span>
+						{/each}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Identity List -->
+			<div class="space-y-2 rounded-lg border p-3">
+				<div class="flex items-center justify-between">
+					<p class="text-sm font-medium flex items-center gap-1">
+						<List class="h-4 w-4" />
+						Identities in Pool
+					</p>
+					<button
+						onclick={loadPoolIdentities}
+						disabled={loadingIdentities}
+						class="rounded-md border px-3 py-1 text-xs hover:bg-accent disabled:opacity-50 flex items-center gap-1"
+					>
+						{#if loadingIdentities}
+							<RefreshCw class="h-3 w-3 animate-spin" />
+						{/if}
+						{loadingIdentities ? 'Loading...' : 'Load Identities'}
+					</button>
+				</div>
+				{#if poolIdentities.length > 0}
+					<div class="divide-y rounded border overflow-hidden mt-2">
+						{#each poolIdentities as identity}
+							<div class="px-3 py-2 text-xs">
+								<span class="font-mono text-muted-foreground">{identity.IdentityId}</span>
+								{#if (identity.Logins ?? []).length > 0}
+									<div class="mt-1 flex flex-wrap gap-1">
+										{#each identity.Logins ?? [] as login}
+											<span class="rounded-full bg-muted px-2 py-0.5 text-xs">{login}</span>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{:else if !loadingIdentities}
+					<p class="text-xs text-muted-foreground">Click "Load Identities" to list identities in this pool (up to 20).</p>
+				{/if}
+			</div>
+
+			<!-- Unlink Identity -->
+			<div class="space-y-2 rounded-lg border p-3">
+				<p class="text-sm font-medium flex items-center gap-1">
+					<Link2Off class="h-4 w-4" />
+					Unlink Identity Provider
+				</p>
+				<p class="text-xs text-muted-foreground">Remove a specific login provider from an identity after validating the login token.</p>
+				<input
+					type="text"
+					bind:value={unlinkIdentityId}
+					placeholder="Identity ID (e.g. us-east-1:...)"
+					class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+				<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+					<input
+						type="text"
+						bind:value={unlinkProvider}
+						placeholder="Provider (e.g. accounts.google.com)"
+						class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+					<input
+						type="text"
+						bind:value={unlinkToken}
+						placeholder="Login token"
+						class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<button
+					onclick={runUnlinkIdentity}
+					disabled={!unlinkIdentityId.trim() || !unlinkProvider.trim() || unlinkingIdentity}
+					class="rounded-md bg-destructive px-3 py-1 text-xs text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+				>
+					{unlinkingIdentity ? 'Unlinking...' : 'Unlink Provider'}
+				</button>
+			</div>
+
+			<!-- Unlink Developer Identity -->
+			<div class="space-y-2 rounded-lg border p-3">
+				<p class="text-sm font-medium flex items-center gap-1">
+					<Link2Off class="h-4 w-4" />
+					Unlink Developer Identity
+				</p>
+				<p class="text-xs text-muted-foreground">Remove a developer-provider association from an identity.</p>
+				<input
+					type="text"
+					bind:value={unlinkDevIdentityId}
+					placeholder="Identity ID (e.g. us-east-1:...)"
+					class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+				<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+					<input
+						type="text"
+						bind:value={unlinkDevProviderName}
+						placeholder="Developer provider name"
+						class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+					<input
+						type="text"
+						bind:value={unlinkDevUserIdentifier}
+						placeholder="Developer user identifier"
+						class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<button
+					onclick={runUnlinkDeveloperIdentity}
+					disabled={!unlinkDevIdentityId.trim() || !unlinkDevProviderName.trim() || !unlinkDevUserIdentifier.trim() || unlinkingDevIdentity}
+					class="rounded-md bg-destructive px-3 py-1 text-xs text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+				>
+					{unlinkingDevIdentity ? 'Unlinking...' : 'Unlink Developer Identity'}
+				</button>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -586,6 +842,18 @@
 						type="text"
 						bind:value={newPoolCognitoProvider}
 						placeholder="cognito-idp.us-east-1.amazonaws.com/us-east-1_xxxxx"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary font-mono"
+					/>
+				</div>
+				<div>
+					<label for="pool-dev-provider" class="block text-sm font-medium mb-1"
+						>Developer Provider Name (optional)</label
+					>
+					<input
+						id="pool-dev-provider"
+						type="text"
+						bind:value={newPoolDeveloperProviderName}
+						placeholder="developer.myapp.com"
 						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary font-mono"
 					/>
 				</div>

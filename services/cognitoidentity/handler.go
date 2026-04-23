@@ -209,7 +209,12 @@ var cognitoIdentitySentinelErrors = []struct { //nolint:gochecknoglobals // pack
 func resolveErrorType(err error) (string, int) {
 	for _, entry := range cognitoIdentitySentinelErrors {
 		if errors.Is(err, entry.sentinel) {
-			return entry.typeName, http.StatusBadRequest
+			statusCode := http.StatusBadRequest
+			if errors.Is(err, ErrNotAuthorized) {
+				statusCode = http.StatusForbidden
+			}
+
+			return entry.typeName, statusCode
 		}
 	}
 
@@ -239,6 +244,7 @@ type identityPoolOutput struct {
 	IdentityPoolTags               map[string]string              `json:"IdentityPoolTags,omitempty"`
 	IdentityPoolID                 string                         `json:"IdentityPoolId"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
+	DeveloperProviderName          string                         `json:"DeveloperProviderName,omitempty"`
 	IdentityProviders              []cognitoIdentityProviderInput `json:"CognitoIdentityProviders,omitempty"`
 	AllowUnauthenticatedIdentities bool                           `json:"AllowUnauthenticatedIdentities"`
 	AllowClassicFlow               bool                           `json:"AllowClassicFlow,omitempty"`
@@ -248,6 +254,7 @@ type createIdentityPoolInput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders"`
 	Tags                           map[string]string              `json:"IdentityPoolTags"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
+	DeveloperProviderName          string                         `json:"DeveloperProviderName"`
 	IdentityProviders              []cognitoIdentityProviderInput `json:"CognitoIdentityProviders"`
 	AllowUnauthenticatedIdentities bool                           `json:"AllowUnauthenticatedIdentities"`
 	AllowClassicFlow               bool                           `json:"AllowClassicFlow"`
@@ -263,6 +270,7 @@ func (h *Handler) handleCreateIdentityPool(
 		in.IdentityPoolName,
 		in.AllowUnauthenticatedIdentities,
 		in.AllowClassicFlow,
+		in.DeveloperProviderName,
 		providers,
 		in.SupportedLoginProviders,
 		in.Tags,
@@ -339,8 +347,10 @@ func (h *Handler) handleListIdentityPools(
 
 type updateIdentityPoolInput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders"`
+	IdentityPoolTags               map[string]string              `json:"IdentityPoolTags"`
 	IdentityPoolID                 string                         `json:"IdentityPoolId"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
+	DeveloperProviderName          string                         `json:"DeveloperProviderName"`
 	IdentityProviders              []cognitoIdentityProviderInput `json:"CognitoIdentityProviders"`
 	AllowUnauthenticatedIdentities bool                           `json:"AllowUnauthenticatedIdentities"`
 	AllowClassicFlow               bool                           `json:"AllowClassicFlow"`
@@ -357,8 +367,10 @@ func (h *Handler) handleUpdateIdentityPool(
 		in.IdentityPoolName,
 		in.AllowUnauthenticatedIdentities,
 		in.AllowClassicFlow,
+		in.DeveloperProviderName,
 		providers,
 		in.SupportedLoginProviders,
+		in.IdentityPoolTags,
 	)
 	if err != nil {
 		return nil, err
@@ -463,10 +475,7 @@ func (h *Handler) handleSetIdentityPoolRoles(
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
-	_, hasAuth := in.Roles["authenticated"]
-	_, hasUnauth := in.Roles["unauthenticated"]
-
-	if !hasAuth && !hasUnauth {
+	if len(in.Roles) == 0 {
 		return nil, fmt.Errorf(
 			"%w: Roles must contain at least one of authenticated or unauthenticated",
 			ErrInvalidParameter,
@@ -535,6 +544,7 @@ func toIdentityPoolOutput(pool *IdentityPool) *identityPoolOutput {
 	return &identityPoolOutput{
 		IdentityPoolID:                 pool.IdentityPoolID,
 		IdentityPoolName:               pool.IdentityPoolName,
+		DeveloperProviderName:          pool.DeveloperProviderName,
 		AllowUnauthenticatedIdentities: pool.AllowUnauthenticatedIdentities,
 		AllowClassicFlow:               pool.AllowClassicFlow,
 		IdentityProviders:              providers,

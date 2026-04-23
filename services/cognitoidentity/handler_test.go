@@ -2217,3 +2217,306 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, h.Backend.PoolCount())
 }
+
+func TestHandler_Refinement1_UnlinkIdentity_TokenMismatch_Returns403(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "auth-pool-r1",
+		"AllowUnauthenticatedIdentities": true,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+
+	idRec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
+		"AccountId":      "000000000000",
+		"IdentityPoolId": created["IdentityPoolId"],
+		"Logins": map[string]string{
+			"accounts.google.com": "correct-token",
+		},
+	})
+	require.Equal(t, http.StatusOK, idRec.Code)
+
+	var idOut map[string]any
+	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut))
+
+	rec := doCognitoIdentityRequest(t, h, "UnlinkIdentity", map[string]any{
+		"IdentityId": idOut["IdentityId"],
+		"Logins": map[string]string{
+			"accounts.google.com": "wrong-token",
+		},
+		"LoginsToRemove": []string{"accounts.google.com"},
+	})
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestHandler_Refinement1_UnlinkDeveloperIdentity_WrongUser_Returns403(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "unlink-dev-403-pool",
+		"AllowUnauthenticatedIdentities": true,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	poolID := created["IdentityPoolId"].(string)
+
+	devRec := doCognitoIdentityRequest(t, h, "GetOpenIdTokenForDeveloperIdentity", map[string]any{
+		"IdentityPoolId": poolID,
+		"Logins": map[string]string{
+			"developer.example.com": "user-001",
+		},
+	})
+	require.Equal(t, http.StatusOK, devRec.Code)
+
+	var devOut map[string]any
+	require.NoError(t, json.Unmarshal(devRec.Body.Bytes(), &devOut))
+
+	rec := doCognitoIdentityRequest(t, h, "UnlinkDeveloperIdentity", map[string]any{
+		"IdentityId":              devOut["IdentityId"],
+		"IdentityPoolId":          poolID,
+		"DeveloperProviderName":   "developer.example.com",
+		"DeveloperUserIdentifier": "wrong-user",
+	})
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestHandler_Refinement1_DeveloperProviderName_InCreateAndDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "dev-provider-pool",
+		"AllowUnauthenticatedIdentities": false,
+		"DeveloperProviderName":          "developer.myapp.com",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	assert.Equal(t, "developer.myapp.com", created["DeveloperProviderName"])
+
+	descRec := doCognitoIdentityRequest(t, h, "DescribeIdentityPool", map[string]any{
+		"IdentityPoolId": created["IdentityPoolId"],
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	assert.Equal(t, "developer.myapp.com", descOut["DeveloperProviderName"])
+}
+
+func TestHandler_Refinement1_UpdateIdentityPool_WithTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "tag-update-pool",
+		"AllowUnauthenticatedIdentities": true,
+		"IdentityPoolTags":               map[string]string{"env": "dev"},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	poolID := created["IdentityPoolId"].(string)
+
+	updateRec := doCognitoIdentityRequest(t, h, "UpdateIdentityPool", map[string]any{
+		"IdentityPoolId":                 poolID,
+		"IdentityPoolName":               "tag-update-pool",
+		"AllowUnauthenticatedIdentities": true,
+		"IdentityPoolTags":               map[string]string{"env": "prod", "team": "backend"},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	var updated map[string]any
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updated))
+	tags, _ := updated["IdentityPoolTags"].(map[string]any)
+	assert.Equal(t, "prod", tags["env"])
+	assert.Equal(t, "backend", tags["team"])
+}
+
+func TestHandler_Refinement1_GetOpenIdTokenForDeveloperIdentity_InvalidDuration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "dur-pool",
+		"AllowUnauthenticatedIdentities": true,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+
+	rec := doCognitoIdentityRequest(t, h, "GetOpenIdTokenForDeveloperIdentity", map[string]any{
+		"IdentityPoolId": created["IdentityPoolId"],
+		"Logins": map[string]string{
+			"developer.example.com": "user-001",
+		},
+		"TokenDuration": 99999,
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_Refinement1_SetIdentityPoolRoles_SingleRole(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "single-role-pool",
+		"AllowUnauthenticatedIdentities": true,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+
+	rec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
+		"IdentityPoolId": created["IdentityPoolId"],
+		"Roles": map[string]string{
+			"authenticated": "arn:aws:iam::000000000000:role/AuthRole",
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_Refinement1_TagResource_EmptyArn_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": "",
+		"Tags":        map[string]string{"k": "v"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_Refinement1_UntagResource_EmptyArn_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "UntagResource", map[string]any{
+		"ResourceArn": "",
+		"TagKeys":     []string{"k"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_Refinement1_GetPrincipalTagAttributeMap_EmptyProvider_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "ptag-pool",
+		"AllowUnauthenticatedIdentities": true,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+
+	rec := doCognitoIdentityRequest(t, h, "GetPrincipalTagAttributeMap", map[string]any{
+		"IdentityPoolId":       created["IdentityPoolId"],
+		"IdentityProviderName": "",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_Refinement1_ListIdentities_EmptyPoolId_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "ListIdentities", map[string]any{
+		"IdentityPoolId": "",
+		"MaxResults":     10,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_Refinement1_GetCredentialsForIdentity_EmptyId_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "GetCredentialsForIdentity", map[string]any{
+		"IdentityId": "",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_Refinement1_GetOpenIdToken_EmptyId_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "GetOpenIdToken", map[string]any{
+		"IdentityId": "",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_Refinement1_MergeDeveloperIdentities_MissingRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "missing_pool_id",
+			body: map[string]any{
+				"IdentityPoolId":            "",
+				"SourceUserIdentifier":      "src",
+				"DestinationUserIdentifier": "dst",
+				"DeveloperProviderName":     "developer.example.com",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_provider_name",
+			body: map[string]any{
+				"IdentityPoolId":            "us-east-1:pool",
+				"SourceUserIdentifier":      "src",
+				"DestinationUserIdentifier": "dst",
+				"DeveloperProviderName":     "",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_source",
+			body: map[string]any{
+				"IdentityPoolId":            "us-east-1:pool",
+				"SourceUserIdentifier":      "",
+				"DestinationUserIdentifier": "dst",
+				"DeveloperProviderName":     "developer.example.com",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doCognitoIdentityRequest(t, h, "MergeDeveloperIdentities", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
