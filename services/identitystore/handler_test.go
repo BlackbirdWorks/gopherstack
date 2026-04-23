@@ -180,6 +180,24 @@ func TestUserCRUD(t *testing.T) {
 					"UserId":          userID,
 					"Operations": []map[string]any{
 						{"AttributePath": "displayName", "AttributeValue": "New Name"},
+						{
+							"AttributePath": "emails",
+							"AttributeValue": []map[string]any{
+								{"Value": "new.name@example.com", "Type": "work", "Primary": true},
+							},
+						},
+						{
+							"AttributePath": "phoneNumbers",
+							"AttributeValue": []map[string]any{
+								{"Value": "+1-555-0100", "Type": "work", "Primary": true},
+							},
+						},
+						{
+							"AttributePath": "addresses",
+							"AttributeValue": []map[string]any{
+								{"Formatted": "123 Main St, Metropolis", "Type": "work", "Primary": true},
+							},
+						},
 					},
 				})
 
@@ -189,7 +207,29 @@ func TestUserCRUD(t *testing.T) {
 					"IdentityStoreId": testStoreID,
 					"UserId":          userID,
 				})
-				assert.Equal(t, "New Name", parseResponse(t, descRec)["DisplayName"])
+				resp := parseResponse(t, descRec)
+				assert.Equal(t, "New Name", resp["DisplayName"])
+				assert.Equal(
+					t,
+					[]any{map[string]any{
+						"Value": "new.name@example.com", "Type": "work", "Primary": true,
+					}},
+					resp["Emails"],
+				)
+				assert.Equal(
+					t,
+					[]any{map[string]any{
+						"Value": "+1-555-0100", "Type": "work", "Primary": true,
+					}},
+					resp["PhoneNumbers"],
+				)
+				assert.Equal(
+					t,
+					[]any{map[string]any{
+						"Formatted": "123 Main St, Metropolis", "Type": "work", "Primary": true,
+					}},
+					resp["Addresses"],
+				)
 			},
 		},
 		{

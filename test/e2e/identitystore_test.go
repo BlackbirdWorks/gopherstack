@@ -231,3 +231,116 @@ func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, content, "Platform Team")
 }
+
+// TestIdentityStoreDashboard_MembershipAndProfileFlow verifies profile editing,
+// group membership add/remove, and identity store selector behavior.
+func TestIdentityStoreDashboard_MembershipAndProfileFlow(t *testing.T) {
+	stack := newStack(t)
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	ctx, err := browser.NewContext()
+	require.NoError(t, err)
+	defer ctx.Close()
+
+	page, err := ctx.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestIdentityStoreDashboard_MembershipAndProfileFlow")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard/identitystore")
+	require.NoError(t, err)
+
+	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(60000),
+	})
+	require.NoError(t, err)
+
+	// Create user.
+	err = page.Locator("button:has-text('+ Create User')").Click()
+	require.NoError(t, err)
+	err = page.Locator("input[name='user_name']").Fill("charlie.user")
+	require.NoError(t, err)
+	err = page.Locator("#create-user-modal input[name='display_name']").Fill("Charlie User")
+	require.NoError(t, err)
+	err = page.Locator("#create-user-modal button[type='submit']:has-text('Create')").Click()
+	require.NoError(t, err)
+	err = page.Locator("td:has-text('charlie.user')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
+	// Edit profile data.
+	err = page.Locator("tr:has(td:has-text('charlie.user')) button:has-text('Edit Profile')").Click()
+	require.NoError(t, err)
+	err = page.Locator("#edit-user-modal input[name='profile_display_name']").Fill("Charlie Updated")
+	require.NoError(t, err)
+	err = page.Locator("#edit-user-modal input[name='profile_email']").Fill("charlie.updated@example.com")
+	require.NoError(t, err)
+	err = page.Locator("#edit-user-modal input[name='profile_phone']").Fill("+1-555-0199")
+	require.NoError(t, err)
+	err = page.Locator("#edit-user-modal input[name='profile_address']").Fill("456 Side St")
+	require.NoError(t, err)
+	err = page.Locator("#edit-user-modal button[type='submit']:has-text('Save')").Click()
+	require.NoError(t, err)
+	err = page.Locator("tr:has(td:has-text('charlie.user')) td:has-text('Charlie Updated')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
+	// Create group in groups tab.
+	err = page.Locator("button:has-text('Groups')").Click()
+	require.NoError(t, err)
+	err = page.Locator("button:has-text('+ Create Group')").Click()
+	require.NoError(t, err)
+	err = page.Locator("#create-group-modal input[name='display_name']").Fill("DevRel")
+	require.NoError(t, err)
+	err = page.Locator("#create-group-modal button[type='submit']:has-text('Create')").Click()
+	require.NoError(t, err)
+	err = page.Locator("button:has-text('Groups')").Click()
+	require.NoError(t, err)
+	err = page.Locator("td:has-text('DevRel')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
+	// Add and remove membership from users tab.
+	err = page.Locator("button:has-text('Users')").Click()
+	require.NoError(t, err)
+	err = page.Locator("tr:has(td:has-text('charlie.user')) button:has-text('Manage Memberships')").Click()
+	require.NoError(t, err)
+	_, err = page.Locator("#membership-modal select[name='membership_group']").SelectOption(playwright.SelectOptionValues{
+		Labels: &[]string{"DevRel"},
+	})
+	require.NoError(t, err)
+	err = page.Locator("#membership-modal button:has-text('Add')").Click()
+	require.NoError(t, err)
+	err = page.Locator("#membership-modal tr:has(td:has-text('DevRel')) td:has-text('Member')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = page.Locator("#membership-modal tr:has(td:has-text('DevRel')) button:has-text('Remove')").Click()
+	require.NoError(t, err)
+	err = page.Locator("#membership-modal tr:has(td:has-text('DevRel')) td:has-text('Not a member')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = page.Locator("#membership-modal button:has-text('Close')").Click()
+	require.NoError(t, err)
+
+	// Switch to empty identity store id and verify no users are shown.
+	err = page.Locator("input[name='identity_store_id']").Fill("d-9999999999")
+	require.NoError(t, err)
+	err = page.Locator("button:has-text('Load Store')").Click()
+	require.NoError(t, err)
+	err = page.Locator("td:has-text('No users found')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+}

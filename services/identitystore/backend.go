@@ -243,7 +243,7 @@ func (b *InMemoryBackend) ListUsers(storeID string) []*User {
 	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
 
-	result := make([]*User, 0)
+	result := make([]*User, 0, len(b.users))
 
 	for _, u := range b.users {
 		if u.IdentityStoreID == storeID {
@@ -307,6 +307,12 @@ func applyUserAttribute(user *User, path string, value any) {
 		user.Timezone = strVal
 	case "usertype":
 		user.UserType = strVal
+	case "emails":
+		user.Emails = parseEmails(value)
+	case "addresses":
+		user.Addresses = parseAddresses(value)
+	case "phonenumbers":
+		user.PhoneNumbers = parsePhoneNumbers(value)
 	default:
 		applyUserNameAttribute(user, path, strVal)
 	}
@@ -341,6 +347,104 @@ func ensureUserName(user *User) {
 	if user.Name == nil {
 		user.Name = &Name{}
 	}
+}
+
+func parseEmails(value any) []Email {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []Email:
+		return append([]Email(nil), v...)
+	case []any:
+		emails := make([]Email, 0, len(v))
+		for _, entry := range v {
+			emailMap, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			emails = append(emails, Email{
+				Value:   valueAsString(emailMap["Value"]),
+				Type:    valueAsString(emailMap["Type"]),
+				Primary: valueAsBool(emailMap["Primary"]),
+			})
+		}
+
+		return emails
+	default:
+		return nil
+	}
+}
+
+func parseAddresses(value any) []Address {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []Address:
+		return append([]Address(nil), v...)
+	case []any:
+		addresses := make([]Address, 0, len(v))
+		for _, entry := range v {
+			addressMap, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			addresses = append(addresses, Address{
+				Formatted:     valueAsString(addressMap["Formatted"]),
+				StreetAddress: valueAsString(addressMap["StreetAddress"]),
+				Locality:      valueAsString(addressMap["Locality"]),
+				Region:        valueAsString(addressMap["Region"]),
+				PostalCode:    valueAsString(addressMap["PostalCode"]),
+				Country:       valueAsString(addressMap["Country"]),
+				Type:          valueAsString(addressMap["Type"]),
+				Primary:       valueAsBool(addressMap["Primary"]),
+			})
+		}
+
+		return addresses
+	default:
+		return nil
+	}
+}
+
+func parsePhoneNumbers(value any) []PhoneNumber {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []PhoneNumber:
+		return append([]PhoneNumber(nil), v...)
+	case []any:
+		numbers := make([]PhoneNumber, 0, len(v))
+		for _, entry := range v {
+			numberMap, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			numbers = append(numbers, PhoneNumber{
+				Value:   valueAsString(numberMap["Value"]),
+				Type:    valueAsString(numberMap["Type"]),
+				Primary: valueAsBool(numberMap["Primary"]),
+			})
+		}
+
+		return numbers
+	default:
+		return nil
+	}
+}
+
+func valueAsString(value any) string {
+	str, _ := value.(string)
+
+	return str
+}
+
+func valueAsBool(value any) bool {
+	boolean, _ := value.(bool)
+
+	return boolean
 }
 
 // DeleteUser removes a user from the identity store.
