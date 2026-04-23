@@ -19,10 +19,5 @@ func TestSDKCompleteness(t *testing.T) {
 	h := ssoadmin.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &ssoadminsdk.Client{}, h.GetSupportedOperations(), []string{
 		"DescribeRegion",
-		"GetApplicationAccessScope",
-		"GetApplicationAuthenticationMethod",
-		"GetApplicationGrant",
-		"ListAccountsForProvisionedPermissionSet",
-		"ListApplicationAssignmentsForPrincipal",
 	})
 }

@@ -68,7 +68,7 @@ type StorageBackend interface {
 	PutApplicationSessionConfiguration(applicationArn, sessionDuration string) error
 	PutPermissionsBoundaryToPermissionSet(instanceArn, permissionSetArn, managedPolicyArn string) error
 	UpdateApplication(applicationArn, name, description, status string) (*Application, error)
-	UpdateTrustedTokenIssuer(trustedTokenIssuerArn, name, issuerType string) (*TrustedTokenIssuer, error)
+	UpdateTrustedTokenIssuer(trustedTokenIssuerArn, name, issuerType string, cfg *TrustedTokenIssuerConfiguration) (*TrustedTokenIssuer, error)
 	CreateApplication(
 		instanceArn, applicationProviderArn, name, description string,
 		tags map[string]string,
@@ -88,12 +88,17 @@ type StorageBackend interface {
 	DetachCustomerManagedPolicyReferenceFromPermissionSet(instanceArn, permissionSetArn, name, path string) error
 	GetApplicationAssignmentConfiguration(applicationArn string) (bool, error)
 	GetApplicationSessionConfiguration(applicationArn string) (string, error)
+	GetApplicationAccessScope(applicationArn, scope string) (string, error)
+	GetApplicationAuthenticationMethod(applicationArn, authMethodType string) (string, error)
+	GetApplicationGrant(applicationArn, grantType string) (string, error)
 	ListCustomerManagedPolicyReferencesInPermissionSet(
 		instanceArn, permissionSetArn string,
 	) ([]CustomerManagedPolicyReference, error)
 	RemoveRegion(instanceArn, regionName string) error
 	UpdateInstance(instanceArn, name string) error
 	UpdateInstanceAccessControlAttributeConfiguration(instanceArn string, attributes []AccessControlAttribute) error
+	ListAccountsForProvisionedPermissionSet(instanceArn, permissionSetArn string) ([]string, error)
+	ListApplicationAssignmentsForPrincipal(instanceArn, principalID, principalType string) []*ApplicationAssignment
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

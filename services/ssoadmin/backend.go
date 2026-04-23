@@ -23,6 +23,7 @@ const (
 	// Instance/application status constants.
 	instanceStatusActive = "ACTIVE"
 	appStatusEnabled     = "ENABLED"
+	appStatusDisabled    = "DISABLED"
 
 	// Default session duration for new permission sets.
 	defaultSessionDuration = "PT1H"
@@ -32,11 +33,21 @@ const (
 	maxTagKeyLen       = 128
 	maxTagValueLen     = 256
 
+	// AWS permission set name length limit.
+	maxPermissionSetNameLen = 32
+
 	// Default TrustedTokenIssuer type (OIDC_JWT).
 	ttiDefaultType = "OIDC_JWT"
 
 	// Region scope type for SSO instance regions.
 	regionScopeTypeAllRegions = "ALL_REGIONS"
+
+	// Valid principal types for account assignments.
+	principalTypeUser  = "USER"
+	principalTypeGroup = "GROUP"
+
+	// Valid target type for account assignments.
+	targetTypeAWSAccount = "AWS_ACCOUNT"
 )
 
 var (
@@ -46,6 +57,7 @@ var (
 	ErrInstanceNotFound                = errors.New("ResourceNotFoundException")
 	ErrPermissionSetNotFound           = errors.New("ResourceNotFoundException")
 	ErrPermissionSetAlreadyExists      = errors.New("ConflictException")
+	ErrPermissionSetHasAssignments     = errors.New("ConflictException")
 	ErrAssignmentNotFound              = errors.New("ResourceNotFoundException")
 	ErrRequestNotFound                 = errors.New("ResourceNotFoundException")
 	ErrApplicationNotFound             = errors.New("ResourceNotFoundException")
@@ -54,6 +66,7 @@ var (
 	ErrTrustedTokenIssuerAlreadyExists = errors.New("ConflictException")
 	ErrAccessScopeNotFound             = errors.New("ResourceNotFoundException")
 	ErrAuthMethodNotFound              = errors.New("ResourceNotFoundException")
+	ErrGrantNotFound                   = errors.New("ResourceNotFoundException")
 	ErrACAAlreadyExists                = errors.New("ConflictException")
 	ErrPermissionsBoundaryNotFound     = errors.New("ResourceNotFoundException")
 	ErrTooManyTagsException            = errors.New("TooManyTagsException")
@@ -142,10 +155,17 @@ type AccessControlAttribute struct {
 	Value AccessControlAttributeValue `json:"Value"`
 }
 
+// ApplicationProviderDisplayData contains display metadata for an application provider.
+type ApplicationProviderDisplayData struct {
+	Description string `json:"Description,omitempty"`
+	DisplayName string `json:"DisplayName,omitempty"`
+	IconUrl     string `json:"IconUrl,omitempty"`
+}
+
 // ApplicationProvider represents an SSO application provider.
 type ApplicationProvider struct {
-	ApplicationProviderArn string `json:"ApplicationProviderArn"`
-	DisplayData            string `json:"DisplayData"`
+	ApplicationProviderArn string                          `json:"ApplicationProviderArn"`
+	DisplayData            ApplicationProviderDisplayData  `json:"DisplayData"`
 }
 
 // InstanceAccessControlAttributeConfiguration holds ABAC configuration for an instance.
@@ -364,6 +384,8 @@ func (b *InMemoryBackend) DescribeInstance(instanceArn string) (*Instance, error
 	}
 
 	cp := *inst
+	cp.Tags = make(map[string]string, len(inst.Tags))
+	maps.Copy(cp.Tags, inst.Tags)
 
 	return &cp, nil
 }
@@ -428,6 +450,11 @@ func (b *InMemoryBackend) CreatePermissionSet(
 		return nil, ErrInstanceNotFound
 	}
 
+	if len(name) > maxPermissionSetNameLen {
+		return nil, fmt.Errorf("%w: permission set name must not exceed %d characters",
+			awserr.ErrInvalidParameter, maxPermissionSetNameLen)
+	}
+
 	for _, ps := range b.permissionSets {
 		if ps.InstanceArn == instanceArn && ps.Name == name {
 			return nil, ErrPermissionSetAlreadyExists
@@ -489,6 +516,7 @@ func (b *InMemoryBackend) ListPermissionSets(instanceArn string) []*PermissionSe
 }
 
 // DeletePermissionSet removes a permission set and cascades to its assignments.
+// Returns ConflictException if the permission set is still assigned to any accounts.
 func (b *InMemoryBackend) DeletePermissionSet(instanceArn, permissionSetArn string) error {
 	b.mu.Lock("DeletePermissionSet")
 	defer b.mu.Unlock()
@@ -497,10 +525,17 @@ func (b *InMemoryBackend) DeletePermissionSet(instanceArn, permissionSetArn stri
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
+
+	// AWS returns ConflictException if there are active account assignments.
+	key := assignmentKey(instanceArn, permissionSetArn)
+	if len(b.assignments[key]) > 0 {
+		return ErrPermissionSetHasAssignments
+	}
+
 	delete(b.permissionSets, permissionSetArn)
 	delete(b.permissionBoundaries, permissionSetArn)
 	delete(b.customerManagedPolicies, permissionSetArn)
-	delete(b.assignments, assignmentKey(instanceArn, permissionSetArn))
+	delete(b.assignments, key)
 
 	return nil
 }
@@ -721,6 +756,7 @@ func (b *InMemoryBackend) AttachManagedPolicyToPermissionSet(
 }
 
 // DetachManagedPolicyFromPermissionSet detaches a managed policy from a permission set.
+// Returns ResourceNotFoundException if the policy is not attached.
 func (b *InMemoryBackend) DetachManagedPolicyFromPermissionSet(
 	instanceArn, permissionSetArn, managedPolicyArn string,
 ) error {
@@ -731,11 +767,17 @@ func (b *InMemoryBackend) DetachManagedPolicyFromPermissionSet(
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
-	var remaining []ManagedPolicy
+	found := false
+	remaining := make([]ManagedPolicy, 0, len(ps.ManagedPolicies))
 	for _, mp := range ps.ManagedPolicies {
-		if mp.Arn != managedPolicyArn {
+		if mp.Arn == managedPolicyArn {
+			found = true
+		} else {
 			remaining = append(remaining, mp)
 		}
+	}
+	if !found {
+		return ErrRequestNotFound
 	}
 	ps.ManagedPolicies = remaining
 
@@ -877,7 +919,7 @@ func (b *InMemoryBackend) DescribePermissionSetProvisioningStatus(
 	return &cp, nil
 }
 
-// ListPermissionSetProvisioningStatus returns permission-set provisioning statuses.
+// ListPermissionSetProvisioningStatus returns permission-set provisioning statuses sorted by date descending.
 func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(_ string) []*ProvisioningStatus {
 	b.mu.RLock("ListPermissionSetProvisioningStatus")
 	defer b.mu.RUnlock()
@@ -887,6 +929,9 @@ func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(_ string) []*Provi
 		cp := *status
 		result = append(result, &cp)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedDate.After(result[j].CreatedDate)
+	})
 
 	return result
 }
@@ -1698,7 +1743,10 @@ func (b *InMemoryBackend) ListApplicationProviders() []*ApplicationProvider {
 	for providerArn := range seen {
 		result = append(result, &ApplicationProvider{
 			ApplicationProviderArn: providerArn,
-			DisplayData:            "custom provider",
+			DisplayData: ApplicationProviderDisplayData{
+				DisplayName: "custom provider",
+				Description: "Custom SSO application provider",
+			},
 		})
 	}
 
@@ -1724,7 +1772,10 @@ func (b *InMemoryBackend) DescribeApplicationProvider(
 	if _, ok := seen[applicationProviderArn]; ok {
 		return &ApplicationProvider{
 			ApplicationProviderArn: applicationProviderArn,
-			DisplayData:            "custom provider",
+			DisplayData: ApplicationProviderDisplayData{
+				DisplayName: "custom provider",
+				Description: "Custom SSO application provider",
+			},
 		}, nil
 	}
 
@@ -1823,6 +1874,7 @@ func (b *InMemoryBackend) UpdateTrustedTokenIssuer(
 	trustedTokenIssuerArn,
 	name,
 	issuerType string,
+	cfg *TrustedTokenIssuerConfiguration,
 ) (*TrustedTokenIssuer, error) {
 	b.mu.Lock("UpdateTrustedTokenIssuer")
 	defer b.mu.Unlock()
@@ -1836,6 +1888,9 @@ func (b *InMemoryBackend) UpdateTrustedTokenIssuer(
 	}
 	if issuerType != "" {
 		issuer.TrustedTokenIssuerType = issuerType
+	}
+	if cfg != nil {
+		issuer.TrustedTokenIssuerConfiguration = cfg
 	}
 
 	return copyTrustedTokenIssuer(issuer), nil
@@ -2062,4 +2117,102 @@ func (b *InMemoryBackend) ListAccountAssignmentsForPrincipal(
 	})
 
 	return result
+}
+
+// GetApplicationAccessScope returns whether a specific access scope exists for an application.
+func (b *InMemoryBackend) GetApplicationAccessScope(applicationArn, scope string) (string, error) {
+b.mu.RLock("GetApplicationAccessScope")
+defer b.mu.RUnlock()
+
+if _, ok := b.applications[applicationArn]; !ok {
+return "", ErrApplicationNotFound
+}
+if slices.Contains(b.applicationScopes[applicationArn], scope) {
+return scope, nil
+}
+
+return "", ErrAccessScopeNotFound
+}
+
+// GetApplicationAuthenticationMethod returns an authentication method for an application if it exists.
+func (b *InMemoryBackend) GetApplicationAuthenticationMethod(applicationArn, authMethodType string) (string, error) {
+b.mu.RLock("GetApplicationAuthenticationMethod")
+defer b.mu.RUnlock()
+
+if _, ok := b.applications[applicationArn]; !ok {
+return "", ErrApplicationNotFound
+}
+if slices.Contains(b.applicationAuthMethods[applicationArn], authMethodType) {
+return authMethodType, nil
+}
+
+return "", ErrAuthMethodNotFound
+}
+
+// GetApplicationGrant returns a grant type for an application if it exists.
+func (b *InMemoryBackend) GetApplicationGrant(applicationArn, grantType string) (string, error) {
+b.mu.RLock("GetApplicationGrant")
+defer b.mu.RUnlock()
+
+if _, ok := b.applications[applicationArn]; !ok {
+return "", ErrApplicationNotFound
+}
+if slices.Contains(b.applicationGrants[applicationArn], grantType) {
+return grantType, nil
+}
+
+return "", ErrGrantNotFound
+}
+
+// ListAccountsForProvisionedPermissionSet returns account IDs where a permission set has assignments.
+func (b *InMemoryBackend) ListAccountsForProvisionedPermissionSet(instanceArn, permissionSetArn string) ([]string, error) {
+b.mu.RLock("ListAccountsForProvisionedPermissionSet")
+defer b.mu.RUnlock()
+
+if _, ok := b.instances[instanceArn]; !ok {
+return nil, ErrInstanceNotFound
+}
+if _, ok := b.permissionSets[permissionSetArn]; !ok {
+return nil, ErrPermissionSetNotFound
+}
+
+key := assignmentKey(instanceArn, permissionSetArn)
+seen := map[string]struct{}{}
+for _, a := range b.assignments[key] {
+seen[a.AccountID] = struct{}{}
+}
+
+result := make([]string, 0, len(seen))
+for accountID := range seen {
+result = append(result, accountID)
+}
+sort.Strings(result)
+
+return result, nil
+}
+
+// ListApplicationAssignmentsForPrincipal returns all application assignments for a specific principal.
+func (b *InMemoryBackend) ListApplicationAssignmentsForPrincipal(
+instanceArn, principalID, principalType string,
+) []*ApplicationAssignment {
+b.mu.RLock("ListApplicationAssignmentsForPrincipal")
+defer b.mu.RUnlock()
+
+var result []*ApplicationAssignment
+for appArn, app := range b.applications {
+if app.InstanceArn != instanceArn {
+continue
+}
+for _, a := range b.applicationAssignments[appArn] {
+if a.PrincipalID == principalID && a.PrincipalType == principalType {
+cp := *a
+result = append(result, &cp)
+}
+}
+}
+sort.Slice(result, func(i, j int) bool {
+return result[i].ApplicationArn < result[j].ApplicationArn
+})
+
+return result
 }

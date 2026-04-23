@@ -18,6 +18,7 @@
 		ListAccountAssignmentCreationStatusCommand,
 		ListAccountAssignmentDeletionStatusCommand,
 		ListAccountAssignmentsCommand,
+		ListApplicationAssignmentsCommand,
 		ListApplicationsCommand,
 		ListInstancesCommand,
 		ListPermissionSetProvisioningStatusCommand,
@@ -25,7 +26,8 @@
 		ListRegionsCommand,
 		ListTrustedTokenIssuersCommand,
 		ProvisionPermissionSetCommand,
-		RemoveRegionCommand
+		RemoveRegionCommand,
+		UpdateApplicationCommand
 	} from '@aws-sdk/client-sso-admin';
 	import { toast } from 'svelte-sonner';
 
@@ -67,13 +69,26 @@
 		Array<{ PrincipalId?: string; PrincipalType?: string; AccountId?: string }>
 	>([]);
 	let applications = $state<
-		Array<{ ApplicationArn?: string; Name?: string; Status?: string }>
+		Array<{
+			ApplicationArn?: string;
+			Name?: string;
+			Status?: string;
+			ApplicationProviderArn?: string;
+			Description?: string;
+		}>
 	>([]);
+	let applicationAssignmentCounts = $state<Record<string, number>>({});
 	let trustedTokenIssuers = $state<
 		Array<{
 			TrustedTokenIssuerArn?: string;
 			Name?: string;
 			TrustedTokenIssuerType?: string;
+			TrustedTokenIssuerConfiguration?: {
+				OidcJwtConfiguration?: {
+					IssuerUrl?: string;
+					ClaimAttributePath?: string;
+				};
+			};
 		}>
 	>([]);
 	let instanceRegions = $state<Array<{ Region?: string; RegionScopeType?: string }>>([]);
@@ -87,6 +102,18 @@
 	let provisioningStatuses = $state<
 		Array<{ RequestId?: string; Status?: string; CreatedDate?: Date }>
 	>([]);
+
+	// Principal lookup state.
+	let principalLookupID = $state('');
+	let principalLookupType = $state<'USER' | 'GROUP'>('USER');
+	let principalAssignments = $state<
+		Array<{ PrincipalId?: string; PrincipalType?: string; AccountId?: string; PermissionSetArn?: string }>
+	>([]);
+	let principalLookupLoading = $state(false);
+
+	// Accounts for provisioned PS state.
+	let accountsForPS = $state<string[]>([]);
+	let accountsForPSLoading = $state(false);
 
 	let selectedInstanceArn = $state('');
 	let selectedPermissionSetArn = $state('');
@@ -246,11 +273,42 @@
 	async function loadApplications() {
 		if (!selectedInstanceArn) {
 			applications = [];
+			applicationAssignmentCounts = {};
 			return;
 		}
 		const out = await ssoadmin.send(new ListApplicationsCommand({ InstanceArn: selectedInstanceArn }));
 		applications = out.Applications ?? [];
 		metricsAppCount = applications.length;
+
+		// Load assignment counts per application.
+		const counts: Record<string, number> = {};
+		await Promise.all(
+			applications.map(async (app) => {
+				if (!app.ApplicationArn) return;
+				try {
+					const aa = await ssoadmin.send(
+						new ListApplicationAssignmentsCommand({ ApplicationArn: app.ApplicationArn })
+					);
+					counts[app.ApplicationArn] = (aa.ApplicationAssignments ?? []).length;
+				} catch {
+					counts[app.ApplicationArn] = 0;
+				}
+			})
+		);
+		applicationAssignmentCounts = counts;
+	}
+
+	async function toggleApplicationStatus(appArn: string, currentStatus?: string) {
+		const newStatus = currentStatus === 'ENABLED' ? 'DISABLED' : 'ENABLED';
+		try {
+			await ssoadmin.send(
+				new UpdateApplicationCommand({ ApplicationArn: appArn, Status: newStatus as 'ENABLED' | 'DISABLED' })
+			);
+			toast.success(`Application ${newStatus === 'ENABLED' ? 'enabled' : 'disabled'}`);
+			await loadApplications();
+		} catch (err: unknown) {
+			toast.error(`Failed to update application: ${(err as Error).message}`);
+		}
 	}
 
 	async function loadTrustedTokenIssuers() {
@@ -261,8 +319,57 @@
 		const out = await ssoadmin.send(
 			new ListTrustedTokenIssuersCommand({ InstanceArn: selectedInstanceArn })
 		);
-		trustedTokenIssuers = out.TrustedTokenIssuers ?? [];
+		trustedTokenIssuers = (out.TrustedTokenIssuers ?? []) as typeof trustedTokenIssuers;
 		metricsTTICount = trustedTokenIssuers.length;
+	}
+
+	function lookupPrincipalAssignments() {
+		if (!selectedInstanceArn || !principalLookupID || !principalLookupType) {
+			toast.error('Please select an instance and enter a principal ID');
+			return;
+		}
+		principalLookupLoading = true;
+		try {
+			// Use the already-loaded accountAssignments and filter client-side by principal.
+			principalAssignments = accountAssignments
+				.filter(
+					(a) => a.PrincipalId === principalLookupID && a.PrincipalType === principalLookupType
+				)
+				.map((a) => ({
+					PrincipalId: a.PrincipalId,
+					PrincipalType: a.PrincipalType,
+					AccountId: a.AccountId,
+					PermissionSetArn: selectedPermissionSetArn || undefined
+				}));
+		} catch (err: unknown) {
+			toast.error(`Lookup failed: ${(err as Error).message}`);
+			principalAssignments = [];
+		} finally {
+			principalLookupLoading = false;
+		}
+	}
+
+	async function loadAccountsForPS() {
+		if (!selectedInstanceArn || !selectedPermissionSetArn || !selectedAccountID) return;
+		accountsForPSLoading = true;
+		try {
+			const out = await ssoadmin.send(
+				new ListAccountAssignmentsCommand({
+					InstanceArn: selectedInstanceArn,
+					PermissionSetArn: selectedPermissionSetArn,
+					AccountId: selectedAccountID
+				})
+			);
+			const unique = new Set(
+				(out.AccountAssignments ?? []).map((a) => a.AccountId ?? '').filter(Boolean)
+			);
+			accountsForPS = [...unique].toSorted();
+		} catch (err: unknown) {
+			toast.error(`Failed to load accounts: ${(err as Error).message}`);
+			accountsForPS = [];
+		} finally {
+			accountsForPSLoading = false;
+		}
 	}
 
 	async function loadProvisioningStatuses() {
@@ -1009,6 +1116,75 @@
 					</li>
 				{/each}
 			</ul>
+
+			<!-- Principal Lookup Section -->
+			<div class="border-t border-slate-200 pt-4 dark:border-slate-700">
+				<h3 class="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+					Principal Lookup
+				</h3>
+				<div class="flex gap-2">
+					<input
+						bind:value={principalLookupID}
+						placeholder="Principal ID (e.g. user-123)"
+						class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+					/>
+					<select
+						bind:value={principalLookupType}
+						class="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+					>
+						<option value="USER">USER</option>
+						<option value="GROUP">GROUP</option>
+					</select>
+					<button
+						type="button"
+						class="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+						onclick={() => lookupPrincipalAssignments()}
+						disabled={principalLookupLoading}
+					>
+						{principalLookupLoading ? 'Loading…' : 'Lookup'}
+					</button>
+				</div>
+				{#if principalAssignments.length > 0}
+					<ul class="mt-3 space-y-1 text-xs">
+						{#each principalAssignments as pa}
+							<li class="flex items-center gap-3 rounded border border-slate-100 px-3 py-2 dark:border-slate-700">
+								<span class="font-mono text-slate-600 dark:text-slate-300">{pa.AccountId}</span>
+								<span class="truncate font-mono text-slate-400 text-xs">{pa.PermissionSetArn}</span>
+							</li>
+						{/each}
+					</ul>
+				{:else if principalLookupID}
+					<p class="mt-2 text-xs italic text-slate-400">No assignments found for this principal.</p>
+				{/if}
+			</div>
+
+			<!-- Accounts for Permission Set -->
+			{#if selectedPermissionSetArn}
+				<div class="border-t border-slate-200 pt-4 dark:border-slate-700">
+					<div class="mb-2 flex items-center justify-between">
+						<h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+							Accounts Using Selected Permission Set
+						</h3>
+						<button
+							type="button"
+							class="text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400"
+							onclick={() => void loadAccountsForPS()}
+							disabled={accountsForPSLoading}
+						>
+							{accountsForPSLoading ? 'Loading…' : '&#8635; Load'}
+						</button>
+					</div>
+					{#if accountsForPS.length > 0}
+						<div class="flex flex-wrap gap-2">
+							{#each accountsForPS as accountID}
+								<span class="rounded bg-slate-100 px-2 py-1 font-mono text-xs dark:bg-slate-700">{accountID}</span>
+							{/each}
+						</div>
+					{:else}
+						<p class="text-xs italic text-slate-400">No accounts loaded yet. Click Load.</p>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -1024,6 +1200,13 @@
 						>{applications.length}</span
 					>
 				</h2>
+				<button
+					type="button"
+					class="text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+					onclick={() => void loadApplications()}
+				>
+					&#8635; Refresh
+				</button>
 			</div>
 			<div class="flex gap-2">
 				<input
@@ -1044,14 +1227,22 @@
 					<li class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
 						<div class="flex items-start justify-between">
 							<div class="min-w-0 flex-1">
-								<div class="flex items-center gap-2">
+								<div class="flex flex-wrap items-center gap-2">
 									<p class="font-medium">{application.Name}</p>
 									<span
 										class={`rounded px-1.5 py-0.5 text-xs ${application.Status === 'ENABLED' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}
 									>
 										{application.Status}
 									</span>
+									{#if (applicationAssignmentCounts[application.ApplicationArn ?? ''] ?? 0) > 0}
+										<span class="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+											{applicationAssignmentCounts[application.ApplicationArn ?? '']} assigned
+										</span>
+									{/if}
 								</div>
+								{#if application.Description}
+									<p class="mt-0.5 text-xs text-slate-500">{application.Description}</p>
+								{/if}
 								<div class="mt-0.5 flex items-center gap-1">
 									<p class="truncate font-mono text-xs text-slate-500">
 										{application.ApplicationArn}
@@ -1065,15 +1256,29 @@
 										&#9112;
 									</button>
 								</div>
+								{#if application.ApplicationProviderArn}
+									<p class="mt-0.5 text-xs text-slate-400">
+										Provider: <span class="font-mono">{application.ApplicationProviderArn}</span>
+									</p>
+								{/if}
 							</div>
-							<button
-								type="button"
-								class="ml-3 shrink-0 rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
-								onclick={() =>
-									void removeApplication(application.ApplicationArn ?? '', application.Name ?? '')}
-							>
-								Delete
-							</button>
+							<div class="ml-3 flex shrink-0 flex-col gap-1">
+								<button
+									type="button"
+									class={`rounded border px-2 py-1 text-xs ${application.Status === 'ENABLED' ? 'border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400' : 'border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400'}`}
+									onclick={() => void toggleApplicationStatus(application.ApplicationArn ?? '', application.Status)}
+								>
+									{application.Status === 'ENABLED' ? 'Disable' : 'Enable'}
+								</button>
+								<button
+									type="button"
+									class="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
+									onclick={() =>
+										void removeApplication(application.ApplicationArn ?? '', application.Name ?? '')}
+								>
+									Delete
+								</button>
+							</div>
 						</div>
 					</li>
 				{/each}
@@ -1113,7 +1318,7 @@
 					<li class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
 						<div class="flex items-start justify-between">
 							<div class="min-w-0 flex-1">
-								<div class="flex items-center gap-2">
+								<div class="flex flex-wrap items-center gap-2">
 									<p class="font-medium">{tti.Name}</p>
 									<span
 										class="rounded bg-orange-100 px-1.5 py-0.5 text-xs text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
@@ -1121,6 +1326,16 @@
 										{tti.TrustedTokenIssuerType}
 									</span>
 								</div>
+								{#if tti.TrustedTokenIssuerConfiguration?.OidcJwtConfiguration?.IssuerUrl}
+									<p class="mt-0.5 text-xs text-slate-500">
+										Issuer: <span class="font-mono">{tti.TrustedTokenIssuerConfiguration.OidcJwtConfiguration.IssuerUrl}</span>
+									</p>
+								{/if}
+								{#if tti.TrustedTokenIssuerConfiguration?.OidcJwtConfiguration?.ClaimAttributePath}
+									<p class="mt-0.5 text-xs text-slate-400">
+										Claim: <span class="font-mono">{tti.TrustedTokenIssuerConfiguration.OidcJwtConfiguration.ClaimAttributePath}</span>
+									</p>
+								{/if}
 								<div class="mt-0.5 flex items-center gap-1">
 									<p class="truncate font-mono text-xs text-slate-500">
 										{tti.TrustedTokenIssuerArn}
@@ -1259,14 +1474,17 @@
 			class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4"
 		>
 			<h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Metrics</h2>
-			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-9">
 				{#each [
 					['Instances', metricsInstanceCount, 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'],
 					['Permission Sets', metricsPermSetCount, 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'],
 					['Applications', metricsAppCount, 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300'],
 					['Token Issuers', metricsTTICount, 'bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'],
 					['Assignments', metricsAssignmentCount, 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'],
-					['Regions', metricsRegionCount, 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300']
+					['Regions', metricsRegionCount, 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'],
+					['Provisioning Requests', provisioningStatuses.length, 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'],
+					['Creation Requests', creationStatuses.length, 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'],
+					['Deletion Requests', deletionStatuses.length, 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300']
 				] as [label, count, cls] (label)}
 					<div class={`rounded-xl p-4 ${cls}`}>
 						<p class="text-sm font-medium">{label}</p>
@@ -1311,10 +1529,10 @@
 				{
 					category: 'Permission Sets',
 					ops: [
-						{ name: 'CreatePermissionSet', desc: 'Create a permission set within an instance.' },
+						{ name: 'CreatePermissionSet', desc: 'Create a permission set within an instance. Name must be ≤32 chars.' },
 						{ name: 'DescribePermissionSet', desc: 'Get details of a permission set.' },
 						{ name: 'UpdatePermissionSet', desc: 'Update a permission set description, session duration, or relay state.' },
-						{ name: 'DeletePermissionSet', desc: 'Delete a permission set and cascade-delete its assignments.' },
+						{ name: 'DeletePermissionSet', desc: 'Delete a permission set. Returns ConflictException if there are active account assignments.' },
 						{ name: 'ListPermissionSets', desc: 'List all permission sets for an instance.' },
 						{ name: 'ListPermissionSetsProvisionedToAccount', desc: 'List permission sets provisioned to a specific AWS account (sorted).' },
 						{ name: 'ProvisionPermissionSet', desc: 'Provision a permission set to accounts.' },
@@ -1335,10 +1553,11 @@
 				{
 					category: 'Account Assignments',
 					ops: [
-						{ name: 'CreateAccountAssignment', desc: 'Assign a permission set to a principal in an account. Deterministically idempotent.' },
+						{ name: 'CreateAccountAssignment', desc: 'Assign a permission set to a principal in an account. Validates PrincipalType (USER/GROUP) and TargetType (AWS_ACCOUNT). Deterministically idempotent.' },
 						{ name: 'DeleteAccountAssignment', desc: 'Remove an account assignment.' },
 						{ name: 'ListAccountAssignments', desc: 'List account assignments for a permission set, optionally filtered by account ID.' },
 						{ name: 'ListAccountAssignmentsForPrincipal', desc: 'List all account assignments for a specific principal (user or group), sorted.' },
+						{ name: 'ListAccountsForProvisionedPermissionSet', desc: 'List all account IDs that have been assigned the given permission set.' },
 						{ name: 'DescribeAccountAssignmentCreationStatus', desc: 'Get the status of an assignment creation request.' },
 						{ name: 'DescribeAccountAssignmentDeletionStatus', desc: 'Get the status of an assignment deletion request.' },
 						{ name: 'ListAccountAssignmentCreationStatus', desc: 'List account assignment creation statuses (sorted by date desc).' },
@@ -1350,36 +1569,40 @@
 					ops: [
 						{ name: 'CreateApplication', desc: 'Create an application within an instance. Supports Tags.' },
 						{ name: 'DescribeApplication', desc: 'Get details of an application, including Tags.' },
-						{ name: 'UpdateApplication', desc: 'Update an application name, description, or status.' },
+						{ name: 'UpdateApplication', desc: 'Update an application name, description, or status (ENABLED/DISABLED).' },
 						{ name: 'DeleteApplication', desc: 'Delete an application.' },
 						{ name: 'ListApplications', desc: 'List applications for an instance (sorted by ARN).' },
 						{ name: 'CreateApplicationAssignment', desc: 'Assign a principal to an application.' },
 						{ name: 'DeleteApplicationAssignment', desc: 'Remove an application assignment.' },
 						{ name: 'DescribeApplicationAssignment', desc: 'Describe a specific application assignment.' },
 						{ name: 'ListApplicationAssignments', desc: 'List assignments for an application (sorted).' },
+						{ name: 'ListApplicationAssignmentsForPrincipal', desc: 'List all application assignments for a specific principal across all applications in an instance.' },
 						{ name: 'PutApplicationAccessScope', desc: 'Add an access scope to an application.' },
 						{ name: 'DeleteApplicationAccessScope', desc: 'Remove an access scope.' },
+						{ name: 'GetApplicationAccessScope', desc: 'Get a specific access scope for an application. Returns ResourceNotFoundException if not found.' },
 						{ name: 'ListApplicationAccessScopes', desc: 'List access scopes for an application.' },
 						{ name: 'PutApplicationAuthenticationMethod', desc: 'Add an authentication method.' },
 						{ name: 'DeleteApplicationAuthenticationMethod', desc: 'Remove an authentication method.' },
+						{ name: 'GetApplicationAuthenticationMethod', desc: 'Get a specific authentication method for an application.' },
 						{ name: 'ListApplicationAuthenticationMethods', desc: 'List authentication methods.' },
 						{ name: 'PutApplicationGrant', desc: 'Add a grant type to an application.' },
 						{ name: 'DeleteApplicationGrant', desc: 'Remove a grant type.' },
+						{ name: 'GetApplicationGrant', desc: 'Get a specific grant type for an application. Returns ResourceNotFoundException if not found.' },
 						{ name: 'ListApplicationGrants', desc: 'List grant types for an application.' },
 						{ name: 'PutApplicationAssignmentConfiguration', desc: 'Configure whether assignments are required.' },
 						{ name: 'GetApplicationAssignmentConfiguration', desc: 'Get assignment configuration for an application.' },
 						{ name: 'PutApplicationSessionConfiguration', desc: 'Set the session duration for an application.' },
 						{ name: 'GetApplicationSessionConfiguration', desc: 'Get the session configuration for an application.' },
-						{ name: 'ListApplicationProviders', desc: 'List application providers.' },
-						{ name: 'DescribeApplicationProvider', desc: 'Describe an application provider.' }
+						{ name: 'ListApplicationProviders', desc: 'List application providers. DisplayData is a struct with DisplayName, Description, IconUrl.' },
+						{ name: 'DescribeApplicationProvider', desc: 'Describe an application provider by ARN.' }
 					]
 				},
 				{
 					category: 'Trusted Token Issuers',
 					ops: [
-						{ name: 'CreateTrustedTokenIssuer', desc: 'Create a trusted token issuer. Accepts Tags and TrustedTokenIssuerConfiguration (OIDC JWT).' },
-						{ name: 'DescribeTrustedTokenIssuer', desc: 'Get details including TrustedTokenIssuerConfiguration.' },
-						{ name: 'UpdateTrustedTokenIssuer', desc: 'Update a trusted token issuer name or type.' },
+						{ name: 'CreateTrustedTokenIssuer', desc: 'Create a trusted token issuer. Accepts Tags and TrustedTokenIssuerConfiguration (OIDC JWT with IssuerUrl, ClaimAttributePath, IdentityStoreAttributePath, JwksRetrievalOption).' },
+						{ name: 'DescribeTrustedTokenIssuer', desc: 'Get details including TrustedTokenIssuerConfiguration and Tags.' },
+						{ name: 'UpdateTrustedTokenIssuer', desc: 'Update a trusted token issuer name, type, or TrustedTokenIssuerConfiguration.' },
 						{ name: 'DeleteTrustedTokenIssuer', desc: 'Delete a trusted token issuer.' },
 						{ name: 'ListTrustedTokenIssuers', desc: 'List trusted token issuers for an instance (sorted by ARN).' }
 					]
