@@ -144,7 +144,7 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 	}
 
 	if len(input.ContainerInstances) == 0 {
-		return nil, fmt.Errorf("%w: containerInstances is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: at least one container instance is required", ErrInvalidParameter)
 	}
 
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))

@@ -147,8 +147,15 @@ async function loadCapacityProviders(clusterArn: string) {
 	}
 }
 
-async function loadCapacityProvidersForCluster(_clusterArn: string) {
-	await loadCapacityProviders(_clusterArn);
+async function handleTabChange(tabId: string) {
+	activeTab = tabId as typeof activeTab;
+	search = '';
+	if (tabId === 'tasksets' && selectedCluster && taskSetsLoadedForCluster !== selectedCluster) {
+		await loadTaskSets(selectedCluster);
+	}
+	if (tabId === 'capacity' && selectedCluster) {
+		await loadCapacityProvidersForCluster(selectedCluster);
+	}
 }
 
 async function loadTaskSets(clusterArn: string) {
@@ -429,20 +436,7 @@ let taskDefFamilies = $derived(() => {
 						{ id: 'capacity', label: 'Capacity', icon: Zap, count: capacityProviders.length }
 					] as tab}
 						<button
-							onclick={() => {
-								activeTab = tab.id as typeof activeTab;
-								search = '';
-								if (
-									tab.id === 'tasksets' &&
-									selectedCluster &&
-									taskSetsLoadedForCluster !== selectedCluster
-								) {
-									loadTaskSets(selectedCluster);
-								}
-								if (tab.id === 'capacity' && selectedCluster) {
-									loadCapacityProvidersForCluster(selectedCluster);
-								}
-							}}
+							onclick={() => handleTabChange(tab.id)}
 							class="flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === tab.id
 								? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
 								: 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}"

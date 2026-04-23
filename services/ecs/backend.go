@@ -2,6 +2,7 @@ package ecs
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -336,16 +337,22 @@ func (b *InMemoryBackend) enrichCluster(c *Cluster) Cluster {
 	cp := *c
 
 	cp.ActiveServicesCount = len(b.services[c.ClusterName])
+	cp.RegisteredContainerInstancesCount = len(b.containerInstances[c.ClusterName])
 
 	running := 0
+	pending := 0
 
 	for _, t := range b.tasks[c.ClusterName] {
-		if t.LastStatus == statusRunning {
+		switch t.LastStatus {
+		case statusRunning:
 			running++
+		case statusProvisioning, statusPending:
+			pending++
 		}
 	}
 
 	cp.RunningTasksCount = running
+	cp.PendingTasksCount = pending
 
 	return cp
 }
@@ -380,6 +387,11 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		for _, svc := range svcs {
 			delete(b.taskSets, svc.ServiceArn)
 		}
+	}
+
+	// Clean up task protections for all tasks in this cluster to avoid memory leaks.
+	for taskArn := range b.tasks[key] {
+		delete(b.taskProtections, taskArn)
 	}
 
 	delete(b.clusters, key)
@@ -539,6 +551,7 @@ func (b *InMemoryBackend) DeregisterTaskDefinition(taskDefinitionArn string) (*T
 }
 
 // ListTaskDefinitions returns ARNs of task definitions, optionally filtered by family prefix.
+// ARNs are returned sorted for deterministic output.
 func (b *InMemoryBackend) ListTaskDefinitions(familyPrefix string) ([]string, error) {
 	b.mu.RLock("ListTaskDefinitions")
 	defer b.mu.RUnlock()
@@ -556,6 +569,8 @@ func (b *InMemoryBackend) ListTaskDefinitions(familyPrefix string) ([]string, er
 			}
 		}
 	}
+
+	sort.Strings(arns)
 
 	return arns, nil
 }
@@ -964,6 +979,11 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 	if b.runner != nil {
 		_ = b.runner.StopTask(task)
 	}
+
+	// Clean up task protection entry to avoid stale entries accumulating.
+	b.mu.Lock("StopTask-cleanup")
+	delete(b.taskProtections, taskArn)
+	b.mu.Unlock()
 
 	return &cp, nil
 }
