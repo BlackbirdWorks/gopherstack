@@ -35,6 +35,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "codebuild",
   "cognito",
   "cognitoidentity",
+  "cognitoidp",
   "codepipeline",
   "codedeploy",
   "config",
@@ -183,6 +184,13 @@ export const sidebarCategories: DashboardCategory[] = [
         href: "/dashboard/cognitoidentity",
         label: "Cognito Identity",
         icon: "cognitoidentity",
+      },
+      {
+        id: "cognitoidp",
+        href: "/dashboard/cognitoidp",
+        label: "Cognito User Pools",
+        icon: "cognitoidp",
+        common: true,
       },
       { id: "shield", href: "/dashboard/shield", label: "Shield", icon: "shield" },
       {

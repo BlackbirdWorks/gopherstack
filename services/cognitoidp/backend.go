@@ -81,6 +81,7 @@ type UserPoolClient struct {
 // User represents a Cognito user within a pool.
 type User struct {
 	CreatedAt    time.Time
+	UpdatedAt    time.Time
 	Attributes   map[string]string
 	Sub          string
 	Username     string
@@ -109,6 +110,8 @@ type InMemoryBackend struct {
 	// clientsByPool maps userPoolID -> clientID -> client for efficient per-pool listing and deletes.
 	clientsByPool map[string]map[string]*UserPoolClient
 	users         map[string]map[string]*User
+	// usersBySub maps poolID+":"+sub -> username for O(1) access token resolution.
+	usersBySub map[string]string
 	// refreshTokens maps refresh token → poolID/username for REFRESH_TOKEN_AUTH flow.
 	refreshTokens map[string]*refreshTokenEntry
 	// refreshTokensByClient maps clientID -> refreshToken set for efficient client cleanup.
@@ -141,6 +144,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		clients:               make(map[string]*UserPoolClient),
 		clientsByPool:         make(map[string]map[string]*UserPoolClient),
 		users:                 make(map[string]map[string]*User),
+		usersBySub:            make(map[string]string),
 		refreshTokens:         make(map[string]*refreshTokenEntry),
 		refreshTokensByClient: make(map[string]map[string]struct{}),
 		refreshTokensByUser:   make(map[string]map[string]struct{}),
@@ -213,12 +217,18 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 
 	delete(b.poolsByName, pool.Name)
 	delete(b.pools, userPoolID)
+
+	// Clean up usersBySub entries for all users in this pool before deleting users.
+	for _, u := range b.users[userPoolID] {
+		delete(b.usersBySub, userPoolID+":"+u.Sub)
+	}
+
 	delete(b.users, userPoolID)
 
 	if poolClients, found := b.clientsByPool[userPoolID]; found {
 		for clientID := range poolClients {
 			delete(b.clients, clientID)
-			b.deleteRefreshTokensForClientLocked(clientID)
+			b.deleteRefreshTokensForClientAndUserIndexLocked(clientID)
 		}
 	}
 
@@ -255,7 +265,7 @@ func (b *InMemoryBackend) DeleteUserPoolClient(userPoolID, clientID string) erro
 	}
 
 	// Clean up any refresh tokens issued by this client to prevent leaks.
-	b.deleteRefreshTokensForClientLocked(clientID)
+	b.deleteRefreshTokensForClientAndUserIndexLocked(clientID)
 
 	return nil
 }
@@ -379,12 +389,14 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 		Status:       UserStatusUnconfirmed,
 		Attributes:   attrs,
 		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 		Enabled:      true,
 		// Generate a confirmation code (simulates the code sent via email/SMS).
 		ConfirmCode: randomAlphanumeric(confirmCodeLen),
 	}
 
 	poolUsers[username] = user
+	b.usersBySub[client.UserPoolID+":"+user.Sub] = username
 
 	cp := *user
 
@@ -505,10 +517,12 @@ func (b *InMemoryBackend) AdminCreateUser(
 		Status:       UserStatusForceChangePassword,
 		Attributes:   attrs,
 		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 		Enabled:      true,
 	}
 
 	poolUsers[username] = user
+	b.usersBySub[userPoolID+":"+user.Sub] = username
 
 	cp := *user
 
@@ -536,6 +550,7 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 	}
 
 	user.PasswordHash = string(hash)
+	user.UpdatedAt = time.Now()
 
 	if permanent {
 		user.Status = UserStatusConfirmed
@@ -600,6 +615,8 @@ func (b *InMemoryBackend) AdminDeleteUser(userPoolID, username string) error {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
+	u := poolUsers[username]
+	delete(b.usersBySub, userPoolID+":"+u.Sub)
 	delete(poolUsers, username)
 
 	b.deleteRefreshTokensForUserLocked(userPoolID, username)
@@ -734,6 +751,7 @@ func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposed
 }
 
 // findUserByAccessTokenLocked finds the live *User for a given access token.
+// It uses the usersBySub secondary index for O(1) lookup after JWT parsing.
 // The caller must hold b.mu (either read or write lock).
 func (b *InMemoryBackend) findUserByAccessTokenLocked(accessToken string) (*User, error) {
 	for _, pool := range b.pools {
@@ -747,11 +765,18 @@ func (b *InMemoryBackend) findUserByAccessTokenLocked(accessToken string) (*User
 			continue
 		}
 
-		for _, u := range b.users[pool.ID] {
-			if u.Sub == sub {
-				return u, nil
-			}
+		// O(1) lookup via secondary index.
+		username, found := b.usersBySub[pool.ID+":"+sub]
+		if !found {
+			continue
 		}
+
+		u, ok := b.users[pool.ID][username]
+		if !ok {
+			continue
+		}
+
+		return u, nil
 	}
 
 	return nil, fmt.Errorf("%w: access token is invalid or expired", ErrNotAuthorized)
@@ -1087,6 +1112,7 @@ func (b *InMemoryBackend) UpdateUserAttributes(accessToken string, attributes ma
 	}
 
 	maps.Copy(u.Attributes, attributes)
+	u.UpdatedAt = time.Now()
 
 	return nil
 }
@@ -1110,6 +1136,7 @@ func (b *InMemoryBackend) AdminUpdateUserAttributes(userPoolID, username string,
 	}
 
 	maps.Copy(u.Attributes, attributes)
+	u.UpdatedAt = time.Now()
 
 	return nil
 }
@@ -1396,11 +1423,246 @@ func (b *InMemoryBackend) Reset() {
 	b.clients = make(map[string]*UserPoolClient)
 	b.clientsByPool = make(map[string]map[string]*UserPoolClient)
 	b.users = make(map[string]map[string]*User)
+	b.usersBySub = make(map[string]string)
 	b.refreshTokens = make(map[string]*refreshTokenEntry)
 	b.refreshTokensByClient = make(map[string]map[string]struct{})
 	b.refreshTokensByUser = make(map[string]map[string]struct{})
 	b.groups = make(map[string]map[string]*Group)
 	b.groupMembers = make(map[string]map[string]map[string]struct{})
+}
+
+// UpdateUserPool updates mutable properties of an existing user pool.
+func (b *InMemoryBackend) UpdateUserPool(userPoolID, mfaConfiguration string) error {
+	b.mu.Lock("UpdateUserPool")
+	defer b.mu.Unlock()
+
+	pool, ok := b.pools[userPoolID]
+	if !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if mfaConfiguration != "" {
+		pool.MfaConfiguration = mfaConfiguration
+	}
+
+	return nil
+}
+
+// UpdateUserPoolClient updates mutable properties of an app client.
+func (b *InMemoryBackend) UpdateUserPoolClient(userPoolID, clientID, clientName string) (*UserPoolClient, error) {
+	b.mu.Lock("UpdateUserPoolClient")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	client, ok := b.clients[clientID]
+	if !ok {
+		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+	}
+
+	if client.UserPoolID != userPoolID {
+		return nil, fmt.Errorf("%w: client %q does not belong to pool %q", ErrClientNotFound, clientID, userPoolID)
+	}
+
+	if clientName != "" {
+		client.ClientName = clientName
+	}
+
+	cp := *client
+
+	return &cp, nil
+}
+
+// AdminResetUserPassword resets a user back to FORCE_CHANGE_PASSWORD status so they
+// must set a new password on next login.
+func (b *InMemoryBackend) AdminResetUserPassword(userPoolID, username string) error {
+	b.mu.Lock("AdminResetUserPassword")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	u, ok := b.users[userPoolID][username]
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	u.Status = UserStatusForceChangePassword
+	u.UpdatedAt = time.Now()
+
+	// Revoke all existing refresh tokens for the user so active sessions are invalidated.
+	b.deleteRefreshTokensForUserLocked(userPoolID, username)
+
+	return nil
+}
+
+// GetGroup returns a single group from a user pool by name.
+func (b *InMemoryBackend) GetGroup(userPoolID, groupName string) (*Group, error) {
+	b.mu.RLock("GetGroup")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	g, ok := b.groups[userPoolID][groupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	cp := *g
+
+	return &cp, nil
+}
+
+// DeleteUser deletes the currently authenticated user (self-service).
+func (b *InMemoryBackend) DeleteUser(accessToken string) error {
+	b.mu.Lock("DeleteUser")
+	defer b.mu.Unlock()
+
+	u, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return err
+	}
+
+	poolID := u.UserPoolID
+	username := u.Username
+
+	delete(b.usersBySub, poolID+":"+u.Sub)
+	delete(b.users[poolID], username)
+	b.deleteRefreshTokensForUserLocked(poolID, username)
+
+	return nil
+}
+
+// DeleteUserAttributes removes specific attributes from the authenticated user (self-service).
+func (b *InMemoryBackend) DeleteUserAttributes(accessToken string, attrNames []string) error {
+	b.mu.Lock("DeleteUserAttributes")
+	defer b.mu.Unlock()
+
+	u, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return err
+	}
+
+	for _, name := range attrNames {
+		delete(u.Attributes, name)
+	}
+
+	u.UpdatedAt = time.Now()
+
+	return nil
+}
+
+// VerifyUserAttribute is a no-op stub: the mock does not send verification codes so
+// all attributes are considered already verified. Returns success for any code.
+func (b *InMemoryBackend) VerifyUserAttribute(accessToken, attributeName, _ string) error {
+	b.mu.RLock("VerifyUserAttribute")
+	defer b.mu.RUnlock()
+
+	if _, err := b.findUserByAccessTokenLocked(accessToken); err != nil {
+		return err
+	}
+
+	// Attribute name validation: must be a known verifiable attribute.
+	switch attributeName {
+	case "email", "phone_number":
+		// valid
+	default:
+		return fmt.Errorf("%w: attribute %q is not verifiable", ErrInvalidUserPoolConfig, attributeName)
+	}
+
+	return nil
+}
+
+// ListUsersFiltered returns users matching an optional AWS-style filter string.
+// Supported filter form: "username = \"prefix*\"" or "username ^= \"prefix\"".
+// If filter is empty all users are returned (same as ListUsers).
+func (b *InMemoryBackend) ListUsersFiltered(userPoolID, filter string) ([]*User, error) {
+	b.mu.RLock("ListUsersFiltered")
+	defer b.mu.RUnlock()
+
+	poolUsers, ok := b.users[userPoolID]
+	if !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	prefix, attrFilter := parseListUsersFilter(filter)
+
+	out := make([]*User, 0, len(poolUsers))
+
+	for _, u := range poolUsers {
+		if !userMatchesFilter(u, prefix, attrFilter) {
+			continue
+		}
+
+		cp := *u
+		cp.Attributes = maps.Clone(u.Attributes)
+		out = append(out, &cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Username < out[j].Username })
+
+	return out, nil
+}
+
+// parseListUsersFilter parses a simplified Cognito filter expression.
+// Returns a username prefix (may be "") and an optional attribute=value pair.
+func parseListUsersFilter(filter string) (string, [2]string) {
+	if filter == "" {
+		return "", [2]string{}
+	}
+
+	// Trim whitespace and quotes.
+	f := strings.TrimSpace(filter)
+
+	// Common form: `username ^= "prefix"` or `username = "value"`
+	for _, sep := range []string{" ^= ", " = "} {
+		before, after, ok := strings.Cut(f, sep)
+		if !ok {
+			continue
+		}
+
+		attr := strings.TrimSpace(before)
+		val := strings.Trim(strings.TrimSpace(after), `"`)
+
+		if attr == "username" {
+			val = strings.TrimSuffix(val, "*")
+
+			return val, [2]string{}
+		}
+
+		return "", [2]string{attr, val}
+	}
+
+	return "", [2]string{}
+}
+
+// userMatchesFilter returns true if the user satisfies the filter criteria.
+func userMatchesFilter(u *User, usernamePrefix string, attrFilter [2]string) bool {
+	if usernamePrefix != "" && !strings.HasPrefix(u.Username, usernamePrefix) {
+		return false
+	}
+
+	if attrFilter[0] != "" {
+		attrVal, exists := u.Attributes[attrFilter[0]]
+		if !exists || attrVal != attrFilter[1] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// PoolMetrics holds aggregate statistics for a user pool.
+type PoolMetrics struct {
+	UserCount        int `json:"userCount"`
+	ClientCount      int `json:"clientCount"`
+	GroupCount       int `json:"groupCount"`
+	ActiveTokenCount int `json:"activeTokenCount"`
 }
 
 // AddUserPoolInternal seeds a user pool directly into the backend, bypassing normal
@@ -1458,15 +1720,31 @@ func (b *InMemoryBackend) deleteRefreshTokenLocked(token string) {
 	}
 }
 
-// deleteRefreshTokensForClientLocked deletes all refresh tokens issued for a client.
+// deleteRefreshTokensForClientAndUserIndexLocked deletes all refresh tokens issued for a client
+// and keeps both secondary indexes (refreshTokensByClient, refreshTokensByUser) consistent.
 // Caller must hold b.mu in write mode.
-func (b *InMemoryBackend) deleteRefreshTokensForClientLocked(clientID string) {
+func (b *InMemoryBackend) deleteRefreshTokensForClientAndUserIndexLocked(clientID string) {
 	clientTokens, ok := b.refreshTokensByClient[clientID]
 	if !ok {
 		return
 	}
 
 	for token := range clientTokens {
+		entry, exists := b.refreshTokens[token]
+		if !exists {
+			continue
+		}
+
+		// Also clean up the user index to prevent memory leaks.
+		userKey := entry.PoolID + ":" + entry.Username
+		userTokens, uok := b.refreshTokensByUser[userKey]
+		if uok {
+			delete(userTokens, token)
+			if len(userTokens) == 0 {
+				delete(b.refreshTokensByUser, userKey)
+			}
+		}
+
 		delete(b.refreshTokens, token)
 	}
 
@@ -1529,6 +1807,32 @@ func (b *InMemoryBackend) AddUserInternal(user *User) {
 	}
 
 	b.users[user.UserPoolID][user.Username] = user
+	b.usersBySub[user.UserPoolID+":"+user.Sub] = user.Username
+}
+
+// GetPoolMetrics returns aggregate statistics for a user pool.
+func (b *InMemoryBackend) GetPoolMetrics(userPoolID string) (*PoolMetrics, error) {
+	b.mu.RLock("GetPoolMetrics")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	tokenCount := 0
+	now := time.Now().UTC()
+	for _, entry := range b.refreshTokens {
+		if entry.PoolID == userPoolID && (entry.ExpiresAt.IsZero() || entry.ExpiresAt.After(now)) {
+			tokenCount++
+		}
+	}
+
+	return &PoolMetrics{
+		UserCount:        len(b.users[userPoolID]),
+		ClientCount:      len(b.clientsByPool[userPoolID]),
+		GroupCount:       len(b.groups[userPoolID]),
+		ActiveTokenCount: tokenCount,
+	}, nil
 }
 
 // sortedCustomAttributes returns a copy of the pool's custom attributes sorted by name.
