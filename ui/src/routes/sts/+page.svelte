@@ -100,8 +100,7 @@
 	}
 
 	onMount(async () => {
-		await loadIdentity();
-		await loadSTSMetrics();
+		await Promise.all([loadIdentity(), loadSTSMetrics()]);
 	});
 </script>
 

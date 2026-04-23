@@ -1242,6 +1242,7 @@ func (b *InMemoryBackend) SessionCounts() (int, int) {
 	expired := 0
 
 	for _, session := range b.sessions {
+		// A zero expiration is treated as non-expiring in-memory session state.
 		if !session.Expiration.IsZero() && !now.Before(session.Expiration) {
 			expired++
 

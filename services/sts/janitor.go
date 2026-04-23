@@ -95,6 +95,7 @@ func (j *Janitor) sweepExpiredSessions(ctx context.Context) {
 	b.mu.Unlock()
 
 	count := len(expired)
+	// Count every sweep tick, even when no sessions are evicted.
 	j.sweepCount.Add(1)
 	j.expiredEvictions.Add(int64(count))
 
