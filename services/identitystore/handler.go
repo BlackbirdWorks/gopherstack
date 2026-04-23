@@ -348,6 +348,10 @@ func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
 	user, err := h.Backend.CreateUser(req.IdentityStoreID, &CreateUserRequest{
 		UserName:      req.UserName,
 		DisplayName:   req.DisplayName,
@@ -459,6 +463,14 @@ func (h *Handler) handleCreateGroup(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.DisplayName) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "DisplayName is required")
+	}
+
 	group, err := h.Backend.CreateGroup(req.IdentityStoreID, &CreateGroupRequest{
 		DisplayName: req.DisplayName,
 		Description: req.Description,
@@ -559,6 +571,14 @@ func (h *Handler) handleCreateGroupMembership(c *echo.Context, body []byte) erro
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.IdentityStoreID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+	}
+
+	if strings.TrimSpace(req.GroupID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
+	}
+
 	if strings.TrimSpace(req.MemberID.UserID) == "" {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
 	}
@@ -638,6 +658,10 @@ func (h *Handler) handleListGroupMembershipsForMember(c *echo.Context, body []by
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.MemberID.UserID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
+	}
+
 	memberships := h.Backend.ListGroupMembershipsForMember(req.IdentityStoreID, req.MemberID)
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -650,6 +674,14 @@ func (h *Handler) handleIsMemberInGroups(c *echo.Context, body []byte) error {
 	var req isMemberInGroupsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+
+	if strings.TrimSpace(req.MemberID.UserID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
+	}
+
+	if len(req.GroupIDs) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupIds must not be empty")
 	}
 
 	results := h.Backend.IsMemberInGroups(req.IdentityStoreID, req.MemberID, req.GroupIDs)

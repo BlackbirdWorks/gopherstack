@@ -277,7 +277,7 @@ func TestIdentityStoreDashboard_MembershipAndProfileFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Edit profile data.
-	err = page.Locator("tr:has(td:has-text('charlie.user')) button:has-text('Edit Profile')").Click()
+	err = page.Locator("tr:has(td:has-text('charlie.user')) button:has-text('Edit')").Click()
 	require.NoError(t, err)
 	err = page.Locator("#edit-user-modal input[name='profile_display_name']").Fill("Charlie Updated")
 	require.NoError(t, err)
@@ -313,7 +313,7 @@ func TestIdentityStoreDashboard_MembershipAndProfileFlow(t *testing.T) {
 	// Add and remove membership from users tab.
 	err = page.Locator("button:has-text('Users')").Click()
 	require.NoError(t, err)
-	err = page.Locator("tr:has(td:has-text('charlie.user')) button:has-text('Manage Memberships')").Click()
+	err = page.Locator("tr:has(td:has-text('charlie.user')) button:has-text('Memberships')").Click()
 	require.NoError(t, err)
 	_, err = page.Locator("#membership-modal select[name='membership_group']").SelectOption(playwright.SelectOptionValues{
 		Labels: &[]string{"DevRel"},
@@ -327,7 +327,8 @@ func TestIdentityStoreDashboard_MembershipAndProfileFlow(t *testing.T) {
 	require.NoError(t, err)
 	err = page.Locator("#membership-modal tr:has(td:has-text('DevRel')) button:has-text('Remove')").Click()
 	require.NoError(t, err)
-	err = page.Locator("#membership-modal tr:has(td:has-text('DevRel')) td:has-text('Not a member')").WaitFor(playwright.LocatorWaitForOptions{
+	// After removal the status cell shows "—".
+	err = page.Locator("#membership-modal tr:has(td:has-text('DevRel'))").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)

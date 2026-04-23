@@ -266,6 +266,18 @@ func (b *InMemoryBackend) UpdateUser(storeID, userID string, ops []attributeOper
 
 	oldUserName := user.UserName
 
+	// Pre-validate any username rename to avoid partial update on conflict.
+	for _, op := range ops {
+		if strings.ToLower(op.AttributePath) == "username" {
+			newName, _ := op.AttributeValue.(string)
+			if newName != "" && newName != oldUserName {
+				if _, exists := b.usersByName[storeID+"#"+newName]; exists {
+					return fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, newName)
+				}
+			}
+		}
+	}
+
 	for _, op := range ops {
 		applyUserAttribute(user, op.AttributePath, op.AttributeValue)
 	}
@@ -284,12 +296,15 @@ func (b *InMemoryBackend) UpdateUser(storeID, userID string, ops []attributeOper
 	return nil
 }
 
+// attrDisplayName is the normalized attribute path for a group's display name.
+const attrDisplayName = "displayname"
+
 // applyUserAttribute applies a single attribute operation to a user.
 func applyUserAttribute(user *User, path string, value any) {
 	strVal, _ := value.(string)
 
 	switch strings.ToLower(path) {
-	case "displayname":
+	case attrDisplayName:
 		user.DisplayName = strVal
 	case "username":
 		user.UserName = strVal
@@ -463,12 +478,21 @@ func (b *InMemoryBackend) DeleteUser(storeID, userID string) error {
 
 	delete(b.users, userID)
 
-	// Remove associated memberships.
+	// Remove associated memberships using the memberships map.
+	// We must scan memberships because membershipKeys is keyed by group+user,
+	// not by membershipID. Collect IDs to remove first to avoid map mutation during iteration.
+	var toDelete []string
+
 	for id, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.MemberID.UserID == userID {
-			delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+userID)
-			delete(b.memberships, id)
+			toDelete = append(toDelete, id)
 		}
+	}
+
+	for _, id := range toDelete {
+		m := b.memberships[id]
+		delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+userID)
+		delete(b.memberships, id)
 	}
 
 	return nil
@@ -555,7 +579,7 @@ func (b *InMemoryBackend) ListGroups(storeID string) []*Group {
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
-	result := make([]*Group, 0)
+	result := make([]*Group, 0, len(b.groups))
 
 	for _, g := range b.groups {
 		if g.IdentityStoreID == storeID {
@@ -576,11 +600,44 @@ func (b *InMemoryBackend) UpdateGroup(storeID, groupID string, ops []attributeOp
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
 
+	if err := b.validateGroupOps(storeID, group.DisplayName, ops); err != nil {
+		return err
+	}
+
 	oldDisplayName := group.DisplayName
 
+	applyGroupAttributes(group, ops)
+
+	b.updateGroupDisplayNameIndex(storeID, groupID, oldDisplayName, group.DisplayName)
+
+	return nil
+}
+
+// validateGroupOps checks for display-name conflicts before applying group updates.
+func (b *InMemoryBackend) validateGroupOps(storeID, currentDisplayName string, ops []attributeOperation) error {
+	for _, op := range ops {
+		if strings.ToLower(op.AttributePath) != attrDisplayName {
+			continue
+		}
+
+		newName, _ := op.AttributeValue.(string)
+		if newName == "" || newName == currentDisplayName {
+			continue
+		}
+
+		if _, exists := b.groupsByName[storeID+"#"+newName]; exists {
+			return fmt.Errorf("%w: group with DisplayName %q already exists", ErrConflict, newName)
+		}
+	}
+
+	return nil
+}
+
+// applyGroupAttributes applies each attribute operation to the group in place.
+func applyGroupAttributes(group *Group, ops []attributeOperation) {
 	for _, op := range ops {
 		switch strings.ToLower(op.AttributePath) {
-		case "displayname":
+		case attrDisplayName:
 			if s, isStr := op.AttributeValue.(string); isStr {
 				group.DisplayName = s
 			}
@@ -590,19 +647,21 @@ func (b *InMemoryBackend) UpdateGroup(storeID, groupID string, ops []attributeOp
 			}
 		}
 	}
+}
 
-	// Maintain groupsByName index if DisplayName changed.
-	if oldDisplayName != group.DisplayName {
-		if oldDisplayName != "" {
-			delete(b.groupsByName, storeID+"#"+oldDisplayName)
-		}
-
-		if group.DisplayName != "" {
-			b.groupsByName[storeID+"#"+group.DisplayName] = groupID
-		}
+// updateGroupDisplayNameIndex maintains the groupsByName index when a display name changes.
+func (b *InMemoryBackend) updateGroupDisplayNameIndex(storeID, groupID, oldName, newName string) {
+	if oldName == newName {
+		return
 	}
 
-	return nil
+	if oldName != "" {
+		delete(b.groupsByName, storeID+"#"+oldName)
+	}
+
+	if newName != "" {
+		b.groupsByName[storeID+"#"+newName] = groupID
+	}
 }
 
 // DeleteGroup removes a group from the identity store.
@@ -621,12 +680,19 @@ func (b *InMemoryBackend) DeleteGroup(storeID, groupID string) error {
 
 	delete(b.groups, groupID)
 
-	// Remove associated memberships.
+	// Remove associated memberships. Collect IDs first to avoid map mutation during iteration.
+	var toDelete []string
+
 	for id, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.GroupID == groupID {
-			delete(b.membershipKeys, storeID+"#"+groupID+"#"+m.MemberID.UserID)
-			delete(b.memberships, id)
+			toDelete = append(toDelete, id)
 		}
+	}
+
+	for _, id := range toDelete {
+		m := b.memberships[id]
+		delete(b.membershipKeys, storeID+"#"+groupID+"#"+m.MemberID.UserID)
+		delete(b.memberships, id)
 	}
 
 	return nil
@@ -707,7 +773,7 @@ func (b *InMemoryBackend) ListGroupMemberships(storeID, groupID string) []*Group
 	b.mu.RLock("ListGroupMemberships")
 	defer b.mu.RUnlock()
 
-	result := make([]*GroupMembership, 0)
+	result := make([]*GroupMembership, 0, len(b.memberships))
 
 	for _, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.GroupID == groupID {
@@ -757,7 +823,7 @@ func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID
 	b.mu.RLock("ListGroupMembershipsForMember")
 	defer b.mu.RUnlock()
 
-	result := make([]*GroupMembership, 0)
+	result := make([]*GroupMembership, 0, len(b.memberships))
 
 	for _, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.MemberID.UserID == memberID.UserID {
@@ -769,6 +835,7 @@ func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID
 }
 
 // IsMemberInGroups checks which of the given groups contain the specified member.
+// Uses the O(1) membershipKeys index instead of scanning all memberships.
 func (b *InMemoryBackend) IsMemberInGroups(
 	storeID string,
 	memberID MemberID,
@@ -777,26 +844,14 @@ func (b *InMemoryBackend) IsMemberInGroups(
 	b.mu.RLock("IsMemberInGroups")
 	defer b.mu.RUnlock()
 
-	groupSet := make(map[string]bool, len(groupIDs))
-	for _, id := range groupIDs {
-		groupSet[id] = false
-	}
-
-	for _, m := range b.memberships {
-		if m.IdentityStoreID != storeID || m.MemberID.UserID != memberID.UserID {
-			continue
-		}
-
-		if _, ok := groupSet[m.GroupID]; ok {
-			groupSet[m.GroupID] = true
-		}
-	}
-
 	result := make([]GroupMembershipExistence, 0, len(groupIDs))
+
 	for _, id := range groupIDs {
+		key := storeID + "#" + id + "#" + memberID.UserID
+		_, exists := b.membershipKeys[key]
 		result = append(result, GroupMembershipExistence{
 			GroupID:          id,
-			MembershipExists: groupSet[id],
+			MembershipExists: exists,
 		})
 	}
 
