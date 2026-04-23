@@ -164,8 +164,8 @@ type ApplicationProviderDisplayData struct {
 
 // ApplicationProvider represents an SSO application provider.
 type ApplicationProvider struct {
-	ApplicationProviderArn string                          `json:"ApplicationProviderArn"`
-	DisplayData            ApplicationProviderDisplayData  `json:"DisplayData"`
+	ApplicationProviderArn string                         `json:"ApplicationProviderArn"`
+	DisplayData            ApplicationProviderDisplayData `json:"DisplayData"`
 }
 
 // InstanceAccessControlAttributeConfiguration holds ABAC configuration for an instance.
@@ -2121,98 +2121,98 @@ func (b *InMemoryBackend) ListAccountAssignmentsForPrincipal(
 
 // GetApplicationAccessScope returns whether a specific access scope exists for an application.
 func (b *InMemoryBackend) GetApplicationAccessScope(applicationArn, scope string) (string, error) {
-b.mu.RLock("GetApplicationAccessScope")
-defer b.mu.RUnlock()
+	b.mu.RLock("GetApplicationAccessScope")
+	defer b.mu.RUnlock()
 
-if _, ok := b.applications[applicationArn]; !ok {
-return "", ErrApplicationNotFound
-}
-if slices.Contains(b.applicationScopes[applicationArn], scope) {
-return scope, nil
-}
+	if _, ok := b.applications[applicationArn]; !ok {
+		return "", ErrApplicationNotFound
+	}
+	if slices.Contains(b.applicationScopes[applicationArn], scope) {
+		return scope, nil
+	}
 
-return "", ErrAccessScopeNotFound
+	return "", ErrAccessScopeNotFound
 }
 
 // GetApplicationAuthenticationMethod returns an authentication method for an application if it exists.
 func (b *InMemoryBackend) GetApplicationAuthenticationMethod(applicationArn, authMethodType string) (string, error) {
-b.mu.RLock("GetApplicationAuthenticationMethod")
-defer b.mu.RUnlock()
+	b.mu.RLock("GetApplicationAuthenticationMethod")
+	defer b.mu.RUnlock()
 
-if _, ok := b.applications[applicationArn]; !ok {
-return "", ErrApplicationNotFound
-}
-if slices.Contains(b.applicationAuthMethods[applicationArn], authMethodType) {
-return authMethodType, nil
-}
+	if _, ok := b.applications[applicationArn]; !ok {
+		return "", ErrApplicationNotFound
+	}
+	if slices.Contains(b.applicationAuthMethods[applicationArn], authMethodType) {
+		return authMethodType, nil
+	}
 
-return "", ErrAuthMethodNotFound
+	return "", ErrAuthMethodNotFound
 }
 
 // GetApplicationGrant returns a grant type for an application if it exists.
 func (b *InMemoryBackend) GetApplicationGrant(applicationArn, grantType string) (string, error) {
-b.mu.RLock("GetApplicationGrant")
-defer b.mu.RUnlock()
+	b.mu.RLock("GetApplicationGrant")
+	defer b.mu.RUnlock()
 
-if _, ok := b.applications[applicationArn]; !ok {
-return "", ErrApplicationNotFound
-}
-if slices.Contains(b.applicationGrants[applicationArn], grantType) {
-return grantType, nil
-}
+	if _, ok := b.applications[applicationArn]; !ok {
+		return "", ErrApplicationNotFound
+	}
+	if slices.Contains(b.applicationGrants[applicationArn], grantType) {
+		return grantType, nil
+	}
 
-return "", ErrGrantNotFound
+	return "", ErrGrantNotFound
 }
 
 // ListAccountsForProvisionedPermissionSet returns account IDs where a permission set has assignments.
 func (b *InMemoryBackend) ListAccountsForProvisionedPermissionSet(instanceArn, permissionSetArn string) ([]string, error) {
-b.mu.RLock("ListAccountsForProvisionedPermissionSet")
-defer b.mu.RUnlock()
+	b.mu.RLock("ListAccountsForProvisionedPermissionSet")
+	defer b.mu.RUnlock()
 
-if _, ok := b.instances[instanceArn]; !ok {
-return nil, ErrInstanceNotFound
-}
-if _, ok := b.permissionSets[permissionSetArn]; !ok {
-return nil, ErrPermissionSetNotFound
-}
+	if _, ok := b.instances[instanceArn]; !ok {
+		return nil, ErrInstanceNotFound
+	}
+	if _, ok := b.permissionSets[permissionSetArn]; !ok {
+		return nil, ErrPermissionSetNotFound
+	}
 
-key := assignmentKey(instanceArn, permissionSetArn)
-seen := map[string]struct{}{}
-for _, a := range b.assignments[key] {
-seen[a.AccountID] = struct{}{}
-}
+	key := assignmentKey(instanceArn, permissionSetArn)
+	seen := map[string]struct{}{}
+	for _, a := range b.assignments[key] {
+		seen[a.AccountID] = struct{}{}
+	}
 
-result := make([]string, 0, len(seen))
-for accountID := range seen {
-result = append(result, accountID)
-}
-sort.Strings(result)
+	result := make([]string, 0, len(seen))
+	for accountID := range seen {
+		result = append(result, accountID)
+	}
+	sort.Strings(result)
 
-return result, nil
+	return result, nil
 }
 
 // ListApplicationAssignmentsForPrincipal returns all application assignments for a specific principal.
 func (b *InMemoryBackend) ListApplicationAssignmentsForPrincipal(
-instanceArn, principalID, principalType string,
+	instanceArn, principalID, principalType string,
 ) []*ApplicationAssignment {
-b.mu.RLock("ListApplicationAssignmentsForPrincipal")
-defer b.mu.RUnlock()
+	b.mu.RLock("ListApplicationAssignmentsForPrincipal")
+	defer b.mu.RUnlock()
 
-var result []*ApplicationAssignment
-for appArn, app := range b.applications {
-if app.InstanceArn != instanceArn {
-continue
-}
-for _, a := range b.applicationAssignments[appArn] {
-if a.PrincipalID == principalID && a.PrincipalType == principalType {
-cp := *a
-result = append(result, &cp)
-}
-}
-}
-sort.Slice(result, func(i, j int) bool {
-return result[i].ApplicationArn < result[j].ApplicationArn
-})
+	var result []*ApplicationAssignment
+	for appArn, app := range b.applications {
+		if app.InstanceArn != instanceArn {
+			continue
+		}
+		for _, a := range b.applicationAssignments[appArn] {
+			if a.PrincipalID == principalID && a.PrincipalType == principalType {
+				cp := *a
+				result = append(result, &cp)
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ApplicationArn < result[j].ApplicationArn
+	})
 
-return result
+	return result
 }
