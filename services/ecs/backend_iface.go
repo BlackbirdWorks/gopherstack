@@ -33,6 +33,7 @@ type Backend interface {
 	DescribeTasks(cluster string, taskArns []string) ([]Task, error)
 	StopTask(cluster, taskArn, reason string) (*Task, error)
 	ListTasks(cluster string) ([]string, error)
+	ListTasksFiltered(input ListTasksInput) ([]string, error)
 
 	// Container instances
 
@@ -67,18 +68,75 @@ type Backend interface {
 	// Account settings
 
 	DeleteAccountSetting(name, principalArn string) (*AccountSetting, error)
+	ListAccountSettings(name, principalArn string) ([]AccountSetting, error)
+	PutAccountSetting(name, value, principalArn string) (*AccountSetting, error)
+	PutAccountSettingDefault(name, value string) (*AccountSetting, error)
 
 	// Attributes
 
 	DeleteAttributes(cluster string, attrs []Attribute) ([]Attribute, error)
+	ListAttributes(cluster, targetType, attributeName string) ([]Attribute, error)
+	PutAttributes(cluster string, attrs []Attribute) ([]Attribute, error)
+
+	// Cluster capacity providers and settings
+
+	PutClusterCapacityProviders(
+		cluster string,
+		capacityProviders []string,
+		defaultCapacityProviderStrategy []CapacityProviderStrategyItem,
+	) (*Cluster, error)
+	UpdateClusterSettings(cluster string, settings []ClusterSetting) (*Cluster, error)
+
+	// Container instance management
+
+	UpdateContainerAgent(cluster, containerInstance string) (*ContainerInstance, error)
+
+	// Cluster management
+
+	UpdateCluster(input UpdateClusterInput) (*Cluster, error)
+
+	// Capacity provider management
+
+	UpdateCapacityProvider(input UpdateCapacityProviderInput) (*CapacityProvider, error)
+
+	// Task definition families
+
+	ListTaskDefinitionFamilies(familyPrefix, status string) ([]string, error)
+
+	// Task placement
+
+	StartTask(input StartTaskInput) ([]Task, error)
+
+	// Namespace-scoped service listing
+
+	ListServicesByNamespace(cluster, namespace string) ([]string, error)
+
+	// Tagging
+
+	TagResource(resourceArn string, tags []Tag) error
+	UntagResource(resourceArn string, tagKeys []string) error
+	ListTagsForResource(resourceArn string) ([]Tag, error)
 
 	// Service deployments
 
 	DescribeServiceDeployments(serviceDeploymentArns []string) ([]ServiceDeployment, []Failure, error)
+	ListServiceDeployments(cluster, service string) ([]string, error)
+	StopServiceDeployment(serviceDeploymentArn string) (*ServiceDeployment, error)
 
 	// Express gateway services
 
 	CreateExpressGatewayService(input CreateExpressGatewayServiceInput) (*ExpressGatewayService, error)
 	DeleteExpressGatewayService(serviceArn string) (*ExpressGatewayService, error)
 	DescribeExpressGatewayService(serviceArn string) (*ExpressGatewayService, error)
+	UpdateExpressGatewayService(input UpdateExpressGatewayServiceInput) (*ExpressGatewayService, error)
+
+	// Task protection
+
+	GetTaskProtection(cluster string, taskArns []string) ([]TaskProtection, []Failure, error)
+	UpdateTaskProtection(
+		cluster string,
+		taskArns []string,
+		protectionEnabled bool,
+		expiresInMinutes *int,
+	) ([]TaskProtection, []Failure, error)
 }

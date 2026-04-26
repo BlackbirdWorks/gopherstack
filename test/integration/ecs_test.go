@@ -921,3 +921,355 @@ func TestIntegration_ECS_DockerRuntime(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// TestIntegration_ECS_UpdateCluster verifies UpdateCluster updates a cluster.
+func TestIntegration_ECS_UpdateCluster(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	clusterName := "update-cluster-" + uuid.NewString()[:8]
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	out, err := client.UpdateCluster(ctx, &ecs.UpdateClusterInput{
+		Cluster: aws.String(clusterName),
+		Settings: []ecstypes.ClusterSetting{
+			{Name: ecstypes.ClusterSettingNameContainerInsights, Value: aws.String("enabled")},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Cluster)
+	assert.Equal(t, clusterName, aws.ToString(out.Cluster.ClusterName))
+}
+
+// TestIntegration_ECS_ListTaskDefinitionFamilies verifies listing families.
+func TestIntegration_ECS_ListTaskDefinitionFamilies(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	family1 := "fam-a-" + suffix
+	family2 := "fam-b-" + suffix
+
+	for _, f := range []string{family1, family2} {
+		_, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+			Family: aws.String(f),
+			ContainerDefinitions: []ecstypes.ContainerDefinition{
+				{Name: aws.String("c1"), Image: aws.String("nginx:latest")},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ListTaskDefinitionFamilies(ctx, &ecs.ListTaskDefinitionFamiliesInput{
+		FamilyPrefix: aws.String("fam-"),
+	})
+	require.NoError(t, err)
+
+	found := make(map[string]bool)
+	for _, f := range out.Families {
+		found[f] = true
+	}
+
+	assert.True(t, found[family1], "family1 should appear")
+	assert.True(t, found[family2], "family2 should appear")
+}
+
+// TestIntegration_ECS_Tagging verifies TagResource, UntagResource, ListTagsForResource.
+func TestIntegration_ECS_Tagging(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	clusterName := "tag-cluster-" + uuid.NewString()[:8]
+
+	createOut, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	arn := aws.ToString(createOut.Cluster.ClusterArn)
+
+	_, err = client.TagResource(ctx, &ecs.TagResourceInput{
+		ResourceArn: aws.String(arn),
+		Tags: []ecstypes.Tag{
+			{Key: aws.String("env"), Value: aws.String("test")},
+			{Key: aws.String("team"), Value: aws.String("platform")},
+		},
+	})
+	require.NoError(t, err)
+
+	listOut, err := client.ListTagsForResource(ctx, &ecs.ListTagsForResourceInput{
+		ResourceArn: aws.String(arn),
+	})
+	require.NoError(t, err)
+	assert.Len(t, listOut.Tags, 2)
+
+	_, err = client.UntagResource(ctx, &ecs.UntagResourceInput{
+		ResourceArn: aws.String(arn),
+		TagKeys:     []string{"env"},
+	})
+	require.NoError(t, err)
+
+	listOut2, err := client.ListTagsForResource(ctx, &ecs.ListTagsForResourceInput{
+		ResourceArn: aws.String(arn),
+	})
+	require.NoError(t, err)
+	assert.Len(t, listOut2.Tags, 1)
+	assert.Equal(t, "team", aws.ToString(listOut2.Tags[0].Key))
+}
+
+// TestIntegration_ECS_StartTask verifies StartTask places a task on a container instance.
+func TestIntegration_ECS_StartTask(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	clusterName := "start-task-cluster-" + suffix
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	family := "start-task-" + suffix
+	regOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String(family),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{Name: aws.String("app"), Image: aws.String("nginx:latest")},
+		},
+	})
+	require.NoError(t, err)
+
+	// Register a container instance first.
+	ciOut, err := client.RegisterContainerInstance(ctx, &ecs.RegisterContainerInstanceInput{
+		Cluster: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, ciOut.ContainerInstance)
+
+	ciArn := aws.ToString(ciOut.ContainerInstance.ContainerInstanceArn)
+
+	out, err := client.StartTask(ctx, &ecs.StartTaskInput{
+		Cluster:            aws.String(clusterName),
+		TaskDefinition:     regOut.TaskDefinition.TaskDefinitionArn,
+		ContainerInstances: []string{ciArn},
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.Tasks, 1)
+	assert.Equal(t, ciArn, aws.ToString(out.Tasks[0].ContainerInstanceArn))
+}
+
+// ----- Integration tests for new ECS operations (issue #1109) -----
+
+func TestIntegration_ECS_AccountSettings(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	// PutAccountSetting
+	putOut, err := client.PutAccountSetting(ctx, &ecs.PutAccountSettingInput{
+		Name:  ecstypes.SettingNameContainerInsights,
+		Value: aws.String("enabled"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, putOut.Setting)
+	assert.Equal(t, ecstypes.SettingNameContainerInsights, putOut.Setting.Name)
+	assert.Equal(t, "enabled", aws.ToString(putOut.Setting.Value))
+
+	// PutAccountSettingDefault
+	defaultOut, err := client.PutAccountSettingDefault(ctx, &ecs.PutAccountSettingDefaultInput{
+		Name:  ecstypes.SettingNameServiceLongArnFormat,
+		Value: aws.String("enabled"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, defaultOut.Setting)
+
+	// ListAccountSettings
+	listOut, err := client.ListAccountSettings(ctx, &ecs.ListAccountSettingsInput{})
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(listOut.Settings), 2)
+
+	// DeleteAccountSetting
+	_, err = client.DeleteAccountSetting(ctx, &ecs.DeleteAccountSettingInput{
+		Name: ecstypes.SettingNameContainerInsights,
+	})
+	require.NoError(t, err)
+}
+
+func TestIntegration_ECS_Attributes(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	clusterName := "attr-cluster-" + uuid.NewString()[:8]
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	// PutAttributes
+	putOut, err := client.PutAttributes(ctx, &ecs.PutAttributesInput{
+		Cluster: aws.String(clusterName),
+		Attributes: []ecstypes.Attribute{{
+			Name:       aws.String("env"),
+			Value:      aws.String("test"),
+			TargetId:   aws.String("inst-1"),
+			TargetType: ecstypes.TargetTypeContainerInstance,
+		}},
+	})
+	require.NoError(t, err)
+	assert.Len(t, putOut.Attributes, 1)
+
+	// ListAttributes
+	listOut, err := client.ListAttributes(ctx, &ecs.ListAttributesInput{
+		Cluster:    aws.String(clusterName),
+		TargetType: ecstypes.TargetTypeContainerInstance,
+	})
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(listOut.Attributes), 1)
+
+	// DeleteAttributes
+	_, err = client.DeleteAttributes(ctx, &ecs.DeleteAttributesInput{
+		Cluster: aws.String(clusterName),
+		Attributes: []ecstypes.Attribute{{
+			Name:       aws.String("env"),
+			TargetId:   aws.String("inst-1"),
+			TargetType: ecstypes.TargetTypeContainerInstance,
+		}},
+	})
+	require.NoError(t, err)
+}
+
+func TestIntegration_ECS_ClusterCapacityProviders(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	clusterName := "cp-cluster-" + uuid.NewString()[:8]
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	// Create a capacity provider first.
+	cpName := "cp-" + uuid.NewString()[:8]
+	_, err = client.CreateCapacityProvider(ctx, &ecs.CreateCapacityProviderInput{
+		Name: aws.String(cpName),
+		AutoScalingGroupProvider: &ecstypes.AutoScalingGroupProvider{
+			AutoScalingGroupArn: aws.String("arn:aws:autoscaling:us-east-1:000000000000:autoScalingGroup:fake"),
+		},
+	})
+	require.NoError(t, err)
+
+	// PutClusterCapacityProviders
+	putOut, err := client.PutClusterCapacityProviders(ctx, &ecs.PutClusterCapacityProvidersInput{
+		Cluster:           aws.String(clusterName),
+		CapacityProviders: []string{cpName},
+		DefaultCapacityProviderStrategy: []ecstypes.CapacityProviderStrategyItem{
+			{CapacityProvider: aws.String(cpName), Weight: 1},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, putOut.Cluster)
+	assert.Contains(t, putOut.Cluster.CapacityProviders, cpName)
+}
+
+func TestIntegration_ECS_UpdateClusterSettings(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	clusterName := "settings-cluster-" + uuid.NewString()[:8]
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	out, err := client.UpdateClusterSettings(ctx, &ecs.UpdateClusterSettingsInput{
+		Cluster: aws.String(clusterName),
+		Settings: []ecstypes.ClusterSetting{
+			{Name: ecstypes.ClusterSettingNameContainerInsights, Value: aws.String("enabled")},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Cluster)
+	require.Len(t, out.Cluster.Settings, 1)
+	assert.Equal(t, "enabled", aws.ToString(out.Cluster.Settings[0].Value))
+}
+
+func TestIntegration_ECS_TaskProtection(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	clusterName := "tp-cluster-" + uuid.NewString()[:8]
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	_, err = client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String("tp-family"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{Name: aws.String("app"), Image: aws.String("nginx")},
+		},
+	})
+	require.NoError(t, err)
+
+	runOut, err := client.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(clusterName),
+		TaskDefinition: aws.String("tp-family"),
+		Count:          aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, runOut.Tasks, 1)
+
+	taskArn := aws.ToString(runOut.Tasks[0].TaskArn)
+
+	// UpdateTaskProtection
+	upOut, err := client.UpdateTaskProtection(ctx, &ecs.UpdateTaskProtectionInput{
+		Cluster:           aws.String(clusterName),
+		Tasks:             []string{taskArn},
+		ProtectionEnabled: true,
+	})
+	require.NoError(t, err)
+	assert.Len(t, upOut.ProtectedTasks, 1)
+
+	// GetTaskProtection
+	getOut, err := client.GetTaskProtection(ctx, &ecs.GetTaskProtectionInput{
+		Cluster: aws.String(clusterName),
+		Tasks:   []string{taskArn},
+	})
+	require.NoError(t, err)
+	assert.Len(t, getOut.ProtectedTasks, 1)
+	assert.True(t, getOut.ProtectedTasks[0].ProtectionEnabled)
+}

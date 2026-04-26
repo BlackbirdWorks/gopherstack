@@ -7,10 +7,17 @@ import {
 	ListTasksCommand,
 	ListTaskDefinitionsCommand,
 	DescribeTaskDefinitionCommand,
-	type TaskDefinition
+	ListContainerInstancesCommand,
+	DescribeContainerInstancesCommand,
+	DescribeTaskSetsCommand,
+	DescribeCapacityProvidersCommand,
+	type TaskDefinition,
+	type ContainerInstance,
+	type TaskSet,
+	type CapacityProvider
 } from '@aws-sdk/client-ecs';
 import { toast } from 'svelte-sonner';
-import { Container, Plus, RefreshCw, Search, Layers, Activity, Server, ChevronRight, List, Box } from 'lucide-svelte';
+import { Container, Plus, RefreshCw, Search, Layers, Activity, Server, ChevronRight, List, Box, Cpu, LayoutGrid, Zap } from 'lucide-svelte';
 
 const ecs = getECSClient();
 
@@ -25,10 +32,17 @@ let taskDefs = $state<string[]>([]);
 let taskDefsLoading = $state(false);
 let selectedTaskDef = $state<TaskDefinition | null>(null);
 let taskDefLoading = $state(false);
+let containerInstances = $state<ContainerInstance[]>([]);
+let containerInstancesLoading = $state(false);
+let taskSets = $state<TaskSet[]>([]);
+let taskSetsLoading = $state(false);
+let taskSetsLoadedForCluster = $state<string | null>(null);
+let capacityProviders = $state<CapacityProvider[]>([]);
+let capacityProvidersLoading = $state(false);
 let search = $state('');
 let servicesByCluster = $state<Record<string, string[]>>({});
 let tasksByCluster = $state<Record<string, string[]>>({});
-let activeTab = $state<'services' | 'tasks' | 'taskdefs'>('services');
+let activeTab = $state<'services' | 'tasks' | 'taskdefs' | 'instances' | 'tasksets' | 'capacity'>('services');
 
 onMount(async () => {
 	await loadClusters();
@@ -42,8 +56,11 @@ async function loadClusters() {
 		clusters = data.clusterArns || [];
 		if (clusters.length > 0) {
 			selectedCluster = clusters[0];
-			await loadServices(clusters[0]);
-			await loadTasks(clusters[0]);
+			await Promise.all([
+				loadServices(clusters[0]),
+				loadTasks(clusters[0]),
+				loadContainerInstances(clusters[0])
+			]);
 		}
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load clusters');
@@ -92,9 +109,98 @@ async function loadTaskDefs() {
 	}
 }
 
+async function loadContainerInstances(clusterArn: string) {
+	try {
+		containerInstancesLoading = true;
+		const list = await ecs.send(new ListContainerInstancesCommand({ cluster: clusterArn }));
+		const arns = list.containerInstanceArns || [];
+		if (arns.length > 0) {
+			const desc = await ecs.send(new DescribeContainerInstancesCommand({ cluster: clusterArn, containerInstances: arns }));
+			containerInstances = desc.containerInstances || [];
+		} else {
+			containerInstances = [];
+		}
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load container instances');
+	} finally {
+		containerInstancesLoading = false;
+	}
+}
+
+async function loadCapacityProviders(clusterArn: string) {
+	try {
+		capacityProvidersLoading = true;
+		// Get capacity providers attached to the cluster
+		const clustersData = await ecs.send(new ListClustersCommand({}));
+		const clusterList = clustersData.clusterArns || [];
+		if (clusterList.length === 0) {
+			capacityProviders = [];
+			return;
+		}
+		// Describe capacity providers - pass empty to get all registered ones
+		const cpData = await ecs.send(new DescribeCapacityProvidersCommand({}));
+		capacityProviders = cpData.capacityProviders || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load capacity providers');
+	} finally {
+		capacityProvidersLoading = false;
+	}
+}
+
+async function handleTabChange(tabId: string) {
+	activeTab = tabId as typeof activeTab;
+	search = '';
+	if (tabId === 'tasksets' && selectedCluster && taskSetsLoadedForCluster !== selectedCluster) {
+		await loadTaskSets(selectedCluster);
+	}
+	if (tabId === 'capacity' && selectedCluster) {
+		await loadCapacityProviders(selectedCluster);
+	}
+}
+
+async function loadTaskSets(clusterArn: string) {
+	try {
+		taskSetsLoading = true;
+		// List services first, then describe task sets for each service in parallel
+		const svcs = await ecs.send(new ListServicesCommand({ cluster: clusterArn }));
+		const serviceArns = svcs.serviceArns || [];
+		if (serviceArns.length === 0) {
+			taskSets = [];
+			return;
+		}
+		const results = await Promise.allSettled(
+			serviceArns.map((arn) =>
+				ecs.send(new DescribeTaskSetsCommand({ cluster: clusterArn, service: arn }))
+			)
+		);
+		const failedRequests = results.filter((result) => result.status === 'rejected');
+		taskSets = results.flatMap((result) =>
+			result.status === 'fulfilled' ? result.value.taskSets || [] : []
+		);
+		if (failedRequests.length > 0) {
+			toast.error(
+				failedRequests.length === serviceArns.length
+					? 'Failed to load task sets'
+					: 'Some task sets could not be loaded'
+			);
+		}
+		taskSetsLoadedForCluster = clusterArn;
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load task sets');
+	} finally {
+		taskSetsLoading = false;
+	}
+}
+
 async function selectCluster(arn: string) {
 	selectedCluster = arn;
-	await Promise.all([loadServices(arn), loadTasks(arn)]);
+	taskSetsLoadedForCluster = null;
+	taskSets = [];
+	const loads: Promise<void>[] = [loadServices(arn), loadTasks(arn), loadContainerInstances(arn)];
+	if (activeTab === 'tasksets') {
+		loads.push(loadTaskSets(arn));
+	}
+	await Promise.all(loads);
 }
 
 async function selectTaskDef(arn: string) {
@@ -112,6 +218,9 @@ async function selectTaskDef(arn: string) {
 async function reload() {
 	await loadClusters();
 	await loadTaskDefs();
+	if (selectedCluster) {
+		await loadTaskSets(selectedCluster);
+	}
 }
 
 function clusterName(arn: string) {
@@ -147,6 +256,14 @@ function clusterAccount(arn: string) {
 	return parts[4] || '—';
 }
 
+function instanceId(arn: string) {
+	return arn.split('/').pop()?.slice(0, 12) || arn;
+}
+
+function taskSetId(arn: string) {
+	return arn.split('/').pop() || arn;
+}
+
 function copyToClipboard(text: string) {
 	navigator.clipboard.writeText(text).then(() => toast.success('Copied to clipboard'));
 }
@@ -161,6 +278,21 @@ let filteredTasks = $derived(tasks.filter(t =>
 
 let filteredTaskDefs = $derived(taskDefs.filter(td =>
 	!search || taskDefFamily(td).toLowerCase().includes(search.toLowerCase())
+));
+
+let filteredContainerInstances = $derived(containerInstances.filter(ci =>
+	!search || (ci.ec2InstanceId || '').toLowerCase().includes(search.toLowerCase()) ||
+	(ci.containerInstanceArn || '').toLowerCase().includes(search.toLowerCase())
+));
+
+let filteredTaskSets = $derived(taskSets.filter(ts =>
+	!search || (ts.taskSetArn || '').toLowerCase().includes(search.toLowerCase()) ||
+	(ts.id || '').toLowerCase().includes(search.toLowerCase())
+));
+
+let filteredCapacityProviders = $derived(capacityProviders.filter(cp =>
+	!search || (cp.name || '').toLowerCase().includes(search.toLowerCase()) ||
+	(cp.capacityProviderArn || '').toLowerCase().includes(search.toLowerCase())
 ));
 
 let totalServices = $derived(Object.values(servicesByCluster).reduce((acc, s) => acc + s.length, 0));
@@ -307,23 +439,24 @@ let taskDefFamilies = $derived(() => {
 			<!-- Right panel with tabs -->
 			<div class="lg:col-span-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
 				<!-- Tab bar -->
-				<div class="flex border-b border-slate-200 dark:border-slate-700 px-4">
-					{#each [{ id: 'services', label: 'Services', icon: Activity }, { id: 'tasks', label: 'Tasks', icon: Server }, { id: 'taskdefs', label: 'Task Definitions', icon: Box }] as tab}
+				<div class="flex overflow-x-auto border-b border-slate-200 dark:border-slate-700 px-4">
+					{#each [
+						{ id: 'services', label: 'Services', icon: Activity, count: services.length },
+						{ id: 'tasks', label: 'Tasks', icon: Server, count: tasks.length },
+						{ id: 'taskdefs', label: 'Task Defs', icon: Box, count: taskDefs.length },
+						{ id: 'instances', label: 'Instances', icon: Cpu, count: containerInstances.length },
+						{ id: 'tasksets', label: 'Task Sets', icon: LayoutGrid, count: taskSets.length },
+						{ id: 'capacity', label: 'Capacity', icon: Zap, count: capacityProviders.length }
+					] as tab}
 						<button
-							onclick={() => { activeTab = tab.id as typeof activeTab; search = ''; }}
-							class="flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id
+							onclick={() => handleTabChange(tab.id)}
+							class="flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === tab.id
 								? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
 								: 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}"
 						>
 							<tab.icon class="w-4 h-4" />
 							{tab.label}
-							{#if tab.id === 'services'}
-								<span class="ml-1 text-xs bg-slate-100 dark:bg-slate-700 rounded-full px-1.5">{services.length}</span>
-							{:else if tab.id === 'tasks'}
-								<span class="ml-1 text-xs bg-slate-100 dark:bg-slate-700 rounded-full px-1.5">{tasks.length}</span>
-							{:else}
-								<span class="ml-1 text-xs bg-slate-100 dark:bg-slate-700 rounded-full px-1.5">{taskDefs.length}</span>
-							{/if}
+							<span class="ml-1 text-xs bg-slate-100 dark:bg-slate-700 rounded-full px-1.5">{tab.count}</span>
 						</button>
 					{/each}
 				</div>
@@ -449,6 +582,119 @@ let taskDefFamilies = $derived(() => {
 								{/each}
 							</div>
 							<p class="text-xs text-slate-400 mt-3 text-right">{filteredTaskDefs.length} definitions</p>
+						{/if}
+
+					<!-- Container Instances tab -->
+					{:else if activeTab === 'instances'}
+						{#if containerInstancesLoading}
+							<div class="text-center py-8 text-slate-500 dark:text-slate-400 text-sm">
+								<div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500 mb-2"></div>
+								<p>Loading container instances...</p>
+							</div>
+						{:else if filteredContainerInstances.length === 0}
+							<div class="text-center py-10">
+								<Cpu class="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2 opacity-50" />
+								<p class="text-slate-500 dark:text-slate-400 text-sm">No container instances found in this cluster</p>
+							</div>
+						{:else}
+							<div class="space-y-2">
+								{#each filteredContainerInstances as ci}
+									{@const ciId = instanceId(ci.containerInstanceArn || '')}
+									<div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600">
+										<div class="flex items-center justify-between">
+											<p class="font-semibold text-slate-900 dark:text-white text-sm font-mono">{ciId}</p>
+											<span class="text-xs px-2 py-0.5 rounded-full {ci.status === 'ACTIVE'
+												? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+												: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'} font-medium">
+												{ci.status || 'UNKNOWN'}
+											</span>
+										</div>
+										<div class="grid grid-cols-2 gap-x-4 mt-1 text-xs text-slate-500 dark:text-slate-400">
+											<p>EC2: {ci.ec2InstanceId || '—'}</p>
+											<p>Agent: {ci.agentConnected ? '✓ Connected' : '✗ Disconnected'}</p>
+											<p>Running tasks: {ci.runningTasksCount ?? 0}</p>
+											<p>Pending tasks: {ci.pendingTasksCount ?? 0}</p>
+										</div>
+										{#if ci.agentUpdateStatus}
+											<p class="text-xs text-amber-600 dark:text-amber-400 mt-1">Agent update: {ci.agentUpdateStatus}</p>
+										{/if}
+									</div>
+								{/each}
+							</div>
+							<p class="text-xs text-slate-400 mt-3 text-right">{filteredContainerInstances.length} instances</p>
+						{/if}
+
+					<!-- Task Sets tab -->
+					{:else if activeTab === 'tasksets'}
+						{#if taskSetsLoading}
+							<div class="text-center py-8 text-slate-500 dark:text-slate-400 text-sm">
+								<div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500 mb-2"></div>
+								<p>Loading task sets...</p>
+							</div>
+						{:else if filteredTaskSets.length === 0}
+							<div class="text-center py-10">
+								<LayoutGrid class="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2 opacity-50" />
+								<p class="text-slate-500 dark:text-slate-400 text-sm">No task sets found in this cluster</p>
+							</div>
+						{:else}
+							<div class="space-y-2">
+								{#each filteredTaskSets as ts}
+									{@const tsId = taskSetId(ts.taskSetArn || '')}
+									<div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600">
+										<div class="flex items-center justify-between">
+											<p class="font-semibold text-slate-900 dark:text-white text-sm font-mono">{tsId}</p>
+											<span class="text-xs px-2 py-0.5 rounded-full {ts.status === 'ACTIVE'
+												? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+												: 'bg-slate-100 dark:bg-slate-600 text-slate-600 dark:text-slate-300'} font-medium">
+												{ts.status || 'UNKNOWN'}
+											</span>
+										</div>
+										<div class="grid grid-cols-2 gap-x-4 mt-1 text-xs text-slate-500 dark:text-slate-400">
+											<p>Launch: {ts.launchType || 'FARGATE'}</p>
+											<p>Scale: {ts.scale?.value ?? 100}% ({ts.scale?.unit || 'PERCENT'})</p>
+											{#if ts.taskDefinition}
+												<p class="col-span-2 truncate">Task def: {ts.taskDefinition}</p>
+											{/if}
+										</div>
+									</div>
+								{/each}
+							</div>
+							<p class="text-xs text-slate-400 mt-3 text-right">{filteredTaskSets.length} task sets</p>
+						{/if}
+
+					<!-- Capacity Providers tab -->
+					{:else if activeTab === 'capacity'}
+						{#if capacityProvidersLoading}
+							<div class="text-center py-8 text-slate-500 dark:text-slate-400 text-sm">
+								<div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500 mb-2"></div>
+								<p>Loading capacity providers...</p>
+							</div>
+						{:else if filteredCapacityProviders.length === 0}
+							<div class="text-center py-10">
+								<Zap class="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2 opacity-50" />
+								<p class="text-slate-500 dark:text-slate-400 text-sm">No capacity providers found</p>
+								<p class="text-slate-400 dark:text-slate-500 text-xs mt-1">Create a capacity provider and attach it to the cluster.</p>
+							</div>
+						{:else}
+							<div class="space-y-2">
+								{#each filteredCapacityProviders as cp}
+									<div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600">
+										<div class="flex items-center justify-between">
+											<p class="font-semibold text-slate-900 dark:text-white text-sm">{cp.name || '—'}</p>
+											<span class="text-xs px-2 py-0.5 rounded-full {cp.status === 'ACTIVE'
+												? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+												: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'} font-medium">
+												{cp.status || 'UNKNOWN'}
+											</span>
+										</div>
+										<p class="text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 truncate">{cp.capacityProviderArn || '—'}</p>
+										{#if cp.updateStatus}
+											<p class="text-xs text-amber-600 dark:text-amber-400 mt-1">Update status: {cp.updateStatus}</p>
+										{/if}
+									</div>
+								{/each}
+							</div>
+							<p class="text-xs text-slate-400 mt-3 text-right">{filteredCapacityProviders.length} capacity providers</p>
 						{/if}
 					{/if}
 				</div>

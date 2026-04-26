@@ -44,7 +44,8 @@ func TestECSDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/ecs")
 	require.NoError(t, err)
 
-	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
+	// Wait for cluster names to be rendered in the DOM (loaded asynchronously).
+	err = page.Locator("text=demo-cluster").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -90,7 +91,51 @@ func TestECSDashboard_Empty(t *testing.T) {
 	assert.Contains(t, content, "No ECS clusters found")
 }
 
-// TestECSDashboard_CreateAndDeleteCluster verifies that clusters appear when created via SDK.
+// TestECSDashboard_CapacityProvidersTab verifies the Capacity Providers tab renders.
+func TestECSDashboard_CapacityProvidersTab(t *testing.T) {
+	stack := newStack(t)
+
+	_, err := stack.ECSHandler.Backend.CreateCluster(ecsbackend.CreateClusterInput{ClusterName: "cap-cluster"})
+	require.NoError(t, err)
+
+	_, err = stack.ECSHandler.Backend.CreateCapacityProvider(ecsbackend.CreateCapacityProviderInput{Name: "my-cp"})
+	require.NoError(t, err)
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	ctx, err := browser.NewContext()
+	require.NoError(t, err)
+	defer ctx.Close()
+
+	page, err := ctx.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestECSDashboard_CapacityProvidersTab")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard/ecs")
+	require.NoError(t, err)
+
+	// Wait for cluster to appear
+	err = page.Locator("text=cap-cluster").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(60000),
+	})
+	require.NoError(t, err)
+
+	// Click the Capacity tab
+	err = page.Locator("text=Capacity").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
+	err = page.Locator("text=Capacity").First().Click()
+	require.NoError(t, err)
+}
 // Note: Create/Delete UI flow via dashboard is not currently implemented.
 func TestECSDashboard_CreateAndDeleteCluster(t *testing.T) {
 	stack := newStack(t)

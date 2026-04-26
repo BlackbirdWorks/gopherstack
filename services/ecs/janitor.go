@@ -1,0 +1,120 @@
+package ecs
+
+import (
+	"context"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+)
+
+const (
+	defaultECSJanitorInterval = 30 * time.Second
+	defaultStoppedTaskTTL     = time.Hour
+	ecsWorkerService          = "ecs"
+	stoppedTaskSweeperName    = "StoppedTaskSweeper"
+)
+
+// Janitor is the ECS background worker that evicts stopped tasks older than
+// a configurable TTL to prevent unbounded growth of the tasks map.
+type Janitor struct {
+	Backend     *InMemoryBackend
+	Interval    time.Duration
+	TaskTimeout time.Duration
+	taskTTL     time.Duration
+}
+
+// NewJanitor creates a new ECS Janitor for the given backend.
+// If interval is zero it falls back to defaultECSJanitorInterval.
+func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
+	if interval == 0 {
+		interval = defaultECSJanitorInterval
+	}
+
+	return &Janitor{
+		Backend:  backend,
+		Interval: interval,
+		taskTTL:  defaultStoppedTaskTTL,
+	}
+}
+
+// SetTaskTTL overrides the default stopped-task TTL. Intended for testing.
+func (j *Janitor) SetTaskTTL(d time.Duration) { j.taskTTL = d }
+
+// Run runs the janitor loop until ctx is cancelled.
+func (j *Janitor) Run(ctx context.Context) {
+	ticker := time.NewTicker(j.Interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			taskCtx, cancel := j.taskContext(ctx)
+			j.sweepStoppedTasks(taskCtx)
+			cancel()
+		}
+	}
+}
+
+// taskContext returns a child context bounded by TaskTimeout (if non-zero).
+// The caller is responsible for calling the returned cancel function.
+func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if j.TaskTimeout > 0 {
+		return context.WithTimeout(parent, j.TaskTimeout)
+	}
+
+	return context.WithCancel(parent)
+}
+
+// SweepOnce runs a single sweep pass. Exposed for testing.
+func (j *Janitor) SweepOnce(ctx context.Context) {
+	j.sweepStoppedTasks(ctx)
+}
+
+// sweepStoppedTasks removes tasks from every cluster where LastStatus is
+// "STOPPED" and StoppedAt is older than the configured TTL.
+func (j *Janitor) sweepStoppedTasks(ctx context.Context) {
+	now := time.Now()
+	cutoff := now.Add(-j.taskTTL)
+
+	b := j.Backend
+	b.mu.Lock("JanitorSweepStoppedTasks")
+
+	evicted := 0
+
+	for _, taskMap := range b.tasks {
+		select {
+		case <-ctx.Done():
+			b.mu.Unlock()
+
+			return
+		default:
+		}
+
+		for arn, task := range taskMap {
+			if task.LastStatus != statusStopped {
+				continue
+			}
+
+			if task.StoppedAt == nil || task.StoppedAt.IsZero() || task.StoppedAt.After(cutoff) {
+				continue
+			}
+
+			delete(taskMap, arn)
+			evicted++
+		}
+	}
+
+	b.mu.Unlock()
+
+	telemetry.RecordWorkerItems(ecsWorkerService, stoppedTaskSweeperName, evicted)
+	telemetry.RecordWorkerTask(ecsWorkerService, stoppedTaskSweeperName, "success")
+
+	if evicted > 0 {
+		logger.Load(ctx).InfoContext(ctx,
+			"ECS janitor: evicted stopped tasks past TTL",
+			"evicted", evicted)
+	}
+}

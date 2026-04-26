@@ -1,7 +1,10 @@
 package ecs
 
 import (
+	"context"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,14 +49,17 @@ var (
 
 // Cluster represents an ECS cluster.
 type Cluster struct {
-	CreatedAt                         time.Time `json:"createdAt"`
-	ClusterArn                        string    `json:"clusterArn"`
-	ClusterName                       string    `json:"clusterName"`
-	Status                            string    `json:"status"`
-	ActiveServicesCount               int       `json:"activeServicesCount"`
-	PendingTasksCount                 int       `json:"pendingTasksCount"`
-	RegisteredContainerInstancesCount int       `json:"registeredContainerInstancesCount"`
-	RunningTasksCount                 int       `json:"runningTasksCount"`
+	CreatedAt                         time.Time                      `json:"createdAt"`
+	ClusterArn                        string                         `json:"clusterArn"`
+	ClusterName                       string                         `json:"clusterName"`
+	Status                            string                         `json:"status"`
+	DefaultCapacityProviderStrategy   []CapacityProviderStrategyItem `json:"defaultCapacityProviderStrategy,omitempty"`
+	Settings                          []ClusterSetting               `json:"settings,omitempty"`
+	CapacityProviders                 []string                       `json:"capacityProviders,omitempty"`
+	ActiveServicesCount               int                            `json:"activeServicesCount"`
+	PendingTasksCount                 int                            `json:"pendingTasksCount"`
+	RegisteredContainerInstancesCount int                            `json:"registeredContainerInstancesCount"`
+	RunningTasksCount                 int                            `json:"runningTasksCount"`
 }
 
 // ContainerDefinition represents a container definition in a task definition.
@@ -87,6 +93,9 @@ type TaskDefinition struct {
 	Family               string                `json:"family"`
 	NetworkMode          string                `json:"networkMode,omitempty"`
 	Status               string                `json:"status"`
+	PlatformFamily       string                `json:"platformFamily,omitempty"`
+	CPU                  string                `json:"cpu,omitempty"`
+	Memory               string                `json:"memory,omitempty"`
 	ContainerDefinitions []ContainerDefinition `json:"containerDefinitions"`
 	Revision             int                   `json:"revision"`
 }
@@ -101,6 +110,7 @@ type Service struct {
 	Status             string    `json:"status"`
 	LaunchType         string    `json:"launchType,omitempty"`
 	SchedulingStrategy string    `json:"schedulingStrategy,omitempty"`
+	Tags               []Tag     `json:"tags,omitempty"`
 	DesiredCount       int       `json:"desiredCount"`
 	PendingCount       int       `json:"pendingCount"`
 	RunningCount       int       `json:"runningCount"`
@@ -119,6 +129,11 @@ type Task struct {
 	Group                string     `json:"group,omitempty"`
 	LaunchType           string     `json:"launchType,omitempty"`
 	ContainerInstanceArn string     `json:"containerInstanceArn,omitempty"`
+	StartedBy            string     `json:"startedBy,omitempty"`
+	PlatformVersion      string     `json:"platformVersion,omitempty"`
+	PlatformFamily       string     `json:"platformFamily,omitempty"`
+	RuntimeID            string     `json:"runtimeId,omitempty"`
+	Tags                 []Tag      `json:"tags,omitempty"`
 }
 
 // CreateClusterInput holds input for CreateCluster.
@@ -130,6 +145,9 @@ type CreateClusterInput struct {
 type RegisterTaskDefinitionInput struct {
 	Family               string                `json:"family"`
 	NetworkMode          string                `json:"networkMode,omitempty"`
+	CPU                  string                `json:"cpu,omitempty"`
+	Memory               string                `json:"memory,omitempty"`
+	PlatformFamily       string                `json:"platformFamily,omitempty"`
 	ContainerDefinitions []ContainerDefinition `json:"containerDefinitions"`
 }
 
@@ -140,6 +158,7 @@ type CreateServiceInput struct {
 	TaskDefinition     string `json:"taskDefinition"`
 	LaunchType         string `json:"launchType,omitempty"`
 	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
+	Tags               []Tag  `json:"tags,omitempty"`
 	DesiredCount       int    `json:"desiredCount"`
 }
 
@@ -153,11 +172,15 @@ type UpdateServiceInput struct {
 
 // RunTaskInput holds input for RunTask.
 type RunTaskInput struct {
-	Cluster        string `json:"cluster,omitempty"`
-	TaskDefinition string `json:"taskDefinition"`
-	LaunchType     string `json:"launchType,omitempty"`
-	Group          string `json:"group,omitempty"`
-	Count          int    `json:"count,omitempty"`
+	Cluster              string `json:"cluster,omitempty"`
+	TaskDefinition       string `json:"taskDefinition"`
+	LaunchType           string `json:"launchType,omitempty"`
+	Group                string `json:"group,omitempty"`
+	StartedBy            string `json:"startedBy,omitempty"`
+	PlatformVersion      string `json:"platformVersion,omitempty"`
+	Tags                 []Tag  `json:"tags,omitempty"`
+	Count                int    `json:"count,omitempty"`
+	EnableECSManagedTags bool   `json:"enableECSManagedTags,omitempty"`
 }
 
 // compile-time assertion.
@@ -168,15 +191,18 @@ type InMemoryBackend struct {
 	runner                 TaskRunner
 	clusters               map[string]*Cluster
 	taskDefinitions        map[string][]*TaskDefinition
+	taskDefByArn           map[string]*TaskDefinition // ARN → TaskDefinition cache
 	services               map[string]map[string]*Service
 	tasks                  map[string]map[string]*Task
 	containerInstances     map[string]map[string]*ContainerInstance
 	taskSets               map[string]map[string]*TaskSet
+	taskProtections        map[string]*TaskProtection // taskArn → TaskProtection
 	capacityProviders      map[string]*CapacityProvider
 	accountSettings        map[string]*AccountSetting
 	attributes             map[string]map[string]*Attribute // clusterName → attributeKey → Attribute
 	serviceDeployments     map[string]*ServiceDeployment
 	expressGatewayServices map[string]*ExpressGatewayService
+	resourceTags           map[string][]Tag // resourceArn → tags
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -194,15 +220,18 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 	return &InMemoryBackend{
 		clusters:               make(map[string]*Cluster),
 		taskDefinitions:        make(map[string][]*TaskDefinition),
+		taskDefByArn:           make(map[string]*TaskDefinition),
 		services:               make(map[string]map[string]*Service),
 		tasks:                  make(map[string]map[string]*Task),
 		containerInstances:     make(map[string]map[string]*ContainerInstance),
 		taskSets:               make(map[string]map[string]*TaskSet),
+		taskProtections:        make(map[string]*TaskProtection),
 		capacityProviders:      make(map[string]*CapacityProvider),
 		accountSettings:        make(map[string]*AccountSetting),
 		attributes:             make(map[string]map[string]*Attribute),
 		serviceDeployments:     make(map[string]*ServiceDeployment),
 		expressGatewayServices: make(map[string]*ExpressGatewayService),
+		resourceTags:           make(map[string][]Tag),
 		mu:                     lockmetrics.New("ecs"),
 		accountID:              accountID,
 		region:                 region,
@@ -217,15 +246,53 @@ func (b *InMemoryBackend) Reset() {
 
 	b.clusters = make(map[string]*Cluster)
 	b.taskDefinitions = make(map[string][]*TaskDefinition)
+	b.taskDefByArn = make(map[string]*TaskDefinition)
 	b.services = make(map[string]map[string]*Service)
 	b.tasks = make(map[string]map[string]*Task)
 	b.containerInstances = make(map[string]map[string]*ContainerInstance)
 	b.taskSets = make(map[string]map[string]*TaskSet)
+	b.taskProtections = make(map[string]*TaskProtection)
 	b.capacityProviders = make(map[string]*CapacityProvider)
 	b.accountSettings = make(map[string]*AccountSetting)
 	b.attributes = make(map[string]map[string]*Attribute)
 	b.serviceDeployments = make(map[string]*ServiceDeployment)
 	b.expressGatewayServices = make(map[string]*ExpressGatewayService)
+	b.resourceTags = make(map[string][]Tag)
+}
+
+// Purge removes all ECS resources created before the given cutoff time.
+func (b *InMemoryBackend) Purge(_ context.Context, cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	for name, c := range b.clusters {
+		if c.CreatedAt.Before(cutoff) {
+			delete(b.clusters, name)
+			delete(b.services, name)
+			delete(b.tasks, name)
+			delete(b.containerInstances, name)
+			delete(b.taskSets, name)
+			delete(b.attributes, name)
+		}
+	}
+
+	for family, revs := range b.taskDefinitions {
+		kept := make([]*TaskDefinition, 0, len(revs))
+
+		for _, td := range revs {
+			if td.RegisteredAt.Before(cutoff) {
+				delete(b.taskDefByArn, td.TaskDefinitionArn)
+			} else {
+				kept = append(kept, td)
+			}
+		}
+
+		if len(kept) == 0 {
+			delete(b.taskDefinitions, family)
+		} else {
+			b.taskDefinitions[family] = kept
+		}
+	}
 }
 
 // resolveCluster returns the cluster ARN/name to use, defaulting to "default".
@@ -323,16 +390,22 @@ func (b *InMemoryBackend) enrichCluster(c *Cluster) Cluster {
 	cp := *c
 
 	cp.ActiveServicesCount = len(b.services[c.ClusterName])
+	cp.RegisteredContainerInstancesCount = len(b.containerInstances[c.ClusterName])
 
 	running := 0
+	pending := 0
 
 	for _, t := range b.tasks[c.ClusterName] {
-		if t.LastStatus == statusRunning {
+		switch t.LastStatus {
+		case statusRunning:
 			running++
+		case statusProvisioning, statusPending:
+			pending++
 		}
 	}
 
 	cp.RunningTasksCount = running
+	cp.PendingTasksCount = pending
 
 	return cp
 }
@@ -367,6 +440,11 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		for _, svc := range svcs {
 			delete(b.taskSets, svc.ServiceArn)
 		}
+	}
+
+	// Clean up task protections for all tasks in this cluster to avoid memory leaks.
+	for taskArn := range b.tasks[key] {
+		delete(b.taskProtections, taskArn)
 	}
 
 	delete(b.clusters, key)
@@ -416,6 +494,9 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 		),
 		Family:               input.Family,
 		NetworkMode:          input.NetworkMode,
+		CPU:                  input.CPU,
+		Memory:               input.Memory,
+		PlatformFamily:       input.PlatformFamily,
 		Status:               statusActive,
 		ContainerDefinitions: input.ContainerDefinitions,
 		Revision:             revision,
@@ -427,10 +508,16 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 	// the oldest entries to prevent unbounded memory growth.
 	if len(revisions) > maxTaskDefinitionRevisions {
 		excess := len(revisions) - maxTaskDefinitionRevisions
+
+		for _, evicted := range revisions[:excess] {
+			delete(b.taskDefByArn, evicted.TaskDefinitionArn)
+		}
+
 		revisions = revisions[excess:]
 	}
 
 	b.taskDefinitions[input.Family] = revisions
+	b.taskDefByArn[td.TaskDefinitionArn] = td
 
 	cp := *td
 
@@ -445,6 +532,32 @@ func (b *InMemoryBackend) DescribeTaskDefinition(familyOrArn string) (*TaskDefin
 	return b.findTaskDefinitionLocked(familyOrArn)
 }
 
+// findFamilyRevisionLocked looks up a task definition by "family:revision" shorthand.
+// Must be called with lock held.
+func (b *InMemoryBackend) findFamilyRevisionLocked(familyOrArn string) (*TaskDefinition, bool) {
+	idx := strings.LastIndex(familyOrArn, ":")
+	if idx <= 0 {
+		return nil, false
+	}
+
+	family := familyOrArn[:idx]
+
+	revNum, err := strconv.Atoi(familyOrArn[idx+1:])
+	if err != nil {
+		return nil, false
+	}
+
+	for _, td := range b.taskDefinitions[family] {
+		if td.Revision == revNum {
+			cp := *td
+
+			return &cp, true
+		}
+	}
+
+	return nil, false
+}
+
 // findTaskDefinitionLocked finds a task definition. Must be called with lock held.
 func (b *InMemoryBackend) findTaskDefinitionLocked(familyOrArn string) (*TaskDefinition, error) {
 	// Try direct family lookup (latest revision).
@@ -454,7 +567,14 @@ func (b *InMemoryBackend) findTaskDefinitionLocked(familyOrArn string) (*TaskDef
 		return &cp, nil
 	}
 
-	// Try ARN / family:revision lookup.
+	// Fast path: ARN cache lookup.
+	if td, ok := b.taskDefByArn[familyOrArn]; ok {
+		cp := *td
+
+		return &cp, nil
+	}
+
+	// Fallback scan when the ARN cache is empty or stale (e.g. after restore).
 	for _, revs := range b.taskDefinitions {
 		for _, td := range revs {
 			if td.TaskDefinitionArn == familyOrArn {
@@ -462,15 +582,12 @@ func (b *InMemoryBackend) findTaskDefinitionLocked(familyOrArn string) (*TaskDef
 
 				return &cp, nil
 			}
-
-			// Support "family:revision" shorthand.
-			short := fmt.Sprintf("%s:%d", td.Family, td.Revision)
-			if short == familyOrArn {
-				cp := *td
-
-				return &cp, nil
-			}
 		}
+	}
+
+	// Support "family:revision" shorthand.
+	if td, ok := b.findFamilyRevisionLocked(familyOrArn); ok {
+		return td, nil
 	}
 
 	return nil, fmt.Errorf("%w: %s", ErrTaskDefinitionNotFound, familyOrArn)
@@ -501,6 +618,7 @@ func (b *InMemoryBackend) DeregisterTaskDefinition(taskDefinitionArn string) (*T
 }
 
 // ListTaskDefinitions returns ARNs of task definitions, optionally filtered by family prefix.
+// ARNs are returned sorted for deterministic output.
 func (b *InMemoryBackend) ListTaskDefinitions(familyPrefix string) ([]string, error) {
 	b.mu.RLock("ListTaskDefinitions")
 	defer b.mu.RUnlock()
@@ -518,6 +636,8 @@ func (b *InMemoryBackend) ListTaskDefinitions(familyPrefix string) ([]string, er
 			}
 		}
 	}
+
+	sort.Strings(arns)
 
 	return arns, nil
 }
@@ -589,6 +709,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		Status:             statusActive,
 		LaunchType:         launchType,
 		SchedulingStrategy: schedulingStrategy,
+		Tags:               input.Tags,
 		DesiredCount:       input.DesiredCount,
 	}
 
@@ -794,6 +915,9 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 			DesiredStatus:     statusRunning,
 			Group:             input.Group,
 			LaunchType:        launchType,
+			StartedBy:         input.StartedBy,
+			PlatformVersion:   input.PlatformVersion,
+			Tags:              input.Tags,
 			StartedAt:         &now,
 		}
 
@@ -927,23 +1051,60 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 		_ = b.runner.StopTask(task)
 	}
 
+	// Clean up task protection entry to avoid stale entries accumulating.
+	b.mu.Lock("StopTask-cleanup")
+	delete(b.taskProtections, taskArn)
+	b.mu.Unlock()
+
 	return &cp, nil
 }
 
-// ListTasks returns task ARNs for the given cluster.
-func (b *InMemoryBackend) ListTasks(cluster string) ([]string, error) {
-	clusterName := clusterKey(b.resolveCluster(cluster))
+// ListTasksInput holds optional filters for ListTasks.
+type ListTasksInput struct {
+	Cluster           string
+	ContainerInstance string
+	Family            string
+	ServiceName       string
+	DesiredStatus     string
+	LaunchType        string
+	StartedBy         string
+}
 
-	b.mu.RLock("ListTasks")
+func (b *InMemoryBackend) ListTasks(cluster string) ([]string, error) {
+	return b.ListTasksFiltered(ListTasksInput{Cluster: cluster})
+}
+
+func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, error) {
+	clusterName := clusterKey(b.resolveCluster(input.Cluster))
+
+	b.mu.RLock("ListTasksFiltered")
 	defer b.mu.RUnlock()
 
 	clusterTasks, ok := b.tasks[clusterName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
+		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
 	}
 
 	arns := make([]string, 0, len(clusterTasks))
-	for arn := range clusterTasks {
+	for arn, task := range clusterTasks {
+		if input.ContainerInstance != "" && task.ContainerInstanceArn != input.ContainerInstance {
+			continue
+		}
+		if input.DesiredStatus != "" && !strings.EqualFold(task.DesiredStatus, input.DesiredStatus) {
+			continue
+		}
+		if input.LaunchType != "" && !strings.EqualFold(task.LaunchType, input.LaunchType) {
+			continue
+		}
+		if input.StartedBy != "" && task.StartedBy != input.StartedBy {
+			continue
+		}
+		if input.Family != "" && !strings.Contains(task.TaskDefinitionArn, "/"+input.Family+":") {
+			continue
+		}
+		if input.ServiceName != "" && task.Group != "service:"+input.ServiceName {
+			continue
+		}
 		arns = append(arns, arn)
 	}
 

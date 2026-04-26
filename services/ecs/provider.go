@@ -52,9 +52,11 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 
 	backend := NewInMemoryBackend(accountID, region, runner)
 	reconciler := NewReconciler(backend)
+	janitor := NewJanitor(backend, 0)
 
 	if appCtx.JanitorCtx != nil {
 		go reconciler.Start(appCtx.JanitorCtx)
+		go janitor.Run(appCtx.JanitorCtx)
 	}
 
 	log.Info("ECS service initialized")
