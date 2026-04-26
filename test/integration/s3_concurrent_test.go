@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIntegration_S3_ConcurrentBucketOps(t *testing.T) {
@@ -39,11 +40,7 @@ func TestIntegration_S3_ConcurrentBucketOps(t *testing.T) {
 			var wg sync.WaitGroup
 
 			for id := range tt.goroutines {
-				wg.Add(1)
-
-				go func(id int) {
-					defer wg.Done()
-
+				wg.Go(func() {
 					for j := range tt.iterations {
 						bucketName := fmt.Sprintf("concurrent-bucket-%d-%d", id, j)
 						key := "stress-test-object"
@@ -52,15 +49,7 @@ func TestIntegration_S3_ConcurrentBucketOps(t *testing.T) {
 						_, err := s3Client.CreateBucket(ctx, &s3.CreateBucketInput{
 							Bucket: aws.String(bucketName),
 						})
-						if !assert.NoError(
-							t,
-							err,
-							"Worker %d iteration %d: CreateBucket failed",
-							id,
-							j,
-						) {
-							return
-						}
+						require.NoError(t, err, "Worker %d iteration %d: CreateBucket failed", id, j)
 
 						_, err = s3Client.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
 							Bucket: aws.String(bucketName),
@@ -68,26 +57,10 @@ func TestIntegration_S3_ConcurrentBucketOps(t *testing.T) {
 								Status: types.BucketVersioningStatusEnabled,
 							},
 						})
-						if !assert.NoError(
-							t,
-							err,
-							"Worker %d iteration %d: PutBucketVersioning failed",
-							id,
-							j,
-						) {
-							return
-						}
+						require.NoError(t, err, "Worker %d iteration %d: PutBucketVersioning failed", id, j)
 
 						listRes, err := s3Client.ListBuckets(ctx, &s3.ListBucketsInput{})
-						if !assert.NoError(
-							t,
-							err,
-							"Worker %d iteration %d: ListBuckets failed",
-							id,
-							j,
-						) {
-							return
-						}
+						require.NoError(t, err, "Worker %d iteration %d: ListBuckets failed", id, j)
 
 						found := false
 						for _, b := range listRes.Buckets {
@@ -112,28 +85,13 @@ func TestIntegration_S3_ConcurrentBucketOps(t *testing.T) {
 							Key:    aws.String(key),
 							Body:   bytes.NewReader(data),
 						})
-						if !assert.NoError(
-							t,
-							err,
-							"Worker %d iteration %d: PutObject failed",
-							id,
-							j,
-						) {
-							return
-						}
+						require.NoError(t, err, "Worker %d iteration %d: PutObject failed", id, j)
 
 						listObjs, err := s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 							Bucket: aws.String(bucketName),
 						})
-						if !assert.NoError(
-							t,
-							err,
-							"Worker %d iteration %d: ListObjectsV2 failed",
-							id,
-							j,
-						) {
-							return
-						}
+						require.NoError(t, err, "Worker %d iteration %d: ListObjectsV2 failed", id, j)
+
 						if !assert.Len(
 							t,
 							listObjs.Contents,
@@ -157,27 +115,12 @@ func TestIntegration_S3_ConcurrentBucketOps(t *testing.T) {
 							Bucket: aws.String(bucketName),
 							Key:    aws.String(key),
 						})
-						if !assert.NoError(
-							t,
-							err,
-							"Worker %d iteration %d: GetObject failed",
-							id,
-							j,
-						) {
-							return
-						}
+						require.NoError(t, err, "Worker %d iteration %d: GetObject failed", id, j)
 
 						body, err := io.ReadAll(getObj.Body)
-						if !assert.NoError(
-							t,
-							err,
-							"Worker %d iteration %d: ReadAll Body failed",
-							id,
-							j,
-						) {
+						if err != nil {
 							getObj.Body.Close()
-
-							return
+							require.NoError(t, err, "Worker %d iteration %d: ReadAll Body failed", id, j)
 						}
 						assert.Equal(t, data, body, "Worker %d iteration %d: Data mismatch", id, j)
 						getObj.Body.Close()
@@ -186,15 +129,7 @@ func TestIntegration_S3_ConcurrentBucketOps(t *testing.T) {
 							Bucket: aws.String(bucketName),
 							Key:    aws.String(key),
 						})
-						if !assert.NoError(
-							t,
-							err,
-							"Worker %d iteration %d: DeleteObject failed",
-							id,
-							j,
-						) {
-							return
-						}
+						require.NoError(t, err, "Worker %d iteration %d: DeleteObject failed", id, j)
 
 						versions, err := s3Client.ListObjectVersions(
 							ctx,
@@ -202,15 +137,7 @@ func TestIntegration_S3_ConcurrentBucketOps(t *testing.T) {
 								Bucket: aws.String(bucketName),
 							},
 						)
-						if !assert.NoError(
-							t,
-							err,
-							"Worker %d iteration %d: ListObjectVersions failed",
-							id,
-							j,
-						) {
-							return
-						}
+						require.NoError(t, err, "Worker %d iteration %d: ListObjectVersions failed", id, j)
 
 						for _, v := range versions.Versions {
 							_, err = s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
@@ -218,15 +145,7 @@ func TestIntegration_S3_ConcurrentBucketOps(t *testing.T) {
 								Key:       v.Key,
 								VersionId: v.VersionId,
 							})
-							if !assert.NoError(
-								t,
-								err,
-								"Worker %d iteration %d: DeleteObject (version) failed",
-								id,
-								j,
-							) {
-								return
-							}
+							require.NoError(t, err, "Worker %d iteration %d: DeleteObject (version) failed", id, j)
 						}
 
 						for _, d := range versions.DeleteMarkers {
@@ -235,31 +154,15 @@ func TestIntegration_S3_ConcurrentBucketOps(t *testing.T) {
 								Key:       d.Key,
 								VersionId: d.VersionId,
 							})
-							if !assert.NoError(
-								t,
-								err,
-								"Worker %d iteration %d: DeleteObject (marker) failed",
-								id,
-								j,
-							) {
-								return
-							}
+							require.NoError(t, err, "Worker %d iteration %d: DeleteObject (marker) failed", id, j)
 						}
 
 						_, err = s3Client.DeleteBucket(ctx, &s3.DeleteBucketInput{
 							Bucket: aws.String(bucketName),
 						})
-						if !assert.NoError(
-							t,
-							err,
-							"Worker %d iteration %d: DeleteBucket failed",
-							id,
-							j,
-						) {
-							return
-						}
+						require.NoError(t, err, "Worker %d iteration %d: DeleteBucket failed", id, j)
 					}
-				}(id)
+				})
 			}
 
 			wg.Wait()

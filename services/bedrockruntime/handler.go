@@ -45,7 +45,9 @@ const (
 
 // Handler is the Echo HTTP handler for AWS Bedrock Runtime operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend       *InMemoryBackend
+	janitorCancel context.CancelFunc
+	janitorDone   chan struct{}
 }
 
 // NewHandler creates a new Bedrock Runtime handler backed by backend.
@@ -53,6 +55,39 @@ type Handler struct {
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
+
+// StartWorker starts the background janitor for async invocations.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	h.janitorCancel = cancel
+	h.janitorDone = done
+
+	go func() {
+		defer close(done)
+		// Run janitor every hour.
+		h.Backend.RunJanitor(runCtx, time.Hour)
+	}()
+
+	return nil
+}
+
+// Shutdown stops the background janitor.
+func (h *Handler) Shutdown(ctx context.Context) {
+	if h.janitorCancel != nil {
+		h.janitorCancel()
+	}
+
+	if h.janitorDone != nil {
+		select {
+		case <-h.janitorDone:
+		case <-ctx.Done():
+		}
+	}
+}
+
+var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "BedrockRuntime" }

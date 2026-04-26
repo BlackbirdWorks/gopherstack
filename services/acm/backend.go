@@ -130,9 +130,16 @@ type AccountConfig struct {
 	DaysBeforeExpiry int32 `json:"daysBeforeExpiry"`
 }
 
-// idempotencyEntry stores the settings associated with a PutAccountConfiguration idempotency token.
-type idempotencyEntry struct {
-	DaysBeforeExpiry int32 `json:"daysBeforeExpiry"`
+// accountIdempotencyEntry stores the settings associated with a PutAccountConfiguration idempotency token.
+type accountIdempotencyEntry struct {
+	CreatedAt        time.Time `json:"createdAt"`
+	DaysBeforeExpiry int32     `json:"daysBeforeExpiry"`
+}
+
+// certIdempotencyEntry stores the ARN associated with a RequestCertificate idempotency token.
+type certIdempotencyEntry struct {
+	CreatedAt time.Time `json:"createdAt"`
+	ARN       string    `json:"arn"`
 }
 
 const (
@@ -144,10 +151,10 @@ const (
 type InMemoryBackend struct {
 	timers map[string]*time.Timer
 	certs  map[string]*Certificate
-	// idempotencyMap maps RequestCertificate idempotency tokens to cert ARNs.
-	idempotencyMap map[string]string
+	// idempotencyMap maps RequestCertificate idempotency tokens to cert info.
+	idempotencyMap map[string]certIdempotencyEntry
 	// accountIdempotency maps PutAccountConfiguration tokens to their applied settings.
-	accountIdempotency map[string]idempotencyEntry
+	accountIdempotency map[string]accountIdempotencyEntry
 	mu                 *lockmetrics.RWMutex
 	accountID          string
 	region             string
@@ -159,8 +166,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		certs:              make(map[string]*Certificate),
 		timers:             make(map[string]*time.Timer),
-		idempotencyMap:     make(map[string]string),
-		accountIdempotency: make(map[string]idempotencyEntry),
+		idempotencyMap:     make(map[string]certIdempotencyEntry),
+		accountIdempotency: make(map[string]accountIdempotencyEntry),
 		accountID:          accountID,
 		region:             region,
 		mu:                 lockmetrics.New("acm"),
@@ -198,8 +205,8 @@ func (b *InMemoryBackend) RequestCertificate(
 
 	// Idempotency: return existing cert if same token was already used.
 	if idempotencyToken != "" {
-		if existingARN, ok := b.idempotencyMap[idempotencyToken]; ok {
-			if c, exists := b.certs[existingARN]; exists {
+		if entry, ok := b.idempotencyMap[idempotencyToken]; ok {
+			if c, exists := b.certs[entry.ARN]; exists {
 				cp := copyCert(c)
 
 				return &cp, nil
@@ -258,7 +265,10 @@ func (b *InMemoryBackend) RequestCertificate(
 	b.certs[certARN] = cert
 
 	if idempotencyToken != "" {
-		b.idempotencyMap[idempotencyToken] = certARN
+		b.idempotencyMap[idempotencyToken] = certIdempotencyEntry{
+			ARN:       certARN,
+			CreatedAt: now,
+		}
 	}
 
 	if status == statusPendingValidation {
@@ -922,8 +932,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.certs = make(map[string]*Certificate)
 	b.timers = make(map[string]*time.Timer)
-	b.idempotencyMap = make(map[string]string)
-	b.accountIdempotency = make(map[string]idempotencyEntry)
+	b.idempotencyMap = make(map[string]certIdempotencyEntry)
+	b.accountIdempotency = make(map[string]accountIdempotencyEntry)
 	b.accountConfig = AccountConfig{DaysBeforeExpiry: defaultDaysBeforeExpiry}
 }
 
@@ -967,7 +977,10 @@ func (b *InMemoryBackend) PutAccountConfiguration(idempotencyToken string, daysB
 		return nil
 	}
 
-	b.accountIdempotency[idempotencyToken] = idempotencyEntry{DaysBeforeExpiry: wantDays}
+	b.accountIdempotency[idempotencyToken] = accountIdempotencyEntry{
+		DaysBeforeExpiry: wantDays,
+		CreatedAt:        time.Now().UTC(),
+	}
 	b.accountConfig.DaysBeforeExpiry = wantDays
 
 	return nil

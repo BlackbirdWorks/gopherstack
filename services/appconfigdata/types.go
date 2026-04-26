@@ -3,7 +3,10 @@
 // configuration data for applications at runtime.
 package appconfigdata
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 var (
 	// ErrSessionNotFound is returned when the requested session token does not exist.
@@ -23,10 +26,12 @@ type ConfigurationProfile struct {
 
 // Session represents an active configuration retrieval session.
 type Session struct {
-	Token                          string `json:"token"`
-	ApplicationIdentifier          string `json:"applicationIdentifier"`
-	EnvironmentIdentifier          string `json:"environmentIdentifier"`
-	ConfigurationProfileIdentifier string `json:"configurationProfileIdentifier"`
+	CreatedAt                      time.Time `json:"createdAt"`
+	LastAccessedAt                 time.Time `json:"lastAccessedAt"`
+	Token                          string    `json:"token"`
+	ApplicationIdentifier          string    `json:"applicationIdentifier"`
+	EnvironmentIdentifier          string    `json:"environmentIdentifier"`
+	ConfigurationProfileIdentifier string    `json:"configurationProfileIdentifier"`
 }
 
 // startSessionRequest is the JSON body for StartConfigurationSession.

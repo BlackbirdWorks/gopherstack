@@ -108,9 +108,12 @@ func (h *Handler) activateLambdaInvocationError(
 		// Schedule fault removal.
 		if action.Duration > 0 {
 			go func() {
+				timer := time.NewTimer(action.Duration)
+				defer timer.Stop()
+
 				select {
 				case <-ctx.Done():
-				case <-time.After(action.Duration):
+				case <-timer.C:
 				}
 
 				for _, name := range names {
@@ -144,9 +147,12 @@ func (h *Handler) activateLambdaInvocationDelay(
 
 		if action.Duration > 0 {
 			go func() {
+				timer := time.NewTimer(action.Duration)
+				defer timer.Stop()
+
 				select {
 				case <-ctx.Done():
-				case <-time.After(action.Duration):
+				case <-timer.C:
 				}
 
 				for _, name := range names {
@@ -341,10 +347,13 @@ func (b *InMemoryBackend) applyFISFaultToInvocation(
 	}
 
 	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
 		select {
 		case <-ctx.Done():
 			return nil, http.StatusInternalServerError, ctx.Err()
-		case <-time.After(delay):
+		case <-timer.C:
 		}
 	}
 

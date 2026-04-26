@@ -28,12 +28,14 @@ func NewGlobalConfig(
 			JanitorTimeout: janitorTimeout,
 			EnforceIAM:     enforceIAM,
 			AutoPurgeTTL:   autoPurgeTTL,
+			StartTime:      time.Now().UTC(),
 		},
 	}
 }
 
 // sharedState holds the actual configuration values.
 type sharedState struct {
+	StartTime      time.Time
 	AccountID      string
 	Region         string
 	LatencyMs      int
@@ -108,6 +110,15 @@ func (c *GlobalConfig) GetAutoPurgeTTL() time.Duration {
 	defer s.mu.RUnlock()
 
 	return s.AutoPurgeTTL
+}
+
+// GetStartTime returns the application startup time.
+func (c *GlobalConfig) GetStartTime() time.Time {
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.StartTime
 }
 
 // Update updates the configuration state with new values.

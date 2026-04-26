@@ -248,9 +248,11 @@ type updateCertificateOptionsOutput struct{}
 
 // Handler is the Echo HTTP handler for ACM operations.
 type Handler struct {
-	Backend *InMemoryBackend
-	tags    map[string]*svcTags.Tags
-	tagsMu  *lockmetrics.RWMutex
+	Backend       *InMemoryBackend
+	tags          map[string]*svcTags.Tags
+	tagsMu        *lockmetrics.RWMutex
+	janitorCancel context.CancelFunc
+	janitorDone   chan struct{}
 }
 
 // NewHandler creates a new ACM handler.
@@ -261,6 +263,39 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 		tagsMu:  lockmetrics.New("acm.tags"),
 	}
 }
+
+// StartWorker starts the background janitor for idempotency tokens.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	h.janitorCancel = cancel
+	h.janitorDone = done
+
+	go func() {
+		defer close(done)
+		// Run janitor every hour.
+		h.Backend.RunJanitor(runCtx, time.Hour)
+	}()
+
+	return nil
+}
+
+// Shutdown stops the background janitor.
+func (h *Handler) Shutdown(ctx context.Context) {
+	if h.janitorCancel != nil {
+		h.janitorCancel()
+	}
+
+	if h.janitorDone != nil {
+		select {
+		case <-h.janitorDone:
+		case <-ctx.Done():
+		}
+	}
+}
+
+var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	h.tagsMu.Lock("setTags")

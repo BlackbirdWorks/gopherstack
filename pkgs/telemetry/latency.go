@@ -22,8 +22,11 @@ func LatencyMiddleware(latencyMs int) func(echo.HandlerFunc) echo.HandlerFunc {
 				delay := time.Duration(n) * time.Millisecond
 				ctx := c.Request().Context()
 
+				timer := time.NewTimer(delay)
+				defer timer.Stop()
+
 				select {
-				case <-time.After(delay):
+				case <-timer.C:
 				case <-ctx.Done():
 					return ctx.Err()
 				}

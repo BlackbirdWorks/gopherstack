@@ -37,7 +37,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend = NewInMemoryBackend()
 	}
 
-	handler := NewHandler(backend)
+	handler := NewHandler(backend).WithJanitor()
 	handler.DefaultRegion = defaultRegion
 
 	return handler, nil

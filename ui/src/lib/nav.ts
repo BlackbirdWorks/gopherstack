@@ -94,6 +94,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "codecommit",
   "codeartifact",
   "ram",
+  "resource-health",
   "verifiedpermissions",
   "emrserverless",
   "textract",

@@ -7,12 +7,12 @@ import (
 )
 
 type backendSnapshot struct {
-	Certs              map[string]*Certificate     `json:"certs"`
-	IdempotencyMap     map[string]string           `json:"idempotencyMap,omitempty"`
-	AccountIdempotency map[string]idempotencyEntry `json:"accountIdempotency,omitempty"`
-	AccountID          string                      `json:"accountID"`
-	Region             string                      `json:"region"`
-	AccountConfig      AccountConfig               `json:"accountConfig"`
+	Certs              map[string]*Certificate            `json:"certs"`
+	IdempotencyMap     map[string]certIdempotencyEntry    `json:"idempotencyMap,omitempty"`
+	AccountIdempotency map[string]accountIdempotencyEntry `json:"accountIdempotency,omitempty"`
+	AccountID          string                             `json:"accountID"`
+	Region             string                             `json:"region"`
+	AccountConfig      AccountConfig                      `json:"accountConfig"`
 }
 
 type handlerSnapshot struct {
@@ -60,11 +60,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	if snap.IdempotencyMap == nil {
-		snap.IdempotencyMap = make(map[string]string)
+		snap.IdempotencyMap = make(map[string]certIdempotencyEntry)
 	}
 
 	if snap.AccountIdempotency == nil {
-		snap.AccountIdempotency = make(map[string]idempotencyEntry)
+		snap.AccountIdempotency = make(map[string]accountIdempotencyEntry)
 	}
 
 	// Preserve default if snapshot was taken before accountConfig was tracked.

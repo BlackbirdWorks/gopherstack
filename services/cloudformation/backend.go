@@ -167,6 +167,11 @@ func (b *InMemoryBackend) addEvent(stackID, stackName, logicalID, physicalID, re
 		Timestamp:            time.Now(),
 	}
 	b.events[stackID] = append(b.events[stackID], evt)
+
+	const maxEvents = 1000
+	if len(b.events[stackID]) > maxEvents {
+		b.events[stackID] = b.events[stackID][len(b.events[stackID])-maxEvents:]
+	}
 }
 
 // CreateStack creates a new stack from a template.

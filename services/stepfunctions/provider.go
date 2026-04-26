@@ -33,7 +33,16 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend = NewInMemoryBackend()
 	}
 
+	if sp, ok := ctx.Config.(SettingsProvider); ok {
+		backend.SetSettings(sp.GetStepFunctionsSettings())
+	}
+
 	handler := NewHandler(backend)
 
 	return handler, nil
+}
+
+// SettingsProvider is implemented by config objects that supply Step Functions settings.
+type SettingsProvider interface {
+	GetStepFunctionsSettings() Settings
 }

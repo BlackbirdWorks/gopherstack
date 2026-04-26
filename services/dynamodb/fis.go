@@ -84,10 +84,13 @@ func (db *InMemoryDB) activateReplicationPause(ctx context.Context, tableARNs []
 func (db *InMemoryDB) scheduleReplicationPauseCleanup(ctx context.Context, tableARNs []string, dur time.Duration) {
 	ctxCancelled := false
 
+	timer := time.NewTimer(dur)
+	defer timer.Stop()
+
 	select {
 	case <-ctx.Done():
 		ctxCancelled = true
-	case <-time.After(dur):
+	case <-timer.C:
 	}
 
 	db.mu.Lock("FISPauseReplication-cleanup")

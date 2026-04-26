@@ -1155,11 +1155,14 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 		return
 	}
 
+	timer := time.NewTimer(maxDuration)
+	defer timer.Stop()
+
 	select {
 	case <-ctx.Done():
 		// Manually stopped or context cancelled.
 		b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
-	case <-time.After(maxDuration):
+	case <-timer.C:
 		// All actions completed naturally.
 		b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
 	}

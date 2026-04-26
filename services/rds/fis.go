@@ -146,10 +146,13 @@ func (b *InMemoryBackend) IsClusterFailoverActive(clusterID string) bool {
 func (b *InMemoryBackend) scheduleFailoverFaultCleanup(ctx context.Context, ids []string, dur time.Duration) {
 	ctxCancelled := false
 
+	timer := time.NewTimer(dur)
+	defer timer.Stop()
+
 	select {
 	case <-ctx.Done():
 		ctxCancelled = true
-	case <-time.After(dur):
+	case <-timer.C:
 	}
 
 	b.mu.Lock("FISFailoverDBClusters-cleanup")

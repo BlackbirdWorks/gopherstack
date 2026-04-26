@@ -222,9 +222,12 @@ func (b *InMemoryBackend) Close() {
 		close(done)
 	}()
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case <-done:
-	case <-time.After(timeout):
+	case <-timer.C:
 	}
 }
 

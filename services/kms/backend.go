@@ -1760,6 +1760,18 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 		return nil, ErrKeyNotFound
 	}
 
+	// Limit grants per key to prevent OOM/abuse (AWS default is 500).
+	const maxGrantsPerKey = 500
+	grantCount := 0
+	for _, g := range b.grants {
+		if g.KeyID == keyID {
+			grantCount++
+		}
+	}
+	if grantCount >= maxGrantsPerKey {
+		return nil, fmt.Errorf("%w: grant limit of %d exceeded for key %q", ErrValidation, maxGrantsPerKey, keyID)
+	}
+
 	grantID := uuid.New().String()
 	grantToken := uuid.New().String()
 	grant := &Grant{
