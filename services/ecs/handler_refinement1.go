@@ -3,6 +3,8 @@ package ecs
 import (
 	"context"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // ----- UpdateCluster -----
@@ -102,7 +104,9 @@ func (h *Handler) handleListTaskDefinitionFamilies(
 
 	sort.Strings(families)
 
-	return &listTaskDefinitionFamiliesOutput{Families: families}, nil
+	p := page.New(families, in.NextToken, in.MaxResults, defaultECSMaxResults)
+
+	return &listTaskDefinitionFamiliesOutput{Families: p.Data, NextToken: p.Next}, nil
 }
 
 // ----- StartTask -----
@@ -166,7 +170,9 @@ func (h *Handler) handleListServicesByNamespace(
 		return nil, err
 	}
 
-	return &listServicesByNamespaceOutput{ServiceArns: arns}, nil
+	p := page.New(arns, in.NextToken, in.MaxResults, defaultECSMaxResults)
+
+	return &listServicesByNamespaceOutput{ServiceArns: p.Data, NextToken: p.Next}, nil
 }
 
 // ----- TagResource -----
@@ -254,7 +260,9 @@ func (h *Handler) handleListServiceDeployments(
 		return nil, err
 	}
 
-	return &listServiceDeploymentsOutput{ServiceDeploymentArns: arns}, nil
+	p := page.New(arns, in.NextToken, in.MaxResults, defaultECSMaxResults)
+
+	return &listServiceDeploymentsOutput{ServiceDeploymentArns: p.Data, NextToken: p.Next}, nil
 }
 
 // ----- StopServiceDeployment -----

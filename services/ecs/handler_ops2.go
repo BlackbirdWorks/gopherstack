@@ -3,6 +3,8 @@ package ecs
 import (
 	"context"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // ----- Handler: ListAccountSettings -----
@@ -35,7 +37,9 @@ func (h *Handler) handleListAccountSettings(
 
 	sort.Slice(views, func(i, j int) bool { return views[i].Name < views[j].Name })
 
-	return &listAccountSettingsOutput{Settings: views}, nil
+	p := page.New(views, in.NextToken, in.MaxResults, defaultECSMaxResults)
+
+	return &listAccountSettingsOutput{Settings: p.Data, NextToken: p.Next}, nil
 }
 
 // ----- Handler: PutAccountSetting -----
@@ -121,7 +125,9 @@ func (h *Handler) handleListAttributes(
 		views = append(views, attributeInput(a))
 	}
 
-	return &listAttributesOutput{Attributes: views}, nil
+	p := page.New(views, in.NextToken, in.MaxResults, defaultECSMaxResults)
+
+	return &listAttributesOutput{Attributes: p.Data, NextToken: p.Next}, nil
 }
 
 // ----- Handler: PutAttributes -----
