@@ -1,6 +1,8 @@
 package ecr
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -10,6 +12,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+const layerUploadPartSize = 20 * 1024 * 1024
 
 var (
 	// ErrRepositoryNotFound is returned when a repository does not exist.
@@ -37,12 +41,15 @@ var (
 
 // Repository represents an ECR repository.
 type Repository struct {
-	CreatedAt          time.Time `json:"createdAt"`
-	RegistryID         string    `json:"registryId"`
-	RepositoryARN      string    `json:"repositoryArn"`
-	RepositoryName     string    `json:"repositoryName"`
-	RepositoryURI      string    `json:"repositoryUri"`
-	ImageTagMutability string    `json:"imageTagMutability"`
+	CreatedAt                          time.Time                           `json:"createdAt"`
+	EncryptionType                     string                              `json:"encryptionType"`
+	RegistryID                         string                              `json:"registryId"`
+	RepositoryARN                      string                              `json:"repositoryArn"`
+	RepositoryName                     string                              `json:"repositoryName"`
+	RepositoryURI                      string                              `json:"repositoryUri"`
+	ImageTagMutability                 string                              `json:"imageTagMutability"`
+	ImageTagMutabilityExclusionFilters []ImageTagMutabilityExclusionFilter `json:"imageTagMutabilityExclusionFilters,omitempty"` //nolint:lll // AWS-compatible JSON field name is long.
+	ScanOnPush                         bool                                `json:"scanOnPush"`
 }
 
 // ImageIdentifier identifies a specific image by digest or tag.
@@ -53,11 +60,16 @@ type ImageIdentifier struct {
 
 // Image represents a Docker image in ECR.
 type Image struct {
-	ImageDigest    string          `json:"imageDigest"`
-	ImageManifest  string          `json:"imageManifest,omitempty"`
-	ImageID        ImageIdentifier `json:"imageId"`
-	RepositoryName string          `json:"repositoryName"`
-	RegistryID     string          `json:"registryId"`
+	ImagePushedAt          time.Time       `json:"imagePushedAt"`
+	ImageID                ImageIdentifier `json:"imageId"`
+	ImageDigest            string          `json:"imageDigest"`
+	ImageManifest          string          `json:"imageManifest,omitempty"`
+	ImageManifestMediaType string          `json:"imageManifestMediaType,omitempty"`
+	ImageStatus            string          `json:"imageStatus,omitempty"`
+	RepositoryName         string          `json:"repositoryName"`
+	RegistryID             string          `json:"registryId"`
+	StorageClass           string          `json:"storageClass,omitempty"`
+	ImageSizeInBytes       int64           `json:"imageSizeInBytes,omitempty"`
 }
 
 // LayerAvailability represents the availability of an image layer.
@@ -105,28 +117,48 @@ type CompleteLayerUploadResult struct {
 	UploadID       string `json:"uploadId"`
 }
 
+// LayerUploadInitiation is returned when starting an ECR layer upload.
+type LayerUploadInitiation struct {
+	UploadID string `json:"uploadId"`
+	PartSize int64  `json:"partSize"`
+}
+
+// LayerUploadPartResult records a received layer upload part.
+type LayerUploadPartResult struct {
+	RepositoryName   string `json:"repositoryName"`
+	RegistryID       string `json:"registryId"`
+	UploadID         string `json:"uploadId"`
+	LastByteReceived int64  `json:"lastByteReceived"`
+}
+
 // PullThroughCacheRule represents a pull-through cache rule.
 type PullThroughCacheRule struct {
-	CreatedAt           time.Time `json:"createdAt"`
-	UpdatedAt           time.Time `json:"updatedAt"`
-	EcrRepositoryPrefix string    `json:"ecrRepositoryPrefix"`
-	UpstreamRegistryURL string    `json:"upstreamRegistryUrl"`
-	CredentialArn       string    `json:"credentialArn,omitempty"`
-	UpstreamRegistry    string    `json:"upstreamRegistry,omitempty"`
-	RegistryID          string    `json:"registryId"`
+	CreatedAt                time.Time `json:"createdAt"`
+	UpdatedAt                time.Time `json:"updatedAt"`
+	EcrRepositoryPrefix      string    `json:"ecrRepositoryPrefix"`
+	UpstreamRegistryURL      string    `json:"upstreamRegistryUrl"`
+	CredentialArn            string    `json:"credentialArn,omitempty"`
+	CustomRoleArn            string    `json:"customRoleArn,omitempty"`
+	UpstreamRegistry         string    `json:"upstreamRegistry,omitempty"`
+	UpstreamRepositoryPrefix string    `json:"upstreamRepositoryPrefix,omitempty"`
+	RegistryID               string    `json:"registryId"`
 }
 
 // RepositoryCreationTemplate represents a repository creation template.
 type RepositoryCreationTemplate struct {
-	CreatedAt          time.Time `json:"createdAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
-	Prefix             string    `json:"prefix"`
-	Description        string    `json:"description,omitempty"`
-	ImageTagMutability string    `json:"imageTagMutability,omitempty"`
-	RepositoryPolicy   string    `json:"repositoryPolicy,omitempty"`
-	LifecyclePolicy    string    `json:"lifecyclePolicy,omitempty"`
-	CustomRoleArn      string    `json:"customRoleArn,omitempty"`
-	AppliedFor         []string  `json:"appliedFor,omitempty"`
+	CreatedAt                          time.Time                           `json:"createdAt"`
+	UpdatedAt                          time.Time                           `json:"updatedAt"`
+	ResourceTags                       map[string]string                   `json:"resourceTags,omitempty"`
+	ImageTagMutability                 string                              `json:"imageTagMutability,omitempty"`
+	EncryptionType                     string                              `json:"encryptionType,omitempty"`
+	KMSKey                             string                              `json:"kmsKey,omitempty"`
+	Description                        string                              `json:"description,omitempty"`
+	RepositoryPolicy                   string                              `json:"repositoryPolicy,omitempty"`
+	LifecyclePolicy                    string                              `json:"lifecyclePolicy,omitempty"`
+	CustomRoleArn                      string                              `json:"customRoleArn,omitempty"`
+	Prefix                             string                              `json:"prefix"`
+	ImageTagMutabilityExclusionFilters []ImageTagMutabilityExclusionFilter `json:"imageTagMutabilityExclusionFilters,omitempty"` //nolint:lll // AWS-compatible JSON field name is long.
+	AppliedFor                         []string                            `json:"appliedFor,omitempty"`
 }
 
 // LifecyclePolicyResult is the result of DeleteLifecyclePolicy.
@@ -144,6 +176,174 @@ type RegistryPolicyResult struct {
 	Status     string `json:"status"`
 }
 
+// LifecyclePolicyPreviewResult is an in-memory lifecycle preview snapshot.
+type LifecyclePolicyPreviewResult struct {
+	LifecyclePolicyText string            `json:"lifecyclePolicyText"`
+	RepositoryName      string            `json:"repositoryName"`
+	RegistryID          string            `json:"registryId"`
+	Status              string            `json:"status"`
+	PreviewResults      []ImageIdentifier `json:"previewResults"`
+}
+
+// RegistryDescription stores registry-wide ECR configuration.
+type RegistryDescription struct {
+	ReplicationConfiguration *ReplicationConfig `json:"replicationConfiguration,omitempty"`
+	RegistryID               string             `json:"registryId"`
+}
+
+// RegistryScanningSettings stores registry-wide scan configuration.
+type RegistryScanningSettings struct {
+	ScanType string                 `json:"scanType,omitempty"`
+	Rules    []RegistryScanningRule `json:"rules,omitempty"`
+}
+
+// RegistryScanningRule is a registry scan rule.
+type RegistryScanningRule struct {
+	ScanFrequency     string             `json:"scanFrequency,omitempty"`
+	RepositoryFilters []RepositoryFilter `json:"repositoryFilters,omitempty"`
+}
+
+// ReplicationConfig stores ECR replication destinations.
+type ReplicationConfig struct {
+	Rules []ReplicationRule `json:"rules,omitempty"`
+}
+
+// ReplicationRule is an ECR replication rule.
+type ReplicationRule struct {
+	Destinations      []ReplicationDestination `json:"destinations,omitempty"`
+	RepositoryFilters []RepositoryFilter       `json:"repositoryFilters,omitempty"`
+}
+
+// ReplicationDestination identifies a replication target.
+type ReplicationDestination struct {
+	Region     string `json:"region,omitempty"`
+	RegistryID string `json:"registryId,omitempty"`
+}
+
+// RepositoryFilter is used by scanning, signing, and replication configs.
+type RepositoryFilter struct {
+	Filter     string `json:"filter,omitempty"`
+	FilterType string `json:"filterType,omitempty"`
+}
+
+// RepositoryPolicyResult stores a repository policy.
+type RepositoryPolicyResult struct {
+	PolicyText     string `json:"policyText"`
+	RegistryID     string `json:"registryId"`
+	RepositoryName string `json:"repositoryName"`
+}
+
+// SigningSettings stores registry signing config.
+type SigningSettings struct {
+	Rules []SigningRule `json:"rules,omitempty"`
+}
+
+// SigningRule is a registry signing rule.
+type SigningRule struct {
+	SigningProfileArn string             `json:"signingProfileArn,omitempty"`
+	RepositoryFilters []RepositoryFilter `json:"repositoryFilters,omitempty"`
+}
+
+// ImageSigningStatusRecord is a signing status entry.
+type ImageSigningStatusRecord struct {
+	FailureCode       string `json:"failureCode,omitempty"`
+	FailureReason     string `json:"failureReason,omitempty"`
+	SigningProfileArn string `json:"signingProfileArn,omitempty"`
+	Status            string `json:"status"`
+}
+
+// ImageSigningStatusResult stores signing status for an image.
+type ImageSigningStatusResult struct {
+	ImageID         ImageIdentifier            `json:"imageId"`
+	RegistryID      string                     `json:"registryId"`
+	RepositoryName  string                     `json:"repositoryName"`
+	SigningStatuses []ImageSigningStatusRecord `json:"signingStatuses"`
+}
+
+// ImageScanFinding is an image scan finding.
+type ImageScanFinding struct {
+	Attributes  map[string]string `json:"attributes,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Severity    string            `json:"severity,omitempty"`
+	URI         string            `json:"uri,omitempty"`
+}
+
+// ImageScanFindingsResult stores scan findings for an image.
+type ImageScanFindingsResult struct {
+	CompletedAt           time.Time          `json:"completedAt"`
+	FindingSeverityCounts map[string]int32   `json:"findingSeverityCounts,omitempty"`
+	ImageID               ImageIdentifier    `json:"imageId"`
+	RepositoryName        string             `json:"repositoryName"`
+	RegistryID            string             `json:"registryId"`
+	Status                string             `json:"status"`
+	Description           string             `json:"description"`
+	Findings              []ImageScanFinding `json:"findings,omitempty"`
+}
+
+// ImageScanStartResult is returned by StartImageScan.
+type ImageScanStartResult struct {
+	ImageID        ImageIdentifier `json:"imageId"`
+	RepositoryName string          `json:"repositoryName"`
+	RegistryID     string          `json:"registryId"`
+	Status         string          `json:"status"`
+	Description    string          `json:"description"`
+}
+
+// ImageReferrer is an OCI referrer summary.
+type ImageReferrer struct {
+	Annotations    map[string]string `json:"annotations,omitempty"`
+	Digest         string            `json:"digest,omitempty"`
+	MediaType      string            `json:"mediaType,omitempty"`
+	ArtifactStatus string            `json:"artifactStatus,omitempty"`
+	ArtifactType   string            `json:"artifactType,omitempty"`
+	Size           int64             `json:"size,omitempty"`
+}
+
+// ImageReplicationStatusResult stores image replication status.
+type ImageReplicationStatusResult struct {
+	ImageID           ImageIdentifier `json:"imageId"`
+	RepositoryName    string          `json:"repositoryName"`
+	ReplicationStatus string          `json:"replicationStatus"`
+}
+
+// ImageStorageClassResult stores the image status after storage class updates.
+type ImageStorageClassResult struct {
+	ImageID        ImageIdentifier `json:"imageId"`
+	ImageStatus    string          `json:"imageStatus"`
+	RegistryID     string          `json:"registryId"`
+	RepositoryName string          `json:"repositoryName"`
+}
+
+// PullTimeUpdateExclusion is an account-level pull time exclusion.
+type PullTimeUpdateExclusion struct {
+	CreatedAt    time.Time `json:"createdAt"`
+	PrincipalArn string    `json:"principalArn"`
+}
+
+// ValidatePullThroughCacheRuleResult is returned by ValidatePullThroughCacheRule.
+type ValidatePullThroughCacheRuleResult struct {
+	CredentialArn            string `json:"credentialArn,omitempty"`
+	CustomRoleArn            string `json:"customRoleArn,omitempty"`
+	EcrRepositoryPrefix      string `json:"ecrRepositoryPrefix"`
+	Failure                  string `json:"failure,omitempty"`
+	RegistryID               string `json:"registryId"`
+	UpstreamRegistryURL      string `json:"upstreamRegistryUrl,omitempty"`
+	UpstreamRepositoryPrefix string `json:"upstreamRepositoryPrefix,omitempty"`
+	IsValid                  bool   `json:"isValid"`
+}
+
+// ImageTagMutabilityExclusionFilter configures tag mutability exceptions.
+type ImageTagMutabilityExclusionFilter struct {
+	Filter     string `json:"filter,omitempty"`
+	FilterType string `json:"filterType,omitempty"`
+}
+
+type layerUploadState struct {
+	RepositoryName string
+	Size           int64
+}
+
 // compile-time assertion: InMemoryBackend must satisfy the Backend interface.
 var _ Backend = (*InMemoryBackend)(nil)
 
@@ -154,10 +354,19 @@ type InMemoryBackend struct {
 	pullThroughCacheRules       map[string]*PullThroughCacheRule
 	repositoryCreationTemplates map[string]*RepositoryCreationTemplate
 	lifecyclePolicies           map[string]string
+	lifecyclePolicyPreviews     map[string]*LifecyclePolicyPreviewResult
 	uploadedLayers              map[string]map[string]int64
+	layerUploads                map[string]*layerUploadState
 	repoTags                    map[string]map[string]string
+	repositoryPolicies          map[string]string
+	imageScanFindings           map[string]map[string]*ImageScanFindingsResult
+	accountSettings             map[string]string
+	pullTimeUpdateExclusions    map[string]*PullTimeUpdateExclusion
 	mu                          *lockmetrics.RWMutex
+	registryScanningConfig      *RegistryScanningSettings
+	replicationConfig           *ReplicationConfig
 	registryPolicy              string
+	signingConfig               *SigningSettings
 	accountID                   string
 	region                      string
 	endpoint                    string
@@ -171,8 +380,16 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		pullThroughCacheRules:       make(map[string]*PullThroughCacheRule),
 		repositoryCreationTemplates: make(map[string]*RepositoryCreationTemplate),
 		lifecyclePolicies:           make(map[string]string),
+		lifecyclePolicyPreviews:     make(map[string]*LifecyclePolicyPreviewResult),
 		uploadedLayers:              make(map[string]map[string]int64),
+		layerUploads:                make(map[string]*layerUploadState),
 		repoTags:                    make(map[string]map[string]string),
+		repositoryPolicies:          make(map[string]string),
+		imageScanFindings:           make(map[string]map[string]*ImageScanFindingsResult),
+		accountSettings:             make(map[string]string),
+		pullTimeUpdateExclusions:    make(map[string]*PullTimeUpdateExclusion),
+		registryScanningConfig:      &RegistryScanningSettings{ScanType: "BASIC"},
+		replicationConfig:           &ReplicationConfig{},
 		mu:                          lockmetrics.New("ecr"),
 		accountID:                   accountID,
 		region:                      region,
@@ -198,13 +415,21 @@ func (b *InMemoryBackend) ProxyEndpoint() string {
 }
 
 // CreateRepository creates a new ECR repository.
-func (b *InMemoryBackend) CreateRepository(name, imageTagMutability string) (*Repository, error) {
+func (b *InMemoryBackend) CreateRepository(
+	name, imageTagMutability string,
+	scanOnPush bool,
+	encryptionType string,
+) (*Repository, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: repositoryName is required", ErrInvalidRepositoryName)
 	}
 
 	if imageTagMutability == "" {
 		imageTagMutability = "MUTABLE"
+	}
+
+	if encryptionType == "" {
+		encryptionType = "AES256"
 	}
 
 	b.mu.Lock("CreateRepository")
@@ -221,11 +446,13 @@ func (b *InMemoryBackend) CreateRepository(name, imageTagMutability string) (*Re
 
 	repo := &Repository{
 		CreatedAt:          time.Now(),
+		EncryptionType:     encryptionType,
 		RegistryID:         b.accountID,
 		RepositoryARN:      fmt.Sprintf("arn:aws:ecr:%s:%s:repository/%s", b.region, b.accountID, name),
 		RepositoryName:     name,
 		RepositoryURI:      fmt.Sprintf("%s/%s", endpoint, name),
 		ImageTagMutability: imageTagMutability,
+		ScanOnPush:         scanOnPush,
 	}
 	b.repos[name] = repo
 
@@ -280,7 +507,10 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 	delete(b.images, name)
 	delete(b.uploadedLayers, name)
 	delete(b.lifecyclePolicies, name)
+	delete(b.lifecyclePolicyPreviews, name)
 	delete(b.repoTags, r.RepositoryARN)
+	delete(b.repositoryPolicies, name)
+	delete(b.imageScanFindings, name)
 
 	cp := *r
 
@@ -406,6 +636,37 @@ func (b *InMemoryBackend) BatchGetImage(
 	return imgs, failures, nil
 }
 
+// DescribeImages returns image details for a repository.
+func (b *InMemoryBackend) DescribeImages(repositoryName string, imageIDs []ImageIdentifier) ([]Image, error) {
+	b.mu.RLock("DescribeImages")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	repoImages := b.images[repositoryName]
+	out := make([]Image, 0, len(repoImages))
+	if len(imageIDs) == 0 {
+		for _, img := range repoImages {
+			out = append(out, *img)
+		}
+	} else {
+		for _, id := range imageIDs {
+			img, ok := findImageLocked(repoImages, id)
+			if !ok {
+				return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+			}
+
+			out = append(out, *img)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ImageDigest < out[j].ImageDigest })
+
+	return out, nil
+}
+
 // BatchGetRepositoryScanningConfiguration returns scanning configuration for repositories.
 func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(
 	repositoryNames []string,
@@ -431,8 +692,8 @@ func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(
 		configs = append(configs, RepositoryScanningConfiguration{
 			RepositoryARN:  repo.RepositoryARN,
 			RepositoryName: name,
-			ScanOnPush:     false,
-			ScanFrequency:  "MANUAL",
+			ScanOnPush:     repo.ScanOnPush,
+			ScanFrequency:  scanFrequency(repo.ScanOnPush),
 		})
 	}
 
@@ -468,9 +729,77 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 	}, nil
 }
 
+// GetDownloadURLForLayer resolves a local download URL for an uploaded layer.
+func (b *InMemoryBackend) GetDownloadURLForLayer(repositoryName, layerDigest string) (string, error) {
+	b.mu.RLock("GetDownloadURLForLayer")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return "", fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	if _, ok := b.uploadedLayers[repositoryName][layerDigest]; !ok {
+		return "", fmt.Errorf("%w: layer not found", ErrRepositoryNotFound)
+	}
+
+	endpoint := b.endpoint
+	if endpoint == "" {
+		endpoint = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com", b.accountID, b.region)
+	}
+
+	return fmt.Sprintf("http://%s/v2/%s/blobs/%s", endpoint, repositoryName, layerDigest), nil
+}
+
+// InitiateLayerUpload starts a layer upload session.
+func (b *InMemoryBackend) InitiateLayerUpload(repositoryName string) (*LayerUploadInitiation, error) {
+	b.mu.Lock("InitiateLayerUpload")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	uploadID := fmt.Sprintf("upload-%d", time.Now().UnixNano())
+	b.layerUploads[uploadID] = &layerUploadState{RepositoryName: repositoryName}
+
+	return &LayerUploadInitiation{PartSize: layerUploadPartSize, UploadID: uploadID}, nil
+}
+
+// UploadLayerPart records uploaded bytes for an existing upload session.
+func (b *InMemoryBackend) UploadLayerPart(
+	repositoryName, uploadID string,
+	_, lastByte int64,
+	blob []byte,
+) (*LayerUploadPartResult, error) {
+	b.mu.Lock("UploadLayerPart")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	upload, ok := b.layerUploads[uploadID]
+	if !ok || upload.RepositoryName != repositoryName {
+		return nil, fmt.Errorf("%w: upload not found", ErrRepositoryNotFound)
+	}
+
+	if lastByte < 0 && len(blob) > 0 {
+		lastByte = int64(len(blob) - 1)
+	}
+
+	upload.Size = lastByte + 1
+
+	return &LayerUploadPartResult{
+		LastByteReceived: lastByte,
+		RepositoryName:   repositoryName,
+		RegistryID:       b.accountID,
+		UploadID:         uploadID,
+	}, nil
+}
+
 // CreatePullThroughCacheRule creates a new pull-through cache rule.
 func (b *InMemoryBackend) CreatePullThroughCacheRule(
-	prefix, upstreamURL, credentialArn, upstreamRegistry string,
+	prefix, upstreamURL, credentialArn, upstreamRegistry, customRoleArn, upstreamRepositoryPrefix string,
 ) (*PullThroughCacheRule, error) {
 	if prefix == "" {
 		return nil, fmt.Errorf("%w: ecrRepositoryPrefix is required", ErrInvalidRepositoryName)
@@ -485,19 +814,47 @@ func (b *InMemoryBackend) CreatePullThroughCacheRule(
 
 	now := time.Now()
 	rule := &PullThroughCacheRule{
-		EcrRepositoryPrefix: prefix,
-		UpstreamRegistryURL: upstreamURL,
-		CredentialArn:       credentialArn,
-		UpstreamRegistry:    upstreamRegistry,
-		RegistryID:          b.accountID,
-		CreatedAt:           now,
-		UpdatedAt:           now,
+		EcrRepositoryPrefix:      prefix,
+		UpstreamRegistryURL:      upstreamURL,
+		CredentialArn:            credentialArn,
+		CustomRoleArn:            customRoleArn,
+		UpstreamRegistry:         upstreamRegistry,
+		UpstreamRepositoryPrefix: upstreamRepositoryPrefix,
+		RegistryID:               b.accountID,
+		CreatedAt:                now,
+		UpdatedAt:                now,
 	}
 	b.pullThroughCacheRules[prefix] = rule
 
 	cp := *rule
 
 	return &cp, nil
+}
+
+// DescribePullThroughCacheRules lists pull-through cache rules.
+func (b *InMemoryBackend) DescribePullThroughCacheRules(prefixes []string) ([]PullThroughCacheRule, error) {
+	b.mu.RLock("DescribePullThroughCacheRules")
+	defer b.mu.RUnlock()
+
+	out := make([]PullThroughCacheRule, 0, len(b.pullThroughCacheRules))
+	if len(prefixes) == 0 {
+		for _, rule := range b.pullThroughCacheRules {
+			out = append(out, *rule)
+		}
+	} else {
+		for _, prefix := range prefixes {
+			rule, ok := b.pullThroughCacheRules[prefix]
+			if !ok {
+				return nil, fmt.Errorf("%w: %s", ErrPullThroughCacheRuleNotFound, prefix)
+			}
+
+			out = append(out, *rule)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].EcrRepositoryPrefix < out[j].EcrRepositoryPrefix })
+
+	return out, nil
 }
 
 // CreateRepositoryCreationTemplate creates a new repository creation template.
@@ -517,21 +874,67 @@ func (b *InMemoryBackend) CreateRepositoryCreationTemplate(
 
 	now := time.Now()
 	tmpl := &RepositoryCreationTemplate{
-		Prefix:             req.Prefix,
-		Description:        req.Description,
-		ImageTagMutability: req.ImageTagMutability,
-		RepositoryPolicy:   req.RepositoryPolicy,
-		LifecyclePolicy:    req.LifecyclePolicy,
-		AppliedFor:         req.AppliedFor,
-		CustomRoleArn:      req.CustomRoleArn,
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		Prefix:                             req.Prefix,
+		Description:                        req.Description,
+		EncryptionType:                     req.EncryptionType,
+		KMSKey:                             req.KMSKey,
+		ImageTagMutability:                 req.ImageTagMutability,
+		ImageTagMutabilityExclusionFilters: req.ImageTagMutabilityExclusionFilters,
+		RepositoryPolicy:                   req.RepositoryPolicy,
+		LifecyclePolicy:                    req.LifecyclePolicy,
+		AppliedFor:                         req.AppliedFor,
+		CustomRoleArn:                      req.CustomRoleArn,
+		ResourceTags:                       copyStringMap(req.ResourceTags),
+		CreatedAt:                          now,
+		UpdatedAt:                          now,
 	}
 	b.repositoryCreationTemplates[req.Prefix] = tmpl
 
 	cp := *tmpl
 
 	return &cp, nil
+}
+
+// DeleteRepositoryCreationTemplate deletes a repository creation template.
+func (b *InMemoryBackend) DeleteRepositoryCreationTemplate(prefix string) (*RepositoryCreationTemplate, error) {
+	b.mu.Lock("DeleteRepositoryCreationTemplate")
+	defer b.mu.Unlock()
+
+	tmpl, ok := b.repositoryCreationTemplates[prefix]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryCreationTemplateNotFound, prefix)
+	}
+
+	delete(b.repositoryCreationTemplates, prefix)
+	cp := copyRepositoryCreationTemplate(tmpl)
+
+	return &cp, nil
+}
+
+// DescribeRepositoryCreationTemplates lists repository creation templates.
+func (b *InMemoryBackend) DescribeRepositoryCreationTemplates(prefixes []string) ([]RepositoryCreationTemplate, error) {
+	b.mu.RLock("DescribeRepositoryCreationTemplates")
+	defer b.mu.RUnlock()
+
+	out := make([]RepositoryCreationTemplate, 0, len(b.repositoryCreationTemplates))
+	if len(prefixes) == 0 {
+		for _, tmpl := range b.repositoryCreationTemplates {
+			out = append(out, copyRepositoryCreationTemplate(tmpl))
+		}
+	} else {
+		for _, prefix := range prefixes {
+			tmpl, ok := b.repositoryCreationTemplates[prefix]
+			if !ok {
+				return nil, fmt.Errorf("%w: %s", ErrRepositoryCreationTemplateNotFound, prefix)
+			}
+
+			out = append(out, copyRepositoryCreationTemplate(tmpl))
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Prefix < out[j].Prefix })
+
+	return out, nil
 }
 
 // DeleteLifecyclePolicy deletes the lifecycle policy for a repository.
@@ -558,6 +961,48 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(repositoryName string) (*Lifecyc
 	}, nil
 }
 
+// GetLifecyclePolicy returns the lifecycle policy for a repository.
+func (b *InMemoryBackend) GetLifecyclePolicy(repositoryName string) (*LifecyclePolicyResult, error) {
+	b.mu.RLock("GetLifecyclePolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	policyText, ok := b.lifecyclePolicies[repositoryName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrLifecyclePolicyNotFound, repositoryName)
+	}
+
+	return &LifecyclePolicyResult{
+		LifecyclePolicyText: policyText,
+		LastEvaluatedAt:     time.Now(),
+		RepositoryName:      repositoryName,
+		RegistryID:          b.accountID,
+	}, nil
+}
+
+// GetLifecyclePolicyPreview returns the current lifecycle policy preview.
+func (b *InMemoryBackend) GetLifecyclePolicyPreview(repositoryName string) (*LifecyclePolicyPreviewResult, error) {
+	b.mu.RLock("GetLifecyclePolicyPreview")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	preview, ok := b.lifecyclePolicyPreviews[repositoryName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrLifecyclePolicyNotFound, repositoryName)
+	}
+
+	cp := *preview
+	cp.PreviewResults = append([]ImageIdentifier(nil), preview.PreviewResults...)
+
+	return &cp, nil
+}
+
 // PutLifecyclePolicy creates or replaces the lifecycle policy for a repository.
 func (b *InMemoryBackend) PutLifecyclePolicy(repositoryName, policyText string) (*LifecyclePolicyResult, error) {
 	b.mu.Lock("PutLifecyclePolicy")
@@ -577,6 +1022,41 @@ func (b *InMemoryBackend) PutLifecyclePolicy(repositoryName, policyText string) 
 	}, nil
 }
 
+// StartLifecyclePolicyPreview starts or refreshes a lifecycle policy preview.
+func (b *InMemoryBackend) StartLifecyclePolicyPreview(
+	repositoryName, policyText string,
+) (*LifecyclePolicyPreviewResult, error) {
+	b.mu.Lock("StartLifecyclePolicyPreview")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	if policyText == "" {
+		policyText = b.lifecyclePolicies[repositoryName]
+	}
+
+	images := make([]ImageIdentifier, 0, len(b.images[repositoryName]))
+	for _, img := range b.images[repositoryName] {
+		images = append(images, img.ImageID)
+	}
+
+	preview := &LifecyclePolicyPreviewResult{
+		LifecyclePolicyText: policyText,
+		PreviewResults:      images,
+		RepositoryName:      repositoryName,
+		RegistryID:          b.accountID,
+		Status:              "COMPLETE",
+	}
+	b.lifecyclePolicyPreviews[repositoryName] = preview
+
+	cp := *preview
+	cp.PreviewResults = append([]ImageIdentifier(nil), preview.PreviewResults...)
+
+	return &cp, nil
+}
+
 // DeletePullThroughCacheRule deletes a pull-through cache rule by prefix.
 func (b *InMemoryBackend) DeletePullThroughCacheRule(prefix string) (*PullThroughCacheRule, error) {
 	b.mu.Lock("DeletePullThroughCacheRule")
@@ -592,6 +1072,58 @@ func (b *InMemoryBackend) DeletePullThroughCacheRule(prefix string) (*PullThroug
 	cp := *rule
 
 	return &cp, nil
+}
+
+// UpdatePullThroughCacheRule updates a pull-through cache rule by prefix.
+func (b *InMemoryBackend) UpdatePullThroughCacheRule(
+	prefix, credentialArn, customRoleArn string,
+) (*PullThroughCacheRule, error) {
+	b.mu.Lock("UpdatePullThroughCacheRule")
+	defer b.mu.Unlock()
+
+	rule, ok := b.pullThroughCacheRules[prefix]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrPullThroughCacheRuleNotFound, prefix)
+	}
+
+	if credentialArn != "" {
+		rule.CredentialArn = credentialArn
+	}
+
+	if customRoleArn != "" {
+		rule.CustomRoleArn = customRoleArn
+	}
+
+	rule.UpdatedAt = time.Now()
+	cp := *rule
+
+	return &cp, nil
+}
+
+// ValidatePullThroughCacheRule validates a pull-through cache rule by prefix.
+func (b *InMemoryBackend) ValidatePullThroughCacheRule(prefix string) (*ValidatePullThroughCacheRuleResult, error) {
+	b.mu.RLock("ValidatePullThroughCacheRule")
+	defer b.mu.RUnlock()
+
+	rule, ok := b.pullThroughCacheRules[prefix]
+	if !ok {
+		return &ValidatePullThroughCacheRuleResult{
+			EcrRepositoryPrefix: prefix,
+			Failure:             "Pull through cache rule not found",
+			IsValid:             false,
+			RegistryID:          b.accountID,
+		}, nil
+	}
+
+	return &ValidatePullThroughCacheRuleResult{
+		CredentialArn:            rule.CredentialArn,
+		CustomRoleArn:            rule.CustomRoleArn,
+		EcrRepositoryPrefix:      rule.EcrRepositoryPrefix,
+		IsValid:                  true,
+		RegistryID:               rule.RegistryID,
+		UpstreamRegistryURL:      rule.UpstreamRegistryURL,
+		UpstreamRepositoryPrefix: rule.UpstreamRepositoryPrefix,
+	}, nil
 }
 
 // AddImageInternal seeds an image directly into the backend for testing.
@@ -635,6 +1167,41 @@ func (b *InMemoryBackend) DeleteRegistryPolicy() (*RegistryPolicyResult, error) 
 	}, nil
 }
 
+// DescribeRegistry returns registry-wide metadata.
+func (b *InMemoryBackend) DescribeRegistry() (*RegistryDescription, error) {
+	b.mu.RLock("DescribeRegistry")
+	defer b.mu.RUnlock()
+
+	return &RegistryDescription{
+		RegistryID:               b.accountID,
+		ReplicationConfiguration: copyReplicationConfig(b.replicationConfig),
+	}, nil
+}
+
+// GetRegistryPolicy returns the registry-level IAM policy.
+func (b *InMemoryBackend) GetRegistryPolicy() (*RegistryPolicyResult, error) {
+	b.mu.RLock("GetRegistryPolicy")
+	defer b.mu.RUnlock()
+
+	if b.registryPolicy == "" {
+		return nil, fmt.Errorf("%w: no registry policy found", ErrRegistryPolicyNotFound)
+	}
+
+	return &RegistryPolicyResult{
+		PolicyText: b.registryPolicy,
+		RegistryID: b.accountID,
+		Status:     "ACTIVE",
+	}, nil
+}
+
+// GetRegistryScanningConfiguration returns the registry scanning configuration.
+func (b *InMemoryBackend) GetRegistryScanningConfiguration() (*RegistryScanningSettings, error) {
+	b.mu.RLock("GetRegistryScanningConfiguration")
+	defer b.mu.RUnlock()
+
+	return copyRegistryScanningSettings(b.registryScanningConfig), nil
+}
+
 // PutRegistryPolicy creates or replaces the registry-level IAM policy.
 func (b *InMemoryBackend) PutRegistryPolicy(policyText string) (*RegistryPolicyResult, error) {
 	b.mu.Lock("PutRegistryPolicy")
@@ -647,6 +1214,504 @@ func (b *InMemoryBackend) PutRegistryPolicy(policyText string) (*RegistryPolicyR
 		RegistryID: b.accountID,
 		Status:     "SetComplete",
 	}, nil
+}
+
+// PutRegistryScanningConfiguration updates the registry scanning configuration.
+func (b *InMemoryBackend) PutRegistryScanningConfiguration(
+	settings *RegistryScanningSettings,
+) (*RegistryScanningSettings, error) {
+	b.mu.Lock("PutRegistryScanningConfiguration")
+	defer b.mu.Unlock()
+
+	if settings == nil {
+		settings = &RegistryScanningSettings{ScanType: "BASIC"}
+	}
+
+	if settings.ScanType == "" {
+		settings.ScanType = "BASIC"
+	}
+
+	b.registryScanningConfig = copyRegistryScanningSettings(settings)
+
+	return copyRegistryScanningSettings(b.registryScanningConfig), nil
+}
+
+// PutReplicationConfiguration updates the registry replication configuration.
+func (b *InMemoryBackend) PutReplicationConfiguration(cfg *ReplicationConfig) (*ReplicationConfig, error) {
+	b.mu.Lock("PutReplicationConfiguration")
+	defer b.mu.Unlock()
+
+	if cfg == nil {
+		cfg = &ReplicationConfig{}
+	}
+
+	b.replicationConfig = copyReplicationConfig(cfg)
+
+	return copyReplicationConfig(b.replicationConfig), nil
+}
+
+// GetRepositoryPolicy returns the repository-level policy.
+func (b *InMemoryBackend) GetRepositoryPolicy(repositoryName string) (*RepositoryPolicyResult, error) {
+	b.mu.RLock("GetRepositoryPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	policyText, ok := b.repositoryPolicies[repositoryName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRegistryPolicyNotFound, repositoryName)
+	}
+
+	return &RepositoryPolicyResult{
+		PolicyText:     policyText,
+		RegistryID:     b.accountID,
+		RepositoryName: repositoryName,
+	}, nil
+}
+
+// SetRepositoryPolicy creates or replaces the repository-level IAM policy.
+func (b *InMemoryBackend) SetRepositoryPolicy(repositoryName, policyText string) (*RepositoryPolicyResult, error) {
+	b.mu.Lock("SetRepositoryPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	b.repositoryPolicies[repositoryName] = policyText
+
+	return &RepositoryPolicyResult{
+		PolicyText:     policyText,
+		RegistryID:     b.accountID,
+		RepositoryName: repositoryName,
+	}, nil
+}
+
+// DeleteRepositoryPolicy deletes the repository-level policy.
+func (b *InMemoryBackend) DeleteRepositoryPolicy(repositoryName string) (*RepositoryPolicyResult, error) {
+	b.mu.Lock("DeleteRepositoryPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	policyText, ok := b.repositoryPolicies[repositoryName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRegistryPolicyNotFound, repositoryName)
+	}
+
+	delete(b.repositoryPolicies, repositoryName)
+
+	return &RepositoryPolicyResult{
+		PolicyText:     policyText,
+		RegistryID:     b.accountID,
+		RepositoryName: repositoryName,
+	}, nil
+}
+
+// GetSigningConfiguration returns the current registry signing configuration.
+func (b *InMemoryBackend) GetSigningConfiguration() (*SigningSettings, error) {
+	b.mu.RLock("GetSigningConfiguration")
+	defer b.mu.RUnlock()
+
+	return copySigningSettings(b.signingConfig), nil
+}
+
+// PutSigningConfiguration updates the registry signing configuration.
+func (b *InMemoryBackend) PutSigningConfiguration(settings *SigningSettings) (*SigningSettings, error) {
+	b.mu.Lock("PutSigningConfiguration")
+	defer b.mu.Unlock()
+
+	b.signingConfig = copySigningSettings(settings)
+
+	return copySigningSettings(b.signingConfig), nil
+}
+
+// DeleteSigningConfiguration removes the registry signing configuration.
+func (b *InMemoryBackend) DeleteSigningConfiguration() (*SigningSettings, error) {
+	b.mu.Lock("DeleteSigningConfiguration")
+	defer b.mu.Unlock()
+
+	settings := copySigningSettings(b.signingConfig)
+	b.signingConfig = nil
+
+	return settings, nil
+}
+
+// DescribeImageSigningStatus returns signing status for an image.
+func (b *InMemoryBackend) DescribeImageSigningStatus(
+	repositoryName string,
+	imageID ImageIdentifier,
+) (*ImageSigningStatusResult, error) {
+	b.mu.RLock("DescribeImageSigningStatus")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	if _, ok := findImageLocked(b.images[repositoryName], imageID); !ok {
+		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+	}
+
+	out := []ImageSigningStatusRecord{{Status: "COMPLETE"}}
+	if b.signingConfig != nil && len(b.signingConfig.Rules) > 0 {
+		out[0].SigningProfileArn = b.signingConfig.Rules[0].SigningProfileArn
+	}
+
+	return &ImageSigningStatusResult{
+		ImageID:         imageID,
+		RegistryID:      b.accountID,
+		RepositoryName:  repositoryName,
+		SigningStatuses: out,
+	}, nil
+}
+
+// DescribeImageScanFindings returns scan findings for an image.
+func (b *InMemoryBackend) DescribeImageScanFindings(
+	repositoryName string,
+	imageID ImageIdentifier,
+) (*ImageScanFindingsResult, error) {
+	b.mu.RLock("DescribeImageScanFindings")
+	defer b.mu.RUnlock()
+
+	img, ok := findImageLocked(b.images[repositoryName], imageID)
+	if !ok {
+		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+	}
+
+	findings := b.imageScanFindings[repositoryName][img.ImageDigest]
+	if findings == nil {
+		findings = &ImageScanFindingsResult{
+			FindingSeverityCounts: map[string]int32{},
+			ImageID:               img.ImageID,
+			RepositoryName:        repositoryName,
+			RegistryID:            b.accountID,
+			Status:                "COMPLETE",
+			Description:           "The scan completed successfully with no findings.",
+			CompletedAt:           time.Now(),
+		}
+	}
+
+	cp := copyImageScanFindingsResult(findings)
+
+	return &cp, nil
+}
+
+// StartImageScan starts an image scan and returns the scan status.
+func (b *InMemoryBackend) StartImageScan(
+	repositoryName string,
+	imageID ImageIdentifier,
+) (*ImageScanStartResult, error) {
+	b.mu.Lock("StartImageScan")
+	defer b.mu.Unlock()
+
+	img, ok := findImageLocked(b.images[repositoryName], imageID)
+	if !ok {
+		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+	}
+
+	if b.imageScanFindings[repositoryName] == nil {
+		b.imageScanFindings[repositoryName] = make(map[string]*ImageScanFindingsResult)
+	}
+
+	result := &ImageScanFindingsResult{
+		FindingSeverityCounts: map[string]int32{},
+		ImageID:               img.ImageID,
+		RepositoryName:        repositoryName,
+		RegistryID:            b.accountID,
+		Status:                "COMPLETE",
+		Description:           "The scan completed successfully with no findings.",
+		CompletedAt:           time.Now(),
+	}
+	b.imageScanFindings[repositoryName][img.ImageDigest] = result
+
+	return &ImageScanStartResult{
+		ImageID:        img.ImageID,
+		RepositoryName: repositoryName,
+		RegistryID:     b.accountID,
+		Status:         result.Status,
+		Description:    result.Description,
+	}, nil
+}
+
+// ListImages lists image identifiers for a repository.
+func (b *InMemoryBackend) ListImages(repositoryName string) ([]ImageIdentifier, error) {
+	b.mu.RLock("ListImages")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	out := make([]ImageIdentifier, 0, len(b.images[repositoryName]))
+	for _, img := range b.images[repositoryName] {
+		out = append(out, img.ImageID)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ImageDigest == out[j].ImageDigest {
+			return out[i].ImageTag < out[j].ImageTag
+		}
+
+		return out[i].ImageDigest < out[j].ImageDigest
+	})
+
+	return out, nil
+}
+
+// ListImageReferrers lists image referrers for a subject image.
+func (b *InMemoryBackend) ListImageReferrers(repositoryName string, subject ImageIdentifier) ([]ImageReferrer, error) {
+	b.mu.RLock("ListImageReferrers")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	if _, ok := findImageLocked(b.images[repositoryName], subject); !ok && subject.ImageDigest != "" {
+		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+	}
+
+	return []ImageReferrer{}, nil
+}
+
+// PutImage creates or replaces an image manifest.
+func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, error) {
+	b.mu.Lock("PutImage")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repos[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	if image.ImageDigest == "" {
+		sum := sha256.Sum256([]byte(image.ImageManifest + image.ImageID.ImageTag))
+		image.ImageDigest = "sha256:" + hex.EncodeToString(sum[:])
+	}
+
+	if image.ImageID.ImageDigest == "" {
+		image.ImageID.ImageDigest = image.ImageDigest
+	}
+
+	if image.RepositoryName == "" {
+		image.RepositoryName = repositoryName
+	}
+
+	if image.RegistryID == "" {
+		image.RegistryID = b.accountID
+	}
+
+	if image.ImagePushedAt.IsZero() {
+		image.ImagePushedAt = time.Now()
+	}
+
+	if image.ImageStatus == "" {
+		image.ImageStatus = "ACTIVE"
+	}
+
+	if b.images[repositoryName] == nil {
+		b.images[repositoryName] = make(map[string]*Image)
+	}
+
+	stored := image
+	b.images[repositoryName][image.ImageDigest] = &stored
+
+	ret := stored
+
+	return &ret, nil
+}
+
+// PutImageScanningConfiguration updates per-repository scan-on-push config.
+func (b *InMemoryBackend) PutImageScanningConfiguration(
+	repositoryName string,
+	scanOnPush bool,
+) (*RepositoryScanningConfiguration, error) {
+	b.mu.Lock("PutImageScanningConfiguration")
+	defer b.mu.Unlock()
+
+	repo, ok := b.repos[repositoryName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	repo.ScanOnPush = scanOnPush
+
+	return &RepositoryScanningConfiguration{
+		RepositoryARN:  repo.RepositoryARN,
+		RepositoryName: repositoryName,
+		ScanFrequency:  scanFrequency(scanOnPush),
+		ScanOnPush:     scanOnPush,
+	}, nil
+}
+
+// PutImageTagMutability updates per-repository tag mutability.
+func (b *InMemoryBackend) PutImageTagMutability(
+	repositoryName, imageTagMutability string,
+	exclusionFilters []ImageTagMutabilityExclusionFilter,
+) (*Repository, error) {
+	b.mu.Lock("PutImageTagMutability")
+	defer b.mu.Unlock()
+
+	repo, ok := b.repos[repositoryName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
+	}
+
+	if imageTagMutability == "" {
+		imageTagMutability = "MUTABLE"
+	}
+
+	repo.ImageTagMutability = imageTagMutability
+	repo.ImageTagMutabilityExclusionFilters = append([]ImageTagMutabilityExclusionFilter(nil), exclusionFilters...)
+	cp := *repo
+
+	return &cp, nil
+}
+
+// DescribeImageReplicationStatus returns the current replication status for an image.
+func (b *InMemoryBackend) DescribeImageReplicationStatus(
+	repositoryName string,
+	imageID ImageIdentifier,
+) (*ImageReplicationStatusResult, error) {
+	b.mu.RLock("DescribeImageReplicationStatus")
+	defer b.mu.RUnlock()
+
+	img, ok := findImageLocked(b.images[repositoryName], imageID)
+	if !ok {
+		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+	}
+
+	return &ImageReplicationStatusResult{
+		ImageID:           img.ImageID,
+		RepositoryName:    repositoryName,
+		ReplicationStatus: "COMPLETE",
+	}, nil
+}
+
+// UpdateImageStorageClass updates the storage class for an image.
+func (b *InMemoryBackend) UpdateImageStorageClass(
+	repositoryName string,
+	imageID ImageIdentifier,
+	target string,
+) (*ImageStorageClassResult, error) {
+	b.mu.Lock("UpdateImageStorageClass")
+	defer b.mu.Unlock()
+
+	img, ok := findImageLocked(b.images[repositoryName], imageID)
+	if !ok {
+		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
+	}
+
+	if target == "ARCHIVE" {
+		img.StorageClass = target
+		img.ImageStatus = "ARCHIVED"
+	} else {
+		img.StorageClass = "STANDARD"
+		img.ImageStatus = "ACTIVE"
+	}
+
+	return &ImageStorageClassResult{
+		ImageID:        img.ImageID,
+		ImageStatus:    img.ImageStatus,
+		RegistryID:     b.accountID,
+		RepositoryName: repositoryName,
+	}, nil
+}
+
+// GetAccountSetting returns a registry account setting.
+func (b *InMemoryBackend) GetAccountSetting(name string) (string, error) {
+	b.mu.RLock("GetAccountSetting")
+	defer b.mu.RUnlock()
+
+	return b.accountSettings[name], nil
+}
+
+// PutAccountSetting updates a registry account setting.
+func (b *InMemoryBackend) PutAccountSetting(name, value string) (string, error) {
+	b.mu.Lock("PutAccountSetting")
+	defer b.mu.Unlock()
+
+	b.accountSettings[name] = value
+
+	return value, nil
+}
+
+// RegisterPullTimeUpdateExclusion creates a pull time update exclusion.
+func (b *InMemoryBackend) RegisterPullTimeUpdateExclusion(principalArn string) (*PullTimeUpdateExclusion, error) {
+	b.mu.Lock("RegisterPullTimeUpdateExclusion")
+	defer b.mu.Unlock()
+
+	exclusion := &PullTimeUpdateExclusion{CreatedAt: time.Now(), PrincipalArn: principalArn}
+	b.pullTimeUpdateExclusions[principalArn] = exclusion
+	cp := *exclusion
+
+	return &cp, nil
+}
+
+// DeregisterPullTimeUpdateExclusion deletes a pull time update exclusion.
+func (b *InMemoryBackend) DeregisterPullTimeUpdateExclusion(principalArn string) (*PullTimeUpdateExclusion, error) {
+	b.mu.Lock("DeregisterPullTimeUpdateExclusion")
+	defer b.mu.Unlock()
+
+	exclusion, ok := b.pullTimeUpdateExclusions[principalArn]
+	if !ok {
+		return &PullTimeUpdateExclusion{PrincipalArn: principalArn}, nil
+	}
+
+	delete(b.pullTimeUpdateExclusions, principalArn)
+	cp := *exclusion
+
+	return &cp, nil
+}
+
+// ListPullTimeUpdateExclusions lists pull time update exclusions.
+func (b *InMemoryBackend) ListPullTimeUpdateExclusions() ([]PullTimeUpdateExclusion, error) {
+	b.mu.RLock("ListPullTimeUpdateExclusions")
+	defer b.mu.RUnlock()
+
+	out := make([]PullTimeUpdateExclusion, 0, len(b.pullTimeUpdateExclusions))
+	for _, exclusion := range b.pullTimeUpdateExclusions {
+		out = append(out, *exclusion)
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].PrincipalArn < out[j].PrincipalArn })
+
+	return out, nil
+}
+
+// UpdateRepositoryCreationTemplate updates a repository creation template.
+func (b *InMemoryBackend) UpdateRepositoryCreationTemplate(
+	req *RepositoryCreationTemplate,
+) (*RepositoryCreationTemplate, error) {
+	b.mu.Lock("UpdateRepositoryCreationTemplate")
+	defer b.mu.Unlock()
+
+	tmpl, ok := b.repositoryCreationTemplates[req.Prefix]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryCreationTemplateNotFound, req.Prefix)
+	}
+
+	tmpl.Description = req.Description
+	tmpl.EncryptionType = req.EncryptionType
+	tmpl.KMSKey = req.KMSKey
+	tmpl.ImageTagMutability = req.ImageTagMutability
+	tmpl.ImageTagMutabilityExclusionFilters = append(
+		[]ImageTagMutabilityExclusionFilter(nil),
+		req.ImageTagMutabilityExclusionFilters...,
+	)
+	tmpl.RepositoryPolicy = req.RepositoryPolicy
+	tmpl.LifecyclePolicy = req.LifecyclePolicy
+	tmpl.CustomRoleArn = req.CustomRoleArn
+	tmpl.AppliedFor = append([]string(nil), req.AppliedFor...)
+	tmpl.ResourceTags = copyStringMap(req.ResourceTags)
+	tmpl.UpdatedAt = time.Now()
+	cp := copyRepositoryCreationTemplate(tmpl)
+
+	return &cp, nil
 }
 
 // TagResource associates tags with an ECR resource identified by its ARN.
@@ -707,6 +1772,119 @@ func sortedTagKeys(tags map[string]string) []string {
 	return keys
 }
 
+func findImageLocked(images map[string]*Image, id ImageIdentifier) (*Image, bool) {
+	if id.ImageDigest != "" {
+		img, ok := images[id.ImageDigest]
+
+		return img, ok
+	}
+
+	if id.ImageTag != "" {
+		for _, img := range images {
+			if img.ImageID.ImageTag == id.ImageTag {
+				return img, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+func scanFrequency(scanOnPush bool) string {
+	if scanOnPush {
+		return "SCAN_ON_PUSH"
+	}
+
+	return "MANUAL"
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+
+	out := make(map[string]string, len(in))
+	maps.Copy(out, in)
+
+	return out
+}
+
+func copyRepositoryCreationTemplate(in *RepositoryCreationTemplate) RepositoryCreationTemplate {
+	cp := *in
+	cp.AppliedFor = append([]string(nil), in.AppliedFor...)
+	cp.ImageTagMutabilityExclusionFilters = append(
+		[]ImageTagMutabilityExclusionFilter(nil),
+		in.ImageTagMutabilityExclusionFilters...,
+	)
+	cp.ResourceTags = copyStringMap(in.ResourceTags)
+
+	return cp
+}
+
+func copyRegistryScanningSettings(in *RegistryScanningSettings) *RegistryScanningSettings {
+	if in == nil {
+		return &RegistryScanningSettings{ScanType: "BASIC"}
+	}
+
+	out := &RegistryScanningSettings{
+		Rules:    make([]RegistryScanningRule, len(in.Rules)),
+		ScanType: in.ScanType,
+	}
+	for i, rule := range in.Rules {
+		out.Rules[i] = RegistryScanningRule{
+			RepositoryFilters: append([]RepositoryFilter(nil), rule.RepositoryFilters...),
+			ScanFrequency:     rule.ScanFrequency,
+		}
+	}
+
+	return out
+}
+
+func copyReplicationConfig(in *ReplicationConfig) *ReplicationConfig {
+	if in == nil {
+		return &ReplicationConfig{}
+	}
+
+	out := &ReplicationConfig{Rules: make([]ReplicationRule, len(in.Rules))}
+	for i, rule := range in.Rules {
+		out.Rules[i] = ReplicationRule{
+			Destinations:      append([]ReplicationDestination(nil), rule.Destinations...),
+			RepositoryFilters: append([]RepositoryFilter(nil), rule.RepositoryFilters...),
+		}
+	}
+
+	return out
+}
+
+func copySigningSettings(in *SigningSettings) *SigningSettings {
+	if in == nil {
+		return &SigningSettings{}
+	}
+
+	out := &SigningSettings{Rules: make([]SigningRule, len(in.Rules))}
+	for i, rule := range in.Rules {
+		out.Rules[i] = SigningRule{
+			SigningProfileArn: rule.SigningProfileArn,
+			RepositoryFilters: append([]RepositoryFilter(nil), rule.RepositoryFilters...),
+		}
+	}
+
+	return out
+}
+
+func copyImageScanFindingsResult(in *ImageScanFindingsResult) ImageScanFindingsResult {
+	cp := *in
+	cp.FindingSeverityCounts = make(map[string]int32, len(in.FindingSeverityCounts))
+	maps.Copy(cp.FindingSeverityCounts, in.FindingSeverityCounts)
+	cp.Findings = make([]ImageScanFinding, len(in.Findings))
+	for i, finding := range in.Findings {
+		cp.Findings[i] = finding
+		cp.Findings[i].Attributes = copyStringMap(finding.Attributes)
+	}
+
+	return cp
+}
+
 // Reset clears all state in the backend.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
@@ -717,9 +1895,18 @@ func (b *InMemoryBackend) Reset() {
 	b.pullThroughCacheRules = make(map[string]*PullThroughCacheRule)
 	b.repositoryCreationTemplates = make(map[string]*RepositoryCreationTemplate)
 	b.lifecyclePolicies = make(map[string]string)
+	b.lifecyclePolicyPreviews = make(map[string]*LifecyclePolicyPreviewResult)
 	b.uploadedLayers = make(map[string]map[string]int64)
+	b.layerUploads = make(map[string]*layerUploadState)
 	b.repoTags = make(map[string]map[string]string)
+	b.repositoryPolicies = make(map[string]string)
+	b.imageScanFindings = make(map[string]map[string]*ImageScanFindingsResult)
+	b.accountSettings = make(map[string]string)
+	b.pullTimeUpdateExclusions = make(map[string]*PullTimeUpdateExclusion)
 	b.registryPolicy = ""
+	b.registryScanningConfig = &RegistryScanningSettings{ScanType: "BASIC"}
+	b.replicationConfig = &ReplicationConfig{}
+	b.signingConfig = nil
 }
 
 // AddRepositoryInternal seeds a repository directly into the backend for testing.

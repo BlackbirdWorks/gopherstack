@@ -2,6 +2,7 @@ package ecr_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"log/slog"
@@ -9,6 +10,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	ecrsdk "github.com/aws/aws-sdk-go-v2/service/ecr"
+	"github.com/aws/aws-sdk-go-v2/service/ecr/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,6 +35,28 @@ func newTestHandler(t *testing.T) *ecr.Handler {
 	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
 
 	return ecr.NewHandler(backend, nil)
+}
+
+func newTestECRClient(t *testing.T, h *ecr.Handler) *ecrsdk.Client {
+	t.Helper()
+
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(h))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
+		awscfg.WithRegion(testRegion),
+		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+	)
+	require.NoError(t, err)
+
+	return ecrsdk.NewFromConfig(cfg, func(o *ecrsdk.Options) {
+		o.BaseEndpoint = aws.String(srv.URL)
+	})
 }
 
 func doECRRequest(t *testing.T, h *ecr.Handler, action string, body any) *httptest.ResponseRecorder {
@@ -425,6 +453,208 @@ func TestECR_GetAuthorizationToken(t *testing.T) {
 	assert.NotZero(t, entry["expiresAt"])
 }
 
+func TestECR_MissingSDKOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doECRRequest(t, h, "CreateRepository", map[string]any{
+		"repositoryName": "sdk-repo",
+		"imageScanningConfiguration": map[string]any{
+			"scanOnPush": true,
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "PutImage", map[string]any{
+		"repositoryName": "sdk-repo",
+		"imageManifest":  `{"schemaVersion":2}`,
+		"imageTag":       "latest",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var putImage map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putImage))
+	image := putImage["image"].(map[string]any)
+	imageID := image["imageId"].(map[string]any)
+
+	for _, action := range []string{
+		"DescribeImages",
+		"ListImages",
+		"StartImageScan",
+		"DescribeImageScanFindings",
+		"DescribeImageSigningStatus",
+		"DescribeImageReplicationStatus",
+		"UpdateImageStorageClass",
+		"ListImageReferrers",
+	} {
+		body := map[string]any{"repositoryName": "sdk-repo"}
+		if action != "DescribeImages" && action != "ListImages" {
+			body["imageId"] = imageID
+		}
+
+		if action == "DescribeImages" {
+			body["imageIds"] = []any{imageID}
+		}
+
+		if action == "UpdateImageStorageClass" {
+			body["targetStorageClass"] = "ARCHIVE"
+		}
+
+		if action == "ListImageReferrers" {
+			body["subjectId"] = imageID
+			delete(body, "imageId")
+		}
+
+		rec = doECRRequest(t, h, action, body)
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doECRRequest(t, h, "PutLifecyclePolicy", map[string]any{
+		"repositoryName":      "sdk-repo",
+		"lifecyclePolicyText": `{"rules":[]}`,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	for _, action := range []string{"GetLifecyclePolicy", "StartLifecyclePolicyPreview", "GetLifecyclePolicyPreview"} {
+		rec = doECRRequest(t, h, action, map[string]any{"repositoryName": "sdk-repo"})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doECRRequest(t, h, "InitiateLayerUpload", map[string]any{"repositoryName": "sdk-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var upload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &upload))
+	rec = doECRRequest(t, h, "UploadLayerPart", map[string]any{
+		"repositoryName": "sdk-repo",
+		"uploadId":       upload["uploadId"],
+		"partFirstByte":  0,
+		"partLastByte":   3,
+		"layerPartBlob":  "AQIDBA==",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
+		"repositoryName": "sdk-repo",
+		"uploadId":       upload["uploadId"],
+		"layerDigests":   []string{"sha256:layer"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "GetDownloadUrlForLayer", map[string]any{
+		"repositoryName": "sdk-repo",
+		"layerDigest":    "sha256:layer",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "SetRepositoryPolicy", map[string]any{
+		"repositoryName": "sdk-repo",
+		"policyText":     `{"Version":"2012-10-17","Statement":[]}`,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	for _, action := range []string{"GetRepositoryPolicy", "DeleteRepositoryPolicy"} {
+		rec = doECRRequest(t, h, action, map[string]any{"repositoryName": "sdk-repo"})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	for _, action := range []string{"DescribeRegistry", "GetRegistryScanningConfiguration"} {
+		rec = doECRRequest(t, h, action, map[string]any{})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+	rec = doECRRequest(t, h, "PutRegistryScanningConfiguration", map[string]any{"scanType": "BASIC"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutReplicationConfiguration", map[string]any{
+		"replicationConfiguration": map[string]any{"rules": []any{}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "PutRegistryPolicy", map[string]any{"policyText": "{}"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "GetRegistryPolicy", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "PutSigningConfiguration", map[string]any{
+		"signingConfiguration": map[string]any{"rules": []any{}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	for _, action := range []string{"GetSigningConfiguration", "DeleteSigningConfiguration"} {
+		rec = doECRRequest(t, h, action, map[string]any{})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
+		"ecrRepositoryPrefix": "docker-hub",
+		"upstreamRegistryUrl": "registry-1.docker.io",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	for _, action := range []string{
+		"DescribePullThroughCacheRules",
+		"UpdatePullThroughCacheRule",
+		"ValidatePullThroughCacheRule",
+	} {
+		rec = doECRRequest(t, h, action, map[string]any{"ecrRepositoryPrefix": "docker-hub"})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doECRRequest(t, h, "CreateRepositoryCreationTemplate", map[string]any{
+		"prefix":             "team/",
+		"imageTagMutability": "MUTABLE",
+		"resourceTags": []map[string]any{
+			{"Key": "env", "Value": "test"},
+			{"Key": "team", "Value": "platform"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var templateOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &templateOut))
+	template := templateOut["repositoryCreationTemplate"].(map[string]any)
+	require.IsType(t, []any{}, template["resourceTags"])
+	for _, action := range []string{
+		"DescribeRepositoryCreationTemplates",
+		"UpdateRepositoryCreationTemplate",
+		"DeleteRepositoryCreationTemplate",
+	} {
+		rec = doECRRequest(t, h, action, map[string]any{"prefix": "team/"})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	for _, action := range []string{
+		"PutImageScanningConfiguration",
+		"PutImageTagMutability",
+	} {
+		body := map[string]any{"repositoryName": "sdk-repo"}
+		if action == "PutImageScanningConfiguration" {
+			body["imageScanningConfiguration"] = map[string]any{"scanOnPush": false}
+		} else {
+			body["imageTagMutability"] = "IMMUTABLE"
+		}
+
+		rec = doECRRequest(t, h, action, body)
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doECRRequest(t, h, "PutAccountSetting", map[string]any{
+		"name":  "BASIC_SCAN_TYPE_VERSION",
+		"value": "AWS_NATIVE",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "GetAccountSetting", map[string]any{"name": "BASIC_SCAN_TYPE_VERSION"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "RegisterPullTimeUpdateExclusion", map[string]any{
+		"principalArn": "arn:aws:iam::000000000000:role/example",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "ListPullTimeUpdateExclusions", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var exclusionsOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &exclusionsOut))
+	exclusions := exclusionsOut["pullTimeUpdateExclusions"].([]any)
+	require.Len(t, exclusions, 1)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/example", exclusions[0])
+	rec = doECRRequest(t, h, "DeregisterPullTimeUpdateExclusion", map[string]any{
+		"principalArn": "arn:aws:iam::000000000000:role/example",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestECR_UnknownAction(t *testing.T) {
 	t.Parallel()
 
@@ -518,7 +748,7 @@ func TestECR_Backend_SetEndpoint(t *testing.T) {
 
 	backend.SetEndpoint("localhost:9000")
 
-	repo, err := backend.CreateRepository("my-repo", "")
+	repo, err := backend.CreateRepository("my-repo", "", false, "")
 	require.NoError(t, err)
 	assert.Contains(t, repo.RepositoryURI, "localhost:9000")
 }
@@ -1145,6 +1375,9 @@ func TestECR_CreateRepositoryCreationTemplate(t *testing.T) {
 
 			rec := doECRRequest(t, h, "CreateRepositoryCreationTemplate", map[string]any{
 				"prefix": tt.prefix,
+				"resourceTags": []map[string]any{
+					{"Key": "env", "Value": "test"},
+				},
 			})
 			require.Equal(t, tt.wantStatus, rec.Code)
 
@@ -1154,6 +1387,7 @@ func TestECR_CreateRepositoryCreationTemplate(t *testing.T) {
 				tmpl, ok := out["repositoryCreationTemplate"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.prefix, tmpl["prefix"])
+				require.IsType(t, []any{}, tmpl["resourceTags"])
 			}
 		})
 	}
@@ -1309,6 +1543,165 @@ func TestECR_DeleteRegistryPolicy(t *testing.T) {
 	}
 }
 
+func TestECR_SDKClient_NewOperations(t *testing.T) {
+	t.Parallel()
+
+	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+	h := ecr.NewHandler(backend, nil)
+	client := newTestECRClient(t, h)
+	ctx := context.Background()
+
+	createRepoOut, err := client.CreateRepository(ctx, &ecrsdk.CreateRepositoryInput{
+		RepositoryName: aws.String("sdk-client-repo"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createRepoOut.Repository)
+	require.NotNil(t, createRepoOut.Repository.RegistryId)
+	assert.Equal(t, testAccountID, *createRepoOut.Repository.RegistryId)
+
+	putImageOut, err := client.PutImage(ctx, &ecrsdk.PutImageInput{
+		ImageManifest:  aws.String(`{"schemaVersion":2}`),
+		ImageTag:       aws.String("latest"),
+		RepositoryName: aws.String("sdk-client-repo"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, putImageOut.Image)
+	require.NotNil(t, putImageOut.Image.ImageId)
+
+	imageID := putImageOut.Image.ImageId
+	_, err = client.PutSigningConfiguration(ctx, &ecrsdk.PutSigningConfigurationInput{
+		SigningConfiguration: &types.SigningConfiguration{Rules: []types.SigningRule{{
+			SigningProfileArn: aws.String("arn:aws:signer:us-east-1:000000000000:/signing-profiles/test"),
+		}}},
+	})
+	require.NoError(t, err)
+	signingOut, err := client.DescribeImageSigningStatus(ctx, &ecrsdk.DescribeImageSigningStatusInput{
+		ImageId:        imageID,
+		RepositoryName: aws.String("sdk-client-repo"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, signingOut.RegistryId)
+	assert.Equal(t, testAccountID, *signingOut.RegistryId)
+	require.Len(t, signingOut.SigningStatuses, 1)
+	assert.Equal(t, types.SigningStatusComplete, signingOut.SigningStatuses[0].Status)
+
+	_, err = client.PutRegistryScanningConfiguration(ctx, &ecrsdk.PutRegistryScanningConfigurationInput{
+		ScanType: types.ScanTypeEnhanced,
+		Rules: []types.RegistryScanningRule{{
+			ScanFrequency: types.ScanFrequencyScanOnPush,
+			RepositoryFilters: []types.ScanningRepositoryFilter{{
+				Filter:     aws.String("sdk-client-*"),
+				FilterType: types.ScanningRepositoryFilterTypeWildcard,
+			}},
+		}},
+	})
+	require.NoError(t, err)
+	scanningOut, err := client.GetRegistryScanningConfiguration(ctx, &ecrsdk.GetRegistryScanningConfigurationInput{})
+	require.NoError(t, err)
+	require.NotNil(t, scanningOut.ScanningConfiguration)
+	assert.Equal(t, types.ScanTypeEnhanced, scanningOut.ScanningConfiguration.ScanType)
+	assert.Len(t, scanningOut.ScanningConfiguration.Rules, 1)
+
+	_, err = client.PutReplicationConfiguration(ctx, &ecrsdk.PutReplicationConfigurationInput{
+		ReplicationConfiguration: &types.ReplicationConfiguration{Rules: []types.ReplicationRule{{
+			Destinations: []types.ReplicationDestination{{
+				Region:     aws.String("us-west-2"),
+				RegistryId: aws.String(testAccountID),
+			}},
+		}}},
+	})
+	require.NoError(t, err)
+	registryOut, err := client.DescribeRegistry(ctx, &ecrsdk.DescribeRegistryInput{})
+	require.NoError(t, err)
+	require.NotNil(t, registryOut.RegistryId)
+	assert.Equal(t, testAccountID, *registryOut.RegistryId)
+	require.NotNil(t, registryOut.ReplicationConfiguration)
+	assert.Len(t, registryOut.ReplicationConfiguration.Rules, 1)
+
+	_, err = client.CreatePullThroughCacheRule(ctx, &ecrsdk.CreatePullThroughCacheRuleInput{
+		EcrRepositoryPrefix: aws.String("docker-hub"),
+		UpstreamRegistryUrl: aws.String("registry-1.docker.io"),
+	})
+	require.NoError(t, err)
+	rulesOut, err := client.DescribePullThroughCacheRules(ctx, &ecrsdk.DescribePullThroughCacheRulesInput{})
+	require.NoError(t, err)
+	require.Len(t, rulesOut.PullThroughCacheRules, 1)
+	assert.Equal(t, "docker-hub", *rulesOut.PullThroughCacheRules[0].EcrRepositoryPrefix)
+
+	_, err = client.CreateRepositoryCreationTemplate(ctx, &ecrsdk.CreateRepositoryCreationTemplateInput{
+		Prefix:             aws.String("team/"),
+		AppliedFor:         []types.RCTAppliedFor{types.RCTAppliedForCreateOnPush},
+		ImageTagMutability: types.ImageTagMutabilityMutable,
+		ResourceTags:       []types.Tag{{Key: aws.String("team"), Value: aws.String("platform")}},
+	})
+	require.NoError(t, err)
+	templatesOut, err := client.DescribeRepositoryCreationTemplates(
+		ctx,
+		&ecrsdk.DescribeRepositoryCreationTemplatesInput{},
+	)
+	require.NoError(t, err)
+	require.Len(t, templatesOut.RepositoryCreationTemplates, 1)
+	assert.Equal(t, "team/", *templatesOut.RepositoryCreationTemplates[0].Prefix)
+	assert.Len(t, templatesOut.RepositoryCreationTemplates[0].ResourceTags, 1)
+
+	_, err = client.RegisterPullTimeUpdateExclusion(ctx, &ecrsdk.RegisterPullTimeUpdateExclusionInput{
+		PrincipalArn: aws.String("arn:aws:iam::000000000000:role/sdk-client"),
+	})
+	require.NoError(t, err)
+	exclusionsOut, err := client.ListPullTimeUpdateExclusions(ctx, &ecrsdk.ListPullTimeUpdateExclusionsInput{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"arn:aws:iam::000000000000:role/sdk-client"}, exclusionsOut.PullTimeUpdateExclusions)
+}
+
+func TestECR_BackendPutImageReturnsDefensiveCopy(t *testing.T) {
+	t.Parallel()
+
+	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+	_, err := backend.CreateRepository("copy-repo", "", false, "")
+	require.NoError(t, err)
+
+	img, err := backend.PutImage("copy-repo", ecr.Image{
+		ImageManifest: `{"schemaVersion":2}`,
+		ImageID:       ecr.ImageIdentifier{ImageTag: "latest"},
+	})
+	require.NoError(t, err)
+	img.ImageStatus = "CORRUPTED"
+	img.ImageID.ImageTag = "changed"
+
+	stored, err := backend.DescribeImages("copy-repo", []ecr.ImageIdentifier{{ImageDigest: img.ImageDigest}})
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+	assert.Equal(t, "ACTIVE", stored[0].ImageStatus)
+	assert.Equal(t, "latest", stored[0].ImageID.ImageTag)
+}
+
+func TestECR_RestoreClearsInFlightLayerUploads(t *testing.T) {
+	t.Parallel()
+
+	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+	h := ecr.NewHandler(backend, nil)
+
+	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "restore-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "InitiateLayerUpload", map[string]any{"repositoryName": "restore-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var upload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &upload))
+	snapshot := h.Snapshot()
+	require.NotEmpty(t, snapshot)
+	require.NoError(t, h.Restore(snapshot))
+
+	rec = doECRRequest(t, h, "UploadLayerPart", map[string]any{
+		"repositoryName": "restore-repo",
+		"uploadId":       upload["uploadId"],
+		"partFirstByte":  0,
+		"partLastByte":   0,
+		"layerPartBlob":  "AQ==",
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -1326,6 +1719,12 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 		"layerDigests":   []string{"sha256:persist123"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutImage", map[string]any{
+		"repositoryName": "persist-repo",
+		"imageDigest":    "sha256:persist123",
+		"imageManifest":  "{}",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Create pull-through cache rule
 	rec = doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
@@ -1337,6 +1736,50 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 	// Create repository creation template
 	rec = doECRRequest(t, h, "CreateRepositoryCreationTemplate", map[string]any{
 		"prefix": "my-org",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "PutLifecyclePolicy", map[string]any{
+		"repositoryName":      "persist-repo",
+		"lifecyclePolicyText": `{"rules":[]}`,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "StartLifecyclePolicyPreview", map[string]any{
+		"repositoryName": "persist-repo",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "StartImageScan", map[string]any{
+		"repositoryName": "persist-repo",
+		"imageId":        map[string]any{"imageDigest": "sha256:persist123"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutRegistryScanningConfiguration", map[string]any{
+		"scanType": "ENHANCED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutReplicationConfiguration", map[string]any{
+		"replicationConfiguration": map[string]any{
+			"rules": []map[string]any{{
+				"destinations": []map[string]any{{"region": "us-west-2", "registryId": testAccountID}},
+			}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutSigningConfiguration", map[string]any{
+		"signingConfiguration": map[string]any{
+			"rules": []map[string]any{{
+				"signingProfileArn": "arn:aws:signer:us-east-1:000000000000:/signing-profiles/test",
+			}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutAccountSetting", map[string]any{
+		"name":  "BASIC_SCAN_TYPE_VERSION",
+		"value": "AWS_NATIVE",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "RegisterPullTimeUpdateExclusion", map[string]any{
+		"principalArn": "arn:aws:iam::000000000000:role/persist",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1370,6 +1813,28 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 
 	// Verify registry policy is restored by deleting it
 	rec = doECRRequest(t, h2, "DeleteRegistryPolicy", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h2, "GetLifecyclePolicy", map[string]any{"repositoryName": "persist-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "GetLifecyclePolicyPreview", map[string]any{"repositoryName": "persist-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "DescribeImageScanFindings", map[string]any{
+		"repositoryName": "persist-repo",
+		"imageId":        map[string]any{"imageDigest": "sha256:persist123"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "GetRegistryScanningConfiguration", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "DescribeRegistry", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "GetSigningConfiguration", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "GetAccountSetting", map[string]any{"name": "BASIC_SCAN_TYPE_VERSION"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "DeregisterPullTimeUpdateExclusion", map[string]any{
+		"principalArn": "arn:aws:iam::000000000000:role/persist",
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 

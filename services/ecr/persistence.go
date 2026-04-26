@@ -6,14 +6,22 @@ import (
 )
 
 type backendSnapshot struct {
-	Repos                       map[string]*Repository                 `json:"repos"`
-	Images                      map[string]map[string]*Image           `json:"images"`
-	PullThroughCacheRules       map[string]*PullThroughCacheRule       `json:"pullThroughCacheRules"`
-	RepositoryCreationTemplates map[string]*RepositoryCreationTemplate `json:"repositoryCreationTemplates"`
-	LifecyclePolicies           map[string]string                      `json:"lifecyclePolicies"`
-	UploadedLayers              map[string]map[string]int64            `json:"uploadedLayers"`
-	RepoTags                    map[string]map[string]string           `json:"repoTags,omitempty"`
-	RegistryPolicy              string                                 `json:"registryPolicy"`
+	RepositoryPolicies          map[string]string                              `json:"repositoryPolicies,omitempty"`
+	ImageScanFindings           map[string]map[string]*ImageScanFindingsResult `json:"imageScanFindings,omitempty"`
+	PullThroughCacheRules       map[string]*PullThroughCacheRule               `json:"pullThroughCacheRules"`
+	RepositoryCreationTemplates map[string]*RepositoryCreationTemplate         `json:"repositoryCreationTemplates"`
+	LifecyclePolicies           map[string]string                              `json:"lifecyclePolicies"`
+	LifecyclePolicyPreviews     map[string]*LifecyclePolicyPreviewResult       `json:"lifecyclePolicyPreviews,omitempty"`
+	Images                      map[string]map[string]*Image                   `json:"images"`
+	UploadedLayers              map[string]map[string]int64                    `json:"uploadedLayers"`
+	Repos                       map[string]*Repository                         `json:"repos"`
+	RepoTags                    map[string]map[string]string                   `json:"repoTags,omitempty"`
+	AccountSettings             map[string]string                              `json:"accountSettings,omitempty"`
+	PullTimeUpdateExclusions    map[string]*PullTimeUpdateExclusion            `json:"pullTimeUpdateExclusions,omitempty"`
+	RegistryScanningConfig      *RegistryScanningSettings                      `json:"registryScanningConfig,omitempty"`
+	ReplicationConfig           *ReplicationConfig                             `json:"replicationConfig,omitempty"`
+	SigningConfig               *SigningSettings                               `json:"signingConfig,omitempty"`
+	RegistryPolicy              string                                         `json:"registryPolicy"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -22,60 +30,23 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	repos := make(map[string]*Repository, len(b.repos))
-	for k, v := range b.repos {
-		cp := *v
-		repos[k] = &cp
-	}
-
-	images := make(map[string]map[string]*Image, len(b.images))
-	for repo, imgMap := range b.images {
-		cp := make(map[string]*Image, len(imgMap))
-		for digest, img := range imgMap {
-			imgCp := *img
-			cp[digest] = &imgCp
-		}
-		images[repo] = cp
-	}
-
-	ptcRules := make(map[string]*PullThroughCacheRule, len(b.pullThroughCacheRules))
-	for k, v := range b.pullThroughCacheRules {
-		cp := *v
-		ptcRules[k] = &cp
-	}
-
-	templates := make(map[string]*RepositoryCreationTemplate, len(b.repositoryCreationTemplates))
-	for k, v := range b.repositoryCreationTemplates {
-		cp := *v
-		templates[k] = &cp
-	}
-
-	lifecyclePolicies := make(map[string]string, len(b.lifecyclePolicies))
-	maps.Copy(lifecyclePolicies, b.lifecyclePolicies)
-
-	uploadedLayers := make(map[string]map[string]int64, len(b.uploadedLayers))
-	for repo, layers := range b.uploadedLayers {
-		cp := make(map[string]int64, len(layers))
-		maps.Copy(cp, layers)
-		uploadedLayers[repo] = cp
-	}
-
-	repoTags := make(map[string]map[string]string, len(b.repoTags))
-	for arn, tags := range b.repoTags {
-		cp := make(map[string]string, len(tags))
-		maps.Copy(cp, tags)
-		repoTags[arn] = cp
-	}
-
 	snap := backendSnapshot{
-		Repos:                       repos,
-		Images:                      images,
-		PullThroughCacheRules:       ptcRules,
-		RepositoryCreationTemplates: templates,
-		LifecyclePolicies:           lifecyclePolicies,
+		Repos:                       copyPointerMap(b.repos),
+		Images:                      copyNestedPointerMap(b.images),
+		PullThroughCacheRules:       copyPointerMap(b.pullThroughCacheRules),
+		RepositoryCreationTemplates: copyPointerMap(b.repositoryCreationTemplates),
+		LifecyclePolicies:           copyMap(b.lifecyclePolicies),
+		LifecyclePolicyPreviews:     copyLifecyclePolicyPreviews(b.lifecyclePolicyPreviews),
 		RegistryPolicy:              b.registryPolicy,
-		UploadedLayers:              uploadedLayers,
-		RepoTags:                    repoTags,
+		UploadedLayers:              copyNestedMap(b.uploadedLayers),
+		RepoTags:                    copyNestedMap(b.repoTags),
+		RepositoryPolicies:          copyMap(b.repositoryPolicies),
+		ImageScanFindings:           copyImageScanFindingsMap(b.imageScanFindings),
+		AccountSettings:             copyMap(b.accountSettings),
+		PullTimeUpdateExclusions:    copyPointerMap(b.pullTimeUpdateExclusions),
+		RegistryScanningConfig:      copyRegistryScanningSettings(b.registryScanningConfig),
+		ReplicationConfig:           copyReplicationConfig(b.replicationConfig),
+		SigningConfig:               copySigningSettings(b.signingConfig),
 	}
 
 	data, err := json.Marshal(snap)
@@ -97,65 +68,93 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Repos == nil {
-		snap.Repos = make(map[string]*Repository)
-	}
-
-	repos := make(map[string]*Repository, len(snap.Repos))
-	for k, v := range snap.Repos {
-		cp := *v
-		repos[k] = &cp
-	}
-
-	images := make(map[string]map[string]*Image, len(snap.Images))
-	for repo, imgMap := range snap.Images {
-		cp := make(map[string]*Image, len(imgMap))
-		for digest, img := range imgMap {
-			imgCp := *img
-			cp[digest] = &imgCp
-		}
-		images[repo] = cp
-	}
-
-	ptcRules := make(map[string]*PullThroughCacheRule, len(snap.PullThroughCacheRules))
-	for k, v := range snap.PullThroughCacheRules {
-		cp := *v
-		ptcRules[k] = &cp
-	}
-
-	templates := make(map[string]*RepositoryCreationTemplate, len(snap.RepositoryCreationTemplates))
-	for k, v := range snap.RepositoryCreationTemplates {
-		cp := *v
-		templates[k] = &cp
-	}
-
-	lifecyclePolicies := make(map[string]string, len(snap.LifecyclePolicies))
-	maps.Copy(lifecyclePolicies, snap.LifecyclePolicies)
-
-	uploadedLayers := make(map[string]map[string]int64, len(snap.UploadedLayers))
-	for repo, layers := range snap.UploadedLayers {
-		cp := make(map[string]int64, len(layers))
-		maps.Copy(cp, layers)
-		uploadedLayers[repo] = cp
-	}
-
-	repoTags := make(map[string]map[string]string, len(snap.RepoTags))
-	for arn, tags := range snap.RepoTags {
-		cp := make(map[string]string, len(tags))
-		maps.Copy(cp, tags)
-		repoTags[arn] = cp
-	}
-
-	b.repos = repos
-	b.images = images
-	b.pullThroughCacheRules = ptcRules
-	b.repositoryCreationTemplates = templates
-	b.lifecyclePolicies = lifecyclePolicies
+	b.repos = copyPointerMap(snap.Repos)
+	b.images = copyNestedPointerMap(snap.Images)
+	b.pullThroughCacheRules = copyPointerMap(snap.PullThroughCacheRules)
+	b.repositoryCreationTemplates = copyPointerMap(snap.RepositoryCreationTemplates)
+	b.lifecyclePolicies = copyMap(snap.LifecyclePolicies)
+	b.lifecyclePolicyPreviews = copyLifecyclePolicyPreviews(snap.LifecyclePolicyPreviews)
 	b.registryPolicy = snap.RegistryPolicy
-	b.uploadedLayers = uploadedLayers
-	b.repoTags = repoTags
+	b.uploadedLayers = copyNestedMap(snap.UploadedLayers)
+	b.repoTags = copyNestedMap(snap.RepoTags)
+	b.repositoryPolicies = copyMap(snap.RepositoryPolicies)
+	b.imageScanFindings = copyImageScanFindingsMap(snap.ImageScanFindings)
+	b.accountSettings = copyMap(snap.AccountSettings)
+	b.pullTimeUpdateExclusions = copyPointerMap(snap.PullTimeUpdateExclusions)
+	b.registryScanningConfig = copyRegistryScanningSettings(snap.RegistryScanningConfig)
+	b.replicationConfig = copyReplicationConfig(snap.ReplicationConfig)
+	b.signingConfig = copySigningSettings(snap.SigningConfig)
+	b.layerUploads = make(map[string]*layerUploadState)
 
 	return nil
+}
+
+func copyMap[T any](in map[string]T) map[string]T {
+	if in == nil {
+		return make(map[string]T)
+	}
+
+	cp := make(map[string]T, len(in))
+	maps.Copy(cp, in)
+
+	return cp
+}
+
+func copyNestedMap[T any](in map[string]map[string]T) map[string]map[string]T {
+	cp := make(map[string]map[string]T, len(in))
+	for key, value := range in {
+		cp[key] = copyMap(value)
+	}
+
+	return cp
+}
+
+func copyPointerMap[T any](in map[string]*T) map[string]*T {
+	cp := make(map[string]*T, len(in))
+	for key, value := range in {
+		valueCp := *value
+		cp[key] = &valueCp
+	}
+
+	return cp
+}
+
+func copyNestedPointerMap[T any](in map[string]map[string]*T) map[string]map[string]*T {
+	cp := make(map[string]map[string]*T, len(in))
+	for key, value := range in {
+		cp[key] = copyPointerMap(value)
+	}
+
+	return cp
+}
+
+func copyLifecyclePolicyPreviews(
+	in map[string]*LifecyclePolicyPreviewResult,
+) map[string]*LifecyclePolicyPreviewResult {
+	cp := make(map[string]*LifecyclePolicyPreviewResult, len(in))
+	for repo, preview := range in {
+		previewCp := *preview
+		previewCp.PreviewResults = append([]ImageIdentifier(nil), preview.PreviewResults...)
+		cp[repo] = &previewCp
+	}
+
+	return cp
+}
+
+func copyImageScanFindingsMap(
+	in map[string]map[string]*ImageScanFindingsResult,
+) map[string]map[string]*ImageScanFindingsResult {
+	cp := make(map[string]map[string]*ImageScanFindingsResult, len(in))
+	for repo, findings := range in {
+		repoCp := make(map[string]*ImageScanFindingsResult, len(findings))
+		for digest, result := range findings {
+			resultCp := copyImageScanFindingsResult(result)
+			repoCp[digest] = &resultCp
+		}
+		cp[repo] = repoCp
+	}
+
+	return cp
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend
