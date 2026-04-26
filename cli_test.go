@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -198,8 +199,10 @@ func TestCLI_BuildLogger(t *testing.T) {
 
 //nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
 func TestServerStartupAndShutdown(t *testing.T) {
+	port := freeTCPPort(t)
+
 	cli := parseCLI(t, map[string]string{
-		"PORT": "8123", // use an alternate port to avoid conflicts
+		"PORT": strconv.Itoa(port),
 	})
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -273,9 +276,10 @@ func TestCLI_InitScriptTimeout(t *testing.T) {
 func TestServerStartup_WithInitScript(t *testing.T) {
 	dir := t.TempDir()
 	marker := dir + "/marker.txt"
+	port := freeTCPPort(t)
 
 	cli := parseCLI(t, map[string]string{
-		"PORT": "8124",
+		"PORT": strconv.Itoa(port),
 	})
 	cli.InitScripts = []string{"echo ran > " + marker}
 	cli.InitScriptTimeout = 5 * time.Second
@@ -313,8 +317,9 @@ func TestServerStartup_WithDNS(t *testing.T) {
 	dnsPort := pc.LocalAddr().(*net.UDPAddr).Port
 	_ = pc.Close()
 
+	port := freeTCPPort(t)
 	cli := parseCLI(t, map[string]string{
-		"PORT": "8125",
+		"PORT": strconv.Itoa(port),
 	})
 	cli.DNSListenAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 	cli.DNSResolveIP = "127.0.0.1"
@@ -339,8 +344,9 @@ func TestServerStartup_WithDNS(t *testing.T) {
 
 //nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
 func TestServerStartup_InvalidDNSConfig(t *testing.T) {
+	port := freeTCPPort(t)
 	cli := parseCLI(t, map[string]string{
-		"PORT": "8126",
+		"PORT": strconv.Itoa(port),
 	})
 	cli.DNSListenAddr = ":18553"
 	cli.DNSResolveIP = "not-an-ip" // invalid — server logs a warning and continues
@@ -365,8 +371,9 @@ func TestServerStartup_InvalidDNSConfig(t *testing.T) {
 
 //nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
 func TestServerStartup_InvalidPortRange(t *testing.T) {
+	port := freeTCPPort(t)
 	cli := parseCLI(t, map[string]string{
-		"PORT": "8127",
+		"PORT": strconv.Itoa(port),
 	})
 	cli.PortRangeStart = 0 // invalid range — logs a warning and continues
 	cli.PortRangeEnd = 0
@@ -391,8 +398,11 @@ func TestServerStartup_InvalidPortRange(t *testing.T) {
 
 //nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
 func TestHealthCmd_Success(t *testing.T) {
+	port := freeTCPPort(t)
+	portString := strconv.Itoa(port)
+
 	cli := parseCLI(t, map[string]string{
-		"PORT": "8130",
+		"PORT": portString,
 	})
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -405,7 +415,7 @@ func TestHealthCmd_Success(t *testing.T) {
 
 	// Wait for the server to be ready.
 	require.Eventually(t, func() bool {
-		resp, err := http.Get("http://localhost:8130/_gopherstack/health")
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
 		if err != nil {
 			return false
 		}
@@ -415,7 +425,7 @@ func TestHealthCmd_Success(t *testing.T) {
 	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
 
 	// Run the health command against the running server.
-	cmd := &HealthCmd{Port: "8130"}
+	cmd := &HealthCmd{Port: portString}
 	require.NoError(t, cmd.Run())
 
 	cancel()
@@ -688,7 +698,8 @@ func TestPanicRecoveryMiddleware_RecoversPanic(t *testing.T) {
 //nolint:paralleltest // uses a fixed port that cannot be parallelised
 func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 	// Uses t.Setenv-like machinery via parseCLI; no t.Parallel.
-	cli := parseCLI(t, map[string]string{"PORT": "8131"})
+	port := freeTCPPort(t)
+	cli := parseCLI(t, map[string]string{"PORT": strconv.Itoa(port)})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -699,7 +710,7 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 	}()
 
 	require.Eventually(t, func() bool {
-		resp, err := http.Get("http://localhost:8131/_gopherstack/health")
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
 		if err != nil {
 			return false
 		}
@@ -708,7 +719,7 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 		return resp.StatusCode == http.StatusOK
 	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
 
-	resp, err := http.Get("http://localhost:8131/_gopherstack/health")
+	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

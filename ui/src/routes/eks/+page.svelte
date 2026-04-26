@@ -11,12 +11,31 @@
 		DescribeNodegroupCommand,
 		CreateNodegroupCommand,
 		DeleteNodegroupCommand,
+		ListAddonsCommand,
+		DescribeAddonCommand,
+		CreateAddonCommand,
+		DeleteAddonCommand,
+		ListFargateProfilesCommand,
+		DescribeFargateProfileCommand,
+		CreateFargateProfileCommand,
+		DeleteFargateProfileCommand,
+		ListPodIdentityAssociationsCommand,
+		CreatePodIdentityAssociationCommand,
+		DeletePodIdentityAssociationCommand,
+		ListAccessEntriesCommand,
+		DescribeAccessEntryCommand,
+		CreateAccessEntryCommand,
+		DeleteAccessEntryCommand,
 		type Cluster,
 		type Nodegroup,
+		type Addon,
+		type FargateProfile,
+		type PodIdentityAssociationSummary,
+		type AccessEntry,
 		AMITypes
 	} from '@aws-sdk/client-eks';
 	import { toast } from 'svelte-sonner';
-	import { Box, Search, RefreshCw, Plus, Trash2, Server, Layers } from 'lucide-svelte';
+	import { Box, Search, RefreshCw, Plus, Trash2, Server, Layers, Shield, Package, Cloud, Key } from 'lucide-svelte';
 
 	const eks = getEKSClient();
 
@@ -28,7 +47,42 @@
 	let nodeGroups = $state<string[]>([]);
 	let nodeGroupDetails = $state<Nodegroup[]>([]);
 	let loadingNodeGroups = $state(false);
-	let detailTab = $state<'overview' | 'nodegroups'>('overview');
+	let detailTab = $state<'overview' | 'nodegroups' | 'addons' | 'fargate' | 'podidentity' | 'access'>('overview');
+
+	// Addon state
+	let addonNames = $state<string[]>([]);
+	let addonDetails = $state<Addon[]>([]);
+	let loadingAddons = $state(false);
+	let showCreateAddon = $state(false);
+	let creatingAddon = $state(false);
+	let newAddonName = $state('vpc-cni');
+
+	// Fargate state
+	let fargateNames = $state<string[]>([]);
+	let fargateDetails = $state<FargateProfile[]>([]);
+	let loadingFargate = $state(false);
+	let showCreateFargate = $state(false);
+	let creatingFargate = $state(false);
+	let newFargateName = $state('');
+	let newFargateNamespace = $state('default');
+
+	// Pod Identity state
+	let podIdentities = $state<PodIdentityAssociationSummary[]>([]);
+	let loadingPodIdentity = $state(false);
+	let showCreatePodIdentity = $state(false);
+	let creatingPodIdentity = $state(false);
+	let newPodIdNamespace = $state('default');
+	let newPodIdServiceAccount = $state('');
+	let newPodIdRoleArn = $state('');
+
+	// Access Entry state
+	let accessEntryArns = $state<string[]>([]);
+	let accessEntryDetails = $state<AccessEntry[]>([]);
+	let loadingAccessEntries = $state(false);
+	let showCreateAccessEntry = $state(false);
+	let creatingAccessEntry = $state(false);
+	let newAccessPrincipalArn = $state('');
+	let newAccessType = $state('STANDARD');
 
 	// Create cluster modal
 	let showCreateCluster = $state(false);
@@ -46,6 +100,15 @@
 	let newNGMin = $state(1);
 	let newNGMax = $state(3);
 	let newNGDesired = $state(2);
+
+	const detailTabs = [
+		{ id: 'overview', label: 'Overview', icon: Server },
+		{ id: 'nodegroups', label: 'Node Groups', icon: Layers },
+		{ id: 'addons', label: 'Addons', icon: Package },
+		{ id: 'fargate', label: 'Fargate', icon: Cloud },
+		{ id: 'podidentity', label: 'Pod Identity', icon: Key },
+		{ id: 'access', label: 'Access', icon: Shield }
+	];
 
 	const filteredClusters = $derived(
 		clusters.filter((c) => c.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -75,6 +138,13 @@
 		detailTab = 'overview';
 		nodeGroups = [];
 		nodeGroupDetails = [];
+		addonNames = [];
+		addonDetails = [];
+		fargateNames = [];
+		fargateDetails = [];
+		podIdentities = [];
+		accessEntryArns = [];
+		accessEntryDetails = [];
 		try {
 			const res = await eks.send(new DescribeClusterCommand({ name }));
 			selectedCluster = res.cluster ?? null;
@@ -102,6 +172,75 @@
 			toast.error(`Failed to load node groups: ${(err as Error).message}`);
 		} finally {
 			loadingNodeGroups = false;
+		}
+	}
+
+	async function loadAddons(clusterName: string) {
+		loadingAddons = true;
+		try {
+			const res = await eks.send(new ListAddonsCommand({ clusterName }));
+			addonNames = res.addons ?? [];
+			const details = await Promise.all(
+				addonNames.slice(0, 20).map(async (name) => {
+					const d = await eks.send(new DescribeAddonCommand({ clusterName, addonName: name }));
+					return d.addon!;
+				})
+			);
+			addonDetails = details.filter(Boolean);
+		} catch (err: unknown) {
+			toast.error(`Failed to load addons: ${(err as Error).message}`);
+		} finally {
+			loadingAddons = false;
+		}
+	}
+
+	async function loadFargateProfiles(clusterName: string) {
+		loadingFargate = true;
+		try {
+			const res = await eks.send(new ListFargateProfilesCommand({ clusterName }));
+			fargateNames = res.fargateProfileNames ?? [];
+			const details = await Promise.all(
+				fargateNames.slice(0, 20).map(async (name) => {
+					const d = await eks.send(new DescribeFargateProfileCommand({ clusterName, fargateProfileName: name }));
+					return d.fargateProfile!;
+				})
+			);
+			fargateDetails = details.filter(Boolean);
+		} catch (err: unknown) {
+			toast.error(`Failed to load Fargate profiles: ${(err as Error).message}`);
+		} finally {
+			loadingFargate = false;
+		}
+	}
+
+	async function loadPodIdentities(clusterName: string) {
+		loadingPodIdentity = true;
+		try {
+			const res = await eks.send(new ListPodIdentityAssociationsCommand({ clusterName }));
+			podIdentities = res.associations ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load pod identities: ${(err as Error).message}`);
+		} finally {
+			loadingPodIdentity = false;
+		}
+	}
+
+	async function loadAccessEntries(clusterName: string) {
+		loadingAccessEntries = true;
+		try {
+			const res = await eks.send(new ListAccessEntriesCommand({ clusterName }));
+			accessEntryArns = res.accessEntries ?? [];
+			const details = await Promise.all(
+				accessEntryArns.slice(0, 20).map(async (arn) => {
+					const d = await eks.send(new DescribeAccessEntryCommand({ clusterName, principalArn: arn }));
+					return d.accessEntry!;
+				})
+			);
+			accessEntryDetails = details.filter(Boolean);
+		} catch (err: unknown) {
+			toast.error(`Failed to load access entries: ${(err as Error).message}`);
+		} finally {
+			loadingAccessEntries = false;
 		}
 	}
 
@@ -174,6 +313,137 @@
 		}
 	}
 
+	async function createAddon() {
+		if (!selectedCluster?.name) return;
+		creatingAddon = true;
+		try {
+			await eks.send(new CreateAddonCommand({ clusterName: selectedCluster.name, addonName: newAddonName }));
+			toast.success(`Addon "${newAddonName}" installing`);
+			showCreateAddon = false;
+			await loadAddons(selectedCluster.name);
+		} catch (err: unknown) {
+			toast.error(`Create addon failed: ${(err as Error).message}`);
+		} finally {
+			creatingAddon = false;
+		}
+	}
+
+	async function deleteAddon(addonName: string) {
+		if (!selectedCluster?.name || !await confirmDestructive({ title: 'Delete Addon', message: `Remove addon "${addonName}" from the cluster?` })) return;
+		try {
+			await eks.send(new DeleteAddonCommand({ clusterName: selectedCluster.name, addonName }));
+			toast.success(`Addon "${addonName}" removing`);
+			await loadAddons(selectedCluster.name);
+		} catch (err: unknown) {
+			toast.error(`Delete addon failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function createFargateProfile() {
+		if (!selectedCluster?.name || !newFargateName.trim()) return;
+		creatingFargate = true;
+		try {
+			await eks.send(new CreateFargateProfileCommand({
+				clusterName: selectedCluster.name,
+				fargateProfileName: newFargateName.trim(),
+				podExecutionRoleArn: 'arn:aws:iam::123456789012:role/FargatePodRole',
+				selectors: [{ namespace: newFargateNamespace }]
+			}));
+			toast.success(`Fargate profile "${newFargateName.trim()}" creating`);
+			showCreateFargate = false;
+			newFargateName = '';
+			await loadFargateProfiles(selectedCluster.name);
+		} catch (err: unknown) {
+			toast.error(`Create Fargate profile failed: ${(err as Error).message}`);
+		} finally {
+			creatingFargate = false;
+		}
+	}
+
+	async function deleteFargateProfile(profileName: string) {
+		if (!selectedCluster?.name || !await confirmDestructive({ title: 'Delete Fargate Profile', message: `Delete Fargate profile "${profileName}"?` })) return;
+		try {
+			await eks.send(new DeleteFargateProfileCommand({ clusterName: selectedCluster.name, fargateProfileName: profileName }));
+			toast.success(`Fargate profile "${profileName}" deleting`);
+			await loadFargateProfiles(selectedCluster.name);
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function createPodIdentity() {
+		if (!selectedCluster?.name || !newPodIdServiceAccount.trim() || !newPodIdRoleArn.trim()) return;
+		creatingPodIdentity = true;
+		try {
+			await eks.send(new CreatePodIdentityAssociationCommand({
+				clusterName: selectedCluster.name,
+				namespace: newPodIdNamespace,
+				serviceAccount: newPodIdServiceAccount.trim(),
+				roleArn: newPodIdRoleArn.trim()
+			}));
+			toast.success('Pod identity association created');
+			showCreatePodIdentity = false;
+			newPodIdServiceAccount = '';
+			newPodIdRoleArn = '';
+			await loadPodIdentities(selectedCluster.name);
+		} catch (err: unknown) {
+			toast.error(`Create failed: ${(err as Error).message}`);
+		} finally {
+			creatingPodIdentity = false;
+		}
+	}
+
+	async function deletePodIdentity(assocId: string) {
+		if (!selectedCluster?.name || !await confirmDestructive({ title: 'Delete Pod Identity', message: 'Delete this pod identity association?' })) return;
+		try {
+			await eks.send(new DeletePodIdentityAssociationCommand({ clusterName: selectedCluster.name, associationId: assocId }));
+			toast.success('Pod identity deleted');
+			await loadPodIdentities(selectedCluster.name);
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function createAccessEntry() {
+		if (!selectedCluster?.name || !newAccessPrincipalArn.trim()) return;
+		creatingAccessEntry = true;
+		try {
+			await eks.send(new CreateAccessEntryCommand({
+				clusterName: selectedCluster.name,
+				principalArn: newAccessPrincipalArn.trim(),
+				type: newAccessType
+			}));
+			toast.success('Access entry created');
+			showCreateAccessEntry = false;
+			newAccessPrincipalArn = '';
+			await loadAccessEntries(selectedCluster.name);
+		} catch (err: unknown) {
+			toast.error(`Create failed: ${(err as Error).message}`);
+		} finally {
+			creatingAccessEntry = false;
+		}
+	}
+
+	async function deleteAccessEntry(principalArn: string) {
+		if (!selectedCluster?.name || !await confirmDestructive({ title: 'Delete Access Entry', message: `Delete access entry for "${principalArn}"?` })) return;
+		try {
+			await eks.send(new DeleteAccessEntryCommand({ clusterName: selectedCluster.name, principalArn }));
+			toast.success('Access entry deleted');
+			await loadAccessEntries(selectedCluster.name);
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	function onTabSwitch(tab: string) {
+		detailTab = tab as typeof detailTab;
+		if (!selectedCluster?.name) return;
+		if (tab === 'addons' && addonDetails.length === 0 && !loadingAddons) loadAddons(selectedCluster.name);
+		if (tab === 'fargate' && fargateDetails.length === 0 && !loadingFargate) loadFargateProfiles(selectedCluster.name);
+		if (tab === 'podidentity' && podIdentities.length === 0 && !loadingPodIdentity) loadPodIdentities(selectedCluster.name);
+		if (tab === 'access' && accessEntryDetails.length === 0 && !loadingAccessEntries) loadAccessEntries(selectedCluster.name);
+	}
+
 	onMount(() => { loadClusters(); });
 </script>
 
@@ -207,29 +477,26 @@
 
 	<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 		<!-- Cluster List -->
-		<div class="lg:col-span-1 space-y-2">
+		<div class="lg:col-span-1 space-y-2 max-h-[70vh] overflow-y-auto">
 			{#if loading}
-				<div class="text-center py-12">
-					<div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mb-2"></div>
-					<p class="text-slate-500 dark:text-slate-400">Loading clusters...</p>
-				</div>
+				<div class="text-center py-8"><div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500"></div></div>
 			{:else if filteredClusters.length === 0}
-				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-8 text-center">
-					<Box class="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-					<p class="text-slate-500 dark:text-slate-400">No clusters found</p>
-				</div>
+				<div class="text-center py-8 text-slate-500 dark:text-slate-400">No clusters found</div>
 			{:else}
 				{#each filteredClusters as cluster}
 					<div
 						role="button"
 						tabindex="0"
 						onclick={() => selectCluster(cluster)}
-						onkeypress={(e) => { if (e.key === 'Enter') selectCluster(cluster); }}
-						class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-3 hover:border-indigo-400 transition-colors cursor-pointer {selectedCluster?.name === cluster ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700'}"
+						onkeydown={(e) => { if (e.key === 'Enter') selectCluster(cluster); }}
+						class="w-full text-left p-4 rounded-lg border transition-all cursor-pointer {selectedCluster?.name === cluster ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300'}"
 					>
 						<div class="flex items-center justify-between">
-							<p class="font-medium text-slate-900 dark:text-white truncate">{cluster}</p>
-							<button onclick={(e) => { e.stopPropagation(); deleteCluster(cluster); }} class="p-1 text-slate-400 hover:text-red-500 ml-2">
+							<div class="flex items-center gap-3">
+								<Server class="w-5 h-5 text-slate-400" />
+								<span class="font-medium text-slate-900 dark:text-white">{cluster}</span>
+							</div>
+							<button onclick={(e) => { e.stopPropagation(); deleteCluster(cluster); }} class="p-1 text-slate-400 hover:text-red-500">
 								<Trash2 class="w-4 h-4" />
 							</button>
 						</div>
@@ -241,20 +508,23 @@
 		<!-- Cluster Detail -->
 		<div class="lg:col-span-2">
 			{#if selectedCluster}
-				<div class="space-y-4">
-					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
-						<div class="flex items-start justify-between mb-4">
-							<div>
+				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+					<div class="p-4 border-b border-slate-200 dark:border-slate-700">
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-3">
 								<h2 class="text-xl font-bold text-slate-900 dark:text-white">{selectedCluster.name}</h2>
-								<span class="mt-1 inline-block px-2 py-0.5 text-xs rounded-full {statusColor(selectedCluster.status)}">{selectedCluster.status}</span>
+								<span class="px-2 py-0.5 text-xs rounded-full {statusColor(selectedCluster.status)}">{selectedCluster.status}</span>
 							</div>
 						</div>
+					</div>
+
+					<div class="p-4 space-y-4">
 						<!-- Tabs -->
-						<div class="flex border-b border-slate-200 dark:border-slate-700 mb-4">
-							{#each [{ id: 'overview', label: 'Overview', icon: Server }, { id: 'nodegroups', label: 'Node Groups', icon: Layers }] as tab}
+						<div class="flex border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
+							{#each detailTabs as tab}
 								<button
-									onclick={() => { detailTab = tab.id as 'overview' | 'nodegroups'; }}
-									class="flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors {detailTab === tab.id ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400'}"
+									onclick={() => onTabSwitch(tab.id)}
+									class="flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap {detailTab === tab.id ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400'}"
 								>
 									<tab.icon class="w-4 h-4" />{tab.label}
 								</button>
@@ -279,7 +549,7 @@
 									{/each}
 								</div>
 							{/if}
-						{:else}
+						{:else if detailTab === 'nodegroups'}
 							<div class="space-y-3">
 								<div class="flex justify-end">
 									<button onclick={() => { showCreateNG = true; }} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-sm">
@@ -303,6 +573,129 @@
 												</p>
 											</div>
 											<button onclick={() => deleteNodeGroup(ng.nodegroupName ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
+												<Trash2 class="w-4 h-4" />
+											</button>
+										</div>
+									{/each}
+								{/if}
+							</div>
+						{:else if detailTab === 'addons'}
+							<div class="space-y-3">
+								<div class="flex justify-end">
+									<button onclick={() => { showCreateAddon = true; }} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-sm">
+										<Plus class="w-4 h-4" />Install Addon
+									</button>
+								</div>
+								{#if loadingAddons}
+									<div class="text-center py-4"><div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500"></div></div>
+								{:else if addonDetails.length === 0}
+									<p class="text-slate-500 dark:text-slate-400 text-sm text-center py-4">No addons installed</p>
+								{:else}
+									{#each addonDetails as addon}
+										<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-4 flex items-start justify-between">
+											<div>
+												<div class="flex items-center gap-2 mb-1">
+													<Package class="w-4 h-4 text-cyan-500" />
+													<p class="font-medium text-slate-900 dark:text-white">{addon.addonName}</p>
+													<span class="px-2 py-0.5 text-xs rounded-full {statusColor(addon.status)}">{addon.status}</span>
+												</div>
+												<p class="text-xs text-slate-500 dark:text-slate-400">
+													Version: {addon.addonVersion ?? 'N/A'}
+												</p>
+											</div>
+											<button onclick={() => deleteAddon(addon.addonName ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
+												<Trash2 class="w-4 h-4" />
+											</button>
+										</div>
+									{/each}
+								{/if}
+							</div>
+						{:else if detailTab === 'fargate'}
+							<div class="space-y-3">
+								<div class="flex justify-end">
+									<button onclick={() => { showCreateFargate = true; }} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-sm">
+										<Plus class="w-4 h-4" />Create Profile
+									</button>
+								</div>
+								{#if loadingFargate}
+									<div class="text-center py-4"><div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500"></div></div>
+								{:else if fargateDetails.length === 0}
+									<p class="text-slate-500 dark:text-slate-400 text-sm text-center py-4">No Fargate profiles</p>
+								{:else}
+									{#each fargateDetails as fp}
+										<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-4 flex items-start justify-between">
+											<div>
+												<div class="flex items-center gap-2 mb-1">
+													<Cloud class="w-4 h-4 text-purple-500" />
+													<p class="font-medium text-slate-900 dark:text-white">{fp.fargateProfileName}</p>
+													<span class="px-2 py-0.5 text-xs rounded-full {statusColor(fp.status)}">{fp.status}</span>
+												</div>
+												<p class="text-xs text-slate-500 dark:text-slate-400">
+													Selectors: {fp.selectors?.map(s => s.namespace).join(', ') ?? 'None'}
+												</p>
+											</div>
+											<button onclick={() => deleteFargateProfile(fp.fargateProfileName ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
+												<Trash2 class="w-4 h-4" />
+											</button>
+										</div>
+									{/each}
+								{/if}
+							</div>
+						{:else if detailTab === 'podidentity'}
+							<div class="space-y-3">
+								<div class="flex justify-end">
+									<button onclick={() => { showCreatePodIdentity = true; }} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-sm">
+										<Plus class="w-4 h-4" />Create Association
+									</button>
+								</div>
+								{#if loadingPodIdentity}
+									<div class="text-center py-4"><div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500"></div></div>
+								{:else if podIdentities.length === 0}
+									<p class="text-slate-500 dark:text-slate-400 text-sm text-center py-4">No pod identity associations</p>
+								{:else}
+									{#each podIdentities as pi}
+										<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-4 flex items-start justify-between">
+											<div>
+												<div class="flex items-center gap-2 mb-1">
+													<Key class="w-4 h-4 text-amber-500" />
+													<p class="font-medium text-slate-900 dark:text-white">{pi.namespace}/{pi.serviceAccount}</p>
+												</div>
+												<p class="text-xs text-slate-500 dark:text-slate-400">
+													ID: {pi.associationId} · ARN: {pi.associationArn?.split('/').pop() ?? ''}
+												</p>
+											</div>
+											<button onclick={() => deletePodIdentity(pi.associationId ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
+												<Trash2 class="w-4 h-4" />
+											</button>
+										</div>
+									{/each}
+								{/if}
+							</div>
+						{:else if detailTab === 'access'}
+							<div class="space-y-3">
+								<div class="flex justify-end">
+									<button onclick={() => { showCreateAccessEntry = true; }} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-sm">
+										<Plus class="w-4 h-4" />Create Entry
+									</button>
+								</div>
+								{#if loadingAccessEntries}
+									<div class="text-center py-4"><div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500"></div></div>
+								{:else if accessEntryDetails.length === 0}
+									<p class="text-slate-500 dark:text-slate-400 text-sm text-center py-4">No access entries</p>
+								{:else}
+									{#each accessEntryDetails as ae}
+										<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-4 flex items-start justify-between">
+											<div>
+												<div class="flex items-center gap-2 mb-1">
+													<Shield class="w-4 h-4 text-emerald-500" />
+													<p class="font-medium text-slate-900 dark:text-white truncate max-w-sm">{ae.principalArn?.split('/').pop() ?? ae.principalArn}</p>
+													<span class="px-2 py-0.5 text-xs rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{ae.type ?? 'STANDARD'}</span>
+												</div>
+												<p class="text-xs text-slate-500 dark:text-slate-400 truncate max-w-md">
+													{ae.principalArn}
+												</p>
+											</div>
+											<button onclick={() => deleteAccessEntry(ae.principalArn ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
 												<Trash2 class="w-4 h-4" />
 											</button>
 										</div>
@@ -401,6 +794,114 @@
 					<button type="button" onclick={() => { showCreateNG = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
 					<button type="submit" disabled={creatingNG} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
 						{creatingNG ? 'Creating...' : 'Create Node Group'}
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Addon Modal -->
+{#if showCreateAddon}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
+			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Install Addon</h2>
+			<form onsubmit={(e) => { e.preventDefault(); createAddon(); }} class="space-y-4">
+				<div>
+					<label for="eks-addon-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Addon Name</label>
+					<select id="eks-addon-name" bind:value={newAddonName} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+						{#each ['vpc-cni', 'coredns', 'kube-proxy', 'aws-ebs-csi-driver', 'aws-efs-csi-driver', 'snapshot-controller', 'adot', 'aws-guardduty-agent', 'amazon-cloudwatch-observability'] as addon}
+							<option value={addon}>{addon}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="flex justify-end gap-3 pt-2">
+					<button type="button" onclick={() => { showCreateAddon = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
+					<button type="submit" disabled={creatingAddon} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+						{creatingAddon ? 'Installing...' : 'Install Addon'}
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Fargate Profile Modal -->
+{#if showCreateFargate}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
+			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Fargate Profile</h2>
+			<form onsubmit={(e) => { e.preventDefault(); createFargateProfile(); }} class="space-y-4">
+				<div>
+					<label for="eks-fargate-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Profile Name</label>
+					<input id="eks-fargate-name" type="text" bind:value={newFargateName} placeholder="e.g. my-fargate-profile" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+				</div>
+				<div>
+					<label for="eks-fargate-ns" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Namespace Selector</label>
+					<input id="eks-fargate-ns" type="text" bind:value={newFargateNamespace} placeholder="default" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+				</div>
+				<div class="flex justify-end gap-3 pt-2">
+					<button type="button" onclick={() => { showCreateFargate = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
+					<button type="submit" disabled={creatingFargate} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+						{creatingFargate ? 'Creating...' : 'Create Profile'}
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Pod Identity Modal -->
+{#if showCreatePodIdentity}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
+			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Pod Identity Association</h2>
+			<form onsubmit={(e) => { e.preventDefault(); createPodIdentity(); }} class="space-y-4">
+				<div>
+					<label for="eks-pid-ns" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Namespace</label>
+					<input id="eks-pid-ns" type="text" bind:value={newPodIdNamespace} placeholder="default" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+				</div>
+				<div>
+					<label for="eks-pid-sa" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Service Account</label>
+					<input id="eks-pid-sa" type="text" bind:value={newPodIdServiceAccount} placeholder="my-service-account" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+				</div>
+				<div>
+					<label for="eks-pid-role" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Role ARN</label>
+					<input id="eks-pid-role" type="text" bind:value={newPodIdRoleArn} placeholder="arn:aws:iam::123:role/PodRole" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm" required />
+				</div>
+				<div class="flex justify-end gap-3 pt-2">
+					<button type="button" onclick={() => { showCreatePodIdentity = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
+					<button type="submit" disabled={creatingPodIdentity} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+						{creatingPodIdentity ? 'Creating...' : 'Create Association'}
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Access Entry Modal -->
+{#if showCreateAccessEntry}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
+			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Access Entry</h2>
+			<form onsubmit={(e) => { e.preventDefault(); createAccessEntry(); }} class="space-y-4">
+				<div>
+					<label for="eks-ae-principal" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Principal ARN</label>
+					<input id="eks-ae-principal" type="text" bind:value={newAccessPrincipalArn} placeholder="arn:aws:iam::123:role/MyRole" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm" required />
+				</div>
+				<div>
+					<label for="eks-ae-type" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Type</label>
+					<select id="eks-ae-type" bind:value={newAccessType} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+						{#each ['STANDARD', 'EC2_LINUX', 'EC2_WINDOWS', 'FARGATE_LINUX'] as t}
+							<option value={t}>{t}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="flex justify-end gap-3 pt-2">
+					<button type="button" onclick={() => { showCreateAccessEntry = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400">Cancel</button>
+					<button type="submit" disabled={creatingAccessEntry} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+						{creatingAccessEntry ? 'Creating...' : 'Create Entry'}
 					</button>
 				</div>
 			</form>
