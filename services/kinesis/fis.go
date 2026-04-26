@@ -107,10 +107,13 @@ func (b *InMemoryBackend) activateThroughputFault(
 func (b *InMemoryBackend) scheduleThroughputFaultCleanup(ctx context.Context, names []string, dur time.Duration) {
 	ctxCancelled := false
 
+	timer := time.NewTimer(dur)
+	defer timer.Stop()
+
 	select {
 	case <-ctx.Done():
 		ctxCancelled = true
-	case <-time.After(dur):
+	case <-timer.C:
 	}
 
 	b.faultsMu.Lock("FISThroughputException-cleanup")

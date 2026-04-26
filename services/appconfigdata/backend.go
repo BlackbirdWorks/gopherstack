@@ -1,12 +1,16 @@
 package appconfigdata
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
 // InMemoryBackend implements StorageBackend for AppConfigData.
@@ -54,11 +58,14 @@ func (b *InMemoryBackend) StartSession(app, env, profile string) (string, error)
 		return "", fmt.Errorf("generating session token: %w", err)
 	}
 
+	now := time.Now().UTC()
 	b.sessions[token] = &Session{
 		Token:                          token,
 		ApplicationIdentifier:          app,
 		EnvironmentIdentifier:          env,
 		ConfigurationProfileIdentifier: profile,
+		CreatedAt:                      now,
+		LastAccessedAt:                 now,
 	}
 
 	return token, nil
@@ -95,8 +102,10 @@ func (b *InMemoryBackend) GetLatestConfiguration(token string) ([]byte, string, 
 
 	delete(b.sessions, token)
 
+	now := time.Now().UTC()
 	newSess := *sess
 	newSess.Token = nextToken
+	newSess.LastAccessedAt = now
 	b.sessions[nextToken] = &newSess
 
 	return content, contentType, nextToken, nil
@@ -157,7 +166,6 @@ func (b *InMemoryBackend) DeleteProfile(app, env, profile string) bool {
 	delete(b.profiles, key)
 
 	// Remove sessions linked to this profile.
-	// Collect tokens first to avoid mutating the map during iteration.
 	maps.DeleteFunc(b.sessions, func(_ string, s *Session) bool {
 		return s.ApplicationIdentifier == app &&
 			s.EnvironmentIdentifier == env &&
@@ -165,6 +173,27 @@ func (b *InMemoryBackend) DeleteProfile(app, env, profile string) bool {
 	})
 
 	return true
+}
+
+// SweepExpiredSessions removes sessions that have not been accessed for more than 24 hours.
+func (b *InMemoryBackend) SweepExpiredSessions(ctx context.Context) {
+	const sessionExpiry = 24 * time.Hour
+	now := time.Now().UTC()
+
+	b.mu.Lock("SweepExpiredSessions")
+	beforeCount := len(b.sessions)
+	maps.DeleteFunc(b.sessions, func(_ string, s *Session) bool {
+		return now.Sub(s.LastAccessedAt) > sessionExpiry
+	})
+	afterCount := len(b.sessions)
+	b.mu.Unlock()
+
+	diff := beforeCount - afterCount
+	if diff > 0 {
+		telemetry.RecordWorkerItems("appconfigdata", "SessionSweeper", diff)
+		logger.Load(ctx).InfoContext(ctx, "AppConfig Data janitor: expired sessions purged", "count", diff)
+	}
+	telemetry.RecordWorkerTask("appconfigdata", "SessionSweeper", "success")
 }
 
 const tokenByteSize = 16

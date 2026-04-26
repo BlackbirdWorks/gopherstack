@@ -28,13 +28,13 @@ var (
 
 // Handler is the Echo HTTP handler for Amazon Timestream Write operations.
 type Handler struct {
-	Backend      StorageBackend
+	Backend      *InMemoryBackend
 	ops          map[string]service.JSONOpFunc
 	supportedOps map[string]bool
 }
 
 // NewHandler creates a new Timestream Write handler.
-func NewHandler(backend StorageBackend) *Handler {
+func NewHandler(backend *InMemoryBackend) *Handler {
 	h := &Handler{Backend: backend}
 	h.ops = h.buildOps()
 	supported := h.GetSupportedOperations()
@@ -79,6 +79,14 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "TimestreamWrite" }
+
+// StartWorker starts the background janitor for Timestream record retention.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	janitor := NewJanitor(h.Backend)
+	go janitor.Run(ctx)
+
+	return nil
+}
 
 // GetSupportedOperations returns the list of supported Timestream Write operations.
 func (h *Handler) GetSupportedOperations() []string {

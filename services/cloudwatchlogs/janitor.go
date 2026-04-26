@@ -118,13 +118,18 @@ func (j *Janitor) retentionTargets(now time.Time) []retentionTarget {
 	targets := make([]retentionTarget, 0, len(groupNames))
 	for _, groupName := range groupNames {
 		group := j.Backend.groups[groupName]
-		if group.RetentionInDays == nil || *group.RetentionInDays <= 0 {
+		days := j.Backend.settings.MaxRetentionDays
+		if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
+			days = int(*group.RetentionInDays)
+		}
+
+		if days <= 0 {
 			continue
 		}
 
 		targets = append(targets, retentionTarget{
 			groupName: groupName,
-			cutoffMs:  now.AddDate(0, 0, -int(*group.RetentionInDays)).UnixMilli(),
+			cutoffMs:  now.AddDate(0, 0, -days).UnixMilli(),
 		})
 	}
 

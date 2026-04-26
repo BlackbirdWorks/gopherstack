@@ -370,6 +370,7 @@ type CLI struct {
 	CloudWatchLogs                cwlogsbackend.Settings    `embed:"" prefix:"cloudwatchlogs-"`
 	Kinesis                       kinesisbackend.Settings   `embed:"" prefix:"kinesis-"`
 	STS                           stsbackend.Settings       `embed:"" prefix:"sts-"`
+	StepFunctions                 sfnbackend.Settings       `embed:"" prefix:"stepfunctions-"`
 	PortRangeStart                int                       `                                  name:"port-range-start"     env:"PORT_RANGE_START"        default:"10000"        help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                       `                                  name:"port-range-end"       env:"PORT_RANGE_END"          default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	InitScriptTimeout             time.Duration             `                                  name:"init-timeout"         env:"INIT_TIMEOUT"            default:"30s"          help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
@@ -447,6 +448,11 @@ func (c *CLI) GetLambdaSettings() lambdabackend.Settings {
 	return c.Lambda
 }
 
+// GetStepFunctionsSettings returns Step Functions settings (stepfunctions.SettingsProvider).
+func (c *CLI) GetStepFunctionsSettings() sfnbackend.Settings {
+	return c.StepFunctions
+}
+
 // GetSSMSettings returns SSM settings (ssm.ConfigProvider).
 func (c *CLI) GetSSMSettings() ssmbackend.Settings {
 	return c.SSM
@@ -494,6 +500,7 @@ type PersistableConfig struct {
 	JanitorTimeout      time.Duration             `json:"janitor_timeout"`
 	CloudWatchLogs      cwlogsbackend.Settings    `json:"cloudwatchlogs"`
 	STS                 stsbackend.Settings       `json:"sts"`
+	StepFunctions       sfnbackend.Settings       `json:"stepfunctions"`
 	AutoPurgeTTL        time.Duration             `json:"auto_purge_ttl"`
 	Kinesis             kinesisbackend.Settings   `json:"kinesis"`
 	KMS                 kmsbackend.Settings       `json:"kms"`
@@ -569,7 +576,8 @@ func (c *CLI) GetSettings() dashboard.Settings {
 			BuildTTL:        c.CodeBuild.BuildTTL,
 		},
 		CloudWatchLogs: dashboard.CloudWatchLogsSettings{
-			JanitorInterval: c.CloudWatchLogs.JanitorInterval,
+			JanitorInterval:  c.CloudWatchLogs.JanitorInterval,
+			MaxRetentionDays: c.CloudWatchLogs.MaxRetentionDays,
 		},
 		SES: dashboard.SESSettings{
 			JanitorInterval: c.SES.JanitorInterval,
@@ -597,6 +605,10 @@ func (c *CLI) GetSettings() dashboard.Settings {
 		},
 		KMS: dashboard.KMSSettings{
 			JanitorInterval: c.KMS.JanitorInterval,
+		},
+		StepFunctions: dashboard.StepFunctionsSettings{
+			JanitorInterval:    c.StepFunctions.JanitorInterval,
+			ExecutionRetention: c.StepFunctions.ExecutionRetention,
 		},
 	}
 }
@@ -666,6 +678,7 @@ func (c *CLI) applyServiceSettings(s dashboard.Settings) {
 	c.CodeBuild.BuildTTL = s.CodeBuild.BuildTTL
 
 	c.CloudWatchLogs.JanitorInterval = s.CloudWatchLogs.JanitorInterval
+	c.CloudWatchLogs.MaxRetentionDays = s.CloudWatchLogs.MaxRetentionDays
 
 	c.SES.JanitorInterval = s.SES.JanitorInterval
 	c.SES.EmailTTL = s.SES.EmailTTL
@@ -685,6 +698,9 @@ func (c *CLI) applyServiceSettings(s dashboard.Settings) {
 
 	c.Kinesis.JanitorInterval = s.Kinesis.JanitorInterval
 	c.KMS.JanitorInterval = s.KMS.JanitorInterval
+
+	c.StepFunctions.JanitorInterval = s.StepFunctions.JanitorInterval
+	c.StepFunctions.ExecutionRetention = s.StepFunctions.ExecutionRetention
 }
 
 func (c *CLI) SaveConfig() error {
@@ -737,6 +753,7 @@ func (c *CLI) SaveConfig() error {
 		Athena:         c.Athena,
 		Kinesis:        c.Kinesis,
 		KMS:            c.KMS,
+		StepFunctions:  c.StepFunctions,
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -806,6 +823,7 @@ func (c *CLI) LoadConfig() error {
 	c.Athena = cfg.Athena
 	c.Kinesis = cfg.Kinesis
 	c.KMS = cfg.KMS
+	c.StepFunctions = cfg.StepFunctions
 
 	return nil
 }
@@ -1880,6 +1898,7 @@ func buildEchoServer(
 	e.Use(panicRecoveryMiddleware())
 	e.Use(httputils.RequestIDMiddleware())
 	e.Use(logger.APIConsoleMiddleware())
+	e.Use(telemetry.MemoryStatsMiddleware)
 	e.Pre(logger.EchoMiddleware(log))
 
 	e.HTTPErrorHandler = buildHTTPErrorHandler()
@@ -2639,14 +2658,10 @@ func shutdownServices(ctx context.Context, services []service.Registerable) {
 
 	for _, svc := range services {
 		if s, ok := svc.(service.Shutdowner); ok {
-			wg.Add(1)
-
-			go func(s service.Shutdowner, name string, ctx context.Context) {
-				defer wg.Done()
-
-				log.InfoContext(ctx, "shutting down service", "service", name)
+			wg.Go(func() {
+				log.InfoContext(ctx, "shutting down service", "service", svc.Name())
 				s.Shutdown(ctx)
-			}(s, svc.Name(), ctx)
+			})
 		}
 	}
 

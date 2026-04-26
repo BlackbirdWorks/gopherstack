@@ -1,6 +1,7 @@
 package appconfigdata
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -25,16 +26,24 @@ const (
 
 // Handler is the Echo HTTP handler for AppConfigData operations.
 type Handler struct {
-	Backend StorageBackend
+	Backend *InMemoryBackend
 }
 
 // NewHandler creates a new AppConfigData Handler.
-func NewHandler(backend StorageBackend) *Handler {
+func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "AppConfigData" }
+
+// StartWorker starts the background janitor for AppConfig Data retrieval sessions.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	janitor := NewJanitor(h.Backend)
+	go janitor.Run(ctx)
+
+	return nil
+}
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {

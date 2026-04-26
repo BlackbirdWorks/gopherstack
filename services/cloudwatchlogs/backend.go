@@ -108,6 +108,8 @@ const (
 	exportTaskAgeRunningMs = 2000
 	// exportTaskAgeCompletedMs is how old a RUNNING task must be before being advanced to COMPLETED.
 	exportTaskAgeCompletedMs = 5000
+	// defaultMaxRetentionDays is the default global maximum log retention period.
+	defaultMaxRetentionDays = 14
 )
 
 const (
@@ -311,6 +313,7 @@ type InMemoryBackend struct {
 	maxParsedQueries    int
 	deliveryTimeout     time.Duration
 	compiledPatternsMu  sync.RWMutex
+	settings            Settings
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -362,7 +365,18 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		cancel:              cancel,
 		workerSem:           make(chan struct{}, defaultDeliveryWorkers),
 		deliveryTimeout:     defaultDeliveryTimeout,
+		settings: Settings{
+			MaxRetentionDays: defaultMaxRetentionDays,
+			JanitorInterval:  time.Minute,
+		},
 	}
+}
+
+// SetSettings updates the backend settings.
+func (b *InMemoryBackend) SetSettings(s Settings) {
+	b.mu.Lock("SetSettings")
+	defer b.mu.Unlock()
+	b.settings = s
 }
 
 // SetSubscriptionDeliverer sets the deliverer used to forward log events to subscription filter destinations.

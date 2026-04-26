@@ -1914,16 +1914,16 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 		default:
 		}
 
-		// Rate limiting: sleep between messages if a rate limit is configured.
-		// time.After is used here because the interval is typically large (≥1s),
-		// so the small timer allocation cost is negligible.
 		if state.maxPerSec > 0 {
 			interval := time.Second / time.Duration(state.maxPerSec)
+			timer := time.NewTimer(interval)
 
 			select {
 			case <-ctx.Done():
+				timer.Stop()
+
 				return
-			case <-time.After(interval):
+			case <-timer.C:
 			}
 		}
 

@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_dynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,9 +58,7 @@ func TestBatchConcurrency(t *testing.T) {
 			var wg sync.WaitGroup
 
 			for g := range tt.numGoroutines {
-				wg.Add(1)
-				go func(gid int) {
-					defer wg.Done()
+				wg.Go(func() {
 					for i := range tt.numIterations {
 						input := &sdk_dynamodb.BatchWriteItemInput{
 							RequestItems: map[string][]types.WriteRequest{
@@ -70,7 +67,7 @@ func TestBatchConcurrency(t *testing.T) {
 										PutRequest: &types.PutRequest{
 											Item: map[string]types.AttributeValue{
 												"id": &types.AttributeValueMemberS{
-													Value: fmt.Sprintf("item-%d-%d", gid, i),
+													Value: fmt.Sprintf("item-%d-%d", g, i),
 												},
 											},
 										},
@@ -79,16 +76,14 @@ func TestBatchConcurrency(t *testing.T) {
 							},
 						}
 						_, writeErr := db.BatchWriteItem(ctx, input)
-						assert.NoError(t, writeErr)
+						require.NoError(t, writeErr)
 						time.Sleep(1 * time.Millisecond)
 					}
-				}(g)
+				})
 			}
 
 			for g := range tt.numGoroutines {
-				wg.Add(1)
-				go func(gid int) {
-					defer wg.Done()
+				wg.Go(func() {
 					for i := range tt.numIterations {
 						input := &sdk_dynamodb.BatchGetItemInput{
 							RequestItems: map[string]types.KeysAndAttributes{
@@ -96,7 +91,7 @@ func TestBatchConcurrency(t *testing.T) {
 									Keys: []map[string]types.AttributeValue{
 										{
 											"id": &types.AttributeValueMemberS{
-												Value: fmt.Sprintf("item-%d-%d", gid, i/2),
+												Value: fmt.Sprintf("item-%d-%d", g, i/2),
 											},
 										},
 									},
@@ -104,10 +99,10 @@ func TestBatchConcurrency(t *testing.T) {
 							},
 						}
 						_, readErr := db.BatchGetItem(ctx, input)
-						assert.NoError(t, readErr)
+						require.NoError(t, readErr)
 						time.Sleep(1 * time.Millisecond)
 					}
-				}(g)
+				})
 			}
 
 			wg.Wait()

@@ -131,6 +131,7 @@ type InMemoryBackend struct {
 	svcCtx    context.Context
 	accountID string
 	region    string
+	settings  Settings
 }
 
 // activityTaskEntry holds a pending activity task and its result channel.
@@ -195,6 +196,7 @@ func newInMemoryBackend(svcCtx context.Context, accountID, region string) *InMem
 		executionDefinitions: make(map[string]string),
 		logger:               slog.Default(),
 		mu:                   lockmetrics.New("stepfunctions"),
+		settings:             DefaultSettings(),
 	}
 }
 
@@ -206,6 +208,13 @@ func (b *InMemoryBackend) Region() string {
 // AccountID returns the AWS account ID this backend is configured for.
 func (b *InMemoryBackend) AccountID() string {
 	return b.accountID
+}
+
+// SetSettings updates the backend settings.
+func (b *InMemoryBackend) SetSettings(s Settings) {
+	b.mu.Lock("SetSettings")
+	defer b.mu.Unlock()
+	b.settings = s
 }
 
 // Destroy cancels all running execution goroutines and releases resources.
@@ -315,6 +324,46 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 	b.nameIndex[name] = arn
 
 	return sm, nil
+}
+
+// PruneExecutions removes executions and history older than the retention period.
+func (b *InMemoryBackend) PruneExecutions(_ context.Context) int {
+	retention := b.settings.ExecutionRetention
+	if retention == 0 {
+		retention = defaultExecutionRetention
+	}
+
+	cutoff := float64(time.Now().Add(-retention).Unix())
+
+	b.mu.Lock("PruneExecutions")
+	defer b.mu.Unlock()
+
+	var toDelete []string
+	for arn, exec := range b.executions {
+		// Only prune finished executions.
+		if exec.Status != statusRunning && exec.StopDate != nil && *exec.StopDate < cutoff {
+			toDelete = append(toDelete, arn)
+		}
+	}
+
+	for _, arn := range toDelete {
+		delete(b.executions, arn)
+		delete(b.history, arn)
+		delete(b.executionDefinitions, arn)
+
+		// Remove from smExecutions index.
+		for smARN, execs := range b.smExecutions {
+			for i, e := range execs {
+				if e == arn {
+					b.smExecutions[smARN] = append(execs[:i], execs[i+1:]...)
+
+					break
+				}
+			}
+		}
+	}
+
+	return len(toDelete)
 }
 
 // DeleteStateMachine marks a state machine as DELETING then removes it.
