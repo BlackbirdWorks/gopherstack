@@ -15,6 +15,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+const statusDeleting = "DELETING"
+
 const (
 	eksMatchPriority = service.PriorityPathVersioned
 
@@ -191,7 +193,8 @@ func parseNodegroupRoute(method, clusterName string, parts []string) eksRoute {
 	return eksRoute{operation: "Unknown"}
 }
 
-// parseAccessEntryRoute returns the route for /clusters/{name}/access-entries[/{principalArn}[/access-policies[/{policyArn}]]] paths.
+// parseAccessEntryRoute returns the route for access entry paths:
+// /clusters/{name}/access-entries[/{principalArn}[/access-policies[/{policyArn}]]].
 func parseAccessEntryRoute(method, clusterName string, parts []string) eksRoute {
 	const accessEntryParts = 2
 
@@ -210,12 +213,17 @@ func parseAccessEntryRoute(method, clusterName string, parts []string) eksRoute 
 	tail := parts[2]
 
 	// Check for /access-policies/{policyArn} suffix (DELETE for disassociate)
-	if idx := strings.Index(tail, "/access-policies/"); idx >= 0 {
-		principalARN := tail[:idx]
-		policyARN := tail[idx+len("/access-policies/"):]
+	if before, after, ok := strings.Cut(tail, "/access-policies/"); ok {
+		principalARN := before
+		policyARN := after
 
 		if method == http.MethodDelete {
-			return eksRoute{operation: "DisassociateAccessPolicy", clusterName: clusterName, principalARN: principalARN, resourceARN: policyARN}
+			return eksRoute{
+				operation:    "DisassociateAccessPolicy",
+				clusterName:  clusterName,
+				principalARN: principalARN,
+				resourceARN:  policyARN,
+			}
 		}
 
 		return eksRoute{operation: "Unknown"}
@@ -228,7 +236,11 @@ func parseAccessEntryRoute(method, clusterName string, parts []string) eksRoute 
 		case http.MethodPost:
 			return eksRoute{operation: "AssociateAccessPolicy", clusterName: clusterName, principalARN: principalARN}
 		case http.MethodGet:
-			return eksRoute{operation: "ListAssociatedAccessPolicies", clusterName: clusterName, principalARN: principalARN}
+			return eksRoute{
+				operation:    "ListAssociatedAccessPolicies",
+				clusterName:  clusterName,
+				principalARN: principalARN,
+			}
 		}
 
 		return eksRoute{operation: "Unknown"}
@@ -402,24 +414,8 @@ func parseClusterSubPath(method, clusterName string, parts []string) eksRoute {
 		return parseInsightsRoute(method, clusterName, parts)
 	case "updates":
 		return parseUpdatesRoute(method, clusterName, parts)
-	case "update-version":
-		if method == http.MethodPost {
-			return eksRoute{operation: "UpdateClusterVersion", clusterName: clusterName}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	case "register":
-		if method == http.MethodPost {
-			return eksRoute{operation: "RegisterCluster"}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	case "deregister":
-		if method == http.MethodPost {
-			return eksRoute{operation: "DeregisterCluster", clusterName: clusterName}
-		}
-
-		return eksRoute{operation: "Unknown"}
+	case "update-version", "register", "deregister":
+		return parseClusterLifecycleRoute(method, clusterName, parts)
 	}
 
 	return parseClusterAssocPath(method, clusterName, parts, maxPathParts)
@@ -447,8 +443,8 @@ func parseInsightsRoute(method, clusterName string, parts []string) eksRoute {
 		return eksRoute{operation: "Unknown"}
 	}
 
-	if idx := strings.Index(tail, "/refresh/"); idx >= 0 {
-		refreshID := tail[idx+len("/refresh/"):]
+	if _, after, ok := strings.Cut(tail, "/refresh/"); ok {
+		refreshID := after
 		if method == http.MethodGet {
 			return eksRoute{operation: "DescribeInsightsRefresh", clusterName: clusterName, nodegroupName: refreshID}
 		}
@@ -509,104 +505,8 @@ func parseClusterAssocPath(method, clusterName string, parts []string, maxParts 
 func parseEKSPath(method, rawPath string) eksRoute {
 	path, _ := url.PathUnescape(rawPath)
 
-	// /tags/{resourceArn}
-	if after, ok := strings.CutPrefix(path, pathEKSTags); ok {
-		switch method {
-		case http.MethodPost:
-			return eksRoute{operation: "TagResource", resourceARN: after}
-		case http.MethodDelete:
-			return eksRoute{operation: "UntagResource", resourceARN: after}
-		case http.MethodGet:
-			return eksRoute{operation: "ListTagsForResource", resourceARN: after}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	// /access-policies
-	if path == pathAccessPolicies {
-		if method == http.MethodGet {
-			return eksRoute{operation: "ListAccessPolicies"}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	// /addon-versions
-	if path == pathAddonVersions {
-		if method == http.MethodGet {
-			return eksRoute{operation: "DescribeAddonVersions"}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	// /addon-configuration
-	if strings.HasPrefix(path, pathAddonConfiguration) {
-		if method == http.MethodGet {
-			return eksRoute{operation: "DescribeAddonConfiguration"}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	// /cluster-versions
-	if path == pathClusterVersions {
-		if method == http.MethodGet {
-			return eksRoute{operation: "DescribeClusterVersions"}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	// /capabilities[/{name}]
-	if path == pathCapabilities {
-		switch method {
-		case http.MethodPost:
-			return eksRoute{operation: "CreateCapability"}
-		case http.MethodGet:
-			return eksRoute{operation: "ListCapabilities"}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	if after, ok := strings.CutPrefix(path, pathCapabilities+"/"); ok {
-		switch method {
-		case http.MethodGet:
-			return eksRoute{operation: "DescribeCapability", clusterName: after}
-		case http.MethodDelete:
-			return eksRoute{operation: "DeleteCapability", clusterName: after}
-		case http.MethodPut:
-			return eksRoute{operation: "UpdateCapability", clusterName: after}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	// /subscriptions[/{id}]
-	if path == pathSubscriptions {
-		switch method {
-		case http.MethodPost:
-			return eksRoute{operation: "CreateEksAnywhereSubscription"}
-		case http.MethodGet:
-			return eksRoute{operation: "ListEksAnywhereSubscriptions"}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	if after, ok := strings.CutPrefix(path, pathSubscriptions+"/"); ok {
-		switch method {
-		case http.MethodGet:
-			return eksRoute{operation: "DescribeEksAnywhereSubscription", clusterName: after}
-		case http.MethodDelete:
-			return eksRoute{operation: "DeleteEksAnywhereSubscription", clusterName: after}
-		case http.MethodPut:
-			return eksRoute{operation: "UpdateEksAnywhereSubscription", clusterName: after}
-		}
-
-		return eksRoute{operation: "Unknown"}
+	if r, ok := parseGlobalEKSPath(method, path); ok {
+		return r
 	}
 
 	// /clusters and /clusters/{name}/...
@@ -618,10 +518,10 @@ func parseEKSPath(method, rawPath string) eksRoute {
 
 	// /clusters
 	if rest == "" {
-		switch method {
-		case http.MethodPost:
+		if method == http.MethodPost {
 			return eksRoute{operation: "CreateCluster"}
-		case http.MethodGet:
+		}
+		if method == http.MethodGet {
 			return eksRoute{operation: "ListClusters"}
 		}
 
@@ -636,6 +536,136 @@ func parseEKSPath(method, rawPath string) eksRoute {
 	parts := strings.SplitN(rest, "/", maxPathParts)
 
 	return parseClusterSubPath(method, parts[0], parts)
+}
+
+func parseGlobalEKSPath(method, path string) (eksRoute, bool) {
+	// /tags/{resourceArn}
+	if after, ok := strings.CutPrefix(path, pathEKSTags); ok {
+		switch method {
+		case http.MethodPost:
+			return eksRoute{operation: "TagResource", resourceARN: after}, true
+		case http.MethodDelete:
+			return eksRoute{operation: "UntagResource", resourceARN: after}, true
+		case http.MethodGet:
+			return eksRoute{operation: "ListTagsForResource", resourceARN: after}, true
+		}
+
+		return eksRoute{operation: "Unknown"}, true
+	}
+
+	if r, ok := parseStaticEKSPath(method, path); ok {
+		return r, true
+	}
+
+	return parseResourceEKSPath(method, path)
+}
+
+func parseStaticEKSPath(method, path string) (eksRoute, bool) {
+	switch path {
+	case pathAccessPolicies:
+		if method == http.MethodGet {
+			return eksRoute{operation: "ListAccessPolicies"}, true
+		}
+
+		return eksRoute{operation: "Unknown"}, true
+	case pathAddonVersions:
+		if method == http.MethodGet {
+			return eksRoute{operation: "DescribeAddonVersions"}, true
+		}
+
+		return eksRoute{operation: "Unknown"}, true
+	case pathClusterVersions:
+		if method == http.MethodGet {
+			return eksRoute{operation: "DescribeClusterVersions"}, true
+		}
+
+		return eksRoute{operation: "Unknown"}, true
+	}
+
+	return eksRoute{}, false
+}
+
+func parseResourceEKSPath(method, path string) (eksRoute, bool) {
+	if strings.HasPrefix(path, pathAddonConfiguration) {
+		if method == http.MethodGet {
+			return eksRoute{operation: "DescribeAddonConfiguration"}, true
+		}
+
+		return eksRoute{operation: "Unknown"}, true
+	}
+
+	if path == pathCapabilities {
+		if method == http.MethodPost {
+			return eksRoute{operation: "CreateCapability"}, true
+		}
+		if method == http.MethodGet {
+			return eksRoute{operation: "ListCapabilities"}, true
+		}
+
+		return eksRoute{operation: "Unknown"}, true
+	}
+
+	if after, ok := strings.CutPrefix(path, pathCapabilities+"/"); ok {
+		switch method {
+		case http.MethodGet:
+			return eksRoute{operation: "DescribeCapability", clusterName: after}, true
+		case http.MethodDelete:
+			return eksRoute{operation: "DeleteCapability", clusterName: after}, true
+		case http.MethodPut:
+			return eksRoute{operation: "UpdateCapability", clusterName: after}, true
+		}
+
+		return eksRoute{operation: "Unknown"}, true
+	}
+
+	return parseSubscriptionEKSPath(method, path)
+}
+
+func parseSubscriptionEKSPath(method, path string) (eksRoute, bool) {
+	if path == pathSubscriptions {
+		if method == http.MethodPost {
+			return eksRoute{operation: "CreateEksAnywhereSubscription"}, true
+		}
+		if method == http.MethodGet {
+			return eksRoute{operation: "ListEksAnywhereSubscriptions"}, true
+		}
+
+		return eksRoute{operation: "Unknown"}, true
+	}
+
+	if after, ok := strings.CutPrefix(path, pathSubscriptions+"/"); ok {
+		switch method {
+		case http.MethodGet:
+			return eksRoute{operation: "DescribeEksAnywhereSubscription", clusterName: after}, true
+		case http.MethodDelete:
+			return eksRoute{operation: "DeleteEksAnywhereSubscription", clusterName: after}, true
+		case http.MethodPut:
+			return eksRoute{operation: "UpdateEksAnywhereSubscription", clusterName: after}, true
+		}
+
+		return eksRoute{operation: "Unknown"}, true
+	}
+
+	return eksRoute{}, false
+}
+
+func parseClusterLifecycleRoute(method, clusterName string, parts []string) eksRoute {
+	switch parts[1] {
+	case "update-version":
+		if method == http.MethodPost {
+			return eksRoute{operation: "UpdateClusterVersion", clusterName: clusterName}
+		}
+	case "register":
+		if method == http.MethodPost {
+			return eksRoute{operation: "RegisterCluster"}
+		}
+	case "deregister":
+		if method == http.MethodPost {
+			return eksRoute{operation: "DeregisterCluster", clusterName: clusterName}
+		}
+	}
+
+	return eksRoute{operation: "Unknown"}
 }
 
 // ExtractOperation extracts the EKS operation name from the REST path.

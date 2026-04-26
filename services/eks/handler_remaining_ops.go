@@ -3,7 +3,6 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -303,8 +302,8 @@ func (h *Handler) handleListEksAnywhereSubscriptions(c *echo.Context) error {
 }
 
 type updateSubscriptionBody struct {
-	LicenseType     string `json:"licenseType"`
 	LicenseQuantity *int32 `json:"licenseQuantity,omitempty"`
+	LicenseType     string `json:"licenseType"`
 }
 
 func (h *Handler) handleUpdateEksAnywhereSubscription(c *echo.Context, id string, body []byte) error {
@@ -589,8 +588,8 @@ func (h *Handler) handleListAssociatedAccessPolicies(c *echo.Context, clusterNam
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"clusterName":            clusterName,
-		"principalArn":           principalARN,
+		"clusterName":              clusterName,
+		"principalArn":             principalARN,
 		"associatedAccessPolicies": result,
 	})
 }
@@ -691,7 +690,7 @@ func (h *Handler) handleDisassociateIdentityProviderConfig(c *echo.Context, clus
 
 // --- Insights ops ---
 
-func (h *Handler) dispatchInsightsOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
+func (h *Handler) dispatchInsightsOps(c *echo.Context, route eksRoute, _ []byte) (bool, error) {
 	switch route.operation {
 	case "DescribeInsight":
 		return true, h.handleDescribeInsight(c, route.clusterName, route.nodegroupName)
@@ -767,11 +766,11 @@ func (h *Handler) handleDescribeInsightsRefresh(c *echo.Context, clusterName, re
 
 func insightToJSON(ins *Insight) map[string]any {
 	m := map[string]any{
-		"id":              ins.ID,
-		"clusterName":     ins.ClusterName,
-		"category":        ins.Category,
-		"status":          ins.Status,
-		"lastRefreshTime": ins.LastRefreshTime.Unix(),
+		"id":                 ins.ID,
+		"clusterName":        ins.ClusterName,
+		"category":           ins.Category,
+		"status":             ins.Status,
+		"lastRefreshTime":    ins.LastRefreshTime.Unix(),
 		"lastTransitionTime": ins.LastTransition.Unix(),
 	}
 
@@ -889,10 +888,10 @@ func (h *Handler) handleListUpdates(c *echo.Context, clusterName string) error {
 }
 
 type registerClusterBody struct {
-	Tags                     map[string]string `json:"tags"`
-	Name                     string            `json:"name"`
-	ConnectorConfigProvider  string            `json:"connectorConfig.provider"`
-	ConnectorConfigRoleArn   string            `json:"connectorConfig.roleArn"`
+	Tags                    map[string]string `json:"tags"`
+	Name                    string            `json:"name"`
+	ConnectorConfigProvider string            `json:"connectorConfig.provider"`
+	ConnectorConfigRoleArn  string            `json:"connectorConfig.roleArn"`
 }
 
 func (h *Handler) handleRegisterCluster(c *echo.Context, body []byte) error {
@@ -944,19 +943,3 @@ func updateToJSON(u *Update) map[string]any {
 }
 
 // --- Node group version update routing ---
-
-func parseNodegroupVersionRoute(method, clusterName string, parts []string) eksRoute {
-	// /clusters/{name}/node-groups/{ng}/update-version
-	ngName := parts[2]
-
-	if strings.HasSuffix(ngName, "/update-version") {
-		ngName = strings.TrimSuffix(ngName, "/update-version")
-		if method == http.MethodPost {
-			return eksRoute{operation: "UpdateNodegroupVersion", clusterName: clusterName, nodegroupName: ngName}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	return eksRoute{operation: "Unknown"}
-}

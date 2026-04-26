@@ -11,32 +11,32 @@ import (
 
 // Insight represents an EKS cluster insight.
 type Insight struct {
+	LastRefreshTime time.Time         `json:"lastRefreshTime"`
+	LastTransition  time.Time         `json:"lastTransitionTime"`
+	AdditionalInfo  map[string]string `json:"additionalInfo,omitempty"`
 	ID              string            `json:"id"`
 	ClusterName     string            `json:"clusterName"`
 	Category        string            `json:"category"`
 	Status          string            `json:"status"`
 	Description     string            `json:"description,omitempty"`
 	Recommendation  string            `json:"recommendation,omitempty"`
-	AdditionalInfo  map[string]string `json:"additionalInfo,omitempty"`
-	LastRefreshTime time.Time         `json:"lastRefreshTime"`
-	LastTransition  time.Time         `json:"lastTransitionTime"`
 }
 
 // InsightsRefresh represents an EKS insights refresh request.
 type InsightsRefresh struct {
+	StartedAt   time.Time `json:"startedAt"`
 	ID          string    `json:"id"`
 	ClusterName string    `json:"clusterName"`
 	Status      string    `json:"status"`
-	StartedAt   time.Time `json:"startedAt"`
 }
 
 // Update represents an EKS update record.
 type Update struct {
+	CreatedAt   time.Time `json:"createdAt"`
 	ID          string    `json:"id"`
 	ClusterName string    `json:"clusterName"`
 	Status      string    `json:"status"`
 	Type        string    `json:"type"`
-	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // --- Addon CRUD ---
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) DeleteAddon(clusterName, addonName string) (*Addon, er
 
 	delete(addons, addonName)
 
-	cp.Status = "DELETING"
+	cp.Status = statusDeleting
 
 	return &cp, nil
 }
@@ -158,30 +158,48 @@ func (b *InMemoryBackend) DescribeAddonVersions() []map[string]any {
 			"addonName": "vpc-cni",
 			"type":      "networking",
 			"addonVersions": []map[string]any{
-				{"addonVersion": "v1.18.5-eksbuild.1", "compatibilities": []map[string]string{{"clusterVersion": "1.32"}, {"clusterVersion": "1.31"}}},
-				{"addonVersion": "v1.17.1-eksbuild.1", "compatibilities": []map[string]string{{"clusterVersion": "1.30"}, {"clusterVersion": "1.29"}}},
+				{
+					"addonVersion":    "v1.18.5-eksbuild.1",
+					"compatibilities": []map[string]string{{"clusterVersion": "1.32"}, {"clusterVersion": "1.31"}},
+				},
+				{
+					"addonVersion":    "v1.17.1-eksbuild.1",
+					"compatibilities": []map[string]string{{"clusterVersion": "1.30"}, {"clusterVersion": "1.29"}},
+				},
 			},
 		},
 		{
 			"addonName": "coredns",
 			"type":      "networking",
 			"addonVersions": []map[string]any{
-				{"addonVersion": "v1.11.4-eksbuild.2", "compatibilities": []map[string]string{{"clusterVersion": "1.32"}, {"clusterVersion": "1.31"}}},
+				{
+					"addonVersion":    "v1.11.4-eksbuild.2",
+					"compatibilities": []map[string]string{{"clusterVersion": "1.32"}, {"clusterVersion": "1.31"}},
+				},
 			},
 		},
 		{
 			"addonName": "kube-proxy",
 			"type":      "networking",
 			"addonVersions": []map[string]any{
-				{"addonVersion": "v1.32.0-eksbuild.1", "compatibilities": []map[string]string{{"clusterVersion": "1.32"}}},
-				{"addonVersion": "v1.31.3-eksbuild.1", "compatibilities": []map[string]string{{"clusterVersion": "1.31"}}},
+				{
+					"addonVersion":    "v1.32.0-eksbuild.1",
+					"compatibilities": []map[string]string{{"clusterVersion": "1.32"}},
+				},
+				{
+					"addonVersion":    "v1.31.3-eksbuild.1",
+					"compatibilities": []map[string]string{{"clusterVersion": "1.31"}},
+				},
 			},
 		},
 		{
 			"addonName": "aws-ebs-csi-driver",
 			"type":      "storage",
 			"addonVersions": []map[string]any{
-				{"addonVersion": "v1.37.0-eksbuild.1", "compatibilities": []map[string]string{{"clusterVersion": "1.32"}, {"clusterVersion": "1.31"}}},
+				{
+					"addonVersion":    "v1.37.0-eksbuild.1",
+					"compatibilities": []map[string]string{{"clusterVersion": "1.32"}, {"clusterVersion": "1.31"}},
+				},
 			},
 		},
 	}
@@ -214,7 +232,7 @@ func (b *InMemoryBackend) DeleteCapability(name string) (*Capability, error) {
 	cp := *capa
 	delete(b.capabilities, name)
 
-	cp.Status = "DELETING"
+	cp.Status = statusDeleting
 
 	return &cp, nil
 }
@@ -288,7 +306,7 @@ func (b *InMemoryBackend) DeleteEksAnywhereSubscription(id string) (*AnywhereSub
 
 	delete(b.subscriptions, id)
 
-	cp.Status = "DELETING"
+	cp.Status = statusDeleting
 
 	return &cp, nil
 }
@@ -352,7 +370,9 @@ func (b *InMemoryBackend) UpdateEksAnywhereSubscription(
 // --- Pod Identity Association CRUD ---
 
 // DeletePodIdentityAssociation removes a pod identity association from a cluster.
-func (b *InMemoryBackend) DeletePodIdentityAssociation(clusterName, associationID string) (*PodIdentityAssociation, error) {
+func (b *InMemoryBackend) DeletePodIdentityAssociation(
+	clusterName, associationID string,
+) (*PodIdentityAssociation, error) {
 	b.mu.Lock("DeletePodIdentityAssociation")
 	defer b.mu.Unlock()
 
@@ -362,12 +382,22 @@ func (b *InMemoryBackend) DeletePodIdentityAssociation(clusterName, associationI
 
 	assocs := b.podIdentityAssociations[clusterName]
 	if assocs == nil {
-		return nil, fmt.Errorf("%w: pod identity association %s not found in cluster %s", ErrNotFound, associationID, clusterName)
+		return nil, fmt.Errorf(
+			"%w: pod identity association %s not found in cluster %s",
+			ErrNotFound,
+			associationID,
+			clusterName,
+		)
 	}
 
 	assoc, ok := assocs[associationID]
 	if !ok {
-		return nil, fmt.Errorf("%w: pod identity association %s not found in cluster %s", ErrNotFound, associationID, clusterName)
+		return nil, fmt.Errorf(
+			"%w: pod identity association %s not found in cluster %s",
+			ErrNotFound,
+			associationID,
+			clusterName,
+		)
 	}
 
 	cp := *assoc
@@ -382,7 +412,9 @@ func (b *InMemoryBackend) DeletePodIdentityAssociation(clusterName, associationI
 }
 
 // DescribePodIdentityAssociation returns a pod identity association by ID.
-func (b *InMemoryBackend) DescribePodIdentityAssociation(clusterName, associationID string) (*PodIdentityAssociation, error) {
+func (b *InMemoryBackend) DescribePodIdentityAssociation(
+	clusterName, associationID string,
+) (*PodIdentityAssociation, error) {
 	b.mu.RLock("DescribePodIdentityAssociation")
 	defer b.mu.RUnlock()
 
@@ -392,12 +424,22 @@ func (b *InMemoryBackend) DescribePodIdentityAssociation(clusterName, associatio
 
 	assocs := b.podIdentityAssociations[clusterName]
 	if assocs == nil {
-		return nil, fmt.Errorf("%w: pod identity association %s not found in cluster %s", ErrNotFound, associationID, clusterName)
+		return nil, fmt.Errorf(
+			"%w: pod identity association %s not found in cluster %s",
+			ErrNotFound,
+			associationID,
+			clusterName,
+		)
 	}
 
 	assoc, ok := assocs[associationID]
 	if !ok {
-		return nil, fmt.Errorf("%w: pod identity association %s not found in cluster %s", ErrNotFound, associationID, clusterName)
+		return nil, fmt.Errorf(
+			"%w: pod identity association %s not found in cluster %s",
+			ErrNotFound,
+			associationID,
+			clusterName,
+		)
 	}
 
 	cp := *assoc
@@ -440,12 +482,22 @@ func (b *InMemoryBackend) UpdatePodIdentityAssociation(
 
 	assocs := b.podIdentityAssociations[clusterName]
 	if assocs == nil {
-		return nil, fmt.Errorf("%w: pod identity association %s not found in cluster %s", ErrNotFound, associationID, clusterName)
+		return nil, fmt.Errorf(
+			"%w: pod identity association %s not found in cluster %s",
+			ErrNotFound,
+			associationID,
+			clusterName,
+		)
 	}
 
 	assoc, ok := assocs[associationID]
 	if !ok {
-		return nil, fmt.Errorf("%w: pod identity association %s not found in cluster %s", ErrNotFound, associationID, clusterName)
+		return nil, fmt.Errorf(
+			"%w: pod identity association %s not found in cluster %s",
+			ErrNotFound,
+			associationID,
+			clusterName,
+		)
 	}
 
 	if roleARN != "" {
@@ -488,7 +540,7 @@ func (b *InMemoryBackend) DeleteFargateProfile(clusterName, profileName string) 
 
 	delete(profiles, profileName)
 
-	cp.Status = "DELETING"
+	cp.Status = statusDeleting
 
 	return &cp, nil
 }
@@ -553,12 +605,22 @@ func (b *InMemoryBackend) DescribeAccessEntry(clusterName, principalARN string) 
 
 	entries := b.accessEntries[clusterName]
 	if entries == nil {
-		return nil, fmt.Errorf("%w: access entry for %s not found in cluster %s", ErrNotFound, principalARN, clusterName)
+		return nil, fmt.Errorf(
+			"%w: access entry for %s not found in cluster %s",
+			ErrNotFound,
+			principalARN,
+			clusterName,
+		)
 	}
 
 	entry, ok := entries[principalARN]
 	if !ok {
-		return nil, fmt.Errorf("%w: access entry for %s not found in cluster %s", ErrNotFound, principalARN, clusterName)
+		return nil, fmt.Errorf(
+			"%w: access entry for %s not found in cluster %s",
+			ErrNotFound,
+			principalARN,
+			clusterName,
+		)
 	}
 
 	cp := *entry
@@ -598,12 +660,22 @@ func (b *InMemoryBackend) UpdateAccessEntry(clusterName, principalARN, username 
 
 	entries := b.accessEntries[clusterName]
 	if entries == nil {
-		return nil, fmt.Errorf("%w: access entry for %s not found in cluster %s", ErrNotFound, principalARN, clusterName)
+		return nil, fmt.Errorf(
+			"%w: access entry for %s not found in cluster %s",
+			ErrNotFound,
+			principalARN,
+			clusterName,
+		)
 	}
 
 	entry, ok := entries[principalARN]
 	if !ok {
-		return nil, fmt.Errorf("%w: access entry for %s not found in cluster %s", ErrNotFound, principalARN, clusterName)
+		return nil, fmt.Errorf(
+			"%w: access entry for %s not found in cluster %s",
+			ErrNotFound,
+			principalARN,
+			clusterName,
+		)
 	}
 
 	if username != "" {
@@ -618,16 +690,24 @@ func (b *InMemoryBackend) UpdateAccessEntry(clusterName, principalARN, username 
 // ListAccessPolicies returns a static list of AWS-managed EKS access policies.
 func (b *InMemoryBackend) ListAccessPolicies() []map[string]string {
 	return []map[string]string{
-		{"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy", "name": "AmazonEKSClusterAdminPolicy"},
+		{
+			"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
+			"name":      "AmazonEKSClusterAdminPolicy",
+		},
 		{"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy", "name": "AmazonEKSAdminPolicy"},
 		{"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy", "name": "AmazonEKSEditPolicy"},
 		{"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy", "name": "AmazonEKSViewPolicy"},
-		{"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminViewPolicy", "name": "AmazonEKSAdminViewPolicy"},
+		{
+			"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminViewPolicy",
+			"name":      "AmazonEKSAdminViewPolicy",
+		},
 	}
 }
 
 // ListAssociatedAccessPolicies returns all access policies associated with an entry.
-func (b *InMemoryBackend) ListAssociatedAccessPolicies(clusterName, principalARN string) ([]*AccessPolicyAssociation, error) {
+func (b *InMemoryBackend) ListAssociatedAccessPolicies(
+	clusterName, principalARN string,
+) ([]*AccessPolicyAssociation, error) {
 	b.mu.RLock("ListAssociatedAccessPolicies")
 	defer b.mu.RUnlock()
 
@@ -637,7 +717,12 @@ func (b *InMemoryBackend) ListAssociatedAccessPolicies(clusterName, principalARN
 
 	entries := b.accessEntries[clusterName]
 	if entries == nil || entries[principalARN] == nil {
-		return nil, fmt.Errorf("%w: access entry for %s not found in cluster %s", ErrNotFound, principalARN, clusterName)
+		return nil, fmt.Errorf(
+			"%w: access entry for %s not found in cluster %s",
+			ErrNotFound,
+			principalARN,
+			clusterName,
+		)
 	}
 
 	policies := b.accessPolicies[clusterName][principalARN]
@@ -678,7 +763,13 @@ func (b *InMemoryBackend) DisassociateAccessPolicy(clusterName, principalARN, po
 	}
 
 	if !found {
-		return fmt.Errorf("%w: policy %s not found for %s in cluster %s", ErrNotFound, policyARN, principalARN, clusterName)
+		return fmt.Errorf(
+			"%w: policy %s not found for %s in cluster %s",
+			ErrNotFound,
+			policyARN,
+			principalARN,
+			clusterName,
+		)
 	}
 
 	return nil
@@ -697,12 +788,22 @@ func (b *InMemoryBackend) DescribeIdentityProviderConfig(clusterName, name strin
 
 	configs := b.identityProviderConfigs[clusterName]
 	if configs == nil {
-		return nil, fmt.Errorf("%w: identity provider config %s not found in cluster %s", ErrNotFound, name, clusterName)
+		return nil, fmt.Errorf(
+			"%w: identity provider config %s not found in cluster %s",
+			ErrNotFound,
+			name,
+			clusterName,
+		)
 	}
 
 	cfg, ok := configs[name]
 	if !ok {
-		return nil, fmt.Errorf("%w: identity provider config %s not found in cluster %s", ErrNotFound, name, clusterName)
+		return nil, fmt.Errorf(
+			"%w: identity provider config %s not found in cluster %s",
+			ErrNotFound,
+			name,
+			clusterName,
+		)
 	}
 
 	cp := *cfg
@@ -959,7 +1060,10 @@ func (b *InMemoryBackend) ListUpdates(clusterName string) ([]string, error) {
 // --- Register / Deregister Cluster ---
 
 // RegisterCluster registers an external cluster.
-func (b *InMemoryBackend) RegisterCluster(name, connectorConfigProvider, connectorConfigRoleARN string, kv map[string]string) (*Cluster, error) {
+func (b *InMemoryBackend) RegisterCluster(
+	name, _, _ string,
+	kv map[string]string,
+) (*Cluster, error) {
 	b.mu.Lock("RegisterCluster")
 	defer b.mu.Unlock()
 
@@ -1009,10 +1113,30 @@ func (b *InMemoryBackend) DeregisterCluster(name string) (*Cluster, error) {
 // DescribeClusterVersions returns supported cluster versions.
 func (b *InMemoryBackend) DescribeClusterVersions() []map[string]string {
 	return []map[string]string{
-		{"clusterVersion": "1.32", "defaultVersion": "true", "endOfStandardSupportDate": "2027-04-01", "endOfExtendedSupportDate": "2028-04-01"},
-		{"clusterVersion": "1.31", "defaultVersion": "false", "endOfStandardSupportDate": "2026-11-01", "endOfExtendedSupportDate": "2027-11-01"},
-		{"clusterVersion": "1.30", "defaultVersion": "false", "endOfStandardSupportDate": "2026-07-01", "endOfExtendedSupportDate": "2027-07-01"},
-		{"clusterVersion": "1.29", "defaultVersion": "false", "endOfStandardSupportDate": "2026-03-01", "endOfExtendedSupportDate": "2027-03-01"},
+		{
+			"clusterVersion":           "1.32",
+			"defaultVersion":           "true",
+			"endOfStandardSupportDate": "2027-04-01",
+			"endOfExtendedSupportDate": "2028-04-01",
+		},
+		{
+			"clusterVersion":           "1.31",
+			"defaultVersion":           "false",
+			"endOfStandardSupportDate": "2026-11-01",
+			"endOfExtendedSupportDate": "2027-11-01",
+		},
+		{
+			"clusterVersion":           "1.30",
+			"defaultVersion":           "false",
+			"endOfStandardSupportDate": "2026-07-01",
+			"endOfExtendedSupportDate": "2027-07-01",
+		},
+		{
+			"clusterVersion":           "1.29",
+			"defaultVersion":           "false",
+			"endOfStandardSupportDate": "2026-03-01",
+			"endOfExtendedSupportDate": "2027-03-01",
+		},
 	}
 }
 
