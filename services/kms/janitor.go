@@ -79,9 +79,7 @@ func (j *Janitor) sweepExpiredKeys(ctx context.Context) {
 	j.Backend.mu.Lock("sweepExpiredKeys")
 	purged, expired := j.sweepKeys(now)
 
-	if purged > 0 || expired > 0 {
-		j.Backend.clearResolutionCache()
-	}
+	j.Backend.clearResolutionCache()
 
 	j.Backend.mu.Unlock()
 

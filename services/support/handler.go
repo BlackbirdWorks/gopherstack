@@ -23,8 +23,10 @@ var errUnknownAction = errors.New("unknown action")
 
 // Handler is the Echo HTTP handler for AWS Support operations.
 type Handler struct {
-	Backend StorageBackend
-	ops     map[string]service.JSONOpFunc
+	Backend       StorageBackend
+	ops           map[string]service.JSONOpFunc
+	janitorCancel context.CancelFunc
+	janitorDone   chan struct{}
 }
 
 // NewHandler creates a new Support handler.
@@ -34,6 +36,41 @@ func NewHandler(backend StorageBackend) *Handler {
 
 	return h
 }
+
+// StartWorker starts the background janitor for attachment sets.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		runCtx, cancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		h.janitorCancel = cancel
+		h.janitorDone = done
+
+		go func() {
+			defer close(done)
+			// Run janitor every 10 minutes.
+			mem.RunJanitor(runCtx, 10*time.Minute)
+		}()
+	}
+
+	return nil
+}
+
+// Shutdown stops the background janitor.
+func (h *Handler) Shutdown(ctx context.Context) {
+	if h.janitorCancel != nil {
+		h.janitorCancel()
+	}
+
+	if h.janitorDone != nil {
+		select {
+		case <-h.janitorDone:
+		case <-ctx.Done():
+		}
+	}
+}
+
+var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 // Reset clears the handler's backend state.
 func (h *Handler) Reset() { h.Backend.Reset() }

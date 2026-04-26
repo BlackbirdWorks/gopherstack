@@ -2233,3 +2233,26 @@ func (b *InMemoryBackend) PutGraphqlAPIEnvironmentVariables(
 
 	return maps.Clone(api.EnvironmentVariables), nil
 }
+
+// SweepExpiredAPIKeys removes all expired API keys across all GraphQL APIs.
+func (b *InMemoryBackend) SweepExpiredAPIKeys() int {
+	b.mu.Lock("SweepExpiredAPIKeys")
+	defer b.mu.Unlock()
+
+	now := time.Now().Unix()
+	totalEvicted := 0
+
+	for apiID, keys := range b.apiKeys {
+		for keyID, k := range keys {
+			if k.Expires > 0 && k.Expires <= now {
+				delete(keys, keyID)
+				totalEvicted++
+			}
+		}
+		if len(keys) == 0 {
+			delete(b.apiKeys, apiID)
+		}
+	}
+
+	return totalEvicted
+}

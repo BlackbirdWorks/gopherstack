@@ -63,6 +63,15 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
+// StartWorker starts the AppSync background workers.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		go NewJanitor(b).Run(ctx)
+	}
+
+	return nil
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "AppSync" }
 

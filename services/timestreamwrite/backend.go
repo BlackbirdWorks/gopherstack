@@ -1,15 +1,19 @@
 package timestreamwrite
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
 var (
@@ -95,13 +99,15 @@ type Dimension struct {
 
 // Record represents a time-series data point written to a table.
 type Record struct {
-	MeasureName      string      `json:"measure_name"`
-	MeasureValue     string      `json:"measure_value"`
-	MeasureValueType string      `json:"measure_value_type"`
-	Time             string      `json:"time"`
-	TimeUnit         string      `json:"time_unit"`
-	Dimensions       []Dimension `json:"dimensions,omitempty"`
-	Version          int64       `json:"version,omitempty"`
+	// InternalTimestamp is the parsed value of Time, used for retention sweeping.
+	InternalTimestamp time.Time   `json:"-"`
+	MeasureName       string      `json:"measure_name"`
+	MeasureValue      string      `json:"measure_value"`
+	MeasureValueType  string      `json:"measure_value_type"`
+	Time              string      `json:"time"`
+	TimeUnit          string      `json:"time_unit"`
+	Dimensions        []Dimension `json:"dimensions,omitempty"`
+	Version           int64       `json:"version,omitempty"`
 }
 
 // DataSourceS3Configuration holds S3 source configuration for batch loads.
@@ -503,12 +509,76 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
 
+	for i := range records {
+		records[i].InternalTimestamp = parseTimestreamTime(records[i].Time, records[i].TimeUnit)
+	}
+
 	b.records[dbName][tblName] = append(b.records[dbName][tblName], records...)
 
 	// Record counts are bounded by request size limits (< MaxInt32).
 	count := int32(len(records)) //#nosec G115
 
 	return &WriteRecordsOutput{Total: count, MemoryStore: count}, nil
+}
+
+func parseTimestreamTime(ts, unit string) time.Time {
+	val, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return time.Now().UTC()
+	}
+
+	switch strings.ToUpper(unit) {
+	case "SECONDS":
+		return time.Unix(val, 0).UTC()
+	case "MILLISECONDS":
+		return time.UnixMilli(val).UTC()
+	case "MICROSECONDS":
+		return time.UnixMicro(val).UTC()
+	case "NANOSECONDS":
+		return time.Unix(0, val).UTC()
+	default:
+		return time.UnixMilli(val).UTC()
+	}
+}
+
+// SweepRetention prunes records that exceed the memory store retention period.
+func (b *InMemoryBackend) SweepRetention(ctx context.Context) {
+	b.mu.Lock("SweepRetention")
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	totalPruned := 0
+
+	for dbName, dbTables := range b.tables {
+		for tblName, tbl := range dbTables {
+			if tbl.RetentionProperties == nil || tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours == 0 {
+				continue
+			}
+
+			retention := time.Duration(tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours) * time.Hour
+			cutoff := now.Add(-retention)
+
+			records := b.records[dbName][tblName]
+			newRecords := make([]Record, 0, len(records))
+			for _, r := range records {
+				if r.InternalTimestamp.After(cutoff) {
+					newRecords = append(newRecords, r)
+				}
+			}
+
+			pruned := len(records) - len(newRecords)
+			if pruned > 0 {
+				b.records[dbName][tblName] = newRecords
+				totalPruned += pruned
+			}
+		}
+	}
+
+	if totalPruned > 0 {
+		telemetry.RecordWorkerItems("timestreamwrite", "RetentionSweeper", totalPruned)
+		logger.Load(ctx).InfoContext(ctx, "Timestream janitor: expired records pruned", "count", totalPruned)
+	}
+	telemetry.RecordWorkerTask("timestreamwrite", "RetentionSweeper", "success")
 }
 
 // TagResource stores tags for the given ARN.

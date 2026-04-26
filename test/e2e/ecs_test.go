@@ -136,6 +136,7 @@ func TestECSDashboard_CapacityProvidersTab(t *testing.T) {
 	err = page.Locator("text=Capacity").First().Click()
 	require.NoError(t, err)
 }
+
 // Note: Create/Delete UI flow via dashboard is not currently implemented.
 func TestECSDashboard_CreateAndDeleteCluster(t *testing.T) {
 	stack := newStack(t)

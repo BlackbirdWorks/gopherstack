@@ -326,6 +326,9 @@ func (b *InMemoryBackend) DeleteStream(input *DeleteStreamInput) error {
 	delete(b.fisThroughputFaults, input.StreamName)
 	b.faultsMu.Unlock()
 
+	// Release lockmetrics resources for the deleted stream to prevent memory leaks.
+	stream.mu.Close()
+
 	return nil
 }
 

@@ -484,8 +484,11 @@ func waitForRetry(ctx context.Context, delay time.Duration) error {
 	default:
 	}
 
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
 	select {
-	case <-time.After(delay):
+	case <-timer.C:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -835,37 +838,32 @@ func (e *Executor) executeParallel(
 			return "", nil, ctx.Err()
 		}
 
-		wg.Add(1)
+		wg.Go(func() {
+			acquired := true
+			select {
+			case e.execSem <- struct{}{}:
+			case <-ctx.Done():
+				acquired = false
+			}
 
-		acquired := true
-		select {
-		case e.execSem <- struct{}{}:
-		case <-ctx.Done():
-			wg.Done()
-			acquired = false
-		}
-
-		if !acquired {
-			break
-		}
-
-		go func(idx int, b Branch) {
-			defer wg.Done()
+			if !acquired {
+				return
+			}
 			defer func() { <-e.execSem }()
 
 			branchSM := &StateMachine{
-				StartAt: b.StartAt,
-				States:  b.States,
+				StartAt: branch.StartAt,
+				States:  branch.States,
 			}
 			exec := e.newSubExecutor(branchSM)
 			res, err := exec.Execute(ctx, executionARN, marshalInput(input))
 			if err != nil {
-				errs[idx] = err
+				errs[i] = err
 
 				return
 			}
-			results[idx] = res.Output
-		}(i, branch)
+			results[i] = res.Output
+		})
 	}
 
 	wg.Wait()
@@ -916,40 +914,34 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 			break
 		}
 
-		wg.Add(1)
-		// Use select for both semaphore acquisitions to respect context cancellation.
-		acquired := true
-		select {
-		case e.execSem <- struct{}{}:
-		case <-ctx.Done():
-			wg.Done()
-			acquired = false
-		}
+		wg.Go(func() {
+			// Use select for both semaphore acquisitions to respect context cancellation.
+			acquired := true
+			select {
+			case e.execSem <- struct{}{}:
+			case <-ctx.Done():
+				acquired = false
+			}
 
-		if !acquired {
-			break
-		}
-
-		semAcquired := true
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
-			<-e.execSem
-			wg.Done()
-			semAcquired = false
-		}
-
-		if !semAcquired {
-			break
-		}
-
-		go func(idx int, it any) {
-			defer wg.Done()
+			if !acquired {
+				return
+			}
 			defer func() { <-e.execSem }()
+
+			semAcquired := true
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				semAcquired = false
+			}
+
+			if !semAcquired {
+				return
+			}
 			defer func() { <-sem }()
 
-			e.runMapItem(ctx, executionARN, iterator, idx, it, results, errs)
-		}(i, item)
+			e.runMapItem(ctx, executionARN, iterator, i, item, results, errs)
+		})
 	}
 
 	wg.Wait()

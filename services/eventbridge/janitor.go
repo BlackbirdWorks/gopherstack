@@ -66,6 +66,8 @@ func (j *ArchiveJanitor) SweepOnce(ctx context.Context) {
 	}
 	j.Backend.mu.Unlock()
 
+	j.Backend.patternCache.Clear()
+
 	telemetry.RecordWorkerTask("eventbridge", "ArchiveJanitor", "success")
 	if count == 0 {
 		return

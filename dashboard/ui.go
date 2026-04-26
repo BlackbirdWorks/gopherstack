@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -206,7 +207,8 @@ type CodeBuildSettings struct {
 
 // CloudWatchLogsSettings holds dashboard-specific CloudWatch Logs configuration.
 type CloudWatchLogsSettings struct {
-	JanitorInterval time.Duration
+	JanitorInterval  time.Duration
+	MaxRetentionDays int
 }
 
 // SESSettings holds dashboard-specific SES configuration.
@@ -250,6 +252,12 @@ type KMSSettings struct {
 	JanitorInterval time.Duration
 }
 
+// StepFunctionsSettings holds dashboard-specific Step Functions configuration.
+type StepFunctionsSettings struct {
+	JanitorInterval    time.Duration
+	ExecutionRetention time.Duration
+}
+
 // Settings holds the overall dashboard internal state/preferences.
 type Settings struct {
 	LogLevel            string
@@ -281,6 +289,7 @@ type Settings struct {
 	AutoPurgeTTL        time.Duration
 	KMS                 KMSSettings
 	CloudWatchLogs      CloudWatchLogsSettings
+	StepFunctions       StepFunctionsSettings
 	Kinesis             KinesisSettings
 	LatencyMs           int
 	PortRangeStart      int
@@ -712,6 +721,22 @@ func (h *DashboardHandler) setupSubRouter() {
 			"portRangeStart": portRangeStart,
 			"portRangeEnd":   portRangeEnd,
 			"allocated":      allocated,
+		})
+	})
+
+	h.SubRouter.GET("/dashboard/api/system/health", func(c *echo.Context) error {
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"memory": map[string]any{
+				"alloc":      ms.Alloc,
+				"totalAlloc": ms.TotalAlloc,
+				"sys":        ms.Sys,
+				"numGC":      ms.NumGC,
+				"goroutines": runtime.NumGoroutine(),
+			},
+			"uptime": time.Since(h.GlobalConfig.GetStartTime()).String(),
 		})
 	})
 

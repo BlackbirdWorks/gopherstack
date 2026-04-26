@@ -145,6 +145,7 @@
 		if (tab === 'chaos' && pathname.startsWith('/dashboard/chaos')) return true;
 		if (tab === 'docs' && pathname.startsWith('/dashboard/docs')) return true;
 		if (tab === 'settings' && pathname.startsWith('/dashboard/settings')) return true;
+		if (tab === 'resources' && pathname.startsWith('/dashboard/resources')) return true;
 		return false;
 	}
 </script>
@@ -228,6 +229,9 @@
 				</div>
 				<a id="nav-metrics" href="/dashboard/metrics" class={`inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors ${isActiveTab('metrics') ? 'bg-slate-100 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 font-semibold' : ''}`} title="System Metrics">
 					<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+				</a>
+				<a id="nav-resources" href="/dashboard/resources" class={`inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors ${isActiveTab('resources') ? 'bg-slate-100 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 font-semibold' : ''}`} title="Resource Health">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
 				</a>
 				<a id="nav-console" href="/dashboard/console" class={`inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors ${isActiveTab('console') ? 'bg-slate-100 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 font-semibold' : ''}`} title="Live API Console">
 					<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>

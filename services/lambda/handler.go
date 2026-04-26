@@ -227,11 +227,13 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 // Name returns the service name.
 func (h *Handler) Name() string { return "Lambda" }
 
-// StartWorker starts the Kinesis event source poller background goroutine, if one is configured.
+// StartWorker starts the Kinesis event source poller and the resource janitor.
 // It implements service.BackgroundWorker.
 func (h *Handler) StartWorker(ctx context.Context) error {
 	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
 		lambdaBk.StartKinesisPoller(ctx)
+		janitor := NewJanitor(lambdaBk, lambdaBk.settings)
+		go janitor.Run(ctx)
 	}
 
 	return nil

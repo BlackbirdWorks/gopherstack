@@ -8,6 +8,8 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -30,6 +32,10 @@ type Handler struct {
 	Backend       StorageBackend
 	lambdaInvoker LambdaInvoker
 	DefaultRegion string
+	janitor       *Janitor
+	janitorCancel context.CancelFunc
+	janitorDone   chan struct{}
+	janitorMu     sync.Mutex
 }
 
 // NewHandler creates a new Secrets Manager handler.
@@ -41,6 +47,68 @@ func NewHandler(backend StorageBackend) *Handler {
 
 	return h
 }
+
+// WithJanitor attaches a background janitor to the handler.
+func (h *Handler) WithJanitor(interval ...time.Duration) *Handler {
+	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
+		var d time.Duration
+		if len(interval) > 0 {
+			d = interval[0]
+		}
+		h.janitor = NewJanitor(memBackend, d)
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if it is configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		h.janitorMu.Lock()
+		if h.janitorDone != nil {
+			h.janitorMu.Unlock()
+
+			return nil
+		}
+
+		runCtx, cancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		h.janitorCancel = cancel
+		h.janitorDone = done
+		h.janitorMu.Unlock()
+
+		go func() {
+			defer close(done)
+			h.janitor.Run(runCtx)
+		}()
+	}
+
+	return nil
+}
+
+// Shutdown stops the janitor worker and waits for it to exit.
+func (h *Handler) Shutdown(ctx context.Context) {
+	h.janitorMu.Lock()
+	cancel := h.janitorCancel
+	done := h.janitorDone
+	h.janitorCancel = nil
+	h.janitorDone = nil
+	h.janitorMu.Unlock()
+
+	if cancel == nil || done == nil {
+		return
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 // buildOps builds and caches the operation dispatch table.
 func (h *Handler) buildOps() {

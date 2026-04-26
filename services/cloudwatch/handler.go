@@ -1,6 +1,7 @@
 package cloudwatch
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -79,6 +80,17 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "CloudWatch" }
+
+// StartWorker starts the background janitor for metric sweeping.
+// It implements service.BackgroundWorker.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if cwBk, ok := h.Backend.(*InMemoryBackend); ok {
+		janitor := NewJanitor(cwBk)
+		go janitor.Run(ctx)
+	}
+
+	return nil
+}
 
 // GetSupportedOperations returns all mocked CloudWatch operations.
 func (h *Handler) GetSupportedOperations() []string {
