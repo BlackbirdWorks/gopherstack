@@ -37,7 +37,7 @@ func newStubBackend() *stubBackend {
 	return &stubBackend{repos: make(map[string]*ecr.Repository)}
 }
 
-func (s *stubBackend) CreateRepository(name, _ string) (*ecr.Repository, error) {
+func (s *stubBackend) CreateRepository(name, _ string, _ bool, _ string) (*ecr.Repository, error) {
 	if name == "" {
 		return nil, ecr.ErrInvalidRepositoryName
 	}
@@ -112,6 +112,10 @@ func (s *stubBackend) BatchGetImage(_ string, _ []ecr.ImageIdentifier) ([]ecr.Im
 	return []ecr.Image{}, []ecr.ImageFailure{}, nil
 }
 
+func (s *stubBackend) DescribeImages(_ string, _ []ecr.ImageIdentifier) ([]ecr.Image, error) {
+	return []ecr.Image{}, nil
+}
+
 func (s *stubBackend) BatchGetRepositoryScanningConfiguration(
 	_ []string,
 ) ([]ecr.RepositoryScanningConfiguration, []ecr.RepositoryScanningConfigurationFailure, error) {
@@ -122,8 +126,24 @@ func (s *stubBackend) CompleteLayerUpload(_ string, _ string, _ []string) (*ecr.
 	return &ecr.CompleteLayerUploadResult{}, nil
 }
 
-func (s *stubBackend) CreatePullThroughCacheRule(_, _, _, _ string) (*ecr.PullThroughCacheRule, error) {
+func (s *stubBackend) GetDownloadURLForLayer(_, _ string) (string, error) {
+	return "", nil
+}
+
+func (s *stubBackend) InitiateLayerUpload(_ string) (*ecr.LayerUploadInitiation, error) {
+	return &ecr.LayerUploadInitiation{}, nil
+}
+
+func (s *stubBackend) UploadLayerPart(_, _ string, _, _ int64, _ []byte) (*ecr.LayerUploadPartResult, error) {
+	return &ecr.LayerUploadPartResult{}, nil
+}
+
+func (s *stubBackend) CreatePullThroughCacheRule(_, _, _, _, _, _ string) (*ecr.PullThroughCacheRule, error) {
 	return &ecr.PullThroughCacheRule{}, nil
+}
+
+func (s *stubBackend) DescribePullThroughCacheRules(_ []string) ([]ecr.PullThroughCacheRule, error) {
+	return []ecr.PullThroughCacheRule{}, nil
 }
 
 func (s *stubBackend) CreateRepositoryCreationTemplate(
@@ -132,24 +152,183 @@ func (s *stubBackend) CreateRepositoryCreationTemplate(
 	return &ecr.RepositoryCreationTemplate{}, nil
 }
 
+func (s *stubBackend) DeleteRepositoryCreationTemplate(_ string) (*ecr.RepositoryCreationTemplate, error) {
+	return &ecr.RepositoryCreationTemplate{}, nil
+}
+
+func (s *stubBackend) DescribeRepositoryCreationTemplates(_ []string) ([]ecr.RepositoryCreationTemplate, error) {
+	return []ecr.RepositoryCreationTemplate{}, nil
+}
+
 func (s *stubBackend) DeleteLifecyclePolicy(_ string) (*ecr.LifecyclePolicyResult, error) {
 	return &ecr.LifecyclePolicyResult{}, nil
+}
+
+func (s *stubBackend) GetLifecyclePolicy(_ string) (*ecr.LifecyclePolicyResult, error) {
+	return &ecr.LifecyclePolicyResult{}, nil
+}
+
+func (s *stubBackend) GetLifecyclePolicyPreview(_ string) (*ecr.LifecyclePolicyPreviewResult, error) {
+	return &ecr.LifecyclePolicyPreviewResult{}, nil
 }
 
 func (s *stubBackend) DeletePullThroughCacheRule(_ string) (*ecr.PullThroughCacheRule, error) {
 	return &ecr.PullThroughCacheRule{}, nil
 }
 
+func (s *stubBackend) UpdatePullThroughCacheRule(_, _, _ string) (*ecr.PullThroughCacheRule, error) {
+	return &ecr.PullThroughCacheRule{}, nil
+}
+
+func (s *stubBackend) ValidatePullThroughCacheRule(_ string) (*ecr.ValidatePullThroughCacheRuleResult, error) {
+	return &ecr.ValidatePullThroughCacheRuleResult{}, nil
+}
+
 func (s *stubBackend) DeleteRegistryPolicy() (*ecr.RegistryPolicyResult, error) {
 	return &ecr.RegistryPolicyResult{}, nil
+}
+
+func (s *stubBackend) DescribeRegistry() (*ecr.RegistryDescription, error) {
+	return &ecr.RegistryDescription{}, nil
+}
+
+func (s *stubBackend) GetRegistryPolicy() (*ecr.RegistryPolicyResult, error) {
+	return &ecr.RegistryPolicyResult{}, nil
+}
+
+func (s *stubBackend) GetRegistryScanningConfiguration() (*ecr.RegistryScanningSettings, error) {
+	return &ecr.RegistryScanningSettings{}, nil
 }
 
 func (s *stubBackend) PutLifecyclePolicy(_ string, _ string) (*ecr.LifecyclePolicyResult, error) {
 	return &ecr.LifecyclePolicyResult{}, nil
 }
 
+func (s *stubBackend) StartLifecyclePolicyPreview(_, _ string) (*ecr.LifecyclePolicyPreviewResult, error) {
+	return &ecr.LifecyclePolicyPreviewResult{}, nil
+}
+
 func (s *stubBackend) PutRegistryPolicy(_ string) (*ecr.RegistryPolicyResult, error) {
 	return &ecr.RegistryPolicyResult{}, nil
+}
+
+func (s *stubBackend) PutRegistryScanningConfiguration(
+	_ *ecr.RegistryScanningSettings,
+) (*ecr.RegistryScanningSettings, error) {
+	return &ecr.RegistryScanningSettings{}, nil
+}
+
+func (s *stubBackend) PutReplicationConfiguration(_ *ecr.ReplicationConfig) (*ecr.ReplicationConfig, error) {
+	return &ecr.ReplicationConfig{}, nil
+}
+
+func (s *stubBackend) GetRepositoryPolicy(_ string) (*ecr.RepositoryPolicyResult, error) {
+	return &ecr.RepositoryPolicyResult{}, nil
+}
+
+func (s *stubBackend) SetRepositoryPolicy(_, _ string) (*ecr.RepositoryPolicyResult, error) {
+	return &ecr.RepositoryPolicyResult{}, nil
+}
+
+func (s *stubBackend) DeleteRepositoryPolicy(_ string) (*ecr.RepositoryPolicyResult, error) {
+	return &ecr.RepositoryPolicyResult{}, nil
+}
+
+func (s *stubBackend) GetSigningConfiguration() (*ecr.SigningSettings, error) {
+	return &ecr.SigningSettings{}, nil
+}
+
+func (s *stubBackend) PutSigningConfiguration(_ *ecr.SigningSettings) (*ecr.SigningSettings, error) {
+	return &ecr.SigningSettings{}, nil
+}
+
+func (s *stubBackend) DeleteSigningConfiguration() (*ecr.SigningSettings, error) {
+	return &ecr.SigningSettings{}, nil
+}
+
+func (s *stubBackend) DescribeImageSigningStatus(
+	_ string,
+	_ ecr.ImageIdentifier,
+) ([]ecr.ImageSigningStatusRecord, error) {
+	return []ecr.ImageSigningStatusRecord{}, nil
+}
+
+func (s *stubBackend) DescribeImageScanFindings(
+	_ string,
+	_ ecr.ImageIdentifier,
+) (*ecr.ImageScanFindingsResult, error) {
+	return &ecr.ImageScanFindingsResult{}, nil
+}
+
+func (s *stubBackend) StartImageScan(_ string, _ ecr.ImageIdentifier) (*ecr.ImageScanStartResult, error) {
+	return &ecr.ImageScanStartResult{}, nil
+}
+
+func (s *stubBackend) ListImages(_ string) ([]ecr.ImageIdentifier, error) {
+	return []ecr.ImageIdentifier{}, nil
+}
+
+func (s *stubBackend) ListImageReferrers(_ string, _ ecr.ImageIdentifier) ([]ecr.ImageReferrer, error) {
+	return []ecr.ImageReferrer{}, nil
+}
+
+func (s *stubBackend) PutImage(_ string, _ ecr.Image) (*ecr.Image, error) {
+	return &ecr.Image{}, nil
+}
+
+func (s *stubBackend) PutImageScanningConfiguration(
+	_ string,
+	_ bool,
+) (*ecr.RepositoryScanningConfiguration, error) {
+	return &ecr.RepositoryScanningConfiguration{}, nil
+}
+
+func (s *stubBackend) PutImageTagMutability(
+	_, _ string,
+	_ []ecr.ImageTagMutabilityExclusionFilter,
+) (*ecr.Repository, error) {
+	return &ecr.Repository{}, nil
+}
+
+func (s *stubBackend) DescribeImageReplicationStatus(
+	_ string,
+	_ ecr.ImageIdentifier,
+) (*ecr.ImageReplicationStatusResult, error) {
+	return &ecr.ImageReplicationStatusResult{}, nil
+}
+
+func (s *stubBackend) UpdateImageStorageClass(
+	_ string,
+	_ ecr.ImageIdentifier,
+	_ string,
+) (*ecr.ImageStorageClassResult, error) {
+	return &ecr.ImageStorageClassResult{}, nil
+}
+
+func (s *stubBackend) GetAccountSetting(_ string) (string, error) {
+	return "", nil
+}
+
+func (s *stubBackend) PutAccountSetting(_, _ string) (string, error) {
+	return "", nil
+}
+
+func (s *stubBackend) RegisterPullTimeUpdateExclusion(_ string) (*ecr.PullTimeUpdateExclusion, error) {
+	return &ecr.PullTimeUpdateExclusion{}, nil
+}
+
+func (s *stubBackend) DeregisterPullTimeUpdateExclusion(_ string) (*ecr.PullTimeUpdateExclusion, error) {
+	return &ecr.PullTimeUpdateExclusion{}, nil
+}
+
+func (s *stubBackend) ListPullTimeUpdateExclusions() ([]ecr.PullTimeUpdateExclusion, error) {
+	return []ecr.PullTimeUpdateExclusion{}, nil
+}
+
+func (s *stubBackend) UpdateRepositoryCreationTemplate(
+	_ *ecr.RepositoryCreationTemplate,
+) (*ecr.RepositoryCreationTemplate, error) {
+	return &ecr.RepositoryCreationTemplate{}, nil
 }
 
 func (s *stubBackend) TagResource(_ string, _ map[string]string) error {

@@ -6,14 +6,22 @@ import (
 )
 
 type backendSnapshot struct {
-	Repos                       map[string]*Repository                 `json:"repos"`
-	Images                      map[string]map[string]*Image           `json:"images"`
-	PullThroughCacheRules       map[string]*PullThroughCacheRule       `json:"pullThroughCacheRules"`
-	RepositoryCreationTemplates map[string]*RepositoryCreationTemplate `json:"repositoryCreationTemplates"`
-	LifecyclePolicies           map[string]string                      `json:"lifecyclePolicies"`
-	UploadedLayers              map[string]map[string]int64            `json:"uploadedLayers"`
-	RepoTags                    map[string]map[string]string           `json:"repoTags,omitempty"`
-	RegistryPolicy              string                                 `json:"registryPolicy"`
+	Repos                       map[string]*Repository                         `json:"repos"`
+	Images                      map[string]map[string]*Image                   `json:"images"`
+	PullThroughCacheRules       map[string]*PullThroughCacheRule               `json:"pullThroughCacheRules"`
+	RepositoryCreationTemplates map[string]*RepositoryCreationTemplate         `json:"repositoryCreationTemplates"`
+	LifecyclePolicies           map[string]string                              `json:"lifecyclePolicies"`
+	LifecyclePolicyPreviews     map[string]*LifecyclePolicyPreviewResult       `json:"lifecyclePolicyPreviews,omitempty"`
+	UploadedLayers              map[string]map[string]int64                    `json:"uploadedLayers"`
+	RepoTags                    map[string]map[string]string                   `json:"repoTags,omitempty"`
+	RepositoryPolicies          map[string]string                              `json:"repositoryPolicies,omitempty"`
+	ImageScanFindings           map[string]map[string]*ImageScanFindingsResult `json:"imageScanFindings,omitempty"`
+	AccountSettings             map[string]string                              `json:"accountSettings,omitempty"`
+	PullTimeUpdateExclusions    map[string]*PullTimeUpdateExclusion            `json:"pullTimeUpdateExclusions,omitempty"`
+	RegistryScanningConfig      *RegistryScanningSettings                      `json:"registryScanningConfig,omitempty"`
+	ReplicationConfig           *ReplicationConfig                             `json:"replicationConfig,omitempty"`
+	RegistryPolicy              string                                         `json:"registryPolicy"`
+	SigningConfig               *SigningSettings                               `json:"signingConfig,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -53,6 +61,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	lifecyclePolicies := make(map[string]string, len(b.lifecyclePolicies))
 	maps.Copy(lifecyclePolicies, b.lifecyclePolicies)
 
+	lifecyclePolicyPreviews := make(map[string]*LifecyclePolicyPreviewResult, len(b.lifecyclePolicyPreviews))
+	for repo, preview := range b.lifecyclePolicyPreviews {
+		cp := *preview
+		cp.PreviewResults = append([]ImageIdentifier(nil), preview.PreviewResults...)
+		lifecyclePolicyPreviews[repo] = &cp
+	}
+
 	uploadedLayers := make(map[string]map[string]int64, len(b.uploadedLayers))
 	for repo, layers := range b.uploadedLayers {
 		cp := make(map[string]int64, len(layers))
@@ -67,15 +82,45 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		repoTags[arn] = cp
 	}
 
+	repositoryPolicies := make(map[string]string, len(b.repositoryPolicies))
+	maps.Copy(repositoryPolicies, b.repositoryPolicies)
+
+	imageScanFindings := make(map[string]map[string]*ImageScanFindingsResult, len(b.imageScanFindings))
+	for repo, findings := range b.imageScanFindings {
+		cp := make(map[string]*ImageScanFindingsResult, len(findings))
+		for digest, result := range findings {
+			resultCp := copyImageScanFindingsResult(result)
+			cp[digest] = &resultCp
+		}
+		imageScanFindings[repo] = cp
+	}
+
+	accountSettings := make(map[string]string, len(b.accountSettings))
+	maps.Copy(accountSettings, b.accountSettings)
+
+	pullTimeUpdateExclusions := make(map[string]*PullTimeUpdateExclusion, len(b.pullTimeUpdateExclusions))
+	for principal, exclusion := range b.pullTimeUpdateExclusions {
+		cp := *exclusion
+		pullTimeUpdateExclusions[principal] = &cp
+	}
+
 	snap := backendSnapshot{
 		Repos:                       repos,
 		Images:                      images,
 		PullThroughCacheRules:       ptcRules,
 		RepositoryCreationTemplates: templates,
 		LifecyclePolicies:           lifecyclePolicies,
+		LifecyclePolicyPreviews:     lifecyclePolicyPreviews,
 		RegistryPolicy:              b.registryPolicy,
 		UploadedLayers:              uploadedLayers,
 		RepoTags:                    repoTags,
+		RepositoryPolicies:          repositoryPolicies,
+		ImageScanFindings:           imageScanFindings,
+		AccountSettings:             accountSettings,
+		PullTimeUpdateExclusions:    pullTimeUpdateExclusions,
+		RegistryScanningConfig:      copyRegistryScanningSettings(b.registryScanningConfig),
+		ReplicationConfig:           copyReplicationConfig(b.replicationConfig),
+		SigningConfig:               copySigningSettings(b.signingConfig),
 	}
 
 	data, err := json.Marshal(snap)
@@ -132,6 +177,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	lifecyclePolicies := make(map[string]string, len(snap.LifecyclePolicies))
 	maps.Copy(lifecyclePolicies, snap.LifecyclePolicies)
 
+	lifecyclePolicyPreviews := make(map[string]*LifecyclePolicyPreviewResult, len(snap.LifecyclePolicyPreviews))
+	for repo, preview := range snap.LifecyclePolicyPreviews {
+		cp := *preview
+		cp.PreviewResults = append([]ImageIdentifier(nil), preview.PreviewResults...)
+		lifecyclePolicyPreviews[repo] = &cp
+	}
+
 	uploadedLayers := make(map[string]map[string]int64, len(snap.UploadedLayers))
 	for repo, layers := range snap.UploadedLayers {
 		cp := make(map[string]int64, len(layers))
@@ -146,14 +198,44 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		repoTags[arn] = cp
 	}
 
+	repositoryPolicies := make(map[string]string, len(snap.RepositoryPolicies))
+	maps.Copy(repositoryPolicies, snap.RepositoryPolicies)
+
+	imageScanFindings := make(map[string]map[string]*ImageScanFindingsResult, len(snap.ImageScanFindings))
+	for repo, findings := range snap.ImageScanFindings {
+		cp := make(map[string]*ImageScanFindingsResult, len(findings))
+		for digest, result := range findings {
+			resultCp := copyImageScanFindingsResult(result)
+			cp[digest] = &resultCp
+		}
+		imageScanFindings[repo] = cp
+	}
+
+	accountSettings := make(map[string]string, len(snap.AccountSettings))
+	maps.Copy(accountSettings, snap.AccountSettings)
+
+	pullTimeUpdateExclusions := make(map[string]*PullTimeUpdateExclusion, len(snap.PullTimeUpdateExclusions))
+	for principal, exclusion := range snap.PullTimeUpdateExclusions {
+		cp := *exclusion
+		pullTimeUpdateExclusions[principal] = &cp
+	}
+
 	b.repos = repos
 	b.images = images
 	b.pullThroughCacheRules = ptcRules
 	b.repositoryCreationTemplates = templates
 	b.lifecyclePolicies = lifecyclePolicies
+	b.lifecyclePolicyPreviews = lifecyclePolicyPreviews
 	b.registryPolicy = snap.RegistryPolicy
 	b.uploadedLayers = uploadedLayers
 	b.repoTags = repoTags
+	b.repositoryPolicies = repositoryPolicies
+	b.imageScanFindings = imageScanFindings
+	b.accountSettings = accountSettings
+	b.pullTimeUpdateExclusions = pullTimeUpdateExclusions
+	b.registryScanningConfig = copyRegistryScanningSettings(snap.RegistryScanningConfig)
+	b.replicationConfig = copyReplicationConfig(snap.ReplicationConfig)
+	b.signingConfig = copySigningSettings(snap.SigningConfig)
 
 	return nil
 }

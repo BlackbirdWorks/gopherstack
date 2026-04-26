@@ -425,6 +425,192 @@ func TestECR_GetAuthorizationToken(t *testing.T) {
 	assert.NotZero(t, entry["expiresAt"])
 }
 
+func TestECR_MissingSDKOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doECRRequest(t, h, "CreateRepository", map[string]any{
+		"repositoryName": "sdk-repo",
+		"imageScanningConfiguration": map[string]any{
+			"scanOnPush": true,
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "PutImage", map[string]any{
+		"repositoryName": "sdk-repo",
+		"imageManifest":  `{"schemaVersion":2}`,
+		"imageTag":       "latest",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var putImage map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putImage))
+	image := putImage["image"].(map[string]any)
+	imageID := image["imageId"].(map[string]any)
+
+	for _, action := range []string{
+		"DescribeImages",
+		"ListImages",
+		"StartImageScan",
+		"DescribeImageScanFindings",
+		"DescribeImageSigningStatus",
+		"DescribeImageReplicationStatus",
+		"UpdateImageStorageClass",
+		"ListImageReferrers",
+	} {
+		body := map[string]any{"repositoryName": "sdk-repo"}
+		if action != "DescribeImages" && action != "ListImages" {
+			body["imageId"] = imageID
+		}
+
+		if action == "DescribeImages" {
+			body["imageIds"] = []any{imageID}
+		}
+
+		if action == "UpdateImageStorageClass" {
+			body["targetStorageClass"] = "ARCHIVE"
+		}
+
+		if action == "ListImageReferrers" {
+			body["subjectId"] = imageID
+			delete(body, "imageId")
+		}
+
+		rec = doECRRequest(t, h, action, body)
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doECRRequest(t, h, "PutLifecyclePolicy", map[string]any{
+		"repositoryName":      "sdk-repo",
+		"lifecyclePolicyText": `{"rules":[]}`,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	for _, action := range []string{"GetLifecyclePolicy", "StartLifecyclePolicyPreview", "GetLifecyclePolicyPreview"} {
+		rec = doECRRequest(t, h, action, map[string]any{"repositoryName": "sdk-repo"})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doECRRequest(t, h, "InitiateLayerUpload", map[string]any{"repositoryName": "sdk-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var upload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &upload))
+	rec = doECRRequest(t, h, "UploadLayerPart", map[string]any{
+		"repositoryName": "sdk-repo",
+		"uploadId":       upload["uploadId"],
+		"partFirstByte":  0,
+		"partLastByte":   3,
+		"layerPartBlob":  "AQIDBA==",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
+		"repositoryName": "sdk-repo",
+		"uploadId":       upload["uploadId"],
+		"layerDigests":   []string{"sha256:layer"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "GetDownloadUrlForLayer", map[string]any{
+		"repositoryName": "sdk-repo",
+		"layerDigest":    "sha256:layer",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "SetRepositoryPolicy", map[string]any{
+		"repositoryName": "sdk-repo",
+		"policyText":     `{"Version":"2012-10-17","Statement":[]}`,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	for _, action := range []string{"GetRepositoryPolicy", "DeleteRepositoryPolicy"} {
+		rec = doECRRequest(t, h, action, map[string]any{"repositoryName": "sdk-repo"})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	for _, action := range []string{"DescribeRegistry", "GetRegistryScanningConfiguration"} {
+		rec = doECRRequest(t, h, action, map[string]any{})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+	rec = doECRRequest(t, h, "PutRegistryScanningConfiguration", map[string]any{"scanType": "BASIC"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutReplicationConfiguration", map[string]any{
+		"replicationConfiguration": map[string]any{"rules": []any{}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "PutRegistryPolicy", map[string]any{"policyText": "{}"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "GetRegistryPolicy", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "PutSigningConfiguration", map[string]any{
+		"signingConfiguration": map[string]any{"rules": []any{}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	for _, action := range []string{"GetSigningConfiguration", "DeleteSigningConfiguration"} {
+		rec = doECRRequest(t, h, action, map[string]any{})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
+		"ecrRepositoryPrefix": "docker-hub",
+		"upstreamRegistryUrl": "registry-1.docker.io",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	for _, action := range []string{
+		"DescribePullThroughCacheRules",
+		"UpdatePullThroughCacheRule",
+		"ValidatePullThroughCacheRule",
+	} {
+		rec = doECRRequest(t, h, action, map[string]any{"ecrRepositoryPrefix": "docker-hub"})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doECRRequest(t, h, "CreateRepositoryCreationTemplate", map[string]any{
+		"prefix":             "team/",
+		"imageTagMutability": "MUTABLE",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	for _, action := range []string{
+		"DescribeRepositoryCreationTemplates",
+		"UpdateRepositoryCreationTemplate",
+		"DeleteRepositoryCreationTemplate",
+	} {
+		rec = doECRRequest(t, h, action, map[string]any{"prefix": "team/"})
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	for _, action := range []string{
+		"PutImageScanningConfiguration",
+		"PutImageTagMutability",
+	} {
+		body := map[string]any{"repositoryName": "sdk-repo"}
+		if action == "PutImageScanningConfiguration" {
+			body["imageScanningConfiguration"] = map[string]any{"scanOnPush": false}
+		} else {
+			body["imageTagMutability"] = "IMMUTABLE"
+		}
+
+		rec = doECRRequest(t, h, action, body)
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doECRRequest(t, h, "PutAccountSetting", map[string]any{"name": "BASIC_SCAN_TYPE_VERSION", "value": "AWS_NATIVE"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "GetAccountSetting", map[string]any{"name": "BASIC_SCAN_TYPE_VERSION"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "RegisterPullTimeUpdateExclusion", map[string]any{
+		"principalArn": "arn:aws:iam::000000000000:role/example",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "ListPullTimeUpdateExclusions", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "DeregisterPullTimeUpdateExclusion", map[string]any{
+		"principalArn": "arn:aws:iam::000000000000:role/example",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestECR_UnknownAction(t *testing.T) {
 	t.Parallel()
 
@@ -518,7 +704,7 @@ func TestECR_Backend_SetEndpoint(t *testing.T) {
 
 	backend.SetEndpoint("localhost:9000")
 
-	repo, err := backend.CreateRepository("my-repo", "")
+	repo, err := backend.CreateRepository("my-repo", "", false, "")
 	require.NoError(t, err)
 	assert.Contains(t, repo.RepositoryURI, "localhost:9000")
 }

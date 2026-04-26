@@ -9,12 +9,15 @@
 		DescribeImagesCommand,
 		BatchDeleteImageCommand,
 		GetRepositoryPolicyCommand,
+		GetLifecyclePolicyCommand,
+		PutImageScanningConfigurationCommand,
 		PutLifecyclePolicyCommand,
+		StartImageScanCommand,
 		type Repository,
 		type ImageDetail
 	} from '@aws-sdk/client-ecr';
 	import { toast } from 'svelte-sonner';
-	import { Archive, Search, RefreshCw, Plus, Trash2, Image, Lock, Copy } from 'lucide-svelte';
+	import { Archive, Search, RefreshCw, Plus, Trash2, Image, Lock, Copy, ShieldCheck, ScanLine } from 'lucide-svelte';
 
 	const ecr = getECRClient();
 
@@ -24,8 +27,10 @@
 	let selectedRepo = $state<Repository | null>(null);
 	let images = $state<ImageDetail[]>([]);
 	let loadingImages = $state(false);
-	let detailTab = $state<'images' | 'policy'>('images');
+	let detailTab = $state<'images' | 'policy' | 'lifecycle'>('images');
 	let repoPolicy = $state<string | null>(null);
+	let lifecyclePolicy = $state<string | null>(null);
+	let scanningImages = $state<string[]>([]);
 
 	// Create repo modal
 	let showCreateModal = $state(false);
@@ -73,6 +78,7 @@
 		selectedRepo = repo;
 		images = [];
 		repoPolicy = null;
+		lifecyclePolicy = null;
 		detailTab = 'images';
 		await loadImages(repo.repositoryName ?? '');
 	}
@@ -95,6 +101,15 @@
 			repoPolicy = res.policyText ?? null;
 		} catch {
 			repoPolicy = null;
+		}
+	}
+
+	async function loadLifecyclePolicy(repoName: string) {
+		try {
+			const res = await ecr.send(new GetLifecyclePolicyCommand({ repositoryName: repoName }));
+			lifecyclePolicy = res.lifecyclePolicyText ?? null;
+		} catch {
+			lifecyclePolicy = null;
 		}
 	}
 
@@ -150,6 +165,43 @@
 		}
 	}
 
+	async function startImageScan(img: ImageDetail) {
+		if (!selectedRepo) return;
+		const digest = img.imageDigest ?? '';
+		scanningImages = [...scanningImages, digest];
+		try {
+			await ecr.send(new StartImageScanCommand({
+				repositoryName: selectedRepo.repositoryName,
+				imageId: { imageDigest: img.imageDigest }
+			}));
+			toast.success('Image scan completed');
+			await loadImages(selectedRepo.repositoryName ?? '');
+		} catch (err: unknown) {
+			toast.error(`Scan failed: ${(err as Error).message}`);
+		} finally {
+			scanningImages = scanningImages.filter((d) => d !== digest);
+		}
+	}
+
+	async function toggleScanOnPush() {
+		if (!selectedRepo?.repositoryName) return;
+		const next = !selectedRepo.imageScanningConfiguration?.scanOnPush;
+		try {
+			await ecr.send(new PutImageScanningConfigurationCommand({
+				repositoryName: selectedRepo.repositoryName,
+				imageScanningConfiguration: { scanOnPush: next }
+			}));
+			selectedRepo = {
+				...selectedRepo,
+				imageScanningConfiguration: { scanOnPush: next }
+			};
+			toast.success(`Scan on push ${next ? 'enabled' : 'disabled'}`);
+			await loadRepositories();
+		} catch (err: unknown) {
+			toast.error(`Update failed: ${(err as Error).message}`);
+		}
+	}
+
 	async function copyUri(uri: string | undefined) {
 		if (!uri) return;
 		await navigator.clipboard.writeText(uri);
@@ -159,6 +211,9 @@
 	$effect(() => {
 		if (detailTab === 'policy' && selectedRepo) {
 			void loadPolicy(selectedRepo.repositoryName ?? '');
+		}
+		if (detailTab === 'lifecycle' && selectedRepo) {
+			void loadLifecyclePolicy(selectedRepo.repositoryName ?? '');
 		}
 	});
 
@@ -259,12 +314,22 @@
 							</div>
 						{/each}
 					</div>
+					<div class="flex gap-2 mb-4">
+						<button onclick={toggleScanOnPush} class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2">
+							<ShieldCheck class="w-4 h-4" />
+							{selectedRepo.imageScanningConfiguration?.scanOnPush ? 'Disable' : 'Enable'} scan on push
+						</button>
+					</div>
 
 					<!-- Tabs -->
 					<div class="flex border-b border-slate-200 dark:border-slate-700 mb-4">
-						{#each [{ id: 'images', label: 'Images', icon: Image }, { id: 'policy', label: 'Repository Policy', icon: Lock }] as tab}
+						{#each [
+							{ id: 'images', label: 'Images', icon: Image },
+							{ id: 'policy', label: 'Repository Policy', icon: Lock },
+							{ id: 'lifecycle', label: 'Lifecycle Policy', icon: ShieldCheck }
+						] as tab}
 							<button
-								onclick={() => { detailTab = tab.id as 'images' | 'policy'; }}
+								onclick={() => { detailTab = tab.id as 'images' | 'policy' | 'lifecycle'; }}
 								class="flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors {detailTab === tab.id ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-600 dark:text-slate-400'}"
 							>
 								<tab.icon class="w-4 h-4" />{tab.label}
@@ -290,25 +355,46 @@
 											<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
 												{formatBytes(img.imageSizeInBytes)} · pushed {formatDate(img.imagePushedAt)}
 											</p>
+											<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+												Scan: {img.imageScanStatus?.status ?? 'Not scanned'} · Findings: {Object.values(img.imageScanFindingsSummary?.findingSeverityCounts ?? {}).reduce((sum, count) => sum + count, 0)}
+											</p>
 											<p class="text-xs text-slate-400 font-mono truncate">{img.imageDigest}</p>
 										</div>
-										<button
-											onclick={() => deleteImage(img)}
-											disabled={deletingImages.includes(img.imageDigest ?? '')}
-											class="ml-3 p-1.5 text-slate-400 hover:text-red-500 disabled:opacity-50"
-										>
-											<Trash2 class="w-4 h-4" />
-										</button>
+										<div class="ml-3 flex items-center gap-1">
+											<button
+												onclick={() => startImageScan(img)}
+												disabled={scanningImages.includes(img.imageDigest ?? '')}
+												class="p-1.5 text-slate-400 hover:text-indigo-500 disabled:opacity-50"
+												title="Start image scan"
+											>
+												<ScanLine class="w-4 h-4" />
+											</button>
+											<button
+												onclick={() => deleteImage(img)}
+												disabled={deletingImages.includes(img.imageDigest ?? '')}
+												class="p-1.5 text-slate-400 hover:text-red-500 disabled:opacity-50"
+											>
+												<Trash2 class="w-4 h-4" />
+											</button>
+										</div>
 									</div>
 								{/each}
 							</div>
 						{/if}
-					{:else}
+					{:else if detailTab === 'policy'}
 						<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-4">
 							{#if repoPolicy}
 								<pre class="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap font-mono">{repoPolicy}</pre>
 							{:else}
 								<p class="text-slate-500 dark:text-slate-400 text-sm">No repository policy set</p>
+							{/if}
+						</div>
+					{:else}
+						<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-4">
+							{#if lifecyclePolicy}
+								<pre class="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap font-mono">{lifecyclePolicy}</pre>
+							{:else}
+								<p class="text-slate-500 dark:text-slate-400 text-sm">No lifecycle policy set</p>
 							{/if}
 						</div>
 					{/if}
