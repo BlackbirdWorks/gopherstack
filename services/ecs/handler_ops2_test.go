@@ -14,42 +14,53 @@ import (
 func TestECS_ListAccountSettings(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		setup    func(h any)
-		input    map[string]any
-		name     string
-		wantCode int
-		wantLen  int
-	}{
-		{
-			name:     "empty list",
-			input:    map[string]any{},
-			wantCode: http.StatusOK,
-			wantLen:  0,
-		},
-		{
-			name:     "lists all after put",
-			input:    map[string]any{},
-			wantCode: http.StatusOK,
-			wantLen:  0, // set in test body
-		},
-	}
+	t.Run("empty list", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		h := newTestHandler(t)
+		rec := doECSRequest(t, h, "ListAccountSettings", map[string]any{})
+		require.Equal(t, http.StatusOK, rec.Code)
 
-			h := newTestHandler(t)
-			rec := doECSRequest(t, h, "ListAccountSettings", tt.input)
-			require.Equal(t, tt.wantCode, rec.Code)
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		settings, ok := resp["settings"].([]any)
+		require.True(t, ok)
+		assert.Empty(t, settings)
+	})
 
-			_, ok := resp["settings"].([]any)
-			require.True(t, ok)
+	t.Run("lists all after put", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+
+		// Seed two account settings.
+		putRec := doECSRequest(t, h, "PutAccountSetting", map[string]any{
+			"name": "containerInsights", "value": "enabled",
 		})
-	}
+		require.Equal(t, http.StatusOK, putRec.Code)
+
+		putRec2 := doECSRequest(t, h, "PutAccountSetting", map[string]any{
+			"name": "serviceLongArnFormat", "value": "enabled",
+		})
+		require.Equal(t, http.StatusOK, putRec2.Code)
+
+		// List and verify.
+		rec := doECSRequest(t, h, "ListAccountSettings", map[string]any{})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+		settings, ok := resp["settings"].([]any)
+		require.True(t, ok)
+		assert.Len(t, settings, 2)
+
+		// Verify field shape of the first setting.
+		first := settings[0].(map[string]any)
+		assert.NotEmpty(t, first["name"])
+		assert.NotEmpty(t, first["value"])
+	})
 }
 
 // ----- PutAccountSetting tests -----

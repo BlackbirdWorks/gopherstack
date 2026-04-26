@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -680,9 +681,9 @@ type runTaskInput struct {
 	Group                string `json:"group,omitempty"`
 	StartedBy            string `json:"startedBy,omitempty"`
 	PlatformVersion      string `json:"platformVersion,omitempty"`
-	EnableECSManagedTags bool   `json:"enableECSManagedTags,omitempty"`
-	Count                int    `json:"count,omitempty"`
 	Tags                 []Tag  `json:"tags,omitempty"`
+	Count                int    `json:"count,omitempty"`
+	EnableECSManagedTags bool   `json:"enableECSManagedTags,omitempty"`
 }
 
 type runTaskOutput struct {
@@ -867,18 +868,18 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 }
 
 type serviceView struct {
-	ServiceArn         string   `json:"serviceArn"`
-	ServiceName        string   `json:"serviceName"`
-	ClusterArn         string   `json:"clusterArn"`
-	TaskDefinition     string   `json:"taskDefinition"`
-	Status             string   `json:"status"`
-	LaunchType         string   `json:"launchType,omitempty"`
-	SchedulingStrategy string   `json:"schedulingStrategy,omitempty"`
-	CreatedAt          float64  `json:"createdAt"`
-	Tags               []Tag    `json:"tags,omitempty"`
-	DesiredCount       int      `json:"desiredCount"`
-	PendingCount       int      `json:"pendingCount"`
-	RunningCount       int      `json:"runningCount"`
+	ServiceArn         string  `json:"serviceArn"`
+	ServiceName        string  `json:"serviceName"`
+	ClusterArn         string  `json:"clusterArn"`
+	TaskDefinition     string  `json:"taskDefinition"`
+	Status             string  `json:"status"`
+	LaunchType         string  `json:"launchType,omitempty"`
+	SchedulingStrategy string  `json:"schedulingStrategy,omitempty"`
+	Tags               []Tag   `json:"tags,omitempty"`
+	CreatedAt          float64 `json:"createdAt"`
+	DesiredCount       int     `json:"desiredCount"`
+	PendingCount       int     `json:"pendingCount"`
+	RunningCount       int     `json:"runningCount"`
 }
 
 func toServiceView(s Service) serviceView {
@@ -942,6 +943,13 @@ func toTaskView(t Task) taskView {
 	}
 
 	return v
+}
+
+// Purge implements service.Purgeable by removing all ECS resources older than cutoff.
+func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Purge(ctx, cutoff)
+	}
 }
 
 const defaultECSMaxResults = 100

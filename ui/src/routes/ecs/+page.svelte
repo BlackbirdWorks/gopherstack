@@ -168,14 +168,22 @@ async function loadTaskSets(clusterArn: string) {
 			taskSets = [];
 			return;
 		}
-		const results = await Promise.all(
+		const results = await Promise.allSettled(
 			serviceArns.map((arn) =>
-				ecs
-					.send(new DescribeTaskSetsCommand({ cluster: clusterArn, service: arn }))
-					.catch(() => ({ taskSets: [] as TaskSet[] }))
+				ecs.send(new DescribeTaskSetsCommand({ cluster: clusterArn, service: arn }))
 			)
 		);
-		taskSets = results.flatMap((r) => r.taskSets || []);
+		const failedRequests = results.filter((result) => result.status === 'rejected');
+		taskSets = results.flatMap((result) =>
+			result.status === 'fulfilled' ? result.value.taskSets || [] : []
+		);
+		if (failedRequests.length > 0) {
+			toast.error(
+				failedRequests.length === serviceArns.length
+					? 'Failed to load task sets'
+					: 'Some task sets could not be loaded'
+			);
+		}
 		taskSetsLoadedForCluster = clusterArn;
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load task sets');
@@ -187,7 +195,12 @@ async function loadTaskSets(clusterArn: string) {
 async function selectCluster(arn: string) {
 	selectedCluster = arn;
 	taskSetsLoadedForCluster = null;
-	await Promise.all([loadServices(arn), loadTasks(arn), loadContainerInstances(arn)]);
+	taskSets = [];
+	const loads: Promise<void>[] = [loadServices(arn), loadTasks(arn), loadContainerInstances(arn)];
+	if (activeTab === 'tasksets') {
+		loads.push(loadTaskSets(arn));
+	}
+	await Promise.all(loads);
 }
 
 async function selectTaskDef(arn: string) {

@@ -23,6 +23,7 @@ type backendSnapshot struct {
 	Attributes             map[string]map[string]*Attribute         `json:"attributes"`
 	ServiceDeployments     map[string]*ServiceDeployment            `json:"serviceDeployments"`
 	ExpressGatewayServices map[string]*ExpressGatewayService        `json:"expressGatewayServices"`
+	TaskProtections        map[string]*TaskProtection               `json:"taskProtections"`
 }
 
 func snapshotClusters(src map[string]*Cluster) map[string]*Cluster {
@@ -132,6 +133,16 @@ func snapshotAttributes(src map[string]map[string]*Attribute) map[string]map[str
 	return dst
 }
 
+func snapshotTaskProtections(src map[string]*TaskProtection) map[string]*TaskProtection {
+	dst := make(map[string]*TaskProtection, len(src))
+	for k, v := range src {
+		cp := *v
+		dst[k] = &cp
+	}
+
+	return dst
+}
+
 func snapshotExpressGatewayServices(src map[string]*ExpressGatewayService) map[string]*ExpressGatewayService {
 	dst := make(map[string]*ExpressGatewayService, len(src))
 	for k, v := range src {
@@ -172,6 +183,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Attributes:             snapshotAttributes(b.attributes),
 		ServiceDeployments:     serviceDeployments,
 		ExpressGatewayServices: snapshotExpressGatewayServices(b.expressGatewayServices),
+		TaskProtections:        snapshotTaskProtections(b.taskProtections),
 	}
 
 	data, err := json.Marshal(snap)
@@ -184,16 +196,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-// Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
-	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
+// initSnapshotDefaults ensures all maps in the snapshot are non-nil so callers
+// can safely assign them to the backend without nil-map panics.
+func initSnapshotDefaults(snap *backendSnapshot) {
 	if snap.Clusters == nil {
 		snap.Clusters = make(map[string]*Cluster)
 	}
@@ -238,6 +243,23 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.ExpressGatewayServices = make(map[string]*ExpressGatewayService)
 	}
 
+	if snap.TaskProtections == nil {
+		snap.TaskProtections = make(map[string]*TaskProtection)
+	}
+}
+
+// Restore loads backend state from a JSON snapshot.
+func (b *InMemoryBackend) Restore(data []byte) error {
+	var snap backendSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
+	initSnapshotDefaults(&snap)
+
 	b.clusters = snap.Clusters
 	b.taskDefinitions = snap.TaskDefinitions
 	b.services = snap.Services
@@ -249,6 +271,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.attributes = snap.Attributes
 	b.serviceDeployments = snap.ServiceDeployments
 	b.expressGatewayServices = snap.ExpressGatewayServices
+	b.taskProtections = snap.TaskProtections
+
+	// Rebuild the ARN→TaskDefinition cache from restored task definitions.
+	b.taskDefByArn = make(map[string]*TaskDefinition)
+	for _, revs := range b.taskDefinitions {
+		for _, td := range revs {
+			b.taskDefByArn[td.TaskDefinitionArn] = td
+		}
+	}
 
 	return nil
 }

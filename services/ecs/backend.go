@@ -1,6 +1,7 @@
 package ecs
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strconv"
@@ -171,15 +172,15 @@ type UpdateServiceInput struct {
 
 // RunTaskInput holds input for RunTask.
 type RunTaskInput struct {
-	Cluster               string `json:"cluster,omitempty"`
-	TaskDefinition        string `json:"taskDefinition"`
-	LaunchType            string `json:"launchType,omitempty"`
-	Group                 string `json:"group,omitempty"`
-	StartedBy             string `json:"startedBy,omitempty"`
-	PlatformVersion       string `json:"platformVersion,omitempty"`
-	EnableECSManagedTags  bool   `json:"enableECSManagedTags,omitempty"`
-	Count                 int    `json:"count,omitempty"`
-	Tags                  []Tag  `json:"tags,omitempty"`
+	Cluster              string `json:"cluster,omitempty"`
+	TaskDefinition       string `json:"taskDefinition"`
+	LaunchType           string `json:"launchType,omitempty"`
+	Group                string `json:"group,omitempty"`
+	StartedBy            string `json:"startedBy,omitempty"`
+	PlatformVersion      string `json:"platformVersion,omitempty"`
+	Tags                 []Tag  `json:"tags,omitempty"`
+	Count                int    `json:"count,omitempty"`
+	EnableECSManagedTags bool   `json:"enableECSManagedTags,omitempty"`
 }
 
 // compile-time assertion.
@@ -257,6 +258,41 @@ func (b *InMemoryBackend) Reset() {
 	b.serviceDeployments = make(map[string]*ServiceDeployment)
 	b.expressGatewayServices = make(map[string]*ExpressGatewayService)
 	b.resourceTags = make(map[string][]Tag)
+}
+
+// Purge removes all ECS resources created before the given cutoff time.
+func (b *InMemoryBackend) Purge(_ context.Context, cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	for name, c := range b.clusters {
+		if c.CreatedAt.Before(cutoff) {
+			delete(b.clusters, name)
+			delete(b.services, name)
+			delete(b.tasks, name)
+			delete(b.containerInstances, name)
+			delete(b.taskSets, name)
+			delete(b.attributes, name)
+		}
+	}
+
+	for family, revs := range b.taskDefinitions {
+		kept := make([]*TaskDefinition, 0, len(revs))
+
+		for _, td := range revs {
+			if td.RegisteredAt.Before(cutoff) {
+				delete(b.taskDefByArn, td.TaskDefinitionArn)
+			} else {
+				kept = append(kept, td)
+			}
+		}
+
+		if len(kept) == 0 {
+			delete(b.taskDefinitions, family)
+		} else {
+			b.taskDefinitions[family] = kept
+		}
+	}
 }
 
 // resolveCluster returns the cluster ARN/name to use, defaulting to "default".
@@ -536,6 +572,17 @@ func (b *InMemoryBackend) findTaskDefinitionLocked(familyOrArn string) (*TaskDef
 		cp := *td
 
 		return &cp, nil
+	}
+
+	// Fallback scan when the ARN cache is empty or stale (e.g. after restore).
+	for _, revs := range b.taskDefinitions {
+		for _, td := range revs {
+			if td.TaskDefinitionArn == familyOrArn {
+				cp := *td
+
+				return &cp, nil
+			}
+		}
 	}
 
 	// Support "family:revision" shorthand.
@@ -1012,7 +1059,6 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 	return &cp, nil
 }
 
-// ListTasks returns task ARNs for the given cluster.
 // ListTasksInput holds optional filters for ListTasks.
 type ListTasksInput struct {
 	Cluster           string
