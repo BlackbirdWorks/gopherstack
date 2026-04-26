@@ -3,6 +3,8 @@ package ecs
 import (
 	"context"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // ----- Capacity provider view types -----
@@ -116,7 +118,12 @@ func (h *Handler) handleDescribeCapacityProviders(
 
 	sort.Slice(views, func(i, j int) bool { return views[i].Name < views[j].Name })
 
-	return &describeCapacityProvidersOutput{CapacityProviders: views}, nil
+	p := page.New(views, in.NextToken, in.MaxResults, defaultECSMaxResults)
+
+	return &describeCapacityProvidersOutput{
+		CapacityProviders: p.Data,
+		NextToken:         p.Next,
+	}, nil
 }
 
 // ----- Handler: DeleteAccountSetting -----
