@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	cwWorkerService = "cloudwatch"
-	metricSweeper   = "MetricSweeper"
+	cwWorkerService        = "cloudwatch"
+	metricSweeper          = "MetricSweeper"
+	defaultJanitorInterval = 5 * time.Minute
 )
 
 // Janitor is the CloudWatch background worker that manages metric retention.
@@ -22,7 +23,7 @@ type Janitor struct {
 func NewJanitor(backend *InMemoryBackend) *Janitor {
 	return &Janitor{
 		Backend:  backend,
-		Interval: 5 * time.Minute,
+		Interval: defaultJanitorInterval,
 	}
 }
 

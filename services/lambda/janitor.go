@@ -24,7 +24,7 @@ type Janitor struct {
 }
 
 // NewJanitor creates a new Lambda Janitor for the given backend.
-func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
+func NewJanitor(backend *InMemoryBackend, _ Settings) *Janitor {
 	return &Janitor{
 		Backend:  backend,
 		Interval: defaultJanitorInterval,
@@ -53,6 +53,7 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 	if j.TaskTimeout > 0 {
 		return context.WithTimeout(parent, j.TaskTimeout)
 	}
+
 	return context.WithCancel(parent)
 }
 
@@ -78,6 +79,7 @@ func (j *Janitor) sweepIdleRuntimes(ctx context.Context) {
 
 	if len(toEvict) == 0 {
 		telemetry.RecordWorkerTask(lambdaWorkerService, runtimeJanitorName, "success")
+
 		return
 	}
 
@@ -92,7 +94,7 @@ func (j *Janitor) sweepIdleRuntimes(ctx context.Context) {
 
 // sweepESMs performs health checks on active event source mappings.
 // Currently it just records metrics.
-func (j *Janitor) sweepESMs(ctx context.Context) {
+func (j *Janitor) sweepESMs(_ context.Context) {
 	j.Backend.mu.RLock("JanitorSweepESMs")
 	esmCount := len(j.Backend.eventSourceMappings)
 	j.Backend.mu.RUnlock()

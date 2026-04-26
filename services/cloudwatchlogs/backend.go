@@ -108,6 +108,8 @@ const (
 	exportTaskAgeRunningMs = 2000
 	// exportTaskAgeCompletedMs is how old a RUNNING task must be before being advanced to COMPLETED.
 	exportTaskAgeCompletedMs = 5000
+	// defaultMaxRetentionDays is the default global maximum log retention period.
+	defaultMaxRetentionDays = 14
 )
 
 const (
@@ -363,7 +365,10 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		cancel:              cancel,
 		workerSem:           make(chan struct{}, defaultDeliveryWorkers),
 		deliveryTimeout:     defaultDeliveryTimeout,
-		settings:            Settings{MaxRetentionDays: 14, JanitorInterval: time.Minute},
+		settings: Settings{
+			MaxRetentionDays: defaultMaxRetentionDays,
+			JanitorInterval:  time.Minute,
+		},
 	}
 }
 

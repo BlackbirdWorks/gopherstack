@@ -12,6 +12,7 @@ const (
 	defaultSecretsManagerJanitorInterval = time.Minute
 	secretsManagerJanitorService         = "secretsmanager"
 	secretsManagerJanitorComponent       = "SecretDeletionSweeper"
+	secondsPerDay                        = 24 * 3600
 )
 
 // Janitor is the Secrets Manager background worker that permanently deletes secrets
@@ -76,7 +77,7 @@ func (j *Janitor) sweepExpiredSecrets(ctx context.Context) {
 	for name, secret := range j.Backend.secrets {
 		if secret.DeletedDate != nil {
 			// By default recovery window is 30 days. If the secret was deleted more than 30 days ago, purge it.
-			deletionTime := *secret.DeletedDate + float64(defaultRecoveryWindowDays*24*3600)
+			deletionTime := *secret.DeletedDate + float64(defaultRecoveryWindowDays*secondsPerDay)
 			if nowFloat >= deletionTime {
 				if secret.Tags != nil {
 					secret.Tags.Close()

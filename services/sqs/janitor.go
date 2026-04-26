@@ -13,6 +13,7 @@ const (
 	defaultSQSJanitorInterval = time.Minute
 	sqsJanitorService         = "sqs"
 	sqsJanitorComponent       = "MessageRetentionSweeper"
+	msPerSecond               = 1000
 )
 
 // Janitor is the SQS background worker that deletes messages that have exceeded
@@ -66,7 +67,7 @@ func (j *Janitor) sweepExpiredMessages(ctx context.Context) {
 		if err != nil {
 			retentionSecs = defaultMessageRetentionPeriod
 		}
-		retentionMs := int64(retentionSecs) * 1000
+		retentionMs := int64(retentionSecs) * msPerSecond
 
 		// Filter available messages
 		var activeMsgs []*Message

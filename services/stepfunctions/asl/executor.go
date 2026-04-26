@@ -885,78 +885,23 @@ const maxMapConcurrencyLimit = 40
 
 // executeMap handles Map state: iterates over an array.
 func (e *Executor) executeMap(ctx context.Context, executionARN string, state *State, input any) (string, any, error) {
-	// Support both Iterator (legacy) and ItemProcessor (current ASL spec).
-	iterator := state.Iterator
-	if iterator == nil {
-		iterator = state.ItemProcessor
-	}
-
-	if iterator == nil {
-		return "", nil, ErrMapRequiresIterator
-	}
-
-	// Resolve the items to iterate over.
-	items, err := resolveItems(state.ItemsPath, input)
+	iterator, err := e.getMapIterator(state)
 	if err != nil {
-		return "", nil, fmt.Errorf("map ItemsPath error: %w", err)
+		return "", nil, err
+	}
+
+	items, err := e.resolveMapItems(state, input)
+	if err != nil {
+		return "", nil, err
 	}
 
 	results := make([]any, len(items))
 	errs := make([]error, len(items))
 
 	concurrency := resolveMapConcurrency(state.MaxConcurrency, len(items))
-	sem := make(chan struct{}, concurrency)
+	e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
 
-	var wg sync.WaitGroup
-	for i, item := range items {
-		// Stop spawning new goroutines if context already cancelled.
-		if ctx.Err() != nil {
-			break
-		}
-
-		wg.Go(func() {
-			// Use select for both semaphore acquisitions to respect context cancellation.
-			acquired := true
-			select {
-			case e.execSem <- struct{}{}:
-			case <-ctx.Done():
-				acquired = false
-			}
-
-			if !acquired {
-				return
-			}
-			defer func() { <-e.execSem }()
-
-			semAcquired := true
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				semAcquired = false
-			}
-
-			if !semAcquired {
-				return
-			}
-			defer func() { <-sem }()
-
-			e.runMapItem(ctx, executionARN, iterator, i, item, results, errs)
-		})
-	}
-
-	wg.Wait()
-
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return "", nil, ctxErr
-	}
-
-	for _, iterErr := range errs {
-		if iterErr != nil {
-			return "", nil, iterErr
-		}
-	}
-
-	return state.Next, results, nil
+	return e.finalizeMap(ctx, results, errs, state.Next)
 }
 
 // runMapItem executes a single map iteration item in the sub-executor.
@@ -979,6 +924,95 @@ func (e *Executor) runMapItem(
 	}
 
 	results[idx] = res.Output
+}
+
+func (e *Executor) getMapIterator(state *State) (*StateMachine, error) {
+	iterator := state.Iterator
+	if iterator == nil {
+		iterator = state.ItemProcessor
+	}
+
+	if iterator == nil {
+		return nil, ErrMapRequiresIterator
+	}
+
+	return iterator, nil
+}
+
+func (e *Executor) resolveMapItems(state *State, input any) ([]any, error) {
+	items, err := resolveItems(state.ItemsPath, input)
+	if err != nil {
+		return nil, fmt.Errorf("map ItemsPath error: %w", err)
+	}
+
+	return items, nil
+}
+
+func (e *Executor) runMapTasks(
+	ctx context.Context,
+	executionARN string,
+	iterator *StateMachine,
+	items []any,
+	results []any,
+	errs []error,
+	concurrency int,
+) {
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+
+	for i, item := range items {
+		if ctx.Err() != nil {
+			break
+		}
+
+		e.spawnMapTask(ctx, executionARN, iterator, i, item, results, errs, sem, &wg)
+	}
+
+	wg.Wait()
+}
+
+func (e *Executor) spawnMapTask(
+	ctx context.Context,
+	executionARN string,
+	iterator *StateMachine,
+	idx int,
+	item any,
+	results []any,
+	errs []error,
+	sem chan struct{},
+	wg *sync.WaitGroup,
+) {
+	wg.Go(func() {
+		select {
+		case e.execSem <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+		defer func() { <-e.execSem }()
+
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+		defer func() { <-sem }()
+
+		e.runMapItem(ctx, executionARN, iterator, idx, item, results, errs)
+	})
+}
+
+func (e *Executor) finalizeMap(ctx context.Context, results []any, errs []error, next string) (string, any, error) {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", nil, ctxErr
+	}
+
+	for _, iterErr := range errs {
+		if iterErr != nil {
+			return "", nil, iterErr
+		}
+	}
+
+	return next, results, nil
 }
 
 // resolveMapConcurrency determines the effective concurrency for a Map state.

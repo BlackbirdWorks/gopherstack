@@ -35,12 +35,12 @@ func NewGlobalConfig(
 
 // sharedState holds the actual configuration values.
 type sharedState struct {
+	StartTime      time.Time
 	AccountID      string
 	Region         string
 	LatencyMs      int
 	JanitorTimeout time.Duration
 	AutoPurgeTTL   time.Duration
-	StartTime      time.Time
 	mu             sync.RWMutex
 	EnforceIAM     bool
 }

@@ -26,6 +26,7 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 	if interval == 0 {
 		interval = defaultJanitorInterval
 	}
+
 	return &Janitor{
 		Backend:  backend,
 		Interval: interval,
@@ -53,6 +54,7 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 	if j.TaskTimeout > 0 {
 		return context.WithTimeout(parent, j.TaskTimeout)
 	}
+
 	return context.WithCancel(parent)
 }
 

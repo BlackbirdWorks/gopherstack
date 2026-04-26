@@ -327,7 +327,7 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 }
 
 // PruneExecutions removes executions and history older than the retention period.
-func (b *InMemoryBackend) PruneExecutions(ctx context.Context) int {
+func (b *InMemoryBackend) PruneExecutions(_ context.Context) int {
 	retention := b.settings.ExecutionRetention
 	if retention == 0 {
 		retention = defaultExecutionRetention
@@ -356,6 +356,7 @@ func (b *InMemoryBackend) PruneExecutions(ctx context.Context) int {
 			for i, e := range execs {
 				if e == arn {
 					b.smExecutions[smARN] = append(execs[:i], execs[i+1:]...)
+
 					break
 				}
 			}

@@ -28,13 +28,13 @@ type LambdaInvoker interface {
 
 // Handler is the Echo HTTP handler for Secrets Manager operations.
 type Handler struct {
-	ops           map[string]smActionFn
 	Backend       StorageBackend
 	lambdaInvoker LambdaInvoker
-	DefaultRegion string
+	ops           map[string]smActionFn
 	janitor       *Janitor
 	janitorCancel context.CancelFunc
 	janitorDone   chan struct{}
+	DefaultRegion string
 	janitorMu     sync.Mutex
 }
 

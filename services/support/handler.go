@@ -21,6 +21,8 @@ const supportTargetPrefix = "AWSSupport_20130415."
 
 var errUnknownAction = errors.New("unknown action")
 
+const defaultJanitorInterval = 10 * time.Minute
+
 // Handler is the Echo HTTP handler for AWS Support operations.
 type Handler struct {
 	Backend       StorageBackend
@@ -48,7 +50,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		go func() {
 			defer close(done)
 			// Run janitor every 10 minutes.
-			mem.RunJanitor(runCtx, 10*time.Minute)
+			mem.RunJanitor(runCtx, defaultJanitorInterval)
 		}()
 	}
 

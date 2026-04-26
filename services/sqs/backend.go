@@ -1921,6 +1921,7 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 			select {
 			case <-ctx.Done():
 				timer.Stop()
+
 				return
 			case <-timer.C:
 			}

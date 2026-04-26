@@ -19,13 +19,12 @@ import (
 
 // Handler is the Echo HTTP handler for SQS operations.
 type Handler struct {
-	Backend  StorageBackend
-	Endpoint string
-	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
-	DefaultRegion string
+	Backend       StorageBackend
 	janitor       *Janitor
 	janitorCancel context.CancelFunc
 	janitorDone   chan struct{}
+	Endpoint      string
+	DefaultRegion string
 	janitorMu     sync.Mutex
 }
 
