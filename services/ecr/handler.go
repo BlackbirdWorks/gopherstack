@@ -398,14 +398,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 // decode it correctly.
 type repositoryView struct {
 	EncryptionConfiguration            *encryptionConfigurationView   `json:"encryptionConfiguration,omitempty"`
-	ImageScanningConfiguration         imageScanningConfigurationView `json:"imageScanningConfiguration"`
 	ImageTagMutability                 string                         `json:"imageTagMutability,omitempty"`
-	ImageTagMutabilityExclusionFilters []imageTagMutabilityFilterView `json:"imageTagMutabilityExclusionFilters,omitempty"`
 	RegistryID                         string                         `json:"registryId"`
 	RepositoryARN                      string                         `json:"repositoryArn"`
 	RepositoryName                     string                         `json:"repositoryName"`
 	RepositoryURI                      string                         `json:"repositoryUri"`
+	ImageTagMutabilityExclusionFilters []imageTagMutabilityFilterView `json:"imageTagMutabilityExclusionFilters,omitempty"`
 	CreatedAt                          float64                        `json:"createdAt"`
+	ImageScanningConfiguration         imageScanningConfigurationView `json:"imageScanningConfiguration"`
 }
 
 type imageScanningConfigurationView struct {
@@ -425,10 +425,7 @@ type imageTagMutabilityFilterView struct {
 func toRepositoryView(r Repository) repositoryView {
 	filters := make([]imageTagMutabilityFilterView, 0, len(r.ImageTagMutabilityExclusionFilters))
 	for _, filter := range r.ImageTagMutabilityExclusionFilters {
-		filters = append(filters, imageTagMutabilityFilterView{
-			Filter:     filter.Filter,
-			FilterType: filter.FilterType,
-		})
+		filters = append(filters, imageTagMutabilityFilterView(filter))
 	}
 
 	return repositoryView{
@@ -745,15 +742,6 @@ func (h *Handler) handleBatchGetImage(
 	return &batchGetImageOutput{Images: imgs, Failures: failures}, nil
 }
 
-type imageIDInput struct {
-	ImageDigest string `json:"imageDigest,omitempty"`
-	ImageTag    string `json:"imageTag,omitempty"`
-}
-
-func toImageIdentifier(in imageIDInput) ImageIdentifier {
-	return ImageIdentifier{ImageDigest: in.ImageDigest, ImageTag: in.ImageTag}
-}
-
 type describeImagesInput struct {
 	RepositoryName string            `json:"repositoryName"`
 	ImageIDs       []ImageIdentifier `json:"imageIds,omitempty"`
@@ -761,13 +749,13 @@ type describeImagesInput struct {
 
 type imageDetailView struct {
 	ImageDigest            string   `json:"imageDigest,omitempty"`
-	ImageTags              []string `json:"imageTags,omitempty"`
-	ImagePushedAt          int64    `json:"imagePushedAt,omitempty"`
-	ImageSizeInBytes       int64    `json:"imageSizeInBytes,omitempty"`
 	ImageManifestMediaType string   `json:"imageManifestMediaType,omitempty"`
 	ImageStatus            string   `json:"imageStatus,omitempty"`
 	RegistryID             string   `json:"registryId,omitempty"`
 	RepositoryName         string   `json:"repositoryName,omitempty"`
+	ImageTags              []string `json:"imageTags,omitempty"`
+	ImagePushedAt          int64    `json:"imagePushedAt,omitempty"`
+	ImageSizeInBytes       int64    `json:"imageSizeInBytes,omitempty"`
 }
 
 type describeImagesOutput struct {
@@ -913,8 +901,8 @@ type initiateLayerUploadInput struct {
 }
 
 type initiateLayerUploadOutput struct {
-	PartSize int64  `json:"partSize"`
 	UploadID string `json:"uploadId"`
+	PartSize int64  `json:"partSize"`
 }
 
 func (h *Handler) handleInitiateLayerUpload(
@@ -930,12 +918,12 @@ func (h *Handler) handleInitiateLayerUpload(
 }
 
 type uploadLayerPartInput struct {
-	LayerPartBlob  []byte `json:"layerPartBlob"`
-	PartFirstByte  int64  `json:"partFirstByte"`
-	PartLastByte   int64  `json:"partLastByte"`
 	RepositoryName string `json:"repositoryName"`
 	UploadID       string `json:"uploadId"`
 	RegistryID     string `json:"registryId,omitempty"`
+	LayerPartBlob  []byte `json:"layerPartBlob"`
+	PartFirstByte  int64  `json:"partFirstByte"`
+	PartLastByte   int64  `json:"partLastByte"`
 }
 
 func (h *Handler) handleUploadLayerPart(
@@ -1038,16 +1026,16 @@ func (h *Handler) handleDescribePullThroughCacheRules(
 }
 
 type repositoryCreationTemplateInput struct {
+	EncryptionConfiguration            *encryptionConfigurationView   `json:"encryptionConfiguration,omitempty"`
 	Prefix                             string                         `json:"prefix"`
 	Description                        string                         `json:"description,omitempty"`
 	ImageTagMutability                 string                         `json:"imageTagMutability,omitempty"`
-	ImageTagMutabilityExclusionFilters []imageTagMutabilityFilterView `json:"imageTagMutabilityExclusionFilters,omitempty"`
 	RepositoryPolicy                   string                         `json:"repositoryPolicy,omitempty"`
 	LifecyclePolicy                    string                         `json:"lifecyclePolicy,omitempty"`
 	CustomRoleArn                      string                         `json:"customRoleArn,omitempty"`
+	ImageTagMutabilityExclusionFilters []imageTagMutabilityFilterView `json:"imageTagMutabilityExclusionFilters,omitempty"`
 	AppliedFor                         []string                       `json:"appliedFor,omitempty"`
 	ResourceTags                       []tagView                      `json:"resourceTags,omitempty"`
-	EncryptionConfiguration            *encryptionConfigurationView   `json:"encryptionConfiguration,omitempty"`
 }
 
 type createRepositoryCreationTemplateOutput struct {
@@ -1090,8 +1078,8 @@ type describeRepositoryCreationTemplatesInput struct {
 }
 
 type describeRepositoryCreationTemplatesOutput struct {
-	RepositoryCreationTemplates []RepositoryCreationTemplate `json:"repositoryCreationTemplates"`
 	RegistryID                  string                       `json:"registryId"`
+	RepositoryCreationTemplates []RepositoryCreationTemplate `json:"repositoryCreationTemplates"`
 }
 
 func (h *Handler) handleDescribeRepositoryCreationTemplates(
@@ -1121,10 +1109,7 @@ func (h *Handler) handleUpdateRepositoryCreationTemplate(
 func repositoryCreationTemplateFromInput(in *repositoryCreationTemplateInput) *RepositoryCreationTemplate {
 	filters := make([]ImageTagMutabilityExclusionFilter, 0, len(in.ImageTagMutabilityExclusionFilters))
 	for _, filter := range in.ImageTagMutabilityExclusionFilters {
-		filters = append(filters, ImageTagMutabilityExclusionFilter{
-			Filter:     filter.Filter,
-			FilterType: filter.FilterType,
-		})
+		filters = append(filters, ImageTagMutabilityExclusionFilter(filter))
 	}
 
 	tags := make(map[string]string, len(in.ResourceTags))
@@ -1281,8 +1266,8 @@ func (h *Handler) handleGetRegistryPolicy(
 }
 
 type getRegistryScanningConfigurationOutput struct {
-	RegistryID            string                    `json:"registryId"`
 	ScanningConfiguration *RegistryScanningSettings `json:"scanningConfiguration"`
+	RegistryID            string                    `json:"registryId"`
 }
 
 func (h *Handler) handleGetRegistryScanningConfiguration(
@@ -1491,8 +1476,8 @@ func (h *Handler) handleDescribeImageSigningStatus(
 
 type describeImageReplicationStatusOutput struct {
 	ImageID             ImageIdentifier          `json:"imageId"`
-	ReplicationStatuses []imageReplicationStatus `json:"replicationStatuses"`
 	RepositoryName      string                   `json:"repositoryName"`
+	ReplicationStatuses []imageReplicationStatus `json:"replicationStatuses"`
 }
 
 type imageReplicationStatus struct {
@@ -1552,15 +1537,15 @@ func (h *Handler) handlePutImage(_ context.Context, in *putImageInput) (*putImag
 }
 
 type putImageScanningConfigurationInput struct {
-	ImageScanningConfiguration imageScanningConfigurationView `json:"imageScanningConfiguration"`
 	RepositoryName             string                         `json:"repositoryName"`
 	RegistryID                 string                         `json:"registryId,omitempty"`
+	ImageScanningConfiguration imageScanningConfigurationView `json:"imageScanningConfiguration"`
 }
 
 type putImageScanningConfigurationOutput struct {
-	ImageScanningConfiguration imageScanningConfigurationView `json:"imageScanningConfiguration"`
 	RegistryID                 string                         `json:"registryId,omitempty"`
 	RepositoryName             string                         `json:"repositoryName"`
+	ImageScanningConfiguration imageScanningConfigurationView `json:"imageScanningConfiguration"`
 }
 
 func (h *Handler) handlePutImageScanningConfiguration(
@@ -1583,16 +1568,16 @@ func (h *Handler) handlePutImageScanningConfiguration(
 
 type putImageTagMutabilityInput struct {
 	ImageTagMutability                 string                         `json:"imageTagMutability"`
-	ImageTagMutabilityExclusionFilters []imageTagMutabilityFilterView `json:"imageTagMutabilityExclusionFilters,omitempty"`
 	RepositoryName                     string                         `json:"repositoryName"`
 	RegistryID                         string                         `json:"registryId,omitempty"`
+	ImageTagMutabilityExclusionFilters []imageTagMutabilityFilterView `json:"imageTagMutabilityExclusionFilters,omitempty"`
 }
 
 type putImageTagMutabilityOutput struct {
 	ImageTagMutability                 string                         `json:"imageTagMutability"`
-	ImageTagMutabilityExclusionFilters []imageTagMutabilityFilterView `json:"imageTagMutabilityExclusionFilters,omitempty"`
 	RepositoryName                     string                         `json:"repositoryName"`
 	RegistryID                         string                         `json:"registryId"`
+	ImageTagMutabilityExclusionFilters []imageTagMutabilityFilterView `json:"imageTagMutabilityExclusionFilters,omitempty"`
 }
 
 func (h *Handler) handlePutImageTagMutability(
@@ -1601,10 +1586,7 @@ func (h *Handler) handlePutImageTagMutability(
 ) (*putImageTagMutabilityOutput, error) {
 	filters := make([]ImageTagMutabilityExclusionFilter, 0, len(in.ImageTagMutabilityExclusionFilters))
 	for _, filter := range in.ImageTagMutabilityExclusionFilters {
-		filters = append(filters, ImageTagMutabilityExclusionFilter{
-			Filter:     filter.Filter,
-			FilterType: filter.FilterType,
-		})
+		filters = append(filters, ImageTagMutabilityExclusionFilter(filter))
 	}
 
 	repo, err := h.Backend.PutImageTagMutability(in.RepositoryName, in.ImageTagMutability, filters)
@@ -1692,8 +1674,8 @@ type pullTimeUpdateExclusionInput struct {
 }
 
 type registerPullTimeUpdateExclusionOutput struct {
-	CreatedAt    int64  `json:"createdAt,omitempty"`
 	PrincipalArn string `json:"principalArn"`
+	CreatedAt    int64  `json:"createdAt,omitempty"`
 }
 
 func (h *Handler) handleRegisterPullTimeUpdateExclusion(
@@ -1748,10 +1730,10 @@ func (h *Handler) handleListPullTimeUpdateExclusions(
 }
 
 type repositoryPolicyInput struct {
-	Force          bool   `json:"force,omitempty"`
 	PolicyText     string `json:"policyText,omitempty"`
 	RepositoryName string `json:"repositoryName"`
 	RegistryID     string `json:"registryId,omitempty"`
+	Force          bool   `json:"force,omitempty"`
 }
 
 func (h *Handler) handleGetRepositoryPolicy(

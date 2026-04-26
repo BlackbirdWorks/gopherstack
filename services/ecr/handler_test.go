@@ -594,7 +594,10 @@ func TestECR_MissingSDKOperations(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code, action)
 	}
 
-	rec = doECRRequest(t, h, "PutAccountSetting", map[string]any{"name": "BASIC_SCAN_TYPE_VERSION", "value": "AWS_NATIVE"})
+	rec = doECRRequest(t, h, "PutAccountSetting", map[string]any{
+		"name":  "BASIC_SCAN_TYPE_VERSION",
+		"value": "AWS_NATIVE",
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h, "GetAccountSetting", map[string]any{"name": "BASIC_SCAN_TYPE_VERSION"})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1512,6 +1515,12 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 		"layerDigests":   []string{"sha256:persist123"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutImage", map[string]any{
+		"repositoryName": "persist-repo",
+		"imageDigest":    "sha256:persist123",
+		"imageManifest":  "{}",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Create pull-through cache rule
 	rec = doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
@@ -1523,6 +1532,50 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 	// Create repository creation template
 	rec = doECRRequest(t, h, "CreateRepositoryCreationTemplate", map[string]any{
 		"prefix": "my-org",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h, "PutLifecyclePolicy", map[string]any{
+		"repositoryName":      "persist-repo",
+		"lifecyclePolicyText": `{"rules":[]}`,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "StartLifecyclePolicyPreview", map[string]any{
+		"repositoryName": "persist-repo",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "StartImageScan", map[string]any{
+		"repositoryName": "persist-repo",
+		"imageId":        map[string]any{"imageDigest": "sha256:persist123"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutRegistryScanningConfiguration", map[string]any{
+		"scanType": "ENHANCED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutReplicationConfiguration", map[string]any{
+		"replicationConfiguration": map[string]any{
+			"rules": []map[string]any{{
+				"destinations": []map[string]any{{"region": "us-west-2", "registryId": testAccountID}},
+			}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutSigningConfiguration", map[string]any{
+		"signingConfiguration": map[string]any{
+			"rules": []map[string]any{{
+				"signingProfileArn": "arn:aws:signer:us-east-1:000000000000:/signing-profiles/test",
+			}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "PutAccountSetting", map[string]any{
+		"name":  "BASIC_SCAN_TYPE_VERSION",
+		"value": "AWS_NATIVE",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h, "RegisterPullTimeUpdateExclusion", map[string]any{
+		"principalArn": "arn:aws:iam::000000000000:role/persist",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1556,6 +1609,28 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 
 	// Verify registry policy is restored by deleting it
 	rec = doECRRequest(t, h2, "DeleteRegistryPolicy", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doECRRequest(t, h2, "GetLifecyclePolicy", map[string]any{"repositoryName": "persist-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "GetLifecyclePolicyPreview", map[string]any{"repositoryName": "persist-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "DescribeImageScanFindings", map[string]any{
+		"repositoryName": "persist-repo",
+		"imageId":        map[string]any{"imageDigest": "sha256:persist123"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "GetRegistryScanningConfiguration", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "DescribeRegistry", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "GetSigningConfiguration", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "GetAccountSetting", map[string]any{"name": "BASIC_SCAN_TYPE_VERSION"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doECRRequest(t, h2, "DeregisterPullTimeUpdateExclusion", map[string]any{
+		"principalArn": "arn:aws:iam::000000000000:role/persist",
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 

@@ -58,7 +58,11 @@ type Backend interface {
 	InitiateLayerUpload(repositoryName string) (*LayerUploadInitiation, error)
 
 	// UploadLayerPart records uploaded bytes for an existing session.
-	UploadLayerPart(repositoryName, uploadID string, firstByte, lastByte int64, blob []byte) (*LayerUploadPartResult, error)
+	UploadLayerPart(
+		repositoryName, uploadID string,
+		firstByte, lastByte int64,
+		blob []byte,
+	) (*LayerUploadPartResult, error)
 
 	// CreatePullThroughCacheRule creates a pull-through cache rule.
 	CreatePullThroughCacheRule(
@@ -168,10 +172,17 @@ type Backend interface {
 	) (*Repository, error)
 
 	// DescribeImageReplicationStatus returns the current replication status for an image.
-	DescribeImageReplicationStatus(repositoryName string, imageID ImageIdentifier) (*ImageReplicationStatusResult, error)
+	DescribeImageReplicationStatus(
+		repositoryName string,
+		imageID ImageIdentifier,
+	) (*ImageReplicationStatusResult, error)
 
 	// UpdateImageStorageClass updates the storage class for an image.
-	UpdateImageStorageClass(repositoryName string, imageID ImageIdentifier, target string) (*ImageStorageClassResult, error)
+	UpdateImageStorageClass(
+		repositoryName string,
+		imageID ImageIdentifier,
+		target string,
+	) (*ImageStorageClassResult, error)
 
 	// GetAccountSetting returns a registry account setting.
 	GetAccountSetting(name string) (string, error)

@@ -13,6 +13,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const layerUploadPartSize = 20 * 1024 * 1024
+
 var (
 	// ErrRepositoryNotFound is returned when a repository does not exist.
 	ErrRepositoryNotFound = awserr.New("RepositoryNotFoundException", awserr.ErrNotFound)
@@ -46,7 +48,7 @@ type Repository struct {
 	RepositoryName                     string                              `json:"repositoryName"`
 	RepositoryURI                      string                              `json:"repositoryUri"`
 	ImageTagMutability                 string                              `json:"imageTagMutability"`
-	ImageTagMutabilityExclusionFilters []ImageTagMutabilityExclusionFilter `json:"imageTagMutabilityExclusionFilters,omitempty"`
+	ImageTagMutabilityExclusionFilters []ImageTagMutabilityExclusionFilter `json:"imageTagMutabilityExclusionFilters,omitempty"` //nolint:lll // AWS-compatible JSON field name is long.
 	ScanOnPush                         bool                                `json:"scanOnPush"`
 }
 
@@ -58,16 +60,16 @@ type ImageIdentifier struct {
 
 // Image represents a Docker image in ECR.
 type Image struct {
+	ImagePushedAt          time.Time       `json:"imagePushedAt"`
+	ImageID                ImageIdentifier `json:"imageId"`
 	ImageDigest            string          `json:"imageDigest"`
 	ImageManifest          string          `json:"imageManifest,omitempty"`
 	ImageManifestMediaType string          `json:"imageManifestMediaType,omitempty"`
-	ImageID                ImageIdentifier `json:"imageId"`
-	ImagePushedAt          time.Time       `json:"imagePushedAt"`
-	ImageSizeInBytes       int64           `json:"imageSizeInBytes,omitempty"`
 	ImageStatus            string          `json:"imageStatus,omitempty"`
 	RepositoryName         string          `json:"repositoryName"`
 	RegistryID             string          `json:"registryId"`
 	StorageClass           string          `json:"storageClass,omitempty"`
+	ImageSizeInBytes       int64           `json:"imageSizeInBytes,omitempty"`
 }
 
 // LayerAvailability represents the availability of an image layer.
@@ -117,16 +119,16 @@ type CompleteLayerUploadResult struct {
 
 // LayerUploadInitiation is returned when starting an ECR layer upload.
 type LayerUploadInitiation struct {
-	PartSize int64  `json:"partSize"`
 	UploadID string `json:"uploadId"`
+	PartSize int64  `json:"partSize"`
 }
 
 // LayerUploadPartResult records a received layer upload part.
 type LayerUploadPartResult struct {
-	LastByteReceived int64  `json:"lastByteReceived"`
 	RepositoryName   string `json:"repositoryName"`
 	RegistryID       string `json:"registryId"`
 	UploadID         string `json:"uploadId"`
+	LastByteReceived int64  `json:"lastByteReceived"`
 }
 
 // PullThroughCacheRule represents a pull-through cache rule.
@@ -146,17 +148,17 @@ type PullThroughCacheRule struct {
 type RepositoryCreationTemplate struct {
 	CreatedAt                          time.Time                           `json:"createdAt"`
 	UpdatedAt                          time.Time                           `json:"updatedAt"`
-	Prefix                             string                              `json:"prefix"`
-	Description                        string                              `json:"description,omitempty"`
+	ResourceTags                       map[string]string                   `json:"resourceTags,omitempty"`
+	ImageTagMutability                 string                              `json:"imageTagMutability,omitempty"`
 	EncryptionType                     string                              `json:"encryptionType,omitempty"`
 	KMSKey                             string                              `json:"kmsKey,omitempty"`
-	ImageTagMutability                 string                              `json:"imageTagMutability,omitempty"`
-	ImageTagMutabilityExclusionFilters []ImageTagMutabilityExclusionFilter `json:"imageTagMutabilityExclusionFilters,omitempty"`
+	Description                        string                              `json:"description,omitempty"`
 	RepositoryPolicy                   string                              `json:"repositoryPolicy,omitempty"`
 	LifecyclePolicy                    string                              `json:"lifecyclePolicy,omitempty"`
 	CustomRoleArn                      string                              `json:"customRoleArn,omitempty"`
+	Prefix                             string                              `json:"prefix"`
+	ImageTagMutabilityExclusionFilters []ImageTagMutabilityExclusionFilter `json:"imageTagMutabilityExclusionFilters,omitempty"` //nolint:lll // AWS-compatible JSON field name is long.
 	AppliedFor                         []string                            `json:"appliedFor,omitempty"`
-	ResourceTags                       map[string]string                   `json:"resourceTags,omitempty"`
 }
 
 // LifecyclePolicyResult is the result of DeleteLifecyclePolicy.
@@ -177,28 +179,28 @@ type RegistryPolicyResult struct {
 // LifecyclePolicyPreviewResult is an in-memory lifecycle preview snapshot.
 type LifecyclePolicyPreviewResult struct {
 	LifecyclePolicyText string            `json:"lifecyclePolicyText"`
-	PreviewResults      []ImageIdentifier `json:"previewResults"`
 	RepositoryName      string            `json:"repositoryName"`
 	RegistryID          string            `json:"registryId"`
 	Status              string            `json:"status"`
+	PreviewResults      []ImageIdentifier `json:"previewResults"`
 }
 
 // RegistryDescription stores registry-wide ECR configuration.
 type RegistryDescription struct {
-	RegistryID               string             `json:"registryId"`
 	ReplicationConfiguration *ReplicationConfig `json:"replicationConfiguration,omitempty"`
+	RegistryID               string             `json:"registryId"`
 }
 
 // RegistryScanningSettings stores registry-wide scan configuration.
 type RegistryScanningSettings struct {
-	Rules    []RegistryScanningRule `json:"rules,omitempty"`
 	ScanType string                 `json:"scanType,omitempty"`
+	Rules    []RegistryScanningRule `json:"rules,omitempty"`
 }
 
 // RegistryScanningRule is a registry scan rule.
 type RegistryScanningRule struct {
-	RepositoryFilters []RepositoryFilter `json:"repositoryFilters,omitempty"`
 	ScanFrequency     string             `json:"scanFrequency,omitempty"`
+	RepositoryFilters []RepositoryFilter `json:"repositoryFilters,omitempty"`
 }
 
 // ReplicationConfig stores ECR replication destinations.
@@ -252,23 +254,23 @@ type ImageSigningStatusRecord struct {
 
 // ImageScanFinding is an image scan finding.
 type ImageScanFinding struct {
+	Attributes  map[string]string `json:"attributes,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Name        string            `json:"name,omitempty"`
 	Severity    string            `json:"severity,omitempty"`
 	URI         string            `json:"uri,omitempty"`
-	Attributes  map[string]string `json:"attributes,omitempty"`
 }
 
 // ImageScanFindingsResult stores scan findings for an image.
 type ImageScanFindingsResult struct {
-	Findings              []ImageScanFinding `json:"findings,omitempty"`
+	CompletedAt           time.Time          `json:"completedAt"`
 	FindingSeverityCounts map[string]int32   `json:"findingSeverityCounts,omitempty"`
 	ImageID               ImageIdentifier    `json:"imageId"`
 	RepositoryName        string             `json:"repositoryName"`
 	RegistryID            string             `json:"registryId"`
 	Status                string             `json:"status"`
 	Description           string             `json:"description"`
-	CompletedAt           time.Time          `json:"completedAt"`
+	Findings              []ImageScanFinding `json:"findings,omitempty"`
 }
 
 // ImageScanStartResult is returned by StartImageScan.
@@ -282,12 +284,12 @@ type ImageScanStartResult struct {
 
 // ImageReferrer is an OCI referrer summary.
 type ImageReferrer struct {
+	Annotations    map[string]string `json:"annotations,omitempty"`
 	Digest         string            `json:"digest,omitempty"`
 	MediaType      string            `json:"mediaType,omitempty"`
-	Size           int64             `json:"size,omitempty"`
-	Annotations    map[string]string `json:"annotations,omitempty"`
 	ArtifactStatus string            `json:"artifactStatus,omitempty"`
 	ArtifactType   string            `json:"artifactType,omitempty"`
+	Size           int64             `json:"size,omitempty"`
 }
 
 // ImageReplicationStatusResult stores image replication status.
@@ -317,10 +319,10 @@ type ValidatePullThroughCacheRuleResult struct {
 	CustomRoleArn            string `json:"customRoleArn,omitempty"`
 	EcrRepositoryPrefix      string `json:"ecrRepositoryPrefix"`
 	Failure                  string `json:"failure,omitempty"`
-	IsValid                  bool   `json:"isValid"`
 	RegistryID               string `json:"registryId"`
 	UpstreamRegistryURL      string `json:"upstreamRegistryUrl,omitempty"`
 	UpstreamRepositoryPrefix string `json:"upstreamRepositoryPrefix,omitempty"`
+	IsValid                  bool   `json:"isValid"`
 }
 
 // ImageTagMutabilityExclusionFilter configures tag mutability exceptions.
@@ -752,7 +754,7 @@ func (b *InMemoryBackend) InitiateLayerUpload(repositoryName string) (*LayerUplo
 	uploadID := fmt.Sprintf("upload-%d", time.Now().UnixNano())
 	b.layerUploads[uploadID] = &layerUploadState{RepositoryName: repositoryName}
 
-	return &LayerUploadInitiation{PartSize: 20 * 1024 * 1024, UploadID: uploadID}, nil
+	return &LayerUploadInitiation{PartSize: layerUploadPartSize, UploadID: uploadID}, nil
 }
 
 // UploadLayerPart records uploaded bytes for an existing upload session.
