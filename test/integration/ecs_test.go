@@ -1130,9 +1130,12 @@ func TestIntegration_ECS_Attributes(t *testing.T) {
 	// PutAttributes
 	putOut, err := client.PutAttributes(ctx, &ecs.PutAttributesInput{
 		Cluster: aws.String(clusterName),
-		Attributes: []ecstypes.Attribute{
-			{Name: aws.String("env"), Value: aws.String("test"), TargetId: aws.String("inst-1"), TargetType: ecstypes.TargetTypeContainerInstance},
-		},
+		Attributes: []ecstypes.Attribute{{
+			Name:       aws.String("env"),
+			Value:      aws.String("test"),
+			TargetId:   aws.String("inst-1"),
+			TargetType: ecstypes.TargetTypeContainerInstance,
+		}},
 	})
 	require.NoError(t, err)
 	assert.Len(t, putOut.Attributes, 1)
@@ -1148,9 +1151,11 @@ func TestIntegration_ECS_Attributes(t *testing.T) {
 	// DeleteAttributes
 	_, err = client.DeleteAttributes(ctx, &ecs.DeleteAttributesInput{
 		Cluster: aws.String(clusterName),
-		Attributes: []ecstypes.Attribute{
-			{Name: aws.String("env"), TargetId: aws.String("inst-1"), TargetType: ecstypes.TargetTypeContainerInstance},
-		},
+		Attributes: []ecstypes.Attribute{{
+			Name:       aws.String("env"),
+			TargetId:   aws.String("inst-1"),
+			TargetType: ecstypes.TargetTypeContainerInstance,
+		}},
 	})
 	require.NoError(t, err)
 }
