@@ -1099,6 +1099,12 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 		if input.StartedBy != "" && task.StartedBy != input.StartedBy {
 			continue
 		}
+		if input.Family != "" && !strings.Contains(task.TaskDefinitionArn, "/"+input.Family+":") {
+			continue
+		}
+		if input.ServiceName != "" && task.Group != "service:"+input.ServiceName {
+			continue
+		}
 		arns = append(arns, arn)
 	}
 

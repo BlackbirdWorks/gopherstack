@@ -98,7 +98,7 @@ func (j *Janitor) sweepStoppedTasks(ctx context.Context) {
 				continue
 			}
 
-			if task.StoppedAt.IsZero() || task.StoppedAt.After(cutoff) {
+			if task.StoppedAt == nil || task.StoppedAt.IsZero() || task.StoppedAt.After(cutoff) {
 				continue
 			}
 
