@@ -568,8 +568,16 @@ func TestECR_MissingSDKOperations(t *testing.T) {
 	rec = doECRRequest(t, h, "CreateRepositoryCreationTemplate", map[string]any{
 		"prefix":             "team/",
 		"imageTagMutability": "MUTABLE",
+		"resourceTags": []map[string]any{
+			{"Key": "env", "Value": "test"},
+			{"Key": "team", "Value": "platform"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
+	var templateOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &templateOut))
+	template := templateOut["repositoryCreationTemplate"].(map[string]any)
+	require.IsType(t, []any{}, template["resourceTags"])
 	for _, action := range []string{
 		"DescribeRepositoryCreationTemplates",
 		"UpdateRepositoryCreationTemplate",
@@ -608,6 +616,13 @@ func TestECR_MissingSDKOperations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h, "ListPullTimeUpdateExclusions", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
+	var exclusionsOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &exclusionsOut))
+	exclusions := exclusionsOut["pullTimeUpdateExclusions"].([]any)
+	require.Len(t, exclusions, 1)
+	exclusion := exclusions[0].(map[string]any)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/example", exclusion["principalArn"])
+	assert.NotZero(t, exclusion["createdAt"])
 	rec = doECRRequest(t, h, "DeregisterPullTimeUpdateExclusion", map[string]any{
 		"principalArn": "arn:aws:iam::000000000000:role/example",
 	})
@@ -1334,6 +1349,9 @@ func TestECR_CreateRepositoryCreationTemplate(t *testing.T) {
 
 			rec := doECRRequest(t, h, "CreateRepositoryCreationTemplate", map[string]any{
 				"prefix": tt.prefix,
+				"resourceTags": []map[string]any{
+					{"Key": "env", "Value": "test"},
+				},
 			})
 			require.Equal(t, tt.wantStatus, rec.Code)
 
@@ -1343,6 +1361,7 @@ func TestECR_CreateRepositoryCreationTemplate(t *testing.T) {
 				tmpl, ok := out["repositoryCreationTemplate"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.prefix, tmpl["prefix"])
+				require.IsType(t, []any{}, tmpl["resourceTags"])
 			}
 		})
 	}

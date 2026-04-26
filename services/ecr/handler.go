@@ -594,11 +594,7 @@ func (h *Handler) handleListTagsForResource(
 	}
 
 	keys := sortedTagKeys(tags)
-	result := make([]tagView, 0, len(keys))
-
-	for _, k := range keys {
-		result = append(result, tagView{Key: k, Value: tags[k]})
-	}
+	result := toTagViewsForKeys(tags, keys)
 
 	return &listTagsForResourceOutput{Tags: result}, nil
 }
@@ -1039,8 +1035,23 @@ type repositoryCreationTemplateInput struct {
 }
 
 type createRepositoryCreationTemplateOutput struct {
-	Template   *RepositoryCreationTemplate `json:"repositoryCreationTemplate"`
-	RegistryID string                      `json:"registryId"`
+	Template   *repositoryCreationTemplateView `json:"repositoryCreationTemplate"`
+	RegistryID string                          `json:"registryId"`
+}
+
+type repositoryCreationTemplateView struct {
+	EncryptionConfiguration            *encryptionConfigurationView   `json:"encryptionConfiguration,omitempty"`
+	Prefix                             string                         `json:"prefix,omitempty"`
+	Description                        string                         `json:"description,omitempty"`
+	ImageTagMutability                 string                         `json:"imageTagMutability,omitempty"`
+	RepositoryPolicy                   string                         `json:"repositoryPolicy,omitempty"`
+	LifecyclePolicy                    string                         `json:"lifecyclePolicy,omitempty"`
+	CustomRoleArn                      string                         `json:"customRoleArn,omitempty"`
+	ImageTagMutabilityExclusionFilters []imageTagMutabilityFilterView `json:"imageTagMutabilityExclusionFilters,omitempty"`
+	AppliedFor                         []string                       `json:"appliedFor,omitempty"`
+	ResourceTags                       []tagView                      `json:"resourceTags,omitempty"`
+	CreatedAt                          float64                        `json:"createdAt,omitempty"`
+	UpdatedAt                          float64                        `json:"updatedAt,omitempty"`
 }
 
 func (h *Handler) handleCreateRepositoryCreationTemplate(
@@ -1054,7 +1065,7 @@ func (h *Handler) handleCreateRepositoryCreationTemplate(
 		return nil, err
 	}
 
-	return &createRepositoryCreationTemplateOutput{Template: tmpl}, nil
+	return &createRepositoryCreationTemplateOutput{Template: toRepositoryCreationTemplateView(tmpl)}, nil
 }
 
 type deleteRepositoryCreationTemplateInput struct {
@@ -1070,7 +1081,7 @@ func (h *Handler) handleDeleteRepositoryCreationTemplate(
 		return nil, err
 	}
 
-	return &createRepositoryCreationTemplateOutput{Template: tmpl}, nil
+	return &createRepositoryCreationTemplateOutput{Template: toRepositoryCreationTemplateView(tmpl)}, nil
 }
 
 type describeRepositoryCreationTemplatesInput struct {
@@ -1078,8 +1089,8 @@ type describeRepositoryCreationTemplatesInput struct {
 }
 
 type describeRepositoryCreationTemplatesOutput struct {
-	RegistryID                  string                       `json:"registryId"`
-	RepositoryCreationTemplates []RepositoryCreationTemplate `json:"repositoryCreationTemplates"`
+	RegistryID                  string                           `json:"registryId"`
+	RepositoryCreationTemplates []repositoryCreationTemplateView `json:"repositoryCreationTemplates"`
 }
 
 func (h *Handler) handleDescribeRepositoryCreationTemplates(
@@ -1091,7 +1102,12 @@ func (h *Handler) handleDescribeRepositoryCreationTemplates(
 		return nil, err
 	}
 
-	return &describeRepositoryCreationTemplatesOutput{RepositoryCreationTemplates: tmpls}, nil
+	out := make([]repositoryCreationTemplateView, 0, len(tmpls))
+	for i := range tmpls {
+		out = append(out, *toRepositoryCreationTemplateView(&tmpls[i]))
+	}
+
+	return &describeRepositoryCreationTemplatesOutput{RepositoryCreationTemplates: out}, nil
 }
 
 func (h *Handler) handleUpdateRepositoryCreationTemplate(
@@ -1103,7 +1119,55 @@ func (h *Handler) handleUpdateRepositoryCreationTemplate(
 		return nil, err
 	}
 
-	return &createRepositoryCreationTemplateOutput{Template: tmpl}, nil
+	return &createRepositoryCreationTemplateOutput{Template: toRepositoryCreationTemplateView(tmpl)}, nil
+}
+
+func toRepositoryCreationTemplateView(in *RepositoryCreationTemplate) *repositoryCreationTemplateView {
+	if in == nil {
+		return nil
+	}
+
+	filters := make([]imageTagMutabilityFilterView, 0, len(in.ImageTagMutabilityExclusionFilters))
+	for _, filter := range in.ImageTagMutabilityExclusionFilters {
+		filters = append(filters, imageTagMutabilityFilterView(filter))
+	}
+
+	out := &repositoryCreationTemplateView{
+		AppliedFor:                         append([]string(nil), in.AppliedFor...),
+		CreatedAt:                          float64(in.CreatedAt.Unix()),
+		CustomRoleArn:                      in.CustomRoleArn,
+		Description:                        in.Description,
+		ImageTagMutability:                 in.ImageTagMutability,
+		ImageTagMutabilityExclusionFilters: filters,
+		LifecyclePolicy:                    in.LifecyclePolicy,
+		Prefix:                             in.Prefix,
+		RepositoryPolicy:                   in.RepositoryPolicy,
+		ResourceTags:                       toTagViews(in.ResourceTags),
+		UpdatedAt:                          float64(in.UpdatedAt.Unix()),
+	}
+	if in.EncryptionType != "" || in.KMSKey != "" {
+		out.EncryptionConfiguration = &encryptionConfigurationView{
+			EncryptionType: in.EncryptionType,
+			KMSKey:         in.KMSKey,
+		}
+	}
+
+	return out
+}
+
+func toTagViews(tags map[string]string) []tagView {
+	keys := sortedTagKeys(tags)
+
+	return toTagViewsForKeys(tags, keys)
+}
+
+func toTagViewsForKeys(tags map[string]string, keys []string) []tagView {
+	out := make([]tagView, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, tagView{Key: key, Value: tags[key]})
+	}
+
+	return out
 }
 
 func repositoryCreationTemplateFromInput(in *repositoryCreationTemplateInput) *RepositoryCreationTemplate {
@@ -1709,7 +1773,7 @@ func (h *Handler) handleDeregisterPullTimeUpdateExclusion(
 }
 
 type listPullTimeUpdateExclusionsOutput struct {
-	PullTimeUpdateExclusions []string `json:"pullTimeUpdateExclusions"`
+	PullTimeUpdateExclusions []registerPullTimeUpdateExclusionOutput `json:"pullTimeUpdateExclusions"`
 }
 
 func (h *Handler) handleListPullTimeUpdateExclusions(
@@ -1721,9 +1785,12 @@ func (h *Handler) handleListPullTimeUpdateExclusions(
 		return nil, err
 	}
 
-	out := make([]string, 0, len(exclusions))
+	out := make([]registerPullTimeUpdateExclusionOutput, 0, len(exclusions))
 	for _, exclusion := range exclusions {
-		out = append(out, exclusion.PrincipalArn)
+		out = append(out, registerPullTimeUpdateExclusionOutput{
+			CreatedAt:    exclusion.CreatedAt.Unix(),
+			PrincipalArn: exclusion.PrincipalArn,
+		})
 	}
 
 	return &listPullTimeUpdateExclusionsOutput{PullTimeUpdateExclusions: out}, nil
