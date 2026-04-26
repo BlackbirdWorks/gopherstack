@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -14,17 +18,14 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 
 	tests := []struct {
 		name string
-		port string
 		demo bool
 	}{
 		{
 			name: "server startup without DEMO",
-			port: ":8001",
 			demo: false,
 		},
 		{
 			name: "server startup with DEMO",
-			port: ":8002",
 			demo: true,
 		},
 	}
@@ -32,10 +33,12 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			port := freeTCPPort(t)
 			stopChan := make(chan struct{})
+			errChan := make(chan error, 1)
 
 			go func() {
-				_ = startServerOnPort(t, tt.port, tt.demo, stopChan)
+				errChan <- startServerOnPort(t, port, tt.demo, stopChan)
 			}()
 
 			// Give the server time to start.
@@ -43,29 +46,38 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 
 			client := &http.Client{Timeout: 5 * time.Second}
 
-			resp, err := client.Get("http://localhost" + tt.port + "/dashboard")
-			require.NoError(t, err, "failed to reach server on %s", tt.port)
+			resp, err := client.Get(fmt.Sprintf("http://localhost:%d/dashboard", port))
+			require.NoError(t, err, "failed to reach server on :%d", port)
 			defer resp.Body.Close()
 
 			assert.True(t,
 				resp.StatusCode >= 200 && resp.StatusCode < 500,
 				"unexpected status code: %d", resp.StatusCode)
 
-			t.Logf("Server responding with status %d on port %s", resp.StatusCode, tt.port)
+			t.Logf("Server responding with status %d on port :%d", resp.StatusCode, port)
 
 			close(stopChan)
-			time.Sleep(100 * time.Millisecond)
+
+			select {
+			case runErr := <-errChan:
+				require.NoError(t, runErr)
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "server did not shut down within timeout")
+			}
 		})
 	}
 }
 
 // startServerOnPort starts Gopherstack on the given port using the CLI run path.
 // It returns when the stopChan is closed.
-func startServerOnPort(t *testing.T, port string, demo bool, stopChan chan struct{}) error {
+func startServerOnPort(t *testing.T, port int, demo bool, stopChan chan struct{}) error {
 	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
 	cli := CLI{
 		LogLevel: "info",
-		Port:     port,
+		Port:     strconv.Itoa(port),
 		Region:   "us-east-1",
 		Demo:     demo,
 	}
@@ -73,13 +85,25 @@ func startServerOnPort(t *testing.T, port string, demo bool, stopChan chan struc
 	errChan := make(chan error, 1)
 
 	go func() {
-		errChan <- run(t.Context(), cli)
+		errChan <- run(ctx, cli)
 	}()
 
 	select {
 	case <-stopChan:
-		return nil
+		cancel()
+
+		return <-errChan
 	case err := <-errChan:
 		return err
 	}
+}
+
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer l.Close()
+
+	return l.Addr().(*net.TCPAddr).Port
 }
