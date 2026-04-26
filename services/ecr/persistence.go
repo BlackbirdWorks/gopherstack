@@ -84,6 +84,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.registryScanningConfig = copyRegistryScanningSettings(snap.RegistryScanningConfig)
 	b.replicationConfig = copyReplicationConfig(snap.ReplicationConfig)
 	b.signingConfig = copySigningSettings(snap.SigningConfig)
+	b.layerUploads = make(map[string]*layerUploadState)
 
 	return nil
 }

@@ -249,8 +249,8 @@ func (s *stubBackend) DeleteSigningConfiguration() (*ecr.SigningSettings, error)
 func (s *stubBackend) DescribeImageSigningStatus(
 	_ string,
 	_ ecr.ImageIdentifier,
-) ([]ecr.ImageSigningStatusRecord, error) {
-	return []ecr.ImageSigningStatusRecord{}, nil
+) (*ecr.ImageSigningStatusResult, error) {
+	return &ecr.ImageSigningStatusResult{}, nil
 }
 
 func (s *stubBackend) DescribeImageScanFindings(

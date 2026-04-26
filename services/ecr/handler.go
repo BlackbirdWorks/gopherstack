@@ -1525,16 +1525,16 @@ func (h *Handler) handleDescribeImageSigningStatus(
 	_ context.Context,
 	in *imageInput,
 ) (*describeImageSigningStatusOutput, error) {
-	statuses, err := h.Backend.DescribeImageSigningStatus(in.RepositoryName, in.ImageID)
+	result, err := h.Backend.DescribeImageSigningStatus(in.RepositoryName, in.ImageID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &describeImageSigningStatusOutput{
-		ImageID:         in.ImageID,
-		RegistryID:      in.RegistryID,
-		RepositoryName:  in.RepositoryName,
-		SigningStatuses: statuses,
+		ImageID:         result.ImageID,
+		RegistryID:      result.RegistryID,
+		RepositoryName:  result.RepositoryName,
+		SigningStatuses: result.SigningStatuses,
 	}, nil
 }
 
@@ -1773,7 +1773,7 @@ func (h *Handler) handleDeregisterPullTimeUpdateExclusion(
 }
 
 type listPullTimeUpdateExclusionsOutput struct {
-	PullTimeUpdateExclusions []registerPullTimeUpdateExclusionOutput `json:"pullTimeUpdateExclusions"`
+	PullTimeUpdateExclusions []string `json:"pullTimeUpdateExclusions"`
 }
 
 func (h *Handler) handleListPullTimeUpdateExclusions(
@@ -1785,12 +1785,9 @@ func (h *Handler) handleListPullTimeUpdateExclusions(
 		return nil, err
 	}
 
-	out := make([]registerPullTimeUpdateExclusionOutput, 0, len(exclusions))
+	out := make([]string, 0, len(exclusions))
 	for _, exclusion := range exclusions {
-		out = append(out, registerPullTimeUpdateExclusionOutput{
-			CreatedAt:    exclusion.CreatedAt.Unix(),
-			PrincipalArn: exclusion.PrincipalArn,
-		})
+		out = append(out, exclusion.PrincipalArn)
 	}
 
 	return &listPullTimeUpdateExclusionsOutput{PullTimeUpdateExclusions: out}, nil

@@ -13,8 +13,19 @@
 		PutImageScanningConfigurationCommand,
 		PutLifecyclePolicyCommand,
 		StartImageScanCommand,
+		DescribeRegistryCommand,
+		GetRegistryScanningConfigurationCommand,
+		GetSigningConfigurationCommand,
+		DescribePullThroughCacheRulesCommand,
+		DescribeRepositoryCreationTemplatesCommand,
+		ListPullTimeUpdateExclusionsCommand,
 		type Repository,
-		type ImageDetail
+		type ImageDetail,
+		type ReplicationConfiguration,
+		type RegistryScanningConfiguration,
+		type SigningConfiguration,
+		type PullThroughCacheRule,
+		type RepositoryCreationTemplate
 	} from '@aws-sdk/client-ecr';
 	import { toast } from 'svelte-sonner';
 	import { Archive, Search, RefreshCw, Plus, Trash2, Image, Lock, Copy, ShieldCheck, ScanLine } from 'lucide-svelte';
@@ -31,6 +42,13 @@
 	let repoPolicy = $state<string | null>(null);
 	let lifecyclePolicy = $state<string | null>(null);
 	let scanningImages = $state<string[]>([]);
+	let loadingRegistry = $state(false);
+	let registryReplication = $state<ReplicationConfiguration | null>(null);
+	let registryScanning = $state<RegistryScanningConfiguration | null>(null);
+	let registrySigning = $state<SigningConfiguration | null>(null);
+	let pullThroughRules = $state<PullThroughCacheRule[]>([]);
+	let repositoryTemplates = $state<RepositoryCreationTemplate[]>([]);
+	let pullTimeExclusions = $state<string[]>([]);
 
 	// Create repo modal
 	let showCreateModal = $state(false);
@@ -62,6 +80,10 @@
 		return img.imageTags?.join(', ') ?? '<untagged>';
 	}
 
+	function countLabel(count: number, singular: string): string {
+		return `${count} ${singular}${count === 1 ? '' : 's'}`;
+	}
+
 	async function loadRepositories() {
 		loading = true;
 		try {
@@ -71,6 +93,30 @@
 			toast.error(`Failed to load repositories: ${(err as Error).message}`);
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadRegistryFeatures() {
+		loadingRegistry = true;
+		try {
+			const [registry, scanning, signing, cacheRules, templates, exclusions] = await Promise.all([
+				ecr.send(new DescribeRegistryCommand({})),
+				ecr.send(new GetRegistryScanningConfigurationCommand({})),
+				ecr.send(new GetSigningConfigurationCommand({})),
+				ecr.send(new DescribePullThroughCacheRulesCommand({ maxResults: 100 })),
+				ecr.send(new DescribeRepositoryCreationTemplatesCommand({ maxResults: 100 })),
+				ecr.send(new ListPullTimeUpdateExclusionsCommand({ maxResults: 100 }))
+			]);
+			registryReplication = registry?.replicationConfiguration ?? null;
+			registryScanning = scanning?.scanningConfiguration ?? null;
+			registrySigning = signing?.signingConfiguration ?? null;
+			pullThroughRules = cacheRules?.pullThroughCacheRules ?? [];
+			repositoryTemplates = templates?.repositoryCreationTemplates ?? [];
+			pullTimeExclusions = exclusions?.pullTimeUpdateExclusions ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load registry features: ${(err as Error).message}`);
+		} finally {
+			loadingRegistry = false;
 		}
 	}
 
@@ -217,7 +263,10 @@
 		}
 	});
 
-	onMount(() => { loadRepositories(); });
+	onMount(() => {
+		void loadRepositories();
+		void loadRegistryFeatures();
+	});
 </script>
 
 <div class="space-y-6">
@@ -246,6 +295,98 @@
 	<div class="relative">
 		<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
 		<input type="text" bind:value={searchQuery} placeholder="Search repositories..." class="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+	</div>
+
+	<!-- Registry Features -->
+	<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5">
+		<div class="flex items-center justify-between mb-4">
+			<div>
+				<h2 class="text-lg font-semibold text-slate-900 dark:text-white">Registry Features</h2>
+				<p class="text-sm text-slate-500 dark:text-slate-400">Registry-wide ECR configuration and SDK-backed resources</p>
+			</div>
+			<button onclick={loadRegistryFeatures} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh registry features">
+				<RefreshCw class="w-4 h-4 {loadingRegistry ? 'animate-spin' : ''}" />
+			</button>
+		</div>
+
+		<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+			{#each [
+				['Scan type', registryScanning?.scanType ?? 'BASIC'],
+				['Scan rules', countLabel(registryScanning?.rules?.length ?? 0, 'rule')],
+				['Signing rules', countLabel(registrySigning?.rules?.length ?? 0, 'rule')],
+				['Replication rules', countLabel(registryReplication?.rules?.length ?? 0, 'rule')],
+				['Pull-through cache', countLabel(pullThroughRules.length, 'rule')],
+				['Templates', countLabel(repositoryTemplates.length, 'template')]
+			] as [label, value]}
+				<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
+					<p class="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+					<p class="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">{value}</p>
+				</div>
+			{/each}
+		</div>
+
+		<div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+			<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-3">
+				<h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-2">Scanning & Signing</h3>
+				{#if registryScanning?.rules?.length}
+					<div class="space-y-2 mb-3">
+						{#each registryScanning.rules as rule}
+							<div class="text-xs text-slate-600 dark:text-slate-300">
+								<span class="font-medium">{rule.scanFrequency}</span>
+								<span class="text-slate-400"> · </span>
+								{rule.repositoryFilters?.map((f) => f.filter).join(', ') || 'all repositories'}
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">No registry scanning rules configured</p>
+				{/if}
+				{#if registrySigning?.rules?.length}
+					<div class="space-y-2">
+						{#each registrySigning.rules as rule}
+							<p class="text-xs text-slate-600 dark:text-slate-300 font-mono truncate">{rule.signingProfileArn}</p>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-xs text-slate-500 dark:text-slate-400">No signing configuration</p>
+				{/if}
+			</div>
+
+			<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-3">
+				<h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-2">Pull-through Cache</h3>
+				{#if pullThroughRules.length}
+					<div class="space-y-2">
+						{#each pullThroughRules as rule}
+							<div>
+								<p class="text-xs font-medium text-slate-700 dark:text-slate-200">{rule.ecrRepositoryPrefix}</p>
+								<p class="text-xs text-slate-500 dark:text-slate-400 truncate">{rule.upstreamRegistryUrl}</p>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-xs text-slate-500 dark:text-slate-400">No pull-through cache rules</p>
+				{/if}
+			</div>
+
+			<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-3">
+				<h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-2">Creation Templates & Exclusions</h3>
+				{#if repositoryTemplates.length}
+					<div class="space-y-2 mb-3">
+						{#each repositoryTemplates as template}
+							<div>
+								<p class="text-xs font-medium text-slate-700 dark:text-slate-200">{template.prefix}</p>
+								<p class="text-xs text-slate-500 dark:text-slate-400">{template.appliedFor?.join(', ') || 'No scenarios set'}</p>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">No repository creation templates</p>
+				{/if}
+				<p class="text-xs text-slate-500 dark:text-slate-400">
+					{countLabel(pullTimeExclusions.length, 'pull-time exclusion')}
+				</p>
+			</div>
+		</div>
 	</div>
 
 	<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">

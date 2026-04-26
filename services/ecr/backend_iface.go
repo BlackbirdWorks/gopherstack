@@ -145,7 +145,7 @@ type Backend interface {
 	DeleteSigningConfiguration() (*SigningSettings, error)
 
 	// DescribeImageSigningStatus returns signing status for an image.
-	DescribeImageSigningStatus(repositoryName string, imageID ImageIdentifier) ([]ImageSigningStatusRecord, error)
+	DescribeImageSigningStatus(repositoryName string, imageID ImageIdentifier) (*ImageSigningStatusResult, error)
 
 	// DescribeImageScanFindings returns scan findings for an image.
 	DescribeImageScanFindings(repositoryName string, imageID ImageIdentifier) (*ImageScanFindingsResult, error)

@@ -252,6 +252,14 @@ type ImageSigningStatusRecord struct {
 	Status            string `json:"status"`
 }
 
+// ImageSigningStatusResult stores signing status for an image.
+type ImageSigningStatusResult struct {
+	ImageID         ImageIdentifier            `json:"imageId"`
+	RegistryID      string                     `json:"registryId"`
+	RepositoryName  string                     `json:"repositoryName"`
+	SigningStatuses []ImageSigningStatusRecord `json:"signingStatuses"`
+}
+
 // ImageScanFinding is an image scan finding.
 type ImageScanFinding struct {
 	Attributes  map[string]string `json:"attributes,omitempty"`
@@ -1337,7 +1345,7 @@ func (b *InMemoryBackend) DeleteSigningConfiguration() (*SigningSettings, error)
 func (b *InMemoryBackend) DescribeImageSigningStatus(
 	repositoryName string,
 	imageID ImageIdentifier,
-) ([]ImageSigningStatusRecord, error) {
+) (*ImageSigningStatusResult, error) {
 	b.mu.RLock("DescribeImageSigningStatus")
 	defer b.mu.RUnlock()
 
@@ -1354,7 +1362,12 @@ func (b *InMemoryBackend) DescribeImageSigningStatus(
 		out[0].SigningProfileArn = b.signingConfig.Rules[0].SigningProfileArn
 	}
 
-	return out, nil
+	return &ImageSigningStatusResult{
+		ImageID:         imageID,
+		RegistryID:      b.accountID,
+		RepositoryName:  repositoryName,
+		SigningStatuses: out,
+	}, nil
 }
 
 // DescribeImageScanFindings returns scan findings for an image.
@@ -1504,10 +1517,12 @@ func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, 
 		b.images[repositoryName] = make(map[string]*Image)
 	}
 
-	cp := image
-	b.images[repositoryName][image.ImageDigest] = &cp
+	stored := image
+	b.images[repositoryName][image.ImageDigest] = &stored
 
-	return &cp, nil
+	ret := stored
+
+	return &ret, nil
 }
 
 // PutImageScanningConfiguration updates per-repository scan-on-push config.
