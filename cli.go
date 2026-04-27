@@ -4413,6 +4413,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 
 	seedAppConfigDataDemoProfiles(ctx, cli.appConfigDataHandler, log)
 	seedBedrockRuntimeDemoInvocations(ctx, cli.bedrockruntimeHandler, log)
+	seedRoute53ResolverDemoData(ctx, cli.route53resolverHandler, log)
 }
 
 // seedAppConfigDataDemoProfiles seeds demo configuration profiles for visual dashboard inspection.
@@ -4478,6 +4479,52 @@ func seedBedrockRuntimeDemoInvocations(ctx context.Context, h service.Registerab
 	)
 
 	log.InfoContext(ctx, "Seeded BedrockRuntime demo invocations")
+}
+
+// seedRoute53ResolverDemoData seeds demo resources for visual dashboard inspection.
+func seedRoute53ResolverDemoData(ctx context.Context, h service.Registerable, log *slog.Logger) {
+	r53rHandler, ok := h.(*route53resolverbackend.Handler)
+	if !ok || r53rHandler == nil {
+		log.DebugContext(ctx, "Route53Resolver handler not available; skipping demo seeding")
+
+		return
+	}
+
+	b, ok2 := r53rHandler.Backend.(*route53resolverbackend.InMemoryBackend)
+	if !ok2 || b == nil {
+		log.DebugContext(ctx, "Route53Resolver backend type assertion failed; skipping demo seeding")
+
+		return
+	}
+
+	ep := b.AddEndpointInternal("corp-inbound", route53resolverbackend.DirectionInbound)
+	b.AddEndpointInternal("corp-outbound", route53resolverbackend.DirectionOutbound)
+	r := b.AddRuleInternal("corp-forward", "corp.internal.", route53resolverbackend.RuleTypeForward)
+	_ = r
+	if ep != nil {
+		b.AddRuleInternalWithEndpoint(
+			"vpc-lookup",
+			"internal.example.com.",
+			route53resolverbackend.RuleTypeForward,
+			ep.ID,
+		)
+	}
+	grp := b.AddFirewallRuleGroupInternal("BlockMalware-Group")
+	b.AddFirewallRuleGroupInternal("AlertSuspicious-Group")
+	dl := b.AddFirewallDomainListInternal("malware-domains")
+	b.AddFirewallDomainListInternal("phishing-domains")
+	if grp != nil && dl != nil {
+		b.AddFirewallRuleInternal(
+			grp.ID,
+			"block-malware",
+			"BLOCK",
+			dl.ID,
+			route53resolverbackend.FirewallPriorityDefault,
+		)
+	}
+	b.AddQueryLogConfigInternal("vpc-query-logs", "arn:aws:logs:us-east-1:000000000000:log-group:/resolver/queries")
+
+	log.InfoContext(ctx, "Seeded Route53Resolver demo data")
 }
 
 // panicRecoveryMiddleware returns an Echo middleware that recovers from panics
