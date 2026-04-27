@@ -1518,7 +1518,7 @@ func (b *InMemoryBackend) GetJobQueueSnapshot(jobQueue string) (*JobQueueSnapsho
 		}
 	}
 
-	sort.Slice(runnableJobs, func(i, k int) bool { return runnableJobs[i].CreatedAt < runnableJobs[k].CreatedAt })
+	sort.Slice(runnableJobs, func(i, j int) bool { return runnableJobs[i].CreatedAt < runnableJobs[j].CreatedAt })
 
 	const maxFrontOfQueue = 100
 	if len(runnableJobs) > maxFrontOfQueue {
@@ -1556,7 +1556,7 @@ func (b *InMemoryBackend) ListJobsByConsumableResource(_ string) ([]*Job, error)
 		list = append(list, &cp)
 	}
 
-	sort.Slice(list, func(i, k int) bool { return list[i].CreatedAt < list[k].CreatedAt })
+	sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt < list[j].CreatedAt })
 
 	return list, nil
 }
