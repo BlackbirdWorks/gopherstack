@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -45,28 +46,74 @@ func NewHandler(backend StorageBackend) *Handler {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"AssociateFirewallRuleGroup":         service.WrapOp(h.handleAssociateFirewallRuleGroup),
-		"AssociateResolverEndpointIpAddress": service.WrapOp(h.handleAssociateResolverEndpointIPAddress),
-		"AssociateResolverQueryLogConfig":    service.WrapOp(h.handleAssociateResolverQueryLogConfig),
-		"AssociateResolverRule":              service.WrapOp(h.handleAssociateResolverRule),
-		"CreateFirewallDomainList":           service.WrapOp(h.handleCreateFirewallDomainList),
-		"CreateFirewallRule":                 service.WrapOp(h.handleCreateFirewallRule),
-		"CreateFirewallRuleGroup":            service.WrapOp(h.handleCreateFirewallRuleGroup),
-		"CreateOutpostResolver":              service.WrapOp(h.handleCreateOutpostResolver),
-		"CreateResolverEndpoint":             service.WrapOp(h.handleCreateResolverEndpoint),
-		"CreateResolverQueryLogConfig":       service.WrapOp(h.handleCreateResolverQueryLogConfig),
-		"DeleteFirewallDomainList":           service.WrapOp(h.handleDeleteFirewallDomainList),
-		"DeleteResolverEndpoint":             service.WrapOp(h.handleDeleteResolverEndpoint),
-		"GetResolverEndpoint":                service.WrapOp(h.handleGetResolverEndpoint),
-		"ListResolverEndpoints":              service.WrapOp(h.handleListResolverEndpoints),
-		"ListResolverEndpointIpAddresses":    service.WrapOp(h.handleListResolverEndpointIPAddresses),
-		"CreateResolverRule":                 service.WrapOp(h.handleCreateResolverRule),
-		"GetResolverRule":                    service.WrapOp(h.handleGetResolverRule),
-		"DeleteResolverRule":                 service.WrapOp(h.handleDeleteResolverRule),
-		"ListResolverRules":                  service.WrapOp(h.handleListResolverRules),
-		"ListTagsForResource":                service.WrapOp(h.handleListTagsForResource),
-		"TagResource":                        service.WrapOp(h.handleTagResource),
-		"UntagResource":                      service.WrapOp(h.handleUntagResource),
+		"AssociateFirewallRuleGroup":             service.WrapOp(h.handleAssociateFirewallRuleGroup),
+		"AssociateResolverEndpointIpAddress":     service.WrapOp(h.handleAssociateResolverEndpointIPAddress),
+		"AssociateResolverQueryLogConfig":        service.WrapOp(h.handleAssociateResolverQueryLogConfig),
+		"AssociateResolverRule":                  service.WrapOp(h.handleAssociateResolverRule),
+		"CreateFirewallDomainList":               service.WrapOp(h.handleCreateFirewallDomainList),
+		"CreateFirewallRule":                     service.WrapOp(h.handleCreateFirewallRule),
+		"CreateFirewallRuleGroup":                service.WrapOp(h.handleCreateFirewallRuleGroup),
+		"CreateOutpostResolver":                  service.WrapOp(h.handleCreateOutpostResolver),
+		"CreateResolverEndpoint":                 service.WrapOp(h.handleCreateResolverEndpoint),
+		"CreateResolverQueryLogConfig":           service.WrapOp(h.handleCreateResolverQueryLogConfig),
+		"CreateResolverRule":                     service.WrapOp(h.handleCreateResolverRule),
+		"DeleteFirewallDomainList":               service.WrapOp(h.handleDeleteFirewallDomainList),
+		"DeleteFirewallRule":                     service.WrapOp(h.handleDeleteFirewallRule),
+		"DeleteFirewallRuleGroup":                service.WrapOp(h.handleDeleteFirewallRuleGroup),
+		"DeleteOutpostResolver":                  service.WrapOp(h.handleDeleteOutpostResolver),
+		"DeleteResolverEndpoint":                 service.WrapOp(h.handleDeleteResolverEndpoint),
+		"DeleteResolverQueryLogConfig":           service.WrapOp(h.handleDeleteResolverQueryLogConfig),
+		"DeleteResolverRule":                     service.WrapOp(h.handleDeleteResolverRule),
+		"DisassociateFirewallRuleGroup":          service.WrapOp(h.handleDisassociateFirewallRuleGroup),
+		"DisassociateResolverEndpointIpAddress":  service.WrapOp(h.handleDisassociateResolverEndpointIPAddress),
+		"DisassociateResolverQueryLogConfig":     service.WrapOp(h.handleDisassociateResolverQueryLogConfig),
+		"DisassociateResolverRule":               service.WrapOp(h.handleDisassociateResolverRule),
+		"GetFirewallConfig":                      service.WrapOp(h.handleGetFirewallConfig),
+		"GetFirewallDomainList":                  service.WrapOp(h.handleGetFirewallDomainList),
+		"GetFirewallRuleGroup":                   service.WrapOp(h.handleGetFirewallRuleGroup),
+		"GetFirewallRuleGroupAssociation":        service.WrapOp(h.handleGetFirewallRuleGroupAssociation),
+		"GetFirewallRuleGroupPolicy":             service.WrapOp(h.handleGetFirewallRuleGroupPolicy),
+		"GetOutpostResolver":                     service.WrapOp(h.handleGetOutpostResolver),
+		"GetResolverConfig":                      service.WrapOp(h.handleGetResolverConfig),
+		"GetResolverDnssecConfig":                service.WrapOp(h.handleGetResolverDnssecConfig),
+		"GetResolverEndpoint":                    service.WrapOp(h.handleGetResolverEndpoint),
+		"GetResolverQueryLogConfig":              service.WrapOp(h.handleGetResolverQueryLogConfig),
+		"GetResolverQueryLogConfigAssociation":   service.WrapOp(h.handleGetResolverQueryLogConfigAssociation),
+		"GetResolverQueryLogConfigPolicy":        service.WrapOp(h.handleGetResolverQueryLogConfigPolicy),
+		"GetResolverRule":                        service.WrapOp(h.handleGetResolverRule),
+		"GetResolverRuleAssociation":             service.WrapOp(h.handleGetResolverRuleAssociation),
+		"GetResolverRulePolicy":                  service.WrapOp(h.handleGetResolverRulePolicy),
+		"ImportFirewallDomains":                  service.WrapOp(h.handleImportFirewallDomains),
+		"ListFirewallConfigs":                    service.WrapOp(h.handleListFirewallConfigs),
+		"ListFirewallDomainLists":                service.WrapOp(h.handleListFirewallDomainLists),
+		"ListFirewallDomains":                    service.WrapOp(h.handleListFirewallDomains),
+		"ListFirewallRuleGroupAssociations":      service.WrapOp(h.handleListFirewallRuleGroupAssociations),
+		"ListFirewallRuleGroups":                 service.WrapOp(h.handleListFirewallRuleGroups),
+		"ListFirewallRules":                      service.WrapOp(h.handleListFirewallRules),
+		"ListOutpostResolvers":                   service.WrapOp(h.handleListOutpostResolvers),
+		"ListResolverConfigs":                    service.WrapOp(h.handleListResolverConfigs),
+		"ListResolverDnssecConfigs":              service.WrapOp(h.handleListResolverDnssecConfigs),
+		"ListResolverEndpointIpAddresses":        service.WrapOp(h.handleListResolverEndpointIPAddresses),
+		"ListResolverEndpoints":                  service.WrapOp(h.handleListResolverEndpoints),
+		"ListResolverQueryLogConfigAssociations": service.WrapOp(h.handleListResolverQueryLogConfigAssociations),
+		"ListResolverQueryLogConfigs":            service.WrapOp(h.handleListResolverQueryLogConfigs),
+		"ListResolverRuleAssociations":           service.WrapOp(h.handleListResolverRuleAssociations),
+		"ListResolverRules":                      service.WrapOp(h.handleListResolverRules),
+		"ListTagsForResource":                    service.WrapOp(h.handleListTagsForResource),
+		"PutFirewallRuleGroupPolicy":             service.WrapOp(h.handlePutFirewallRuleGroupPolicy),
+		"PutResolverQueryLogConfigPolicy":        service.WrapOp(h.handlePutResolverQueryLogConfigPolicy),
+		"PutResolverRulePolicy":                  service.WrapOp(h.handlePutResolverRulePolicy),
+		"TagResource":                            service.WrapOp(h.handleTagResource),
+		"UntagResource":                          service.WrapOp(h.handleUntagResource),
+		"UpdateFirewallConfig":                   service.WrapOp(h.handleUpdateFirewallConfig),
+		"UpdateFirewallDomains":                  service.WrapOp(h.handleUpdateFirewallDomains),
+		"UpdateFirewallRule":                     service.WrapOp(h.handleUpdateFirewallRule),
+		"UpdateFirewallRuleGroupAssociation":     service.WrapOp(h.handleUpdateFirewallRuleGroupAssociation),
+		"UpdateOutpostResolver":                  service.WrapOp(h.handleUpdateOutpostResolver),
+		"UpdateResolverConfig":                   service.WrapOp(h.handleUpdateResolverConfig),
+		"UpdateResolverDnssecConfig":             service.WrapOp(h.handleUpdateResolverDnssecConfig),
+		"UpdateResolverEndpoint":                 service.WrapOp(h.handleUpdateResolverEndpoint),
+		"UpdateResolverRule":                     service.WrapOp(h.handleUpdateResolverRule),
 	}
 }
 
@@ -78,30 +125,13 @@ func (h *Handler) Reset() {
 func (h *Handler) Name() string { return "Route53Resolver" }
 
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
-		"AssociateFirewallRuleGroup",
-		"AssociateResolverEndpointIpAddress",
-		"AssociateResolverQueryLogConfig",
-		"AssociateResolverRule",
-		"CreateFirewallDomainList",
-		"CreateFirewallRule",
-		"CreateFirewallRuleGroup",
-		"CreateOutpostResolver",
-		"CreateResolverEndpoint",
-		"CreateResolverQueryLogConfig",
-		"CreateResolverRule",
-		"DeleteFirewallDomainList",
-		"DeleteResolverEndpoint",
-		"DeleteResolverRule",
-		"GetResolverEndpoint",
-		"GetResolverRule",
-		"ListResolverEndpointIpAddresses",
-		"ListResolverEndpoints",
-		"ListResolverRules",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
+	ops := make([]string, 0, len(h.ops))
+	for k := range h.ops {
+		ops = append(ops, k)
 	}
+	sort.Strings(ops)
+
+	return ops
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -1028,4 +1058,1209 @@ func (h *Handler) handleCreateOutpostResolver(
 	}
 
 	return &createOutpostResolverOutput{OutpostResolver: outpostResolverToOutput(r)}, nil
+}
+
+// --- New handler types and functions for 46 missing operations ---
+
+// firewallConfigOutput is the JSON representation of a FirewallConfig.
+type firewallConfigOutput struct {
+	ID               string `json:"Id"`
+	Arn              string `json:"Arn"`
+	OwnerID          string `json:"OwnerId"`
+	ResourceID       string `json:"ResourceId"`
+	FirewallFailOpen string `json:"FirewallFailOpen"`
+}
+
+func firewallConfigToOutput(c *FirewallConfig) firewallConfigOutput {
+	return firewallConfigOutput{
+		ID:               c.ID,
+		Arn:              c.ARN,
+		OwnerID:          c.OwnerID,
+		ResourceID:       c.ResourceID,
+		FirewallFailOpen: c.FirewallFailOpen,
+	}
+}
+
+// resolverConfigOutput is the JSON representation of a ResolverConfig.
+type resolverConfigOutput struct {
+	ID                 string `json:"Id"`
+	Arn                string `json:"Arn"`
+	OwnerID            string `json:"OwnerId"`
+	ResourceID         string `json:"ResourceId"`
+	AutodefinedReverse string `json:"AutodefinedReverse"`
+}
+
+func resolverConfigToOutput(c *ResolverConfig) resolverConfigOutput {
+	return resolverConfigOutput{
+		ID:                 c.ID,
+		Arn:                c.ARN,
+		OwnerID:            c.OwnerID,
+		ResourceID:         c.ResourceID,
+		AutodefinedReverse: c.AutodefinedReverse,
+	}
+}
+
+// resolverDnssecConfigOutput is the JSON representation of a ResolverDnssecConfig.
+type resolverDnssecConfigOutput struct {
+	ID               string `json:"Id"`
+	OwnerID          string `json:"OwnerId"`
+	ResourceID       string `json:"ResourceId"`
+	ValidationStatus string `json:"ValidationStatus"`
+}
+
+func resolverDnssecConfigToOutput(c *ResolverDnssecConfig) resolverDnssecConfigOutput {
+	return resolverDnssecConfigOutput{
+		ID:               c.ID,
+		OwnerID:          c.OwnerID,
+		ResourceID:       c.ResourceID,
+		ValidationStatus: c.ValidationStatus,
+	}
+}
+
+// --- DeleteFirewallRule ---
+
+type deleteFirewallRuleInput struct {
+	FirewallRuleID string `json:"FirewallRuleId"`
+}
+
+type deleteFirewallRuleOutput struct {
+	FirewallRule firewallRuleOutput `json:"FirewallRule"`
+}
+
+func (h *Handler) handleDeleteFirewallRule(
+	_ context.Context,
+	in *deleteFirewallRuleInput,
+) (*deleteFirewallRuleOutput, error) {
+	if in.FirewallRuleID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleId is required", ErrValidation)
+	}
+	rule, err := h.Backend.DeleteFirewallRule(in.FirewallRuleID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteFirewallRuleOutput{FirewallRule: firewallRuleToOutput(rule)}, nil
+}
+
+// --- UpdateFirewallRule ---
+
+type updateFirewallRuleInput struct {
+	FirewallRuleID string `json:"FirewallRuleId"`
+	Name           string `json:"Name"`
+	Action         string `json:"Action"`
+	BlockResponse  string `json:"BlockResponse"`
+	Priority       int32  `json:"Priority"`
+}
+
+type updateFirewallRuleOutput struct {
+	FirewallRule firewallRuleOutput `json:"FirewallRule"`
+}
+
+func (h *Handler) handleUpdateFirewallRule(
+	_ context.Context,
+	in *updateFirewallRuleInput,
+) (*updateFirewallRuleOutput, error) {
+	if in.FirewallRuleID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleId is required", ErrValidation)
+	}
+	rule, err := h.Backend.UpdateFirewallRule(in.FirewallRuleID, in.Name, in.Action, in.BlockResponse, in.Priority)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateFirewallRuleOutput{FirewallRule: firewallRuleToOutput(rule)}, nil
+}
+
+// --- ListFirewallRules ---
+
+type listFirewallRulesInput struct {
+	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
+}
+
+type listFirewallRulesOutput struct {
+	FirewallRules []firewallRuleOutput `json:"FirewallRules"`
+}
+
+func (h *Handler) handleListFirewallRules(
+	_ context.Context,
+	in *listFirewallRulesInput,
+) (*listFirewallRulesOutput, error) {
+	rules := h.Backend.ListFirewallRules(in.FirewallRuleGroupID)
+	items := make([]firewallRuleOutput, 0, len(rules))
+	for _, r := range rules {
+		items = append(items, firewallRuleToOutput(r))
+	}
+
+	return &listFirewallRulesOutput{FirewallRules: items}, nil
+}
+
+// --- DeleteFirewallRuleGroup ---
+
+type deleteFirewallRuleGroupInput struct {
+	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
+}
+
+type deleteFirewallRuleGroupOutput struct {
+	FirewallRuleGroup firewallRuleGroupOutput `json:"FirewallRuleGroup"`
+}
+
+func (h *Handler) handleDeleteFirewallRuleGroup(
+	_ context.Context,
+	in *deleteFirewallRuleGroupInput,
+) (*deleteFirewallRuleGroupOutput, error) {
+	if in.FirewallRuleGroupID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
+	}
+	g, err := h.Backend.DeleteFirewallRuleGroup(in.FirewallRuleGroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteFirewallRuleGroupOutput{FirewallRuleGroup: firewallRuleGroupToOutput(g)}, nil
+}
+
+// --- GetFirewallRuleGroup ---
+
+type getFirewallRuleGroupInput struct {
+	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
+}
+
+type getFirewallRuleGroupOutput struct {
+	FirewallRuleGroup firewallRuleGroupOutput `json:"FirewallRuleGroup"`
+}
+
+func (h *Handler) handleGetFirewallRuleGroup(
+	_ context.Context,
+	in *getFirewallRuleGroupInput,
+) (*getFirewallRuleGroupOutput, error) {
+	if in.FirewallRuleGroupID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
+	}
+	g, err := h.Backend.GetFirewallRuleGroup(in.FirewallRuleGroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getFirewallRuleGroupOutput{FirewallRuleGroup: firewallRuleGroupToOutput(g)}, nil
+}
+
+// --- ListFirewallRuleGroups ---
+
+type listFirewallRuleGroupsInput struct{}
+
+type listFirewallRuleGroupsOutput struct {
+	FirewallRuleGroups []firewallRuleGroupOutput `json:"FirewallRuleGroups"`
+}
+
+func (h *Handler) handleListFirewallRuleGroups(
+	_ context.Context,
+	_ *listFirewallRuleGroupsInput,
+) (*listFirewallRuleGroupsOutput, error) {
+	groups := h.Backend.ListFirewallRuleGroups()
+	items := make([]firewallRuleGroupOutput, 0, len(groups))
+	for _, g := range groups {
+		items = append(items, firewallRuleGroupToOutput(g))
+	}
+
+	return &listFirewallRuleGroupsOutput{FirewallRuleGroups: items}, nil
+}
+
+// --- GetFirewallRuleGroupPolicy ---
+
+type getFirewallRuleGroupPolicyInput struct {
+	Arn string `json:"Arn"`
+}
+
+type getFirewallRuleGroupPolicyOutput struct {
+	FirewallRuleGroupPolicy string `json:"FirewallRuleGroupPolicy"`
+}
+
+func (h *Handler) handleGetFirewallRuleGroupPolicy(
+	_ context.Context,
+	in *getFirewallRuleGroupPolicyInput,
+) (*getFirewallRuleGroupPolicyOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
+	}
+	policy := h.Backend.GetFirewallRuleGroupPolicy(in.Arn)
+
+	return &getFirewallRuleGroupPolicyOutput{FirewallRuleGroupPolicy: policy}, nil
+}
+
+// --- PutFirewallRuleGroupPolicy ---
+
+type putFirewallRuleGroupPolicyInput struct {
+	Arn                     string `json:"Arn"`
+	FirewallRuleGroupPolicy string `json:"FirewallRuleGroupPolicy"`
+}
+
+type putFirewallRuleGroupPolicyOutput struct {
+	ReturnValue bool `json:"ReturnValue"`
+}
+
+func (h *Handler) handlePutFirewallRuleGroupPolicy(
+	_ context.Context,
+	in *putFirewallRuleGroupPolicyInput,
+) (*putFirewallRuleGroupPolicyOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
+	}
+	if err := h.Backend.PutFirewallRuleGroupPolicy(in.Arn, in.FirewallRuleGroupPolicy); err != nil {
+		return nil, err
+	}
+
+	return &putFirewallRuleGroupPolicyOutput{ReturnValue: true}, nil
+}
+
+// --- GetFirewallRuleGroupAssociation ---
+
+type getFirewallRuleGroupAssociationInput struct {
+	FirewallRuleGroupAssociationID string `json:"FirewallRuleGroupAssociationId"`
+}
+
+type getFirewallRuleGroupAssociationOutput struct {
+	FirewallRuleGroupAssociation firewallRuleGroupAssociationOutput `json:"FirewallRuleGroupAssociation"`
+}
+
+func (h *Handler) handleGetFirewallRuleGroupAssociation(
+	_ context.Context,
+	in *getFirewallRuleGroupAssociationInput,
+) (*getFirewallRuleGroupAssociationOutput, error) {
+	if in.FirewallRuleGroupAssociationID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
+	}
+	assoc, err := h.Backend.GetFirewallRuleGroupAssociation(in.FirewallRuleGroupAssociationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getFirewallRuleGroupAssociationOutput{
+		FirewallRuleGroupAssociation: firewallRuleGroupAssociationToOutput(assoc),
+	}, nil
+}
+
+// --- ListFirewallRuleGroupAssociations ---
+
+type listFirewallRuleGroupAssociationsInput struct {
+	VpcID               string `json:"VpcId"`
+	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
+}
+
+type listFirewallRuleGroupAssociationsOutput struct {
+	FirewallRuleGroupAssociations []firewallRuleGroupAssociationOutput `json:"FirewallRuleGroupAssociations"`
+}
+
+func (h *Handler) handleListFirewallRuleGroupAssociations(
+	_ context.Context,
+	in *listFirewallRuleGroupAssociationsInput,
+) (*listFirewallRuleGroupAssociationsOutput, error) {
+	assocs := h.Backend.ListFirewallRuleGroupAssociations(in.VpcID, in.FirewallRuleGroupID)
+	items := make([]firewallRuleGroupAssociationOutput, 0, len(assocs))
+	for _, a := range assocs {
+		items = append(items, firewallRuleGroupAssociationToOutput(a))
+	}
+
+	return &listFirewallRuleGroupAssociationsOutput{FirewallRuleGroupAssociations: items}, nil
+}
+
+// --- DisassociateFirewallRuleGroup ---
+
+type disassociateFirewallRuleGroupInput struct {
+	FirewallRuleGroupAssociationID string `json:"FirewallRuleGroupAssociationId"`
+}
+
+type disassociateFirewallRuleGroupOutput struct {
+	FirewallRuleGroupAssociation firewallRuleGroupAssociationOutput `json:"FirewallRuleGroupAssociation"`
+}
+
+func (h *Handler) handleDisassociateFirewallRuleGroup(
+	_ context.Context,
+	in *disassociateFirewallRuleGroupInput,
+) (*disassociateFirewallRuleGroupOutput, error) {
+	if in.FirewallRuleGroupAssociationID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
+	}
+	assoc, err := h.Backend.DisassociateFirewallRuleGroup(in.FirewallRuleGroupAssociationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &disassociateFirewallRuleGroupOutput{
+		FirewallRuleGroupAssociation: firewallRuleGroupAssociationToOutput(assoc),
+	}, nil
+}
+
+// --- UpdateFirewallRuleGroupAssociation ---
+
+type updateFirewallRuleGroupAssociationInput struct {
+	FirewallRuleGroupAssociationID string `json:"FirewallRuleGroupAssociationId"`
+	Name                           string `json:"Name"`
+	Priority                       int32  `json:"Priority"`
+}
+
+type updateFirewallRuleGroupAssociationOutput struct {
+	FirewallRuleGroupAssociation firewallRuleGroupAssociationOutput `json:"FirewallRuleGroupAssociation"`
+}
+
+func (h *Handler) handleUpdateFirewallRuleGroupAssociation(
+	_ context.Context,
+	in *updateFirewallRuleGroupAssociationInput,
+) (*updateFirewallRuleGroupAssociationOutput, error) {
+	if in.FirewallRuleGroupAssociationID == "" {
+		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
+	}
+	assoc, err := h.Backend.UpdateFirewallRuleGroupAssociation(
+		in.FirewallRuleGroupAssociationID, in.Name, in.Priority,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateFirewallRuleGroupAssociationOutput{
+		FirewallRuleGroupAssociation: firewallRuleGroupAssociationToOutput(assoc),
+	}, nil
+}
+
+// --- GetFirewallDomainList ---
+
+type getFirewallDomainListInput struct {
+	FirewallDomainListID string `json:"FirewallDomainListId"`
+}
+
+type getFirewallDomainListOutput struct {
+	FirewallDomainList firewallDomainListOutput `json:"FirewallDomainList"`
+}
+
+func (h *Handler) handleGetFirewallDomainList(
+	_ context.Context,
+	in *getFirewallDomainListInput,
+) (*getFirewallDomainListOutput, error) {
+	if in.FirewallDomainListID == "" {
+		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+	}
+	dl, err := h.Backend.GetFirewallDomainList(in.FirewallDomainListID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getFirewallDomainListOutput{FirewallDomainList: firewallDomainListToOutput(dl)}, nil
+}
+
+// --- ListFirewallDomainLists ---
+
+type listFirewallDomainListsInput struct{}
+
+type listFirewallDomainListsOutput struct {
+	FirewallDomainLists []firewallDomainListOutput `json:"FirewallDomainLists"`
+}
+
+func (h *Handler) handleListFirewallDomainLists(
+	_ context.Context,
+	_ *listFirewallDomainListsInput,
+) (*listFirewallDomainListsOutput, error) {
+	lists := h.Backend.ListFirewallDomainLists()
+	items := make([]firewallDomainListOutput, 0, len(lists))
+	for _, dl := range lists {
+		items = append(items, firewallDomainListToOutput(dl))
+	}
+
+	return &listFirewallDomainListsOutput{FirewallDomainLists: items}, nil
+}
+
+// --- ListFirewallDomains ---
+
+type listFirewallDomainsInput struct {
+	FirewallDomainListID string `json:"FirewallDomainListId"`
+}
+
+type listFirewallDomainsOutput struct {
+	Domains []string `json:"Domains"`
+}
+
+func (h *Handler) handleListFirewallDomains(
+	_ context.Context,
+	in *listFirewallDomainsInput,
+) (*listFirewallDomainsOutput, error) {
+	if in.FirewallDomainListID == "" {
+		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+	}
+	domains, err := h.Backend.ListFirewallDomains(in.FirewallDomainListID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listFirewallDomainsOutput{Domains: domains}, nil
+}
+
+// --- UpdateFirewallDomains ---
+
+type updateFirewallDomainsInput struct {
+	FirewallDomainListID string   `json:"FirewallDomainListId"`
+	Operation            string   `json:"Operation"`
+	Domains              []string `json:"Domains"`
+}
+
+type updateFirewallDomainsOutput struct {
+	FirewallDomainList firewallDomainListOutput `json:"FirewallDomainList"`
+}
+
+func (h *Handler) handleUpdateFirewallDomains(
+	_ context.Context,
+	in *updateFirewallDomainsInput,
+) (*updateFirewallDomainsOutput, error) {
+	if in.FirewallDomainListID == "" {
+		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+	}
+	if in.Operation == "" {
+		return nil, fmt.Errorf("%w: Operation is required", ErrValidation)
+	}
+	dl, err := h.Backend.UpdateFirewallDomains(in.FirewallDomainListID, in.Operation, in.Domains)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateFirewallDomainsOutput{FirewallDomainList: firewallDomainListToOutput(dl)}, nil
+}
+
+// --- ImportFirewallDomains ---
+
+type importFirewallDomainsInput struct {
+	FirewallDomainListID string `json:"FirewallDomainListId"`
+	DomainFileURL        string `json:"DomainFileUrl"`
+	Operation            string `json:"Operation"`
+}
+
+type importFirewallDomainsOutput struct {
+	FirewallDomainList firewallDomainListOutput `json:"FirewallDomainList"`
+}
+
+func (h *Handler) handleImportFirewallDomains(
+	_ context.Context,
+	in *importFirewallDomainsInput,
+) (*importFirewallDomainsOutput, error) {
+	if in.FirewallDomainListID == "" {
+		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
+	}
+	if in.DomainFileURL == "" {
+		return nil, fmt.Errorf("%w: DomainFileUrl is required", ErrValidation)
+	}
+	if in.Operation == "" {
+		return nil, fmt.Errorf("%w: Operation is required", ErrValidation)
+	}
+	dl, err := h.Backend.ImportFirewallDomains(in.FirewallDomainListID, in.Operation, in.DomainFileURL)
+	if err != nil {
+		return nil, err
+	}
+
+	return &importFirewallDomainsOutput{FirewallDomainList: firewallDomainListToOutput(dl)}, nil
+}
+
+// --- GetFirewallConfig ---
+
+type getFirewallConfigInput struct {
+	ResourceID string `json:"ResourceId"`
+}
+
+type getFirewallConfigOutput struct {
+	FirewallConfig firewallConfigOutput `json:"FirewallConfig"`
+}
+
+func (h *Handler) handleGetFirewallConfig(
+	_ context.Context,
+	in *getFirewallConfigInput,
+) (*getFirewallConfigOutput, error) {
+	if in.ResourceID == "" {
+		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+	cfg := h.Backend.GetFirewallConfig(in.ResourceID)
+
+	return &getFirewallConfigOutput{FirewallConfig: firewallConfigToOutput(cfg)}, nil
+}
+
+// --- UpdateFirewallConfig ---
+
+type updateFirewallConfigInput struct {
+	ResourceID       string `json:"ResourceId"`
+	FirewallFailOpen string `json:"FirewallFailOpen"`
+}
+
+type updateFirewallConfigOutput struct {
+	FirewallConfig firewallConfigOutput `json:"FirewallConfig"`
+}
+
+func (h *Handler) handleUpdateFirewallConfig(
+	_ context.Context,
+	in *updateFirewallConfigInput,
+) (*updateFirewallConfigOutput, error) {
+	if in.ResourceID == "" {
+		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+	cfg, err := h.Backend.UpdateFirewallConfig(in.ResourceID, in.FirewallFailOpen)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateFirewallConfigOutput{FirewallConfig: firewallConfigToOutput(cfg)}, nil
+}
+
+// --- ListFirewallConfigs ---
+
+type listFirewallConfigsInput struct{}
+
+type listFirewallConfigsOutput struct {
+	FirewallConfigs []firewallConfigOutput `json:"FirewallConfigs"`
+}
+
+func (h *Handler) handleListFirewallConfigs(
+	_ context.Context,
+	_ *listFirewallConfigsInput,
+) (*listFirewallConfigsOutput, error) {
+	configs := h.Backend.ListFirewallConfigs()
+	items := make([]firewallConfigOutput, 0, len(configs))
+	for _, c := range configs {
+		items = append(items, firewallConfigToOutput(c))
+	}
+
+	return &listFirewallConfigsOutput{FirewallConfigs: items}, nil
+}
+
+// --- GetOutpostResolver ---
+
+type getOutpostResolverInput struct {
+	ID string `json:"Id"`
+}
+
+type getOutpostResolverOutput struct {
+	OutpostResolver outpostResolverOutput `json:"OutpostResolver"`
+}
+
+func (h *Handler) handleGetOutpostResolver(
+	_ context.Context,
+	in *getOutpostResolverInput,
+) (*getOutpostResolverOutput, error) {
+	if in.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
+	}
+	r, err := h.Backend.GetOutpostResolver(in.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getOutpostResolverOutput{OutpostResolver: outpostResolverToOutput(r)}, nil
+}
+
+// --- DeleteOutpostResolver ---
+
+type deleteOutpostResolverInput struct {
+	ID string `json:"Id"`
+}
+
+type deleteOutpostResolverOutput struct {
+	OutpostResolver outpostResolverOutput `json:"OutpostResolver"`
+}
+
+func (h *Handler) handleDeleteOutpostResolver(
+	_ context.Context,
+	in *deleteOutpostResolverInput,
+) (*deleteOutpostResolverOutput, error) {
+	if in.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
+	}
+	r, err := h.Backend.DeleteOutpostResolver(in.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteOutpostResolverOutput{OutpostResolver: outpostResolverToOutput(r)}, nil
+}
+
+// --- ListOutpostResolvers ---
+
+type listOutpostResolversInput struct{}
+
+type listOutpostResolversOutput struct {
+	OutpostResolvers []outpostResolverOutput `json:"OutpostResolvers"`
+}
+
+func (h *Handler) handleListOutpostResolvers(
+	_ context.Context,
+	_ *listOutpostResolversInput,
+) (*listOutpostResolversOutput, error) {
+	resolvers := h.Backend.ListOutpostResolvers()
+	items := make([]outpostResolverOutput, 0, len(resolvers))
+	for _, r := range resolvers {
+		items = append(items, outpostResolverToOutput(r))
+	}
+
+	return &listOutpostResolversOutput{OutpostResolvers: items}, nil
+}
+
+// --- UpdateOutpostResolver ---
+
+type updateOutpostResolverInput struct {
+	ID                    string `json:"Id"`
+	Name                  string `json:"Name"`
+	PreferredInstanceType string `json:"PreferredInstanceType"`
+	InstanceCount         int32  `json:"InstanceCount"`
+}
+
+type updateOutpostResolverOutput struct {
+	OutpostResolver outpostResolverOutput `json:"OutpostResolver"`
+}
+
+func (h *Handler) handleUpdateOutpostResolver(
+	_ context.Context,
+	in *updateOutpostResolverInput,
+) (*updateOutpostResolverOutput, error) {
+	if in.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
+	}
+	r, err := h.Backend.UpdateOutpostResolver(in.ID, in.Name, in.PreferredInstanceType, in.InstanceCount)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateOutpostResolverOutput{OutpostResolver: outpostResolverToOutput(r)}, nil
+}
+
+// --- DeleteResolverQueryLogConfig ---
+
+type deleteResolverQueryLogConfigInput struct {
+	ResolverQueryLogConfigID string `json:"ResolverQueryLogConfigId"`
+}
+
+type deleteResolverQueryLogConfigOutput struct {
+	ResolverQueryLogConfig resolverQueryLogConfigOutput `json:"ResolverQueryLogConfig"`
+}
+
+func (h *Handler) handleDeleteResolverQueryLogConfig(
+	_ context.Context,
+	in *deleteResolverQueryLogConfigInput,
+) (*deleteResolverQueryLogConfigOutput, error) {
+	if in.ResolverQueryLogConfigID == "" {
+		return nil, fmt.Errorf("%w: ResolverQueryLogConfigId is required", ErrValidation)
+	}
+	cfg, err := h.Backend.DeleteResolverQueryLogConfig(in.ResolverQueryLogConfigID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteResolverQueryLogConfigOutput{ResolverQueryLogConfig: queryLogConfigToOutput(cfg)}, nil
+}
+
+// --- GetResolverQueryLogConfig ---
+
+type getResolverQueryLogConfigInput struct {
+	ResolverQueryLogConfigID string `json:"ResolverQueryLogConfigId"`
+}
+
+type getResolverQueryLogConfigOutput struct {
+	ResolverQueryLogConfig resolverQueryLogConfigOutput `json:"ResolverQueryLogConfig"`
+}
+
+func (h *Handler) handleGetResolverQueryLogConfig(
+	_ context.Context,
+	in *getResolverQueryLogConfigInput,
+) (*getResolverQueryLogConfigOutput, error) {
+	if in.ResolverQueryLogConfigID == "" {
+		return nil, fmt.Errorf("%w: ResolverQueryLogConfigId is required", ErrValidation)
+	}
+	cfg, err := h.Backend.GetResolverQueryLogConfig(in.ResolverQueryLogConfigID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getResolverQueryLogConfigOutput{ResolverQueryLogConfig: queryLogConfigToOutput(cfg)}, nil
+}
+
+// --- ListResolverQueryLogConfigs ---
+
+type listResolverQueryLogConfigsInput struct{}
+
+type listResolverQueryLogConfigsOutput struct {
+	ResolverQueryLogConfigs []resolverQueryLogConfigOutput `json:"ResolverQueryLogConfigs"`
+}
+
+func (h *Handler) handleListResolverQueryLogConfigs(
+	_ context.Context,
+	_ *listResolverQueryLogConfigsInput,
+) (*listResolverQueryLogConfigsOutput, error) {
+	configs := h.Backend.ListResolverQueryLogConfigs()
+	items := make([]resolverQueryLogConfigOutput, 0, len(configs))
+	for _, c := range configs {
+		items = append(items, queryLogConfigToOutput(c))
+	}
+
+	return &listResolverQueryLogConfigsOutput{ResolverQueryLogConfigs: items}, nil
+}
+
+// --- GetResolverQueryLogConfigAssociation ---
+
+type getResolverQueryLogConfigAssociationInput struct {
+	ResolverQueryLogConfigAssociationID string `json:"ResolverQueryLogConfigAssociationId"`
+}
+
+type getResolverQueryLogConfigAssociationOutput struct {
+	ResolverQueryLogConfigAssociation resolverQueryLogConfigAssociationOutput `json:"ResolverQueryLogConfigAssociation"`
+}
+
+func (h *Handler) handleGetResolverQueryLogConfigAssociation(
+	_ context.Context,
+	in *getResolverQueryLogConfigAssociationInput,
+) (*getResolverQueryLogConfigAssociationOutput, error) {
+	if in.ResolverQueryLogConfigAssociationID == "" {
+		return nil, fmt.Errorf("%w: ResolverQueryLogConfigAssociationId is required", ErrValidation)
+	}
+	assoc, err := h.Backend.GetResolverQueryLogConfigAssociation(in.ResolverQueryLogConfigAssociationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getResolverQueryLogConfigAssociationOutput{
+		ResolverQueryLogConfigAssociation: queryLogConfigAssociationToOutput(assoc),
+	}, nil
+}
+
+// --- DisassociateResolverQueryLogConfig ---
+
+type disassociateResolverQueryLogConfigInput struct {
+	ResolverQueryLogConfigAssociationID string `json:"ResolverQueryLogConfigAssociationId"`
+}
+
+type disassociateResolverQueryLogConfigOutput struct {
+	ResolverQueryLogConfigAssociation resolverQueryLogConfigAssociationOutput `json:"ResolverQueryLogConfigAssociation"`
+}
+
+func (h *Handler) handleDisassociateResolverQueryLogConfig(
+	_ context.Context,
+	in *disassociateResolverQueryLogConfigInput,
+) (*disassociateResolverQueryLogConfigOutput, error) {
+	if in.ResolverQueryLogConfigAssociationID == "" {
+		return nil, fmt.Errorf("%w: ResolverQueryLogConfigAssociationId is required", ErrValidation)
+	}
+	assoc, err := h.Backend.DisassociateResolverQueryLogConfig(in.ResolverQueryLogConfigAssociationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &disassociateResolverQueryLogConfigOutput{
+		ResolverQueryLogConfigAssociation: queryLogConfigAssociationToOutput(assoc),
+	}, nil
+}
+
+// --- ListResolverQueryLogConfigAssociations ---
+
+type listResolverQueryLogConfigAssociationsInput struct{}
+
+type queryLogAssocOutputSlice = []resolverQueryLogConfigAssociationOutput
+
+type listResolverQueryLogConfigAssociationsOutput struct {
+	ResolverQueryLogConfigAssociations queryLogAssocOutputSlice `json:"ResolverQueryLogConfigAssociations"`
+}
+
+func (h *Handler) handleListResolverQueryLogConfigAssociations(
+	_ context.Context,
+	_ *listResolverQueryLogConfigAssociationsInput,
+) (*listResolverQueryLogConfigAssociationsOutput, error) {
+	assocs := h.Backend.ListResolverQueryLogConfigAssociations()
+	items := make([]resolverQueryLogConfigAssociationOutput, 0, len(assocs))
+	for _, a := range assocs {
+		items = append(items, queryLogConfigAssociationToOutput(a))
+	}
+
+	return &listResolverQueryLogConfigAssociationsOutput{ResolverQueryLogConfigAssociations: items}, nil
+}
+
+// --- GetResolverQueryLogConfigPolicy ---
+
+type getResolverQueryLogConfigPolicyInput struct {
+	Arn string `json:"Arn"`
+}
+
+type getResolverQueryLogConfigPolicyOutput struct {
+	ResolverQueryLogConfigPolicy string `json:"ResolverQueryLogConfigPolicy"`
+}
+
+func (h *Handler) handleGetResolverQueryLogConfigPolicy(
+	_ context.Context,
+	in *getResolverQueryLogConfigPolicyInput,
+) (*getResolverQueryLogConfigPolicyOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
+	}
+	policy := h.Backend.GetResolverQueryLogConfigPolicy(in.Arn)
+
+	return &getResolverQueryLogConfigPolicyOutput{ResolverQueryLogConfigPolicy: policy}, nil
+}
+
+// --- PutResolverQueryLogConfigPolicy ---
+
+type putResolverQueryLogConfigPolicyInput struct {
+	Arn                          string `json:"Arn"`
+	ResolverQueryLogConfigPolicy string `json:"ResolverQueryLogConfigPolicy"`
+}
+
+type putResolverQueryLogConfigPolicyOutput struct {
+	ReturnValue bool `json:"ReturnValue"`
+}
+
+func (h *Handler) handlePutResolverQueryLogConfigPolicy(
+	_ context.Context,
+	in *putResolverQueryLogConfigPolicyInput,
+) (*putResolverQueryLogConfigPolicyOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
+	}
+	if err := h.Backend.PutResolverQueryLogConfigPolicy(in.Arn, in.ResolverQueryLogConfigPolicy); err != nil {
+		return nil, err
+	}
+
+	return &putResolverQueryLogConfigPolicyOutput{ReturnValue: true}, nil
+}
+
+// --- GetResolverRuleAssociation ---
+
+type getResolverRuleAssociationInput struct {
+	ResolverRuleAssociationID string `json:"ResolverRuleAssociationId"`
+}
+
+type getResolverRuleAssociationOutput struct {
+	ResolverRuleAssociation resolverRuleAssociationOutput `json:"ResolverRuleAssociation"`
+}
+
+func (h *Handler) handleGetResolverRuleAssociation(
+	_ context.Context,
+	in *getResolverRuleAssociationInput,
+) (*getResolverRuleAssociationOutput, error) {
+	if in.ResolverRuleAssociationID == "" {
+		return nil, fmt.Errorf("%w: ResolverRuleAssociationId is required", ErrValidation)
+	}
+	assoc, err := h.Backend.GetResolverRuleAssociation(in.ResolverRuleAssociationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getResolverRuleAssociationOutput{ResolverRuleAssociation: ruleAssociationToOutput(assoc)}, nil
+}
+
+// --- DisassociateResolverRule ---
+
+type disassociateResolverRuleInput struct {
+	ResolverRuleAssociationID string `json:"ResolverRuleAssociationId"`
+}
+
+type disassociateResolverRuleOutput struct {
+	ResolverRuleAssociation resolverRuleAssociationOutput `json:"ResolverRuleAssociation"`
+}
+
+func (h *Handler) handleDisassociateResolverRule(
+	_ context.Context,
+	in *disassociateResolverRuleInput,
+) (*disassociateResolverRuleOutput, error) {
+	if in.ResolverRuleAssociationID == "" {
+		return nil, fmt.Errorf("%w: ResolverRuleAssociationId is required", ErrValidation)
+	}
+	assoc, err := h.Backend.DisassociateResolverRule(in.ResolverRuleAssociationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &disassociateResolverRuleOutput{ResolverRuleAssociation: ruleAssociationToOutput(assoc)}, nil
+}
+
+// --- ListResolverRuleAssociations ---
+
+type listResolverRuleAssociationsInput struct{}
+
+type listResolverRuleAssociationsOutput struct {
+	ResolverRuleAssociations []resolverRuleAssociationOutput `json:"ResolverRuleAssociations"`
+}
+
+func (h *Handler) handleListResolverRuleAssociations(
+	_ context.Context,
+	_ *listResolverRuleAssociationsInput,
+) (*listResolverRuleAssociationsOutput, error) {
+	assocs := h.Backend.ListResolverRuleAssociations()
+	items := make([]resolverRuleAssociationOutput, 0, len(assocs))
+	for _, a := range assocs {
+		items = append(items, ruleAssociationToOutput(a))
+	}
+
+	return &listResolverRuleAssociationsOutput{ResolverRuleAssociations: items}, nil
+}
+
+// --- GetResolverRulePolicy ---
+
+type getResolverRulePolicyInput struct {
+	Arn string `json:"Arn"`
+}
+
+type getResolverRulePolicyOutput struct {
+	ResolverRulePolicy string `json:"ResolverRulePolicy"`
+}
+
+func (h *Handler) handleGetResolverRulePolicy(
+	_ context.Context,
+	in *getResolverRulePolicyInput,
+) (*getResolverRulePolicyOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
+	}
+	policy := h.Backend.GetResolverRulePolicy(in.Arn)
+
+	return &getResolverRulePolicyOutput{ResolverRulePolicy: policy}, nil
+}
+
+// --- PutResolverRulePolicy ---
+
+type putResolverRulePolicyInput struct {
+	Arn                string `json:"Arn"`
+	ResolverRulePolicy string `json:"ResolverRulePolicy"`
+}
+
+type putResolverRulePolicyOutput struct {
+	ReturnValue bool `json:"ReturnValue"`
+}
+
+func (h *Handler) handlePutResolverRulePolicy(
+	_ context.Context,
+	in *putResolverRulePolicyInput,
+) (*putResolverRulePolicyOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
+	}
+	if err := h.Backend.PutResolverRulePolicy(in.Arn, in.ResolverRulePolicy); err != nil {
+		return nil, err
+	}
+
+	return &putResolverRulePolicyOutput{ReturnValue: true}, nil
+}
+
+// --- UpdateResolverEndpoint ---
+
+type updateResolverEndpointInput struct {
+	ResolverEndpointID string `json:"ResolverEndpointId"`
+	Name               string `json:"Name"`
+}
+
+type updateResolverEndpointOutput struct {
+	ResolverEndpoint resolverEndpointOutput `json:"ResolverEndpoint"`
+}
+
+func (h *Handler) handleUpdateResolverEndpoint(
+	_ context.Context,
+	in *updateResolverEndpointInput,
+) (*updateResolverEndpointOutput, error) {
+	if in.ResolverEndpointID == "" {
+		return nil, fmt.Errorf("%w: ResolverEndpointId is required", ErrValidation)
+	}
+	ep, err := h.Backend.UpdateResolverEndpoint(in.ResolverEndpointID, in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateResolverEndpointOutput{ResolverEndpoint: endpointToOutput(ep)}, nil
+}
+
+// --- DisassociateResolverEndpointIpAddress ---
+
+type disassociateResolverEndpointIPAddressInput struct {
+	ResolverEndpointID string               `json:"ResolverEndpointId"`
+	IPAddress          ipAddressRemoveInput `json:"IpAddress"`
+}
+
+type ipAddressRemoveInput struct {
+	IPID     string `json:"IpId"`
+	IP       string `json:"Ip"`
+	SubnetID string `json:"SubnetId"`
+}
+
+type disassociateResolverEndpointIPAddressOutput struct {
+	ResolverEndpoint resolverEndpointOutput `json:"ResolverEndpoint"`
+}
+
+func (h *Handler) handleDisassociateResolverEndpointIPAddress(
+	_ context.Context,
+	in *disassociateResolverEndpointIPAddressInput,
+) (*disassociateResolverEndpointIPAddressOutput, error) {
+	if in.ResolverEndpointID == "" {
+		return nil, fmt.Errorf("%w: ResolverEndpointId is required", ErrValidation)
+	}
+	if in.IPAddress.IPID == "" {
+		return nil, fmt.Errorf("%w: IpAddress.IpId is required", ErrValidation)
+	}
+	ep, err := h.Backend.DisassociateResolverEndpointIPAddress(in.ResolverEndpointID, in.IPAddress.IPID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &disassociateResolverEndpointIPAddressOutput{ResolverEndpoint: endpointToOutput(ep)}, nil
+}
+
+// --- UpdateResolverRule ---
+
+type updateResolverRuleInput struct {
+	ResolverRuleID string             `json:"ResolverRuleId"`
+	Config         resolverRuleConfig `json:"Config"`
+}
+
+type resolverRuleConfig struct {
+	Name string `json:"Name"`
+}
+
+type updateResolverRuleOutput struct {
+	ResolverRule resolverRuleOutput `json:"ResolverRule"`
+}
+
+func (h *Handler) handleUpdateResolverRule(
+	_ context.Context,
+	in *updateResolverRuleInput,
+) (*updateResolverRuleOutput, error) {
+	if in.ResolverRuleID == "" {
+		return nil, fmt.Errorf("%w: ResolverRuleId is required", ErrValidation)
+	}
+	r, err := h.Backend.UpdateResolverRule(in.ResolverRuleID, in.Config.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateResolverRuleOutput{ResolverRule: ruleToOutput(r)}, nil
+}
+
+// --- GetResolverConfig ---
+
+type getResolverConfigInput struct {
+	ResourceID string `json:"ResourceId"`
+}
+
+type getResolverConfigOutput struct {
+	ResolverConfig resolverConfigOutput `json:"ResolverConfig"`
+}
+
+func (h *Handler) handleGetResolverConfig(
+	_ context.Context,
+	in *getResolverConfigInput,
+) (*getResolverConfigOutput, error) {
+	if in.ResourceID == "" {
+		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+	cfg := h.Backend.GetResolverConfig(in.ResourceID)
+
+	return &getResolverConfigOutput{ResolverConfig: resolverConfigToOutput(cfg)}, nil
+}
+
+// --- UpdateResolverConfig ---
+
+type updateResolverConfigInput struct {
+	ResourceID         string `json:"ResourceId"`
+	AutodefinedReverse string `json:"AutodefinedReverse"`
+}
+
+type updateResolverConfigOutput struct {
+	ResolverConfig resolverConfigOutput `json:"ResolverConfig"`
+}
+
+func (h *Handler) handleUpdateResolverConfig(
+	_ context.Context,
+	in *updateResolverConfigInput,
+) (*updateResolverConfigOutput, error) {
+	if in.ResourceID == "" {
+		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+	cfg, err := h.Backend.UpdateResolverConfig(in.ResourceID, in.AutodefinedReverse)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateResolverConfigOutput{ResolverConfig: resolverConfigToOutput(cfg)}, nil
+}
+
+// --- ListResolverConfigs ---
+
+type listResolverConfigsInput struct{}
+
+type listResolverConfigsOutput struct {
+	ResolverConfigs []resolverConfigOutput `json:"ResolverConfigs"`
+}
+
+func (h *Handler) handleListResolverConfigs(
+	_ context.Context,
+	_ *listResolverConfigsInput,
+) (*listResolverConfigsOutput, error) {
+	configs := h.Backend.ListResolverConfigs()
+	items := make([]resolverConfigOutput, 0, len(configs))
+	for _, c := range configs {
+		items = append(items, resolverConfigToOutput(c))
+	}
+
+	return &listResolverConfigsOutput{ResolverConfigs: items}, nil
+}
+
+// --- GetResolverDnssecConfig ---
+
+type getResolverDnssecConfigInput struct {
+	ResourceID string `json:"ResourceId"`
+}
+
+type getResolverDnssecConfigOutput struct {
+	ResolverDNSSECConfig resolverDnssecConfigOutput `json:"ResolverDNSSECConfig"`
+}
+
+func (h *Handler) handleGetResolverDnssecConfig(
+	_ context.Context,
+	in *getResolverDnssecConfigInput,
+) (*getResolverDnssecConfigOutput, error) {
+	if in.ResourceID == "" {
+		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+	cfg := h.Backend.GetResolverDnssecConfig(in.ResourceID)
+
+	return &getResolverDnssecConfigOutput{ResolverDNSSECConfig: resolverDnssecConfigToOutput(cfg)}, nil
+}
+
+// --- UpdateResolverDnssecConfig ---
+
+type updateResolverDnssecConfigInput struct {
+	ResourceID string `json:"ResourceId"`
+	Validation string `json:"Validation"`
+}
+
+type updateResolverDnssecConfigOutput struct {
+	ResolverDNSSECConfig resolverDnssecConfigOutput `json:"ResolverDNSSECConfig"`
+}
+
+func (h *Handler) handleUpdateResolverDnssecConfig(
+	_ context.Context,
+	in *updateResolverDnssecConfigInput,
+) (*updateResolverDnssecConfigOutput, error) {
+	if in.ResourceID == "" {
+		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
+	}
+	cfg, err := h.Backend.UpdateResolverDnssecConfig(in.ResourceID, in.Validation)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateResolverDnssecConfigOutput{ResolverDNSSECConfig: resolverDnssecConfigToOutput(cfg)}, nil
+}
+
+// --- ListResolverDnssecConfigs ---
+
+type listResolverDnssecConfigsInput struct{}
+
+type listResolverDnssecConfigsOutput struct {
+	ResolverDnssecConfigs []resolverDnssecConfigOutput `json:"ResolverDnssecConfigs"`
+}
+
+func (h *Handler) handleListResolverDnssecConfigs(
+	_ context.Context,
+	_ *listResolverDnssecConfigsInput,
+) (*listResolverDnssecConfigsOutput, error) {
+	configs := h.Backend.ListResolverDnssecConfigs()
+	items := make([]resolverDnssecConfigOutput, 0, len(configs))
+	for _, c := range configs {
+		items = append(items, resolverDnssecConfigToOutput(c))
+	}
+
+	return &listResolverDnssecConfigsOutput{ResolverDnssecConfigs: items}, nil
 }

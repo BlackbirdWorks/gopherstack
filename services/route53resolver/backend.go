@@ -24,6 +24,8 @@ const (
 	statusComplete    = "COMPLETE"
 	statusCreated     = "CREATED"
 	statusActive      = "ACTIVE"
+	statusDeleting    = "DELETING"
+	statusUpdating    = "UPDATING"
 
 	directionInbound  = "INBOUND"
 	directionOutbound = "OUTBOUND"
@@ -37,6 +39,23 @@ const (
 	firewallActionAlert = "ALERT"
 
 	defaultOutpostResolverInstanceCount int32 = 4
+
+	domainUpdateOpReplace = "REPLACE"
+	domainUpdateOpAdd     = "ADD"
+	domainUpdateOpRemove  = "REMOVE"
+
+	firewallFailOpenEnabled  = "ENABLED"
+	firewallFailOpenDisabled = "DISABLED"
+
+	autodefinedReverseEnabled  = "ENABLE"
+	autodefinedReverseDisabled = "DISABLE"
+
+	dnssecValidationEnable  = "ENABLE"
+	dnssecValidationDisable = "DISABLE"
+
+	validationStatusEnabled     = "ENABLED"
+	validationStatusNotChecking = "NOT_CHECKING"
+	validationStatusDisabling   = "DISABLING"
 )
 
 type IPAddress struct {
@@ -102,7 +121,9 @@ type FirewallDomainList struct {
 	CreatorRequestID string       `json:"creatorRequestId"`
 	Status           string       `json:"status"`
 	Tags             []svcTags.KV `json:"tags,omitempty"`
+	Domains          []string     `json:"domains,omitempty"`
 	DomainCount      int32        `json:"domainCount"`
+	_                [4]byte
 }
 
 // FirewallRule represents a single rule within a DNS Firewall rule group.
@@ -159,6 +180,32 @@ type ResolverRuleAssociation struct {
 	Status         string `json:"status"`
 }
 
+// FirewallConfig represents the DNS Firewall configuration for a VPC.
+type FirewallConfig struct {
+	ID               string `json:"id"`
+	ARN              string `json:"arn"`
+	OwnerID          string `json:"ownerId"`
+	ResourceID       string `json:"resourceId"`
+	FirewallFailOpen string `json:"firewallFailOpen"`
+}
+
+// ResolverConfig represents the Resolver configuration for a VPC.
+type ResolverConfig struct {
+	ID                 string `json:"id"`
+	ARN                string `json:"arn"`
+	OwnerID            string `json:"ownerId"`
+	ResourceID         string `json:"resourceId"`
+	AutodefinedReverse string `json:"autodefinedReverse"`
+}
+
+// ResolverDnssecConfig represents the DNSSEC configuration for a VPC.
+type ResolverDnssecConfig struct {
+	ID               string `json:"id"`
+	OwnerID          string `json:"ownerId"`
+	ResourceID       string `json:"resourceId"`
+	ValidationStatus string `json:"validationStatus"`
+}
+
 type InMemoryBackend struct {
 	endpoints                     map[string]*ResolverEndpoint
 	rules                         map[string]*ResolverRule
@@ -171,6 +218,12 @@ type InMemoryBackend struct {
 	queryLogConfigs               map[string]*ResolverQueryLogConfig
 	queryLogConfigAssociations    map[string]*ResolverQueryLogConfigAssociation
 	ruleAssociations              map[string]*ResolverRuleAssociation
+	firewallConfigs               map[string]*FirewallConfig
+	resolverConfigs               map[string]*ResolverConfig
+	resolverDnssecConfigs         map[string]*ResolverDnssecConfig
+	firewallRuleGroupPolicies     map[string]string
+	queryLogConfigPolicies        map[string]string
+	resolverRulePolicies          map[string]string
 	mu                            *lockmetrics.RWMutex
 	accountID                     string
 	region                        string
@@ -189,6 +242,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		queryLogConfigs:               make(map[string]*ResolverQueryLogConfig),
 		queryLogConfigAssociations:    make(map[string]*ResolverQueryLogConfigAssociation),
 		ruleAssociations:              make(map[string]*ResolverRuleAssociation),
+		firewallConfigs:               make(map[string]*FirewallConfig),
+		resolverConfigs:               make(map[string]*ResolverConfig),
+		resolverDnssecConfigs:         make(map[string]*ResolverDnssecConfig),
+		firewallRuleGroupPolicies:     make(map[string]string),
+		queryLogConfigPolicies:        make(map[string]string),
+		resolverRulePolicies:          make(map[string]string),
 		accountID:                     accountID,
 		region:                        region,
 		mu:                            lockmetrics.New("route53resolver"),
@@ -217,6 +276,12 @@ func (b *InMemoryBackend) Reset() {
 	b.queryLogConfigs = make(map[string]*ResolverQueryLogConfig)
 	b.queryLogConfigAssociations = make(map[string]*ResolverQueryLogConfigAssociation)
 	b.ruleAssociations = make(map[string]*ResolverRuleAssociation)
+	b.firewallConfigs = make(map[string]*FirewallConfig)
+	b.resolverConfigs = make(map[string]*ResolverConfig)
+	b.resolverDnssecConfigs = make(map[string]*ResolverDnssecConfig)
+	b.firewallRuleGroupPolicies = make(map[string]string)
+	b.queryLogConfigPolicies = make(map[string]string)
+	b.resolverRulePolicies = make(map[string]string)
 }
 
 const dirPrefixLen = 2
@@ -877,4 +942,906 @@ func (b *InMemoryBackend) AddQueryLogConfigInternal(name, destinationARN string)
 	cp := *cfg
 
 	return &cp
+}
+
+// --- Firewall Rule operations ---
+
+// DeleteFirewallRule deletes a firewall rule by ID and decrements the group rule count.
+func (b *InMemoryBackend) DeleteFirewallRule(id string) (*FirewallRule, error) {
+	b.mu.Lock("DeleteFirewallRule")
+	defer b.mu.Unlock()
+
+	rule, ok := b.firewallRules[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall rule %s not found", ErrNotFound, id)
+	}
+	cp := *rule
+	if grp, exists := b.firewallRuleGroups[rule.FirewallRuleGroupID]; exists && grp.RuleCount > 0 {
+		grp.RuleCount--
+	}
+	delete(b.firewallRules, id)
+
+	return &cp, nil
+}
+
+// UpdateFirewallRule updates an existing firewall rule.
+func (b *InMemoryBackend) UpdateFirewallRule(
+	id, name, action, blockResponse string,
+	priority int32,
+) (*FirewallRule, error) {
+	b.mu.Lock("UpdateFirewallRule")
+	defer b.mu.Unlock()
+
+	rule, ok := b.firewallRules[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall rule %s not found", ErrNotFound, id)
+	}
+	if name != "" {
+		rule.Name = name
+	}
+	if action != "" {
+		rule.Action = action
+	}
+	if blockResponse != "" {
+		rule.BlockResponse = blockResponse
+	}
+	if priority != 0 {
+		rule.Priority = priority
+	}
+	cp := *rule
+
+	return &cp, nil
+}
+
+// ListFirewallRules lists firewall rules, optionally filtered by rule group ID.
+func (b *InMemoryBackend) ListFirewallRules(firewallRuleGroupID string) []*FirewallRule {
+	b.mu.RLock("ListFirewallRules")
+	defer b.mu.RUnlock()
+
+	list := make([]*FirewallRule, 0)
+	for _, r := range b.firewallRules {
+		if firewallRuleGroupID != "" && r.FirewallRuleGroupID != firewallRuleGroupID {
+			continue
+		}
+		cp := *r
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Priority < list[j].Priority })
+
+	return list
+}
+
+// --- Firewall Rule Group operations ---
+
+// DeleteFirewallRuleGroup deletes a firewall rule group and cascades to its rules and associations.
+func (b *InMemoryBackend) DeleteFirewallRuleGroup(id string) (*FirewallRuleGroup, error) {
+	b.mu.Lock("DeleteFirewallRuleGroup")
+	defer b.mu.Unlock()
+
+	grp, ok := b.firewallRuleGroups[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall rule group %s not found", ErrNotFound, id)
+	}
+	cp := *grp
+
+	// Cascade: delete rules belonging to this group.
+	for ruleID, rule := range b.firewallRules {
+		if rule.FirewallRuleGroupID == id {
+			delete(b.firewallRules, ruleID)
+		}
+	}
+	// Cascade: delete associations for this group.
+	for assocID, assoc := range b.firewallRuleGroupAssociations {
+		if assoc.FirewallRuleGroupID == id {
+			delete(b.firewallRuleGroupAssociations, assocID)
+		}
+	}
+	delete(b.firewallRuleGroups, id)
+
+	return &cp, nil
+}
+
+// GetFirewallRuleGroup retrieves a firewall rule group by ID.
+func (b *InMemoryBackend) GetFirewallRuleGroup(id string) (*FirewallRuleGroup, error) {
+	b.mu.RLock("GetFirewallRuleGroup")
+	defer b.mu.RUnlock()
+
+	grp, ok := b.firewallRuleGroups[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall rule group %s not found", ErrNotFound, id)
+	}
+	cp := *grp
+
+	return &cp, nil
+}
+
+// ListFirewallRuleGroups lists all firewall rule groups.
+func (b *InMemoryBackend) ListFirewallRuleGroups() []*FirewallRuleGroup {
+	b.mu.RLock("ListFirewallRuleGroups")
+	defer b.mu.RUnlock()
+
+	list := make([]*FirewallRuleGroup, 0, len(b.firewallRuleGroups))
+	for _, g := range b.firewallRuleGroups {
+		cp := *g
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// GetFirewallRuleGroupPolicy retrieves the resource policy for a firewall rule group ARN.
+func (b *InMemoryBackend) GetFirewallRuleGroupPolicy(arn string) string {
+	b.mu.RLock("GetFirewallRuleGroupPolicy")
+	defer b.mu.RUnlock()
+
+	return b.firewallRuleGroupPolicies[arn]
+}
+
+// PutFirewallRuleGroupPolicy stores a resource policy for a firewall rule group ARN.
+func (b *InMemoryBackend) PutFirewallRuleGroupPolicy(arn, policy string) error {
+	b.mu.Lock("PutFirewallRuleGroupPolicy")
+	defer b.mu.Unlock()
+
+	b.firewallRuleGroupPolicies[arn] = policy
+
+	return nil
+}
+
+// --- Firewall Rule Group Association operations ---
+
+// GetFirewallRuleGroupAssociation retrieves an association by ID.
+func (b *InMemoryBackend) GetFirewallRuleGroupAssociation(id string) (*FirewallRuleGroupAssociation, error) {
+	b.mu.RLock("GetFirewallRuleGroupAssociation")
+	defer b.mu.RUnlock()
+
+	assoc, ok := b.firewallRuleGroupAssociations[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall rule group association %s not found", ErrNotFound, id)
+	}
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// ListFirewallRuleGroupAssociations lists associations, optionally filtered by VPC or group.
+func (b *InMemoryBackend) ListFirewallRuleGroupAssociations(
+	vpcID, firewallRuleGroupID string,
+) []*FirewallRuleGroupAssociation {
+	b.mu.RLock("ListFirewallRuleGroupAssociations")
+	defer b.mu.RUnlock()
+
+	list := make([]*FirewallRuleGroupAssociation, 0)
+	for _, a := range b.firewallRuleGroupAssociations {
+		if vpcID != "" && a.VpcID != vpcID {
+			continue
+		}
+		if firewallRuleGroupID != "" && a.FirewallRuleGroupID != firewallRuleGroupID {
+			continue
+		}
+		cp := *a
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Priority < list[j].Priority })
+
+	return list
+}
+
+// DisassociateFirewallRuleGroup removes a firewall rule group association.
+func (b *InMemoryBackend) DisassociateFirewallRuleGroup(id string) (*FirewallRuleGroupAssociation, error) {
+	b.mu.Lock("DisassociateFirewallRuleGroup")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.firewallRuleGroupAssociations[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall rule group association %s not found", ErrNotFound, id)
+	}
+	cp := *assoc
+	delete(b.firewallRuleGroupAssociations, id)
+
+	return &cp, nil
+}
+
+// UpdateFirewallRuleGroupAssociation updates name or priority of an association.
+func (b *InMemoryBackend) UpdateFirewallRuleGroupAssociation(
+	id, name string,
+	priority int32,
+) (*FirewallRuleGroupAssociation, error) {
+	b.mu.Lock("UpdateFirewallRuleGroupAssociation")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.firewallRuleGroupAssociations[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall rule group association %s not found", ErrNotFound, id)
+	}
+	if name != "" {
+		assoc.Name = name
+	}
+	if priority != 0 {
+		assoc.Priority = priority
+	}
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// --- Firewall Domain List operations ---
+
+// GetFirewallDomainList retrieves a domain list by ID.
+func (b *InMemoryBackend) GetFirewallDomainList(id string) (*FirewallDomainList, error) {
+	b.mu.RLock("GetFirewallDomainList")
+	defer b.mu.RUnlock()
+
+	dl, ok := b.firewallDomainLists[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall domain list %s not found", ErrNotFound, id)
+	}
+	cp := cloneFirewallDomainList(dl)
+
+	return cp, nil
+}
+
+// ListFirewallDomainLists lists all firewall domain lists.
+func (b *InMemoryBackend) ListFirewallDomainLists() []*FirewallDomainList {
+	b.mu.RLock("ListFirewallDomainLists")
+	defer b.mu.RUnlock()
+
+	list := make([]*FirewallDomainList, 0, len(b.firewallDomainLists))
+	for _, dl := range b.firewallDomainLists {
+		list = append(list, cloneFirewallDomainList(dl))
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// ListFirewallDomains returns the domains stored in a domain list.
+func (b *InMemoryBackend) ListFirewallDomains(id string) ([]string, error) {
+	b.mu.RLock("ListFirewallDomains")
+	defer b.mu.RUnlock()
+
+	dl, ok := b.firewallDomainLists[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall domain list %s not found", ErrNotFound, id)
+	}
+	cp := make([]string, len(dl.Domains))
+	copy(cp, dl.Domains)
+
+	return cp, nil
+}
+
+// UpdateFirewallDomains replaces, adds, or removes domains in a domain list.
+func (b *InMemoryBackend) UpdateFirewallDomains(id, operation string, domains []string) (*FirewallDomainList, error) {
+	b.mu.Lock("UpdateFirewallDomains")
+	defer b.mu.Unlock()
+
+	dl, ok := b.firewallDomainLists[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall domain list %s not found", ErrNotFound, id)
+	}
+
+	switch operation {
+	case domainUpdateOpReplace:
+		dl.Domains = make([]string, len(domains))
+		copy(dl.Domains, domains)
+	case domainUpdateOpAdd:
+		existing := make(map[string]bool, len(dl.Domains))
+		for _, d := range dl.Domains {
+			existing[d] = true
+		}
+		for _, d := range domains {
+			if !existing[d] {
+				dl.Domains = append(dl.Domains, d)
+			}
+		}
+	case domainUpdateOpRemove:
+		toRemove := make(map[string]bool, len(domains))
+		for _, d := range domains {
+			toRemove[d] = true
+		}
+		remaining := make([]string, 0, len(dl.Domains))
+		for _, d := range dl.Domains {
+			if !toRemove[d] {
+				remaining = append(remaining, d)
+			}
+		}
+		dl.Domains = remaining
+	default:
+		return nil, fmt.Errorf(
+			"%w: Operation must be %s, %s, or %s",
+			ErrValidation,
+			domainUpdateOpReplace,
+			domainUpdateOpAdd,
+			domainUpdateOpRemove,
+		)
+	}
+	dl.DomainCount = domainCount(dl.Domains)
+	cp := cloneFirewallDomainList(dl)
+
+	return cp, nil
+}
+
+// ImportFirewallDomains simulates importing domains from a URL into a domain list.
+func (b *InMemoryBackend) ImportFirewallDomains(id, operation, domainFileURL string) (*FirewallDomainList, error) {
+	b.mu.Lock("ImportFirewallDomains")
+	defer b.mu.Unlock()
+
+	dl, ok := b.firewallDomainLists[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: firewall domain list %s not found", ErrNotFound, id)
+	}
+
+	// Simulate: clear domains on REPLACE, leave intact for ADD/REMOVE (no HTTP in mock).
+	if operation == domainUpdateOpReplace {
+		dl.Domains = []string{}
+		dl.DomainCount = 0
+	}
+	dl.Status = statusComplete
+	_ = domainFileURL
+	cp := cloneFirewallDomainList(dl)
+
+	return cp, nil
+}
+
+// cloneFirewallDomainList returns a deep copy of a FirewallDomainList.
+func cloneFirewallDomainList(dl *FirewallDomainList) *FirewallDomainList {
+	cp := *dl
+	if dl.Domains != nil {
+		cp.Domains = make([]string, len(dl.Domains))
+		copy(cp.Domains, dl.Domains)
+	}
+
+	return &cp
+}
+
+// domainCount returns the number of domains as int32, capping at MaxInt32.
+func domainCount(domains []string) int32 {
+	const maxInt32 = 1<<31 - 1
+	if len(domains) > maxInt32 {
+		return maxInt32
+	}
+
+	return int32(len(domains)) //nolint:gosec // guarded above
+}
+
+// --- Firewall Config operations ---
+
+// GetFirewallConfig returns or lazily creates the firewall config for a resource (VPC).
+func (b *InMemoryBackend) GetFirewallConfig(resourceID string) *FirewallConfig {
+	b.mu.Lock("GetFirewallConfig")
+	defer b.mu.Unlock()
+
+	if cfg, ok := b.firewallConfigs[resourceID]; ok {
+		cp := *cfg
+
+		return &cp
+	}
+	id := "fwc-" + uuid.New().String()[:8]
+	cfgARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-config/"+id)
+	cfg := &FirewallConfig{
+		ID:               id,
+		ARN:              cfgARN,
+		OwnerID:          b.accountID,
+		ResourceID:       resourceID,
+		FirewallFailOpen: firewallFailOpenDisabled,
+	}
+	b.firewallConfigs[resourceID] = cfg
+	cp := *cfg
+
+	return &cp
+}
+
+// UpdateFirewallConfig updates the firewall fail-open setting for a resource.
+func (b *InMemoryBackend) UpdateFirewallConfig(resourceID, firewallFailOpen string) (*FirewallConfig, error) {
+	b.mu.Lock("UpdateFirewallConfig")
+	defer b.mu.Unlock()
+
+	if firewallFailOpen != firewallFailOpenEnabled && firewallFailOpen != firewallFailOpenDisabled {
+		return nil, fmt.Errorf(
+			"%w: FirewallFailOpen must be %s or %s",
+			ErrValidation,
+			firewallFailOpenEnabled,
+			firewallFailOpenDisabled,
+		)
+	}
+
+	cfg, ok := b.firewallConfigs[resourceID]
+	if !ok {
+		id := "fwc-" + uuid.New().String()[:8]
+		cfgARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-config/"+id)
+		cfg = &FirewallConfig{
+			ID:         id,
+			ARN:        cfgARN,
+			OwnerID:    b.accountID,
+			ResourceID: resourceID,
+		}
+		b.firewallConfigs[resourceID] = cfg
+	}
+	cfg.FirewallFailOpen = firewallFailOpen
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// ListFirewallConfigs lists all firewall configs.
+func (b *InMemoryBackend) ListFirewallConfigs() []*FirewallConfig {
+	b.mu.RLock("ListFirewallConfigs")
+	defer b.mu.RUnlock()
+
+	list := make([]*FirewallConfig, 0, len(b.firewallConfigs))
+	for _, cfg := range b.firewallConfigs {
+		cp := *cfg
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].ResourceID < list[j].ResourceID })
+
+	return list
+}
+
+// --- Resolver Config operations ---
+
+// GetResolverConfig returns or lazily creates the resolver config for a resource (VPC).
+func (b *InMemoryBackend) GetResolverConfig(resourceID string) *ResolverConfig {
+	b.mu.Lock("GetResolverConfig")
+	defer b.mu.Unlock()
+
+	if cfg, ok := b.resolverConfigs[resourceID]; ok {
+		cp := *cfg
+
+		return &cp
+	}
+	id := "rslvr-rc-" + uuid.New().String()[:8]
+	cfgARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-config/"+id)
+	cfg := &ResolverConfig{
+		ID:                 id,
+		ARN:                cfgARN,
+		OwnerID:            b.accountID,
+		ResourceID:         resourceID,
+		AutodefinedReverse: "DISABLED",
+	}
+	b.resolverConfigs[resourceID] = cfg
+	cp := *cfg
+
+	return &cp
+}
+
+// UpdateResolverConfig updates the AutodefinedReverse setting for a resource.
+func (b *InMemoryBackend) UpdateResolverConfig(resourceID, autodefinedReverse string) (*ResolverConfig, error) {
+	b.mu.Lock("UpdateResolverConfig")
+	defer b.mu.Unlock()
+
+	if autodefinedReverse != autodefinedReverseEnabled && autodefinedReverse != autodefinedReverseDisabled {
+		return nil, fmt.Errorf(
+			"%w: AutodefinedReverse must be %s or %s",
+			ErrValidation,
+			autodefinedReverseEnabled,
+			autodefinedReverseDisabled,
+		)
+	}
+
+	cfg, ok := b.resolverConfigs[resourceID]
+	if !ok {
+		id := "rslvr-rc-" + uuid.New().String()[:8]
+		cfgARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-config/"+id)
+		cfg = &ResolverConfig{
+			ID:         id,
+			ARN:        cfgARN,
+			OwnerID:    b.accountID,
+			ResourceID: resourceID,
+		}
+		b.resolverConfigs[resourceID] = cfg
+	}
+	if autodefinedReverse == autodefinedReverseEnabled {
+		cfg.AutodefinedReverse = "ENABLED"
+	} else {
+		cfg.AutodefinedReverse = "DISABLED"
+	}
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// ListResolverConfigs lists all resolver configs.
+func (b *InMemoryBackend) ListResolverConfigs() []*ResolverConfig {
+	b.mu.RLock("ListResolverConfigs")
+	defer b.mu.RUnlock()
+
+	list := make([]*ResolverConfig, 0, len(b.resolverConfigs))
+	for _, cfg := range b.resolverConfigs {
+		cp := *cfg
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].ResourceID < list[j].ResourceID })
+
+	return list
+}
+
+// --- Resolver DNSSEC Config operations ---
+
+// GetResolverDnssecConfig returns or lazily creates the DNSSEC config for a resource.
+func (b *InMemoryBackend) GetResolverDnssecConfig(resourceID string) *ResolverDnssecConfig {
+	b.mu.Lock("GetResolverDnssecConfig")
+	defer b.mu.Unlock()
+
+	if cfg, ok := b.resolverDnssecConfigs[resourceID]; ok {
+		cp := *cfg
+
+		return &cp
+	}
+	id := "rslvr-dnssec-" + uuid.New().String()[:8]
+	cfg := &ResolverDnssecConfig{
+		ID:               id,
+		OwnerID:          b.accountID,
+		ResourceID:       resourceID,
+		ValidationStatus: validationStatusNotChecking,
+	}
+	b.resolverDnssecConfigs[resourceID] = cfg
+	cp := *cfg
+
+	return &cp
+}
+
+// UpdateResolverDnssecConfig updates DNSSEC validation for a resource.
+func (b *InMemoryBackend) UpdateResolverDnssecConfig(resourceID, validation string) (*ResolverDnssecConfig, error) {
+	b.mu.Lock("UpdateResolverDnssecConfig")
+	defer b.mu.Unlock()
+
+	if validation != dnssecValidationEnable && validation != dnssecValidationDisable {
+		return nil, fmt.Errorf(
+			"%w: Validation must be %s or %s",
+			ErrValidation,
+			dnssecValidationEnable,
+			dnssecValidationDisable,
+		)
+	}
+
+	cfg, ok := b.resolverDnssecConfigs[resourceID]
+	if !ok {
+		id := "rslvr-dnssec-" + uuid.New().String()[:8]
+		cfg = &ResolverDnssecConfig{
+			ID:         id,
+			OwnerID:    b.accountID,
+			ResourceID: resourceID,
+		}
+		b.resolverDnssecConfigs[resourceID] = cfg
+	}
+	if validation == dnssecValidationEnable {
+		cfg.ValidationStatus = validationStatusEnabled
+	} else {
+		cfg.ValidationStatus = validationStatusDisabling
+	}
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// ListResolverDnssecConfigs lists all DNSSEC configs.
+func (b *InMemoryBackend) ListResolverDnssecConfigs() []*ResolverDnssecConfig {
+	b.mu.RLock("ListResolverDnssecConfigs")
+	defer b.mu.RUnlock()
+
+	list := make([]*ResolverDnssecConfig, 0, len(b.resolverDnssecConfigs))
+	for _, cfg := range b.resolverDnssecConfigs {
+		cp := *cfg
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].ResourceID < list[j].ResourceID })
+
+	return list
+}
+
+// --- Outpost Resolver operations ---
+
+// DeleteOutpostResolver deletes an outpost resolver.
+func (b *InMemoryBackend) DeleteOutpostResolver(id string) (*OutpostResolver, error) {
+	b.mu.Lock("DeleteOutpostResolver")
+	defer b.mu.Unlock()
+
+	r, ok := b.outpostResolvers[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: outpost resolver %s not found", ErrNotFound, id)
+	}
+	cp := *r
+	delete(b.outpostResolvers, id)
+
+	return &cp, nil
+}
+
+// GetOutpostResolver retrieves an outpost resolver by ID.
+func (b *InMemoryBackend) GetOutpostResolver(id string) (*OutpostResolver, error) {
+	b.mu.RLock("GetOutpostResolver")
+	defer b.mu.RUnlock()
+
+	r, ok := b.outpostResolvers[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: outpost resolver %s not found", ErrNotFound, id)
+	}
+	cp := *r
+
+	return &cp, nil
+}
+
+// ListOutpostResolvers lists all outpost resolvers.
+func (b *InMemoryBackend) ListOutpostResolvers() []*OutpostResolver {
+	b.mu.RLock("ListOutpostResolvers")
+	defer b.mu.RUnlock()
+
+	list := make([]*OutpostResolver, 0, len(b.outpostResolvers))
+	for _, r := range b.outpostResolvers {
+		cp := *r
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// UpdateOutpostResolver updates name, preferred instance type, or instance count.
+func (b *InMemoryBackend) UpdateOutpostResolver(
+	id, name, preferredInstanceType string,
+	instanceCount int32,
+) (*OutpostResolver, error) {
+	b.mu.Lock("UpdateOutpostResolver")
+	defer b.mu.Unlock()
+
+	r, ok := b.outpostResolvers[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: outpost resolver %s not found", ErrNotFound, id)
+	}
+	if name != "" {
+		r.Name = name
+	}
+	if preferredInstanceType != "" {
+		r.PreferredInstanceType = preferredInstanceType
+	}
+	if instanceCount > 0 {
+		r.InstanceCount = instanceCount
+	}
+	cp := *r
+
+	return &cp, nil
+}
+
+// --- Query Log Config operations ---
+
+// DeleteResolverQueryLogConfig deletes a query log config and its associations.
+func (b *InMemoryBackend) DeleteResolverQueryLogConfig(id string) (*ResolverQueryLogConfig, error) {
+	b.mu.Lock("DeleteResolverQueryLogConfig")
+	defer b.mu.Unlock()
+
+	cfg, ok := b.queryLogConfigs[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver query log config %s not found", ErrNotFound, id)
+	}
+	cp := *cfg
+
+	// Cascade: remove all associations referencing this config.
+	for assocID, assoc := range b.queryLogConfigAssociations {
+		if assoc.ResolverQueryLogConfigID == id {
+			delete(b.queryLogConfigAssociations, assocID)
+		}
+	}
+	delete(b.queryLogConfigs, id)
+
+	return &cp, nil
+}
+
+// GetResolverQueryLogConfig retrieves a query log config by ID.
+func (b *InMemoryBackend) GetResolverQueryLogConfig(id string) (*ResolverQueryLogConfig, error) {
+	b.mu.RLock("GetResolverQueryLogConfig")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.queryLogConfigs[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver query log config %s not found", ErrNotFound, id)
+	}
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// ListResolverQueryLogConfigs lists all query log configs.
+func (b *InMemoryBackend) ListResolverQueryLogConfigs() []*ResolverQueryLogConfig {
+	b.mu.RLock("ListResolverQueryLogConfigs")
+	defer b.mu.RUnlock()
+
+	list := make([]*ResolverQueryLogConfig, 0, len(b.queryLogConfigs))
+	for _, cfg := range b.queryLogConfigs {
+		cp := *cfg
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// GetResolverQueryLogConfigAssociation retrieves an association by ID.
+func (b *InMemoryBackend) GetResolverQueryLogConfigAssociation(id string) (*ResolverQueryLogConfigAssociation, error) {
+	b.mu.RLock("GetResolverQueryLogConfigAssociation")
+	defer b.mu.RUnlock()
+
+	assoc, ok := b.queryLogConfigAssociations[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver query log config association %s not found", ErrNotFound, id)
+	}
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// DisassociateResolverQueryLogConfig removes a query log config association.
+func (b *InMemoryBackend) DisassociateResolverQueryLogConfig(id string) (*ResolverQueryLogConfigAssociation, error) {
+	b.mu.Lock("DisassociateResolverQueryLogConfig")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.queryLogConfigAssociations[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver query log config association %s not found", ErrNotFound, id)
+	}
+	cp := *assoc
+	delete(b.queryLogConfigAssociations, id)
+
+	return &cp, nil
+}
+
+// ListResolverQueryLogConfigAssociations lists all query log config associations.
+func (b *InMemoryBackend) ListResolverQueryLogConfigAssociations() []*ResolverQueryLogConfigAssociation {
+	b.mu.RLock("ListResolverQueryLogConfigAssociations")
+	defer b.mu.RUnlock()
+
+	list := make([]*ResolverQueryLogConfigAssociation, 0, len(b.queryLogConfigAssociations))
+	for _, a := range b.queryLogConfigAssociations {
+		cp := *a
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// GetResolverQueryLogConfigPolicy retrieves a resource policy for a query log config ARN.
+func (b *InMemoryBackend) GetResolverQueryLogConfigPolicy(arn string) string {
+	b.mu.RLock("GetResolverQueryLogConfigPolicy")
+	defer b.mu.RUnlock()
+
+	return b.queryLogConfigPolicies[arn]
+}
+
+// PutResolverQueryLogConfigPolicy stores a resource policy for a query log config ARN.
+func (b *InMemoryBackend) PutResolverQueryLogConfigPolicy(arn, policy string) error {
+	b.mu.Lock("PutResolverQueryLogConfigPolicy")
+	defer b.mu.Unlock()
+
+	b.queryLogConfigPolicies[arn] = policy
+
+	return nil
+}
+
+// --- Resolver Rule Association operations ---
+
+// GetResolverRuleAssociation retrieves a rule association by ID.
+func (b *InMemoryBackend) GetResolverRuleAssociation(id string) (*ResolverRuleAssociation, error) {
+	b.mu.RLock("GetResolverRuleAssociation")
+	defer b.mu.RUnlock()
+
+	assoc, ok := b.ruleAssociations[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver rule association %s not found", ErrNotFound, id)
+	}
+	cp := *assoc
+
+	return &cp, nil
+}
+
+// DisassociateResolverRule removes a resolver rule association.
+func (b *InMemoryBackend) DisassociateResolverRule(id string) (*ResolverRuleAssociation, error) {
+	b.mu.Lock("DisassociateResolverRule")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.ruleAssociations[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver rule association %s not found", ErrNotFound, id)
+	}
+	cp := *assoc
+	delete(b.ruleAssociations, id)
+
+	return &cp, nil
+}
+
+// ListResolverRuleAssociations lists all resolver rule associations.
+func (b *InMemoryBackend) ListResolverRuleAssociations() []*ResolverRuleAssociation {
+	b.mu.RLock("ListResolverRuleAssociations")
+	defer b.mu.RUnlock()
+
+	list := make([]*ResolverRuleAssociation, 0, len(b.ruleAssociations))
+	for _, a := range b.ruleAssociations {
+		cp := *a
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// GetResolverRulePolicy retrieves a resource policy for a resolver rule ARN.
+func (b *InMemoryBackend) GetResolverRulePolicy(arn string) string {
+	b.mu.RLock("GetResolverRulePolicy")
+	defer b.mu.RUnlock()
+
+	return b.resolverRulePolicies[arn]
+}
+
+// PutResolverRulePolicy stores a resource policy for a resolver rule ARN.
+func (b *InMemoryBackend) PutResolverRulePolicy(arn, policy string) error {
+	b.mu.Lock("PutResolverRulePolicy")
+	defer b.mu.Unlock()
+
+	b.resolverRulePolicies[arn] = policy
+
+	return nil
+}
+
+// --- Resolver Endpoint Update ---
+
+// UpdateResolverEndpoint updates the name of a resolver endpoint.
+func (b *InMemoryBackend) UpdateResolverEndpoint(id, name string) (*ResolverEndpoint, error) {
+	b.mu.Lock("UpdateResolverEndpoint")
+	defer b.mu.Unlock()
+
+	ep, ok := b.endpoints[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
+	}
+	if name != "" {
+		ep.Name = name
+	}
+
+	return cloneEndpoint(ep), nil
+}
+
+// DisassociateResolverEndpointIPAddress removes an IP address from a resolver endpoint.
+func (b *InMemoryBackend) DisassociateResolverEndpointIPAddress(endpointID, ipID string) (*ResolverEndpoint, error) {
+	b.mu.Lock("DisassociateResolverEndpointIPAddress")
+	defer b.mu.Unlock()
+
+	ep, ok := b.endpoints[endpointID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
+	}
+
+	newIPs := make([]IPAddress, 0, len(ep.IPAddresses))
+	found := false
+	for _, ip := range ep.IPAddresses {
+		if ip.IPID == ipID {
+			found = true
+
+			continue
+		}
+		newIPs = append(newIPs, ip)
+	}
+	if !found {
+		return nil, fmt.Errorf("%w: IP address %s not found on endpoint %s", ErrNotFound, ipID, endpointID)
+	}
+	ep.IPAddresses = newIPs
+
+	return cloneEndpoint(ep), nil
+}
+
+// --- Resolver Rule Update ---
+
+// UpdateResolverRule updates the name of a resolver rule.
+func (b *InMemoryBackend) UpdateResolverRule(id, name string) (*ResolverRule, error) {
+	b.mu.Lock("UpdateResolverRule")
+	defer b.mu.Unlock()
+
+	r, ok := b.rules[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, id)
+	}
+	if name != "" {
+		r.Name = name
+	}
+	cp := *r
+
+	return &cp, nil
 }
