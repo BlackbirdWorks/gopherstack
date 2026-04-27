@@ -1091,18 +1091,11 @@ func (h *Handler) handleDeleteSchedulingPolicy(
 
 // --- ServiceEnvironment handlers ---
 
-// capacityLimitInput mirrors the AWS CapacityLimit structure.
-type capacityLimitInput struct {
-	CapacityUnit *string `json:"capacityUnit,omitempty"`
-	MaxCapacity  *int32  `json:"maxCapacity,omitempty"`
-}
-
 type createServiceEnvironmentInput struct {
-	Tags                   map[string]string    `json:"tags"`
-	ServiceEnvironmentName string               `json:"serviceEnvironmentName"`
-	ServiceEnvironmentType string               `json:"serviceEnvironmentType"`
-	State                  string               `json:"state"`
-	CapacityLimits         []capacityLimitInput `json:"capacityLimits,omitempty"`
+	Tags                   map[string]string `json:"tags"`
+	ServiceEnvironmentName string            `json:"serviceEnvironmentName"`
+	ServiceEnvironmentType string            `json:"serviceEnvironmentType"`
+	State                  string            `json:"state"`
 }
 
 type createServiceEnvironmentOutput struct {
