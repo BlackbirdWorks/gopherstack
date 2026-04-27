@@ -31,6 +31,10 @@ func TestIntegration_Batch_ComputeEnvironmentLifecycle(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(createOut.ComputeEnvironmentArn))
 
 	t.Cleanup(func() {
+		_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+			ComputeEnvironment: aws.String(ceName),
+			State:              batchtypes.CEStateDisabled,
+		})
 		_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 		})
@@ -59,6 +63,13 @@ func TestIntegration_Batch_ComputeEnvironmentLifecycle(t *testing.T) {
 	}
 
 	assert.True(t, found, "created compute environment should appear in list")
+
+	// Disable before delete (required by AWS)
+	_, err = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+		ComputeEnvironment: aws.String(ceName),
+		State:              batchtypes.CEStateDisabled,
+	})
+	require.NoError(t, err)
 
 	// DeleteComputeEnvironment
 	_, err = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
@@ -100,6 +111,10 @@ func TestIntegration_Batch_JobQueueLifecycle(t *testing.T) {
 		})
 		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
 			JobQueue: aws.String(jqName),
+		})
+		_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+			ComputeEnvironment: aws.String(ceName),
+			State:              batchtypes.CEStateDisabled,
 		})
 		_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
