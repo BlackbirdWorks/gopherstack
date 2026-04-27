@@ -3068,7 +3068,7 @@ func TestHandler_SubmitJob_InvalidName(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "empty_name_fails", jobName: "", wantStatus: http.StatusBadRequest},
-		{name: "too_long_name_fails", jobName: string(make([]byte, 129)), wantStatus: http.StatusBadRequest},
+		{name: "too_long_name_fails", jobName: strings.Repeat("a", 129), wantStatus: http.StatusBadRequest},
 		{name: "valid_name_succeeds", jobName: "valid-job", wantStatus: http.StatusOK},
 	}
 

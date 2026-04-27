@@ -41,6 +41,8 @@ const (
 	resourceTypeNonReplenishable = "NON_REPLENISHABLE"
 
 	msPerSecond = 1000.0
+
+	maxJobNameLength = 128
 )
 
 // ComputeEnvironment represents a Batch compute environment.
@@ -877,8 +879,8 @@ func (b *InMemoryBackend) SubmitJob(
 	b.mu.Lock("SubmitJob")
 	defer b.mu.Unlock()
 
-	if len(name) == 0 || len(name) > 128 {
-		return nil, fmt.Errorf("%w: jobName must be between 1 and 128 characters", ErrValidation)
+	if len(name) == 0 || len(name) > maxJobNameLength {
+		return nil, fmt.Errorf("%w: jobName must be between 1 and %d characters", ErrValidation, maxJobNameLength)
 	}
 
 	jq, ok := b.lookupJQByNameOrARN(queue)
