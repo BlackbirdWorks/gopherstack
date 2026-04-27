@@ -121,3 +121,13 @@ func (b *InMemoryBackend) SetJobStoppedAtForTest(jobID, status string, stoppedAt
 	ms := stoppedAt.UnixMilli()
 	j.StoppedAt = &ms
 }
+
+// ForceJobStatus directly sets a job's status, bypassing normal transitions.
+// For use in tests only.
+func (b *InMemoryBackend) ForceJobStatus(jobID, status string) {
+	b.mu.Lock("ForceJobStatus")
+	defer b.mu.Unlock()
+	if j, ok := b.jobs[jobID]; ok {
+		j.Status = status
+	}
+}

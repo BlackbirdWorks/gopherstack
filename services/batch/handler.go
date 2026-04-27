@@ -113,6 +113,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateSchedulingPolicy",
 		"DescribeServiceEnvironments",
 		"UpdateServiceEnvironment",
+		"DescribeServiceJob",
+		"GetJobQueueSnapshot",
+		"ListJobsByConsumableResource",
+		"ListServiceJobs",
+		"SubmitServiceJob",
+		"TerminateServiceJob",
 	}
 }
 
@@ -272,36 +278,42 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"/v1/createcomputeenvironment":    service.WrapOp(h.handleCreateComputeEnvironment),
-		"/v1/describecomputeenvironments": service.WrapOp(h.handleDescribeComputeEnvironments),
-		"/v1/updatecomputeenvironment":    service.WrapOp(h.handleUpdateComputeEnvironment),
-		"/v1/deletecomputeenvironment":    service.WrapOp(h.handleDeleteComputeEnvironment),
-		"/v1/createjobqueue":              service.WrapOp(h.handleCreateJobQueue),
-		"/v1/describejobqueues":           service.WrapOp(h.handleDescribeJobQueues),
-		"/v1/updatejobqueue":              service.WrapOp(h.handleUpdateJobQueue),
-		"/v1/deletejobqueue":              service.WrapOp(h.handleDeleteJobQueue),
-		"/v1/registerjobdefinition":       service.WrapOp(h.handleRegisterJobDefinition),
-		"/v1/describejobdefinitions":      service.WrapOp(h.handleDescribeJobDefinitions),
-		"/v1/deregisterjobdefinition":     service.WrapOp(h.handleDeregisterJobDefinition),
-		"/v1/listjobs":                    service.WrapOp(h.handleListJobs),
-		"/v1/describejobs":                service.WrapOp(h.handleDescribeJobs),
-		"/v1/submitjob":                   service.WrapOp(h.handleSubmitJob),
-		"/v1/terminatejob":                service.WrapOp(h.handleTerminateJob),
-		"/v1/canceljob":                   service.WrapOp(h.handleCancelJob),
-		"/v1/createconsumableresource":    service.WrapOp(h.handleCreateConsumableResource),
-		"/v1/deleteconsumableresource":    service.WrapOp(h.handleDeleteConsumableResource),
-		"/v1/describeconsumableresource":  service.WrapOp(h.handleDescribeConsumableResource),
-		"/v1/updateconsumableresource":    service.WrapOp(h.handleUpdateConsumableResource),
-		"/v1/listconsumableresources":     service.WrapOp(h.handleListConsumableResources),
-		"/v1/createschedulingpolicy":      service.WrapOp(h.handleCreateSchedulingPolicy),
-		"/v1/deleteschedulingpolicy":      service.WrapOp(h.handleDeleteSchedulingPolicy),
-		"/v1/describeschedulingpolicies":  service.WrapOp(h.handleDescribeSchedulingPolicies),
-		"/v1/listschedulingpolicies":      service.WrapOp(h.handleListSchedulingPolicies),
-		"/v1/updateschedulingpolicy":      service.WrapOp(h.handleUpdateSchedulingPolicy),
-		"/v1/createserviceenvironment":    service.WrapOp(h.handleCreateServiceEnvironment),
-		"/v1/deleteserviceenvironment":    service.WrapOp(h.handleDeleteServiceEnvironment),
-		"/v1/describeserviceenvironments": service.WrapOp(h.handleDescribeServiceEnvironments),
-		"/v1/updateserviceenvironment":    service.WrapOp(h.handleUpdateServiceEnvironment),
+		"/v1/createcomputeenvironment":     service.WrapOp(h.handleCreateComputeEnvironment),
+		"/v1/describecomputeenvironments":  service.WrapOp(h.handleDescribeComputeEnvironments),
+		"/v1/updatecomputeenvironment":     service.WrapOp(h.handleUpdateComputeEnvironment),
+		"/v1/deletecomputeenvironment":     service.WrapOp(h.handleDeleteComputeEnvironment),
+		"/v1/createjobqueue":               service.WrapOp(h.handleCreateJobQueue),
+		"/v1/describejobqueues":            service.WrapOp(h.handleDescribeJobQueues),
+		"/v1/updatejobqueue":               service.WrapOp(h.handleUpdateJobQueue),
+		"/v1/deletejobqueue":               service.WrapOp(h.handleDeleteJobQueue),
+		"/v1/registerjobdefinition":        service.WrapOp(h.handleRegisterJobDefinition),
+		"/v1/describejobdefinitions":       service.WrapOp(h.handleDescribeJobDefinitions),
+		"/v1/deregisterjobdefinition":      service.WrapOp(h.handleDeregisterJobDefinition),
+		"/v1/listjobs":                     service.WrapOp(h.handleListJobs),
+		"/v1/describejobs":                 service.WrapOp(h.handleDescribeJobs),
+		"/v1/submitjob":                    service.WrapOp(h.handleSubmitJob),
+		"/v1/terminatejob":                 service.WrapOp(h.handleTerminateJob),
+		"/v1/canceljob":                    service.WrapOp(h.handleCancelJob),
+		"/v1/createconsumableresource":     service.WrapOp(h.handleCreateConsumableResource),
+		"/v1/deleteconsumableresource":     service.WrapOp(h.handleDeleteConsumableResource),
+		"/v1/describeconsumableresource":   service.WrapOp(h.handleDescribeConsumableResource),
+		"/v1/updateconsumableresource":     service.WrapOp(h.handleUpdateConsumableResource),
+		"/v1/listconsumableresources":      service.WrapOp(h.handleListConsumableResources),
+		"/v1/createschedulingpolicy":       service.WrapOp(h.handleCreateSchedulingPolicy),
+		"/v1/deleteschedulingpolicy":       service.WrapOp(h.handleDeleteSchedulingPolicy),
+		"/v1/describeschedulingpolicies":   service.WrapOp(h.handleDescribeSchedulingPolicies),
+		"/v1/listschedulingpolicies":       service.WrapOp(h.handleListSchedulingPolicies),
+		"/v1/updateschedulingpolicy":       service.WrapOp(h.handleUpdateSchedulingPolicy),
+		"/v1/createserviceenvironment":     service.WrapOp(h.handleCreateServiceEnvironment),
+		"/v1/deleteserviceenvironment":     service.WrapOp(h.handleDeleteServiceEnvironment),
+		"/v1/describeserviceenvironments":  service.WrapOp(h.handleDescribeServiceEnvironments),
+		"/v1/updateserviceenvironment":     service.WrapOp(h.handleUpdateServiceEnvironment),
+		"/v1/describeservicejob":           service.WrapOp(h.handleDescribeServiceJob),
+		"/v1/getjobqueuesnapshot":          service.WrapOp(h.handleGetJobQueueSnapshot),
+		"/v1/listjobsbyconsumableresource": service.WrapOp(h.handleListJobsByConsumableResource),
+		"/v1/listservicejobs":              service.WrapOp(h.handleListServiceJobs),
+		"/v1/submitservicejob":             service.WrapOp(h.handleSubmitServiceJob),
+		"/v1/terminateservicejob":          service.WrapOp(h.handleTerminateServiceJob),
 	}
 }
 
@@ -347,36 +359,42 @@ func errorResponse(code, msg string) map[string]string {
 
 func pathToOperation(path string) string {
 	ops := map[string]string{
-		"/v1/createcomputeenvironment":    "CreateComputeEnvironment",
-		"/v1/describecomputeenvironments": "DescribeComputeEnvironments",
-		"/v1/updatecomputeenvironment":    "UpdateComputeEnvironment",
-		"/v1/deletecomputeenvironment":    "DeleteComputeEnvironment",
-		"/v1/createjobqueue":              "CreateJobQueue",
-		"/v1/describejobqueues":           "DescribeJobQueues",
-		"/v1/updatejobqueue":              "UpdateJobQueue",
-		"/v1/deletejobqueue":              "DeleteJobQueue",
-		"/v1/registerjobdefinition":       "RegisterJobDefinition",
-		"/v1/describejobdefinitions":      "DescribeJobDefinitions",
-		"/v1/deregisterjobdefinition":     "DeregisterJobDefinition",
-		"/v1/listjobs":                    "ListJobs",
-		"/v1/describejobs":                "DescribeJobs",
-		"/v1/submitjob":                   "SubmitJob",
-		"/v1/terminatejob":                "TerminateJob",
-		"/v1/canceljob":                   "CancelJob",
-		"/v1/createconsumableresource":    "CreateConsumableResource",
-		"/v1/deleteconsumableresource":    "DeleteConsumableResource",
-		"/v1/describeconsumableresource":  "DescribeConsumableResource",
-		"/v1/updateconsumableresource":    "UpdateConsumableResource",
-		"/v1/listconsumableresources":     "ListConsumableResources",
-		"/v1/createschedulingpolicy":      "CreateSchedulingPolicy",
-		"/v1/deleteschedulingpolicy":      "DeleteSchedulingPolicy",
-		"/v1/describeschedulingpolicies":  "DescribeSchedulingPolicies",
-		"/v1/listschedulingpolicies":      "ListSchedulingPolicies",
-		"/v1/updateschedulingpolicy":      "UpdateSchedulingPolicy",
-		"/v1/createserviceenvironment":    "CreateServiceEnvironment",
-		"/v1/deleteserviceenvironment":    "DeleteServiceEnvironment",
-		"/v1/describeserviceenvironments": "DescribeServiceEnvironments",
-		"/v1/updateserviceenvironment":    "UpdateServiceEnvironment",
+		"/v1/createcomputeenvironment":     "CreateComputeEnvironment",
+		"/v1/describecomputeenvironments":  "DescribeComputeEnvironments",
+		"/v1/updatecomputeenvironment":     "UpdateComputeEnvironment",
+		"/v1/deletecomputeenvironment":     "DeleteComputeEnvironment",
+		"/v1/createjobqueue":               "CreateJobQueue",
+		"/v1/describejobqueues":            "DescribeJobQueues",
+		"/v1/updatejobqueue":               "UpdateJobQueue",
+		"/v1/deletejobqueue":               "DeleteJobQueue",
+		"/v1/registerjobdefinition":        "RegisterJobDefinition",
+		"/v1/describejobdefinitions":       "DescribeJobDefinitions",
+		"/v1/deregisterjobdefinition":      "DeregisterJobDefinition",
+		"/v1/listjobs":                     "ListJobs",
+		"/v1/describejobs":                 "DescribeJobs",
+		"/v1/submitjob":                    "SubmitJob",
+		"/v1/terminatejob":                 "TerminateJob",
+		"/v1/canceljob":                    "CancelJob",
+		"/v1/createconsumableresource":     "CreateConsumableResource",
+		"/v1/deleteconsumableresource":     "DeleteConsumableResource",
+		"/v1/describeconsumableresource":   "DescribeConsumableResource",
+		"/v1/updateconsumableresource":     "UpdateConsumableResource",
+		"/v1/listconsumableresources":      "ListConsumableResources",
+		"/v1/createschedulingpolicy":       "CreateSchedulingPolicy",
+		"/v1/deleteschedulingpolicy":       "DeleteSchedulingPolicy",
+		"/v1/describeschedulingpolicies":   "DescribeSchedulingPolicies",
+		"/v1/listschedulingpolicies":       "ListSchedulingPolicies",
+		"/v1/updateschedulingpolicy":       "UpdateSchedulingPolicy",
+		"/v1/createserviceenvironment":     "CreateServiceEnvironment",
+		"/v1/deleteserviceenvironment":     "DeleteServiceEnvironment",
+		"/v1/describeserviceenvironments":  "DescribeServiceEnvironments",
+		"/v1/updateserviceenvironment":     "UpdateServiceEnvironment",
+		"/v1/describeservicejob":           "DescribeServiceJob",
+		"/v1/getjobqueuesnapshot":          "GetJobQueueSnapshot",
+		"/v1/listjobsbyconsumableresource": "ListJobsByConsumableResource",
+		"/v1/listservicejobs":              "ListServiceJobs",
+		"/v1/submitservicejob":             "SubmitServiceJob",
+		"/v1/terminateservicejob":          "TerminateServiceJob",
 	}
 
 	if op, ok := ops[path]; ok {
@@ -388,11 +406,23 @@ func pathToOperation(path string) string {
 
 // --- Input / Output types ---
 
+type computeResourcesInput struct {
+	InstanceRole     string   `json:"instanceRole,omitempty"`
+	InstanceTypes    []string `json:"instanceTypes,omitempty"`
+	Subnets          []string `json:"subnets,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
+	MinvCpus         int32    `json:"minvCpus,omitempty"`
+	MaxvCpus         int32    `json:"maxvCpus,omitempty"`
+	DesiredvCpus     int32    `json:"desiredvCpus,omitempty"`
+}
+
 type createComputeEnvironmentInput struct {
-	Tags                   map[string]string `json:"tags"`
-	ComputeEnvironmentName string            `json:"computeEnvironmentName"`
-	Type                   string            `json:"type"`
-	State                  string            `json:"state"`
+	Tags                   map[string]string      `json:"tags"`
+	ComputeResources       *computeResourcesInput `json:"computeResources,omitempty"`
+	ComputeEnvironmentName string                 `json:"computeEnvironmentName"`
+	Type                   string                 `json:"type"`
+	State                  string                 `json:"state"`
+	ServiceRole            string                 `json:"serviceRole,omitempty"`
 }
 
 type createComputeEnvironmentOutput struct {
@@ -409,7 +439,28 @@ func (h *Handler) handleCreateComputeEnvironment(
 		state = stateEnabled
 	}
 
-	ce, err := h.Backend.CreateComputeEnvironment(in.ComputeEnvironmentName, in.Type, state, in.Tags)
+	var (
+		minvCpus         int32
+		maxvCpus         int32
+		instanceTypes    []string
+		subnets          []string
+		securityGroupIDs []string
+		instanceRole     string
+	)
+
+	if in.ComputeResources != nil {
+		minvCpus = in.ComputeResources.MinvCpus
+		maxvCpus = in.ComputeResources.MaxvCpus
+		instanceTypes = in.ComputeResources.InstanceTypes
+		subnets = in.ComputeResources.Subnets
+		securityGroupIDs = in.ComputeResources.SecurityGroupIDs
+		instanceRole = in.ComputeResources.InstanceRole
+	}
+
+	ce, err := h.Backend.CreateComputeEnvironment(
+		in.ComputeEnvironmentName, in.Type, state, in.Tags, in.ServiceRole,
+		minvCpus, maxvCpus, instanceTypes, subnets, securityGroupIDs, instanceRole,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -421,10 +472,13 @@ func (h *Handler) handleCreateComputeEnvironment(
 }
 
 type describeComputeEnvironmentsInput struct {
+	MaxResults          *int32   `json:"maxResults,omitempty"`
+	NextToken           *string  `json:"nextToken,omitempty"`
 	ComputeEnvironments []string `json:"computeEnvironments"`
 }
 
 type describeComputeEnvironmentsOutput struct {
+	NextToken           *string               `json:"nextToken,omitempty"`
 	ComputeEnvironments []*ComputeEnvironment `json:"computeEnvironments"`
 }
 
@@ -440,6 +494,7 @@ func (h *Handler) handleDescribeComputeEnvironments(
 type updateComputeEnvironmentInput struct {
 	ComputeEnvironment string `json:"computeEnvironment"`
 	State              string `json:"state"`
+	ServiceRole        string `json:"serviceRole,omitempty"`
 }
 
 type updateComputeEnvironmentOutput struct {
@@ -451,7 +506,7 @@ func (h *Handler) handleUpdateComputeEnvironment(
 	_ context.Context,
 	in *updateComputeEnvironmentInput,
 ) (*updateComputeEnvironmentOutput, error) {
-	ce, err := h.Backend.UpdateComputeEnvironment(in.ComputeEnvironment, in.State)
+	ce, err := h.Backend.UpdateComputeEnvironment(in.ComputeEnvironment, in.State, in.ServiceRole)
 	if err != nil {
 		return nil, err
 	}
@@ -483,6 +538,7 @@ type createJobQueueInput struct {
 	Tags                    map[string]string         `json:"tags"`
 	JobQueueName            string                    `json:"jobQueueName"`
 	State                   string                    `json:"state"`
+	SchedulingPolicyArn     string                    `json:"schedulingPolicyArn,omitempty"`
 	ComputeEnvironmentOrder []ComputeEnvironmentOrder `json:"computeEnvironmentOrder"`
 	Priority                int32                     `json:"priority"`
 }
@@ -501,7 +557,14 @@ func (h *Handler) handleCreateJobQueue(
 		state = stateEnabled
 	}
 
-	jq, err := h.Backend.CreateJobQueue(in.JobQueueName, in.Priority, state, in.ComputeEnvironmentOrder, in.Tags)
+	jq, err := h.Backend.CreateJobQueue(
+		in.JobQueueName,
+		in.Priority,
+		state,
+		in.ComputeEnvironmentOrder,
+		in.Tags,
+		in.SchedulingPolicyArn,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -513,10 +576,13 @@ func (h *Handler) handleCreateJobQueue(
 }
 
 type describeJobQueuesInput struct {
-	JobQueues []string `json:"jobQueues"`
+	MaxResults *int32   `json:"maxResults,omitempty"`
+	NextToken  *string  `json:"nextToken,omitempty"`
+	JobQueues  []string `json:"jobQueues"`
 }
 
 type describeJobQueuesOutput struct {
+	NextToken *string     `json:"nextToken,omitempty"`
 	JobQueues []*JobQueue `json:"jobQueues"`
 }
 
@@ -524,15 +590,32 @@ func (h *Handler) handleDescribeJobQueues(
 	_ context.Context,
 	in *describeJobQueuesInput,
 ) (*describeJobQueuesOutput, error) {
-	jqs := h.Backend.DescribeJobQueues(in.JobQueues)
+	var maxResults int32
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
 
-	return &describeJobQueuesOutput{JobQueues: jqs}, nil
+	var nextToken string
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	jqs, outToken := h.Backend.DescribeJobQueues(in.JobQueues, maxResults, nextToken)
+	out := &describeJobQueuesOutput{JobQueues: jqs}
+
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 type updateJobQueueInput struct {
-	Priority *int32 `json:"priority,omitempty"`
-	JobQueue string `json:"jobQueue"`
-	State    string `json:"state"`
+	Priority                *int32                    `json:"priority,omitempty"`
+	JobQueue                string                    `json:"jobQueue"`
+	State                   string                    `json:"state"`
+	SchedulingPolicyArn     string                    `json:"schedulingPolicyArn,omitempty"`
+	ComputeEnvironmentOrder []ComputeEnvironmentOrder `json:"computeEnvironmentOrder,omitempty"`
 }
 
 type updateJobQueueOutput struct {
@@ -544,7 +627,7 @@ func (h *Handler) handleUpdateJobQueue(
 	_ context.Context,
 	in *updateJobQueueInput,
 ) (*updateJobQueueOutput, error) {
-	jq, err := h.Backend.UpdateJobQueue(in.JobQueue, in.Priority, in.State)
+	jq, err := h.Backend.UpdateJobQueue(in.JobQueue, in.Priority, in.State, in.ComputeEnvironmentOrder)
 	if err != nil {
 		return nil, err
 	}
@@ -570,23 +653,64 @@ func (h *Handler) handleDeleteJobQueue(
 	return &emptyOutput{}, nil
 }
 
+type jobDefinitionTimeout struct {
+	AttemptDurationSeconds int32 `json:"attemptDurationSeconds,omitempty"`
+}
+
+type containerPropertiesInput struct {
+	Image      string   `json:"image,omitempty"`
+	JobRoleArn string   `json:"jobRoleArn,omitempty"`
+	Command    []string `json:"command,omitempty"`
+	Vcpus      int32    `json:"vcpus,omitempty"`
+	Memory     int32    `json:"memory,omitempty"`
+}
+
 type registerJobDefinitionInput struct {
-	Tags              map[string]string `json:"tags"`
-	JobDefinitionName string            `json:"jobDefinitionName"`
-	Type              string            `json:"type"`
+	Tags                 map[string]string         `json:"tags"`
+	Parameters           map[string]string         `json:"parameters,omitempty"`
+	Timeout              *jobDefinitionTimeout     `json:"timeout,omitempty"`
+	ContainerProperties  *containerPropertiesInput `json:"containerProperties,omitempty"`
+	JobDefinitionName    string                    `json:"jobDefinitionName"`
+	Type                 string                    `json:"type"`
+	PlatformCapabilities []string                  `json:"platformCapabilities,omitempty"`
 }
 
 type registerJobDefinitionOutput struct {
 	JobDefinitionArn  string `json:"jobDefinitionArn"`
 	JobDefinitionName string `json:"jobDefinitionName"`
 	Revision          int32  `json:"revision"`
+	TimeoutSeconds    int32  `json:"timeout,omitempty"`
 }
 
 func (h *Handler) handleRegisterJobDefinition(
 	_ context.Context,
 	in *registerJobDefinitionInput,
 ) (*registerJobDefinitionOutput, error) {
-	jd, err := h.Backend.RegisterJobDefinition(in.JobDefinitionName, in.Type, in.Tags)
+	var timeoutSeconds int32
+	if in.Timeout != nil {
+		timeoutSeconds = in.Timeout.AttemptDurationSeconds
+	}
+
+	var containerProps *ContainerProperties
+	if in.ContainerProperties != nil {
+		containerProps = &ContainerProperties{
+			Image:      in.ContainerProperties.Image,
+			JobRoleArn: in.ContainerProperties.JobRoleArn,
+			Command:    in.ContainerProperties.Command,
+			Vcpus:      in.ContainerProperties.Vcpus,
+			Memory:     in.ContainerProperties.Memory,
+		}
+	}
+
+	jd, err := h.Backend.RegisterJobDefinition(
+		in.JobDefinitionName,
+		in.Type,
+		in.Tags,
+		in.PlatformCapabilities,
+		timeoutSeconds,
+		containerProps,
+		in.Parameters,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -595,14 +719,20 @@ func (h *Handler) handleRegisterJobDefinition(
 		JobDefinitionArn:  jd.JobDefinitionArn,
 		JobDefinitionName: jd.JobDefinitionName,
 		Revision:          jd.Revision,
+		TimeoutSeconds:    jd.TimeoutSeconds,
 	}, nil
 }
 
 type describeJobDefinitionsInput struct {
-	JobDefinitions []string `json:"jobDefinitions"`
+	MaxResults        *int32   `json:"maxResults,omitempty"`
+	NextToken         *string  `json:"nextToken,omitempty"`
+	JobDefinitionName string   `json:"jobDefinitionName,omitempty"`
+	Status            string   `json:"status,omitempty"`
+	JobDefinitions    []string `json:"jobDefinitions"`
 }
 
 type describeJobDefinitionsOutput struct {
+	NextToken      *string          `json:"nextToken,omitempty"`
 	JobDefinitions []*JobDefinition `json:"jobDefinitions"`
 }
 
@@ -610,7 +740,7 @@ func (h *Handler) handleDescribeJobDefinitions(
 	_ context.Context,
 	in *describeJobDefinitionsInput,
 ) (*describeJobDefinitionsOutput, error) {
-	jds := h.Backend.DescribeJobDefinitions(in.JobDefinitions)
+	jds := h.Backend.DescribeJobDefinitions(in.JobDefinitions, in.Status, in.JobDefinitionName)
 
 	return &describeJobDefinitionsOutput{JobDefinitions: jds}, nil
 }
@@ -633,22 +763,37 @@ func (h *Handler) handleDeregisterJobDefinition(
 // --- Job operation handlers ---
 
 type listJobsInput struct {
-	JobQueue  string `json:"jobQueue"`
-	JobStatus string `json:"jobStatus"`
+	MaxResults *int32  `json:"maxResults,omitempty"`
+	NextToken  *string `json:"nextToken,omitempty"`
+	JobQueue   string  `json:"jobQueue"`
+	JobStatus  string  `json:"jobStatus"`
 }
 
 type jobSummary struct {
-	JobID   string `json:"jobId"`
-	JobName string `json:"jobName"`
-	Status  string `json:"status"`
+	JobID        string `json:"jobId"`
+	JobName      string `json:"jobName"`
+	Status       string `json:"status"`
+	StatusReason string `json:"statusReason,omitempty"`
+	CreatedAt    int64  `json:"createdAt"`
 }
 
 type listJobsOutput struct {
+	NextToken      *string      `json:"nextToken,omitempty"`
 	JobSummaryList []jobSummary `json:"jobSummaryList"`
 }
 
 func (h *Handler) handleListJobs(_ context.Context, in *listJobsInput) (*listJobsOutput, error) {
-	jobs, err := h.Backend.ListJobs(in.JobQueue, in.JobStatus)
+	var maxResults int32
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
+
+	var nextToken string
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	jobs, outToken, err := h.Backend.ListJobs(in.JobQueue, in.JobStatus, nextToken, maxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -656,13 +801,20 @@ func (h *Handler) handleListJobs(_ context.Context, in *listJobsInput) (*listJob
 	summaries := make([]jobSummary, 0, len(jobs))
 	for _, j := range jobs {
 		summaries = append(summaries, jobSummary{
-			JobID:   j.JobID,
-			JobName: j.JobName,
-			Status:  j.Status,
+			JobID:        j.JobID,
+			JobName:      j.JobName,
+			Status:       j.Status,
+			CreatedAt:    j.CreatedAt,
+			StatusReason: j.StatusReason,
 		})
 	}
 
-	return &listJobsOutput{JobSummaryList: summaries}, nil
+	out := &listJobsOutput{JobSummaryList: summaries}
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 type describeJobsInput struct {
@@ -710,11 +862,26 @@ func (h *Handler) handleDescribeJobs(_ context.Context, in *describeJobsInput) (
 	return &describeJobsOutput{Jobs: details}, nil
 }
 
+type containerOverridesInput struct {
+	Environment []keyValuePair `json:"environment,omitempty"`
+	Command     []string       `json:"command,omitempty"`
+}
+
+type keyValuePair struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 type submitJobInput struct {
-	Tags          map[string]string `json:"tags"`
-	JobName       string            `json:"jobName"`
-	JobQueue      string            `json:"jobQueue"`
-	JobDefinition string            `json:"jobDefinition"`
+	Tags               map[string]string        `json:"tags"`
+	Parameters         map[string]string        `json:"parameters,omitempty"`
+	RetryStrategy      *RetryStrategy           `json:"retryStrategy,omitempty"`
+	Timeout            *JobTimeout              `json:"timeout,omitempty"`
+	ContainerOverrides *containerOverridesInput `json:"containerOverrides,omitempty"`
+	JobName            string                   `json:"jobName"`
+	JobQueue           string                   `json:"jobQueue"`
+	JobDefinition      string                   `json:"jobDefinition"`
+	DependsOn          []JobDependency          `json:"dependsOn,omitempty"`
 }
 
 type submitJobOutput struct {
@@ -723,7 +890,16 @@ type submitJobOutput struct {
 }
 
 func (h *Handler) handleSubmitJob(_ context.Context, in *submitJobInput) (*submitJobOutput, error) {
-	j, err := h.Backend.SubmitJob(in.JobName, in.JobQueue, in.JobDefinition, in.Tags)
+	j, err := h.Backend.SubmitJob(
+		in.JobName,
+		in.JobQueue,
+		in.JobDefinition,
+		in.Tags,
+		in.Parameters,
+		in.DependsOn,
+		in.RetryStrategy,
+		in.Timeout,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1172,4 +1348,149 @@ func (h *Handler) handleUpdateServiceEnvironment(
 		ServiceEnvironmentArn:  se.ServiceEnvironmentArn,
 		ServiceEnvironmentName: se.ServiceEnvironmentName,
 	}, nil
+}
+
+// --- ServiceJob handlers ---
+
+type submitServiceJobInput struct {
+	Tags               map[string]string `json:"tags"`
+	ServiceJobName     string            `json:"serviceJobName"`
+	ServiceEnvironment string            `json:"serviceEnvironment"`
+}
+
+type submitServiceJobOutput struct {
+	ServiceJobArn  string `json:"serviceJobArn"`
+	ServiceJobName string `json:"serviceJobName"`
+}
+
+func (h *Handler) handleSubmitServiceJob(
+	_ context.Context,
+	in *submitServiceJobInput,
+) (*submitServiceJobOutput, error) {
+	if in.ServiceJobName == "" {
+		return nil, fmt.Errorf("%w: serviceJobName is required", ErrValidation)
+	}
+
+	sj, err := h.Backend.SubmitServiceJob(in.ServiceJobName, in.ServiceEnvironment, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &submitServiceJobOutput{
+		ServiceJobArn:  sj.ServiceJobArn,
+		ServiceJobName: sj.ServiceJobName,
+	}, nil
+}
+
+type describeServiceJobInput struct {
+	ServiceJob string `json:"serviceJob"`
+}
+
+type describeServiceJobOutput struct {
+	Tags               map[string]string `json:"tags,omitempty"`
+	StartedAt          *int64            `json:"startedAt,omitempty"`
+	StoppedAt          *int64            `json:"stoppedAt,omitempty"`
+	ServiceJobID       string            `json:"serviceJobId"`
+	ServiceJobArn      string            `json:"serviceJobArn"`
+	ServiceJobName     string            `json:"serviceJobName"`
+	ServiceEnvironment string            `json:"serviceEnvironment"`
+	Status             string            `json:"status"`
+	StatusReason       string            `json:"statusReason,omitempty"`
+	CreatedAt          int64             `json:"createdAt"`
+}
+
+func (h *Handler) handleDescribeServiceJob(
+	_ context.Context,
+	in *describeServiceJobInput,
+) (*describeServiceJobOutput, error) {
+	if in.ServiceJob == "" {
+		return nil, fmt.Errorf("%w: serviceJob is required", ErrValidation)
+	}
+
+	sj, err := h.Backend.DescribeServiceJob(in.ServiceJob)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeServiceJobOutput{
+		ServiceJobID:       sj.ServiceJobID,
+		ServiceJobArn:      sj.ServiceJobArn,
+		ServiceJobName:     sj.ServiceJobName,
+		ServiceEnvironment: sj.ServiceEnvironment,
+		Status:             sj.Status,
+		StatusReason:       sj.StatusReason,
+		CreatedAt:          sj.CreatedAt,
+		StartedAt:          sj.StartedAt,
+		StoppedAt:          sj.StoppedAt,
+		Tags:               sj.Tags,
+	}, nil
+}
+
+type listServiceJobsInput struct {
+	ServiceEnvironment string `json:"serviceEnvironment,omitempty"`
+}
+
+type listServiceJobsOutput struct {
+	ServiceJobs []*ServiceJob `json:"serviceJobs"`
+}
+
+func (h *Handler) handleListServiceJobs(_ context.Context, in *listServiceJobsInput) (*listServiceJobsOutput, error) {
+	list, err := h.Backend.ListServiceJobs(in.ServiceEnvironment)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listServiceJobsOutput{ServiceJobs: list}, nil
+}
+
+type terminateServiceJobInput struct {
+	ServiceJob string `json:"serviceJob"`
+	Reason     string `json:"reason"`
+}
+
+func (h *Handler) handleTerminateServiceJob(_ context.Context, in *terminateServiceJobInput) (*emptyOutput, error) {
+	if in.ServiceJob == "" {
+		return nil, fmt.Errorf("%w: serviceJob is required", ErrValidation)
+	}
+
+	if err := h.Backend.TerminateServiceJob(in.ServiceJob, in.Reason); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+type getJobQueueSnapshotInput struct {
+	JobQueue string `json:"jobQueue"`
+}
+
+func (h *Handler) handleGetJobQueueSnapshot(
+	_ context.Context,
+	in *getJobQueueSnapshotInput,
+) (*JobQueueSnapshot, error) {
+	if in.JobQueue == "" {
+		return nil, fmt.Errorf("%w: jobQueue is required", ErrValidation)
+	}
+
+	return h.Backend.GetJobQueueSnapshot(in.JobQueue)
+}
+
+type listJobsByConsumableResourceInput struct {
+	ConsumableResource string `json:"consumableResource"`
+}
+
+type listJobsByConsumableResourceOutput struct {
+	Jobs []*Job `json:"jobs"`
+}
+
+func (h *Handler) handleListJobsByConsumableResource(
+	_ context.Context,
+	in *listJobsByConsumableResourceInput,
+) (*listJobsByConsumableResourceOutput, error) {
+	jobs, err := h.Backend.ListJobsByConsumableResource(in.ConsumableResource)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listJobsByConsumableResourceOutput{Jobs: jobs}, nil
 }

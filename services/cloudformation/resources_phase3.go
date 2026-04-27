@@ -205,7 +205,19 @@ func (rc *ResourceCreator) createBatchComputeEnvironment(
 		ceType = "MANAGED"
 	}
 
-	ce, err := rc.backends.Batch.Backend.CreateComputeEnvironment(name, ceType, "ENABLED", nil)
+	ce, err := rc.backends.Batch.Backend.CreateComputeEnvironment(
+		name,
+		ceType,
+		"ENABLED",
+		nil,
+		"",
+		0,
+		0,
+		nil,
+		nil,
+		nil,
+		"",
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Batch compute environment %s: %w", name, err)
 	}
@@ -216,6 +228,11 @@ func (rc *ResourceCreator) createBatchComputeEnvironment(
 func (rc *ResourceCreator) deleteBatchComputeEnvironment(arnOrName string) error {
 	if rc.backends.Batch == nil {
 		return nil
+	}
+
+	// AWS requires DISABLED state before deletion.
+	if _, err := rc.backends.Batch.Backend.UpdateComputeEnvironment(arnOrName, "DISABLED", ""); err != nil {
+		return fmt.Errorf("disable Batch compute environment %s: %w", arnOrName, err)
 	}
 
 	return rc.backends.Batch.Backend.DeleteComputeEnvironment(arnOrName)
@@ -261,7 +278,7 @@ func (rc *ResourceCreator) createBatchJobQueue(
 		}
 	}
 
-	jq, err := rc.backends.Batch.Backend.CreateJobQueue(name, priority, "ENABLED", ceOrder, nil)
+	jq, err := rc.backends.Batch.Backend.CreateJobQueue(name, priority, "ENABLED", ceOrder, nil, "")
 	if err != nil {
 		return "", fmt.Errorf("create Batch job queue %s: %w", name, err)
 	}
@@ -272,6 +289,12 @@ func (rc *ResourceCreator) createBatchJobQueue(
 func (rc *ResourceCreator) deleteBatchJobQueue(arnOrName string) error {
 	if rc.backends.Batch == nil {
 		return nil
+	}
+
+	// AWS requires DISABLED state before deletion.
+	disabled := "DISABLED"
+	if _, err := rc.backends.Batch.Backend.UpdateJobQueue(arnOrName, nil, disabled, nil); err != nil {
+		return fmt.Errorf("disable Batch job queue %s: %w", arnOrName, err)
 	}
 
 	return rc.backends.Batch.Backend.DeleteJobQueue(arnOrName)
@@ -296,7 +319,7 @@ func (rc *ResourceCreator) createBatchJobDefinition(
 		defType = "container"
 	}
 
-	jd, err := rc.backends.Batch.Backend.RegisterJobDefinition(name, defType, nil)
+	jd, err := rc.backends.Batch.Backend.RegisterJobDefinition(name, defType, nil, nil, 0, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("create Batch job definition %s: %w", name, err)
 	}

@@ -102,7 +102,7 @@ func TestBatchJanitor_SweepOnce_WithTaskTimeout(t *testing.T) {
 
 	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.RegisterJobDefinition("sweep-timeout-test", "container", nil)
+	_, err := b.RegisterJobDefinition("sweep-timeout-test", "container", nil, nil, 0, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeregisterJobDefinition("sweep-timeout-test:1"))
@@ -168,13 +168,13 @@ func TestBatchJanitor_SweepCompletedJobs(t *testing.T) {
 
 			b := batch.NewInMemoryBackend("000000000000", "us-east-1")
 
-			queue, err := b.CreateJobQueue("test-queue", 1, "ENABLED", nil, nil)
+			queue, err := b.CreateJobQueue("test-queue", 1, "ENABLED", nil, nil, "")
 			require.NoError(t, err)
 
-			_, err = b.RegisterJobDefinition("test-jd", "container", nil)
+			_, err = b.RegisterJobDefinition("test-jd", "container", nil, nil, 0, nil, nil)
 			require.NoError(t, err)
 
-			job, err := b.SubmitJob("test-job", queue.JobQueueName, "test-jd:1", nil)
+			job, err := b.SubmitJob("test-job", queue.JobQueueName, "test-jd:1", nil, nil, nil, nil, nil)
 			require.NoError(t, err)
 
 			// Set the job status and a back-dated StoppedAt.
@@ -183,7 +183,7 @@ func TestBatchJanitor_SweepCompletedJobs(t *testing.T) {
 			j := batch.NewJanitor(b, time.Minute, 24*time.Hour, tt.ttl)
 			j.SweepOnce(t.Context())
 
-			jobs, err := b.ListJobs(queue.JobQueueName, tt.status)
+			jobs, _, err := b.ListJobs(queue.JobQueueName, tt.status, "", 0)
 			require.NoError(t, err)
 
 			if tt.wantEvicted {
