@@ -39,16 +39,26 @@ const (
 
 	resourceTypeReplenishable    = "REPLENISHABLE"
 	resourceTypeNonReplenishable = "NON_REPLENISHABLE"
+
+	msPerSecond = 1000.0
 )
 
 // ComputeEnvironment represents a Batch compute environment.
 type ComputeEnvironment struct {
 	Tags                   map[string]string `json:"tags,omitempty"`
-	ComputeEnvironmentName string            `json:"computeEnvironmentName"`
+	ServiceRole            string            `json:"serviceRole,omitempty"`
 	ComputeEnvironmentArn  string            `json:"computeEnvironmentArn"`
 	Type                   string            `json:"type"`
 	State                  string            `json:"state"`
 	Status                 string            `json:"status"`
+	ComputeEnvironmentName string            `json:"computeEnvironmentName"`
+	InstanceRole           string            `json:"instanceRole,omitempty"`
+	InstanceTypes          []string          `json:"instanceTypes,omitempty"`
+	Subnets                []string          `json:"subnets,omitempty"`
+	SecurityGroupIDs       []string          `json:"securityGroupIds,omitempty"`
+	MinvCpus               int32             `json:"minvCpus,omitempty"`
+	MaxvCpus               int32             `json:"maxvCpus,omitempty"`
+	DesiredvCpus           int32             `json:"desiredvCpus,omitempty"`
 }
 
 // ComputeEnvironmentOrder pairs a compute environment with its ordering in a job queue.
@@ -70,19 +80,22 @@ type JobQueue struct {
 
 // JobDefinition represents a Batch job definition.
 type JobDefinition struct {
-	DeregisteredAt    *time.Time        `json:"deregisteredAt,omitempty"`
-	Tags              map[string]string `json:"tags,omitempty"`
-	JobDefinitionName string            `json:"jobDefinitionName"`
-	JobDefinitionArn  string            `json:"jobDefinitionArn"`
-	Type              string            `json:"type"`
-	Status            string            `json:"status"`
-	Revision          int32             `json:"revision"`
+	DeregisteredAt       *time.Time        `json:"deregisteredAt,omitempty"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	JobDefinitionName    string            `json:"jobDefinitionName"`
+	JobDefinitionArn     string            `json:"jobDefinitionArn"`
+	Type                 string            `json:"type"`
+	Status               string            `json:"status"`
+	PlatformCapabilities []string          `json:"platformCapabilities,omitempty"`
+	Revision             int32             `json:"revision"`
+	TimeoutSeconds       int32             `json:"timeoutSeconds,omitempty"`
 }
 
 // Job represents a submitted Batch job.
 type Job struct {
 	StoppedAt     *int64            `json:"stoppedAt,omitempty"`
 	Tags          map[string]string `json:"tags,omitempty"`
+	Parameters    map[string]string `json:"parameters,omitempty"`
 	StartedAt     *int64            `json:"startedAt,omitempty"`
 	JobID         string            `json:"jobId"`
 	JobARN        string            `json:"jobArn"`
@@ -123,6 +136,53 @@ type ServiceEnvironment struct {
 	Status                 string            `json:"status"`
 }
 
+// ServiceJob represents a Batch service job.
+type ServiceJob struct {
+	Tags               map[string]string `json:"tags,omitempty"`
+	StartedAt          *int64            `json:"startedAt,omitempty"`
+	StoppedAt          *int64            `json:"stoppedAt,omitempty"`
+	ServiceJobID       string            `json:"serviceJobId"`
+	ServiceJobArn      string            `json:"serviceJobArn"`
+	ServiceJobName     string            `json:"serviceJobName"`
+	ServiceEnvironment string            `json:"serviceEnvironment"`
+	Status             string            `json:"status"`
+	StatusReason       string            `json:"statusReason,omitempty"`
+	CreatedAt          int64             `json:"createdAt"`
+}
+
+// JobQueueSnapshot represents the front-of-queue state for a job queue.
+type JobQueueSnapshot struct {
+	FrontOfQueue *FrontOfQueue `json:"frontOfQueue,omitempty"`
+}
+
+// FrontOfQueue holds jobs at the front of a job queue.
+type FrontOfQueue struct {
+	Jobs      []FrontOfQueueJob `json:"jobs,omitempty"`
+	Timestamp float64           `json:"timestamp"`
+}
+
+// FrontOfQueueJob represents a single job at the front of a queue.
+type FrontOfQueueJob struct {
+	JobArn                 string  `json:"jobArn"`
+	EarliestTimeAtPosition float64 `json:"earliestTimeAtPosition"`
+}
+
+// JobDependency represents a dependency between jobs.
+type JobDependency struct {
+	JobID string `json:"jobId,omitempty"`
+	Type  string `json:"type,omitempty"`
+}
+
+// RetryStrategy configures automatic retry behavior.
+type RetryStrategy struct {
+	Attempts int32 `json:"attempts,omitempty"`
+}
+
+// JobTimeout configures the timeout for a job.
+type JobTimeout struct {
+	AttemptDurationSeconds int32 `json:"attemptDurationSeconds,omitempty"`
+}
+
 // InMemoryBackend stores AWS Batch state in memory.
 type InMemoryBackend struct {
 	computeEnvironments    map[string]*ComputeEnvironment
@@ -134,7 +194,8 @@ type InMemoryBackend struct {
 	consumableResources    map[string]*ConsumableResource
 	schedulingPolicies     map[string]*SchedulingPolicy // ARN → SchedulingPolicy
 	serviceEnvironments    map[string]*ServiceEnvironment
-	schedulingPolicyByName map[string]string // name → ARN
+	serviceJobs            map[string]*ServiceJob // serviceJobID → ServiceJob
+	schedulingPolicyByName map[string]string      // name → ARN
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -152,6 +213,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		consumableResources:    make(map[string]*ConsumableResource),
 		schedulingPolicies:     make(map[string]*SchedulingPolicy),
 		serviceEnvironments:    make(map[string]*ServiceEnvironment),
+		serviceJobs:            make(map[string]*ServiceJob),
 		schedulingPolicyByName: make(map[string]string),
 		accountID:              accountID,
 		region:                 region,
@@ -173,6 +235,7 @@ func (b *InMemoryBackend) Reset() {
 	b.consumableResources = make(map[string]*ConsumableResource)
 	b.schedulingPolicies = make(map[string]*SchedulingPolicy)
 	b.serviceEnvironments = make(map[string]*ServiceEnvironment)
+	b.serviceJobs = make(map[string]*ServiceJob)
 	b.schedulingPolicyByName = make(map[string]string)
 }
 
@@ -215,6 +278,10 @@ func (b *InMemoryBackend) lookupJQByNameOrARN(nameOrARN string) (*JobQueue, bool
 func (b *InMemoryBackend) CreateComputeEnvironment(
 	name, ceType, state string,
 	tags map[string]string,
+	serviceRole string,
+	minvCpus, maxvCpus int32,
+	instanceTypes, subnets, securityGroupIDs []string,
+	instanceRole string,
 ) (*ComputeEnvironment, error) {
 	b.mu.Lock("CreateComputeEnvironment")
 	defer b.mu.Unlock()
@@ -235,6 +302,13 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 		State:                  state,
 		Status:                 "VALID",
 		Tags:                   tagsCopy,
+		ServiceRole:            serviceRole,
+		MinvCpus:               minvCpus,
+		MaxvCpus:               maxvCpus,
+		InstanceTypes:          instanceTypes,
+		Subnets:                subnets,
+		SecurityGroupIDs:       securityGroupIDs,
+		InstanceRole:           instanceRole,
 	}
 	b.computeEnvironments[name] = ce
 	cp := *ce
@@ -300,6 +374,20 @@ func (b *InMemoryBackend) DeleteComputeEnvironment(nameOrARN string) error {
 	ce, ok := b.lookupCEByNameOrARN(nameOrARN)
 	if !ok {
 		return fmt.Errorf("%w: compute environment %s not found", ErrNotFound, nameOrARN)
+	}
+
+	// Check if referenced by any job queue.
+	for _, jq := range b.jobQueues {
+		for _, ceOrder := range jq.ComputeEnvironmentOrder {
+			if ceOrder.ComputeEnvironment == ce.ComputeEnvironmentName ||
+				ceOrder.ComputeEnvironment == ce.ComputeEnvironmentArn {
+				return fmt.Errorf(
+					"%w: compute environment %s is referenced by one or more job queues",
+					ErrValidation,
+					nameOrARN,
+				)
+			}
+		}
 	}
 
 	delete(b.computeEnvironments, ce.ComputeEnvironmentName)
@@ -400,6 +488,7 @@ func (b *InMemoryBackend) UpdateJobQueue(nameOrARN string, priority *int32, stat
 }
 
 // DeleteJobQueue removes a job queue and all associated jobs.
+// DeleteJobQueue removes a job queue and all its associated jobs.
 func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 	b.mu.Lock("DeleteJobQueue")
 	defer b.mu.Unlock()
@@ -407,6 +496,10 @@ func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 	jq, ok := b.lookupJQByNameOrARN(nameOrARN)
 	if !ok {
 		return fmt.Errorf("%w: job queue %s not found", ErrNotFound, nameOrARN)
+	}
+
+	if jq.State != "DISABLED" {
+		return fmt.Errorf("%w: job queue %s must be DISABLED before it can be deleted", ErrValidation, nameOrARN)
 	}
 
 	queueName := jq.JobQueueName
@@ -426,6 +519,8 @@ func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 func (b *InMemoryBackend) RegisterJobDefinition(
 	name, defType string,
 	tags map[string]string,
+	platformCapabilities []string,
+	timeoutSeconds int32,
 ) (*JobDefinition, error) {
 	b.mu.Lock("RegisterJobDefinition")
 	defer b.mu.Unlock()
@@ -439,12 +534,14 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 	maps.Copy(tagsCopy, tags)
 
 	jd := &JobDefinition{
-		JobDefinitionName: name,
-		JobDefinitionArn:  jdARN,
-		Type:              defType,
-		Status:            jobDefStatusActive,
-		Revision:          revision,
-		Tags:              tagsCopy,
+		JobDefinitionName:    name,
+		JobDefinitionArn:     jdARN,
+		Type:                 defType,
+		Status:               jobDefStatusActive,
+		Revision:             revision,
+		Tags:                 tagsCopy,
+		PlatformCapabilities: platformCapabilities,
+		TimeoutSeconds:       timeoutSeconds,
 	}
 	b.jobDefinitions[jdARN] = jd
 	cp := *jd
@@ -453,26 +550,43 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 }
 
 // DescribeJobDefinitions returns job definitions, optionally filtered by names/ARNs.
-func (b *InMemoryBackend) DescribeJobDefinitions(names []string) []*JobDefinition {
+func (b *InMemoryBackend) DescribeJobDefinitions(names []string, status, jobDefinitionName string) []*JobDefinition {
 	b.mu.RLock("DescribeJobDefinitions")
 	defer b.mu.RUnlock()
 
 	if len(names) == 0 {
-		list := make([]*JobDefinition, 0, len(b.jobDefinitions))
-		for _, jd := range b.jobDefinitions {
-			cp := *jd
-			list = append(list, &cp)
-		}
-
-		return list
+		return b.describeAllJobDefinitions(status, jobDefinitionName)
 	}
 
+	return b.describeJobDefinitionsByNames(names, status)
+}
+
+func (b *InMemoryBackend) describeAllJobDefinitions(status, jobDefinitionName string) []*JobDefinition {
+	list := make([]*JobDefinition, 0, len(b.jobDefinitions))
+
+	for _, jd := range b.jobDefinitions {
+		if status != "" && jd.Status != status {
+			continue
+		}
+
+		if jobDefinitionName != "" && jd.JobDefinitionName != jobDefinitionName {
+			continue
+		}
+
+		cp := *jd
+		list = append(list, &cp)
+	}
+
+	return list
+}
+
+func (b *InMemoryBackend) describeJobDefinitionsByNames(names []string, status string) []*JobDefinition {
 	seen := make(map[string]bool)
 	list := make([]*JobDefinition, 0, len(names))
 
 	for _, nameOrARN := range names {
 		if jd, ok := b.jobDefinitions[nameOrARN]; ok {
-			if !seen[jd.JobDefinitionArn] {
+			if !seen[jd.JobDefinitionArn] && (status == "" || jd.Status == status) {
 				seen[jd.JobDefinitionArn] = true
 				cp := *jd
 				list = append(list, &cp)
@@ -481,11 +595,10 @@ func (b *InMemoryBackend) DescribeJobDefinitions(names []string) []*JobDefinitio
 			continue
 		}
 
-		// Match by bare name (strip optional :revision suffix).
 		baseName, _, _ := strings.Cut(nameOrARN, ":")
 
 		for _, jd := range b.jobDefinitions {
-			if jd.JobDefinitionName == baseName && !seen[jd.JobDefinitionArn] {
+			if jd.JobDefinitionName == baseName && !seen[jd.JobDefinitionArn] && (status == "" || jd.Status == status) {
 				seen[jd.JobDefinitionArn] = true
 				cp := *jd
 				list = append(list, &cp)
@@ -582,6 +695,14 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 // findTagsByARN looks up the tags map for a resource by ARN.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, bool) {
+	if tags, ok := b.findTagsInCoreResources(resourceARN); ok {
+		return tags, true
+	}
+
+	return b.findTagsInPolicyResources(resourceARN)
+}
+
+func (b *InMemoryBackend) findTagsInCoreResources(resourceARN string) (map[string]string, bool) {
 	for _, ce := range b.computeEnvironments {
 		if ce.ComputeEnvironmentArn == resourceARN {
 			return ce.Tags, true
@@ -610,6 +731,10 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, 
 		}
 	}
 
+	return nil, false
+}
+
+func (b *InMemoryBackend) findTagsInPolicyResources(resourceARN string) (map[string]string, bool) {
 	for _, sp := range b.schedulingPolicies {
 		if sp.Arn == resourceARN {
 			return sp.Tags, true
@@ -622,17 +747,31 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, 
 		}
 	}
 
+	for _, sj := range b.serviceJobs {
+		if sj.ServiceJobArn == resourceARN {
+			return sj.Tags, true
+		}
+	}
+
 	return nil, false
 }
 
 // initTagsByARN ensures a resource has an initialised tags map.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) initTagsByARN(resourceARN string) {
+	if b.initTagsInCoreResources(resourceARN) {
+		return
+	}
+
+	b.initTagsInPolicyResources(resourceARN)
+}
+
+func (b *InMemoryBackend) initTagsInCoreResources(resourceARN string) bool {
 	for _, ce := range b.computeEnvironments {
 		if ce.ComputeEnvironmentArn == resourceARN {
 			ce.Tags = make(map[string]string)
 
-			return
+			return true
 		}
 	}
 
@@ -640,21 +779,21 @@ func (b *InMemoryBackend) initTagsByARN(resourceARN string) {
 		if jq.JobQueueArn == resourceARN {
 			jq.Tags = make(map[string]string)
 
-			return
+			return true
 		}
 	}
 
 	if jd, ok := b.jobDefinitions[resourceARN]; ok {
 		jd.Tags = make(map[string]string)
 
-		return
+		return true
 	}
 
 	for _, j := range b.jobs {
 		if j.JobARN == resourceARN {
 			j.Tags = make(map[string]string)
 
-			return
+			return true
 		}
 	}
 
@@ -662,10 +801,14 @@ func (b *InMemoryBackend) initTagsByARN(resourceARN string) {
 		if cr.ConsumableResourceArn == resourceARN {
 			cr.Tags = make(map[string]string)
 
-			return
+			return true
 		}
 	}
 
+	return false
+}
+
+func (b *InMemoryBackend) initTagsInPolicyResources(resourceARN string) {
 	for _, sp := range b.schedulingPolicies {
 		if sp.Arn == resourceARN {
 			sp.Tags = make(map[string]string)
@@ -681,10 +824,25 @@ func (b *InMemoryBackend) initTagsByARN(resourceARN string) {
 			return
 		}
 	}
+
+	for _, sj := range b.serviceJobs {
+		if sj.ServiceJobArn == resourceARN {
+			sj.Tags = make(map[string]string)
+
+			return
+		}
+	}
 }
 
 // SubmitJob submits a new job to the specified queue.
-func (b *InMemoryBackend) SubmitJob(name, queue, jobDefinition string, tags map[string]string) (*Job, error) {
+func (b *InMemoryBackend) SubmitJob(
+	name, queue, jobDefinition string,
+	tags map[string]string,
+	parameters map[string]string,
+	_ []JobDependency,
+	_ *RetryStrategy,
+	_ *JobTimeout,
+) (*Job, error) {
 	b.mu.Lock("SubmitJob")
 	defer b.mu.Unlock()
 
@@ -695,6 +853,8 @@ func (b *InMemoryBackend) SubmitJob(name, queue, jobDefinition string, tags map[
 
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
+
+	paramsCopy := maps.Clone(parameters)
 
 	now := time.Now().UnixMilli()
 	jobID := uuid.NewString()
@@ -710,6 +870,7 @@ func (b *InMemoryBackend) SubmitJob(name, queue, jobDefinition string, tags map[
 		Status:        jobStatusSubmitted,
 		CreatedAt:     now,
 		Tags:          tagsCopy,
+		Parameters:    paramsCopy,
 	}
 	b.jobs[jobID] = j
 	b.jobsByQueue[jq.JobQueueName] = append(b.jobsByQueue[jq.JobQueueName], jobID)
@@ -1183,4 +1344,150 @@ func (b *InMemoryBackend) UpdateServiceEnvironment(nameOrARN, state string) (*Se
 	cp.Tags = maps.Clone(se.Tags)
 
 	return &cp, nil
+}
+
+// SubmitServiceJob creates a new service job in SUBMITTED status.
+func (b *InMemoryBackend) SubmitServiceJob(name, serviceEnv string, tags map[string]string) (*ServiceJob, error) {
+	b.mu.Lock("SubmitServiceJob")
+	defer b.mu.Unlock()
+
+	tagsCopy := maps.Clone(tags)
+	now := time.Now().UnixMilli()
+	jobID := uuid.NewString()
+	jobARN := arn.Build("batch", b.region, b.accountID, "service-job/"+jobID)
+
+	sj := &ServiceJob{
+		ServiceJobID:       jobID,
+		ServiceJobArn:      jobARN,
+		ServiceJobName:     name,
+		ServiceEnvironment: serviceEnv,
+		Status:             jobStatusSubmitted,
+		CreatedAt:          now,
+		Tags:               tagsCopy,
+	}
+	b.serviceJobs[jobID] = sj
+	cp := *sj
+
+	return &cp, nil
+}
+
+// DescribeServiceJob returns a single service job by ID.
+func (b *InMemoryBackend) DescribeServiceJob(serviceJobID string) (*ServiceJob, error) {
+	b.mu.RLock("DescribeServiceJob")
+	defer b.mu.RUnlock()
+
+	sj, ok := b.serviceJobs[serviceJobID]
+	if !ok {
+		return nil, fmt.Errorf("%w: service job %s not found", ErrNotFound, serviceJobID)
+	}
+
+	cp := *sj
+	cp.Tags = maps.Clone(sj.Tags)
+
+	return &cp, nil
+}
+
+// ListServiceJobs returns service jobs, optionally filtered by service environment.
+func (b *InMemoryBackend) ListServiceJobs(serviceEnv string) ([]*ServiceJob, error) {
+	b.mu.RLock("ListServiceJobs")
+	defer b.mu.RUnlock()
+
+	list := make([]*ServiceJob, 0, len(b.serviceJobs))
+
+	for _, sj := range b.serviceJobs {
+		if serviceEnv != "" && sj.ServiceEnvironment != serviceEnv {
+			continue
+		}
+		cp := *sj
+		cp.Tags = maps.Clone(sj.Tags)
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt < list[j].CreatedAt })
+
+	return list, nil
+}
+
+// TerminateServiceJob marks a service job as FAILED.
+func (b *InMemoryBackend) TerminateServiceJob(serviceJobID, reason string) error {
+	b.mu.Lock("TerminateServiceJob")
+	defer b.mu.Unlock()
+
+	sj, ok := b.serviceJobs[serviceJobID]
+	if !ok {
+		return fmt.Errorf("%w: service job %s not found", ErrNotFound, serviceJobID)
+	}
+
+	now := time.Now().UnixMilli()
+	sj.Status = jobStatusFailed
+	sj.StatusReason = reason
+	sj.StoppedAt = &now
+
+	return nil
+}
+
+// GetJobQueueSnapshot returns a snapshot of the front of a job queue.
+func (b *InMemoryBackend) GetJobQueueSnapshot(jobQueue string) (*JobQueueSnapshot, error) {
+	b.mu.RLock("GetJobQueueSnapshot")
+	defer b.mu.RUnlock()
+
+	jq, ok := b.lookupJQByNameOrARN(jobQueue)
+	if !ok {
+		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, jobQueue)
+	}
+
+	ids := b.jobsByQueue[jq.JobQueueName]
+	runnableJobs := make([]*Job, 0)
+
+	for _, id := range ids {
+		j, ok2 := b.jobs[id]
+		if !ok2 {
+			continue
+		}
+		if j.Status == jobStatusRunnable {
+			runnableJobs = append(runnableJobs, j)
+		}
+	}
+
+	sort.Slice(runnableJobs, func(i, k int) bool { return runnableJobs[i].CreatedAt < runnableJobs[k].CreatedAt })
+
+	const maxFrontOfQueue = 100
+	if len(runnableJobs) > maxFrontOfQueue {
+		runnableJobs = runnableJobs[:maxFrontOfQueue]
+	}
+
+	foqJobs := make([]FrontOfQueueJob, 0, len(runnableJobs))
+	now := float64(time.Now().UnixMilli()) / msPerSecond
+
+	for _, j := range runnableJobs {
+		foqJobs = append(foqJobs, FrontOfQueueJob{
+			JobArn:                 j.JobARN,
+			EarliestTimeAtPosition: float64(j.CreatedAt) / msPerSecond,
+		})
+	}
+
+	return &JobQueueSnapshot{
+		FrontOfQueue: &FrontOfQueue{
+			Jobs:      foqJobs,
+			Timestamp: now,
+		},
+	}, nil
+}
+
+// ListJobsByConsumableResource returns all jobs (AWS returns jobs using the given consumable resource).
+func (b *InMemoryBackend) ListJobsByConsumableResource(_ string) ([]*Job, error) {
+	b.mu.RLock("ListJobsByConsumableResource")
+	defer b.mu.RUnlock()
+
+	list := make([]*Job, 0, len(b.jobs))
+
+	for _, j := range b.jobs {
+		cp := *j
+		cp.Tags = maps.Clone(j.Tags)
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, k int) bool { return list[i].CreatedAt < list[k].CreatedAt })
+
+	return list, nil
 }

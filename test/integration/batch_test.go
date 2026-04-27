@@ -94,6 +94,10 @@ func TestIntegration_Batch_JobQueueLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
+		_, _ = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+			JobQueue: aws.String(jqName),
+			State:    batchtypes.JQStateDisabled,
+		})
 		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
 			JobQueue: aws.String(jqName),
 		})
@@ -125,6 +129,13 @@ func TestIntegration_Batch_JobQueueLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, descOut.JobQueues, 1)
 	assert.Equal(t, jqName, aws.ToString(descOut.JobQueues[0].JobQueueName))
+
+	// Disable before delete (required)
+	_, err = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+		JobQueue: aws.String(jqName),
+		State:    batchtypes.JQStateDisabled,
+	})
+	require.NoError(t, err)
 
 	// DeleteJobQueue
 	_, err = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
@@ -189,4 +200,129 @@ func TestIntegration_Batch_JobDefinitionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, descOut2.JobDefinitions, 1)
 	assert.Equal(t, "INACTIVE", aws.ToString(descOut2.JobDefinitions[0].Status))
+}
+
+func TestIntegration_Batch_ConsumableResourceLifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createBatchClient(t)
+	ctx := t.Context()
+
+	crName := "test-cr-" + uuid.NewString()[:8]
+
+	// Create
+	createOut, err := client.CreateConsumableResource(ctx, &batch.CreateConsumableResourceInput{
+		ConsumableResourceName: aws.String(crName),
+		TotalQuantity:          aws.Int64(100),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, crName, aws.ToString(createOut.ConsumableResourceName))
+	assert.NotEmpty(t, aws.ToString(createOut.ConsumableResourceArn))
+
+	t.Cleanup(func() {
+		_, _ = client.DeleteConsumableResource(ctx, &batch.DeleteConsumableResourceInput{
+			ConsumableResource: aws.String(crName),
+		})
+	})
+
+	// Describe
+	descOut, err := client.DescribeConsumableResource(ctx, &batch.DescribeConsumableResourceInput{
+		ConsumableResource: aws.String(crName),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, crName, aws.ToString(descOut.ConsumableResourceName))
+
+	// Delete
+	_, err = client.DeleteConsumableResource(ctx, &batch.DeleteConsumableResourceInput{
+		ConsumableResource: aws.String(crName),
+	})
+	require.NoError(t, err)
+}
+
+func TestIntegration_Batch_SchedulingPolicyLifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createBatchClient(t)
+	ctx := t.Context()
+
+	spName := "test-sp-" + uuid.NewString()[:8]
+
+	// Create
+	createOut, err := client.CreateSchedulingPolicy(ctx, &batch.CreateSchedulingPolicyInput{
+		Name: aws.String(spName),
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, aws.ToString(createOut.Arn))
+
+	spArn := aws.ToString(createOut.Arn)
+
+	t.Cleanup(func() {
+		_, _ = client.DeleteSchedulingPolicy(ctx, &batch.DeleteSchedulingPolicyInput{
+			Arn: aws.String(spArn),
+		})
+	})
+
+	// ListSchedulingPolicies
+	listOut, err := client.ListSchedulingPolicies(ctx, &batch.ListSchedulingPoliciesInput{})
+	require.NoError(t, err)
+
+	found := false
+
+	for _, sp := range listOut.SchedulingPolicies {
+		if aws.ToString(sp.Arn) == spArn {
+			found = true
+
+			break
+		}
+	}
+
+	assert.True(t, found, "created scheduling policy should appear in list")
+
+	// Delete
+	_, err = client.DeleteSchedulingPolicy(ctx, &batch.DeleteSchedulingPolicyInput{
+		Arn: aws.String(spArn),
+	})
+	require.NoError(t, err)
+}
+
+func TestIntegration_Batch_ServiceEnvironmentLifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createBatchClient(t)
+	ctx := t.Context()
+
+	seName := "test-se-" + uuid.NewString()[:8]
+
+	// Create
+	createOut, err := client.CreateServiceEnvironment(ctx, &batch.CreateServiceEnvironmentInput{
+		ServiceEnvironmentName: aws.String(seName),
+		ServiceEnvironmentType: batchtypes.ServiceEnvironmentTypeSagemakerTraining,
+		State:                  batchtypes.ServiceEnvironmentStateEnabled,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, seName, aws.ToString(createOut.ServiceEnvironmentName))
+	assert.NotEmpty(t, aws.ToString(createOut.ServiceEnvironmentArn))
+
+	t.Cleanup(func() {
+		_, _ = client.DeleteServiceEnvironment(ctx, &batch.DeleteServiceEnvironmentInput{
+			ServiceEnvironment: aws.String(seName),
+		})
+	})
+
+	// Describe
+	descOut, err := client.DescribeServiceEnvironments(ctx, &batch.DescribeServiceEnvironmentsInput{
+		ServiceEnvironments: []string{seName},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.ServiceEnvironments, 1)
+	assert.Equal(t, seName, aws.ToString(descOut.ServiceEnvironments[0].ServiceEnvironmentName))
+
+	// Delete
+	_, err = client.DeleteServiceEnvironment(ctx, &batch.DeleteServiceEnvironmentInput{
+		ServiceEnvironment: aws.String(seName),
+	})
+	require.NoError(t, err)
 }

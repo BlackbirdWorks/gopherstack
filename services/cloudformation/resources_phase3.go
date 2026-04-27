@@ -205,7 +205,19 @@ func (rc *ResourceCreator) createBatchComputeEnvironment(
 		ceType = "MANAGED"
 	}
 
-	ce, err := rc.backends.Batch.Backend.CreateComputeEnvironment(name, ceType, "ENABLED", nil)
+	ce, err := rc.backends.Batch.Backend.CreateComputeEnvironment(
+		name,
+		ceType,
+		"ENABLED",
+		nil,
+		"",
+		0,
+		0,
+		nil,
+		nil,
+		nil,
+		"",
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Batch compute environment %s: %w", name, err)
 	}
@@ -296,7 +308,7 @@ func (rc *ResourceCreator) createBatchJobDefinition(
 		defType = "container"
 	}
 
-	jd, err := rc.backends.Batch.Backend.RegisterJobDefinition(name, defType, nil)
+	jd, err := rc.backends.Batch.Backend.RegisterJobDefinition(name, defType, nil, nil, 0)
 	if err != nil {
 		return "", fmt.Errorf("create Batch job definition %s: %w", name, err)
 	}
