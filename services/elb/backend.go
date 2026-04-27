@@ -41,10 +41,18 @@ const (
 
 // Listener is a single protocol/port mapping on a load balancer.
 type Listener struct {
-	Protocol         string `json:"protocol"`
-	InstanceProtocol string `json:"instanceProtocol"`
-	LoadBalancerPort int32  `json:"loadBalancerPort"`
-	InstancePort     int32  `json:"instancePort"`
+	Protocol         string   `json:"protocol"`
+	InstanceProtocol string   `json:"instanceProtocol"`
+	SSLCertificateID string   `json:"sslCertificateId,omitempty"`
+	PolicyNames      []string `json:"policyNames,omitempty"`
+	LoadBalancerPort int32    `json:"loadBalancerPort"`
+	InstancePort     int32    `json:"instancePort"`
+}
+
+// BackendServerDescription maps an instance port to the policies applied to it.
+type BackendServerDescription struct {
+	PolicyNames  []string `json:"policyNames"`
+	InstancePort int32    `json:"instancePort"`
 }
 
 // LoadBalancerAttributes holds tunable attributes for a Classic ELB.
@@ -98,6 +106,7 @@ type LoadBalancer struct {
 	DNSName                   string
 	Listeners                 []Listener
 	Instances                 []Instance
+	BackendServerDescriptions []BackendServerDescription
 	AvailabilityZones         []string
 	SecurityGroups            []string
 	Subnets                   []string
@@ -183,6 +192,12 @@ type StorageBackend interface {
 
 	ApplySecurityGroupsToLoadBalancer(name string, securityGroups []string) ([]string, error)
 	AttachLoadBalancerToSubnets(name string, subnets []string) ([]string, error)
+	DetachLoadBalancerFromSubnets(name string, subnets []string) ([]string, error)
+	EnableAvailabilityZonesForLoadBalancer(name string, azs []string) ([]string, error)
+	DisableAvailabilityZonesForLoadBalancer(name string, azs []string) ([]string, error)
+	SetLoadBalancerListenerSSLCertificate(name string, port int32, certID string) error
+	SetLoadBalancerPoliciesOfListener(name string, port int32, policyNames []string) error
+	SetLoadBalancerPoliciesForBackendServer(name string, instancePort int32, policyNames []string) error
 
 	CreateAppCookieStickinessPolicy(name, policyName, cookieName string) error
 	CreateLBCookieStickinessPolicy(name, policyName string, cookieExpirationPeriod int64) error
@@ -237,7 +252,15 @@ func lbCopy(lb *LoadBalancer) LoadBalancer {
 	cp := *lb
 
 	cp.Listeners = make([]Listener, len(lb.Listeners))
-	copy(cp.Listeners, lb.Listeners)
+	for i, l := range lb.Listeners {
+		lCopy := l
+		if l.PolicyNames != nil {
+			lCopy.PolicyNames = make([]string, len(l.PolicyNames))
+			copy(lCopy.PolicyNames, l.PolicyNames)
+		}
+
+		cp.Listeners[i] = lCopy
+	}
 
 	cp.Instances = make([]Instance, len(lb.Instances))
 	copy(cp.Instances, lb.Instances)
@@ -250,6 +273,14 @@ func lbCopy(lb *LoadBalancer) LoadBalancer {
 
 	cp.Subnets = make([]string, len(lb.Subnets))
 	copy(cp.Subnets, lb.Subnets)
+
+	cp.BackendServerDescriptions = make([]BackendServerDescription, len(lb.BackendServerDescriptions))
+	for i, bsd := range lb.BackendServerDescriptions {
+		bsdCopy := bsd
+		bsdCopy.PolicyNames = make([]string, len(bsd.PolicyNames))
+		copy(bsdCopy.PolicyNames, bsd.PolicyNames)
+		cp.BackendServerDescriptions[i] = bsdCopy
+	}
 
 	if lb.HealthCheck != nil {
 		hc := *lb.HealthCheck
@@ -275,6 +306,10 @@ func (b *InMemoryBackend) AddLoadBalancerInternal(lb LoadBalancer) {
 
 	if lb.Instances == nil {
 		lb.Instances = []Instance{}
+	}
+
+	if lb.BackendServerDescriptions == nil {
+		lb.BackendServerDescriptions = []BackendServerDescription{}
 	}
 
 	if lb.AvailabilityZones == nil {
@@ -363,6 +398,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		VPCId:                     vpcID,
 		Listeners:                 listeners,
 		Instances:                 []Instance{},
+		BackendServerDescriptions: []BackendServerDescription{},
 		Tags:                      tags.New("elb." + input.LoadBalancerName),
 		AccountID:                 b.accountID,
 		Region:                    b.region,
@@ -704,6 +740,171 @@ func (b *InMemoryBackend) AttachLoadBalancerToSubnets(name string, subnets []str
 	copy(result, lb.Subnets)
 
 	return result, nil
+}
+
+// DetachLoadBalancerFromSubnets removes subnets from an existing load balancer.
+func (b *InMemoryBackend) DetachLoadBalancerFromSubnets(name string, subnets []string) ([]string, error) {
+	b.mu.Lock("DetachLoadBalancerFromSubnets")
+	defer b.mu.Unlock()
+
+	lb, ok := b.lbs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	remove := make(map[string]bool, len(subnets))
+	for _, s := range subnets {
+		remove[s] = true
+	}
+
+	kept := lb.Subnets[:0]
+	for _, s := range lb.Subnets {
+		if !remove[s] {
+			kept = append(kept, s)
+		}
+	}
+
+	lb.Subnets = kept
+
+	result := make([]string, len(lb.Subnets))
+	copy(result, lb.Subnets)
+
+	return result, nil
+}
+
+// EnableAvailabilityZonesForLoadBalancer adds availability zones to an existing load balancer.
+func (b *InMemoryBackend) EnableAvailabilityZonesForLoadBalancer(name string, azs []string) ([]string, error) {
+	b.mu.Lock("EnableAvailabilityZonesForLoadBalancer")
+	defer b.mu.Unlock()
+
+	lb, ok := b.lbs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	existing := make(map[string]bool, len(lb.AvailabilityZones))
+	for _, az := range lb.AvailabilityZones {
+		existing[az] = true
+	}
+
+	for _, az := range azs {
+		if !existing[az] {
+			lb.AvailabilityZones = append(lb.AvailabilityZones, az)
+			existing[az] = true
+		}
+	}
+
+	result := make([]string, len(lb.AvailabilityZones))
+	copy(result, lb.AvailabilityZones)
+
+	return result, nil
+}
+
+// DisableAvailabilityZonesForLoadBalancer removes availability zones from an existing load balancer.
+func (b *InMemoryBackend) DisableAvailabilityZonesForLoadBalancer(name string, azs []string) ([]string, error) {
+	b.mu.Lock("DisableAvailabilityZonesForLoadBalancer")
+	defer b.mu.Unlock()
+
+	lb, ok := b.lbs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	remove := make(map[string]bool, len(azs))
+	for _, az := range azs {
+		remove[az] = true
+	}
+
+	kept := lb.AvailabilityZones[:0]
+	for _, az := range lb.AvailabilityZones {
+		if !remove[az] {
+			kept = append(kept, az)
+		}
+	}
+
+	lb.AvailabilityZones = kept
+
+	result := make([]string, len(lb.AvailabilityZones))
+	copy(result, lb.AvailabilityZones)
+
+	return result, nil
+}
+
+// SetLoadBalancerListenerSSLCertificate sets the SSL certificate for an existing listener.
+func (b *InMemoryBackend) SetLoadBalancerListenerSSLCertificate(name string, port int32, certID string) error {
+	b.mu.Lock("SetLoadBalancerListenerSSLCertificate")
+	defer b.mu.Unlock()
+
+	lb, ok := b.lbs[name]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	for i := range lb.Listeners {
+		if lb.Listeners[i].LoadBalancerPort == port {
+			lb.Listeners[i].SSLCertificateID = certID
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: no listener on port %d", ErrInvalidParameter, port)
+}
+
+// SetLoadBalancerPoliciesOfListener sets the policies for an existing listener.
+func (b *InMemoryBackend) SetLoadBalancerPoliciesOfListener(name string, port int32, policyNames []string) error {
+	b.mu.Lock("SetLoadBalancerPoliciesOfListener")
+	defer b.mu.Unlock()
+
+	lb, ok := b.lbs[name]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	for i := range lb.Listeners {
+		if lb.Listeners[i].LoadBalancerPort == port {
+			cp := make([]string, len(policyNames))
+			copy(cp, policyNames)
+			lb.Listeners[i].PolicyNames = cp
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: no listener on port %d", ErrInvalidParameter, port)
+}
+
+// SetLoadBalancerPoliciesForBackendServer sets the policies for a backend server instance port.
+func (b *InMemoryBackend) SetLoadBalancerPoliciesForBackendServer(
+	name string,
+	instancePort int32,
+	policyNames []string,
+) error {
+	b.mu.Lock("SetLoadBalancerPoliciesForBackendServer")
+	defer b.mu.Unlock()
+
+	lb, ok := b.lbs[name]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	cp := make([]string, len(policyNames))
+	copy(cp, policyNames)
+
+	for i := range lb.BackendServerDescriptions {
+		if lb.BackendServerDescriptions[i].InstancePort == instancePort {
+			lb.BackendServerDescriptions[i].PolicyNames = cp
+
+			return nil
+		}
+	}
+
+	lb.BackendServerDescriptions = append(lb.BackendServerDescriptions, BackendServerDescription{
+		InstancePort: instancePort,
+		PolicyNames:  cp,
+	})
+
+	return nil
 }
 
 // CreateAppCookieStickinessPolicy creates an application-cookie stickiness policy.

@@ -43,29 +43,35 @@ func NewHandler(backend StorageBackend) *Handler {
 // buildOps returns the action-to-handler dispatch table.
 func (h *Handler) buildOps() map[string]func(url.Values) (any, error) {
 	return map[string]func(url.Values) (any, error){
-		"CreateLoadBalancer":                  h.handleCreateLoadBalancer,
-		"DeleteLoadBalancer":                  h.handleDeleteLoadBalancer,
-		"DescribeLoadBalancers":               h.handleDescribeLoadBalancers,
-		"CreateLoadBalancerListeners":         h.handleCreateLoadBalancerListeners,
-		"DeleteLoadBalancerListeners":         h.handleDeleteLoadBalancerListeners,
-		"RegisterInstancesWithLoadBalancer":   h.handleRegisterInstances,
-		"DeregisterInstancesFromLoadBalancer": h.handleDeregisterInstances,
-		"ConfigureHealthCheck":                h.handleConfigureHealthCheck,
-		"ModifyLoadBalancerAttributes":        h.handleModifyLoadBalancerAttributes,
-		"DescribeLoadBalancerAttributes":      h.handleDescribeLoadBalancerAttributes,
-		"AddTags":                             h.handleAddTags,
-		"DescribeTags":                        h.handleDescribeTags,
-		"RemoveTags":                          h.handleRemoveTags,
-		"ApplySecurityGroupsToLoadBalancer":   h.handleApplySecurityGroupsToLoadBalancer,
-		"AttachLoadBalancerToSubnets":         h.handleAttachLoadBalancerToSubnets,
-		"CreateAppCookieStickinessPolicy":     h.handleCreateAppCookieStickinessPolicy,
-		"CreateLBCookieStickinessPolicy":      h.handleCreateLBCookieStickinessPolicy,
-		"CreateLoadBalancerPolicy":            h.handleCreateLoadBalancerPolicy,
-		"DeleteLoadBalancerPolicy":            h.handleDeleteLoadBalancerPolicy,
-		"DescribeAccountLimits":               h.handleDescribeAccountLimits,
-		"DescribeInstanceHealth":              h.handleDescribeInstanceHealth,
-		"DescribeLoadBalancerPolicies":        h.handleDescribeLoadBalancerPolicies,
-		"DescribeLoadBalancerPolicyTypes":     h.handleDescribeLoadBalancerPolicyTypes,
+		"CreateLoadBalancer":                      h.handleCreateLoadBalancer,
+		"DeleteLoadBalancer":                      h.handleDeleteLoadBalancer,
+		"DescribeLoadBalancers":                   h.handleDescribeLoadBalancers,
+		"CreateLoadBalancerListeners":             h.handleCreateLoadBalancerListeners,
+		"DeleteLoadBalancerListeners":             h.handleDeleteLoadBalancerListeners,
+		"RegisterInstancesWithLoadBalancer":       h.handleRegisterInstances,
+		"DeregisterInstancesFromLoadBalancer":     h.handleDeregisterInstances,
+		"ConfigureHealthCheck":                    h.handleConfigureHealthCheck,
+		"ModifyLoadBalancerAttributes":            h.handleModifyLoadBalancerAttributes,
+		"DescribeLoadBalancerAttributes":          h.handleDescribeLoadBalancerAttributes,
+		"AddTags":                                 h.handleAddTags,
+		"DescribeTags":                            h.handleDescribeTags,
+		"RemoveTags":                              h.handleRemoveTags,
+		"ApplySecurityGroupsToLoadBalancer":       h.handleApplySecurityGroupsToLoadBalancer,
+		"AttachLoadBalancerToSubnets":             h.handleAttachLoadBalancerToSubnets,
+		"DetachLoadBalancerFromSubnets":           h.handleDetachLoadBalancerFromSubnets,
+		"EnableAvailabilityZonesForLoadBalancer":  h.handleEnableAvailabilityZonesForLoadBalancer,
+		"DisableAvailabilityZonesForLoadBalancer": h.handleDisableAvailabilityZonesForLoadBalancer,
+		"SetLoadBalancerListenerSSLCertificate":   h.handleSetLoadBalancerListenerSSLCertificate,
+		"SetLoadBalancerPoliciesOfListener":       h.handleSetLoadBalancerPoliciesOfListener,
+		"SetLoadBalancerPoliciesForBackendServer": h.handleSetLoadBalancerPoliciesForBackendServer,
+		"CreateAppCookieStickinessPolicy":         h.handleCreateAppCookieStickinessPolicy,
+		"CreateLBCookieStickinessPolicy":          h.handleCreateLBCookieStickinessPolicy,
+		"CreateLoadBalancerPolicy":                h.handleCreateLoadBalancerPolicy,
+		"DeleteLoadBalancerPolicy":                h.handleDeleteLoadBalancerPolicy,
+		"DescribeAccountLimits":                   h.handleDescribeAccountLimits,
+		"DescribeInstanceHealth":                  h.handleDescribeInstanceHealth,
+		"DescribeLoadBalancerPolicies":            h.handleDescribeLoadBalancerPolicies,
+		"DescribeLoadBalancerPolicyTypes":         h.handleDescribeLoadBalancerPolicyTypes,
 	}
 }
 
@@ -95,6 +101,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RemoveTags",
 		"ApplySecurityGroupsToLoadBalancer",
 		"AttachLoadBalancerToSubnets",
+		"DetachLoadBalancerFromSubnets",
+		"EnableAvailabilityZonesForLoadBalancer",
+		"DisableAvailabilityZonesForLoadBalancer",
+		"SetLoadBalancerListenerSSLCertificate",
+		"SetLoadBalancerPoliciesOfListener",
+		"SetLoadBalancerPoliciesForBackendServer",
 		"CreateAppCookieStickinessPolicy",
 		"CreateLBCookieStickinessPolicy",
 		"CreateLoadBalancerPolicy",
@@ -590,6 +602,159 @@ func (h *Handler) handleAttachLoadBalancerToSubnets(vals url.Values) (any, error
 			Subnets: xmlStringValueList{Members: subnetMembers},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-attachsubnets-" + name},
+	}, nil
+}
+
+func (h *Handler) handleDetachLoadBalancerFromSubnets(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	subnets := parseMembers(vals, "Subnets.member")
+
+	result, err := h.Backend.DetachLoadBalancerFromSubnets(name, subnets)
+	if err != nil {
+		return nil, err
+	}
+
+	subnetMembers := make([]xmlStringValue, 0, len(result))
+	for _, s := range result {
+		subnetMembers = append(subnetMembers, xmlStringValue{Value: s})
+	}
+
+	return &detachLoadBalancerFromSubnetsResponse{
+		Xmlns: elbXMLNS,
+		Result: detachLoadBalancerFromSubnetsResult{
+			Subnets: xmlStringValueList{Members: subnetMembers},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-detachsubnets-" + name},
+	}, nil
+}
+
+func (h *Handler) handleEnableAvailabilityZonesForLoadBalancer(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	azs := parseMembers(vals, "AvailabilityZones.member")
+
+	result, err := h.Backend.EnableAvailabilityZonesForLoadBalancer(name, azs)
+	if err != nil {
+		return nil, err
+	}
+
+	azMembers := make([]xmlStringValue, 0, len(result))
+	for _, az := range result {
+		azMembers = append(azMembers, xmlStringValue{Value: az})
+	}
+
+	return &enableAvailabilityZonesResponse{
+		Xmlns: elbXMLNS,
+		Result: enableAvailabilityZonesResult{
+			AvailabilityZones: xmlStringValueList{Members: azMembers},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-enableazs-" + name},
+	}, nil
+}
+
+func (h *Handler) handleDisableAvailabilityZonesForLoadBalancer(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	azs := parseMembers(vals, "AvailabilityZones.member")
+
+	result, err := h.Backend.DisableAvailabilityZonesForLoadBalancer(name, azs)
+	if err != nil {
+		return nil, err
+	}
+
+	azMembers := make([]xmlStringValue, 0, len(result))
+	for _, az := range result {
+		azMembers = append(azMembers, xmlStringValue{Value: az})
+	}
+
+	return &disableAvailabilityZonesResponse{
+		Xmlns: elbXMLNS,
+		Result: disableAvailabilityZonesResult{
+			AvailabilityZones: xmlStringValueList{Members: azMembers},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-disableazs-" + name},
+	}, nil
+}
+
+func (h *Handler) handleSetLoadBalancerListenerSSLCertificate(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	port, err := parseInt32(vals.Get("LoadBalancerPort"))
+	if err != nil || port == 0 {
+		return nil, fmt.Errorf("%w: LoadBalancerPort is required", ErrInvalidParameter)
+	}
+
+	certID := vals.Get("SSLCertificateId")
+	if certID == "" {
+		return nil, fmt.Errorf("%w: SSLCertificateId is required", ErrInvalidParameter)
+	}
+
+	if setErr := h.Backend.SetLoadBalancerListenerSSLCertificate(name, port, certID); setErr != nil {
+		return nil, setErr
+	}
+
+	return &setLoadBalancerListenerSSLCertificateResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-sslcert-" + name},
+	}, nil
+}
+
+func (h *Handler) handleSetLoadBalancerPoliciesOfListener(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	port, err := parseInt32(vals.Get("LoadBalancerPort"))
+	if err != nil || port == 0 {
+		return nil, fmt.Errorf("%w: LoadBalancerPort is required", ErrInvalidParameter)
+	}
+
+	policyNames := parseMembers(vals, "PolicyNames.member")
+
+	if setErr := h.Backend.SetLoadBalancerPoliciesOfListener(name, port, policyNames); setErr != nil {
+		return nil, setErr
+	}
+
+	return &setLoadBalancerPoliciesOfListenerResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-listpolicies-" + name},
+	}, nil
+}
+
+func (h *Handler) handleSetLoadBalancerPoliciesForBackendServer(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	instancePort, err := parseInt32(vals.Get("InstancePort"))
+	if err != nil || instancePort == 0 {
+		return nil, fmt.Errorf("%w: InstancePort is required", ErrInvalidParameter)
+	}
+
+	policyNames := parseMembers(vals, "PolicyNames.member")
+
+	if setErr := h.Backend.SetLoadBalancerPoliciesForBackendServer(name, instancePort, policyNames); setErr != nil {
+		return nil, setErr
+	}
+
+	return &setLoadBalancerPoliciesForBackendServerResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-backendpolicies-" + name},
 	}, nil
 }
 
@@ -1107,8 +1272,33 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 
 	listeners := make([]xmlListenerDescription, 0, len(lb.Listeners))
 	for _, l := range lb.Listeners {
+		policyMembers := make([]xmlStringValue, 0, len(l.PolicyNames))
+		for _, p := range l.PolicyNames {
+			policyMembers = append(policyMembers, xmlStringValue{Value: p})
+		}
+
 		listeners = append(listeners, xmlListenerDescription{
-			Listener: xmlListener(l),
+			Listener: xmlListener{
+				Protocol:         l.Protocol,
+				InstanceProtocol: l.InstanceProtocol,
+				LoadBalancerPort: l.LoadBalancerPort,
+				InstancePort:     l.InstancePort,
+				SSLCertificateID: l.SSLCertificateID,
+			},
+			PolicyNames: xmlStringValueList{Members: policyMembers},
+		})
+	}
+
+	bsds := make([]xmlBackendServerDescription, 0, len(lb.BackendServerDescriptions))
+	for _, bsd := range lb.BackendServerDescriptions {
+		policyMembers := make([]xmlStringValue, 0, len(bsd.PolicyNames))
+		for _, p := range bsd.PolicyNames {
+			policyMembers = append(policyMembers, xmlStringValue{Value: p})
+		}
+
+		bsds = append(bsds, xmlBackendServerDescription{
+			InstancePort: bsd.InstancePort,
+			PolicyNames:  xmlStringValueList{Members: policyMembers},
 		})
 	}
 
@@ -1125,6 +1315,7 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 		SecurityGroups:            xmlStringValueList{Members: sgs},
 		Subnets:                   xmlStringValueList{Members: subnets},
 		ListenerDescriptions:      xmlListenerDescriptionList{Members: listeners},
+		BackendServerDescriptions: xmlBackendServerDescriptionList{Members: bsds},
 		Instances:                 xmlInstanceList{Members: instances},
 	}
 
@@ -1212,16 +1403,27 @@ type xmlInstanceList struct {
 type xmlListener struct {
 	Protocol         string `xml:"Protocol"`
 	InstanceProtocol string `xml:"InstanceProtocol"`
+	SSLCertificateID string `xml:"SSLCertificateId,omitempty"`
 	LoadBalancerPort int32  `xml:"LoadBalancerPort"`
 	InstancePort     int32  `xml:"InstancePort"`
 }
 
 type xmlListenerDescription struct {
-	Listener xmlListener `xml:"Listener"`
+	Listener    xmlListener        `xml:"Listener"`
+	PolicyNames xmlStringValueList `xml:"PolicyNames"`
 }
 
 type xmlListenerDescriptionList struct {
 	Members []xmlListenerDescription `xml:"member"`
+}
+
+type xmlBackendServerDescription struct {
+	PolicyNames  xmlStringValueList `xml:"PolicyNames"`
+	InstancePort int32              `xml:"InstancePort"`
+}
+
+type xmlBackendServerDescriptionList struct {
+	Members []xmlBackendServerDescription `xml:"member"`
 }
 
 type xmlHealthCheck struct {
@@ -1233,18 +1435,19 @@ type xmlHealthCheck struct {
 }
 
 type xmlLoadBalancerDescription struct {
-	LoadBalancerName          string                     `xml:"LoadBalancerName"`
-	DNSName                   string                     `xml:"DNSName"`
-	CanonicalHostedZoneName   string                     `xml:"CanonicalHostedZoneName"`
-	CanonicalHostedZoneNameID string                     `xml:"CanonicalHostedZoneNameID"`
-	CreatedTime               string                     `xml:"CreatedTime"`
-	Scheme                    string                     `xml:"Scheme"`
-	AvailabilityZones         xmlStringValueList         `xml:"AvailabilityZones"`
-	SecurityGroups            xmlStringValueList         `xml:"SecurityGroups"`
-	Subnets                   xmlStringValueList         `xml:"Subnets"`
-	ListenerDescriptions      xmlListenerDescriptionList `xml:"ListenerDescriptions"`
-	Instances                 xmlInstanceList            `xml:"Instances"`
-	HealthCheck               xmlHealthCheck             `xml:"HealthCheck"`
+	LoadBalancerName          string                          `xml:"LoadBalancerName"`
+	DNSName                   string                          `xml:"DNSName"`
+	CanonicalHostedZoneName   string                          `xml:"CanonicalHostedZoneName"`
+	CanonicalHostedZoneNameID string                          `xml:"CanonicalHostedZoneNameID"`
+	CreatedTime               string                          `xml:"CreatedTime"`
+	Scheme                    string                          `xml:"Scheme"`
+	AvailabilityZones         xmlStringValueList              `xml:"AvailabilityZones"`
+	SecurityGroups            xmlStringValueList              `xml:"SecurityGroups"`
+	Subnets                   xmlStringValueList              `xml:"Subnets"`
+	ListenerDescriptions      xmlListenerDescriptionList      `xml:"ListenerDescriptions"`
+	BackendServerDescriptions xmlBackendServerDescriptionList `xml:"BackendServerDescriptions"`
+	Instances                 xmlInstanceList                 `xml:"Instances"`
+	HealthCheck               xmlHealthCheck                  `xml:"HealthCheck"`
 }
 
 type xmlLoadBalancerList struct {
@@ -1457,6 +1660,69 @@ type attachLoadBalancerToSubnetsResponse struct {
 	Xmlns            string                            `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata               `xml:"ResponseMetadata"`
 	Result           attachLoadBalancerToSubnetsResult `xml:"AttachLoadBalancerToSubnetsResult"`
+}
+
+// DetachLoadBalancerFromSubnets response.
+
+type detachLoadBalancerFromSubnetsResult struct {
+	Subnets xmlStringValueList `xml:"Subnets"`
+}
+
+type detachLoadBalancerFromSubnetsResponse struct {
+	XMLName          xml.Name                            `xml:"DetachLoadBalancerFromSubnetsResponse"`
+	Xmlns            string                              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                 `xml:"ResponseMetadata"`
+	Result           detachLoadBalancerFromSubnetsResult `xml:"DetachLoadBalancerFromSubnetsResult"`
+}
+
+// EnableAvailabilityZonesForLoadBalancer response.
+
+type enableAvailabilityZonesResult struct {
+	AvailabilityZones xmlStringValueList `xml:"AvailabilityZones"`
+}
+
+type enableAvailabilityZonesResponse struct {
+	XMLName          xml.Name                      `xml:"EnableAvailabilityZonesForLoadBalancerResponse"`
+	Xmlns            string                        `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata           `xml:"ResponseMetadata"`
+	Result           enableAvailabilityZonesResult `xml:"EnableAvailabilityZonesForLoadBalancerResult"`
+}
+
+// DisableAvailabilityZonesForLoadBalancer response.
+
+type disableAvailabilityZonesResult struct {
+	AvailabilityZones xmlStringValueList `xml:"AvailabilityZones"`
+}
+
+type disableAvailabilityZonesResponse struct {
+	XMLName          xml.Name                       `xml:"DisableAvailabilityZonesForLoadBalancerResponse"`
+	Xmlns            string                         `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata            `xml:"ResponseMetadata"`
+	Result           disableAvailabilityZonesResult `xml:"DisableAvailabilityZonesForLoadBalancerResult"`
+}
+
+// SetLoadBalancerListenerSSLCertificate response.
+
+type setLoadBalancerListenerSSLCertificateResponse struct {
+	XMLName          xml.Name            `xml:"SetLoadBalancerListenerSSLCertificateResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// SetLoadBalancerPoliciesOfListener response.
+
+type setLoadBalancerPoliciesOfListenerResponse struct {
+	XMLName          xml.Name            `xml:"SetLoadBalancerPoliciesOfListenerResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// SetLoadBalancerPoliciesForBackendServer response.
+
+type setLoadBalancerPoliciesForBackendServerResponse struct {
+	XMLName          xml.Name            `xml:"SetLoadBalancerPoliciesForBackendServerResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // CreateAppCookieStickinessPolicy response.
