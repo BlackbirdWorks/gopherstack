@@ -12,6 +12,17 @@
 
 	const emr = getEMRServerlessClient();
 
+	const JOB_STATE_BADGE: Record<string, string> = {
+		SUCCESS: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400',
+		FAILED: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
+		RUNNING: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
+		SCHEDULED: 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400',
+		PENDING: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
+		SUBMITTED: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
+		CANCELLING: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400',
+		CANCELLED: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+	};
+
 	type JobSortKey = 'newest' | 'oldest' | 'name-asc' | 'name-desc';
 	type JobStateFilter = 'ALL' | 'SUBMITTED' | 'PENDING' | 'SCHEDULED' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'CANCELLING' | 'CANCELLED';
 
@@ -26,19 +37,19 @@
 
 	const filteredApps = $derived(applications.filter((a) => (a.name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredJobs = $derived((() => {
-		let result = jobRuns.filter((j) => {
+		const result = jobRuns.filter((j) => {
 			const matchesSearch = (j.name ?? j.id ?? '').toLowerCase().includes(searchQuery.toLowerCase());
 			const matchesState = jobStateFilter === 'ALL' || j.state === jobStateFilter;
 			return matchesSearch && matchesState;
 		});
 		if (jobSort === 'newest') {
-			result = [...result].sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+			result.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
 		} else if (jobSort === 'oldest') {
-			result = [...result].sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+			result.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
 		} else if (jobSort === 'name-asc') {
-			result = [...result].sort((a, b) => (a.name ?? a.id ?? '').localeCompare(b.name ?? b.id ?? ''));
+			result.sort((a, b) => (a.name ?? a.id ?? '').localeCompare(b.name ?? b.id ?? ''));
 		} else if (jobSort === 'name-desc') {
-			result = [...result].sort((a, b) => (b.name ?? b.id ?? '').localeCompare(a.name ?? a.id ?? ''));
+			result.sort((a, b) => (b.name ?? b.id ?? '').localeCompare(a.name ?? a.id ?? ''));
 		}
 		return result;
 	})());
@@ -47,17 +58,7 @@
 	const successfulJobs = $derived(jobRuns.filter((j) => j.state === 'SUCCESS').length);
 
 	function jobStateBadge(state?: string) {
-		const m: Record<string, string> = {
-			SUCCESS: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400',
-			FAILED: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
-			RUNNING: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
-			SCHEDULED: 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400',
-			PENDING: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
-			SUBMITTED: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
-			CANCELLING: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400',
-			CANCELLED: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-		};
-		return m[state ?? ''] ?? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400';
+		return JOB_STATE_BADGE[state ?? ''] ?? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400';
 	}
 
 	function formatDate(d?: Date) {
