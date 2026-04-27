@@ -33,13 +33,21 @@ type resolverRuleIDInput struct {
 }
 
 type Handler struct {
-	Backend StorageBackend
-	ops     map[string]service.JSONOpFunc
+	Backend           StorageBackend
+	ops               map[string]service.JSONOpFunc
+	supportedOpsCache []string
 }
 
 func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{Backend: backend}
 	h.ops = h.buildOps()
+	// Pre-compute the sorted ops slice once.
+	keys := make([]string, 0, len(h.ops))
+	for k := range h.ops {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h.supportedOpsCache = keys
 
 	return h
 }
@@ -125,13 +133,7 @@ func (h *Handler) Reset() {
 func (h *Handler) Name() string { return "Route53Resolver" }
 
 func (h *Handler) GetSupportedOperations() []string {
-	ops := make([]string, 0, len(h.ops))
-	for k := range h.ops {
-		ops = append(ops, k)
-	}
-	sort.Strings(ops)
-
-	return ops
+	return h.supportedOpsCache
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -246,19 +248,26 @@ type listResolverEndpointIPAddressesOutput struct {
 }
 
 type handleCreateResolverEndpointInput struct {
-	Name             string                      `json:"Name"`
-	Direction        string                      `json:"Direction"`
-	VpcID            string                      `json:"VpcId"`
-	SecurityGroupIDs []string                    `json:"SecurityGroupIds"`
-	Tags             []svcTags.KV                `json:"Tags"`
-	IPAddresses      []resolverEndpointIPAddress `json:"IpAddresses"`
+	Name                 string                      `json:"Name"`
+	Direction            string                      `json:"Direction"`
+	VpcID                string                      `json:"VpcId"`
+	SecurityGroupIDs     []string                    `json:"SecurityGroupIds"`
+	ResolverEndpointType string                      `json:"ResolverEndpointType"`
+	Tags                 []svcTags.KV                `json:"Tags"`
+	IPAddresses          []resolverEndpointIPAddress `json:"IpAddresses"`
 }
 
 type handleCreateResolverRuleInput struct {
-	Name               string `json:"Name"`
-	DomainName         string `json:"DomainName"`
-	RuleType           string `json:"RuleType"`
-	ResolverEndpointID string `json:"ResolverEndpointId"`
+	Name               string     `json:"Name"`
+	DomainName         string     `json:"DomainName"`
+	RuleType           string     `json:"RuleType"`
+	ResolverEndpointID string     `json:"ResolverEndpointId"`
+	TargetIps          []targetIP `json:"TargetIps"`
+}
+
+type targetIP struct {
+	IP   string `json:"Ip"`
+	Port int32  `json:"Port"`
 }
 
 type resolverEndpointIPOutput struct {
@@ -267,24 +276,29 @@ type resolverEndpointIPOutput struct {
 }
 
 type resolverEndpointOutput struct {
-	ID               string                     `json:"Id"`
-	Arn              string                     `json:"Arn"`
-	Name             string                     `json:"Name"`
-	Direction        string                     `json:"Direction"`
-	Status           string                     `json:"Status"`
-	VpcID            string                     `json:"VpcId"`
-	SecurityGroupIDs []string                   `json:"SecurityGroupIds"`
-	IPAddresses      []resolverEndpointIPOutput `json:"IpAddresses"`
+	ID                   string                     `json:"Id"`
+	Arn                  string                     `json:"Arn"`
+	Name                 string                     `json:"Name"`
+	Direction            string                     `json:"Direction"`
+	Status               string                     `json:"Status"`
+	VpcID                string                     `json:"VpcId"`
+	HostVPCId            string                     `json:"HostVPCId"`
+	ResolverEndpointType string                     `json:"ResolverEndpointType"`
+	SecurityGroupIDs     []string                   `json:"SecurityGroupIds"`
+	IPAddresses          []resolverEndpointIPOutput `json:"IpAddresses"`
+	IPAddressCount       int32                      `json:"IpAddressCount"`
 }
 
 type resolverRuleOutput struct {
-	ID                 string `json:"Id"`
-	Arn                string `json:"Arn"`
-	Name               string `json:"Name"`
-	DomainName         string `json:"DomainName"`
-	RuleType           string `json:"RuleType"`
-	Status             string `json:"Status"`
-	ResolverEndpointID string `json:"ResolverEndpointId"`
+	ID                 string     `json:"Id"`
+	Arn                string     `json:"Arn"`
+	Name               string     `json:"Name"`
+	DomainName         string     `json:"DomainName"`
+	RuleType           string     `json:"RuleType"`
+	Status             string     `json:"Status"`
+	ShareStatus        string     `json:"ShareStatus"`
+	ResolverEndpointID string     `json:"ResolverEndpointId"`
+	TargetIps          []targetIP `json:"TargetIps,omitempty"`
 }
 
 type createResolverEndpointOutput struct {
@@ -296,6 +310,7 @@ type deleteResolverEndpointOutput struct{}
 type listResolverEndpointsInput struct{}
 
 type listResolverEndpointsOutput struct {
+	NextToken         *string                  `json:"NextToken,omitempty"`
 	ResolverEndpoints []resolverEndpointOutput `json:"ResolverEndpoints"`
 }
 
@@ -316,6 +331,7 @@ type deleteResolverRuleOutput struct{}
 type listResolverRulesInput struct{}
 
 type listResolverRulesOutput struct {
+	NextToken     *string              `json:"NextToken,omitempty"`
 	ResolverRules []resolverRuleOutput `json:"ResolverRules"`
 }
 
@@ -330,19 +346,35 @@ func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 		sgIDs = []string{}
 	}
 
+	epType := ep.ResolverEndpointType
+	if epType == "" {
+		epType = "IPV4"
+	}
+
 	return resolverEndpointOutput{
-		ID:               ep.ID,
-		Arn:              ep.ARN,
-		Name:             ep.Name,
-		Direction:        ep.Direction,
-		Status:           ep.Status,
-		VpcID:            ep.VpcID,
-		SecurityGroupIDs: sgIDs,
-		IPAddresses:      ips,
+		ID:                   ep.ID,
+		Arn:                  ep.ARN,
+		Name:                 ep.Name,
+		Direction:            ep.Direction,
+		Status:               ep.Status,
+		VpcID:                ep.VpcID,
+		HostVPCId:            ep.HostVPCID,
+		ResolverEndpointType: epType,
+		IPAddressCount:       int32(len(ep.IPAddresses)), //nolint:gosec // conversion is safe: IP count is always small
+		SecurityGroupIDs:     sgIDs,
+		IPAddresses:          ips,
 	}
 }
 
 func ruleToOutput(r *ResolverRule) resolverRuleOutput {
+	tips := make([]targetIP, 0, len(r.TargetIps))
+	for _, t := range r.TargetIps {
+		tips = append(tips, targetIP(t))
+	}
+	if len(tips) == 0 {
+		tips = nil
+	}
+
 	return resolverRuleOutput{
 		ID:                 r.ID,
 		Arn:                r.ARN,
@@ -350,7 +382,9 @@ func ruleToOutput(r *ResolverRule) resolverRuleOutput {
 		DomainName:         r.DomainName,
 		RuleType:           r.RuleType,
 		Status:             r.Status,
+		ShareStatus:        r.ShareStatus,
 		ResolverEndpointID: r.ResolverEndpointID,
+		TargetIps:          tips,
 	}
 }
 
@@ -363,15 +397,11 @@ func (h *Handler) handleCreateResolverEndpoint(
 		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP})
 	}
 
-	ep, err := h.Backend.CreateResolverEndpoint(in.Name, in.Direction, in.VpcID, ips)
+	ep, err := h.Backend.CreateResolverEndpoint(
+		in.Name, in.Direction, in.VpcID, ips, in.SecurityGroupIDs, in.ResolverEndpointType,
+	)
 	if err != nil {
 		return nil, err
-	}
-
-	// Store the security group IDs on the endpoint struct.
-	if len(in.SecurityGroupIDs) > 0 {
-		ep.SecurityGroupIDs = make([]string, len(in.SecurityGroupIDs))
-		copy(ep.SecurityGroupIDs, in.SecurityGroupIDs)
 	}
 
 	// Store tags if provided.
@@ -446,7 +476,12 @@ func (h *Handler) handleCreateResolverRule(
 	_ context.Context,
 	in *handleCreateResolverRuleInput,
 ) (*createResolverRuleOutput, error) {
-	r, err := h.Backend.CreateResolverRule(in.Name, in.DomainName, in.RuleType, in.ResolverEndpointID)
+	tips := make([]TargetIP, 0, len(in.TargetIps))
+	for _, t := range in.TargetIps {
+		tips = append(tips, TargetIP(t))
+	}
+
+	r, err := h.Backend.CreateResolverRule(in.Name, in.DomainName, in.RuleType, in.ResolverEndpointID, tips)
 	if err != nil {
 		return nil, err
 	}
@@ -630,8 +665,9 @@ type resolverRuleAssociationOutput struct {
 // --- CreateFirewallRuleGroup ---
 
 type createFirewallRuleGroupInput struct {
-	CreatorRequestID string `json:"CreatorRequestId"`
-	Name             string `json:"Name"`
+	CreatorRequestID string       `json:"CreatorRequestId"`
+	Name             string       `json:"Name"`
+	Tags             []svcTags.KV `json:"Tags"`
 }
 
 type createFirewallRuleGroupOutput struct {
@@ -661,6 +697,12 @@ func (h *Handler) handleCreateFirewallRuleGroup(
 	g, err := h.Backend.CreateFirewallRuleGroup(in.Name, in.CreatorRequestID)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(in.Tags) > 0 {
+		if tagErr := h.Backend.TagResource(g.ARN, in.Tags); tagErr != nil {
+			return nil, tagErr
+		}
 	}
 
 	return &createFirewallRuleGroupOutput{FirewallRuleGroup: firewallRuleGroupToOutput(g)}, nil
@@ -753,9 +795,10 @@ func (h *Handler) handleAssociateResolverEndpointIPAddress(
 // --- CreateResolverQueryLogConfig ---
 
 type createResolverQueryLogConfigInput struct {
-	CreatorRequestID string `json:"CreatorRequestId"`
-	DestinationArn   string `json:"DestinationArn"`
-	Name             string `json:"Name"`
+	CreatorRequestID string       `json:"CreatorRequestId"`
+	DestinationArn   string       `json:"DestinationArn"`
+	Name             string       `json:"Name"`
+	Tags             []svcTags.KV `json:"Tags"`
 }
 
 type createResolverQueryLogConfigOutput struct {
@@ -789,6 +832,12 @@ func (h *Handler) handleCreateResolverQueryLogConfig(
 	cfg, err := h.Backend.CreateResolverQueryLogConfig(in.Name, in.CreatorRequestID, in.DestinationArn)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(in.Tags) > 0 {
+		if tagErr := h.Backend.TagResource(cfg.ARN, in.Tags); tagErr != nil {
+			return nil, tagErr
+		}
 	}
 
 	return &createResolverQueryLogConfigOutput{ResolverQueryLogConfig: queryLogConfigToOutput(cfg)}, nil
@@ -881,8 +930,9 @@ func (h *Handler) handleAssociateResolverRule(
 // --- CreateFirewallDomainList ---
 
 type createFirewallDomainListInput struct {
-	CreatorRequestID string `json:"CreatorRequestId"`
-	Name             string `json:"Name"`
+	CreatorRequestID string       `json:"CreatorRequestId"`
+	Name             string       `json:"Name"`
+	Tags             []svcTags.KV `json:"Tags"`
 }
 
 type createFirewallDomainListOutput struct {
@@ -911,6 +961,12 @@ func (h *Handler) handleCreateFirewallDomainList(
 	dl, err := h.Backend.CreateFirewallDomainList(in.Name, in.CreatorRequestID)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(in.Tags) > 0 {
+		if tagErr := h.Backend.TagResource(dl.ARN, in.Tags); tagErr != nil {
+			return nil, tagErr
+		}
 	}
 
 	return &createFirewallDomainListOutput{FirewallDomainList: firewallDomainListToOutput(dl)}, nil
@@ -1010,11 +1066,12 @@ func (h *Handler) handleCreateFirewallRule(
 // --- CreateOutpostResolver ---
 
 type createOutpostResolverInput struct {
-	CreatorRequestID      string `json:"CreatorRequestId"`
-	Name                  string `json:"Name"`
-	OutpostArn            string `json:"OutpostArn"`
-	PreferredInstanceType string `json:"PreferredInstanceType"`
-	InstanceCount         int32  `json:"InstanceCount"`
+	CreatorRequestID      string       `json:"CreatorRequestId"`
+	Name                  string       `json:"Name"`
+	OutpostArn            string       `json:"OutpostArn"`
+	PreferredInstanceType string       `json:"PreferredInstanceType"`
+	Tags                  []svcTags.KV `json:"Tags"`
+	InstanceCount         int32        `json:"InstanceCount"`
 }
 
 type createOutpostResolverOutput struct {
@@ -1055,6 +1112,12 @@ func (h *Handler) handleCreateOutpostResolver(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(in.Tags) > 0 {
+		if tagErr := h.Backend.TagResource(r.ARN, in.Tags); tagErr != nil {
+			return nil, tagErr
+		}
 	}
 
 	return &createOutpostResolverOutput{OutpostResolver: outpostResolverToOutput(r)}, nil
@@ -1249,6 +1312,7 @@ func (h *Handler) handleGetFirewallRuleGroup(
 type listFirewallRuleGroupsInput struct{}
 
 type listFirewallRuleGroupsOutput struct {
+	NextToken          *string                   `json:"NextToken,omitempty"`
 	FirewallRuleGroups []firewallRuleGroupOutput `json:"FirewallRuleGroups"`
 }
 
@@ -1451,6 +1515,7 @@ func (h *Handler) handleGetFirewallDomainList(
 type listFirewallDomainListsInput struct{}
 
 type listFirewallDomainListsOutput struct {
+	NextToken           *string                    `json:"NextToken,omitempty"`
 	FirewallDomainLists []firewallDomainListOutput `json:"FirewallDomainLists"`
 }
 
@@ -1778,6 +1843,7 @@ func (h *Handler) handleGetResolverQueryLogConfig(
 type listResolverQueryLogConfigsInput struct{}
 
 type listResolverQueryLogConfigsOutput struct {
+	NextToken               *string                        `json:"NextToken,omitempty"`
 	ResolverQueryLogConfigs []resolverQueryLogConfigOutput `json:"ResolverQueryLogConfigs"`
 }
 
@@ -2105,7 +2171,9 @@ type updateResolverRuleInput struct {
 }
 
 type resolverRuleConfig struct {
-	Name string `json:"Name"`
+	Name               string     `json:"Name"`
+	ResolverEndpointID string     `json:"ResolverEndpointId"`
+	TargetIps          []targetIP `json:"TargetIps"`
 }
 
 type updateResolverRuleOutput struct {
@@ -2119,7 +2187,16 @@ func (h *Handler) handleUpdateResolverRule(
 	if in.ResolverRuleID == "" {
 		return nil, fmt.Errorf("%w: ResolverRuleId is required", ErrValidation)
 	}
-	r, err := h.Backend.UpdateResolverRule(in.ResolverRuleID, in.Config.Name)
+
+	tips := make([]TargetIP, 0, len(in.Config.TargetIps))
+	for _, t := range in.Config.TargetIps {
+		tips = append(tips, TargetIP(t))
+	}
+	if len(tips) == 0 {
+		tips = nil
+	}
+
+	r, err := h.Backend.UpdateResolverRule(in.ResolverRuleID, in.Config.Name, in.Config.ResolverEndpointID, tips)
 	if err != nil {
 		return nil, err
 	}

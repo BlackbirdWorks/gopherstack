@@ -6,7 +6,12 @@ import svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Endpoint operations
-	CreateResolverEndpoint(name, direction, vpcID string, ips []IPAddress) (*ResolverEndpoint, error)
+	CreateResolverEndpoint(
+		name, direction, vpcID string,
+		ips []IPAddress,
+		securityGroupIDs []string,
+		resolverEndpointType string,
+	) (*ResolverEndpoint, error)
 	GetResolverEndpoint(id string) (*ResolverEndpoint, error)
 	ListResolverEndpoints() []*ResolverEndpoint
 	DeleteResolverEndpoint(id string) error
@@ -16,11 +21,11 @@ type StorageBackend interface {
 	DisassociateResolverEndpointIPAddress(endpointID, ipID string) (*ResolverEndpoint, error)
 
 	// Rule operations
-	CreateResolverRule(name, domainName, ruleType, endpointID string) (*ResolverRule, error)
+	CreateResolverRule(name, domainName, ruleType, endpointID string, targetIps []TargetIP) (*ResolverRule, error)
 	GetResolverRule(id string) (*ResolverRule, error)
 	ListResolverRules() []*ResolverRule
 	DeleteResolverRule(id string) error
-	UpdateResolverRule(id, name string) (*ResolverRule, error)
+	UpdateResolverRule(id, name, resolverEndpointID string, targetIps []TargetIP) (*ResolverRule, error)
 	AssociateResolverRule(resolverRuleID, vpcID, name string) (*ResolverRuleAssociation, error)
 	GetResolverRuleAssociation(id string) (*ResolverRuleAssociation, error)
 	DisassociateResolverRule(id string) (*ResolverRuleAssociation, error)
