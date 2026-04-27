@@ -39,7 +39,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Equal(t, 22, route53resolver.HandlerOpsLen(h))
+	assert.Equal(t, 68, route53resolver.HandlerOpsLen(h))
 }
 
 func TestRefinement1_BackendAccountIDAndRegion(t *testing.T) {
