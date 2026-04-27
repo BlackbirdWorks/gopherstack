@@ -90,6 +90,7 @@
 	let ruleCondValues = $state('');
 	let ruleCondHeaderName = $state('');
 	let ruleActionTGArn = $state('');
+	let rulePriority = $state('');
 	let savingRule = $state(false);
 
 	// ── Trust Stores ────────────────────────────────────────────────────────────
@@ -332,7 +333,11 @@
 
 	async function removeCert(certArn: string) {
 		if (!selectedListener?.ListenerArn) return;
-		if (!await confirmDestructive({ title: 'Remove Certificate', message: `Remove certificate ${certArn}?` })) return;
+		const confirmed = await confirmDestructive({
+			title: 'Remove Certificate',
+			message: `Remove certificate ${certArn}?`
+		});
+		if (!confirmed) return;
 		try {
 			await elb.send(
 				new RemoveListenerCertificatesCommand({
@@ -353,6 +358,7 @@
 		ruleCondValues = '';
 		ruleCondHeaderName = '';
 		ruleActionTGArn = '';
+		rulePriority = '';
 		showRuleEditor = true;
 	}
 
@@ -362,6 +368,7 @@
 		ruleCondField = firstCond?.Field ?? 'host-header';
 		const firstAction = rule.Actions?.[0];
 		ruleActionTGArn = firstAction?.TargetGroupArn ?? '';
+		rulePriority = rule.Priority ? String(rule.Priority) : '';
 
 		if (ruleCondField === 'host-header') {
 			ruleCondValues = (firstCond?.HostHeaderConfig?.Values ?? []).join(', ');
@@ -413,10 +420,11 @@
 				);
 				toast.success('Rule updated');
 			} else {
+				const priority = rulePriority.trim() ? Number(rulePriority.trim()) : Date.now() % 50000;
 				await elb.send(
 					new CreateRuleCommand({
 						ListenerArn: selectedListener.ListenerArn,
-						Priority: Date.now() % 50000,
+						Priority: priority,
 						Conditions: [condition],
 						Actions: actions
 					})
@@ -433,7 +441,12 @@
 	}
 
 	async function deleteRule(rule: Rule) {
-		if (!rule.RuleArn || !await confirmDestructive({ title: 'Delete Rule', message: `Delete rule with priority ${rule.Priority}?` })) return;
+		if (!rule.RuleArn) return;
+		const confirmed = await confirmDestructive({
+			title: 'Delete Rule',
+			message: `Delete rule with priority ${rule.Priority}?`
+		});
+		if (!confirmed) return;
 		try {
 			await elb.send(new DeleteRuleCommand({ RuleArn: rule.RuleArn }));
 			toast.success('Rule deleted');
@@ -460,7 +473,12 @@
 	}
 
 	async function deleteLB(lb: LoadBalancer) {
-		if (!lb.LoadBalancerArn || !await confirmDestructive({ title: 'Delete Load Balancer', message: `Delete load balancer "${lb.LoadBalancerName}"? All listeners and rules will be removed.` })) return;
+		if (!lb.LoadBalancerArn) return;
+		const confirmed = await confirmDestructive({
+			title: 'Delete Load Balancer',
+			message: `Delete load balancer "${lb.LoadBalancerName}"? All listeners and rules will be removed.`
+		});
+		if (!confirmed) return;
 		try {
 			await elb.send(new DeleteLoadBalancerCommand({ LoadBalancerArn: lb.LoadBalancerArn }));
 			toast.success(`Deleting "${lb.LoadBalancerName}"…`);
@@ -1138,6 +1156,22 @@
 				{editingRule ? 'Edit Rule' : 'Create Rule'}
 			</h2>
 			<div class="space-y-4">
+				<!-- Priority (create only) -->
+				{#if !editingRule}
+					<div>
+						<label for="rule-priority" class="block text-sm font-medium mb-1">Priority (1–50000)</label>
+						<input
+							id="rule-priority"
+							type="number"
+							min="1"
+							max="50000"
+							bind:value={rulePriority}
+							placeholder="Auto-assign"
+							class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+					</div>
+				{/if}
+
 				<!-- Condition type -->
 				<div>
 					<label for="cond-field" class="block text-sm font-medium mb-1">Condition Type</label>
@@ -1181,11 +1215,15 @@
 						id="cond-values"
 						type="text"
 						bind:value={ruleCondValues}
-						placeholder={ruleCondField === 'host-header' ? 'example.com, *.example.com' :
-							ruleCondField === 'path-pattern' ? '/api/*, /health' :
-							ruleCondField === 'http-request-method' ? 'GET, POST' :
-							ruleCondField === 'source-ip' ? '10.0.0.0/8, 192.168.0.0/16' :
-							'value1, value2'}
+						placeholder={ruleCondField === 'host-header'
+							? 'example.com, *.example.com'
+							: ruleCondField === 'path-pattern'
+								? '/api/*, /health'
+								: ruleCondField === 'http-request-method'
+									? 'GET, POST'
+									: ruleCondField === 'source-ip'
+										? '10.0.0.0/8, 192.168.0.0/16'
+										: 'value1, value2'}
 						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 					/>
 				</div>

@@ -1702,46 +1702,67 @@ func parseActions(vals url.Values, prefix string) []Action {
 func parseConditions(vals url.Values, prefix string) []Condition {
 	result := make([]Condition, 0)
 
-	for i := 1; ; i++ {
-		field := vals.Get(fmt.Sprintf("%s.%d.Field", prefix, i))
-		if field == "" {
-			break
-		}
-
-		cond := Condition{Field: field}
-
-		switch field {
-		case "host-header":
-			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HostHeaderConfig.Values.member", prefix, i))
-		case "path-pattern":
-			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.PathPatternConfig.Values.member", prefix, i))
-		case "http-request-method":
-			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpRequestMethodConfig.Values.member", prefix, i))
-		case "source-ip":
-			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.SourceIpConfig.Values.member", prefix, i))
-		case "http-header":
-			cond.HttpHeaderName = vals.Get(fmt.Sprintf("%s.%d.HttpHeaderConfig.HttpHeaderName", prefix, i))
-			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpHeaderConfig.Values.member", prefix, i))
-		case "query-string":
-			pairs := make([]QueryStringPair, 0)
-			for j := 1; ; j++ {
-				v := vals.Get(fmt.Sprintf("%s.%d.QueryStringConfig.Values.member.%d.Value", prefix, i, j))
-				if v == "" {
-					break
-				}
-
-				pairs = append(pairs, QueryStringPair{
-					Key:   vals.Get(fmt.Sprintf("%s.%d.QueryStringConfig.Values.member.%d.Key", prefix, i, j)),
-					Value: v,
-				})
-			}
-			cond.QueryStringPairs = pairs
-		}
-
-		result = append(result, cond)
+	for i := 1; parseConditionAt(vals, prefix, i, &result); i++ {
 	}
 
 	return result
+}
+
+// parseConditionAt parses a single indexed condition and appends it to result.
+// Returns false when there are no more conditions to parse.
+func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition) bool {
+	field := vals.Get(fmt.Sprintf("%s.%d.Field", prefix, i))
+	if field == "" {
+		return false
+	}
+
+	cond := Condition{Field: field}
+
+	switch field {
+	case "host-header":
+		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HostHeaderConfig.Values.member", prefix, i))
+	case "path-pattern":
+		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.PathPatternConfig.Values.member", prefix, i))
+	case "http-request-method":
+		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpRequestMethodConfig.Values.member", prefix, i))
+	case "source-ip":
+		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.SourceIpConfig.Values.member", prefix, i))
+	case "http-header":
+		cond.HttpHeaderName = vals.Get(fmt.Sprintf("%s.%d.HttpHeaderConfig.HttpHeaderName", prefix, i))
+		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpHeaderConfig.Values.member", prefix, i))
+	case "query-string":
+		cond.QueryStringPairs = parseQueryStringPairs(vals, prefix, i)
+	}
+
+	*result = append(*result, cond)
+
+	return true
+}
+
+// parseQueryStringPairs extracts query-string key/value pairs for the Nth condition.
+func parseQueryStringPairs(vals url.Values, prefix string, condIdx int) []QueryStringPair {
+	pairs := make([]QueryStringPair, 0)
+
+	for j := 1; parseQueryStringPairAt(vals, prefix, condIdx, j, &pairs); j++ {
+	}
+
+	return pairs
+}
+
+// parseQueryStringPairAt parses a single query-string pair.
+// Returns false when there are no more pairs to parse.
+func parseQueryStringPairAt(vals url.Values, prefix string, condIdx, pairIdx int, pairs *[]QueryStringPair) bool {
+	v := vals.Get(fmt.Sprintf("%s.%d.QueryStringConfig.Values.member.%d.Value", prefix, condIdx, pairIdx))
+	if v == "" {
+		return false
+	}
+
+	*pairs = append(*pairs, QueryStringPair{
+		Key:   vals.Get(fmt.Sprintf("%s.%d.QueryStringConfig.Values.member.%d.Key", prefix, condIdx, pairIdx)),
+		Value: v,
+	})
+
+	return true
 }
 
 // --- XML conversion helpers ---
