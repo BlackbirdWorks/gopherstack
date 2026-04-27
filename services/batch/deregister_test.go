@@ -36,7 +36,7 @@ func TestDeregisterJobDefinition_MarksInactive(t *testing.T) {
 
 			backend := batch.NewInMemoryBackend("123456789012", "us-east-1")
 
-			jd, err := backend.RegisterJobDefinition("my-job", "container", nil, nil, 0, nil)
+			jd, err := backend.RegisterJobDefinition("my-job", "container", nil, nil, 0, nil, nil)
 			require.NoError(t, err)
 			assert.Equal(t, "ACTIVE", jd.Status)
 
@@ -60,7 +60,7 @@ func TestDeregisterJobDefinition_RevisionCounterPreserved(t *testing.T) {
 
 	backend := batch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	jd1, err := backend.RegisterJobDefinition("my-job", "container", nil, nil, 0, nil)
+	jd1, err := backend.RegisterJobDefinition("my-job", "container", nil, nil, 0, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), jd1.Revision)
 
@@ -68,7 +68,7 @@ func TestDeregisterJobDefinition_RevisionCounterPreserved(t *testing.T) {
 	require.NoError(t, err)
 
 	// Re-register: should get revision 2.
-	jd2, err := backend.RegisterJobDefinition("my-job", "container", nil, nil, 0, nil)
+	jd2, err := backend.RegisterJobDefinition("my-job", "container", nil, nil, 0, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), jd2.Revision, "re-registration should yield revision 2")
 
@@ -128,7 +128,7 @@ func TestBatchJanitor_SweepInactiveJobDefinitions(t *testing.T) {
 
 			backend := batch.NewInMemoryBackend("123456789012", "us-east-1")
 
-			jd, err := backend.RegisterJobDefinition("sweep-job", "container", nil, nil, 0, nil)
+			jd, err := backend.RegisterJobDefinition("sweep-job", "container", nil, nil, 0, nil, nil)
 			require.NoError(t, err)
 
 			if tt.deregisteredDelay != 0 {

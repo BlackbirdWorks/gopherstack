@@ -12,18 +12,27 @@ CancelJobCommand,
 TerminateJobCommand,
 CreateJobQueueCommand,
 DeleteJobQueueCommand,
+CreateComputeEnvironmentCommand,
+DeleteComputeEnvironmentCommand,
+UpdateComputeEnvironmentCommand,
+UpdateJobQueueCommand,
+DescribeJobsCommand,
+DescribeServiceEnvironmentsCommand,
 type ComputeEnvironmentDetail,
 type JobQueueDetail,
 type JobDefinition,
 type JobSummary,
-type ComputeEnvironmentOrder
+type JobDetail,
+type ComputeEnvironmentOrder,
+type ServiceEnvironmentDetail,
+type DescribeServiceEnvironmentsCommandOutput
 } from '@aws-sdk/client-batch';
 import { toast } from 'svelte-sonner';
 import { Box, Search, RefreshCw, Plus, Trash2, Play, XCircle, Layers, FileCode, Server, BookOpen } from 'lucide-svelte';
 
 const batch = getBatchClient();
 
-type ActiveTab = 'queues' | 'compute-environments' | 'jobs' | 'definitions' | 'metrics' | 'docs';
+type ActiveTab = 'queues' | 'compute-environments' | 'service-environments' | 'jobs' | 'definitions' | 'metrics' | 'docs';
 
 let loading = $state(false);
 let activeTab = $state<ActiveTab>('queues');
@@ -32,6 +41,13 @@ let searchQuery = $state('');
 // Compute Environments
 let computeEnvironments = $state<ComputeEnvironmentDetail[]>([]);
 let loadingCEs = $state(false);
+
+// Service Environments
+let serviceEnvironments = $state<ServiceEnvironmentDetail[]>([]);
+let loadingSEs = $state(false);
+
+// Jobs: per-queue counts keyed by queue name
+let jobCountByQueue = $state<Record<string, number>>({});
 
 // Job Queues
 let queues = $state<JobQueueDetail[]>([]);
@@ -53,6 +69,17 @@ let submitJobName = $state('');
 let submitJobQueue = $state('');
 let submitJobDef = $state('');
 let submitJobContainerOverrides = $state('{}');
+
+// Create Compute Environment
+let showCreateCE = $state(false);
+let creatingCE = $state(false);
+let newCEName = $state('');
+let newCEType = $state('UNMANAGED');
+let newCEState = $state('ENABLED');
+
+// Job JSON viewer
+let selectedJob = $state<JobDetail | null>(null);
+let loadingJobDetail = $state(false);
 
 // Create Queue
 let showCreateQueue = $state(false);
@@ -86,6 +113,9 @@ queues.filter((q) => !searchQuery || (q.jobQueueName ?? '').toLowerCase().includ
 );
 const filteredCEs = $derived(
 computeEnvironments.filter((c) => !searchQuery || (c.computeEnvironmentName ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
+);
+const filteredSEs = $derived(
+serviceEnvironments.filter((s) => !searchQuery || (s.serviceEnvironmentName ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
 );
 const filteredDefinitions = $derived(
 definitions.filter((d) => !searchQuery || (d.jobDefinitionName ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
@@ -160,9 +190,11 @@ async function handleTabChange(tab: ActiveTab) {
 activeTab = tab;
 searchQuery = '';
 if (tab === 'compute-environments' && computeEnvironments.length === 0) await loadComputeEnvironments();
+if (tab === 'service-environments' && serviceEnvironments.length === 0) await loadServiceEnvironments();
 if (tab === 'definitions' && definitions.length === 0) await loadDefinitions();
 if (tab === 'jobs') await loadJobs();
 if (tab === 'metrics') await loadMetrics();
+if (tab === 'queues') await loadJobCounts();
 }
 
 async function createQueue() {
@@ -252,12 +284,95 @@ toast.error('Failed to terminate job: ' + String(e));
 }
 }
 
+async function loadServiceEnvironments() {
+loadingSEs = true;
+try {
+const resp = await batch.send(new DescribeServiceEnvironmentsCommand({ maxResults: 50 }));
+serviceEnvironments = (resp as DescribeServiceEnvironmentsCommandOutput).serviceEnvironments ?? [];
+} catch (e) {
+toast.error('Failed to load service environments: ' + String(e));
+} finally {
+loadingSEs = false;
+}
+}
+
+async function createComputeEnvironment() {
+if (!newCEName.trim()) return;
+creatingCE = true;
+try {
+await batch.send(new CreateComputeEnvironmentCommand({
+computeEnvironmentName: newCEName.trim(),
+type: newCEType as 'MANAGED' | 'UNMANAGED',
+state: newCEState as 'ENABLED' | 'DISABLED'
+}));
+toast.success(`Compute environment "${newCEName}" created`);
+showCreateCE = false;
+newCEName = '';
+newCEType = 'UNMANAGED';
+newCEState = 'ENABLED';
+await loadComputeEnvironments();
+} catch (e) {
+toast.error('Failed to create compute environment: ' + String(e));
+} finally {
+creatingCE = false;
+}
+}
+
+async function deleteCE(name: string) {
+if (!await confirmDestructive({ title: 'Delete Compute Environment', message: `Delete compute environment "${name}"?` })) return;
+try {
+await batch.send(new UpdateComputeEnvironmentCommand({ computeEnvironment: name, state: 'DISABLED' }));
+await batch.send(new DeleteComputeEnvironmentCommand({ computeEnvironment: name }));
+toast.success(`Compute environment "${name}" deleted`);
+await loadComputeEnvironments();
+} catch (e) {
+toast.error('Failed to delete compute environment: ' + String(e));
+}
+}
+
+async function toggleQueueState(queue: JobQueueDetail) {
+const newState = queue.state === 'ENABLED' ? 'DISABLED' : 'ENABLED';
+try {
+await batch.send(new UpdateJobQueueCommand({ jobQueue: queue.jobQueueName!, state: newState as 'ENABLED' | 'DISABLED' }));
+toast.success(`Queue "${queue.jobQueueName}" ${newState.toLowerCase()}`);
+await loadQueues();
+} catch (e) {
+toast.error('Failed to update queue: ' + String(e));
+}
+}
+
+async function loadJobDetail(job: JobSummary) {
+loadingJobDetail = true;
+try {
+const resp = await batch.send(new DescribeJobsCommand({ jobs: [job.jobId!] }));
+selectedJob = (resp.jobs ?? [])[0] ?? null;
+} catch (e) {
+toast.error('Failed to load job details: ' + String(e));
+} finally {
+loadingJobDetail = false;
+}
+}
+
+async function loadJobCounts() {
+const counts: Record<string, number> = {};
+for (const q of queues) {
+if (!q.jobQueueName) continue;
+try {
+const resp = await batch.send(new ListJobsCommand({ jobQueue: q.jobQueueName, maxResults: 100 }));
+counts[q.jobQueueName] = (resp.jobSummaryList ?? []).length;
+} catch {
+counts[q.jobQueueName] = 0;
+}
+}
+jobCountByQueue = counts;
+}
+
 function formatDate(d: number | undefined): string {
 if (!d) return '-';
 return new Date(d).toLocaleString();
 }
 
-onMount(loadQueues);
+onMount(async () => { await Promise.all([loadQueues(), loadJobCounts()]); });
 </script>
 
 <div class="p-6 space-y-6">
@@ -272,8 +387,9 @@ onMount(loadQueues);
 </div>
 <div class="flex items-center gap-2">
 <button onclick={() => {
-if (activeTab === 'queues') loadQueues();
+if (activeTab === 'queues') { loadQueues(); loadJobCounts(); }
 else if (activeTab === 'compute-environments') loadComputeEnvironments();
+else if (activeTab === 'service-environments') loadServiceEnvironments();
 else if (activeTab === 'jobs') loadJobs();
 else if (activeTab === 'definitions') loadDefinitions();
 else if (activeTab === 'metrics') loadMetrics();
@@ -283,6 +399,10 @@ else if (activeTab === 'metrics') loadMetrics();
 {#if activeTab === 'queues'}
 <button onclick={() => (showCreateQueue = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 text-sm font-medium">
 <Plus class="w-4 h-4" /> Create Queue
+</button>
+{:else if activeTab === 'compute-environments'}
+<button onclick={() => (showCreateCE = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 text-sm font-medium">
+<Plus class="w-4 h-4" /> Create CE
 </button>
 {:else if activeTab === 'jobs'}
 <button onclick={() => (showSubmitJob = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 text-sm font-medium">
@@ -294,7 +414,7 @@ else if (activeTab === 'metrics') loadMetrics();
 
 <!-- Tabs -->
 <div class="flex gap-1 border-b border-gray-200 dark:border-gray-700 flex-wrap">
-{#each [['queues', 'Job Queues'], ['compute-environments', 'Compute Envs'], ['jobs', 'Jobs'], ['definitions', 'Job Definitions'], ['metrics', 'Metrics'], ['docs', 'Docs']] as [tab, label]}
+{#each [['queues', 'Job Queues'], ['compute-environments', 'Compute Envs'], ['service-environments', 'Service Envs'], ['jobs', 'Jobs'], ['definitions', 'Job Definitions'], ['metrics', 'Metrics'], ['docs', 'Docs']] as [tab, label]}
 <button
 onclick={() => handleTabChange(tab as ActiveTab)}
 class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-purple-500 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
@@ -332,22 +452,67 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 <th class="px-4 py-3 text-left">Status</th>
 <th class="px-4 py-3 text-left">Priority</th>
 <th class="px-4 py-3 text-left">Compute Envs</th>
+<th class="px-4 py-3 text-left">Jobs</th>
 <th class="px-4 py-3 text-left">Actions</th>
 </tr>
 </thead>
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 {#each filteredQueues as queue}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400">{queue.jobQueueName}</td>
+<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={queue.jobQueueArn}>{queue.jobQueueName}</td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(queue.state)}`}>{queue.state}</span></td>
 <td class="px-4 py-3 text-xs text-gray-500">{queue.status}</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-400">{queue.priority}</td>
 <td class="px-4 py-3 text-xs text-gray-500">{(queue.computeEnvironmentOrder ?? []).length} env(s)</td>
-<td class="px-4 py-3">
-<button onclick={() => deleteQueue(queue.jobQueueName ?? '')} class="text-red-500 hover:text-red-700 p-1">
+<td class="px-4 py-3 text-xs text-gray-500">{jobCountByQueue[queue.jobQueueName ?? ''] ?? 0}</td>
+<td class="px-4 py-3 flex items-center gap-1">
+<button onclick={() => toggleQueueState(queue)} class={`p-1 ${queue.state === 'ENABLED' ? 'text-yellow-500 hover:text-yellow-700' : 'text-green-500 hover:text-green-700'}`} title={queue.state === 'ENABLED' ? 'Disable' : 'Enable'}>
+{#if queue.state === 'ENABLED'}
+<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+{:else}
+<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+{/if}
+</button>
+<button onclick={() => deleteQueue(queue.jobQueueName ?? '')} class="text-red-500 hover:text-red-700 p-1" title="Delete">
 <Trash2 class="w-4 h-4" />
 </button>
 </td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+<!-- SERVICE ENVIRONMENTS TAB -->
+{#if activeTab === 'service-environments'}
+{#if loadingSEs}
+<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full"></div></div>
+{:else if filteredSEs.length === 0}
+<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+<Server class="w-12 h-12 mx-auto mb-3 opacity-40" />
+<p class="font-medium">No service environments found</p>
+<p class="text-sm mt-1">Service environments group compute resources for specific workloads</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
+<tr>
+<th class="px-4 py-3 text-left">Name</th>
+<th class="px-4 py-3 text-left">Type</th>
+<th class="px-4 py-3 text-left">State</th>
+<th class="px-4 py-3 text-left">Status</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+{#each filteredSEs as se}
+<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={se.serviceEnvironmentArn}>{se.serviceEnvironmentName}</td>
+<td class="px-4 py-3 text-xs text-gray-500">{se.serviceEnvironmentType}</td>
+<td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(se.state)}`}>{se.state}</span></td>
+<td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(se.status)}`}>{se.status}</span></td>
 </tr>
 {/each}
 </tbody>
@@ -375,15 +540,21 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 <th class="px-4 py-3 text-left">Type</th>
 <th class="px-4 py-3 text-left">State</th>
 <th class="px-4 py-3 text-left">Status</th>
+<th class="px-4 py-3 text-left">Actions</th>
 </tr>
 </thead>
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 {#each filteredCEs as ce}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400">{ce.computeEnvironmentName}</td>
+<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={ce.computeEnvironmentArn}>{ce.computeEnvironmentName}</td>
 <td class="px-4 py-3 text-xs text-gray-500">{ce.type}</td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(ce.state)}`}>{ce.state}</span></td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(ce.status)}`}>{ce.status}</span></td>
+<td class="px-4 py-3">
+<button onclick={() => deleteCE(ce.computeEnvironmentName ?? '')} class="text-red-500 hover:text-red-700 p-1" title="Delete">
+<Trash2 class="w-4 h-4" />
+</button>
+</td>
 </tr>
 {/each}
 </tbody>
@@ -427,7 +598,7 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 </thead>
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 {#each filteredJobs as job}
-<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer" onclick={() => loadJobDetail(job)}>
 <td class="px-4 py-3 font-medium">{job.jobName}</td>
 <td class="px-4 py-3 font-mono text-xs text-gray-500">{job.jobId}</td>
 <td class="px-4 py-3">
@@ -436,7 +607,7 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 </span>
 </td>
 <td class="px-4 py-3 text-xs text-gray-500">{formatDate(job.createdAt)}</td>
-<td class="px-4 py-3">
+<td class="px-4 py-3" onclick={(e) => e.stopPropagation()}>
 {#if job.status === 'SUBMITTED' || job.status === 'PENDING' || job.status === 'RUNNABLE'}
 <button onclick={() => cancelJob(job.jobId ?? '')} class="text-yellow-500 hover:text-yellow-700 p-1" title="Cancel">
 <XCircle class="w-4 h-4" />
@@ -479,7 +650,7 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 {#each filteredDefinitions as def}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400">{def.jobDefinitionName}</td>
+<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={def.jobDefinitionArn}>{def.jobDefinitionName}</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-400">{def.revision}</td>
 <td class="px-4 py-3 text-xs text-gray-500">{def.type}</td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(def.status)}`}>{def.status}</span></td>
@@ -593,6 +764,58 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 {creatingQueue ? 'Creating...' : 'Create Queue'}
 </button>
 </div>
+</div>
+</div>
+{/if}
+
+<!-- Create Compute Environment Modal -->
+{#if showCreateCE}
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Compute Environment</h2>
+<div>
+<label for="ce-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+<input id="ce-name" bind:value={newCEName} type="text" placeholder="my-compute-env" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+</div>
+<div>
+<label for="ce-type" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Type</label>
+<select id="ce-type" bind:value={newCEType} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+<option value="MANAGED">MANAGED</option>
+<option value="UNMANAGED">UNMANAGED</option>
+</select>
+</div>
+<div>
+<label for="ce-state" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State</label>
+<select id="ce-state" bind:value={newCEState} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+<option value="ENABLED">ENABLED</option>
+<option value="DISABLED">DISABLED</option>
+</select>
+</div>
+<div class="flex gap-3 pt-2">
+<button onclick={() => (showCreateCE = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+<button onclick={createComputeEnvironment} disabled={creatingCE || !newCEName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 disabled:opacity-50">
+{creatingCE ? 'Creating...' : 'Create'}
+</button>
+</div>
+</div>
+</div>
+{/if}
+
+<!-- Job Detail Modal -->
+{#if selectedJob || loadingJobDetail}
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4">
+<div class="flex items-center justify-between">
+<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Job Details</h2>
+<button onclick={() => { selectedJob = null; }} aria-label="Close" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+</button>
+</div>
+{#if loadingJobDetail}
+<div class="flex justify-center py-8"><div class="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full"></div></div>
+{:else if selectedJob}
+<pre class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 text-xs font-mono overflow-auto max-h-96 text-gray-800 dark:text-gray-200">{JSON.stringify(selectedJob, null, 2)}</pre>
+{/if}
 </div>
 </div>
 {/if}

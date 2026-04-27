@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -459,4 +460,233 @@ func TestIntegration_Batch_ListJobsAllQueues(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "submitted job should appear in list-all-jobs")
+}
+
+func TestIntegration_Batch_UpdateJobQueue_ComputeEnvironments(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createBatchClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	ce1Name := "updjq-ce1-" + suffix
+	ce2Name := "updjq-ce2-" + suffix
+	jqName := "updjq-jq-" + suffix
+
+	// Create two compute environments.
+	for _, ceName := range []string{ce1Name, ce2Name} {
+		name := ceName
+		_, err := client.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
+			ComputeEnvironmentName: aws.String(name),
+			Type:                   batchtypes.CETypeUnmanaged,
+			State:                  batchtypes.CEStateEnabled,
+		})
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+				ComputeEnvironment: aws.String(name),
+				State:              batchtypes.CEStateDisabled,
+			})
+			_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+				ComputeEnvironment: aws.String(name),
+			})
+		})
+	}
+
+	// Create job queue with ce1 only.
+	_, err := client.CreateJobQueue(ctx, &batch.CreateJobQueueInput{
+		JobQueueName: aws.String(jqName),
+		Priority:     aws.Int32(5),
+		State:        batchtypes.JQStateEnabled,
+		ComputeEnvironmentOrder: []batchtypes.ComputeEnvironmentOrder{
+			{ComputeEnvironment: aws.String(ce1Name), Order: aws.Int32(1)},
+		},
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+			JobQueue: aws.String(jqName),
+			State:    batchtypes.JQStateDisabled,
+		})
+		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
+			JobQueue: aws.String(jqName),
+		})
+	})
+
+	// Update the job queue to use ce2 and change priority.
+	newPriority := int32(20)
+	_, err = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+		JobQueue: aws.String(jqName),
+		Priority: aws.Int32(newPriority),
+		ComputeEnvironmentOrder: []batchtypes.ComputeEnvironmentOrder{
+			{ComputeEnvironment: aws.String(ce2Name), Order: aws.Int32(1)},
+		},
+	})
+	require.NoError(t, err)
+
+	// Verify updates were applied.
+	descOut, err := client.DescribeJobQueues(ctx, &batch.DescribeJobQueuesInput{
+		JobQueues: []string{jqName},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.JobQueues, 1)
+	assert.Equal(t, newPriority, aws.ToInt32(descOut.JobQueues[0].Priority))
+	require.Len(t, descOut.JobQueues[0].ComputeEnvironmentOrder, 1)
+	assert.Equal(t, ce2Name, aws.ToString(descOut.JobQueues[0].ComputeEnvironmentOrder[0].ComputeEnvironment))
+}
+
+func TestIntegration_Batch_SubmitJob_DisabledQueue(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createBatchClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	ceName := "disabled-ce-" + suffix
+	jqName := "disabled-jq-" + suffix
+	jdName := "disabled-jd-" + suffix
+
+	_, err := client.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
+		ComputeEnvironmentName: aws.String(ceName),
+		Type:                   batchtypes.CETypeUnmanaged,
+		State:                  batchtypes.CEStateEnabled,
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+			ComputeEnvironment: aws.String(ceName),
+			State:              batchtypes.CEStateDisabled,
+		})
+		_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+			ComputeEnvironment: aws.String(ceName),
+		})
+	})
+
+	_, err = client.CreateJobQueue(ctx, &batch.CreateJobQueueInput{
+		JobQueueName: aws.String(jqName),
+		Priority:     aws.Int32(1),
+		State:        batchtypes.JQStateEnabled,
+		ComputeEnvironmentOrder: []batchtypes.ComputeEnvironmentOrder{
+			{ComputeEnvironment: aws.String(ceName), Order: aws.Int32(1)},
+		},
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+			JobQueue: aws.String(jqName),
+			State:    batchtypes.JQStateDisabled,
+		})
+		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
+			JobQueue: aws.String(jqName),
+		})
+	})
+
+	_, err = client.RegisterJobDefinition(ctx, &batch.RegisterJobDefinitionInput{
+		JobDefinitionName: aws.String(jdName),
+		Type:              batchtypes.JobDefinitionTypeContainer,
+	})
+	require.NoError(t, err)
+
+	// Disable the queue.
+	_, err = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+		JobQueue: aws.String(jqName),
+		State:    batchtypes.JQStateDisabled,
+	})
+	require.NoError(t, err)
+
+	// Submitting a job to a disabled queue must fail.
+	_, err = client.SubmitJob(ctx, &batch.SubmitJobInput{
+		JobName:       aws.String("should-fail"),
+		JobQueue:      aws.String(jqName),
+		JobDefinition: aws.String(jdName),
+	})
+	assert.Error(t, err, "submitting to a DISABLED queue should return an error")
+}
+
+func TestIntegration_Batch_ListJobs_ByStatus(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createBatchClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	ceName := "liststs-ce-" + suffix
+	jqName := "liststs-jq-" + suffix
+	jdName := "liststs-jd-" + suffix
+
+	_, err := client.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
+		ComputeEnvironmentName: aws.String(ceName),
+		Type:                   batchtypes.CETypeUnmanaged,
+		State:                  batchtypes.CEStateEnabled,
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+			ComputeEnvironment: aws.String(ceName),
+			State:              batchtypes.CEStateDisabled,
+		})
+		_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+			ComputeEnvironment: aws.String(ceName),
+		})
+	})
+
+	_, err = client.CreateJobQueue(ctx, &batch.CreateJobQueueInput{
+		JobQueueName: aws.String(jqName),
+		Priority:     aws.Int32(1),
+		State:        batchtypes.JQStateEnabled,
+		ComputeEnvironmentOrder: []batchtypes.ComputeEnvironmentOrder{
+			{ComputeEnvironment: aws.String(ceName), Order: aws.Int32(1)},
+		},
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+			JobQueue: aws.String(jqName),
+			State:    batchtypes.JQStateDisabled,
+		})
+		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
+			JobQueue: aws.String(jqName),
+		})
+	})
+
+	_, err = client.RegisterJobDefinition(ctx, &batch.RegisterJobDefinitionInput{
+		JobDefinitionName: aws.String(jdName),
+		Type:              batchtypes.JobDefinitionTypeContainer,
+	})
+	require.NoError(t, err)
+
+	// Submit two jobs.
+	for i := range 2 {
+		_, err = client.SubmitJob(ctx, &batch.SubmitJobInput{
+			JobName:       aws.String("list-status-job-" + suffix + "-" + strconv.Itoa(i)),
+			JobQueue:      aws.String(jqName),
+			JobDefinition: aws.String(jdName),
+		})
+		require.NoError(t, err)
+	}
+
+	// List with SUBMITTED status filter - should return both jobs.
+	listOut, err := client.ListJobs(ctx, &batch.ListJobsInput{
+		JobQueue:  aws.String(jqName),
+		JobStatus: batchtypes.JobStatusSubmitted,
+	})
+	require.NoError(t, err)
+	assert.Len(t, listOut.JobSummaryList, 2)
+
+	// List with RUNNING status filter - should return zero jobs.
+	runningOut, err := client.ListJobs(ctx, &batch.ListJobsInput{
+		JobQueue:  aws.String(jqName),
+		JobStatus: batchtypes.JobStatusRunning,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, runningOut.JobSummaryList)
 }

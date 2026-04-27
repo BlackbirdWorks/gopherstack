@@ -1398,7 +1398,7 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	require.NotEmpty(t, jq.JobQueueArn)
 
 	// Register job definition.
-	jd, err := b.RegisterJobDefinition("test-jd", "container", nil, nil, 0, nil)
+	jd, err := b.RegisterJobDefinition("test-jd", "container", nil, nil, 0, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, jd.JobDefinitionArn)
 
@@ -1422,7 +1422,7 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	assert.Equal(t, "test-ce", ces[0].ComputeEnvironmentName)
 
 	// Job queue is restored.
-	jqs := b2.DescribeJobQueues([]string{"test-jq"})
+	jqs, _ := b2.DescribeJobQueues([]string{"test-jq"}, 0, "")
 	require.Len(t, jqs, 1)
 	assert.Equal(t, "test-jq", jqs[0].JobQueueName)
 
@@ -1438,7 +1438,7 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	assert.Equal(t, jq.JobQueueName, jobs[0].JobQueue)
 
 	// jobsByQueue index is rebuilt — ListJobs must return the submitted job.
-	listed, err := b2.ListJobs(jq.JobQueueName, "")
+	listed, _, err := b2.ListJobs(jq.JobQueueName, "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	assert.Equal(t, job.JobID, listed[0].JobID)

@@ -494,6 +494,7 @@ func (h *Handler) handleDescribeComputeEnvironments(
 type updateComputeEnvironmentInput struct {
 	ComputeEnvironment string `json:"computeEnvironment"`
 	State              string `json:"state"`
+	ServiceRole        string `json:"serviceRole,omitempty"`
 }
 
 type updateComputeEnvironmentOutput struct {
@@ -505,7 +506,7 @@ func (h *Handler) handleUpdateComputeEnvironment(
 	_ context.Context,
 	in *updateComputeEnvironmentInput,
 ) (*updateComputeEnvironmentOutput, error) {
-	ce, err := h.Backend.UpdateComputeEnvironment(in.ComputeEnvironment, in.State)
+	ce, err := h.Backend.UpdateComputeEnvironment(in.ComputeEnvironment, in.State, in.ServiceRole)
 	if err != nil {
 		return nil, err
 	}
@@ -589,16 +590,32 @@ func (h *Handler) handleDescribeJobQueues(
 	_ context.Context,
 	in *describeJobQueuesInput,
 ) (*describeJobQueuesOutput, error) {
-	jqs := h.Backend.DescribeJobQueues(in.JobQueues)
+	var maxResults int32
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
 
-	return &describeJobQueuesOutput{JobQueues: jqs}, nil
+	var nextToken string
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	jqs, outToken := h.Backend.DescribeJobQueues(in.JobQueues, maxResults, nextToken)
+	out := &describeJobQueuesOutput{JobQueues: jqs}
+
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 type updateJobQueueInput struct {
-	Priority            *int32 `json:"priority,omitempty"`
-	JobQueue            string `json:"jobQueue"`
-	State               string `json:"state"`
-	SchedulingPolicyArn string `json:"schedulingPolicyArn,omitempty"`
+	Priority                *int32                    `json:"priority,omitempty"`
+	JobQueue                string                    `json:"jobQueue"`
+	State                   string                    `json:"state"`
+	SchedulingPolicyArn     string                    `json:"schedulingPolicyArn,omitempty"`
+	ComputeEnvironmentOrder []ComputeEnvironmentOrder `json:"computeEnvironmentOrder,omitempty"`
 }
 
 type updateJobQueueOutput struct {
@@ -610,7 +627,7 @@ func (h *Handler) handleUpdateJobQueue(
 	_ context.Context,
 	in *updateJobQueueInput,
 ) (*updateJobQueueOutput, error) {
-	jq, err := h.Backend.UpdateJobQueue(in.JobQueue, in.Priority, in.State)
+	jq, err := h.Backend.UpdateJobQueue(in.JobQueue, in.Priority, in.State, in.ComputeEnvironmentOrder)
 	if err != nil {
 		return nil, err
 	}
@@ -650,6 +667,7 @@ type containerPropertiesInput struct {
 
 type registerJobDefinitionInput struct {
 	Tags                 map[string]string         `json:"tags"`
+	Parameters           map[string]string         `json:"parameters,omitempty"`
 	Timeout              *jobDefinitionTimeout     `json:"timeout,omitempty"`
 	ContainerProperties  *containerPropertiesInput `json:"containerProperties,omitempty"`
 	JobDefinitionName    string                    `json:"jobDefinitionName"`
@@ -661,6 +679,7 @@ type registerJobDefinitionOutput struct {
 	JobDefinitionArn  string `json:"jobDefinitionArn"`
 	JobDefinitionName string `json:"jobDefinitionName"`
 	Revision          int32  `json:"revision"`
+	TimeoutSeconds    int32  `json:"timeout,omitempty"`
 }
 
 func (h *Handler) handleRegisterJobDefinition(
@@ -690,6 +709,7 @@ func (h *Handler) handleRegisterJobDefinition(
 		in.PlatformCapabilities,
 		timeoutSeconds,
 		containerProps,
+		in.Parameters,
 	)
 	if err != nil {
 		return nil, err
@@ -699,6 +719,7 @@ func (h *Handler) handleRegisterJobDefinition(
 		JobDefinitionArn:  jd.JobDefinitionArn,
 		JobDefinitionName: jd.JobDefinitionName,
 		Revision:          jd.Revision,
+		TimeoutSeconds:    jd.TimeoutSeconds,
 	}, nil
 }
 
@@ -762,7 +783,17 @@ type listJobsOutput struct {
 }
 
 func (h *Handler) handleListJobs(_ context.Context, in *listJobsInput) (*listJobsOutput, error) {
-	jobs, err := h.Backend.ListJobs(in.JobQueue, in.JobStatus)
+	var maxResults int32
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
+
+	var nextToken string
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	jobs, outToken, err := h.Backend.ListJobs(in.JobQueue, in.JobStatus, nextToken, maxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -778,7 +809,12 @@ func (h *Handler) handleListJobs(_ context.Context, in *listJobsInput) (*listJob
 		})
 	}
 
-	return &listJobsOutput{JobSummaryList: summaries}, nil
+	out := &listJobsOutput{JobSummaryList: summaries}
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 type describeJobsInput struct {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,15 +36,29 @@ const (
 	jobStatusSucceeded = "SUCCEEDED"
 	jobStatusFailed    = "FAILED"
 
-	stateEnabled = "ENABLED"
+	stateEnabled  = "ENABLED"
+	stateDisabled = "DISABLED"
 
 	resourceTypeReplenishable    = "REPLENISHABLE"
 	resourceTypeNonReplenishable = "NON_REPLENISHABLE"
 
 	msPerSecond = 1000.0
 
-	maxJobNameLength = 128
+	maxJobNameLength       = 128
+	maxCENameLength        = 128
+	maxJobQueueNameLength  = 128
+	defaultPaginationLimit = 100
 )
+
+// isValidCEType returns true if the given type is a supported compute environment type.
+func isValidCEType(t string) bool {
+	switch t {
+	case "EC2", "SPOT", "FARGATE", "FARGATE_SPOT", "MANAGED", "UNMANAGED":
+		return true
+	}
+
+	return false
+}
 
 // ComputeEnvironment represents a Batch compute environment.
 type ComputeEnvironment struct {
@@ -94,6 +109,7 @@ type ContainerProperties struct {
 type JobDefinition struct {
 	DeregisteredAt       *time.Time           `json:"deregisteredAt,omitempty"`
 	Tags                 map[string]string    `json:"tags,omitempty"`
+	Parameters           map[string]string    `json:"parameters,omitempty"`
 	ContainerProperties  *ContainerProperties `json:"containerProperties,omitempty"`
 	JobDefinitionName    string               `json:"jobDefinitionName"`
 	JobDefinitionArn     string               `json:"jobDefinitionArn"`
@@ -299,6 +315,21 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 	b.mu.Lock("CreateComputeEnvironment")
 	defer b.mu.Unlock()
 
+	if len(name) == 0 || len(name) > maxCENameLength {
+		return nil, fmt.Errorf(
+			"%w: computeEnvironmentName must be between 1 and %d characters",
+			ErrValidation, maxCENameLength,
+		)
+	}
+
+	if state != "" && state != stateEnabled && state != stateDisabled {
+		return nil, fmt.Errorf("%w: state must be %s or %s", ErrValidation, stateEnabled, stateDisabled)
+	}
+
+	if !isValidCEType(ceType) {
+		return nil, fmt.Errorf("%w: invalid compute environment type %q", ErrValidation, ceType)
+	}
+
 	if _, ok := b.computeEnvironments[name]; ok {
 		return nil, fmt.Errorf("%w: compute environment %s already exists", ErrAlreadyExists, name)
 	}
@@ -360,8 +391,8 @@ func (b *InMemoryBackend) DescribeComputeEnvironments(names []string) []*Compute
 	return list
 }
 
-// UpdateComputeEnvironment updates the state of a compute environment.
-func (b *InMemoryBackend) UpdateComputeEnvironment(nameOrARN, state string) (*ComputeEnvironment, error) {
+// UpdateComputeEnvironment updates the state and/or service role of a compute environment.
+func (b *InMemoryBackend) UpdateComputeEnvironment(nameOrARN, state, serviceRole string) (*ComputeEnvironment, error) {
 	b.mu.Lock("UpdateComputeEnvironment")
 	defer b.mu.Unlock()
 
@@ -370,8 +401,16 @@ func (b *InMemoryBackend) UpdateComputeEnvironment(nameOrARN, state string) (*Co
 		return nil, fmt.Errorf("%w: compute environment %s not found", ErrNotFound, nameOrARN)
 	}
 
+	if state != "" && state != stateEnabled && state != stateDisabled {
+		return nil, fmt.Errorf("%w: state must be %s or %s", ErrValidation, stateEnabled, stateDisabled)
+	}
+
 	if state != "" {
 		ce.State = state
+	}
+
+	if serviceRole != "" {
+		ce.ServiceRole = serviceRole
 	}
 
 	cp := *ce
@@ -428,6 +467,13 @@ func (b *InMemoryBackend) CreateJobQueue(
 	b.mu.Lock("CreateJobQueue")
 	defer b.mu.Unlock()
 
+	if len(name) == 0 || len(name) > maxJobQueueNameLength {
+		return nil, fmt.Errorf(
+			"%w: jobQueueName must be between 1 and %d characters",
+			ErrValidation, maxJobQueueNameLength,
+		)
+	}
+
 	if _, ok := b.jobQueues[name]; ok {
 		return nil, fmt.Errorf("%w: job queue %s already exists", ErrAlreadyExists, name)
 	}
@@ -457,38 +503,70 @@ func (b *InMemoryBackend) CreateJobQueue(
 }
 
 // DescribeJobQueues returns job queues, optionally filtered by names/ARNs.
-func (b *InMemoryBackend) DescribeJobQueues(names []string) []*JobQueue {
+// When names are provided, all matching queues are returned without pagination.
+// When names is empty, results are paginated using maxResults and nextToken.
+func (b *InMemoryBackend) DescribeJobQueues(names []string, maxResults int32, nextToken string) ([]*JobQueue, string) {
 	b.mu.RLock("DescribeJobQueues")
 	defer b.mu.RUnlock()
 
-	if len(names) == 0 {
-		list := make([]*JobQueue, 0, len(b.jobQueues))
-		for _, jq := range b.jobQueues {
-			cp := *jq
-			list = append(list, &cp)
+	if len(names) > 0 {
+		list := make([]*JobQueue, 0, len(names))
+
+		for _, nameOrARN := range names {
+			if jq, ok := b.lookupJQByNameOrARN(nameOrARN); ok {
+				cp := *jq
+				list = append(list, &cp)
+			}
 		}
 
-		sort.Slice(list, func(i, j int) bool {
-			return list[i].JobQueueName < list[j].JobQueueName
-		})
-
-		return list
+		return list, ""
 	}
 
-	list := make([]*JobQueue, 0, len(names))
+	all := make([]*JobQueue, 0, len(b.jobQueues))
+	for _, jq := range b.jobQueues {
+		cp := *jq
+		all = append(all, &cp)
+	}
 
-	for _, nameOrARN := range names {
-		if jq, ok := b.lookupJQByNameOrARN(nameOrARN); ok {
-			cp := *jq
-			list = append(list, &cp)
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].JobQueueName < all[j].JobQueueName
+	})
+
+	limit := maxResults
+	if limit <= 0 {
+		limit = defaultPaginationLimit
+	}
+
+	offset := 0
+	if nextToken != "" {
+		if n, err := strconv.Atoi(nextToken); err == nil && n > 0 {
+			offset = n
 		}
 	}
 
-	return list
+	if offset >= len(all) {
+		return []*JobQueue{}, ""
+	}
+
+	end := min(offset+int(limit), len(all))
+
+	page := all[offset:end]
+
+	outToken := ""
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	}
+
+	return page, outToken
 }
 
-// UpdateJobQueue updates a job queue's state and/or priority.
-func (b *InMemoryBackend) UpdateJobQueue(nameOrARN string, priority *int32, state string) (*JobQueue, error) {
+// UpdateJobQueue updates a job queue's state, priority, and/or compute environment order.
+func (b *InMemoryBackend) UpdateJobQueue(
+	nameOrARN string,
+	priority *int32,
+	state string,
+	ceOrder []ComputeEnvironmentOrder,
+) (*JobQueue, error) {
 	b.mu.Lock("UpdateJobQueue")
 	defer b.mu.Unlock()
 
@@ -497,12 +575,22 @@ func (b *InMemoryBackend) UpdateJobQueue(nameOrARN string, priority *int32, stat
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, nameOrARN)
 	}
 
+	if state != "" && state != stateEnabled && state != stateDisabled {
+		return nil, fmt.Errorf("%w: state must be %s or %s", ErrValidation, stateEnabled, stateDisabled)
+	}
+
 	if state != "" {
 		jq.State = state
 	}
 
 	if priority != nil {
 		jq.Priority = *priority
+	}
+
+	if ceOrder != nil {
+		orderCopy := make([]ComputeEnvironmentOrder, len(ceOrder))
+		copy(orderCopy, ceOrder)
+		jq.ComputeEnvironmentOrder = orderCopy
 	}
 
 	cp := *jq
@@ -545,6 +633,7 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 	platformCapabilities []string,
 	timeoutSeconds int32,
 	containerProps *ContainerProperties,
+	parameters map[string]string,
 ) (*JobDefinition, error) {
 	b.mu.Lock("RegisterJobDefinition")
 	defer b.mu.Unlock()
@@ -567,6 +656,7 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 		PlatformCapabilities: platformCapabilities,
 		TimeoutSeconds:       timeoutSeconds,
 		ContainerProperties:  containerProps,
+		Parameters:           maps.Clone(parameters),
 	}
 	b.jobDefinitions[jdARN] = jd
 	cp := *jd
@@ -888,6 +978,10 @@ func (b *InMemoryBackend) SubmitJob(
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
 	}
 
+	if jq.State == stateDisabled {
+		return nil, fmt.Errorf("%w: job queue %s is %s", ErrValidation, queue, stateDisabled)
+	}
+
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
 
@@ -918,37 +1012,38 @@ func (b *InMemoryBackend) SubmitJob(
 	return &cp, nil
 }
 
-// ListJobs returns job summaries for a queue, optionally filtered by status.
-func (b *InMemoryBackend) ListJobs(queue, status string) ([]*Job, error) {
-	b.mu.RLock("ListJobs")
-	defer b.mu.RUnlock()
+// listAllJobs returns all jobs across all queues filtered by status.
+func (b *InMemoryBackend) listAllJobs(status string) []*Job {
+	all := make([]*Job, 0, len(b.jobs))
 
-	if queue == "" {
-		out := make([]*Job, 0, len(b.jobs))
-		for _, j := range b.jobs {
-			if status != "" && j.Status != status {
-				continue
-			}
-			cp := *j
-			cp.Tags = maps.Clone(j.Tags)
-			out = append(out, &cp)
+	for _, j := range b.jobs {
+		if status != "" && j.Status != status {
+			continue
 		}
-		sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
 
-		return out, nil
+		cp := *j
+		cp.Tags = maps.Clone(j.Tags)
+		all = append(all, &cp)
 	}
 
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt < all[j].CreatedAt })
+
+	return all
+}
+
+// listQueueJobs returns jobs in the given queue filtered by status.
+func (b *InMemoryBackend) listQueueJobs(queue, status string) ([]*Job, error) {
 	jq, ok := b.lookupJQByNameOrARN(queue)
 	if !ok {
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
 	}
 
 	ids := b.jobsByQueue[jq.JobQueueName]
-	out := make([]*Job, 0, len(ids))
+	all := make([]*Job, 0, len(ids))
 
 	for _, id := range ids {
-		j, ok2 := b.jobs[id]
-		if !ok2 {
+		j, exists := b.jobs[id]
+		if !exists {
 			continue
 		}
 
@@ -958,10 +1053,57 @@ func (b *InMemoryBackend) ListJobs(queue, status string) ([]*Job, error) {
 
 		cp := *j
 		cp.Tags = maps.Clone(j.Tags)
-		out = append(out, &cp)
+		all = append(all, &cp)
 	}
 
-	return out, nil
+	return all, nil
+}
+
+// ListJobs returns job summaries for a queue, optionally filtered by status.
+// Pagination is controlled via maxResults and nextToken (token encodes an integer offset).
+func (b *InMemoryBackend) ListJobs(queue, status, nextToken string, maxResults int32) ([]*Job, string, error) {
+	b.mu.RLock("ListJobs")
+	defer b.mu.RUnlock()
+
+	limit := maxResults
+	if limit <= 0 {
+		limit = defaultPaginationLimit
+	}
+
+	offset := 0
+	if nextToken != "" {
+		if n, err := strconv.Atoi(nextToken); err == nil && n > 0 {
+			offset = n
+		}
+	}
+
+	var (
+		all []*Job
+		err error
+	)
+
+	if queue == "" {
+		all = b.listAllJobs(status)
+	} else {
+		all, err = b.listQueueJobs(queue, status)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+
+	if offset >= len(all) {
+		return []*Job{}, "", nil
+	}
+
+	end := min(offset+int(limit), len(all))
+	page := all[offset:end]
+
+	outToken := ""
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	}
+
+	return page, outToken, nil
 }
 
 // DescribeJobs returns full job details for the given job IDs.
