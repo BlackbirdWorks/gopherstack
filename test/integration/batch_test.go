@@ -301,6 +301,12 @@ func TestIntegration_Batch_ServiceEnvironmentLifecycle(t *testing.T) {
 		ServiceEnvironmentName: aws.String(seName),
 		ServiceEnvironmentType: batchtypes.ServiceEnvironmentTypeSagemakerTraining,
 		State:                  batchtypes.ServiceEnvironmentStateEnabled,
+		CapacityLimits: []batchtypes.CapacityLimit{
+			{
+				CapacityUnit: aws.String("NUM_INSTANCES"),
+				MaxCapacity:  aws.Int32(10),
+			},
+		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, seName, aws.ToString(createOut.ServiceEnvironmentName))
@@ -325,4 +331,117 @@ func TestIntegration_Batch_ServiceEnvironmentLifecycle(t *testing.T) {
 		ServiceEnvironment: aws.String(seName),
 	})
 	require.NoError(t, err)
+}
+
+func TestIntegration_Batch_JobDefinitionRevisions(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createBatchClient(t)
+	ctx := t.Context()
+
+	defName := "test-def-rev-" + uuid.NewString()[:8]
+
+	// Register two revisions.
+	for range 2 {
+		_, err := client.RegisterJobDefinition(ctx, &batch.RegisterJobDefinitionInput{
+			JobDefinitionName: aws.String(defName),
+			Type:              batchtypes.JobDefinitionTypeContainer,
+			ContainerProperties: &batchtypes.ContainerProperties{
+				Image: aws.String("busybox"),
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	resp, err := client.DescribeJobDefinitions(ctx, &batch.DescribeJobDefinitionsInput{
+		JobDefinitionName: aws.String(defName),
+		Status:            aws.String("ACTIVE"),
+	})
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(resp.JobDefinitions), 2)
+
+	// Verify descending revision order.
+	for i := 1; i < len(resp.JobDefinitions); i++ {
+		assert.GreaterOrEqual(
+			t,
+			aws.ToInt32(resp.JobDefinitions[i-1].Revision),
+			aws.ToInt32(resp.JobDefinitions[i].Revision),
+		)
+	}
+}
+
+func TestIntegration_Batch_ListJobsAllQueues(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createBatchClient(t)
+	ctx := t.Context()
+
+	ceName := "test-ce-all-" + uuid.NewString()[:8]
+	_, err := client.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
+		ComputeEnvironmentName: aws.String(ceName),
+		Type:                   batchtypes.CETypeUnmanaged,
+		State:                  batchtypes.CEStateEnabled,
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+			ComputeEnvironment: aws.String(ceName),
+			State:              batchtypes.CEStateDisabled,
+		})
+		_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+			ComputeEnvironment: aws.String(ceName),
+		})
+	})
+
+	qName := "test-q-all-" + uuid.NewString()[:8]
+	_, err = client.CreateJobQueue(ctx, &batch.CreateJobQueueInput{
+		JobQueueName: aws.String(qName),
+		Priority:     aws.Int32(1),
+		State:        batchtypes.JQStateEnabled,
+		ComputeEnvironmentOrder: []batchtypes.ComputeEnvironmentOrder{
+			{ComputeEnvironment: aws.String(ceName), Order: aws.Int32(1)},
+		},
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+			JobQueue: aws.String(qName),
+			State:    batchtypes.JQStateDisabled,
+		})
+		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
+			JobQueue: aws.String(qName),
+		})
+	})
+
+	jdName := "test-jd-all-" + uuid.NewString()[:8]
+	_, err = client.RegisterJobDefinition(ctx, &batch.RegisterJobDefinitionInput{
+		JobDefinitionName: aws.String(jdName),
+		Type:              batchtypes.JobDefinitionTypeContainer,
+	})
+	require.NoError(t, err)
+
+	jobName := "test-job-all-" + uuid.NewString()[:8]
+	submitOut, err := client.SubmitJob(ctx, &batch.SubmitJobInput{
+		JobName:       aws.String(jobName),
+		JobQueue:      aws.String(qName),
+		JobDefinition: aws.String(jdName),
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, aws.ToString(submitOut.JobId))
+
+	listOut, err := client.ListJobs(ctx, &batch.ListJobsInput{})
+	require.NoError(t, err)
+	found := false
+	for _, s := range listOut.JobSummaryList {
+		if aws.ToString(s.JobId) == aws.ToString(submitOut.JobId) {
+			found = true
+
+			break
+		}
+	}
+	assert.True(t, found, "submitted job should appear in list-all-jobs")
 }

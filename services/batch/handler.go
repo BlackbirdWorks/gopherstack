@@ -537,6 +537,7 @@ type createJobQueueInput struct {
 	Tags                    map[string]string         `json:"tags"`
 	JobQueueName            string                    `json:"jobQueueName"`
 	State                   string                    `json:"state"`
+	SchedulingPolicyArn     string                    `json:"schedulingPolicyArn,omitempty"`
 	ComputeEnvironmentOrder []ComputeEnvironmentOrder `json:"computeEnvironmentOrder"`
 	Priority                int32                     `json:"priority"`
 }
@@ -555,7 +556,14 @@ func (h *Handler) handleCreateJobQueue(
 		state = stateEnabled
 	}
 
-	jq, err := h.Backend.CreateJobQueue(in.JobQueueName, in.Priority, state, in.ComputeEnvironmentOrder, in.Tags)
+	jq, err := h.Backend.CreateJobQueue(
+		in.JobQueueName,
+		in.Priority,
+		state,
+		in.ComputeEnvironmentOrder,
+		in.Tags,
+		in.SchedulingPolicyArn,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -587,9 +595,10 @@ func (h *Handler) handleDescribeJobQueues(
 }
 
 type updateJobQueueInput struct {
-	Priority *int32 `json:"priority,omitempty"`
-	JobQueue string `json:"jobQueue"`
-	State    string `json:"state"`
+	Priority            *int32 `json:"priority,omitempty"`
+	JobQueue            string `json:"jobQueue"`
+	State               string `json:"state"`
+	SchedulingPolicyArn string `json:"schedulingPolicyArn,omitempty"`
 }
 
 type updateJobQueueOutput struct {
@@ -631,12 +640,21 @@ type jobDefinitionTimeout struct {
 	AttemptDurationSeconds int32 `json:"attemptDurationSeconds,omitempty"`
 }
 
+type containerPropertiesInput struct {
+	Image      string   `json:"image,omitempty"`
+	JobRoleArn string   `json:"jobRoleArn,omitempty"`
+	Command    []string `json:"command,omitempty"`
+	Vcpus      int32    `json:"vcpus,omitempty"`
+	Memory     int32    `json:"memory,omitempty"`
+}
+
 type registerJobDefinitionInput struct {
-	Tags                 map[string]string     `json:"tags"`
-	Timeout              *jobDefinitionTimeout `json:"timeout,omitempty"`
-	JobDefinitionName    string                `json:"jobDefinitionName"`
-	Type                 string                `json:"type"`
-	PlatformCapabilities []string              `json:"platformCapabilities,omitempty"`
+	Tags                 map[string]string         `json:"tags"`
+	Timeout              *jobDefinitionTimeout     `json:"timeout,omitempty"`
+	ContainerProperties  *containerPropertiesInput `json:"containerProperties,omitempty"`
+	JobDefinitionName    string                    `json:"jobDefinitionName"`
+	Type                 string                    `json:"type"`
+	PlatformCapabilities []string                  `json:"platformCapabilities,omitempty"`
 }
 
 type registerJobDefinitionOutput struct {
@@ -654,12 +672,24 @@ func (h *Handler) handleRegisterJobDefinition(
 		timeoutSeconds = in.Timeout.AttemptDurationSeconds
 	}
 
+	var containerProps *ContainerProperties
+	if in.ContainerProperties != nil {
+		containerProps = &ContainerProperties{
+			Image:      in.ContainerProperties.Image,
+			JobRoleArn: in.ContainerProperties.JobRoleArn,
+			Command:    in.ContainerProperties.Command,
+			Vcpus:      in.ContainerProperties.Vcpus,
+			Memory:     in.ContainerProperties.Memory,
+		}
+	}
+
 	jd, err := h.Backend.RegisterJobDefinition(
 		in.JobDefinitionName,
 		in.Type,
 		in.Tags,
 		in.PlatformCapabilities,
 		timeoutSeconds,
+		containerProps,
 	)
 	if err != nil {
 		return nil, err
@@ -719,9 +749,11 @@ type listJobsInput struct {
 }
 
 type jobSummary struct {
-	JobID   string `json:"jobId"`
-	JobName string `json:"jobName"`
-	Status  string `json:"status"`
+	JobID        string `json:"jobId"`
+	JobName      string `json:"jobName"`
+	Status       string `json:"status"`
+	StatusReason string `json:"statusReason,omitempty"`
+	CreatedAt    int64  `json:"createdAt"`
 }
 
 type listJobsOutput struct {
@@ -738,9 +770,11 @@ func (h *Handler) handleListJobs(_ context.Context, in *listJobsInput) (*listJob
 	summaries := make([]jobSummary, 0, len(jobs))
 	for _, j := range jobs {
 		summaries = append(summaries, jobSummary{
-			JobID:   j.JobID,
-			JobName: j.JobName,
-			Status:  j.Status,
+			JobID:        j.JobID,
+			JobName:      j.JobName,
+			Status:       j.Status,
+			CreatedAt:    j.CreatedAt,
+			StatusReason: j.StatusReason,
 		})
 	}
 
@@ -1057,11 +1091,18 @@ func (h *Handler) handleDeleteSchedulingPolicy(
 
 // --- ServiceEnvironment handlers ---
 
+// capacityLimitInput mirrors the AWS CapacityLimit structure.
+type capacityLimitInput struct {
+	CapacityUnit *string `json:"capacityUnit,omitempty"`
+	MaxCapacity  *int32  `json:"maxCapacity,omitempty"`
+}
+
 type createServiceEnvironmentInput struct {
-	Tags                   map[string]string `json:"tags"`
-	ServiceEnvironmentName string            `json:"serviceEnvironmentName"`
-	ServiceEnvironmentType string            `json:"serviceEnvironmentType"`
-	State                  string            `json:"state"`
+	Tags                   map[string]string    `json:"tags"`
+	ServiceEnvironmentName string               `json:"serviceEnvironmentName"`
+	ServiceEnvironmentType string               `json:"serviceEnvironmentType"`
+	State                  string               `json:"state"`
+	CapacityLimits         []capacityLimitInput `json:"capacityLimits,omitempty"`
 }
 
 type createServiceEnvironmentOutput struct {

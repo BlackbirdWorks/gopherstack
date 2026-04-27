@@ -102,7 +102,7 @@ func TestBatchJanitor_SweepOnce_WithTaskTimeout(t *testing.T) {
 
 	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.RegisterJobDefinition("sweep-timeout-test", "container", nil, nil, 0)
+	_, err := b.RegisterJobDefinition("sweep-timeout-test", "container", nil, nil, 0, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeregisterJobDefinition("sweep-timeout-test:1"))
@@ -168,10 +168,10 @@ func TestBatchJanitor_SweepCompletedJobs(t *testing.T) {
 
 			b := batch.NewInMemoryBackend("000000000000", "us-east-1")
 
-			queue, err := b.CreateJobQueue("test-queue", 1, "ENABLED", nil, nil)
+			queue, err := b.CreateJobQueue("test-queue", 1, "ENABLED", nil, nil, "")
 			require.NoError(t, err)
 
-			_, err = b.RegisterJobDefinition("test-jd", "container", nil, nil, 0)
+			_, err = b.RegisterJobDefinition("test-jd", "container", nil, nil, 0, nil)
 			require.NoError(t, err)
 
 			job, err := b.SubmitJob("test-job", queue.JobQueueName, "test-jd:1", nil, nil, nil, nil, nil)

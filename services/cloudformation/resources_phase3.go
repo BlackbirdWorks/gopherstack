@@ -230,6 +230,11 @@ func (rc *ResourceCreator) deleteBatchComputeEnvironment(arnOrName string) error
 		return nil
 	}
 
+	// AWS requires DISABLED state before deletion.
+	if _, err := rc.backends.Batch.Backend.UpdateComputeEnvironment(arnOrName, "DISABLED"); err != nil {
+		return fmt.Errorf("disable Batch compute environment %s: %w", arnOrName, err)
+	}
+
 	return rc.backends.Batch.Backend.DeleteComputeEnvironment(arnOrName)
 }
 
@@ -273,7 +278,7 @@ func (rc *ResourceCreator) createBatchJobQueue(
 		}
 	}
 
-	jq, err := rc.backends.Batch.Backend.CreateJobQueue(name, priority, "ENABLED", ceOrder, nil)
+	jq, err := rc.backends.Batch.Backend.CreateJobQueue(name, priority, "ENABLED", ceOrder, nil, "")
 	if err != nil {
 		return "", fmt.Errorf("create Batch job queue %s: %w", name, err)
 	}
@@ -284,6 +289,12 @@ func (rc *ResourceCreator) createBatchJobQueue(
 func (rc *ResourceCreator) deleteBatchJobQueue(arnOrName string) error {
 	if rc.backends.Batch == nil {
 		return nil
+	}
+
+	// AWS requires DISABLED state before deletion.
+	disabled := "DISABLED"
+	if _, err := rc.backends.Batch.Backend.UpdateJobQueue(arnOrName, nil, disabled); err != nil {
+		return fmt.Errorf("disable Batch job queue %s: %w", arnOrName, err)
 	}
 
 	return rc.backends.Batch.Backend.DeleteJobQueue(arnOrName)
@@ -308,7 +319,7 @@ func (rc *ResourceCreator) createBatchJobDefinition(
 		defType = "container"
 	}
 
-	jd, err := rc.backends.Batch.Backend.RegisterJobDefinition(name, defType, nil, nil, 0)
+	jd, err := rc.backends.Batch.Backend.RegisterJobDefinition(name, defType, nil, nil, 0, nil)
 	if err != nil {
 		return "", fmt.Errorf("create Batch job definition %s: %w", name, err)
 	}

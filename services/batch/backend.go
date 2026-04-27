@@ -74,21 +74,32 @@ type JobQueue struct {
 	JobQueueArn             string                    `json:"jobQueueArn"`
 	State                   string                    `json:"state"`
 	Status                  string                    `json:"status"`
+	SchedulingPolicyArn     string                    `json:"schedulingPolicyArn,omitempty"`
 	ComputeEnvironmentOrder []ComputeEnvironmentOrder `json:"computeEnvironmentOrder,omitempty"`
 	Priority                int32                     `json:"priority"`
 }
 
+// ContainerProperties stores basic container configuration for a job definition.
+type ContainerProperties struct {
+	Image      string   `json:"image,omitempty"`
+	JobRoleArn string   `json:"jobRoleArn,omitempty"`
+	Command    []string `json:"command,omitempty"`
+	Vcpus      int32    `json:"vcpus,omitempty"`
+	Memory     int32    `json:"memory,omitempty"`
+}
+
 // JobDefinition represents a Batch job definition.
 type JobDefinition struct {
-	DeregisteredAt       *time.Time        `json:"deregisteredAt,omitempty"`
-	Tags                 map[string]string `json:"tags,omitempty"`
-	JobDefinitionName    string            `json:"jobDefinitionName"`
-	JobDefinitionArn     string            `json:"jobDefinitionArn"`
-	Type                 string            `json:"type"`
-	Status               string            `json:"status"`
-	PlatformCapabilities []string          `json:"platformCapabilities,omitempty"`
-	Revision             int32             `json:"revision"`
-	TimeoutSeconds       int32             `json:"timeoutSeconds,omitempty"`
+	DeregisteredAt       *time.Time           `json:"deregisteredAt,omitempty"`
+	Tags                 map[string]string    `json:"tags,omitempty"`
+	ContainerProperties  *ContainerProperties `json:"containerProperties,omitempty"`
+	JobDefinitionName    string               `json:"jobDefinitionName"`
+	JobDefinitionArn     string               `json:"jobDefinitionArn"`
+	Type                 string               `json:"type"`
+	Status               string               `json:"status"`
+	PlatformCapabilities []string             `json:"platformCapabilities,omitempty"`
+	Revision             int32                `json:"revision"`
+	TimeoutSeconds       int32                `json:"timeoutSeconds,omitempty"`
 }
 
 // Job represents a submitted Batch job.
@@ -376,6 +387,14 @@ func (b *InMemoryBackend) DeleteComputeEnvironment(nameOrARN string) error {
 		return fmt.Errorf("%w: compute environment %s not found", ErrNotFound, nameOrARN)
 	}
 
+	if ce.State != "DISABLED" {
+		return fmt.Errorf(
+			"%w: compute environment %s must be DISABLED before it can be deleted",
+			ErrValidation,
+			nameOrARN,
+		)
+	}
+
 	// Check if referenced by any job queue.
 	for _, jq := range b.jobQueues {
 		for _, ceOrder := range jq.ComputeEnvironmentOrder {
@@ -402,6 +421,7 @@ func (b *InMemoryBackend) CreateJobQueue(
 	state string,
 	ceOrder []ComputeEnvironmentOrder,
 	tags map[string]string,
+	schedulingPolicyArn string,
 ) (*JobQueue, error) {
 	b.mu.Lock("CreateJobQueue")
 	defer b.mu.Unlock()
@@ -426,6 +446,7 @@ func (b *InMemoryBackend) CreateJobQueue(
 		Priority:                priority,
 		ComputeEnvironmentOrder: orderCopy,
 		Tags:                    tagsCopy,
+		SchedulingPolicyArn:     schedulingPolicyArn,
 	}
 	b.jobQueues[name] = jq
 	cp := *jq
@@ -488,7 +509,7 @@ func (b *InMemoryBackend) UpdateJobQueue(nameOrARN string, priority *int32, stat
 }
 
 // DeleteJobQueue removes a job queue and all associated jobs.
-// DeleteJobQueue removes a job queue and all its associated jobs.
+// The queue must be in DISABLED state before deletion.
 func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 	b.mu.Lock("DeleteJobQueue")
 	defer b.mu.Unlock()
@@ -521,6 +542,7 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 	tags map[string]string,
 	platformCapabilities []string,
 	timeoutSeconds int32,
+	containerProps *ContainerProperties,
 ) (*JobDefinition, error) {
 	b.mu.Lock("RegisterJobDefinition")
 	defer b.mu.Unlock()
@@ -542,6 +564,7 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 		Tags:                 tagsCopy,
 		PlatformCapabilities: platformCapabilities,
 		TimeoutSeconds:       timeoutSeconds,
+		ContainerProperties:  containerProps,
 	}
 	b.jobDefinitions[jdARN] = jd
 	cp := *jd
@@ -577,6 +600,10 @@ func (b *InMemoryBackend) describeAllJobDefinitions(status, jobDefinitionName st
 		list = append(list, &cp)
 	}
 
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].Revision > list[j].Revision
+	})
+
 	return list
 }
 
@@ -605,6 +632,10 @@ func (b *InMemoryBackend) describeJobDefinitionsByNames(names []string, status s
 			}
 		}
 	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].Revision > list[j].Revision
+	})
 
 	return list
 }
@@ -846,6 +877,10 @@ func (b *InMemoryBackend) SubmitJob(
 	b.mu.Lock("SubmitJob")
 	defer b.mu.Unlock()
 
+	if len(name) == 0 || len(name) > 128 {
+		return nil, fmt.Errorf("%w: jobName must be between 1 and 128 characters", ErrValidation)
+	}
+
 	jq, ok := b.lookupJQByNameOrARN(queue)
 	if !ok {
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
@@ -886,6 +921,21 @@ func (b *InMemoryBackend) ListJobs(queue, status string) ([]*Job, error) {
 	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
 
+	if queue == "" {
+		out := make([]*Job, 0, len(b.jobs))
+		for _, j := range b.jobs {
+			if status != "" && j.Status != status {
+				continue
+			}
+			cp := *j
+			cp.Tags = maps.Clone(j.Tags)
+			out = append(out, &cp)
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
+
+		return out, nil
+	}
+
 	jq, ok := b.lookupJQByNameOrARN(queue)
 	if !ok {
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
@@ -922,6 +972,17 @@ func (b *InMemoryBackend) DescribeJobs(jobIDs []string) []*Job {
 	for _, id := range jobIDs {
 		j, ok := b.jobs[id]
 		if !ok {
+			// Try ARN lookup
+			for _, jj := range b.jobs {
+				if jj.JobARN == id {
+					j = jj
+					ok = true
+
+					break
+				}
+			}
+		}
+		if !ok {
 			continue
 		}
 
@@ -943,6 +1004,10 @@ func (b *InMemoryBackend) TerminateJob(jobID, reason string) error {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobID)
 	}
 
+	if j.Status == jobStatusSucceeded || j.Status == jobStatusFailed {
+		return fmt.Errorf("%w: job %s is already in terminal state %s", ErrValidation, jobID, j.Status)
+	}
+
 	now := time.Now().UnixMilli()
 	j.Status = jobStatusFailed
 	j.StatusReason = reason
@@ -951,8 +1016,7 @@ func (b *InMemoryBackend) TerminateJob(jobID, reason string) error {
 	return nil
 }
 
-// CancelJob marks a pending/runnable job as FAILED with the given reason.
-// For already-running jobs it behaves the same as TerminateJob (mock simplification).
+// CancelJob cancels a job in SUBMITTED, PENDING, or RUNNABLE state.
 func (b *InMemoryBackend) CancelJob(jobID, reason string) error {
 	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
@@ -962,12 +1026,17 @@ func (b *InMemoryBackend) CancelJob(jobID, reason string) error {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobID)
 	}
 
-	now := time.Now().UnixMilli()
-	j.Status = jobStatusFailed
-	j.StatusReason = reason
-	j.StoppedAt = &now
+	switch j.Status {
+	case jobStatusSubmitted, jobStatusPending, jobStatusRunnable:
+		now := time.Now().UnixMilli()
+		j.Status = jobStatusFailed
+		j.StatusReason = reason
+		j.StoppedAt = &now
 
-	return nil
+		return nil
+	default:
+		return fmt.Errorf("%w: cannot cancel job %s in %s state", ErrValidation, jobID, j.Status)
+	}
 }
 
 // CreateConsumableResource creates a new consumable resource.
