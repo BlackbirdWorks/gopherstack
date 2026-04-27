@@ -46,6 +46,18 @@ const (
 	zoneIDAndRest = 2
 )
 
+const (
+	route53DNSSECSuffix          = "/dnssec"
+	route53EnableDNSSECSuffix    = "/enable-dnssec"
+	route53DisableDNSSECSuffix   = "/disable-dnssec"
+	route53DeactivateSuffix      = "/deactivate"
+	route53TrafficPoliciesRoot   = "/2013-04-01/trafficpolicies"
+	route53TrafficPoliciesPrefix = "/2013-04-01/trafficpolicies/"
+	route53TPInstancesRoot       = "/2013-04-01/trafficpolicyinstances"
+	route53TPInstanceCount       = "/2013-04-01/trafficpolicyinstancecount"
+	route53TPInstancePrefix      = "/2013-04-01/trafficpolicyinstance/"
+)
+
 // Handler is the HTTP service handler for Route 53 operations.
 type Handler struct {
 	Backend StorageBackend
@@ -60,6 +72,12 @@ func NewHandler(backend StorageBackend) *Handler {
 		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("route53.tags"),
 	}
+}
+
+func (h *Handler) deleteTagsForResource(resourceID string) {
+	h.tagsMu.Lock("deleteTagsForResource")
+	defer h.tagsMu.Unlock()
+	delete(h.tags, resourceID)
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
@@ -121,15 +139,30 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateTrafficPolicy",
 		"CreateTrafficPolicyInstance",
 		"CreateTrafficPolicyVersion",
+		"DeactivateKeySigningKey",
+		"DeleteCidrCollection",
 		"DeleteHealthCheck",
 		"DeleteHostedZone",
+		"DeleteKeySigningKey",
+		"DeleteTrafficPolicy",
+		"DeleteTrafficPolicyInstance",
+		"DisableHostedZoneDNSSEC",
+		"EnableHostedZoneDNSSEC",
+		"GetDNSSEC",
 		"GetHealthCheck",
 		"GetHealthCheckStatus",
 		"GetHostedZone",
+		"GetTrafficPolicy",
+		"GetTrafficPolicyInstance",
+		"GetTrafficPolicyInstanceCount",
+		"ListCidrCollections",
 		"ListHealthChecks",
 		"ListHostedZones",
 		"ListResourceRecordSets",
 		"ListTagsForResource",
+		"ListTrafficPolicies",
+		"ListTrafficPolicyInstances",
+		"ListTrafficPolicyVersions",
 		"UpdateHealthCheck",
 	}
 }
@@ -211,11 +244,16 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // extractNewOpsOperation maps the newer Route 53 operation paths to operation names.
 func extractNewOpsOperation(path, method string) string {
-	if method != http.MethodPost {
+	switch method {
+	case http.MethodPost:
+		return extractNewOpsPath(path)
+	case http.MethodGet:
+		return extractGetOpsPath(path)
+	case http.MethodDelete:
+		return extractDeleteOpsPath(path)
+	default:
 		return ""
 	}
-
-	return extractNewOpsPath(path)
 }
 
 func extractNewOpsPath(path string) string {
@@ -224,6 +262,12 @@ func extractNewOpsPath(path string) string {
 		return "CreateKeySigningKey"
 	case strings.HasSuffix(path, route53ActivateSuffix):
 		return "ActivateKeySigningKey"
+	case strings.HasSuffix(path, route53DeactivateSuffix):
+		return "DeactivateKeySigningKey"
+	case strings.HasSuffix(path, route53EnableDNSSECSuffix):
+		return "EnableHostedZoneDNSSEC"
+	case strings.HasSuffix(path, route53DisableDNSSECSuffix):
+		return "DisableHostedZoneDNSSEC"
 	case strings.HasSuffix(path, route53AssociateVPCSuffix):
 		return "AssociateVPCWithHostedZone"
 	case path == route53CidrCollectionRoot:
@@ -240,6 +284,52 @@ func extractNewOpsPath(path string) string {
 		return "CreateTrafficPolicyVersion"
 	case path == route53TPInstanceRoot:
 		return "CreateTrafficPolicyInstance"
+	}
+
+	return ""
+}
+
+func extractGetOpsPath(path string) string {
+	switch {
+	case strings.HasSuffix(path, route53DNSSECSuffix):
+		return "GetDNSSEC"
+	case path == route53TrafficPoliciesRoot:
+		return "ListTrafficPolicies"
+	case strings.HasPrefix(path, route53TrafficPoliciesPrefix):
+		return "ListTrafficPolicyVersions"
+	case path == route53TPInstancesRoot:
+		return "ListTrafficPolicyInstances"
+	case path == route53TPInstanceCount:
+		return "GetTrafficPolicyInstanceCount"
+	case strings.HasPrefix(path, route53TPInstancePrefix):
+		return "GetTrafficPolicyInstance"
+	case path == route53CidrCollectionRoot:
+		return "ListCidrCollections"
+	}
+
+	return ""
+}
+
+func extractDeleteOpsPath(path string) string {
+	switch {
+	case strings.HasPrefix(path, route53KSKPrefix):
+		if strings.HasSuffix(path, route53DeactivateSuffix) {
+			return "DeactivateKeySigningKey"
+		}
+
+		return "DeleteKeySigningKey"
+	case strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return "DeleteCidrCollection"
+	case strings.HasPrefix(path, route53TPInstancePrefix):
+		return "DeleteTrafficPolicyInstance"
+	}
+
+	// traffic policy version delete: /2013-04-01/trafficpolicy/{id}/{version}
+	if after, ok := strings.CutPrefix(path, route53TrafficPolicyPrefix); ok {
+		rest := after
+		if strings.Contains(rest, "/") {
+			return "DeleteTrafficPolicy"
+		}
 	}
 
 	return ""
@@ -357,11 +447,26 @@ func (h *Handler) IAMAction(r *http.Request) string {
 
 // iamActionForNewOps maps newer Route 53 paths to IAM action strings.
 func iamActionForNewOps(path, method string) string {
-	if method != http.MethodPost {
+	switch method {
+	case http.MethodPost:
+		return iamActionForNewOpsPath(path)
+	case http.MethodGet:
+		op := extractGetOpsPath(path)
+		if op != "" {
+			return "route53:" + op
+		}
+
+		return ""
+	case http.MethodDelete:
+		op := extractDeleteOpsPath(path)
+		if op != "" {
+			return "route53:" + op
+		}
+
+		return ""
+	default:
 		return ""
 	}
-
-	return iamActionForNewOpsPath(path)
 }
 
 func iamActionForNewOpsPath(path string) string {
@@ -413,28 +518,60 @@ func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
 
 // routeNewOps dispatches the newly added Route 53 operations.
 func (h *Handler) routeNewOps(c *echo.Context, path, method string) error {
-	switch {
-	case path == route53KSKRoot:
-		return h.routeKSKRoot(c, method)
-	case strings.HasPrefix(path, route53KSKPrefix):
-		return h.routeKSK(c, path, method)
-	case path == route53CidrCollectionRoot:
-		return h.routeCidrCollectionRoot(c, method)
-	case strings.HasPrefix(path, route53CidrCollectionPrefix):
-		return h.routeCidrCollection(c, path, method)
-	case path == route53QueryLoggingRoot:
+	if ok, err := h.routeNewOpsKSKCidr(c, path, method); ok {
+		return err
+	}
+
+	if ok, err := h.routeNewOpsTP(c, path, method); ok {
+		return err
+	}
+
+	switch path {
+	case route53QueryLoggingRoot:
 		return h.routeQueryLogging(c, method)
-	case path == route53DelegationSetRoot:
+	case route53DelegationSetRoot:
 		return h.routeDelegationSetRoot(c, method)
-	case path == route53TrafficPolicyRoot:
-		return h.routeTrafficPolicyRoot(c, method)
-	case strings.HasPrefix(path, route53TrafficPolicyPrefix):
-		return h.routeTrafficPolicyVersion(c, path, method)
-	case path == route53TPInstanceRoot:
-		return h.routeTPInstanceRoot(c, method)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			fmt.Sprintf("unknown Route53 endpoint: %s %s", method, path))
+	}
+}
+
+func (h *Handler) routeNewOpsKSKCidr(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	case path == route53KSKRoot:
+		return true, h.routeKSKRoot(c, method)
+	case strings.HasPrefix(path, route53KSKPrefix):
+		return true, h.routeKSK(c, path, method)
+	case path == route53CidrCollectionRoot:
+		return true, h.routeCidrCollectionRoot(c, method)
+	case strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return true, h.routeCidrCollection(c, path, method)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeNewOpsTP(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	case path == route53TrafficPoliciesRoot:
+		return true, h.routeTrafficPoliciesRoot(c, method)
+	case strings.HasPrefix(path, route53TrafficPoliciesPrefix):
+		return true, h.routeTrafficPoliciesVersions(c, path, method)
+	case path == route53TrafficPolicyRoot:
+		return true, h.routeTrafficPolicyRoot(c, method)
+	case strings.HasPrefix(path, route53TrafficPolicyPrefix):
+		return true, h.routeTrafficPolicyVersion(c, path, method)
+	case path == route53TPInstancesRoot:
+		return true, h.routeTPInstancesRoot(c, method)
+	case path == route53TPInstanceCount:
+		return true, h.routeTPInstanceCount(c, method)
+	case path == route53TPInstanceRoot:
+		return true, h.routeTPInstanceRoot(c, method)
+	case strings.HasPrefix(path, route53TPInstancePrefix):
+		return true, h.routeTPInstance(c, path, method)
+	default:
+		return false, nil
 	}
 }
 
@@ -472,6 +609,10 @@ func (h *Handler) routeHostedZone(c *echo.Context, path, method string) error {
 			"unsupported method on associatevpc")
 	}
 
+	if ok, err := h.routeHostedZoneDNSSEC(c, path, method); ok {
+		return err
+	}
+
 	switch method {
 	case http.MethodDelete:
 		return h.deleteHostedZone(c)
@@ -481,6 +622,43 @@ func (h *Handler) routeHostedZone(c *echo.Context, path, method string) error {
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			"unsupported method on hosted zone")
 	}
+}
+
+func (h *Handler) routeHostedZoneDNSSEC(c *echo.Context, path, method string) (bool, error) {
+	if strings.HasSuffix(path, route53EnableDNSSECSuffix) {
+		if method == http.MethodPost {
+			zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53EnableDNSSECSuffix)
+
+			return true, h.enableHostedZoneDNSSEC(c, zoneID)
+		}
+
+		return true, xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on enable-dnssec")
+	}
+
+	if strings.HasSuffix(path, route53DisableDNSSECSuffix) {
+		if method == http.MethodPost {
+			zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53DisableDNSSECSuffix)
+
+			return true, h.disableHostedZoneDNSSEC(c, zoneID)
+		}
+
+		return true, xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on disable-dnssec")
+	}
+
+	if strings.HasSuffix(path, route53DNSSECSuffix) {
+		if method == http.MethodGet {
+			zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53DNSSECSuffix)
+
+			return true, h.getHostedZoneDNSSEC(c, zoneID)
+		}
+
+		return true, xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on dnssec")
+	}
+
+	return false, nil
 }
 
 func (h *Handler) routeTags(c *echo.Context, path, method string) error {
@@ -782,6 +960,8 @@ func (h *Handler) deleteHostedZone(c *echo.Context) error {
 	if err := h.Backend.DeleteHostedZone(zoneID); err != nil {
 		return handleBackendError(c, err)
 	}
+
+	h.deleteTagsForResource(zoneID)
 
 	logger.Load(ctx).DebugContext(ctx, "Route53 DeleteHostedZone", "id", zoneID)
 
@@ -1680,6 +1860,77 @@ type xmlCreateTrafficPolicyInstanceResponse struct {
 
 // ---- New operations: route helpers ----
 
+// DNSSEC XML types
+
+type xmlGetDNSSECResponse struct {
+	XMLName        xml.Name        `xml:"GetDNSSECResponse"`
+	Xmlns          string          `xml:"xmlns,attr"`
+	Status         xmlDNSSECStatus `xml:"Status"`
+	KeySigningKeys []xmlKSK        `xml:"KeySigningKeys>member"`
+}
+
+type xmlDNSSECStatus struct {
+	ServeSignature string `xml:"ServeSignature"`
+	StatusMessage  string `xml:"StatusMessage,omitempty"`
+}
+
+// Traffic Policy list XML types
+
+type xmlListTrafficPoliciesResponse struct {
+	XMLName         xml.Name                  `xml:"ListTrafficPoliciesResponse"`
+	Xmlns           string                    `xml:"xmlns,attr"`
+	MaxItems        string                    `xml:"MaxItems"`
+	TrafficPolicies []xmlTrafficPolicySummary `xml:"TrafficPolicySummaries>TrafficPolicySummary"`
+	IsTruncated     bool                      `xml:"IsTruncated"`
+}
+
+type xmlTrafficPolicySummary struct {
+	ID                 string `xml:"Id"`
+	Name               string `xml:"Name"`
+	Type               string `xml:"Type"`
+	LatestVersion      int32  `xml:"LatestVersion"`
+	TrafficPolicyCount int32  `xml:"TrafficPolicyCount"`
+}
+
+type xmlListTrafficPolicyVersionsResponse struct {
+	XMLName         xml.Name           `xml:"ListTrafficPolicyVersionsResponse"`
+	Xmlns           string             `xml:"xmlns,attr"`
+	MaxItems        string             `xml:"MaxItems"`
+	TrafficPolicies []xmlTrafficPolicy `xml:"TrafficPolicies>TrafficPolicy"`
+	IsTruncated     bool               `xml:"IsTruncated"`
+}
+
+type xmlListTrafficPolicyInstancesResponse struct {
+	XMLName                xml.Name                   `xml:"ListTrafficPolicyInstancesResponse"`
+	Xmlns                  string                     `xml:"xmlns,attr"`
+	MaxItems               string                     `xml:"MaxItems"`
+	TrafficPolicyInstances []xmlTrafficPolicyInstance `xml:"TrafficPolicyInstances>TrafficPolicyInstance"`
+	IsTruncated            bool                       `xml:"IsTruncated"`
+}
+
+type xmlGetTPInstanceCountResponse struct {
+	XMLName                    xml.Name `xml:"GetTrafficPolicyInstanceCountResponse"`
+	Xmlns                      string   `xml:"xmlns,attr"`
+	TrafficPolicyInstanceCount int32    `xml:"TrafficPolicyInstanceCount"`
+}
+
+// CIDR collections list XML types
+
+type xmlListCidrCollectionsResponse struct {
+	XMLName         xml.Name                   `xml:"ListCidrCollectionsResponse"`
+	Xmlns           string                     `xml:"xmlns,attr"`
+	NextToken       string                     `xml:"NextToken,omitempty"`
+	CidrCollections []xmlCidrCollectionSummary `xml:"CidrCollections>member"`
+	IsTruncated     bool                       `xml:"IsTruncated"`
+}
+
+type xmlCidrCollectionSummary struct {
+	ARN     string `xml:"Arn"`
+	ID      string `xml:"Id"`
+	Name    string `xml:"Name"`
+	Version int64  `xml:"Version"`
+}
+
 func (h *Handler) routeKSKRoot(c *echo.Context, method string) error {
 	if method == http.MethodPost {
 		return h.createKeySigningKey(c)
@@ -1693,23 +1944,37 @@ func (h *Handler) routeKSK(c *echo.Context, path, method string) error {
 		return h.activateKeySigningKey(c, path)
 	}
 
+	if strings.HasSuffix(path, route53DeactivateSuffix) && method == http.MethodPost {
+		return h.deactivateKeySigningKey(c, path)
+	}
+
+	if method == http.MethodDelete {
+		return h.deleteKeySigningKey(c, path)
+	}
+
 	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported operation on key signing key")
 }
 
 func (h *Handler) routeCidrCollectionRoot(c *echo.Context, method string) error {
-	if method == http.MethodPost {
+	switch method {
+	case http.MethodPost:
 		return h.createCidrCollection(c)
+	case http.MethodGet:
+		return h.listCidrCollections(c)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /cidrcollection")
 	}
-
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /cidrcollection")
 }
 
 func (h *Handler) routeCidrCollection(c *echo.Context, path, method string) error {
-	if method == http.MethodPost {
+	switch method {
+	case http.MethodPost:
 		return h.changeCidrCollection(c, path)
+	case http.MethodDelete:
+		return h.deleteCidrCollection(c, path)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on cidrcollection")
 	}
-
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on cidrcollection")
 }
 
 func (h *Handler) routeQueryLogging(c *echo.Context, method string) error {
@@ -1737,6 +2002,31 @@ func (h *Handler) routeTrafficPolicyRoot(c *echo.Context, method string) error {
 }
 
 func (h *Handler) routeTrafficPolicyVersion(c *echo.Context, path, method string) error {
+	rest := strings.TrimPrefix(path, route53TrafficPolicyPrefix)
+	// If rest contains a "/" it's /{id}/{version}
+	if strings.Contains(rest, "/") {
+		parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split id and version
+		id := parts[0]
+		versionStr := parts[1]
+
+		version64, err := strconv.ParseInt(versionStr, 10, 32)
+		if err != nil {
+			return xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid version number")
+		}
+
+		version := int32(version64)
+
+		switch method {
+		case http.MethodGet:
+			return h.getTrafficPolicy(c, id, version)
+		case http.MethodDelete:
+			return h.deleteTrafficPolicy(c, id, version)
+		default:
+			return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+				"unsupported method on traffic policy version")
+		}
+	}
+
 	if method == http.MethodPost {
 		return h.createTrafficPolicyVersion(c, path)
 	}
@@ -1750,6 +2040,55 @@ func (h *Handler) routeTPInstanceRoot(c *echo.Context, method string) error {
 	}
 
 	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicyinstance")
+}
+
+func (h *Handler) routeTrafficPoliciesRoot(c *echo.Context, method string) error {
+	if method == http.MethodGet {
+		return h.listTrafficPolicies(c)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicies")
+}
+
+func (h *Handler) routeTrafficPoliciesVersions(c *echo.Context, path, method string) error {
+	if method == http.MethodGet {
+		// path is /2013-04-01/trafficpolicies/{Id}/versions
+		id := strings.TrimPrefix(path, route53TrafficPoliciesPrefix)
+		id = strings.TrimSuffix(id, "/versions")
+
+		return h.listTrafficPolicyVersions(c, id)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on traffic policy versions")
+}
+
+func (h *Handler) routeTPInstancesRoot(c *echo.Context, method string) error {
+	if method == http.MethodGet {
+		return h.listTrafficPolicyInstances(c)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicyinstances")
+}
+
+func (h *Handler) routeTPInstanceCount(c *echo.Context, method string) error {
+	if method == http.MethodGet {
+		return h.getTrafficPolicyInstanceCount(c)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /trafficpolicyinstancecount")
+}
+
+func (h *Handler) routeTPInstance(c *echo.Context, path, method string) error {
+	id := strings.TrimPrefix(path, route53TPInstancePrefix)
+
+	switch method {
+	case http.MethodGet:
+		return h.getTrafficPolicyInstance(c, id)
+	case http.MethodDelete:
+		return h.deleteTrafficPolicyInstance(c, id)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on traffic policy instance")
+	}
 }
 
 // ---- New operations: handler functions ----
@@ -2119,4 +2458,365 @@ func (h *Handler) createTrafficPolicyInstance(c *echo.Context) error {
 	c.Response().Header().Set("Location", "/2013-04-01/trafficpolicyinstance/"+inst.ID)
 
 	return writeXML(c, http.StatusCreated, resp)
+}
+
+// ---- DNSSEC handlers ----
+
+func (h *Handler) enableHostedZoneDNSSEC(c *echo.Context, zoneID string) error {
+	ctx := c.Request().Context()
+
+	if err := h.Backend.EnableHostedZoneDNSSEC(zoneID); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 EnableHostedZoneDNSSEC", "zoneID", zoneID)
+
+	resp := struct {
+		XMLName    xml.Name      `xml:"EnableHostedZoneDNSSECResponse"`
+		Xmlns      string        `xml:"xmlns,attr"`
+		ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
+	}{
+		Xmlns: route53Namespace,
+		ChangeInfo: xmlChangeInfo{
+			ID:          "/change/enable-dnssec-" + zoneID,
+			Status:      "INSYNC",
+			SubmittedAt: time.Now(),
+		},
+	}
+
+	return writeXML(c, http.StatusOK, resp)
+}
+
+func (h *Handler) disableHostedZoneDNSSEC(c *echo.Context, zoneID string) error {
+	ctx := c.Request().Context()
+
+	if err := h.Backend.DisableHostedZoneDNSSEC(zoneID); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 DisableHostedZoneDNSSEC", "zoneID", zoneID)
+
+	resp := struct {
+		XMLName    xml.Name      `xml:"DisableHostedZoneDNSSECResponse"`
+		Xmlns      string        `xml:"xmlns,attr"`
+		ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
+	}{
+		Xmlns: route53Namespace,
+		ChangeInfo: xmlChangeInfo{
+			ID:          "/change/disable-dnssec-" + zoneID,
+			Status:      "INSYNC",
+			SubmittedAt: time.Now(),
+		},
+	}
+
+	return writeXML(c, http.StatusOK, resp)
+}
+
+func (h *Handler) getHostedZoneDNSSEC(c *echo.Context, zoneID string) error {
+	ctx := c.Request().Context()
+
+	enabled, ksks, err := h.Backend.GetDNSSEC(zoneID)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 GetDNSSEC", "zoneID", zoneID, "enabled", enabled)
+
+	serveSignature := "NOT_SIGNING"
+	if enabled {
+		serveSignature = "SIGNING"
+	}
+
+	xmlKSKs := make([]xmlKSK, 0, len(ksks))
+	for i := range ksks {
+		xmlKSKs = append(xmlKSKs, toXMLKSK(&ksks[i]))
+	}
+
+	resp := xmlGetDNSSECResponse{
+		Xmlns: route53Namespace,
+		Status: xmlDNSSECStatus{
+			ServeSignature: serveSignature,
+		},
+		KeySigningKeys: xmlKSKs,
+	}
+
+	return writeXML(c, http.StatusOK, resp)
+}
+
+// ---- KSK deactivate/delete handlers ----
+
+func (h *Handler) deactivateKeySigningKey(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+
+	// path: /2013-04-01/keysigningkey/{zoneId}/{name}/deactivate
+	rest := strings.TrimPrefix(path, route53KSKPrefix)
+	rest = strings.TrimSuffix(rest, route53DeactivateSuffix)
+	parts := strings.SplitN(rest, "/", zoneIDAndRest)
+
+	if len(parts) != zoneIDAndRest {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid KSK deactivate path")
+	}
+
+	zoneID, name := parts[0], parts[1]
+
+	if _, err := h.Backend.DeactivateKeySigningKey(zoneID, name); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 DeactivateKeySigningKey", "zoneID", zoneID, "name", name)
+
+	resp := struct {
+		XMLName    xml.Name      `xml:"DeactivateKeySigningKeyResponse"`
+		Xmlns      string        `xml:"xmlns,attr"`
+		ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
+	}{
+		Xmlns: route53Namespace,
+		ChangeInfo: xmlChangeInfo{
+			ID:          "/change/deactivate-ksk-" + zoneID + "-" + name,
+			Status:      "INSYNC",
+			SubmittedAt: time.Now(),
+		},
+	}
+
+	return writeXML(c, http.StatusOK, resp)
+}
+
+func (h *Handler) deleteKeySigningKey(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+
+	// path: /2013-04-01/keysigningkey/{zoneId}/{name}
+	rest := strings.TrimPrefix(path, route53KSKPrefix)
+	parts := strings.SplitN(rest, "/", zoneIDAndRest)
+
+	if len(parts) != zoneIDAndRest {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "invalid KSK delete path")
+	}
+
+	zoneID, name := parts[0], parts[1]
+
+	if err := h.Backend.DeleteKeySigningKey(zoneID, name); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 DeleteKeySigningKey", "zoneID", zoneID, "name", name)
+
+	resp := struct {
+		XMLName    xml.Name      `xml:"DeleteKeySigningKeyResponse"`
+		Xmlns      string        `xml:"xmlns,attr"`
+		ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
+	}{
+		Xmlns: route53Namespace,
+		ChangeInfo: xmlChangeInfo{
+			ID:          "/change/delete-ksk-" + zoneID + "-" + name,
+			Status:      "INSYNC",
+			SubmittedAt: time.Now(),
+		},
+	}
+
+	return writeXML(c, http.StatusOK, resp)
+}
+
+// ---- Traffic Policy get/delete handlers ----
+
+func (h *Handler) getTrafficPolicy(c *echo.Context, id string, version int32) error {
+	ctx := c.Request().Context()
+
+	tp, err := h.Backend.GetTrafficPolicy(id, version)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 GetTrafficPolicy", "id", id, "version", version)
+
+	return writeXML(c, http.StatusOK, xmlCreateTrafficPolicyResponse{
+		Xmlns:         route53Namespace,
+		TrafficPolicy: toXMLTrafficPolicy(tp),
+	})
+}
+
+func (h *Handler) deleteTrafficPolicy(c *echo.Context, id string, version int32) error {
+	ctx := c.Request().Context()
+
+	if err := h.Backend.DeleteTrafficPolicy(id, version); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 DeleteTrafficPolicy", "id", id, "version", version)
+
+	return writeXML(c, http.StatusOK, struct {
+		XMLName xml.Name `xml:"DeleteTrafficPolicyResponse"`
+		Xmlns   string   `xml:"xmlns,attr"`
+	}{Xmlns: route53Namespace})
+}
+
+func (h *Handler) listTrafficPolicies(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	policies, err := h.Backend.ListTrafficPolicies()
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 ListTrafficPolicies", "count", len(policies))
+
+	summaries := make([]xmlTrafficPolicySummary, 0, len(policies))
+	for _, p := range policies {
+		summaries = append(summaries, xmlTrafficPolicySummary{
+			ID:                 p.ID,
+			Name:               p.Name,
+			Type:               p.Type,
+			LatestVersion:      p.Version,
+			TrafficPolicyCount: 1,
+		})
+	}
+
+	return writeXML(c, http.StatusOK, xmlListTrafficPoliciesResponse{
+		Xmlns:           route53Namespace,
+		TrafficPolicies: summaries,
+		IsTruncated:     false,
+		MaxItems:        "100",
+	})
+}
+
+func (h *Handler) listTrafficPolicyVersions(c *echo.Context, id string) error {
+	ctx := c.Request().Context()
+
+	versions, err := h.Backend.ListTrafficPolicyVersions(id)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 ListTrafficPolicyVersions", "id", id, "count", len(versions))
+
+	xmlPolicies := make([]xmlTrafficPolicy, 0, len(versions))
+	for _, v := range versions {
+		xmlPolicies = append(xmlPolicies, toXMLTrafficPolicy(v))
+	}
+
+	return writeXML(c, http.StatusOK, xmlListTrafficPolicyVersionsResponse{
+		Xmlns:           route53Namespace,
+		TrafficPolicies: xmlPolicies,
+		IsTruncated:     false,
+		MaxItems:        "100",
+	})
+}
+
+// ---- Traffic Policy Instance get/delete/list handlers ----
+
+func (h *Handler) getTrafficPolicyInstance(c *echo.Context, id string) error {
+	ctx := c.Request().Context()
+
+	inst, err := h.Backend.GetTrafficPolicyInstance(id)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 GetTrafficPolicyInstance", "id", id)
+
+	return writeXML(c, http.StatusOK, xmlCreateTrafficPolicyInstanceResponse{
+		Xmlns:                 route53Namespace,
+		TrafficPolicyInstance: toXMLTPInstance(inst),
+	})
+}
+
+func (h *Handler) deleteTrafficPolicyInstance(c *echo.Context, id string) error {
+	ctx := c.Request().Context()
+
+	if err := h.Backend.DeleteTrafficPolicyInstance(id); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 DeleteTrafficPolicyInstance", "id", id)
+
+	return writeXML(c, http.StatusOK, struct {
+		XMLName xml.Name `xml:"DeleteTrafficPolicyInstanceResponse"`
+		Xmlns   string   `xml:"xmlns,attr"`
+	}{Xmlns: route53Namespace})
+}
+
+func (h *Handler) listTrafficPolicyInstances(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	instances, err := h.Backend.ListTrafficPolicyInstances()
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 ListTrafficPolicyInstances", "count", len(instances))
+
+	xmlInstances := make([]xmlTrafficPolicyInstance, 0, len(instances))
+	for _, inst := range instances {
+		xmlInstances = append(xmlInstances, toXMLTPInstance(inst))
+	}
+
+	return writeXML(c, http.StatusOK, xmlListTrafficPolicyInstancesResponse{
+		Xmlns:                  route53Namespace,
+		TrafficPolicyInstances: xmlInstances,
+		IsTruncated:            false,
+		MaxItems:               "100",
+	})
+}
+
+func (h *Handler) getTrafficPolicyInstanceCount(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	instances, err := h.Backend.ListTrafficPolicyInstances()
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	count := int32(len(instances)) //nolint:gosec // instance count fits in int32
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 GetTrafficPolicyInstanceCount", "count", count)
+
+	return writeXML(c, http.StatusOK, xmlGetTPInstanceCountResponse{
+		Xmlns:                      route53Namespace,
+		TrafficPolicyInstanceCount: count,
+	})
+}
+
+// ---- CIDR Collection list/delete handlers ----
+
+func (h *Handler) listCidrCollections(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	collections, err := h.Backend.ListCidrCollections()
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 ListCidrCollections", "count", len(collections))
+
+	summaries := make([]xmlCidrCollectionSummary, 0, len(collections))
+	for _, col := range collections {
+		summaries = append(summaries, xmlCidrCollectionSummary{
+			ARN:     col.ARN,
+			ID:      col.ID,
+			Name:    col.Name,
+			Version: col.Version,
+		})
+	}
+
+	return writeXML(c, http.StatusOK, xmlListCidrCollectionsResponse{
+		Xmlns:           route53Namespace,
+		CidrCollections: summaries,
+		IsTruncated:     false,
+	})
+}
+
+func (h *Handler) deleteCidrCollection(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+
+	id := strings.TrimPrefix(path, route53CidrCollectionPrefix)
+
+	if err := h.Backend.DeleteCidrCollection(id); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 DeleteCidrCollection", "id", id)
+
+	return writeXML(c, http.StatusOK, struct {
+		XMLName xml.Name `xml:"DeleteCidrCollectionResponse"`
+		Xmlns   string   `xml:"xmlns,attr"`
+	}{Xmlns: route53Namespace})
 }
