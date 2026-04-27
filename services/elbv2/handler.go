@@ -835,11 +835,13 @@ func (h *Handler) handleCreateRule(vals url.Values) (any, error) {
 	}
 
 	actions := parseActions(vals, "Actions.member")
+	conditions := parseConditions(vals, "Conditions.member")
 
 	rule, err := h.Backend.CreateRule(CreateRuleInput{
 		ListenerArn: listenerArn,
 		Priority:    vals.Get("Priority"),
 		Actions:     actions,
+		Conditions:  conditions,
 		Tags:        parseTagKVs(vals),
 	})
 	if err != nil {
@@ -902,20 +904,19 @@ func (h *Handler) handleModifyRule(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: RuleArn is required", ErrInvalidParameter)
 	}
 
-	rules, err := h.Backend.DescribeRules("", []string{ruleArn})
+	actions := parseActions(vals, "Actions.member")
+	conditions := parseConditions(vals, "Conditions.member")
+
+	rule, err := h.Backend.ModifyRule(ruleArn, actions, conditions)
 	if err != nil {
 		return nil, err
-	}
-
-	if len(rules) == 0 {
-		return nil, ErrRuleNotFound
 	}
 
 	return &modifyRuleResponse{
 		Xmlns: elbv2XMLNS,
 		Result: modifyRuleResult{
 			Rules: xmlRuleList{
-				Members: []xmlRule{toXMLRule(&rules[0])},
+				Members: []xmlRule{toXMLRule(rule)},
 			},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-rule"},
@@ -1695,6 +1696,54 @@ func parseActions(vals url.Values, prefix string) []Action {
 	return result
 }
 
+// parseConditions extracts rule conditions from form values.
+// Supported fields: host-header, path-pattern, http-header, http-request-method,
+// query-string, source-ip.
+func parseConditions(vals url.Values, prefix string) []Condition {
+	result := make([]Condition, 0)
+
+	for i := 1; ; i++ {
+		field := vals.Get(fmt.Sprintf("%s.%d.Field", prefix, i))
+		if field == "" {
+			break
+		}
+
+		cond := Condition{Field: field}
+
+		switch field {
+		case "host-header":
+			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HostHeaderConfig.Values.member", prefix, i))
+		case "path-pattern":
+			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.PathPatternConfig.Values.member", prefix, i))
+		case "http-request-method":
+			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpRequestMethodConfig.Values.member", prefix, i))
+		case "source-ip":
+			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.SourceIpConfig.Values.member", prefix, i))
+		case "http-header":
+			cond.HttpHeaderName = vals.Get(fmt.Sprintf("%s.%d.HttpHeaderConfig.HttpHeaderName", prefix, i))
+			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpHeaderConfig.Values.member", prefix, i))
+		case "query-string":
+			pairs := make([]QueryStringPair, 0)
+			for j := 1; ; j++ {
+				v := vals.Get(fmt.Sprintf("%s.%d.QueryStringConfig.Values.member.%d.Value", prefix, i, j))
+				if v == "" {
+					break
+				}
+
+				pairs = append(pairs, QueryStringPair{
+					Key:   vals.Get(fmt.Sprintf("%s.%d.QueryStringConfig.Values.member.%d.Key", prefix, i, j)),
+					Value: v,
+				})
+			}
+			cond.QueryStringPairs = pairs
+		}
+
+		result = append(result, cond)
+	}
+
+	return result
+}
+
 // --- XML conversion helpers ---
 
 func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancer {
@@ -1760,11 +1809,61 @@ func toXMLRule(r *Rule) xmlRule {
 		actions = append(actions, xmlAction(a))
 	}
 
+	conds := make([]xmlCondition, 0, len(r.Conditions))
+	for _, c := range r.Conditions {
+		xc := xmlCondition{Field: c.Field}
+
+		switch c.Field {
+		case "host-header":
+			vals := make([]xmlStringValue, 0, len(c.Values))
+			for _, v := range c.Values {
+				vals = append(vals, xmlStringValue{Value: v})
+			}
+			xc.HostHeaderConfig = &xmlConditionValuesConfig{Values: xmlStringList{Members: vals}}
+		case "path-pattern":
+			vals := make([]xmlStringValue, 0, len(c.Values))
+			for _, v := range c.Values {
+				vals = append(vals, xmlStringValue{Value: v})
+			}
+			xc.PathPatternConfig = &xmlConditionValuesConfig{Values: xmlStringList{Members: vals}}
+		case "http-request-method":
+			vals := make([]xmlStringValue, 0, len(c.Values))
+			for _, v := range c.Values {
+				vals = append(vals, xmlStringValue{Value: v})
+			}
+			xc.HttpRequestMethodConfig = &xmlConditionValuesConfig{Values: xmlStringList{Members: vals}}
+		case "source-ip":
+			vals := make([]xmlStringValue, 0, len(c.Values))
+			for _, v := range c.Values {
+				vals = append(vals, xmlStringValue{Value: v})
+			}
+			xc.SourceIpConfig = &xmlConditionValuesConfig{Values: xmlStringList{Members: vals}}
+		case "http-header":
+			vals := make([]xmlStringValue, 0, len(c.Values))
+			for _, v := range c.Values {
+				vals = append(vals, xmlStringValue{Value: v})
+			}
+			xc.HttpHeaderConfig = &xmlHttpHeaderConfig{
+				HttpHeaderName: c.HttpHeaderName,
+				Values:         xmlStringList{Members: vals},
+			}
+		case "query-string":
+			pairs := make([]xmlQueryStringKeyValue, 0, len(c.QueryStringPairs))
+			for _, p := range c.QueryStringPairs {
+				pairs = append(pairs, xmlQueryStringKeyValue{Key: p.Key, Value: p.Value})
+			}
+			xc.QueryStringConfig = &xmlQueryStringConfig{Values: xmlQueryStringList{Members: pairs}}
+		}
+
+		conds = append(conds, xc)
+	}
+
 	return xmlRule{
-		RuleArn:   r.RuleArn,
-		Priority:  r.Priority,
-		IsDefault: r.IsDefault,
-		Actions:   xmlActionList{Members: actions},
+		RuleArn:    r.RuleArn,
+		Priority:   r.Priority,
+		IsDefault:  r.IsDefault,
+		Actions:    xmlActionList{Members: actions},
+		Conditions: xmlConditionList{Members: conds},
 	}
 }
 
@@ -2108,11 +2207,48 @@ type modifyListenerResponse struct {
 
 // --- rule XML types ---
 
+type xmlConditionValuesConfig struct {
+	Values xmlStringList `xml:"Values"`
+}
+
+type xmlHttpHeaderConfig struct {
+	HttpHeaderName string        `xml:"HttpHeaderName"`
+	Values         xmlStringList `xml:"Values"`
+}
+
+type xmlQueryStringKeyValue struct {
+	Key   string `xml:"Key,omitempty"`
+	Value string `xml:"Value"`
+}
+
+type xmlQueryStringList struct {
+	Members []xmlQueryStringKeyValue `xml:"member"`
+}
+
+type xmlQueryStringConfig struct {
+	Values xmlQueryStringList `xml:"Values"`
+}
+
+type xmlCondition struct {
+	Field                   string                    `xml:"Field"`
+	HostHeaderConfig        *xmlConditionValuesConfig `xml:"HostHeaderConfig,omitempty"`
+	PathPatternConfig       *xmlConditionValuesConfig `xml:"PathPatternConfig,omitempty"`
+	HttpHeaderConfig        *xmlHttpHeaderConfig      `xml:"HttpHeaderConfig,omitempty"`
+	HttpRequestMethodConfig *xmlConditionValuesConfig `xml:"HttpRequestMethodConfig,omitempty"`
+	QueryStringConfig       *xmlQueryStringConfig     `xml:"QueryStringConfig,omitempty"`
+	SourceIpConfig          *xmlConditionValuesConfig `xml:"SourceIpConfig,omitempty"`
+}
+
+type xmlConditionList struct {
+	Members []xmlCondition `xml:"member"`
+}
+
 type xmlRule struct {
-	RuleArn   string        `xml:"RuleArn"`
-	Priority  string        `xml:"Priority"`
-	Actions   xmlActionList `xml:"Actions"`
-	IsDefault bool          `xml:"IsDefault"`
+	RuleArn    string           `xml:"RuleArn"`
+	Priority   string           `xml:"Priority"`
+	Actions    xmlActionList    `xml:"Actions"`
+	Conditions xmlConditionList `xml:"Conditions"`
+	IsDefault  bool             `xml:"IsDefault"`
 }
 
 type xmlRuleList struct {

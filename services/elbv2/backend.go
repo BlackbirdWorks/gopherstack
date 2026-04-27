@@ -91,6 +91,26 @@ type Action struct {
 	TargetGroupArn string `json:"targetGroupArn"`
 }
 
+// Condition represents an ELBv2 rule condition (e.g. host-header, path-pattern, http-header).
+type Condition struct {
+	// Field is the condition type: host-header, path-pattern, http-header,
+	// http-request-method, query-string, source-ip.
+	Field string `json:"field"`
+	// Values holds the condition values (used for host-header, path-pattern,
+	// http-request-method, source-ip).
+	Values []string `json:"values,omitempty"`
+	// HttpHeaderName is only set for http-header conditions.
+	HttpHeaderName string `json:"httpHeaderName,omitempty"`
+	// QueryStringPairs holds key/value pairs for query-string conditions.
+	QueryStringPairs []QueryStringPair `json:"queryStringPairs,omitempty"`
+}
+
+// QueryStringPair is a key/value pair used in query-string rule conditions.
+type QueryStringPair struct {
+	Key   string `json:"key,omitempty"`
+	Value string `json:"value"`
+}
+
 // Listener represents an ELBv2 listener.
 type Listener struct {
 	Tags            *tags.Tags `json:"tags,omitempty"`
@@ -99,17 +119,20 @@ type Listener struct {
 	Protocol        string     `json:"protocol"`
 	DefaultActions  []Action   `json:"defaultActions"`
 	Certificates    []string   `json:"certificates,omitempty"`
+	SSLPolicy       string     `json:"sslPolicy,omitempty"`
+	AlpnPolicy      string     `json:"alpnPolicy,omitempty"`
 	Port            int32      `json:"port"`
 }
 
 // Rule represents an ELBv2 listener rule.
 type Rule struct {
-	Tags        *tags.Tags `json:"tags,omitempty"`
-	RuleArn     string     `json:"ruleArn"`
-	ListenerArn string     `json:"listenerArn"`
-	Priority    string     `json:"priority"`
-	Actions     []Action   `json:"actions"`
-	IsDefault   bool       `json:"isDefault"`
+	Tags        *tags.Tags  `json:"tags,omitempty"`
+	RuleArn     string      `json:"ruleArn"`
+	ListenerArn string      `json:"listenerArn"`
+	Priority    string      `json:"priority"`
+	Actions     []Action    `json:"actions"`
+	Conditions  []Condition `json:"conditions,omitempty"`
+	IsDefault   bool        `json:"isDefault"`
 }
 
 // TrustStore represents an ELBv2 trust store.
@@ -139,6 +162,7 @@ type StorageBackend interface {
 	CreateRule(input CreateRuleInput) (*Rule, error)
 	DescribeRules(listenerArn string, ruleArns []string) ([]Rule, error)
 	DeleteRule(ruleArn string) error
+	ModifyRule(ruleArn string, actions []Action, conditions []Condition) (*Rule, error)
 	AddTags(resourceArns []string, kvs []tags.KV) error
 	RemoveTags(resourceArns []string, keys []string) error
 	DescribeTags(resourceArns []string) (map[string][]tags.KV, error)
@@ -194,6 +218,7 @@ type CreateRuleInput struct {
 	ListenerArn string
 	Priority    string
 	Actions     []Action
+	Conditions  []Condition
 	Tags        []tags.KV
 }
 
@@ -672,6 +697,7 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 		Priority:    input.Priority,
 		IsDefault:   false,
 		Actions:     input.Actions,
+		Conditions:  input.Conditions,
 		Tags:        t,
 	}
 
@@ -727,6 +753,29 @@ func (b *InMemoryBackend) DeleteRule(ruleArn string) error {
 	delete(b.rules, ruleArn)
 
 	return nil
+}
+
+// ModifyRule updates the actions and/or conditions of an existing rule.
+func (b *InMemoryBackend) ModifyRule(ruleArn string, actions []Action, conditions []Condition) (*Rule, error) {
+	b.mu.Lock("ModifyRule")
+	defer b.mu.Unlock()
+
+	rule, ok := b.rules[ruleArn]
+	if !ok {
+		return nil, ErrRuleNotFound
+	}
+
+	if len(actions) > 0 {
+		rule.Actions = actions
+	}
+
+	if len(conditions) > 0 {
+		rule.Conditions = conditions
+	}
+
+	cp := *rule
+
+	return &cp, nil
 }
 
 // findTagsLocked returns the *tags.Tags for the given resource ARN.
