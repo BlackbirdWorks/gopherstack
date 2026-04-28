@@ -1875,11 +1875,6 @@ func TestRoute53_NewOperations_UnsupportedMethods(t *testing.T) {
 			path:   "/2013-04-01/keysigningkey/ZONE123/keyname/activate",
 		},
 		{
-			name:   "cidr_root_unsupported_get",
-			method: http.MethodGet,
-			path:   "/2013-04-01/cidrcollection",
-		},
-		{
 			name:   "cidr_resource_unsupported_get",
 			method: http.MethodGet,
 			path:   "/2013-04-01/cidrcollection/COLLECTIONID",

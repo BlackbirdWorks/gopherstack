@@ -6,8 +6,9 @@ import (
 )
 
 type zoneDataSnapshot struct {
-	Records map[string]*ResourceRecordSet `json:"records"`
-	Zone    HostedZone                    `json:"zone"`
+	Records       map[string]*ResourceRecordSet `json:"records"`
+	Zone          HostedZone                    `json:"zone"`
+	DNSSECEnabled bool                          `json:"dnssecEnabled,omitempty"`
 }
 
 type backendSnapshot struct {
@@ -42,8 +43,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	for id, zd := range b.zones {
 		snap.Zones[id] = &zoneDataSnapshot{
-			Zone:    zd.zone,
-			Records: zd.records,
+			Zone:          zd.zone,
+			Records:       zd.records,
+			DNSSECEnabled: zd.dnssecEnabled,
 		}
 	}
 
@@ -163,8 +165,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		}
 
 		b.zones[id] = &zoneData{
-			zone:    zds.Zone,
-			records: zds.Records,
+			zone:          zds.Zone,
+			records:       zds.Records,
+			dnssecEnabled: zds.DNSSECEnabled,
 		}
 	}
 
