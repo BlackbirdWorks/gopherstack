@@ -10,25 +10,25 @@ import (
 
 // lbSnapshot is the serialisable form of a LoadBalancer (Tags excluded; re-created on Restore).
 type lbSnapshot struct {
-	CreatedTime               time.Time              `json:"createdTime"`
-	HealthCheck               *HealthCheck           `json:"healthCheck,omitempty"`
-	LoadBalancerName          string                 `json:"loadBalancerName"`
-	AccountID                 string                 `json:"accountId"`
-	Region                    string                 `json:"region"`
-	CanonicalHostedZoneName   string                 `json:"canonicalHostedZoneName"`
-	CanonicalHostedZoneNameID string                 `json:"canonicalHostedZoneNameID"`
-	Scheme                    string                 `json:"scheme"`
-	ARN                       string                 `json:"arn"`
-	VPCId                     string                 `json:"vpcId"`
-	DNSName                   string                 `json:"dnsName"`
-	Listeners                 []Listener                  `json:"listeners"`
-	Instances                 []Instance                  `json:"instances"`
-	BackendServerDescriptions []BackendServerDescription  `json:"backendServerDescriptions,omitempty"`
-	AvailabilityZones         []string                    `json:"availabilityZones"`
-	SecurityGroups            []string               `json:"securityGroups"`
-	Subnets                   []string               `json:"subnets"`
-	TagPairs                  []tagPair              `json:"tags,omitempty"`
-	Attributes                LoadBalancerAttributes `json:"attributes"`
+	CreatedTime               time.Time                  `json:"createdTime"`
+	HealthCheck               *HealthCheck               `json:"healthCheck,omitempty"`
+	LoadBalancerName          string                     `json:"loadBalancerName"`
+	AccountID                 string                     `json:"accountId"`
+	Region                    string                     `json:"region"`
+	CanonicalHostedZoneName   string                     `json:"canonicalHostedZoneName"`
+	CanonicalHostedZoneNameID string                     `json:"canonicalHostedZoneNameID"`
+	Scheme                    string                     `json:"scheme"`
+	ARN                       string                     `json:"arn"`
+	VPCId                     string                     `json:"vpcId"`
+	DNSName                   string                     `json:"dnsName"`
+	Listeners                 []Listener                 `json:"listeners"`
+	Instances                 []Instance                 `json:"instances"`
+	BackendServerDescriptions []BackendServerDescription `json:"backendServerDescriptions,omitempty"`
+	AvailabilityZones         []string                   `json:"availabilityZones"`
+	SecurityGroups            []string                   `json:"securityGroups"`
+	Subnets                   []string                   `json:"subnets"`
+	TagPairs                  []tagPair                  `json:"tags,omitempty"`
+	Attributes                LoadBalancerAttributes     `json:"attributes"`
 }
 
 // tagPair serialises a single key-value tag for persistence.

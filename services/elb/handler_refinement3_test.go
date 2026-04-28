@@ -53,10 +53,10 @@ func TestRefinement3_PersistenceRoundTrip(t *testing.T) {
 
 				// Set backend server descriptions
 				doELB(t, h, url.Values{
-					"Action":              {"SetLoadBalancerPoliciesForBackendServer"},
-					"Version":             {"2012-06-01"},
-					"LoadBalancerName":    {"persist-test-lb"},
-					"InstancePort":        {"8080"},
+					"Action":               {"SetLoadBalancerPoliciesForBackendServer"},
+					"Version":              {"2012-06-01"},
+					"LoadBalancerName":     {"persist-test-lb"},
+					"InstancePort":         {"8080"},
 					"PolicyNames.member.1": {"my-lb-cookie"},
 				})
 			},
@@ -106,7 +106,7 @@ func TestRefinement3_PersistenceRoundTrip(t *testing.T) {
 			require.Len(t, lbs, 1)
 
 			lb := lbs[0]
-			assert.Equal(t, tt.wantListeners, len(lb.Listeners))
+			assert.Len(t, lb.Listeners, tt.wantListeners)
 			assert.NotNil(t, lb.BackendServerDescriptions, "BackendServerDescriptions must not be nil after restore")
 
 			bsdPorts := make([]int32, 0, len(lb.BackendServerDescriptions))
@@ -126,8 +126,8 @@ func TestRefinement3_AddTagsDuplicateKeys(t *testing.T) {
 
 	tests := []struct {
 		setup      func(t *testing.T, h *elb.Handler)
-		name       string
 		vals       url.Values
+		name       string
 		wantStatus int
 	}{
 		{
@@ -145,29 +145,29 @@ func TestRefinement3_AddTagsDuplicateKeys(t *testing.T) {
 					"Listeners.member.1.InstancePort":     {"80"},
 				})
 				doELB(t, h, url.Values{
-					"Action":              {"AddTags"},
-					"Version":             {"2012-06-01"},
+					"Action":                     {"AddTags"},
+					"Version":                    {"2012-06-01"},
 					"LoadBalancerNames.member.1": {"tag-dup-lb"},
-					"Tags.member.1.Key":   {"k1"}, "Tags.member.1.Value": {"v1"},
-					"Tags.member.2.Key":   {"k2"}, "Tags.member.2.Value": {"v2"},
-					"Tags.member.3.Key":   {"k3"}, "Tags.member.3.Value": {"v3"},
-					"Tags.member.4.Key":   {"k4"}, "Tags.member.4.Value": {"v4"},
-					"Tags.member.5.Key":   {"k5"}, "Tags.member.5.Value": {"v5"},
-					"Tags.member.6.Key":   {"k6"}, "Tags.member.6.Value": {"v6"},
-					"Tags.member.7.Key":   {"k7"}, "Tags.member.7.Value": {"v7"},
-					"Tags.member.8.Key":   {"k8"}, "Tags.member.8.Value": {"v8"},
-					"Tags.member.9.Key":   {"k9"}, "Tags.member.9.Value": {"v9"},
+					"Tags.member.1.Key":          {"k1"}, "Tags.member.1.Value": {"v1"},
+					"Tags.member.2.Key": {"k2"}, "Tags.member.2.Value": {"v2"},
+					"Tags.member.3.Key": {"k3"}, "Tags.member.3.Value": {"v3"},
+					"Tags.member.4.Key": {"k4"}, "Tags.member.4.Value": {"v4"},
+					"Tags.member.5.Key": {"k5"}, "Tags.member.5.Value": {"v5"},
+					"Tags.member.6.Key": {"k6"}, "Tags.member.6.Value": {"v6"},
+					"Tags.member.7.Key": {"k7"}, "Tags.member.7.Value": {"v7"},
+					"Tags.member.8.Key": {"k8"}, "Tags.member.8.Value": {"v8"},
+					"Tags.member.9.Key": {"k9"}, "Tags.member.9.Value": {"v9"},
 				})
 			},
 			// Now add 2 new tags where one is a duplicate of an existing key.
 			// Unique new keys = 1 (k10 is new; k9 is overwrite).
 			// Total = 9 existing non-overwritten + 1 truly new = 10 → should succeed.
 			vals: url.Values{
-				"Action":  {"AddTags"},
-				"Version": {"2012-06-01"},
+				"Action":                     {"AddTags"},
+				"Version":                    {"2012-06-01"},
 				"LoadBalancerNames.member.1": {"tag-dup-lb"},
-				"Tags.member.1.Key":   {"k9"},  "Tags.member.1.Value": {"newv9"},
-				"Tags.member.2.Key":   {"k10"}, "Tags.member.2.Value": {"v10"},
+				"Tags.member.1.Key":          {"k9"}, "Tags.member.1.Value": {"newv9"},
+				"Tags.member.2.Key": {"k10"}, "Tags.member.2.Value": {"v10"},
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -197,10 +197,10 @@ func TestRefinement3_SSLListenerCertificate(t *testing.T) {
 
 	tests := []struct {
 		setup      func(t *testing.T, h *elb.Handler)
-		name       string
 		checkVals  url.Values
-		wantStatus int
+		name       string
 		wantCert   string
+		wantStatus int
 	}{
 		{
 			name: "ssl_listener_cert_can_be_set",
@@ -217,11 +217,11 @@ func TestRefinement3_SSLListenerCertificate(t *testing.T) {
 				})
 			},
 			checkVals: url.Values{
-				"Action":            {"SetLoadBalancerListenerSSLCertificate"},
-				"Version":           {"2012-06-01"},
-				"LoadBalancerName":  {"ssl-lb"},
-				"LoadBalancerPort":  {"443"},
-				"SSLCertificateId":  {"arn:aws:acm:us-east-1:123456789012:certificate/abc123"},
+				"Action":           {"SetLoadBalancerListenerSSLCertificate"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"ssl-lb"},
+				"LoadBalancerPort": {"443"},
+				"SSLCertificateId": {"arn:aws:acm:us-east-1:123456789012:certificate/abc123"},
 			},
 			wantStatus: http.StatusOK,
 			wantCert:   "arn:aws:acm:us-east-1:123456789012:certificate/abc123",
@@ -245,9 +245,9 @@ func TestRefinement3_SSLListenerCertificate(t *testing.T) {
 			if tt.wantCert != "" {
 				// Verify cert is reflected in describe.
 				descResp := doELB(t, h, url.Values{
-					"Action":                        {"DescribeLoadBalancers"},
-					"Version":                       {"2012-06-01"},
-					"LoadBalancerNames.member.1":    {"ssl-lb"},
+					"Action":                     {"DescribeLoadBalancers"},
+					"Version":                    {"2012-06-01"},
+					"LoadBalancerNames.member.1": {"ssl-lb"},
 				})
 				require.Equal(t, http.StatusOK, descResp.Code)
 
@@ -272,7 +272,11 @@ func TestRefinement3_SSLListenerCertificate(t *testing.T) {
 				require.NoError(t, xml.Unmarshal(descResp.Body.Bytes(), &out))
 				require.Len(t, out.Result.LBs.Members, 1)
 				require.Len(t, out.Result.LBs.Members[0].ListenerDescriptions.Members, 1)
-				assert.Equal(t, tt.wantCert, out.Result.LBs.Members[0].ListenerDescriptions.Members[0].Listener.SSLCertificateID)
+				assert.Equal(
+					t,
+					tt.wantCert,
+					out.Result.LBs.Members[0].ListenerDescriptions.Members[0].Listener.SSLCertificateID,
+				)
 			}
 		})
 	}
@@ -283,8 +287,8 @@ func TestRefinement3_DescribeLoadBalancers_InvalidMarker(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		vals       url.Values
+		name       string
 		wantStatus int
 	}{
 		{
