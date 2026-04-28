@@ -4,6 +4,7 @@ package elbv2
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -102,9 +103,9 @@ type Target struct {
 
 // TargetHealthDescription describes the health state of a registered target.
 type TargetHealthDescription struct {
-	Target       Target `json:"target"`
 	HealthState  string `json:"healthState"`
 	HealthReason string `json:"healthReason,omitempty"`
+	Target       Target `json:"target"`
 }
 
 // Action represents a listener or rule action.
@@ -551,9 +552,7 @@ func (b *InMemoryBackend) ModifyLoadBalancerAttributes(lbArn string, attrs map[s
 		lb.Attributes = make(map[string]string)
 	}
 
-	for k, v := range attrs {
-		lb.Attributes[k] = v
-	}
+	maps.Copy(lb.Attributes, attrs)
 
 	cp := *lb
 
@@ -1457,9 +1456,7 @@ func (b *InMemoryBackend) ModifyTargetGroupAttributes(tgArn string, attrs map[st
 		tg.TargetGroupAttributes = make(map[string]string)
 	}
 
-	for k, v := range attrs {
-		tg.TargetGroupAttributes[k] = v
-	}
+	maps.Copy(tg.TargetGroupAttributes, attrs)
 
 	cp := *tg
 
@@ -1477,9 +1474,7 @@ func (b *InMemoryBackend) DescribeTargetGroupAttributes(tgArn string) (map[strin
 	}
 
 	result := make(map[string]string, len(tg.TargetGroupAttributes))
-	for k, v := range tg.TargetGroupAttributes {
-		result[k] = v
-	}
+	maps.Copy(result, tg.TargetGroupAttributes)
 
 	return result, nil
 }
@@ -1498,9 +1493,7 @@ func (b *InMemoryBackend) ModifyListenerAttributes(listenerArn string, attrs map
 		l.Attributes = make(map[string]string)
 	}
 
-	for k, v := range attrs {
-		l.Attributes[k] = v
-	}
+	maps.Copy(l.Attributes, attrs)
 
 	cp := *l
 
@@ -1518,9 +1511,7 @@ func (b *InMemoryBackend) DescribeListenerAttributes(listenerArn string) (map[st
 	}
 
 	result := make(map[string]string, len(l.Attributes))
-	for k, v := range l.Attributes {
-		result[k] = v
-	}
+	maps.Copy(result, l.Attributes)
 
 	return result, nil
 }
