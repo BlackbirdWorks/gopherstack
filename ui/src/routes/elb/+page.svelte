@@ -659,20 +659,18 @@
 							{/if}
 
 							<!-- Tags -->
-							{#if Object.keys(lbAttributes ?? {}).length > 0 || true}
+							{#if ((selectedLB as unknown as { Tags?: { Key?: string; Value?: string }[] }).Tags ?? []).length > 0}
 								{@const tags = selectedLB as unknown as { Tags?: { Key?: string; Value?: string }[] }}
-								{#if (tags.Tags ?? []).length > 0}
-									<div>
-										<h3 class="mb-1.5 text-sm font-semibold text-slate-700 dark:text-slate-300">Tags</h3>
-										<div class="flex flex-wrap gap-1.5">
-											{#each tags.Tags ?? [] as tag}
-												<span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs dark:border-slate-700 dark:bg-slate-800">
-													<span class="text-slate-500">{tag.Key}:</span> <span class="text-slate-700 dark:text-slate-300">{tag.Value}</span>
-												</span>
-											{/each}
-										</div>
+								<div>
+									<h3 class="mb-1.5 text-sm font-semibold text-slate-700 dark:text-slate-300">Tags</h3>
+									<div class="flex flex-wrap gap-1.5">
+										{#each tags.Tags ?? [] as tag}
+											<span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs dark:border-slate-700 dark:bg-slate-800">
+												<span class="text-slate-500">{tag.Key}:</span> <span class="text-slate-700 dark:text-slate-300">{tag.Value}</span>
+											</span>
+										{/each}
 									</div>
-								{/if}
+								</div>
 							{/if}
 
 							<!-- Availability Zones -->
