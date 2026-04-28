@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -349,15 +351,24 @@ func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, erro
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
-	_, err := h.Backend.ModifyLoadBalancerAttributes(lbArn)
+	attrs := parseKVAttrs(vals, "Attributes.member")
+
+	lb, err := h.Backend.ModifyLoadBalancerAttributes(lbArn, attrs)
 	if err != nil {
 		return nil, err
 	}
 
+	members := make([]xmlLBAttribute, 0, len(lb.Attributes))
+	for k, v := range lb.Attributes {
+		members = append(members, xmlLBAttribute{Key: k, Value: v})
+	}
+
+	sort.Slice(members, func(i, j int) bool { return members[i].Key < members[j].Key })
+
 	return &modifyLoadBalancerAttributesResponse{
 		Xmlns: elbv2XMLNS,
 		Result: modifyLoadBalancerAttributesResult{
-			Attributes: xmlLBAttributeList{Members: []xmlLBAttribute{}},
+			Attributes: xmlLBAttributeList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-lb-attrs"},
 	}, nil
@@ -369,9 +380,13 @@ func (h *Handler) handleDescribeLoadBalancerAttributes(vals url.Values) (any, er
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
-	_, err := h.Backend.ModifyLoadBalancerAttributes(lbArn)
+	lbs, err := h.Backend.DescribeLoadBalancers([]string{lbArn}, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(lbs) == 0 {
+		return nil, ErrLoadBalancerNotFound
 	}
 
 	return &describeLoadBalancerAttributesResponse{
@@ -382,6 +397,8 @@ func (h *Handler) handleDescribeLoadBalancerAttributes(vals url.Values) (any, er
 					{Key: "access_logs.s3.enabled", Value: "false"},
 					{Key: "deletion_protection.enabled", Value: "false"},
 					{Key: "idle_timeout.timeout_seconds", Value: "60"},
+					{Key: "routing.http2.enabled", Value: "true"},
+					{Key: "routing.http.desync_mitigation_mode", Value: "defensive"},
 				},
 			},
 		},
@@ -643,9 +660,9 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 	members := make([]xmlTargetHealthDescription, 0, len(targets))
 	for _, t := range targets {
 		members = append(members, xmlTargetHealthDescription{
-			Target: xmlTargetDescription(t),
+			Target: xmlTargetDescription(t.Target),
 			TargetHealth: xmlTargetHealth{
-				State: "healthy",
+				State: t.HealthState,
 			},
 		})
 	}
@@ -684,6 +701,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 
 	actions := parseActions(vals, "DefaultActions.member")
 	tagKVs := parseTagKVs(vals)
+	certs := parseCerts(vals)
 
 	listener, createErr := h.Backend.CreateListener(CreateListenerInput{
 		LoadBalancerArn: lbArn,
@@ -691,6 +709,10 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 		Port:            port,
 		DefaultActions:  actions,
 		Tags:            tagKVs,
+		Certificates:    certs,
+		SSLPolicy:       vals.Get("SslPolicy"),
+		AlpnPolicy:      vals.Get("AlpnPolicy.member.1"),
+		TrustStoreArn:   vals.Get("MutualAuthentication.TrustStoreArn"),
 	})
 	if createErr != nil {
 		return nil, createErr
@@ -752,20 +774,37 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
 	}
 
-	listeners, err := h.Backend.DescribeListeners("", []string{listenerArn})
-	if err != nil {
-		return nil, err
+	portStr := vals.Get("Port")
+	var port int32
+
+	if portStr != "" {
+		p, err := parseInt32(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+		}
+
+		port = p
 	}
 
-	if len(listeners) == 0 {
-		return nil, ErrListenerNotFound
+	listener, err := h.Backend.ModifyListener(ModifyListenerInput{
+		ListenerArn:    listenerArn,
+		Protocol:       vals.Get("Protocol"),
+		Port:           port,
+		DefaultActions: parseActions(vals, "DefaultActions.member"),
+		Certificates:   parseCerts(vals),
+		SSLPolicy:      vals.Get("SslPolicy"),
+		AlpnPolicy:     vals.Get("AlpnPolicy.member.1"),
+		TrustStoreArn:  vals.Get("MutualAuthentication.TrustStoreArn"),
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &modifyListenerResponse{
 		Xmlns: elbv2XMLNS,
 		Result: modifyListenerResult{
 			Listeners: xmlListenerList{
-				Members: []xmlListener{toXMLListener(&listeners[0])},
+				Members: []xmlListener{toXMLListener(listener)},
 			},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-listener"},
@@ -835,11 +874,13 @@ func (h *Handler) handleCreateRule(vals url.Values) (any, error) {
 	}
 
 	actions := parseActions(vals, "Actions.member")
+	conditions := parseConditions(vals, "Conditions.member")
 
 	rule, err := h.Backend.CreateRule(CreateRuleInput{
 		ListenerArn: listenerArn,
 		Priority:    vals.Get("Priority"),
 		Actions:     actions,
+		Conditions:  conditions,
 		Tags:        parseTagKVs(vals),
 	})
 	if err != nil {
@@ -902,20 +943,19 @@ func (h *Handler) handleModifyRule(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: RuleArn is required", ErrInvalidParameter)
 	}
 
-	rules, err := h.Backend.DescribeRules("", []string{ruleArn})
+	actions := parseActions(vals, "Actions.member")
+	conditions := parseConditions(vals, "Conditions.member")
+
+	rule, err := h.Backend.ModifyRule(ruleArn, actions, conditions)
 	if err != nil {
 		return nil, err
-	}
-
-	if len(rules) == 0 {
-		return nil, ErrRuleNotFound
 	}
 
 	return &modifyRuleResponse{
 		Xmlns: elbv2XMLNS,
 		Result: modifyRuleResult{
 			Rules: xmlRuleList{
-				Members: []xmlRule{toXMLRule(&rules[0])},
+				Members: []xmlRule{toXMLRule(rule)},
 			},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-rule"},
@@ -1065,7 +1105,7 @@ func (h *Handler) handleAddTrustStoreRevocations(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
-	revocations := parseMembers(vals, "RevocationContents.member")
+	revocations := parseTrustStoreRevocations(vals)
 
 	if err := h.Backend.AddTrustStoreRevocations(tsArn, revocations); err != nil {
 		return nil, err
@@ -1075,6 +1115,45 @@ func (h *Handler) handleAddTrustStoreRevocations(vals url.Values) (any, error) {
 		Xmlns:            elbv2XMLNS,
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-add-ts-revocations"},
 	}, nil
+}
+
+// parseTrustStoreRevocations extracts RevocationContents from form values.
+// Supports both plain RevocationId fields and S3-structured entries.
+// Iteration is capped at 1000 to prevent potential DoS from malicious input.
+func parseTrustStoreRevocations(vals url.Values) []TrustStoreRevocation {
+	const maxRevocations = 1000
+	revocations := make([]TrustStoreRevocation, 0)
+
+	for i := 1; i <= maxRevocations; i++ {
+		prefix := fmt.Sprintf("RevocationContents.member.%d.", i)
+		// S3-structured entry fields.
+		s3Bucket := vals.Get(prefix + "S3Bucket")
+		s3Key := vals.Get(prefix + "S3Key")
+		revType := vals.Get(prefix + "RevocationType")
+		plain := vals.Get(fmt.Sprintf("RevocationContents.member.%d", i))
+
+		if s3Bucket == "" && s3Key == "" && revType == "" && plain == "" {
+			break
+		}
+
+		if revType == "" {
+			revType = "CRL"
+		}
+
+		revID := plain
+		if revID == "" {
+			// S3-format entries have no plain value; assign a unique ID server-side
+			// so callers can reference the revocation in RemoveTrustStoreRevocations.
+			revID = "s3-" + uuid.New().String()
+		}
+
+		revocations = append(revocations, TrustStoreRevocation{
+			RevocationID:   revID,
+			RevocationType: revType,
+		})
+	}
+
+	return revocations
 }
 
 func (h *Handler) handleDescribeTrustStoreAssociations(vals url.Values) (any, error) {
@@ -1119,6 +1198,21 @@ func parseCertArns(vals url.Values) []string {
 	return arns
 }
 
+// parseCerts extracts certificates from indexed form parameters.
+func parseCerts(vals url.Values) []Certificate {
+	certs := make([]Certificate, 0)
+	for i := 1; ; i++ {
+		arn := vals.Get(fmt.Sprintf("Certificates.member.%d.CertificateArn", i))
+		if arn == "" {
+			break
+		}
+
+		certs = append(certs, Certificate{CertificateArn: arn})
+	}
+
+	return certs
+}
+
 func (h *Handler) handleAddListenerCertificates(vals url.Values) (any, error) {
 	listenerArn := vals.Get("ListenerArn")
 	if listenerArn == "" {
@@ -1130,13 +1224,14 @@ func (h *Handler) handleAddListenerCertificates(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: at least one certificate ARN is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.AddListenerCertificates(listenerArn, certArns); err != nil {
+	certs := parseCerts(vals)
+	if err := h.Backend.AddListenerCertificates(listenerArn, certs); err != nil {
 		return nil, err
 	}
 
-	members := make([]xmlListenerCertificate, 0, len(certArns))
-	for _, c := range certArns {
-		members = append(members, xmlListenerCertificate{CertificateArn: c})
+	members := make([]xmlListenerCertificate, 0, len(certs))
+	for _, c := range certs {
+		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn})
 	}
 
 	return &addListenerCertificatesResponse{
@@ -1161,7 +1256,7 @@ func (h *Handler) handleDescribeListenerCertificates(vals url.Values) (any, erro
 
 	members := make([]xmlListenerCertificate, 0, len(certs))
 	for _, c := range certs {
-		members = append(members, xmlListenerCertificate{CertificateArn: c})
+		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn})
 	}
 
 	return &describeListenerCertificatesResponse{
@@ -1351,7 +1446,7 @@ func (h *Handler) handleDescribeTrustStoreRevocations(vals url.Values) (any, err
 
 	members := make([]xmlRevocationContent, 0, len(revocations))
 	for _, r := range revocations {
-		members = append(members, xmlRevocationContent{RevocationID: r})
+		members = append(members, xmlRevocationContent(r))
 	}
 
 	return &describeTrustStoreRevocationsResponse{
@@ -1624,6 +1719,22 @@ func parseMembers(vals url.Values, prefix string) []string {
 	return result
 }
 
+// parseKVAttrs extracts key-value attribute pairs from Attributes.member.N.Key/Value form values.
+func parseKVAttrs(vals url.Values, prefix string) map[string]string {
+	attrs := make(map[string]string)
+
+	for i := 1; ; i++ {
+		k := vals.Get(fmt.Sprintf("%s.%d.Key", prefix, i))
+		if k == "" {
+			break
+		}
+
+		attrs[k] = vals.Get(fmt.Sprintf("%s.%d.Value", prefix, i))
+	}
+
+	return attrs
+}
+
 // parseTagKVs extracts key-value tag pairs from Tags.member.N.Key/Value form values.
 func parseTagKVs(vals url.Values) []tags.KV {
 	const prefix = "Tags.member"
@@ -1695,6 +1806,79 @@ func parseActions(vals url.Values, prefix string) []Action {
 	return result
 }
 
+// parseConditions extracts rule conditions from form values.
+// Supported fields: host-header, path-pattern, http-header, http-request-method,
+// query-string, source-ip.
+func parseConditions(vals url.Values, prefix string) []Condition {
+	result := make([]Condition, 0)
+	i := 1
+
+	for parseConditionAt(vals, prefix, i, &result) {
+		i++
+	}
+
+	return result
+}
+
+// parseConditionAt parses a single indexed condition and appends it to result.
+// Returns false when there are no more conditions to parse.
+func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition) bool {
+	field := vals.Get(fmt.Sprintf("%s.%d.Field", prefix, i))
+	if field == "" {
+		return false
+	}
+
+	cond := Condition{Field: field}
+
+	switch field {
+	case "host-header":
+		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HostHeaderConfig.Values.member", prefix, i))
+	case "path-pattern":
+		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.PathPatternConfig.Values.member", prefix, i))
+	case "http-request-method":
+		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpRequestMethodConfig.Values.member", prefix, i))
+	case "source-ip":
+		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.SourceIpConfig.Values.member", prefix, i))
+	case "http-header":
+		cond.HTTPHeaderName = vals.Get(fmt.Sprintf("%s.%d.HttpHeaderConfig.HttpHeaderName", prefix, i))
+		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpHeaderConfig.Values.member", prefix, i))
+	case "query-string":
+		cond.QueryStringPairs = parseQueryStringPairs(vals, prefix, i)
+	}
+
+	*result = append(*result, cond)
+
+	return true
+}
+
+// parseQueryStringPairs extracts query-string key/value pairs for the Nth condition.
+func parseQueryStringPairs(vals url.Values, prefix string, condIdx int) []QueryStringPair {
+	pairs := make([]QueryStringPair, 0)
+	j := 1
+
+	for parseQueryStringPairAt(vals, prefix, condIdx, j, &pairs) {
+		j++
+	}
+
+	return pairs
+}
+
+// parseQueryStringPairAt parses a single query-string pair.
+// Returns false when there are no more pairs to parse.
+func parseQueryStringPairAt(vals url.Values, prefix string, condIdx, pairIdx int, pairs *[]QueryStringPair) bool {
+	v := vals.Get(fmt.Sprintf("%s.%d.QueryStringConfig.Values.member.%d.Value", prefix, condIdx, pairIdx))
+	if v == "" {
+		return false
+	}
+
+	*pairs = append(*pairs, QueryStringPair{
+		Key:   vals.Get(fmt.Sprintf("%s.%d.QueryStringConfig.Values.member.%d.Key", prefix, condIdx, pairIdx)),
+		Value: v,
+	})
+
+	return true
+}
+
 // --- XML conversion helpers ---
 
 func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancer {
@@ -1742,7 +1926,7 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 func toXMLListener(l *Listener) xmlListener {
 	actions := make([]xmlAction, 0, len(l.DefaultActions))
 	for _, a := range l.DefaultActions {
-		actions = append(actions, xmlAction(a))
+		actions = append(actions, xmlAction{Type: a.Type, TargetGroupArn: a.TargetGroupArn})
 	}
 
 	return xmlListener{
@@ -1751,20 +1935,67 @@ func toXMLListener(l *Listener) xmlListener {
 		Protocol:        l.Protocol,
 		Port:            l.Port,
 		DefaultActions:  xmlActionList{Members: actions},
+		SslPolicy:       l.SSLPolicy,
+		AlpnPolicy:      l.AlpnPolicy,
 	}
+}
+
+// toStringValuesConfig converts a slice of strings into an xmlConditionValuesConfig pointer.
+func toStringValuesConfig(values []string) *xmlConditionValuesConfig {
+	members := make([]xmlStringValue, 0, len(values))
+	for _, v := range values {
+		members = append(members, xmlStringValue{Value: v})
+	}
+
+	return &xmlConditionValuesConfig{Values: xmlStringList{Members: members}}
+}
+
+// buildXMLCondition converts a single backend Condition into its XML representation.
+func buildXMLCondition(c Condition) xmlCondition {
+	xc := xmlCondition{Field: c.Field}
+
+	switch c.Field {
+	case "host-header":
+		xc.HostHeaderConfig = toStringValuesConfig(c.Values)
+	case "path-pattern":
+		xc.PathPatternConfig = toStringValuesConfig(c.Values)
+	case "http-request-method":
+		xc.HTTPRequestMethodConfig = toStringValuesConfig(c.Values)
+	case "source-ip":
+		xc.SourceIPConfig = toStringValuesConfig(c.Values)
+	case "http-header":
+		xc.HTTPHeaderConfig = &xmlHTTPHeaderConfig{
+			HTTPHeaderName: c.HTTPHeaderName,
+			Values:         toStringValuesConfig(c.Values).Values,
+		}
+	case "query-string":
+		pairs := make([]xmlQueryStringKeyValue, 0, len(c.QueryStringPairs))
+		for _, p := range c.QueryStringPairs {
+			pairs = append(pairs, xmlQueryStringKeyValue(p))
+		}
+		xc.QueryStringConfig = &xmlQueryStringConfig{Values: xmlQueryStringList{Members: pairs}}
+	}
+
+	return xc
 }
 
 func toXMLRule(r *Rule) xmlRule {
 	actions := make([]xmlAction, 0, len(r.Actions))
 	for _, a := range r.Actions {
-		actions = append(actions, xmlAction(a))
+		actions = append(actions, xmlAction{Type: a.Type, TargetGroupArn: a.TargetGroupArn})
+	}
+
+	conds := make([]xmlCondition, 0, len(r.Conditions))
+	for _, c := range r.Conditions {
+		conds = append(conds, buildXMLCondition(c))
 	}
 
 	return xmlRule{
-		RuleArn:   r.RuleArn,
-		Priority:  r.Priority,
-		IsDefault: r.IsDefault,
-		Actions:   xmlActionList{Members: actions},
+		RuleArn:    r.RuleArn,
+		Priority:   r.Priority,
+		IsDefault:  r.IsDefault,
+		Actions:    xmlActionList{Members: actions},
+		Conditions: xmlConditionList{Members: conds},
 	}
 }
 
@@ -2058,6 +2289,8 @@ type xmlListener struct {
 	ListenerArn     string        `xml:"ListenerArn"`
 	LoadBalancerArn string        `xml:"LoadBalancerArn"`
 	Protocol        string        `xml:"Protocol"`
+	SslPolicy       string        `xml:"SslPolicy,omitempty"`
+	AlpnPolicy      string        `xml:"AlpnPolicy,omitempty"`
 	DefaultActions  xmlActionList `xml:"DefaultActions"`
 	Port            int32         `xml:"Port"`
 }
@@ -2108,11 +2341,48 @@ type modifyListenerResponse struct {
 
 // --- rule XML types ---
 
+type xmlConditionValuesConfig struct {
+	Values xmlStringList `xml:"Values"`
+}
+
+type xmlHTTPHeaderConfig struct {
+	HTTPHeaderName string        `xml:"HttpHeaderName"`
+	Values         xmlStringList `xml:"Values"`
+}
+
+type xmlQueryStringKeyValue struct {
+	Key   string `xml:"Key,omitempty"`
+	Value string `xml:"Value"`
+}
+
+type xmlQueryStringList struct {
+	Members []xmlQueryStringKeyValue `xml:"member"`
+}
+
+type xmlQueryStringConfig struct {
+	Values xmlQueryStringList `xml:"Values"`
+}
+
+type xmlCondition struct {
+	HostHeaderConfig        *xmlConditionValuesConfig `xml:"HostHeaderConfig,omitempty"`
+	PathPatternConfig       *xmlConditionValuesConfig `xml:"PathPatternConfig,omitempty"`
+	HTTPHeaderConfig        *xmlHTTPHeaderConfig      `xml:"HttpHeaderConfig,omitempty"`
+	HTTPRequestMethodConfig *xmlConditionValuesConfig `xml:"HttpRequestMethodConfig,omitempty"`
+	QueryStringConfig       *xmlQueryStringConfig     `xml:"QueryStringConfig,omitempty"`
+	SourceIPConfig          *xmlConditionValuesConfig `xml:"SourceIpConfig,omitempty"`
+	Field                   string                    `xml:"Field"`
+}
+
+type xmlConditionList struct {
+	Members []xmlCondition `xml:"member"`
+}
+
 type xmlRule struct {
-	RuleArn   string        `xml:"RuleArn"`
-	Priority  string        `xml:"Priority"`
-	Actions   xmlActionList `xml:"Actions"`
-	IsDefault bool          `xml:"IsDefault"`
+	RuleArn    string           `xml:"RuleArn"`
+	Priority   string           `xml:"Priority"`
+	Actions    xmlActionList    `xml:"Actions"`
+	Conditions xmlConditionList `xml:"Conditions"`
+	IsDefault  bool             `xml:"IsDefault"`
 }
 
 type xmlRuleList struct {
@@ -2459,7 +2729,9 @@ type modifyTrustStoreResponse struct {
 }
 
 type xmlRevocationContent struct {
-	RevocationID string `xml:"RevocationId"`
+	RevocationID           string `xml:"RevocationId"`
+	RevocationType         string `xml:"RevocationType,omitempty"`
+	NumberOfRevokedEntries int64  `xml:"NumberOfRevokedEntries,omitempty"`
 }
 
 type xmlRevocationContentList struct {

@@ -159,8 +159,9 @@ func recordSetKey(name, rrType, setIdentifier string) string {
 
 // zoneData holds per-zone state.
 type zoneData struct {
-	records map[string]*ResourceRecordSet // key: "name|TYPE" or "name|TYPE|SetIdentifier"
-	zone    HostedZone
+	records       map[string]*ResourceRecordSet // key: "name|TYPE" or "name|TYPE|SetIdentifier"
+	zone          HostedZone
+	dnssecEnabled bool
 }
 
 // KeySigningKey represents a Route 53 key signing key for DNSSEC.
@@ -718,6 +719,101 @@ func (b *InMemoryBackend) ActivateKeySigningKey(hostedZoneID, name string) (*Key
 	return &cp, nil
 }
 
+// DeactivateKeySigningKey deactivates an existing key signing key.
+func (b *InMemoryBackend) DeactivateKeySigningKey(hostedZoneID, name string) (*KeySigningKey, error) {
+	b.mu.Lock("DeactivateKeySigningKey")
+	defer b.mu.Unlock()
+
+	key := kskKey(hostedZoneID, name)
+	ksk, ok := b.keySigningKeys[key]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: key signing key %s not found in zone %s",
+			ErrKeySigningKeyNotFound,
+			name,
+			hostedZoneID,
+		)
+	}
+
+	ksk.Status = kskStatusInactive
+	cp := *ksk
+
+	return &cp, nil
+}
+
+// DeleteKeySigningKey deletes a key signing key.
+func (b *InMemoryBackend) DeleteKeySigningKey(hostedZoneID, name string) error {
+	b.mu.Lock("DeleteKeySigningKey")
+	defer b.mu.Unlock()
+
+	key := kskKey(hostedZoneID, name)
+	if _, ok := b.keySigningKeys[key]; !ok {
+		return fmt.Errorf(
+			"%w: key signing key %s not found in zone %s",
+			ErrKeySigningKeyNotFound,
+			name,
+			hostedZoneID,
+		)
+	}
+
+	delete(b.keySigningKeys, key)
+
+	return nil
+}
+
+// EnableHostedZoneDNSSEC enables DNSSEC for a hosted zone.
+func (b *InMemoryBackend) EnableHostedZoneDNSSEC(zoneID string) error {
+	b.mu.Lock("EnableHostedZoneDNSSEC")
+	defer b.mu.Unlock()
+
+	zd, ok := b.zones[zoneID]
+	if !ok {
+		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	zd.dnssecEnabled = true
+
+	return nil
+}
+
+// DisableHostedZoneDNSSEC disables DNSSEC for a hosted zone.
+func (b *InMemoryBackend) DisableHostedZoneDNSSEC(zoneID string) error {
+	b.mu.Lock("DisableHostedZoneDNSSEC")
+	defer b.mu.Unlock()
+
+	zd, ok := b.zones[zoneID]
+	if !ok {
+		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	zd.dnssecEnabled = false
+
+	return nil
+}
+
+// GetDNSSEC returns the DNSSEC status and key signing keys for a hosted zone.
+func (b *InMemoryBackend) GetDNSSEC(zoneID string) (bool, []KeySigningKey, error) {
+	b.mu.RLock("GetDNSSEC")
+	defer b.mu.RUnlock()
+
+	zd, ok := b.zones[zoneID]
+	if !ok {
+		return false, nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	var ksks []KeySigningKey
+	for _, ksk := range b.keySigningKeys {
+		if ksk.HostedZoneID == zoneID {
+			cp := *ksk
+			ksks = append(ksks, cp)
+		}
+	}
+
+	sort.Slice(ksks, func(i, j int) bool { return ksks[i].Name < ksks[j].Name })
+
+	return zd.dnssecEnabled, ksks, nil
+}
+
 // AssociateVPCWithHostedZone associates a VPC with a private hosted zone.
 func (b *InMemoryBackend) AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion string) error {
 	if vpcID == "" {
@@ -997,6 +1093,176 @@ func (b *InMemoryBackend) AddZoneInternal(hz HostedZone) {
 	b.mu.Lock("AddZoneInternal")
 	defer b.mu.Unlock()
 	b.zones[hz.ID] = &zoneData{zone: hz, records: make(map[string]*ResourceRecordSet)}
+}
+
+// DeleteTrafficPolicy deletes a specific version of a traffic policy.
+// If it is the last version, the entire policy is removed.
+func (b *InMemoryBackend) DeleteTrafficPolicy(id string, version int32) error {
+	b.mu.Lock("DeleteTrafficPolicy")
+	defer b.mu.Unlock()
+
+	versions, ok := b.trafficPolicies[id]
+	if !ok || len(versions) == 0 {
+		return fmt.Errorf("%w: traffic policy %s not found", ErrTrafficPolicyNotFound, id)
+	}
+
+	idx := -1
+	for i, tp := range versions {
+		if tp.Version == version {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx == -1 {
+		return fmt.Errorf("%w: traffic policy %s version %d not found", ErrTrafficPolicyNotFound, id, version)
+	}
+
+	if len(versions) == 1 {
+		delete(b.trafficPolicies, id)
+
+		return nil
+	}
+
+	b.trafficPolicies[id] = append(versions[:idx], versions[idx+1:]...)
+
+	return nil
+}
+
+// GetTrafficPolicy returns a specific version of a traffic policy.
+func (b *InMemoryBackend) GetTrafficPolicy(id string, version int32) (*TrafficPolicy, error) {
+	b.mu.RLock("GetTrafficPolicy")
+	defer b.mu.RUnlock()
+
+	versions, ok := b.trafficPolicies[id]
+	if !ok || len(versions) == 0 {
+		return nil, fmt.Errorf("%w: traffic policy %s not found", ErrTrafficPolicyNotFound, id)
+	}
+
+	for _, tp := range versions {
+		if tp.Version == version {
+			cp := *tp
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: traffic policy %s version %d not found", ErrTrafficPolicyNotFound, id, version)
+}
+
+// DeleteTrafficPolicyInstance deletes a traffic policy instance.
+func (b *InMemoryBackend) DeleteTrafficPolicyInstance(id string) error {
+	b.mu.Lock("DeleteTrafficPolicyInstance")
+	defer b.mu.Unlock()
+
+	if _, ok := b.trafficPolicyInstances[id]; !ok {
+		return fmt.Errorf("%w: traffic policy instance %s not found", ErrTrafficPolicyInstNotFound, id)
+	}
+
+	delete(b.trafficPolicyInstances, id)
+
+	return nil
+}
+
+// GetTrafficPolicyInstance returns a traffic policy instance by ID.
+func (b *InMemoryBackend) GetTrafficPolicyInstance(id string) (*TrafficPolicyInstance, error) {
+	b.mu.RLock("GetTrafficPolicyInstance")
+	defer b.mu.RUnlock()
+
+	inst, ok := b.trafficPolicyInstances[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: traffic policy instance %s not found", ErrTrafficPolicyInstNotFound, id)
+	}
+
+	cp := *inst
+
+	return &cp, nil
+}
+
+// ListTrafficPolicies returns the latest version of each traffic policy.
+func (b *InMemoryBackend) ListTrafficPolicies() ([]*TrafficPolicy, error) {
+	b.mu.RLock("ListTrafficPolicies")
+	defer b.mu.RUnlock()
+
+	result := make([]*TrafficPolicy, 0, len(b.trafficPolicies))
+	for _, versions := range b.trafficPolicies {
+		if len(versions) == 0 {
+			continue
+		}
+
+		cp := *versions[len(versions)-1]
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+
+	return result, nil
+}
+
+// ListTrafficPolicyVersions returns all versions of a traffic policy.
+func (b *InMemoryBackend) ListTrafficPolicyVersions(id string) ([]*TrafficPolicy, error) {
+	b.mu.RLock("ListTrafficPolicyVersions")
+	defer b.mu.RUnlock()
+
+	versions, ok := b.trafficPolicies[id]
+	if !ok || len(versions) == 0 {
+		return nil, fmt.Errorf("%w: traffic policy %s not found", ErrTrafficPolicyNotFound, id)
+	}
+
+	result := make([]*TrafficPolicy, len(versions))
+	for i, tp := range versions {
+		cp := *tp
+		result[i] = &cp
+	}
+
+	return result, nil
+}
+
+// ListTrafficPolicyInstances returns all traffic policy instances.
+func (b *InMemoryBackend) ListTrafficPolicyInstances() ([]*TrafficPolicyInstance, error) {
+	b.mu.RLock("ListTrafficPolicyInstances")
+	defer b.mu.RUnlock()
+
+	result := make([]*TrafficPolicyInstance, 0, len(b.trafficPolicyInstances))
+	for _, inst := range b.trafficPolicyInstances {
+		cp := *inst
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+
+	return result, nil
+}
+
+// DeleteCidrCollection deletes a CIDR collection.
+func (b *InMemoryBackend) DeleteCidrCollection(id string) error {
+	b.mu.Lock("DeleteCidrCollection")
+	defer b.mu.Unlock()
+
+	if _, ok := b.cidrCollections[id]; !ok {
+		return fmt.Errorf("%w: CIDR collection %s not found", ErrCidrCollectionNotFound, id)
+	}
+
+	delete(b.cidrCollections, id)
+
+	return nil
+}
+
+// ListCidrCollections returns all CIDR collections.
+func (b *InMemoryBackend) ListCidrCollections() ([]*CidrCollection, error) {
+	b.mu.RLock("ListCidrCollections")
+	defer b.mu.RUnlock()
+
+	result := make([]*CidrCollection, 0, len(b.cidrCollections))
+	for _, col := range b.cidrCollections {
+		cp := *col
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+
+	return result, nil
 }
 
 // AddHealthCheckInternal adds a health check directly into the backend for testing.

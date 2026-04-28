@@ -27,7 +27,7 @@ func TestRoute53ResolverDashboard(t *testing.T) {
 			SubnetID: "subnet-1",
 			IP:       "10.0.0.10",
 		}},
-		[]string{"sg-00000001"},
+		[]string{"sg-12345"},
 		"IPV4",
 	)
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestRoute53ResolverDashboard_CreateAndDelete(t *testing.T) {
 			SubnetID: "subnet-2",
 			IP:       "10.0.0.11",
 		}},
-		[]string{"sg-00000002"},
+		[]string{"sg-12345"},
 		"IPV4",
 	)
 	require.NoError(t, err)

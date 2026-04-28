@@ -4,6 +4,7 @@ package elbv2
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,6 +39,14 @@ var (
 	ErrInvalidParameter = awserr.New("ValidationError", awserr.ErrInvalidParameter)
 	// ErrUnknownAction is returned when the requested action is not recognized.
 	ErrUnknownAction = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
+	// ErrDuplicateRulePriority is returned when two rules have the same priority.
+	ErrDuplicateRulePriority = awserr.New("DuplicatePriority", awserr.ErrInvalidParameter)
+	// ErrOperationNotPermitted is returned when the operation is not allowed (e.g. deleting default rule).
+	ErrOperationNotPermitted = awserr.New("OperationNotPermitted", awserr.ErrInvalidParameter)
+	// ErrDuplicateListener is returned when a listener on the same port already exists.
+	ErrDuplicateListener = awserr.New("DuplicateListener", awserr.ErrAlreadyExists)
+	// ErrTargetGroupInUse is returned when attempting to delete a target group that is still referenced.
+	ErrTargetGroupInUse = awserr.New("TargetGroupAssociationLimit", awserr.ErrInvalidParameter)
 )
 
 // LoadBalancerState represents the state of a load balancer.
@@ -51,6 +60,7 @@ type LoadBalancer struct {
 	CreatedTime           time.Time         `json:"createdTime"`
 	State                 LoadBalancerState `json:"state"`
 	Tags                  *tags.Tags        `json:"tags,omitempty"`
+	Attributes            map[string]string `json:"attributes,omitempty"`
 	LoadBalancerArn       string            `json:"loadBalancerArn"`
 	LoadBalancerName      string            `json:"loadBalancerName"`
 	DNSName               string            `json:"dnsName"`
@@ -65,18 +75,24 @@ type LoadBalancer struct {
 
 // TargetGroup represents an ELBv2 target group.
 type TargetGroup struct {
-	Tags                *tags.Tags `json:"tags,omitempty"`
-	TargetGroupArn      string     `json:"targetGroupArn"`
-	TargetGroupName     string     `json:"targetGroupName"`
-	Protocol            string     `json:"protocol"`
-	VpcID               string     `json:"vpcId"`
-	TargetType          string     `json:"targetType"`
-	HealthCheckProtocol string     `json:"healthCheckProtocol"`
-	HealthCheckPort     string     `json:"healthCheckPort"`
-	HealthCheckPath     string     `json:"healthCheckPath"`
-	Targets             []Target   `json:"targets"`
-	Port                int32      `json:"port"`
-	HealthCheckEnabled  bool       `json:"healthCheckEnabled"`
+	Tags                       *tags.Tags        `json:"tags,omitempty"`
+	TargetGroupAttributes      map[string]string `json:"targetGroupAttributes,omitempty"`
+	TargetGroupArn             string            `json:"targetGroupArn"`
+	TargetGroupName            string            `json:"targetGroupName"`
+	Protocol                   string            `json:"protocol"`
+	VpcID                      string            `json:"vpcId"`
+	TargetType                 string            `json:"targetType"`
+	HealthCheckProtocol        string            `json:"healthCheckProtocol"`
+	HealthCheckPort            string            `json:"healthCheckPort"`
+	HealthCheckPath            string            `json:"healthCheckPath"`
+	Matcher                    string            `json:"matcher"`
+	Targets                    []Target          `json:"targets"`
+	Port                       int32             `json:"port"`
+	HealthCheckIntervalSeconds int32             `json:"healthCheckIntervalSeconds"`
+	HealthCheckTimeoutSeconds  int32             `json:"healthCheckTimeoutSeconds"`
+	HealthyThresholdCount      int32             `json:"healthyThresholdCount"`
+	UnhealthyThresholdCount    int32             `json:"unhealthyThresholdCount"`
+	HealthCheckEnabled         bool              `json:"healthCheckEnabled"`
 }
 
 // Target represents a registered target in a target group.
@@ -85,40 +101,118 @@ type Target struct {
 	Port int32  `json:"port"`
 }
 
+// TargetHealthDescription describes the health state of a registered target.
+type TargetHealthDescription struct {
+	HealthState  string `json:"healthState"`
+	HealthReason string `json:"healthReason,omitempty"`
+	Target       Target `json:"target"`
+}
+
 // Action represents a listener or rule action.
 type Action struct {
-	Type           string `json:"type"`
+	RedirectConfig      *RedirectConfig      `json:"redirectConfig,omitempty"`
+	FixedResponseConfig *FixedResponseConfig `json:"fixedResponseConfig,omitempty"`
+	ForwardConfig       *ForwardConfig       `json:"forwardConfig,omitempty"`
+	Type                string               `json:"type"`
+	TargetGroupArn      string               `json:"targetGroupArn"`
+	Order               int32                `json:"order,omitempty"`
+}
+
+// RedirectConfig holds configuration for redirect actions.
+type RedirectConfig struct {
+	Protocol   string `json:"protocol,omitempty"`
+	Port       string `json:"port,omitempty"`
+	Host       string `json:"host,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Query      string `json:"query,omitempty"`
+	StatusCode string `json:"statusCode"`
+}
+
+// FixedResponseConfig holds configuration for fixed-response actions.
+type FixedResponseConfig struct {
+	MessageBody string `json:"messageBody,omitempty"`
+	StatusCode  string `json:"statusCode"`
+	ContentType string `json:"contentType,omitempty"`
+}
+
+// TargetGroupTuple is a target group reference used in ForwardConfig.
+type TargetGroupTuple struct {
 	TargetGroupArn string `json:"targetGroupArn"`
+	Weight         int32  `json:"weight,omitempty"`
+}
+
+// ForwardConfig holds configuration for forward actions with multiple target groups.
+type ForwardConfig struct {
+	TargetGroups []TargetGroupTuple `json:"targetGroups,omitempty"`
+}
+
+// Condition represents an ELBv2 rule condition (e.g. host-header, path-pattern, http-header).
+type Condition struct {
+	// Field is the condition type: host-header, path-pattern, http-header,
+	// http-request-method, query-string, source-ip.
+	Field string `json:"field"`
+	// Values holds the condition values (used for host-header, path-pattern,
+	// http-request-method, source-ip).
+	Values []string `json:"values,omitempty"`
+	// HTTPHeaderName is only set for http-header conditions.
+	HTTPHeaderName string `json:"httpHeaderName,omitempty"`
+	// QueryStringPairs holds key/value pairs for query-string conditions.
+	QueryStringPairs []QueryStringPair `json:"queryStringPairs,omitempty"`
+}
+
+// QueryStringPair is a key/value pair used in query-string rule conditions.
+type QueryStringPair struct {
+	Key   string `json:"key,omitempty"`
+	Value string `json:"value"`
+}
+
+// Certificate represents a listener certificate.
+type Certificate struct {
+	CertificateArn string `json:"certificateArn"`
+	IsDefault      bool   `json:"isDefault"`
 }
 
 // Listener represents an ELBv2 listener.
 type Listener struct {
-	Tags            *tags.Tags `json:"tags,omitempty"`
-	ListenerArn     string     `json:"listenerArn"`
-	LoadBalancerArn string     `json:"loadBalancerArn"`
-	Protocol        string     `json:"protocol"`
-	DefaultActions  []Action   `json:"defaultActions"`
-	Certificates    []string   `json:"certificates,omitempty"`
-	Port            int32      `json:"port"`
+	Tags            *tags.Tags        `json:"tags,omitempty"`
+	Attributes      map[string]string `json:"attributes,omitempty"`
+	ListenerArn     string            `json:"listenerArn"`
+	LoadBalancerArn string            `json:"loadBalancerArn"`
+	Protocol        string            `json:"protocol"`
+	SSLPolicy       string            `json:"sslPolicy,omitempty"`
+	AlpnPolicy      string            `json:"alpnPolicy,omitempty"`
+	TrustStoreArn   string            `json:"trustStoreArn,omitempty"`
+	DefaultActions  []Action          `json:"defaultActions"`
+	Certificates    []Certificate     `json:"certificates,omitempty"`
+	Port            int32             `json:"port"`
 }
 
 // Rule represents an ELBv2 listener rule.
 type Rule struct {
-	Tags        *tags.Tags `json:"tags,omitempty"`
-	RuleArn     string     `json:"ruleArn"`
-	ListenerArn string     `json:"listenerArn"`
-	Priority    string     `json:"priority"`
-	Actions     []Action   `json:"actions"`
-	IsDefault   bool       `json:"isDefault"`
+	Tags        *tags.Tags  `json:"tags,omitempty"`
+	RuleArn     string      `json:"ruleArn"`
+	ListenerArn string      `json:"listenerArn"`
+	Priority    string      `json:"priority"`
+	Actions     []Action    `json:"actions"`
+	Conditions  []Condition `json:"conditions,omitempty"`
+	IsDefault   bool        `json:"isDefault"`
+}
+
+// TrustStoreRevocation represents a single revocation entry stored in a trust store.
+type TrustStoreRevocation struct {
+	RevocationID           string `json:"revocationId"`
+	RevocationType         string `json:"revocationType"`
+	NumberOfRevokedEntries int64  `json:"numberOfRevokedEntries"`
 }
 
 // TrustStore represents an ELBv2 trust store.
 type TrustStore struct {
-	Tags          *tags.Tags `json:"tags,omitempty"`
-	TrustStoreArn string     `json:"trustStoreArn"`
-	Name          string     `json:"name"`
-	Status        string     `json:"status"`
-	Revocations   []string   `json:"revocations,omitempty"`
+	Tags                *tags.Tags             `json:"tags,omitempty"`
+	TrustStoreArn       string                 `json:"trustStoreArn"`
+	Name                string                 `json:"name"`
+	Status              string                 `json:"status"`
+	Revocations         []TrustStoreRevocation `json:"revocations,omitempty"`
+	TotalRevokedEntries int64                  `json:"totalRevokedEntries"`
 }
 
 // StorageBackend is the interface for ELBv2 storage operations.
@@ -126,19 +220,26 @@ type StorageBackend interface {
 	CreateLoadBalancer(input CreateLoadBalancerInput) (*LoadBalancer, error)
 	DescribeLoadBalancers(arns []string, names []string) ([]LoadBalancer, error)
 	DeleteLoadBalancer(lbArn string) error
-	ModifyLoadBalancerAttributes(lbArn string) (*LoadBalancer, error)
+	ModifyLoadBalancerAttributes(lbArn string, attrs map[string]string) (*LoadBalancer, error)
 	CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error)
 	DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error)
 	DeleteTargetGroup(tgArn string) error
+	ModifyTargetGroup(input ModifyTargetGroupInput) (*TargetGroup, error)
+	ModifyTargetGroupAttributes(tgArn string, attrs map[string]string) (*TargetGroup, error)
+	DescribeTargetGroupAttributes(tgArn string) (map[string]string, error)
 	RegisterTargets(tgArn string, targets []Target) error
 	DeregisterTargets(tgArn string, targets []Target) error
-	DescribeTargetHealth(tgArn string) ([]Target, error)
+	DescribeTargetHealth(tgArn string) ([]TargetHealthDescription, error)
 	CreateListener(input CreateListenerInput) (*Listener, error)
 	DescribeListeners(lbArn string, listenerArns []string) ([]Listener, error)
 	DeleteListener(listenerArn string) error
+	ModifyListener(input ModifyListenerInput) (*Listener, error)
+	ModifyListenerAttributes(listenerArn string, attrs map[string]string) (*Listener, error)
+	DescribeListenerAttributes(listenerArn string) (map[string]string, error)
 	CreateRule(input CreateRuleInput) (*Rule, error)
 	DescribeRules(listenerArn string, ruleArns []string) ([]Rule, error)
 	DeleteRule(ruleArn string) error
+	ModifyRule(ruleArn string, actions []Action, conditions []Condition) (*Rule, error)
 	AddTags(resourceArns []string, kvs []tags.KV) error
 	RemoveTags(resourceArns []string, keys []string) error
 	DescribeTags(resourceArns []string) (map[string][]tags.KV, error)
@@ -147,15 +248,15 @@ type StorageBackend interface {
 	DescribeTrustStores(arns []string, names []string) ([]TrustStore, error)
 	DeleteTrustStore(trustStoreArn string) error
 	ModifyTrustStore(trustStoreArn, name string) (*TrustStore, error)
-	AddTrustStoreRevocations(trustStoreArn string, revocations []string) error
+	AddTrustStoreRevocations(trustStoreArn string, revocations []TrustStoreRevocation) error
 	RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []string) error
-	DescribeTrustStoreRevocations(trustStoreArn string) ([]string, error)
+	DescribeTrustStoreRevocations(trustStoreArn string) ([]TrustStoreRevocation, error)
 	DescribeTrustStoreAssociations(trustStoreArn string) ([]string, error)
 	// Rule priority operations.
 	SetRulePriorities(priorities []RulePriority) ([]Rule, error)
 	// Listener certificate operations.
-	AddListenerCertificates(listenerArn string, certArns []string) error
-	DescribeListenerCertificates(listenerArn string) ([]string, error)
+	AddListenerCertificates(listenerArn string, certs []Certificate) error
+	DescribeListenerCertificates(listenerArn string) ([]Certificate, error)
 	RemoveListenerCertificates(listenerArn string, certArns []string) error
 }
 
@@ -172,21 +273,60 @@ type CreateLoadBalancerInput struct {
 
 // CreateTargetGroupInput holds the parameters for creating a target group.
 type CreateTargetGroupInput struct {
-	Name       string
-	Protocol   string
-	VpcID      string
-	TargetType string
-	Tags       []tags.KV
-	Port       int32
+	Name                       string
+	Protocol                   string
+	VpcID                      string
+	TargetType                 string
+	HealthCheckProtocol        string
+	HealthCheckPort            string
+	HealthCheckPath            string
+	Matcher                    string
+	Tags                       []tags.KV
+	Port                       int32
+	HealthCheckIntervalSeconds int32
+	HealthCheckTimeoutSeconds  int32
+	HealthyThresholdCount      int32
+	UnhealthyThresholdCount    int32
+	HealthCheckEnabled         bool
+}
+
+// ModifyTargetGroupInput holds the parameters for modifying a target group.
+type ModifyTargetGroupInput struct {
+	TargetGroupArn             string
+	HealthCheckProtocol        string
+	HealthCheckPort            string
+	HealthCheckPath            string
+	Matcher                    string
+	HealthCheckIntervalSeconds int32
+	HealthCheckTimeoutSeconds  int32
+	HealthyThresholdCount      int32
+	UnhealthyThresholdCount    int32
+	HealthCheckEnabled         bool
 }
 
 // CreateListenerInput holds the parameters for creating a listener.
 type CreateListenerInput struct {
 	LoadBalancerArn string
 	Protocol        string
+	SSLPolicy       string
+	AlpnPolicy      string
+	TrustStoreArn   string
 	DefaultActions  []Action
 	Tags            []tags.KV
+	Certificates    []Certificate
 	Port            int32
+}
+
+// ModifyListenerInput holds the parameters for modifying a listener.
+type ModifyListenerInput struct {
+	ListenerArn    string
+	Protocol       string
+	SSLPolicy      string
+	AlpnPolicy     string
+	TrustStoreArn  string
+	DefaultActions []Action
+	Certificates   []Certificate
+	Port           int32
 }
 
 // CreateRuleInput holds the parameters for creating a listener rule.
@@ -194,6 +334,7 @@ type CreateRuleInput struct {
 	ListenerArn string
 	Priority    string
 	Actions     []Action
+	Conditions  []Condition
 	Tags        []tags.KV
 }
 
@@ -374,21 +515,44 @@ func (b *InMemoryBackend) DeleteLoadBalancer(lbArn string) error {
 		return ErrLoadBalancerNotFound
 	}
 
+	// Cascade: delete all listeners and their rules.
+	for listenerArn, l := range b.listeners {
+		if l.LoadBalancerArn != lbArn {
+			continue
+		}
+
+		for ruleArn, r := range b.rules {
+			if r.ListenerArn == listenerArn {
+				r.Tags.Close()
+				delete(b.rules, ruleArn)
+			}
+		}
+
+		l.Tags.Close()
+		delete(b.listeners, listenerArn)
+	}
+
 	b.loadBalancers[lbArn].Tags.Close()
 	delete(b.loadBalancers, lbArn)
 
 	return nil
 }
 
-// ModifyLoadBalancerAttributes is a no-op returning the existing load balancer.
-func (b *InMemoryBackend) ModifyLoadBalancerAttributes(lbArn string) (*LoadBalancer, error) {
-	b.mu.RLock("ModifyLoadBalancerAttributes")
-	defer b.mu.RUnlock()
+// ModifyLoadBalancerAttributes updates attributes on a load balancer.
+func (b *InMemoryBackend) ModifyLoadBalancerAttributes(lbArn string, attrs map[string]string) (*LoadBalancer, error) {
+	b.mu.Lock("ModifyLoadBalancerAttributes")
+	defer b.mu.Unlock()
 
 	lb, ok := b.loadBalancers[lbArn]
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
 	}
+
+	if lb.Attributes == nil {
+		lb.Attributes = make(map[string]string)
+	}
+
+	maps.Copy(lb.Attributes, attrs)
 
 	cp := *lb
 
@@ -553,8 +717,8 @@ func (b *InMemoryBackend) DeregisterTargets(tgArn string, targets []Target) erro
 	return nil
 }
 
-// DescribeTargetHealth returns targets registered with the target group.
-func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]Target, error) {
+// DescribeTargetHealth returns health descriptions for targets registered with the target group.
+func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]TargetHealthDescription, error) {
 	b.mu.RLock("DescribeTargetHealth")
 	defer b.mu.RUnlock()
 
@@ -563,8 +727,13 @@ func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]Target, error) {
 		return nil, ErrTargetGroupNotFound
 	}
 
-	result := make([]Target, len(tg.Targets))
-	copy(result, tg.Targets)
+	result := make([]TargetHealthDescription, len(tg.Targets))
+	for i, t := range tg.Targets {
+		result[i] = TargetHealthDescription{
+			Target:      t,
+			HealthState: "healthy",
+		}
+	}
 
 	return result, nil
 }
@@ -592,10 +761,28 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		Protocol:        input.Protocol,
 		Port:            input.Port,
 		DefaultActions:  input.DefaultActions,
+		Certificates:    input.Certificates,
+		SSLPolicy:       input.SSLPolicy,
+		AlpnPolicy:      input.AlpnPolicy,
+		TrustStoreArn:   input.TrustStoreArn,
 		Tags:            t,
 	}
 
 	b.listeners[listenerArn] = listener
+
+	// Auto-create default rule (AWS behaviour: every listener has a default rule).
+	defaultRuleArn := b.ruleARN(listenerArn, "default")
+	defaultTags := tags.New("elbv2.rule." + defaultRuleArn + ".tags")
+	defaultActions := make([]Action, len(input.DefaultActions))
+	copy(defaultActions, input.DefaultActions)
+	b.rules[defaultRuleArn] = &Rule{
+		RuleArn:     defaultRuleArn,
+		ListenerArn: listenerArn,
+		Priority:    "default",
+		IsDefault:   true,
+		Actions:     defaultActions,
+		Tags:        defaultTags,
+	}
 
 	cp := *listener
 
@@ -643,10 +830,61 @@ func (b *InMemoryBackend) DeleteListener(listenerArn string) error {
 		return ErrListenerNotFound
 	}
 
+	// Cascade: delete all rules belonging to this listener.
+	for ruleArn, r := range b.rules {
+		if r.ListenerArn == listenerArn {
+			r.Tags.Close()
+			delete(b.rules, ruleArn)
+		}
+	}
+
 	b.listeners[listenerArn].Tags.Close()
 	delete(b.listeners, listenerArn)
 
 	return nil
+}
+
+// ModifyListener updates the properties of an existing listener.
+func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, error) {
+	b.mu.Lock("ModifyListener")
+	defer b.mu.Unlock()
+
+	l, ok := b.listeners[input.ListenerArn]
+	if !ok {
+		return nil, ErrListenerNotFound
+	}
+
+	if input.Protocol != "" {
+		l.Protocol = input.Protocol
+	}
+
+	if input.Port != 0 {
+		l.Port = input.Port
+	}
+
+	if len(input.DefaultActions) > 0 {
+		l.DefaultActions = input.DefaultActions
+	}
+
+	if len(input.Certificates) > 0 {
+		l.Certificates = input.Certificates
+	}
+
+	if input.SSLPolicy != "" {
+		l.SSLPolicy = input.SSLPolicy
+	}
+
+	if input.AlpnPolicy != "" {
+		l.AlpnPolicy = input.AlpnPolicy
+	}
+
+	if input.TrustStoreArn != "" {
+		l.TrustStoreArn = input.TrustStoreArn
+	}
+
+	cp := *l
+
+	return &cp, nil
 }
 
 // CreateRule creates a new rule on a listener.
@@ -656,6 +894,15 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 
 	if _, ok := b.listeners[input.ListenerArn]; !ok {
 		return nil, ErrListenerNotFound
+	}
+
+	// Check for duplicate priority.
+	if input.Priority != "" && input.Priority != "default" {
+		for _, r := range b.rules {
+			if r.ListenerArn == input.ListenerArn && r.Priority == input.Priority {
+				return nil, fmt.Errorf("%w: priority %s already in use", ErrDuplicateRulePriority, input.Priority)
+			}
+		}
 	}
 
 	idx := strconv.Itoa(len(b.rules))
@@ -672,6 +919,7 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 		Priority:    input.Priority,
 		IsDefault:   false,
 		Actions:     input.Actions,
+		Conditions:  input.Conditions,
 		Tags:        t,
 	}
 
@@ -729,6 +977,29 @@ func (b *InMemoryBackend) DeleteRule(ruleArn string) error {
 	return nil
 }
 
+// ModifyRule updates the actions and/or conditions of an existing rule.
+func (b *InMemoryBackend) ModifyRule(ruleArn string, actions []Action, conditions []Condition) (*Rule, error) {
+	b.mu.Lock("ModifyRule")
+	defer b.mu.Unlock()
+
+	rule, ok := b.rules[ruleArn]
+	if !ok {
+		return nil, ErrRuleNotFound
+	}
+
+	if len(actions) > 0 {
+		rule.Actions = actions
+	}
+
+	if len(conditions) > 0 {
+		rule.Conditions = conditions
+	}
+
+	cp := *rule
+
+	return &cp, nil
+}
+
 // findTagsLocked returns the *tags.Tags for the given resource ARN.
 // Caller must hold b.mu (read or write).
 func (b *InMemoryBackend) findTagsLocked(resArn string) *tags.Tags {
@@ -746,6 +1017,10 @@ func (b *InMemoryBackend) findTagsLocked(resArn string) *tags.Tags {
 
 	if r, ok := b.rules[resArn]; ok {
 		return r.Tags
+	}
+
+	if ts, ok := b.trustStores[resArn]; ok {
+		return ts.Tags
 	}
 
 	return nil
@@ -844,7 +1119,7 @@ func (b *InMemoryBackend) CreateTrustStore(name string, kvs []tags.KV) (*TrustSt
 		TrustStoreArn: tsArn,
 		Name:          name,
 		Status:        "ACTIVE",
-		Revocations:   []string{},
+		Revocations:   []TrustStoreRevocation{},
 		Tags:          t,
 	}
 
@@ -921,7 +1196,7 @@ func (b *InMemoryBackend) DeleteTrustStore(trustStoreArn string) error {
 }
 
 // AddTrustStoreRevocations appends revocation entries to a trust store.
-func (b *InMemoryBackend) AddTrustStoreRevocations(trustStoreArn string, revocations []string) error {
+func (b *InMemoryBackend) AddTrustStoreRevocations(trustStoreArn string, revocations []TrustStoreRevocation) error {
 	b.mu.Lock("AddTrustStoreRevocations")
 	defer b.mu.Unlock()
 
@@ -935,9 +1210,7 @@ func (b *InMemoryBackend) AddTrustStoreRevocations(trustStoreArn string, revocat
 	return nil
 }
 
-// DescribeTrustStoreAssociations returns listener ARNs associated with a trust store.
-// In this implementation, trust stores are not automatically linked to listeners,
-// so we return an empty list.
+// DescribeTrustStoreAssociations returns listener ARNs whose trust store is set to this ARN.
 func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) ([]string, error) {
 	b.mu.RLock("DescribeTrustStoreAssociations")
 	defer b.mu.RUnlock()
@@ -946,11 +1219,23 @@ func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) (
 		return nil, ErrTrustStoreNotFound
 	}
 
-	return []string{}, nil
+	var result []string
+
+	for _, l := range b.listeners {
+		if l.TrustStoreArn == trustStoreArn {
+			result = append(result, l.ListenerArn)
+		}
+	}
+
+	if result == nil {
+		result = []string{}
+	}
+
+	return result, nil
 }
 
-// AddListenerCertificates adds ACM certificate ARNs to a listener.
-func (b *InMemoryBackend) AddListenerCertificates(listenerArn string, certArns []string) error {
+// AddListenerCertificates adds certificates to a listener.
+func (b *InMemoryBackend) AddListenerCertificates(listenerArn string, certs []Certificate) error {
 	b.mu.Lock("AddListenerCertificates")
 	defer b.mu.Unlock()
 
@@ -961,21 +1246,21 @@ func (b *InMemoryBackend) AddListenerCertificates(listenerArn string, certArns [
 
 	existing := make(map[string]bool, len(listener.Certificates))
 	for _, c := range listener.Certificates {
-		existing[c] = true
+		existing[c.CertificateArn] = true
 	}
 
-	for _, c := range certArns {
-		if !existing[c] {
+	for _, c := range certs {
+		if !existing[c.CertificateArn] {
 			listener.Certificates = append(listener.Certificates, c)
-			existing[c] = true
+			existing[c.CertificateArn] = true
 		}
 	}
 
 	return nil
 }
 
-// DescribeListenerCertificates returns certificate ARNs on a listener.
-func (b *InMemoryBackend) DescribeListenerCertificates(listenerArn string) ([]string, error) {
+// DescribeListenerCertificates returns certificates on a listener.
+func (b *InMemoryBackend) DescribeListenerCertificates(listenerArn string) ([]Certificate, error) {
 	b.mu.RLock("DescribeListenerCertificates")
 	defer b.mu.RUnlock()
 
@@ -984,7 +1269,7 @@ func (b *InMemoryBackend) DescribeListenerCertificates(listenerArn string) ([]st
 		return nil, ErrListenerNotFound
 	}
 
-	result := make([]string, len(listener.Certificates))
+	result := make([]Certificate, len(listener.Certificates))
 	copy(result, listener.Certificates)
 
 	return result, nil
@@ -1005,9 +1290,9 @@ func (b *InMemoryBackend) RemoveListenerCertificates(listenerArn string, certArn
 		remove[c] = true
 	}
 
-	remaining := make([]string, 0, len(listener.Certificates))
+	remaining := make([]Certificate, 0, len(listener.Certificates))
 	for _, c := range listener.Certificates {
-		if !remove[c] {
+		if !remove[c.CertificateArn] {
 			remaining = append(remaining, c)
 		}
 	}
@@ -1036,7 +1321,7 @@ func (b *InMemoryBackend) ModifyTrustStore(trustStoreArn, name string) (*TrustSt
 	return &cp, nil
 }
 
-// RemoveTrustStoreRevocations removes revocation entries from a trust store by index value.
+// RemoveTrustStoreRevocations removes revocation entries from a trust store by RevocationID.
 func (b *InMemoryBackend) RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []string) error {
 	b.mu.Lock("RemoveTrustStoreRevocations")
 	defer b.mu.Unlock()
@@ -1051,9 +1336,9 @@ func (b *InMemoryBackend) RemoveTrustStoreRevocations(trustStoreArn string, revo
 		remove[id] = true
 	}
 
-	remaining := make([]string, 0, len(ts.Revocations))
+	remaining := make([]TrustStoreRevocation, 0, len(ts.Revocations))
 	for _, r := range ts.Revocations {
-		if !remove[r] {
+		if !remove[r.RevocationID] {
 			remaining = append(remaining, r)
 		}
 	}
@@ -1064,7 +1349,7 @@ func (b *InMemoryBackend) RemoveTrustStoreRevocations(trustStoreArn string, revo
 }
 
 // DescribeTrustStoreRevocations returns revocation entries for a trust store.
-func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([]string, error) {
+func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([]TrustStoreRevocation, error) {
 	b.mu.RLock("DescribeTrustStoreRevocations")
 	defer b.mu.RUnlock()
 
@@ -1073,7 +1358,7 @@ func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([
 		return nil, ErrTrustStoreNotFound
 	}
 
-	result := make([]string, len(ts.Revocations))
+	result := make([]TrustStoreRevocation, len(ts.Revocations))
 	copy(result, ts.Revocations)
 
 	return result, nil
@@ -1083,6 +1368,16 @@ func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([
 func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, error) {
 	b.mu.Lock("SetRulePriorities")
 	defer b.mu.Unlock()
+
+	// Check for duplicates within the request.
+	seen := make(map[string]bool, len(priorities))
+	for _, p := range priorities {
+		if seen[p.Priority] {
+			return nil, fmt.Errorf("%w: priority %s specified more than once", ErrDuplicateRulePriority, p.Priority)
+		}
+
+		seen[p.Priority] = true
+	}
 
 	result := make([]Rule, 0, len(priorities))
 
@@ -1095,6 +1390,128 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 		r.Priority = p.Priority
 		result = append(result, *r)
 	}
+
+	return result, nil
+}
+
+// ModifyTargetGroup updates health-check settings on a target group.
+func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*TargetGroup, error) {
+	b.mu.Lock("ModifyTargetGroup")
+	defer b.mu.Unlock()
+
+	tg, ok := b.targetGroups[input.TargetGroupArn]
+	if !ok {
+		return nil, ErrTargetGroupNotFound
+	}
+
+	if input.HealthCheckProtocol != "" {
+		tg.HealthCheckProtocol = input.HealthCheckProtocol
+	}
+
+	if input.HealthCheckPort != "" {
+		tg.HealthCheckPort = input.HealthCheckPort
+	}
+
+	if input.HealthCheckPath != "" {
+		tg.HealthCheckPath = input.HealthCheckPath
+	}
+
+	if input.Matcher != "" {
+		tg.Matcher = input.Matcher
+	}
+
+	if input.HealthCheckIntervalSeconds != 0 {
+		tg.HealthCheckIntervalSeconds = input.HealthCheckIntervalSeconds
+	}
+
+	if input.HealthCheckTimeoutSeconds != 0 {
+		tg.HealthCheckTimeoutSeconds = input.HealthCheckTimeoutSeconds
+	}
+
+	if input.HealthyThresholdCount != 0 {
+		tg.HealthyThresholdCount = input.HealthyThresholdCount
+	}
+
+	if input.UnhealthyThresholdCount != 0 {
+		tg.UnhealthyThresholdCount = input.UnhealthyThresholdCount
+	}
+
+	tg.HealthCheckEnabled = input.HealthCheckEnabled
+	cp := *tg
+
+	return &cp, nil
+}
+
+// ModifyTargetGroupAttributes updates attributes on a target group.
+func (b *InMemoryBackend) ModifyTargetGroupAttributes(tgArn string, attrs map[string]string) (*TargetGroup, error) {
+	b.mu.Lock("ModifyTargetGroupAttributes")
+	defer b.mu.Unlock()
+
+	tg, ok := b.targetGroups[tgArn]
+	if !ok {
+		return nil, ErrTargetGroupNotFound
+	}
+
+	if tg.TargetGroupAttributes == nil {
+		tg.TargetGroupAttributes = make(map[string]string)
+	}
+
+	maps.Copy(tg.TargetGroupAttributes, attrs)
+
+	cp := *tg
+
+	return &cp, nil
+}
+
+// DescribeTargetGroupAttributes returns attributes for a target group.
+func (b *InMemoryBackend) DescribeTargetGroupAttributes(tgArn string) (map[string]string, error) {
+	b.mu.RLock("DescribeTargetGroupAttributes")
+	defer b.mu.RUnlock()
+
+	tg, ok := b.targetGroups[tgArn]
+	if !ok {
+		return nil, ErrTargetGroupNotFound
+	}
+
+	result := make(map[string]string, len(tg.TargetGroupAttributes))
+	maps.Copy(result, tg.TargetGroupAttributes)
+
+	return result, nil
+}
+
+// ModifyListenerAttributes updates attributes on a listener.
+func (b *InMemoryBackend) ModifyListenerAttributes(listenerArn string, attrs map[string]string) (*Listener, error) {
+	b.mu.Lock("ModifyListenerAttributes")
+	defer b.mu.Unlock()
+
+	l, ok := b.listeners[listenerArn]
+	if !ok {
+		return nil, ErrListenerNotFound
+	}
+
+	if l.Attributes == nil {
+		l.Attributes = make(map[string]string)
+	}
+
+	maps.Copy(l.Attributes, attrs)
+
+	cp := *l
+
+	return &cp, nil
+}
+
+// DescribeListenerAttributes returns attributes for a listener.
+func (b *InMemoryBackend) DescribeListenerAttributes(listenerArn string) (map[string]string, error) {
+	b.mu.RLock("DescribeListenerAttributes")
+	defer b.mu.RUnlock()
+
+	l, ok := b.listeners[listenerArn]
+	if !ok {
+		return nil, ErrListenerNotFound
+	}
+
+	result := make(map[string]string, len(l.Attributes))
+	maps.Copy(result, l.Attributes)
 
 	return result, nil
 }

@@ -23,6 +23,9 @@
 		CANCELLED: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
 	};
 
+	// Single source of truth for job run states used in filter pills and the JobStateFilter type.
+	const JOB_STATES = ['ALL', 'SUBMITTED', 'PENDING', 'SCHEDULED', 'RUNNING', 'SUCCESS', 'FAILED', 'CANCELLING', 'CANCELLED'] as const;
+
 	const APP_STATE_BADGE: Record<string, string> = {
 		STARTED:                'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400',
 		STARTING:               'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400',
@@ -34,7 +37,7 @@
 	};
 
 	type JobSortKey = 'newest' | 'oldest' | 'name-asc' | 'name-desc';
-	type JobStateFilter = 'ALL' | 'SUBMITTED' | 'PENDING' | 'SCHEDULED' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'CANCELLING' | 'CANCELLED';
+	type JobStateFilter = (typeof JOB_STATES)[number];
 	type MainTab = 'applications' | 'jobs' | 'docs';
 
 	let loading = $state(false);
@@ -201,9 +204,11 @@
 				{/if}
 				<!-- State filter + sort row -->
 				<div class="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between">
-					<div class="flex flex-wrap gap-1">
-						{#each (['ALL', 'SUBMITTED', 'PENDING', 'SCHEDULED', 'RUNNING', 'SUCCESS', 'FAILED', 'CANCELLING', 'CANCELLED'] as const) as s}
+					<div class="flex flex-wrap gap-1" role="group" aria-label="Filter job runs by state">
+						{#each JOB_STATES as s}
 							<button
+								type="button"
+								aria-pressed={jobStateFilter === s}
 								onclick={() => (jobStateFilter = s)}
 								class="px-2 py-1 rounded text-xs font-medium transition-colors {jobStateFilter === s ? 'bg-yellow-500 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'}"
 							>

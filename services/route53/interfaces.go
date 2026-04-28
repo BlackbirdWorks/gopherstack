@@ -27,6 +27,13 @@ type StorageBackend interface {
 	// Key signing key operations
 	CreateKeySigningKey(hostedZoneID, callerRef, name, kmsArn, status string) (*KeySigningKey, error)
 	ActivateKeySigningKey(hostedZoneID, name string) (*KeySigningKey, error)
+	DeactivateKeySigningKey(hostedZoneID, name string) (*KeySigningKey, error)
+	DeleteKeySigningKey(hostedZoneID, name string) error
+
+	// DNSSEC operations
+	EnableHostedZoneDNSSEC(zoneID string) error
+	DisableHostedZoneDNSSEC(zoneID string) error
+	GetDNSSEC(zoneID string) (bool, []KeySigningKey, error)
 
 	// VPC association operations
 	AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion string) error
@@ -34,6 +41,8 @@ type StorageBackend interface {
 	// CIDR collection operations
 	CreateCidrCollection(name, callerRef string) (*CidrCollection, error)
 	ChangeCidrCollection(collectionID string, changes []CidrCollectionChange) (*CidrCollection, error)
+	DeleteCidrCollection(id string) error
+	ListCidrCollections() ([]*CidrCollection, error)
 
 	// Query logging operations
 	CreateQueryLoggingConfig(hostedZoneID, logGroupArn string) (*QueryLoggingConfig, error)
@@ -49,6 +58,13 @@ type StorageBackend interface {
 		tpVersion int32,
 		ttl int64,
 	) (*TrafficPolicyInstance, error)
+	DeleteTrafficPolicy(id string, version int32) error
+	GetTrafficPolicy(id string, version int32) (*TrafficPolicy, error)
+	DeleteTrafficPolicyInstance(id string) error
+	GetTrafficPolicyInstance(id string) (*TrafficPolicyInstance, error)
+	ListTrafficPolicies() ([]*TrafficPolicy, error)
+	ListTrafficPolicyVersions(id string) ([]*TrafficPolicy, error)
+	ListTrafficPolicyInstances() ([]*TrafficPolicyInstance, error)
 
 	// Lifecycle
 	Reset()
