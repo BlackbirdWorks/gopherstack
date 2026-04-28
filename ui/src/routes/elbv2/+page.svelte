@@ -13,12 +13,20 @@
 		DescribeTrustStoreRevocationsCommand,
 		CreateLoadBalancerCommand,
 		DeleteLoadBalancerCommand,
+		CreateTargetGroupCommand,
+		DeleteTargetGroupCommand,
+		CreateListenerCommand,
+		DeleteListenerCommand,
+		CreateTrustStoreCommand,
+		DeleteTrustStoreCommand,
 		CreateRuleCommand,
 		ModifyRuleCommand,
 		DeleteRuleCommand,
 		AddListenerCertificatesCommand,
 		RemoveListenerCertificatesCommand,
 		ModifyListenerCommand,
+		ProtocolEnum,
+		TargetTypeEnum,
 		type LoadBalancer,
 		type TargetGroup,
 		type Listener,
@@ -40,12 +48,20 @@
 		Server,
 		Shield,
 		List,
-		Lock
+		Lock,
+		Copy,
+		Package,
+		BarChart2,
+		BookOpen
 	} from 'lucide-svelte';
 
 	const elb = getELBv2Client();
 
-	type Tab = 'lbs' | 'targets' | 'listeners' | 'truststores';
+	// Placeholder S3 values for the trust store CA bundle.
+	const TRUST_STORE_CA_S3_BUCKET = 'gopherstack-demo';
+	const TRUST_STORE_CA_S3_KEY = 'certs.pem';
+
+	type Tab = 'lbs' | 'targets' | 'listeners' | 'truststores' | 'metrics' | 'docs';
 
 	let loading = $state(false);
 	let activeTab = $state<Tab>('lbs');
@@ -68,6 +84,12 @@
 	let selectedTG = $state<TargetGroup | null>(null);
 	let tgHealth = $state<Array<{ Target?: { Id?: string; Port?: number }; TargetHealth?: { State?: string; Description?: string } }>>([]);
 	let loadingHealth = $state(false);
+	let showCreateTGModal = $state(false);
+	let newTGName = $state('');
+	let newTGType = $state<'instance' | 'ip' | 'lambda'>('instance');
+	let newTGProtocol = $state('HTTP');
+	let newTGPort = $state('80');
+	let creatingTG = $state(false);
 
 	// ── Listeners ───────────────────────────────────────────────────────────────
 	let allListeners = $state<Listener[]>([]);
@@ -77,6 +99,13 @@
 	let loadingRules = $state(false);
 	let listenerCerts = $state<Certificate[]>([]);
 	let loadingCerts = $state(false);
+	let filterByLB = $state('');
+	let showCreateListenerModal = $state(false);
+	let newListenerLBArn = $state('');
+	let newListenerProtocol = $state('HTTP');
+	let newListenerPort = $state('80');
+	let newListenerSslPolicy = $state('');
+	let creatingListener = $state(false);
 
 	// cert management
 	let showAddCertModal = $state(false);
@@ -99,6 +128,9 @@
 	let selectedTrustStore = $state<{ TrustStoreArn?: string; Name?: string; Status?: string } | null>(null);
 	let trustStoreRevocations = $state<Array<{ RevocationId?: string; RevocationType?: string; LastUpdatedAt?: Date }>>([]);
 	let loadingRevocations = $state(false);
+	let showCreateTSModal = $state(false);
+	let newTSName = $state('');
+	let creatingTS = $state(false);
 
 	// ── derived ─────────────────────────────────────────────────────────────────
 	const filteredLBs = $derived(
@@ -118,11 +150,28 @@
 	);
 
 	const filteredListeners = $derived(
-		allListeners.filter((l) =>
-			(l.Protocol ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-			String(l.Port ?? '').includes(searchQuery)
-		)
+		allListeners
+			.filter((l) =>
+				(filterByLB === '' || l.LoadBalancerArn === filterByLB) &&
+				(
+					(l.Protocol ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+					String(l.Port ?? '').includes(searchQuery)
+				)
+			)
 	);
+
+	const metrics = $derived({
+		lbCount: loadBalancers.length,
+		albCount: loadBalancers.filter((lb) => lb.Type === 'application').length,
+		nlbCount: loadBalancers.filter((lb) => lb.Type === 'network').length,
+		gwbCount: loadBalancers.filter((lb) => lb.Type === 'gateway').length,
+		tgCount: targetGroups.length,
+		tgInstance: targetGroups.filter((t) => t.TargetType === 'instance').length,
+		tgIp: targetGroups.filter((t) => t.TargetType === 'ip').length,
+		tgLambda: targetGroups.filter((t) => t.TargetType === 'lambda').length,
+		listenerCount: allListeners.length,
+		tsCount: trustStores.length
+	});
 
 	// ── helpers ─────────────────────────────────────────────────────────────────
 	function lbStateBadge(state?: string) {
@@ -136,6 +185,20 @@
 		if (state === 'healthy') return 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900';
 		if (state === 'unhealthy') return 'text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900';
 		return 'text-muted-foreground bg-muted';
+	}
+
+	function lbTypeBadge(type?: string) {
+		if (type === 'application') return 'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200';
+		if (type === 'network') return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
+		if (type === 'gateway') return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
+		return 'bg-muted text-muted-foreground';
+	}
+
+	function tgTypeBadge(type?: string) {
+		if (type === 'instance') return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+		if (type === 'ip') return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+		if (type === 'lambda') return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+		return 'bg-muted text-muted-foreground';
 	}
 
 	function conditionLabel(cond: RuleCondition): string {
@@ -183,6 +246,13 @@
 			case 'source-ip': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
 			default: return 'bg-muted text-muted-foreground';
 		}
+	}
+
+	function copyToClipboard(text: string, label: string) {
+		navigator.clipboard.writeText(text).then(
+			() => toast.success(`${label} copied`),
+			() => toast.error('Copy failed')
+		);
 	}
 
 	// ── data loaders ────────────────────────────────────────────────────────────
@@ -515,6 +585,159 @@
 		}
 	}
 
+	async function createTG() {
+		if (!newTGName.trim()) { toast.error('Name is required'); return; }
+		creatingTG = true;
+		try {
+			await elb.send(new CreateTargetGroupCommand({
+				Name: newTGName.trim(),
+				TargetType: newTGType as TargetTypeEnum,
+				Protocol: newTGProtocol as ProtocolEnum,
+				Port: parseInt(newTGPort, 10)
+			}));
+			toast.success(`Target group "${newTGName}" created`);
+			showCreateTGModal = false;
+			newTGName = '';
+			await loadTargetGroups();
+		} catch (e) {
+			toast.error(`Failed to create target group: ${e}`);
+		} finally {
+			creatingTG = false;
+		}
+	}
+
+	async function deleteTG(tg: TargetGroup) {
+		if (!tg.TargetGroupArn) return;
+		const confirmed = await confirmDestructive({
+			title: 'Delete Target Group',
+			message: `Delete target group "${tg.TargetGroupName}"?`
+		});
+		if (!confirmed) return;
+		try {
+			await elb.send(new DeleteTargetGroupCommand({ TargetGroupArn: tg.TargetGroupArn }));
+			toast.success(`Deleted "${tg.TargetGroupName}"`);
+			if (selectedTG?.TargetGroupArn === tg.TargetGroupArn) selectedTG = null;
+			await loadTargetGroups();
+		} catch (e) {
+			toast.error(`Failed to delete: ${e}`);
+		}
+	}
+
+	async function createListener() {
+		if (!newListenerLBArn) { toast.error('Select a load balancer'); return; }
+		creatingListener = true;
+		try {
+			await elb.send(new CreateListenerCommand({
+				LoadBalancerArn: newListenerLBArn,
+				Protocol: newListenerProtocol as ProtocolEnum,
+				Port: parseInt(newListenerPort, 10),
+				SslPolicy: newListenerSslPolicy || undefined,
+				DefaultActions: [{ Type: 'fixed-response', FixedResponseConfig: { StatusCode: '200' } }]
+			}));
+			toast.success('Listener created');
+			showCreateListenerModal = false;
+			newListenerLBArn = '';
+			newListenerSslPolicy = '';
+			await loadAllListeners();
+		} catch (e) {
+			toast.error(`Failed to create listener: ${e}`);
+		} finally {
+			creatingListener = false;
+		}
+	}
+
+	async function deleteListener(listener: Listener) {
+		if (!listener.ListenerArn) return;
+		const confirmed = await confirmDestructive({
+			title: 'Delete Listener',
+			message: `Delete ${listener.Protocol}:${listener.Port} listener and all its rules?`
+		});
+		if (!confirmed) return;
+		try {
+			await elb.send(new DeleteListenerCommand({ ListenerArn: listener.ListenerArn }));
+			toast.success('Listener deleted');
+			if (selectedListener?.ListenerArn === listener.ListenerArn) {
+				selectedListener = null;
+				listenerRules = [];
+				listenerCerts = [];
+			}
+			await loadAllListeners();
+		} catch (e) {
+			toast.error(`Failed to delete: ${e}`);
+		}
+	}
+
+	async function createTrustStore() {
+		if (!newTSName.trim()) { toast.error('Name is required'); return; }
+		creatingTS = true;
+		try {
+			await elb.send(new CreateTrustStoreCommand({
+				Name: newTSName.trim(),
+				CaCertificatesBundleS3Bucket: TRUST_STORE_CA_S3_BUCKET,
+				CaCertificatesBundleS3Key: TRUST_STORE_CA_S3_KEY
+			}));
+			toast.success(`Trust store "${newTSName}" created`);
+			showCreateTSModal = false;
+			newTSName = '';
+			await loadTrustStores();
+		} catch (e) {
+			toast.error(`Failed to create trust store: ${e}`);
+		} finally {
+			creatingTS = false;
+		}
+	}
+
+	async function deleteTrustStore(ts: typeof trustStores[number]) {
+		if (!ts.TrustStoreArn) return;
+		const confirmed = await confirmDestructive({
+			title: 'Delete Trust Store',
+			message: `Delete trust store "${ts.Name}"?`
+		});
+		if (!confirmed) return;
+		try {
+			await elb.send(new DeleteTrustStoreCommand({ TrustStoreArn: ts.TrustStoreArn }));
+			toast.success(`Deleted "${ts.Name}"`);
+			if (selectedTrustStore?.TrustStoreArn === ts.TrustStoreArn) selectedTrustStore = null;
+			await loadTrustStores();
+		} catch (e) {
+			toast.error(`Failed to delete: ${e}`);
+		}
+	}
+
+	async function seedDemoData() {
+		try {
+			toast.info('Seeding demo data…');
+			const [albRes, nlbRes] = await Promise.all([
+				elb.send(new CreateLoadBalancerCommand({ Name: 'demo-alb', Type: 'application', Scheme: 'internet-facing', Subnets: ['subnet-demo1', 'subnet-demo2'] })),
+				elb.send(new CreateLoadBalancerCommand({ Name: 'demo-nlb', Type: 'network', Scheme: 'internal', Subnets: ['subnet-demo1'] }))
+			]);
+			const albArn = albRes.LoadBalancers?.[0]?.LoadBalancerArn ?? '';
+			const [tg1Res, tg2Res] = await Promise.all([
+				elb.send(new CreateTargetGroupCommand({ Name: 'demo-tg-web', TargetType: 'instance', Protocol: 'HTTP', Port: 80 })),
+				elb.send(new CreateTargetGroupCommand({ Name: 'demo-tg-api', TargetType: 'ip', Protocol: 'HTTP', Port: 8080 }))
+			]);
+			const tg1Arn = tg1Res.TargetGroups?.[0]?.TargetGroupArn ?? '';
+			const listenerRes = await elb.send(new CreateListenerCommand({
+				LoadBalancerArn: albArn,
+				Protocol: 'HTTP',
+				Port: 80,
+				DefaultActions: [{ Type: 'forward', TargetGroupArn: tg1Arn }]
+			}));
+			const listenerArn = listenerRes.Listeners?.[0]?.ListenerArn ?? '';
+			if (listenerArn) {
+				await Promise.all([
+					elb.send(new CreateRuleCommand({ ListenerArn: listenerArn, Priority: 10, Conditions: [{ Field: 'path-pattern', PathPatternConfig: { Values: ['/api/*'] } }], Actions: [{ Type: 'forward', TargetGroupArn: tg2Res.TargetGroups?.[0]?.TargetGroupArn }] })),
+					elb.send(new CreateRuleCommand({ ListenerArn: listenerArn, Priority: 20, Conditions: [{ Field: 'host-header', HostHeaderConfig: { Values: ['app.example.com'] } }], Actions: [{ Type: 'forward', TargetGroupArn: tg1Arn }] }))
+				]);
+			}
+			await elb.send(new CreateTrustStoreCommand({ Name: 'demo-trust-store', CaCertificatesBundleS3Bucket: TRUST_STORE_CA_S3_BUCKET, CaCertificatesBundleS3Key: TRUST_STORE_CA_S3_KEY }));
+			toast.success('Demo data seeded successfully');
+			await Promise.all([loadLoadBalancers(), loadTargetGroups(), loadAllListeners(), loadTrustStores()]);
+		} catch (e) {
+			toast.error(`Seed failed: ${e}`);
+		}
+	}
+
 	async function onTabChange(tab: Tab) {
 		activeTab = tab;
 		searchQuery = '';
@@ -526,9 +749,12 @@
 		else if (tab === 'targets') await loadTargetGroups();
 		else if (tab === 'listeners') await loadAllListeners();
 		else if (tab === 'truststores') await loadTrustStores();
+		else if (tab === 'metrics') await Promise.all([loadLoadBalancers(), loadTargetGroups(), loadAllListeners(), loadTrustStores()]);
 	}
 
-	onMount(() => loadLoadBalancers());
+	onMount(async () => {
+		await Promise.all([loadLoadBalancers(), loadTargetGroups(), loadAllListeners(), loadTrustStores()]);
+	});
 </script>
 
 <div class="space-y-6">
@@ -542,33 +768,48 @@
 				</p>
 			</div>
 		</div>
-		<button
-			onclick={() => {
-				if (activeTab === 'lbs') loadLoadBalancers();
-				else if (activeTab === 'targets') loadTargetGroups();
-				else if (activeTab === 'listeners') loadAllListeners();
-				else if (activeTab === 'truststores') loadTrustStores();
-			}}
-			class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
-		>
-			<RefreshCw class="h-4 w-4" />
-			Refresh
-		</button>
+		<div class="flex items-center gap-2">
+			<button
+				onclick={seedDemoData}
+				class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
+			>
+				<Package class="h-4 w-4" />
+				Demo
+			</button>
+			<button
+				onclick={() => {
+					if (activeTab === 'lbs') loadLoadBalancers();
+					else if (activeTab === 'targets') loadTargetGroups();
+					else if (activeTab === 'listeners') loadAllListeners();
+					else if (activeTab === 'truststores') loadTrustStores();
+					else if (activeTab === 'metrics') Promise.all([loadLoadBalancers(), loadTargetGroups(), loadAllListeners(), loadTrustStores()]);
+				}}
+				class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
+			>
+				<RefreshCw class="h-4 w-4" />
+				Refresh
+			</button>
+		</div>
 	</div>
 
 	<!-- Tabs -->
-	<div class="flex border-b">
+	<div class="flex overflow-x-auto border-b">
 		{#each [
-			{ id: 'lbs', label: 'Load Balancers' },
-			{ id: 'targets', label: 'Target Groups' },
-			{ id: 'listeners', label: 'Listeners & Rules' },
-			{ id: 'truststores', label: 'Trust Stores' }
+			{ id: 'lbs', label: 'Load Balancers', count: loadBalancers.length },
+			{ id: 'targets', label: 'Target Groups', count: targetGroups.length },
+			{ id: 'listeners', label: 'Listeners & Rules', count: allListeners.length },
+			{ id: 'truststores', label: 'Trust Stores', count: trustStores.length },
+			{ id: 'metrics', label: 'Metrics', count: null },
+			{ id: 'docs', label: 'Docs', count: null }
 		] as tab}
 			<button
 				onclick={() => onTabChange(tab.id as Tab)}
-				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+				class="flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
 			>
 				{tab.label}
+				{#if tab.count !== null && tab.count > 0}
+					<span class="rounded-full bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">{tab.count}</span>
+				{/if}
 			</button>
 		{/each}
 	</div>
@@ -623,7 +864,11 @@
 								onclick={() => viewLBListeners(lb)}
 							>
 								<td class="px-4 py-3 font-medium">{lb.LoadBalancerName}</td>
-								<td class="px-4 py-3 text-muted-foreground capitalize">{lb.Type ?? '—'}</td>
+								<td class="px-4 py-3">
+									<span class="rounded-full px-2 py-0.5 text-xs font-medium capitalize {lbTypeBadge(lb.Type)}">
+										{lb.Type ?? '—'}
+									</span>
+								</td>
 								<td class="px-4 py-3 text-muted-foreground capitalize">{lb.Scheme ?? '—'}</td>
 								<td class="px-4 py-3">
 									<span class="rounded-full px-2 py-0.5 text-xs font-medium {lbStateBadge(lb.State?.Code)}">
@@ -634,13 +879,24 @@
 									{lb.DNSName ?? '—'}
 								</td>
 								<td class="px-4 py-3 text-right">
-									<button
-										onclick={(e) => { e.stopPropagation(); deleteLB(lb); }}
-										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
-										title="Delete"
-									>
-										<Trash2 class="h-4 w-4" />
-									</button>
+									<div class="flex items-center justify-end gap-1">
+										{#if lb.LoadBalancerArn}
+											<button
+												onclick={(e) => { e.stopPropagation(); copyToClipboard(lb.LoadBalancerArn!, 'ARN'); }}
+												class="rounded p-1 text-muted-foreground hover:bg-muted"
+												title="Copy ARN"
+											>
+												<Copy class="h-3.5 w-3.5" />
+											</button>
+										{/if}
+										<button
+											onclick={(e) => { e.stopPropagation(); deleteLB(lb); }}
+											class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+											title="Delete"
+										>
+											<Trash2 class="h-4 w-4" />
+										</button>
+									</div>
 								</td>
 							</tr>
 						{/each}
@@ -683,14 +939,23 @@
 
 	<!-- ── Target Groups Tab ──────────────────────────────────────────────────── -->
 	{#if activeTab === 'targets'}
-		<div class="relative">
-			<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-			<input
-				type="text"
-				placeholder="Search target groups..."
-				bind:value={searchQuery}
-				class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-			/>
+		<div class="flex items-center justify-between gap-4">
+			<div class="relative flex-1">
+				<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+				<input
+					type="text"
+					placeholder="Search target groups..."
+					bind:value={searchQuery}
+					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+			</div>
+			<button
+				onclick={() => (showCreateTGModal = true)}
+				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+			>
+				<Plus class="h-4 w-4" />
+				Create
+			</button>
 		</div>
 
 		{#if loading}
@@ -712,6 +977,7 @@
 							<th class="px-4 py-3 text-left font-medium">Port</th>
 							<th class="px-4 py-3 text-left font-medium">Target Type</th>
 							<th class="px-4 py-3 text-left font-medium">Health Check</th>
+							<th class="px-4 py-3 text-right font-medium">Actions</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y">
@@ -723,8 +989,32 @@
 								<td class="px-4 py-3 font-medium">{tg.TargetGroupName}</td>
 								<td class="px-4 py-3 text-muted-foreground">{tg.Protocol ?? '—'}</td>
 								<td class="px-4 py-3">{tg.Port ?? '—'}</td>
-								<td class="px-4 py-3 capitalize">{tg.TargetType ?? '—'}</td>
+								<td class="px-4 py-3">
+									<span class="rounded-full px-2 py-0.5 text-xs font-medium capitalize {tgTypeBadge(tg.TargetType)}">
+										{tg.TargetType ?? '—'}
+									</span>
+								</td>
 								<td class="px-4 py-3 text-muted-foreground">{tg.HealthCheckPath ?? '/'}</td>
+								<td class="px-4 py-3 text-right">
+									<div class="flex items-center justify-end gap-1">
+										{#if tg.TargetGroupArn}
+											<button
+												onclick={(e) => { e.stopPropagation(); copyToClipboard(tg.TargetGroupArn!, 'ARN'); }}
+												class="rounded p-1 text-muted-foreground hover:bg-muted"
+												title="Copy ARN"
+											>
+												<Copy class="h-3.5 w-3.5" />
+											</button>
+										{/if}
+										<button
+											onclick={(e) => { e.stopPropagation(); deleteTG(tg); }}
+											class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+											title="Delete"
+										>
+											<Trash2 class="h-4 w-4" />
+										</button>
+									</div>
+								</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -763,14 +1053,32 @@
 
 	<!-- ── Listeners & Rules Tab ──────────────────────────────────────────────── -->
 	{#if activeTab === 'listeners'}
-		<div class="relative">
-			<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-			<input
-				type="text"
-				placeholder="Search by protocol or port..."
-				bind:value={searchQuery}
-				class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-			/>
+		<div class="flex flex-wrap items-center gap-3">
+			<div class="relative flex-1 min-w-[160px]">
+				<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+				<input
+					type="text"
+					placeholder="Search by protocol or port..."
+					bind:value={searchQuery}
+					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+			</div>
+			<select
+				bind:value={filterByLB}
+				class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+			>
+				<option value="">All load balancers</option>
+				{#each loadBalancers as lb}
+					<option value={lb.LoadBalancerArn}>{lb.LoadBalancerName}</option>
+				{/each}
+			</select>
+			<button
+				onclick={() => (showCreateListenerModal = true)}
+				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+			>
+				<Plus class="h-4 w-4" />
+				Create
+			</button>
 		</div>
 
 		{#if loadingAllListeners}
@@ -789,6 +1097,7 @@
 						<tr>
 							<th class="px-4 py-3 text-left font-medium">Protocol:Port</th>
 							<th class="px-4 py-3 text-left font-medium">Default Action</th>
+							<th class="px-4 py-3 text-left font-medium">SSL Policy</th>
 							<th class="px-4 py-3 text-left font-medium">Certificates</th>
 							<th class="px-4 py-3 text-right font-medium">Actions</th>
 						</tr>
@@ -810,11 +1119,31 @@
 								<td class="px-4 py-3 text-muted-foreground">
 									{listener.DefaultActions?.map((a) => a.Type).join(', ') ?? '—'}
 								</td>
+								<td class="px-4 py-3 text-muted-foreground text-xs">
+									{listener.SslPolicy ?? '—'}
+								</td>
 								<td class="px-4 py-3 text-muted-foreground">
 									{listener.Certificates?.length ?? 0} cert(s)
 								</td>
 								<td class="px-4 py-3 text-right">
-									<ChevronDown class="h-4 w-4 text-muted-foreground inline" />
+									<div class="flex items-center justify-end gap-1">
+										{#if listener.ListenerArn}
+											<button
+												onclick={(e) => { e.stopPropagation(); copyToClipboard(listener.ListenerArn!, 'ARN'); }}
+												class="rounded p-1 text-muted-foreground hover:bg-muted"
+												title="Copy ARN"
+											>
+												<Copy class="h-3.5 w-3.5" />
+											</button>
+										{/if}
+										<button
+											onclick={(e) => { e.stopPropagation(); deleteListener(listener); }}
+											class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+											title="Delete listener"
+										>
+											<Trash2 class="h-4 w-4" />
+										</button>
+									</div>
 								</td>
 							</tr>
 						{/each}
@@ -853,7 +1182,11 @@
 						<p class="text-sm text-muted-foreground">No rules. Click "Add Rule" to create one.</p>
 					{:else}
 						<div class="space-y-2">
-							{#each listenerRules as rule}
+							{#each [...listenerRules].sort((a, b) => {
+								if (a.IsDefault) return 1;
+								if (b.IsDefault) return -1;
+								return (parseInt(a.Priority ?? '0', 10) || 0) - (parseInt(b.Priority ?? '0', 10) || 0);
+							}) as rule}
 								<div class="rounded border p-3 text-sm space-y-2">
 									<div class="flex items-center justify-between">
 										<div class="flex items-center gap-2">
@@ -961,6 +1294,16 @@
 
 	<!-- ── Trust Stores Tab ───────────────────────────────────────────────────── -->
 	{#if activeTab === 'truststores'}
+		<div class="flex items-center justify-between gap-4">
+			<div class="flex-1"></div>
+			<button
+				onclick={() => (showCreateTSModal = true)}
+				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+			>
+				<Plus class="h-4 w-4" />
+				Create
+			</button>
+		</div>
 		{#if loadingTrustStores}
 			<div class="flex justify-center py-12">
 				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
@@ -995,7 +1338,24 @@
 								</td>
 								<td class="px-4 py-3 text-muted-foreground">{ts.TotalRevokedEntries ?? 0}</td>
 								<td class="px-4 py-3 text-right">
-									<ChevronRight class="h-4 w-4 text-muted-foreground inline" />
+									<div class="flex items-center justify-end gap-1">
+										{#if ts.TrustStoreArn}
+											<button
+												onclick={(e) => { e.stopPropagation(); copyToClipboard(ts.TrustStoreArn!, 'ARN'); }}
+												class="rounded p-1 text-muted-foreground hover:bg-muted"
+												title="Copy ARN"
+											>
+												<Copy class="h-3.5 w-3.5" />
+											</button>
+										{/if}
+										<button
+											onclick={(e) => { e.stopPropagation(); deleteTrustStore(ts); }}
+											class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+											title="Delete"
+										>
+											<Trash2 class="h-4 w-4" />
+										</button>
+									</div>
 								</td>
 							</tr>
 						{/each}
@@ -1039,8 +1399,77 @@
 			{/if}
 		{/if}
 	{/if}
-</div>
 
+	<!-- ── Metrics Tab ─────────────────────────────────────────────────────────── -->
+	{#if activeTab === 'metrics'}
+		<div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+			<div class="rounded-lg border p-4 text-center space-y-1">
+				<p class="text-3xl font-bold">{metrics.lbCount}</p>
+				<p class="text-sm text-muted-foreground">Load Balancers</p>
+				<div class="flex justify-center gap-1 flex-wrap pt-1">
+					{#if metrics.albCount > 0}
+						<span class="rounded-full px-2 py-0.5 text-xs {lbTypeBadge('application')}">ALB: {metrics.albCount}</span>
+					{/if}
+					{#if metrics.nlbCount > 0}
+						<span class="rounded-full px-2 py-0.5 text-xs {lbTypeBadge('network')}">NLB: {metrics.nlbCount}</span>
+					{/if}
+					{#if metrics.gwbCount > 0}
+						<span class="rounded-full px-2 py-0.5 text-xs {lbTypeBadge('gateway')}">GWB: {metrics.gwbCount}</span>
+					{/if}
+				</div>
+			</div>
+			<div class="rounded-lg border p-4 text-center space-y-1">
+				<p class="text-3xl font-bold">{metrics.tgCount}</p>
+				<p class="text-sm text-muted-foreground">Target Groups</p>
+				<div class="flex justify-center gap-1 flex-wrap pt-1">
+					{#if metrics.tgInstance > 0}
+						<span class="rounded-full px-2 py-0.5 text-xs {tgTypeBadge('instance')}">instance: {metrics.tgInstance}</span>
+					{/if}
+					{#if metrics.tgIp > 0}
+						<span class="rounded-full px-2 py-0.5 text-xs {tgTypeBadge('ip')}">ip: {metrics.tgIp}</span>
+					{/if}
+					{#if metrics.tgLambda > 0}
+						<span class="rounded-full px-2 py-0.5 text-xs {tgTypeBadge('lambda')}">lambda: {metrics.tgLambda}</span>
+					{/if}
+				</div>
+			</div>
+			<div class="rounded-lg border p-4 text-center space-y-1">
+				<p class="text-3xl font-bold">{metrics.listenerCount}</p>
+				<p class="text-sm text-muted-foreground">Listeners</p>
+			</div>
+			<div class="rounded-lg border p-4 text-center space-y-1">
+				<p class="text-3xl font-bold">{metrics.tsCount}</p>
+				<p class="text-sm text-muted-foreground">Trust Stores</p>
+			</div>
+		</div>
+	{/if}
+
+	<!-- ── Docs Tab ────────────────────────────────────────────────────────────── -->
+	{#if activeTab === 'docs'}
+		<div class="space-y-4">
+			<p class="text-sm text-muted-foreground">All supported ELBv2 operations available in this simulator.</p>
+			{#each [
+				{ category: 'Load Balancers', ops: ['CreateLoadBalancer', 'DescribeLoadBalancers', 'DeleteLoadBalancer', 'ModifyLoadBalancerAttributes', 'DescribeLoadBalancerAttributes', 'SetSecurityGroups', 'SetSubnets', 'SetIpAddressType'] },
+				{ category: 'Target Groups', ops: ['CreateTargetGroup', 'DescribeTargetGroups', 'DeleteTargetGroup', 'ModifyTargetGroup', 'ModifyTargetGroupAttributes', 'DescribeTargetGroupAttributes', 'RegisterTargets', 'DeregisterTargets', 'DescribeTargetHealth'] },
+				{ category: 'Listeners', ops: ['CreateListener', 'DescribeListeners', 'DeleteListener', 'ModifyListener', 'ModifyListenerAttributes', 'DescribeListenerAttributes'] },
+				{ category: 'Rules', ops: ['CreateRule', 'DescribeRules', 'DeleteRule', 'ModifyRule', 'SetRulePriorities'] },
+				{ category: 'Certificates', ops: ['AddListenerCertificates', 'DescribeListenerCertificates', 'RemoveListenerCertificates'] },
+				{ category: 'Trust Stores', ops: ['CreateTrustStore', 'DescribeTrustStores', 'DeleteTrustStore', 'ModifyTrustStore', 'AddTrustStoreRevocations', 'DescribeTrustStoreRevocations', 'RemoveTrustStoreRevocations', 'DescribeTrustStoreAssociations'] },
+				{ category: 'Tags', ops: ['AddTags', 'RemoveTags', 'DescribeTags'] },
+				{ category: 'Misc', ops: ['DescribeAccountLimits', 'DescribeSSLPolicies', 'DescribeCapacityReservation'] }
+			] as section}
+				<div class="rounded-lg border overflow-hidden">
+					<div class="bg-muted/50 px-4 py-2 font-medium text-sm">{section.category}</div>
+					<div class="flex flex-wrap gap-2 p-3">
+						{#each section.ops as op}
+							<span class="rounded bg-muted px-2 py-1 text-xs font-mono">{op}</span>
+						{/each}
+					</div>
+				</div>
+			{/each}
+		</div>
+	{/if}
+</div>
 <!-- ── Create LB Modal ──────────────────────────────────────────────────────── -->
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -1272,3 +1701,120 @@
 	</div>
 {/if}
 
+
+<!-- ── Create Target Group Modal ─────────────────────────────────────────────── -->
+{#if showCreateTGModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+<h2 class="text-lg font-semibold mb-4">Create Target Group</h2>
+<div class="space-y-3">
+<div>
+<label for="tg-name" class="block text-sm font-medium mb-1">Name *</label>
+<input id="tg-name" type="text" bind:value={newTGName} placeholder="my-target-group" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+</div>
+<div>
+<label for="tg-type" class="block text-sm font-medium mb-1">Target Type</label>
+<select id="tg-type" bind:value={newTGType} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+<option value="instance">Instance</option>
+<option value="ip">IP</option>
+<option value="lambda">Lambda</option>
+</select>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<div>
+<label for="tg-protocol" class="block text-sm font-medium mb-1">Protocol</label>
+<select id="tg-protocol" bind:value={newTGProtocol} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+<option>HTTP</option>
+<option>HTTPS</option>
+<option>TCP</option>
+<option>TLS</option>
+<option>UDP</option>
+</select>
+</div>
+<div>
+<label for="tg-port" class="block text-sm font-medium mb-1">Port</label>
+<input id="tg-port" type="number" bind:value={newTGPort} placeholder="80" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+</div>
+</div>
+</div>
+<div class="mt-4 flex justify-end gap-2">
+<button onclick={() => (showCreateTGModal = false)} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
+<button onclick={createTG} disabled={creatingTG || !newTGName.trim()} class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+{creatingTG ? 'Creating...' : 'Create'}
+</button>
+</div>
+</div>
+</div>
+{/if}
+
+<!-- ── Create Listener Modal ─────────────────────────────────────────────────── -->
+{#if showCreateListenerModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+<h2 class="text-lg font-semibold mb-4">Create Listener</h2>
+<div class="space-y-3">
+<div>
+<label for="listener-lb" class="block text-sm font-medium mb-1">Load Balancer *</label>
+<select id="listener-lb" bind:value={newListenerLBArn} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+<option value="">Select load balancer…</option>
+{#each loadBalancers as lb}
+<option value={lb.LoadBalancerArn}>{lb.LoadBalancerName}</option>
+{/each}
+</select>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<div>
+<label for="listener-protocol" class="block text-sm font-medium mb-1">Protocol</label>
+<select id="listener-protocol" bind:value={newListenerProtocol} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+<option>HTTP</option>
+<option>HTTPS</option>
+<option>TCP</option>
+<option>TLS</option>
+<option>UDP</option>
+</select>
+</div>
+<div>
+<label for="listener-port" class="block text-sm font-medium mb-1">Port</label>
+<input id="listener-port" type="number" bind:value={newListenerPort} placeholder="80" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+</div>
+</div>
+{#if newListenerProtocol === 'HTTPS' || newListenerProtocol === 'TLS'}
+<div>
+<label for="listener-ssl" class="block text-sm font-medium mb-1">SSL Policy</label>
+<input id="listener-ssl" type="text" bind:value={newListenerSslPolicy} placeholder="ELBSecurityPolicy-TLS13-1-2-2021-06" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+</div>
+{/if}
+</div>
+<div class="mt-4 flex justify-end gap-2">
+<button onclick={() => (showCreateListenerModal = false)} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
+<button onclick={createListener} disabled={creatingListener || !newListenerLBArn} class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+{creatingListener ? 'Creating...' : 'Create'}
+</button>
+</div>
+</div>
+</div>
+{/if}
+
+<!-- ── Create Trust Store Modal ───────────────────────────────────────────────── -->
+{#if showCreateTSModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+<h2 class="text-lg font-semibold mb-4">Create Trust Store</h2>
+<div class="space-y-3">
+<div>
+<label for="ts-name" class="block text-sm font-medium mb-1">Name *</label>
+<input id="ts-name" type="text" bind:value={newTSName} placeholder="my-trust-store" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+</div>
+<p class="text-xs text-muted-foreground">
+The CA bundle will be sourced from the configured S3 bucket.
+</p>
+</div>
+<div class="mt-4 flex justify-end gap-2">
+<button onclick={() => (showCreateTSModal = false)} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
+<button onclick={createTrustStore} disabled={creatingTS || !newTSName.trim()} class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+{creatingTS ? 'Creating...' : 'Create'}
+</button>
+</div>
+</div>
+</div>
+{/if}
