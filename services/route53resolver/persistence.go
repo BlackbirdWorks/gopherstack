@@ -19,6 +19,12 @@ type backendSnapshot struct {
 	QueryLogConfigs               map[string]*ResolverQueryLogConfig            `json:"queryLogConfigs"`
 	QueryLogConfigAssociations    map[string]*ResolverQueryLogConfigAssociation `json:"queryLogConfigAssociations"`
 	RuleAssociations              map[string]*ResolverRuleAssociation           `json:"ruleAssociations"`
+	FirewallConfigs               map[string]*FirewallConfig                    `json:"firewallConfigs"`
+	ResolverConfigs               map[string]*ResolverConfig                    `json:"resolverConfigs"`
+	ResolverDnssecConfigs         map[string]*ResolverDnssecConfig              `json:"resolverDnssecConfigs"`
+	FirewallRuleGroupPolicies     map[string]string                             `json:"firewallRuleGroupPolicies"`
+	QueryLogConfigPolicies        map[string]string                             `json:"queryLogConfigPolicies"`
+	ResolverRulePolicies          map[string]string                             `json:"resolverRulePolicies"`
 	AccountID                     string                                        `json:"accountID"`
 	Region                        string                                        `json:"region"`
 }
@@ -41,6 +47,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		QueryLogConfigs:               b.queryLogConfigs,
 		QueryLogConfigAssociations:    b.queryLogConfigAssociations,
 		RuleAssociations:              b.ruleAssociations,
+		FirewallConfigs:               b.firewallConfigs,
+		ResolverConfigs:               b.resolverConfigs,
+		ResolverDnssecConfigs:         b.resolverDnssecConfigs,
+		FirewallRuleGroupPolicies:     b.firewallRuleGroupPolicies,
+		QueryLogConfigPolicies:        b.queryLogConfigPolicies,
+		ResolverRulePolicies:          b.resolverRulePolicies,
 		AccountID:                     b.accountID,
 		Region:                        b.region,
 	}
@@ -80,6 +92,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.queryLogConfigs = snap.QueryLogConfigs
 	b.queryLogConfigAssociations = snap.QueryLogConfigAssociations
 	b.ruleAssociations = snap.RuleAssociations
+	b.firewallConfigs = snap.FirewallConfigs
+	b.resolverConfigs = snap.ResolverConfigs
+	b.resolverDnssecConfigs = snap.ResolverDnssecConfigs
+	b.firewallRuleGroupPolicies = snap.FirewallRuleGroupPolicies
+	b.queryLogConfigPolicies = snap.QueryLogConfigPolicies
+	b.resolverRulePolicies = snap.ResolverRulePolicies
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -87,6 +105,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 func ensureNonNilMaps(snap *backendSnapshot) {
+	ensureNonNilCoreMaps(snap)
+	ensureNonNilFirewallMaps(snap)
+	ensureNonNilPolicyMaps(snap)
+}
+
+func ensureNonNilCoreMaps(snap *backendSnapshot) {
 	if snap.Endpoints == nil {
 		snap.Endpoints = make(map[string]*ResolverEndpoint)
 	}
@@ -96,6 +120,18 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Tags == nil {
 		snap.Tags = make(map[string][]svcTags.KV)
 	}
+	if snap.RuleAssociations == nil {
+		snap.RuleAssociations = make(map[string]*ResolverRuleAssociation)
+	}
+	if snap.QueryLogConfigs == nil {
+		snap.QueryLogConfigs = make(map[string]*ResolverQueryLogConfig)
+	}
+	if snap.QueryLogConfigAssociations == nil {
+		snap.QueryLogConfigAssociations = make(map[string]*ResolverQueryLogConfigAssociation)
+	}
+}
+
+func ensureNonNilFirewallMaps(snap *backendSnapshot) {
 	if snap.FirewallRuleGroups == nil {
 		snap.FirewallRuleGroups = make(map[string]*FirewallRuleGroup)
 	}
@@ -111,14 +147,26 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.OutpostResolvers == nil {
 		snap.OutpostResolvers = make(map[string]*OutpostResolver)
 	}
-	if snap.QueryLogConfigs == nil {
-		snap.QueryLogConfigs = make(map[string]*ResolverQueryLogConfig)
+	if snap.FirewallConfigs == nil {
+		snap.FirewallConfigs = make(map[string]*FirewallConfig)
 	}
-	if snap.QueryLogConfigAssociations == nil {
-		snap.QueryLogConfigAssociations = make(map[string]*ResolverQueryLogConfigAssociation)
+	if snap.ResolverConfigs == nil {
+		snap.ResolverConfigs = make(map[string]*ResolverConfig)
 	}
-	if snap.RuleAssociations == nil {
-		snap.RuleAssociations = make(map[string]*ResolverRuleAssociation)
+	if snap.ResolverDnssecConfigs == nil {
+		snap.ResolverDnssecConfigs = make(map[string]*ResolverDnssecConfig)
+	}
+}
+
+func ensureNonNilPolicyMaps(snap *backendSnapshot) {
+	if snap.FirewallRuleGroupPolicies == nil {
+		snap.FirewallRuleGroupPolicies = make(map[string]string)
+	}
+	if snap.QueryLogConfigPolicies == nil {
+		snap.QueryLogConfigPolicies = make(map[string]string)
+	}
+	if snap.ResolverRulePolicies == nil {
+		snap.ResolverRulePolicies = make(map[string]string)
 	}
 }
 
