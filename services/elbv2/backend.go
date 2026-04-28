@@ -40,6 +40,12 @@ var (
 	ErrUnknownAction = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
 	// ErrDuplicateRulePriority is returned when two rules have the same priority.
 	ErrDuplicateRulePriority = awserr.New("DuplicatePriority", awserr.ErrInvalidParameter)
+	// ErrOperationNotPermitted is returned when the operation is not allowed (e.g. deleting default rule).
+	ErrOperationNotPermitted = awserr.New("OperationNotPermitted", awserr.ErrInvalidParameter)
+	// ErrDuplicateListener is returned when a listener on the same port already exists.
+	ErrDuplicateListener = awserr.New("DuplicateListener", awserr.ErrAlreadyExists)
+	// ErrTargetGroupInUse is returned when attempting to delete a target group that is still referenced.
+	ErrTargetGroupInUse = awserr.New("TargetGroupAssociationLimit", awserr.ErrInvalidParameter)
 )
 
 // LoadBalancerState represents the state of a load balancer.
@@ -53,6 +59,7 @@ type LoadBalancer struct {
 	CreatedTime           time.Time         `json:"createdTime"`
 	State                 LoadBalancerState `json:"state"`
 	Tags                  *tags.Tags        `json:"tags,omitempty"`
+	Attributes            map[string]string `json:"attributes,omitempty"`
 	LoadBalancerArn       string            `json:"loadBalancerArn"`
 	LoadBalancerName      string            `json:"loadBalancerName"`
 	DNSName               string            `json:"dnsName"`
@@ -67,18 +74,24 @@ type LoadBalancer struct {
 
 // TargetGroup represents an ELBv2 target group.
 type TargetGroup struct {
-	Tags                *tags.Tags `json:"tags,omitempty"`
-	TargetGroupArn      string     `json:"targetGroupArn"`
-	TargetGroupName     string     `json:"targetGroupName"`
-	Protocol            string     `json:"protocol"`
-	VpcID               string     `json:"vpcId"`
-	TargetType          string     `json:"targetType"`
-	HealthCheckProtocol string     `json:"healthCheckProtocol"`
-	HealthCheckPort     string     `json:"healthCheckPort"`
-	HealthCheckPath     string     `json:"healthCheckPath"`
-	Targets             []Target   `json:"targets"`
-	Port                int32      `json:"port"`
-	HealthCheckEnabled  bool       `json:"healthCheckEnabled"`
+	Tags                      *tags.Tags        `json:"tags,omitempty"`
+	TargetGroupAttributes     map[string]string `json:"targetGroupAttributes,omitempty"`
+	TargetGroupArn            string            `json:"targetGroupArn"`
+	TargetGroupName           string            `json:"targetGroupName"`
+	Protocol                  string            `json:"protocol"`
+	VpcID                     string            `json:"vpcId"`
+	TargetType                string            `json:"targetType"`
+	HealthCheckProtocol       string            `json:"healthCheckProtocol"`
+	HealthCheckPort           string            `json:"healthCheckPort"`
+	HealthCheckPath           string            `json:"healthCheckPath"`
+	Matcher                   string            `json:"matcher"`
+	Targets                   []Target          `json:"targets"`
+	Port                      int32             `json:"port"`
+	HealthCheckIntervalSeconds int32            `json:"healthCheckIntervalSeconds"`
+	HealthCheckTimeoutSeconds  int32            `json:"healthCheckTimeoutSeconds"`
+	HealthyThresholdCount      int32            `json:"healthyThresholdCount"`
+	UnhealthyThresholdCount    int32            `json:"unhealthyThresholdCount"`
+	HealthCheckEnabled        bool              `json:"healthCheckEnabled"`
 }
 
 // Target represents a registered target in a target group.
@@ -87,10 +100,49 @@ type Target struct {
 	Port int32  `json:"port"`
 }
 
+// TargetHealthDescription describes the health state of a registered target.
+type TargetHealthDescription struct {
+	Target       Target `json:"target"`
+	HealthState  string `json:"healthState"`
+	HealthReason string `json:"healthReason,omitempty"`
+}
+
 // Action represents a listener or rule action.
 type Action struct {
-	Type           string `json:"type"`
+	RedirectConfig      *RedirectConfig      `json:"redirectConfig,omitempty"`
+	FixedResponseConfig *FixedResponseConfig `json:"fixedResponseConfig,omitempty"`
+	ForwardConfig       *ForwardConfig       `json:"forwardConfig,omitempty"`
+	Type                string               `json:"type"`
+	TargetGroupArn      string               `json:"targetGroupArn"`
+	Order               int32                `json:"order,omitempty"`
+}
+
+// RedirectConfig holds configuration for redirect actions.
+type RedirectConfig struct {
+	Protocol   string `json:"protocol,omitempty"`
+	Port       string `json:"port,omitempty"`
+	Host       string `json:"host,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Query      string `json:"query,omitempty"`
+	StatusCode string `json:"statusCode"`
+}
+
+// FixedResponseConfig holds configuration for fixed-response actions.
+type FixedResponseConfig struct {
+	MessageBody string `json:"messageBody,omitempty"`
+	StatusCode  string `json:"statusCode"`
+	ContentType string `json:"contentType,omitempty"`
+}
+
+// TargetGroupTuple is a target group reference used in ForwardConfig.
+type TargetGroupTuple struct {
 	TargetGroupArn string `json:"targetGroupArn"`
+	Weight         int32  `json:"weight,omitempty"`
+}
+
+// ForwardConfig holds configuration for forward actions with multiple target groups.
+type ForwardConfig struct {
+	TargetGroups []TargetGroupTuple `json:"targetGroups,omitempty"`
 }
 
 // Condition represents an ELBv2 rule condition (e.g. host-header, path-pattern, http-header).
@@ -113,18 +165,25 @@ type QueryStringPair struct {
 	Value string `json:"value"`
 }
 
+// Certificate represents a listener certificate.
+type Certificate struct {
+	CertificateArn string `json:"certificateArn"`
+	IsDefault      bool   `json:"isDefault"`
+}
+
 // Listener represents an ELBv2 listener.
 type Listener struct {
-	Tags            *tags.Tags `json:"tags,omitempty"`
-	ListenerArn     string     `json:"listenerArn"`
-	LoadBalancerArn string     `json:"loadBalancerArn"`
-	Protocol        string     `json:"protocol"`
-	SSLPolicy       string     `json:"sslPolicy,omitempty"`
-	AlpnPolicy      string     `json:"alpnPolicy,omitempty"`
-	TrustStoreArn   string     `json:"trustStoreArn,omitempty"`
-	DefaultActions  []Action   `json:"defaultActions"`
-	Certificates    []string   `json:"certificates,omitempty"`
-	Port            int32      `json:"port"`
+	Tags            *tags.Tags        `json:"tags,omitempty"`
+	Attributes      map[string]string `json:"attributes,omitempty"`
+	ListenerArn     string            `json:"listenerArn"`
+	LoadBalancerArn string            `json:"loadBalancerArn"`
+	Protocol        string            `json:"protocol"`
+	SSLPolicy       string            `json:"sslPolicy,omitempty"`
+	AlpnPolicy      string            `json:"alpnPolicy,omitempty"`
+	TrustStoreArn   string            `json:"trustStoreArn,omitempty"`
+	DefaultActions  []Action          `json:"defaultActions"`
+	Certificates    []Certificate     `json:"certificates,omitempty"`
+	Port            int32             `json:"port"`
 }
 
 // Rule represents an ELBv2 listener rule.
@@ -147,11 +206,12 @@ type TrustStoreRevocation struct {
 
 // TrustStore represents an ELBv2 trust store.
 type TrustStore struct {
-	Tags          *tags.Tags             `json:"tags,omitempty"`
-	TrustStoreArn string                 `json:"trustStoreArn"`
-	Name          string                 `json:"name"`
-	Status        string                 `json:"status"`
-	Revocations   []TrustStoreRevocation `json:"revocations,omitempty"`
+	Tags                *tags.Tags             `json:"tags,omitempty"`
+	TrustStoreArn       string                 `json:"trustStoreArn"`
+	Name                string                 `json:"name"`
+	Status              string                 `json:"status"`
+	Revocations         []TrustStoreRevocation `json:"revocations,omitempty"`
+	TotalRevokedEntries int64                  `json:"totalRevokedEntries"`
 }
 
 // StorageBackend is the interface for ELBv2 storage operations.
@@ -159,17 +219,22 @@ type StorageBackend interface {
 	CreateLoadBalancer(input CreateLoadBalancerInput) (*LoadBalancer, error)
 	DescribeLoadBalancers(arns []string, names []string) ([]LoadBalancer, error)
 	DeleteLoadBalancer(lbArn string) error
-	ModifyLoadBalancerAttributes(lbArn string) (*LoadBalancer, error)
+	ModifyLoadBalancerAttributes(lbArn string, attrs map[string]string) (*LoadBalancer, error)
 	CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error)
 	DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error)
 	DeleteTargetGroup(tgArn string) error
+	ModifyTargetGroup(input ModifyTargetGroupInput) (*TargetGroup, error)
+	ModifyTargetGroupAttributes(tgArn string, attrs map[string]string) (*TargetGroup, error)
+	DescribeTargetGroupAttributes(tgArn string) (map[string]string, error)
 	RegisterTargets(tgArn string, targets []Target) error
 	DeregisterTargets(tgArn string, targets []Target) error
-	DescribeTargetHealth(tgArn string) ([]Target, error)
+	DescribeTargetHealth(tgArn string) ([]TargetHealthDescription, error)
 	CreateListener(input CreateListenerInput) (*Listener, error)
 	DescribeListeners(lbArn string, listenerArns []string) ([]Listener, error)
 	DeleteListener(listenerArn string) error
 	ModifyListener(input ModifyListenerInput) (*Listener, error)
+	ModifyListenerAttributes(listenerArn string, attrs map[string]string) (*Listener, error)
+	DescribeListenerAttributes(listenerArn string) (map[string]string, error)
 	CreateRule(input CreateRuleInput) (*Rule, error)
 	DescribeRules(listenerArn string, ruleArns []string) ([]Rule, error)
 	DeleteRule(ruleArn string) error
@@ -189,8 +254,8 @@ type StorageBackend interface {
 	// Rule priority operations.
 	SetRulePriorities(priorities []RulePriority) ([]Rule, error)
 	// Listener certificate operations.
-	AddListenerCertificates(listenerArn string, certArns []string) error
-	DescribeListenerCertificates(listenerArn string) ([]string, error)
+	AddListenerCertificates(listenerArn string, certs []Certificate) error
+	DescribeListenerCertificates(listenerArn string) ([]Certificate, error)
 	RemoveListenerCertificates(listenerArn string, certArns []string) error
 }
 
@@ -207,12 +272,35 @@ type CreateLoadBalancerInput struct {
 
 // CreateTargetGroupInput holds the parameters for creating a target group.
 type CreateTargetGroupInput struct {
-	Name       string
-	Protocol   string
-	VpcID      string
-	TargetType string
-	Tags       []tags.KV
-	Port       int32
+	Name                      string
+	Protocol                  string
+	VpcID                     string
+	TargetType                string
+	HealthCheckProtocol       string
+	HealthCheckPort           string
+	HealthCheckPath           string
+	Matcher                   string
+	Tags                      []tags.KV
+	Port                      int32
+	HealthCheckIntervalSeconds int32
+	HealthCheckTimeoutSeconds  int32
+	HealthyThresholdCount      int32
+	UnhealthyThresholdCount    int32
+	HealthCheckEnabled        bool
+}
+
+// ModifyTargetGroupInput holds the parameters for modifying a target group.
+type ModifyTargetGroupInput struct {
+	TargetGroupArn            string
+	HealthCheckProtocol       string
+	HealthCheckPort           string
+	HealthCheckPath           string
+	Matcher                   string
+	HealthCheckIntervalSeconds int32
+	HealthCheckTimeoutSeconds  int32
+	HealthyThresholdCount      int32
+	UnhealthyThresholdCount    int32
+	HealthCheckEnabled        bool
 }
 
 // CreateListenerInput holds the parameters for creating a listener.
@@ -224,7 +312,7 @@ type CreateListenerInput struct {
 	TrustStoreArn   string
 	DefaultActions  []Action
 	Tags            []tags.KV
-	Certificates    []string
+	Certificates    []Certificate
 	Port            int32
 }
 
@@ -236,7 +324,7 @@ type ModifyListenerInput struct {
 	AlpnPolicy     string
 	TrustStoreArn  string
 	DefaultActions []Action
-	Certificates   []string
+	Certificates   []Certificate
 	Port           int32
 }
 
@@ -449,14 +537,22 @@ func (b *InMemoryBackend) DeleteLoadBalancer(lbArn string) error {
 	return nil
 }
 
-// ModifyLoadBalancerAttributes is a no-op returning the existing load balancer.
-func (b *InMemoryBackend) ModifyLoadBalancerAttributes(lbArn string) (*LoadBalancer, error) {
-	b.mu.RLock("ModifyLoadBalancerAttributes")
-	defer b.mu.RUnlock()
+// ModifyLoadBalancerAttributes updates attributes on a load balancer.
+func (b *InMemoryBackend) ModifyLoadBalancerAttributes(lbArn string, attrs map[string]string) (*LoadBalancer, error) {
+	b.mu.Lock("ModifyLoadBalancerAttributes")
+	defer b.mu.Unlock()
 
 	lb, ok := b.loadBalancers[lbArn]
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
+	}
+
+	if lb.Attributes == nil {
+		lb.Attributes = make(map[string]string)
+	}
+
+	for k, v := range attrs {
+		lb.Attributes[k] = v
 	}
 
 	cp := *lb
@@ -1134,8 +1230,8 @@ func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) (
 	return result, nil
 }
 
-// AddListenerCertificates adds ACM certificate ARNs to a listener.
-func (b *InMemoryBackend) AddListenerCertificates(listenerArn string, certArns []string) error {
+// AddListenerCertificates adds certificates to a listener.
+func (b *InMemoryBackend) AddListenerCertificates(listenerArn string, certs []Certificate) error {
 	b.mu.Lock("AddListenerCertificates")
 	defer b.mu.Unlock()
 
@@ -1146,21 +1242,21 @@ func (b *InMemoryBackend) AddListenerCertificates(listenerArn string, certArns [
 
 	existing := make(map[string]bool, len(listener.Certificates))
 	for _, c := range listener.Certificates {
-		existing[c] = true
+		existing[c.CertificateArn] = true
 	}
 
-	for _, c := range certArns {
-		if !existing[c] {
+	for _, c := range certs {
+		if !existing[c.CertificateArn] {
 			listener.Certificates = append(listener.Certificates, c)
-			existing[c] = true
+			existing[c.CertificateArn] = true
 		}
 	}
 
 	return nil
 }
 
-// DescribeListenerCertificates returns certificate ARNs on a listener.
-func (b *InMemoryBackend) DescribeListenerCertificates(listenerArn string) ([]string, error) {
+// DescribeListenerCertificates returns certificates on a listener.
+func (b *InMemoryBackend) DescribeListenerCertificates(listenerArn string) ([]Certificate, error) {
 	b.mu.RLock("DescribeListenerCertificates")
 	defer b.mu.RUnlock()
 
@@ -1169,7 +1265,7 @@ func (b *InMemoryBackend) DescribeListenerCertificates(listenerArn string) ([]st
 		return nil, ErrListenerNotFound
 	}
 
-	result := make([]string, len(listener.Certificates))
+	result := make([]Certificate, len(listener.Certificates))
 	copy(result, listener.Certificates)
 
 	return result, nil
@@ -1190,9 +1286,9 @@ func (b *InMemoryBackend) RemoveListenerCertificates(listenerArn string, certArn
 		remove[c] = true
 	}
 
-	remaining := make([]string, 0, len(listener.Certificates))
+	remaining := make([]Certificate, 0, len(listener.Certificates))
 	for _, c := range listener.Certificates {
-		if !remove[c] {
+		if !remove[c.CertificateArn] {
 			remaining = append(remaining, c)
 		}
 	}
@@ -1289,6 +1385,136 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 
 		r.Priority = p.Priority
 		result = append(result, *r)
+	}
+
+	return result, nil
+}
+
+// ModifyTargetGroup updates health-check settings on a target group.
+func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*TargetGroup, error) {
+	b.mu.Lock("ModifyTargetGroup")
+	defer b.mu.Unlock()
+
+	tg, ok := b.targetGroups[input.TargetGroupArn]
+	if !ok {
+		return nil, ErrTargetGroupNotFound
+	}
+
+	if input.HealthCheckProtocol != "" {
+		tg.HealthCheckProtocol = input.HealthCheckProtocol
+	}
+
+	if input.HealthCheckPort != "" {
+		tg.HealthCheckPort = input.HealthCheckPort
+	}
+
+	if input.HealthCheckPath != "" {
+		tg.HealthCheckPath = input.HealthCheckPath
+	}
+
+	if input.Matcher != "" {
+		tg.Matcher = input.Matcher
+	}
+
+	if input.HealthCheckIntervalSeconds != 0 {
+		tg.HealthCheckIntervalSeconds = input.HealthCheckIntervalSeconds
+	}
+
+	if input.HealthCheckTimeoutSeconds != 0 {
+		tg.HealthCheckTimeoutSeconds = input.HealthCheckTimeoutSeconds
+	}
+
+	if input.HealthyThresholdCount != 0 {
+		tg.HealthyThresholdCount = input.HealthyThresholdCount
+	}
+
+	if input.UnhealthyThresholdCount != 0 {
+		tg.UnhealthyThresholdCount = input.UnhealthyThresholdCount
+	}
+
+	tg.HealthCheckEnabled = input.HealthCheckEnabled
+	cp := *tg
+
+	return &cp, nil
+}
+
+// ModifyTargetGroupAttributes updates attributes on a target group.
+func (b *InMemoryBackend) ModifyTargetGroupAttributes(tgArn string, attrs map[string]string) (*TargetGroup, error) {
+	b.mu.Lock("ModifyTargetGroupAttributes")
+	defer b.mu.Unlock()
+
+	tg, ok := b.targetGroups[tgArn]
+	if !ok {
+		return nil, ErrTargetGroupNotFound
+	}
+
+	if tg.Attributes == nil {
+		tg.Attributes = make(map[string]string)
+	}
+
+	for k, v := range attrs {
+		tg.Attributes[k] = v
+	}
+
+	cp := *tg
+
+	return &cp, nil
+}
+
+// DescribeTargetGroupAttributes returns attributes for a target group.
+func (b *InMemoryBackend) DescribeTargetGroupAttributes(tgArn string) (map[string]string, error) {
+	b.mu.RLock("DescribeTargetGroupAttributes")
+	defer b.mu.RUnlock()
+
+	tg, ok := b.targetGroups[tgArn]
+	if !ok {
+		return nil, ErrTargetGroupNotFound
+	}
+
+	result := make(map[string]string, len(tg.Attributes))
+	for k, v := range tg.Attributes {
+		result[k] = v
+	}
+
+	return result, nil
+}
+
+// ModifyListenerAttributes updates attributes on a listener.
+func (b *InMemoryBackend) ModifyListenerAttributes(listenerArn string, attrs map[string]string) (*Listener, error) {
+	b.mu.Lock("ModifyListenerAttributes")
+	defer b.mu.Unlock()
+
+	l, ok := b.listeners[listenerArn]
+	if !ok {
+		return nil, ErrListenerNotFound
+	}
+
+	if l.Attributes == nil {
+		l.Attributes = make(map[string]string)
+	}
+
+	for k, v := range attrs {
+		l.Attributes[k] = v
+	}
+
+	cp := *l
+
+	return &cp, nil
+}
+
+// DescribeListenerAttributes returns attributes for a listener.
+func (b *InMemoryBackend) DescribeListenerAttributes(listenerArn string) (map[string]string, error) {
+	b.mu.RLock("DescribeListenerAttributes")
+	defer b.mu.RUnlock()
+
+	l, ok := b.listeners[listenerArn]
+	if !ok {
+		return nil, ErrListenerNotFound
+	}
+
+	result := make(map[string]string, len(l.Attributes))
+	for k, v := range l.Attributes {
+		result[k] = v
 	}
 
 	return result, nil

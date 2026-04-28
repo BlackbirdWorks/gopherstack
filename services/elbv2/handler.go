@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -350,15 +351,24 @@ func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, erro
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
-	_, err := h.Backend.ModifyLoadBalancerAttributes(lbArn)
+	attrs := parseKVAttrs(vals, "Attributes.member")
+
+	lb, err := h.Backend.ModifyLoadBalancerAttributes(lbArn, attrs)
 	if err != nil {
 		return nil, err
 	}
 
+	members := make([]xmlLBAttribute, 0, len(lb.Attributes))
+	for k, v := range lb.Attributes {
+		members = append(members, xmlLBAttribute{Key: k, Value: v})
+	}
+
+	sort.Slice(members, func(i, j int) bool { return members[i].Key < members[j].Key })
+
 	return &modifyLoadBalancerAttributesResponse{
 		Xmlns: elbv2XMLNS,
 		Result: modifyLoadBalancerAttributesResult{
-			Attributes: xmlLBAttributeList{Members: []xmlLBAttribute{}},
+			Attributes: xmlLBAttributeList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-lb-attrs"},
 	}, nil
@@ -650,9 +660,9 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 	members := make([]xmlTargetHealthDescription, 0, len(targets))
 	for _, t := range targets {
 		members = append(members, xmlTargetHealthDescription{
-			Target: xmlTargetDescription(t),
+			Target: xmlTargetDescription(t.Target),
 			TargetHealth: xmlTargetHealth{
-				State: "healthy",
+				State: t.HealthState,
 			},
 		})
 	}
@@ -691,7 +701,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 
 	actions := parseActions(vals, "DefaultActions.member")
 	tagKVs := parseTagKVs(vals)
-	certs := parseCertArns(vals)
+	certs := parseCerts(vals)
 
 	listener, createErr := h.Backend.CreateListener(CreateListenerInput{
 		LoadBalancerArn: lbArn,
@@ -781,7 +791,7 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 		Protocol:       vals.Get("Protocol"),
 		Port:           port,
 		DefaultActions: parseActions(vals, "DefaultActions.member"),
-		Certificates:   parseCertArns(vals),
+		Certificates:   parseCerts(vals),
 		SSLPolicy:      vals.Get("SslPolicy"),
 		AlpnPolicy:     vals.Get("AlpnPolicy.member.1"),
 		TrustStoreArn:  vals.Get("MutualAuthentication.TrustStoreArn"),
@@ -1188,6 +1198,21 @@ func parseCertArns(vals url.Values) []string {
 	return arns
 }
 
+// parseCerts extracts certificates from indexed form parameters.
+func parseCerts(vals url.Values) []Certificate {
+	certs := make([]Certificate, 0)
+	for i := 1; ; i++ {
+		arn := vals.Get(fmt.Sprintf("Certificates.member.%d.CertificateArn", i))
+		if arn == "" {
+			break
+		}
+
+		certs = append(certs, Certificate{CertificateArn: arn})
+	}
+
+	return certs
+}
+
 func (h *Handler) handleAddListenerCertificates(vals url.Values) (any, error) {
 	listenerArn := vals.Get("ListenerArn")
 	if listenerArn == "" {
@@ -1199,13 +1224,14 @@ func (h *Handler) handleAddListenerCertificates(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: at least one certificate ARN is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.AddListenerCertificates(listenerArn, certArns); err != nil {
+	certs := parseCerts(vals)
+	if err := h.Backend.AddListenerCertificates(listenerArn, certs); err != nil {
 		return nil, err
 	}
 
-	members := make([]xmlListenerCertificate, 0, len(certArns))
-	for _, c := range certArns {
-		members = append(members, xmlListenerCertificate{CertificateArn: c})
+	members := make([]xmlListenerCertificate, 0, len(certs))
+	for _, c := range certs {
+		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn})
 	}
 
 	return &addListenerCertificatesResponse{
@@ -1230,7 +1256,7 @@ func (h *Handler) handleDescribeListenerCertificates(vals url.Values) (any, erro
 
 	members := make([]xmlListenerCertificate, 0, len(certs))
 	for _, c := range certs {
-		members = append(members, xmlListenerCertificate{CertificateArn: c})
+		members = append(members, xmlListenerCertificate{CertificateArn: c.CertificateArn})
 	}
 
 	return &describeListenerCertificatesResponse{
@@ -1693,6 +1719,22 @@ func parseMembers(vals url.Values, prefix string) []string {
 	return result
 }
 
+// parseKVAttrs extracts key-value attribute pairs from Attributes.member.N.Key/Value form values.
+func parseKVAttrs(vals url.Values, prefix string) map[string]string {
+	attrs := make(map[string]string)
+
+	for i := 1; ; i++ {
+		k := vals.Get(fmt.Sprintf("%s.%d.Key", prefix, i))
+		if k == "" {
+			break
+		}
+
+		attrs[k] = vals.Get(fmt.Sprintf("%s.%d.Value", prefix, i))
+	}
+
+	return attrs
+}
+
 // parseTagKVs extracts key-value tag pairs from Tags.member.N.Key/Value form values.
 func parseTagKVs(vals url.Values) []tags.KV {
 	const prefix = "Tags.member"
@@ -1884,7 +1926,7 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 func toXMLListener(l *Listener) xmlListener {
 	actions := make([]xmlAction, 0, len(l.DefaultActions))
 	for _, a := range l.DefaultActions {
-		actions = append(actions, xmlAction(a))
+		actions = append(actions, xmlAction{Type: a.Type, TargetGroupArn: a.TargetGroupArn})
 	}
 
 	return xmlListener{
@@ -1940,7 +1982,7 @@ func buildXMLCondition(c Condition) xmlCondition {
 func toXMLRule(r *Rule) xmlRule {
 	actions := make([]xmlAction, 0, len(r.Actions))
 	for _, a := range r.Actions {
-		actions = append(actions, xmlAction(a))
+		actions = append(actions, xmlAction{Type: a.Type, TargetGroupArn: a.TargetGroupArn})
 	}
 
 	conds := make([]xmlCondition, 0, len(r.Conditions))
