@@ -718,8 +718,8 @@ func (b *InMemoryBackend) DeregisterTargets(tgArn string, targets []Target) erro
 	return nil
 }
 
-// DescribeTargetHealth returns targets registered with the target group.
-func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]Target, error) {
+// DescribeTargetHealth returns health descriptions for targets registered with the target group.
+func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]TargetHealthDescription, error) {
 	b.mu.RLock("DescribeTargetHealth")
 	defer b.mu.RUnlock()
 
@@ -728,8 +728,13 @@ func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]Target, error) {
 		return nil, ErrTargetGroupNotFound
 	}
 
-	result := make([]Target, len(tg.Targets))
-	copy(result, tg.Targets)
+	result := make([]TargetHealthDescription, len(tg.Targets))
+	for i, t := range tg.Targets {
+		result[i] = TargetHealthDescription{
+			Target:      t,
+			HealthState: "healthy",
+		}
+	}
 
 	return result, nil
 }
@@ -1448,12 +1453,12 @@ func (b *InMemoryBackend) ModifyTargetGroupAttributes(tgArn string, attrs map[st
 		return nil, ErrTargetGroupNotFound
 	}
 
-	if tg.Attributes == nil {
-		tg.Attributes = make(map[string]string)
+	if tg.TargetGroupAttributes == nil {
+		tg.TargetGroupAttributes = make(map[string]string)
 	}
 
 	for k, v := range attrs {
-		tg.Attributes[k] = v
+		tg.TargetGroupAttributes[k] = v
 	}
 
 	cp := *tg
@@ -1471,8 +1476,8 @@ func (b *InMemoryBackend) DescribeTargetGroupAttributes(tgArn string) (map[strin
 		return nil, ErrTargetGroupNotFound
 	}
 
-	result := make(map[string]string, len(tg.Attributes))
-	for k, v := range tg.Attributes {
+	result := make(map[string]string, len(tg.TargetGroupAttributes))
+	for k, v := range tg.TargetGroupAttributes {
 		result[k] = v
 	}
 
