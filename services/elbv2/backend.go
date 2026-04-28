@@ -119,10 +119,11 @@ type Listener struct {
 	ListenerArn     string     `json:"listenerArn"`
 	LoadBalancerArn string     `json:"loadBalancerArn"`
 	Protocol        string     `json:"protocol"`
-	DefaultActions  []Action   `json:"defaultActions"`
-	Certificates    []string   `json:"certificates,omitempty"`
 	SSLPolicy       string     `json:"sslPolicy,omitempty"`
 	AlpnPolicy      string     `json:"alpnPolicy,omitempty"`
+	TrustStoreArn   string     `json:"trustStoreArn,omitempty"`
+	DefaultActions  []Action   `json:"defaultActions"`
+	Certificates    []string   `json:"certificates,omitempty"`
 	Port            int32      `json:"port"`
 }
 
@@ -218,11 +219,12 @@ type CreateTargetGroupInput struct {
 type CreateListenerInput struct {
 	LoadBalancerArn string
 	Protocol        string
+	SSLPolicy       string
+	AlpnPolicy      string
+	TrustStoreArn   string
 	DefaultActions  []Action
 	Tags            []tags.KV
 	Certificates    []string
-	SSLPolicy       string
-	AlpnPolicy      string
 	Port            int32
 }
 
@@ -230,10 +232,11 @@ type CreateListenerInput struct {
 type ModifyListenerInput struct {
 	ListenerArn    string
 	Protocol       string
-	DefaultActions []Action
-	Certificates   []string
 	SSLPolicy      string
 	AlpnPolicy     string
+	TrustStoreArn  string
+	DefaultActions []Action
+	Certificates   []string
 	Port           int32
 }
 
@@ -661,6 +664,7 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		Certificates:    input.Certificates,
 		SSLPolicy:       input.SSLPolicy,
 		AlpnPolicy:      input.AlpnPolicy,
+		TrustStoreArn:   input.TrustStoreArn,
 		Tags:            t,
 	}
 
@@ -669,12 +673,14 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 	// Auto-create default rule (AWS behaviour: every listener has a default rule).
 	defaultRuleArn := b.ruleARN(listenerArn, "default")
 	defaultTags := tags.New("elbv2.rule." + defaultRuleArn + ".tags")
+	defaultActions := make([]Action, len(input.DefaultActions))
+	copy(defaultActions, input.DefaultActions)
 	b.rules[defaultRuleArn] = &Rule{
 		RuleArn:     defaultRuleArn,
 		ListenerArn: listenerArn,
 		Priority:    "default",
 		IsDefault:   true,
-		Actions:     input.DefaultActions,
+		Actions:     defaultActions,
 		Tags:        defaultTags,
 	}
 
@@ -770,6 +776,10 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 
 	if input.AlpnPolicy != "" {
 		l.AlpnPolicy = input.AlpnPolicy
+	}
+
+	if input.TrustStoreArn != "" {
+		l.TrustStoreArn = input.TrustStoreArn
 	}
 
 	cp := *l
@@ -1112,7 +1122,7 @@ func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) (
 	var result []string
 
 	for _, l := range b.listeners {
-		if l.SSLPolicy == trustStoreArn {
+		if l.TrustStoreArn == trustStoreArn {
 			result = append(result, l.ListenerArn)
 		}
 	}

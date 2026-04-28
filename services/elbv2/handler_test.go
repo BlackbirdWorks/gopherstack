@@ -2,6 +2,7 @@ package elbv2_test
 
 import (
 	"encoding/xml"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1186,7 +1187,8 @@ func TestDescribeRules(t *testing.T) {
 		Result struct {
 			Rules struct {
 				Members []struct {
-					RuleArn string `xml:"RuleArn"`
+					RuleArn   string `xml:"RuleArn"`
+					IsDefault bool   `xml:"IsDefault"`
 				} `xml:"member"`
 			} `xml:"Rules"`
 		} `xml:"DescribeRulesResult"`
@@ -1194,6 +1196,13 @@ func TestDescribeRules(t *testing.T) {
 	parseXMLBody(t, rec, &resp)
 	// 2 rules expected: 1 default (auto-created by CreateListener) + 1 explicit.
 	assert.Len(t, resp.Result.Rules.Members, 2)
+	defaultCount := 0
+	for _, r := range resp.Result.Rules.Members {
+		if r.IsDefault {
+			defaultCount++
+		}
+	}
+	assert.Equal(t, 1, defaultCount, "expected exactly one default rule")
 }
 
 // TestModifyRule tests rule modification.
@@ -3138,7 +3147,7 @@ func TestCreateRuleWithConditions(t *testing.T) {
 		{
 			name: "host_header",
 			conditionVals: url.Values{
-				"Conditions.member.1.Field":                             {"host-header"},
+				"Conditions.member.1.Field":                            {"host-header"},
 				"Conditions.member.1.HostHeaderConfig.Values.member.1": {"example.com"},
 				"Conditions.member.1.HostHeaderConfig.Values.member.2": {"*.example.com"},
 			},
@@ -3155,8 +3164,8 @@ func TestCreateRuleWithConditions(t *testing.T) {
 		{
 			name: "http_header",
 			conditionVals: url.Values{
-				"Conditions.member.1.Field":                           {"http-header"},
-				"Conditions.member.1.HttpHeaderConfig.HttpHeaderName": {"X-Custom"},
+				"Conditions.member.1.Field":                            {"http-header"},
+				"Conditions.member.1.HttpHeaderConfig.HttpHeaderName":  {"X-Custom"},
 				"Conditions.member.1.HttpHeaderConfig.Values.member.1": {"value1"},
 			},
 			wantField: "http-header",
@@ -3172,7 +3181,7 @@ func TestCreateRuleWithConditions(t *testing.T) {
 		{
 			name: "source_ip",
 			conditionVals: url.Values{
-				"Conditions.member.1.Field":                           {"source-ip"},
+				"Conditions.member.1.Field":                          {"source-ip"},
 				"Conditions.member.1.SourceIpConfig.Values.member.1": {"10.0.0.0/8"},
 			},
 			wantField: "source-ip",
@@ -3180,7 +3189,7 @@ func TestCreateRuleWithConditions(t *testing.T) {
 		{
 			name: "query_string",
 			conditionVals: url.Values{
-				"Conditions.member.1.Field":                                  {"query-string"},
+				"Conditions.member.1.Field":                                   {"query-string"},
 				"Conditions.member.1.QueryStringConfig.Values.member.1.Key":   {"version"},
 				"Conditions.member.1.QueryStringConfig.Values.member.1.Value": {"v2"},
 			},
@@ -3205,9 +3214,7 @@ func TestCreateRuleWithConditions(t *testing.T) {
 				"Actions.member.1.Type":           {"forward"},
 				"Actions.member.1.TargetGroupArn": {tgArn},
 			}
-			for k, v := range tt.conditionVals {
-				vals[k] = v
-			}
+			maps.Copy(vals, tt.conditionVals)
 
 			rec := doELBv2(t, h, vals)
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -3244,13 +3251,13 @@ func TestModifyRuleWithConditions(t *testing.T) {
 	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
 
 	createRec := doELBv2(t, h, url.Values{
-		"Action":                                                {"CreateRule"},
-		"Version":                                               {"2015-12-01"},
-		"ListenerArn":                                           {listenerArn},
-		"Priority":                                              {"5"},
-		"Actions.member.1.Type":                                 {"forward"},
-		"Actions.member.1.TargetGroupArn":                      {tgArn},
-		"Conditions.member.1.Field":                             {"host-header"},
+		"Action":                          {"CreateRule"},
+		"Version":                         {"2015-12-01"},
+		"ListenerArn":                     {listenerArn},
+		"Priority":                        {"5"},
+		"Actions.member.1.Type":           {"forward"},
+		"Actions.member.1.TargetGroupArn": {tgArn},
+		"Conditions.member.1.Field":       {"host-header"},
 		"Conditions.member.1.HostHeaderConfig.Values.member.1": {"old.example.com"},
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
@@ -3269,11 +3276,11 @@ func TestModifyRuleWithConditions(t *testing.T) {
 	ruleArn := createResp.Result.Rules.Members[0].RuleArn
 
 	modRec := doELBv2(t, h, url.Values{
-		"Action":                                                 {"ModifyRule"},
-		"Version":                                                {"2015-12-01"},
-		"RuleArn":                                                {ruleArn},
-		"Conditions.member.1.Field":                              {"path-pattern"},
-		"Conditions.member.1.PathPatternConfig.Values.member.1":  {"/v2/*"},
+		"Action":                    {"ModifyRule"},
+		"Version":                   {"2015-12-01"},
+		"RuleArn":                   {ruleArn},
+		"Conditions.member.1.Field": {"path-pattern"},
+		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/v2/*"},
 	})
 	require.Equal(t, http.StatusOK, modRec.Code)
 
@@ -3302,5 +3309,9 @@ func TestModifyRuleWithConditions(t *testing.T) {
 	require.Len(t, modResp.Result.Rules.Members[0].Conditions.Members, 1)
 	assert.Equal(t, "path-pattern", modResp.Result.Rules.Members[0].Conditions.Members[0].Field)
 	require.Len(t, modResp.Result.Rules.Members[0].Conditions.Members[0].PathPatternConfig.Values.Members, 1)
-	assert.Equal(t, "/v2/*", modResp.Result.Rules.Members[0].Conditions.Members[0].PathPatternConfig.Values.Members[0].Value)
+	assert.Equal(
+		t,
+		"/v2/*",
+		modResp.Result.Rules.Members[0].Conditions.Members[0].PathPatternConfig.Values.Members[0].Value,
+	)
 }

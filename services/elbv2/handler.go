@@ -702,6 +702,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 		Certificates:    certs,
 		SSLPolicy:       vals.Get("SslPolicy"),
 		AlpnPolicy:      vals.Get("AlpnPolicy.member.1"),
+		TrustStoreArn:   vals.Get("MutualAuthentication.TrustStoreArn"),
 	})
 	if createErr != nil {
 		return nil, createErr
@@ -783,6 +784,7 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 		Certificates:   parseCertArns(vals),
 		SSLPolicy:      vals.Get("SslPolicy"),
 		AlpnPolicy:     vals.Get("AlpnPolicy.member.1"),
+		TrustStoreArn:  vals.Get("MutualAuthentication.TrustStoreArn"),
 	})
 	if err != nil {
 		return nil, err
@@ -1107,10 +1109,12 @@ func (h *Handler) handleAddTrustStoreRevocations(vals url.Values) (any, error) {
 
 // parseTrustStoreRevocations extracts RevocationContents from form values.
 // Supports both plain RevocationId fields and S3-structured entries.
+// Iteration is capped at 1000 to prevent potential DoS from malicious input.
 func parseTrustStoreRevocations(vals url.Values) []TrustStoreRevocation {
+	const maxRevocations = 1000
 	revocations := make([]TrustStoreRevocation, 0)
 
-	for i := 1; ; i++ {
+	for i := 1; i <= maxRevocations; i++ {
 		prefix := fmt.Sprintf("RevocationContents.member.%d.", i)
 		// S3-structured entry fields.
 		s3Bucket := vals.Get(prefix + "S3Bucket")
@@ -1130,7 +1134,7 @@ func parseTrustStoreRevocations(vals url.Values) []TrustStoreRevocation {
 		if revID == "" {
 			// S3-format entries have no plain value; assign a unique ID server-side
 			// so callers can reference the revocation in RemoveTrustStoreRevocations.
-			revID = uuid.New().String()
+			revID = "s3-" + uuid.New().String()
 		}
 
 		revocations = append(revocations, TrustStoreRevocation{
@@ -1416,11 +1420,7 @@ func (h *Handler) handleDescribeTrustStoreRevocations(vals url.Values) (any, err
 
 	members := make([]xmlRevocationContent, 0, len(revocations))
 	for _, r := range revocations {
-		members = append(members, xmlRevocationContent{
-			RevocationID:           r.RevocationID,
-			RevocationType:         r.RevocationType,
-			NumberOfRevokedEntries: r.NumberOfRevokedEntries,
-		})
+		members = append(members, xmlRevocationContent(r))
 	}
 
 	return &describeTrustStoreRevocationsResponse{
@@ -1941,7 +1941,7 @@ func toXMLRule(r *Rule) xmlRule {
 		case "query-string":
 			pairs := make([]xmlQueryStringKeyValue, 0, len(c.QueryStringPairs))
 			for _, p := range c.QueryStringPairs {
-				pairs = append(pairs, xmlQueryStringKeyValue{Key: p.Key, Value: p.Value})
+				pairs = append(pairs, xmlQueryStringKeyValue(p))
 			}
 			xc.QueryStringConfig = &xmlQueryStringConfig{Values: xmlQueryStringList{Members: pairs}}
 		}
@@ -2248,9 +2248,9 @@ type xmlListener struct {
 	ListenerArn     string        `xml:"ListenerArn"`
 	LoadBalancerArn string        `xml:"LoadBalancerArn"`
 	Protocol        string        `xml:"Protocol"`
-	DefaultActions  xmlActionList `xml:"DefaultActions"`
 	SslPolicy       string        `xml:"SslPolicy,omitempty"`
 	AlpnPolicy      string        `xml:"AlpnPolicy,omitempty"`
+	DefaultActions  xmlActionList `xml:"DefaultActions"`
 	Port            int32         `xml:"Port"`
 }
 
@@ -2323,13 +2323,13 @@ type xmlQueryStringConfig struct {
 }
 
 type xmlCondition struct {
-	Field                   string                    `xml:"Field"`
 	HostHeaderConfig        *xmlConditionValuesConfig `xml:"HostHeaderConfig,omitempty"`
 	PathPatternConfig       *xmlConditionValuesConfig `xml:"PathPatternConfig,omitempty"`
 	HttpHeaderConfig        *xmlHttpHeaderConfig      `xml:"HttpHeaderConfig,omitempty"`
 	HttpRequestMethodConfig *xmlConditionValuesConfig `xml:"HttpRequestMethodConfig,omitempty"`
 	QueryStringConfig       *xmlQueryStringConfig     `xml:"QueryStringConfig,omitempty"`
 	SourceIpConfig          *xmlConditionValuesConfig `xml:"SourceIpConfig,omitempty"`
+	Field                   string                    `xml:"Field"`
 }
 
 type xmlConditionList struct {
