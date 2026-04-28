@@ -304,12 +304,23 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 	startIdx := 0
 
 	if marker != "" {
+		found := false
+
 		for i, lb := range lbs {
 			if lb.LoadBalancerName == marker {
 				startIdx = i + 1
+				found = true
 
 				break
 			}
+		}
+
+		if !found {
+			return nil, fmt.Errorf(
+				"%w: Marker %q does not match any existing load balancer",
+				ErrInvalidParameter,
+				marker,
+			)
 		}
 	}
 
@@ -431,6 +442,11 @@ func parseHealthCheck(vals url.Values) (HealthCheck, error) {
 		return HealthCheck{}, err
 	}
 
+	// Normalize target protocol to uppercase (AWS stores uppercase).
+	if colonIdx := strings.Index(target, ":"); colonIdx > 0 {
+		target = strings.ToUpper(target[:colonIdx]) + target[colonIdx:]
+	}
+
 	interval, timeout, err := parseHealthCheckTimings(vals)
 	if err != nil {
 		return HealthCheck{}, err
@@ -500,6 +516,12 @@ func (h *Handler) handleAddTags(vals url.Values) (any, error) {
 	}
 
 	kvs := parseTagKVs(vals, "Tags.member")
+
+	for _, kv := range kvs {
+		if strings.HasPrefix(kv.Key, "aws:") {
+			return nil, fmt.Errorf("%w: Tag keys starting with 'aws:' are reserved", ErrInvalidParameter)
+		}
+	}
 
 	if err := h.Backend.AddTags(names, kvs); err != nil {
 		return nil, err
@@ -575,6 +597,10 @@ func (h *Handler) handleCreateLoadBalancerListeners(vals url.Values) (any, error
 		return nil, parseErr
 	}
 
+	if len(listeners) == 0 {
+		return nil, fmt.Errorf("%w: at least one listener is required", ErrInvalidParameter)
+	}
+
 	if createErr := h.Backend.CreateLoadBalancerListeners(name, listeners); createErr != nil {
 		return nil, createErr
 	}
@@ -610,6 +636,33 @@ func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, erro
 	}
 
 	attrs := parseLoadBalancerAttributes(vals)
+
+	const minTimeout = 1
+	const maxIdleTimeout = 3600
+	const maxDrainingTimeout = 3600
+
+	if attrs.IdleTimeout < minTimeout || attrs.IdleTimeout > maxIdleTimeout {
+		return nil, fmt.Errorf(
+			"%w: IdleTimeout must be between 1 and 3600 seconds",
+			ErrInvalidParameter,
+		)
+	}
+
+	if attrs.ConnectionDraining &&
+		(attrs.ConnectionDrainingTimeout < minTimeout || attrs.ConnectionDrainingTimeout > maxDrainingTimeout) {
+		return nil, fmt.Errorf(
+			"%w: ConnectionDrainingTimeout must be between 1 and 3600 seconds",
+			ErrInvalidParameter,
+		)
+	}
+
+	validDesyncModes := map[string]bool{"defensive": true, "strictest": true, "monitor": true}
+	if attrs.DesyncMitigationMode != "" && !validDesyncModes[attrs.DesyncMitigationMode] {
+		return nil, fmt.Errorf(
+			"%w: DesyncMitigationMode must be one of 'defensive', 'strictest', 'monitor'",
+			ErrInvalidParameter,
+		)
+	}
 
 	result, err := h.Backend.ModifyLoadBalancerAttributes(name, attrs)
 	if err != nil {
@@ -863,7 +916,18 @@ func (h *Handler) handleCreateAppCookieStickinessPolicy(vals url.Values) (any, e
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
 	}
 
+	if !policyNameRe.MatchString(policyName) {
+		return nil, fmt.Errorf(
+			"%w: PolicyName must be 1-32 alphanumeric characters or hyphens, starting and ending with alphanumeric",
+			ErrInvalidParameter,
+		)
+	}
+
 	cookieName := vals.Get("CookieName")
+
+	if cookieName == "" {
+		return nil, fmt.Errorf("%w: CookieName is required", ErrInvalidParameter)
+	}
 
 	if err := h.Backend.CreateAppCookieStickinessPolicy(name, policyName, cookieName); err != nil {
 		return nil, err
@@ -884,6 +948,13 @@ func (h *Handler) handleCreateLBCookieStickinessPolicy(vals url.Values) (any, er
 	policyName := vals.Get("PolicyName")
 	if policyName == "" {
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
+	}
+
+	if !policyNameRe.MatchString(policyName) {
+		return nil, fmt.Errorf(
+			"%w: PolicyName must be 1-32 alphanumeric characters or hyphens, starting and ending with alphanumeric",
+			ErrInvalidParameter,
+		)
 	}
 
 	var cookieExpiration int64
@@ -915,6 +986,13 @@ func (h *Handler) handleCreateLoadBalancerPolicy(vals url.Values) (any, error) {
 	policyName := vals.Get("PolicyName")
 	if policyName == "" {
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
+	}
+
+	if !policyNameRe.MatchString(policyName) {
+		return nil, fmt.Errorf(
+			"%w: PolicyName must be 1-32 alphanumeric characters or hyphens, starting and ending with alphanumeric",
+			ErrInvalidParameter,
+		)
 	}
 
 	policyTypeName := vals.Get("PolicyTypeName")
@@ -1101,6 +1179,8 @@ func elbErrorCode(opErr error) (string, int) {
 	mappings := []errorMapping{
 		{ErrPolicyNotFound, "PolicyNotFound", http.StatusNotFound},
 		{ErrPolicyAlreadyExists, "DuplicatePolicyName", http.StatusConflict},
+		{ErrListenerNotFound, "ListenerNotFound", http.StatusNotFound},
+		{ErrInvalidInstance, "InvalidInstance", http.StatusBadRequest},
 		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusNotFound},
 		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
@@ -1326,7 +1406,9 @@ func parseListenerPorts(vals url.Values, prefix string) []int32 {
 			continue
 		}
 
-		result = append(result, p)
+		if p >= 1 {
+			result = append(result, p)
+		}
 	}
 
 	return result
@@ -1471,6 +1553,11 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 		CanonicalHostedZoneNameID: lb.CanonicalHostedZoneNameID,
 		CreatedTime:               lb.CreatedTime.UTC().Format(time.RFC3339),
 		Scheme:                    lb.Scheme,
+		VPCId:                     lb.VPCId,
+		SourceSecurityGroup: xmlSourceSecurityGroup{
+			GroupName:  "default",
+			OwnerAlias: lb.AccountID,
+		},
 		AvailabilityZones:         xmlStringValueList{Members: azs},
 		SecurityGroups:            xmlStringValueList{Members: sgs},
 		Subnets:                   xmlStringValueList{Members: subnets},
@@ -1594,6 +1681,11 @@ type xmlHealthCheck struct {
 	HealthyThreshold   int32  `xml:"HealthyThreshold"`
 }
 
+type xmlSourceSecurityGroup struct {
+	GroupName  string `xml:"GroupName"`
+	OwnerAlias string `xml:"OwnerAlias"`
+}
+
 type xmlLoadBalancerDescription struct {
 	LoadBalancerName          string                          `xml:"LoadBalancerName"`
 	DNSName                   string                          `xml:"DNSName"`
@@ -1601,9 +1693,11 @@ type xmlLoadBalancerDescription struct {
 	CanonicalHostedZoneNameID string                          `xml:"CanonicalHostedZoneNameID"`
 	CreatedTime               string                          `xml:"CreatedTime"`
 	Scheme                    string                          `xml:"Scheme"`
+	VPCId                     string                          `xml:"VPCId,omitempty"`
 	AvailabilityZones         xmlStringValueList              `xml:"AvailabilityZones"`
 	SecurityGroups            xmlStringValueList              `xml:"SecurityGroups"`
 	Subnets                   xmlStringValueList              `xml:"Subnets"`
+	SourceSecurityGroup       xmlSourceSecurityGroup          `xml:"SourceSecurityGroup"`
 	ListenerDescriptions      xmlListenerDescriptionList      `xml:"ListenerDescriptions"`
 	BackendServerDescriptions xmlBackendServerDescriptionList `xml:"BackendServerDescriptions"`
 	Instances                 xmlInstanceList                 `xml:"Instances"`

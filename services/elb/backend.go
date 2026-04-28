@@ -32,10 +32,21 @@ var (
 	ErrPolicyAlreadyExists = awserr.New("DuplicatePolicyName", awserr.ErrAlreadyExists)
 	// ErrValidation is a generic validation error sentinel mapped to HTTP 400.
 	ErrValidation = awserr.New("ValidationError", awserr.ErrInvalidParameter)
+	// ErrListenerNotFound is returned when a listener on the requested port does not exist.
+	ErrListenerNotFound = awserr.New("ListenerNotFound", awserr.ErrNotFound)
+	// ErrInvalidInstance is returned when a specified instance is not registered with the LB.
+	ErrInvalidInstance = awserr.New("InvalidInstance", awserr.ErrInvalidParameter)
 
 	// lbNameRe matches valid Classic ELB names: 1-32 chars, alphanumeric + hyphens,
 	// must start and end with alphanumeric.
 	lbNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9\-]{0,30}[a-zA-Z0-9]$|^[a-zA-Z0-9]$`)
+
+	// policyNameRe matches valid Classic ELB policy names: 1-32 chars, alphanumeric + hyphens,
+	// must start and end with alphanumeric.
+	policyNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9\-]{0,30}[a-zA-Z0-9]$|^[a-zA-Z0-9]$`)
+
+	// instanceIDRe matches valid EC2 instance IDs: i- followed by 8-17 lowercase hex chars.
+	instanceIDRe = regexp.MustCompile(`^i-[a-f0-9]{8,17}$`)
 
 	// knownPolicyTypes is the set of built-in Classic ELB policy type names.
 	knownPolicyTypes = map[string]struct{}{ //nolint:gochecknoglobals // immutable lookup table
@@ -507,6 +518,16 @@ func (b *InMemoryBackend) RegisterInstancesWithLoadBalancer(name string, instanc
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
+	for _, inst := range instances {
+		if !instanceIDRe.MatchString(inst.InstanceID) {
+			return nil, fmt.Errorf(
+				"%w: invalid instance ID format %q; must match i-[a-f0-9]{8,17}",
+				ErrInvalidParameter,
+				inst.InstanceID,
+			)
+		}
+	}
+
 	existing := make(map[string]bool, len(lb.Instances))
 	for _, inst := range lb.Instances {
 		existing[inst.InstanceID] = true
@@ -760,6 +781,23 @@ func policyKey(lbName, policyName string) string {
 	return lbName + "/" + policyName
 }
 
+// validatePolicyName returns ErrInvalidParameter if the policy name is empty or does not
+// match the allowed format (1-32 alphanumeric + hyphen chars, start/end alphanumeric).
+func validatePolicyName(policyName string) error {
+	if policyName == "" {
+		return fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
+	}
+
+	if !policyNameRe.MatchString(policyName) {
+		return fmt.Errorf(
+			"%w: PolicyName must be 1-32 alphanumeric characters or hyphens, starting and ending with alphanumeric",
+			ErrInvalidParameter,
+		)
+	}
+
+	return nil
+}
+
 // ApplySecurityGroupsToLoadBalancer replaces the security groups for a VPC load balancer.
 func (b *InMemoryBackend) ApplySecurityGroupsToLoadBalancer(name string, securityGroups []string) ([]string, error) {
 	b.mu.Lock("ApplySecurityGroupsToLoadBalancer")
@@ -833,6 +871,7 @@ func (b *InMemoryBackend) DetachLoadBalancerFromSubnets(name string, subnets []s
 
 	result := make([]string, len(lb.Subnets))
 	copy(result, lb.Subnets)
+	sort.Strings(result)
 
 	return result, nil
 }
@@ -874,6 +913,15 @@ func (b *InMemoryBackend) DisableAvailabilityZonesForLoadBalancer(name string, a
 	lb, ok := b.lbs[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	// No-op when no AZs provided.
+	if len(azs) == 0 {
+		result := make([]string, len(lb.AvailabilityZones))
+		copy(result, lb.AvailabilityZones)
+		sort.Strings(result)
+
+		return result, nil
 	}
 
 	remove := make(map[string]bool, len(azs))
@@ -922,7 +970,7 @@ func (b *InMemoryBackend) SetLoadBalancerListenerSSLCertificate(name string, por
 		}
 	}
 
-	return fmt.Errorf("%w: no listener on port %d", ErrInvalidParameter, port)
+	return fmt.Errorf("%w: no listener on port %d", ErrListenerNotFound, port)
 }
 
 // SetLoadBalancerPoliciesOfListener sets the policies for an existing listener.
@@ -935,6 +983,13 @@ func (b *InMemoryBackend) SetLoadBalancerPoliciesOfListener(name string, port in
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
+	// Validate each policy exists for this LB.
+	for _, p := range policyNames {
+		if _, exists := b.policies[policyKey(name, p)]; !exists {
+			return fmt.Errorf("%w: %q", ErrPolicyNotFound, p)
+		}
+	}
+
 	for i := range lb.Listeners {
 		if lb.Listeners[i].LoadBalancerPort == port {
 			cp := make([]string, len(policyNames))
@@ -945,7 +1000,7 @@ func (b *InMemoryBackend) SetLoadBalancerPoliciesOfListener(name string, port in
 		}
 	}
 
-	return fmt.Errorf("%w: no listener on port %d", ErrInvalidParameter, port)
+	return fmt.Errorf("%w: no listener on port %d", ErrListenerNotFound, port)
 }
 
 // SetLoadBalancerPoliciesForBackendServer sets the policies for a backend server instance port.
@@ -960,6 +1015,13 @@ func (b *InMemoryBackend) SetLoadBalancerPoliciesForBackendServer(
 	lb, ok := b.lbs[name]
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	// Validate each policy exists for this LB.
+	for _, p := range policyNames {
+		if _, exists := b.policies[policyKey(name, p)]; !exists {
+			return fmt.Errorf("%w: %q", ErrPolicyNotFound, p)
+		}
 	}
 
 	cp := make([]string, len(policyNames))
@@ -983,6 +1045,14 @@ func (b *InMemoryBackend) SetLoadBalancerPoliciesForBackendServer(
 
 // CreateAppCookieStickinessPolicy creates an application-cookie stickiness policy.
 func (b *InMemoryBackend) CreateAppCookieStickinessPolicy(name, policyName, cookieName string) error {
+	if err := validatePolicyName(policyName); err != nil {
+		return err
+	}
+
+	if cookieName == "" {
+		return fmt.Errorf("%w: CookieName is required for AppCookieStickinessPolicy", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateAppCookieStickinessPolicy")
 	defer b.mu.Unlock()
 
@@ -1009,6 +1079,10 @@ func (b *InMemoryBackend) CreateAppCookieStickinessPolicy(name, policyName, cook
 
 // CreateLBCookieStickinessPolicy creates an LB-cookie stickiness policy.
 func (b *InMemoryBackend) CreateLBCookieStickinessPolicy(name, policyName string, cookieExpirationPeriod int64) error {
+	if err := validatePolicyName(policyName); err != nil {
+		return err
+	}
+
 	b.mu.Lock("CreateLBCookieStickinessPolicy")
 	defer b.mu.Unlock()
 
@@ -1043,6 +1117,10 @@ func (b *InMemoryBackend) CreateLoadBalancerPolicy(
 	name, policyName, policyTypeName string,
 	attrs []PolicyAttribute,
 ) error {
+	if err := validatePolicyName(policyName); err != nil {
+		return err
+	}
+
 	b.mu.Lock("CreateLoadBalancerPolicy")
 	defer b.mu.Unlock()
 
@@ -1143,21 +1221,20 @@ func (b *InMemoryBackend) DescribeInstanceHealth(name string, instances []Instan
 
 		result := make([]InstanceState, 0, len(instances))
 		for _, inst := range instances {
-			state := "InService"
-			reasonCode := "N/A"
-			description := "N/A"
-
 			if !registered[inst.InstanceID] {
-				state = "OutOfService"
-				reasonCode = "Instance"
-				description = "Instance is not registered with the load balancer"
+				return nil, fmt.Errorf(
+					"%w: instance %q is not registered with load balancer %q",
+					ErrInvalidInstance,
+					inst.InstanceID,
+					name,
+				)
 			}
 
 			result = append(result, InstanceState{
 				InstanceID:  inst.InstanceID,
-				State:       state,
-				ReasonCode:  reasonCode,
-				Description: description,
+				State:       "InService",
+				ReasonCode:  "N/A",
+				Description: "N/A",
 			})
 		}
 

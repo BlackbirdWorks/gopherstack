@@ -348,7 +348,7 @@ func TestSetLoadBalancerListenerSSLCertificate(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "port_not_found_returns_400",
+			name: "port_not_found_returns_404",
 			setup: func(t *testing.T, h *elb.Handler) {
 				t.Helper()
 				mustCreateLB(t, h, "ssl-bad-port")
@@ -360,7 +360,7 @@ func TestSetLoadBalancerListenerSSLCertificate(t *testing.T) {
 				"LoadBalancerPort": {"9999"},
 				"SSLCertificateId": {"arn:aws:acm:us-east-1:123456789012:certificate/abc-123"},
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name: "lb_not_found_returns_404",
@@ -488,7 +488,7 @@ func TestSetLoadBalancerPoliciesOfListener(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "listener_not_found_returns_400",
+			name: "listener_not_found_returns_404",
 			setup: func(t *testing.T, h *elb.Handler) {
 				t.Helper()
 				mustCreateLB(t, h, "lpol-noport")
@@ -499,7 +499,7 @@ func TestSetLoadBalancerPoliciesOfListener(t *testing.T) {
 				"LoadBalancerName": {"lpol-noport"},
 				"LoadBalancerPort": {"9999"},
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -554,6 +554,13 @@ func TestSetLoadBalancerPoliciesForBackendServer(t *testing.T) {
 			setup: func(t *testing.T, h *elb.Handler) {
 				t.Helper()
 				mustCreateLB(t, h, "bsd-lb")
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLoadBalancerPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"bsd-lb"},
+					"PolicyName":       {"proxy-pol"},
+					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				})
 			},
 			vals: url.Values{
 				"Action":               {"SetLoadBalancerPoliciesForBackendServer"},
@@ -572,6 +579,20 @@ func TestSetLoadBalancerPoliciesForBackendServer(t *testing.T) {
 				t.Helper()
 				mustCreateLB(t, h, "bsd-update-lb")
 
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLoadBalancerPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"bsd-update-lb"},
+					"PolicyName":       {"old-pol"},
+					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				})
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLoadBalancerPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"bsd-update-lb"},
+					"PolicyName":       {"new-pol"},
+					"PolicyTypeName":   {"ProxyProtocolPolicyType"},
+				})
 				doELB(t, h, url.Values{
 					"Action":               {"SetLoadBalancerPoliciesForBackendServer"},
 					"Version":              {"2012-06-01"},
