@@ -491,8 +491,6 @@ func (b *InMemoryBackend) CancelJobRun(applicationID, jobRunID string) (*JobRun,
 		)
 	}
 
-	jr.State = JobRunStateCancelling
-	jr.StateDetails = "Job run is being cancelled"
 	jr.State = JobRunStateCancelled
 	jr.StateDetails = "Job run cancelled by user request"
 	jr.UpdatedAt = time.Now().UTC()

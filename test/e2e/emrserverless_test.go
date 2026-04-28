@@ -6,7 +6,6 @@ package e2e_test
 import (
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
@@ -218,8 +217,12 @@ func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 	err = page.Locator("button:has-text('e2e-filter-app')").First().Click()
 	require.NoError(t, err)
 
-	// Wait for job runs to load.
-	time.Sleep(300 * time.Millisecond)
+	// Wait for job runs to appear.
+	err = page.Locator("text=running-job").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
 
 	// Both jobs should be visible with ALL filter.
 	content, err := page.Content()
@@ -231,7 +234,12 @@ func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 	err = page.Locator("button:has-text('CANCELLED')").Click()
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the CANCELLED filter to apply (submitted-job should disappear).
+	err = page.Locator("text=running-job").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	})
+	require.NoError(t, err)
 
 	content, err = page.Content()
 	require.NoError(t, err)
