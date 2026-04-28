@@ -289,6 +289,43 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	// Pagination: Marker (name of last LB on previous page) and PageSize (1-400).
+	const maxPageSize = 400
+
+	pageSize := maxPageSize
+
+	if ps := vals.Get("PageSize"); ps != "" {
+		if n, parseErr := strconv.Atoi(ps); parseErr == nil && n > 0 && n <= maxPageSize {
+			pageSize = n
+		}
+	}
+
+	marker := vals.Get("Marker")
+	startIdx := 0
+
+	if marker != "" {
+		for i, lb := range lbs {
+			if lb.LoadBalancerName == marker {
+				startIdx = i + 1
+
+				break
+			}
+		}
+	}
+
+	if startIdx > len(lbs) {
+		startIdx = len(lbs)
+	}
+
+	lbs = lbs[startIdx:]
+
+	nextMarker := ""
+
+	if len(lbs) > pageSize {
+		nextMarker = lbs[pageSize-1].LoadBalancerName
+		lbs = lbs[:pageSize]
+	}
+
 	members := make([]xmlLoadBalancerDescription, 0, len(lbs))
 	for i := range lbs {
 		members = append(members, toXMLLoadBalancer(&lbs[i]))
@@ -298,6 +335,7 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 		Xmlns: elbXMLNS,
 		Result: describeLoadBalancersResult{
 			LoadBalancerDescriptions: xmlLoadBalancerList{Members: members},
+			NextMarker:               nextMarker,
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-describe"},
 	}, nil
@@ -357,32 +395,15 @@ func (h *Handler) handleConfigureHealthCheck(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
 	}
 
-	interval, err := parseInt32(vals.Get("HealthCheck.Interval"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheck.Interval", ErrInvalidParameter)
+	// Check LB exists before validating the remaining parameters; AWS returns
+	// LoadBalancerNotFound before complaining about invalid HC params.
+	if _, err := h.Backend.DescribeLoadBalancers([]string{name}); err != nil {
+		return nil, err
 	}
 
-	timeout, err := parseInt32(vals.Get("HealthCheck.Timeout"))
+	hc, err := parseHealthCheck(vals)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheck.Timeout", ErrInvalidParameter)
-	}
-
-	unhealthy, err := parseInt32(vals.Get("HealthCheck.UnhealthyThreshold"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheck.UnhealthyThreshold", ErrInvalidParameter)
-	}
-
-	healthy, err := parseInt32(vals.Get("HealthCheck.HealthyThreshold"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheck.HealthyThreshold", ErrInvalidParameter)
-	}
-
-	hc := HealthCheck{
-		Target:             vals.Get("HealthCheck.Target"),
-		Interval:           interval,
-		Timeout:            timeout,
-		UnhealthyThreshold: unhealthy,
-		HealthyThreshold:   healthy,
+		return nil, err
 	}
 
 	result, hcErr := h.Backend.ConfigureHealthCheck(name, hc)
@@ -397,6 +418,79 @@ func (h *Handler) handleConfigureHealthCheck(vals url.Values) (any, error) {
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-hc-" + name},
 	}, nil
+}
+
+// parseHealthCheck validates and parses health check parameters from form values.
+func parseHealthCheck(vals url.Values) (HealthCheck, error) {
+	target := vals.Get("HealthCheck.Target")
+	if target == "" {
+		return HealthCheck{}, fmt.Errorf("%w: HealthCheck.Target is required", ErrInvalidParameter)
+	}
+
+	if err := validateHealthCheckTarget(target); err != nil {
+		return HealthCheck{}, err
+	}
+
+	interval, timeout, err := parseHealthCheckTimings(vals)
+	if err != nil {
+		return HealthCheck{}, err
+	}
+
+	unhealthy, healthy, err := parseHealthCheckThresholds(vals)
+	if err != nil {
+		return HealthCheck{}, err
+	}
+
+	return HealthCheck{
+		Target:             target,
+		Interval:           interval,
+		Timeout:            timeout,
+		UnhealthyThreshold: unhealthy,
+		HealthyThreshold:   healthy,
+	}, nil
+}
+
+// parseHealthCheckTimings validates and returns the Interval and Timeout parameters.
+func parseHealthCheckTimings(vals url.Values) (int32, int32, error) {
+	interval, parseErr := parseInt32(vals.Get("HealthCheck.Interval"))
+	if parseErr != nil || interval < 5 || interval > 300 {
+		return 0, 0, fmt.Errorf("%w: HealthCheck.Interval must be between 5 and 300", ErrInvalidParameter)
+	}
+
+	timeout, parseErr := parseInt32(vals.Get("HealthCheck.Timeout"))
+	if parseErr != nil || timeout < 2 || timeout > 60 {
+		return 0, 0, fmt.Errorf("%w: HealthCheck.Timeout must be between 2 and 60", ErrInvalidParameter)
+	}
+
+	if timeout >= interval {
+		return 0, 0, fmt.Errorf(
+			"%w: HealthCheck.Timeout must be less than HealthCheck.Interval",
+			ErrInvalidParameter,
+		)
+	}
+
+	return interval, timeout, nil
+}
+
+// parseHealthCheckThresholds validates and returns UnhealthyThreshold and HealthyThreshold.
+func parseHealthCheckThresholds(vals url.Values) (int32, int32, error) {
+	unhealthy, parseErr := parseInt32(vals.Get("HealthCheck.UnhealthyThreshold"))
+	if parseErr != nil || unhealthy < 2 || unhealthy > 10 {
+		return 0, 0, fmt.Errorf(
+			"%w: HealthCheck.UnhealthyThreshold must be between 2 and 10",
+			ErrInvalidParameter,
+		)
+	}
+
+	healthy, parseErr := parseInt32(vals.Get("HealthCheck.HealthyThreshold"))
+	if parseErr != nil || healthy < 2 || healthy > 10 {
+		return 0, 0, fmt.Errorf(
+			"%w: HealthCheck.HealthyThreshold must be between 2 and 10",
+			ErrInvalidParameter,
+		)
+	}
+
+	return unhealthy, healthy, nil
 }
 
 func (h *Handler) handleAddTags(vals url.Values) (any, error) {
@@ -828,6 +922,18 @@ func (h *Handler) handleCreateLoadBalancerPolicy(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: PolicyTypeName is required", ErrInvalidParameter)
 	}
 
+	if _, ok := knownPolicyTypes[policyTypeName]; !ok {
+		const validTypes = "AppCookieStickinessPolicyType, LBCookieStickinessPolicyType, " +
+			"ProxyProtocolPolicyType, SSLNegotiationPolicyType, BackendServerAuthenticationPolicyType"
+
+		return nil, fmt.Errorf(
+			"%w: unknown PolicyTypeName %q; must be one of %s",
+			ErrInvalidParameter,
+			policyTypeName,
+			validTypes,
+		)
+	}
+
 	attrs := parsePolicyAttributes(vals)
 
 	if err := h.Backend.CreateLoadBalancerPolicy(name, policyName, policyTypeName, attrs); err != nil {
@@ -1049,6 +1155,49 @@ func parseInt32(s string) (int32, error) {
 	return int32(n), nil
 }
 
+// validateHealthCheckTarget validates the HealthCheck Target format expected by AWS:
+// PROTOCOL:PORT for TCP/SSL or PROTOCOL:PORT/PATH for HTTP/HTTPS.
+func validateHealthCheckTarget(target string) error {
+	colonIdx := strings.Index(target, ":")
+	if colonIdx < 1 {
+		return fmt.Errorf(
+			"%w: HealthCheck.Target must be in the format PROTOCOL:PORT or PROTOCOL:PORT/PATH",
+			ErrInvalidParameter,
+		)
+	}
+
+	proto := strings.ToUpper(target[:colonIdx])
+	rest := target[colonIdx+1:]
+
+	switch proto {
+	case "HTTP", "HTTPS":
+		slashIdx := strings.Index(rest, "/")
+		if slashIdx < 1 {
+			return fmt.Errorf(
+				"%w: HealthCheck.Target for HTTP/HTTPS must include a path (e.g. HTTP:80/health)",
+				ErrInvalidParameter,
+			)
+		}
+
+		portStr := rest[:slashIdx]
+		p, err := strconv.ParseInt(portStr, 10, 32)
+
+		if err != nil || p < 1 || p > 65535 {
+			return fmt.Errorf("%w: HealthCheck.Target port must be between 1 and 65535", ErrInvalidParameter)
+		}
+	case "TCP", "SSL":
+		p, err := strconv.ParseInt(rest, 10, 32)
+
+		if err != nil || p < 1 || p > 65535 {
+			return fmt.Errorf("%w: HealthCheck.Target port must be between 1 and 65535", ErrInvalidParameter)
+		}
+	default:
+		return fmt.Errorf("%w: HealthCheck.Target protocol must be one of HTTP, HTTPS, TCP, SSL", ErrInvalidParameter)
+	}
+
+	return nil
+}
+
 // parseMembers extracts indexed form values (e.g. "LoadBalancerNames.member.1").
 func parseMembers(vals url.Values, prefix string) []string {
 	result := make([]string, 0)
@@ -1077,26 +1226,37 @@ func parseListeners(vals url.Values) ([]Listener, error) {
 			break
 		}
 
-		lbPort, err := parseInt32(vals.Get(fmt.Sprintf("Listeners.member.%d.LoadBalancerPort", i)))
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid LoadBalancerPort", ErrInvalidParameter)
+		proto = strings.ToUpper(proto)
+
+		switch proto {
+		case "HTTP", "HTTPS", "TCP", "SSL":
+		default:
+			return nil, fmt.Errorf("%w: Protocol must be one of HTTP, HTTPS, TCP, SSL", ErrInvalidParameter)
 		}
 
-		instProto := vals.Get(fmt.Sprintf("Listeners.member.%d.InstanceProtocol", i))
+		lbPort, err := parseInt32(vals.Get(fmt.Sprintf("Listeners.member.%d.LoadBalancerPort", i)))
+		if err != nil || lbPort < 1 || lbPort > 65535 {
+			return nil, fmt.Errorf("%w: LoadBalancerPort must be between 1 and 65535", ErrInvalidParameter)
+		}
+
+		instProto := strings.ToUpper(vals.Get(fmt.Sprintf("Listeners.member.%d.InstanceProtocol", i)))
 		if instProto == "" {
 			instProto = proto
 		}
 
 		instPort, err := parseInt32(vals.Get(fmt.Sprintf("Listeners.member.%d.InstancePort", i)))
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid InstancePort", ErrInvalidParameter)
+		if err != nil || instPort < 1 || instPort > 65535 {
+			return nil, fmt.Errorf("%w: InstancePort must be between 1 and 65535", ErrInvalidParameter)
 		}
+
+		certID := vals.Get(fmt.Sprintf("Listeners.member.%d.SSLCertificateId", i))
 
 		result = append(result, Listener{
 			Protocol:         proto,
 			LoadBalancerPort: lbPort,
 			InstanceProtocol: instProto,
 			InstancePort:     instPort,
+			SSLCertificateID: certID,
 		})
 	}
 

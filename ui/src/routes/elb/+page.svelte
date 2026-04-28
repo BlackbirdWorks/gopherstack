@@ -37,6 +37,7 @@
 	let selectedLB = $state<LoadBalancerDescription | null>(null);
 	let activeTab = $state<ActiveTab>('overview');
 	let loading = $state(false);
+	let lbSearch = $state('');
 
 	// create modal
 	let showCreateModal = $state(false);
@@ -155,9 +156,10 @@
 	}
 
 	async function createLoadBalancer() {
+		const createdName = newName;
 		try {
 			await elb.send(new CreateLoadBalancerCommand({
-				LoadBalancerName: newName,
+				LoadBalancerName: createdName,
 				AvailabilityZones: [newAZ],
 				Scheme: newScheme,
 				Listeners: [{
@@ -170,6 +172,8 @@
 			showCreateModal = false;
 			newName = '';
 			await loadBalancersList();
+			const created = loadBalancers.find((lb) => lb.LoadBalancerName === createdName);
+			if (created) await selectLB(created);
 			toast.success('Load balancer created');
 		} catch (err: unknown) {
 			toast.error(`Failed to create: ${(err as Error).message}`);
@@ -448,9 +452,14 @@
 	<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
 		<div class="flex items-center justify-between">
 			<h1 class="text-3xl font-bold text-slate-900 dark:text-white">Classic Load Balancers (ELB)</h1>
-			<button type="button" onclick={() => (showCreateModal = true)} class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-				+ Create Load Balancer
-			</button>
+			<div class="flex items-center gap-2">
+				<button type="button" onclick={() => loadBalancersList()} class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700">
+					↺ Refresh
+				</button>
+				<button type="button" onclick={() => (showCreateModal = true)} class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+					+ Create Load Balancer
+				</button>
+			</div>
 		</div>
 	</div>
 
@@ -458,20 +467,33 @@
 		<!-- LB List -->
 		<div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
 			<h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Load Balancers</h2>
+			<input
+				bind:value={lbSearch}
+				placeholder="Filter…"
+				class="mb-2 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+			/>
 			{#if loading}
 				<p class="text-sm text-slate-500">Loading…</p>
 			{:else if loadBalancers.length === 0}
 				<p class="text-sm text-slate-500 dark:text-slate-400">No load balancers found.</p>
 			{:else}
 				<ul class="space-y-1">
-					{#each loadBalancers as lb}
-						<li>
+					{#each loadBalancers.filter(lb => !lbSearch || (lb.LoadBalancerName ?? '').toLowerCase().includes(lbSearch.toLowerCase())) as lb}
+						<li class="flex items-center gap-1">
 							<button
 								type="button"
 								onclick={() => selectLB(lb)}
-								class="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 {selectedLB?.LoadBalancerName === lb.LoadBalancerName ? 'bg-indigo-50 font-semibold text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}"
+								class="flex-1 rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 {selectedLB?.LoadBalancerName === lb.LoadBalancerName ? 'bg-indigo-50 font-semibold text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}"
 							>
-								{lb.LoadBalancerName}
+								<span class="block truncate">{lb.LoadBalancerName}</span>
+								<span class="text-xs text-slate-400 dark:text-slate-500">{lb.Scheme ?? 'internet-facing'} · {lb.ListenerDescriptions?.length ?? 0} listener{(lb.ListenerDescriptions?.length ?? 0) === 1 ? '' : 's'}</span>
+							</button>
+							<button
+								type="button"
+								onclick={() => deleteLoadBalancer(lb.LoadBalancerName ?? '')}
+								class="flex-shrink-0 rounded px-1.5 py-0.5 text-xs text-red-500 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-900/30"
+							>
+								Delete
 							</button>
 						</li>
 					{/each}
@@ -793,7 +815,7 @@
 			<form onsubmit={(e) => { e.preventDefault(); createLoadBalancer(); }} class="space-y-3">
 				<div>
 					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
-					<input bind:value={newName} required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="my-lb" />
+					<input id="name" bind:value={newName} required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="my-lb" />
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Availability Zone</label>

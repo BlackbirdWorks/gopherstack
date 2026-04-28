@@ -4,6 +4,8 @@ package elb
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,6 +32,19 @@ var (
 	ErrPolicyAlreadyExists = awserr.New("DuplicatePolicyName", awserr.ErrAlreadyExists)
 	// ErrValidation is a generic validation error sentinel mapped to HTTP 400.
 	ErrValidation = awserr.New("ValidationError", awserr.ErrInvalidParameter)
+
+	// lbNameRe matches valid Classic ELB names: 1-32 chars, alphanumeric + hyphens,
+	// must start and end with alphanumeric.
+	lbNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9\-]{0,30}[a-zA-Z0-9]$|^[a-zA-Z0-9]$`)
+
+	// knownPolicyTypes is the set of built-in Classic ELB policy type names.
+	knownPolicyTypes = map[string]struct{}{ //nolint:gochecknoglobals // immutable lookup table
+		"AppCookieStickinessPolicyType":         {},
+		"LBCookieStickinessPolicyType":          {},
+		"ProxyProtocolPolicyType":               {},
+		"SSLNegotiationPolicyType":              {},
+		"BackendServerAuthenticationPolicyType": {},
+	}
 )
 
 const (
@@ -37,6 +52,9 @@ const (
 	defaultConnectionDrainingTimeout int32 = 300
 	// defaultIdleTimeout is the default idle connection timeout in seconds.
 	defaultIdleTimeout int32 = 60
+	// canonicalHostedZoneID is the real AWS Classic ELB hosted zone ID (us-east-1).
+	// In production AWS uses per-region values; for a local emulator one constant suffices.
+	canonicalHostedZoneID = "Z35SXDOTRQ7X7K"
 )
 
 // Listener is a single protocol/port mapping on a load balancer.
@@ -337,6 +355,13 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
 	}
 
+	if !lbNameRe.MatchString(input.LoadBalancerName) {
+		return nil, fmt.Errorf(
+			"%w: LoadBalancerName must be 1-32 alphanumeric characters or hyphens, starting and ending with alphanumeric",
+			ErrInvalidParameter,
+		)
+	}
+
 	if _, exists := b.lbs[input.LoadBalancerName]; exists {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerAlreadyExists, input.LoadBalancerName)
 	}
@@ -344,6 +369,10 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	scheme := input.Scheme
 	if scheme == "" {
 		scheme = "internet-facing"
+	}
+
+	if scheme != "internet-facing" && scheme != "internal" {
+		return nil, fmt.Errorf("%w: Scheme must be 'internet-facing' or 'internal'", ErrInvalidParameter)
 	}
 
 	dnsName := input.LoadBalancerName + "." + b.region + ".elb.amazonaws.com"
@@ -389,7 +418,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		ARN:                       lbARN,
 		DNSName:                   dnsName,
 		CanonicalHostedZoneName:   dnsName,
-		CanonicalHostedZoneNameID: lbARN,
+		CanonicalHostedZoneNameID: canonicalHostedZoneID,
 		CreatedTime:               time.Now(),
 		Scheme:                    scheme,
 		AvailabilityZones:         azs,
@@ -547,10 +576,44 @@ func (b *InMemoryBackend) AddTags(names []string, kvs []tags.KV) error {
 	b.mu.Lock("AddTags")
 	defer b.mu.Unlock()
 
+	const maxTagKeyLen = 128
+	const maxTagValueLen = 256
+	const maxTagsPerLB = 10
+
+	// Validate tag key/value lengths before mutating any LB.
+	for _, kv := range kvs {
+		if kv.Key == "" || len(kv.Key) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be 1-%d characters", ErrInvalidParameter, maxTagKeyLen)
+		}
+
+		if len(kv.Value) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be 0-%d characters", ErrInvalidParameter, maxTagValueLen)
+		}
+	}
+
 	for _, name := range names {
 		lb, ok := b.lbs[name]
 		if !ok {
 			return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+		}
+
+		// Count existing tags that won't be overwritten.
+		newKeys := make(map[string]struct{}, len(kvs))
+		for _, kv := range kvs {
+			newKeys[kv.Key] = struct{}{}
+		}
+
+		existingCount := 0
+		lb.Tags.Range(func(k, _ string) bool {
+			if _, isNew := newKeys[k]; !isNew {
+				existingCount++
+			}
+
+			return true
+		})
+
+		if existingCount+len(kvs) > maxTagsPerLB {
+			return fmt.Errorf("%w: cannot have more than %d tags on a load balancer", ErrInvalidParameter, maxTagsPerLB)
 		}
 
 		for _, kv := range kvs {
@@ -709,6 +772,7 @@ func (b *InMemoryBackend) ApplySecurityGroupsToLoadBalancer(name string, securit
 
 	cp := make([]string, len(securityGroups))
 	copy(cp, securityGroups)
+	sort.Strings(cp)
 	lb.SecurityGroups = cp
 
 	return cp, nil
@@ -738,6 +802,7 @@ func (b *InMemoryBackend) AttachLoadBalancerToSubnets(name string, subnets []str
 
 	result := make([]string, len(lb.Subnets))
 	copy(result, lb.Subnets)
+	sort.Strings(result)
 
 	return result, nil
 }
@@ -796,6 +861,7 @@ func (b *InMemoryBackend) EnableAvailabilityZonesForLoadBalancer(name string, az
 
 	result := make([]string, len(lb.AvailabilityZones))
 	copy(result, lb.AvailabilityZones)
+	sort.Strings(result)
 
 	return result, nil
 }
@@ -815,17 +881,25 @@ func (b *InMemoryBackend) DisableAvailabilityZonesForLoadBalancer(name string, a
 		remove[az] = true
 	}
 
-	kept := lb.AvailabilityZones[:0]
+	kept := make([]string, 0, len(lb.AvailabilityZones))
 	for _, az := range lb.AvailabilityZones {
 		if !remove[az] {
 			kept = append(kept, az)
 		}
 	}
 
+	if len(kept) == 0 {
+		return nil, fmt.Errorf(
+			"%w: cannot remove all availability zones; at least one must remain",
+			ErrInvalidParameter,
+		)
+	}
+
 	lb.AvailabilityZones = kept
 
 	result := make([]string, len(lb.AvailabilityZones))
 	copy(result, lb.AvailabilityZones)
+	sort.Strings(result)
 
 	return result, nil
 }
@@ -999,13 +1073,38 @@ func (b *InMemoryBackend) DeleteLoadBalancerPolicy(name, policyName string) erro
 	b.mu.Lock("DeleteLoadBalancerPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.lbs[name]; !ok {
+	lb, ok := b.lbs[name]
+	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
 	k := policyKey(name, policyName)
-	if _, ok := b.policies[k]; !ok {
+	if _, exists := b.policies[k]; !exists {
 		return fmt.Errorf("%w: %q", ErrPolicyNotFound, policyName)
+	}
+
+	// Reject deletion if the policy is currently attached to a listener.
+	for _, l := range lb.Listeners {
+		if slices.Contains(l.PolicyNames, policyName) {
+			return fmt.Errorf(
+				"%w: policy %q is still in use by listener on port %d",
+				ErrValidation,
+				policyName,
+				l.LoadBalancerPort,
+			)
+		}
+	}
+
+	// Reject deletion if the policy is currently attached to a backend server.
+	for _, bsd := range lb.BackendServerDescriptions {
+		if slices.Contains(bsd.PolicyNames, policyName) {
+			return fmt.Errorf(
+				"%w: policy %q is still in use by backend server on port %d",
+				ErrValidation,
+				policyName,
+				bsd.InstancePort,
+			)
+		}
 	}
 
 	delete(b.policies, k)
