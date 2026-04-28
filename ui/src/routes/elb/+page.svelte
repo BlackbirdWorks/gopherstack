@@ -23,6 +23,7 @@
 		CreateAppCookieStickinessPolicyCommand,
 		CreateLBCookieStickinessPolicyCommand,
 		DeleteLoadBalancerPolicyCommand,
+		DescribeInstanceHealthCommand,
 		type LoadBalancerDescription,
 		type ListenerDescription,
 		type PolicyDescription
@@ -98,6 +99,10 @@
 	// LB policies list
 	let lbPolicies = $state<PolicyDescription[]>([]);
 	let lbAttributes = $state<{ CrossZoneLoadBalancing?: boolean; ConnectionDraining?: boolean; ConnectionDrainingTimeout?: number; IdleTimeout?: number } | null>(null);
+
+	// instance health state
+	let instanceHealthMap = $state<Record<string, string>>({});
+	let healthLoading = $state(false);
 
 	async function loadBalancersList() {
 		loading = true;
@@ -442,17 +447,100 @@
 		showBackendPoliciesModal = true;
 	}
 
+	async function refreshInstanceHealth() {
+		if (!selectedLB?.LoadBalancerName) return;
+		healthLoading = true;
+		try {
+			const out = await elb.send(new DescribeInstanceHealthCommand({ LoadBalancerName: selectedLB.LoadBalancerName }));
+			const map: Record<string, string> = {};
+			for (const s of out.InstanceStates ?? []) {
+				if (s.InstanceId) map[s.InstanceId] = s.State ?? 'Unknown';
+			}
+			instanceHealthMap = map;
+		} catch (err: unknown) {
+			toast.error(`Failed to fetch health: ${(err as Error).message}`);
+		} finally {
+			healthLoading = false;
+		}
+	}
+
+	async function loadDemoData() {
+		const name = 'demo-elb';
+		const existing = loadBalancers.find((lb) => lb.LoadBalancerName === name);
+		if (existing) {
+			await selectLB(existing);
+			return;
+		}
+		try {
+			await elb.send(new CreateLoadBalancerCommand({
+				LoadBalancerName: name,
+				AvailabilityZones: ['us-east-1a', 'us-east-1b'],
+				Scheme: 'internet-facing',
+				Listeners: [
+					{ Protocol: 'HTTP', LoadBalancerPort: 80, InstanceProtocol: 'HTTP', InstancePort: 8080 },
+					{ Protocol: 'HTTPS', LoadBalancerPort: 443, InstanceProtocol: 'HTTP', InstancePort: 8080 }
+				]
+			}));
+			await elb.send(new ConfigureHealthCheckCommand({
+				LoadBalancerName: name,
+				HealthCheck: { Target: 'HTTP:8080/health', Interval: 30, Timeout: 5, HealthyThreshold: 2, UnhealthyThreshold: 3 }
+			}));
+			await elb.send(new CreateLBCookieStickinessPolicyCommand({ LoadBalancerName: name, PolicyName: 'demo-sticky' }));
+			await loadBalancersList();
+			const created = loadBalancers.find((lb) => lb.LoadBalancerName === name);
+			if (created) await selectLB(created);
+			toast.success('Demo data loaded');
+		} catch (err: unknown) {
+			toast.error(`Demo data failed: ${(err as Error).message}`);
+		}
+	}
+
+	function copyToClipboard(text: string) {
+		navigator.clipboard.writeText(text).then(() => toast.success('Copied!')).catch(() => toast.error('Copy failed'));
+	}
+
+	function closeModals(e: KeyboardEvent) {
+		if (e.key !== 'Escape') return;
+		showCreateModal = false;
+		showAddListenerModal = false;
+		showSSLModal = false;
+		showListenerPoliciesModal = false;
+		showAddPolicyModal = false;
+		showBackendPoliciesModal = false;
+	}
+
+	function protocolColor(proto: string | undefined): string {
+		switch (proto) {
+			case 'HTTP': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300';
+			case 'HTTPS': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300';
+			case 'TCP': return 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300';
+			case 'SSL': return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300';
+			default: return 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300';
+		}
+	}
+
+	function policyTypeColor(typeName: string | undefined): string {
+		if (typeName?.includes('AppCookie')) return 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300';
+		if (typeName?.includes('LBCookie')) return 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300';
+		if (typeName?.includes('SSL')) return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300';
+		if (typeName?.includes('Proxy')) return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300';
+		return 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300';
+	}
+
 	onMount(() => {
 		void loadBalancersList();
 	});
 </script>
 
-<div class="space-y-6 p-6">
+<div class="space-y-6 p-6" role="presentation" onkeydown={closeModals}>
 	<!-- Header -->
 	<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
 		<div class="flex items-center justify-between">
 			<h1 class="text-3xl font-bold text-slate-900 dark:text-white">Classic Load Balancers (ELB)</h1>
 			<div class="flex items-center gap-2">
+				<button type="button" onclick={() => loadDemoData()} class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700">
+					Demo Data
+				</button>
 				<button type="button" onclick={() => loadBalancersList()} class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700">
 					↺ Refresh
 				</button>
@@ -486,7 +574,10 @@
 								class="flex-1 rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 {selectedLB?.LoadBalancerName === lb.LoadBalancerName ? 'bg-indigo-50 font-semibold text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}"
 							>
 								<span class="block truncate">{lb.LoadBalancerName}</span>
-								<span class="text-xs text-slate-400 dark:text-slate-500">{lb.Scheme ?? 'internet-facing'} · {lb.ListenerDescriptions?.length ?? 0} listener{(lb.ListenerDescriptions?.length ?? 0) === 1 ? '' : 's'}</span>
+								<span class="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
+									<span class="rounded-full px-1.5 py-0 text-xs font-medium {(lb.Scheme ?? 'internet-facing') === 'internet-facing' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'}">{lb.Scheme ?? 'internet-facing'}</span>
+									· {lb.ListenerDescriptions?.length ?? 0} listener{(lb.ListenerDescriptions?.length ?? 0) === 1 ? '' : 's'}
+								</span>
 							</button>
 							<button
 								type="button"
@@ -534,11 +625,16 @@
 							<dl class="grid grid-cols-2 gap-3 text-sm">
 								<div>
 									<dt class="text-slate-500 dark:text-slate-400">DNS Name</dt>
-									<dd class="font-mono text-xs text-slate-700 dark:text-slate-300 break-all">{selectedLB.DNSName}</dd>
+									<dd class="flex items-center gap-1.5">
+										<span class="font-mono text-xs text-slate-700 dark:text-slate-300 break-all">{selectedLB.DNSName}</span>
+										<button type="button" onclick={() => copyToClipboard(selectedLB?.DNSName ?? '')} class="flex-shrink-0 rounded px-1 py-0.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200" title="Copy DNS name">⧉</button>
+									</dd>
 								</div>
 								<div>
 									<dt class="text-slate-500 dark:text-slate-400">Scheme</dt>
-									<dd class="text-slate-700 dark:text-slate-300">{selectedLB.Scheme}</dd>
+									<dd>
+										<span class="rounded-full px-2 py-0.5 text-xs font-medium {selectedLB.Scheme === 'internal' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'}">{selectedLB.Scheme ?? 'internet-facing'}</span>
+									</dd>
 								</div>
 								<div>
 									<dt class="text-slate-500 dark:text-slate-400">VPC ID</dt>
@@ -549,6 +645,35 @@
 									<dd class="text-slate-700 dark:text-slate-300">{selectedLB.CreatedTime ? new Date(selectedLB.CreatedTime).toLocaleString() : '—'}</dd>
 								</div>
 							</dl>
+
+							<!-- Health Check summary -->
+							{#if selectedLB.HealthCheck?.Target}
+								<div>
+									<h3 class="mb-1.5 text-sm font-semibold text-slate-700 dark:text-slate-300">Health Check</h3>
+									<div class="rounded-lg bg-slate-50 px-3 py-2 text-xs dark:bg-slate-900 space-y-0.5">
+										<div class="flex gap-2"><span class="text-slate-500 w-24 flex-shrink-0">Target</span><span class="font-mono text-slate-700 dark:text-slate-300">{selectedLB.HealthCheck.Target}</span></div>
+										<div class="flex gap-2"><span class="text-slate-500 w-24 flex-shrink-0">Interval</span><span class="text-slate-700 dark:text-slate-300">{selectedLB.HealthCheck.Interval}s</span></div>
+										<div class="flex gap-2"><span class="text-slate-500 w-24 flex-shrink-0">Threshold</span><span class="text-slate-700 dark:text-slate-300">{selectedLB.HealthCheck.HealthyThreshold} healthy / {selectedLB.HealthCheck.UnhealthyThreshold} unhealthy</span></div>
+									</div>
+								</div>
+							{/if}
+
+							<!-- Tags -->
+							{#if Object.keys(lbAttributes ?? {}).length > 0 || true}
+								{@const tags = selectedLB as unknown as { Tags?: { Key?: string; Value?: string }[] }}
+								{#if (tags.Tags ?? []).length > 0}
+									<div>
+										<h3 class="mb-1.5 text-sm font-semibold text-slate-700 dark:text-slate-300">Tags</h3>
+										<div class="flex flex-wrap gap-1.5">
+											{#each tags.Tags ?? [] as tag}
+												<span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs dark:border-slate-700 dark:bg-slate-800">
+													<span class="text-slate-500">{tag.Key}:</span> <span class="text-slate-700 dark:text-slate-300">{tag.Value}</span>
+												</span>
+											{/each}
+										</div>
+									</div>
+								{/if}
+							{/if}
 
 							<!-- Availability Zones -->
 							<div>
@@ -622,9 +747,9 @@
 										</tr>
 									</thead>
 									<tbody>
-										{#each selectedLB.ListenerDescriptions ?? [] as ld}
+										{#each [...(selectedLB.ListenerDescriptions ?? [])].sort((a, b) => (a.Listener?.LoadBalancerPort ?? 0) - (b.Listener?.LoadBalancerPort ?? 0)) as ld}
 											<tr class="border-b border-slate-50 dark:border-slate-800">
-												<td class="py-2">{ld.Listener?.Protocol}</td>
+												<td class="py-2"><span class="rounded-full px-2 py-0.5 text-xs font-medium {protocolColor(ld.Listener?.Protocol)}">{ld.Listener?.Protocol}</span></td>
 												<td class="py-2">{ld.Listener?.LoadBalancerPort}</td>
 												<td class="py-2">{ld.Listener?.InstancePort}</td>
 												<td class="py-2 max-w-xs truncate text-xs font-mono">{ld.Listener?.SSLCertificateId ?? '—'}</td>
@@ -707,7 +832,12 @@
 					<!-- Instances Tab -->
 					{#if activeTab === 'instances'}
 						<div class="space-y-4">
-							<h2 class="text-lg font-semibold text-slate-900 dark:text-white">Registered Instances</h2>
+							<div class="flex items-center justify-between">
+								<h2 class="text-lg font-semibold text-slate-900 dark:text-white">Registered Instances</h2>
+								<button type="button" onclick={() => refreshInstanceHealth()} disabled={healthLoading} class="rounded-lg border px-3 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50">
+									{healthLoading ? 'Refreshing…' : '↺ Refresh Health'}
+								</button>
+							</div>
 							<form class="flex gap-2" onsubmit={(e) => { e.preventDefault(); registerInstance(); }}>
 								<input bind:value={newInstanceId} placeholder="i-0123456789abcdef0" class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 								<button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Register</button>
@@ -719,13 +849,22 @@
 									<thead>
 										<tr class="border-b border-slate-100 text-left text-xs font-medium uppercase text-slate-500 dark:border-slate-700">
 											<th class="pb-2">Instance ID</th>
+											<th class="pb-2">Health</th>
 											<th class="pb-2"></th>
 										</tr>
 									</thead>
 									<tbody>
 										{#each selectedLB.Instances ?? [] as inst}
+											{@const health = instanceHealthMap[inst.InstanceId ?? '']}
 											<tr class="border-b border-slate-50 dark:border-slate-800">
 												<td class="py-2 font-mono text-xs">{inst.InstanceId}</td>
+												<td class="py-2 text-xs">
+													{#if health}
+														<span class="rounded-full px-2 py-0.5 font-medium {health === 'InService' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}">{health}</span>
+													{:else}
+														<span class="text-slate-400">—</span>
+													{/if}
+												</td>
 												<td class="py-2 text-right">
 													<button type="button" onclick={() => deregisterInstance(inst.InstanceId ?? '')} class="text-xs text-red-500 hover:text-red-700">Deregister</button>
 												</td>
@@ -756,10 +895,10 @@
 										</tr>
 									</thead>
 									<tbody>
-										{#each lbPolicies as pol}
+										{#each [...lbPolicies].sort((a, b) => (a.PolicyName ?? '').localeCompare(b.PolicyName ?? '')) as pol}
 											<tr class="border-b border-slate-50 dark:border-slate-800">
 												<td class="py-2">{pol.PolicyName}</td>
-												<td class="py-2 text-xs text-slate-500">{pol.PolicyTypeName}</td>
+												<td class="py-2"><span class="rounded-full px-2 py-0.5 text-xs font-medium {policyTypeColor(pol.PolicyTypeName)}">{pol.PolicyTypeName}</span></td>
 												<td class="py-2 text-right">
 													<button type="button" onclick={() => deletePolicy(pol.PolicyName ?? '')} class="text-xs text-red-500 hover:text-red-700">Delete</button>
 												</td>
