@@ -10,24 +10,25 @@ import (
 
 // lbSnapshot is the serialisable form of a LoadBalancer (Tags excluded; re-created on Restore).
 type lbSnapshot struct {
-	CreatedTime               time.Time              `json:"createdTime"`
-	HealthCheck               *HealthCheck           `json:"healthCheck,omitempty"`
-	LoadBalancerName          string                 `json:"loadBalancerName"`
-	AccountID                 string                 `json:"accountId"`
-	Region                    string                 `json:"region"`
-	CanonicalHostedZoneName   string                 `json:"canonicalHostedZoneName"`
-	CanonicalHostedZoneNameID string                 `json:"canonicalHostedZoneNameID"`
-	Scheme                    string                 `json:"scheme"`
-	ARN                       string                 `json:"arn"`
-	VPCId                     string                 `json:"vpcId"`
-	DNSName                   string                 `json:"dnsName"`
-	Listeners                 []Listener             `json:"listeners"`
-	Instances                 []Instance             `json:"instances"`
-	AvailabilityZones         []string               `json:"availabilityZones"`
-	SecurityGroups            []string               `json:"securityGroups"`
-	Subnets                   []string               `json:"subnets"`
-	TagPairs                  []tagPair              `json:"tags,omitempty"`
-	Attributes                LoadBalancerAttributes `json:"attributes"`
+	CreatedTime               time.Time                  `json:"createdTime"`
+	HealthCheck               *HealthCheck               `json:"healthCheck,omitempty"`
+	LoadBalancerName          string                     `json:"loadBalancerName"`
+	AccountID                 string                     `json:"accountId"`
+	Region                    string                     `json:"region"`
+	CanonicalHostedZoneName   string                     `json:"canonicalHostedZoneName"`
+	CanonicalHostedZoneNameID string                     `json:"canonicalHostedZoneNameID"`
+	Scheme                    string                     `json:"scheme"`
+	ARN                       string                     `json:"arn"`
+	VPCId                     string                     `json:"vpcId"`
+	DNSName                   string                     `json:"dnsName"`
+	Listeners                 []Listener                 `json:"listeners"`
+	Instances                 []Instance                 `json:"instances"`
+	BackendServerDescriptions []BackendServerDescription `json:"backendServerDescriptions,omitempty"`
+	AvailabilityZones         []string                   `json:"availabilityZones"`
+	SecurityGroups            []string                   `json:"securityGroups"`
+	Subnets                   []string                   `json:"subnets"`
+	TagPairs                  []tagPair                  `json:"tags,omitempty"`
+	Attributes                LoadBalancerAttributes     `json:"attributes"`
 }
 
 // tagPair serialises a single key-value tag for persistence.
@@ -70,6 +71,7 @@ func toLBSnapshot(lb *LoadBalancer) *lbSnapshot {
 		DNSName:                   lb.DNSName,
 		Listeners:                 lb.Listeners,
 		Instances:                 lb.Instances,
+		BackendServerDescriptions: lb.BackendServerDescriptions,
 		AvailabilityZones:         lb.AvailabilityZones,
 		SecurityGroups:            lb.SecurityGroups,
 		Subnets:                   lb.Subnets,
@@ -103,6 +105,7 @@ func fromLBSnapshot(s *lbSnapshot) *LoadBalancer {
 		DNSName:                   s.DNSName,
 		Listeners:                 s.Listeners,
 		Instances:                 s.Instances,
+		BackendServerDescriptions: s.BackendServerDescriptions,
 		AvailabilityZones:         s.AvailabilityZones,
 		SecurityGroups:            s.SecurityGroups,
 		Subnets:                   s.Subnets,
@@ -129,6 +132,10 @@ func fromLBSnapshot(s *lbSnapshot) *LoadBalancer {
 
 	if lb.Subnets == nil {
 		lb.Subnets = []string{}
+	}
+
+	if lb.BackendServerDescriptions == nil {
+		lb.BackendServerDescriptions = []BackendServerDescription{}
 	}
 
 	for _, tp := range s.TagPairs {

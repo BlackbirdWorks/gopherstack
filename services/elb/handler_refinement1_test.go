@@ -76,17 +76,17 @@ func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
 }
 
 // TestRefinement1_HandlerOpsPreBuilt verifies that the dispatch table is pre-built at
-// construction time and has at least 23 entries.
+// construction time and has at least 29 entries.
 func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
 	h := elb.NewHandler(b)
 
-	assert.GreaterOrEqual(t, h.HandlerOpsLen(), 23)
+	assert.GreaterOrEqual(t, h.HandlerOpsLen(), 29)
 }
 
-// TestRefinement1_GetSupportedOperations_AllOps verifies the supported ops list has all 23 entries.
+// TestRefinement1_GetSupportedOperations_AllOps verifies the supported ops list has all 29 entries.
 func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
 	t.Parallel()
 
@@ -109,6 +109,12 @@ func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
 		"RemoveTags",
 		"ApplySecurityGroupsToLoadBalancer",
 		"AttachLoadBalancerToSubnets",
+		"DetachLoadBalancerFromSubnets",
+		"EnableAvailabilityZonesForLoadBalancer",
+		"DisableAvailabilityZonesForLoadBalancer",
+		"SetLoadBalancerListenerSSLCertificate",
+		"SetLoadBalancerPoliciesOfListener",
+		"SetLoadBalancerPoliciesForBackendServer",
 		"CreateAppCookieStickinessPolicy",
 		"CreateLBCookieStickinessPolicy",
 		"CreateLoadBalancerPolicy",
@@ -516,7 +522,7 @@ func TestRefinement1_DescribeInstanceHealth_SortedByID(t *testing.T) {
 	h := elb.NewHandler(b)
 	mustCreateLB(t, h, "health-sort-lb")
 
-	for _, id := range []string{"i-ccc", "i-aaa", "i-bbb"} {
+	for _, id := range []string{"i-cccccccc00", "i-aaaaaaaabb", "i-bbbbbbbbcc"} {
 		doELB(t, h, url.Values{
 			"Action":                        {"RegisterInstancesWithLoadBalancer"},
 			"Version":                       {"2012-06-01"},
@@ -551,7 +557,7 @@ func TestRefinement1_DescribeInstanceHealth_SortedByID(t *testing.T) {
 		ids = append(ids, s.InstanceID)
 	}
 
-	assert.Equal(t, []string{"i-aaa", "i-bbb", "i-ccc"}, ids)
+	assert.Equal(t, []string{"i-aaaaaaaabb", "i-bbbbbbbbcc", "i-cccccccc00"}, ids)
 }
 
 // TestRefinement1_ErrNilAppContext is a package-level sentinel check.

@@ -43,29 +43,35 @@ func NewHandler(backend StorageBackend) *Handler {
 // buildOps returns the action-to-handler dispatch table.
 func (h *Handler) buildOps() map[string]func(url.Values) (any, error) {
 	return map[string]func(url.Values) (any, error){
-		"CreateLoadBalancer":                  h.handleCreateLoadBalancer,
-		"DeleteLoadBalancer":                  h.handleDeleteLoadBalancer,
-		"DescribeLoadBalancers":               h.handleDescribeLoadBalancers,
-		"CreateLoadBalancerListeners":         h.handleCreateLoadBalancerListeners,
-		"DeleteLoadBalancerListeners":         h.handleDeleteLoadBalancerListeners,
-		"RegisterInstancesWithLoadBalancer":   h.handleRegisterInstances,
-		"DeregisterInstancesFromLoadBalancer": h.handleDeregisterInstances,
-		"ConfigureHealthCheck":                h.handleConfigureHealthCheck,
-		"ModifyLoadBalancerAttributes":        h.handleModifyLoadBalancerAttributes,
-		"DescribeLoadBalancerAttributes":      h.handleDescribeLoadBalancerAttributes,
-		"AddTags":                             h.handleAddTags,
-		"DescribeTags":                        h.handleDescribeTags,
-		"RemoveTags":                          h.handleRemoveTags,
-		"ApplySecurityGroupsToLoadBalancer":   h.handleApplySecurityGroupsToLoadBalancer,
-		"AttachLoadBalancerToSubnets":         h.handleAttachLoadBalancerToSubnets,
-		"CreateAppCookieStickinessPolicy":     h.handleCreateAppCookieStickinessPolicy,
-		"CreateLBCookieStickinessPolicy":      h.handleCreateLBCookieStickinessPolicy,
-		"CreateLoadBalancerPolicy":            h.handleCreateLoadBalancerPolicy,
-		"DeleteLoadBalancerPolicy":            h.handleDeleteLoadBalancerPolicy,
-		"DescribeAccountLimits":               h.handleDescribeAccountLimits,
-		"DescribeInstanceHealth":              h.handleDescribeInstanceHealth,
-		"DescribeLoadBalancerPolicies":        h.handleDescribeLoadBalancerPolicies,
-		"DescribeLoadBalancerPolicyTypes":     h.handleDescribeLoadBalancerPolicyTypes,
+		"CreateLoadBalancer":                      h.handleCreateLoadBalancer,
+		"DeleteLoadBalancer":                      h.handleDeleteLoadBalancer,
+		"DescribeLoadBalancers":                   h.handleDescribeLoadBalancers,
+		"CreateLoadBalancerListeners":             h.handleCreateLoadBalancerListeners,
+		"DeleteLoadBalancerListeners":             h.handleDeleteLoadBalancerListeners,
+		"RegisterInstancesWithLoadBalancer":       h.handleRegisterInstances,
+		"DeregisterInstancesFromLoadBalancer":     h.handleDeregisterInstances,
+		"ConfigureHealthCheck":                    h.handleConfigureHealthCheck,
+		"ModifyLoadBalancerAttributes":            h.handleModifyLoadBalancerAttributes,
+		"DescribeLoadBalancerAttributes":          h.handleDescribeLoadBalancerAttributes,
+		"AddTags":                                 h.handleAddTags,
+		"DescribeTags":                            h.handleDescribeTags,
+		"RemoveTags":                              h.handleRemoveTags,
+		"ApplySecurityGroupsToLoadBalancer":       h.handleApplySecurityGroupsToLoadBalancer,
+		"AttachLoadBalancerToSubnets":             h.handleAttachLoadBalancerToSubnets,
+		"DetachLoadBalancerFromSubnets":           h.handleDetachLoadBalancerFromSubnets,
+		"EnableAvailabilityZonesForLoadBalancer":  h.handleEnableAvailabilityZonesForLoadBalancer,
+		"DisableAvailabilityZonesForLoadBalancer": h.handleDisableAvailabilityZonesForLoadBalancer,
+		"SetLoadBalancerListenerSSLCertificate":   h.handleSetLoadBalancerListenerSSLCertificate,
+		"SetLoadBalancerPoliciesOfListener":       h.handleSetLoadBalancerPoliciesOfListener,
+		"SetLoadBalancerPoliciesForBackendServer": h.handleSetLoadBalancerPoliciesForBackendServer,
+		"CreateAppCookieStickinessPolicy":         h.handleCreateAppCookieStickinessPolicy,
+		"CreateLBCookieStickinessPolicy":          h.handleCreateLBCookieStickinessPolicy,
+		"CreateLoadBalancerPolicy":                h.handleCreateLoadBalancerPolicy,
+		"DeleteLoadBalancerPolicy":                h.handleDeleteLoadBalancerPolicy,
+		"DescribeAccountLimits":                   h.handleDescribeAccountLimits,
+		"DescribeInstanceHealth":                  h.handleDescribeInstanceHealth,
+		"DescribeLoadBalancerPolicies":            h.handleDescribeLoadBalancerPolicies,
+		"DescribeLoadBalancerPolicyTypes":         h.handleDescribeLoadBalancerPolicyTypes,
 	}
 }
 
@@ -95,6 +101,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RemoveTags",
 		"ApplySecurityGroupsToLoadBalancer",
 		"AttachLoadBalancerToSubnets",
+		"DetachLoadBalancerFromSubnets",
+		"EnableAvailabilityZonesForLoadBalancer",
+		"DisableAvailabilityZonesForLoadBalancer",
+		"SetLoadBalancerListenerSSLCertificate",
+		"SetLoadBalancerPoliciesOfListener",
+		"SetLoadBalancerPoliciesForBackendServer",
 		"CreateAppCookieStickinessPolicy",
 		"CreateLBCookieStickinessPolicy",
 		"CreateLoadBalancerPolicy",
@@ -277,6 +289,54 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	// Pagination: Marker (name of last LB on previous page) and PageSize (1-400).
+	const maxPageSize = 400
+
+	pageSize := maxPageSize
+
+	if ps := vals.Get("PageSize"); ps != "" {
+		if n, parseErr := strconv.Atoi(ps); parseErr == nil && n > 0 && n <= maxPageSize {
+			pageSize = n
+		}
+	}
+
+	marker := vals.Get("Marker")
+	startIdx := 0
+
+	if marker != "" {
+		found := false
+
+		for i, lb := range lbs {
+			if lb.LoadBalancerName == marker {
+				startIdx = i + 1
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return nil, fmt.Errorf(
+				"%w: Marker %q does not match any existing load balancer",
+				ErrInvalidParameter,
+				marker,
+			)
+		}
+	}
+
+	if startIdx > len(lbs) {
+		startIdx = len(lbs)
+	}
+
+	lbs = lbs[startIdx:]
+
+	nextMarker := ""
+
+	if len(lbs) > pageSize {
+		nextMarker = lbs[pageSize-1].LoadBalancerName
+		lbs = lbs[:pageSize]
+	}
+
 	members := make([]xmlLoadBalancerDescription, 0, len(lbs))
 	for i := range lbs {
 		members = append(members, toXMLLoadBalancer(&lbs[i]))
@@ -286,6 +346,7 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 		Xmlns: elbXMLNS,
 		Result: describeLoadBalancersResult{
 			LoadBalancerDescriptions: xmlLoadBalancerList{Members: members},
+			NextMarker:               nextMarker,
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-describe"},
 	}, nil
@@ -345,32 +406,15 @@ func (h *Handler) handleConfigureHealthCheck(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
 	}
 
-	interval, err := parseInt32(vals.Get("HealthCheck.Interval"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheck.Interval", ErrInvalidParameter)
+	// Check LB exists before validating the remaining parameters; AWS returns
+	// LoadBalancerNotFound before complaining about invalid HC params.
+	if _, err := h.Backend.DescribeLoadBalancers([]string{name}); err != nil {
+		return nil, err
 	}
 
-	timeout, err := parseInt32(vals.Get("HealthCheck.Timeout"))
+	hc, err := parseHealthCheck(vals)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheck.Timeout", ErrInvalidParameter)
-	}
-
-	unhealthy, err := parseInt32(vals.Get("HealthCheck.UnhealthyThreshold"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheck.UnhealthyThreshold", ErrInvalidParameter)
-	}
-
-	healthy, err := parseInt32(vals.Get("HealthCheck.HealthyThreshold"))
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheck.HealthyThreshold", ErrInvalidParameter)
-	}
-
-	hc := HealthCheck{
-		Target:             vals.Get("HealthCheck.Target"),
-		Interval:           interval,
-		Timeout:            timeout,
-		UnhealthyThreshold: unhealthy,
-		HealthyThreshold:   healthy,
+		return nil, err
 	}
 
 	result, hcErr := h.Backend.ConfigureHealthCheck(name, hc)
@@ -387,6 +431,84 @@ func (h *Handler) handleConfigureHealthCheck(vals url.Values) (any, error) {
 	}, nil
 }
 
+// parseHealthCheck validates and parses health check parameters from form values.
+func parseHealthCheck(vals url.Values) (HealthCheck, error) {
+	target := vals.Get("HealthCheck.Target")
+	if target == "" {
+		return HealthCheck{}, fmt.Errorf("%w: HealthCheck.Target is required", ErrInvalidParameter)
+	}
+
+	if err := validateHealthCheckTarget(target); err != nil {
+		return HealthCheck{}, err
+	}
+
+	// Normalize target protocol to uppercase (AWS stores uppercase).
+	if colonIdx := strings.Index(target, ":"); colonIdx > 0 {
+		target = strings.ToUpper(target[:colonIdx]) + target[colonIdx:]
+	}
+
+	interval, timeout, err := parseHealthCheckTimings(vals)
+	if err != nil {
+		return HealthCheck{}, err
+	}
+
+	unhealthy, healthy, err := parseHealthCheckThresholds(vals)
+	if err != nil {
+		return HealthCheck{}, err
+	}
+
+	return HealthCheck{
+		Target:             target,
+		Interval:           interval,
+		Timeout:            timeout,
+		UnhealthyThreshold: unhealthy,
+		HealthyThreshold:   healthy,
+	}, nil
+}
+
+// parseHealthCheckTimings validates and returns the Interval and Timeout parameters.
+func parseHealthCheckTimings(vals url.Values) (int32, int32, error) {
+	interval, parseErr := parseInt32(vals.Get("HealthCheck.Interval"))
+	if parseErr != nil || interval < 5 || interval > 300 {
+		return 0, 0, fmt.Errorf("%w: HealthCheck.Interval must be between 5 and 300", ErrInvalidParameter)
+	}
+
+	timeout, parseErr := parseInt32(vals.Get("HealthCheck.Timeout"))
+	if parseErr != nil || timeout < 2 || timeout > 60 {
+		return 0, 0, fmt.Errorf("%w: HealthCheck.Timeout must be between 2 and 60", ErrInvalidParameter)
+	}
+
+	if timeout >= interval {
+		return 0, 0, fmt.Errorf(
+			"%w: HealthCheck.Timeout must be less than HealthCheck.Interval",
+			ErrInvalidParameter,
+		)
+	}
+
+	return interval, timeout, nil
+}
+
+// parseHealthCheckThresholds validates and returns UnhealthyThreshold and HealthyThreshold.
+func parseHealthCheckThresholds(vals url.Values) (int32, int32, error) {
+	unhealthy, parseErr := parseInt32(vals.Get("HealthCheck.UnhealthyThreshold"))
+	if parseErr != nil || unhealthy < 2 || unhealthy > 10 {
+		return 0, 0, fmt.Errorf(
+			"%w: HealthCheck.UnhealthyThreshold must be between 2 and 10",
+			ErrInvalidParameter,
+		)
+	}
+
+	healthy, parseErr := parseInt32(vals.Get("HealthCheck.HealthyThreshold"))
+	if parseErr != nil || healthy < 2 || healthy > 10 {
+		return 0, 0, fmt.Errorf(
+			"%w: HealthCheck.HealthyThreshold must be between 2 and 10",
+			ErrInvalidParameter,
+		)
+	}
+
+	return unhealthy, healthy, nil
+}
+
 func (h *Handler) handleAddTags(vals url.Values) (any, error) {
 	names := parseMembers(vals, "LoadBalancerNames.member")
 	if len(names) == 0 {
@@ -394,6 +516,12 @@ func (h *Handler) handleAddTags(vals url.Values) (any, error) {
 	}
 
 	kvs := parseTagKVs(vals, "Tags.member")
+
+	for _, kv := range kvs {
+		if strings.HasPrefix(kv.Key, "aws:") {
+			return nil, fmt.Errorf("%w: Tag keys starting with 'aws:' are reserved", ErrInvalidParameter)
+		}
+	}
 
 	if err := h.Backend.AddTags(names, kvs); err != nil {
 		return nil, err
@@ -469,6 +597,10 @@ func (h *Handler) handleCreateLoadBalancerListeners(vals url.Values) (any, error
 		return nil, parseErr
 	}
 
+	if len(listeners) == 0 {
+		return nil, fmt.Errorf("%w: at least one listener is required", ErrInvalidParameter)
+	}
+
 	if createErr := h.Backend.CreateLoadBalancerListeners(name, listeners); createErr != nil {
 		return nil, createErr
 	}
@@ -504,6 +636,33 @@ func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, erro
 	}
 
 	attrs := parseLoadBalancerAttributes(vals)
+
+	const minTimeout = 1
+	const maxIdleTimeout = 3600
+	const maxDrainingTimeout = 3600
+
+	if attrs.IdleTimeout < minTimeout || attrs.IdleTimeout > maxIdleTimeout {
+		return nil, fmt.Errorf(
+			"%w: IdleTimeout must be between 1 and 3600 seconds",
+			ErrInvalidParameter,
+		)
+	}
+
+	if attrs.ConnectionDraining &&
+		(attrs.ConnectionDrainingTimeout < minTimeout || attrs.ConnectionDrainingTimeout > maxDrainingTimeout) {
+		return nil, fmt.Errorf(
+			"%w: ConnectionDrainingTimeout must be between 1 and 3600 seconds",
+			ErrInvalidParameter,
+		)
+	}
+
+	validDesyncModes := map[string]bool{"defensive": true, "strictest": true, "monitor": true}
+	if attrs.DesyncMitigationMode != "" && !validDesyncModes[attrs.DesyncMitigationMode] {
+		return nil, fmt.Errorf(
+			"%w: DesyncMitigationMode must be one of 'defensive', 'strictest', 'monitor'",
+			ErrInvalidParameter,
+		)
+	}
 
 	result, err := h.Backend.ModifyLoadBalancerAttributes(name, attrs)
 	if err != nil {
@@ -593,6 +752,159 @@ func (h *Handler) handleAttachLoadBalancerToSubnets(vals url.Values) (any, error
 	}, nil
 }
 
+func (h *Handler) handleDetachLoadBalancerFromSubnets(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	subnets := parseMembers(vals, "Subnets.member")
+
+	result, err := h.Backend.DetachLoadBalancerFromSubnets(name, subnets)
+	if err != nil {
+		return nil, err
+	}
+
+	subnetMembers := make([]xmlStringValue, 0, len(result))
+	for _, s := range result {
+		subnetMembers = append(subnetMembers, xmlStringValue{Value: s})
+	}
+
+	return &detachLoadBalancerFromSubnetsResponse{
+		Xmlns: elbXMLNS,
+		Result: detachLoadBalancerFromSubnetsResult{
+			Subnets: xmlStringValueList{Members: subnetMembers},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-detachsubnets-" + name},
+	}, nil
+}
+
+func (h *Handler) handleEnableAvailabilityZonesForLoadBalancer(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	azs := parseMembers(vals, "AvailabilityZones.member")
+
+	result, err := h.Backend.EnableAvailabilityZonesForLoadBalancer(name, azs)
+	if err != nil {
+		return nil, err
+	}
+
+	azMembers := make([]xmlStringValue, 0, len(result))
+	for _, az := range result {
+		azMembers = append(azMembers, xmlStringValue{Value: az})
+	}
+
+	return &enableAvailabilityZonesResponse{
+		Xmlns: elbXMLNS,
+		Result: enableAvailabilityZonesResult{
+			AvailabilityZones: xmlStringValueList{Members: azMembers},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-enableazs-" + name},
+	}, nil
+}
+
+func (h *Handler) handleDisableAvailabilityZonesForLoadBalancer(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	azs := parseMembers(vals, "AvailabilityZones.member")
+
+	result, err := h.Backend.DisableAvailabilityZonesForLoadBalancer(name, azs)
+	if err != nil {
+		return nil, err
+	}
+
+	azMembers := make([]xmlStringValue, 0, len(result))
+	for _, az := range result {
+		azMembers = append(azMembers, xmlStringValue{Value: az})
+	}
+
+	return &disableAvailabilityZonesResponse{
+		Xmlns: elbXMLNS,
+		Result: disableAvailabilityZonesResult{
+			AvailabilityZones: xmlStringValueList{Members: azMembers},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-disableazs-" + name},
+	}, nil
+}
+
+func (h *Handler) handleSetLoadBalancerListenerSSLCertificate(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	port, err := parseInt32(vals.Get("LoadBalancerPort"))
+	if err != nil || port == 0 {
+		return nil, fmt.Errorf("%w: LoadBalancerPort is required", ErrInvalidParameter)
+	}
+
+	certID := vals.Get("SSLCertificateId")
+	if certID == "" {
+		return nil, fmt.Errorf("%w: SSLCertificateId is required", ErrInvalidParameter)
+	}
+
+	if setErr := h.Backend.SetLoadBalancerListenerSSLCertificate(name, port, certID); setErr != nil {
+		return nil, setErr
+	}
+
+	return &setLoadBalancerListenerSSLCertificateResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-sslcert-" + name},
+	}, nil
+}
+
+func (h *Handler) handleSetLoadBalancerPoliciesOfListener(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	port, err := parseInt32(vals.Get("LoadBalancerPort"))
+	if err != nil || port == 0 {
+		return nil, fmt.Errorf("%w: LoadBalancerPort is required", ErrInvalidParameter)
+	}
+
+	policyNames := parseMembers(vals, "PolicyNames.member")
+
+	if setErr := h.Backend.SetLoadBalancerPoliciesOfListener(name, port, policyNames); setErr != nil {
+		return nil, setErr
+	}
+
+	return &setLoadBalancerPoliciesOfListenerResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-listpolicies-" + name},
+	}, nil
+}
+
+func (h *Handler) handleSetLoadBalancerPoliciesForBackendServer(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	instancePort, err := parseInt32(vals.Get("InstancePort"))
+	if err != nil || instancePort == 0 {
+		return nil, fmt.Errorf("%w: InstancePort is required", ErrInvalidParameter)
+	}
+
+	policyNames := parseMembers(vals, "PolicyNames.member")
+
+	if setErr := h.Backend.SetLoadBalancerPoliciesForBackendServer(name, instancePort, policyNames); setErr != nil {
+		return nil, setErr
+	}
+
+	return &setLoadBalancerPoliciesForBackendServerResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-backendpolicies-" + name},
+	}, nil
+}
+
 func (h *Handler) handleCreateAppCookieStickinessPolicy(vals url.Values) (any, error) {
 	name := vals.Get("LoadBalancerName")
 	if name == "" {
@@ -604,7 +916,18 @@ func (h *Handler) handleCreateAppCookieStickinessPolicy(vals url.Values) (any, e
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
 	}
 
+	if !policyNameRe.MatchString(policyName) {
+		return nil, fmt.Errorf(
+			"%w: PolicyName must be 1-32 alphanumeric characters or hyphens, starting and ending with alphanumeric",
+			ErrInvalidParameter,
+		)
+	}
+
 	cookieName := vals.Get("CookieName")
+
+	if cookieName == "" {
+		return nil, fmt.Errorf("%w: CookieName is required", ErrInvalidParameter)
+	}
 
 	if err := h.Backend.CreateAppCookieStickinessPolicy(name, policyName, cookieName); err != nil {
 		return nil, err
@@ -625,6 +948,13 @@ func (h *Handler) handleCreateLBCookieStickinessPolicy(vals url.Values) (any, er
 	policyName := vals.Get("PolicyName")
 	if policyName == "" {
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
+	}
+
+	if !policyNameRe.MatchString(policyName) {
+		return nil, fmt.Errorf(
+			"%w: PolicyName must be 1-32 alphanumeric characters or hyphens, starting and ending with alphanumeric",
+			ErrInvalidParameter,
+		)
 	}
 
 	var cookieExpiration int64
@@ -658,9 +988,28 @@ func (h *Handler) handleCreateLoadBalancerPolicy(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrInvalidParameter)
 	}
 
+	if !policyNameRe.MatchString(policyName) {
+		return nil, fmt.Errorf(
+			"%w: PolicyName must be 1-32 alphanumeric characters or hyphens, starting and ending with alphanumeric",
+			ErrInvalidParameter,
+		)
+	}
+
 	policyTypeName := vals.Get("PolicyTypeName")
 	if policyTypeName == "" {
 		return nil, fmt.Errorf("%w: PolicyTypeName is required", ErrInvalidParameter)
+	}
+
+	if _, ok := knownPolicyTypes[policyTypeName]; !ok {
+		const validTypes = "AppCookieStickinessPolicyType, LBCookieStickinessPolicyType, " +
+			"ProxyProtocolPolicyType, SSLNegotiationPolicyType, BackendServerAuthenticationPolicyType"
+
+		return nil, fmt.Errorf(
+			"%w: unknown PolicyTypeName %q; must be one of %s",
+			ErrInvalidParameter,
+			policyTypeName,
+			validTypes,
+		)
 	}
 
 	attrs := parsePolicyAttributes(vals)
@@ -830,6 +1179,8 @@ func elbErrorCode(opErr error) (string, int) {
 	mappings := []errorMapping{
 		{ErrPolicyNotFound, "PolicyNotFound", http.StatusNotFound},
 		{ErrPolicyAlreadyExists, "DuplicatePolicyName", http.StatusConflict},
+		{ErrListenerNotFound, "ListenerNotFound", http.StatusNotFound},
+		{ErrInvalidInstance, "InvalidInstance", http.StatusBadRequest},
 		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusNotFound},
 		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
@@ -884,6 +1235,49 @@ func parseInt32(s string) (int32, error) {
 	return int32(n), nil
 }
 
+// validateHealthCheckTarget validates the HealthCheck Target format expected by AWS:
+// PROTOCOL:PORT for TCP/SSL or PROTOCOL:PORT/PATH for HTTP/HTTPS.
+func validateHealthCheckTarget(target string) error {
+	colonIdx := strings.Index(target, ":")
+	if colonIdx < 1 {
+		return fmt.Errorf(
+			"%w: HealthCheck.Target must be in the format PROTOCOL:PORT or PROTOCOL:PORT/PATH",
+			ErrInvalidParameter,
+		)
+	}
+
+	proto := strings.ToUpper(target[:colonIdx])
+	rest := target[colonIdx+1:]
+
+	switch proto {
+	case "HTTP", "HTTPS":
+		slashIdx := strings.Index(rest, "/")
+		if slashIdx < 1 {
+			return fmt.Errorf(
+				"%w: HealthCheck.Target for HTTP/HTTPS must include a path (e.g. HTTP:80/health)",
+				ErrInvalidParameter,
+			)
+		}
+
+		portStr := rest[:slashIdx]
+		p, err := strconv.ParseInt(portStr, 10, 32)
+
+		if err != nil || p < 1 || p > 65535 {
+			return fmt.Errorf("%w: HealthCheck.Target port must be between 1 and 65535", ErrInvalidParameter)
+		}
+	case "TCP", "SSL":
+		p, err := strconv.ParseInt(rest, 10, 32)
+
+		if err != nil || p < 1 || p > 65535 {
+			return fmt.Errorf("%w: HealthCheck.Target port must be between 1 and 65535", ErrInvalidParameter)
+		}
+	default:
+		return fmt.Errorf("%w: HealthCheck.Target protocol must be one of HTTP, HTTPS, TCP, SSL", ErrInvalidParameter)
+	}
+
+	return nil
+}
+
 // parseMembers extracts indexed form values (e.g. "LoadBalancerNames.member.1").
 func parseMembers(vals url.Values, prefix string) []string {
 	result := make([]string, 0)
@@ -912,26 +1306,37 @@ func parseListeners(vals url.Values) ([]Listener, error) {
 			break
 		}
 
-		lbPort, err := parseInt32(vals.Get(fmt.Sprintf("Listeners.member.%d.LoadBalancerPort", i)))
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid LoadBalancerPort", ErrInvalidParameter)
+		proto = strings.ToUpper(proto)
+
+		switch proto {
+		case "HTTP", "HTTPS", "TCP", "SSL":
+		default:
+			return nil, fmt.Errorf("%w: Protocol must be one of HTTP, HTTPS, TCP, SSL", ErrInvalidParameter)
 		}
 
-		instProto := vals.Get(fmt.Sprintf("Listeners.member.%d.InstanceProtocol", i))
+		lbPort, err := parseInt32(vals.Get(fmt.Sprintf("Listeners.member.%d.LoadBalancerPort", i)))
+		if err != nil || lbPort < 1 || lbPort > 65535 {
+			return nil, fmt.Errorf("%w: LoadBalancerPort must be between 1 and 65535", ErrInvalidParameter)
+		}
+
+		instProto := strings.ToUpper(vals.Get(fmt.Sprintf("Listeners.member.%d.InstanceProtocol", i)))
 		if instProto == "" {
 			instProto = proto
 		}
 
 		instPort, err := parseInt32(vals.Get(fmt.Sprintf("Listeners.member.%d.InstancePort", i)))
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid InstancePort", ErrInvalidParameter)
+		if err != nil || instPort < 1 || instPort > 65535 {
+			return nil, fmt.Errorf("%w: InstancePort must be between 1 and 65535", ErrInvalidParameter)
 		}
+
+		certID := vals.Get(fmt.Sprintf("Listeners.member.%d.SSLCertificateId", i))
 
 		result = append(result, Listener{
 			Protocol:         proto,
 			LoadBalancerPort: lbPort,
 			InstanceProtocol: instProto,
 			InstancePort:     instPort,
+			SSLCertificateID: certID,
 		})
 	}
 
@@ -1001,7 +1406,9 @@ func parseListenerPorts(vals url.Values, prefix string) []int32 {
 			continue
 		}
 
-		result = append(result, p)
+		if p >= 1 {
+			result = append(result, p)
+		}
 	}
 
 	return result
@@ -1107,8 +1514,33 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 
 	listeners := make([]xmlListenerDescription, 0, len(lb.Listeners))
 	for _, l := range lb.Listeners {
+		policyMembers := make([]xmlStringValue, 0, len(l.PolicyNames))
+		for _, p := range l.PolicyNames {
+			policyMembers = append(policyMembers, xmlStringValue{Value: p})
+		}
+
 		listeners = append(listeners, xmlListenerDescription{
-			Listener: xmlListener(l),
+			Listener: xmlListener{
+				Protocol:         l.Protocol,
+				InstanceProtocol: l.InstanceProtocol,
+				LoadBalancerPort: l.LoadBalancerPort,
+				InstancePort:     l.InstancePort,
+				SSLCertificateID: l.SSLCertificateID,
+			},
+			PolicyNames: xmlStringValueList{Members: policyMembers},
+		})
+	}
+
+	bsds := make([]xmlBackendServerDescription, 0, len(lb.BackendServerDescriptions))
+	for _, bsd := range lb.BackendServerDescriptions {
+		policyMembers := make([]xmlStringValue, 0, len(bsd.PolicyNames))
+		for _, p := range bsd.PolicyNames {
+			policyMembers = append(policyMembers, xmlStringValue{Value: p})
+		}
+
+		bsds = append(bsds, xmlBackendServerDescription{
+			InstancePort: bsd.InstancePort,
+			PolicyNames:  xmlStringValueList{Members: policyMembers},
 		})
 	}
 
@@ -1121,10 +1553,16 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 		CanonicalHostedZoneNameID: lb.CanonicalHostedZoneNameID,
 		CreatedTime:               lb.CreatedTime.UTC().Format(time.RFC3339),
 		Scheme:                    lb.Scheme,
+		VPCId:                     lb.VPCId,
+		SourceSecurityGroup: xmlSourceSecurityGroup{
+			GroupName:  "default",
+			OwnerAlias: lb.AccountID,
+		},
 		AvailabilityZones:         xmlStringValueList{Members: azs},
 		SecurityGroups:            xmlStringValueList{Members: sgs},
 		Subnets:                   xmlStringValueList{Members: subnets},
 		ListenerDescriptions:      xmlListenerDescriptionList{Members: listeners},
+		BackendServerDescriptions: xmlBackendServerDescriptionList{Members: bsds},
 		Instances:                 xmlInstanceList{Members: instances},
 	}
 
@@ -1212,16 +1650,27 @@ type xmlInstanceList struct {
 type xmlListener struct {
 	Protocol         string `xml:"Protocol"`
 	InstanceProtocol string `xml:"InstanceProtocol"`
+	SSLCertificateID string `xml:"SSLCertificateId,omitempty"`
 	LoadBalancerPort int32  `xml:"LoadBalancerPort"`
 	InstancePort     int32  `xml:"InstancePort"`
 }
 
 type xmlListenerDescription struct {
-	Listener xmlListener `xml:"Listener"`
+	Listener    xmlListener        `xml:"Listener"`
+	PolicyNames xmlStringValueList `xml:"PolicyNames"`
 }
 
 type xmlListenerDescriptionList struct {
 	Members []xmlListenerDescription `xml:"member"`
+}
+
+type xmlBackendServerDescription struct {
+	PolicyNames  xmlStringValueList `xml:"PolicyNames"`
+	InstancePort int32              `xml:"InstancePort"`
+}
+
+type xmlBackendServerDescriptionList struct {
+	Members []xmlBackendServerDescription `xml:"member"`
 }
 
 type xmlHealthCheck struct {
@@ -1232,19 +1681,27 @@ type xmlHealthCheck struct {
 	HealthyThreshold   int32  `xml:"HealthyThreshold"`
 }
 
+type xmlSourceSecurityGroup struct {
+	GroupName  string `xml:"GroupName"`
+	OwnerAlias string `xml:"OwnerAlias"`
+}
+
 type xmlLoadBalancerDescription struct {
-	LoadBalancerName          string                     `xml:"LoadBalancerName"`
-	DNSName                   string                     `xml:"DNSName"`
-	CanonicalHostedZoneName   string                     `xml:"CanonicalHostedZoneName"`
-	CanonicalHostedZoneNameID string                     `xml:"CanonicalHostedZoneNameID"`
-	CreatedTime               string                     `xml:"CreatedTime"`
-	Scheme                    string                     `xml:"Scheme"`
-	AvailabilityZones         xmlStringValueList         `xml:"AvailabilityZones"`
-	SecurityGroups            xmlStringValueList         `xml:"SecurityGroups"`
-	Subnets                   xmlStringValueList         `xml:"Subnets"`
-	ListenerDescriptions      xmlListenerDescriptionList `xml:"ListenerDescriptions"`
-	Instances                 xmlInstanceList            `xml:"Instances"`
-	HealthCheck               xmlHealthCheck             `xml:"HealthCheck"`
+	LoadBalancerName          string                          `xml:"LoadBalancerName"`
+	DNSName                   string                          `xml:"DNSName"`
+	CanonicalHostedZoneName   string                          `xml:"CanonicalHostedZoneName"`
+	CanonicalHostedZoneNameID string                          `xml:"CanonicalHostedZoneNameID"`
+	CreatedTime               string                          `xml:"CreatedTime"`
+	Scheme                    string                          `xml:"Scheme"`
+	VPCId                     string                          `xml:"VPCId,omitempty"`
+	AvailabilityZones         xmlStringValueList              `xml:"AvailabilityZones"`
+	SecurityGroups            xmlStringValueList              `xml:"SecurityGroups"`
+	Subnets                   xmlStringValueList              `xml:"Subnets"`
+	SourceSecurityGroup       xmlSourceSecurityGroup          `xml:"SourceSecurityGroup"`
+	ListenerDescriptions      xmlListenerDescriptionList      `xml:"ListenerDescriptions"`
+	BackendServerDescriptions xmlBackendServerDescriptionList `xml:"BackendServerDescriptions"`
+	Instances                 xmlInstanceList                 `xml:"Instances"`
+	HealthCheck               xmlHealthCheck                  `xml:"HealthCheck"`
 }
 
 type xmlLoadBalancerList struct {
@@ -1457,6 +1914,69 @@ type attachLoadBalancerToSubnetsResponse struct {
 	Xmlns            string                            `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata               `xml:"ResponseMetadata"`
 	Result           attachLoadBalancerToSubnetsResult `xml:"AttachLoadBalancerToSubnetsResult"`
+}
+
+// DetachLoadBalancerFromSubnets response.
+
+type detachLoadBalancerFromSubnetsResult struct {
+	Subnets xmlStringValueList `xml:"Subnets"`
+}
+
+type detachLoadBalancerFromSubnetsResponse struct {
+	XMLName          xml.Name                            `xml:"DetachLoadBalancerFromSubnetsResponse"`
+	Xmlns            string                              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                 `xml:"ResponseMetadata"`
+	Result           detachLoadBalancerFromSubnetsResult `xml:"DetachLoadBalancerFromSubnetsResult"`
+}
+
+// EnableAvailabilityZonesForLoadBalancer response.
+
+type enableAvailabilityZonesResult struct {
+	AvailabilityZones xmlStringValueList `xml:"AvailabilityZones"`
+}
+
+type enableAvailabilityZonesResponse struct {
+	XMLName          xml.Name                      `xml:"EnableAvailabilityZonesForLoadBalancerResponse"`
+	Xmlns            string                        `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata           `xml:"ResponseMetadata"`
+	Result           enableAvailabilityZonesResult `xml:"EnableAvailabilityZonesForLoadBalancerResult"`
+}
+
+// DisableAvailabilityZonesForLoadBalancer response.
+
+type disableAvailabilityZonesResult struct {
+	AvailabilityZones xmlStringValueList `xml:"AvailabilityZones"`
+}
+
+type disableAvailabilityZonesResponse struct {
+	XMLName          xml.Name                       `xml:"DisableAvailabilityZonesForLoadBalancerResponse"`
+	Xmlns            string                         `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata            `xml:"ResponseMetadata"`
+	Result           disableAvailabilityZonesResult `xml:"DisableAvailabilityZonesForLoadBalancerResult"`
+}
+
+// SetLoadBalancerListenerSSLCertificate response.
+
+type setLoadBalancerListenerSSLCertificateResponse struct {
+	XMLName          xml.Name            `xml:"SetLoadBalancerListenerSSLCertificateResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// SetLoadBalancerPoliciesOfListener response.
+
+type setLoadBalancerPoliciesOfListenerResponse struct {
+	XMLName          xml.Name            `xml:"SetLoadBalancerPoliciesOfListenerResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// SetLoadBalancerPoliciesForBackendServer response.
+
+type setLoadBalancerPoliciesForBackendServerResponse struct {
+	XMLName          xml.Name            `xml:"SetLoadBalancerPoliciesForBackendServerResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // CreateAppCookieStickinessPolicy response.
