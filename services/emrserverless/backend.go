@@ -102,6 +102,8 @@ type JobRun struct {
 	Name             string            `json:"name"`
 	State            string            `json:"state"`
 	ExecutionRoleArn string            `json:"executionRoleArn"`
+	Mode             string            `json:"mode,omitempty"`
+	StateDetails     string            `json:"stateDetails,omitempty"`
 }
 
 // InMemoryBackend stores EMR Serverless state in memory.
@@ -225,8 +227,8 @@ func (b *InMemoryBackend) GetApplication(id string) (*Application, error) {
 	return cloneApplication(app), nil
 }
 
-// ListApplications returns paginated applications.
-func (b *InMemoryBackend) ListApplications(nextToken string, maxResults int) ([]*Application, string) {
+// ListApplications returns paginated applications, optionally filtered by state.
+func (b *InMemoryBackend) ListApplications(nextToken string, maxResults int, states ...string) ([]*Application, string) {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
@@ -236,7 +238,26 @@ func (b *InMemoryBackend) ListApplications(nextToken string, maxResults int) ([]
 		list = append(list, cloneApplication(app))
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].ApplicationID < list[j].ApplicationID })
+	if len(states) > 0 {
+		stateSet := make(map[string]struct{}, len(states))
+		for _, s := range states {
+			stateSet[s] = struct{}{}
+		}
+		filtered := list[:0]
+		for _, app := range list {
+			if _, ok := stateSet[app.State]; ok {
+				filtered = append(filtered, app)
+			}
+		}
+		list = filtered
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].CreatedAt.Equal(list[j].CreatedAt) {
+			return list[i].ApplicationID < list[j].ApplicationID
+		}
+		return list[i].CreatedAt.Before(list[j].CreatedAt)
+	})
 
 	page, token := emrPaginate(list, nextToken, maxResults)
 
@@ -300,6 +321,10 @@ func (b *InMemoryBackend) StartApplication(id string) error {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, id)
 	}
 
+	if app.State == ApplicationStateStarted {
+		return fmt.Errorf("%w: application %s is already in STARTED state", ErrInvalidState, id)
+	}
+
 	app.State = ApplicationStateStarted
 	app.UpdatedAt = time.Now().UTC()
 
@@ -314,6 +339,11 @@ func (b *InMemoryBackend) StopApplication(id string) error {
 	app, ok := b.applications[id]
 	if !ok {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, id)
+	}
+
+	switch app.State {
+	case ApplicationStateStopped, ApplicationStateTerminated, ApplicationStateTerminatedWithError:
+		return fmt.Errorf("%w: application %s is already in %s state", ErrInvalidState, id, app.State)
 	}
 
 	app.State = ApplicationStateStopped
@@ -349,7 +379,7 @@ func (b *InMemoryBackend) StartJobRun(
 		JobRunID:         jobRunID,
 		Arn:              b.jobRunARN(applicationID, jobRunID),
 		Name:             name,
-		State:            JobRunStateRunning,
+		State:            JobRunStateSubmitted,
 		ExecutionRoleArn: executionRoleArn,
 		CreatedAt:        now,
 		UpdatedAt:        now,
@@ -388,8 +418,8 @@ func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string) (*JobRun, er
 	return cloneJobRun(jr), nil
 }
 
-// ListJobRuns returns paginated job runs for an application.
-func (b *InMemoryBackend) ListJobRuns(applicationID, nextToken string, maxResults int) ([]*JobRun, string, error) {
+// ListJobRuns returns paginated job runs for an application, optionally filtered by state.
+func (b *InMemoryBackend) ListJobRuns(applicationID, nextToken string, maxResults int, states ...string) ([]*JobRun, string, error) {
 	b.mu.RLock("ListJobRuns")
 	defer b.mu.RUnlock()
 
@@ -404,7 +434,26 @@ func (b *InMemoryBackend) ListJobRuns(applicationID, nextToken string, maxResult
 		list = append(list, cloneJobRun(jr))
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].JobRunID < list[j].JobRunID })
+	if len(states) > 0 {
+		stateSet := make(map[string]struct{}, len(states))
+		for _, s := range states {
+			stateSet[s] = struct{}{}
+		}
+		filtered := list[:0]
+		for _, jr := range list {
+			if _, ok := stateSet[jr.State]; ok {
+				filtered = append(filtered, jr)
+			}
+		}
+		list = filtered
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].CreatedAt.Equal(list[j].CreatedAt) {
+			return list[i].JobRunID < list[j].JobRunID
+		}
+		return list[i].CreatedAt.After(list[j].CreatedAt)
+	})
 
 	page, token := emrPaginate(list, nextToken, maxResults)
 
@@ -442,7 +491,10 @@ func (b *InMemoryBackend) CancelJobRun(applicationID, jobRunID string) (*JobRun,
 		)
 	}
 
+	jr.State = JobRunStateCancelling
+	jr.StateDetails = "Job run is being cancelled"
 	jr.State = JobRunStateCancelled
+	jr.StateDetails = "Job run cancelled by user request"
 	jr.UpdatedAt = time.Now().UTC()
 
 	return cloneJobRun(jr), nil

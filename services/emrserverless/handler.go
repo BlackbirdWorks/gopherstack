@@ -3,10 +3,12 @@ package emrserverless
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -268,6 +270,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", "internal server error"))
 		}
 
+		c.Response().Header().Set("X-Amzn-RequestId", fmt.Sprintf("%x", time.Now().UnixNano()))
+
 		return h.dispatch(c, route, body)
 	}
 }
@@ -366,6 +370,8 @@ func jobRunToMap(jr *JobRun) map[string]any {
 		"arn":              jr.Arn,
 		"name":             jr.Name,
 		"state":            jr.State,
+		"stateDetails":     jr.StateDetails,
+		"mode":             jr.Mode,
 		"executionRoleArn": jr.ExecutionRoleArn,
 		"createdAt":        epochSeconds(jr.CreatedAt),
 		"updatedAt":        epochSeconds(jr.UpdatedAt),
@@ -428,7 +434,16 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 		}
 	}
 
-	apps, outToken := h.Backend.ListApplications(nextToken, maxResults)
+	var states []string
+	if s := q.Get("states"); s != "" {
+		for _, st := range strings.Split(s, ",") {
+			if trimmed := strings.TrimSpace(st); trimmed != "" {
+				states = append(states, trimmed)
+			}
+		}
+	}
+
+	apps, outToken := h.Backend.ListApplications(nextToken, maxResults, states...)
 	list := make([]map[string]any, 0, len(apps))
 
 	for _, app := range apps {
@@ -545,7 +560,16 @@ func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error
 		}
 	}
 
-	runs, outToken, err := h.Backend.ListJobRuns(applicationID, nextToken, maxResults)
+	var states []string
+	if s := q.Get("states"); s != "" {
+		for _, st := range strings.Split(s, ",") {
+			if trimmed := strings.TrimSpace(st); trimmed != "" {
+				states = append(states, trimmed)
+			}
+		}
+	}
+
+	runs, outToken, err := h.Backend.ListJobRuns(applicationID, nextToken, maxResults, states...)
 	if err != nil {
 		return h.handleError(c, err)
 	}
