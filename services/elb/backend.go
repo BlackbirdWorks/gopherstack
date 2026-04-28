@@ -633,7 +633,7 @@ func (b *InMemoryBackend) AddTags(names []string, kvs []tags.KV) error {
 			return true
 		})
 
-		if existingCount+len(kvs) > maxTagsPerLB {
+		if existingCount+len(newKeys) > maxTagsPerLB {
 			return fmt.Errorf("%w: cannot have more than %d tags on a load balancer", ErrInvalidParameter, maxTagsPerLB)
 		}
 

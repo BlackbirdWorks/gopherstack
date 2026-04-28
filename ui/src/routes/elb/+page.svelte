@@ -96,6 +96,8 @@
 	// AZ management
 	let newAZInput = $state('');
 
+	// subnet management
+	let newSubnetInput = $state('');
 	// LB policies list
 	let lbPolicies = $state<PolicyDescription[]>([]);
 	let lbAttributes = $state<{ CrossZoneLoadBalancing?: boolean; ConnectionDraining?: boolean; ConnectionDrainingTimeout?: number; IdleTimeout?: number } | null>(null);
@@ -204,11 +206,11 @@
 				Listeners: [{
 					Protocol: listenerProto,
 					LoadBalancerPort: listenerLBPort,
-					InstanceProtocol: listenerProto === 'HTTPS' ? 'HTTP' : listenerProto,
+					InstanceProtocol: listenerProto === 'HTTPS' ? 'HTTP' : listenerProto === 'SSL' ? 'TCP' : listenerProto,
 					InstancePort: listenerInstPort
 				}]
 			}));
-			if (listenerCertARN && listenerProto === 'HTTPS') {
+			if (listenerCertARN && (listenerProto === 'HTTPS' || listenerProto === 'SSL')) {
 				await elb.send(new SetLoadBalancerListenerSSLCertificateCommand({
 					LoadBalancerName: selectedLB.LoadBalancerName,
 					LoadBalancerPort: listenerLBPort,
@@ -420,6 +422,21 @@
 			toast.success('Subnet detached');
 		} catch (err: unknown) {
 			toast.error(`Failed to detach subnet: ${(err as Error).message}`);
+		}
+	}
+
+	async function attachSubnet() {
+		if (!selectedLB?.LoadBalancerName || !newSubnetInput.trim()) return;
+		try {
+			await elb.send(new AttachLoadBalancerToSubnetsCommand({
+				LoadBalancerName: selectedLB.LoadBalancerName,
+				Subnets: [newSubnetInput.trim()]
+			}));
+			newSubnetInput = '';
+			await loadBalancersList();
+			toast.success('Subnet attached');
+		} catch (err: unknown) {
+			toast.error(`Failed to attach subnet: ${(err as Error).message}`);
 		}
 	}
 
@@ -691,19 +708,21 @@
 							</div>
 
 							<!-- Subnets -->
-							{#if (selectedLB.Subnets ?? []).length > 0}
-								<div>
-									<h3 class="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Subnets</h3>
-									<div class="flex flex-wrap gap-2">
-										{#each selectedLB.Subnets ?? [] as subnet}
-											<span class="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700">
-												{subnet}
-												<button type="button" onclick={() => detachSubnet(subnet)} class="text-red-500 hover:text-red-700">×</button>
-											</span>
-										{/each}
-									</div>
+							<div>
+								<h3 class="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Subnets</h3>
+								<div class="flex flex-wrap gap-2">
+									{#each selectedLB.Subnets ?? [] as subnet}
+										<span class="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-700">
+											{subnet}
+											<button type="button" onclick={() => detachSubnet(subnet)} class="text-red-500 hover:text-red-700">×</button>
+										</span>
+									{/each}
+									<form class="flex gap-1" onsubmit={(e) => { e.preventDefault(); attachSubnet(); }}>
+										<input bind:value={newSubnetInput} placeholder="subnet-xxxxxxxx" class="rounded border border-slate-300 px-2 py-0.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+										<button type="submit" class="rounded bg-indigo-600 px-2 py-0.5 text-xs text-white">+</button>
+									</form>
 								</div>
-							{/if}
+							</div>
 
 							<!-- Security Groups -->
 							{#if (selectedLB.SecurityGroups ?? []).length > 0}
