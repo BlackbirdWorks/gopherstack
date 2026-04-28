@@ -38,6 +38,8 @@ var (
 	ErrInvalidParameter = awserr.New("ValidationError", awserr.ErrInvalidParameter)
 	// ErrUnknownAction is returned when the requested action is not recognized.
 	ErrUnknownAction = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
+	// ErrDuplicateRulePriority is returned when two rules have the same priority.
+	ErrDuplicateRulePriority = awserr.New("DuplicatePriority", awserr.ErrInvalidParameter)
 )
 
 // LoadBalancerState represents the state of a load balancer.
@@ -135,13 +137,20 @@ type Rule struct {
 	IsDefault   bool        `json:"isDefault"`
 }
 
+// TrustStoreRevocation represents a single revocation entry stored in a trust store.
+type TrustStoreRevocation struct {
+	RevocationID           string `json:"revocationId"`
+	RevocationType         string `json:"revocationType"`
+	NumberOfRevokedEntries int64  `json:"numberOfRevokedEntries"`
+}
+
 // TrustStore represents an ELBv2 trust store.
 type TrustStore struct {
-	Tags          *tags.Tags `json:"tags,omitempty"`
-	TrustStoreArn string     `json:"trustStoreArn"`
-	Name          string     `json:"name"`
-	Status        string     `json:"status"`
-	Revocations   []string   `json:"revocations,omitempty"`
+	Tags          *tags.Tags             `json:"tags,omitempty"`
+	TrustStoreArn string                 `json:"trustStoreArn"`
+	Name          string                 `json:"name"`
+	Status        string                 `json:"status"`
+	Revocations   []TrustStoreRevocation `json:"revocations,omitempty"`
 }
 
 // StorageBackend is the interface for ELBv2 storage operations.
@@ -159,6 +168,7 @@ type StorageBackend interface {
 	CreateListener(input CreateListenerInput) (*Listener, error)
 	DescribeListeners(lbArn string, listenerArns []string) ([]Listener, error)
 	DeleteListener(listenerArn string) error
+	ModifyListener(input ModifyListenerInput) (*Listener, error)
 	CreateRule(input CreateRuleInput) (*Rule, error)
 	DescribeRules(listenerArn string, ruleArns []string) ([]Rule, error)
 	DeleteRule(ruleArn string) error
@@ -171,9 +181,9 @@ type StorageBackend interface {
 	DescribeTrustStores(arns []string, names []string) ([]TrustStore, error)
 	DeleteTrustStore(trustStoreArn string) error
 	ModifyTrustStore(trustStoreArn, name string) (*TrustStore, error)
-	AddTrustStoreRevocations(trustStoreArn string, revocations []string) error
+	AddTrustStoreRevocations(trustStoreArn string, revocations []TrustStoreRevocation) error
 	RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []string) error
-	DescribeTrustStoreRevocations(trustStoreArn string) ([]string, error)
+	DescribeTrustStoreRevocations(trustStoreArn string) ([]TrustStoreRevocation, error)
 	DescribeTrustStoreAssociations(trustStoreArn string) ([]string, error)
 	// Rule priority operations.
 	SetRulePriorities(priorities []RulePriority) ([]Rule, error)
@@ -210,7 +220,21 @@ type CreateListenerInput struct {
 	Protocol        string
 	DefaultActions  []Action
 	Tags            []tags.KV
+	Certificates    []string
+	SSLPolicy       string
+	AlpnPolicy      string
 	Port            int32
+}
+
+// ModifyListenerInput holds the parameters for modifying a listener.
+type ModifyListenerInput struct {
+	ListenerArn    string
+	Protocol       string
+	DefaultActions []Action
+	Certificates   []string
+	SSLPolicy      string
+	AlpnPolicy     string
+	Port           int32
 }
 
 // CreateRuleInput holds the parameters for creating a listener rule.
@@ -397,6 +421,23 @@ func (b *InMemoryBackend) DeleteLoadBalancer(lbArn string) error {
 
 	if _, ok := b.loadBalancers[lbArn]; !ok {
 		return ErrLoadBalancerNotFound
+	}
+
+	// Cascade: delete all listeners and their rules.
+	for listenerArn, l := range b.listeners {
+		if l.LoadBalancerArn != lbArn {
+			continue
+		}
+
+		for ruleArn, r := range b.rules {
+			if r.ListenerArn == listenerArn {
+				r.Tags.Close()
+				delete(b.rules, ruleArn)
+			}
+		}
+
+		l.Tags.Close()
+		delete(b.listeners, listenerArn)
 	}
 
 	b.loadBalancers[lbArn].Tags.Close()
@@ -617,10 +658,25 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		Protocol:        input.Protocol,
 		Port:            input.Port,
 		DefaultActions:  input.DefaultActions,
+		Certificates:    input.Certificates,
+		SSLPolicy:       input.SSLPolicy,
+		AlpnPolicy:      input.AlpnPolicy,
 		Tags:            t,
 	}
 
 	b.listeners[listenerArn] = listener
+
+	// Auto-create default rule (AWS behaviour: every listener has a default rule).
+	defaultRuleArn := b.ruleARN(listenerArn, "default")
+	defaultTags := tags.New("elbv2.rule." + defaultRuleArn + ".tags")
+	b.rules[defaultRuleArn] = &Rule{
+		RuleArn:     defaultRuleArn,
+		ListenerArn: listenerArn,
+		Priority:    "default",
+		IsDefault:   true,
+		Actions:     input.DefaultActions,
+		Tags:        defaultTags,
+	}
 
 	cp := *listener
 
@@ -668,10 +724,57 @@ func (b *InMemoryBackend) DeleteListener(listenerArn string) error {
 		return ErrListenerNotFound
 	}
 
+	// Cascade: delete all rules belonging to this listener.
+	for ruleArn, r := range b.rules {
+		if r.ListenerArn == listenerArn {
+			r.Tags.Close()
+			delete(b.rules, ruleArn)
+		}
+	}
+
 	b.listeners[listenerArn].Tags.Close()
 	delete(b.listeners, listenerArn)
 
 	return nil
+}
+
+// ModifyListener updates the properties of an existing listener.
+func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, error) {
+	b.mu.Lock("ModifyListener")
+	defer b.mu.Unlock()
+
+	l, ok := b.listeners[input.ListenerArn]
+	if !ok {
+		return nil, ErrListenerNotFound
+	}
+
+	if input.Protocol != "" {
+		l.Protocol = input.Protocol
+	}
+
+	if input.Port != 0 {
+		l.Port = input.Port
+	}
+
+	if len(input.DefaultActions) > 0 {
+		l.DefaultActions = input.DefaultActions
+	}
+
+	if len(input.Certificates) > 0 {
+		l.Certificates = input.Certificates
+	}
+
+	if input.SSLPolicy != "" {
+		l.SSLPolicy = input.SSLPolicy
+	}
+
+	if input.AlpnPolicy != "" {
+		l.AlpnPolicy = input.AlpnPolicy
+	}
+
+	cp := *l
+
+	return &cp, nil
 }
 
 // CreateRule creates a new rule on a listener.
@@ -681,6 +784,15 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 
 	if _, ok := b.listeners[input.ListenerArn]; !ok {
 		return nil, ErrListenerNotFound
+	}
+
+	// Check for duplicate priority.
+	if input.Priority != "" && input.Priority != "default" {
+		for _, r := range b.rules {
+			if r.ListenerArn == input.ListenerArn && r.Priority == input.Priority {
+				return nil, fmt.Errorf("%w: priority %s already in use", ErrDuplicateRulePriority, input.Priority)
+			}
+		}
 	}
 
 	idx := strconv.Itoa(len(b.rules))
@@ -797,6 +909,10 @@ func (b *InMemoryBackend) findTagsLocked(resArn string) *tags.Tags {
 		return r.Tags
 	}
 
+	if ts, ok := b.trustStores[resArn]; ok {
+		return ts.Tags
+	}
+
 	return nil
 }
 
@@ -893,7 +1009,7 @@ func (b *InMemoryBackend) CreateTrustStore(name string, kvs []tags.KV) (*TrustSt
 		TrustStoreArn: tsArn,
 		Name:          name,
 		Status:        "ACTIVE",
-		Revocations:   []string{},
+		Revocations:   []TrustStoreRevocation{},
 		Tags:          t,
 	}
 
@@ -970,7 +1086,7 @@ func (b *InMemoryBackend) DeleteTrustStore(trustStoreArn string) error {
 }
 
 // AddTrustStoreRevocations appends revocation entries to a trust store.
-func (b *InMemoryBackend) AddTrustStoreRevocations(trustStoreArn string, revocations []string) error {
+func (b *InMemoryBackend) AddTrustStoreRevocations(trustStoreArn string, revocations []TrustStoreRevocation) error {
 	b.mu.Lock("AddTrustStoreRevocations")
 	defer b.mu.Unlock()
 
@@ -984,9 +1100,7 @@ func (b *InMemoryBackend) AddTrustStoreRevocations(trustStoreArn string, revocat
 	return nil
 }
 
-// DescribeTrustStoreAssociations returns listener ARNs associated with a trust store.
-// In this implementation, trust stores are not automatically linked to listeners,
-// so we return an empty list.
+// DescribeTrustStoreAssociations returns listener ARNs whose trust store is set to this ARN.
 func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) ([]string, error) {
 	b.mu.RLock("DescribeTrustStoreAssociations")
 	defer b.mu.RUnlock()
@@ -995,7 +1109,19 @@ func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) (
 		return nil, ErrTrustStoreNotFound
 	}
 
-	return []string{}, nil
+	var result []string
+
+	for _, l := range b.listeners {
+		if l.SSLPolicy == trustStoreArn {
+			result = append(result, l.ListenerArn)
+		}
+	}
+
+	if result == nil {
+		result = []string{}
+	}
+
+	return result, nil
 }
 
 // AddListenerCertificates adds ACM certificate ARNs to a listener.
@@ -1085,7 +1211,7 @@ func (b *InMemoryBackend) ModifyTrustStore(trustStoreArn, name string) (*TrustSt
 	return &cp, nil
 }
 
-// RemoveTrustStoreRevocations removes revocation entries from a trust store by index value.
+// RemoveTrustStoreRevocations removes revocation entries from a trust store by RevocationID.
 func (b *InMemoryBackend) RemoveTrustStoreRevocations(trustStoreArn string, revocationIDs []string) error {
 	b.mu.Lock("RemoveTrustStoreRevocations")
 	defer b.mu.Unlock()
@@ -1100,9 +1226,9 @@ func (b *InMemoryBackend) RemoveTrustStoreRevocations(trustStoreArn string, revo
 		remove[id] = true
 	}
 
-	remaining := make([]string, 0, len(ts.Revocations))
+	remaining := make([]TrustStoreRevocation, 0, len(ts.Revocations))
 	for _, r := range ts.Revocations {
-		if !remove[r] {
+		if !remove[r.RevocationID] {
 			remaining = append(remaining, r)
 		}
 	}
@@ -1113,7 +1239,7 @@ func (b *InMemoryBackend) RemoveTrustStoreRevocations(trustStoreArn string, revo
 }
 
 // DescribeTrustStoreRevocations returns revocation entries for a trust store.
-func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([]string, error) {
+func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([]TrustStoreRevocation, error) {
 	b.mu.RLock("DescribeTrustStoreRevocations")
 	defer b.mu.RUnlock()
 
@@ -1122,7 +1248,7 @@ func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([
 		return nil, ErrTrustStoreNotFound
 	}
 
-	result := make([]string, len(ts.Revocations))
+	result := make([]TrustStoreRevocation, len(ts.Revocations))
 	copy(result, ts.Revocations)
 
 	return result, nil
@@ -1132,6 +1258,16 @@ func (b *InMemoryBackend) DescribeTrustStoreRevocations(trustStoreArn string) ([
 func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, error) {
 	b.mu.Lock("SetRulePriorities")
 	defer b.mu.Unlock()
+
+	// Check for duplicates within the request.
+	seen := make(map[string]bool, len(priorities))
+	for _, p := range priorities {
+		if seen[p.Priority] {
+			return nil, fmt.Errorf("%w: priority %s specified more than once", ErrDuplicateRulePriority, p.Priority)
+		}
+
+		seen[p.Priority] = true
+	}
 
 	result := make([]Rule, 0, len(priorities))
 

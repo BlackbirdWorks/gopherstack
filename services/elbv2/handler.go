@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -369,9 +370,13 @@ func (h *Handler) handleDescribeLoadBalancerAttributes(vals url.Values) (any, er
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
-	_, err := h.Backend.ModifyLoadBalancerAttributes(lbArn)
+	lbs, err := h.Backend.DescribeLoadBalancers([]string{lbArn}, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(lbs) == 0 {
+		return nil, ErrLoadBalancerNotFound
 	}
 
 	return &describeLoadBalancerAttributesResponse{
@@ -382,6 +387,8 @@ func (h *Handler) handleDescribeLoadBalancerAttributes(vals url.Values) (any, er
 					{Key: "access_logs.s3.enabled", Value: "false"},
 					{Key: "deletion_protection.enabled", Value: "false"},
 					{Key: "idle_timeout.timeout_seconds", Value: "60"},
+					{Key: "routing.http2.enabled", Value: "true"},
+					{Key: "routing.http.desync_mitigation_mode", Value: "defensive"},
 				},
 			},
 		},
@@ -684,6 +691,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 
 	actions := parseActions(vals, "DefaultActions.member")
 	tagKVs := parseTagKVs(vals)
+	certs := parseCertArns(vals)
 
 	listener, createErr := h.Backend.CreateListener(CreateListenerInput{
 		LoadBalancerArn: lbArn,
@@ -691,6 +699,9 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 		Port:            port,
 		DefaultActions:  actions,
 		Tags:            tagKVs,
+		Certificates:    certs,
+		SSLPolicy:       vals.Get("SslPolicy"),
+		AlpnPolicy:      vals.Get("AlpnPolicy.member.1"),
 	})
 	if createErr != nil {
 		return nil, createErr
@@ -752,20 +763,36 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
 	}
 
-	listeners, err := h.Backend.DescribeListeners("", []string{listenerArn})
-	if err != nil {
-		return nil, err
+	portStr := vals.Get("Port")
+	var port int32
+
+	if portStr != "" {
+		p, err := parseInt32(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+		}
+
+		port = p
 	}
 
-	if len(listeners) == 0 {
-		return nil, ErrListenerNotFound
+	listener, err := h.Backend.ModifyListener(ModifyListenerInput{
+		ListenerArn:    listenerArn,
+		Protocol:       vals.Get("Protocol"),
+		Port:           port,
+		DefaultActions: parseActions(vals, "DefaultActions.member"),
+		Certificates:   parseCertArns(vals),
+		SSLPolicy:      vals.Get("SslPolicy"),
+		AlpnPolicy:     vals.Get("AlpnPolicy.member.1"),
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &modifyListenerResponse{
 		Xmlns: elbv2XMLNS,
 		Result: modifyListenerResult{
 			Listeners: xmlListenerList{
-				Members: []xmlListener{toXMLListener(&listeners[0])},
+				Members: []xmlListener{toXMLListener(listener)},
 			},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-listener"},
@@ -1066,7 +1093,7 @@ func (h *Handler) handleAddTrustStoreRevocations(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
-	revocations := parseMembers(vals, "RevocationContents.member")
+	revocations := parseTrustStoreRevocations(vals)
 
 	if err := h.Backend.AddTrustStoreRevocations(tsArn, revocations); err != nil {
 		return nil, err
@@ -1076,6 +1103,43 @@ func (h *Handler) handleAddTrustStoreRevocations(vals url.Values) (any, error) {
 		Xmlns:            elbv2XMLNS,
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-add-ts-revocations"},
 	}, nil
+}
+
+// parseTrustStoreRevocations extracts RevocationContents from form values.
+// Supports both plain RevocationId fields and S3-structured entries.
+func parseTrustStoreRevocations(vals url.Values) []TrustStoreRevocation {
+	revocations := make([]TrustStoreRevocation, 0)
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("RevocationContents.member.%d.", i)
+		// S3-structured entry fields.
+		s3Bucket := vals.Get(prefix + "S3Bucket")
+		s3Key := vals.Get(prefix + "S3Key")
+		revType := vals.Get(prefix + "RevocationType")
+		plain := vals.Get(fmt.Sprintf("RevocationContents.member.%d", i))
+
+		if s3Bucket == "" && s3Key == "" && revType == "" && plain == "" {
+			break
+		}
+
+		if revType == "" {
+			revType = "CRL"
+		}
+
+		revID := plain
+		if revID == "" {
+			// S3-format entries have no plain value; assign a unique ID server-side
+			// so callers can reference the revocation in RemoveTrustStoreRevocations.
+			revID = uuid.New().String()
+		}
+
+		revocations = append(revocations, TrustStoreRevocation{
+			RevocationID:   revID,
+			RevocationType: revType,
+		})
+	}
+
+	return revocations
 }
 
 func (h *Handler) handleDescribeTrustStoreAssociations(vals url.Values) (any, error) {
@@ -1352,7 +1416,11 @@ func (h *Handler) handleDescribeTrustStoreRevocations(vals url.Values) (any, err
 
 	members := make([]xmlRevocationContent, 0, len(revocations))
 	for _, r := range revocations {
-		members = append(members, xmlRevocationContent{RevocationID: r})
+		members = append(members, xmlRevocationContent{
+			RevocationID:           r.RevocationID,
+			RevocationType:         r.RevocationType,
+			NumberOfRevokedEntries: r.NumberOfRevokedEntries,
+		})
 	}
 
 	return &describeTrustStoreRevocationsResponse{
@@ -1821,6 +1889,8 @@ func toXMLListener(l *Listener) xmlListener {
 		Protocol:        l.Protocol,
 		Port:            l.Port,
 		DefaultActions:  xmlActionList{Members: actions},
+		SslPolicy:       l.SSLPolicy,
+		AlpnPolicy:      l.AlpnPolicy,
 	}
 }
 
@@ -2179,6 +2249,8 @@ type xmlListener struct {
 	LoadBalancerArn string        `xml:"LoadBalancerArn"`
 	Protocol        string        `xml:"Protocol"`
 	DefaultActions  xmlActionList `xml:"DefaultActions"`
+	SslPolicy       string        `xml:"SslPolicy,omitempty"`
+	AlpnPolicy      string        `xml:"AlpnPolicy,omitempty"`
 	Port            int32         `xml:"Port"`
 }
 
@@ -2616,7 +2688,9 @@ type modifyTrustStoreResponse struct {
 }
 
 type xmlRevocationContent struct {
-	RevocationID string `xml:"RevocationId"`
+	RevocationID           string `xml:"RevocationId"`
+	RevocationType         string `xml:"RevocationType,omitempty"`
+	NumberOfRevokedEntries int64  `xml:"NumberOfRevokedEntries,omitempty"`
 }
 
 type xmlRevocationContentList struct {

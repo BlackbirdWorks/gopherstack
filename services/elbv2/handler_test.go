@@ -1192,7 +1192,8 @@ func TestDescribeRules(t *testing.T) {
 		} `xml:"DescribeRulesResult"`
 	}
 	parseXMLBody(t, rec, &resp)
-	assert.Len(t, resp.Result.Rules.Members, 1)
+	// 2 rules expected: 1 default (auto-created by CreateListener) + 1 explicit.
+	assert.Len(t, resp.Result.Rules.Members, 2)
 }
 
 // TestModifyRule tests rule modification.
