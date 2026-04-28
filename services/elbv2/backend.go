@@ -75,24 +75,24 @@ type LoadBalancer struct {
 
 // TargetGroup represents an ELBv2 target group.
 type TargetGroup struct {
-	Tags                      *tags.Tags        `json:"tags,omitempty"`
-	TargetGroupAttributes     map[string]string `json:"targetGroupAttributes,omitempty"`
-	TargetGroupArn            string            `json:"targetGroupArn"`
-	TargetGroupName           string            `json:"targetGroupName"`
-	Protocol                  string            `json:"protocol"`
-	VpcID                     string            `json:"vpcId"`
-	TargetType                string            `json:"targetType"`
-	HealthCheckProtocol       string            `json:"healthCheckProtocol"`
-	HealthCheckPort           string            `json:"healthCheckPort"`
-	HealthCheckPath           string            `json:"healthCheckPath"`
-	Matcher                   string            `json:"matcher"`
-	Targets                   []Target          `json:"targets"`
-	Port                      int32             `json:"port"`
-	HealthCheckIntervalSeconds int32            `json:"healthCheckIntervalSeconds"`
-	HealthCheckTimeoutSeconds  int32            `json:"healthCheckTimeoutSeconds"`
-	HealthyThresholdCount      int32            `json:"healthyThresholdCount"`
-	UnhealthyThresholdCount    int32            `json:"unhealthyThresholdCount"`
-	HealthCheckEnabled        bool              `json:"healthCheckEnabled"`
+	Tags                       *tags.Tags        `json:"tags,omitempty"`
+	TargetGroupAttributes      map[string]string `json:"targetGroupAttributes,omitempty"`
+	TargetGroupArn             string            `json:"targetGroupArn"`
+	TargetGroupName            string            `json:"targetGroupName"`
+	Protocol                   string            `json:"protocol"`
+	VpcID                      string            `json:"vpcId"`
+	TargetType                 string            `json:"targetType"`
+	HealthCheckProtocol        string            `json:"healthCheckProtocol"`
+	HealthCheckPort            string            `json:"healthCheckPort"`
+	HealthCheckPath            string            `json:"healthCheckPath"`
+	Matcher                    string            `json:"matcher"`
+	Targets                    []Target          `json:"targets"`
+	Port                       int32             `json:"port"`
+	HealthCheckIntervalSeconds int32             `json:"healthCheckIntervalSeconds"`
+	HealthCheckTimeoutSeconds  int32             `json:"healthCheckTimeoutSeconds"`
+	HealthyThresholdCount      int32             `json:"healthyThresholdCount"`
+	UnhealthyThresholdCount    int32             `json:"unhealthyThresholdCount"`
+	HealthCheckEnabled         bool              `json:"healthCheckEnabled"`
 }
 
 // Target represents a registered target in a target group.
@@ -273,35 +273,35 @@ type CreateLoadBalancerInput struct {
 
 // CreateTargetGroupInput holds the parameters for creating a target group.
 type CreateTargetGroupInput struct {
-	Name                      string
-	Protocol                  string
-	VpcID                     string
-	TargetType                string
-	HealthCheckProtocol       string
-	HealthCheckPort           string
-	HealthCheckPath           string
-	Matcher                   string
-	Tags                      []tags.KV
-	Port                      int32
+	Name                       string
+	Protocol                   string
+	VpcID                      string
+	TargetType                 string
+	HealthCheckProtocol        string
+	HealthCheckPort            string
+	HealthCheckPath            string
+	Matcher                    string
+	Tags                       []tags.KV
+	Port                       int32
 	HealthCheckIntervalSeconds int32
 	HealthCheckTimeoutSeconds  int32
 	HealthyThresholdCount      int32
 	UnhealthyThresholdCount    int32
-	HealthCheckEnabled        bool
+	HealthCheckEnabled         bool
 }
 
 // ModifyTargetGroupInput holds the parameters for modifying a target group.
 type ModifyTargetGroupInput struct {
-	TargetGroupArn            string
-	HealthCheckProtocol       string
-	HealthCheckPort           string
-	HealthCheckPath           string
-	Matcher                   string
+	TargetGroupArn             string
+	HealthCheckProtocol        string
+	HealthCheckPort            string
+	HealthCheckPath            string
+	Matcher                    string
 	HealthCheckIntervalSeconds int32
 	HealthCheckTimeoutSeconds  int32
 	HealthyThresholdCount      int32
 	UnhealthyThresholdCount    int32
-	HealthCheckEnabled        bool
+	HealthCheckEnabled         bool
 }
 
 // CreateListenerInput holds the parameters for creating a listener.
