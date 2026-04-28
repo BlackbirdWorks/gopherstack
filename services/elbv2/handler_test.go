@@ -2,6 +2,7 @@ package elbv2_test
 
 import (
 	"encoding/xml"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1186,13 +1187,22 @@ func TestDescribeRules(t *testing.T) {
 		Result struct {
 			Rules struct {
 				Members []struct {
-					RuleArn string `xml:"RuleArn"`
+					RuleArn   string `xml:"RuleArn"`
+					IsDefault bool   `xml:"IsDefault"`
 				} `xml:"member"`
 			} `xml:"Rules"`
 		} `xml:"DescribeRulesResult"`
 	}
 	parseXMLBody(t, rec, &resp)
-	assert.Len(t, resp.Result.Rules.Members, 1)
+	// 2 rules expected: 1 default (auto-created by CreateListener) + 1 explicit.
+	assert.Len(t, resp.Result.Rules.Members, 2)
+	defaultCount := 0
+	for _, r := range resp.Result.Rules.Members {
+		if r.IsDefault {
+			defaultCount++
+		}
+	}
+	assert.Equal(t, 1, defaultCount, "expected exactly one default rule")
 }
 
 // TestModifyRule tests rule modification.
@@ -3123,4 +3133,185 @@ func TestELBv2_StubOperations(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+// TestCreateRuleWithConditions tests that rule conditions are stored and returned.
+func TestCreateRuleWithConditions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		conditionVals url.Values
+		wantField     string
+	}{
+		{
+			name: "host_header",
+			conditionVals: url.Values{
+				"Conditions.member.1.Field":                            {"host-header"},
+				"Conditions.member.1.HostHeaderConfig.Values.member.1": {"example.com"},
+				"Conditions.member.1.HostHeaderConfig.Values.member.2": {"*.example.com"},
+			},
+			wantField: "host-header",
+		},
+		{
+			name: "path_pattern",
+			conditionVals: url.Values{
+				"Conditions.member.1.Field":                             {"path-pattern"},
+				"Conditions.member.1.PathPatternConfig.Values.member.1": {"/api/*"},
+			},
+			wantField: "path-pattern",
+		},
+		{
+			name: "http_header",
+			conditionVals: url.Values{
+				"Conditions.member.1.Field":                            {"http-header"},
+				"Conditions.member.1.HttpHeaderConfig.HttpHeaderName":  {"X-Custom"},
+				"Conditions.member.1.HttpHeaderConfig.Values.member.1": {"value1"},
+			},
+			wantField: "http-header",
+		},
+		{
+			name: "http_request_method",
+			conditionVals: url.Values{
+				"Conditions.member.1.Field":                                   {"http-request-method"},
+				"Conditions.member.1.HttpRequestMethodConfig.Values.member.1": {"GET"},
+			},
+			wantField: "http-request-method",
+		},
+		{
+			name: "source_ip",
+			conditionVals: url.Values{
+				"Conditions.member.1.Field":                          {"source-ip"},
+				"Conditions.member.1.SourceIpConfig.Values.member.1": {"10.0.0.0/8"},
+			},
+			wantField: "source-ip",
+		},
+		{
+			name: "query_string",
+			conditionVals: url.Values{
+				"Conditions.member.1.Field":                                   {"query-string"},
+				"Conditions.member.1.QueryStringConfig.Values.member.1.Key":   {"version"},
+				"Conditions.member.1.QueryStringConfig.Values.member.1.Value": {"v2"},
+			},
+			wantField: "query-string",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			lbArn := mustCreateLB(t, h, "cond-lb-"+tt.name)
+			tgArn := mustCreateTG(t, h, "cond-tg-"+tt.name)
+			listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+			vals := url.Values{
+				"Action":                          {"CreateRule"},
+				"Version":                         {"2015-12-01"},
+				"ListenerArn":                     {listenerArn},
+				"Priority":                        {"10"},
+				"Actions.member.1.Type":           {"forward"},
+				"Actions.member.1.TargetGroupArn": {tgArn},
+			}
+			maps.Copy(vals, tt.conditionVals)
+
+			rec := doELBv2(t, h, vals)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				Result struct {
+					Rules struct {
+						Members []struct {
+							RuleArn    string `xml:"RuleArn"`
+							Conditions struct {
+								Members []struct {
+									Field string `xml:"Field"`
+								} `xml:"member"`
+							} `xml:"Conditions"`
+						} `xml:"member"`
+					} `xml:"Rules"`
+				} `xml:"CreateRuleResult"`
+			}
+			parseXMLBody(t, rec, &resp)
+			require.Len(t, resp.Result.Rules.Members, 1)
+			require.Len(t, resp.Result.Rules.Members[0].Conditions.Members, 1)
+			assert.Equal(t, tt.wantField, resp.Result.Rules.Members[0].Conditions.Members[0].Field)
+		})
+	}
+}
+
+// TestModifyRuleWithConditions tests that ModifyRule updates conditions.
+func TestModifyRuleWithConditions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "modrule-cond-lb")
+	tgArn := mustCreateTG(t, h, "modrule-cond-tg")
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+	createRec := doELBv2(t, h, url.Values{
+		"Action":                          {"CreateRule"},
+		"Version":                         {"2015-12-01"},
+		"ListenerArn":                     {listenerArn},
+		"Priority":                        {"5"},
+		"Actions.member.1.Type":           {"forward"},
+		"Actions.member.1.TargetGroupArn": {tgArn},
+		"Conditions.member.1.Field":       {"host-header"},
+		"Conditions.member.1.HostHeaderConfig.Values.member.1": {"old.example.com"},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp struct {
+		Result struct {
+			Rules struct {
+				Members []struct {
+					RuleArn string `xml:"RuleArn"`
+				} `xml:"member"`
+			} `xml:"Rules"`
+		} `xml:"CreateRuleResult"`
+	}
+	parseXMLBody(t, createRec, &createResp)
+	require.Len(t, createResp.Result.Rules.Members, 1)
+	ruleArn := createResp.Result.Rules.Members[0].RuleArn
+
+	modRec := doELBv2(t, h, url.Values{
+		"Action":                    {"ModifyRule"},
+		"Version":                   {"2015-12-01"},
+		"RuleArn":                   {ruleArn},
+		"Conditions.member.1.Field": {"path-pattern"},
+		"Conditions.member.1.PathPatternConfig.Values.member.1": {"/v2/*"},
+	})
+	require.Equal(t, http.StatusOK, modRec.Code)
+
+	var modResp struct {
+		Result struct {
+			Rules struct {
+				Members []struct {
+					Conditions struct {
+						Members []struct {
+							Field             string `xml:"Field"`
+							PathPatternConfig struct {
+								Values struct {
+									Members []struct {
+										Value string `xml:",chardata"`
+									} `xml:"member"`
+								} `xml:"Values"`
+							} `xml:"PathPatternConfig"`
+						} `xml:"member"`
+					} `xml:"Conditions"`
+				} `xml:"member"`
+			} `xml:"Rules"`
+		} `xml:"ModifyRuleResult"`
+	}
+	parseXMLBody(t, modRec, &modResp)
+	require.Len(t, modResp.Result.Rules.Members, 1)
+	require.Len(t, modResp.Result.Rules.Members[0].Conditions.Members, 1)
+	assert.Equal(t, "path-pattern", modResp.Result.Rules.Members[0].Conditions.Members[0].Field)
+	require.Len(t, modResp.Result.Rules.Members[0].Conditions.Members[0].PathPatternConfig.Values.Members, 1)
+	assert.Equal(
+		t,
+		"/v2/*",
+		modResp.Result.Rules.Members[0].Conditions.Members[0].PathPatternConfig.Values.Members[0].Value,
+	)
 }
