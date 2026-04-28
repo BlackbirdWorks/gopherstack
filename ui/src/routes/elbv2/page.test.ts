@@ -88,7 +88,12 @@ describe("ELBv2 Page", () => {
   it("displays listeners with rules and certs when one is selected", async () => {
     const listenerArn = "arn:aws:elasticloadbalancing:us-east-1:123:listener/app/my-alb/abc/80";
     mockSend
+      // onMount parallel loads
       .mockResolvedValueOnce({ LoadBalancers: [] })
+      .mockResolvedValueOnce({ TargetGroups: [] })
+      .mockResolvedValueOnce({ Listeners: [] })
+      .mockResolvedValueOnce({ TrustStores: [] })
+      // tab click "Listeners & Rules"
       .mockResolvedValueOnce({
         Listeners: [
           {
@@ -99,6 +104,7 @@ describe("ELBv2 Page", () => {
           },
         ],
       })
+      // select listener: rules + certs in parallel
       .mockResolvedValueOnce({
         Rules: [
           {
@@ -140,12 +146,18 @@ describe("ELBv2 Page", () => {
 
   it("shows trust store revocations when one is selected", async () => {
     mockSend
+      // onMount parallel loads
       .mockResolvedValueOnce({ LoadBalancers: [] })
+      .mockResolvedValueOnce({ TargetGroups: [] })
+      .mockResolvedValueOnce({ Listeners: [] })
+      .mockResolvedValueOnce({ TrustStores: [] })
+      // tab click "Trust Stores"
       .mockResolvedValueOnce({
         TrustStores: [
           { TrustStoreArn: "arn:ts:1", Name: "my-ts", Status: "ACTIVE", TotalRevokedEntries: 2 },
         ],
       })
+      // select trust store revocations
       .mockResolvedValueOnce({
         TrustStoreRevocations: [{ RevocationId: "rev-001", RevocationType: "CRL" }],
       });
@@ -163,7 +175,12 @@ describe("ELBv2 Page", () => {
   it("opens rule editor when Add Rule is clicked", async () => {
     const listenerArn = "arn:aws:elasticloadbalancing:us-east-1:123:listener/app/my-alb/abc/80";
     mockSend
+      // onMount parallel loads
       .mockResolvedValueOnce({ LoadBalancers: [] })
+      .mockResolvedValueOnce({ TargetGroups: [] })
+      .mockResolvedValueOnce({ Listeners: [] })
+      .mockResolvedValueOnce({ TrustStores: [] })
+      // tab click "Listeners & Rules"
       .mockResolvedValueOnce({
         Listeners: [
           {
@@ -174,6 +191,7 @@ describe("ELBv2 Page", () => {
           },
         ],
       })
+      // select listener: rules + certs in parallel
       .mockResolvedValueOnce({ Rules: [] })
       .mockResolvedValueOnce({ Certificates: [] });
 
@@ -190,10 +208,16 @@ describe("ELBv2 Page", () => {
   it("opens add certificate modal", async () => {
     const listenerArn = "arn:aws:elasticloadbalancing:us-east-1:123:listener/app/my-alb/abc/443";
     mockSend
+      // onMount parallel loads
       .mockResolvedValueOnce({ LoadBalancers: [] })
+      .mockResolvedValueOnce({ TargetGroups: [] })
+      .mockResolvedValueOnce({ Listeners: [] })
+      .mockResolvedValueOnce({ TrustStores: [] })
+      // tab click "Listeners & Rules"
       .mockResolvedValueOnce({
         Listeners: [{ ListenerArn: listenerArn, Protocol: "HTTPS", Port: 443, DefaultActions: [] }],
       })
+      // select listener: rules + certs in parallel
       .mockResolvedValueOnce({ Rules: [] })
       .mockResolvedValueOnce({ Certificates: [] });
 

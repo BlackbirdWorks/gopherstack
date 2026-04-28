@@ -101,8 +101,8 @@ type Condition struct {
 	// Values holds the condition values (used for host-header, path-pattern,
 	// http-request-method, source-ip).
 	Values []string `json:"values,omitempty"`
-	// HttpHeaderName is only set for http-header conditions.
-	HttpHeaderName string `json:"httpHeaderName,omitempty"`
+	// HTTPHeaderName is only set for http-header conditions.
+	HTTPHeaderName string `json:"httpHeaderName,omitempty"`
 	// QueryStringPairs holds key/value pairs for query-string conditions.
 	QueryStringPairs []QueryStringPair `json:"queryStringPairs,omitempty"`
 }

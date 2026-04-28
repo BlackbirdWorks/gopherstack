@@ -1769,8 +1769,10 @@ func parseActions(vals url.Values, prefix string) []Action {
 // query-string, source-ip.
 func parseConditions(vals url.Values, prefix string) []Condition {
 	result := make([]Condition, 0)
+	i := 1
 
-	for i := 1; parseConditionAt(vals, prefix, i, &result); i++ {
+	for parseConditionAt(vals, prefix, i, &result) {
+		i++
 	}
 
 	return result
@@ -1796,7 +1798,7 @@ func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition
 	case "source-ip":
 		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.SourceIpConfig.Values.member", prefix, i))
 	case "http-header":
-		cond.HttpHeaderName = vals.Get(fmt.Sprintf("%s.%d.HttpHeaderConfig.HttpHeaderName", prefix, i))
+		cond.HTTPHeaderName = vals.Get(fmt.Sprintf("%s.%d.HttpHeaderConfig.HttpHeaderName", prefix, i))
 		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HttpHeaderConfig.Values.member", prefix, i))
 	case "query-string":
 		cond.QueryStringPairs = parseQueryStringPairs(vals, prefix, i)
@@ -1810,8 +1812,10 @@ func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition
 // parseQueryStringPairs extracts query-string key/value pairs for the Nth condition.
 func parseQueryStringPairs(vals url.Values, prefix string, condIdx int) []QueryStringPair {
 	pairs := make([]QueryStringPair, 0)
+	j := 1
 
-	for j := 1; parseQueryStringPairAt(vals, prefix, condIdx, j, &pairs); j++ {
+	for parseQueryStringPairAt(vals, prefix, condIdx, j, &pairs) {
+		j++
 	}
 
 	return pairs
@@ -1894,6 +1898,45 @@ func toXMLListener(l *Listener) xmlListener {
 	}
 }
 
+// toStringValuesConfig converts a slice of strings into an xmlConditionValuesConfig pointer.
+func toStringValuesConfig(values []string) *xmlConditionValuesConfig {
+	members := make([]xmlStringValue, 0, len(values))
+	for _, v := range values {
+		members = append(members, xmlStringValue{Value: v})
+	}
+
+	return &xmlConditionValuesConfig{Values: xmlStringList{Members: members}}
+}
+
+// buildXMLCondition converts a single backend Condition into its XML representation.
+func buildXMLCondition(c Condition) xmlCondition {
+	xc := xmlCondition{Field: c.Field}
+
+	switch c.Field {
+	case "host-header":
+		xc.HostHeaderConfig = toStringValuesConfig(c.Values)
+	case "path-pattern":
+		xc.PathPatternConfig = toStringValuesConfig(c.Values)
+	case "http-request-method":
+		xc.HTTPRequestMethodConfig = toStringValuesConfig(c.Values)
+	case "source-ip":
+		xc.SourceIPConfig = toStringValuesConfig(c.Values)
+	case "http-header":
+		xc.HTTPHeaderConfig = &xmlHTTPHeaderConfig{
+			HTTPHeaderName: c.HTTPHeaderName,
+			Values:         toStringValuesConfig(c.Values).Values,
+		}
+	case "query-string":
+		pairs := make([]xmlQueryStringKeyValue, 0, len(c.QueryStringPairs))
+		for _, p := range c.QueryStringPairs {
+			pairs = append(pairs, xmlQueryStringKeyValue(p))
+		}
+		xc.QueryStringConfig = &xmlQueryStringConfig{Values: xmlQueryStringList{Members: pairs}}
+	}
+
+	return xc
+}
+
 func toXMLRule(r *Rule) xmlRule {
 	actions := make([]xmlAction, 0, len(r.Actions))
 	for _, a := range r.Actions {
@@ -1902,51 +1945,7 @@ func toXMLRule(r *Rule) xmlRule {
 
 	conds := make([]xmlCondition, 0, len(r.Conditions))
 	for _, c := range r.Conditions {
-		xc := xmlCondition{Field: c.Field}
-
-		switch c.Field {
-		case "host-header":
-			vals := make([]xmlStringValue, 0, len(c.Values))
-			for _, v := range c.Values {
-				vals = append(vals, xmlStringValue{Value: v})
-			}
-			xc.HostHeaderConfig = &xmlConditionValuesConfig{Values: xmlStringList{Members: vals}}
-		case "path-pattern":
-			vals := make([]xmlStringValue, 0, len(c.Values))
-			for _, v := range c.Values {
-				vals = append(vals, xmlStringValue{Value: v})
-			}
-			xc.PathPatternConfig = &xmlConditionValuesConfig{Values: xmlStringList{Members: vals}}
-		case "http-request-method":
-			vals := make([]xmlStringValue, 0, len(c.Values))
-			for _, v := range c.Values {
-				vals = append(vals, xmlStringValue{Value: v})
-			}
-			xc.HttpRequestMethodConfig = &xmlConditionValuesConfig{Values: xmlStringList{Members: vals}}
-		case "source-ip":
-			vals := make([]xmlStringValue, 0, len(c.Values))
-			for _, v := range c.Values {
-				vals = append(vals, xmlStringValue{Value: v})
-			}
-			xc.SourceIpConfig = &xmlConditionValuesConfig{Values: xmlStringList{Members: vals}}
-		case "http-header":
-			vals := make([]xmlStringValue, 0, len(c.Values))
-			for _, v := range c.Values {
-				vals = append(vals, xmlStringValue{Value: v})
-			}
-			xc.HttpHeaderConfig = &xmlHttpHeaderConfig{
-				HttpHeaderName: c.HttpHeaderName,
-				Values:         xmlStringList{Members: vals},
-			}
-		case "query-string":
-			pairs := make([]xmlQueryStringKeyValue, 0, len(c.QueryStringPairs))
-			for _, p := range c.QueryStringPairs {
-				pairs = append(pairs, xmlQueryStringKeyValue(p))
-			}
-			xc.QueryStringConfig = &xmlQueryStringConfig{Values: xmlQueryStringList{Members: pairs}}
-		}
-
-		conds = append(conds, xc)
+		conds = append(conds, buildXMLCondition(c))
 	}
 
 	return xmlRule{
@@ -2304,8 +2303,8 @@ type xmlConditionValuesConfig struct {
 	Values xmlStringList `xml:"Values"`
 }
 
-type xmlHttpHeaderConfig struct {
-	HttpHeaderName string        `xml:"HttpHeaderName"`
+type xmlHTTPHeaderConfig struct {
+	HTTPHeaderName string        `xml:"HttpHeaderName"`
 	Values         xmlStringList `xml:"Values"`
 }
 
@@ -2325,10 +2324,10 @@ type xmlQueryStringConfig struct {
 type xmlCondition struct {
 	HostHeaderConfig        *xmlConditionValuesConfig `xml:"HostHeaderConfig,omitempty"`
 	PathPatternConfig       *xmlConditionValuesConfig `xml:"PathPatternConfig,omitempty"`
-	HttpHeaderConfig        *xmlHttpHeaderConfig      `xml:"HttpHeaderConfig,omitempty"`
-	HttpRequestMethodConfig *xmlConditionValuesConfig `xml:"HttpRequestMethodConfig,omitempty"`
+	HTTPHeaderConfig        *xmlHTTPHeaderConfig      `xml:"HttpHeaderConfig,omitempty"`
+	HTTPRequestMethodConfig *xmlConditionValuesConfig `xml:"HttpRequestMethodConfig,omitempty"`
 	QueryStringConfig       *xmlQueryStringConfig     `xml:"QueryStringConfig,omitempty"`
-	SourceIpConfig          *xmlConditionValuesConfig `xml:"SourceIpConfig,omitempty"`
+	SourceIPConfig          *xmlConditionValuesConfig `xml:"SourceIpConfig,omitempty"`
 	Field                   string                    `xml:"Field"`
 }
 
