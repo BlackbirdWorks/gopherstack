@@ -22,6 +22,11 @@
 		DescribeUsersCommand,
 		CreateUserCommand,
 		DeleteUserCommand,
+		DescribeUserGroupsCommand,
+		CreateUserGroupCommand,
+		DeleteUserGroupCommand,
+		DescribeEventsCommand,
+		DescribeReservedCacheNodesCommand,
 		DescribeServerlessCachesCommand,
 		CreateServerlessCacheCommand,
 		DeleteServerlessCacheCommand,
@@ -31,7 +36,10 @@
 		type CacheSubnetGroup,
 		type Snapshot,
 		type User,
-		type ServerlessCache
+		type UserGroup,
+		type ServerlessCache,
+		type ReservedCacheNode,
+		type Event as ElastiCacheEvent
 	} from '@aws-sdk/client-elasticache';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -55,7 +63,10 @@
 		Shield,
 		Zap,
 		Tag,
-		X
+		X,
+		UsersRound,
+		Bell,
+		Bookmark
 	} from 'lucide-svelte';
 
 	const ec = getElastiCacheClient();
@@ -68,7 +79,10 @@
 		| 'subnet-groups'
 		| 'snapshots'
 		| 'users'
+		| 'user-groups'
 		| 'serverless'
+		| 'events'
+		| 'reserved'
 		| 'metrics'
 		| 'docs';
 	let activeTab = $state<TopTab>('clusters');
@@ -130,6 +144,20 @@
 	let newUserNoPassword = $state(true);
 	let creatingUser = $state(false);
 
+	// ─── User Groups ──────────────────────────────────────────────────────────
+	let userGroups = $state<UserGroup[]>([]);
+	let showCreateUGModal = $state(false);
+	let newUGId = $state('');
+	let newUGDesc = $state('');
+	let creatingUG = $state(false);
+
+	// ─── Events ───────────────────────────────────────────────────────────────
+	let events = $state<ElastiCacheEvent[]>([]);
+	let eventSourceType = $state('');
+
+	// ─── Reserved Cache Nodes ─────────────────────────────────────────────────
+	let reservedCacheNodes = $state<ReservedCacheNode[]>([]);
+
 	// ─── Serverless ───────────────────────────────────────────────────────────
 	let serverlessCaches = $state<ServerlessCache[]>([]);
 	let showCreateSLModal = $state(false);
@@ -179,6 +207,26 @@
 	const filteredSL = $derived(
 		serverlessCaches.filter((s) =>
 			(s.ServerlessCacheName ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+		)
+	);
+	const filteredUserGroups = $derived(
+		userGroups.filter((ug) =>
+			(ug.UserGroupId ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+		)
+	);
+	const filteredEvents = $derived(
+		events.filter(
+			(e) =>
+				(eventSourceType === '' || e.SourceType === eventSourceType) &&
+				((e.SourceIdentifier ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+					(e.Message ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
+		)
+	);
+	const filteredReserved = $derived(
+		reservedCacheNodes.filter(
+			(r) =>
+				(r.ReservedCacheNodeId ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+				(r.CacheNodeType ?? '').toLowerCase().includes(searchQuery.toLowerCase())
 		)
 	);
 
@@ -570,8 +618,7 @@
 	}
 
 	// ─── Serverless Cache actions ─────────────────────────────────────────────
-	async function loadServerlessCaches() {
-		loading = true;
+	async function loadServerlessCaches() {		loading = true;
 		try {
 			const res = await ec.send(new DescribeServerlessCachesCommand({}));
 			serverlessCaches = res.ServerlessCaches ?? [];
@@ -621,6 +668,84 @@
 		}
 	}
 
+	// ─── User Group actions ───────────────────────────────────────────────────
+	async function loadUserGroups() {
+		loading = true;
+		try {
+			const res = await ec.send(new DescribeUserGroupsCommand({}));
+			userGroups = res.UserGroups ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load user groups: ${(err as Error).message}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function createUserGroup() {
+		if (!newUGId.trim()) return;
+		creatingUG = true;
+		try {
+			await ec.send(
+				new CreateUserGroupCommand({
+					UserGroupId: newUGId.trim(),
+					Engine: 'Redis'
+				})
+			);
+			toast.success(`User group "${newUGId}" created`);
+			showCreateUGModal = false;
+			newUGId = '';
+			newUGDesc = '';
+			await loadUserGroups();
+		} catch (err: unknown) {
+			toast.error(`Creation failed: ${(err as Error).message}`);
+		} finally {
+			creatingUG = false;
+		}
+	}
+
+	async function deleteUserGroup(id: string) {
+		if (
+			!(await confirmDestructive({
+				title: 'Delete User Group',
+				message: `Delete user group "${id}"?`
+			}))
+		)
+			return;
+		try {
+			await ec.send(new DeleteUserGroupCommand({ UserGroupId: id }));
+			toast.success(`User group "${id}" deleted`);
+			await loadUserGroups();
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	// ─── Events actions ───────────────────────────────────────────────────────
+	async function loadEvents() {
+		loading = true;
+		try {
+			const res = await ec.send(new DescribeEventsCommand({}));
+			events = res.Events ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load events: ${(err as Error).message}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	// ─── Reserved Cache Nodes actions ─────────────────────────────────────────
+	async function loadReservedCacheNodes() {
+		loading = true;
+		try {
+			const res = await ec.send(new DescribeReservedCacheNodesCommand({}));
+			reservedCacheNodes = res.ReservedCacheNodes ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load reserved cache nodes: ${(err as Error).message}`);
+		} finally {
+			loading = false;
+		}
+	}
+
 	// ─── Tab change handler ───────────────────────────────────────────────────
 	async function onTabChange(tab: TopTab) {
 		activeTab = tab;
@@ -631,7 +756,10 @@
 		else if (tab === 'subnet-groups') await loadSubnetGroups();
 		else if (tab === 'snapshots') await loadSnapshots();
 		else if (tab === 'users') await loadUsers();
+		else if (tab === 'user-groups') await loadUserGroups();
 		else if (tab === 'serverless') await loadServerlessCaches();
+		else if (tab === 'events') await loadEvents();
+		else if (tab === 'reserved') await loadReservedCacheNodes();
 		else if (tab === 'metrics') await loadAllMetrics();
 	}
 
@@ -646,7 +774,9 @@
 				loadSubnetGroups(),
 				loadSnapshots(),
 				loadUsers(),
-				loadServerlessCaches()
+				loadUserGroups(),
+				loadServerlessCaches(),
+				loadReservedCacheNodes()
 			]);
 		} finally {
 			loading = false;
@@ -671,7 +801,15 @@
 						CacheClusterId: 'demo-api-cache',
 						Engine: 'memcached',
 						CacheNodeType: 'cache.t3.small',
-						NumCacheNodes: 2
+						NumCacheNodes: 3
+					})
+				),
+				ec.send(
+					new CreateCacheClusterCommand({
+						CacheClusterId: 'demo-rate-limiter',
+						Engine: 'redis',
+						CacheNodeType: 'cache.m5.large',
+						NumCacheNodes: 1
 					})
 				),
 				ec.send(
@@ -681,16 +819,29 @@
 					})
 				),
 				ec.send(
+					new CreateReplicationGroupCommand({
+						ReplicationGroupId: 'demo-readonly-rg',
+						ReplicationGroupDescription: 'Demo read-only replication group'
+					})
+				),
+				ec.send(
 					new CreateCacheParameterGroupCommand({
 						CacheParameterGroupName: 'demo-redis-params',
 						CacheParameterGroupFamily: 'redis7',
-						Description: 'Demo Redis parameter group'
+						Description: 'Demo Redis 7 parameter group'
+					})
+				),
+				ec.send(
+					new CreateCacheParameterGroupCommand({
+						CacheParameterGroupName: 'demo-memcached-params',
+						CacheParameterGroupFamily: 'memcached1.6',
+						Description: 'Demo Memcached 1.6 parameter group'
 					})
 				),
 				ec.send(
 					new CreateCacheSubnetGroupCommand({
 						CacheSubnetGroupName: 'demo-subnet-group',
-						CacheSubnetGroupDescription: 'Demo subnet group',
+						CacheSubnetGroupDescription: 'Demo VPC subnet group',
 						SubnetIds: ['subnet-demo1234']
 					})
 				),
@@ -701,6 +852,21 @@
 						Engine: 'Redis',
 						AccessString: 'on ~* +@all',
 						NoPasswordRequired: true
+					})
+				),
+				ec.send(
+					new CreateUserCommand({
+						UserId: 'demo-readonly',
+						UserName: 'demo-readonly',
+						Engine: 'Redis',
+						AccessString: 'on ~* -@write',
+						NoPasswordRequired: false
+					})
+				),
+				ec.send(
+					new CreateUserGroupCommand({
+						UserGroupId: 'demo-admin-group',
+						Engine: 'Redis'
 					})
 				),
 				ec.send(
@@ -798,8 +964,17 @@
 			<button onclick={() => void onTabChange('users')} class={tabClass('users')}>
 				<Users class="w-4 h-4" /> Users
 			</button>
+			<button onclick={() => void onTabChange('user-groups')} class={tabClass('user-groups')}>
+				<UsersRound class="w-4 h-4" /> User Groups
+			</button>
 			<button onclick={() => void onTabChange('serverless')} class={tabClass('serverless')}>
 				<Shield class="w-4 h-4" /> Serverless
+			</button>
+			<button onclick={() => void onTabChange('events')} class={tabClass('events')}>
+				<Bell class="w-4 h-4" /> Events
+			</button>
+			<button onclick={() => void onTabChange('reserved')} class={tabClass('reserved')}>
+				<Bookmark class="w-4 h-4" /> Reserved
 			</button>
 			<button onclick={() => void onTabChange('metrics')} class={tabClass('metrics')}>
 				<BarChart2 class="w-4 h-4" /> Metrics
@@ -878,6 +1053,27 @@
 						<Plus class="w-4 h-4" />
 						Create User
 					</button>
+				{:else if activeTab === 'user-groups'}
+					<button
+						onclick={() => (showCreateUGModal = true)}
+						class="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-medium text-sm shadow-lg shadow-cyan-600/20 transition-all active:scale-95 whitespace-nowrap"
+					>
+						<Plus class="w-4 h-4" />
+						Create Group
+					</button>
+				{:else if activeTab === 'events'}
+					<select
+						bind:value={eventSourceType}
+						class="px-3 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 outline-none"
+					>
+						<option value="">All Source Types</option>
+						<option value="cache-cluster">cache-cluster</option>
+						<option value="replication-group">replication-group</option>
+						<option value="snapshot">snapshot</option>
+						<option value="cache-parameter-group">cache-parameter-group</option>
+						<option value="user">user</option>
+						<option value="user-group">user-group</option>
+					</select>
 				{:else if activeTab === 'serverless'}
 					<button
 						onclick={() => (showCreateSLModal = true)}
@@ -1086,7 +1282,16 @@
 
 							<!-- Config details -->
 							<div class="space-y-2">
-								{#each [['Node Type', selectedCluster.CacheNodeType], ['Engine', `${selectedCluster.Engine} ${selectedCluster.EngineVersion}`], ['Param Group', selectedCluster.CacheParameterGroup?.CacheParameterGroupName ?? '—'], ['AZ', selectedCluster.PreferredAvailabilityZone ?? '—']] as [label, value]}
+								{#each [
+									['Node Type', selectedCluster.CacheNodeType],
+									['Engine', `${selectedCluster.Engine} ${selectedCluster.EngineVersion}`],
+									['Param Group', selectedCluster.CacheParameterGroup?.CacheParameterGroupName ?? '—'],
+									['AZ', selectedCluster.PreferredAvailabilityZone ?? '—'],
+									['Maintenance', selectedCluster.PreferredMaintenanceWindow ?? '—'],
+									...(selectedCluster.ReplicationGroupId ? [['Replication Group', selectedCluster.ReplicationGroupId]] : []),
+									['Transit Encrypt', selectedCluster.TransitEncryptionEnabled ? 'Yes' : 'No'],
+									['At-Rest Encrypt', selectedCluster.AtRestEncryptionEnabled ? 'Yes' : 'No']
+								] as [label, value]}
 									<div
 										class="flex justify-between items-center text-sm p-2.5 bg-slate-50/50 dark:bg-slate-900/40 rounded-lg"
 									>
@@ -1095,7 +1300,6 @@
 									</div>
 								{/each}
 							</div>
-
 							<!-- ARN -->
 							<div class="p-2.5 bg-slate-50 dark:bg-slate-900/40 rounded-lg">
 								<div class="flex items-center justify-between mb-1">
@@ -1391,6 +1595,10 @@
 								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right"
 								>Actions</th
 							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right"
+								>Created</th
+							>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
@@ -1419,6 +1627,9 @@
 								<td class="px-6 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
 									{snap.SnapshotSource ?? '—'}
 								</td>
+							<td class="px-6 py-4 text-right text-xs text-slate-400 font-mono whitespace-nowrap">
+								{snap.NodeSnapshots?.[0]?.SnapshotCreateTime?.toLocaleDateString() ?? '—'}
+							</td>
 								<td class="px-6 py-4 text-right">
 									<button
 										onclick={() => deleteSnapshot(snap.SnapshotName!)}
@@ -1598,12 +1809,257 @@
 			</div>
 		{/if}
 
+		<!-- ── USER GROUPS TAB ────────────────────────────────────────────── -->
+		{#if activeTab === 'user-groups'}
+			<div class="overflow-x-auto">
+				<table class="w-full text-left border-collapse">
+					<thead>
+						<tr class="bg-slate-50/50 dark:bg-slate-900/20">
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+								>Group ID</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center"
+								>Status</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center"
+								>Engine</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center"
+								>Users</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right"
+								>Actions</th
+							>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+						{#each filteredUserGroups as ug}
+							<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-all">
+								<td class="px-6 py-4">
+									<div class="flex items-center gap-3">
+										<div class="p-2 bg-green-500/10 rounded-lg">
+											<UsersRound class="w-4 h-4 text-green-600 dark:text-green-400" />
+										</div>
+										<div>
+											<div class="font-bold text-slate-900 dark:text-white">{ug.UserGroupId}</div>
+											{#if ug.ARN}
+												<div class="text-[10px] text-slate-400 font-mono">{ug.ARN}</div>
+											{/if}
+										</div>
+									</div>
+								</td>
+								<td class="px-6 py-4 text-center">
+									<span
+										class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium {getStatusBadge(ug.Status)}"
+									>
+										<span class="w-1.5 h-1.5 rounded-full {getStatusColor(ug.Status)}"></span>
+										{ug.Status ?? '—'}
+									</span>
+								</td>
+								<td class="px-6 py-4 text-center">
+									<span
+										class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-red-500/10 text-red-600 dark:text-red-400"
+									>
+										{ug.Engine ?? 'Redis'}
+									</span>
+								</td>
+								<td class="px-6 py-4 text-center text-sm text-slate-600 dark:text-slate-300">
+									{ug.UserIds?.length ?? 0}
+								</td>
+								<td class="px-6 py-4 text-right">
+									<button
+										onclick={() => deleteUserGroup(ug.UserGroupId!)}
+										class="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+										title="Delete"
+									>
+										<Trash2 class="w-4 h-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+						{#if !filteredUserGroups.length}
+							<tr>
+								<td colspan="5" class="px-6 py-16 text-center">
+									<div class="flex flex-col items-center gap-3">
+										<UsersRound class="w-10 h-10 text-slate-300 dark:text-slate-700" />
+										<p class="text-slate-500 dark:text-slate-400">No user groups found</p>
+									</div>
+								</td>
+							</tr>
+						{/if}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+
+		<!-- ── EVENTS TAB ─────────────────────────────────────────────────── -->
+		{#if activeTab === 'events'}
+			<div class="overflow-x-auto">
+				<table class="w-full text-left border-collapse">
+					<thead>
+						<tr class="bg-slate-50/50 dark:bg-slate-900/20">
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+								>Source</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center"
+								>Type</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+								>Message</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right"
+								>Date</th
+							>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+						{#each filteredEvents as ev}
+							<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-all">
+								<td class="px-6 py-4">
+									<div class="flex items-center gap-3">
+										<div class="p-2 bg-cyan-500/10 rounded-lg">
+											<Bell class="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+										</div>
+										<div class="font-bold text-slate-900 dark:text-white text-sm">
+											{ev.SourceIdentifier ?? '—'}
+										</div>
+									</div>
+								</td>
+								<td class="px-6 py-4 text-center">
+									<span
+										class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+									>
+										{ev.SourceType ?? '—'}
+									</span>
+								</td>
+								<td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
+									{ev.Message ?? '—'}
+								</td>
+								<td class="px-6 py-4 text-right text-xs text-slate-400 font-mono whitespace-nowrap">
+									{ev.Date?.toLocaleString() ?? '—'}
+								</td>
+							</tr>
+						{/each}
+						{#if !filteredEvents.length}
+							<tr>
+								<td colspan="4" class="px-6 py-16 text-center">
+									<div class="flex flex-col items-center gap-3">
+										<Bell class="w-10 h-10 text-slate-300 dark:text-slate-700" />
+										<p class="text-slate-500 dark:text-slate-400">No events found</p>
+										<p class="text-xs text-slate-400">Events are recorded on cluster operations</p>
+									</div>
+								</td>
+							</tr>
+						{/if}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+
+		<!-- ── RESERVED CACHE NODES TAB ───────────────────────────────────── -->
+		{#if activeTab === 'reserved'}
+			<div class="overflow-x-auto">
+				<table class="w-full text-left border-collapse">
+					<thead>
+						<tr class="bg-slate-50/50 dark:bg-slate-900/20">
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+								>Reservation ID</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+								>Node Type</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center"
+								>State</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center"
+								>Count</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center"
+								>Offering Type</th
+							>
+							<th
+								class="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right"
+								>Start Time</th
+							>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+						{#each filteredReserved as rcn}
+							<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-all">
+								<td class="px-6 py-4">
+									<div class="flex items-center gap-3">
+										<div class="p-2 bg-amber-500/10 rounded-lg">
+											<Bookmark class="w-4 h-4 text-amber-600 dark:text-amber-400" />
+										</div>
+										<div class="font-bold text-slate-900 dark:text-white text-sm">
+											{rcn.ReservedCacheNodeId ?? '—'}
+										</div>
+									</div>
+								</td>
+								<td class="px-6 py-4 font-mono text-xs text-slate-600 dark:text-slate-300">
+									{rcn.CacheNodeType ?? '—'}
+								</td>
+								<td class="px-6 py-4 text-center">
+									<span
+										class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium {getStatusBadge(rcn.State)}"
+									>
+										<span class="w-1.5 h-1.5 rounded-full {getStatusColor(rcn.State)}"></span>
+										{rcn.State ?? '—'}
+									</span>
+								</td>
+								<td class="px-6 py-4 text-center text-sm font-bold text-slate-700 dark:text-slate-200">
+									{rcn.CacheNodeCount ?? 1}
+								</td>
+								<td class="px-6 py-4 text-center">
+									<span
+										class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+									>
+										{rcn.OfferingType ?? '—'}
+									</span>
+								</td>
+								<td class="px-6 py-4 text-right text-xs text-slate-400 font-mono whitespace-nowrap">
+									{rcn.StartTime?.toLocaleDateString() ?? '—'}
+								</td>
+							</tr>
+						{/each}
+						{#if !filteredReserved.length}
+							<tr>
+								<td colspan="6" class="px-6 py-16 text-center">
+									<div class="flex flex-col items-center gap-3">
+										<Bookmark class="w-10 h-10 text-slate-300 dark:text-slate-700" />
+										<p class="text-slate-500 dark:text-slate-400">No reserved cache nodes</p>
+										<p class="text-xs text-slate-400">
+											Purchase reservations with PurchaseReservedCacheNodesOffering
+										</p>
+									</div>
+								</td>
+							</tr>
+						{/if}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+
 		<!-- ── METRICS TAB ────────────────────────────────────────────────── -->
 		{#if activeTab === 'metrics'}
 			<div class="p-6 space-y-6">
 				<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Resource Overview</h3>
 				<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-					{#each [['Clusters', clusters.length, 'text-cyan-600 dark:text-cyan-400'], ['Replication Groups', replicationGroups.length, 'text-indigo-600 dark:text-indigo-400'], ['Parameter Groups', parameterGroups.length, 'text-purple-600 dark:text-purple-400'], ['Subnet Groups', subnetGroups.length, 'text-teal-600 dark:text-teal-400'], ['Snapshots', snapshots.length, 'text-amber-600 dark:text-amber-400'], ['Users', users.length, 'text-green-600 dark:text-green-400'], ['Serverless Caches', serverlessCaches.length, 'text-violet-600 dark:text-violet-400'], ['Available Clusters', clusters.filter((c) => c.CacheClusterStatus === 'available').length, 'text-emerald-600 dark:text-emerald-400']] as [label, value, color]}
+					{#each [['Clusters', clusters.length, 'text-cyan-600 dark:text-cyan-400'], ['Replication Groups', replicationGroups.length, 'text-indigo-600 dark:text-indigo-400'], ['Parameter Groups', parameterGroups.length, 'text-purple-600 dark:text-purple-400'], ['Subnet Groups', subnetGroups.length, 'text-teal-600 dark:text-teal-400'], ['Snapshots', snapshots.length, 'text-amber-600 dark:text-amber-400'], ['Users', users.length, 'text-green-600 dark:text-green-400'], ['User Groups', userGroups.length, 'text-emerald-600 dark:text-emerald-400'], ['Serverless Caches', serverlessCaches.length, 'text-violet-600 dark:text-violet-400'], ['Reserved Nodes', reservedCacheNodes.length, 'text-orange-600 dark:text-orange-400'], ['Available Clusters', clusters.filter((c) => c.CacheClusterStatus === 'available').length, 'text-cyan-600 dark:text-cyan-400'], ['Active Reservations', reservedCacheNodes.filter((r) => r.State === 'active').length, 'text-emerald-600 dark:text-emerald-400']] as [label, value, color]}
 						<div
 							class="p-5 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm"
 						>
@@ -1636,6 +2092,26 @@
 										class="text-2xl font-bold {engine === 'redis' ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}"
 									>
 										{clusters.filter((c) => c.Engine === engine).length}
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+
+					<div>
+						<h4
+							class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3 uppercase tracking-wider"
+						>
+							Engine Version Distribution
+						</h4>
+						<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+							{#each [...new Set(clusters.map((c) => `${c.Engine ?? ''} ${c.EngineVersion ?? ''}}`.trim()).filter(Boolean))] as evLabel}
+								<div
+									class="p-3 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600"
+								>
+									<div class="text-xs text-slate-500 dark:text-slate-400 font-mono mb-1">{evLabel}</div>
+									<div class="text-xl font-bold text-slate-700 dark:text-slate-200">
+										{clusters.filter((c) => `${c.Engine ?? ''} ${c.EngineVersion ?? ''}}`.trim() === evLabel).length}
 									</div>
 								</div>
 							{/each}
@@ -2367,6 +2843,85 @@
 							class="flex-1 px-4 py-3 bg-cyan-600 text-white rounded-xl font-bold disabled:opacity-50"
 						>
 							{creatingSL ? 'Creating…' : 'Create'}
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create User Group Modal -->
+{#if showCreateUGModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+		<div
+			role="none"
+			onclick={() => (showCreateUGModal = false)}
+			onkeydown={(e) => e.key === 'Escape' && (showCreateUGModal = false)}
+			class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+		></div>
+		<div
+			class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-white/20 dark:border-slate-700"
+		>
+			<div class="p-6">
+				<div class="flex items-center justify-between mb-6">
+					<h3 class="text-xl font-bold text-slate-900 dark:text-white">Create User Group</h3>
+					<button
+						onclick={() => (showCreateUGModal = false)}
+						class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+					>
+						<X class="w-5 h-5" />
+					</button>
+				</div>
+				<form
+					onsubmit={(e) => {
+						e.preventDefault();
+						createUserGroup();
+					}}
+					class="space-y-4"
+				>
+					<div>
+						<label
+							for="ug-id"
+							class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 px-1"
+							>Group ID</label
+						>
+						<input
+							id="ug-id"
+							type="text"
+							bind:value={newUGId}
+							placeholder="e.g. admin-group"
+							class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500 font-mono"
+							required
+						/>
+					</div>
+					<div>
+						<label
+							for="ug-desc"
+							class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 px-1"
+							>Description (optional)</label
+						>
+						<input
+							id="ug-desc"
+							type="text"
+							bind:value={newUGDesc}
+							placeholder="Optional description"
+							class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-cyan-500"
+						/>
+					</div>
+					<div class="flex gap-3 pt-2">
+						<button
+							type="button"
+							onclick={() => (showCreateUGModal = false)}
+							class="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold"
+							>Cancel</button
+						>
+						<button
+							type="submit"
+							disabled={creatingUG}
+							class="flex-1 px-4 py-3 bg-cyan-600 text-white rounded-xl font-bold disabled:opacity-50"
+						>
+							{creatingUG ? 'Creating…' : 'Create'}
 						</button>
 					</div>
 				</form>
