@@ -58,32 +58,33 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateOriginRequestPolicy",
 		"CreateResponseHeadersPolicy",
 		"DeleteCachePolicy",
+		"DeleteCloudFrontOriginAccessIdentity",
 		"DeleteDistribution",
 		"DeleteFunction",
 		"DeleteOriginAccessControl",
-		"DeleteOriginAccessIdentity",
 		"DeleteOriginRequestPolicy",
 		"DeleteResponseHeadersPolicy",
 		"DescribeFunction",
 		"GetCachePolicy",
 		"GetCachePolicyConfig",
+		"GetCloudFrontOriginAccessIdentity",
+		"GetCloudFrontOriginAccessIdentityConfig",
 		"GetDistribution",
 		"GetDistributionConfig",
 		"GetFunction",
 		"GetInvalidation",
 		"GetOriginAccessControl",
 		"GetOriginAccessControlConfig",
-		"GetOriginAccessIdentity",
 		"GetOriginRequestPolicy",
 		"GetOriginRequestPolicyConfig",
 		"GetResponseHeadersPolicy",
 		"GetResponseHeadersPolicyConfig",
 		"ListCachePolicies",
+		"ListCloudFrontOriginAccessIdentities",
 		"ListDistributions",
 		"ListFunctions",
 		"ListInvalidations",
 		"ListOriginAccessControls",
-		"ListOriginAccessIdentities",
 		"ListOriginRequestPolicies",
 		"ListResponseHeadersPolicies",
 		"ListTagsForResource",
@@ -92,6 +93,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TestFunction",
 		"UntagResource",
 		"UpdateCachePolicy",
+		"UpdateCloudFrontOriginAccessIdentity",
 		"UpdateDistribution",
 		"UpdateFunction",
 		"UpdateOriginAccessControl",
@@ -219,14 +221,26 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 	case suffix == "origin-access-identity/cloudfront" && method == http.MethodPost:
 		return "CreateCloudFrontOriginAccessIdentity", ""
 	case suffix == "origin-access-identity/cloudfront" && method == http.MethodGet:
-		return "ListOriginAccessIdentities", ""
-	case strings.HasPrefix(suffix, "origin-access-identity/cloudfront/"):
+		return "ListCloudFrontOriginAccessIdentities", ""
+	case strings.HasPrefix(suffix, "origin-access-identity/cloudfront/") && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimPrefix(suffix, "origin-access-identity/cloudfront/")
+		id = strings.TrimSuffix(id, "/config")
+		if method == http.MethodGet {
+			return "GetCloudFrontOriginAccessIdentityConfig", id
+		}
+		if method == http.MethodPut {
+			return "UpdateCloudFrontOriginAccessIdentity", id
+		}
+	case strings.HasPrefix(suffix, "origin-access-identity/cloudfront/") &&
+		!strings.Contains(strings.TrimPrefix(suffix, "origin-access-identity/cloudfront/"), "/"):
 		id := strings.TrimPrefix(suffix, "origin-access-identity/cloudfront/")
 		switch method {
 		case http.MethodGet:
-			return "GetOriginAccessIdentity", id
+			return "GetCloudFrontOriginAccessIdentity", id
+		case http.MethodPut:
+			return "UpdateCloudFrontOriginAccessIdentity", id
 		case http.MethodDelete:
-			return "DeleteOriginAccessIdentity", id
+			return "DeleteCloudFrontOriginAccessIdentity", id
 		}
 	case suffix == "anycast-ip-list" && method == http.MethodPost:
 		return "CreateAnycastIpList", ""
@@ -561,8 +575,10 @@ func (h *Handler) dispatchGet(c *echo.Context, operation, resource string) error
 		return h.handleGetOriginAccessControl(c, resource)
 	case "GetOriginAccessControlConfig":
 		return h.handleGetOriginAccessControlConfig(c, resource)
-	case "GetOriginAccessIdentity":
+	case "GetCloudFrontOriginAccessIdentity":
 		return h.handleGetOAI(c, resource)
+	case "GetCloudFrontOriginAccessIdentityConfig":
+		return h.handleGetOAIConfig(c, resource)
 	case "GetOriginRequestPolicy":
 		return h.handleGetOriginRequestPolicy(c, resource)
 	case "GetOriginRequestPolicyConfig":
@@ -588,7 +604,7 @@ func (h *Handler) dispatchList(c *echo.Context, operation, resource string) erro
 		return h.handleListInvalidations(c, resource)
 	case "ListOriginAccessControls":
 		return h.handleListOriginAccessControls(c)
-	case "ListOriginAccessIdentities":
+	case "ListCloudFrontOriginAccessIdentities":
 		return h.handleListOAIs(c)
 	case "ListOriginRequestPolicies":
 		return h.handleListOriginRequestPolicies(c)
@@ -611,12 +627,14 @@ func (h *Handler) dispatchUpdateDelete(c *echo.Context, operation, resource stri
 		return h.handleDeleteFunction(c, resource)
 	case "DeleteOriginAccessControl":
 		return h.handleDeleteOriginAccessControl(c, resource)
-	case "DeleteOriginAccessIdentity":
+	case "DeleteCloudFrontOriginAccessIdentity":
 		return h.handleDeleteOAI(c, resource)
 	case "DeleteOriginRequestPolicy":
 		return h.handleDeleteOriginRequestPolicy(c, resource)
 	case "DeleteResponseHeadersPolicy":
 		return h.handleDeleteResponseHeadersPolicy(c, resource)
+	case "UpdateCloudFrontOriginAccessIdentity":
+		return h.handleUpdateOAI(c, resource)
 	case "UpdateCachePolicy":
 		return h.handleUpdateCachePolicy(c, resource)
 	case "UpdateDistribution":
@@ -1034,6 +1052,7 @@ func (h *Handler) handleCreateCachePolicy(c *echo.Context) error {
 		`</CachePolicy>`,
 		cfNS, policy.ID, policy.Name, policy.Comment, policy.DefaultTTL, policy.MaxTTL, policy.MinTTL)
 
+	c.Response().Header().Set("ETag", policy.ETag)
 	c.Response().Header().Set("Location", cfPathPrefix+"cache-policy/"+policy.ID)
 
 	return xmlResp(c, http.StatusCreated, resp)
@@ -1252,6 +1271,76 @@ func (h *Handler) handleDeleteOAI(c *echo.Context, id string) error {
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleGetOAIConfig(c *echo.Context, id string) error {
+	oai, err := h.Backend.GetOAI(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	c.Response().Header().Set("ETag", oai.ETag)
+
+	resp := oaiConfigXML{
+		CallerReference: oai.CallerReference,
+		Comment:         oai.Comment,
+	}
+
+	out, xmlErr := xml.Marshal(resp)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+func (h *Handler) handleUpdateOAI(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetOAI(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current OAI ETag"))
+	}
+
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req oaiConfigXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CloudFrontOriginAccessIdentityConfig XML"))
+		}
+	}
+
+	oai, updateErr := h.Backend.UpdateOAI(id, req.Comment)
+	if updateErr != nil {
+		return h.handleError(c, updateErr)
+	}
+
+	c.Response().Header().Set("ETag", oai.ETag)
+
+	resp := oaiResponseXML{
+		XMLNS:             cfNS,
+		ID:                oai.ID,
+		S3CanonicalUserID: oai.S3CanonicalUserID,
+		Config: oaiConfigXML{
+			CallerReference: oai.CallerReference,
+			Comment:         oai.Comment,
+		},
+	}
+
+	out, xmlErr := xml.Marshal(resp)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
 }
 
 // --- Tagging handlers ---
@@ -1494,6 +1583,8 @@ func (h *Handler) handleGetCachePolicy(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
+	c.Response().Header().Set("ETag", p.ETag)
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<CachePolicy xmlns="%s">`+
 		`<Id>%s</Id>`+
@@ -1515,6 +1606,8 @@ func (h *Handler) handleGetCachePolicyConfig(c *echo.Context, id string) error {
 	if err != nil {
 		return h.handleError(c, err)
 	}
+
+	c.Response().Header().Set("ETag", p.ETag)
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<CachePolicyConfig xmlns="%s">`+
@@ -1563,6 +1656,17 @@ func (h *Handler) handleListCachePolicies(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateCachePolicy(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetCachePolicy(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current cache policy ETag"))
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
@@ -1593,10 +1697,23 @@ func (h *Handler) handleUpdateCachePolicy(c *echo.Context, id string) error {
 		`</CachePolicy>`,
 		cfNS, p.ID, p.Name, p.Comment, p.DefaultTTL, p.MaxTTL, p.MinTTL)
 
+	c.Response().Header().Set("ETag", p.ETag)
+
 	return xmlResp(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteCachePolicy(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetCachePolicy(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current cache policy ETag"))
+	}
+
 	if err := h.Backend.DeleteCachePolicy(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -1705,6 +1822,17 @@ func (h *Handler) handleListOriginAccessControls(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateOriginAccessControl(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetOriginAccessControl(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current OAC ETag"))
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
@@ -1732,6 +1860,17 @@ func (h *Handler) handleUpdateOriginAccessControl(c *echo.Context, id string) er
 }
 
 func (h *Handler) handleDeleteOriginAccessControl(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetOriginAccessControl(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current OAC ETag"))
+	}
+
 	if err := h.Backend.DeleteOriginAccessControl(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -1849,6 +1988,17 @@ func (h *Handler) handleListResponseHeadersPolicies(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateResponseHeadersPolicy(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetResponseHeadersPolicy(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current response headers policy ETag"))
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
@@ -1874,6 +2024,17 @@ func (h *Handler) handleUpdateResponseHeadersPolicy(c *echo.Context, id string) 
 }
 
 func (h *Handler) handleDeleteResponseHeadersPolicy(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetResponseHeadersPolicy(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current response headers policy ETag"))
+	}
+
 	if err := h.Backend.DeleteResponseHeadersPolicy(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -1974,8 +2135,11 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 				`<Comment>%s</Comment>`+
 				`<Runtime>%s</Runtime>`+
 				`</FunctionConfig>`+
+				`<FunctionMetadata>`+
+				`<Stage>%s</Stage>`+
+				`</FunctionMetadata>`+
 				`</FunctionSummary>`,
-			fn.Name, fn.Status, fn.Comment, fn.Runtime)
+			fn.Name, fn.Status, fn.Comment, fn.Runtime, fn.Status)
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -1990,6 +2154,17 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 }
 
 func (h *Handler) handlePublishFunction(c *echo.Context, name string) error {
+	current, getErr := h.Backend.GetFunction(name)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current function ETag"))
+	}
+
 	fn, err := h.Backend.PublishFunction(name)
 	if err != nil {
 		return h.handleError(c, err)
@@ -2001,6 +2176,17 @@ func (h *Handler) handlePublishFunction(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleUpdateFunction(c *echo.Context, name string) error {
+	current, getErr := h.Backend.GetFunction(name)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current function ETag"))
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
@@ -2029,6 +2215,17 @@ func (h *Handler) handleUpdateFunction(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleDeleteFunction(c *echo.Context, name string) error {
+	current, getErr := h.Backend.GetFunction(name)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current function ETag"))
+	}
+
 	if err := h.Backend.DeleteFunction(name); err != nil {
 		return h.handleError(c, err)
 	}
@@ -2066,8 +2263,11 @@ func functionResponseXML(fn *Function) string {
 		`<Comment>%s</Comment>`+
 		`<Runtime>%s</Runtime>`+
 		`</FunctionConfig>`+
+		`<FunctionMetadata>`+
+		`<Stage>%s</Stage>`+
+		`</FunctionMetadata>`+
 		`</FunctionSummary>`,
-		cfNS, fn.Name, fn.Status, fn.Comment, fn.Runtime)
+		cfNS, fn.Name, fn.Status, fn.Comment, fn.Runtime, fn.Status)
 }
 
 // --- Origin Request Policy handlers ---
@@ -2165,6 +2365,17 @@ func (h *Handler) handleListOriginRequestPolicies(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateOriginRequestPolicy(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetOriginRequestPolicy(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current origin request policy ETag"))
+	}
+
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
@@ -2190,6 +2401,17 @@ func (h *Handler) handleUpdateOriginRequestPolicy(c *echo.Context, id string) er
 }
 
 func (h *Handler) handleDeleteOriginRequestPolicy(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetOriginRequestPolicy(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current origin request policy ETag"))
+	}
+
 	if err := h.Backend.DeleteOriginRequestPolicy(id); err != nil {
 		return h.handleError(c, err)
 	}

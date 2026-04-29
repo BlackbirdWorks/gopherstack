@@ -470,6 +470,52 @@ func TestOAICRUD(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), "PreconditionFailed")
 			},
 		},
+		{
+			name:   "get_oai_config",
+			method: http.MethodGet,
+			path:   "", // set in setup
+			body:   nil,
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				oai, err := h.Backend.CreateOAI("oai-ref-006", "config-oai")
+				require.NoError(t, err)
+
+				return "/2020-05-31/origin-access-identity/cloudfront/" + oai.ID + "/config"
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "CloudFrontOriginAccessIdentityConfig")
+				assert.NotEmpty(t, rec.Header().Get("ETag"))
+			},
+		},
+		{
+			name:   "update_oai",
+			method: http.MethodPut,
+			path:   "", // set in setup
+			body:   []byte(`<CloudFrontOriginAccessIdentityConfig><CallerReference>ref-007</CallerReference><Comment>updated-oai</Comment></CloudFrontOriginAccessIdentityConfig>`),
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				oai, err := h.Backend.CreateOAI("oai-ref-007", "orig-oai")
+				require.NoError(t, err)
+
+				return "/2020-05-31/origin-access-identity/cloudfront/" + oai.ID + "/config"
+			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(strings.TrimSuffix(path, "/config"), "/2020-05-31/origin-access-identity/cloudfront/")
+				oai, err := h.Backend.GetOAI(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": oai.ETag}
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "CloudFrontOriginAccessIdentity")
+				assert.NotEmpty(t, rec.Header().Get("ETag"))
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -2003,6 +2049,36 @@ func TestNewOperations_ExtractOperation(t *testing.T) {
 			path:          "/2020-05-31/continuous-deployment-policy",
 			wantOperation: "CreateContinuousDeploymentPolicy",
 		},
+		{
+			name:          "get_cloudfront_oai",
+			method:        http.MethodGet,
+			path:          "/2020-05-31/origin-access-identity/cloudfront/OAIID123",
+			wantOperation: "GetCloudFrontOriginAccessIdentity",
+		},
+		{
+			name:          "get_cloudfront_oai_config",
+			method:        http.MethodGet,
+			path:          "/2020-05-31/origin-access-identity/cloudfront/OAIID123/config",
+			wantOperation: "GetCloudFrontOriginAccessIdentityConfig",
+		},
+		{
+			name:          "list_cloudfront_oais",
+			method:        http.MethodGet,
+			path:          "/2020-05-31/origin-access-identity/cloudfront",
+			wantOperation: "ListCloudFrontOriginAccessIdentities",
+		},
+		{
+			name:          "delete_cloudfront_oai",
+			method:        http.MethodDelete,
+			path:          "/2020-05-31/origin-access-identity/cloudfront/OAIID123",
+			wantOperation: "DeleteCloudFrontOriginAccessIdentity",
+		},
+		{
+			name:          "update_cloudfront_oai",
+			method:        http.MethodPut,
+			path:          "/2020-05-31/origin-access-identity/cloudfront/OAIID123/config",
+			wantOperation: "UpdateCloudFrontOriginAccessIdentity",
+		},
 	}
 
 	for _, tt := range tests {
@@ -2833,6 +2909,13 @@ func TestCachePolicyCRUD(t *testing.T) {
 
 				return "/2020-05-31/cache-policy/" + p.ID
 			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(path, "/2020-05-31/cache-policy/")
+				p, err := h.Backend.GetCachePolicy(id)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": p.ETag}
+			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
@@ -2850,6 +2933,13 @@ func TestCachePolicyCRUD(t *testing.T) {
 				require.NoError(t, err)
 
 				return "/2020-05-31/cache-policy/" + p.ID
+			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(path, "/2020-05-31/cache-policy/")
+				p, err := h.Backend.GetCachePolicy(id)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": p.ETag}
 			},
 			wantStatus: http.StatusNoContent,
 			check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
@@ -2900,6 +2990,130 @@ func TestCachePolicyCRUD(t *testing.T) {
 	}
 }
 
+// TestCachePolicyETagValidation verifies that ETag is returned in responses and that
+// If-Match validation works for cache policy update and delete.
+func TestCachePolicyETagValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *cloudfront.Handler) (string, map[string]string)
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		method     string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name:   "create_returns_etag",
+			method: http.MethodPost,
+			body: []byte(
+				`<CachePolicyConfig>` +
+					`<Name>etag-create-policy</Name><Comment>test</Comment>` +
+					`<DefaultTTL>86400</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>0</MinTTL>` +
+					`</CachePolicyConfig>`),
+			setup: func(t *testing.T, _ *cloudfront.Handler) (string, map[string]string) {
+				t.Helper()
+
+				return "/2020-05-31/cache-policy", nil
+			},
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.NotEmpty(t, rec.Header().Get("ETag"))
+			},
+		},
+		{
+			name:   "get_returns_etag",
+			method: http.MethodGet,
+			body:   nil,
+			setup: func(t *testing.T, h *cloudfront.Handler) (string, map[string]string) {
+				t.Helper()
+				p, err := h.Backend.CreateCachePolicy("etag-get-policy", "comment", 86400, 31536000, 0)
+				require.NoError(t, err)
+
+				return "/2020-05-31/cache-policy/" + p.ID, nil
+			},
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.NotEmpty(t, rec.Header().Get("ETag"))
+			},
+		},
+		{
+			name:   "update_precondition_failed_no_if_match",
+			method: http.MethodPut,
+			body: []byte(
+				`<CachePolicyConfig>` +
+					`<Name>etag-upd-policy</Name><Comment>upd</Comment>` +
+					`<DefaultTTL>3600</DefaultTTL><MaxTTL>86400</MaxTTL><MinTTL>0</MinTTL>` +
+					`</CachePolicyConfig>`),
+			setup: func(t *testing.T, h *cloudfront.Handler) (string, map[string]string) {
+				t.Helper()
+				p, err := h.Backend.CreateCachePolicy("etag-upd-policy", "orig", 86400, 31536000, 0)
+				require.NoError(t, err)
+
+				return "/2020-05-31/cache-policy/" + p.ID, nil
+			},
+			wantStatus: http.StatusPreconditionFailed,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "PreconditionFailed")
+			},
+		},
+		{
+			name:   "update_precondition_failed_wrong_etag",
+			method: http.MethodPut,
+			body: []byte(
+				`<CachePolicyConfig>` +
+					`<Name>etag-upd2-policy</Name><Comment>upd</Comment>` +
+					`<DefaultTTL>3600</DefaultTTL><MaxTTL>86400</MaxTTL><MinTTL>0</MinTTL>` +
+					`</CachePolicyConfig>`),
+			setup: func(t *testing.T, h *cloudfront.Handler) (string, map[string]string) {
+				t.Helper()
+				p, err := h.Backend.CreateCachePolicy("etag-upd2-policy", "orig", 86400, 31536000, 0)
+				require.NoError(t, err)
+
+				return "/2020-05-31/cache-policy/" + p.ID, map[string]string{"If-Match": "wrong-etag"}
+			},
+			wantStatus: http.StatusPreconditionFailed,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "PreconditionFailed")
+			},
+		},
+		{
+			name:   "delete_precondition_failed_no_if_match",
+			method: http.MethodDelete,
+			body:   nil,
+			setup: func(t *testing.T, h *cloudfront.Handler) (string, map[string]string) {
+				t.Helper()
+				p, err := h.Backend.CreateCachePolicy("etag-del-policy", "orig", 86400, 31536000, 0)
+				require.NoError(t, err)
+
+				return "/2020-05-31/cache-policy/" + p.ID, nil
+			},
+			wantStatus: http.StatusPreconditionFailed,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "PreconditionFailed")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			path, hdrs := tt.setup(t, h)
+
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
 // TestOriginAccessControlCRUD covers OAC create, get, list, update and delete.
 func TestOriginAccessControlCRUD(t *testing.T) {
 	t.Parallel()
@@ -2907,6 +3121,7 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 	tests := []struct {
 		setup      func(*testing.T, *cloudfront.Handler) string
 		check      func(*testing.T, *httptest.ResponseRecorder, string)
+		headers    func(*testing.T, *cloudfront.Handler, string) map[string]string
 		name       string
 		method     string
 		path       string
@@ -3026,6 +3241,13 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 
 				return "/2020-05-31/origin-access-control/" + oac.ID + "/config"
 			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(strings.TrimSuffix(path, "/config"), "/2020-05-31/origin-access-control/")
+				oac, err := h.Backend.GetOriginAccessControl(id)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": oac.ETag}
+			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
@@ -3043,6 +3265,13 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 				require.NoError(t, err)
 
 				return "/2020-05-31/origin-access-control/" + oac.ID
+			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(path, "/2020-05-31/origin-access-control/")
+				oac, err := h.Backend.GetOriginAccessControl(id)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": oac.ETag}
 			},
 			wantStatus: http.StatusNoContent,
 			check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
@@ -3078,7 +3307,12 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headers != nil {
+				hdrs = tt.headers(t, h, path)
+			}
+
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.check != nil {
@@ -3095,6 +3329,7 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 	tests := []struct {
 		setup      func(*testing.T, *cloudfront.Handler) string
 		check      func(*testing.T, *httptest.ResponseRecorder, string)
+		headers    func(*testing.T, *cloudfront.Handler, string) map[string]string
 		name       string
 		method     string
 		path       string
@@ -3208,6 +3443,13 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 
 				return "/2020-05-31/response-headers-policy/" + p.ID + "/config"
 			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(strings.TrimSuffix(path, "/config"), "/2020-05-31/response-headers-policy/")
+				p, err := h.Backend.GetResponseHeadersPolicy(id)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": p.ETag}
+			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
@@ -3225,6 +3467,13 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 				require.NoError(t, err)
 
 				return "/2020-05-31/response-headers-policy/" + p.ID
+			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(path, "/2020-05-31/response-headers-policy/")
+				p, err := h.Backend.GetResponseHeadersPolicy(id)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": p.ETag}
 			},
 			wantStatus: http.StatusNoContent,
 			check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
@@ -3244,7 +3493,12 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headers != nil {
+				hdrs = tt.headers(t, h, path)
+			}
+
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.check != nil {
@@ -3261,6 +3515,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 	tests := []struct {
 		setup      func(*testing.T, *cloudfront.Handler) string
 		check      func(*testing.T, *httptest.ResponseRecorder, string)
+		headers    func(*testing.T, *cloudfront.Handler, string) map[string]string
 		name       string
 		method     string
 		path       string
@@ -3375,6 +3630,13 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 
 				return "/2020-05-31/function/pub-fn/publish"
 			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				name := strings.TrimPrefix(strings.TrimSuffix(path, "/publish"), "/2020-05-31/function/")
+				fn, err := h.Backend.GetFunction(name)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": fn.ETag}
+			},
 			wantStatus: http.StatusCreated,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
@@ -3397,6 +3659,13 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 
 				return "/2020-05-31/function/upd-fn"
 			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				name := strings.TrimPrefix(path, "/2020-05-31/function/")
+				fn, err := h.Backend.GetFunction(name)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": fn.ETag}
+			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
@@ -3414,6 +3683,13 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/del-fn"
+			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				name := strings.TrimPrefix(path, "/2020-05-31/function/")
+				fn, err := h.Backend.GetFunction(name)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": fn.ETag}
 			},
 			wantStatus: http.StatusNoContent,
 			check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
@@ -3452,7 +3728,12 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headers != nil {
+				hdrs = tt.headers(t, h, path)
+			}
+
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.check != nil {
@@ -3469,6 +3750,7 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 	tests := []struct {
 		setup      func(*testing.T, *cloudfront.Handler) string
 		check      func(*testing.T, *httptest.ResponseRecorder, string)
+		headers    func(*testing.T, *cloudfront.Handler, string) map[string]string
 		name       string
 		method     string
 		path       string
@@ -3582,6 +3864,13 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 
 				return "/2020-05-31/origin-request-policy/" + p.ID + "/config"
 			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(strings.TrimSuffix(path, "/config"), "/2020-05-31/origin-request-policy/")
+				p, err := h.Backend.GetOriginRequestPolicy(id)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": p.ETag}
+			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
@@ -3599,6 +3888,13 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 				require.NoError(t, err)
 
 				return "/2020-05-31/origin-request-policy/" + p.ID
+			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(path, "/2020-05-31/origin-request-policy/")
+				p, err := h.Backend.GetOriginRequestPolicy(id)
+				require.NoError(t, err)
+				return map[string]string{"If-Match": p.ETag}
 			},
 			wantStatus: http.StatusNoContent,
 			check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
@@ -3618,7 +3914,12 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headers != nil {
+				hdrs = tt.headers(t, h, path)
+			}
+
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.check != nil {
