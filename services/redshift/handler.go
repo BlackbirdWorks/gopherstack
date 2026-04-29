@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,6 +20,7 @@ import (
 const (
 	redshiftVersion = "2012-12-01"
 	redshiftXMLNS   = "http://redshift.amazonaws.com/doc/2012-12-01/"
+	paramValueTrue  = "true"
 )
 
 // Handler is the Echo HTTP handler for Redshift operations.
@@ -45,6 +47,16 @@ func (h *Handler) Name() string { return "Redshift" }
 
 // GetSupportedOperations returns supported Redshift operations.
 func (h *Handler) GetSupportedOperations() []string {
+	g1 := supportedOpsGroup1()
+	g2 := supportedOpsGroup2()
+	ops := make([]string, 0, len(g1)+len(g2))
+	ops = append(ops, g1...)
+	ops = append(ops, g2...)
+
+	return ops
+}
+
+func supportedOpsGroup1() []string {
 	return []string{
 		"AcceptReservedNodeExchange",
 		"AddPartner",
@@ -56,13 +68,105 @@ func (h *Handler) GetSupportedOperations() []string {
 		"BatchDeleteClusterSnapshots",
 		"BatchModifyClusterSnapshots",
 		"CancelResize",
+		"CopyClusterSnapshot",
+		"CreateAuthenticationProfile",
 		"CreateCluster",
+		"CreateClusterParameterGroup",
+		"CreateClusterSecurityGroup",
+		"CreateClusterSnapshot",
+		"CreateClusterSubnetGroup",
+		"CreateEventSubscription",
+		"CreateSnapshotCopyGrant",
+		"CreateSnapshotSchedule",
 		"CreateTags",
+		"CreateUsageLimit",
+		"DeauthorizeDataShare",
+		"DeleteAuthenticationProfile",
 		"DeleteCluster",
+		"DeleteClusterParameterGroup",
+		"DeleteClusterSecurityGroup",
+		"DeleteClusterSnapshot",
+		"DeleteClusterSubnetGroup",
+		"DeleteEventSubscription",
+		"DeletePartner",
+		"DeleteResourcePolicy",
+		"DeleteSnapshotCopyGrant",
+		"DeleteSnapshotSchedule",
 		"DeleteTags",
+		"DeleteUsageLimit",
+		"DescribeAccountAttributes",
+		"DescribeAuthenticationProfiles",
+		"DescribeClusterParameterGroups",
+		"DescribeClusterParameters",
+		"DescribeClusterSecurityGroups",
+		"DescribeClusterSnapshots",
+		"DescribeClusterSubnetGroups",
+		"DescribeClusterTracks",
+		"DescribeClusterVersions",
 		"DescribeClusters",
+		"DescribeDataShares",
+		"DescribeDataSharesForConsumer",
+		"DescribeDataSharesForProducer",
+		"DescribeDefaultClusterParameters",
+		"DescribeEndpointAuthorization",
+		"DescribeEventCategories",
+		"DescribeEventSubscriptions",
+		"DescribeEvents",
 		"DescribeLoggingStatus",
+	}
+}
+
+func supportedOpsGroup2() []string {
+	return []string{
+		"DescribeOrderableClusterOptions",
+		"DescribePartners",
+		"DescribeReservedNodeExchangeStatus",
+		"DescribeReservedNodeOfferings",
+		"DescribeReservedNodes",
+		"DescribeResize",
+		"DescribeSnapshotCopyGrants",
+		"DescribeSnapshotSchedules",
+		"DescribeStorage",
+		"DescribeTableRestoreStatus",
 		"DescribeTags",
+		"DescribeUsageLimits",
+		"DisableLogging",
+		"DisableSnapshotCopy",
+		"DisassociateDataShareConsumer",
+		"EnableLogging",
+		"EnableSnapshotCopy",
+		"FailoverPrimaryCompute",
+		"GetClusterCredentials",
+		"GetClusterCredentialsWithIAM",
+		"GetReservedNodeExchangeConfigurationOptions",
+		"GetReservedNodeExchangeOfferings",
+		"GetResourcePolicy",
+		"ModifyAuthenticationProfile",
+		"ModifyCluster",
+		"ModifyClusterIamRoles",
+		"ModifyClusterMaintenance",
+		"ModifyClusterParameterGroup",
+		"ModifyClusterSnapshot",
+		"ModifyClusterSnapshotSchedule",
+		"ModifyClusterSubnetGroup",
+		"ModifyEventSubscription",
+		"ModifySnapshotCopyRetentionPeriod",
+		"ModifySnapshotSchedule",
+		"ModifyUsageLimit",
+		"PauseCluster",
+		"PurchaseReservedNodeOffering",
+		"PutResourcePolicy",
+		"RebootCluster",
+		"RejectDataShare",
+		"ResetClusterParameterGroup",
+		"ResizeCluster",
+		"RestoreFromClusterSnapshot",
+		"ResumeCluster",
+		"RevokeClusterSecurityGroupIngress",
+		"RevokeEndpointAccess",
+		"RevokeSnapshotAccess",
+		"RotateEncryptionKey",
+		"UpdatePartnerStatus",
 	}
 }
 
@@ -150,6 +254,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 type redshiftActionFn func(vals url.Values) (any, error)
 
 func (h *Handler) buildOps() map[string]redshiftActionFn {
+	ops := h.buildOpsGroup1()
+	maps.Copy(ops, h.buildOpsGroup2())
+
+	return ops
+}
+
+func (h *Handler) buildOpsGroup1() map[string]redshiftActionFn {
 	return map[string]redshiftActionFn{
 		"AcceptReservedNodeExchange":           h.handleAcceptReservedNodeExchange,
 		"AddPartner":                           h.handleAddPartner,
@@ -161,13 +272,109 @@ func (h *Handler) buildOps() map[string]redshiftActionFn {
 		"BatchDeleteClusterSnapshots":          h.handleBatchDeleteClusterSnapshots,
 		"BatchModifyClusterSnapshots":          h.handleBatchModifyClusterSnapshots,
 		"CancelResize":                         h.handleCancelResize,
+		"CopyClusterSnapshot":                  h.handleCopyClusterSnapshot,
+		"CreateAuthenticationProfile":          h.handleCreateAuthenticationProfile,
 		"CreateCluster":                        h.handleCreateCluster,
+		"CreateClusterParameterGroup":          h.handleCreateClusterParameterGroup,
+		"CreateClusterSecurityGroup":           h.handleCreateClusterSecurityGroup,
+		"CreateClusterSnapshot":                h.handleCreateClusterSnapshot,
+		"CreateClusterSubnetGroup":             h.handleCreateClusterSubnetGroup,
+		"CreateEventSubscription":              h.handleCreateEventSubscription,
+		"CreateSnapshotCopyGrant":              h.handleCreateSnapshotCopyGrant,
+		"CreateSnapshotSchedule":               h.handleCreateSnapshotSchedule,
 		"CreateTags":                           h.handleCreateTags,
+		"CreateUsageLimit":                     h.handleCreateUsageLimit,
+		"DeauthorizeDataShare":                 h.handleDeauthorizeDataShare,
+		"DeleteAuthenticationProfile":          h.handleDeleteAuthenticationProfile,
 		"DeleteCluster":                        h.handleDeleteCluster,
+		"DeleteClusterParameterGroup":          h.handleDeleteClusterParameterGroup,
+		"DeleteClusterSecurityGroup":           h.handleDeleteClusterSecurityGroup,
+		"DeleteClusterSnapshot":                h.handleDeleteClusterSnapshot,
+		"DeleteClusterSubnetGroup":             h.handleDeleteClusterSubnetGroup,
+		"DeleteEventSubscription":              h.handleDeleteEventSubscription,
+		"DeletePartner":                        h.handleDeletePartner,
+		"DeleteResourcePolicy":                 h.handleDeleteResourcePolicy,
+		"DeleteSnapshotCopyGrant":              h.handleDeleteSnapshotCopyGrant,
+		"DeleteSnapshotSchedule":               h.handleDeleteSnapshotSchedule,
 		"DeleteTags":                           h.handleDeleteTags,
+		"DeleteUsageLimit":                     h.handleDeleteUsageLimit,
+		"DescribeAccountAttributes":            h.handleDescribeAccountAttributes,
+		"DescribeAuthenticationProfiles":       h.handleDescribeAuthenticationProfiles,
+		"DescribeClusterParameterGroups":       h.handleDescribeClusterParameterGroups,
+		"DescribeClusterParameters":            h.handleDescribeClusterParameters,
+		"DescribeClusterSecurityGroups":        h.handleDescribeClusterSecurityGroups,
+		"DescribeClusterSnapshots":             h.handleDescribeClusterSnapshots,
+		"DescribeClusterSubnetGroups":          h.handleDescribeClusterSubnetGroups,
+		"DescribeClusterTracks":                h.handleDescribeClusterTracks,
+		"DescribeClusterVersions":              h.handleDescribeClusterVersions,
 		"DescribeClusters":                     h.handleDescribeClusters,
-		"DescribeLoggingStatus":                func(_ url.Values) (any, error) { return h.loggingStatusResponse(), nil },
-		"DescribeTags":                         func(_ url.Values) (any, error) { return h.describeTagsResponse(), nil },
+		"DescribeDataShares":                   h.handleDescribeDataShares,
+		"DescribeDataSharesForConsumer":        h.handleDescribeDataSharesForConsumer,
+		"DescribeDataSharesForProducer":        h.handleDescribeDataSharesForProducer,
+		"DescribeDefaultClusterParameters":     h.handleDescribeDefaultClusterParameters,
+		"DescribeEndpointAuthorization":        h.handleDescribeEndpointAuthorization,
+		"DescribeEventCategories":              h.handleDescribeEventCategories,
+		"DescribeEventSubscriptions":           h.handleDescribeEventSubscriptions,
+	}
+}
+
+func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
+	return map[string]redshiftActionFn{
+		"DescribeEvents": h.handleDescribeEvents,
+		"DescribeLoggingStatus": func(_ url.Values) (any, error) {
+			return h.loggingStatusResponse(), nil
+		},
+		"DescribeOrderableClusterOptions":    h.handleDescribeOrderableClusterOptions,
+		"DescribePartners":                   h.handleDescribePartners,
+		"DescribeReservedNodeExchangeStatus": h.handleDescribeReservedNodeExchangeStatus,
+		"DescribeReservedNodeOfferings":      h.handleDescribeReservedNodeOfferings,
+		"DescribeReservedNodes":              h.handleDescribeReservedNodes,
+		"DescribeResize":                     h.handleDescribeResize,
+		"DescribeSnapshotCopyGrants":         h.handleDescribeSnapshotCopyGrants,
+		"DescribeSnapshotSchedules":          h.handleDescribeSnapshotSchedules,
+		"DescribeStorage":                    h.handleDescribeStorage,
+		"DescribeTableRestoreStatus":         h.handleDescribeTableRestoreStatus,
+		"DescribeTags": func(_ url.Values) (any, error) {
+			return h.describeTagsResponse(), nil
+		},
+		"DescribeUsageLimits":                         h.handleDescribeUsageLimits,
+		"DisableLogging":                              h.handleDisableLogging,
+		"DisableSnapshotCopy":                         h.handleDisableSnapshotCopy,
+		"DisassociateDataShareConsumer":               h.handleDisassociateDataShareConsumer,
+		"EnableLogging":                               h.handleEnableLogging,
+		"EnableSnapshotCopy":                          h.handleEnableSnapshotCopy,
+		"FailoverPrimaryCompute":                      h.handleFailoverPrimaryCompute,
+		"GetClusterCredentials":                       h.handleGetClusterCredentials,
+		"GetClusterCredentialsWithIAM":                h.handleGetClusterCredentialsWithIAM,
+		"GetResourcePolicy":                           h.handleGetResourcePolicy,
+		"GetReservedNodeExchangeConfigurationOptions": h.handleGetReservedNodeExchangeConfigurationOptions,
+		"GetReservedNodeExchangeOfferings":            h.handleGetReservedNodeExchangeOfferings,
+		"ModifyAuthenticationProfile":                 h.handleModifyAuthenticationProfile,
+		"ModifyCluster":                               h.handleModifyCluster,
+		"ModifyClusterIamRoles":                       h.handleModifyClusterIamRoles,
+		"ModifyClusterMaintenance":                    h.handleModifyClusterMaintenance,
+		"ModifyClusterParameterGroup":                 h.handleModifyClusterParameterGroup,
+		"ModifyClusterSnapshot":                       h.handleModifyClusterSnapshot,
+		"ModifyClusterSnapshotSchedule":               h.handleModifyClusterSnapshotSchedule,
+		"ModifyClusterSubnetGroup":                    h.handleModifyClusterSubnetGroup,
+		"ModifyEventSubscription":                     h.handleModifyEventSubscription,
+		"ModifySnapshotCopyRetentionPeriod":           h.handleModifySnapshotCopyRetentionPeriod,
+		"ModifySnapshotSchedule":                      h.handleModifySnapshotSchedule,
+		"ModifyUsageLimit":                            h.handleModifyUsageLimit,
+		"PauseCluster":                                h.handlePauseCluster,
+		"PurchaseReservedNodeOffering":                h.handlePurchaseReservedNodeOffering,
+		"PutResourcePolicy":                           h.handlePutResourcePolicy,
+		"RebootCluster":                               h.handleRebootCluster,
+		"RejectDataShare":                             h.handleRejectDataShare,
+		"ResetClusterParameterGroup":                  h.handleResetClusterParameterGroup,
+		"ResizeCluster":                               h.handleResizeCluster,
+		"RestoreFromClusterSnapshot":                  h.handleRestoreFromClusterSnapshot,
+		"ResumeCluster":                               h.handleResumeCluster,
+		"RevokeClusterSecurityGroupIngress":           h.handleRevokeClusterSecurityGroupIngress,
+		"RevokeEndpointAccess":                        h.handleRevokeEndpointAccess,
+		"RevokeSnapshotAccess":                        h.handleRevokeSnapshotAccess,
+		"RotateEncryptionKey":                         h.handleRotateEncryptionKey,
+		"UpdatePartnerStatus":                         h.handleUpdatePartnerStatus,
 	}
 }
 
@@ -268,39 +475,61 @@ func toXMLCluster(c *Cluster) xmlCluster {
 	}
 }
 
+// resolveErrCode returns the AWS error code and HTTP status for an operation error.
+func resolveErrCode(opErr error) (string, int) {
+	type errEntry struct {
+		sentinel error
+		code     string
+	}
+
+	table := []errEntry{
+		{ErrClusterNotFound, "ClusterNotFound"},
+		{ErrClusterAlreadyExists, "ClusterAlreadyExists"},
+		{ErrInvalidParameter, "InvalidParameterValue"},
+		{ErrReservedNodeNotFound, "ReservedNodeNotFound"},
+		{ErrReservedNodeAlreadyExists, "ReservedNodeAlreadyExists"},
+		{ErrReservedNodeOfferingNotFound, "ReservedNodeOfferingNotFound"},
+		{ErrPartnerNotFound, "PartnerNotFound"},
+		{ErrDataShareNotFound, "DataShareNotFound"},
+		{ErrSecurityGroupNotFound, "ClusterSecurityGroupNotFound"},
+		{ErrSecurityGroupAlreadyExists, "ClusterSecurityGroupAlreadyExists"},
+		{ErrSnapshotNotFound, "ClusterSnapshotNotFound"},
+		{ErrSnapshotAlreadyExists, "ClusterSnapshotAlreadyExists"},
+		{ErrEndpointAuthNotFound, "EndpointAuthorizationNotFound"},
+		{ErrEndpointAuthAlreadyExists, "EndpointAuthorizationAlreadyExists"},
+		{ErrResizeNotFound, "ResizeNotFound"},
+		{ErrResizeNotCancellable, "InvalidClusterState"},
+		{ErrParameterGroupNotFound, "ClusterParameterGroupNotFound"},
+		{ErrParameterGroupAlreadyExists, "ClusterParameterGroupAlreadyExists"},
+		{ErrSubnetGroupNotFound, "ClusterSubnetGroupNotFound"},
+		{ErrSubnetGroupAlreadyExists, "ClusterSubnetGroupAlreadyExists"},
+		{ErrEventSubscriptionNotFound, "SubscriptionNotFound"},
+		{ErrEventSubscriptionAlreadyExists, "SubscriptionAlreadyExist"},
+		{ErrSnapshotCopyGrantNotFound, "SnapshotCopyGrantNotFound"},
+		{ErrSnapshotCopyGrantAlreadyExists, "SnapshotCopyGrantAlreadyExists"},
+		{ErrSnapshotScheduleNotFound, "SnapshotScheduleNotFound"},
+		{ErrSnapshotScheduleAlreadyExists, "SnapshotScheduleAlreadyExists"},
+		{ErrUsageLimitNotFound, "UsageLimitNotFound"},
+		{ErrAuthProfileNotFound, "AuthenticationProfileNotFound"},
+		{ErrAuthProfileAlreadyExists, "AuthenticationProfileAlreadyExists"},
+		{ErrResourcePolicyNotFound, "ResourcePolicyNotFound"},
+		{ErrSnapshotCopyAlreadyEnabled, "SnapshotCopyAlreadyEnabled"},
+		{ErrSnapshotCopyNotEnabled, "CopyToRegionDisabled"},
+	}
+
+	for _, entry := range table {
+		if errors.Is(opErr, entry.sentinel) {
+			return entry.code, http.StatusBadRequest
+		}
+	}
+
+	return "InternalFailure", http.StatusInternalServerError
+}
+
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
-	statusCode := http.StatusBadRequest
-	var code string
-	switch {
-	case errors.Is(opErr, ErrClusterNotFound):
-		code = "ClusterNotFound"
-	case errors.Is(opErr, ErrClusterAlreadyExists):
-		code = "ClusterAlreadyExists"
-	case errors.Is(opErr, ErrInvalidParameter):
-		code = "InvalidParameterValue"
-	case errors.Is(opErr, ErrReservedNodeNotFound):
-		code = "ReservedNodeNotFound"
-	case errors.Is(opErr, ErrReservedNodeAlreadyExists):
-		code = "ReservedNodeAlreadyExists"
-	case errors.Is(opErr, ErrPartnerNotFound):
-		code = "PartnerNotFound"
-	case errors.Is(opErr, ErrDataShareNotFound):
-		code = "DataShareNotFound"
-	case errors.Is(opErr, ErrSecurityGroupNotFound):
-		code = "ClusterSecurityGroupNotFound"
-	case errors.Is(opErr, ErrSnapshotNotFound):
-		code = "ClusterSnapshotNotFound"
-	case errors.Is(opErr, ErrEndpointAuthNotFound):
-		code = "EndpointAuthorizationNotFound"
-	case errors.Is(opErr, ErrEndpointAuthAlreadyExists):
-		code = "EndpointAuthorizationAlreadyExists"
-	case errors.Is(opErr, ErrResizeNotFound):
-		code = "ResizeNotFound"
-	case errors.Is(opErr, ErrResizeNotCancellable):
-		code = "InvalidClusterState"
-	default:
-		code = "InternalFailure"
-		statusCode = http.StatusInternalServerError
+	code, statusCode := resolveErrCode(opErr)
+
+	if statusCode == http.StatusInternalServerError {
 		logger.Load(c.Request().Context()).Error("Redshift internal error", "error", opErr, "action", action)
 	}
 
@@ -694,7 +923,7 @@ func (h *Handler) handleAssociateDataShareConsumer(vals url.Values) (any, error)
 	dataShareArn := vals.Get("DataShareArn")
 	consumerArn := vals.Get("ConsumerArn")
 	consumerRegion := vals.Get("ConsumerRegion")
-	associateEntireAccount := vals.Get("AssociateEntireAccount") == "true"
+	associateEntireAccount := vals.Get("AssociateEntireAccount") == paramValueTrue
 
 	ds, err := h.Backend.AssociateDataShareConsumer(dataShareArn, consumerArn, consumerRegion, associateEntireAccount)
 	if err != nil {
@@ -949,7 +1178,7 @@ type batchModifyClusterSnapshotsResponse struct {
 func (h *Handler) handleBatchModifyClusterSnapshots(vals url.Values) (any, error) {
 	identifiers := parseStringList(vals, "SnapshotIdentifierList.String.")
 	retentionPeriodStr := vals.Get("ManualSnapshotRetentionPeriod")
-	force := vals.Get("Force") == "true"
+	force := vals.Get("Force") == paramValueTrue
 
 	retentionPeriod := -1
 	if retentionPeriodStr != "" {

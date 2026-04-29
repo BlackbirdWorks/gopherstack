@@ -6,16 +6,21 @@ import (
 )
 
 type backendSnapshot struct {
-	Clusters       map[string]*Cluster               `json:"clusters"`
-	ReservedNodes  map[string]*ReservedNode          `json:"reservedNodes"`
-	Partners       map[string]*Partner               `json:"partners"`
-	DataShares     map[string]*DataShare             `json:"dataShares"`
-	SecurityGroups map[string]*ClusterSecurityGroup  `json:"securityGroups"`
-	Snapshots      map[string]*Snapshot              `json:"snapshots"`
-	EndpointAuths  map[string]*EndpointAuthorization `json:"endpointAuths"`
-	ActiveResizes  map[string]*ResizeProgress        `json:"activeResizes"`
-	AccountID      string                            `json:"accountID"`
-	Region         string                            `json:"region"`
+	Clusters           map[string]*Cluster               `json:"clusters"`
+	ReservedNodes      map[string]*ReservedNode          `json:"reservedNodes"`
+	Partners           map[string]*Partner               `json:"partners"`
+	DataShares         map[string]*DataShare             `json:"dataShares"`
+	SecurityGroups     map[string]*ClusterSecurityGroup  `json:"securityGroups"`
+	Snapshots          map[string]*Snapshot              `json:"snapshots"`
+	EndpointAuths      map[string]*EndpointAuthorization `json:"endpointAuths"`
+	ActiveResizes      map[string]*ResizeProgress        `json:"activeResizes"`
+	ParameterGroups    map[string]*ClusterParameterGroup `json:"parameterGroups"`
+	SubnetGroups       map[string]*ClusterSubnetGroup    `json:"subnetGroups"`
+	LoggingStatuses    map[string]*LoggingStatus         `json:"loggingStatuses"`
+	EventSubscriptions map[string]*EventSubscription     `json:"eventSubscriptions"`
+	Events             map[string]*Event                 `json:"events"`
+	AccountID          string                            `json:"accountID"`
+	Region             string                            `json:"region"`
 }
 
 func (s *backendSnapshot) ensureNonNilMaps() {
@@ -43,6 +48,21 @@ func (s *backendSnapshot) ensureNonNilMaps() {
 	if s.ActiveResizes == nil {
 		s.ActiveResizes = make(map[string]*ResizeProgress)
 	}
+	if s.ParameterGroups == nil {
+		s.ParameterGroups = make(map[string]*ClusterParameterGroup)
+	}
+	if s.SubnetGroups == nil {
+		s.SubnetGroups = make(map[string]*ClusterSubnetGroup)
+	}
+	if s.LoggingStatuses == nil {
+		s.LoggingStatuses = make(map[string]*LoggingStatus)
+	}
+	if s.EventSubscriptions == nil {
+		s.EventSubscriptions = make(map[string]*EventSubscription)
+	}
+	if s.Events == nil {
+		s.Events = make(map[string]*Event)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -52,16 +72,21 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Clusters:       b.clusters,
-		ReservedNodes:  b.reservedNodes,
-		Partners:       b.partners,
-		DataShares:     b.dataShares,
-		SecurityGroups: b.securityGroups,
-		Snapshots:      b.snapshots,
-		EndpointAuths:  b.endpointAuths,
-		ActiveResizes:  b.activeResizes,
-		AccountID:      b.accountID,
-		Region:         b.region,
+		Clusters:           b.clusters,
+		ReservedNodes:      b.reservedNodes,
+		Partners:           b.partners,
+		DataShares:         b.dataShares,
+		SecurityGroups:     b.securityGroups,
+		Snapshots:          b.snapshots,
+		EndpointAuths:      b.endpointAuths,
+		ActiveResizes:      b.activeResizes,
+		ParameterGroups:    b.parameterGroups,
+		SubnetGroups:       b.subnetGroups,
+		LoggingStatuses:    b.loggingStatuses,
+		EventSubscriptions: b.eventSubscriptions,
+		Events:             b.events,
+		AccountID:          b.accountID,
+		Region:             b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -96,6 +121,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.snapshots = snap.Snapshots
 	b.endpointAuths = snap.EndpointAuths
 	b.activeResizes = snap.ActiveResizes
+	b.parameterGroups = snap.ParameterGroups
+	b.subnetGroups = snap.SubnetGroups
+	b.loggingStatuses = snap.LoggingStatuses
+	b.eventSubscriptions = snap.EventSubscriptions
+	b.events = snap.Events
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
