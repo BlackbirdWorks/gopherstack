@@ -270,7 +270,7 @@
 						DbUser: dbUser || undefined,
 						SecretArn: secretArn || undefined,
 						StatementName: statementName || undefined,
-						WithEvent: withEvent || undefined
+						WithEvent: withEvent
 					})
 				);
 			} else {
@@ -283,7 +283,7 @@
 						DbUser: dbUser || undefined,
 						SecretArn: secretArn || undefined,
 						StatementName: statementName || undefined,
-						WithEvent: withEvent || undefined
+						WithEvent: withEvent
 					})
 				);
 			}

@@ -187,7 +187,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 		UpdatedAt:         now,
 		// Simulated instant execution: 1 ms so the UI always displays a
 		// human-readable duration rather than showing "0ms" which could be
-		// mistaken for a failed or uninitialised measurement.
+		// mistaken for a failed or uninitialized measurement.
 		DurationMs: mockStatementDurationMs,
 		ResultRows: demoResultRows,
 		ResultSize: demoResultSize,

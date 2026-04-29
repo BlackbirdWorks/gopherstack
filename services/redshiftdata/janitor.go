@@ -23,9 +23,10 @@ type Janitor struct {
 	Backend      *InMemoryBackend
 	Interval     time.Duration
 	StatementTTL time.Duration
-	// TaskTimeout bounds each individual sweep task. When non-zero, each task
-	// runs with a child context that expires after this duration, preventing a
-	// stalled operation from blocking the janitor loop indefinitely.
+	// TaskTimeout bounds each individual sweep task. When zero, each task runs
+	// without a deadline. When non-zero, a child context with this timeout is
+	// created for each sweep pass, preventing a stalled operation from blocking
+	// the janitor loop indefinitely.
 	TaskTimeout time.Duration
 }
 
