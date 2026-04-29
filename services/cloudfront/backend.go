@@ -108,6 +108,7 @@ type AnycastIPList struct {
 // CachePolicy represents a CloudFront cache policy.
 type CachePolicy struct {
 	ID         string `json:"id"`
+	ETag       string `json:"etag"`
 	Name       string `json:"name"`
 	Comment    string `json:"comment,omitempty"`
 	DefaultTTL int64  `json:"defaultTtl"`
@@ -468,6 +469,24 @@ func (b *InMemoryBackend) DeleteOAI(id string) error {
 	return nil
 }
 
+// UpdateOAI updates an existing Origin Access Identity's comment and rotates its ETag.
+func (b *InMemoryBackend) UpdateOAI(id, comment string) (*OriginAccessIdentity, error) {
+	b.mu.Lock("UpdateCloudFrontOriginAccessIdentity")
+	defer b.mu.Unlock()
+
+	oai, ok := b.oais[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: OAI %s not found", ErrOAINotFound, id)
+	}
+
+	oai.Comment = comment
+	oai.ETag = uuid.NewString()
+
+	cp := *oai
+
+	return &cp, nil
+}
+
 // ListOAIs returns all OAIs sorted by ID.
 func (b *InMemoryBackend) ListOAIs() []*OriginAccessIdentity {
 	b.mu.RLock("ListCloudFrontOriginAccessIdentities")
@@ -772,6 +791,7 @@ func (b *InMemoryBackend) CreateCachePolicy(
 	id := generateID()
 	policy := &CachePolicy{
 		ID:         id,
+		ETag:       uuid.NewString(),
 		Name:       name,
 		Comment:    comment,
 		DefaultTTL: defaultTTL,
@@ -935,6 +955,7 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 	p.DefaultTTL = defaultTTL
 	p.MaxTTL = maxTTL
 	p.MinTTL = minTTL
+	p.ETag = uuid.NewString()
 
 	cp := *p
 
