@@ -30,6 +30,7 @@ var (
 // Handler is the HTTP handler for the AWS Redshift Data API.
 type Handler struct {
 	Backend   StorageBackend
+	janitor   *Janitor
 	AccountID string
 	Region    string
 }
@@ -41,6 +42,30 @@ func NewHandler(backend StorageBackend) *Handler {
 		AccountID: backend.AccountID(),
 		Region:    backend.Region(),
 	}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// If the backend is not an *InMemoryBackend, this is a no-op.
+func (h *Handler) WithJanitor(interval, statementTTL time.Duration, taskTimeout ...time.Duration) *Handler {
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		j := NewJanitor(mem, interval, statementTTL)
+		if len(taskTimeout) > 0 {
+			j.TaskTimeout = taskTimeout[0]
+		}
+
+		h.janitor = j
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Name returns the service name.
@@ -292,6 +317,7 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 	}
 
 	// Return a single demo row so the UI can render a non-empty result table.
+	// NextToken is empty because the demo result set fits on one page.
 	return json.Marshal(map[string]any{
 		"Records": [][]map[string]any{
 			{{"stringValue": "mock_value"}},
@@ -306,6 +332,7 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 			},
 		},
 		"TotalNumRows": int64(1),
+		"NextToken":    "",
 	})
 }
 
@@ -337,6 +364,7 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 	}
 
 	// Return a single demo CSV record matching the V2 format.
+	// NextToken is empty because the demo result set fits on one page.
 	return json.Marshal(map[string]any{
 		"Records": []string{"mock_value"},
 		"ColumnMetadata": []map[string]any{
@@ -350,6 +378,7 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 		},
 		"TotalNumRows": int64(1),
 		"ResultFormat": resultFormatCSV,
+		"NextToken":    "",
 	})
 }
 
@@ -435,6 +464,7 @@ func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, e
 
 	return json.Marshal(map[string]any{
 		"Databases": buildDemoDatabases(),
+		"NextToken": "",
 	})
 }
 
@@ -455,7 +485,8 @@ func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, err
 	}
 
 	return json.Marshal(map[string]any{
-		"Schemas": buildDemoSchemas(),
+		"Schemas":   buildDemoSchemas(),
+		"NextToken": "",
 	})
 }
 
@@ -478,7 +509,8 @@ func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, erro
 	}
 
 	return json.Marshal(map[string]any{
-		"Tables": buildDemoTables(),
+		"Tables":    buildDemoTables(),
+		"NextToken": "",
 	})
 }
 
@@ -560,6 +592,7 @@ func statementToListItem(stmt *Statement) map[string]any {
 		"Status":           stmt.Status,
 		"QueryString":      stmt.QueryString,
 		"IsBatchStatement": stmt.IsBatchStatement,
+		"HasResultSet":     stmt.HasResultSet,
 		"CreatedAt":        epochSeconds(stmt.CreatedAt),
 		"UpdatedAt":        epochSeconds(stmt.UpdatedAt),
 		"Duration":         stmt.DurationMs,
@@ -571,6 +604,22 @@ func statementToListItem(stmt *Statement) map[string]any {
 
 	if stmt.SecretARN != "" {
 		item["SecretArn"] = stmt.SecretARN
+	}
+
+	if stmt.Database != "" {
+		item["Database"] = stmt.Database
+	}
+
+	if stmt.ClusterIdentifier != "" {
+		item["ClusterIdentifier"] = stmt.ClusterIdentifier
+	}
+
+	if stmt.WorkgroupName != "" {
+		item["WorkgroupName"] = stmt.WorkgroupName
+	}
+
+	if stmt.DBUser != "" {
+		item["DbUser"] = stmt.DBUser
 	}
 
 	return item
@@ -590,6 +639,10 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		"ResultRows":       stmt.ResultRows,
 		"ResultSize":       stmt.ResultSize,
 		"WithEvent":        stmt.WithEvent,
+		// RedshiftQueryId is a synthetic numeric query identifier. AWS
+		// includes this in DescribeStatement for provisioned clusters;
+		// we return 0 since we have no real cluster backing.
+		"RedshiftQueryId": int64(0),
 	}
 
 	if stmt.ClusterIdentifier != "" {

@@ -1,5 +1,7 @@
 package redshiftdata
 
+import "time"
+
 // StorageBackend defines the interface for Redshift Data backend implementations.
 // All methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -21,6 +23,11 @@ type StorageBackend interface {
 		clusterIdentifier, workgroupName, statusFilter, roleLevel string,
 		maxResults int,
 	) ([]*Statement, string)
+
+	// Maintenance
+	// EvictExpiredStatements removes terminal statements older than cutoff.
+	// Returns the number of evicted statements.
+	EvictExpiredStatements(cutoff time.Time) int
 
 	// Lifecycle
 	Reset()

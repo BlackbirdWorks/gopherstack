@@ -7,6 +7,7 @@
 		DescribeStatementCommand,
 		DescribeTableCommand,
 		GetStatementResultCommand,
+		GetStatementResultV2Command,
 		ListStatementsCommand,
 		CancelStatementCommand,
 		ListDatabasesCommand,
@@ -62,6 +63,7 @@
 	let dbUser = $state(lsGet('dbUser', ''));
 	let secretArn = $state(lsGet('secretArn', ''));
 	let statementName = $state(lsGet('statementName', ''));
+	let withEvent = $state(lsGet('withEvent', 'false') === 'true');
 
 	$effect(() => { lsSet('database', database); });
 	$effect(() => { lsSet('workgroupName', workgroupName); });
@@ -69,6 +71,7 @@
 	$effect(() => { lsSet('dbUser', dbUser); });
 	$effect(() => { lsSet('secretArn', secretArn); });
 	$effect(() => { lsSet('statementName', statementName); });
+	$effect(() => { lsSet('withEvent', String(withEvent)); });
 
 	// --- SQL editor ---
 	let sqlText = $state('SELECT 1;');
@@ -83,6 +86,8 @@
 	let rawJsonData = $state<string | null>(null);
 	let listTruncated = $state(false);
 	let listNextToken = $state<string | null>(null);
+	let showResultV2 = $state(false);
+	let resultV2Data = $state<string | null>(null);
 
 	// --- Results ---
 	let resultColumns = $state<string[]>([]);
@@ -201,6 +206,8 @@
 		showRawJson = false;
 		listTruncated = false;
 		listNextToken = null;
+		showResultV2 = false;
+		resultV2Data = null;
 	}
 
 	function exportCsv() {
@@ -218,13 +225,18 @@
 		URL.revokeObjectURL(url);
 	}
 
-	// Keyboard shortcut: Ctrl/Cmd + Enter to run query
+	// Keyboard shortcuts:
+	//   Ctrl/Cmd + Enter  — run query
+	//   Escape            — cancel running query
 	function handleKeydown(e: KeyboardEvent) {
 		if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
 			e.preventDefault();
 			if (!executing && sqlText.trim() && database.trim()) {
 				executeStatement();
 			}
+		} else if (e.key === 'Escape' && executing) {
+			e.preventDefault();
+			cancelStatement();
 		}
 	}
 
@@ -242,6 +254,8 @@
 		executionDurationMs = null;
 		rawJsonData = null;
 		showRawJson = false;
+		showResultV2 = false;
+		resultV2Data = null;
 
 		try {
 			let resp: { Id?: string };
@@ -255,7 +269,8 @@
 						ClusterIdentifier: clusterIdentifier || undefined,
 						DbUser: dbUser || undefined,
 						SecretArn: secretArn || undefined,
-						StatementName: statementName || undefined
+						StatementName: statementName || undefined,
+						WithEvent: withEvent || undefined
 					})
 				);
 			} else {
@@ -267,7 +282,8 @@
 						ClusterIdentifier: clusterIdentifier || undefined,
 						DbUser: dbUser || undefined,
 						SecretArn: secretArn || undefined,
-						StatementName: statementName || undefined
+						StatementName: statementName || undefined,
+						WithEvent: withEvent || undefined
 					})
 				);
 			}
@@ -378,6 +394,42 @@
 			toast.error('Failed to load history: ' + String(e));
 		} finally {
 			historyLoading = false;
+		}
+	}
+
+	async function loadMoreHistory() {
+		if (!listNextToken) return;
+		historyLoading = true;
+		try {
+			const resp = await client.send(
+				new ListStatementsCommand({
+					WorkgroupName: workgroupName || undefined
+				})
+			);
+			const more = resp.Statements ?? [];
+			historyStatements = [...historyStatements, ...more];
+			listTruncated = !!(resp as { NextToken?: string }).NextToken;
+			listNextToken = (resp as { NextToken?: string }).NextToken ?? null;
+			historyLastRefreshed = new Date();
+		} catch (e) {
+			toast.error('Failed to load more history: ' + String(e));
+		} finally {
+			historyLoading = false;
+		}
+	}
+
+	async function loadResultV2(id: string) {
+		showResultV2 = !showResultV2;
+		if (!showResultV2) {
+			resultV2Data = null;
+			return;
+		}
+		try {
+			const resp = await client.send(new GetStatementResultV2Command({ Id: id }));
+			resultV2Data = JSON.stringify(resp, null, 2);
+		} catch (e) {
+			toast.error('Failed to load V2 results: ' + String(e));
+			showResultV2 = false;
 		}
 	}
 
@@ -513,18 +565,62 @@
 		await loadHistory();
 	});
 
-	const docsOps: { op: string; desc: string }[] = [
-		{ op: 'ExecuteStatement', desc: 'Submit a single SQL statement. Returns a statement ID for polling.' },
-		{ op: 'BatchExecuteStatement', desc: 'Submit multiple SQL statements as a single batch transaction.' },
-		{ op: 'DescribeStatement', desc: 'Fetch status, timing, and error details for a previously submitted statement.' },
-		{ op: 'CancelStatement', desc: 'Cancel a running statement. Only allowed for non-terminal states.' },
-		{ op: 'GetStatementResult', desc: 'Retrieve paginated row results for a FINISHED statement with a result set.' },
-		{ op: 'GetStatementResultV2', desc: 'CSV-format variant of GetStatementResult (Redshift Serverless).' },
-		{ op: 'ListStatements', desc: 'List recent statements filtered by workgroup, cluster, or status. Supports MaxResults pagination.' },
-		{ op: 'ListDatabases', desc: 'Enumerate databases in the connected Redshift cluster or workgroup.' },
-		{ op: 'ListSchemas', desc: 'List schemas within a database, optionally matching a pattern.' },
-		{ op: 'ListTables', desc: 'List tables/views within a schema, optionally matching a pattern.' },
-		{ op: 'DescribeTable', desc: 'Return column definitions (name, type, nullable) for a table.' }
+	const docsOps: { op: string; desc: string; params: string[] }[] = [
+		{
+			op: 'ExecuteStatement',
+			desc: 'Submit a single SQL statement. Returns a statement ID for polling.',
+			params: ['Sql* (string)', 'Database* (string)', 'WorkgroupName (string)', 'ClusterIdentifier (string)', 'DbUser (string)', 'SecretArn (string)', 'StatementName (string)', 'WithEvent (boolean)']
+		},
+		{
+			op: 'BatchExecuteStatement',
+			desc: 'Submit multiple SQL statements as a single batch transaction.',
+			params: ['Sqls* (string[])', 'Database* (string)', 'WorkgroupName (string)', 'ClusterIdentifier (string)', 'DbUser (string)', 'SecretArn (string)', 'StatementName (string)', 'WithEvent (boolean)']
+		},
+		{
+			op: 'DescribeStatement',
+			desc: 'Fetch status, timing, and error details for a previously submitted statement.',
+			params: ['Id* (string)']
+		},
+		{
+			op: 'CancelStatement',
+			desc: 'Cancel a running statement. Only allowed for non-terminal states (SUBMITTED, PICKED, STARTED).',
+			params: ['Id* (string)']
+		},
+		{
+			op: 'GetStatementResult',
+			desc: 'Retrieve paginated row results for a FINISHED statement with a result set.',
+			params: ['Id* (string)', 'NextToken (string)']
+		},
+		{
+			op: 'GetStatementResultV2',
+			desc: 'CSV-format variant of GetStatementResult (Redshift Serverless). Returns ResultFormat=CSV.',
+			params: ['Id* (string)', 'NextToken (string)']
+		},
+		{
+			op: 'ListStatements',
+			desc: 'List recent statements filtered by workgroup, cluster, or status. Supports MaxResults pagination.',
+			params: ['WorkgroupName (string)', 'ClusterIdentifier (string)', 'Status (string)', 'RoleLevel (string)', 'MaxResults (number, max 100)', 'NextToken (string)']
+		},
+		{
+			op: 'ListDatabases',
+			desc: 'Enumerate databases in the connected Redshift cluster or workgroup.',
+			params: ['Database* (string)', 'WorkgroupName (string)', 'ClusterIdentifier (string)', 'DbUser (string)', 'SecretArn (string)', 'MaxResults (number)', 'NextToken (string)']
+		},
+		{
+			op: 'ListSchemas',
+			desc: 'List schemas within a database, optionally matching a pattern.',
+			params: ['Database* (string)', 'SchemaPattern (string)', 'WorkgroupName (string)', 'ClusterIdentifier (string)', 'DbUser (string)', 'SecretArn (string)', 'MaxResults (number)', 'NextToken (string)']
+		},
+		{
+			op: 'ListTables',
+			desc: 'List tables/views within a schema, optionally matching a pattern.',
+			params: ['Database* (string)', 'SchemaPattern (string)', 'TablePattern (string)', 'TableType (string)', 'WorkgroupName (string)', 'ClusterIdentifier (string)', 'DbUser (string)', 'SecretArn (string)', 'MaxResults (number)', 'NextToken (string)']
+		},
+		{
+			op: 'DescribeTable',
+			desc: 'Return column definitions (name, type, nullable) for a table.',
+			params: ['Database* (string)', 'Schema (string)', 'Table (string)', 'WorkgroupName (string)', 'ClusterIdentifier (string)', 'DbUser (string)', 'SecretArn (string)']
+		}
 	];
 </script>
 
@@ -570,6 +666,18 @@
 				<label for="rd-stmtname" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Statement Name</label>
 				<input id="rd-stmtname" bind:value={statementName} type="text" placeholder="optional label" aria-label="Statement name" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
 			</div>
+			<div class="col-span-2 flex items-center gap-2 pt-1">
+				<input
+					id="rd-withevent"
+					bind:checked={withEvent}
+					type="checkbox"
+					aria-label="With Event"
+					class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+				/>
+				<label for="rd-withevent" class="text-xs text-gray-600 dark:text-gray-400 select-none">
+					WithEvent — emit an EventBridge event on statement completion
+				</label>
+			</div>
 		</div>
 	</details>
 
@@ -607,7 +715,7 @@
 				<div class="flex items-center gap-3">
 					<label for={batchMode ? 'rd-sql-batch' : 'rd-sql'} class="block text-sm font-semibold text-gray-700 dark:text-gray-300">
 						{batchMode ? 'Batch SQL (semicolon-separated)' : 'SQL Statement'}
-						<span class="ml-2 text-xs font-normal text-gray-400">(Ctrl+Enter to run)</span>
+						<span class="ml-2 text-xs font-normal text-gray-400">(Ctrl+Enter to run · Escape to cancel)</span>
 					</label>
 					<!-- Batch mode toggle -->
 					<button
@@ -717,11 +825,21 @@
 					<div class="flex items-center gap-2">
 						{#if rawJsonData}
 							<button
-								onclick={() => { showRawJson = !showRawJson; }}
+								onclick={() => { showRawJson = !showRawJson; showResultV2 = false; }}
 								aria-label="Toggle raw JSON"
 								class={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${showRawJson ? 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
 							>
 								<Code2 class="w-3.5 h-3.5" /> {showRawJson ? 'Table View' : 'Raw JSON'}
+							</button>
+						{/if}
+						{#if currentStatementId && !batchMode}
+							<button
+								onclick={() => loadResultV2(currentStatementId!)}
+								aria-label="Fetch V2 results"
+								title="Fetch results in CSV format via GetStatementResultV2"
+								class={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${showResultV2 ? 'bg-purple-100 dark:bg-purple-900/40 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+							>
+								<Layers class="w-3.5 h-3.5" /> V2 CSV
 							</button>
 						{/if}
 						<button
@@ -732,7 +850,9 @@
 						</button>
 					</div>
 				</div>
-				{#if showRawJson && rawJsonData}
+				{#if showResultV2 && resultV2Data}
+					<pre class="overflow-auto max-h-96 rounded-xl border border-purple-200 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 text-xs text-gray-700 dark:text-gray-300 p-4 font-mono">{resultV2Data}</pre>
+				{:else if showRawJson && rawJsonData}
 					<pre class="overflow-auto max-h-96 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300 p-4 font-mono">{rawJsonData}</pre>
 				{:else}
 					<div class="overflow-auto max-h-96 rounded-xl border border-gray-200 dark:border-gray-700">
@@ -803,6 +923,7 @@
 					<option value="ABORTED">ABORTED</option>
 					<option value="STARTED">STARTED</option>
 					<option value="SUBMITTED">SUBMITTED</option>
+					<option value="PICKED">PICKED</option>
 				</select>
 				<button onclick={loadHistory} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800" aria-label="Refresh history">
 					<RefreshCw class="w-4 h-4" /> Refresh
@@ -840,7 +961,10 @@
 								<div class="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
 									<span>Created: {formatStatementDate(stmt.CreatedAt)}</span>
 									{#if (stmt as { Duration?: number }).Duration}
-										<span>{formatDuration((stmt as { Duration?: number }).Duration)}</span>
+										<span class="font-medium text-gray-600 dark:text-gray-400">{formatDuration((stmt as { Duration?: number }).Duration)}</span>
+									{/if}
+									{#if (stmt as { Database?: string }).Database}
+										<span class="text-xs text-blue-600 dark:text-blue-400">db: {(stmt as { Database?: string }).Database}</span>
 									{/if}
 									{#if stmt.IsBatchStatement}
 										<span class="text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 px-1.5 py-0.5 rounded">batch</span>
@@ -879,6 +1003,23 @@
 					</div>
 				{/each}
 			</div>
+			{#if listTruncated}
+				<div class="flex justify-center mt-4">
+					<button
+						onclick={loadMoreHistory}
+						disabled={historyLoading}
+						aria-label="Load more statements"
+						class="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+					>
+						{#if historyLoading}
+							<div class="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+						{:else}
+							<ChevronDown class="w-4 h-4" />
+						{/if}
+						Load More
+					</button>
+				</div>
+			{/if}
 		{/if}
 	{/if}
 
@@ -1026,12 +1167,19 @@
 				<BookOpen class="w-5 h-5 text-blue-500" />
 				Redshift Data API – Operations
 			</div>
-			<p class="text-gray-500 dark:text-gray-400">This mock implements all 11 operations of the Amazon Redshift Data API. Statements complete instantly in <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">FINISHED</code> state.</p>
+			<p class="text-gray-500 dark:text-gray-400">This mock implements all 11 operations of the Amazon Redshift Data API. Statements complete instantly in <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">FINISHED</code> state. Parameters marked <strong>*</strong> are required by the real AWS API.</p>
 			<div class="grid gap-3">
-				{#each docsOps as { op, desc } (op)}
+				{#each docsOps as { op, desc, params } (op)}
 					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
 						<p class="font-mono font-semibold text-blue-600 dark:text-blue-400">{op}</p>
 						<p class="text-gray-500 dark:text-gray-400 mt-1 text-xs">{desc}</p>
+						{#if params.length > 0}
+							<div class="mt-2 flex flex-wrap gap-1.5">
+								{#each params as param}
+									<span class={`text-xs px-2 py-0.5 rounded font-mono ${param.endsWith('*)') || param.includes('*') ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'}`}>{param}</span>
+								{/each}
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>

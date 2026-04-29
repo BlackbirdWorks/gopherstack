@@ -1,0 +1,92 @@
+package redshiftdata
+
+import (
+	"context"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+)
+
+const (
+	defaultJanitorInterval    = time.Minute
+	defaultStatementTTL       = 24 * time.Hour
+	redshiftDataWorkerService = "redshift-data"
+	statementSweeperComponent = "StatementSweeper"
+)
+
+// Janitor is the Redshift Data background worker that evicts completed statements
+// after a configurable TTL to prevent unbounded growth of in-memory state.
+// It complements the ring-buffer cap: the ring buffer evicts by count,
+// the janitor evicts by age.
+type Janitor struct {
+	Backend      *InMemoryBackend
+	Interval     time.Duration
+	StatementTTL time.Duration
+	// TaskTimeout bounds each individual sweep task. When non-zero, each task
+	// runs with a child context that expires after this duration, preventing a
+	// stalled operation from blocking the janitor loop indefinitely.
+	TaskTimeout time.Duration
+}
+
+// NewJanitor creates a new Janitor for the given backend.
+// Zero values for interval or statementTTL fall back to package defaults.
+func NewJanitor(backend *InMemoryBackend, interval, statementTTL time.Duration) *Janitor {
+	if interval == 0 {
+		interval = defaultJanitorInterval
+	}
+
+	if statementTTL == 0 {
+		statementTTL = defaultStatementTTL
+	}
+
+	return &Janitor{
+		Backend:      backend,
+		Interval:     interval,
+		StatementTTL: statementTTL,
+	}
+}
+
+// Run runs the janitor loop until ctx is cancelled.
+// It should be started in a goroutine: go janitor.Run(ctx).
+func (j *Janitor) Run(ctx context.Context) {
+	ticker := time.NewTicker(j.Interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			taskCtx, cancel := j.taskContext(ctx)
+			j.SweepOnce(taskCtx)
+			cancel()
+		}
+	}
+}
+
+// taskContext returns a child context bounded by TaskTimeout (if non-zero).
+// The caller is responsible for calling the returned cancel function.
+func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if j.TaskTimeout > 0 {
+		return context.WithTimeout(parent, j.TaskTimeout)
+	}
+
+	return context.WithCancel(parent)
+}
+
+// SweepOnce runs a single sweep pass. Exposed for testing.
+func (j *Janitor) SweepOnce(ctx context.Context) {
+	cutoff := time.Now().Add(-j.StatementTTL)
+	count := j.Backend.EvictExpiredStatements(cutoff)
+
+	telemetry.RecordWorkerTask(redshiftDataWorkerService, statementSweeperComponent, "success")
+
+	if count == 0 {
+		return
+	}
+
+	telemetry.RecordWorkerItems(redshiftDataWorkerService, statementSweeperComponent, count)
+
+	logger.Load(ctx).InfoContext(ctx, "redshiftdata: janitor evicted statements", "count", count)
+}

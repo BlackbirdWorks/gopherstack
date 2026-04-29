@@ -339,6 +339,60 @@ func (b *InMemoryBackend) ListStatements(
 	return result[:limit], result[limit].ID
 }
 
+// EvictExpiredStatements removes terminal statements whose UpdatedAt is older
+// than the given cutoff. It returns the number of evicted statements.
+// Only terminal states (FINISHED, FAILED, ABORTED) are eligible for eviction;
+// in-flight statements are never removed.
+func (b *InMemoryBackend) EvictExpiredStatements(cutoff time.Time) int {
+	b.mu.Lock("EvictExpiredStatements")
+	defer b.mu.Unlock()
+
+	var toDelete []string
+
+	for id, stmt := range b.statements {
+		terminal := stmt.Status == statusFinished ||
+			stmt.Status == statusFailed ||
+			stmt.Status == statusAborted
+		if terminal && stmt.UpdatedAt.Before(cutoff) {
+			toDelete = append(toDelete, id)
+		}
+	}
+
+	for _, id := range toDelete {
+		delete(b.statements, id)
+	}
+
+	// Compact the ring buffer to remove evicted IDs.
+	if len(toDelete) > 0 {
+		b.compactRingBuffer()
+	}
+
+	return len(toDelete)
+}
+
+// compactRingBuffer rebuilds the ring buffer from the current statements map,
+// preserving insertion order. Must be called with the write lock held.
+func (b *InMemoryBackend) compactRingBuffer() {
+	kept := make([]string, 0, b.ringLen)
+
+	for i := range b.ringLen {
+		id := b.ringBuf[(b.ringHead+i)%maxStatementHistory]
+		if _, ok := b.statements[id]; ok {
+			kept = append(kept, id)
+		}
+	}
+
+	b.ringHead = 0
+	b.ringLen = len(kept)
+
+	copy(b.ringBuf[:], kept)
+
+	// Zero out unused slots.
+	for i := b.ringLen; i < maxStatementHistory; i++ {
+		b.ringBuf[i] = ""
+	}
+}
+
 // cloneStatement returns a deep copy of stmt.
 func cloneStatement(stmt *Statement) *Statement {
 	cp := *stmt
