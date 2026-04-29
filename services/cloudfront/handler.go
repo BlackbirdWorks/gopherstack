@@ -1825,9 +1825,9 @@ type functionConfigXML struct {
 }
 
 type createFunctionRequestXML struct {
-	XMLName      xml.Name          `xml:"CreateFunctionRequest"`
-	Name         string            `xml:"Name"`
-	FunctionCode string            `xml:"FunctionCode"`
+	XMLName        xml.Name          `xml:"CreateFunctionRequest"`
+	Name           string            `xml:"Name"`
+	FunctionCode   string            `xml:"FunctionCode"`
 	FunctionConfig functionConfigXML `xml:"FunctionConfig"`
 }
 

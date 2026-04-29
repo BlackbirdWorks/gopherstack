@@ -194,7 +194,7 @@ type InMemoryBackend struct {
 	originAccessControls         map[string]*OriginAccessControl
 	originAccessControlByName    map[string]string // name → OAC ID (uniqueness)
 	responseHeadersPolicies      map[string]*ResponseHeadersPolicy
-	responseHeadersPolicyByName  map[string]string // name → policy ID (uniqueness)
+	responseHeadersPolicyByName  map[string]string    // name → policy ID (uniqueness)
 	functions                    map[string]*Function // name → function
 	originRequestPolicies        map[string]*OriginRequestPolicy
 	originRequestPolicyByName    map[string]string // name → policy ID (uniqueness)
