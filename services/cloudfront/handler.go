@@ -20,6 +20,8 @@ const (
 	cfNS         = "http://cloudfront.amazonaws.com/doc/2020-05-31/"
 	cfPathPrefix = "/2020-05-31/"
 	maxItems     = 100
+
+	opUpdateCloudFrontOAI = "UpdateCloudFrontOriginAccessIdentity"
 )
 
 // Handler is the Echo HTTP handler for AWS CloudFront operations (REST-XML protocol).
@@ -93,7 +95,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TestFunction",
 		"UntagResource",
 		"UpdateCachePolicy",
-		"UpdateCloudFrontOriginAccessIdentity",
+		opUpdateCloudFrontOAI,
 		"UpdateDistribution",
 		"UpdateFunction",
 		"UpdateOriginAccessControl",
@@ -229,7 +231,7 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 			return "GetCloudFrontOriginAccessIdentityConfig", id
 		}
 		if method == http.MethodPut {
-			return "UpdateCloudFrontOriginAccessIdentity", id
+			return opUpdateCloudFrontOAI, id
 		}
 	case strings.HasPrefix(suffix, "origin-access-identity/cloudfront/") &&
 		!strings.Contains(strings.TrimPrefix(suffix, "origin-access-identity/cloudfront/"), "/"):
@@ -238,7 +240,7 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodGet:
 			return "GetCloudFrontOriginAccessIdentity", id
 		case http.MethodPut:
-			return "UpdateCloudFrontOriginAccessIdentity", id
+			return opUpdateCloudFrontOAI, id
 		case http.MethodDelete:
 			return "DeleteCloudFrontOriginAccessIdentity", id
 		}
@@ -509,15 +511,11 @@ func (h *Handler) dispatch(c *echo.Context, operation, resource string) error {
 		return err
 	}
 
-	if err := h.dispatchGet(c, operation, resource); !errors.Is(err, errNotDispatched) {
-		return err
-	}
-
 	if err := h.dispatchList(c, operation, resource); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
-	if err := h.dispatchUpdateDelete(c, operation, resource); !errors.Is(err, errNotDispatched) {
+	if err := h.dispatchGetOrMutate(c, operation, resource); !errors.Is(err, errNotDispatched) {
 		return err
 	}
 
@@ -557,7 +555,10 @@ func (h *Handler) dispatchCreate(c *echo.Context, operation string) error {
 	}
 }
 
-func (h *Handler) dispatchGet(c *echo.Context, operation, resource string) error {
+// dispatchGetOrMutate handles all GET, PUT, and DELETE operations.
+//
+//nolint:cyclop,funlen // combined GET/mutate dispatch table is inherently wide
+func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource string) error {
 	switch operation {
 	case "GetCachePolicy":
 		return h.handleGetCachePolicy(c, resource)
@@ -587,6 +588,34 @@ func (h *Handler) dispatchGet(c *echo.Context, operation, resource string) error
 		return h.handleGetResponseHeadersPolicy(c, resource)
 	case "GetResponseHeadersPolicyConfig":
 		return h.handleGetResponseHeadersPolicyConfig(c, resource)
+	case "DeleteCachePolicy":
+		return h.handleDeleteCachePolicy(c, resource)
+	case "DeleteDistribution":
+		return h.handleDeleteDistribution(c, resource)
+	case "DeleteFunction":
+		return h.handleDeleteFunction(c, resource)
+	case "DeleteOriginAccessControl":
+		return h.handleDeleteOriginAccessControl(c, resource)
+	case "DeleteCloudFrontOriginAccessIdentity":
+		return h.handleDeleteOAI(c, resource)
+	case "DeleteOriginRequestPolicy":
+		return h.handleDeleteOriginRequestPolicy(c, resource)
+	case "DeleteResponseHeadersPolicy":
+		return h.handleDeleteResponseHeadersPolicy(c, resource)
+	case opUpdateCloudFrontOAI:
+		return h.handleUpdateOAI(c, resource)
+	case "UpdateCachePolicy":
+		return h.handleUpdateCachePolicy(c, resource)
+	case "UpdateDistribution":
+		return h.handleUpdateDistribution(c, resource)
+	case "UpdateFunction":
+		return h.handleUpdateFunction(c, resource)
+	case "UpdateOriginAccessControl":
+		return h.handleUpdateOriginAccessControl(c, resource)
+	case "UpdateOriginRequestPolicy":
+		return h.handleUpdateOriginRequestPolicy(c, resource)
+	case "UpdateResponseHeadersPolicy":
+		return h.handleUpdateResponseHeadersPolicy(c, resource)
 	default:
 		return errNotDispatched
 	}
@@ -612,41 +641,6 @@ func (h *Handler) dispatchList(c *echo.Context, operation, resource string) erro
 		return h.handleListResponseHeadersPolicies(c)
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(c)
-	default:
-		return errNotDispatched
-	}
-}
-
-func (h *Handler) dispatchUpdateDelete(c *echo.Context, operation, resource string) error {
-	switch operation {
-	case "DeleteCachePolicy":
-		return h.handleDeleteCachePolicy(c, resource)
-	case "DeleteDistribution":
-		return h.handleDeleteDistribution(c, resource)
-	case "DeleteFunction":
-		return h.handleDeleteFunction(c, resource)
-	case "DeleteOriginAccessControl":
-		return h.handleDeleteOriginAccessControl(c, resource)
-	case "DeleteCloudFrontOriginAccessIdentity":
-		return h.handleDeleteOAI(c, resource)
-	case "DeleteOriginRequestPolicy":
-		return h.handleDeleteOriginRequestPolicy(c, resource)
-	case "DeleteResponseHeadersPolicy":
-		return h.handleDeleteResponseHeadersPolicy(c, resource)
-	case "UpdateCloudFrontOriginAccessIdentity":
-		return h.handleUpdateOAI(c, resource)
-	case "UpdateCachePolicy":
-		return h.handleUpdateCachePolicy(c, resource)
-	case "UpdateDistribution":
-		return h.handleUpdateDistribution(c, resource)
-	case "UpdateFunction":
-		return h.handleUpdateFunction(c, resource)
-	case "UpdateOriginAccessControl":
-		return h.handleUpdateOriginAccessControl(c, resource)
-	case "UpdateOriginRequestPolicy":
-		return h.handleUpdateOriginRequestPolicy(c, resource)
-	case "UpdateResponseHeadersPolicy":
-		return h.handleUpdateResponseHeadersPolicy(c, resource)
 	default:
 		return errNotDispatched
 	}
@@ -1314,7 +1308,11 @@ func (h *Handler) handleUpdateOAI(c *echo.Context, id string) error {
 	var req oaiConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CloudFrontOriginAccessIdentityConfig XML"))
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CloudFrontOriginAccessIdentityConfig XML"),
+			)
 		}
 	}
 
@@ -1901,7 +1899,6 @@ type rhpConfigXML struct {
 	Comment string   `xml:"Comment"`
 }
 
-//nolint:dupl // structurally identical to handleCreateOriginRequestPolicy but uses different XML/backend types
 func (h *Handler) handleCreateResponseHeadersPolicy(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
@@ -1915,6 +1912,11 @@ func (h *Handler) handleCreateResponseHeadersPolicy(c *echo.Context) error {
 
 			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", rhpMsg))
 		}
+	}
+
+	if req.Name == "" {
+		return xmlResp(c, http.StatusBadRequest,
+			cfErrorXML("InvalidArgument", "ResponseHeadersPolicyConfig Name is required"))
 	}
 
 	p, createErr := h.Backend.CreateResponseHeadersPolicy(req.Name, req.Comment)
@@ -2011,6 +2013,10 @@ func (h *Handler) handleUpdateResponseHeadersPolicy(c *echo.Context, id string) 
 
 			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", rhpMsg))
 		}
+	}
+
+	if req.Name == "" {
+		req.Name = current.Name
 	}
 
 	p, updateErr := h.Backend.UpdateResponseHeadersPolicy(id, req.Name, req.Comment)
@@ -2278,20 +2284,27 @@ type orpConfigXML struct {
 	Comment string   `xml:"Comment"`
 }
 
-//nolint:dupl // structurally identical to handleCreateResponseHeadersPolicy but uses different XML/backend types
 func (h *Handler) handleCreateOriginRequestPolicy(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
-	var req orpConfigXML
-	if len(body) > 0 {
-		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			const orpMsg = "invalid OriginRequestPolicyConfig XML"
+	if len(body) == 0 {
+		return xmlResp(c, http.StatusBadRequest,
+			cfErrorXML("MalformedXML", "OriginRequestPolicyConfig body is required"))
+	}
 
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", orpMsg))
-		}
+	var req orpConfigXML
+	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+		const orpMsg = "invalid OriginRequestPolicyConfig XML"
+
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", orpMsg))
+	}
+
+	if req.Name == "" {
+		return xmlResp(c, http.StatusBadRequest,
+			cfErrorXML("InvalidArgument", "OriginRequestPolicyConfig Name is required"))
 	}
 
 	p, createErr := h.Backend.CreateOriginRequestPolicy(req.Name, req.Comment)
@@ -2370,15 +2383,15 @@ func (h *Handler) handleUpdateOriginRequestPolicy(c *echo.Context, id string) er
 		return h.handleError(c, getErr)
 	}
 
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
 		return xmlResp(c, http.StatusPreconditionFailed,
 			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current origin request policy ETag"))
-	}
-
-	body, err := readBody(c)
-	if err != nil {
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
 	var req orpConfigXML
@@ -2388,6 +2401,10 @@ func (h *Handler) handleUpdateOriginRequestPolicy(c *echo.Context, id string) er
 
 			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", orpMsg))
 		}
+	}
+
+	if req.Name == "" {
+		req.Name = current.Name
 	}
 
 	p, updateErr := h.Backend.UpdateOriginRequestPolicy(id, req.Name, req.Comment)

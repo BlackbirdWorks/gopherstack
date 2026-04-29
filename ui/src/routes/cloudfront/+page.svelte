@@ -440,7 +440,13 @@ creatingORP = true;
 try {
 await cf.send(
 new CreateOriginRequestPolicyCommand({
-OriginRequestPolicyConfig: { Name: orpName, Comment: orpComment }
+OriginRequestPolicyConfig: {
+Name: orpName,
+Comment: orpComment,
+HeadersConfig: { HeaderBehavior: 'none' },
+CookiesConfig: { CookieBehavior: 'none' },
+QueryStringsConfig: { QueryStringBehavior: 'none' }
+}
 })
 );
 toast.success('Origin request policy created');
@@ -557,11 +563,12 @@ class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:
 <!-- Top navigation tabs -->
 <div class="flex gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
 {#each mainTabs as tab}
+{@const TabIcon = tab.icon}
 <button
 onclick={() => handleMainTabChange(tab.key)}
 class={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${mainTab === tab.key ? 'border-violet-500 text-violet-600 dark:text-violet-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
 >
-<svelte:component this={tab.icon} class="w-4 h-4" />
+<TabIcon class="w-4 h-4" />
 {tab.label}
 </button>
 {/each}
@@ -1160,8 +1167,8 @@ class="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400"
 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Distribution</h2>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
-<input bind:value={distComment} type="text" placeholder="My distribution" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="dist-comment" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
+<input id="dist-comment" bind:value={distComment} type="text" placeholder="My distribution" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 <div class="flex items-center gap-3">
 <input bind:checked={distEnabled} id="dist-enabled" type="checkbox" class="w-4 h-4 rounded" />
@@ -1186,12 +1193,12 @@ class="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400"
 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Origin Request Policy</h2>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
-<input bind:value={orpName} type="text" placeholder="my-origin-request-policy" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="orp-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+<input id="orp-name" bind:value={orpName} type="text" placeholder="my-origin-request-policy" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
-<input bind:value={orpComment} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="orp-comment" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
+<input id="orp-comment" bind:value={orpComment} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 </div>
 <div class="flex gap-3 pt-2">
@@ -1249,25 +1256,25 @@ class="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium 
 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Cache Policy</h2>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
-<input bind:value={cpName} type="text" placeholder="my-cache-policy" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="cp-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+<input id="cp-name" bind:value={cpName} type="text" placeholder="my-cache-policy" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
-<input bind:value={cpComment} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="cp-comment" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
+<input id="cp-comment" bind:value={cpComment} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 <div class="grid grid-cols-3 gap-3">
 <div>
-<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Min TTL (s)</label>
-<input bind:value={cpMinTTL} type="number" class="w-full px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="cp-min-ttl" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Min TTL (s)</label>
+<input id="cp-min-ttl" bind:value={cpMinTTL} type="number" class="w-full px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 <div>
-<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Default TTL (s)</label>
-<input bind:value={cpDefaultTTL} type="number" class="w-full px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="cp-default-ttl" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Default TTL (s)</label>
+<input id="cp-default-ttl" bind:value={cpDefaultTTL} type="number" class="w-full px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 <div>
-<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Max TTL (s)</label>
-<input bind:value={cpMaxTTL} type="number" class="w-full px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="cp-max-ttl" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Max TTL (s)</label>
+<input id="cp-max-ttl" bind:value={cpMaxTTL} type="number" class="w-full px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 </div>
 </div>
@@ -1288,12 +1295,12 @@ class="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium 
 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Origin Access Control</h2>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
-<input bind:value={oacName} type="text" placeholder="my-oac" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="oac-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+<input id="oac-name" bind:value={oacName} type="text" placeholder="my-oac" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-<input bind:value={oacDescription} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="oac-description" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+<input id="oac-description" bind:value={oacDescription} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 <p class="text-xs text-gray-500">Origin type: S3 · Signing: always · Protocol: sigv4</p>
 </div>
@@ -1314,12 +1321,12 @@ class="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium 
 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Response Headers Policy</h2>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
-<input bind:value={rhpName} type="text" placeholder="my-rhp" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="rhp-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+<input id="rhp-name" bind:value={rhpName} type="text" placeholder="my-rhp" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
-<input bind:value={rhpComment} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="rhp-comment" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
+<input id="rhp-comment" bind:value={rhpComment} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 </div>
 <div class="flex gap-3 pt-2">
@@ -1339,16 +1346,16 @@ class="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium 
 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create CloudFront Function</h2>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
-<input bind:value={fnName} type="text" placeholder="my-function" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono" />
+<label for="fn-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+<input id="fn-name" bind:value={fnName} type="text" placeholder="my-function" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
-<input bind:value={fnComment} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+<label for="fn-comment" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
+<input id="fn-comment" bind:value={fnComment} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Function Code (JS)</label>
-<textarea bind:value={fnCode} rows={8} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"></textarea>
+<label for="fn-code" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Function Code (JS)</label>
+<textarea id="fn-code" bind:value={fnCode} rows={8} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"></textarea>
 </div>
 </div>
 <div class="flex gap-3 pt-2">

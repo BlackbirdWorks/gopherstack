@@ -493,7 +493,12 @@ func TestOAICRUD(t *testing.T) {
 			name:   "update_oai",
 			method: http.MethodPut,
 			path:   "", // set in setup
-			body:   []byte(`<CloudFrontOriginAccessIdentityConfig><CallerReference>ref-007</CallerReference><Comment>updated-oai</Comment></CloudFrontOriginAccessIdentityConfig>`),
+			body: []byte(
+				`<CloudFrontOriginAccessIdentityConfig>` +
+					`<CallerReference>ref-007</CallerReference>` +
+					`<Comment>updated-oai</Comment>` +
+					`</CloudFrontOriginAccessIdentityConfig>`,
+			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				oai, err := h.Backend.CreateOAI("oai-ref-007", "orig-oai")
@@ -503,7 +508,10 @@ func TestOAICRUD(t *testing.T) {
 			},
 			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
 				t.Helper()
-				id := strings.TrimPrefix(strings.TrimSuffix(path, "/config"), "/2020-05-31/origin-access-identity/cloudfront/")
+				id := strings.TrimPrefix(
+					strings.TrimSuffix(path, "/config"),
+					"/2020-05-31/origin-access-identity/cloudfront/",
+				)
 				oai, err := h.Backend.GetOAI(id)
 				require.NoError(t, err)
 
@@ -2914,6 +2922,7 @@ func TestCachePolicyCRUD(t *testing.T) {
 				id := strings.TrimPrefix(path, "/2020-05-31/cache-policy/")
 				p, err := h.Backend.GetCachePolicy(id)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": p.ETag}
 			},
 			wantStatus: http.StatusOK,
@@ -2939,6 +2948,7 @@ func TestCachePolicyCRUD(t *testing.T) {
 				id := strings.TrimPrefix(path, "/2020-05-31/cache-policy/")
 				p, err := h.Backend.GetCachePolicy(id)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": p.ETag}
 			},
 			wantStatus: http.StatusNoContent,
@@ -3246,6 +3256,7 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 				id := strings.TrimPrefix(strings.TrimSuffix(path, "/config"), "/2020-05-31/origin-access-control/")
 				oac, err := h.Backend.GetOriginAccessControl(id)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": oac.ETag}
 			},
 			wantStatus: http.StatusOK,
@@ -3271,6 +3282,7 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 				id := strings.TrimPrefix(path, "/2020-05-31/origin-access-control/")
 				oac, err := h.Backend.GetOriginAccessControl(id)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": oac.ETag}
 			},
 			wantStatus: http.StatusNoContent,
@@ -3448,6 +3460,7 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 				id := strings.TrimPrefix(strings.TrimSuffix(path, "/config"), "/2020-05-31/response-headers-policy/")
 				p, err := h.Backend.GetResponseHeadersPolicy(id)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": p.ETag}
 			},
 			wantStatus: http.StatusOK,
@@ -3473,6 +3486,7 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 				id := strings.TrimPrefix(path, "/2020-05-31/response-headers-policy/")
 				p, err := h.Backend.GetResponseHeadersPolicy(id)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": p.ETag}
 			},
 			wantStatus: http.StatusNoContent,
@@ -3635,6 +3649,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				name := strings.TrimPrefix(strings.TrimSuffix(path, "/publish"), "/2020-05-31/function/")
 				fn, err := h.Backend.GetFunction(name)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": fn.ETag}
 			},
 			wantStatus: http.StatusCreated,
@@ -3664,6 +3679,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				name := strings.TrimPrefix(path, "/2020-05-31/function/")
 				fn, err := h.Backend.GetFunction(name)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": fn.ETag}
 			},
 			wantStatus: http.StatusOK,
@@ -3689,6 +3705,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				name := strings.TrimPrefix(path, "/2020-05-31/function/")
 				fn, err := h.Backend.GetFunction(name)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": fn.ETag}
 			},
 			wantStatus: http.StatusNoContent,
@@ -3869,6 +3886,7 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 				id := strings.TrimPrefix(strings.TrimSuffix(path, "/config"), "/2020-05-31/origin-request-policy/")
 				p, err := h.Backend.GetOriginRequestPolicy(id)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": p.ETag}
 			},
 			wantStatus: http.StatusOK,
@@ -3894,6 +3912,7 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 				id := strings.TrimPrefix(path, "/2020-05-31/origin-request-policy/")
 				p, err := h.Backend.GetOriginRequestPolicy(id)
 				require.NoError(t, err)
+
 				return map[string]string{"If-Match": p.ETag}
 			},
 			wantStatus: http.StatusNoContent,

@@ -790,13 +790,14 @@
 			{ key: 'subscription-filters', label: 'Subscription Filters', icon: Zap },
 			{ key: 'export-tasks', label: 'Export Tasks', icon: Download }
 		] as tab}
+			{@const TabIcon = tab.icon}
 			<button
 				onclick={() => switchTab(tab.key as typeof pageTab)}
 				class="flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors {pageTab === tab.key
 					? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
 					: 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}"
 			>
-			<svelte:component this={tab.icon} class="w-4 h-4" />
+			<TabIcon class="w-4 h-4" />
 				{tab.label}
 			</button>
 		{/each}
@@ -1053,20 +1054,20 @@
 			<!-- Query panel -->
 			<div class="lg:col-span-2 space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Query</label>
-					<textarea bind:value={insightsQuery} rows="5"
+					<label for="insights-query" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Query</label>
+					<textarea id="insights-query" bind:value={insightsQuery} rows="5"
 						placeholder="fields @timestamp, @message | filter @message like /ERROR/ | sort @timestamp desc | limit 20"
 						class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-mono text-gray-900 dark:text-white resize-none"></textarea>
 				</div>
 				<div class="flex gap-3 flex-wrap">
 					<div class="flex-1">
-						<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Time</label>
-						<input bind:value={insightsStartTime} type="datetime-local"
+						<label for="insights-start-time" class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Time</label>
+						<input id="insights-start-time" bind:value={insightsStartTime} type="datetime-local"
 							class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white" />
 					</div>
 					<div class="flex-1">
-						<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">End Time</label>
-						<input bind:value={insightsEndTime} type="datetime-local"
+						<label for="insights-end-time" class="block text-xs text-gray-500 dark:text-gray-400 mb-1">End Time</label>
+						<input id="insights-end-time" bind:value={insightsEndTime} type="datetime-local"
 							class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white" />
 					</div>
 				</div>
@@ -1171,8 +1172,8 @@
 		<div class="space-y-4">
 			<div class="flex flex-wrap gap-3 items-end">
 				<div>
-					<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Log Group</label>
-					<select bind:value={mfGroup} onchange={loadMetricFilters}
+					<label for="mf-group" class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Log Group</label>
+					<select id="mf-group" bind:value={mfGroup} onchange={loadMetricFilters}
 						class="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white min-w-48">
 						<option value="">Select a log group...</option>
 						{#each logGroups as group}
@@ -1265,8 +1266,8 @@
 		<div class="space-y-4">
 			<div class="flex flex-wrap gap-3 items-end">
 				<div>
-					<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Log Group</label>
-					<select bind:value={sfGroup} onchange={loadSubFilters}
+					<label for="sf-group" class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Log Group</label>
+					<select id="sf-group" bind:value={sfGroup} onchange={loadSubFilters}
 						class="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white min-w-48">
 						<option value="">Select a log group...</option>
 						{#each logGroups as group}
@@ -1449,30 +1450,30 @@
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Metric Filter</h2>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filter Name *</label>
-				<input bind:value={mfFilterName} type="text" placeholder="my-error-filter"
+				<label for="mf-filter-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filter Name *</label>
+				<input id="mf-filter-name" bind:value={mfFilterName} type="text" placeholder="my-error-filter"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filter Pattern</label>
-				<input bind:value={mfFilterPattern} type="text" placeholder="ERROR"
+				<label for="mf-filter-pattern" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filter Pattern</label>
+				<input id="mf-filter-pattern" bind:value={mfFilterPattern} type="text" placeholder="ERROR"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono text-gray-900 dark:text-white" />
 			</div>
 			<div class="grid grid-cols-2 gap-3">
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Metric Namespace *</label>
-					<input bind:value={mfMetricNamespace} type="text" placeholder="MyApp"
+					<label for="mf-metric-namespace" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Metric Namespace *</label>
+					<input id="mf-metric-namespace" bind:value={mfMetricNamespace} type="text" placeholder="MyApp"
 						class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Metric Name *</label>
-					<input bind:value={mfMetricName} type="text" placeholder="ErrorCount"
+					<label for="mf-metric-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Metric Name *</label>
+					<input id="mf-metric-name" bind:value={mfMetricName} type="text" placeholder="ErrorCount"
 						class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 				</div>
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Metric Value</label>
-				<input bind:value={mfMetricValue} type="text" placeholder="1"
+				<label for="mf-metric-value" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Metric Value</label>
+				<input id="mf-metric-value" bind:value={mfMetricValue} type="text" placeholder="1"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div class="flex gap-3 pt-2">
