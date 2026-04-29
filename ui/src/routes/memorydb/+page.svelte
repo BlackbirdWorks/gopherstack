@@ -7,12 +7,17 @@
 		CreateClusterCommand,
 		DeleteClusterCommand,
 		DescribeSnapshotsCommand,
+		CreateSnapshotCommand,
+		DeleteSnapshotCommand,
 		DescribeUsersCommand,
 		CreateUserCommand,
 		DeleteUserCommand,
+		UpdateUserCommand,
 		DescribeACLsCommand,
 		CreateACLCommand,
 		DeleteACLCommand,
+		UpdateACLCommand,
+		InputAuthenticationType,
 		type Cluster,
 		type Snapshot,
 		type User,
@@ -144,7 +149,7 @@
 			await client.send(new CreateUserCommand({
 				UserName: newUserName.trim(),
 				AccessString: newUserAccessString,
-				AuthenticationMode: { Type: 'no-password' },
+				AuthenticationMode: { Type: 'no-password' as InputAuthenticationType },
 			}));
 			toast.success(`User "${newUserName}" created`);
 			showCreateUser = false;
