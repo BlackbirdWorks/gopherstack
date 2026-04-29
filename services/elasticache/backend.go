@@ -61,6 +61,61 @@ type CacheEvent struct {
 	Message          string    `json:"message"`
 }
 
+// eventRing is a fixed-capacity circular ring buffer for CacheEvents.
+// It stores up to size events, overwriting the oldest when full.
+// Reads allocate and return events in insertion order.
+type eventRing struct {
+	buf  []CacheEvent
+	head int // index of oldest entry
+	n    int // number of valid entries
+	size int
+}
+
+func newEventRing(size int) *eventRing {
+	return &eventRing{buf: make([]CacheEvent, size), size: size}
+}
+
+// push appends e, overwriting the oldest entry when the ring is full.
+func (r *eventRing) push(e CacheEvent) {
+	if r.n < r.size {
+		r.buf[(r.head+r.n)%r.size] = e
+		r.n++
+	} else {
+		// Full: overwrite oldest.
+		r.buf[r.head] = e
+		r.head = (r.head + 1) % r.size
+	}
+}
+
+// all returns a snapshot of all events in insertion order.
+func (r *eventRing) all() []CacheEvent {
+	out := make([]CacheEvent, r.n)
+	for i := range r.n {
+		out[i] = r.buf[(r.head+i)%r.size]
+	}
+
+	return out
+}
+
+// reset clears the ring without reallocating the backing buffer.
+func (r *eventRing) reset() {
+	r.head = 0
+	r.n = 0
+}
+
+// marshalJSON exports events in insertion order for persistence.
+func (r *eventRing) marshalJSON() []CacheEvent {
+	return r.all()
+}
+
+// restoreFromSlice loads previously-persisted events back into the ring.
+func (r *eventRing) restoreFromSlice(events []CacheEvent) {
+	r.reset()
+	for _, e := range events {
+		r.push(e)
+	}
+}
+
 // Cluster represents an ElastiCache cluster.
 type Cluster struct {
 	CreatedAt                  time.Time
@@ -303,24 +358,24 @@ func builtinParameterGroupFamilies() []struct{ family, name string } {
 // InMemoryBackend is an in-memory ElastiCache backend.
 type InMemoryBackend struct {
 	dnsRegistrar              DNSRegistrar
-	clusters                  map[string]*Cluster
-	replicationGroups         map[string]*ReplicationGroup
+	globalReplicationGroups   map[string]*GlobalReplicationGroup
+	users                     map[string]*User
 	parameterGroups           map[string]*CacheParameterGroup
 	subnetGroups              map[string]*CacheSubnetGroup
 	snapshots                 map[string]*CacheSnapshot
 	cacheSecurityGroups       map[string]*CacheSecurityGroup
 	cacheSecurityGroupIngress map[string][]EC2SecurityGroupMembership
-	globalReplicationGroups   map[string]*GlobalReplicationGroup
+	clusters                  map[string]*Cluster
+	replicationGroups         map[string]*ReplicationGroup
 	serverlessCaches          map[string]*ServerlessCache
 	serverlessCacheSnapshots  map[string]*ServerlessCacheSnapshot
-	users                     map[string]*User
 	userGroups                map[string]*UserGroup
 	reservedCacheNodes        map[string]*ReservedCacheNode
 	mu                        *lockmetrics.RWMutex
-	engineMode                string
+	events                    *eventRing
 	accountID                 string
 	region                    string
-	events                    []CacheEvent
+	engineMode                string
 }
 
 // NewInMemoryBackend creates a new backend with the given engine mode.
@@ -343,7 +398,7 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 		users:                     make(map[string]*User),
 		userGroups:                make(map[string]*UserGroup),
 		reservedCacheNodes:        make(map[string]*ReservedCacheNode),
-		events:                    make([]CacheEvent, 0),
+		events:                    newEventRing(maxEvents),
 		engineMode:                engineMode,
 		accountID:                 accountID,
 		region:                    region,
@@ -399,16 +454,14 @@ func (b *InMemoryBackend) snapshotARN(name string) string {
 	return arn.Build("elasticache", b.region, b.accountID, "snapshot:"+name)
 }
 
+// appendEventLocked records a new event. Must be called with b.mu write-locked.
 func (b *InMemoryBackend) appendEventLocked(sourceIdentifier, sourceType, message string) {
-	b.events = append(b.events, CacheEvent{
+	b.events.push(CacheEvent{
 		Date:             time.Now(),
 		SourceIdentifier: sourceIdentifier,
 		SourceType:       sourceType,
 		Message:          message,
 	})
-	if len(b.events) > maxEvents {
-		b.events = b.events[len(b.events)-maxEvents:]
-	}
 }
 
 func validateParamGroupFamily(engine, family string) error {
@@ -1300,8 +1353,9 @@ func (b *InMemoryBackend) DescribeEvents(
 	b.mu.RLock("DescribeEvents")
 	defer b.mu.RUnlock()
 
-	out := make([]CacheEvent, 0, len(b.events))
-	for _, e := range b.events {
+	all := b.events.all()
+	out := make([]CacheEvent, 0, len(all))
+	for _, e := range all {
 		if sourceIdentifier != "" && e.SourceIdentifier != sourceIdentifier {
 			continue
 		}
@@ -1338,6 +1392,6 @@ func (b *InMemoryBackend) Reset() {
 	b.users = make(map[string]*User)
 	b.userGroups = make(map[string]*UserGroup)
 	b.reservedCacheNodes = make(map[string]*ReservedCacheNode)
-	b.events = make([]CacheEvent, 0)
+	b.events.reset()
 	b.initDefaultParameterGroups()
 }

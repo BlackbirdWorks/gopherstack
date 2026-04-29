@@ -20,30 +20,30 @@ var (
 
 // UserGroup represents an ElastiCache user group.
 type UserGroup struct {
-	CreatedAt   time.Time
-	Tags        *tags.Tags
-	UserGroupID string
-	Description string
-	Status      string
-	ARN         string
-	Engine      string
-	UserIDs     []string
+	CreatedAt   time.Time  `json:"createdAt"`
+	Tags        *tags.Tags `json:"tags,omitempty"`
+	UserGroupID string     `json:"userGroupID"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"`
+	ARN         string     `json:"arn"`
+	Engine      string     `json:"engine"`
+	UserIDs     []string   `json:"userIDs,omitempty"`
 }
 
 // ReservedCacheNode represents a purchased reserved cache node.
 type ReservedCacheNode struct {
-	StartTime           time.Time
-	ReservationID       string
-	ReservedCacheNodeID string
-	CacheNodeType       string
-	OfferingType        string
-	ProductDescription  string
-	State               string
-	OfferingID          string
-	FixedPrice          float64
-	UsagePrice          float64
-	Duration            int32
-	CacheNodeCount      int32
+	StartTime           time.Time `json:"startTime"`
+	ReservationID       string    `json:"reservationID,omitempty"`
+	ReservedCacheNodeID string    `json:"reservedCacheNodeID"`
+	CacheNodeType       string    `json:"cacheNodeType"`
+	OfferingType        string    `json:"offeringType"`
+	ProductDescription  string    `json:"productDescription"`
+	State               string    `json:"state"`
+	OfferingID          string    `json:"offeringID"`
+	FixedPrice          float64   `json:"fixedPrice"`
+	UsagePrice          float64   `json:"usagePrice"`
+	Duration            int32     `json:"duration"`
+	CacheNodeCount      int32     `json:"cacheNodeCount"`
 }
 
 // ReservedCacheNodesOffering represents a reserved node offering.
@@ -185,6 +185,7 @@ func (b *InMemoryBackend) DeleteUser(userID string) (*User, error) {
 
 	result := *u
 	delete(b.users, userID)
+	b.appendEventLocked(userID, "user", "user deleted")
 
 	return &result, nil
 }
@@ -257,6 +258,7 @@ func (b *InMemoryBackend) CreateUserGroup(groupID, description, engine string, u
 		Tags:        tags.New("elasticache.usergroup." + groupID + ".tags"),
 	}
 	b.userGroups[groupID] = ug
+	b.appendEventLocked(groupID, "user-group", "user group created")
 
 	return ug, nil
 }
@@ -273,6 +275,7 @@ func (b *InMemoryBackend) DeleteUserGroup(groupID string) (*UserGroup, error) {
 
 	result := *ug
 	delete(b.userGroups, groupID)
+	b.appendEventLocked(groupID, "user-group", "user group deleted")
 
 	return &result, nil
 }
@@ -342,6 +345,7 @@ func (b *InMemoryBackend) DeleteGlobalReplicationGroup(id string, _ bool) (*Glob
 
 	result := *grg
 	delete(b.globalReplicationGroups, id)
+	b.appendEventLocked(id, "global-replication-group", "global replication group deleted")
 
 	return &result, nil
 }
@@ -556,12 +560,20 @@ func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
 		return nil, ErrReservedCacheNodesOfferingNotFound
 	}
 
-	if cacheNodeCount == 0 {
+	if cacheNodeCount <= 0 {
 		cacheNodeCount = 1
 	}
 
 	if reservedCacheNodeID == "" {
 		reservedCacheNodeID = fmt.Sprintf("rcn-%s", offeringID[:8])
+	}
+
+	if _, exists := b.reservedCacheNodes[reservedCacheNodeID]; exists {
+		return nil, fmt.Errorf(
+			"reserved cache node %q already exists: %w",
+			reservedCacheNodeID,
+			ErrReservedCacheNodeNotFound,
+		)
 	}
 
 	rcn := &ReservedCacheNode{
@@ -578,6 +590,7 @@ func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
 		StartTime:           time.Now(),
 	}
 	b.reservedCacheNodes[reservedCacheNodeID] = rcn
+	b.appendEventLocked(reservedCacheNodeID, "reserved-cache-node", "reserved cache node purchased")
 
 	return rcn, nil
 }
@@ -594,6 +607,7 @@ func (b *InMemoryBackend) DeleteServerlessCache(name string) (*ServerlessCache, 
 
 	result := *sc
 	delete(b.serverlessCaches, name)
+	b.appendEventLocked(name, "serverless-cache", "serverless cache deleted")
 
 	return &result, nil
 }
@@ -610,6 +624,7 @@ func (b *InMemoryBackend) DeleteServerlessCacheSnapshot(name string) (*Serverles
 
 	result := *snap
 	delete(b.serverlessCacheSnapshots, name)
+	b.appendEventLocked(name, "serverless-cache-snapshot", "serverless cache snapshot deleted")
 
 	return &result, nil
 }

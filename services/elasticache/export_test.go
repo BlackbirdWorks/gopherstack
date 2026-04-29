@@ -55,3 +55,11 @@ func ReservedCacheNodeCount(b *InMemoryBackend) int {
 
 	return len(b.reservedCacheNodes)
 }
+
+// EventCount returns the number of events currently stored in the ring buffer.
+func EventCount(b *InMemoryBackend) int {
+	b.mu.RLock("EventCount")
+	defer b.mu.RUnlock()
+
+	return b.events.n
+}
