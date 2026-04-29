@@ -140,7 +140,6 @@ func TestIntegration_ElastiCache_ReplicationGroupLifecycle(t *testing.T) {
 	assert.Equal(t, "deleting", aws.ToString(delOut.ReplicationGroup.Status))
 }
 
-
 // TestIntegration_ElastiCache_UserLifecycle tests user CRUD operations.
 func TestIntegration_ElastiCache_UserLifecycle(t *testing.T) {
 	t.Parallel()

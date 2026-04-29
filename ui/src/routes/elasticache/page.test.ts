@@ -228,7 +228,9 @@ describe("ElastiCache Page", () => {
 
   it("switches to replication groups tab", async () => {
     mockSend.mockResolvedValueOnce({ CacheClusters: [] });
-    mockSend.mockResolvedValueOnce({ ReplicationGroups: [{ ReplicationGroupId: "my-rg", Status: "available" }] });
+    mockSend.mockResolvedValueOnce({
+      ReplicationGroups: [{ ReplicationGroupId: "my-rg", Status: "available" }],
+    });
 
     render(ElastiCachePage);
 
@@ -245,7 +247,9 @@ describe("ElastiCache Page", () => {
   it("shows replication groups after loading", async () => {
     mockSend.mockResolvedValueOnce({ CacheClusters: [] });
     mockSend.mockResolvedValueOnce({
-      ReplicationGroups: [{ ReplicationGroupId: "test-rg", Status: "available", Description: "Test group" }],
+      ReplicationGroups: [
+        { ReplicationGroupId: "test-rg", Status: "available", Description: "Test group" },
+      ],
     });
 
     render(ElastiCachePage);
