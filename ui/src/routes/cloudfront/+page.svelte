@@ -3,6 +3,7 @@ import { onMount } from 'svelte';
 import { getCloudFrontClient } from '$lib/aws-client';
 import {
 ListDistributionsCommand,
+CreateDistributionCommand,
 GetDistributionCommand,
 CreateInvalidationCommand,
 ListInvalidationsCommand,
@@ -19,13 +20,17 @@ ListFunctionsCommand,
 CreateFunctionCommand,
 PublishFunctionCommand,
 DeleteFunctionCommand,
+ListOriginRequestPoliciesCommand,
+CreateOriginRequestPolicyCommand,
+DeleteOriginRequestPolicyCommand,
 type DistributionSummary,
 type Distribution,
 type InvalidationSummary,
 type CachePolicySummary,
 type OriginAccessControlSummary,
 type ResponseHeadersPolicySummary,
-type FunctionSummary
+type FunctionSummary,
+type OriginRequestPolicySummary
 } from '@aws-sdk/client-cloudfront';
 import { toast } from 'svelte-sonner';
 import { Globe, Search, RefreshCw, Plus, ChevronRight, Zap, Shield, FileCode, Layout } from 'lucide-svelte';
@@ -33,7 +38,7 @@ import { Globe, Search, RefreshCw, Plus, ChevronRight, Zap, Shield, FileCode, La
 const cf = getCloudFrontClient();
 
 // ---- Main navigation tabs ----
-type MainTab = 'distributions' | 'cache-policies' | 'oac' | 'response-headers' | 'functions';
+type MainTab = 'distributions' | 'cache-policies' | 'oac' | 'response-headers' | 'functions' | 'origin-request-policies';
 let mainTab = $state<MainTab>('distributions');
 
 const mainTabs = [
@@ -41,7 +46,8 @@ const mainTabs = [
 	{ key: 'cache-policies' as MainTab, label: 'Cache Policies', icon: Layout },
 	{ key: 'oac' as MainTab, label: 'Origin Access Control', icon: Shield },
 	{ key: 'response-headers' as MainTab, label: 'Response Headers', icon: FileCode },
-	{ key: 'functions' as MainTab, label: 'Functions', icon: Zap }
+	{ key: 'functions' as MainTab, label: 'Functions', icon: Zap },
+	{ key: 'origin-request-policies' as MainTab, label: 'Origin Request Policies', icon: Globe }
 ];
 
 // ---- Distributions ----
@@ -341,6 +347,24 @@ let fnComment = $state('');
 let fnCode = $state('function handler(event) { return event.request; }');
 let creatingFn = $state(false);
 
+// ---- Origin Request Policies ----
+let orps = $state<OriginRequestPolicySummary[]>([]);
+let loadingORP = $state(false);
+let showCreateORP = $state(false);
+let orpName = $state('');
+let orpComment = $state('');
+let creatingORP = $state(false);
+
+// ---- Create Distribution ----
+let showCreateDist = $state(false);
+let distComment = $state('');
+let distEnabled = $state(true);
+let creatingDist = $state(false);
+
+// ---- OAC form extra fields ----
+let oacOriginType = $state('s3');
+let oacSigningBehavior = $state('always');
+
 async function loadFunctions() {
 loadingFn = true;
 try {
@@ -399,6 +423,95 @@ toast.error('Failed to delete function: ' + String(e));
 }
 }
 
+async function loadORPs() {
+loadingORP = true;
+try {
+const resp = await cf.send(new ListOriginRequestPoliciesCommand({}));
+orps = resp.OriginRequestPolicyList?.Items ?? [];
+} catch (e) {
+toast.error('Failed to load origin request policies: ' + String(e));
+} finally {
+loadingORP = false;
+}
+}
+
+async function createORP() {
+creatingORP = true;
+try {
+await cf.send(
+new CreateOriginRequestPolicyCommand({
+OriginRequestPolicyConfig: { Name: orpName, Comment: orpComment }
+})
+);
+toast.success('Origin request policy created');
+showCreateORP = false;
+orpName = '';
+orpComment = '';
+await loadORPs();
+} catch (e) {
+toast.error('Failed to create origin request policy: ' + String(e));
+} finally {
+creatingORP = false;
+}
+}
+
+async function deleteORP(id: string) {
+try {
+await cf.send(new DeleteOriginRequestPolicyCommand({ Id: id, IfMatch: '*' }));
+toast.success('Origin request policy deleted');
+await loadORPs();
+} catch (e) {
+toast.error('Failed to delete origin request policy: ' + String(e));
+}
+}
+
+async function createDistribution() {
+creatingDist = true;
+try {
+await cf.send(
+new CreateDistributionCommand({
+DistributionConfig: {
+CallerReference: `dist-${Date.now()}`,
+Comment: distComment,
+Enabled: distEnabled,
+Origins: {
+Quantity: 1,
+Items: [
+{
+Id: 'default-origin',
+DomainName: 'example.com',
+CustomOriginConfig: {
+HTTPPort: 80,
+HTTPSPort: 443,
+OriginProtocolPolicy: 'https-only'
+}
+}
+]
+},
+DefaultCacheBehavior: {
+TargetOriginId: 'default-origin',
+ViewerProtocolPolicy: 'redirect-to-https',
+ForwardedValues: {
+QueryString: false,
+Cookies: { Forward: 'none' }
+},
+MinTTL: 0
+}
+}
+})
+);
+toast.success('Distribution created');
+showCreateDist = false;
+distComment = '';
+distEnabled = true;
+await loadDistributions();
+} catch (e) {
+toast.error('Failed to create distribution: ' + String(e));
+} finally {
+creatingDist = false;
+}
+}
+
 function handleMainTabChange(tab: MainTab) {
 mainTab = tab;
 selectedDist = null;
@@ -408,6 +521,7 @@ if (tab === 'cache-policies' && cachePolicies.length === 0) loadCachePolicies();
 if (tab === 'oac' && oacs.length === 0) loadOACs();
 if (tab === 'response-headers' && rhps.length === 0) loadRHPs();
 if (tab === 'functions' && cfFunctions.length === 0) loadFunctions();
+if (tab === 'origin-request-policies' && orps.length === 0) loadORPs();
 }
 
 onMount(() => {
@@ -432,6 +546,7 @@ else if (mainTab === 'cache-policies') loadCachePolicies();
 else if (mainTab === 'oac') loadOACs();
 else if (mainTab === 'response-headers') loadRHPs();
 else if (mainTab === 'functions') loadFunctions();
+else if (mainTab === 'origin-request-policies') loadORPs();
 }}
 class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
 >
@@ -652,7 +767,8 @@ class={`px-2 py-0.5 rounded text-xs font-medium ${inv.Status === 'Completed' ? '
 {/if}
 {:else}
 <!-- Distribution List -->
-<div class="relative">
+<div class="flex items-center justify-between gap-2">
+<div class="relative flex-1">
 <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
 <input
 bind:value={searchQuery}
@@ -660,6 +776,13 @@ type="text"
 placeholder="Search distributions..."
 class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
 />
+</div>
+<button
+onclick={() => (showCreateDist = true)}
+class="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-sm font-medium whitespace-nowrap"
+>
+<Plus class="w-4 h-4" /> Create
+</button>
 </div>
 {#if loading}
 <div class="flex justify-center py-12">
@@ -671,6 +794,12 @@ class="animate-spin w-8 h-8 border-4 border-violet-600 border-t-transparent roun
 <div class="text-center py-16 text-gray-500 dark:text-gray-400">
 <Globe class="w-12 h-12 mx-auto mb-3 opacity-40" />
 <p class="font-medium">No distributions found</p>
+<button
+onclick={() => (showCreateDist = true)}
+class="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-sm font-medium"
+>
+<Plus class="w-4 h-4" /> Create Distribution
+</button>
 </div>
 {:else}
 <div
@@ -972,6 +1101,108 @@ Delete
 {/if}
 {/if}
 </div>
+
+<!-- ========== ORIGIN REQUEST POLICIES ========== -->
+{#if mainTab === 'origin-request-policies'}
+<div class="flex items-center justify-between">
+<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Origin Request Policies</h2>
+<button
+onclick={() => (showCreateORP = true)}
+class="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-sm font-medium"
+>
+<Plus class="w-4 h-4" /> Create Policy
+</button>
+</div>
+{#if loadingORP}
+<div class="flex justify-center py-8">
+<div class="animate-spin w-8 h-8 border-4 border-violet-600 border-t-transparent rounded-full"></div>
+</div>
+{:else if orps.length === 0}
+<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+<Globe class="w-12 h-12 mx-auto mb-3 opacity-40" />
+<p class="font-medium">No origin request policies</p>
+</div>
+{:else}
+<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+<table class="w-full text-sm">
+<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+<tr>
+<th class="px-4 py-3 text-left">Name</th>
+<th class="px-4 py-3 text-left">ID</th>
+<th class="px-4 py-3 text-left">Comment</th>
+<th class="px-4 py-3 text-left">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+{#each orps as orp}
+<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+<td class="px-4 py-3 font-medium text-sm">{orp.OriginRequestPolicy?.OriginRequestPolicyConfig?.Name ?? '-'}</td>
+<td class="px-4 py-3 font-mono text-xs text-gray-400">{orp.OriginRequestPolicy?.Id ?? '-'}</td>
+<td class="px-4 py-3 text-xs text-gray-500">{orp.OriginRequestPolicy?.OriginRequestPolicyConfig?.Comment || '-'}</td>
+<td class="px-4 py-3">
+<button
+onclick={() => deleteORP(orp.OriginRequestPolicy?.Id ?? '')}
+class="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400"
+>Delete</button>
+</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+{/if}
+
+<!-- Create Distribution Modal -->
+{#if showCreateDist}
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Distribution</h2>
+<div class="space-y-3">
+<div>
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
+<input bind:value={distComment} type="text" placeholder="My distribution" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+</div>
+<div class="flex items-center gap-3">
+<input bind:checked={distEnabled} id="dist-enabled" type="checkbox" class="w-4 h-4 rounded" />
+<label for="dist-enabled" class="text-sm font-medium text-gray-700 dark:text-gray-300">Enabled</label>
+</div>
+<p class="text-xs text-gray-500">Creates a basic distribution with a placeholder HTTP origin (example.com).</p>
+</div>
+<div class="flex gap-3 pt-2">
+<button onclick={() => (showCreateDist = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+<button onclick={createDistribution} disabled={creatingDist} class="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50">
+{creatingDist ? 'Creating...' : 'Create'}
+</button>
+</div>
+</div>
+</div>
+{/if}
+
+<!-- Create Origin Request Policy Modal -->
+{#if showCreateORP}
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Origin Request Policy</h2>
+<div class="space-y-3">
+<div>
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+<input bind:value={orpName} type="text" placeholder="my-origin-request-policy" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+</div>
+<div>
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
+<input bind:value={orpComment} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+</div>
+</div>
+<div class="flex gap-3 pt-2">
+<button onclick={() => (showCreateORP = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+<button onclick={createORP} disabled={creatingORP || !orpName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50">
+{creatingORP ? 'Creating...' : 'Create'}
+</button>
+</div>
+</div>
+</div>
+{/if}
 
 <!-- Create Invalidation Modal -->
 {#if showInvalidate && selectedDist}
