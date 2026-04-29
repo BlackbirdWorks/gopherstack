@@ -15,12 +15,12 @@ type backendSnapshot struct {
 	RingHead int      `json:"ringHead"`
 }
 
-// Snapshot serialises the backend state to JSON.
+// Snapshot serializes the backend state to JSON.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	// Flatten the ring buffer into a plain slice for JSON serialisation.
+	// Flatten the ring buffer into a plain slice for JSON serialization.
 	ringCopy := make([]string, b.ringLen)
 	for i := range b.ringLen {
 		ringCopy[i] = b.ringBuf[(b.ringHead+i)%maxStatementHistory]

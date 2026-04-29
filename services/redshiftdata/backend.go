@@ -149,7 +149,9 @@ func (b *InMemoryBackend) ExecuteStatement(
 		IsBatchStatement:  false,
 		CreatedAt:         now,
 		UpdatedAt:         now,
-		// Simulated instant execution: 1 ms so callers always receive a non-zero value.
+		// Simulated instant execution: 1 ms so the UI always displays a
+		// human-readable duration rather than showing "0ms" which could be
+		// mistaken for a failed or uninitialised measurement.
 		DurationMs: 1,
 	}
 	b.addStatement(stmt)

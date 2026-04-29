@@ -230,7 +230,7 @@
 					if (resp.HasResultSet) {
 						await loadResults(id);
 					}
-					toast.success('Query finished' + (executionDurationMs ? ` in ${formatDuration(executionDurationMs)}` : ''));
+					toast.success(`Query finished${executionDurationMs ? ` in ${formatDuration(executionDurationMs)}` : ''}`);
 				} else if (resp.Status === 'FAILED' || resp.Status === 'ABORTED') {
 					executing = false;
 					executionDurationMs = (resp as { Duration?: number }).Duration ?? null;
