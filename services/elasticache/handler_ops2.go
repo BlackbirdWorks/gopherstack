@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
@@ -125,6 +126,7 @@ type reservedCacheNodeXML struct {
 	OfferingType        string  `xml:"OfferingType"`
 	State               string  `xml:"State"`
 	OfferingID          string  `xml:"ReservedCacheNodesOfferingId"`
+	StartTime           string  `xml:"StartTime,omitempty"`
 	FixedPrice          float64 `xml:"FixedPrice"`
 	UsagePrice          float64 `xml:"UsagePrice"`
 	Duration            int32   `xml:"Duration"`
@@ -132,6 +134,11 @@ type reservedCacheNodeXML struct {
 }
 
 func reservedCacheNodeToXML(rcn *ReservedCacheNode) reservedCacheNodeXML {
+	startTime := ""
+	if !rcn.StartTime.IsZero() {
+		startTime = rcn.StartTime.UTC().Format(time.RFC3339)
+	}
+
 	return reservedCacheNodeXML{
 		ReservationID:       rcn.ReservationID,
 		ReservedCacheNodeID: rcn.ReservedCacheNodeID,
@@ -144,6 +151,7 @@ func reservedCacheNodeToXML(rcn *ReservedCacheNode) reservedCacheNodeXML {
 		OfferingType:        rcn.OfferingType,
 		State:               rcn.State,
 		OfferingID:          rcn.OfferingID,
+		StartTime:           startTime,
 	}
 }
 
@@ -668,9 +676,11 @@ func (h *Handler) rebalanceSlotsInGlobalReplicationGroup(c *echo.Context, form u
 
 func (h *Handler) describeReservedCacheNodes(c *echo.Context, form url.Values) error {
 	id := form.Get("ReservedCacheNodeId")
+	cacheNodeType := form.Get("CacheNodeType")
+	offeringType := form.Get("OfferingType")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeReservedCacheNodes(id, marker, maxRecords)
+	p, err := h.Backend.DescribeReservedCacheNodes(id, cacheNodeType, offeringType, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrReservedCacheNodeNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReservedCacheNodeNotFound", "Reserved cache node not found")
@@ -695,9 +705,11 @@ func (h *Handler) describeReservedCacheNodes(c *echo.Context, form url.Values) e
 
 func (h *Handler) describeReservedCacheNodesOfferings(c *echo.Context, form url.Values) error {
 	offeringID := form.Get("ReservedCacheNodesOfferingId")
+	cacheNodeType := form.Get("CacheNodeType")
+	offeringType := form.Get("OfferingType")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeReservedCacheNodesOfferings(offeringID, marker, maxRecords)
+	p, err := h.Backend.DescribeReservedCacheNodesOfferings(offeringID, cacheNodeType, offeringType, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrReservedCacheNodesOfferingNotFound) {
 			return xmlError(

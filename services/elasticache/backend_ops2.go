@@ -490,7 +490,7 @@ func (b *InMemoryBackend) RebalanceSlotsInGlobalReplicationGroup(id string) (*Gl
 
 // DescribeReservedCacheNodes returns a paginated list of reserved cache nodes.
 func (b *InMemoryBackend) DescribeReservedCacheNodes(
-	id, marker string,
+	id, cacheNodeType, offeringType, marker string,
 	maxRecords int,
 ) (page.Page[ReservedCacheNode], error) {
 	b.mu.RLock("DescribeReservedCacheNodes")
@@ -507,6 +507,12 @@ func (b *InMemoryBackend) DescribeReservedCacheNodes(
 
 	out := make([]ReservedCacheNode, 0, len(b.reservedCacheNodes))
 	for _, rcn := range b.reservedCacheNodes {
+		if cacheNodeType != "" && rcn.CacheNodeType != cacheNodeType {
+			continue
+		}
+		if offeringType != "" && rcn.OfferingType != offeringType {
+			continue
+		}
 		out = append(out, *rcn)
 	}
 
@@ -517,7 +523,7 @@ func (b *InMemoryBackend) DescribeReservedCacheNodes(
 
 // DescribeReservedCacheNodesOfferings returns a paginated list of reserved cache node offerings.
 func (b *InMemoryBackend) DescribeReservedCacheNodesOfferings(
-	offeringID, marker string,
+	offeringID, cacheNodeType, offeringType, marker string,
 	maxRecords int,
 ) (page.Page[ReservedCacheNodesOffering], error) {
 	b.mu.RLock("DescribeReservedCacheNodesOfferings")
@@ -535,7 +541,18 @@ func (b *InMemoryBackend) DescribeReservedCacheNodesOfferings(
 		return page.Page[ReservedCacheNodesOffering]{}, ErrReservedCacheNodesOfferingNotFound
 	}
 
-	return page.New(all, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	filtered := make([]ReservedCacheNodesOffering, 0, len(all))
+	for _, o := range all {
+		if cacheNodeType != "" && o.CacheNodeType != cacheNodeType {
+			continue
+		}
+		if offeringType != "" && o.OfferingType != offeringType {
+			continue
+		}
+		filtered = append(filtered, o)
+	}
+
+	return page.New(filtered, marker, maxRecords, elasticacheDefaultMaxRecords), nil
 }
 
 // PurchaseReservedCacheNodesOffering purchases a reserved cache node offering.
@@ -828,13 +845,22 @@ func (b *InMemoryBackend) DescribeCacheEngineVersions(
 }
 
 // RebootCacheCluster reboots a cache cluster.
-func (b *InMemoryBackend) RebootCacheCluster(clusterID string, _ []string) (*Cluster, error) {
+func (b *InMemoryBackend) RebootCacheCluster(clusterID string, nodeIDs []string) (*Cluster, error) {
 	b.mu.Lock("RebootCacheCluster")
 	defer b.mu.Unlock()
 
 	c, ok := b.clusters[clusterID]
 	if !ok {
 		return nil, ErrClusterNotFound
+	}
+
+	// Record an event for each rebooted node (or one general event if no node IDs provided).
+	if len(nodeIDs) == 0 {
+		b.appendEventLocked(clusterID, "cache-cluster", "cache cluster reboot started")
+	} else {
+		for _, nodeID := range nodeIDs {
+			b.appendEventLocked(clusterID, "cache-cluster", "cache node "+nodeID+" reboot started")
+		}
 	}
 
 	result := *c

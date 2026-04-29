@@ -45,15 +45,21 @@ type cacheNodes struct {
 
 // cacheClusterXML is the XML representation of a cache cluster.
 type cacheClusterXML struct {
-	CacheClusterID          string     `xml:"CacheClusterId"`
-	CacheClusterStatus      string     `xml:"CacheClusterStatus"`
-	CacheNodeType           string     `xml:"CacheNodeType"`
-	Engine                  string     `xml:"Engine"`
-	EngineVersion           string     `xml:"EngineVersion"`
-	ARN                     string     `xml:"ARN"`
-	CacheParameterGroupName string     `xml:"CacheParameterGroup>CacheParameterGroupName,omitempty"`
-	CacheNodes              cacheNodes `xml:"CacheNodes"`
-	NumCacheNodes           int        `xml:"NumCacheNodes"`
+	CacheParameterGroupName    string     `xml:"CacheParameterGroup>CacheParameterGroupName,omitempty"`
+	PreferredMaintenanceWindow string     `xml:"PreferredMaintenanceWindow,omitempty"`
+	CacheNodeType              string     `xml:"CacheNodeType"`
+	Engine                     string     `xml:"Engine"`
+	EngineVersion              string     `xml:"EngineVersion"`
+	ARN                        string     `xml:"ARN"`
+	CacheClusterStatus         string     `xml:"CacheClusterStatus"`
+	CreatedAt                  string     `xml:"CacheClusterCreateTime,omitempty"`
+	CacheClusterID             string     `xml:"CacheClusterId"`
+	ReplicationGroupID         string     `xml:"ReplicationGroupId,omitempty"`
+	SnapshotWindow             string     `xml:"SnapshotWindow,omitempty"`
+	CacheNodes                 cacheNodes `xml:"CacheNodes"`
+	NumCacheNodes              int        `xml:"NumCacheNodes"`
+	TransitEncryptionEnabled   bool       `xml:"TransitEncryptionEnabled"`
+	AtRestEncryptionEnabled    bool       `xml:"AtRestEncryptionEnabled"`
 }
 
 // Handler is the Echo HTTP handler for ElastiCache operations.
@@ -375,11 +381,22 @@ func parseSubnetIDs(form url.Values) []string {
 
 func (h *Handler) createCacheCluster(c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
+	if id == "" {
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "CacheClusterId is required")
+	}
+
 	engine := form.Get("Engine")
 	nodeType := form.Get("CacheNodeType")
 	paramGroupName := form.Get("CacheParameterGroupName")
 	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
 	snapshotWindow := form.Get("SnapshotWindow")
+	numCacheNodes := 1
+
+	if s := form.Get("NumCacheNodes"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			numCacheNodes = n
+		}
+	}
 
 	cluster, err := h.Backend.CreateClusterWithOptions(
 		id,
@@ -388,6 +405,7 @@ func (h *Handler) createCacheCluster(c *echo.Context, form url.Values) error {
 		paramGroupName,
 		maintenanceWindow,
 		snapshotWindow,
+		numCacheNodes,
 		0,
 	)
 	if err != nil {
@@ -593,21 +611,43 @@ func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error
 
 // replicationGroupXML is the XML representation of a single replication group.
 type replicationGroupXML struct {
-	ReplicationGroupID      string `xml:"ReplicationGroupId"`
-	Description             string `xml:"Description"`
-	Status                  string `xml:"Status"`
-	ARN                     string `xml:"ARN"`
-	CacheParameterGroupName string `xml:"CacheParameterGroupName,omitempty"`
+	ReplicationGroupID         string `xml:"ReplicationGroupId"`
+	Description                string `xml:"Description"`
+	Status                     string `xml:"Status"`
+	ARN                        string `xml:"ARN"`
+	CacheParameterGroupName    string `xml:"CacheParameterGroupName,omitempty"`
+	AutomaticFailover          string `xml:"AutomaticFailover,omitempty"`
+	MultiAZ                    string `xml:"MultiAZ,omitempty"`
+	SnapshotWindow             string `xml:"SnapshotWindow,omitempty"`
+	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
+	EngineVersion              string `xml:"EngineVersion,omitempty"`
+	CreatedAt                  string `xml:"CreatingDate,omitempty"`
 }
 
 // rgToXML converts a ReplicationGroup to its XML representation.
 func rgToXML(rg ReplicationGroup) replicationGroupXML {
+	multiAZ := "disabled"
+	if rg.MultiAZEnabled {
+		multiAZ = "enabled"
+	}
+
+	autoFailover := rg.AutomaticFailover
+	if autoFailover == "" {
+		autoFailover = "disabled"
+	}
+
 	return replicationGroupXML{
-		ReplicationGroupID:      rg.ReplicationGroupID,
-		Description:             rg.Description,
-		Status:                  rg.Status,
-		ARN:                     rg.ARN,
-		CacheParameterGroupName: rg.CacheParameterGroupName,
+		ReplicationGroupID:         rg.ReplicationGroupID,
+		Description:                rg.Description,
+		Status:                     rg.Status,
+		ARN:                        rg.ARN,
+		CacheParameterGroupName:    rg.CacheParameterGroupName,
+		AutomaticFailover:          autoFailover,
+		MultiAZ:                    multiAZ,
+		SnapshotWindow:             rg.SnapshotWindow,
+		PreferredMaintenanceWindow: rg.PreferredMaintenanceWindow,
+		EngineVersion:              rg.EngineVersion,
+		CreatedAt:                  rg.CreatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -651,26 +691,43 @@ func (h *Handler) describeReplicationGroups(c *echo.Context, form url.Values) er
 
 // clusterToXML converts a Cluster to its XML representation with the given status.
 func clusterToXML(cl *Cluster, status string) cacheClusterXML {
+	n := cl.NumCacheNodes
+	if n <= 0 {
+		n = 1
+	}
+
+	nodes := make([]cacheNode, 0, n)
+	for i := range n {
+		nodeID := fmt.Sprintf("%04d", i+1)
+		nodes = append(nodes, cacheNode{
+			CacheNodeID:              nodeID,
+			CacheNodeStatus:          status,
+			CacheNodeCreateTime:      cl.CreatedAt.UTC().Format(time.RFC3339),
+			CustomerAvailabilityZone: "us-east-1a",
+			Endpoint: cacheEndpoint{
+				Address: cl.Endpoint,
+				Port:    cl.Port,
+			},
+		})
+	}
+
 	return cacheClusterXML{
-		CacheClusterID:          cl.ClusterID,
-		CacheClusterStatus:      status,
-		CacheNodeType:           cl.NodeType,
-		Engine:                  cl.Engine,
-		EngineVersion:           cl.EngineVersion,
-		NumCacheNodes:           cl.NumCacheNodes,
-		ARN:                     cl.ARN,
-		CacheParameterGroupName: cl.CacheParameterGroupName,
+		CacheClusterID:             cl.ClusterID,
+		CacheClusterStatus:         status,
+		CacheNodeType:              cl.NodeType,
+		Engine:                     cl.Engine,
+		EngineVersion:              cl.EngineVersion,
+		NumCacheNodes:              n,
+		ARN:                        cl.ARN,
+		CacheParameterGroupName:    cl.CacheParameterGroupName,
+		ReplicationGroupID:         cl.ReplicationGroupID,
+		PreferredMaintenanceWindow: cl.PreferredMaintenanceWindow,
+		SnapshotWindow:             cl.SnapshotWindow,
+		TransitEncryptionEnabled:   cl.TransitEncryptionEnabled,
+		AtRestEncryptionEnabled:    cl.AtRestEncryptionEnabled,
+		CreatedAt:                  cl.CreatedAt.UTC().Format(time.RFC3339),
 		CacheNodes: cacheNodes{
-			CacheNode: []cacheNode{{
-				CacheNodeID:              "0001",
-				CacheNodeStatus:          status,
-				CacheNodeCreateTime:      time.Now().UTC().Format(time.RFC3339),
-				CustomerAvailabilityZone: "us-east-1a",
-				Endpoint: cacheEndpoint{
-					Address: cl.Endpoint,
-					Port:    cl.Port,
-				},
-			}},
+			CacheNode: nodes,
 		},
 	}
 }
@@ -1178,6 +1235,7 @@ type snapshotXML struct {
 	EngineVersion      string `xml:"EngineVersion,omitempty"`
 	CacheNodeType      string `xml:"CacheNodeType,omitempty"`
 	SnapshotSource     string `xml:"SnapshotSource"`
+	SnapshotCreateTime string `xml:"SnapshotCreateTime,omitempty"`
 }
 
 func snapshotToXML(snap *CacheSnapshot) snapshotXML {
@@ -1191,6 +1249,7 @@ func snapshotToXML(snap *CacheSnapshot) snapshotXML {
 		EngineVersion:      snap.EngineVersion,
 		CacheNodeType:      snap.NodeType,
 		SnapshotSource:     snap.SnapshotSource,
+		SnapshotCreateTime: snap.CreatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -1437,7 +1496,28 @@ func (h *Handler) describeEvents(c *echo.Context, form url.Values) error {
 	sourceType := form.Get("SourceType")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeEvents(sourceIdentifier, sourceType, marker, maxRecords)
+	var startTime, endTime time.Time
+
+	if s := form.Get("StartTime"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			startTime = t
+		}
+	}
+
+	if s := form.Get("EndTime"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			endTime = t
+		}
+	}
+
+	duration := 0
+	if s := form.Get("Duration"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			duration = n
+		}
+	}
+
+	p, err := h.Backend.DescribeEvents(sourceIdentifier, sourceType, marker, startTime, endTime, duration, maxRecords)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -146,6 +147,7 @@ func TestCreateClusterWithOptions_AtomicNoLeak(t *testing.T) {
 				tt.paramGroupName,
 				"",
 				"",
+				1,
 				0,
 			)
 			require.ErrorIs(t, err, tt.wantErr)
@@ -204,6 +206,7 @@ func TestCreateClusterWithOptions_FamilyValidation(t *testing.T) {
 				tt.paramGroupName,
 				"",
 				"",
+				1,
 				0,
 			)
 
@@ -279,7 +282,7 @@ func TestDescribeEvents_RecordsOperations(t *testing.T) {
 			_, err := backend.CreateCluster(tt.clusterID, "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
 
-			p, err := backend.DescribeEvents("", "", "", 0)
+			p, err := backend.DescribeEvents("", "", "", time.Time{}, time.Time{}, 0, 0)
 			require.NoError(t, err)
 			require.NotEmpty(t, p.Data)
 
@@ -337,7 +340,7 @@ func TestFailoverReplicationGroup(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "available", rg.Status)
 
-			p, evErr := backend.DescribeEvents(tt.rgID, "replication-group", "", 0)
+			p, evErr := backend.DescribeEvents(tt.rgID, "replication-group", "", time.Time{}, time.Time{}, 0, 0)
 			require.NoError(t, evErr)
 
 			found := false
@@ -469,7 +472,7 @@ func TestBackend_Reset(t *testing.T) {
 			_, err = backend.DescribeReplicationGroups("reset-rg", "", 0)
 			require.ErrorIs(t, err, elasticache.ErrReplicationGroupNotFound)
 
-			p, err := backend.DescribeEvents("", "", "", 0)
+			p, err := backend.DescribeEvents("", "", "", time.Time{}, time.Time{}, 0, 0)
 			require.NoError(t, err)
 			assert.Empty(t, p.Data)
 
