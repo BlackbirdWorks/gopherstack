@@ -64,6 +64,30 @@ func ActiveResizeCount(b *InMemoryBackend) int {
 	return len(b.activeResizes)
 }
 
+// ParameterGroupCount returns the number of parameter groups in the backend.
+func ParameterGroupCount(b *InMemoryBackend) int {
+	b.mu.RLock("ParameterGroupCount")
+	defer b.mu.RUnlock()
+
+	return len(b.parameterGroups)
+}
+
+// SubnetGroupCount returns the number of subnet groups in the backend.
+func SubnetGroupCount(b *InMemoryBackend) int {
+	b.mu.RLock("SubnetGroupCount")
+	defer b.mu.RUnlock()
+
+	return len(b.subnetGroups)
+}
+
+// EventSubscriptionCount returns the number of event subscriptions in the backend.
+func EventSubscriptionCount(b *InMemoryBackend) int {
+	b.mu.RLock("EventSubscriptionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.eventSubscriptions)
+}
+
 // HandlerOpsLen returns the number of operations registered in the handler.
 func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)

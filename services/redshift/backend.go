@@ -10,19 +10,28 @@ import (
 )
 
 var (
-	ErrClusterNotFound           = errors.New("ClusterNotFound")
-	ErrClusterAlreadyExists      = errors.New("ClusterAlreadyExists")
-	ErrInvalidParameter          = errors.New("InvalidParameterValue")
-	ErrReservedNodeNotFound      = errors.New("ReservedNodeNotFound")
-	ErrReservedNodeAlreadyExists = errors.New("ReservedNodeAlreadyExists")
-	ErrPartnerNotFound           = errors.New("PartnerNotFound")
-	ErrDataShareNotFound         = errors.New("DataShareNotFound")
-	ErrSecurityGroupNotFound     = errors.New("ClusterSecurityGroupNotFound")
-	ErrSnapshotNotFound          = errors.New("ClusterSnapshotNotFound")
-	ErrEndpointAuthNotFound      = errors.New("EndpointAuthorizationNotFound")
-	ErrEndpointAuthAlreadyExists = errors.New("EndpointAuthorizationAlreadyExists")
-	ErrResizeNotFound            = errors.New("ResizeNotFound")
-	ErrResizeNotCancellable      = errors.New("InvalidClusterState")
+	ErrClusterNotFound                   = errors.New("ClusterNotFound")
+	ErrClusterAlreadyExists              = errors.New("ClusterAlreadyExists")
+	ErrInvalidParameter                  = errors.New("InvalidParameterValue")
+	ErrReservedNodeNotFound              = errors.New("ReservedNodeNotFound")
+	ErrReservedNodeAlreadyExists         = errors.New("ReservedNodeAlreadyExists")
+	ErrReservedNodeOfferingNotFound      = errors.New("ReservedNodeOfferingNotFound")
+	ErrPartnerNotFound                   = errors.New("PartnerNotFound")
+	ErrDataShareNotFound                 = errors.New("DataShareNotFound")
+	ErrSecurityGroupNotFound             = errors.New("ClusterSecurityGroupNotFound")
+	ErrSecurityGroupAlreadyExists        = errors.New("ClusterSecurityGroupAlreadyExists")
+	ErrSnapshotNotFound                  = errors.New("ClusterSnapshotNotFound")
+	ErrSnapshotAlreadyExists             = errors.New("ClusterSnapshotAlreadyExists")
+	ErrEndpointAuthNotFound              = errors.New("EndpointAuthorizationNotFound")
+	ErrEndpointAuthAlreadyExists         = errors.New("EndpointAuthorizationAlreadyExists")
+	ErrResizeNotFound                    = errors.New("ResizeNotFound")
+	ErrResizeNotCancellable              = errors.New("InvalidClusterState")
+	ErrParameterGroupNotFound            = errors.New("ClusterParameterGroupNotFound")
+	ErrParameterGroupAlreadyExists       = errors.New("ClusterParameterGroupAlreadyExists")
+	ErrSubnetGroupNotFound               = errors.New("ClusterSubnetGroupNotFound")
+	ErrSubnetGroupAlreadyExists          = errors.New("ClusterSubnetGroupAlreadyExists")
+	ErrEventSubscriptionNotFound         = errors.New("SubscriptionNotFound")
+	ErrEventSubscriptionAlreadyExists    = errors.New("SubscriptionAlreadyExist")
 )
 
 // Named status constants for cluster and resource states.
@@ -115,6 +124,7 @@ type AccountWithRestoreAccess struct {
 
 // Snapshot represents a Redshift cluster snapshot.
 type Snapshot struct {
+	SnapshotCreateTime            time.Time                  `json:"snapshotCreateTime,omitempty"`
 	SnapshotIdentifier            string                     `json:"snapshotIdentifier"`
 	ClusterIdentifier             string                     `json:"clusterIdentifier"`
 	SnapshotType                  string                     `json:"snapshotType"`
@@ -183,34 +193,44 @@ type Cluster struct {
 
 // InMemoryBackend is the in-memory store for Redshift clusters.
 type InMemoryBackend struct {
-	dnsRegistrar   DNSRegistrar
-	clusters       map[string]*Cluster
-	reservedNodes  map[string]*ReservedNode
-	partners       map[string]*Partner
-	dataShares     map[string]*DataShare
-	securityGroups map[string]*ClusterSecurityGroup
-	snapshots      map[string]*Snapshot
-	endpointAuths  map[string]*EndpointAuthorization
-	activeResizes  map[string]*ResizeProgress
-	mu             *lockmetrics.RWMutex
-	accountID      string
-	region         string
+	dnsRegistrar       DNSRegistrar
+	clusters           map[string]*Cluster
+	reservedNodes      map[string]*ReservedNode
+	partners           map[string]*Partner
+	dataShares         map[string]*DataShare
+	securityGroups     map[string]*ClusterSecurityGroup
+	snapshots          map[string]*Snapshot
+	endpointAuths      map[string]*EndpointAuthorization
+	activeResizes      map[string]*ResizeProgress
+	parameterGroups    map[string]*ClusterParameterGroup
+	subnetGroups       map[string]*ClusterSubnetGroup
+	loggingStatuses    map[string]*LoggingStatus
+	eventSubscriptions map[string]*EventSubscription
+	events             map[string]*Event
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		clusters:       make(map[string]*Cluster),
-		reservedNodes:  make(map[string]*ReservedNode),
-		partners:       make(map[string]*Partner),
-		dataShares:     make(map[string]*DataShare),
-		securityGroups: make(map[string]*ClusterSecurityGroup),
-		snapshots:      make(map[string]*Snapshot),
-		endpointAuths:  make(map[string]*EndpointAuthorization),
-		activeResizes:  make(map[string]*ResizeProgress),
-		accountID:      accountID,
-		region:         region,
-		mu:             lockmetrics.New("redshift"),
+		clusters:           make(map[string]*Cluster),
+		reservedNodes:      make(map[string]*ReservedNode),
+		partners:           make(map[string]*Partner),
+		dataShares:         make(map[string]*DataShare),
+		securityGroups:     make(map[string]*ClusterSecurityGroup),
+		snapshots:          make(map[string]*Snapshot),
+		endpointAuths:      make(map[string]*EndpointAuthorization),
+		activeResizes:      make(map[string]*ResizeProgress),
+		parameterGroups:    make(map[string]*ClusterParameterGroup),
+		subnetGroups:       make(map[string]*ClusterSubnetGroup),
+		loggingStatuses:    make(map[string]*LoggingStatus),
+		eventSubscriptions: make(map[string]*EventSubscription),
+		events:             make(map[string]*Event),
+		accountID:          accountID,
+		region:             region,
+		mu:                 lockmetrics.New("redshift"),
 	}
 }
 
@@ -231,6 +251,11 @@ func (b *InMemoryBackend) Reset() {
 	b.snapshots = make(map[string]*Snapshot)
 	b.endpointAuths = make(map[string]*EndpointAuthorization)
 	b.activeResizes = make(map[string]*ResizeProgress)
+	b.parameterGroups = make(map[string]*ClusterParameterGroup)
+	b.subnetGroups = make(map[string]*ClusterSubnetGroup)
+	b.loggingStatuses = make(map[string]*LoggingStatus)
+	b.eventSubscriptions = make(map[string]*EventSubscription)
+	b.events = make(map[string]*Event)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -798,4 +823,18 @@ func (b *InMemoryBackend) AddActiveResizeInternal(clusterID string, resize *Resi
 	b.mu.Lock("AddActiveResizeInternal")
 	defer b.mu.Unlock()
 	b.activeResizes[clusterID] = resize
+}
+
+// AddParameterGroupInternal seeds a parameter group directly into the backend.
+func (b *InMemoryBackend) AddParameterGroupInternal(pg *ClusterParameterGroup) {
+	b.mu.Lock("AddParameterGroupInternal")
+	defer b.mu.Unlock()
+	b.parameterGroups[pg.ParameterGroupName] = pg
+}
+
+// AddSubnetGroupInternal seeds a subnet group directly into the backend.
+func (b *InMemoryBackend) AddSubnetGroupInternal(sg *ClusterSubnetGroup) {
+	b.mu.Lock("AddSubnetGroupInternal")
+	defer b.mu.Unlock()
+	b.subnetGroups[sg.ClusterSubnetGroupName] = sg
 }

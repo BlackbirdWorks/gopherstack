@@ -1,0 +1,287 @@
+package redshift
+
+import (
+	"fmt"
+	"time"
+)
+
+// ClusterParameter represents a single parameter within a cluster parameter group.
+type ClusterParameter struct {
+	ParameterName        string `json:"parameterName"`
+	ParameterValue       string `json:"parameterValue"`
+	Description          string `json:"description"`
+	Source               string `json:"source"`
+	DataType             string `json:"dataType"`
+	ApplyType            string `json:"applyType"`
+	IsModifiable         bool   `json:"isModifiable"`
+	MinimumEngineVersion string `json:"minimumEngineVersion"`
+}
+
+// ClusterParameterGroup represents a Redshift cluster parameter group.
+type ClusterParameterGroup struct {
+	ParameterGroupName   string             `json:"parameterGroupName"`
+	ParameterGroupFamily string             `json:"parameterGroupFamily"`
+	Description          string             `json:"description"`
+	Parameters           []ClusterParameter `json:"parameters"`
+	CreatedAt            time.Time          `json:"createdAt"`
+}
+
+// defaultParameters returns a minimal set of default Redshift parameters.
+func defaultParameters() []ClusterParameter {
+	return []ClusterParameter{
+		{
+			ParameterName:  "enable_user_activity_logging",
+			ParameterValue: "false",
+			Description:    "enable logging of user activity",
+			Source:         "engine-default",
+			DataType:       "boolean",
+			ApplyType:      "static",
+			IsModifiable:   true,
+		},
+		{
+			ParameterName:  "max_cursor_result_set_size",
+			ParameterValue: "0",
+			Description:    "max cursor result set size",
+			Source:         "engine-default",
+			DataType:       "integer",
+			ApplyType:      "dynamic",
+			IsModifiable:   true,
+		},
+		{
+			ParameterName:  "query_group",
+			ParameterValue: "default",
+			Description:    "query group label",
+			Source:         "engine-default",
+			DataType:       "string",
+			ApplyType:      "dynamic",
+			IsModifiable:   true,
+		},
+		{
+			ParameterName:  "search_path",
+			ParameterValue: "$user, public",
+			Description:    "sets the schema search order for names that are not schema-qualified",
+			Source:         "engine-default",
+			DataType:       "string",
+			ApplyType:      "dynamic",
+			IsModifiable:   true,
+		},
+		{
+			ParameterName:  "statement_timeout",
+			ParameterValue: "0",
+			Description:    "abort any statement that takes more than the specified number of milliseconds",
+			Source:         "engine-default",
+			DataType:       "integer",
+			ApplyType:      "dynamic",
+			IsModifiable:   true,
+		},
+		{
+			ParameterName:  "wlm_json_configuration",
+			ParameterValue: `[{"auto_wlm":true}]`,
+			Description:    "Workload management configuration",
+			Source:         "engine-default",
+			DataType:       "string",
+			ApplyType:      "dynamic",
+			IsModifiable:   true,
+		},
+	}
+}
+
+// CreateClusterParameterGroup creates a new cluster parameter group.
+func (b *InMemoryBackend) CreateClusterParameterGroup(
+	name, family, description string,
+) (*ClusterParameterGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: ParameterGroupName is required", ErrInvalidParameter)
+	}
+	if family == "" {
+		return nil, fmt.Errorf("%w: ParameterGroupFamily is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateClusterParameterGroup")
+	defer b.mu.Unlock()
+
+	if _, exists := b.parameterGroups[name]; exists {
+		return nil, fmt.Errorf("%w: parameter group %s already exists", ErrParameterGroupAlreadyExists, name)
+	}
+
+	pg := &ClusterParameterGroup{
+		ParameterGroupName:   name,
+		ParameterGroupFamily: family,
+		Description:          description,
+		Parameters:           defaultParameters(),
+		CreatedAt:            time.Now(),
+	}
+	b.parameterGroups[name] = pg
+
+	cp := cloneParameterGroup(pg)
+
+	return &cp, nil
+}
+
+// DeleteClusterParameterGroup removes a cluster parameter group.
+func (b *InMemoryBackend) DeleteClusterParameterGroup(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ParameterGroupName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteClusterParameterGroup")
+	defer b.mu.Unlock()
+
+	if _, exists := b.parameterGroups[name]; !exists {
+		return fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
+	}
+
+	delete(b.parameterGroups, name)
+
+	return nil
+}
+
+// DescribeClusterParameterGroups returns all parameter groups, or a specific one if name is non-empty.
+func (b *InMemoryBackend) DescribeClusterParameterGroups(name string) ([]ClusterParameterGroup, error) {
+	b.mu.RLock("DescribeClusterParameterGroups")
+	defer b.mu.RUnlock()
+
+	if name != "" {
+		pg, exists := b.parameterGroups[name]
+		if !exists {
+			return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
+		}
+
+		cp := cloneParameterGroup(pg)
+
+		return []ClusterParameterGroup{cp}, nil
+	}
+
+	result := make([]ClusterParameterGroup, 0, len(b.parameterGroups))
+	for _, pg := range b.parameterGroups {
+		result = append(result, cloneParameterGroup(pg))
+	}
+
+	return result, nil
+}
+
+// DescribeClusterParameters returns the parameters for a specific parameter group.
+func (b *InMemoryBackend) DescribeClusterParameters(groupName string) ([]ClusterParameter, error) {
+	if groupName == "" {
+		return nil, fmt.Errorf("%w: ParameterGroupName is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("DescribeClusterParameters")
+	defer b.mu.RUnlock()
+
+	pg, exists := b.parameterGroups[groupName]
+	if !exists {
+		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, groupName)
+	}
+
+	params := make([]ClusterParameter, len(pg.Parameters))
+	copy(params, pg.Parameters)
+
+	return params, nil
+}
+
+// ModifyClusterParameterGroup updates parameters within a parameter group.
+func (b *InMemoryBackend) ModifyClusterParameterGroup(
+	groupName string,
+	params []ClusterParameter,
+) (*ClusterParameterGroup, error) {
+	if groupName == "" {
+		return nil, fmt.Errorf("%w: ParameterGroupName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ModifyClusterParameterGroup")
+	defer b.mu.Unlock()
+
+	pg, exists := b.parameterGroups[groupName]
+	if !exists {
+		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, groupName)
+	}
+
+	// Update existing parameters by name; add new ones if not found.
+	for _, newParam := range params {
+		found := false
+
+		for i, existing := range pg.Parameters {
+			if existing.ParameterName == newParam.ParameterName {
+				pg.Parameters[i].ParameterValue = newParam.ParameterValue
+				pg.Parameters[i].Source = "user"
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			newParam.Source = "user"
+			pg.Parameters = append(pg.Parameters, newParam)
+		}
+	}
+
+	cp := cloneParameterGroup(pg)
+
+	return &cp, nil
+}
+
+// ResetClusterParameterGroup resets all or specific parameters to their default values.
+func (b *InMemoryBackend) ResetClusterParameterGroup(
+	groupName string,
+	resetAllParameters bool,
+	params []ClusterParameter,
+) (*ClusterParameterGroup, error) {
+	if groupName == "" {
+		return nil, fmt.Errorf("%w: ParameterGroupName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ResetClusterParameterGroup")
+	defer b.mu.Unlock()
+
+	pg, exists := b.parameterGroups[groupName]
+	if !exists {
+		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, groupName)
+	}
+
+	defaults := defaultParameters()
+	defaultMap := make(map[string]ClusterParameter, len(defaults))
+
+	for _, d := range defaults {
+		defaultMap[d.ParameterName] = d
+	}
+
+	if resetAllParameters {
+		pg.Parameters = defaults
+	} else {
+		for _, p := range params {
+			for i, existing := range pg.Parameters {
+				if existing.ParameterName == p.ParameterName {
+					if def, ok := defaultMap[p.ParameterName]; ok {
+						pg.Parameters[i] = def
+					}
+
+					break
+				}
+			}
+		}
+	}
+
+	cp := cloneParameterGroup(pg)
+
+	return &cp, nil
+}
+
+// DescribeDefaultClusterParameters returns the default parameters for a given parameter group family.
+func (b *InMemoryBackend) DescribeDefaultClusterParameters(family string) ([]ClusterParameter, error) {
+	if family == "" {
+		return nil, fmt.Errorf("%w: ParameterGroupFamily is required", ErrInvalidParameter)
+	}
+
+	return defaultParameters(), nil
+}
+
+// cloneParameterGroup returns a deep copy of a ClusterParameterGroup.
+func cloneParameterGroup(pg *ClusterParameterGroup) ClusterParameterGroup {
+	cp := *pg
+	cp.Parameters = make([]ClusterParameter, len(pg.Parameters))
+	copy(cp.Parameters, pg.Parameters)
+
+	return cp
+}

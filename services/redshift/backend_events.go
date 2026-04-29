@@ -1,0 +1,257 @@
+package redshift
+
+import (
+	"fmt"
+	"time"
+)
+
+// LoggingStatus represents the logging status for a Redshift cluster.
+type LoggingStatus struct {
+	BucketName      string    `json:"bucketName"`
+	S3KeyPrefix     string    `json:"s3KeyPrefix"`
+	LastFailureTime time.Time `json:"lastFailureTime,omitempty"`
+	LastSuccessTime time.Time `json:"lastSuccessTime,omitempty"`
+	LoggingEnabled  bool      `json:"loggingEnabled"`
+}
+
+// Event represents a Redshift event.
+type Event struct {
+	Date             time.Time `json:"date"`
+	SourceIdentifier string    `json:"sourceIdentifier"`
+	SourceType       string    `json:"sourceType"`
+	Message          string    `json:"message"`
+	EventID          string    `json:"eventId"`
+	Severity         string    `json:"severity"`
+}
+
+// EventSubscription represents a Redshift event subscription.
+type EventSubscription struct {
+	CustomerAwsID       string    `json:"customerAwsId"`
+	CustSubscriptionID  string    `json:"custSubscriptionId"`
+	SnsTopicArn         string    `json:"snsTopicArn"`
+	Status              string    `json:"status"`
+	SubscriptionCreated time.Time `json:"subscriptionCreated"`
+	SourceType          string    `json:"sourceType"`
+	SourceIDs           []string  `json:"sourceIds"`
+	EventCategories     []string  `json:"eventCategories"`
+	Severity            string    `json:"severity"`
+	Enabled             bool      `json:"enabled"`
+}
+
+// EnableLogging enables audit logging for the specified cluster.
+func (b *InMemoryBackend) EnableLogging(clusterID, bucketName, s3KeyPrefix string) (*LoggingStatus, error) {
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+	if bucketName == "" {
+		return nil, fmt.Errorf("%w: BucketName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("EnableLogging")
+	defer b.mu.Unlock()
+
+	if _, exists := b.clusters[clusterID]; !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+
+	status := &LoggingStatus{
+		LoggingEnabled:  true,
+		BucketName:      bucketName,
+		S3KeyPrefix:     s3KeyPrefix,
+		LastSuccessTime: time.Now(),
+	}
+	b.loggingStatuses[clusterID] = status
+
+	cp := *status
+
+	return &cp, nil
+}
+
+// DisableLogging disables audit logging for the specified cluster.
+func (b *InMemoryBackend) DisableLogging(clusterID string) (*LoggingStatus, error) {
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DisableLogging")
+	defer b.mu.Unlock()
+
+	if _, exists := b.clusters[clusterID]; !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+
+	status := &LoggingStatus{
+		LoggingEnabled: false,
+	}
+	b.loggingStatuses[clusterID] = status
+
+	cp := *status
+
+	return &cp, nil
+}
+
+// DescribeEvents returns events for a Redshift resource.
+// This in-memory implementation returns an empty list since events are not tracked.
+func (b *InMemoryBackend) DescribeEvents(sourceIdentifier, sourceType string) ([]Event, error) {
+	b.mu.RLock("DescribeEvents")
+	defer b.mu.RUnlock()
+
+	var result []Event
+
+	for _, e := range b.events {
+		if sourceIdentifier != "" && e.SourceIdentifier != sourceIdentifier {
+			continue
+		}
+
+		if sourceType != "" && e.SourceType != sourceType {
+			continue
+		}
+
+		result = append(result, *e)
+	}
+
+	return result, nil
+}
+
+// CreateEventSubscription creates a new event notification subscription.
+func (b *InMemoryBackend) CreateEventSubscription(
+	subscriptionName, snsTopicArn, sourceType, severity string,
+	sourceIDs, eventCategories []string,
+	enabled bool,
+) (*EventSubscription, error) {
+	if subscriptionName == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
+	}
+	if snsTopicArn == "" {
+		return nil, fmt.Errorf("%w: SnsTopicArn is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateEventSubscription")
+	defer b.mu.Unlock()
+
+	if _, exists := b.eventSubscriptions[subscriptionName]; exists {
+		return nil, fmt.Errorf("%w: subscription %s already exists", ErrEventSubscriptionAlreadyExists, subscriptionName)
+	}
+
+	srcIDs := make([]string, len(sourceIDs))
+	copy(srcIDs, sourceIDs)
+
+	evtCats := make([]string, len(eventCategories))
+	copy(evtCats, eventCategories)
+
+	sub := &EventSubscription{
+		CustomerAwsID:      b.accountID,
+		CustSubscriptionID: subscriptionName,
+		SnsTopicArn:        snsTopicArn,
+		Status:             "active",
+		SubscriptionCreated: time.Now(),
+		SourceType:         sourceType,
+		SourceIDs:          srcIDs,
+		EventCategories:    evtCats,
+		Severity:           severity,
+		Enabled:            enabled,
+	}
+	b.eventSubscriptions[subscriptionName] = sub
+
+	cp := cloneEventSubscription(sub)
+
+	return cp, nil
+}
+
+// DeleteEventSubscription removes an event subscription.
+func (b *InMemoryBackend) DeleteEventSubscription(subscriptionName string) error {
+	if subscriptionName == "" {
+		return fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteEventSubscription")
+	defer b.mu.Unlock()
+
+	if _, exists := b.eventSubscriptions[subscriptionName]; !exists {
+		return fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
+	}
+
+	delete(b.eventSubscriptions, subscriptionName)
+
+	return nil
+}
+
+// DescribeEventSubscriptions returns event subscriptions, optionally filtered by name.
+func (b *InMemoryBackend) DescribeEventSubscriptions(subscriptionName string) ([]EventSubscription, error) {
+	b.mu.RLock("DescribeEventSubscriptions")
+	defer b.mu.RUnlock()
+
+	if subscriptionName != "" {
+		sub, exists := b.eventSubscriptions[subscriptionName]
+		if !exists {
+			return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
+		}
+
+		return []EventSubscription{*cloneEventSubscription(sub)}, nil
+	}
+
+	result := make([]EventSubscription, 0, len(b.eventSubscriptions))
+	for _, sub := range b.eventSubscriptions {
+		result = append(result, *cloneEventSubscription(sub))
+	}
+
+	return result, nil
+}
+
+// ModifyEventSubscription modifies an existing event subscription.
+func (b *InMemoryBackend) ModifyEventSubscription(
+	subscriptionName, snsTopicArn, sourceType, severity string,
+	sourceIDs, eventCategories []string,
+	enabled *bool,
+) (*EventSubscription, error) {
+	if subscriptionName == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ModifyEventSubscription")
+	defer b.mu.Unlock()
+
+	sub, exists := b.eventSubscriptions[subscriptionName]
+	if !exists {
+		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
+	}
+
+	if snsTopicArn != "" {
+		sub.SnsTopicArn = snsTopicArn
+	}
+
+	if sourceType != "" {
+		sub.SourceType = sourceType
+	}
+
+	if severity != "" {
+		sub.Severity = severity
+	}
+
+	if len(sourceIDs) > 0 {
+		sub.SourceIDs = make([]string, len(sourceIDs))
+		copy(sub.SourceIDs, sourceIDs)
+	}
+
+	if len(eventCategories) > 0 {
+		sub.EventCategories = make([]string, len(eventCategories))
+		copy(sub.EventCategories, eventCategories)
+	}
+
+	if enabled != nil {
+		sub.Enabled = *enabled
+	}
+
+	return cloneEventSubscription(sub), nil
+}
+
+// cloneEventSubscription returns a deep copy of an EventSubscription.
+func cloneEventSubscription(sub *EventSubscription) *EventSubscription {
+	cp := *sub
+	cp.SourceIDs = make([]string, len(sub.SourceIDs))
+	copy(cp.SourceIDs, sub.SourceIDs)
+	cp.EventCategories = make([]string, len(sub.EventCategories))
+	copy(cp.EventCategories, sub.EventCategories)
+
+	return &cp
+}

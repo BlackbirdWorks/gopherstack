@@ -56,13 +56,55 @@ func (h *Handler) GetSupportedOperations() []string {
 		"BatchDeleteClusterSnapshots",
 		"BatchModifyClusterSnapshots",
 		"CancelResize",
+		"CopyClusterSnapshot",
 		"CreateCluster",
+		"CreateClusterParameterGroup",
+		"CreateClusterSecurityGroup",
+		"CreateClusterSnapshot",
+		"CreateClusterSubnetGroup",
+		"CreateEventSubscription",
 		"CreateTags",
 		"DeleteCluster",
+		"DeleteClusterParameterGroup",
+		"DeleteClusterSecurityGroup",
+		"DeleteClusterSnapshot",
+		"DeleteClusterSubnetGroup",
+		"DeleteEventSubscription",
 		"DeleteTags",
+		"DescribeClusterParameterGroups",
+		"DescribeClusterParameters",
+		"DescribeClusterSecurityGroups",
+		"DescribeClusterSnapshots",
+		"DescribeClusterSubnetGroups",
 		"DescribeClusters",
+		"DescribeDefaultClusterParameters",
+		"DescribeEventCategories",
+		"DescribeEventSubscriptions",
+		"DescribeEvents",
 		"DescribeLoggingStatus",
+		"DescribeReservedNodeExchangeStatus",
+		"DescribeReservedNodeOfferings",
+		"DescribeReservedNodes",
 		"DescribeTags",
+		"DisableLogging",
+		"EnableLogging",
+		"GetReservedNodeExchangeConfigurationOptions",
+		"GetReservedNodeExchangeOfferings",
+		"ModifyCluster",
+		"ModifyClusterIamRoles",
+		"ModifyClusterMaintenance",
+		"ModifyClusterParameterGroup",
+		"ModifyClusterSubnetGroup",
+		"ModifyEventSubscription",
+		"PauseCluster",
+		"PurchaseReservedNodeOffering",
+		"RebootCluster",
+		"ResetClusterParameterGroup",
+		"ResizeCluster",
+		"RestoreFromClusterSnapshot",
+		"ResumeCluster",
+		"RevokeClusterSecurityGroupIngress",
+		"RotateEncryptionKey",
 	}
 }
 
@@ -161,13 +203,55 @@ func (h *Handler) buildOps() map[string]redshiftActionFn {
 		"BatchDeleteClusterSnapshots":          h.handleBatchDeleteClusterSnapshots,
 		"BatchModifyClusterSnapshots":          h.handleBatchModifyClusterSnapshots,
 		"CancelResize":                         h.handleCancelResize,
+		"CopyClusterSnapshot":                  h.handleCopyClusterSnapshot,
 		"CreateCluster":                        h.handleCreateCluster,
+		"CreateClusterParameterGroup":          h.handleCreateClusterParameterGroup,
+		"CreateClusterSecurityGroup":           h.handleCreateClusterSecurityGroup,
+		"CreateClusterSnapshot":                h.handleCreateClusterSnapshot,
+		"CreateClusterSubnetGroup":             h.handleCreateClusterSubnetGroup,
+		"CreateEventSubscription":              h.handleCreateEventSubscription,
 		"CreateTags":                           h.handleCreateTags,
 		"DeleteCluster":                        h.handleDeleteCluster,
+		"DeleteClusterParameterGroup":          h.handleDeleteClusterParameterGroup,
+		"DeleteClusterSecurityGroup":           h.handleDeleteClusterSecurityGroup,
+		"DeleteClusterSnapshot":                h.handleDeleteClusterSnapshot,
+		"DeleteClusterSubnetGroup":             h.handleDeleteClusterSubnetGroup,
+		"DeleteEventSubscription":              h.handleDeleteEventSubscription,
 		"DeleteTags":                           h.handleDeleteTags,
+		"DescribeClusterParameterGroups":       h.handleDescribeClusterParameterGroups,
+		"DescribeClusterParameters":            h.handleDescribeClusterParameters,
+		"DescribeClusterSecurityGroups":        h.handleDescribeClusterSecurityGroups,
+		"DescribeClusterSnapshots":             h.handleDescribeClusterSnapshots,
+		"DescribeClusterSubnetGroups":          h.handleDescribeClusterSubnetGroups,
 		"DescribeClusters":                     h.handleDescribeClusters,
+		"DescribeDefaultClusterParameters":     h.handleDescribeDefaultClusterParameters,
+		"DescribeEventCategories":              h.handleDescribeEventCategories,
+		"DescribeEventSubscriptions":           h.handleDescribeEventSubscriptions,
+		"DescribeEvents":                       h.handleDescribeEvents,
 		"DescribeLoggingStatus":                func(_ url.Values) (any, error) { return h.loggingStatusResponse(), nil },
+		"DescribeReservedNodeExchangeStatus":   h.handleDescribeReservedNodeExchangeStatus,
+		"DescribeReservedNodeOfferings":        h.handleDescribeReservedNodeOfferings,
+		"DescribeReservedNodes":                h.handleDescribeReservedNodes,
 		"DescribeTags":                         func(_ url.Values) (any, error) { return h.describeTagsResponse(), nil },
+		"DisableLogging":                       h.handleDisableLogging,
+		"EnableLogging":                        h.handleEnableLogging,
+		"GetReservedNodeExchangeConfigurationOptions": h.handleGetReservedNodeExchangeConfigurationOptions,
+		"GetReservedNodeExchangeOfferings":     h.handleGetReservedNodeExchangeOfferings,
+		"ModifyCluster":                        h.handleModifyCluster,
+		"ModifyClusterIamRoles":                h.handleModifyClusterIamRoles,
+		"ModifyClusterMaintenance":             h.handleModifyClusterMaintenance,
+		"ModifyClusterParameterGroup":          h.handleModifyClusterParameterGroup,
+		"ModifyClusterSubnetGroup":             h.handleModifyClusterSubnetGroup,
+		"ModifyEventSubscription":              h.handleModifyEventSubscription,
+		"PauseCluster":                         h.handlePauseCluster,
+		"PurchaseReservedNodeOffering":         h.handlePurchaseReservedNodeOffering,
+		"RebootCluster":                        h.handleRebootCluster,
+		"ResetClusterParameterGroup":           h.handleResetClusterParameterGroup,
+		"ResizeCluster":                        h.handleResizeCluster,
+		"RestoreFromClusterSnapshot":           h.handleRestoreFromClusterSnapshot,
+		"ResumeCluster":                        h.handleResumeCluster,
+		"RevokeClusterSecurityGroupIngress":    h.handleRevokeClusterSecurityGroupIngress,
+		"RotateEncryptionKey":                  h.handleRotateEncryptionKey,
 	}
 }
 
@@ -282,14 +366,20 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "ReservedNodeNotFound"
 	case errors.Is(opErr, ErrReservedNodeAlreadyExists):
 		code = "ReservedNodeAlreadyExists"
+	case errors.Is(opErr, ErrReservedNodeOfferingNotFound):
+		code = "ReservedNodeOfferingNotFound"
 	case errors.Is(opErr, ErrPartnerNotFound):
 		code = "PartnerNotFound"
 	case errors.Is(opErr, ErrDataShareNotFound):
 		code = "DataShareNotFound"
 	case errors.Is(opErr, ErrSecurityGroupNotFound):
 		code = "ClusterSecurityGroupNotFound"
+	case errors.Is(opErr, ErrSecurityGroupAlreadyExists):
+		code = "ClusterSecurityGroupAlreadyExists"
 	case errors.Is(opErr, ErrSnapshotNotFound):
 		code = "ClusterSnapshotNotFound"
+	case errors.Is(opErr, ErrSnapshotAlreadyExists):
+		code = "ClusterSnapshotAlreadyExists"
 	case errors.Is(opErr, ErrEndpointAuthNotFound):
 		code = "EndpointAuthorizationNotFound"
 	case errors.Is(opErr, ErrEndpointAuthAlreadyExists):
@@ -298,6 +388,18 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "ResizeNotFound"
 	case errors.Is(opErr, ErrResizeNotCancellable):
 		code = "InvalidClusterState"
+	case errors.Is(opErr, ErrParameterGroupNotFound):
+		code = "ClusterParameterGroupNotFound"
+	case errors.Is(opErr, ErrParameterGroupAlreadyExists):
+		code = "ClusterParameterGroupAlreadyExists"
+	case errors.Is(opErr, ErrSubnetGroupNotFound):
+		code = "ClusterSubnetGroupNotFound"
+	case errors.Is(opErr, ErrSubnetGroupAlreadyExists):
+		code = "ClusterSubnetGroupAlreadyExists"
+	case errors.Is(opErr, ErrEventSubscriptionNotFound):
+		code = "SubscriptionNotFound"
+	case errors.Is(opErr, ErrEventSubscriptionAlreadyExists):
+		code = "SubscriptionAlreadyExist"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
