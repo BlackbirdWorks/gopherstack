@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -107,6 +109,10 @@ var (
 		"ParameterGroupNotFoundFault: multi-region parameter group not found",
 		awserr.ErrNotFound,
 	)
+	// ErrACLInUse is returned when an ACL cannot be deleted because it is assigned to a cluster.
+	ErrACLInUse = awserr.New("ACLInUseFault: ACL is currently associated with a cluster", awserr.ErrConflict)
+	// ErrUserInUse is returned when a user cannot be deleted because it is a member of an ACL.
+	ErrUserInUse = awserr.New("UserInUseFault: user is currently a member of an ACL", awserr.ErrConflict)
 )
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.
@@ -324,9 +330,17 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		engineVersion = defaultEngineVersion
 	}
 
+	if !map[string]bool{"6.2": true, "7.0": true, "7.1": true}[engineVersion] {
+		return nil, fmt.Errorf("engine version %q is not supported: %w", engineVersion, ErrValidation)
+	}
+
 	nodeType := req.NodeType
 	if nodeType == "" {
 		nodeType = defaultNodeType
+	}
+
+	if !strings.HasPrefix(nodeType, "db.") {
+		return nil, fmt.Errorf("node type %q is invalid: must begin with 'db.': %w", nodeType, ErrValidation)
 	}
 
 	port := defaultPort
@@ -378,6 +392,14 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	if req.SnapshotRetentionLimit != nil {
 		c.SnapshotRetentionLimit = *req.SnapshotRetentionLimit
 	}
+
+	availabilityMode := "SingleAZ"
+	if numReplicas > 0 {
+		availabilityMode = "MultiAZ"
+	}
+
+	c.AvailabilityMode = availabilityMode
+	c.Endpoint = req.ClusterName + ".memorydb." + region + ".amazonaws.com"
 
 	b.clusters[req.ClusterName] = c
 	b.arnToResource[clusterARN] = resourceRef{Kind: resourceKindCluster, Name: req.ClusterName}
@@ -449,6 +471,14 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 			Status:      snapshotStatusAvailable,
 			Tags:        make(map[string]string),
 			CreatedAt:   time.Now(),
+			ClusterConfiguration: snapshotClusterConfig{
+				Name:          c.Name,
+				NodeType:      c.NodeType,
+				EngineVersion: c.EngineVersion,
+				Description:   c.Description,
+				Port:          c.Port,
+				NumShards:     c.NumShards,
+			},
 		}
 		b.snapshots[snapshotName] = s
 		b.arnToResource[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: snapshotName}
@@ -583,6 +613,12 @@ func (b *InMemoryBackend) DeleteACL(name string) (*ACL, error) {
 		return nil, ErrACLNotFound
 	}
 
+	for _, c := range b.clusters {
+		if c.ACLName == name {
+			return nil, fmt.Errorf("ACL %q is associated with cluster %q: %w", name, c.Name, ErrACLInUse)
+		}
+	}
+
 	delete(b.acls, name)
 	delete(b.arnToResource, a.ARN)
 
@@ -604,6 +640,12 @@ func (b *InMemoryBackend) UpdateACL(req *updateACLRequest) (*ACL, error) {
 
 	for _, u := range a.UserNames {
 		existing[u] = true
+	}
+
+	for _, u := range req.UserNamesToAdd {
+		if _, exists := b.users[u]; !exists {
+			return nil, fmt.Errorf("user %q not found: %w", u, ErrUserNotFound)
+		}
 	}
 
 	for _, u := range req.UserNamesToAdd {
@@ -797,6 +839,12 @@ func (b *InMemoryBackend) DeleteUser(name string) (*User, error) {
 		return nil, ErrUserNotFound
 	}
 
+	for _, a := range b.acls {
+		if slices.Contains(a.UserNames, name) {
+			return nil, fmt.Errorf("user %q is a member of ACL %q: %w", name, a.Name, ErrUserInUse)
+		}
+	}
+
 	delete(b.users, name)
 	delete(b.arnToResource, u.ARN)
 
@@ -953,6 +1001,25 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 		return awserr.New("ResourceNotFoundFault: resource not found", awserr.ErrNotFound)
 	}
 
+	const maxTagsPerResource = 50
+
+	existingTags := b.tagsForRef(ref)
+	newTotal := len(existingTags)
+
+	for k := range tags {
+		if _, alreadyExists := existingTags[k]; !alreadyExists {
+			newTotal++
+		}
+	}
+
+	if newTotal > maxTagsPerResource {
+		return fmt.Errorf(
+			"tag limit exceeded: a resource may have at most %d tags: %w",
+			maxTagsPerResource,
+			ErrValidation,
+		)
+	}
+
 	b.applyTags(ref, tags)
 
 	return nil
@@ -1098,7 +1165,8 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 	defer b.mu.Unlock()
 
 	// Validate the source cluster exists.
-	if _, ok := b.clusters[req.ClusterName]; !ok {
+	c, ok := b.clusters[req.ClusterName]
+	if !ok {
 		return nil, ErrClusterNotFound
 	}
 
@@ -1116,6 +1184,14 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 		KmsKeyID:    req.KmsKeyID,
 		Tags:        tagsFromSlice(req.Tags),
 		CreatedAt:   time.Now(),
+		ClusterConfiguration: snapshotClusterConfig{
+			Name:          c.Name,
+			NodeType:      c.NodeType,
+			EngineVersion: c.EngineVersion,
+			Description:   c.Description,
+			Port:          c.Port,
+			NumShards:     c.NumShards,
+		},
 	}
 
 	b.snapshots[req.SnapshotName] = s
@@ -1185,13 +1261,14 @@ func (b *InMemoryBackend) CopySnapshot(region, accountID string, req *copySnapsh
 	}
 
 	dst := &Snapshot{
-		Name:        req.TargetSnapshotName,
-		ARN:         targetARN,
-		ClusterName: src.ClusterName,
-		Status:      snapshotStatusAvailable,
-		KmsKeyID:    kmsKeyID,
-		Tags:        tags,
-		CreatedAt:   time.Now(),
+		Name:                 req.TargetSnapshotName,
+		ARN:                  targetARN,
+		ClusterName:          src.ClusterName,
+		Status:               snapshotStatusAvailable,
+		KmsKeyID:             kmsKeyID,
+		Tags:                 tags,
+		CreatedAt:            time.Now(),
+		ClusterConfiguration: src.ClusterConfiguration,
 	}
 
 	b.snapshots[req.TargetSnapshotName] = dst

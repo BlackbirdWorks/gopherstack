@@ -379,13 +379,35 @@ func (h *Handler) handleDescribeClusters(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	objs := make([]clusterObject, 0, len(clusters))
+	// Apply cursor-based pagination when listing all clusters.
+	start := 0
 
-	for _, c := range clusters {
-		objs = append(objs, toClusterObject(c))
+	if req.NextToken != "" {
+		for i, cl := range clusters {
+			if cl.Name == req.NextToken {
+				start = i + 1
+
+				break
+			}
+		}
 	}
 
-	return c.JSON(http.StatusOK, describeClusterResponse{Clusters: objs})
+	clusters = clusters[start:]
+
+	var nextToken string
+
+	if req.MaxResults != nil && int(*req.MaxResults) < len(clusters) {
+		nextToken = clusters[*req.MaxResults].Name
+		clusters = clusters[:*req.MaxResults]
+	}
+
+	objs := make([]clusterObject, 0, len(clusters))
+
+	for _, cl := range clusters {
+		objs = append(objs, toClusterObject(cl))
+	}
+
+	return c.JSON(http.StatusOK, describeClusterResponse{Clusters: objs, NextToken: nextToken})
 }
 
 func (h *Handler) handleDeleteCluster(c *echo.Context, body []byte) error {
@@ -1355,6 +1377,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	case errors.Is(err, awserr.ErrConflict):
+		return writeError(c, http.StatusConflict, "InvalidRequestException", err.Error())
 	default:
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1375,24 +1399,26 @@ func toClusterObject(c *Cluster) clusterObject {
 	shards := buildShards(c.Name, c.NumShards)
 
 	return clusterObject{
-		Name:                   c.Name,
-		ARN:                    c.ARN,
-		Description:            c.Description,
-		Status:                 c.Status,
-		NodeType:               c.NodeType,
-		EngineVersion:          c.EngineVersion,
-		EnginePatchVersion:     c.EngineVersion,
-		ACLName:                c.ACLName,
-		SubnetGroupName:        c.SubnetGroupName,
-		ParameterGroupName:     c.ParameterGroupName,
-		KmsKeyID:               c.KmsKeyID,
-		SnsTopicArn:            c.SnsTopicArn,
-		MaintenanceWindow:      c.MaintenanceWindow,
-		SnapshotWindow:         c.SnapshotWindow,
-		NumberOfShards:         c.NumShards,
-		TLSEnabled:             c.TLSEnabled,
-		SnapshotRetentionLimit: c.SnapshotRetentionLimit,
-		Shards:                 shards,
+		Name:                     c.Name,
+		ARN:                      c.ARN,
+		Description:              c.Description,
+		Status:                   c.Status,
+		NodeType:                 c.NodeType,
+		EngineVersion:            c.EngineVersion,
+		EnginePatchVersion:       c.EngineVersion,
+		ACLName:                  c.ACLName,
+		SubnetGroupName:          c.SubnetGroupName,
+		ParameterGroupName:       c.ParameterGroupName,
+		KmsKeyID:                 c.KmsKeyID,
+		SnsTopicArn:              c.SnsTopicArn,
+		MaintenanceWindow:        c.MaintenanceWindow,
+		SnapshotWindow:           c.SnapshotWindow,
+		NumberOfShards:           c.NumShards,
+		TLSEnabled:               c.TLSEnabled,
+		SnapshotRetentionLimit:   c.SnapshotRetentionLimit,
+		Shards:                   shards,
+		AvailabilityMode:         c.AvailabilityMode,
+		NumberOfReplicasPerShard: c.NumReplicasPerShard,
 		ClusterEndpoint: &endpointObject{
 			Address: c.Name + ".memorydb." + region + ".amazonaws.com",
 			Port:    c.Port,
@@ -1494,13 +1520,19 @@ func toSnapshotObject(s *Snapshot) snapshotObject {
 		createdAt = s.CreatedAt.UTC().Format(time.RFC3339)
 	}
 
+	var clusterConfig *snapshotClusterConfig
+	if s.ClusterConfiguration.Name != "" {
+		cfg := s.ClusterConfiguration
+		clusterConfig = &cfg
+	}
+
 	return snapshotObject{
-		Name:        s.Name,
-		ARN:         s.ARN,
-		ClusterName: s.ClusterName,
-		Status:      s.Status,
-		KmsKeyID:    s.KmsKeyID,
-		CreatedAt:   createdAt,
+		Name:                 s.Name,
+		ARN:                  s.ARN,
+		ClusterConfiguration: clusterConfig,
+		Status:               s.Status,
+		KmsKeyID:             s.KmsKeyID,
+		CreatedAt:            createdAt,
 	}
 }
 

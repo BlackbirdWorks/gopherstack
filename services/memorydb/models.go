@@ -10,8 +10,8 @@ import (
 type Cluster struct {
 	CreatedAt              time.Time         `json:"createdAt"`
 	Tags                   map[string]string `json:"tags"`
-	ARN                    string            `json:"arn"`
-	Name                   string            `json:"name"`
+	KmsKeyID               string            `json:"kmsKeyID"`
+	SnsTopicArn            string            `json:"snsTopicArn"`
 	Description            string            `json:"description"`
 	NodeType               string            `json:"nodeType"`
 	EngineVersion          string            `json:"engineVersion"`
@@ -19,16 +19,18 @@ type Cluster struct {
 	SubnetGroupName        string            `json:"subnetGroupName"`
 	ParameterGroupName     string            `json:"parameterGroupName"`
 	Status                 string            `json:"status"`
-	Region                 string            `json:"region"`
-	KmsKeyID               string            `json:"kmsKeyID"`
-	SnsTopicArn            string            `json:"snsTopicArn"`
 	MaintenanceWindow      string            `json:"maintenanceWindow"`
+	Name                   string            `json:"name"`
+	ARN                    string            `json:"arn"`
+	Region                 string            `json:"region"`
 	SnapshotWindow         string            `json:"snapshotWindow"`
+	Endpoint               string            `json:"endpoint"`
+	AvailabilityMode       string            `json:"availabilityMode"`
 	SecurityGroupIDs       []string          `json:"securityGroupIDs"`
-	NumShards              int32             `json:"numShards"`
 	NumReplicasPerShard    int32             `json:"numReplicasPerShard"`
 	SnapshotRetentionLimit int32             `json:"snapshotRetentionLimit"`
 	Port                   int32             `json:"port"`
+	NumShards              int32             `json:"numShards"`
 	TLSEnabled             bool              `json:"tlsEnabled"`
 }
 
@@ -262,26 +264,28 @@ type untagResourceRequest struct {
 // -- Response types ---------------------------------------------------------------
 
 type clusterObject struct {
-	ClusterEndpoint        *endpointObject `json:"ClusterEndpoint,omitempty"`
-	ACLName                string          `json:"ACLName,omitempty"`
-	KmsKeyID               string          `json:"KmsKeyId,omitempty"`
-	Description            string          `json:"Description,omitempty"`
-	Status                 string          `json:"Status,omitempty"`
-	NodeType               string          `json:"NodeType,omitempty"`
-	EngineVersion          string          `json:"EngineVersion,omitempty"`
-	EnginePatchVersion     string          `json:"EnginePatchVersion,omitempty"`
-	ARN                    string          `json:"ARN,omitempty"`
-	Name                   string          `json:"Name,omitempty"`
-	SubnetGroupName        string          `json:"SubnetGroupName,omitempty"`
-	ParameterGroupName     string          `json:"ParameterGroupName,omitempty"`
-	SnsTopicArn            string          `json:"SnsTopicArn,omitempty"`
-	MaintenanceWindow      string          `json:"MaintenanceWindow,omitempty"`
-	SnapshotWindow         string          `json:"SnapshotWindow,omitempty"`
-	Tags                   []tagEntry      `json:"Tags,omitempty"`
-	Shards                 []shardObject   `json:"Shards,omitempty"`
-	NumberOfShards         int32           `json:"NumberOfShards,omitempty"`
-	SnapshotRetentionLimit int32           `json:"SnapshotRetentionLimit,omitempty"`
-	TLSEnabled             bool            `json:"TLSEnabled"`
+	ClusterEndpoint          *endpointObject `json:"ClusterEndpoint,omitempty"`
+	SubnetGroupName          string          `json:"SubnetGroupName,omitempty"`
+	SnsTopicArn              string          `json:"SnsTopicArn,omitempty"`
+	Description              string          `json:"Description,omitempty"`
+	Status                   string          `json:"Status,omitempty"`
+	NodeType                 string          `json:"NodeType,omitempty"`
+	EngineVersion            string          `json:"EngineVersion,omitempty"`
+	EnginePatchVersion       string          `json:"EnginePatchVersion,omitempty"`
+	ARN                      string          `json:"ARN,omitempty"`
+	Name                     string          `json:"Name,omitempty"`
+	ACLName                  string          `json:"ACLName,omitempty"`
+	KmsKeyID                 string          `json:"KmsKeyId,omitempty"`
+	MaintenanceWindow        string          `json:"MaintenanceWindow,omitempty"`
+	ParameterGroupName       string          `json:"ParameterGroupName,omitempty"`
+	SnapshotWindow           string          `json:"SnapshotWindow,omitempty"`
+	AvailabilityMode         string          `json:"AvailabilityMode,omitempty"`
+	Shards                   []shardObject   `json:"Shards,omitempty"`
+	Tags                     []tagEntry      `json:"Tags,omitempty"`
+	NumberOfShards           int32           `json:"NumberOfShards,omitempty"`
+	SnapshotRetentionLimit   int32           `json:"SnapshotRetentionLimit,omitempty"`
+	NumberOfReplicasPerShard int32           `json:"NumberOfReplicasPerShard,omitempty"`
+	TLSEnabled               bool            `json:"TLSEnabled"`
 }
 
 // shardObject represents a single shard in a MemoryDB cluster.
@@ -448,13 +452,24 @@ type tagEntry struct {
 
 // Snapshot represents an in-memory MemoryDB snapshot.
 type Snapshot struct {
-	CreatedAt   time.Time         `json:"createdAt"`
-	Tags        map[string]string `json:"tags"`
-	ARN         string            `json:"arn"`
-	Name        string            `json:"name"`
-	ClusterName string            `json:"clusterName"`
-	Status      string            `json:"status"`
-	KmsKeyID    string            `json:"kmsKeyID"`
+	CreatedAt            time.Time             `json:"createdAt"`
+	Tags                 map[string]string     `json:"tags"`
+	ARN                  string                `json:"arn"`
+	Name                 string                `json:"name"`
+	ClusterName          string                `json:"clusterName"`
+	Status               string                `json:"status"`
+	KmsKeyID             string                `json:"kmsKeyID"`
+	ClusterConfiguration snapshotClusterConfig `json:"clusterConfiguration"`
+}
+
+// snapshotClusterConfig holds the cluster configuration recorded at snapshot time.
+type snapshotClusterConfig struct {
+	Name          string `json:"Name,omitempty"`
+	NodeType      string `json:"NodeType,omitempty"`
+	EngineVersion string `json:"EngineVersion,omitempty"`
+	Description   string `json:"Description,omitempty"`
+	Port          int32  `json:"Port,omitempty"`
+	NumShards     int32  `json:"NumShards,omitempty"`
 }
 
 // EngineVersion describes a supported MemoryDB engine version.
@@ -528,12 +543,12 @@ type deleteSnapshotRequest struct {
 }
 
 type snapshotObject struct {
-	ARN         string `json:"ARN,omitempty"`
-	Name        string `json:"Name,omitempty"`
-	ClusterName string `json:"ClusterConfiguration,omitempty"`
-	Status      string `json:"Status,omitempty"`
-	KmsKeyID    string `json:"KmsKeyId,omitempty"`
-	CreatedAt   string `json:"SnapshotCreationTime,omitempty"`
+	ClusterConfiguration *snapshotClusterConfig `json:"ClusterConfiguration,omitempty"`
+	ARN                  string                 `json:"ARN,omitempty"`
+	Name                 string                 `json:"Name,omitempty"`
+	Status               string                 `json:"Status,omitempty"`
+	KmsKeyID             string                 `json:"KmsKeyId,omitempty"`
+	CreatedAt            string                 `json:"SnapshotCreationTime,omitempty"`
 }
 
 type createSnapshotResponse struct {
