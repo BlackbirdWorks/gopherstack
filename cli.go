@@ -4613,9 +4613,10 @@ func seedEMRServerlessDemoData(ctx context.Context, h service.Registerable, log 
 		Tags:             map[string]string{},
 	})
 
-	log.InfoContext(ctx, "Seeded EMR Serverless demo data", "applications", 2, "jobRuns", 4)
-}
+	const seededApps, seededJobRuns = 2, 4
 
+	log.InfoContext(ctx, "Seeded EMR Serverless demo data", "applications", seededApps, "jobRuns", seededJobRuns)
+}
 
 // in HTTP handlers, logs the panic and stack trace via slog, and returns an
 // HTTP 500 response. Without this middleware, a single unhandled panic in any

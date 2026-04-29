@@ -646,6 +646,7 @@ func TestHandler_StartJobRun(t *testing.T) {
 				id := createApp(t, h, "job-app")
 				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
 				require.Equal(t, http.StatusOK, rec.Code)
+
 				return id
 			},
 		},

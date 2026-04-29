@@ -348,6 +348,7 @@ func epochSeconds(ts interface{ Unix() int64 }) float64 {
 func applicationToMap(app *Application) map[string]any {
 	return map[string]any{
 		"applicationId": app.ApplicationID,
+		"id":            app.ApplicationID, // ApplicationSummary.id in AWS SDK ListApplications response
 		"arn":           app.Arn,
 		"name":          app.Name,
 		"type":          app.Type,
@@ -436,7 +437,7 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 
 	var states []string
 	if s := q.Get("states"); s != "" {
-		for _, st := range strings.Split(s, ",") {
+		for st := range strings.SplitSeq(s, ",") {
 			if trimmed := strings.TrimSpace(st); trimmed != "" {
 				states = append(states, trimmed)
 			}
@@ -562,7 +563,7 @@ func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error
 
 	var states []string
 	if s := q.Get("states"); s != "" {
-		for _, st := range strings.Split(s, ",") {
+		for st := range strings.SplitSeq(s, ",") {
 			if trimmed := strings.TrimSpace(st); trimmed != "" {
 				states = append(states, trimmed)
 			}

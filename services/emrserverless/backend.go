@@ -228,7 +228,9 @@ func (b *InMemoryBackend) GetApplication(id string) (*Application, error) {
 }
 
 // ListApplications returns paginated applications, optionally filtered by state.
-func (b *InMemoryBackend) ListApplications(nextToken string, maxResults int, states ...string) ([]*Application, string) {
+func (b *InMemoryBackend) ListApplications(
+	nextToken string, maxResults int, states ...string,
+) ([]*Application, string) {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
@@ -256,6 +258,7 @@ func (b *InMemoryBackend) ListApplications(nextToken string, maxResults int, sta
 		if list[i].CreatedAt.Equal(list[j].CreatedAt) {
 			return list[i].ApplicationID < list[j].ApplicationID
 		}
+
 		return list[i].CreatedAt.Before(list[j].CreatedAt)
 	})
 
@@ -419,7 +422,9 @@ func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string) (*JobRun, er
 }
 
 // ListJobRuns returns paginated job runs for an application, optionally filtered by state.
-func (b *InMemoryBackend) ListJobRuns(applicationID, nextToken string, maxResults int, states ...string) ([]*JobRun, string, error) {
+func (b *InMemoryBackend) ListJobRuns(
+	applicationID, nextToken string, maxResults int, states ...string,
+) ([]*JobRun, string, error) {
 	b.mu.RLock("ListJobRuns")
 	defer b.mu.RUnlock()
 
@@ -452,6 +457,7 @@ func (b *InMemoryBackend) ListJobRuns(applicationID, nextToken string, maxResult
 		if list[i].CreatedAt.Equal(list[j].CreatedAt) {
 			return list[i].JobRunID < list[j].JobRunID
 		}
+
 		return list[i].CreatedAt.After(list[j].CreatedAt)
 	})
 
