@@ -209,21 +209,35 @@ type StorageBackend interface {
 	// GlobalReplicationGroup operations
 	DeleteGlobalReplicationGroup(id string, retainPrimaryReplicationGroup bool) (*GlobalReplicationGroup, error)
 	DescribeGlobalReplicationGroups(id, marker string, maxRecords int) (page.Page[GlobalReplicationGroup], error)
-	DisassociateGlobalReplicationGroup(id, replicationGroupID, replicationGroupRegion string) (*GlobalReplicationGroup, error)
+	DisassociateGlobalReplicationGroup(
+		id, replicationGroupID, replicationGroupRegion string,
+	) (*GlobalReplicationGroup, error)
 	FailoverGlobalReplicationGroup(id, primaryRegion, primaryReplicationGroupID string) (*GlobalReplicationGroup, error)
 	IncreaseNodeGroupsInGlobalReplicationGroup(id string, nodeGroupCount int32) (*GlobalReplicationGroup, error)
 	DecreaseNodeGroupsInGlobalReplicationGroup(id string, nodeGroupCount int32) (*GlobalReplicationGroup, error)
-	ModifyGlobalReplicationGroup(id, description, engineVersion string, automaticFailoverEnabled bool) (*GlobalReplicationGroup, error)
+	ModifyGlobalReplicationGroup(
+		id, description, engineVersion string,
+		automaticFailoverEnabled bool,
+	) (*GlobalReplicationGroup, error)
 	RebalanceSlotsInGlobalReplicationGroup(id string) (*GlobalReplicationGroup, error)
 	// ReservedCacheNodes operations
 	DescribeReservedCacheNodes(id, marker string, maxRecords int) (page.Page[ReservedCacheNode], error)
-	DescribeReservedCacheNodesOfferings(offeringID, marker string, maxRecords int) (page.Page[ReservedCacheNodesOffering], error)
-	PurchaseReservedCacheNodesOffering(offeringID, reservedCacheNodeID string, cacheNodeCount int32) (*ReservedCacheNode, error)
+	DescribeReservedCacheNodesOfferings(
+		offeringID, marker string,
+		maxRecords int,
+	) (page.Page[ReservedCacheNodesOffering], error)
+	PurchaseReservedCacheNodesOffering(
+		offeringID, reservedCacheNodeID string,
+		cacheNodeCount int32,
+	) (*ReservedCacheNode, error)
 	// ServerlessCache operations
 	DeleteServerlessCache(name string) (*ServerlessCache, error)
 	DeleteServerlessCacheSnapshot(name string) (*ServerlessCacheSnapshot, error)
 	DescribeServerlessCaches(name, marker string, maxRecords int) (page.Page[ServerlessCache], error)
-	DescribeServerlessCacheSnapshots(serverlessCacheName, snapshotName, marker string, maxRecords int) (page.Page[ServerlessCacheSnapshot], error)
+	DescribeServerlessCacheSnapshots(
+		serverlessCacheName, snapshotName, marker string,
+		maxRecords int,
+	) (page.Page[ServerlessCacheSnapshot], error)
 	ExportServerlessCacheSnapshot(snapshotName, s3BucketName string) (*ServerlessCacheSnapshot, error)
 	ModifyServerlessCache(name, description string) (*ServerlessCache, error)
 	// Migration operations
@@ -233,13 +247,25 @@ type StorageBackend interface {
 	DecreaseReplicaCount(replicationGroupID string, newReplicaCount int32) (*ReplicationGroup, error)
 	ModifyReplicationGroupShardConfiguration(replicationGroupID string, nodeGroupCount int32) (*ReplicationGroup, error)
 	// Cache info operations
-	DescribeCacheEngineVersions(engine, family, engineVersion, marker string, maxRecords int) (page.Page[CacheEngineVersion], error)
+	DescribeCacheEngineVersions(
+		engine, family, engineVersion, marker string,
+		maxRecords int,
+	) (page.Page[CacheEngineVersion], error)
 	RebootCacheCluster(clusterID string, nodeIDs []string) (*Cluster, error)
 	DeleteCacheSecurityGroup(name string) error
 	DescribeCacheSecurityGroups(name, marker string, maxRecords int) (page.Page[CacheSecurityGroup], error)
-	RevokeCacheSecurityGroupIngress(name, ec2SecurityGroupName, ec2SecurityGroupOwnerID string) (*CacheSecurityGroup, error)
-	DescribeEngineDefaultParameters(cacheParameterGroupFamily, marker string, maxRecords int) (page.Page[CacheParameter], error)
-	DescribeServiceUpdates(serviceUpdateName, marker string, maxRecords int, status []string) (page.Page[ServiceUpdate], error)
+	RevokeCacheSecurityGroupIngress(
+		name, ec2SecurityGroupName, ec2SecurityGroupOwnerID string,
+	) (*CacheSecurityGroup, error)
+	DescribeEngineDefaultParameters(
+		cacheParameterGroupFamily, marker string,
+		maxRecords int,
+	) (page.Page[CacheParameter], error)
+	DescribeServiceUpdates(
+		serviceUpdateName, marker string,
+		maxRecords int,
+		status []string,
+	) (page.Page[ServiceUpdate], error)
 	DescribeUpdateActions(serviceUpdateName, marker string, maxRecords int) (page.Page[UpdateAction], error)
 	ListAllowedNodeTypeModifications(clusterID, replicationGroupID string) ([]string, error)
 }

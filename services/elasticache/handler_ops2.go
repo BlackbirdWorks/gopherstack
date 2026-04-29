@@ -11,6 +11,66 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// describeUsersResultXML is the XML envelope for DescribeUsers responses.
+type describeUsersResultXML struct {
+	XMLName xml.Name `xml:"DescribeUsersResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Marker  string   `xml:"DescribeUsersResult>Marker,omitempty"`
+	Users   struct {
+		Member []userXML `xml:"member"`
+	} `xml:"DescribeUsersResult>Users"`
+}
+
+// describeUserGroupsResultXML is the XML envelope for DescribeUserGroups responses.
+type describeUserGroupsResultXML struct {
+	XMLName    xml.Name `xml:"DescribeUserGroupsResponse"`
+	Xmlns      string   `xml:"xmlns,attr"`
+	Marker     string   `xml:"DescribeUserGroupsResult>Marker,omitempty"`
+	UserGroups struct {
+		Member []userGroupXML `xml:"member"`
+	} `xml:"DescribeUserGroupsResult>UserGroups"`
+}
+
+// describeGlobalRGsResultXML is the XML envelope for DescribeGlobalReplicationGroups responses.
+type describeGlobalRGsResultXML struct {
+	XMLName                 xml.Name `xml:"DescribeGlobalReplicationGroupsResponse"`
+	Xmlns                   string   `xml:"xmlns,attr"`
+	Marker                  string   `xml:"DescribeGlobalReplicationGroupsResult>Marker,omitempty"`
+	GlobalReplicationGroups struct {
+		GlobalReplicationGroup []globalReplicationGroupXML `xml:"GlobalReplicationGroup"`
+	} `xml:"DescribeGlobalReplicationGroupsResult>GlobalReplicationGroups"`
+}
+
+// describeRCNsResultXML is the XML envelope for DescribeReservedCacheNodes responses.
+type describeRCNsResultXML struct {
+	XMLName            xml.Name `xml:"DescribeReservedCacheNodesResponse"`
+	Xmlns              string   `xml:"xmlns,attr"`
+	Marker             string   `xml:"DescribeReservedCacheNodesResult>Marker,omitempty"`
+	ReservedCacheNodes struct {
+		ReservedCacheNode []reservedCacheNodeXML `xml:"ReservedCacheNode"`
+	} `xml:"DescribeReservedCacheNodesResult>ReservedCacheNodes"`
+}
+
+// describeServerlessCachesResultXML is the XML envelope for DescribeServerlessCaches responses.
+type describeServerlessCachesResultXML struct {
+	XMLName          xml.Name `xml:"DescribeServerlessCachesResponse"`
+	Xmlns            string   `xml:"xmlns,attr"`
+	Marker           string   `xml:"DescribeServerlessCachesResult>Marker,omitempty"`
+	ServerlessCaches struct {
+		Member []serverlessCacheXML `xml:"member"`
+	} `xml:"DescribeServerlessCachesResult>ServerlessCaches"`
+}
+
+// describeSGsResultXML is the XML envelope for DescribeCacheSecurityGroups responses.
+type describeSGsResultXML struct {
+	XMLName             xml.Name `xml:"DescribeCacheSecurityGroupsResponse"`
+	Xmlns               string   `xml:"xmlns,attr"`
+	Marker              string   `xml:"DescribeCacheSecurityGroupsResult>Marker,omitempty"`
+	CacheSecurityGroups struct {
+		CacheSecurityGroup []cacheSecurityGroupXML `xml:"CacheSecurityGroup"`
+	} `xml:"DescribeCacheSecurityGroupsResult>CacheSecurityGroups"`
+}
+
 type userXML struct {
 	ARN                string `xml:"ARN"`
 	UserID             string `xml:"UserId"`
@@ -61,14 +121,14 @@ type reservedCacheNodeXML struct {
 	ReservationID       string  `xml:"ReservationId,omitempty"`
 	ReservedCacheNodeID string  `xml:"ReservedCacheNodeId"`
 	CacheNodeType       string  `xml:"CacheNodeType"`
-	Duration            int32   `xml:"Duration"`
-	FixedPrice          float64 `xml:"FixedPrice"`
-	UsagePrice          float64 `xml:"UsagePrice"`
-	CacheNodeCount      int32   `xml:"CacheNodeCount"`
 	ProductDescription  string  `xml:"ProductDescription"`
 	OfferingType        string  `xml:"OfferingType"`
 	State               string  `xml:"State"`
 	OfferingID          string  `xml:"ReservedCacheNodesOfferingId"`
+	FixedPrice          float64 `xml:"FixedPrice"`
+	UsagePrice          float64 `xml:"UsagePrice"`
+	Duration            int32   `xml:"Duration"`
+	CacheNodeCount      int32   `xml:"CacheNodeCount"`
 }
 
 func reservedCacheNodeToXML(rcn *ReservedCacheNode) reservedCacheNodeXML {
@@ -90,11 +150,11 @@ func reservedCacheNodeToXML(rcn *ReservedCacheNode) reservedCacheNodeXML {
 type reservedCacheNodesOfferingXML struct {
 	OfferingID         string  `xml:"ReservedCacheNodesOfferingId"`
 	CacheNodeType      string  `xml:"CacheNodeType"`
-	Duration           int32   `xml:"Duration"`
-	FixedPrice         float64 `xml:"FixedPrice"`
-	UsagePrice         float64 `xml:"UsagePrice"`
 	ProductDescription string  `xml:"ProductDescription"`
 	OfferingType       string  `xml:"OfferingType"`
+	FixedPrice         float64 `xml:"FixedPrice"`
+	UsagePrice         float64 `xml:"UsagePrice"`
+	Duration           int32   `xml:"Duration"`
 }
 
 type cacheEngineVersionXML struct {
@@ -166,27 +226,15 @@ func (h *Handler) describeUsers(c *echo.Context, form url.Values) error {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	items := make([]userXML, 0, len(p.Data))
+	var res describeUsersResultXML
+	res.Xmlns = elasticacheNS
+	res.Marker = p.Next
+
 	for i := range p.Data {
-		items = append(items, userToXML(&p.Data[i]))
+		res.Users.Member = append(res.Users.Member, userToXML(&p.Data[i]))
 	}
 
-	type userListXML struct {
-		Member []userXML `xml:"member"`
-	}
-
-	type result struct {
-		XMLName xml.Name    `xml:"DescribeUsersResponse"`
-		Xmlns   string      `xml:"xmlns,attr"`
-		Marker  string      `xml:"DescribeUsersResult>Marker,omitempty"`
-		Users   userListXML `xml:"DescribeUsersResult>Users"`
-	}
-
-	return xmlResp(c, http.StatusOK, result{
-		Xmlns:  elasticacheNS,
-		Marker: p.Next,
-		Users:  userListXML{Member: items},
-	})
+	return xmlResp(c, http.StatusOK, res)
 }
 
 func (h *Handler) modifyUser(c *echo.Context, form url.Values) error {
@@ -321,27 +369,15 @@ func (h *Handler) describeUserGroups(c *echo.Context, form url.Values) error {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	items := make([]userGroupXML, 0, len(p.Data))
+	var res describeUserGroupsResultXML
+	res.Xmlns = elasticacheNS
+	res.Marker = p.Next
+
 	for i := range p.Data {
-		items = append(items, userGroupToXML(&p.Data[i]))
+		res.UserGroups.Member = append(res.UserGroups.Member, userGroupToXML(&p.Data[i]))
 	}
 
-	type userGroupListXML struct {
-		Member []userGroupXML `xml:"member"`
-	}
-
-	type result struct {
-		XMLName    xml.Name         `xml:"DescribeUserGroupsResponse"`
-		Xmlns      string           `xml:"xmlns,attr"`
-		Marker     string           `xml:"DescribeUserGroupsResult>Marker,omitempty"`
-		UserGroups userGroupListXML `xml:"DescribeUserGroupsResult>UserGroups"`
-	}
-
-	return xmlResp(c, http.StatusOK, result{
-		Xmlns:      elasticacheNS,
-		Marker:     p.Next,
-		UserGroups: userGroupListXML{Member: items},
-	})
+	return xmlResp(c, http.StatusOK, res)
 }
 
 func (h *Handler) modifyUserGroup(c *echo.Context, form url.Values) error {
@@ -392,7 +428,12 @@ func (h *Handler) deleteGlobalReplicationGroup(c *echo.Context, form url.Values)
 	grg, err := h.Backend.DeleteGlobalReplicationGroup(id, retainPrimary)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "GlobalReplicationGroupNotFoundFault", "Global replication group not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"GlobalReplicationGroupNotFoundFault",
+				"Global replication group not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -417,33 +458,29 @@ func (h *Handler) describeGlobalReplicationGroups(c *echo.Context, form url.Valu
 	p, err := h.Backend.DescribeGlobalReplicationGroups(id, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "GlobalReplicationGroupNotFoundFault", "Global replication group not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"GlobalReplicationGroupNotFoundFault",
+				"Global replication group not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	items := make([]globalReplicationGroupXML, 0, len(p.Data))
+	var res describeGlobalRGsResultXML
+	res.Xmlns = elasticacheNS
+	res.Marker = p.Next
+
 	for i := range p.Data {
-		items = append(items, globalRGToXML(&p.Data[i]))
+		res.GlobalReplicationGroups.GlobalReplicationGroup = append(
+			res.GlobalReplicationGroups.GlobalReplicationGroup,
+			globalRGToXML(&p.Data[i]),
+		)
 	}
 
-	type grgListXML struct {
-		GlobalReplicationGroup []globalReplicationGroupXML `xml:"GlobalReplicationGroup"`
-	}
-
-	type result struct {
-		XMLName                 xml.Name   `xml:"DescribeGlobalReplicationGroupsResponse"`
-		Xmlns                   string     `xml:"xmlns,attr"`
-		Marker                  string     `xml:"DescribeGlobalReplicationGroupsResult>Marker,omitempty"`
-		GlobalReplicationGroups grgListXML `xml:"DescribeGlobalReplicationGroupsResult>GlobalReplicationGroups"`
-	}
-
-	return xmlResp(c, http.StatusOK, result{
-		Xmlns:                   elasticacheNS,
-		Marker:                  p.Next,
-		GlobalReplicationGroups: grgListXML{GlobalReplicationGroup: items},
-	})
+	return xmlResp(c, http.StatusOK, res)
 }
 
 func (h *Handler) disassociateGlobalReplicationGroup(c *echo.Context, form url.Values) error {
@@ -454,21 +491,26 @@ func (h *Handler) disassociateGlobalReplicationGroup(c *echo.Context, form url.V
 	grg, err := h.Backend.DisassociateGlobalReplicationGroup(id, replicationGroupID, replicationGroupRegion)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "GlobalReplicationGroupNotFoundFault", "Global replication group not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"GlobalReplicationGroupNotFoundFault",
+				"Global replication group not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type result struct {
-		XMLName                xml.Name                  `xml:"DisassociateGlobalReplicationGroupResponse"`
-		Xmlns                  string                    `xml:"xmlns,attr"`
-		GlobalReplicationGroup globalReplicationGroupXML `xml:"DisassociateGlobalReplicationGroupResult>GlobalReplicationGroup"`
+		XMLName xml.Name                  `xml:"DisassociateGlobalReplicationGroupResponse"`
+		Xmlns   string                    `xml:"xmlns,attr"`
+		GRG     globalReplicationGroupXML `xml:"DisassociateGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
-		Xmlns:                  elasticacheNS,
-		GlobalReplicationGroup: globalRGToXML(grg),
+		Xmlns: elasticacheNS,
+		GRG:   globalRGToXML(grg),
 	})
 }
 
@@ -480,7 +522,12 @@ func (h *Handler) failoverGlobalReplicationGroup(c *echo.Context, form url.Value
 	grg, err := h.Backend.FailoverGlobalReplicationGroup(id, primaryRegion, primaryReplicationGroupID)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "GlobalReplicationGroupNotFoundFault", "Global replication group not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"GlobalReplicationGroupNotFoundFault",
+				"Global replication group not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -505,21 +552,26 @@ func (h *Handler) increaseNodeGroupsInGlobalReplicationGroup(c *echo.Context, fo
 	grg, err := h.Backend.IncreaseNodeGroupsInGlobalReplicationGroup(id, int32(nodeGroupCount))
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "GlobalReplicationGroupNotFoundFault", "Global replication group not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"GlobalReplicationGroupNotFoundFault",
+				"Global replication group not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type result struct {
-		XMLName                xml.Name                  `xml:"IncreaseNodeGroupsInGlobalReplicationGroupResponse"`
-		Xmlns                  string                    `xml:"xmlns,attr"`
-		GlobalReplicationGroup globalReplicationGroupXML `xml:"IncreaseNodeGroupsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
+		XMLName xml.Name                  `xml:"IncreaseNodeGroupsInGlobalReplicationGroupResponse"`
+		Xmlns   string                    `xml:"xmlns,attr"`
+		GRG     globalReplicationGroupXML `xml:"IncreaseNodeGroupsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
-		Xmlns:                  elasticacheNS,
-		GlobalReplicationGroup: globalRGToXML(grg),
+		Xmlns: elasticacheNS,
+		GRG:   globalRGToXML(grg),
 	})
 }
 
@@ -530,21 +582,26 @@ func (h *Handler) decreaseNodeGroupsInGlobalReplicationGroup(c *echo.Context, fo
 	grg, err := h.Backend.DecreaseNodeGroupsInGlobalReplicationGroup(id, int32(nodeGroupCount))
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "GlobalReplicationGroupNotFoundFault", "Global replication group not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"GlobalReplicationGroupNotFoundFault",
+				"Global replication group not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type result struct {
-		XMLName                xml.Name                  `xml:"DecreaseNodeGroupsInGlobalReplicationGroupResponse"`
-		Xmlns                  string                    `xml:"xmlns,attr"`
-		GlobalReplicationGroup globalReplicationGroupXML `xml:"DecreaseNodeGroupsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
+		XMLName xml.Name                  `xml:"DecreaseNodeGroupsInGlobalReplicationGroupResponse"`
+		Xmlns   string                    `xml:"xmlns,attr"`
+		GRG     globalReplicationGroupXML `xml:"DecreaseNodeGroupsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
-		Xmlns:                  elasticacheNS,
-		GlobalReplicationGroup: globalRGToXML(grg),
+		Xmlns: elasticacheNS,
+		GRG:   globalRGToXML(grg),
 	})
 }
 
@@ -557,7 +614,12 @@ func (h *Handler) modifyGlobalReplicationGroup(c *echo.Context, form url.Values)
 	grg, err := h.Backend.ModifyGlobalReplicationGroup(id, description, engineVersion, automaticFailoverEnabled)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "GlobalReplicationGroupNotFoundFault", "Global replication group not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"GlobalReplicationGroupNotFoundFault",
+				"Global replication group not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -581,21 +643,26 @@ func (h *Handler) rebalanceSlotsInGlobalReplicationGroup(c *echo.Context, form u
 	grg, err := h.Backend.RebalanceSlotsInGlobalReplicationGroup(id)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "GlobalReplicationGroupNotFoundFault", "Global replication group not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"GlobalReplicationGroupNotFoundFault",
+				"Global replication group not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type result struct {
-		XMLName                xml.Name                  `xml:"RebalanceSlotsInGlobalReplicationGroupResponse"`
-		Xmlns                  string                    `xml:"xmlns,attr"`
-		GlobalReplicationGroup globalReplicationGroupXML `xml:"RebalanceSlotsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
+		XMLName xml.Name                  `xml:"RebalanceSlotsInGlobalReplicationGroupResponse"`
+		Xmlns   string                    `xml:"xmlns,attr"`
+		GRG     globalReplicationGroupXML `xml:"RebalanceSlotsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
-		Xmlns:                  elasticacheNS,
-		GlobalReplicationGroup: globalRGToXML(grg),
+		Xmlns: elasticacheNS,
+		GRG:   globalRGToXML(grg),
 	})
 }
 
@@ -612,27 +679,18 @@ func (h *Handler) describeReservedCacheNodes(c *echo.Context, form url.Values) e
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	items := make([]reservedCacheNodeXML, 0, len(p.Data))
+	var res describeRCNsResultXML
+	res.Xmlns = elasticacheNS
+	res.Marker = p.Next
+
 	for i := range p.Data {
-		items = append(items, reservedCacheNodeToXML(&p.Data[i]))
+		res.ReservedCacheNodes.ReservedCacheNode = append(
+			res.ReservedCacheNodes.ReservedCacheNode,
+			reservedCacheNodeToXML(&p.Data[i]),
+		)
 	}
 
-	type rcnListXML struct {
-		ReservedCacheNode []reservedCacheNodeXML `xml:"ReservedCacheNode"`
-	}
-
-	type result struct {
-		XMLName            xml.Name   `xml:"DescribeReservedCacheNodesResponse"`
-		Xmlns              string     `xml:"xmlns,attr"`
-		Marker             string     `xml:"DescribeReservedCacheNodesResult>Marker,omitempty"`
-		ReservedCacheNodes rcnListXML `xml:"DescribeReservedCacheNodesResult>ReservedCacheNodes"`
-	}
-
-	return xmlResp(c, http.StatusOK, result{
-		Xmlns:              elasticacheNS,
-		Marker:             p.Next,
-		ReservedCacheNodes: rcnListXML{ReservedCacheNode: items},
-	})
+	return xmlResp(c, http.StatusOK, res)
 }
 
 func (h *Handler) describeReservedCacheNodesOfferings(c *echo.Context, form url.Values) error {
@@ -642,7 +700,12 @@ func (h *Handler) describeReservedCacheNodesOfferings(c *echo.Context, form url.
 	p, err := h.Backend.DescribeReservedCacheNodesOfferings(offeringID, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrReservedCacheNodesOfferingNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReservedCacheNodesOfferingNotFound", "Reserved cache nodes offering not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"ReservedCacheNodesOfferingNotFound",
+				"Reserved cache nodes offering not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -650,15 +713,7 @@ func (h *Handler) describeReservedCacheNodesOfferings(c *echo.Context, form url.
 
 	items := make([]reservedCacheNodesOfferingXML, 0, len(p.Data))
 	for _, o := range p.Data {
-		items = append(items, reservedCacheNodesOfferingXML{
-			OfferingID:         o.OfferingID,
-			CacheNodeType:      o.CacheNodeType,
-			Duration:           o.Duration,
-			FixedPrice:         o.FixedPrice,
-			UsagePrice:         o.UsagePrice,
-			ProductDescription: o.ProductDescription,
-			OfferingType:       o.OfferingType,
-		})
+		items = append(items, reservedCacheNodesOfferingXML(o))
 	}
 
 	type offeringsListXML struct {
@@ -666,16 +721,16 @@ func (h *Handler) describeReservedCacheNodesOfferings(c *echo.Context, form url.
 	}
 
 	type result struct {
-		XMLName                     xml.Name         `xml:"DescribeReservedCacheNodesOfferingsResponse"`
-		Xmlns                       string           `xml:"xmlns,attr"`
-		Marker                      string           `xml:"DescribeReservedCacheNodesOfferingsResult>Marker,omitempty"`
-		ReservedCacheNodesOfferings offeringsListXML `xml:"DescribeReservedCacheNodesOfferingsResult>ReservedCacheNodesOfferings"`
+		XMLName   xml.Name         `xml:"DescribeReservedCacheNodesOfferingsResponse"`
+		Xmlns     string           `xml:"xmlns,attr"`
+		Marker    string           `xml:"DescribeReservedCacheNodesOfferingsResult>Marker,omitempty"`
+		Offerings offeringsListXML `xml:"DescribeReservedCacheNodesOfferingsResult>ReservedCacheNodesOfferings"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
-		Xmlns:                       elasticacheNS,
-		Marker:                      p.Next,
-		ReservedCacheNodesOfferings: offeringsListXML{ReservedCacheNodesOffering: items},
+		Xmlns:     elasticacheNS,
+		Marker:    p.Next,
+		Offerings: offeringsListXML{ReservedCacheNodesOffering: items},
 	})
 }
 
@@ -687,7 +742,12 @@ func (h *Handler) purchaseReservedCacheNodesOffering(c *echo.Context, form url.V
 	rcn, err := h.Backend.PurchaseReservedCacheNodesOffering(offeringID, reservedCacheNodeID, int32(count))
 	if err != nil {
 		if errors.Is(err, ErrReservedCacheNodesOfferingNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReservedCacheNodesOfferingNotFound", "Reserved cache nodes offering not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"ReservedCacheNodesOfferingNotFound",
+				"Reserved cache nodes offering not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -735,7 +795,12 @@ func (h *Handler) deleteServerlessCacheSnapshot(c *echo.Context, form url.Values
 	snap, err := h.Backend.DeleteServerlessCacheSnapshot(name)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ServerlessCacheSnapshotNotFoundFault", "Serverless cache snapshot not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"ServerlessCacheSnapshotNotFoundFault",
+				"Serverless cache snapshot not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -766,27 +831,15 @@ func (h *Handler) describeServerlessCaches(c *echo.Context, form url.Values) err
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	items := make([]serverlessCacheXML, 0, len(p.Data))
+	var res describeServerlessCachesResultXML
+	res.Xmlns = elasticacheNS
+	res.Marker = p.Next
+
 	for i := range p.Data {
-		items = append(items, serverlessCacheToXML(&p.Data[i]))
+		res.ServerlessCaches.Member = append(res.ServerlessCaches.Member, serverlessCacheToXML(&p.Data[i]))
 	}
 
-	type scListXML struct {
-		Member []serverlessCacheXML `xml:"member"`
-	}
-
-	type result struct {
-		XMLName          xml.Name  `xml:"DescribeServerlessCachesResponse"`
-		Xmlns            string    `xml:"xmlns,attr"`
-		Marker           string    `xml:"DescribeServerlessCachesResult>Marker,omitempty"`
-		ServerlessCaches scListXML `xml:"DescribeServerlessCachesResult>ServerlessCaches"`
-	}
-
-	return xmlResp(c, http.StatusOK, result{
-		Xmlns:            elasticacheNS,
-		Marker:           p.Next,
-		ServerlessCaches: scListXML{Member: items},
-	})
+	return xmlResp(c, http.StatusOK, res)
 }
 
 func (h *Handler) describeServerlessCacheSnapshots(c *echo.Context, form url.Values) error {
@@ -797,7 +850,12 @@ func (h *Handler) describeServerlessCacheSnapshots(c *echo.Context, form url.Val
 	p, err := h.Backend.DescribeServerlessCacheSnapshots(serverlessCacheName, snapshotName, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ServerlessCacheSnapshotNotFoundFault", "Serverless cache snapshot not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"ServerlessCacheSnapshotNotFoundFault",
+				"Serverless cache snapshot not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -833,7 +891,12 @@ func (h *Handler) exportServerlessCacheSnapshot(c *echo.Context, form url.Values
 	snap, err := h.Backend.ExportServerlessCacheSnapshot(snapshotName, s3BucketName)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ServerlessCacheSnapshotNotFoundFault", "Serverless cache snapshot not found")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"ServerlessCacheSnapshotNotFoundFault",
+				"Serverless cache snapshot not found",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1012,13 +1075,7 @@ func (h *Handler) describeCacheEngineVersions(c *echo.Context, form url.Values) 
 
 	items := make([]cacheEngineVersionXML, 0, len(p.Data))
 	for _, v := range p.Data {
-		items = append(items, cacheEngineVersionXML{
-			Engine:                        v.Engine,
-			EngineVersion:                 v.EngineVersion,
-			CacheParameterGroupFamily:     v.CacheParameterGroupFamily,
-			CacheEngineDescription:        v.CacheEngineDescription,
-			CacheEngineVersionDescription: v.CacheEngineVersionDescription,
-		})
+		items = append(items, cacheEngineVersionXML(v))
 	}
 
 	type cevListXML struct {
@@ -1097,27 +1154,18 @@ func (h *Handler) describeCacheSecurityGroups(c *echo.Context, form url.Values) 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	items := make([]cacheSecurityGroupXML, 0, len(p.Data))
+	var res describeSGsResultXML
+	res.Xmlns = elasticacheNS
+	res.Marker = p.Next
+
 	for i := range p.Data {
-		items = append(items, cacheSecurityGroupToXML(&p.Data[i]))
+		res.CacheSecurityGroups.CacheSecurityGroup = append(
+			res.CacheSecurityGroups.CacheSecurityGroup,
+			cacheSecurityGroupToXML(&p.Data[i]),
+		)
 	}
 
-	type sgListXML struct {
-		CacheSecurityGroup []cacheSecurityGroupXML `xml:"CacheSecurityGroup"`
-	}
-
-	type result struct {
-		XMLName             xml.Name  `xml:"DescribeCacheSecurityGroupsResponse"`
-		Xmlns               string    `xml:"xmlns,attr"`
-		Marker              string    `xml:"DescribeCacheSecurityGroupsResult>Marker,omitempty"`
-		CacheSecurityGroups sgListXML `xml:"DescribeCacheSecurityGroupsResult>CacheSecurityGroups"`
-	}
-
-	return xmlResp(c, http.StatusOK, result{
-		Xmlns:               elasticacheNS,
-		Marker:              p.Next,
-		CacheSecurityGroups: sgListXML{CacheSecurityGroup: items},
-	})
+	return xmlResp(c, http.StatusOK, res)
 }
 
 func (h *Handler) revokeCacheSecurityGroupIngress(c *echo.Context, form url.Values) error {
@@ -1160,18 +1208,18 @@ func (h *Handler) describeEngineDefaultParameters(c *echo.Context, form url.Valu
 	}
 
 	type result struct {
-		XMLName                   xml.Name      `xml:"DescribeEngineDefaultParametersResponse"`
-		Xmlns                     string        `xml:"xmlns,attr"`
-		CacheParameterGroupFamily string        `xml:"DescribeEngineDefaultParametersResult>EngineDefaults>CacheParameterGroupFamily"`
-		Marker                    string        `xml:"DescribeEngineDefaultParametersResult>EngineDefaults>Marker,omitempty"`
-		Parameters                paramsListXML `xml:"DescribeEngineDefaultParametersResult>EngineDefaults>Parameters"`
+		XMLName xml.Name      `xml:"DescribeEngineDefaultParametersResponse"`
+		Xmlns   string        `xml:"xmlns,attr"`
+		Family  string        `xml:"DescribeEngineDefaultParametersResult>EngineDefaults>CacheParameterGroupFamily"`
+		Marker  string        `xml:"DescribeEngineDefaultParametersResult>EngineDefaults>Marker,omitempty"`
+		Params  paramsListXML `xml:"DescribeEngineDefaultParametersResult>EngineDefaults>Parameters"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
-		Xmlns:                     elasticacheNS,
-		CacheParameterGroupFamily: family,
-		Marker:                    p.Next,
-		Parameters:                paramsListXML{Parameter: buildParameterItems(p.Data)},
+		Xmlns:  elasticacheNS,
+		Family: family,
+		Marker: p.Next,
+		Params: paramsListXML{Parameter: buildParameterItems(p.Data)},
 	})
 }
 
@@ -1187,10 +1235,7 @@ func (h *Handler) describeServiceUpdates(c *echo.Context, form url.Values) error
 
 	items := make([]serviceUpdateXML, 0, len(p.Data))
 	for _, su := range p.Data {
-		items = append(items, serviceUpdateXML{
-			ServiceUpdateName: su.ServiceUpdateName,
-			Status:            su.Status,
-		})
+		items = append(items, serviceUpdateXML(su))
 	}
 
 	type suListXML struct {
@@ -1222,12 +1267,7 @@ func (h *Handler) describeUpdateActions(c *echo.Context, form url.Values) error 
 
 	items := make([]updateActionXML, 0, len(p.Data))
 	for _, ua := range p.Data {
-		items = append(items, updateActionXML{
-			ReplicationGroupID: ua.ReplicationGroupID,
-			CacheClusterID:     ua.CacheClusterID,
-			ServiceUpdateName:  ua.ServiceUpdateName,
-			UpdateActionStatus: ua.UpdateActionStatus,
-		})
+		items = append(items, updateActionXML(ua))
 	}
 
 	type uaListXML struct {

@@ -29,11 +29,11 @@ func TestDeleteUser(t *testing.T) {
 			setup: func(t *testing.T, client *elasticachesdk.Client) {
 				t.Helper()
 				_, err := client.CreateUser(t.Context(), &elasticachesdk.CreateUserInput{
-					UserId:              aws.String("user-del-1"),
-					UserName:            aws.String("user-del-1"),
-					Engine:              aws.String("redis"),
-					AccessString:        aws.String("on ~* +@all"),
-					NoPasswordRequired:  aws.Bool(true),
+					UserId:             aws.String("user-del-1"),
+					UserName:           aws.String("user-del-1"),
+					Engine:             aws.String("redis"),
+					AccessString:       aws.String("on ~* +@all"),
+					NoPasswordRequired: aws.Bool(true),
 				})
 				require.NoError(t, err)
 			},
@@ -494,10 +494,13 @@ func TestDeleteGlobalReplicationGroup(t *testing.T) {
 					ReplicationGroupDescription: aws.String("test rg"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateGlobalReplicationGroup(t.Context(), &elasticachesdk.CreateGlobalReplicationGroupInput{
-					GlobalReplicationGroupIdSuffix: aws.String("mygrg"),
-					PrimaryReplicationGroupId:      aws.String("rg-grg"),
-				})
+				_, err = client.CreateGlobalReplicationGroup(
+					t.Context(),
+					&elasticachesdk.CreateGlobalReplicationGroupInput{
+						GlobalReplicationGroupIdSuffix: aws.String("mygrg"),
+						PrimaryReplicationGroupId:      aws.String("rg-grg"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -518,10 +521,13 @@ func TestDeleteGlobalReplicationGroup(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.DeleteGlobalReplicationGroup(t.Context(), &elasticachesdk.DeleteGlobalReplicationGroupInput{
-				GlobalReplicationGroupId:       aws.String(tt.groupID),
-				RetainPrimaryReplicationGroup:  aws.Bool(false),
-			})
+			out, err := client.DeleteGlobalReplicationGroup(
+				t.Context(),
+				&elasticachesdk.DeleteGlobalReplicationGroupInput{
+					GlobalReplicationGroupId:      aws.String(tt.groupID),
+					RetainPrimaryReplicationGroup: aws.Bool(false),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -559,10 +565,13 @@ func TestDescribeGlobalReplicationGroups(t *testing.T) {
 					ReplicationGroupDescription: aws.String("test"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateGlobalReplicationGroup(t.Context(), &elasticachesdk.CreateGlobalReplicationGroupInput{
-					GlobalReplicationGroupIdSuffix: aws.String("dgrg"),
-					PrimaryReplicationGroupId:      aws.String("rg-dgrg"),
-				})
+				_, err = client.CreateGlobalReplicationGroup(
+					t.Context(),
+					&elasticachesdk.CreateGlobalReplicationGroupInput{
+						GlobalReplicationGroupIdSuffix: aws.String("dgrg"),
+						PrimaryReplicationGroupId:      aws.String("rg-dgrg"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -625,10 +634,13 @@ func TestDisassociateGlobalReplicationGroup(t *testing.T) {
 					ReplicationGroupDescription: aws.String("test"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateGlobalReplicationGroup(t.Context(), &elasticachesdk.CreateGlobalReplicationGroupInput{
-					GlobalReplicationGroupIdSuffix: aws.String("disgrg"),
-					PrimaryReplicationGroupId:      aws.String("rg-dis"),
-				})
+				_, err = client.CreateGlobalReplicationGroup(
+					t.Context(),
+					&elasticachesdk.CreateGlobalReplicationGroupInput{
+						GlobalReplicationGroupIdSuffix: aws.String("disgrg"),
+						PrimaryReplicationGroupId:      aws.String("rg-dis"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -649,11 +661,14 @@ func TestDisassociateGlobalReplicationGroup(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.DisassociateGlobalReplicationGroup(t.Context(), &elasticachesdk.DisassociateGlobalReplicationGroupInput{
-				GlobalReplicationGroupId: aws.String(tt.groupID),
-				ReplicationGroupId:       aws.String("rg-dis"),
-				ReplicationGroupRegion:   aws.String("us-east-1"),
-			})
+			out, err := client.DisassociateGlobalReplicationGroup(
+				t.Context(),
+				&elasticachesdk.DisassociateGlobalReplicationGroupInput{
+					GlobalReplicationGroupId: aws.String(tt.groupID),
+					ReplicationGroupId:       aws.String("rg-dis"),
+					ReplicationGroupRegion:   aws.String("us-east-1"),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -690,10 +705,13 @@ func TestFailoverGlobalReplicationGroup(t *testing.T) {
 					ReplicationGroupDescription: aws.String("test"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateGlobalReplicationGroup(t.Context(), &elasticachesdk.CreateGlobalReplicationGroupInput{
-					GlobalReplicationGroupIdSuffix: aws.String("fogrg"),
-					PrimaryReplicationGroupId:      aws.String("rg-fo"),
-				})
+				_, err = client.CreateGlobalReplicationGroup(
+					t.Context(),
+					&elasticachesdk.CreateGlobalReplicationGroupInput{
+						GlobalReplicationGroupIdSuffix: aws.String("fogrg"),
+						PrimaryReplicationGroupId:      aws.String("rg-fo"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -714,11 +732,14 @@ func TestFailoverGlobalReplicationGroup(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.FailoverGlobalReplicationGroup(t.Context(), &elasticachesdk.FailoverGlobalReplicationGroupInput{
-				GlobalReplicationGroupId:  aws.String(tt.groupID),
-				PrimaryRegion:             aws.String("us-west-2"),
-				PrimaryReplicationGroupId: aws.String("rg-secondary"),
-			})
+			out, err := client.FailoverGlobalReplicationGroup(
+				t.Context(),
+				&elasticachesdk.FailoverGlobalReplicationGroupInput{
+					GlobalReplicationGroupId:  aws.String(tt.groupID),
+					PrimaryRegion:             aws.String("us-west-2"),
+					PrimaryReplicationGroupId: aws.String("rg-secondary"),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -755,10 +776,13 @@ func TestIncreaseNodeGroupsInGlobalReplicationGroup(t *testing.T) {
 					ReplicationGroupDescription: aws.String("test"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateGlobalReplicationGroup(t.Context(), &elasticachesdk.CreateGlobalReplicationGroupInput{
-					GlobalReplicationGroupIdSuffix: aws.String("incgrg"),
-					PrimaryReplicationGroupId:      aws.String("rg-inc"),
-				})
+				_, err = client.CreateGlobalReplicationGroup(
+					t.Context(),
+					&elasticachesdk.CreateGlobalReplicationGroupInput{
+						GlobalReplicationGroupIdSuffix: aws.String("incgrg"),
+						PrimaryReplicationGroupId:      aws.String("rg-inc"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -779,11 +803,14 @@ func TestIncreaseNodeGroupsInGlobalReplicationGroup(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.IncreaseNodeGroupsInGlobalReplicationGroup(t.Context(), &elasticachesdk.IncreaseNodeGroupsInGlobalReplicationGroupInput{
-				GlobalReplicationGroupId: aws.String(tt.groupID),
-				NodeGroupCount:           aws.Int32(3),
-				ApplyImmediately:         aws.Bool(true),
-			})
+			out, err := client.IncreaseNodeGroupsInGlobalReplicationGroup(
+				t.Context(),
+				&elasticachesdk.IncreaseNodeGroupsInGlobalReplicationGroupInput{
+					GlobalReplicationGroupId: aws.String(tt.groupID),
+					NodeGroupCount:           aws.Int32(3),
+					ApplyImmediately:         aws.Bool(true),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -820,10 +847,13 @@ func TestDecreaseNodeGroupsInGlobalReplicationGroup(t *testing.T) {
 					ReplicationGroupDescription: aws.String("test"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateGlobalReplicationGroup(t.Context(), &elasticachesdk.CreateGlobalReplicationGroupInput{
-					GlobalReplicationGroupIdSuffix: aws.String("decgrg"),
-					PrimaryReplicationGroupId:      aws.String("rg-dec"),
-				})
+				_, err = client.CreateGlobalReplicationGroup(
+					t.Context(),
+					&elasticachesdk.CreateGlobalReplicationGroupInput{
+						GlobalReplicationGroupIdSuffix: aws.String("decgrg"),
+						PrimaryReplicationGroupId:      aws.String("rg-dec"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -844,11 +874,14 @@ func TestDecreaseNodeGroupsInGlobalReplicationGroup(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.DecreaseNodeGroupsInGlobalReplicationGroup(t.Context(), &elasticachesdk.DecreaseNodeGroupsInGlobalReplicationGroupInput{
-				GlobalReplicationGroupId: aws.String(tt.groupID),
-				NodeGroupCount:           aws.Int32(1),
-				ApplyImmediately:         aws.Bool(true),
-			})
+			out, err := client.DecreaseNodeGroupsInGlobalReplicationGroup(
+				t.Context(),
+				&elasticachesdk.DecreaseNodeGroupsInGlobalReplicationGroupInput{
+					GlobalReplicationGroupId: aws.String(tt.groupID),
+					NodeGroupCount:           aws.Int32(1),
+					ApplyImmediately:         aws.Bool(true),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -885,10 +918,13 @@ func TestModifyGlobalReplicationGroup(t *testing.T) {
 					ReplicationGroupDescription: aws.String("test"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateGlobalReplicationGroup(t.Context(), &elasticachesdk.CreateGlobalReplicationGroupInput{
-					GlobalReplicationGroupIdSuffix: aws.String("modgrg"),
-					PrimaryReplicationGroupId:      aws.String("rg-mod"),
-				})
+				_, err = client.CreateGlobalReplicationGroup(
+					t.Context(),
+					&elasticachesdk.CreateGlobalReplicationGroupInput{
+						GlobalReplicationGroupIdSuffix: aws.String("modgrg"),
+						PrimaryReplicationGroupId:      aws.String("rg-mod"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -909,11 +945,14 @@ func TestModifyGlobalReplicationGroup(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.ModifyGlobalReplicationGroup(t.Context(), &elasticachesdk.ModifyGlobalReplicationGroupInput{
-				GlobalReplicationGroupId:          aws.String(tt.groupID),
-				ApplyImmediately:                  aws.Bool(true),
-				GlobalReplicationGroupDescription: aws.String("updated"),
-			})
+			out, err := client.ModifyGlobalReplicationGroup(
+				t.Context(),
+				&elasticachesdk.ModifyGlobalReplicationGroupInput{
+					GlobalReplicationGroupId:          aws.String(tt.groupID),
+					ApplyImmediately:                  aws.Bool(true),
+					GlobalReplicationGroupDescription: aws.String("updated"),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -950,10 +989,13 @@ func TestRebalanceSlotsInGlobalReplicationGroup(t *testing.T) {
 					ReplicationGroupDescription: aws.String("test"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateGlobalReplicationGroup(t.Context(), &elasticachesdk.CreateGlobalReplicationGroupInput{
-					GlobalReplicationGroupIdSuffix: aws.String("rbgrg"),
-					PrimaryReplicationGroupId:      aws.String("rg-rb"),
-				})
+				_, err = client.CreateGlobalReplicationGroup(
+					t.Context(),
+					&elasticachesdk.CreateGlobalReplicationGroupInput{
+						GlobalReplicationGroupIdSuffix: aws.String("rbgrg"),
+						PrimaryReplicationGroupId:      aws.String("rg-rb"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -974,10 +1016,13 @@ func TestRebalanceSlotsInGlobalReplicationGroup(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.RebalanceSlotsInGlobalReplicationGroup(t.Context(), &elasticachesdk.RebalanceSlotsInGlobalReplicationGroupInput{
-				GlobalReplicationGroupId: aws.String(tt.groupID),
-				ApplyImmediately:         aws.Bool(true),
-			})
+			out, err := client.RebalanceSlotsInGlobalReplicationGroup(
+				t.Context(),
+				&elasticachesdk.RebalanceSlotsInGlobalReplicationGroupInput{
+					GlobalReplicationGroupId: aws.String(tt.groupID),
+					ApplyImmediately:         aws.Bool(true),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1014,10 +1059,13 @@ func TestDescribeReservedCacheNodes(t *testing.T) {
 			wantCount: 1,
 			setup: func(t *testing.T, client *elasticachesdk.Client) {
 				t.Helper()
-				_, err := client.PurchaseReservedCacheNodesOffering(t.Context(), &elasticachesdk.PurchaseReservedCacheNodesOfferingInput{
-					ReservedCacheNodesOfferingId: aws.String("31153cd5-4ce6-45a9-b6ce-7f0b6789b8fa"),
-					ReservedCacheNodeId:          aws.String("my-rcn"),
-				})
+				_, err := client.PurchaseReservedCacheNodesOffering(
+					t.Context(),
+					&elasticachesdk.PurchaseReservedCacheNodesOfferingInput{
+						ReservedCacheNodesOfferingId: aws.String("31153cd5-4ce6-45a9-b6ce-7f0b6789b8fa"),
+						ReservedCacheNodeId:          aws.String("my-rcn"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -1142,10 +1190,13 @@ func TestPurchaseReservedCacheNodesOffering(t *testing.T) {
 
 			client := newTestStack(t)
 
-			out, err := client.PurchaseReservedCacheNodesOffering(t.Context(), &elasticachesdk.PurchaseReservedCacheNodesOfferingInput{
-				ReservedCacheNodesOfferingId: aws.String(tt.offeringID),
-				ReservedCacheNodeId:          aws.String(tt.nodeID),
-			})
+			out, err := client.PurchaseReservedCacheNodesOffering(
+				t.Context(),
+				&elasticachesdk.PurchaseReservedCacheNodesOfferingInput{
+					ReservedCacheNodesOfferingId: aws.String(tt.offeringID),
+					ReservedCacheNodeId:          aws.String(tt.nodeID),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1240,10 +1291,13 @@ func TestDeleteServerlessCacheSnapshot(t *testing.T) {
 					Engine:              aws.String("redis"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateServerlessCacheSnapshot(t.Context(), &elasticachesdk.CreateServerlessCacheSnapshotInput{
-					ServerlessCacheSnapshotName: aws.String("snap-del-1"),
-					ServerlessCacheName:         aws.String("sc-snap-del"),
-				})
+				_, err = client.CreateServerlessCacheSnapshot(
+					t.Context(),
+					&elasticachesdk.CreateServerlessCacheSnapshotInput{
+						ServerlessCacheSnapshotName: aws.String("snap-del-1"),
+						ServerlessCacheName:         aws.String("sc-snap-del"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -1264,9 +1318,12 @@ func TestDeleteServerlessCacheSnapshot(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.DeleteServerlessCacheSnapshot(t.Context(), &elasticachesdk.DeleteServerlessCacheSnapshotInput{
-				ServerlessCacheSnapshotName: aws.String(tt.snapName),
-			})
+			out, err := client.DeleteServerlessCacheSnapshot(
+				t.Context(),
+				&elasticachesdk.DeleteServerlessCacheSnapshotInput{
+					ServerlessCacheSnapshotName: aws.String(tt.snapName),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1381,17 +1438,20 @@ func TestDescribeServerlessCacheSnapshots(t *testing.T) {
 					Engine:              aws.String("redis"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateServerlessCacheSnapshot(t.Context(), &elasticachesdk.CreateServerlessCacheSnapshotInput{
-					ServerlessCacheSnapshotName: aws.String("snap-dss"),
-					ServerlessCacheName:         aws.String("sc-dss"),
-				})
+				_, err = client.CreateServerlessCacheSnapshot(
+					t.Context(),
+					&elasticachesdk.CreateServerlessCacheSnapshotInput{
+						ServerlessCacheSnapshotName: aws.String("snap-dss"),
+						ServerlessCacheName:         aws.String("sc-dss"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
 		{
-			name:    "not_found",
+			name:     "not_found",
 			snapName: "no-such-snap",
-			wantErr: true,
+			wantErr:  true,
 		},
 	}
 
@@ -1447,10 +1507,13 @@ func TestExportServerlessCacheSnapshot(t *testing.T) {
 					Engine:              aws.String("redis"),
 				})
 				require.NoError(t, err)
-				_, err = client.CreateServerlessCacheSnapshot(t.Context(), &elasticachesdk.CreateServerlessCacheSnapshotInput{
-					ServerlessCacheSnapshotName: aws.String("snap-exp-1"),
-					ServerlessCacheName:         aws.String("sc-exp"),
-				})
+				_, err = client.CreateServerlessCacheSnapshot(
+					t.Context(),
+					&elasticachesdk.CreateServerlessCacheSnapshotInput{
+						ServerlessCacheSnapshotName: aws.String("snap-exp-1"),
+						ServerlessCacheName:         aws.String("sc-exp"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -1471,10 +1534,13 @@ func TestExportServerlessCacheSnapshot(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.ExportServerlessCacheSnapshot(t.Context(), &elasticachesdk.ExportServerlessCacheSnapshotInput{
-				ServerlessCacheSnapshotName: aws.String(tt.snapName),
-				S3BucketName:                aws.String("my-bucket"),
-			})
+			out, err := client.ExportServerlessCacheSnapshot(
+				t.Context(),
+				&elasticachesdk.ExportServerlessCacheSnapshotInput{
+					ServerlessCacheSnapshotName: aws.String(tt.snapName),
+					S3BucketName:                aws.String("my-bucket"),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1555,9 +1621,9 @@ func TestStartMigration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup func(t *testing.T, client *elasticachesdk.Client)
-		name  string
-		rgID  string
+		setup   func(t *testing.T, client *elasticachesdk.Client)
+		name    string
+		rgID    string
 		wantErr bool
 	}{
 		{
@@ -1829,11 +1895,14 @@ func TestModifyReplicationGroupShardConfiguration(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.ModifyReplicationGroupShardConfiguration(t.Context(), &elasticachesdk.ModifyReplicationGroupShardConfigurationInput{
-				ReplicationGroupId: aws.String(tt.rgID),
-				NodeGroupCount:     aws.Int32(2),
-				ApplyImmediately:   aws.Bool(true),
-			})
+			out, err := client.ModifyReplicationGroupShardConfiguration(
+				t.Context(),
+				&elasticachesdk.ModifyReplicationGroupShardConfigurationInput{
+					ReplicationGroupId: aws.String(tt.rgID),
+					NodeGroupCount:     aws.Int32(2),
+					ApplyImmediately:   aws.Bool(true),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1855,9 +1924,9 @@ func TestDescribeCacheEngineVersions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		engine        string
-		wantMinCount  int
+		name         string
+		engine       string
+		wantMinCount int
 	}{
 		{
 			name:         "all_versions",
@@ -1939,7 +2008,7 @@ func TestRebootCacheCluster(t *testing.T) {
 			}
 
 			out, err := client.RebootCacheCluster(t.Context(), &elasticachesdk.RebootCacheClusterInput{
-				CacheClusterId:      aws.String(tt.clusterID),
+				CacheClusterId:       aws.String(tt.clusterID),
 				CacheNodeIdsToReboot: []string{"0001"},
 			})
 
@@ -2032,10 +2101,13 @@ func TestDescribeCacheSecurityGroups(t *testing.T) {
 			setup: func(t *testing.T, client *elasticachesdk.Client) {
 				t.Helper()
 				for _, n := range []string{"dsg1", "dsg2"} {
-					_, err := client.CreateCacheSecurityGroup(t.Context(), &elasticachesdk.CreateCacheSecurityGroupInput{
-						CacheSecurityGroupName: aws.String(n),
-						Description:            aws.String("test"),
-					})
+					_, err := client.CreateCacheSecurityGroup(
+						t.Context(),
+						&elasticachesdk.CreateCacheSecurityGroupInput{
+							CacheSecurityGroupName: aws.String(n),
+							Description:            aws.String("test"),
+						},
+					)
 					require.NoError(t, err)
 				}
 			},
@@ -2097,9 +2169,9 @@ func TestRevokeCacheSecurityGroupIngress(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup  func(t *testing.T, client *elasticachesdk.Client)
-		name   string
-		sgName string
+		setup   func(t *testing.T, client *elasticachesdk.Client)
+		name    string
+		sgName  string
 		wantErr bool
 	}{
 		{
@@ -2112,11 +2184,14 @@ func TestRevokeCacheSecurityGroupIngress(t *testing.T) {
 					Description:            aws.String("test"),
 				})
 				require.NoError(t, err)
-				_, err = client.AuthorizeCacheSecurityGroupIngress(t.Context(), &elasticachesdk.AuthorizeCacheSecurityGroupIngressInput{
-					CacheSecurityGroupName:  aws.String("sg-revoke"),
-					EC2SecurityGroupName:    aws.String("my-ec2-sg"),
-					EC2SecurityGroupOwnerId: aws.String("123456789012"),
-				})
+				_, err = client.AuthorizeCacheSecurityGroupIngress(
+					t.Context(),
+					&elasticachesdk.AuthorizeCacheSecurityGroupIngressInput{
+						CacheSecurityGroupName:  aws.String("sg-revoke"),
+						EC2SecurityGroupName:    aws.String("my-ec2-sg"),
+						EC2SecurityGroupOwnerId: aws.String("123456789012"),
+					},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -2137,11 +2212,14 @@ func TestRevokeCacheSecurityGroupIngress(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.RevokeCacheSecurityGroupIngress(t.Context(), &elasticachesdk.RevokeCacheSecurityGroupIngressInput{
-				CacheSecurityGroupName:  aws.String(tt.sgName),
-				EC2SecurityGroupName:    aws.String("my-ec2-sg"),
-				EC2SecurityGroupOwnerId: aws.String("123456789012"),
-			})
+			out, err := client.RevokeCacheSecurityGroupIngress(
+				t.Context(),
+				&elasticachesdk.RevokeCacheSecurityGroupIngressInput{
+					CacheSecurityGroupName:  aws.String(tt.sgName),
+					EC2SecurityGroupName:    aws.String("my-ec2-sg"),
+					EC2SecurityGroupOwnerId: aws.String("123456789012"),
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -2182,9 +2260,12 @@ func TestDescribeEngineDefaultParameters(t *testing.T) {
 
 			client := newTestStack(t)
 
-			out, err := client.DescribeEngineDefaultParameters(t.Context(), &elasticachesdk.DescribeEngineDefaultParametersInput{
-				CacheParameterGroupFamily: aws.String(tt.family),
-			})
+			out, err := client.DescribeEngineDefaultParameters(
+				t.Context(),
+				&elasticachesdk.DescribeEngineDefaultParametersInput{
+					CacheParameterGroupFamily: aws.String(tt.family),
+				},
+			)
 
 			require.NoError(t, err)
 			assert.NotNil(t, out.EngineDefaults)
@@ -2258,8 +2339,8 @@ func TestListAllowedNodeTypeModifications(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		rgID  string
+		name string
+		rgID string
 	}{
 		{
 			name: "by_rg_id",

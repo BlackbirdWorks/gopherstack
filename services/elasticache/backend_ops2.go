@@ -40,9 +40,9 @@ type ReservedCacheNode struct {
 	ProductDescription  string
 	State               string
 	OfferingID          string
-	Duration            int32
 	FixedPrice          float64
 	UsagePrice          float64
+	Duration            int32
 	CacheNodeCount      int32
 }
 
@@ -50,11 +50,11 @@ type ReservedCacheNode struct {
 type ReservedCacheNodesOffering struct {
 	OfferingID         string
 	CacheNodeType      string
-	Duration           int32
-	FixedPrice         float64
-	UsagePrice         float64
 	ProductDescription string
 	OfferingType       string
+	FixedPrice         float64
+	UsagePrice         float64
+	Duration           int32
 }
 
 // CacheEngineVersion represents an engine version.
@@ -84,26 +84,92 @@ func (b *InMemoryBackend) userGroupARN(id string) string {
 	return arn.Build("elasticache", b.region, b.accountID, "usergroup:"+id)
 }
 
-func (b *InMemoryBackend) reservedCacheNodeARN(id string) string {
-	return arn.Build("elasticache", b.region, b.accountID, "reserved-instance:"+id)
-}
+// reservedOneYearSeconds is the duration in seconds for a 1-year reserved cache node.
+const reservedOneYearSeconds int32 = 365 * 24 * 60 * 60
+
+// Builtin offering prices (USD, fixed price, all upfront, 1 year).
+const (
+	reservedPriceLarge  float64 = 500
+	reservedPriceXLarge float64 = 1000
+	reservedPriceMicro  float64 = 50
+)
 
 func builtinReservedOfferings() []ReservedCacheNodesOffering {
 	return []ReservedCacheNodesOffering{
-		{OfferingID: "31153cd5-4ce6-45a9-b6ce-7f0b6789b8fa", CacheNodeType: "cache.r6g.large", Duration: 31536000, FixedPrice: 500.0, UsagePrice: 0.0, ProductDescription: "Redis", OfferingType: "All Upfront"},
-		{OfferingID: "649fd0c8-cf6d-47a0-bfa6-060f8e75e95f", CacheNodeType: "cache.r6g.xlarge", Duration: 31536000, FixedPrice: 1000.0, UsagePrice: 0.0, ProductDescription: "Redis", OfferingType: "All Upfront"},
-		{OfferingID: "a2b54b70-d5b3-4b96-a72e-afedbc16e70f", CacheNodeType: "cache.t3.micro", Duration: 31536000, FixedPrice: 50.0, UsagePrice: 0.0, ProductDescription: "Redis", OfferingType: "All Upfront"},
+		{
+			OfferingID:         "31153cd5-4ce6-45a9-b6ce-7f0b6789b8fa",
+			CacheNodeType:      "cache.r6g.large",
+			Duration:           reservedOneYearSeconds,
+			FixedPrice:         reservedPriceLarge,
+			UsagePrice:         0.0,
+			ProductDescription: "Redis",
+			OfferingType:       "All Upfront",
+		},
+		{
+			OfferingID:         "649fd0c8-cf6d-47a0-bfa6-060f8e75e95f",
+			CacheNodeType:      "cache.r6g.xlarge",
+			Duration:           reservedOneYearSeconds,
+			FixedPrice:         reservedPriceXLarge,
+			UsagePrice:         0.0,
+			ProductDescription: "Redis",
+			OfferingType:       "All Upfront",
+		},
+		{
+			OfferingID:         "a2b54b70-d5b3-4b96-a72e-afedbc16e70f",
+			CacheNodeType:      "cache.t3.micro",
+			Duration:           reservedOneYearSeconds,
+			FixedPrice:         reservedPriceMicro,
+			UsagePrice:         0.0,
+			ProductDescription: "Redis",
+			OfferingType:       "All Upfront",
+		},
 	}
 }
 
 func builtinCacheEngineVersions() []CacheEngineVersion {
 	return []CacheEngineVersion{
-		{Engine: "redis", EngineVersion: "7.1.0", CacheParameterGroupFamily: "redis7", CacheEngineDescription: "Redis", CacheEngineVersionDescription: "Redis 7.1.0"},
-		{Engine: "redis", EngineVersion: "7.0.7", CacheParameterGroupFamily: "redis7", CacheEngineDescription: "Redis", CacheEngineVersionDescription: "Redis 7.0.7"},
-		{Engine: "redis", EngineVersion: "6.2.6", CacheParameterGroupFamily: "redis6.x", CacheEngineDescription: "Redis", CacheEngineVersionDescription: "Redis 6.2.6"},
-		{Engine: "redis", EngineVersion: "5.0.6", CacheParameterGroupFamily: "redis5.0", CacheEngineDescription: "Redis", CacheEngineVersionDescription: "Redis 5.0.6"},
-		{Engine: "memcached", EngineVersion: "1.6.17", CacheParameterGroupFamily: "memcached1.6", CacheEngineDescription: "Memcached", CacheEngineVersionDescription: "Memcached 1.6.17"},
-		{Engine: "memcached", EngineVersion: "1.5.16", CacheParameterGroupFamily: "memcached1.5", CacheEngineDescription: "Memcached", CacheEngineVersionDescription: "Memcached 1.5.16"},
+		{
+			Engine:                        "redis",
+			EngineVersion:                 "7.1.0",
+			CacheParameterGroupFamily:     "redis7",
+			CacheEngineDescription:        "Redis",
+			CacheEngineVersionDescription: "Redis 7.1.0",
+		},
+		{
+			Engine:                        "redis",
+			EngineVersion:                 "7.0.7",
+			CacheParameterGroupFamily:     "redis7",
+			CacheEngineDescription:        "Redis",
+			CacheEngineVersionDescription: "Redis 7.0.7",
+		},
+		{
+			Engine:                        "redis",
+			EngineVersion:                 "6.2.6",
+			CacheParameterGroupFamily:     "redis6.x",
+			CacheEngineDescription:        "Redis",
+			CacheEngineVersionDescription: "Redis 6.2.6",
+		},
+		{
+			Engine:                        "redis",
+			EngineVersion:                 "5.0.6",
+			CacheParameterGroupFamily:     "redis5.0",
+			CacheEngineDescription:        "Redis",
+			CacheEngineVersionDescription: "Redis 5.0.6",
+		},
+		{
+			Engine:                        "memcached",
+			EngineVersion:                 "1.6.17",
+			CacheParameterGroupFamily:     "memcached1.6",
+			CacheEngineDescription:        "Memcached",
+			CacheEngineVersionDescription: "Memcached 1.6.17",
+		},
+		{
+			Engine:                        "memcached",
+			EngineVersion:                 "1.5.16",
+			CacheParameterGroupFamily:     "memcached1.5",
+			CacheEngineDescription:        "Memcached",
+			CacheEngineVersionDescription: "Memcached 1.5.16",
+		},
 	}
 }
 
@@ -281,7 +347,10 @@ func (b *InMemoryBackend) DeleteGlobalReplicationGroup(id string, _ bool) (*Glob
 }
 
 // DescribeGlobalReplicationGroups returns a paginated list of global replication groups.
-func (b *InMemoryBackend) DescribeGlobalReplicationGroups(id, marker string, maxRecords int) (page.Page[GlobalReplicationGroup], error) {
+func (b *InMemoryBackend) DescribeGlobalReplicationGroups(
+	id, marker string,
+	maxRecords int,
+) (page.Page[GlobalReplicationGroup], error) {
 	b.mu.RLock("DescribeGlobalReplicationGroups")
 	defer b.mu.RUnlock()
 
@@ -337,7 +406,10 @@ func (b *InMemoryBackend) FailoverGlobalReplicationGroup(id, _, _ string) (*Glob
 }
 
 // IncreaseNodeGroupsInGlobalReplicationGroup increases the node group count.
-func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(id string, _ int32) (*GlobalReplicationGroup, error) {
+func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(
+	id string,
+	_ int32,
+) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("IncreaseNodeGroupsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -352,7 +424,10 @@ func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(id string, 
 }
 
 // DecreaseNodeGroupsInGlobalReplicationGroup decreases the node group count.
-func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(id string, _ int32) (*GlobalReplicationGroup, error) {
+func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(
+	id string,
+	_ int32,
+) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("DecreaseNodeGroupsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -367,7 +442,10 @@ func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(id string, 
 }
 
 // ModifyGlobalReplicationGroup modifies a global replication group.
-func (b *InMemoryBackend) ModifyGlobalReplicationGroup(id, description, engineVersion string, automaticFailoverEnabled bool) (*GlobalReplicationGroup, error) {
+func (b *InMemoryBackend) ModifyGlobalReplicationGroup(
+	id, description, engineVersion string,
+	automaticFailoverEnabled bool,
+) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("ModifyGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -406,7 +484,10 @@ func (b *InMemoryBackend) RebalanceSlotsInGlobalReplicationGroup(id string) (*Gl
 }
 
 // DescribeReservedCacheNodes returns a paginated list of reserved cache nodes.
-func (b *InMemoryBackend) DescribeReservedCacheNodes(id, marker string, maxRecords int) (page.Page[ReservedCacheNode], error) {
+func (b *InMemoryBackend) DescribeReservedCacheNodes(
+	id, marker string,
+	maxRecords int,
+) (page.Page[ReservedCacheNode], error) {
 	b.mu.RLock("DescribeReservedCacheNodes")
 	defer b.mu.RUnlock()
 
@@ -430,7 +511,10 @@ func (b *InMemoryBackend) DescribeReservedCacheNodes(id, marker string, maxRecor
 }
 
 // DescribeReservedCacheNodesOfferings returns a paginated list of reserved cache node offerings.
-func (b *InMemoryBackend) DescribeReservedCacheNodesOfferings(offeringID, marker string, maxRecords int) (page.Page[ReservedCacheNodesOffering], error) {
+func (b *InMemoryBackend) DescribeReservedCacheNodesOfferings(
+	offeringID, marker string,
+	maxRecords int,
+) (page.Page[ReservedCacheNodesOffering], error) {
 	b.mu.RLock("DescribeReservedCacheNodesOfferings")
 	defer b.mu.RUnlock()
 
@@ -450,16 +534,19 @@ func (b *InMemoryBackend) DescribeReservedCacheNodesOfferings(offeringID, marker
 }
 
 // PurchaseReservedCacheNodesOffering purchases a reserved cache node offering.
-func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(offeringID, reservedCacheNodeID string, cacheNodeCount int32) (*ReservedCacheNode, error) {
+func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
+	offeringID, reservedCacheNodeID string,
+	cacheNodeCount int32,
+) (*ReservedCacheNode, error) {
 	b.mu.Lock("PurchaseReservedCacheNodesOffering")
 	defer b.mu.Unlock()
 
 	var found *ReservedCacheNodesOffering
 
-	for _, o := range builtinReservedOfferings() {
-		o := o
-		if o.OfferingID == offeringID {
-			found = &o
+	offerings := builtinReservedOfferings()
+	for idx := range offerings {
+		if offerings[idx].OfferingID == offeringID {
+			found = &offerings[idx]
 
 			break
 		}
@@ -528,7 +615,10 @@ func (b *InMemoryBackend) DeleteServerlessCacheSnapshot(name string) (*Serverles
 }
 
 // DescribeServerlessCaches returns a paginated list of serverless caches.
-func (b *InMemoryBackend) DescribeServerlessCaches(name, marker string, maxRecords int) (page.Page[ServerlessCache], error) {
+func (b *InMemoryBackend) DescribeServerlessCaches(
+	name, marker string,
+	maxRecords int,
+) (page.Page[ServerlessCache], error) {
 	b.mu.RLock("DescribeServerlessCaches")
 	defer b.mu.RUnlock()
 
@@ -552,7 +642,10 @@ func (b *InMemoryBackend) DescribeServerlessCaches(name, marker string, maxRecor
 }
 
 // DescribeServerlessCacheSnapshots returns a paginated list of serverless cache snapshots.
-func (b *InMemoryBackend) DescribeServerlessCacheSnapshots(serverlessCacheName, snapshotName, marker string, maxRecords int) (page.Page[ServerlessCacheSnapshot], error) {
+func (b *InMemoryBackend) DescribeServerlessCacheSnapshots(
+	serverlessCacheName, snapshotName, marker string,
+	maxRecords int,
+) (page.Page[ServerlessCacheSnapshot], error) {
 	b.mu.RLock("DescribeServerlessCacheSnapshots")
 	defer b.mu.RUnlock()
 
@@ -675,7 +768,10 @@ func (b *InMemoryBackend) DecreaseReplicaCount(replicationGroupID string, _ int3
 }
 
 // ModifyReplicationGroupShardConfiguration modifies the shard configuration of a replication group.
-func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(replicationGroupID string, _ int32) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
+	replicationGroupID string,
+	_ int32,
+) (*ReplicationGroup, error) {
 	b.mu.Lock("ModifyReplicationGroupShardConfiguration")
 	defer b.mu.Unlock()
 
@@ -690,7 +786,10 @@ func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(replicationGr
 }
 
 // DescribeCacheEngineVersions returns engine versions, optionally filtered.
-func (b *InMemoryBackend) DescribeCacheEngineVersions(engine, family, engineVersion, marker string, maxRecords int) (page.Page[CacheEngineVersion], error) {
+func (b *InMemoryBackend) DescribeCacheEngineVersions(
+	engine, family, engineVersion, marker string,
+	maxRecords int,
+) (page.Page[CacheEngineVersion], error) {
 	b.mu.RLock("DescribeCacheEngineVersions")
 	defer b.mu.RUnlock()
 
@@ -747,7 +846,10 @@ func (b *InMemoryBackend) DeleteCacheSecurityGroup(name string) error {
 }
 
 // DescribeCacheSecurityGroups returns a paginated list of cache security groups.
-func (b *InMemoryBackend) DescribeCacheSecurityGroups(name, marker string, maxRecords int) (page.Page[CacheSecurityGroup], error) {
+func (b *InMemoryBackend) DescribeCacheSecurityGroups(
+	name, marker string,
+	maxRecords int,
+) (page.Page[CacheSecurityGroup], error) {
 	b.mu.RLock("DescribeCacheSecurityGroups")
 	defer b.mu.RUnlock()
 
@@ -771,7 +873,9 @@ func (b *InMemoryBackend) DescribeCacheSecurityGroups(name, marker string, maxRe
 }
 
 // RevokeCacheSecurityGroupIngress removes an EC2 security group authorization.
-func (b *InMemoryBackend) RevokeCacheSecurityGroupIngress(name, ec2SecurityGroupName, ec2SecurityGroupOwnerID string) (*CacheSecurityGroup, error) {
+func (b *InMemoryBackend) RevokeCacheSecurityGroupIngress(
+	name, ec2SecurityGroupName, ec2SecurityGroupOwnerID string,
+) (*CacheSecurityGroup, error) {
 	b.mu.Lock("RevokeCacheSecurityGroupIngress")
 	defer b.mu.Unlock()
 
@@ -784,7 +888,8 @@ func (b *InMemoryBackend) RevokeCacheSecurityGroupIngress(name, ec2SecurityGroup
 	filtered := make([]EC2SecurityGroupMembership, 0, len(ingress))
 
 	for _, entry := range ingress {
-		if entry.EC2SecurityGroupName == ec2SecurityGroupName && entry.EC2SecurityGroupOwnerID == ec2SecurityGroupOwnerID {
+		if entry.EC2SecurityGroupName == ec2SecurityGroupName &&
+			entry.EC2SecurityGroupOwnerID == ec2SecurityGroupOwnerID {
 			continue
 		}
 
@@ -798,7 +903,11 @@ func (b *InMemoryBackend) RevokeCacheSecurityGroupIngress(name, ec2SecurityGroup
 }
 
 // DescribeEngineDefaultParameters returns the default parameters for a parameter group family.
-func (b *InMemoryBackend) DescribeEngineDefaultParameters(_ string, marker string, maxRecords int) (page.Page[CacheParameter], error) {
+func (b *InMemoryBackend) DescribeEngineDefaultParameters(
+	_ string,
+	marker string,
+	maxRecords int,
+) (page.Page[CacheParameter], error) {
 	b.mu.RLock("DescribeEngineDefaultParameters")
 	defer b.mu.RUnlock()
 
@@ -806,7 +915,12 @@ func (b *InMemoryBackend) DescribeEngineDefaultParameters(_ string, marker strin
 }
 
 // DescribeServiceUpdates returns service updates.
-func (b *InMemoryBackend) DescribeServiceUpdates(_ string, marker string, maxRecords int, _ []string) (page.Page[ServiceUpdate], error) {
+func (b *InMemoryBackend) DescribeServiceUpdates(
+	_ string,
+	marker string,
+	maxRecords int,
+	_ []string,
+) (page.Page[ServiceUpdate], error) {
 	b.mu.RLock("DescribeServiceUpdates")
 	defer b.mu.RUnlock()
 
@@ -814,7 +928,11 @@ func (b *InMemoryBackend) DescribeServiceUpdates(_ string, marker string, maxRec
 }
 
 // DescribeUpdateActions returns update actions.
-func (b *InMemoryBackend) DescribeUpdateActions(_ string, marker string, maxRecords int) (page.Page[UpdateAction], error) {
+func (b *InMemoryBackend) DescribeUpdateActions(
+	_ string,
+	marker string,
+	maxRecords int,
+) (page.Page[UpdateAction], error) {
 	b.mu.RLock("DescribeUpdateActions")
 	defer b.mu.RUnlock()
 
