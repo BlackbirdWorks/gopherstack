@@ -202,9 +202,10 @@ func TestHandler_ListApplications(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup     func(h *emrserverless.Handler)
-		name      string
-		wantCount int
+		setup       func(h *emrserverless.Handler)
+		name        string
+		queryString string
+		wantCount   int
 	}{
 		{
 			name:      "empty",
@@ -218,6 +219,36 @@ func TestHandler_ListApplications(t *testing.T) {
 			},
 			wantCount: 2,
 		},
+		{
+			name: "states_filter_started",
+			setup: func(h *emrserverless.Handler) {
+				id := createApp(t, h, "started-app")
+				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+				createApp(t, h, "stopped-app")
+			},
+			queryString: "?states=STARTED",
+			wantCount:   1,
+		},
+		{
+			name: "states_filter_multiple",
+			setup: func(h *emrserverless.Handler) {
+				id := createApp(t, h, "started-app2")
+				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+				createApp(t, h, "created-app2")
+			},
+			queryString: "?states=STARTED,CREATED",
+			wantCount:   2,
+		},
+		{
+			name: "states_filter_no_match",
+			setup: func(h *emrserverless.Handler) {
+				createApp(t, h, "only-creating")
+			},
+			queryString: "?states=STARTED",
+			wantCount:   0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -229,7 +260,7 @@ func TestHandler_ListApplications(t *testing.T) {
 				tt.setup(h)
 			}
 
-			rec := doRequest(t, h, http.MethodGet, "/applications", nil)
+			rec := doRequest(t, h, http.MethodGet, "/applications"+tt.queryString, nil)
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
@@ -485,6 +516,17 @@ func TestHandler_StartApplication(t *testing.T) {
 			appID:      "nonexistentid",
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name:       "already_started",
+			wantStatus: http.StatusBadRequest,
+			setup: func(h *emrserverless.Handler) string {
+				id := createApp(t, h, "already-started-app")
+				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return id
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -538,6 +580,21 @@ func TestHandler_StopApplication(t *testing.T) {
 			appID:      "nonexistentid",
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name:       "already_stopped",
+			wantStatus: http.StatusBadRequest,
+			setup: func(h *emrserverless.Handler) string {
+				// Application starts in CREATING state, which is not STARTED;
+				// stopping it should be rejected as invalid state transition.
+				id := createApp(t, h, "already-stopped-app")
+				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+				rec2 := doRequest(t, h, http.MethodPost, "/applications/"+id+"/stop", nil)
+				require.Equal(t, http.StatusOK, rec2.Code)
+
+				return id
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -586,7 +643,11 @@ func TestHandler_StartJobRun(t *testing.T) {
 			},
 			wantStatus: http.StatusOK,
 			setup: func(h *emrserverless.Handler) string {
-				return createApp(t, h, "job-app")
+				id := createApp(t, h, "job-app")
+				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return id
 			},
 		},
 		{
@@ -717,10 +778,11 @@ func TestHandler_ListJobRuns(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(h *emrserverless.Handler) string
-		name       string
-		wantStatus int
-		wantCount  int
+		setup       func(h *emrserverless.Handler) string
+		name        string
+		queryString string
+		wantStatus  int
+		wantCount   int
 	}{
 		{
 			name:       "empty",
@@ -752,6 +814,60 @@ func TestHandler_ListJobRuns(t *testing.T) {
 				return "nonexistentid"
 			},
 		},
+		{
+			name:        "states_filter_submitted",
+			wantStatus:  http.StatusOK,
+			wantCount:   1,
+			queryString: "?states=SUBMITTED",
+			setup: func(h *emrserverless.Handler) string {
+				appID := createApp(t, h, "states-filter-app")
+				body := map[string]any{"executionRoleArn": "arn:aws:iam::000000000000:role/r"}
+				rec1 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
+				require.Equal(t, http.StatusOK, rec1.Code)
+				var out map[string]string
+				mustUnmarshal(t, rec1, &out)
+				cancelRec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/jobruns/"+out["jobRunId"], nil)
+				require.Equal(t, http.StatusOK, cancelRec.Code)
+				// Add a second SUBMITTED run
+				rec2 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
+				require.Equal(t, http.StatusOK, rec2.Code)
+
+				return appID
+			},
+		},
+		{
+			name:        "states_filter_cancelled",
+			wantStatus:  http.StatusOK,
+			wantCount:   1,
+			queryString: "?states=CANCELLED",
+			setup: func(h *emrserverless.Handler) string {
+				appID := createApp(t, h, "states-filter-cancelled")
+				body := map[string]any{"executionRoleArn": "arn:aws:iam::000000000000:role/r"}
+				rec1 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
+				require.Equal(t, http.StatusOK, rec1.Code)
+				var out map[string]string
+				mustUnmarshal(t, rec1, &out)
+				cancelRec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/jobruns/"+out["jobRunId"], nil)
+				require.Equal(t, http.StatusOK, cancelRec.Code)
+				// Add a second non-cancelled run
+				doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
+
+				return appID
+			},
+		},
+		{
+			name:        "states_filter_no_match",
+			wantStatus:  http.StatusOK,
+			wantCount:   0,
+			queryString: "?states=SUCCESS",
+			setup: func(h *emrserverless.Handler) string {
+				appID := createApp(t, h, "states-filter-nomatch")
+				body := map[string]any{"executionRoleArn": "arn:aws:iam::000000000000:role/r"}
+				doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
+
+				return appID
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -761,7 +877,7 @@ func TestHandler_ListJobRuns(t *testing.T) {
 			h := newTestHandler(t)
 			appID := tt.setup(h)
 
-			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns", nil)
+			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns"+tt.queryString, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {

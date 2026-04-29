@@ -4414,6 +4414,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 	seedAppConfigDataDemoProfiles(ctx, cli.appConfigDataHandler, log)
 	seedBedrockRuntimeDemoInvocations(ctx, cli.bedrockruntimeHandler, log)
 	seedRoute53ResolverDemoData(ctx, cli.route53resolverHandler, log)
+	seedEMRServerlessDemoData(ctx, cli.emrserverlessHandler, log)
 }
 
 // seedAppConfigDataDemoProfiles seeds demo configuration profiles for visual dashboard inspection.
@@ -4527,7 +4528,96 @@ func seedRoute53ResolverDemoData(ctx context.Context, h service.Registerable, lo
 	log.InfoContext(ctx, "Seeded Route53Resolver demo data")
 }
 
-// panicRecoveryMiddleware returns an Echo middleware that recovers from panics
+// seedEMRServerlessDemoData seeds demo applications and job runs for visual dashboard inspection.
+func seedEMRServerlessDemoData(ctx context.Context, h service.Registerable, log *slog.Logger) {
+	emrHandler, ok := h.(*emrserverlessbackend.Handler)
+	if !ok || emrHandler == nil {
+		log.DebugContext(ctx, "EMR Serverless handler not available; skipping demo seeding")
+
+		return
+	}
+
+	now := time.Now().UTC()
+
+	// Create demo applications.
+	spark := &emrserverlessbackend.Application{
+		ApplicationID: "demo0spark1",
+		Arn:           "arn:aws:emr-serverless:us-east-1:000000000000:/applications/demo0spark1",
+		Name:          "spark-etl-app",
+		Type:          "SPARK",
+		ReleaseLabel:  "emr-6.10.0",
+		State:         emrserverlessbackend.ApplicationStateStarted,
+		Tags:          map[string]string{"team": "data-engineering", "env": "production"},
+		CreatedAt:     now.Add(-72 * time.Hour),
+		UpdatedAt:     now.Add(-1 * time.Hour),
+	}
+	hive := &emrserverlessbackend.Application{
+		ApplicationID: "demo0hive01",
+		Arn:           "arn:aws:emr-serverless:us-east-1:000000000000:/applications/demo0hive01",
+		Name:          "hive-analytics-app",
+		Type:          "HIVE",
+		ReleaseLabel:  "emr-6.8.0",
+		State:         emrserverlessbackend.ApplicationStateStopped,
+		Tags:          map[string]string{"team": "analytics"},
+		CreatedAt:     now.Add(-168 * time.Hour),
+		UpdatedAt:     now.Add(-48 * time.Hour),
+	}
+	emrHandler.Backend.AddApplicationInternal(spark)
+	emrHandler.Backend.AddApplicationInternal(hive)
+
+	// Create demo job runs for the Spark application.
+	emrHandler.Backend.AddJobRunInternal(&emrserverlessbackend.JobRun{
+		ApplicationID:    spark.ApplicationID,
+		JobRunID:         "demo0jr001",
+		Arn:              "arn:aws:emr-serverless:us-east-1:000000000000:/applications/demo0spark1/jobruns/demo0jr001",
+		Name:             "daily-etl-pipeline",
+		State:            emrserverlessbackend.JobRunStateSuccess,
+		ExecutionRoleArn: "arn:aws:iam::000000000000:role/EMRServerlessRole",
+		CreatedAt:        now.Add(-24 * time.Hour),
+		UpdatedAt:        now.Add(-23 * time.Hour),
+		Tags:             map[string]string{"run": "daily"},
+	})
+	emrHandler.Backend.AddJobRunInternal(&emrserverlessbackend.JobRun{
+		ApplicationID:    spark.ApplicationID,
+		JobRunID:         "demo0jr002",
+		Arn:              "arn:aws:emr-serverless:us-east-1:000000000000:/applications/demo0spark1/jobruns/demo0jr002",
+		Name:             "hourly-aggregation",
+		State:            emrserverlessbackend.JobRunStateSubmitted,
+		ExecutionRoleArn: "arn:aws:iam::000000000000:role/EMRServerlessRole",
+		CreatedAt:        now.Add(-15 * time.Minute),
+		UpdatedAt:        now.Add(-15 * time.Minute),
+		Tags:             map[string]string{"run": "hourly"},
+	})
+	emrHandler.Backend.AddJobRunInternal(&emrserverlessbackend.JobRun{
+		ApplicationID:    spark.ApplicationID,
+		JobRunID:         "demo0jr003",
+		Arn:              "arn:aws:emr-serverless:us-east-1:000000000000:/applications/demo0spark1/jobruns/demo0jr003",
+		Name:             "backfill-2024-q1",
+		State:            emrserverlessbackend.JobRunStateFailed,
+		StateDetails:     "SparkContext stopped due to OOM in executor",
+		ExecutionRoleArn: "arn:aws:iam::000000000000:role/EMRServerlessRole",
+		CreatedAt:        now.Add(-48 * time.Hour),
+		UpdatedAt:        now.Add(-47 * time.Hour),
+		Tags:             map[string]string{},
+	})
+	emrHandler.Backend.AddJobRunInternal(&emrserverlessbackend.JobRun{
+		ApplicationID:    spark.ApplicationID,
+		JobRunID:         "demo0jr004",
+		Arn:              "arn:aws:emr-serverless:us-east-1:000000000000:/applications/demo0spark1/jobruns/demo0jr004",
+		Name:             "schema-migration-v2",
+		State:            emrserverlessbackend.JobRunStateCancelled,
+		StateDetails:     "Job run cancelled by user request",
+		ExecutionRoleArn: "arn:aws:iam::000000000000:role/EMRServerlessRole",
+		CreatedAt:        now.Add(-12 * time.Hour),
+		UpdatedAt:        now.Add(-12 * time.Hour),
+		Tags:             map[string]string{},
+	})
+
+	const seededApps, seededJobRuns = 2, 4
+
+	log.InfoContext(ctx, "Seeded EMR Serverless demo data", "applications", seededApps, "jobRuns", seededJobRuns)
+}
+
 // in HTTP handlers, logs the panic and stack trace via slog, and returns an
 // HTTP 500 response. Without this middleware, a single unhandled panic in any
 // handler goroutine kills the entire server process immediately.
