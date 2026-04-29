@@ -15,6 +15,7 @@ var (
 	ErrUserGroupNotFound                  = errors.New("UserGroupNotFound")
 	ErrUserGroupAlreadyExists             = errors.New("UserGroupAlreadyExistsFault")
 	ErrReservedCacheNodeNotFound          = errors.New("ReservedCacheNodeNotFound")
+	ErrReservedCacheNodeAlreadyExists     = errors.New("ReservedCacheNodeAlreadyExists")
 	ErrReservedCacheNodesOfferingNotFound = errors.New("ReservedCacheNodesOfferingNotFound")
 )
 
@@ -569,11 +570,7 @@ func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
 	}
 
 	if _, exists := b.reservedCacheNodes[reservedCacheNodeID]; exists {
-		return nil, fmt.Errorf(
-			"reserved cache node %q already exists: %w",
-			reservedCacheNodeID,
-			ErrReservedCacheNodeNotFound,
-		)
+		return nil, fmt.Errorf("reserved cache node %q: %w", reservedCacheNodeID, ErrReservedCacheNodeAlreadyExists)
 	}
 
 	rcn := &ReservedCacheNode{

@@ -750,6 +750,10 @@ func (h *Handler) purchaseReservedCacheNodesOffering(c *echo.Context, form url.V
 			)
 		}
 
+		if errors.Is(err, ErrReservedCacheNodeAlreadyExists) {
+			return xmlError(c, http.StatusConflict, "ReservedCacheNodeAlreadyExists", err.Error())
+		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
