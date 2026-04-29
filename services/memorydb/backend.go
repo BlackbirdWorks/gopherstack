@@ -48,13 +48,16 @@ const (
 	reservedChargeRateXLarge   = 0.28
 
 	// Resource kind constants for tag routing.
-	resourceKindCluster             = "cluster"
-	resourceKindACL                 = "acl"
-	resourceKindSubnetGroup         = "subnetgroup"
-	resourceKindUser                = "user"
-	resourceKindParameterGroup      = "parametergroup"
-	resourceKindSnapshot            = "snapshot"
-	resourceKindMultiRegionCluster  = "multiregioncluster"
+	resourceKindCluster            = "cluster"
+	resourceKindACL                = "acl"
+	resourceKindSubnetGroup        = "subnetgroup"
+	resourceKindUser               = "user"
+	resourceKindParameterGroup     = "parametergroup"
+	resourceKindSnapshot           = "snapshot"
+	resourceKindMultiRegionCluster = "multiregioncluster"
+
+	// maxResourceNameLen is the maximum allowed length for resource names.
+	maxResourceNameLen = 40
 )
 
 // ErrValidation is returned when input validation fails.
@@ -127,17 +130,24 @@ func validateResourceName(name string, resourceType string) error {
 	if len(name) == 0 {
 		return fmt.Errorf("%s name cannot be empty: %w", resourceType, ErrValidation)
 	}
-	if len(name) > 40 {
-		return fmt.Errorf("%s name %q exceeds 40 characters: %w", resourceType, name, ErrValidation)
+
+	if len(name) > maxResourceNameLen {
+		return fmt.Errorf("%s name %q exceeds %d characters: %w", resourceType, name, maxResourceNameLen, ErrValidation)
 	}
+
 	if name[0] < 'a' || name[0] > 'z' {
 		return fmt.Errorf("%s name %q must start with a lowercase letter: %w", resourceType, name, ErrValidation)
 	}
+
 	for _, ch := range name {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
-			return fmt.Errorf("%s name %q contains invalid character %q (only lowercase alphanumeric and hyphens allowed): %w", resourceType, name, ch, ErrValidation)
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
+			return fmt.Errorf(
+				"%s name %q contains invalid character %q (only lowercase alphanumeric and hyphens allowed): %w",
+				resourceType, name, ch, ErrValidation,
+			)
 		}
 	}
+
 	return nil
 }
 
@@ -332,6 +342,99 @@ func (b *InMemoryBackend) Reset() {
 
 // -- Cluster operations ----------------------------------------------------------
 
+// clusterDefaults holds resolved default values for a new cluster.
+type clusterDefaults struct {
+	engineVersion string
+	nodeType      string
+	port          int32
+	numShards     int32
+	numReplicas   int32
+	tlsEnabled    bool
+}
+
+// isSupportedEngineVersion reports whether v is a supported MemoryDB engine version.
+func isSupportedEngineVersion(v string) bool {
+	switch v {
+	case "6.2", "7.0", "7.1", "7.2":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateCreateClusterRefs checks that ACL, subnet group, and parameter group referenced in
+// req all exist in the backend (caller must hold b.mu).
+func (b *InMemoryBackend) validateCreateClusterRefs(req *createClusterRequest) (string, error) {
+	aclName := req.ACLName
+	if aclName == "" {
+		aclName = openAccessACL
+	}
+
+	if _, ok := b.acls[aclName]; !ok {
+		return "", fmt.Errorf("ACL %q not found: %w", aclName, ErrACLNotFound)
+	}
+
+	if req.SubnetGroupName != "" {
+		if _, ok := b.subnetGroups[req.SubnetGroupName]; !ok {
+			return "", fmt.Errorf("subnet group %q not found: %w", req.SubnetGroupName, ErrSubnetGroupNotFound)
+		}
+	}
+
+	if req.ParameterGroupName != "" {
+		if _, ok := b.parameterGroups[req.ParameterGroupName]; !ok {
+			return "", fmt.Errorf("parameter group %q not found: %w", req.ParameterGroupName, ErrParameterGroupNotFound)
+		}
+	}
+
+	return aclName, nil
+}
+
+// resolveClusterDefaults fills in default values for optional cluster fields.
+func resolveClusterDefaults(req *createClusterRequest) (clusterDefaults, error) {
+	d := clusterDefaults{
+		engineVersion: req.EngineVersion,
+		nodeType:      req.NodeType,
+		port:          defaultPort,
+		numShards:     1,
+		numReplicas:   1,
+		tlsEnabled:    true,
+	}
+
+	if d.engineVersion == "" {
+		d.engineVersion = defaultEngineVersion
+	}
+
+	if !isSupportedEngineVersion(d.engineVersion) {
+		return d, fmt.Errorf("engine version %q is not supported: %w", d.engineVersion, ErrValidation)
+	}
+
+	if d.nodeType == "" {
+		d.nodeType = defaultNodeType
+	}
+
+	if !strings.HasPrefix(d.nodeType, "db.") {
+		return d, fmt.Errorf("node type %q is invalid: must begin with 'db.': %w", d.nodeType, ErrValidation)
+	}
+
+	if req.Port != nil {
+		d.port = *req.Port
+	}
+
+	if req.NumShards != nil {
+		d.numShards = *req.NumShards
+	}
+
+	if req.NumReplicasPerShard != nil {
+		d.numReplicas = *req.NumReplicasPerShard
+	}
+
+	if req.TLSEnabled != nil {
+		d.tlsEnabled = *req.TLSEnabled
+	}
+
+	return d, nil
+}
+
 // CreateCluster creates a new MemoryDB cluster.
 func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClusterRequest) (*Cluster, error) {
 	b.mu.Lock()
@@ -345,64 +448,14 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		return nil, ErrClusterAlreadyExists
 	}
 
-	// Validate that the requested ACL exists (if not the default).
-	aclName := req.ACLName
-	if aclName == "" {
-		aclName = openAccessACL
+	aclName, err := b.validateCreateClusterRefs(req)
+	if err != nil {
+		return nil, err
 	}
 
-	if _, ok := b.acls[aclName]; !ok {
-		return nil, fmt.Errorf("ACL %q not found: %w", aclName, ErrACLNotFound)
-	}
-
-	if req.SubnetGroupName != "" {
-		if _, ok := b.subnetGroups[req.SubnetGroupName]; !ok {
-			return nil, fmt.Errorf("subnet group %q not found: %w", req.SubnetGroupName, ErrSubnetGroupNotFound)
-		}
-	}
-
-	if req.ParameterGroupName != "" {
-		if _, ok := b.parameterGroups[req.ParameterGroupName]; !ok {
-			return nil, fmt.Errorf("parameter group %q not found: %w", req.ParameterGroupName, ErrParameterGroupNotFound)
-		}
-	}
-
-	engineVersion := req.EngineVersion
-	if engineVersion == "" {
-		engineVersion = defaultEngineVersion
-	}
-
-	if !map[string]bool{"6.2": true, "7.0": true, "7.1": true}[engineVersion] {
-		return nil, fmt.Errorf("engine version %q is not supported: %w", engineVersion, ErrValidation)
-	}
-
-	nodeType := req.NodeType
-	if nodeType == "" {
-		nodeType = defaultNodeType
-	}
-
-	if !strings.HasPrefix(nodeType, "db.") {
-		return nil, fmt.Errorf("node type %q is invalid: must begin with 'db.': %w", nodeType, ErrValidation)
-	}
-
-	port := defaultPort
-	if req.Port != nil {
-		port = *req.Port
-	}
-
-	numShards := int32(1)
-	if req.NumShards != nil {
-		numShards = *req.NumShards
-	}
-
-	numReplicas := int32(1)
-	if req.NumReplicasPerShard != nil {
-		numReplicas = *req.NumReplicasPerShard
-	}
-
-	tlsEnabled := true
-	if req.TLSEnabled != nil {
-		tlsEnabled = *req.TLSEnabled
+	d, err := resolveClusterDefaults(req)
+	if err != nil {
+		return nil, err
 	}
 
 	clusterARN := arn.Build("memorydb", region, accountID, "cluster/"+req.ClusterName)
@@ -411,8 +464,8 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		Name:                req.ClusterName,
 		ARN:                 clusterARN,
 		Description:         req.Description,
-		NodeType:            nodeType,
-		EngineVersion:       engineVersion,
+		NodeType:            d.nodeType,
+		EngineVersion:       d.engineVersion,
 		ACLName:             aclName,
 		SubnetGroupName:     req.SubnetGroupName,
 		ParameterGroupName:  req.ParameterGroupName,
@@ -420,10 +473,10 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		SnsTopicArn:         req.SnsTopicArn,
 		MaintenanceWindow:   req.MaintenanceWindow,
 		SnapshotWindow:      req.SnapshotWindow,
-		NumShards:           numShards,
-		NumReplicasPerShard: numReplicas,
-		Port:                port,
-		TLSEnabled:          tlsEnabled,
+		NumShards:           d.numShards,
+		NumReplicasPerShard: d.numReplicas,
+		Port:                d.port,
+		TLSEnabled:          d.tlsEnabled,
 		Status:              clusterStatusAvailable,
 		Tags:                tagsFromSlice(req.Tags),
 		CreatedAt:           time.Now(),
@@ -436,7 +489,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	}
 
 	availabilityMode := "SingleAZ"
-	if numReplicas > 0 {
+	if d.numReplicas > 0 {
 		availabilityMode = "MultiAZ"
 	}
 
