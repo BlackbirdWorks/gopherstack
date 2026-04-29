@@ -136,6 +136,36 @@ type DBClusterParameter struct {
 	IsModifiable   bool
 }
 
+// DBClusterSnapshotAttribute represents a single attribute of a cluster snapshot.
+type DBClusterSnapshotAttribute struct {
+	AttributeName   string
+	AttributeValues []string
+}
+
+// DBClusterSnapshotAttributesResult holds the attributes for a cluster snapshot.
+type DBClusterSnapshotAttributesResult struct {
+	DBClusterSnapshotIdentifier string
+	Attributes                  []DBClusterSnapshotAttribute
+}
+
+// ResourcePendingMaintenanceActions holds pending maintenance actions for a resource.
+type ResourcePendingMaintenanceActions struct {
+	ResourceIdentifier string
+	Actions            []PendingMaintenanceAction
+}
+
+// PendingMaintenanceAction describes a pending maintenance action.
+type PendingMaintenanceAction struct {
+	Action      string
+	OptInStatus string
+}
+
+// EventCategoryMap maps a source type to a list of event categories.
+type EventCategoryMap struct {
+	SourceType      string
+	EventCategories []string
+}
+
 type InMemoryBackend struct {
 	clusters               map[string]*DBCluster
 	instances              map[string]*DBInstance
@@ -1037,6 +1067,358 @@ func (b *InMemoryBackend) DescribeGlobalClusters(id string) []GlobalCluster {
 	})
 
 	return result
+}
+
+// DescribeEventSubscriptions returns event subscriptions, optionally filtered by name.
+func (b *InMemoryBackend) DescribeEventSubscriptions(name string) []EventSubscription {
+	b.mu.RLock("DescribeEventSubscriptions")
+	defer b.mu.RUnlock()
+	if name != "" {
+		sub, exists := b.eventSubscriptions[name]
+		if !exists {
+			return []EventSubscription{}
+		}
+
+		return []EventSubscription{*copyEventSubscription(sub)}
+	}
+	result := make([]EventSubscription, 0, len(b.eventSubscriptions))
+	for _, sub := range b.eventSubscriptions {
+		result = append(result, *copyEventSubscription(sub))
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].SubscriptionName < result[j].SubscriptionName
+	})
+
+	return result
+}
+
+// ModifyEventSubscription modifies an event subscription.
+func (b *InMemoryBackend) ModifyEventSubscription(name, snsTopicARN string) (*EventSubscription, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("ModifyEventSubscription")
+	defer b.mu.Unlock()
+	sub, exists := b.eventSubscriptions[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, name)
+	}
+	if snsTopicARN != "" {
+		sub.SnsTopicARN = snsTopicARN
+	}
+
+	return copyEventSubscription(sub), nil
+}
+
+// RemoveSourceIdentifierFromSubscription removes a source identifier from an event subscription.
+func (b *InMemoryBackend) RemoveSourceIdentifierFromSubscription(
+	subscriptionName, sourceID string,
+) (*EventSubscription, error) {
+	if subscriptionName == "" {
+		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
+	}
+	if sourceID == "" {
+		return nil, fmt.Errorf("%w: SourceIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("RemoveSourceIdentifierFromSubscription")
+	defer b.mu.Unlock()
+	sub, exists := b.eventSubscriptions[subscriptionName]
+	if !exists {
+		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
+	}
+	ids := make([]string, 0, len(sub.SourceIDs))
+	for _, id := range sub.SourceIDs {
+		if id != sourceID {
+			ids = append(ids, id)
+		}
+	}
+	sub.SourceIDs = ids
+
+	return copyEventSubscription(sub), nil
+}
+
+// DescribePendingMaintenanceActions returns pending maintenance actions for resources.
+// This implementation returns an empty list (in-memory emulation has no real pending actions).
+func (b *InMemoryBackend) DescribePendingMaintenanceActions(_ string) []ResourcePendingMaintenanceActions {
+	return []ResourcePendingMaintenanceActions{}
+}
+
+// DescribeDBClusterSnapshotAttributes returns attributes for a cluster snapshot.
+func (b *InMemoryBackend) DescribeDBClusterSnapshotAttributes(
+	snapshotID string,
+) (*DBClusterSnapshotAttributesResult, error) {
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.RLock("DescribeDBClusterSnapshotAttributes")
+	defer b.mu.RUnlock()
+	if _, exists := b.clusterSnapshots[snapshotID]; !exists {
+		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
+	}
+
+	return &DBClusterSnapshotAttributesResult{
+		DBClusterSnapshotIdentifier: snapshotID,
+		Attributes:                  []DBClusterSnapshotAttribute{},
+	}, nil
+}
+
+// ModifyDBClusterSnapshotAttribute modifies an attribute on a cluster snapshot.
+func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
+	snapshotID, attributeName string,
+) (*DBClusterSnapshotAttributesResult, error) {
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier is required", ErrInvalidParameter)
+	}
+	if attributeName == "" {
+		return nil, fmt.Errorf("%w: AttributeName is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("ModifyDBClusterSnapshotAttribute")
+	defer b.mu.Unlock()
+	if _, exists := b.clusterSnapshots[snapshotID]; !exists {
+		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
+	}
+
+	return &DBClusterSnapshotAttributesResult{
+		DBClusterSnapshotIdentifier: snapshotID,
+		Attributes:                  []DBClusterSnapshotAttribute{},
+	}, nil
+}
+
+// DescribeEngineDefaultClusterParameters returns the default parameters for an engine family.
+func (b *InMemoryBackend) DescribeEngineDefaultClusterParameters(
+	_ string,
+) []DBClusterParameter {
+	return []DBClusterParameter{
+		{
+			ParameterName:  "tls",
+			ParameterValue: "enabled",
+			Description:    "Specifies the TLS setting",
+			Source:         "engine-default",
+			ApplyType:      "static",
+			DataType:       "string",
+			IsModifiable:   true,
+		},
+		{
+			ParameterName:  "ttl_monitor",
+			ParameterValue: "enabled",
+			Description:    "Specifies the TTL monitor setting",
+			Source:         "engine-default",
+			ApplyType:      "dynamic",
+			DataType:       "string",
+			IsModifiable:   true,
+		},
+	}
+}
+
+// ResetDBClusterParameterGroup resets a parameter group to its default values.
+func (b *InMemoryBackend) ResetDBClusterParameterGroup(name string) (*DBClusterParameterGroup, error) {
+	b.mu.Lock("ResetDBClusterParameterGroup")
+	defer b.mu.Unlock()
+	pg, exists := b.clusterParameterGroups[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
+	}
+	cp := *pg
+	cp.Tags = copyTags(pg.Tags)
+
+	return &cp, nil
+}
+
+// ModifyDBSubnetGroup modifies a DB subnet group.
+func (b *InMemoryBackend) ModifyDBSubnetGroup(
+	name, description string,
+	subnetIDs []string,
+) (*DBSubnetGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: DBSubnetGroupName is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("ModifyDBSubnetGroup")
+	defer b.mu.Unlock()
+	sg, exists := b.subnetGroups[name]
+	if !exists {
+		return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
+	}
+	if description != "" {
+		sg.DBSubnetGroupDescription = description
+	}
+	if len(subnetIDs) > 0 {
+		ids := make([]string, len(subnetIDs))
+		copy(ids, subnetIDs)
+		sg.SubnetIDs = ids
+	}
+	cp := *sg
+	cp.SubnetIDs = make([]string, len(sg.SubnetIDs))
+	copy(cp.SubnetIDs, sg.SubnetIDs)
+	cp.Tags = copyTags(sg.Tags)
+
+	return &cp, nil
+}
+
+// ModifyGlobalCluster modifies a global cluster.
+func (b *InMemoryBackend) ModifyGlobalCluster(id string) (*GlobalCluster, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("ModifyGlobalCluster")
+	defer b.mu.Unlock()
+	gc, exists := b.globalClusters[id]
+	if !exists {
+		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, id)
+	}
+	cp := *gc
+
+	return &cp, nil
+}
+
+// FailoverGlobalCluster initiates a failover for a global cluster.
+func (b *InMemoryBackend) FailoverGlobalCluster(id, _ string) (*GlobalCluster, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("FailoverGlobalCluster")
+	defer b.mu.Unlock()
+	gc, exists := b.globalClusters[id]
+	if !exists {
+		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, id)
+	}
+	gc.Status = "failing-over"
+	cp := *gc
+
+	return &cp, nil
+}
+
+// RemoveFromGlobalCluster removes a DB cluster from a global cluster.
+func (b *InMemoryBackend) RemoveFromGlobalCluster(globalClusterID, _ string) (*GlobalCluster, error) {
+	if globalClusterID == "" {
+		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("RemoveFromGlobalCluster")
+	defer b.mu.Unlock()
+	gc, exists := b.globalClusters[globalClusterID]
+	if !exists {
+		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, globalClusterID)
+	}
+	cp := *gc
+
+	return &cp, nil
+}
+
+// SwitchoverGlobalCluster initiates a switchover for a global cluster.
+func (b *InMemoryBackend) SwitchoverGlobalCluster(id, _ string) (*GlobalCluster, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("SwitchoverGlobalCluster")
+	defer b.mu.Unlock()
+	gc, exists := b.globalClusters[id]
+	if !exists {
+		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, id)
+	}
+	gc.Status = "switching-over"
+	cp := *gc
+
+	return &cp, nil
+}
+
+// RestoreDBClusterFromSnapshot restores a new cluster from a snapshot.
+func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
+	snapshotID, clusterID, engine string,
+) (*DBCluster, error) {
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier is required", ErrInvalidParameter)
+	}
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("RestoreDBClusterFromSnapshot")
+	defer b.mu.Unlock()
+	snap, snapExists := b.clusterSnapshots[snapshotID]
+	if !snapExists {
+		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
+	}
+	if _, clusterExists := b.clusters[clusterID]; clusterExists {
+		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
+	}
+	if engine == "" {
+		engine = snap.Engine
+	}
+	clusterArn := b.clusterARN(clusterID)
+	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", clusterID, b.region)
+	cluster := &DBCluster{
+		DBClusterIdentifier:         clusterID,
+		Engine:                      engine,
+		Status:                      "available",
+		DBClusterParameterGroupName: "default.docdb4.0",
+		Endpoint:                    endpoint,
+		Port:                        defaultDocDBPort,
+		DBClusterArn:                clusterArn,
+		EngineVersion:               snap.EngineVersion,
+		StorageEncrypted:            snap.StorageEncrypted,
+	}
+	b.clusters[clusterID] = cluster
+
+	return copyCluster(cluster), nil
+}
+
+// RestoreDBClusterToPointInTime restores a new cluster to a point in time from a source cluster.
+func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
+	sourceClusterID, targetClusterID string,
+) (*DBCluster, error) {
+	if sourceClusterID == "" {
+		return nil, fmt.Errorf("%w: SourceDBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	if targetClusterID == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	b.mu.Lock("RestoreDBClusterToPointInTime")
+	defer b.mu.Unlock()
+	src, srcExists := b.clusters[sourceClusterID]
+	if !srcExists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, sourceClusterID)
+	}
+	if _, targetExists := b.clusters[targetClusterID]; targetExists {
+		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, targetClusterID)
+	}
+	clusterArn := b.clusterARN(targetClusterID)
+	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", targetClusterID, b.region)
+	cluster := &DBCluster{
+		DBClusterIdentifier:         targetClusterID,
+		Engine:                      src.Engine,
+		Status:                      "available",
+		MasterUsername:              src.MasterUsername,
+		DatabaseName:                src.DatabaseName,
+		DBClusterParameterGroupName: src.DBClusterParameterGroupName,
+		Endpoint:                    endpoint,
+		Port:                        src.Port,
+		DBClusterArn:                clusterArn,
+		EngineVersion:               src.EngineVersion,
+		StorageEncrypted:            src.StorageEncrypted,
+	}
+	b.clusters[targetClusterID] = cluster
+
+	return copyCluster(cluster), nil
+}
+
+// DescribeEventCategories returns the event categories for DocDB.
+func (b *InMemoryBackend) DescribeEventCategories() []EventCategoryMap {
+	clusterCategories := []string{
+		"availability", "backup", "configuration change",
+		"creation", "deletion", "failover", "maintenance", "notification",
+	}
+	instanceCategories := []string{
+		"availability", "backup", "configuration change",
+		"creation", "deletion", "failover", "maintenance",
+		"notification", "recovery", "restoration",
+	}
+	snapshotCategories := []string{
+		"backup", "creation", "deletion", "notification", "restoration",
+	}
+
+	return []EventCategoryMap{
+		{SourceType: "db-cluster", EventCategories: clusterCategories},
+		{SourceType: "db-instance", EventCategories: instanceCategories},
+		{SourceType: "db-cluster-snapshot", EventCategories: snapshotCategories},
+	}
 }
 
 // AddDBClusterInternal seeds a cluster directly for testing.

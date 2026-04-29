@@ -79,6 +79,23 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteGlobalCluster",
 		"DescribeCertificates",
 		"DescribeDBClusterParameters",
+		"DescribeDBClusterSnapshotAttributes",
+		"DescribeEngineDefaultClusterParameters",
+		"DescribeEventCategories",
+		"DescribeEventSubscriptions",
+		"DescribeEvents",
+		"DescribePendingMaintenanceActions",
+		"FailoverGlobalCluster",
+		"ModifyDBClusterSnapshotAttribute",
+		"ModifyDBSubnetGroup",
+		"ModifyEventSubscription",
+		"ModifyGlobalCluster",
+		"RemoveFromGlobalCluster",
+		"RemoveSourceIdentifierFromSubscription",
+		"ResetDBClusterParameterGroup",
+		"RestoreDBClusterFromSnapshot",
+		"RestoreDBClusterToPointInTime",
+		"SwitchoverGlobalCluster",
 	}
 }
 
@@ -273,6 +290,54 @@ func (h *Handler) dispatchExtended3(action string, vals url.Values) (any, error)
 		return h.handleDescribeCertificates(vals)
 	case "DescribeDBClusterParameters":
 		return h.handleDescribeDBClusterParameters(vals)
+	default:
+		return h.dispatchExtended4(action, vals)
+	}
+}
+
+func (h *Handler) dispatchExtended4(action string, vals url.Values) (any, error) {
+	switch action {
+	case "DescribeDBClusterSnapshotAttributes":
+		return h.handleDescribeDBClusterSnapshotAttributes(vals)
+	case "DescribeEngineDefaultClusterParameters":
+		return h.handleDescribeEngineDefaultClusterParameters(vals)
+	case "DescribeEventCategories":
+		return h.handleDescribeEventCategories(vals)
+	case "DescribeEventSubscriptions":
+		return h.handleDescribeEventSubscriptions(vals)
+	case "DescribeEvents":
+		return h.handleDescribeEvents(vals)
+	case "DescribePendingMaintenanceActions":
+		return h.handleDescribePendingMaintenanceActions(vals)
+	case "FailoverGlobalCluster":
+		return h.handleFailoverGlobalCluster(vals)
+	case "ModifyDBClusterSnapshotAttribute":
+		return h.handleModifyDBClusterSnapshotAttribute(vals)
+	default:
+		return h.dispatchExtended5(action, vals)
+	}
+}
+
+func (h *Handler) dispatchExtended5(action string, vals url.Values) (any, error) {
+	switch action {
+	case "ModifyDBSubnetGroup":
+		return h.handleModifyDBSubnetGroup(vals)
+	case "ModifyEventSubscription":
+		return h.handleModifyEventSubscription(vals)
+	case "ModifyGlobalCluster":
+		return h.handleModifyGlobalCluster(vals)
+	case "RemoveFromGlobalCluster":
+		return h.handleRemoveFromGlobalCluster(vals)
+	case "RemoveSourceIdentifierFromSubscription":
+		return h.handleRemoveSourceIdentifierFromSubscription(vals)
+	case "ResetDBClusterParameterGroup":
+		return h.handleResetDBClusterParameterGroup(vals)
+	case "RestoreDBClusterFromSnapshot":
+		return h.handleRestoreDBClusterFromSnapshot(vals)
+	case "RestoreDBClusterToPointInTime":
+		return h.handleRestoreDBClusterToPointInTime(vals)
+	case "SwitchoverGlobalCluster":
+		return h.handleSwitchoverGlobalCluster(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid DocDB action", ErrUnknownAction, action)
 	}
@@ -847,6 +912,280 @@ func (h *Handler) handleDescribeDBClusterParameters(vals url.Values) (any, error
 		Result: describeDBClusterParametersResult{
 			Parameters: xmlDBClusterParameterList{Members: members},
 		},
+	}, nil
+}
+
+func (h *Handler) handleDescribeDBClusterSnapshotAttributes(vals url.Values) (any, error) {
+	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
+	result, err := h.Backend.DescribeDBClusterSnapshotAttributes(snapshotID)
+	if err != nil {
+		return nil, err
+	}
+	attrs := make([]xmlDBClusterSnapshotAttribute, 0, len(result.Attributes))
+	for _, a := range result.Attributes {
+		values := make([]string, len(a.AttributeValues))
+		copy(values, a.AttributeValues)
+		attrs = append(attrs, xmlDBClusterSnapshotAttribute{
+			AttributeName:   a.AttributeName,
+			AttributeValues: xmlAttributeValueList{Members: values},
+		})
+	}
+
+	return &describeDBClusterSnapshotAttributesResponse{
+		Xmlns: docdbXMLNS,
+		Result: describeDBClusterSnapshotAttributesResult{
+			DBClusterSnapshotAttributesResult: xmlDBClusterSnapshotAttributesResult{
+				DBClusterSnapshotIdentifier: result.DBClusterSnapshotIdentifier,
+				DBClusterSnapshotAttributes: xmlDBClusterSnapshotAttributeList{Members: attrs},
+			},
+		},
+	}, nil
+}
+
+func (h *Handler) handleModifyDBClusterSnapshotAttribute(vals url.Values) (any, error) {
+	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
+	attributeName := vals.Get("AttributeName")
+	result, err := h.Backend.ModifyDBClusterSnapshotAttribute(snapshotID, attributeName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyDBClusterSnapshotAttributeResponse{
+		Xmlns: docdbXMLNS,
+		Result: modifyDBClusterSnapshotAttributeResult{
+			DBClusterSnapshotAttributesResult: xmlDBClusterSnapshotAttributesResult{
+				DBClusterSnapshotIdentifier: result.DBClusterSnapshotIdentifier,
+				DBClusterSnapshotAttributes: xmlDBClusterSnapshotAttributeList{},
+			},
+		},
+	}, nil
+}
+
+func (h *Handler) handleDescribeEngineDefaultClusterParameters(vals url.Values) (any, error) {
+	family := vals.Get("DBParameterGroupFamily")
+	params := h.Backend.DescribeEngineDefaultClusterParameters(family)
+	members := make([]xmlDBClusterParameter, 0, len(params))
+	for _, p := range params {
+		cp := p
+		members = append(members, toXMLDBClusterParameter(&cp))
+	}
+
+	return &describeEngineDefaultClusterParametersResponse{
+		Xmlns: docdbXMLNS,
+		Result: describeEngineDefaultClusterParametersResult{
+			EngineDefaults: xmlEngineDefaults{
+				DBParameterGroupFamily: family,
+				Parameters:             xmlDBClusterParameterList{Members: members},
+			},
+		},
+	}, nil
+}
+
+func (h *Handler) handleResetDBClusterParameterGroup(vals url.Values) (any, error) {
+	name := vals.Get("DBClusterParameterGroupName")
+	pg, err := h.Backend.ResetDBClusterParameterGroup(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resetDBClusterParameterGroupResponse{
+		Xmlns:                       docdbXMLNS,
+		DBClusterParameterGroupName: pg.DBClusterParameterGroupName,
+	}, nil
+}
+
+func (h *Handler) handleDescribeEventSubscriptions(vals url.Values) (any, error) {
+	name := vals.Get("SubscriptionName")
+	subs := h.Backend.DescribeEventSubscriptions(name)
+	members := make([]xmlEventSubscription, 0, len(subs))
+	for _, sub := range subs {
+		cp := sub
+		members = append(members, toXMLEventSubscription(&cp))
+	}
+
+	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
+	return &describeEventSubscriptionsResponse{
+		Xmlns: docdbXMLNS,
+		Result: describeEventSubscriptionsResult{
+			EventSubscriptionsList: xmlEventSubscriptionList{Members: members},
+			Marker:                 nextMarker,
+		},
+	}, nil
+}
+
+func (h *Handler) handleModifyEventSubscription(vals url.Values) (any, error) {
+	name := vals.Get("SubscriptionName")
+	snsTopicARN := vals.Get("SnsTopicArn")
+	sub, err := h.Backend.ModifyEventSubscription(name, snsTopicARN)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyEventSubscriptionResponse{
+		Xmlns:             docdbXMLNS,
+		EventSubscription: toXMLEventSubscription(sub),
+	}, nil
+}
+
+func (h *Handler) handleRemoveSourceIdentifierFromSubscription(vals url.Values) (any, error) {
+	subscriptionName := vals.Get("SubscriptionName")
+	sourceID := vals.Get("SourceIdentifier")
+	sub, err := h.Backend.RemoveSourceIdentifierFromSubscription(subscriptionName, sourceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &removeSourceIdentifierFromSubscriptionResponse{
+		Xmlns:             docdbXMLNS,
+		EventSubscription: toXMLEventSubscription(sub),
+	}, nil
+}
+
+func (h *Handler) handleDescribeEvents(_ url.Values) (any, error) {
+	return &describeEventsResponse{
+		Xmlns: docdbXMLNS,
+		Result: describeEventsResult{
+			Events: xmlEventList{},
+		},
+	}, nil
+}
+
+func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
+	cats := h.Backend.DescribeEventCategories()
+	members := make([]xmlEventCategoryMap, 0, len(cats))
+	for _, cat := range cats {
+		catCopy := make([]string, len(cat.EventCategories))
+		copy(catCopy, cat.EventCategories)
+		members = append(members, xmlEventCategoryMap{
+			SourceType:      cat.SourceType,
+			EventCategories: xmlEventCategoryList{Members: catCopy},
+		})
+	}
+
+	return &describeEventCategoriesResponse{
+		Xmlns: docdbXMLNS,
+		Result: describeEventCategoriesResult{
+			EventCategoriesMapList: xmlEventCategoriesMapList{Members: members},
+		},
+	}, nil
+}
+
+func (h *Handler) handleDescribePendingMaintenanceActions(vals url.Values) (any, error) {
+	resourceARN := vals.Get("ResourceIdentifier")
+	actions := h.Backend.DescribePendingMaintenanceActions(resourceARN)
+	members := make([]xmlResourcePendingMaintenanceActions, 0, len(actions))
+	for _, a := range actions {
+		members = append(members, xmlResourcePendingMaintenanceActions{
+			ResourceIdentifier:              a.ResourceIdentifier,
+			PendingMaintenanceActionDetails: xmlPendingMaintenanceActionList{},
+		})
+	}
+
+	return &describePendingMaintenanceActionsResponse{
+		Xmlns: docdbXMLNS,
+		Result: describePendingMaintenanceActionsResult{
+			PendingMaintenanceActions: xmlResourcePendingMaintenanceActionsList{Members: members},
+		},
+	}, nil
+}
+
+func (h *Handler) handleModifyDBSubnetGroup(vals url.Values) (any, error) {
+	name := vals.Get("DBSubnetGroupName")
+	description := vals.Get("DBSubnetGroupDescription")
+	subnetIDs := parseSubnetIDMembers(vals)
+	sg, err := h.Backend.ModifyDBSubnetGroup(name, description, subnetIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyDBSubnetGroupResponse{
+		Xmlns:         docdbXMLNS,
+		DBSubnetGroup: toXMLSubnetGroup(sg),
+	}, nil
+}
+
+func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
+	id := vals.Get("GlobalClusterIdentifier")
+	gc, err := h.Backend.ModifyGlobalCluster(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyGlobalClusterResponse{
+		Xmlns:         docdbXMLNS,
+		GlobalCluster: toXMLGlobalCluster(gc),
+	}, nil
+}
+
+func (h *Handler) handleFailoverGlobalCluster(vals url.Values) (any, error) {
+	id := vals.Get("GlobalClusterIdentifier")
+	targetDBClusterID := vals.Get("TargetDbClusterIdentifier")
+	gc, err := h.Backend.FailoverGlobalCluster(id, targetDBClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &failoverGlobalClusterResponse{
+		Xmlns:         docdbXMLNS,
+		GlobalCluster: toXMLGlobalCluster(gc),
+	}, nil
+}
+
+func (h *Handler) handleRemoveFromGlobalCluster(vals url.Values) (any, error) {
+	globalClusterID := vals.Get("GlobalClusterIdentifier")
+	dbClusterID := vals.Get("DbClusterIdentifier")
+	gc, err := h.Backend.RemoveFromGlobalCluster(globalClusterID, dbClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &removeFromGlobalClusterResponse{
+		Xmlns:         docdbXMLNS,
+		GlobalCluster: toXMLGlobalCluster(gc),
+	}, nil
+}
+
+func (h *Handler) handleSwitchoverGlobalCluster(vals url.Values) (any, error) {
+	id := vals.Get("GlobalClusterIdentifier")
+	targetDBClusterID := vals.Get("TargetDbClusterIdentifier")
+	gc, err := h.Backend.SwitchoverGlobalCluster(id, targetDBClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &switchoverGlobalClusterResponse{
+		Xmlns:         docdbXMLNS,
+		GlobalCluster: toXMLGlobalCluster(gc),
+	}, nil
+}
+
+func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, error) {
+	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
+	clusterID := vals.Get("DBClusterIdentifier")
+	engine := vals.Get("Engine")
+	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(snapshotID, clusterID, engine)
+	if err != nil {
+		return nil, err
+	}
+
+	return &restoreDBClusterFromSnapshotResponse{
+		Xmlns:     docdbXMLNS,
+		DBCluster: toXMLCluster(cluster),
+	}, nil
+}
+
+func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, error) {
+	sourceClusterID := vals.Get("SourceDBClusterIdentifier")
+	targetClusterID := vals.Get("DBClusterIdentifier")
+	cluster, err := h.Backend.RestoreDBClusterToPointInTime(sourceClusterID, targetClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &restoreDBClusterToPointInTimeResponse{
+		Xmlns:     docdbXMLNS,
+		DBCluster: toXMLCluster(cluster),
 	}, nil
 }
 
@@ -1445,6 +1784,192 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 		Status:           sub.Status,
 		SourceIDsList:    xmlSourceIDList{Members: ids},
 	}
+}
+
+// XML types for the new operations.
+
+type xmlAttributeValueList struct {
+	Members []string `xml:"AttributeValue"`
+}
+
+type xmlDBClusterSnapshotAttribute struct {
+	AttributeName   string                `xml:"AttributeName"`
+	AttributeValues xmlAttributeValueList `xml:"AttributeValues"`
+}
+
+type xmlDBClusterSnapshotAttributeList struct {
+	Members []xmlDBClusterSnapshotAttribute `xml:"DBClusterSnapshotAttribute"`
+}
+
+type xmlDBClusterSnapshotAttributesResult struct {
+	DBClusterSnapshotIdentifier string                            `xml:"DBClusterSnapshotIdentifier"`
+	DBClusterSnapshotAttributes xmlDBClusterSnapshotAttributeList `xml:"DBClusterSnapshotAttributes"`
+}
+
+type describeDBClusterSnapshotAttributesResult struct {
+	DBClusterSnapshotAttributesResult xmlDBClusterSnapshotAttributesResult `xml:"DBClusterSnapshotAttributesResult"`
+}
+
+type describeDBClusterSnapshotAttributesResponse struct {
+	XMLName xml.Name                                  `xml:"DescribeDBClusterSnapshotAttributesResponse"`
+	Xmlns   string                                    `xml:"xmlns,attr"`
+	Result  describeDBClusterSnapshotAttributesResult `xml:"DescribeDBClusterSnapshotAttributesResult"`
+}
+
+type modifyDBClusterSnapshotAttributeResult struct {
+	DBClusterSnapshotAttributesResult xmlDBClusterSnapshotAttributesResult `xml:"DBClusterSnapshotAttributesResult"`
+}
+
+type modifyDBClusterSnapshotAttributeResponse struct {
+	XMLName xml.Name                               `xml:"ModifyDBClusterSnapshotAttributeResponse"`
+	Xmlns   string                                 `xml:"xmlns,attr"`
+	Result  modifyDBClusterSnapshotAttributeResult `xml:"ModifyDBClusterSnapshotAttributeResult"`
+}
+
+type xmlEngineDefaults struct {
+	DBParameterGroupFamily string                    `xml:"DBParameterGroupFamily"`
+	Parameters             xmlDBClusterParameterList `xml:"Parameters"`
+}
+
+type describeEngineDefaultClusterParametersResult struct {
+	EngineDefaults xmlEngineDefaults `xml:"EngineDefaults"`
+}
+
+type describeEngineDefaultClusterParametersResponse struct {
+	XMLName xml.Name                                     `xml:"DescribeEngineDefaultClusterParametersResponse"`
+	Xmlns   string                                       `xml:"xmlns,attr"`
+	Result  describeEngineDefaultClusterParametersResult `xml:"DescribeEngineDefaultClusterParametersResult"`
+}
+
+type resetDBClusterParameterGroupResponse struct {
+	XMLName                     xml.Name `xml:"ResetDBClusterParameterGroupResponse"`
+	Xmlns                       string   `xml:"xmlns,attr"`
+	DBClusterParameterGroupName string   `xml:"ResetDBClusterParameterGroupResult>DBClusterParameterGroupName"`
+}
+
+type xmlEventSubscriptionList struct {
+	Members []xmlEventSubscription `xml:"EventSubscription"`
+}
+
+type describeEventSubscriptionsResult struct {
+	Marker                 string                   `xml:"Marker,omitempty"`
+	EventSubscriptionsList xmlEventSubscriptionList `xml:"EventSubscriptionsList"`
+}
+
+type describeEventSubscriptionsResponse struct {
+	XMLName xml.Name                         `xml:"DescribeEventSubscriptionsResponse"`
+	Xmlns   string                           `xml:"xmlns,attr"`
+	Result  describeEventSubscriptionsResult `xml:"DescribeEventSubscriptionsResult"`
+}
+
+type modifyEventSubscriptionResponse struct {
+	XMLName           xml.Name             `xml:"ModifyEventSubscriptionResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	EventSubscription xmlEventSubscription `xml:"ModifyEventSubscriptionResult>EventSubscription"`
+}
+
+type removeSourceIdentifierFromSubscriptionResponse struct {
+	XMLName           xml.Name             `xml:"RemoveSourceIdentifierFromSubscriptionResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	EventSubscription xmlEventSubscription `xml:"RemoveSourceIdentifierFromSubscriptionResult>EventSubscription"`
+}
+
+type xmlEvent struct {
+	Message    string `xml:"Message,omitempty"`
+	SourceType string `xml:"SourceType,omitempty"`
+}
+
+type xmlEventList struct {
+	Members []xmlEvent `xml:"Event"`
+}
+
+type describeEventsResult struct {
+	Events xmlEventList `xml:"Events"`
+}
+
+type describeEventsResponse struct {
+	XMLName xml.Name             `xml:"DescribeEventsResponse"`
+	Xmlns   string               `xml:"xmlns,attr"`
+	Result  describeEventsResult `xml:"DescribeEventsResult"`
+}
+
+type xmlEventCategoryList struct {
+	Members []string `xml:"EventCategory"`
+}
+
+type xmlEventCategoryMap struct {
+	SourceType      string               `xml:"SourceType"`
+	EventCategories xmlEventCategoryList `xml:"EventCategories"`
+}
+
+type xmlEventCategoriesMapList struct {
+	Members []xmlEventCategoryMap `xml:"EventCategoryMap"`
+}
+
+type describeEventCategoriesResult struct {
+	EventCategoriesMapList xmlEventCategoriesMapList `xml:"EventCategoriesMapList"`
+}
+
+type describeEventCategoriesResponse struct {
+	XMLName xml.Name                      `xml:"DescribeEventCategoriesResponse"`
+	Xmlns   string                        `xml:"xmlns,attr"`
+	Result  describeEventCategoriesResult `xml:"DescribeEventCategoriesResult"`
+}
+
+type xmlResourcePendingMaintenanceActionsList struct {
+	Members []xmlResourcePendingMaintenanceActions `xml:"ResourcePendingMaintenanceActions"`
+}
+
+type describePendingMaintenanceActionsResult struct {
+	PendingMaintenanceActions xmlResourcePendingMaintenanceActionsList `xml:"PendingMaintenanceActions"`
+}
+
+type describePendingMaintenanceActionsResponse struct {
+	XMLName xml.Name                                `xml:"DescribePendingMaintenanceActionsResponse"`
+	Xmlns   string                                  `xml:"xmlns,attr"`
+	Result  describePendingMaintenanceActionsResult `xml:"DescribePendingMaintenanceActionsResult"`
+}
+
+type modifyDBSubnetGroupResponse struct {
+	XMLName       xml.Name         `xml:"ModifyDBSubnetGroupResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	DBSubnetGroup xmlDBSubnetGroup `xml:"ModifyDBSubnetGroupResult>DBSubnetGroup"`
+}
+
+type modifyGlobalClusterResponse struct {
+	XMLName       xml.Name         `xml:"ModifyGlobalClusterResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	GlobalCluster xmlGlobalCluster `xml:"ModifyGlobalClusterResult>GlobalCluster"`
+}
+
+type failoverGlobalClusterResponse struct {
+	XMLName       xml.Name         `xml:"FailoverGlobalClusterResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	GlobalCluster xmlGlobalCluster `xml:"FailoverGlobalClusterResult>GlobalCluster"`
+}
+
+type removeFromGlobalClusterResponse struct {
+	XMLName       xml.Name         `xml:"RemoveFromGlobalClusterResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	GlobalCluster xmlGlobalCluster `xml:"RemoveFromGlobalClusterResult>GlobalCluster"`
+}
+
+type switchoverGlobalClusterResponse struct {
+	XMLName       xml.Name         `xml:"SwitchoverGlobalClusterResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	GlobalCluster xmlGlobalCluster `xml:"SwitchoverGlobalClusterResult>GlobalCluster"`
+}
+
+type restoreDBClusterFromSnapshotResponse struct {
+	XMLName   xml.Name     `xml:"RestoreDBClusterFromSnapshotResponse"`
+	Xmlns     string       `xml:"xmlns,attr"`
+	DBCluster xmlDBCluster `xml:"RestoreDBClusterFromSnapshotResult>DBCluster"`
+}
+
+type restoreDBClusterToPointInTimeResponse struct {
+	XMLName   xml.Name     `xml:"RestoreDBClusterToPointInTimeResponse"`
+	Xmlns     string       `xml:"xmlns,attr"`
+	DBCluster xmlDBCluster `xml:"RestoreDBClusterToPointInTimeResult>DBCluster"`
 }
 
 func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
