@@ -368,6 +368,7 @@ func jobRunToMap(jr *JobRun) map[string]any {
 	return map[string]any{
 		"applicationId":    jr.ApplicationID,
 		"jobRunId":         jr.JobRunID,
+		"id":               jr.JobRunID, // JobRunSummary.id in AWS SDK ListJobRuns response
 		"arn":              jr.Arn,
 		"name":             jr.Name,
 		"state":            jr.State,
