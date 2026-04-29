@@ -33,6 +33,7 @@ import { FirehoseClient } from "@aws-sdk/client-firehose";
 import { GlueClient } from "@aws-sdk/client-glue";
 import { OpenSearchClient } from "@aws-sdk/client-opensearch";
 import { RedshiftClient } from "@aws-sdk/client-redshift";
+import { RedshiftDataClient } from "@aws-sdk/client-redshift-data";
 import { SNSClient } from "@aws-sdk/client-sns";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { EventBridgeClient } from "@aws-sdk/client-eventbridge";
@@ -199,6 +200,10 @@ export function getOpenSearchClient(region?: string): OpenSearchClient {
 
 export function getRedshiftClient(region?: string): RedshiftClient {
   return new RedshiftClient(clientConfig(region));
+}
+
+export function getRedshiftDataClient(region?: string): RedshiftDataClient {
+  return new RedshiftDataClient(clientConfig(region));
 }
 
 export function getAthenaClient(region?: string): AthenaClient {
