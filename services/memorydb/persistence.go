@@ -14,6 +14,7 @@ type backendSnapshot struct {
 	Snapshots                  map[string]*Snapshot                  `json:"snapshots"`
 	MultiRegionClusters        map[string]*MultiRegionCluster        `json:"multiRegionClusters"`
 	MultiRegionParameterGroups map[string]*MultiRegionParameterGroup `json:"multiRegionParameterGroups"`
+	ReservedNodes              map[string]*ReservedNode              `json:"reservedNodes"`
 	ARNToResource              map[string]resourceRef                `json:"arnToResource"`
 	AccountID                  string                                `json:"accountID"`
 	Region                     string                                `json:"region"`
@@ -34,6 +35,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Snapshots:                  b.snapshots,
 		MultiRegionClusters:        b.multiRegionClusters,
 		MultiRegionParameterGroups: b.multiRegionParameterGroups,
+		ReservedNodes:              b.reservedNodes,
 		Events:                     b.events,
 		ARNToResource:              b.arnToResource,
 		AccountID:                  b.accountID,
@@ -72,6 +74,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.snapshots = snap.Snapshots
 	b.multiRegionClusters = snap.MultiRegionClusters
 	b.multiRegionParameterGroups = snap.MultiRegionParameterGroups
+	b.reservedNodes = snap.ReservedNodes
 	b.events = snap.Events
 	b.arnToResource = snap.ARNToResource
 	b.accountID = snap.AccountID
@@ -112,6 +115,10 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.MultiRegionParameterGroups == nil {
 		snap.MultiRegionParameterGroups = make(map[string]*MultiRegionParameterGroup)
+	}
+
+	if snap.ReservedNodes == nil {
+		snap.ReservedNodes = make(map[string]*ReservedNode)
 	}
 
 	if snap.ARNToResource == nil {
@@ -185,6 +192,10 @@ func fixExtendedResourceTags(snap *backendSnapshot) {
 	for _, mrpg := range snap.MultiRegionParameterGroups {
 		if mrpg.Tags == nil {
 			mrpg.Tags = make(map[string]string)
+		}
+
+		if mrpg.Parameters == nil {
+			mrpg.Parameters = make(map[string]string)
 		}
 	}
 }

@@ -69,8 +69,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeEvents",
 		"DescribeMultiRegionClusters",
 		"DescribeMultiRegionParameterGroups",
+		"DescribeMultiRegionParameters",
 		"DescribeParameterGroups",
 		"DescribeParameters",
+		"DescribeReservedNodes",
+		"DescribeReservedNodesOfferings",
 		"DescribeServiceUpdates",
 		"DescribeSnapshots",
 		"DescribeSubnetGroups",
@@ -79,6 +82,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListAllowedMultiRegionClusterUpdates",
 		"ListAllowedNodeTypeUpdates",
 		"ListTags",
+		"PurchaseReservedNodesOffering",
 		"ResetParameterGroup",
 		"TagResource",
 		"UntagResource",
@@ -325,6 +329,14 @@ func (h *Handler) dispatchParameterAndShardOps(c *echo.Context, op string, body 
 		return true, h.handleFailoverShard(c, body)
 	case "ListAllowedNodeTypeUpdates":
 		return true, h.handleListAllowedNodeTypeUpdates(c, body)
+	case "DescribeReservedNodes":
+		return true, h.handleDescribeReservedNodes(c, body)
+	case "DescribeReservedNodesOfferings":
+		return true, h.handleDescribeReservedNodesOfferings(c, body)
+	case "PurchaseReservedNodesOffering":
+		return true, h.handlePurchaseReservedNodesOffering(c, body)
+	case "DescribeMultiRegionParameters":
+		return true, h.handleDescribeMultiRegionParameters(c, body)
 	}
 
 	return false, nil
@@ -1240,6 +1252,98 @@ func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, _ []byte) error 
 	return c.JSON(http.StatusOK, describeServiceUpdatesResponse{ServiceUpdates: []serviceUpdateObject{}})
 }
 
+// -- ReservedNode handlers -------------------------------------------------------
+
+func (h *Handler) handleDescribeReservedNodes(c *echo.Context, body []byte) error {
+	var req describeReservedNodesRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	nodes, err := h.Backend.DescribeReservedNodes(&req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeReservedNodesResponse{ReservedNodes: toReservedNodeSlice(nodes)})
+}
+
+func (h *Handler) handleDescribeReservedNodesOfferings(c *echo.Context, body []byte) error {
+	var req describeReservedNodesOfferingsRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	offerings, err := h.Backend.DescribeReservedNodesOfferings(&req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(
+		http.StatusOK,
+		describeReservedNodesOfferingsResponse{ReservedNodesOfferings: toReservedNodesOfferingSlice(offerings)},
+	)
+}
+
+func (h *Handler) handlePurchaseReservedNodesOffering(c *echo.Context, body []byte) error {
+	var req purchaseReservedNodesOfferingRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.ReservedNodesOfferingID == "" {
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"ReservedNodesOfferingId is required",
+		)
+	}
+
+	rn, err := h.Backend.PurchaseReservedNodesOffering(h.DefaultRegion, h.AccountID, &req)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, purchaseReservedNodesOfferingResponse{ReservedNode: rn})
+}
+
+// -- DescribeMultiRegionParameters handler ---------------------------------------
+
+func (h *Handler) handleDescribeMultiRegionParameters(c *echo.Context, body []byte) error {
+	var req describeMultiRegionParametersRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.ParameterGroupName == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ParameterGroupName is required")
+	}
+
+	params, err := h.Backend.DescribeMultiRegionParameters(req.ParameterGroupName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	objs := make([]parameterObject, 0, len(params))
+
+	for k, v := range params {
+		objs = append(objs, parameterObject{
+			Name:     k,
+			Value:    v,
+			DataType: "string",
+		})
+	}
+
+	sort.Slice(objs, func(i, j int) bool { return objs[i].Name < objs[j].Name })
+
+	return c.JSON(http.StatusOK, describeMultiRegionParametersResponse{Parameters: objs})
+}
+
 // -- helpers ---------------------------------------------------------------------
 
 // writeBackendError translates a backend error to an HTTP response.
@@ -1412,6 +1516,28 @@ func toMultiRegionClusterObject(mrc *MultiRegionCluster) multiRegionClusterObjec
 		MultiRegionParameterGroupName: mrc.MultiRegionParameterGroupName,
 		Status:                        mrc.Status,
 	}
+}
+
+// toReservedNodeSlice converts a slice of ReservedNode pointers to values.
+func toReservedNodeSlice(nodes []*ReservedNode) []ReservedNode {
+	result := make([]ReservedNode, 0, len(nodes))
+
+	for _, n := range nodes {
+		result = append(result, *n)
+	}
+
+	return result
+}
+
+// toReservedNodesOfferingSlice converts a slice of ReservedNodesOffering pointers to values.
+func toReservedNodesOfferingSlice(offerings []*ReservedNodesOffering) []ReservedNodesOffering {
+	result := make([]ReservedNodesOffering, 0, len(offerings))
+
+	for _, o := range offerings {
+		result = append(result, *o)
+	}
+
+	return result
 }
 
 // Purge implements service.Purgeable by removing all MemoryDB resources older than cutoff.

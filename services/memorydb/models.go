@@ -491,6 +491,7 @@ type MultiRegionCluster struct {
 type MultiRegionParameterGroup struct {
 	CreatedAt   time.Time         `json:"createdAt"`
 	Tags        map[string]string `json:"tags"`
+	Parameters  map[string]string `json:"parameters"`
 	ARN         string            `json:"arn"`
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
@@ -782,4 +783,90 @@ type serviceUpdateObject struct {
 type describeServiceUpdatesResponse struct {
 	NextToken      string                `json:"NextToken,omitempty"`
 	ServiceUpdates []serviceUpdateObject `json:"ServiceUpdates"`
+}
+
+// -- ReservedNode request/response types -------------------------------------
+
+// ReservedNode represents a reserved MemoryDB node.
+type ReservedNode struct {
+	StartTime        string                  `json:"StartTime,omitempty"`
+	ReservedNodeID   string                  `json:"ReservedNodeId,omitempty"`
+	ReservationID    string                  `json:"ReservationId,omitempty"`
+	NodeType         string                  `json:"NodeType,omitempty"`
+	OfferingType     string                  `json:"OfferingType,omitempty"`
+	State            string                  `json:"State,omitempty"`
+	ARN              string                  `json:"ARN,omitempty"`
+	RecurringCharges []recurringChargeObject `json:"RecurringCharges,omitempty"`
+	FixedPrice       float64                 `json:"FixedPrice,omitempty"`
+	UsagePrice       float64                 `json:"UsagePrice,omitempty"`
+	NodeCount        int32                   `json:"NodeCount,omitempty"`
+	Duration         int32                   `json:"Duration,omitempty"`
+}
+
+// ReservedNodesOffering describes a reserved node offering.
+type ReservedNodesOffering struct {
+	ReservedNodesOfferingID string                  `json:"ReservedNodesOfferingId,omitempty"`
+	NodeType                string                  `json:"NodeType,omitempty"`
+	OfferingType            string                  `json:"OfferingType,omitempty"`
+	RecurringCharges        []recurringChargeObject `json:"RecurringCharges,omitempty"`
+	FixedPrice              float64                 `json:"FixedPrice,omitempty"`
+	UsagePrice              float64                 `json:"UsagePrice,omitempty"`
+	Duration                int32                   `json:"Duration,omitempty"`
+}
+
+type recurringChargeObject struct {
+	RecurringChargeFrequency string  `json:"RecurringChargeFrequency,omitempty"`
+	RecurringChargeAmount    float64 `json:"RecurringChargeAmount,omitempty"`
+}
+
+type describeReservedNodesRequest struct {
+	MaxResults     *int32 `json:"MaxResults,omitempty"`
+	ReservedNodeID string `json:"ReservedNodeId,omitempty"`
+	ReservationID  string `json:"ReservationId,omitempty"`
+	NodeType       string `json:"NodeType,omitempty"`
+	OfferingType   string `json:"OfferingType,omitempty"`
+	NextToken      string `json:"NextToken,omitempty"`
+}
+
+type describeReservedNodesResponse struct {
+	NextToken     string         `json:"NextToken,omitempty"`
+	ReservedNodes []ReservedNode `json:"ReservedNodes"`
+}
+
+type describeReservedNodesOfferingsRequest struct {
+	MaxResults              *int32 `json:"MaxResults,omitempty"`
+	ReservedNodesOfferingID string `json:"ReservedNodesOfferingId,omitempty"`
+	NodeType                string `json:"NodeType,omitempty"`
+	OfferingType            string `json:"OfferingType,omitempty"`
+	NextToken               string `json:"NextToken,omitempty"`
+	Duration                string `json:"Duration,omitempty"`
+}
+
+type describeReservedNodesOfferingsResponse struct {
+	NextToken              string                  `json:"NextToken,omitempty"`
+	ReservedNodesOfferings []ReservedNodesOffering `json:"ReservedNodesOfferings"`
+}
+
+type purchaseReservedNodesOfferingRequest struct {
+	ReservedNodesOfferingID string     `json:"ReservedNodesOfferingId"`
+	ReservationID           string     `json:"ReservationId,omitempty"`
+	NodeCount               *int32     `json:"NodeCount,omitempty"`
+	Tags                    []tagEntry `json:"Tags,omitempty"`
+}
+
+type purchaseReservedNodesOfferingResponse struct {
+	ReservedNode *ReservedNode `json:"ReservedNode,omitempty"`
+}
+
+// -- DescribeMultiRegionParameters request/response types --------------------
+
+type describeMultiRegionParametersRequest struct {
+	MaxResults         *int32 `json:"MaxResults,omitempty"`
+	ParameterGroupName string `json:"ParameterGroupName"`
+	NextToken          string `json:"NextToken,omitempty"`
+}
+
+type describeMultiRegionParametersResponse struct {
+	NextToken  string            `json:"NextToken,omitempty"`
+	Parameters []parameterObject `json:"Parameters"`
 }

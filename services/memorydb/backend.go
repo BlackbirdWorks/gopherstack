@@ -34,6 +34,17 @@ const (
 	// maxEvents is the maximum number of events retained in memory.
 	maxEvents = 1000
 
+	// Reserved node offering durations (in seconds).
+	reservedDuration1Year  = int32(31_536_000) // 365 days
+	reservedDuration3Years = int32(94_608_000) // 3 × 365 days
+
+	// Reserved node offering prices (USD).
+	reservedFixedPriceLarge1Y  = 1200.00
+	reservedFixedPriceLarge3Y  = 2000.00
+	reservedFixedPriceXLarge1Y = 2400.00
+	reservedChargeRateLarge    = 0.14
+	reservedChargeRateXLarge   = 0.28
+
 	// Resource kind constants for tag routing.
 	resourceKindCluster        = "cluster"
 	resourceKindACL            = "acl"
@@ -177,6 +188,17 @@ type StorageBackend interface {
 	// BatchUpdateCluster operation
 	BatchUpdateCluster(clusterNames []string) map[string]*Cluster
 
+	// ReservedNode operations
+	DescribeReservedNodes(req *describeReservedNodesRequest) ([]*ReservedNode, error)
+	DescribeReservedNodesOfferings(req *describeReservedNodesOfferingsRequest) ([]*ReservedNodesOffering, error)
+	PurchaseReservedNodesOffering(
+		region, accountID string,
+		req *purchaseReservedNodesOfferingRequest,
+	) (*ReservedNode, error)
+
+	// MultiRegionParameters operations
+	DescribeMultiRegionParameters(parameterGroupName string) (map[string]string, error)
+
 	// Lifecycle
 	Reset()
 	Snapshot() []byte
@@ -193,6 +215,7 @@ type InMemoryBackend struct {
 	snapshots                  map[string]*Snapshot
 	clusters                   map[string]*Cluster
 	multiRegionParameterGroups map[string]*MultiRegionParameterGroup
+	reservedNodes              map[string]*ReservedNode
 	arnToResource              map[string]resourceRef
 	accountID                  string
 	region                     string
@@ -222,6 +245,7 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 		snapshots:                  make(map[string]*Snapshot),
 		multiRegionClusters:        make(map[string]*MultiRegionCluster),
 		multiRegionParameterGroups: make(map[string]*MultiRegionParameterGroup),
+		reservedNodes:              make(map[string]*ReservedNode),
 		events:                     []*Event{},
 		arnToResource:              make(map[string]resourceRef),
 		accountID:                  accountID,
@@ -257,6 +281,7 @@ func (b *InMemoryBackend) Reset() {
 	b.snapshots = make(map[string]*Snapshot)
 	b.multiRegionClusters = make(map[string]*MultiRegionCluster)
 	b.multiRegionParameterGroups = make(map[string]*MultiRegionParameterGroup)
+	b.reservedNodes = make(map[string]*ReservedNode)
 	b.events = []*Event{}
 	b.arnToResource = make(map[string]resourceRef)
 
@@ -1528,7 +1553,183 @@ func (b *InMemoryBackend) BatchUpdateCluster(clusterNames []string) map[string]*
 	return result
 }
 
-// -- helpers ---------------------------------------------------------------------
+// -- ReservedNode operations ----------------------------------------------------
+
+// defaultReservedNodesOfferings returns the built-in reserved node offerings.
+func defaultReservedNodesOfferings() []*ReservedNodesOffering {
+	return []*ReservedNodesOffering{
+		{
+			ReservedNodesOfferingID: "aaa00000-1111-2222-3333-444444444444",
+			NodeType:                "db.r6g.large",
+			Duration:                reservedDuration1Year,
+			FixedPrice:              reservedFixedPriceLarge1Y,
+			OfferingType:            "No Upfront",
+			RecurringCharges: []recurringChargeObject{
+				{RecurringChargeAmount: reservedChargeRateLarge, RecurringChargeFrequency: "Hourly"},
+			},
+		},
+		{
+			ReservedNodesOfferingID: "bbb00000-1111-2222-3333-444444444444",
+			NodeType:                "db.r6g.xlarge",
+			Duration:                reservedDuration1Year,
+			FixedPrice:              reservedFixedPriceXLarge1Y,
+			OfferingType:            "No Upfront",
+			RecurringCharges: []recurringChargeObject{
+				{RecurringChargeAmount: reservedChargeRateXLarge, RecurringChargeFrequency: "Hourly"},
+			},
+		},
+		{
+			ReservedNodesOfferingID: "ccc00000-1111-2222-3333-444444444444",
+			NodeType:                "db.r6g.large",
+			Duration:                reservedDuration3Years,
+			FixedPrice:              reservedFixedPriceLarge3Y,
+			OfferingType:            "All Upfront",
+			RecurringCharges:        []recurringChargeObject{},
+		},
+	}
+}
+
+// DescribeReservedNodes returns reserved nodes, optionally filtered by reservation ID or node type.
+func (b *InMemoryBackend) DescribeReservedNodes(req *describeReservedNodesRequest) ([]*ReservedNode, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*ReservedNode, 0, len(b.reservedNodes))
+
+	for _, rn := range b.reservedNodes {
+		if req.ReservedNodeID != "" && rn.ReservedNodeID != req.ReservedNodeID {
+			continue
+		}
+
+		if req.ReservationID != "" && rn.ReservationID != req.ReservationID {
+			continue
+		}
+
+		if req.NodeType != "" && rn.NodeType != req.NodeType {
+			continue
+		}
+
+		if req.OfferingType != "" && rn.OfferingType != req.OfferingType {
+			continue
+		}
+
+		cp := *rn
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ReservedNodeID < result[j].ReservedNodeID
+	})
+
+	return result, nil
+}
+
+// DescribeReservedNodesOfferings returns available reserved node offerings.
+func (b *InMemoryBackend) DescribeReservedNodesOfferings(
+	req *describeReservedNodesOfferingsRequest,
+) ([]*ReservedNodesOffering, error) {
+	all := defaultReservedNodesOfferings()
+
+	result := make([]*ReservedNodesOffering, 0, len(all))
+
+	for _, o := range all {
+		if req.ReservedNodesOfferingID != "" && o.ReservedNodesOfferingID != req.ReservedNodesOfferingID {
+			continue
+		}
+
+		if req.NodeType != "" && o.NodeType != req.NodeType {
+			continue
+		}
+
+		if req.OfferingType != "" && o.OfferingType != req.OfferingType {
+			continue
+		}
+
+		result = append(result, o)
+	}
+
+	return result, nil
+}
+
+// PurchaseReservedNodesOffering creates a new reserved node from an offering.
+func (b *InMemoryBackend) PurchaseReservedNodesOffering(
+	region, accountID string,
+	req *purchaseReservedNodesOfferingRequest,
+) (*ReservedNode, error) {
+	if req.ReservedNodesOfferingID == "" {
+		return nil, fmt.Errorf("ReservedNodesOfferingId is required: %w", ErrValidation)
+	}
+
+	// Find the offering.
+	var offering *ReservedNodesOffering
+
+	for _, o := range defaultReservedNodesOfferings() {
+		if o.ReservedNodesOfferingID == req.ReservedNodesOfferingID {
+			offering = o
+
+			break
+		}
+	}
+
+	if offering == nil {
+		return nil, fmt.Errorf("reserved nodes offering not found: %w", ErrValidation)
+	}
+
+	reservationID := req.ReservationID
+	if reservationID == "" {
+		reservationID = req.ReservedNodesOfferingID + "-reservation"
+	}
+
+	nodeCount := int32(1)
+	if req.NodeCount != nil {
+		nodeCount = *req.NodeCount
+	}
+
+	rnARN := arn.Build("memorydb", region, accountID, "reservednode/"+reservationID)
+
+	rn := &ReservedNode{
+		ReservedNodeID:   reservationID,
+		ReservationID:    req.ReservedNodesOfferingID,
+		NodeType:         offering.NodeType,
+		Duration:         offering.Duration,
+		FixedPrice:       offering.FixedPrice,
+		UsagePrice:       offering.UsagePrice,
+		OfferingType:     offering.OfferingType,
+		RecurringCharges: offering.RecurringCharges,
+		State:            "active",
+		StartTime:        time.Now().UTC().Format(time.RFC3339),
+		NodeCount:        nodeCount,
+		ARN:              rnARN,
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.reservedNodes[reservationID] = rn
+
+	cp := *rn
+
+	return &cp, nil
+}
+
+// -- DescribeMultiRegionParameters operation ------------------------------------
+
+// DescribeMultiRegionParameters returns the parameters for a multi-region parameter group.
+func (b *InMemoryBackend) DescribeMultiRegionParameters(parameterGroupName string) (map[string]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if parameterGroupName == "" {
+		return nil, fmt.Errorf("parameter group name is required: %w", ErrValidation)
+	}
+
+	mrpg, ok := b.multiRegionParameterGroups[parameterGroupName]
+	if !ok {
+		return nil, ErrMultiRegionParameterGroupNotFound
+	}
+
+	return maps.Clone(mrpg.Parameters), nil
+}
 
 // tagsFromSlice converts []tagEntry to map[string]string.
 func tagsFromSlice(tags []tagEntry) map[string]string {
@@ -1903,4 +2104,23 @@ func (b *InMemoryBackend) AddParameterGroupInternal(name, family string) *Parame
 	b.arnToResource[pgARN] = resourceRef{Kind: resourceKindParameterGroup, Name: name}
 
 	return pg
+}
+
+// AddMultiRegionParameterGroupInternal inserts a multi-region parameter group directly into the backend for testing.
+func (b *InMemoryBackend) AddMultiRegionParameterGroupInternal(name, family string) *MultiRegionParameterGroup {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	mrpgARN := arn.Build("memorydb", b.region, b.accountID, "multiregionparametergroup/"+name)
+	mrpg := &MultiRegionParameterGroup{
+		Name:       name,
+		ARN:        mrpgARN,
+		Family:     family,
+		Tags:       make(map[string]string),
+		Parameters: make(map[string]string),
+		CreatedAt:  time.Now(),
+	}
+	b.multiRegionParameterGroups[name] = mrpg
+
+	return mrpg
 }
