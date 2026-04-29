@@ -2727,9 +2727,14 @@ func TestCachePolicyCRUD(t *testing.T) {
 			name:   "create_cache_policy_via_handler",
 			method: http.MethodPost,
 			path:   "/2020-05-31/cache-policy",
-			body:   []byte(`<CachePolicyConfig><Name>test-policy</Name><Comment>test</Comment><DefaultTTL>86400</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>0</MinTTL></CachePolicyConfig>`),
+			body: []byte(
+				`<CachePolicyConfig>` +
+					`<Name>test-policy</Name><Comment>test</Comment>` +
+					`<DefaultTTL>86400</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>0</MinTTL>` +
+					`</CachePolicyConfig>`),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusCreated,
@@ -2749,6 +2754,7 @@ func TestCachePolicyCRUD(t *testing.T) {
 				t.Helper()
 				p, err := h.Backend.CreateCachePolicy("get-policy", "comment", 86400, 31536000, 0)
 				require.NoError(t, err)
+
 				return "/2020-05-31/cache-policy/" + p.ID
 			},
 			wantStatus: http.StatusOK,
@@ -2764,6 +2770,7 @@ func TestCachePolicyCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusNotFound,
@@ -2781,6 +2788,7 @@ func TestCachePolicyCRUD(t *testing.T) {
 				t.Helper()
 				p, err := h.Backend.CreateCachePolicy("cfg-policy", "comment", 86400, 31536000, 0)
 				require.NoError(t, err)
+
 				return "/2020-05-31/cache-policy/" + p.ID + "/config"
 			},
 			wantStatus: http.StatusOK,
@@ -2799,6 +2807,7 @@ func TestCachePolicyCRUD(t *testing.T) {
 				t.Helper()
 				_, err := h.Backend.CreateCachePolicy("list-policy", "comment", 86400, 31536000, 0)
 				require.NoError(t, err)
+
 				return ""
 			},
 			wantStatus: http.StatusOK,
@@ -2812,11 +2821,16 @@ func TestCachePolicyCRUD(t *testing.T) {
 			name:   "update_cache_policy",
 			method: http.MethodPut,
 			path:   "",
-			body:   []byte(`<CachePolicyConfig><Name>updated-policy</Name><Comment>updated</Comment><DefaultTTL>3600</DefaultTTL><MaxTTL>86400</MaxTTL><MinTTL>0</MinTTL></CachePolicyConfig>`),
+			body: []byte(
+				`<CachePolicyConfig>` +
+					`<Name>updated-policy</Name><Comment>updated</Comment>` +
+					`<DefaultTTL>3600</DefaultTTL><MaxTTL>86400</MaxTTL><MinTTL>0</MinTTL>` +
+					`</CachePolicyConfig>`),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				p, err := h.Backend.CreateCachePolicy("upd-policy", "comment", 86400, 31536000, 0)
 				require.NoError(t, err)
+
 				return "/2020-05-31/cache-policy/" + p.ID
 			},
 			wantStatus: http.StatusOK,
@@ -2834,6 +2848,7 @@ func TestCachePolicyCRUD(t *testing.T) {
 				t.Helper()
 				p, err := h.Backend.CreateCachePolicy("del-policy", "comment", 86400, 31536000, 0)
 				require.NoError(t, err)
+
 				return "/2020-05-31/cache-policy/" + p.ID
 			},
 			wantStatus: http.StatusNoContent,
@@ -2846,6 +2861,7 @@ func TestCachePolicyCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusNotFound,
@@ -2901,9 +2917,15 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 			name:   "create_oac",
 			method: http.MethodPost,
 			path:   "/2020-05-31/origin-access-control",
-			body:   []byte(`<OriginAccessControlConfig><Name>my-oac</Name><Description>desc</Description><OriginAccessControlOriginType>s3</OriginAccessControlOriginType><SigningBehavior>always</SigningBehavior><SigningProtocol>sigv4</SigningProtocol></OriginAccessControlConfig>`),
+			body: []byte(
+				`<OriginAccessControlConfig>` +
+					`<Name>my-oac</Name><Description>desc</Description>` +
+					`<OriginAccessControlOriginType>s3</OriginAccessControlOriginType>` +
+					`<SigningBehavior>always</SigningBehavior><SigningProtocol>sigv4</SigningProtocol>` +
+					`</OriginAccessControlConfig>`),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusCreated,
@@ -2924,6 +2946,7 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 				t.Helper()
 				oac, err := h.Backend.CreateOriginAccessControl("get-oac", "", "s3", "always", "sigv4")
 				require.NoError(t, err)
+
 				return "/2020-05-31/origin-access-control/" + oac.ID
 			},
 			wantStatus: http.StatusOK,
@@ -2940,6 +2963,7 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusNotFound,
@@ -2957,6 +2981,7 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 				t.Helper()
 				oac, err := h.Backend.CreateOriginAccessControl("cfg-oac", "desc", "s3", "always", "sigv4")
 				require.NoError(t, err)
+
 				return "/2020-05-31/origin-access-control/" + oac.ID + "/config"
 			},
 			wantStatus: http.StatusOK,
@@ -2974,6 +2999,7 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 				t.Helper()
 				_, err := h.Backend.CreateOriginAccessControl("list-oac", "", "s3", "always", "sigv4")
 				require.NoError(t, err)
+
 				return ""
 			},
 			wantStatus: http.StatusOK,
@@ -2987,11 +3013,17 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 			name:   "update_oac",
 			method: http.MethodPut,
 			path:   "",
-			body:   []byte(`<OriginAccessControlConfig><Name>updated-oac</Name><Description>new desc</Description><OriginAccessControlOriginType>s3</OriginAccessControlOriginType><SigningBehavior>never</SigningBehavior><SigningProtocol>sigv4</SigningProtocol></OriginAccessControlConfig>`),
+			body: []byte(
+				`<OriginAccessControlConfig>` +
+					`<Name>updated-oac</Name><Description>new desc</Description>` +
+					`<OriginAccessControlOriginType>s3</OriginAccessControlOriginType>` +
+					`<SigningBehavior>never</SigningBehavior><SigningProtocol>sigv4</SigningProtocol>` +
+					`</OriginAccessControlConfig>`),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				oac, err := h.Backend.CreateOriginAccessControl("orig-oac", "", "s3", "always", "sigv4")
 				require.NoError(t, err)
+
 				return "/2020-05-31/origin-access-control/" + oac.ID + "/config"
 			},
 			wantStatus: http.StatusOK,
@@ -3009,6 +3041,7 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 				t.Helper()
 				oac, err := h.Backend.CreateOriginAccessControl("del-oac", "", "s3", "always", "sigv4")
 				require.NoError(t, err)
+
 				return "/2020-05-31/origin-access-control/" + oac.ID
 			},
 			wantStatus: http.StatusNoContent,
@@ -3021,6 +3054,7 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusNotFound,
@@ -3071,9 +3105,13 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 			name:   "create_rhp",
 			method: http.MethodPost,
 			path:   "/2020-05-31/response-headers-policy",
-			body:   []byte(`<ResponseHeadersPolicyConfig><Name>my-rhp</Name><Comment>comment</Comment></ResponseHeadersPolicyConfig>`),
+			body: []byte(
+				`<ResponseHeadersPolicyConfig>` +
+					`<Name>my-rhp</Name><Comment>comment</Comment>` +
+					`</ResponseHeadersPolicyConfig>`),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusCreated,
@@ -3093,6 +3131,7 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 				t.Helper()
 				p, err := h.Backend.CreateResponseHeadersPolicy("get-rhp", "")
 				require.NoError(t, err)
+
 				return "/2020-05-31/response-headers-policy/" + p.ID
 			},
 			wantStatus: http.StatusOK,
@@ -3108,6 +3147,7 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusNotFound,
@@ -3125,6 +3165,7 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 				t.Helper()
 				p, err := h.Backend.CreateResponseHeadersPolicy("cfg-rhp", "cfg comment")
 				require.NoError(t, err)
+
 				return "/2020-05-31/response-headers-policy/" + p.ID + "/config"
 			},
 			wantStatus: http.StatusOK,
@@ -3142,6 +3183,7 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 				t.Helper()
 				_, err := h.Backend.CreateResponseHeadersPolicy("list-rhp", "")
 				require.NoError(t, err)
+
 				return ""
 			},
 			wantStatus: http.StatusOK,
@@ -3155,11 +3197,15 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 			name:   "update_rhp",
 			method: http.MethodPut,
 			path:   "",
-			body:   []byte(`<ResponseHeadersPolicyConfig><Name>updated-rhp</Name><Comment>new</Comment></ResponseHeadersPolicyConfig>`),
+			body: []byte(
+				`<ResponseHeadersPolicyConfig>` +
+					`<Name>updated-rhp</Name><Comment>new</Comment>` +
+					`</ResponseHeadersPolicyConfig>`),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				p, err := h.Backend.CreateResponseHeadersPolicy("orig-rhp", "")
 				require.NoError(t, err)
+
 				return "/2020-05-31/response-headers-policy/" + p.ID + "/config"
 			},
 			wantStatus: http.StatusOK,
@@ -3177,6 +3223,7 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 				t.Helper()
 				p, err := h.Backend.CreateResponseHeadersPolicy("del-rhp", "")
 				require.NoError(t, err)
+
 				return "/2020-05-31/response-headers-policy/" + p.ID
 			},
 			wantStatus: http.StatusNoContent,
@@ -3224,9 +3271,17 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			name:   "create_function",
 			method: http.MethodPost,
 			path:   "/2020-05-31/function",
-			body:   []byte(`<CreateFunctionRequest><Name>my-fn</Name><FunctionConfig><Comment>test fn</Comment><Runtime>cloudfront-js-2.0</Runtime></FunctionConfig><FunctionCode>ZnVuY3Rpb24gaGFuZGxlcihldmVudCkge3JldHVybiBldmVudC5yZXF1ZXN0O30=</FunctionCode></CreateFunctionRequest>`),
+			body: []byte(
+				`<CreateFunctionRequest>` +
+					`<Name>my-fn</Name>` +
+					`<FunctionConfig>` +
+					`<Comment>test fn</Comment><Runtime>cloudfront-js-2.0</Runtime>` +
+					`</FunctionConfig>` +
+					`<FunctionCode>ZnVuY3Rpb24gaGFuZGxlcihldmVudCkge3JldHVybiBldmVudC5yZXF1ZXN0O30=</FunctionCode>` +
+					`</CreateFunctionRequest>`),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusCreated,
@@ -3246,6 +3301,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				t.Helper()
 				_, err := h.Backend.CreateFunction("get-fn", "comment", "cloudfront-js-2.0", "code")
 				require.NoError(t, err)
+
 				return "/2020-05-31/function/get-fn"
 			},
 			wantStatus: http.StatusOK,
@@ -3261,6 +3317,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusNotFound,
@@ -3278,6 +3335,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				t.Helper()
 				_, err := h.Backend.CreateFunction("desc-fn", "comment", "cloudfront-js-2.0", "code")
 				require.NoError(t, err)
+
 				return "/2020-05-31/function/desc-fn/describe"
 			},
 			wantStatus: http.StatusOK,
@@ -3295,6 +3353,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				t.Helper()
 				_, err := h.Backend.CreateFunction("list-fn", "comment", "cloudfront-js-2.0", "code")
 				require.NoError(t, err)
+
 				return ""
 			},
 			wantStatus: http.StatusOK,
@@ -3313,6 +3372,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				t.Helper()
 				_, err := h.Backend.CreateFunction("pub-fn", "comment", "cloudfront-js-2.0", "code")
 				require.NoError(t, err)
+
 				return "/2020-05-31/function/pub-fn/publish"
 			},
 			wantStatus: http.StatusCreated,
@@ -3325,11 +3385,16 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			name:   "update_function",
 			method: http.MethodPut,
 			path:   "",
-			body:   []byte(`<CreateFunctionRequest><Name>upd-fn</Name><FunctionConfig><Comment>updated</Comment><Runtime>cloudfront-js-2.0</Runtime></FunctionConfig></CreateFunctionRequest>`),
+			body: []byte(
+				`<CreateFunctionRequest>` +
+					`<Name>upd-fn</Name>` +
+					`<FunctionConfig><Comment>updated</Comment><Runtime>cloudfront-js-2.0</Runtime></FunctionConfig>` +
+					`</CreateFunctionRequest>`),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				_, err := h.Backend.CreateFunction("upd-fn", "original", "cloudfront-js-2.0", "code")
 				require.NoError(t, err)
+
 				return "/2020-05-31/function/upd-fn"
 			},
 			wantStatus: http.StatusOK,
@@ -3347,6 +3412,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				t.Helper()
 				_, err := h.Backend.CreateFunction("del-fn", "comment", "cloudfront-js-2.0", "code")
 				require.NoError(t, err)
+
 				return "/2020-05-31/function/del-fn"
 			},
 			wantStatus: http.StatusNoContent,
@@ -3361,6 +3427,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				t.Helper()
 				_, err := h.Backend.CreateFunction("test-fn", "comment", "cloudfront-js-2.0", "code")
 				require.NoError(t, err)
+
 				return "/2020-05-31/function/test-fn/test"
 			},
 			wantStatus: http.StatusOK,
@@ -3412,9 +3479,13 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 			name:   "create_orp",
 			method: http.MethodPost,
 			path:   "/2020-05-31/origin-request-policy",
-			body:   []byte(`<OriginRequestPolicyConfig><Name>my-orp</Name><Comment>comment</Comment></OriginRequestPolicyConfig>`),
+			body: []byte(
+				`<OriginRequestPolicyConfig>` +
+					`<Name>my-orp</Name><Comment>comment</Comment>` +
+					`</OriginRequestPolicyConfig>`),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusCreated,
@@ -3434,6 +3505,7 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 				t.Helper()
 				p, err := h.Backend.CreateOriginRequestPolicy("get-orp", "")
 				require.NoError(t, err)
+
 				return "/2020-05-31/origin-request-policy/" + p.ID
 			},
 			wantStatus: http.StatusOK,
@@ -3449,6 +3521,7 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
+
 				return ""
 			},
 			wantStatus: http.StatusNotFound,
@@ -3466,6 +3539,7 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 				t.Helper()
 				p, err := h.Backend.CreateOriginRequestPolicy("cfg-orp", "")
 				require.NoError(t, err)
+
 				return "/2020-05-31/origin-request-policy/" + p.ID + "/config"
 			},
 			wantStatus: http.StatusOK,
@@ -3483,6 +3557,7 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 				t.Helper()
 				_, err := h.Backend.CreateOriginRequestPolicy("list-orp", "")
 				require.NoError(t, err)
+
 				return ""
 			},
 			wantStatus: http.StatusOK,
@@ -3496,11 +3571,15 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 			name:   "update_orp",
 			method: http.MethodPut,
 			path:   "",
-			body:   []byte(`<OriginRequestPolicyConfig><Name>updated-orp</Name><Comment>new</Comment></OriginRequestPolicyConfig>`),
+			body: []byte(
+				`<OriginRequestPolicyConfig>` +
+					`<Name>updated-orp</Name><Comment>new</Comment>` +
+					`</OriginRequestPolicyConfig>`),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				p, err := h.Backend.CreateOriginRequestPolicy("orig-orp", "")
 				require.NoError(t, err)
+
 				return "/2020-05-31/origin-request-policy/" + p.ID + "/config"
 			},
 			wantStatus: http.StatusOK,
@@ -3518,6 +3597,7 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 				t.Helper()
 				p, err := h.Backend.CreateOriginRequestPolicy("del-orp", "")
 				require.NoError(t, err)
+
 				return "/2020-05-31/origin-request-policy/" + p.ID
 			},
 			wantStatus: http.StatusNoContent,

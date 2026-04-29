@@ -287,11 +287,6 @@ func (b *InMemoryBackend) connectionGroupARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:connection-group/%s", b.accountID, id)
 }
 
-// oacARN builds an ARN for an Origin Access Control.
-func (b *InMemoryBackend) oacARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:origin-access-control/%s", b.accountID, id)
-}
-
 // functionARN builds an ARN for a CloudFront Function.
 func (b *InMemoryBackend) functionARN(name string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:function/%s", b.accountID, name)

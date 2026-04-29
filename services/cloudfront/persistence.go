@@ -62,6 +62,72 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot and rebuilds derived indexes.
+// backendIndexes holds the derived lookup indexes rebuilt from a snapshot.
+type backendIndexes struct {
+	distributionARNs            map[string]string
+	distributionCallerRefs      map[string]string
+	oaiCallerRefs               map[string]string
+	cachePolicyByName           map[string]string
+	originAccessControlByName   map[string]string
+	responseHeadersPolicyByName map[string]string
+	originRequestPolicyByName   map[string]string
+}
+
+// rebuildIndexes derives all secondary indexes from a snapshot.
+func rebuildIndexes(snap *backendSnapshot) backendIndexes {
+	arnIndex := make(map[string]string, len(snap.Distributions))
+	callerRefIndex := make(map[string]string, len(snap.Distributions))
+
+	for id, d := range snap.Distributions {
+		arnIndex[d.ARN] = id
+		if d.CallerReference != "" {
+			callerRefIndex[d.CallerReference] = id
+		}
+	}
+
+	oaiCallerRefIndex := make(map[string]string, len(snap.OAIs))
+
+	for id, oai := range snap.OAIs {
+		if oai.CallerReference != "" {
+			oaiCallerRefIndex[oai.CallerReference] = id
+		}
+	}
+
+	cachePolicyByName := make(map[string]string, len(snap.CachePolicies))
+
+	for id, cp := range snap.CachePolicies {
+		cachePolicyByName[cp.Name] = id
+	}
+
+	oacByName := make(map[string]string, len(snap.OriginAccessControls))
+
+	for id, oac := range snap.OriginAccessControls {
+		oacByName[oac.Name] = id
+	}
+
+	rhpByName := make(map[string]string, len(snap.ResponseHeadersPolicies))
+
+	for id, p := range snap.ResponseHeadersPolicies {
+		rhpByName[p.Name] = id
+	}
+
+	orpByName := make(map[string]string, len(snap.OriginRequestPolicies))
+
+	for id, p := range snap.OriginRequestPolicies {
+		orpByName[p.Name] = id
+	}
+
+	return backendIndexes{
+		distributionARNs:            arnIndex,
+		distributionCallerRefs:      callerRefIndex,
+		oaiCallerRefs:               oaiCallerRefIndex,
+		cachePolicyByName:           cachePolicyByName,
+		originAccessControlByName:   oacByName,
+		responseHeadersPolicyByName: rhpByName,
+		originRequestPolicyByName:   orpByName,
+	}
+}
+
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -74,48 +140,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	ensureNonNil(&snap)
 
-	// Rebuild the ARN-to-ID index.
-	arnIndex := make(map[string]string, len(snap.Distributions))
-	// Rebuild the CallerReference-to-ID index.
-	callerRefIndex := make(map[string]string, len(snap.Distributions))
-	for id, d := range snap.Distributions {
-		arnIndex[d.ARN] = id
-		if d.CallerReference != "" {
-			callerRefIndex[d.CallerReference] = id
-		}
-	}
-
-	// Rebuild OAI CallerReference index.
-	oaiCallerRefIndex := make(map[string]string, len(snap.OAIs))
-	for id, oai := range snap.OAIs {
-		if oai.CallerReference != "" {
-			oaiCallerRefIndex[oai.CallerReference] = id
-		}
-	}
-
-	// Rebuild cache policy by-name index.
-	cachePolicyByName := make(map[string]string, len(snap.CachePolicies))
-	for id, cp := range snap.CachePolicies {
-		cachePolicyByName[cp.Name] = id
-	}
-
-	// Rebuild OAC by-name index.
-	oacByName := make(map[string]string, len(snap.OriginAccessControls))
-	for id, oac := range snap.OriginAccessControls {
-		oacByName[oac.Name] = id
-	}
-
-	// Rebuild response headers policy by-name index.
-	rhpByName := make(map[string]string, len(snap.ResponseHeadersPolicies))
-	for id, p := range snap.ResponseHeadersPolicies {
-		rhpByName[p.Name] = id
-	}
-
-	// Rebuild origin request policy by-name index.
-	orpByName := make(map[string]string, len(snap.OriginRequestPolicies))
-	for id, p := range snap.OriginRequestPolicies {
-		orpByName[p.Name] = id
-	}
+	idx := rebuildIndexes(&snap)
 
 	b.distributions = snap.Distributions
 	b.oais = snap.OAIs
@@ -132,13 +157,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.distributionAliases = snap.DistributionAliases
 	b.distributionWebACLs = snap.DistributionWebACLs
 	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
-	b.distributionARNs = arnIndex
-	b.distributionCallerRefs = callerRefIndex
-	b.oaiCallerRefs = oaiCallerRefIndex
-	b.cachePolicyByName = cachePolicyByName
-	b.originAccessControlByName = oacByName
-	b.responseHeadersPolicyByName = rhpByName
-	b.originRequestPolicyByName = orpByName
+	b.distributionARNs = idx.distributionARNs
+	b.distributionCallerRefs = idx.distributionCallerRefs
+	b.oaiCallerRefs = idx.oaiCallerRefs
+	b.cachePolicyByName = idx.cachePolicyByName
+	b.originAccessControlByName = idx.originAccessControlByName
+	b.responseHeadersPolicyByName = idx.responseHeadersPolicyByName
+	b.originRequestPolicyByName = idx.originRequestPolicyByName
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -148,6 +173,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 // ensureNonNil initialises any nil maps in a snapshot to empty maps so that
 // the backend never holds nil map references.
 func ensureNonNil(snap *backendSnapshot) {
+	ensureNonNilBaseEntities(snap)
+	ensureNonNilPolicies(snap)
+}
+
+func ensureNonNilBaseEntities(snap *backendSnapshot) {
 	if snap.Distributions == nil {
 		snap.Distributions = make(map[string]*Distribution)
 	}
@@ -164,16 +194,30 @@ func ensureNonNil(snap *backendSnapshot) {
 		snap.AnycastIPLists = make(map[string]*AnycastIPList)
 	}
 
-	if snap.CachePolicies == nil {
-		snap.CachePolicies = make(map[string]*CachePolicy)
-	}
-
 	if snap.ConnectionFunctions == nil {
 		snap.ConnectionFunctions = make(map[string]*ConnectionFunction)
 	}
 
 	if snap.ConnectionGroups == nil {
 		snap.ConnectionGroups = make(map[string]*ConnectionGroup)
+	}
+
+	if snap.DistributionAliases == nil {
+		snap.DistributionAliases = make(map[string][]string)
+	}
+
+	if snap.DistributionWebACLs == nil {
+		snap.DistributionWebACLs = make(map[string]string)
+	}
+
+	if snap.DistributionTenantWebACLs == nil {
+		snap.DistributionTenantWebACLs = make(map[string]string)
+	}
+}
+
+func ensureNonNilPolicies(snap *backendSnapshot) {
+	if snap.CachePolicies == nil {
+		snap.CachePolicies = make(map[string]*CachePolicy)
 	}
 
 	if snap.ContinuousDeploymentPolicies == nil {
@@ -194,18 +238,6 @@ func ensureNonNil(snap *backendSnapshot) {
 
 	if snap.OriginRequestPolicies == nil {
 		snap.OriginRequestPolicies = make(map[string]*OriginRequestPolicy)
-	}
-
-	if snap.DistributionAliases == nil {
-		snap.DistributionAliases = make(map[string][]string)
-	}
-
-	if snap.DistributionWebACLs == nil {
-		snap.DistributionWebACLs = make(map[string]string)
-	}
-
-	if snap.DistributionTenantWebACLs == nil {
-		snap.DistributionTenantWebACLs = make(map[string]string)
 	}
 }
 

@@ -201,7 +201,8 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		if method == http.MethodPost {
 			return "CopyDistribution", id
 		}
-	case strings.HasPrefix(suffix, "distribution/") && !strings.Contains(strings.TrimPrefix(suffix, "distribution/"), "/"):
+	case strings.HasPrefix(suffix, "distribution/") &&
+		!strings.Contains(strings.TrimPrefix(suffix, "distribution/"), "/"):
 		id := strings.TrimPrefix(suffix, "distribution/")
 		switch method {
 		case http.MethodGet:
@@ -240,7 +241,8 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		if method == http.MethodGet {
 			return "GetCachePolicyConfig", id
 		}
-	case strings.HasPrefix(suffix, "cache-policy/") && !strings.Contains(strings.TrimPrefix(suffix, "cache-policy/"), "/"):
+	case strings.HasPrefix(suffix, "cache-policy/") &&
+		!strings.Contains(strings.TrimPrefix(suffix, "cache-policy/"), "/"):
 		id := strings.TrimPrefix(suffix, "cache-policy/")
 		switch method {
 		case http.MethodGet:
@@ -264,7 +266,8 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodPut:
 			return "UpdateOriginAccessControl", id
 		}
-	case strings.HasPrefix(suffix, "origin-access-control/") && !strings.Contains(strings.TrimPrefix(suffix, "origin-access-control/"), "/"):
+	case strings.HasPrefix(suffix, "origin-access-control/") &&
+		!strings.Contains(strings.TrimPrefix(suffix, "origin-access-control/"), "/"):
 		id := strings.TrimPrefix(suffix, "origin-access-control/")
 		switch method {
 		case http.MethodGet:
@@ -286,7 +289,8 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodPut:
 			return "UpdateResponseHeadersPolicy", id
 		}
-	case strings.HasPrefix(suffix, "response-headers-policy/") && !strings.Contains(strings.TrimPrefix(suffix, "response-headers-policy/"), "/"):
+	case strings.HasPrefix(suffix, "response-headers-policy/") &&
+		!strings.Contains(strings.TrimPrefix(suffix, "response-headers-policy/"), "/"):
 		id := strings.TrimPrefix(suffix, "response-headers-policy/")
 		switch method {
 		case http.MethodGet:
@@ -341,7 +345,8 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodPut:
 			return "UpdateOriginRequestPolicy", id
 		}
-	case strings.HasPrefix(suffix, "origin-request-policy/") && !strings.Contains(strings.TrimPrefix(suffix, "origin-request-policy/"), "/"):
+	case strings.HasPrefix(suffix, "origin-request-policy/") &&
+		!strings.Contains(strings.TrimPrefix(suffix, "origin-request-policy/"), "/"):
 		id := strings.TrimPrefix(suffix, "origin-request-policy/")
 		switch method {
 		case http.MethodGet:
@@ -485,17 +490,32 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-//nolint:cyclop,funlen // dispatch table for many REST operations is inherently wide
 func (h *Handler) dispatch(c *echo.Context, operation, resource string) error {
+	if err := h.dispatchCreate(c, operation); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	if err := h.dispatchGet(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	if err := h.dispatchList(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	if err := h.dispatchUpdateDelete(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchMisc(c, operation, resource)
+}
+
+// errNotDispatched is a sentinel returned by sub-dispatchers when an operation
+// did not match, so the caller can try the next sub-dispatcher.
+var errNotDispatched = errors.New("not dispatched")
+
+func (h *Handler) dispatchCreate(c *echo.Context, operation string) error {
 	switch operation {
-	case "AssociateAlias":
-		return h.handleAssociateAlias(c, resource)
-	case "AssociateDistributionTenantWebACL":
-		return h.handleAssociateDistributionTenantWebACL(c, resource)
-	case "AssociateDistributionWebACL":
-		return h.handleAssociateDistributionWebACL(c, resource)
-	case "CopyDistribution":
-		return h.handleCopyDistribution(c, resource)
 	case "CreateAnycastIpList":
 		return h.handleCreateAnycastIPList(c)
 	case "CreateCachePolicy":
@@ -512,30 +532,19 @@ func (h *Handler) dispatch(c *echo.Context, operation, resource string) error {
 		return h.handleCreateDistribution(c)
 	case "CreateFunction":
 		return h.handleCreateFunction(c)
-	case "CreateInvalidation":
-		return h.handleCreateInvalidation(c, resource)
 	case "CreateOriginAccessControl":
 		return h.handleCreateOriginAccessControl(c)
 	case "CreateOriginRequestPolicy":
 		return h.handleCreateOriginRequestPolicy(c)
 	case "CreateResponseHeadersPolicy":
 		return h.handleCreateResponseHeadersPolicy(c)
-	case "DeleteCachePolicy":
-		return h.handleDeleteCachePolicy(c, resource)
-	case "DeleteDistribution":
-		return h.handleDeleteDistribution(c, resource)
-	case "DeleteFunction":
-		return h.handleDeleteFunction(c, resource)
-	case "DeleteOriginAccessControl":
-		return h.handleDeleteOriginAccessControl(c, resource)
-	case "DeleteOriginAccessIdentity":
-		return h.handleDeleteOAI(c, resource)
-	case "DeleteOriginRequestPolicy":
-		return h.handleDeleteOriginRequestPolicy(c, resource)
-	case "DeleteResponseHeadersPolicy":
-		return h.handleDeleteResponseHeadersPolicy(c, resource)
-	case "DescribeFunction":
-		return h.handleDescribeFunction(c, resource)
+	default:
+		return errNotDispatched
+	}
+}
+
+func (h *Handler) dispatchGet(c *echo.Context, operation, resource string) error {
+	switch operation {
 	case "GetCachePolicy":
 		return h.handleGetCachePolicy(c, resource)
 	case "GetCachePolicyConfig":
@@ -562,6 +571,13 @@ func (h *Handler) dispatch(c *echo.Context, operation, resource string) error {
 		return h.handleGetResponseHeadersPolicy(c, resource)
 	case "GetResponseHeadersPolicyConfig":
 		return h.handleGetResponseHeadersPolicyConfig(c, resource)
+	default:
+		return errNotDispatched
+	}
+}
+
+func (h *Handler) dispatchList(c *echo.Context, operation, resource string) error {
+	switch operation {
 	case "ListCachePolicies":
 		return h.handleListCachePolicies(c)
 	case "ListDistributions":
@@ -578,14 +594,29 @@ func (h *Handler) dispatch(c *echo.Context, operation, resource string) error {
 		return h.handleListOriginRequestPolicies(c)
 	case "ListResponseHeadersPolicies":
 		return h.handleListResponseHeadersPolicies(c)
-	case "PublishFunction":
-		return h.handlePublishFunction(c, resource)
-	case "TagResource":
-		return h.handleTagResource(c)
-	case "TestFunction":
-		return h.handleTestFunction(c, resource)
-	case "UntagResource":
-		return h.handleUntagResource(c)
+	case "ListTagsForResource":
+		return h.handleListTagsForResource(c)
+	default:
+		return errNotDispatched
+	}
+}
+
+func (h *Handler) dispatchUpdateDelete(c *echo.Context, operation, resource string) error {
+	switch operation {
+	case "DeleteCachePolicy":
+		return h.handleDeleteCachePolicy(c, resource)
+	case "DeleteDistribution":
+		return h.handleDeleteDistribution(c, resource)
+	case "DeleteFunction":
+		return h.handleDeleteFunction(c, resource)
+	case "DeleteOriginAccessControl":
+		return h.handleDeleteOriginAccessControl(c, resource)
+	case "DeleteOriginAccessIdentity":
+		return h.handleDeleteOAI(c, resource)
+	case "DeleteOriginRequestPolicy":
+		return h.handleDeleteOriginRequestPolicy(c, resource)
+	case "DeleteResponseHeadersPolicy":
+		return h.handleDeleteResponseHeadersPolicy(c, resource)
 	case "UpdateCachePolicy":
 		return h.handleUpdateCachePolicy(c, resource)
 	case "UpdateDistribution":
@@ -598,39 +629,77 @@ func (h *Handler) dispatch(c *echo.Context, operation, resource string) error {
 		return h.handleUpdateOriginRequestPolicy(c, resource)
 	case "UpdateResponseHeadersPolicy":
 		return h.handleUpdateResponseHeadersPolicy(c, resource)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(c)
+	default:
+		return errNotDispatched
+	}
+}
+
+func (h *Handler) dispatchMisc(c *echo.Context, operation, resource string) error {
+	switch operation {
+	case "AssociateAlias":
+		return h.handleAssociateAlias(c, resource)
+	case "AssociateDistributionTenantWebACL":
+		return h.handleAssociateDistributionTenantWebACL(c, resource)
+	case "AssociateDistributionWebACL":
+		return h.handleAssociateDistributionWebACL(c, resource)
+	case "CopyDistribution":
+		return h.handleCopyDistribution(c, resource)
+	case "CreateInvalidation":
+		return h.handleCreateInvalidation(c, resource)
+	case "DescribeFunction":
+		return h.handleDescribeFunction(c, resource)
+	case "PublishFunction":
+		return h.handlePublishFunction(c, resource)
+	case "TagResource":
+		return h.handleTagResource(c)
+	case "TestFunction":
+		return h.handleTestFunction(c, resource)
+	case "UntagResource":
+		return h.handleUntagResource(c)
 	default:
 		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOperation", "unknown operation: "+operation))
 	}
 }
 
-func (h *Handler) handleError(c *echo.Context, err error) error {
+// notFoundCode returns the CloudFront error code for well-known not-found errors.
+// The second return value is false when err is not a known not-found error.
+func notFoundCode(err error) (string, bool) {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchDistribution", err.Error()))
+		return "NoSuchDistribution", true
 	case errors.Is(err, ErrOAINotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchCloudFrontOriginAccessIdentity", err.Error()))
+		return "NoSuchCloudFrontOriginAccessIdentity", true
 	case errors.Is(err, ErrCachePolicyNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchCachePolicy", err.Error()))
+		return "NoSuchCachePolicy", true
 	case errors.Is(err, ErrAnycastIPListNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchAnycastIPList", err.Error()))
+		return "NoSuchAnycastIPList", true
 	case errors.Is(err, ErrConnectionFunctionNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchConnectionFunction", err.Error()))
+		return "NoSuchConnectionFunction", true
 	case errors.Is(err, ErrConnectionGroupNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchConnectionGroup", err.Error()))
+		return "NoSuchConnectionGroup", true
 	case errors.Is(err, ErrContinuousDeploymentPolicyNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchContinuousDeploymentPolicy", err.Error()))
+		return "NoSuchContinuousDeploymentPolicy", true
 	case errors.Is(err, ErrInvalidationNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchInvalidation", err.Error()))
+		return "NoSuchInvalidation", true
 	case errors.Is(err, ErrOACNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOriginAccessControl", err.Error()))
+		return "NoSuchOriginAccessControl", true
 	case errors.Is(err, ErrResponseHeadersPolicyNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchResponseHeadersPolicy", err.Error()))
+		return "NoSuchResponseHeadersPolicy", true
 	case errors.Is(err, ErrFunctionNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchFunctionExists", err.Error()))
+		return "NoSuchFunctionExists", true
 	case errors.Is(err, ErrOriginRequestPolicyNotFound):
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOriginRequestPolicy", err.Error()))
+		return "NoSuchOriginRequestPolicy", true
+	}
+
+	return "", false
+}
+
+func (h *Handler) handleError(c *echo.Context, err error) error {
+	if code, ok := notFoundCode(err); ok {
+		return xmlResp(c, http.StatusNotFound, cfErrorXML(code, err.Error()))
+	}
+
+	switch {
 	case errors.Is(err, ErrAlreadyExists):
 		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionAlreadyExists", err.Error()))
 	case errors.Is(err, ErrValidation):
@@ -1555,7 +1624,9 @@ func (h *Handler) handleCreateOriginAccessControl(c *echo.Context) error {
 	var req oacConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid OriginAccessControlConfig XML"))
+			const oacMsg = "invalid OriginAccessControlConfig XML"
+
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", oacMsg))
 		}
 	}
 
@@ -1642,7 +1713,9 @@ func (h *Handler) handleUpdateOriginAccessControl(c *echo.Context, id string) er
 	var req oacConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid OriginAccessControlConfig XML"))
+			const oacMsg = "invalid OriginAccessControlConfig XML"
+
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", oacMsg))
 		}
 	}
 
@@ -1689,6 +1762,7 @@ type rhpConfigXML struct {
 	Comment string   `xml:"Comment"`
 }
 
+//nolint:dupl // structurally identical to handleCreateOriginRequestPolicy but uses different XML/backend types
 func (h *Handler) handleCreateResponseHeadersPolicy(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
@@ -1698,7 +1772,9 @@ func (h *Handler) handleCreateResponseHeadersPolicy(c *echo.Context) error {
 	var req rhpConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid ResponseHeadersPolicyConfig XML"))
+			const rhpMsg = "invalid ResponseHeadersPolicyConfig XML"
+
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", rhpMsg))
 		}
 	}
 
@@ -1781,7 +1857,9 @@ func (h *Handler) handleUpdateResponseHeadersPolicy(c *echo.Context, id string) 
 	var req rhpConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid ResponseHeadersPolicyConfig XML"))
+			const rhpMsg = "invalid ResponseHeadersPolicyConfig XML"
+
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", rhpMsg))
 		}
 	}
 
@@ -2000,6 +2078,7 @@ type orpConfigXML struct {
 	Comment string   `xml:"Comment"`
 }
 
+//nolint:dupl // structurally identical to handleCreateResponseHeadersPolicy but uses different XML/backend types
 func (h *Handler) handleCreateOriginRequestPolicy(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
@@ -2009,7 +2088,9 @@ func (h *Handler) handleCreateOriginRequestPolicy(c *echo.Context) error {
 	var req orpConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid OriginRequestPolicyConfig XML"))
+			const orpMsg = "invalid OriginRequestPolicyConfig XML"
+
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", orpMsg))
 		}
 	}
 
@@ -2092,7 +2173,9 @@ func (h *Handler) handleUpdateOriginRequestPolicy(c *echo.Context, id string) er
 	var req orpConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid OriginRequestPolicyConfig XML"))
+			const orpMsg = "invalid OriginRequestPolicyConfig XML"
+
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", orpMsg))
 		}
 	}
 
