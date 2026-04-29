@@ -80,6 +80,21 @@
 		return new Date(epoch * 1000).toLocaleString();
 	}
 
+	function formatStatementDate(createdAt: Date | undefined): string {
+		if (!createdAt) return '-';
+		return createdAt.toLocaleString();
+	}
+
+	function handleReuseQuery(queryString: string) {
+		sqlText = queryString;
+		activeTab = 'query';
+	}
+
+	function handleTableQuery(schema: string, tableName: string) {
+		sqlText = `SELECT * FROM "${schema}"."${tableName}" LIMIT 10;`;
+		activeTab = 'query';
+	}
+
 	// Execute statement
 	async function executeStatement() {
 		if (!sqlText.trim()) return;
@@ -104,7 +119,9 @@
 			);
 			currentStatementId = resp.Id ?? null;
 			toast.success('Statement submitted: ' + currentStatementId);
-			await pollStatement(currentStatementId!);
+			if (currentStatementId) {
+				await pollStatement(currentStatementId);
+			}
 		} catch (e) {
 			statementError = String(e);
 			toast.error('Failed to execute: ' + String(e));
@@ -413,19 +430,19 @@
 									<p class="text-xs text-gray-400 mt-1">Name: {stmt.StatementName}</p>
 								{/if}
 								<div class="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
-									<span>Created: {formatDate(stmt.CreatedAt as unknown as number)}</span>
+									<span>Created: {formatStatementDate(stmt.CreatedAt)}</span>
 									{#if stmt.IsBatchStatement}
 										<span class="text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 px-1.5 py-0.5 rounded">batch</span>
 									{/if}
 								</div>
 							</div>
 							<div class="flex flex-col items-end gap-2 shrink-0">
-								<span class={`px-2 py-0.5 rounded text-xs font-medium ${statusBadgeClass(stmt.Status?.toString())}`}>
+								<span class={`px-2 py-0.5 rounded text-xs font-medium ${statusBadgeClass(stmt.Status)}`}>
 									{stmt.Status}
 								</span>
 								{#if stmt.QueryString}
 									<button
-										onclick={() => { sqlText = stmt.QueryString ?? ''; activeTab = 'query'; }}
+										onclick={() => handleReuseQuery(stmt.QueryString ?? '')}
 										class="text-blue-600 dark:text-blue-400 text-xs hover:underline"
 									>
 										Reuse
@@ -512,7 +529,7 @@
 										<td class="px-4 py-2 text-xs text-gray-400">{t.type}</td>
 										<td class="px-4 py-2">
 											<button
-												onclick={() => { sqlText = `SELECT * FROM "${t.schema}"."${t.name}" LIMIT 10;`; activeTab = 'query'; }}
+												onclick={() => handleTableQuery(t.schema, t.name)}
 												class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
 											>
 												Query
