@@ -14,7 +14,7 @@ type StorageBackend interface {
 	// Statement inspection
 	DescribeStatement(id string) (*Statement, error)
 	CancelStatement(id string) error
-	ListStatements(clusterIdentifier, workgroupName string) []*Statement
+	ListStatements(clusterIdentifier, workgroupName, statusFilter string) []*Statement
 
 	// Lifecycle
 	Reset()

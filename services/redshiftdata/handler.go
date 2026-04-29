@@ -325,13 +325,15 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 	var req struct {
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		WorkgroupName     string `json:"WorkgroupName"`
+		// Status filters by statement status (e.g. "FINISHED", "FAILED").
+		Status string `json:"Status"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	stmts := h.Backend.ListStatements(req.ClusterIdentifier, req.WorkgroupName)
+	stmts := h.Backend.ListStatements(req.ClusterIdentifier, req.WorkgroupName, req.Status)
 	items := make([]map[string]any, 0, len(stmts))
 
 	for _, stmt := range stmts {
@@ -442,6 +444,7 @@ func statementToListItem(stmt *Statement) map[string]any {
 		"IsBatchStatement": stmt.IsBatchStatement,
 		"CreatedAt":        epochSeconds(stmt.CreatedAt),
 		"UpdatedAt":        epochSeconds(stmt.UpdatedAt),
+		"Duration":         stmt.DurationMs,
 	}
 
 	if stmt.StatementName != "" {
@@ -465,6 +468,7 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		"IsBatchStatement": stmt.IsBatchStatement,
 		"CreatedAt":        epochSeconds(stmt.CreatedAt),
 		"UpdatedAt":        epochSeconds(stmt.UpdatedAt),
+		"Duration":         stmt.DurationMs,
 	}
 
 	if stmt.ClusterIdentifier != "" {

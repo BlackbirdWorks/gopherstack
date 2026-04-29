@@ -440,7 +440,7 @@ func TestRefinement1_StatementCount_RaceCondition(t *testing.T) {
 
 	for range 50 {
 		_ = b.StatementCount()
-		_ = b.ListStatements("", "")
+		_ = b.ListStatements("", "", "")
 	}
 
 	<-done

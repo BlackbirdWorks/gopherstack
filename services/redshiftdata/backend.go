@@ -50,17 +50,23 @@ type Statement struct {
 	Status            string    `json:"status"`
 	Error             string    `json:"error"`
 	QueryStrings      []string  `json:"queryStrings"`
-	HasResultSet      bool      `json:"hasResultSet"`
-	IsBatchStatement  bool      `json:"isBatchStatement"`
+	// DurationMs is the total wall-clock execution time in milliseconds. Populated
+	// when the statement reaches a terminal state (FINISHED / FAILED / ABORTED).
+	DurationMs       int64 `json:"durationMs"`
+	HasResultSet     bool  `json:"hasResultSet"`
+	IsBatchStatement bool  `json:"isBatchStatement"`
 }
 
 // InMemoryBackend is an in-memory store for Redshift Data API statements.
 type InMemoryBackend struct {
-	statements    map[string]*Statement
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
-	statementKeys []string
+	statements map[string]*Statement
+	mu         *lockmetrics.RWMutex
+	accountID  string
+	region     string
+	// ring buffer for ordered eviction – head points to the oldest slot.
+	ringBuf  [maxStatementHistory]string
+	ringLen  int // number of entries currently filled
+	ringHead int // index of the oldest entry when ringLen == maxStatementHistory
 }
 
 // NewInMemoryBackend creates a new in-memory Redshift Data backend.
@@ -79,26 +85,38 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // AccountID returns the AWS account ID this backend is configured for.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
-// Reset clears all stored statements and resets the eviction queue.
+// Reset clears all stored statements and resets the ring buffer.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.statements = make(map[string]*Statement)
-	b.statementKeys = nil
+	b.ringLen = 0
+	b.ringHead = 0
+	for i := range b.ringBuf {
+		b.ringBuf[i] = ""
+	}
 }
 
-// addStatement inserts a statement and evicts the oldest if the cap is exceeded.
+// addStatement inserts a statement and evicts the oldest via the ring buffer if
+// the cap is exceeded. O(1) rather than the former O(n) slice shift.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) addStatement(stmt *Statement) {
 	b.statements[stmt.ID] = stmt
-	b.statementKeys = append(b.statementKeys, stmt.ID)
 
-	if len(b.statementKeys) > maxStatementHistory {
-		oldest := b.statementKeys[0]
-		b.statementKeys = b.statementKeys[1:]
-		delete(b.statements, oldest)
+	if b.ringLen < maxStatementHistory {
+		// Buffer not yet full: place entry at tail.
+		tail := (b.ringHead + b.ringLen) % maxStatementHistory
+		b.ringBuf[tail] = stmt.ID
+		b.ringLen++
+
+		return
 	}
+
+	// Buffer full: evict the oldest entry (at ringHead) before writing.
+	delete(b.statements, b.ringBuf[b.ringHead])
+	b.ringBuf[b.ringHead] = stmt.ID
+	b.ringHead = (b.ringHead + 1) % maxStatementHistory
 }
 
 // ExecuteStatement creates and immediately completes a SQL statement.
@@ -131,6 +149,8 @@ func (b *InMemoryBackend) ExecuteStatement(
 		IsBatchStatement:  false,
 		CreatedAt:         now,
 		UpdatedAt:         now,
+		// Simulated instant execution: 1 ms so callers always receive a non-zero value.
+		DurationMs: 1,
 	}
 	b.addStatement(stmt)
 
@@ -167,6 +187,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		IsBatchStatement:  true,
 		CreatedAt:         now,
 		UpdatedAt:         now,
+		DurationMs:        1,
 	}
 	b.addStatement(stmt)
 
@@ -200,15 +221,17 @@ func (b *InMemoryBackend) CancelStatement(id string) error {
 		return fmt.Errorf("%w: statement %s is already in terminal state %s", ErrTerminalState, id, stmt.Status)
 	}
 
+	now := time.Now()
 	stmt.Status = statusAborted
-	stmt.UpdatedAt = time.Now()
+	stmt.UpdatedAt = now
+	stmt.DurationMs = now.Sub(stmt.CreatedAt).Milliseconds()
 
 	return nil
 }
 
 // ListStatements returns all statements sorted by creation time (newest first),
-// optionally filtered by cluster or workgroup.
-func (b *InMemoryBackend) ListStatements(clusterIdentifier, workgroupName string) []*Statement {
+// optionally filtered by status, cluster identifier, or workgroup name.
+func (b *InMemoryBackend) ListStatements(clusterIdentifier, workgroupName, statusFilter string) []*Statement {
 	b.mu.RLock("ListStatements")
 	defer b.mu.RUnlock()
 
@@ -220,6 +243,10 @@ func (b *InMemoryBackend) ListStatements(clusterIdentifier, workgroupName string
 		}
 
 		if workgroupName != "" && stmt.WorkgroupName != workgroupName {
+			continue
+		}
+
+		if statusFilter != "" && stmt.Status != statusFilter {
 			continue
 		}
 

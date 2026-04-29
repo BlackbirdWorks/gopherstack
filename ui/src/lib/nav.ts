@@ -324,7 +324,12 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "dms", href: "/dashboard/dms", label: "DMS", icon: "dms" },
       { id: "glue", href: "/dashboard/glue", label: "Glue", icon: "glue" },
       { id: "athena", href: "/dashboard/athena", label: "Athena", icon: "athena" },
-      { id: "redshiftdata", href: "/dashboard/redshiftdata", label: "Redshift Data", icon: "redshift" },
+      {
+        id: "redshiftdata",
+        href: "/dashboard/redshiftdata",
+        label: "Redshift Data",
+        icon: "redshift",
+      },
       {
         id: "lakeformation",
         href: "/dashboard/lakeformation",
