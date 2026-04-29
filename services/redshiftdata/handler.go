@@ -30,6 +30,7 @@ var (
 // Handler is the HTTP handler for the AWS Redshift Data API.
 type Handler struct {
 	Backend   StorageBackend
+	janitor   *Janitor
 	AccountID string
 	Region    string
 }
@@ -41,6 +42,30 @@ func NewHandler(backend StorageBackend) *Handler {
 		AccountID: backend.AccountID(),
 		Region:    backend.Region(),
 	}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// If the backend is not an *InMemoryBackend, this is a no-op.
+func (h *Handler) WithJanitor(interval, statementTTL time.Duration, taskTimeout ...time.Duration) *Handler {
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		j := NewJanitor(mem, interval, statementTTL)
+		if len(taskTimeout) > 0 {
+			j.TaskTimeout = taskTimeout[0]
+		}
+
+		h.janitor = j
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Name returns the service name.
@@ -160,13 +185,13 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 	case "CancelStatement":
 		return h.handleCancelStatement(ctx, body)
 	case "ListDatabases":
-		return h.handleListDatabases()
+		return h.handleListDatabases(ctx, body)
 	case "ListSchemas":
-		return h.handleListSchemas()
+		return h.handleListSchemas(ctx, body)
 	case "ListTables":
-		return h.handleListTables()
+		return h.handleListTables(ctx, body)
 	case "DescribeTable":
-		return h.handleDescribeTable()
+		return h.handleDescribeTable(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
 	}
@@ -181,6 +206,7 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 		DBUser            string `json:"DbUser"`
 		SecretArn         string `json:"SecretArn"`
 		StatementName     string `json:"StatementName"`
+		WithEvent         bool   `json:"WithEvent"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -190,6 +216,7 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 	stmt, err := h.Backend.ExecuteStatement(
 		req.SQL, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
+		req.WithEvent,
 	)
 	if err != nil {
 		return nil, err
@@ -215,6 +242,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 		SecretArn         string   `json:"SecretArn"`
 		StatementName     string   `json:"StatementName"`
 		Sqls              []string `json:"Sqls"`
+		WithEvent         bool     `json:"WithEvent"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -224,6 +252,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 	stmt, err := h.Backend.BatchExecuteStatement(
 		req.Sqls, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
+		req.WithEvent,
 	)
 	if err != nil {
 		return nil, err
@@ -280,13 +309,30 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 	}
 
 	if !stmt.HasResultSet {
-		return nil, fmt.Errorf("%w: statement %s does not have a result set", ErrNoResultSet, req.ID)
+		return nil, fmt.Errorf(
+			"%w: statement %s does not have a result set",
+			ErrNoResultSet,
+			req.ID,
+		)
 	}
 
+	// Return a single demo row so the UI can render a non-empty result table.
+	// NextToken is empty because the demo result set fits on one page.
 	return json.Marshal(map[string]any{
-		"Records":        [][]any{},
-		"ColumnMetadata": []any{},
-		"TotalNumRows":   int64(0),
+		"Records": [][]map[string]any{
+			{{"stringValue": "mock_value"}},
+		},
+		"ColumnMetadata": []map[string]any{
+			{
+				"name":       "column1",
+				"label":      "column1",
+				"typeName":   "varchar",
+				"columnSize": mockColumnSize,
+				"nullable":   mockColumnNullable,
+			},
+		},
+		"TotalNumRows": int64(1),
+		"NextToken":    "",
 	})
 }
 
@@ -310,14 +356,29 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 	}
 
 	if !stmt.HasResultSet {
-		return nil, fmt.Errorf("%w: statement %s does not have a result set", ErrNoResultSet, req.ID)
+		return nil, fmt.Errorf(
+			"%w: statement %s does not have a result set",
+			ErrNoResultSet,
+			req.ID,
+		)
 	}
 
+	// Return a single demo CSV record matching the V2 format.
+	// NextToken is empty because the demo result set fits on one page.
 	return json.Marshal(map[string]any{
-		"Records":        []any{},
-		"ColumnMetadata": []any{},
-		"TotalNumRows":   int64(0),
-		"ResultFormat":   resultFormatCSV,
+		"Records": []string{"mock_value"},
+		"ColumnMetadata": []map[string]any{
+			{
+				"name":       "column1",
+				"label":      "column1",
+				"typeName":   "varchar",
+				"columnSize": mockColumnSize,
+				"nullable":   mockColumnNullable,
+			},
+		},
+		"TotalNumRows": int64(1),
+		"ResultFormat": resultFormatCSV,
+		"NextToken":    "",
 	})
 }
 
@@ -325,22 +386,42 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 	var req struct {
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		WorkgroupName     string `json:"WorkgroupName"`
+		Status            string `json:"Status"`
+		RoleLevel         string `json:"RoleLevel"`
+		NextToken         string `json:"NextToken"`
+		MaxResults        int    `json:"MaxResults"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	stmts := h.Backend.ListStatements(req.ClusterIdentifier, req.WorkgroupName)
+	if req.MaxResults > maxListStatementsResults {
+		return nil, fmt.Errorf(
+			"%w: MaxResults must be ≤ %d",
+			ErrValidation,
+			maxListStatementsResults,
+		)
+	}
+
+	stmts, nextToken := h.Backend.ListStatements(
+		req.ClusterIdentifier, req.WorkgroupName, req.Status, req.RoleLevel, req.MaxResults,
+	)
 	items := make([]map[string]any, 0, len(stmts))
 
 	for _, stmt := range stmts {
 		items = append(items, statementToListItem(stmt))
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"Statements": items,
-	})
+	}
+
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleCancelStatement(_ context.Context, body []byte) ([]byte, error) {
@@ -360,32 +441,101 @@ func (h *Handler) handleCancelStatement(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
+	// AWS returns {"Status": "true"} as a string, not a boolean.
 	return json.Marshal(map[string]any{
-		"Status": true,
+		"Status": "true",
 	})
 }
 
-func (h *Handler) handleListDatabases() ([]byte, error) {
+func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Database          string `json:"Database"`
+		WorkgroupName     string `json:"WorkgroupName"`
+		ClusterIdentifier string `json:"ClusterIdentifier"`
+		SecretArn         string `json:"SecretArn"`
+		DBUser            string `json:"DbUser"`
+		NextToken         string `json:"NextToken"`
+		MaxResults        int    `json:"MaxResults"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
 	return json.Marshal(map[string]any{
-		"Databases": []string{},
+		"Databases": buildDemoDatabases(),
+		"NextToken": "",
 	})
 }
 
-func (h *Handler) handleListSchemas() ([]byte, error) {
+func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Database          string `json:"Database"`
+		WorkgroupName     string `json:"WorkgroupName"`
+		ClusterIdentifier string `json:"ClusterIdentifier"`
+		SecretArn         string `json:"SecretArn"`
+		DBUser            string `json:"DbUser"`
+		SchemaPattern     string `json:"SchemaPattern"`
+		NextToken         string `json:"NextToken"`
+		MaxResults        int    `json:"MaxResults"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
 	return json.Marshal(map[string]any{
-		"Schemas": []string{},
+		"Schemas":   buildDemoSchemas(),
+		"NextToken": "",
 	})
 }
 
-func (h *Handler) handleListTables() ([]byte, error) {
+func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Database          string `json:"Database"`
+		WorkgroupName     string `json:"WorkgroupName"`
+		ClusterIdentifier string `json:"ClusterIdentifier"`
+		SecretArn         string `json:"SecretArn"`
+		DBUser            string `json:"DbUser"`
+		SchemaPattern     string `json:"SchemaPattern"`
+		TablePattern      string `json:"TablePattern"`
+		TableType         string `json:"TableType"`
+		NextToken         string `json:"NextToken"`
+		MaxResults        int    `json:"MaxResults"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
 	return json.Marshal(map[string]any{
-		"Tables": []any{},
+		"Tables":    buildDemoTables(),
+		"NextToken": "",
 	})
 }
 
-func (h *Handler) handleDescribeTable() ([]byte, error) {
+func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Database          string `json:"Database"`
+		WorkgroupName     string `json:"WorkgroupName"`
+		ClusterIdentifier string `json:"ClusterIdentifier"`
+		SecretArn         string `json:"SecretArn"`
+		DBUser            string `json:"DbUser"`
+		Schema            string `json:"Schema"`
+		Table             string `json:"Table"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
 	return json.Marshal(map[string]any{
-		"ColumnList": []any{},
+		"ColumnList": buildDemoColumns(),
+		"TableName": map[string]any{
+			"schema": req.Schema,
+			"name":   req.Table,
+			"type":   "TABLE",
+		},
 	})
 }
 
@@ -401,7 +551,9 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrTerminalState), errors.Is(err, ErrValidation), errors.Is(err, ErrNoResultSet):
+	case errors.Is(err, ErrTerminalState),
+		errors.Is(err, ErrValidation),
+		errors.Is(err, ErrNoResultSet):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "ValidationException",
 			"message": err.Error(),
@@ -440,8 +592,10 @@ func statementToListItem(stmt *Statement) map[string]any {
 		"Status":           stmt.Status,
 		"QueryString":      stmt.QueryString,
 		"IsBatchStatement": stmt.IsBatchStatement,
+		"HasResultSet":     stmt.HasResultSet,
 		"CreatedAt":        epochSeconds(stmt.CreatedAt),
 		"UpdatedAt":        epochSeconds(stmt.UpdatedAt),
+		"Duration":         stmt.DurationMs,
 	}
 
 	if stmt.StatementName != "" {
@@ -450,6 +604,22 @@ func statementToListItem(stmt *Statement) map[string]any {
 
 	if stmt.SecretARN != "" {
 		item["SecretArn"] = stmt.SecretARN
+	}
+
+	if stmt.Database != "" {
+		item["Database"] = stmt.Database
+	}
+
+	if stmt.ClusterIdentifier != "" {
+		item["ClusterIdentifier"] = stmt.ClusterIdentifier
+	}
+
+	if stmt.WorkgroupName != "" {
+		item["WorkgroupName"] = stmt.WorkgroupName
+	}
+
+	if stmt.DBUser != "" {
+		item["DbUser"] = stmt.DBUser
 	}
 
 	return item
@@ -465,6 +635,14 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		"IsBatchStatement": stmt.IsBatchStatement,
 		"CreatedAt":        epochSeconds(stmt.CreatedAt),
 		"UpdatedAt":        epochSeconds(stmt.UpdatedAt),
+		"Duration":         stmt.DurationMs,
+		"ResultRows":       stmt.ResultRows,
+		"ResultSize":       stmt.ResultSize,
+		"WithEvent":        stmt.WithEvent,
+		// RedshiftQueryId is a synthetic numeric query identifier. AWS
+		// includes this in DescribeStatement for provisioned clusters;
+		// we return 0 since we have no real cluster backing.
+		"RedshiftQueryId": int64(0),
 	}
 
 	if stmt.ClusterIdentifier != "" {
@@ -499,5 +677,104 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		resp["QueryStrings"] = stmt.QueryStrings
 	}
 
+	if len(stmt.SubStatements) > 0 {
+		subs := make([]map[string]any, len(stmt.SubStatements))
+		for i, sub := range stmt.SubStatements {
+			subs[i] = map[string]any{
+				"Id":           sub.ID,
+				"CreatedAt":    epochSeconds(sub.CreatedAt),
+				"UpdatedAt":    epochSeconds(sub.UpdatedAt),
+				"QueryString":  sub.QueryString,
+				"Status":       sub.Status,
+				"HasResultSet": sub.HasResultSet,
+				"Duration":     sub.DurationMs,
+				"ResultRows":   sub.ResultRows,
+				"ResultSize":   sub.ResultSize,
+			}
+
+			if sub.Error != "" {
+				subs[i]["Error"] = sub.Error
+			}
+		}
+
+		resp["SubStatements"] = subs
+	}
+
 	return resp
+}
+
+// listDemoData holds the static demo payloads for metadata list operations.
+// These are package-level functions to avoid gochecknoglobals violations.
+
+// buildDemoDatabases returns a realistic demo list of database names.
+func buildDemoDatabases() []string {
+	return []string{"dev", "prod", "staging", "analytics"}
+}
+
+// buildDemoSchemas returns a realistic demo list of schema names.
+func buildDemoSchemas() []string {
+	return []string{"public", "information_schema", "pg_catalog", "raw", "curated"}
+}
+
+// buildDemoTables returns a realistic demo list of table descriptors.
+func buildDemoTables() []map[string]any {
+	return []map[string]any{
+		{"name": "users", "schema": "public", "type": "TABLE"},
+		{"name": "orders", "schema": "public", "type": "TABLE"},
+		{"name": "events", "schema": "raw", "type": "TABLE"},
+		{"name": "sessions", "schema": "raw", "type": "TABLE"},
+		{"name": "daily_summary", "schema": "curated", "type": "VIEW"},
+		{"name": "user_metrics", "schema": "curated", "type": "VIEW"},
+		{"name": "columns", "schema": "information_schema", "type": "TABLE"},
+		{"name": "tables", "schema": "information_schema", "type": "TABLE"},
+	}
+}
+
+// buildDemoColumns returns a realistic demo list of column descriptors for DescribeTable.
+func buildDemoColumns() []map[string]any {
+	const (
+		sizeInt       = int64(10)
+		sizeVarchar   = int64(255)
+		sizeTimestamp = int64(29)
+		notNull       = int64(0)
+		nullable      = int64(1)
+	)
+
+	return []map[string]any{
+		{
+			"name":       "id",
+			"typeName":   "int4",
+			"columnSize": sizeInt,
+			"nullable":   notNull,
+			"schemaName": "public",
+		},
+		{
+			"name":       "name",
+			"typeName":   "varchar",
+			"columnSize": sizeVarchar,
+			"nullable":   nullable,
+			"schemaName": "public",
+		},
+		{
+			"name":       "email",
+			"typeName":   "varchar",
+			"columnSize": sizeVarchar,
+			"nullable":   nullable,
+			"schemaName": "public",
+		},
+		{
+			"name":       "created_at",
+			"typeName":   "timestamp",
+			"columnSize": sizeTimestamp,
+			"nullable":   nullable,
+			"schemaName": "public",
+		},
+		{
+			"name":       "updated_at",
+			"typeName":   "timestamp",
+			"columnSize": sizeTimestamp,
+			"nullable":   nullable,
+			"schemaName": "public",
+		},
+	}
 }

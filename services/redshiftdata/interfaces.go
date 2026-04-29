@@ -1,20 +1,33 @@
 package redshiftdata
 
+import "time"
+
 // StorageBackend defines the interface for Redshift Data backend implementations.
 // All methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Statement execution
 	ExecuteStatement(
 		sql, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
+		withEvent bool,
 	) (*Statement, error)
 	BatchExecuteStatement(
 		sqls []string, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
+		withEvent bool,
 	) (*Statement, error)
 
 	// Statement inspection
 	DescribeStatement(id string) (*Statement, error)
 	CancelStatement(id string) error
-	ListStatements(clusterIdentifier, workgroupName string) []*Statement
+	// ListStatements returns a page of statements and a next-token for pagination.
+	ListStatements(
+		clusterIdentifier, workgroupName, statusFilter, roleLevel string,
+		maxResults int,
+	) ([]*Statement, string)
+
+	// Maintenance
+	// EvictExpiredStatements removes terminal statements older than cutoff.
+	// Returns the number of evicted statements.
+	EvictExpiredStatements(cutoff time.Time) int
 
 	// Lifecycle
 	Reset()

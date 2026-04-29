@@ -10,6 +10,12 @@ import (
 // ErrNilAppContext is returned by Init when a nil AppContext is passed.
 var ErrNilAppContext = errors.New("nil AppContext passed to RedshiftData Provider.Init")
 
+// ConfigProvider is a private interface to extract Redshift Data configuration
+// from the abstract AppContext Config.
+type ConfigProvider interface {
+	GetRedshiftDataSettings() Settings
+}
+
 // Provider implements service.Provider for AWS Redshift Data.
 type Provider struct{}
 
@@ -33,8 +39,15 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		region = cfg.GetRegion()
 	}
 
+	var settings Settings
+
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetRedshiftDataSettings()
+	}
+
 	backend := NewInMemoryBackend(accountID, region)
 	handler := NewHandler(backend)
+	handler.WithJanitor(settings.JanitorInterval, settings.StatementTTL, ctx.JanitorTimeout)
 
 	return handler, nil
 }
