@@ -30,6 +30,8 @@ const (
 	mockColumnSize = int64(256)
 	// mockColumnNullable indicates the demo column allows NULL.
 	mockColumnNullable = int64(1)
+	// mockStatementDurationMs is the simulated execution duration for demo statements.
+	mockStatementDurationMs = int64(1)
 	// demoResultRows is the simulated row count returned for FINISHED single statements.
 	demoResultRows = int64(1)
 	// demoResultSize is the simulated result payload size in bytes for FINISHED statements.
@@ -186,7 +188,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 		// Simulated instant execution: 1 ms so the UI always displays a
 		// human-readable duration rather than showing "0ms" which could be
 		// mistaken for a failed or uninitialised measurement.
-		DurationMs: 1,
+		DurationMs: mockStatementDurationMs,
 		ResultRows: demoResultRows,
 		ResultSize: demoResultSize,
 	}

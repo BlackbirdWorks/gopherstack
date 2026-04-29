@@ -170,13 +170,17 @@
 	}
 
 	function handleReuseQuery(stmt: StatementData) {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const s = stmt as any;
-		sqlText = s.QueryString ?? '';
-		// Restore connection settings from the historical statement.
-		if (s.Database) database = s.Database;
-		if (s.WorkgroupName) workgroupName = s.WorkgroupName;
-		if (s.ClusterIdentifier) clusterIdentifier = s.ClusterIdentifier;
+		// StatementData from @aws-sdk/client-redshift-data may omit some fields.
+		// We cast to access the optional connection fields that the SDK type does not expose.
+		const extended = stmt as StatementData & {
+			Database?: string;
+			WorkgroupName?: string;
+			ClusterIdentifier?: string;
+		};
+		sqlText = extended.QueryString ?? '';
+		if (extended.Database) database = extended.Database;
+		if (extended.WorkgroupName) workgroupName = extended.WorkgroupName;
+		if (extended.ClusterIdentifier) clusterIdentifier = extended.ClusterIdentifier;
 		activeTab = 'query';
 	}
 

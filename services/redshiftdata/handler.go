@@ -429,8 +429,9 @@ func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, e
 		MaxResults        int    `json:"MaxResults"`
 	}
 
-	// Best-effort parse; ignore errors since all fields are optional.
-	_ = json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
 
 	return json.Marshal(map[string]any{
 		"Databases": buildDemoDatabases(),
@@ -449,8 +450,9 @@ func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, err
 		MaxResults        int    `json:"MaxResults"`
 	}
 
-	// Best-effort parse; ignore errors since all fields are optional.
-	_ = json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
 
 	return json.Marshal(map[string]any{
 		"Schemas": buildDemoSchemas(),
@@ -471,8 +473,9 @@ func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, erro
 		MaxResults        int    `json:"MaxResults"`
 	}
 
-	// Best-effort parse; ignore errors since all fields are optional.
-	_ = json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
 
 	return json.Marshal(map[string]any{
 		"Tables": buildDemoTables(),
@@ -490,8 +493,9 @@ func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, e
 		Table             string `json:"Table"`
 	}
 
-	// Best-effort parse; ignore errors since all fields are optional.
-	_ = json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
 
 	return json.Marshal(map[string]any{
 		"ColumnList": buildDemoColumns(),

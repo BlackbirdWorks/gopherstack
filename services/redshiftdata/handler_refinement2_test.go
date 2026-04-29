@@ -163,10 +163,16 @@ func TestRefinement2_GetStatementResult_ReturnsDemoRow(t *testing.T) {
 func TestRefinement2_ListStatements_MaxResults(t *testing.T) {
 	t.Parallel()
 
+	// testPaginationStatements is the number of statements to create to test pagination.
+	// It must be greater than testMaxResultsLimit so that results are truncated.
+	const (
+		testPaginationStatements = 5
+		testMaxResultsLimit      = 3
+	)
+
 	h := newTestHandler(t)
 
-	// Create 5 statements.
-	for range 5 {
+	for range testPaginationStatements {
 		doRequest(t, h, "ExecuteStatement", map[string]any{
 			"Sql":      "SELECT 1",
 			"Database": "testdb",
@@ -174,7 +180,7 @@ func TestRefinement2_ListStatements_MaxResults(t *testing.T) {
 	}
 
 	rec := doRequest(t, h, "ListStatements", map[string]any{
-		"MaxResults": 3,
+		"MaxResults": testMaxResultsLimit,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -182,7 +188,7 @@ func TestRefinement2_ListStatements_MaxResults(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	stmts := resp["Statements"].([]any)
-	assert.Len(t, stmts, 3, "should be truncated to MaxResults")
+	assert.Len(t, stmts, testMaxResultsLimit, "should be truncated to MaxResults")
 
 	// A next-token should be present when there are more results.
 	assert.NotEmpty(t, resp["NextToken"], "NextToken should be set when results are truncated")
