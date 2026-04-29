@@ -13,17 +13,17 @@ type ClusterParameter struct {
 	Source               string `json:"source"`
 	DataType             string `json:"dataType"`
 	ApplyType            string `json:"applyType"`
-	IsModifiable         bool   `json:"isModifiable"`
 	MinimumEngineVersion string `json:"minimumEngineVersion"`
+	IsModifiable         bool   `json:"isModifiable"`
 }
 
 // ClusterParameterGroup represents a Redshift cluster parameter group.
 type ClusterParameterGroup struct {
+	CreatedAt            time.Time          `json:"createdAt"`
 	ParameterGroupName   string             `json:"parameterGroupName"`
 	ParameterGroupFamily string             `json:"parameterGroupFamily"`
 	Description          string             `json:"description"`
 	Parameters           []ClusterParameter `json:"parameters"`
-	CreatedAt            time.Time          `json:"createdAt"`
 }
 
 // defaultParameters returns a minimal set of default Redshift parameters.

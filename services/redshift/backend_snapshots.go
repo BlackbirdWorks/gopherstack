@@ -103,7 +103,7 @@ func (b *InMemoryBackend) CopyClusterSnapshot(
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, sourceSnapshotID)
 	}
 
-	if _, exists := b.snapshots[destinationSnapshotID]; exists {
+	if _, dstExists := b.snapshots[destinationSnapshotID]; dstExists {
 		return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, destinationSnapshotID)
 	}
 
@@ -134,7 +134,7 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(clusterID, snapshotID strin
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
 
-	if _, exists := b.clusters[clusterID]; exists {
+	if _, clusterExists := b.clusters[clusterID]; clusterExists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
 	}
 

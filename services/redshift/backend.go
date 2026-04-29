@@ -10,28 +10,28 @@ import (
 )
 
 var (
-	ErrClusterNotFound                   = errors.New("ClusterNotFound")
-	ErrClusterAlreadyExists              = errors.New("ClusterAlreadyExists")
-	ErrInvalidParameter                  = errors.New("InvalidParameterValue")
-	ErrReservedNodeNotFound              = errors.New("ReservedNodeNotFound")
-	ErrReservedNodeAlreadyExists         = errors.New("ReservedNodeAlreadyExists")
-	ErrReservedNodeOfferingNotFound      = errors.New("ReservedNodeOfferingNotFound")
-	ErrPartnerNotFound                   = errors.New("PartnerNotFound")
-	ErrDataShareNotFound                 = errors.New("DataShareNotFound")
-	ErrSecurityGroupNotFound             = errors.New("ClusterSecurityGroupNotFound")
-	ErrSecurityGroupAlreadyExists        = errors.New("ClusterSecurityGroupAlreadyExists")
-	ErrSnapshotNotFound                  = errors.New("ClusterSnapshotNotFound")
-	ErrSnapshotAlreadyExists             = errors.New("ClusterSnapshotAlreadyExists")
-	ErrEndpointAuthNotFound              = errors.New("EndpointAuthorizationNotFound")
-	ErrEndpointAuthAlreadyExists         = errors.New("EndpointAuthorizationAlreadyExists")
-	ErrResizeNotFound                    = errors.New("ResizeNotFound")
-	ErrResizeNotCancellable              = errors.New("InvalidClusterState")
-	ErrParameterGroupNotFound            = errors.New("ClusterParameterGroupNotFound")
-	ErrParameterGroupAlreadyExists       = errors.New("ClusterParameterGroupAlreadyExists")
-	ErrSubnetGroupNotFound               = errors.New("ClusterSubnetGroupNotFound")
-	ErrSubnetGroupAlreadyExists          = errors.New("ClusterSubnetGroupAlreadyExists")
-	ErrEventSubscriptionNotFound         = errors.New("SubscriptionNotFound")
-	ErrEventSubscriptionAlreadyExists    = errors.New("SubscriptionAlreadyExist")
+	ErrClusterNotFound                = errors.New("ClusterNotFound")
+	ErrClusterAlreadyExists           = errors.New("ClusterAlreadyExists")
+	ErrInvalidParameter               = errors.New("InvalidParameterValue")
+	ErrReservedNodeNotFound           = errors.New("ReservedNodeNotFound")
+	ErrReservedNodeAlreadyExists      = errors.New("ReservedNodeAlreadyExists")
+	ErrReservedNodeOfferingNotFound   = errors.New("ReservedNodeOfferingNotFound")
+	ErrPartnerNotFound                = errors.New("PartnerNotFound")
+	ErrDataShareNotFound              = errors.New("DataShareNotFound")
+	ErrSecurityGroupNotFound          = errors.New("ClusterSecurityGroupNotFound")
+	ErrSecurityGroupAlreadyExists     = errors.New("ClusterSecurityGroupAlreadyExists")
+	ErrSnapshotNotFound               = errors.New("ClusterSnapshotNotFound")
+	ErrSnapshotAlreadyExists          = errors.New("ClusterSnapshotAlreadyExists")
+	ErrEndpointAuthNotFound           = errors.New("EndpointAuthorizationNotFound")
+	ErrEndpointAuthAlreadyExists      = errors.New("EndpointAuthorizationAlreadyExists")
+	ErrResizeNotFound                 = errors.New("ResizeNotFound")
+	ErrResizeNotCancellable           = errors.New("InvalidClusterState")
+	ErrParameterGroupNotFound         = errors.New("ClusterParameterGroupNotFound")
+	ErrParameterGroupAlreadyExists    = errors.New("ClusterParameterGroupAlreadyExists")
+	ErrSubnetGroupNotFound            = errors.New("ClusterSubnetGroupNotFound")
+	ErrSubnetGroupAlreadyExists       = errors.New("ClusterSubnetGroupAlreadyExists")
+	ErrEventSubscriptionNotFound      = errors.New("SubscriptionNotFound")
+	ErrEventSubscriptionAlreadyExists = errors.New("SubscriptionAlreadyExist")
 )
 
 // Named status constants for cluster and resource states.
@@ -124,7 +124,7 @@ type AccountWithRestoreAccess struct {
 
 // Snapshot represents a Redshift cluster snapshot.
 type Snapshot struct {
-	SnapshotCreateTime            time.Time                  `json:"snapshotCreateTime,omitempty"`
+	SnapshotCreateTime            time.Time                  `json:"snapshotCreateTime"`
 	SnapshotIdentifier            string                     `json:"snapshotIdentifier"`
 	ClusterIdentifier             string                     `json:"clusterIdentifier"`
 	SnapshotType                  string                     `json:"snapshotType"`

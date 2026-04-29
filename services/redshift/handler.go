@@ -19,6 +19,7 @@ import (
 const (
 	redshiftVersion = "2012-12-01"
 	redshiftXMLNS   = "http://redshift.amazonaws.com/doc/2012-12-01/"
+	paramValueTrue  = "true"
 )
 
 // Handler is the Echo HTTP handler for Redshift operations.
@@ -228,30 +229,34 @@ func (h *Handler) buildOps() map[string]redshiftActionFn {
 		"DescribeEventCategories":              h.handleDescribeEventCategories,
 		"DescribeEventSubscriptions":           h.handleDescribeEventSubscriptions,
 		"DescribeEvents":                       h.handleDescribeEvents,
-		"DescribeLoggingStatus":                func(_ url.Values) (any, error) { return h.loggingStatusResponse(), nil },
-		"DescribeReservedNodeExchangeStatus":   h.handleDescribeReservedNodeExchangeStatus,
-		"DescribeReservedNodeOfferings":        h.handleDescribeReservedNodeOfferings,
-		"DescribeReservedNodes":                h.handleDescribeReservedNodes,
-		"DescribeTags":                         func(_ url.Values) (any, error) { return h.describeTagsResponse(), nil },
-		"DisableLogging":                       h.handleDisableLogging,
-		"EnableLogging":                        h.handleEnableLogging,
+		"DescribeLoggingStatus": func(_ url.Values) (any, error) {
+			return h.loggingStatusResponse(), nil
+		},
+		"DescribeReservedNodeExchangeStatus": h.handleDescribeReservedNodeExchangeStatus,
+		"DescribeReservedNodeOfferings":      h.handleDescribeReservedNodeOfferings,
+		"DescribeReservedNodes":              h.handleDescribeReservedNodes,
+		"DescribeTags": func(_ url.Values) (any, error) {
+			return h.describeTagsResponse(), nil
+		},
+		"DisableLogging": h.handleDisableLogging,
+		"EnableLogging":  h.handleEnableLogging,
 		"GetReservedNodeExchangeConfigurationOptions": h.handleGetReservedNodeExchangeConfigurationOptions,
-		"GetReservedNodeExchangeOfferings":     h.handleGetReservedNodeExchangeOfferings,
-		"ModifyCluster":                        h.handleModifyCluster,
-		"ModifyClusterIamRoles":                h.handleModifyClusterIamRoles,
-		"ModifyClusterMaintenance":             h.handleModifyClusterMaintenance,
-		"ModifyClusterParameterGroup":          h.handleModifyClusterParameterGroup,
-		"ModifyClusterSubnetGroup":             h.handleModifyClusterSubnetGroup,
-		"ModifyEventSubscription":              h.handleModifyEventSubscription,
-		"PauseCluster":                         h.handlePauseCluster,
-		"PurchaseReservedNodeOffering":         h.handlePurchaseReservedNodeOffering,
-		"RebootCluster":                        h.handleRebootCluster,
-		"ResetClusterParameterGroup":           h.handleResetClusterParameterGroup,
-		"ResizeCluster":                        h.handleResizeCluster,
-		"RestoreFromClusterSnapshot":           h.handleRestoreFromClusterSnapshot,
-		"ResumeCluster":                        h.handleResumeCluster,
-		"RevokeClusterSecurityGroupIngress":    h.handleRevokeClusterSecurityGroupIngress,
-		"RotateEncryptionKey":                  h.handleRotateEncryptionKey,
+		"GetReservedNodeExchangeOfferings":            h.handleGetReservedNodeExchangeOfferings,
+		"ModifyCluster":                               h.handleModifyCluster,
+		"ModifyClusterIamRoles":                       h.handleModifyClusterIamRoles,
+		"ModifyClusterMaintenance":                    h.handleModifyClusterMaintenance,
+		"ModifyClusterParameterGroup":                 h.handleModifyClusterParameterGroup,
+		"ModifyClusterSubnetGroup":                    h.handleModifyClusterSubnetGroup,
+		"ModifyEventSubscription":                     h.handleModifyEventSubscription,
+		"PauseCluster":                                h.handlePauseCluster,
+		"PurchaseReservedNodeOffering":                h.handlePurchaseReservedNodeOffering,
+		"RebootCluster":                               h.handleRebootCluster,
+		"ResetClusterParameterGroup":                  h.handleResetClusterParameterGroup,
+		"ResizeCluster":                               h.handleResizeCluster,
+		"RestoreFromClusterSnapshot":                  h.handleRestoreFromClusterSnapshot,
+		"ResumeCluster":                               h.handleResumeCluster,
+		"RevokeClusterSecurityGroupIngress":           h.handleRevokeClusterSecurityGroupIngress,
+		"RotateEncryptionKey":                         h.handleRotateEncryptionKey,
 	}
 }
 
@@ -352,57 +357,51 @@ func toXMLCluster(c *Cluster) xmlCluster {
 	}
 }
 
+// resolveErrCode returns the AWS error code and HTTP status for an operation error.
+func resolveErrCode(opErr error) (string, int) {
+	type errEntry struct {
+		sentinel error
+		code     string
+	}
+
+	table := []errEntry{
+		{ErrClusterNotFound, "ClusterNotFound"},
+		{ErrClusterAlreadyExists, "ClusterAlreadyExists"},
+		{ErrInvalidParameter, "InvalidParameterValue"},
+		{ErrReservedNodeNotFound, "ReservedNodeNotFound"},
+		{ErrReservedNodeAlreadyExists, "ReservedNodeAlreadyExists"},
+		{ErrReservedNodeOfferingNotFound, "ReservedNodeOfferingNotFound"},
+		{ErrPartnerNotFound, "PartnerNotFound"},
+		{ErrDataShareNotFound, "DataShareNotFound"},
+		{ErrSecurityGroupNotFound, "ClusterSecurityGroupNotFound"},
+		{ErrSecurityGroupAlreadyExists, "ClusterSecurityGroupAlreadyExists"},
+		{ErrSnapshotNotFound, "ClusterSnapshotNotFound"},
+		{ErrSnapshotAlreadyExists, "ClusterSnapshotAlreadyExists"},
+		{ErrEndpointAuthNotFound, "EndpointAuthorizationNotFound"},
+		{ErrEndpointAuthAlreadyExists, "EndpointAuthorizationAlreadyExists"},
+		{ErrResizeNotFound, "ResizeNotFound"},
+		{ErrResizeNotCancellable, "InvalidClusterState"},
+		{ErrParameterGroupNotFound, "ClusterParameterGroupNotFound"},
+		{ErrParameterGroupAlreadyExists, "ClusterParameterGroupAlreadyExists"},
+		{ErrSubnetGroupNotFound, "ClusterSubnetGroupNotFound"},
+		{ErrSubnetGroupAlreadyExists, "ClusterSubnetGroupAlreadyExists"},
+		{ErrEventSubscriptionNotFound, "SubscriptionNotFound"},
+		{ErrEventSubscriptionAlreadyExists, "SubscriptionAlreadyExist"},
+	}
+
+	for _, entry := range table {
+		if errors.Is(opErr, entry.sentinel) {
+			return entry.code, http.StatusBadRequest
+		}
+	}
+
+	return "InternalFailure", http.StatusInternalServerError
+}
+
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
-	statusCode := http.StatusBadRequest
-	var code string
-	switch {
-	case errors.Is(opErr, ErrClusterNotFound):
-		code = "ClusterNotFound"
-	case errors.Is(opErr, ErrClusterAlreadyExists):
-		code = "ClusterAlreadyExists"
-	case errors.Is(opErr, ErrInvalidParameter):
-		code = "InvalidParameterValue"
-	case errors.Is(opErr, ErrReservedNodeNotFound):
-		code = "ReservedNodeNotFound"
-	case errors.Is(opErr, ErrReservedNodeAlreadyExists):
-		code = "ReservedNodeAlreadyExists"
-	case errors.Is(opErr, ErrReservedNodeOfferingNotFound):
-		code = "ReservedNodeOfferingNotFound"
-	case errors.Is(opErr, ErrPartnerNotFound):
-		code = "PartnerNotFound"
-	case errors.Is(opErr, ErrDataShareNotFound):
-		code = "DataShareNotFound"
-	case errors.Is(opErr, ErrSecurityGroupNotFound):
-		code = "ClusterSecurityGroupNotFound"
-	case errors.Is(opErr, ErrSecurityGroupAlreadyExists):
-		code = "ClusterSecurityGroupAlreadyExists"
-	case errors.Is(opErr, ErrSnapshotNotFound):
-		code = "ClusterSnapshotNotFound"
-	case errors.Is(opErr, ErrSnapshotAlreadyExists):
-		code = "ClusterSnapshotAlreadyExists"
-	case errors.Is(opErr, ErrEndpointAuthNotFound):
-		code = "EndpointAuthorizationNotFound"
-	case errors.Is(opErr, ErrEndpointAuthAlreadyExists):
-		code = "EndpointAuthorizationAlreadyExists"
-	case errors.Is(opErr, ErrResizeNotFound):
-		code = "ResizeNotFound"
-	case errors.Is(opErr, ErrResizeNotCancellable):
-		code = "InvalidClusterState"
-	case errors.Is(opErr, ErrParameterGroupNotFound):
-		code = "ClusterParameterGroupNotFound"
-	case errors.Is(opErr, ErrParameterGroupAlreadyExists):
-		code = "ClusterParameterGroupAlreadyExists"
-	case errors.Is(opErr, ErrSubnetGroupNotFound):
-		code = "ClusterSubnetGroupNotFound"
-	case errors.Is(opErr, ErrSubnetGroupAlreadyExists):
-		code = "ClusterSubnetGroupAlreadyExists"
-	case errors.Is(opErr, ErrEventSubscriptionNotFound):
-		code = "SubscriptionNotFound"
-	case errors.Is(opErr, ErrEventSubscriptionAlreadyExists):
-		code = "SubscriptionAlreadyExist"
-	default:
-		code = "InternalFailure"
-		statusCode = http.StatusInternalServerError
+	code, statusCode := resolveErrCode(opErr)
+
+	if statusCode == http.StatusInternalServerError {
 		logger.Load(c.Request().Context()).Error("Redshift internal error", "error", opErr, "action", action)
 	}
 
@@ -796,7 +795,7 @@ func (h *Handler) handleAssociateDataShareConsumer(vals url.Values) (any, error)
 	dataShareArn := vals.Get("DataShareArn")
 	consumerArn := vals.Get("ConsumerArn")
 	consumerRegion := vals.Get("ConsumerRegion")
-	associateEntireAccount := vals.Get("AssociateEntireAccount") == "true"
+	associateEntireAccount := vals.Get("AssociateEntireAccount") == paramValueTrue
 
 	ds, err := h.Backend.AssociateDataShareConsumer(dataShareArn, consumerArn, consumerRegion, associateEntireAccount)
 	if err != nil {
@@ -1051,7 +1050,7 @@ type batchModifyClusterSnapshotsResponse struct {
 func (h *Handler) handleBatchModifyClusterSnapshots(vals url.Values) (any, error) {
 	identifiers := parseStringList(vals, "SnapshotIdentifierList.String.")
 	retentionPeriodStr := vals.Get("ManualSnapshotRetentionPeriod")
-	force := vals.Get("Force") == "true"
+	force := vals.Get("Force") == paramValueTrue
 
 	retentionPeriod := -1
 	if retentionPeriodStr != "" {

@@ -45,8 +45,9 @@ func TestRedshiftHandler_CreateClusterSnapshot(t *testing.T) {
 			wantContains: []string{"InvalidParameterValue"},
 		},
 		{
-			name:         "cluster_not_found",
-			body:         "Action=CreateClusterSnapshot&Version=2012-12-01&SnapshotIdentifier=snap&ClusterIdentifier=nonexistent",
+			name: "cluster_not_found",
+			body: "Action=CreateClusterSnapshot&Version=2012-12-01" +
+				"&SnapshotIdentifier=snap&ClusterIdentifier=nonexistent",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ClusterNotFound"},
 		},
@@ -225,8 +226,9 @@ func TestRedshiftHandler_CopyClusterSnapshot(t *testing.T) {
 			wantContains: []string{"CopyClusterSnapshotResponse", "dst-snap"},
 		},
 		{
-			name:         "source_not_found",
-			body:         "Action=CopyClusterSnapshot&Version=2012-12-01&SourceSnapshotIdentifier=nonexistent&TargetSnapshotIdentifier=dst",
+			name: "source_not_found",
+			body: "Action=CopyClusterSnapshot&Version=2012-12-01" +
+				"&SourceSnapshotIdentifier=nonexistent&TargetSnapshotIdentifier=dst",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ClusterSnapshotNotFound"},
 		},
@@ -290,8 +292,9 @@ func TestRedshiftHandler_RestoreFromClusterSnapshot(t *testing.T) {
 			wantContains: []string{"RestoreFromClusterSnapshotResponse", "restore-dst"},
 		},
 		{
-			name:         "snapshot_not_found",
-			body:         "Action=RestoreFromClusterSnapshot&Version=2012-12-01&ClusterIdentifier=new-cluster&SnapshotIdentifier=nonexistent",
+			name: "snapshot_not_found",
+			body: "Action=RestoreFromClusterSnapshot&Version=2012-12-01" +
+				"&ClusterIdentifier=new-cluster&SnapshotIdentifier=nonexistent",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ClusterSnapshotNotFound"},
 		},

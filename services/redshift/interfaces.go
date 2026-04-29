@@ -7,7 +7,12 @@ type StorageBackend interface {
 	CreateCluster(id, nodeType, dbName, masterUser string) (*Cluster, error)
 	DeleteCluster(id string) (*Cluster, error)
 	DescribeClusters(id string) ([]Cluster, error)
-	ModifyCluster(id, nodeType string, numberOfNodes int, masterUserPassword string, encrypted, enhancedVpcRouting bool) (*Cluster, error)
+	ModifyCluster(
+		id, nodeType string,
+		numberOfNodes int,
+		masterUserPassword string,
+		encrypted, enhancedVpcRouting bool,
+	) (*Cluster, error)
 	RebootCluster(id string) (*Cluster, error)
 	PauseCluster(id string) (*Cluster, error)
 	ResumeCluster(id string) (*Cluster, error)
@@ -27,7 +32,11 @@ type StorageBackend interface {
 	DescribeClusterParameterGroups(name string) ([]ClusterParameterGroup, error)
 	DescribeClusterParameters(groupName string) ([]ClusterParameter, error)
 	ModifyClusterParameterGroup(groupName string, params []ClusterParameter) (*ClusterParameterGroup, error)
-	ResetClusterParameterGroup(groupName string, resetAllParameters bool, params []ClusterParameter) (*ClusterParameterGroup, error)
+	ResetClusterParameterGroup(
+		groupName string,
+		resetAllParameters bool,
+		params []ClusterParameter,
+	) (*ClusterParameterGroup, error)
 	DescribeDefaultClusterParameters(family string) ([]ClusterParameter, error)
 
 	// Reserved node operations
@@ -39,11 +48,15 @@ type StorageBackend interface {
 	GetReservedNodeExchangeOfferings(reservedNodeID string) ([]ReservedNodeOffering, error)
 
 	// Security group operations
-	AuthorizeClusterSecurityGroupIngress(groupName, cidrIP, ec2GroupName, ec2GroupOwnerID string) (*ClusterSecurityGroup, error)
+	AuthorizeClusterSecurityGroupIngress(
+		groupName, cidrIP, ec2GroupName, ec2GroupOwnerID string,
+	) (*ClusterSecurityGroup, error)
 	CreateClusterSecurityGroup(name, description string) (*ClusterSecurityGroup, error)
 	DeleteClusterSecurityGroup(name string) error
 	DescribeClusterSecurityGroups(name string) ([]ClusterSecurityGroup, error)
-	RevokeClusterSecurityGroupIngress(groupName, cidrIP, ec2GroupName, ec2GroupOwnerID string) (*ClusterSecurityGroup, error)
+	RevokeClusterSecurityGroupIngress(
+		groupName, cidrIP, ec2GroupName, ec2GroupOwnerID string,
+	) (*ClusterSecurityGroup, error)
 
 	// Snapshot operations
 	CreateClusterSnapshot(snapshotID, clusterID string) (*Snapshot, error)
@@ -66,7 +79,10 @@ type StorageBackend interface {
 
 	// Data share operations
 	AddPartner(accountID, clusterID, databaseName, partnerName string) (*Partner, error)
-	AssociateDataShareConsumer(dataShareArn, consumerArn, consumerRegion string, associateEntireAccount bool) (*DataShare, error)
+	AssociateDataShareConsumer(
+		dataShareArn, consumerArn, consumerRegion string,
+		associateEntireAccount bool,
+	) (*DataShare, error)
 	AuthorizeDataShare(dataShareArn, consumerIdentifier string) (*DataShare, error)
 
 	// Resize operations
@@ -78,10 +94,18 @@ type StorageBackend interface {
 
 	// Event operations
 	DescribeEvents(sourceIdentifier, sourceType string) ([]Event, error)
-	CreateEventSubscription(subscriptionName, snsTopicArn, sourceType, severity string, sourceIDs, eventCategories []string, enabled bool) (*EventSubscription, error)
+	CreateEventSubscription(
+		subscriptionName, snsTopicArn, sourceType, severity string,
+		sourceIDs, eventCategories []string,
+		enabled bool,
+	) (*EventSubscription, error)
 	DeleteEventSubscription(subscriptionName string) error
 	DescribeEventSubscriptions(subscriptionName string) ([]EventSubscription, error)
-	ModifyEventSubscription(subscriptionName, snsTopicArn, sourceType, severity string, sourceIDs, eventCategories []string, enabled *bool) (*EventSubscription, error)
+	ModifyEventSubscription(
+		subscriptionName, snsTopicArn, sourceType, severity string,
+		sourceIDs, eventCategories []string,
+		enabled *bool,
+	) (*EventSubscription, error)
 
 	// Seed helpers for tests
 	AddReservedNodeInternal(node *ReservedNode)

@@ -23,8 +23,8 @@ func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 	enhancedVpcRoutingStr := vals.Get("EnhancedVpcRouting")
 	numberOfNodesStr := vals.Get("NumberOfNodes")
 
-	encrypted := encryptedStr == "true"
-	enhancedVpcRouting := enhancedVpcRoutingStr == "true"
+	encrypted := encryptedStr == paramValueTrue
+	enhancedVpcRouting := enhancedVpcRoutingStr == paramValueTrue
 
 	numberOfNodes := 0
 
@@ -37,7 +37,14 @@ func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 		numberOfNodes = n
 	}
 
-	cluster, err := h.Backend.ModifyCluster(id, nodeType, numberOfNodes, masterUserPassword, encrypted, enhancedVpcRouting)
+	cluster, err := h.Backend.ModifyCluster(
+		id,
+		nodeType,
+		numberOfNodes,
+		masterUserPassword,
+		encrypted,
+		enhancedVpcRouting,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +133,7 @@ func (h *Handler) handleResizeCluster(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
 	nodeType := vals.Get("NodeType")
 	clusterType := vals.Get("ClusterType")
-	classic := vals.Get("Classic") == "true"
+	classic := vals.Get("Classic") == paramValueTrue
 	numberOfNodesStr := vals.Get("NumberOfNodes")
 
 	numberOfNodes := 0
@@ -208,7 +215,7 @@ type modifyClusterMaintenanceResponse struct {
 func (h *Handler) handleModifyClusterMaintenance(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
 	maintenanceTrack := vals.Get("MaintenanceTrackName")
-	deferMaintenance := vals.Get("DeferMaintenance") == "true"
+	deferMaintenance := vals.Get("DeferMaintenance") == paramValueTrue
 
 	cluster, err := h.Backend.ModifyClusterMaintenance(id, maintenanceTrack, deferMaintenance)
 	if err != nil {

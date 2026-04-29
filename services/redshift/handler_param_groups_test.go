@@ -142,8 +142,8 @@ func TestRedshiftHandler_DescribeClusterParameterGroups(t *testing.T) {
 		wantCode     int
 	}{
 		{
-			name: "list_all_empty",
-			body: "Action=DescribeClusterParameterGroups&Version=2012-12-01",
+			name:         "list_all_empty",
+			body:         "Action=DescribeClusterParameterGroups&Version=2012-12-01",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DescribeClusterParameterGroupsResponse"},
 		},

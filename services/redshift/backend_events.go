@@ -7,10 +7,10 @@ import (
 
 // LoggingStatus represents the logging status for a Redshift cluster.
 type LoggingStatus struct {
+	LastFailureTime time.Time `json:"lastFailureTime"`
+	LastSuccessTime time.Time `json:"lastSuccessTime"`
 	BucketName      string    `json:"bucketName"`
 	S3KeyPrefix     string    `json:"s3KeyPrefix"`
-	LastFailureTime time.Time `json:"lastFailureTime,omitempty"`
-	LastSuccessTime time.Time `json:"lastSuccessTime,omitempty"`
 	LoggingEnabled  bool      `json:"loggingEnabled"`
 }
 
@@ -26,15 +26,15 @@ type Event struct {
 
 // EventSubscription represents a Redshift event subscription.
 type EventSubscription struct {
+	SubscriptionCreated time.Time `json:"subscriptionCreated"`
 	CustomerAwsID       string    `json:"customerAwsId"`
 	CustSubscriptionID  string    `json:"custSubscriptionId"`
 	SnsTopicArn         string    `json:"snsTopicArn"`
 	Status              string    `json:"status"`
-	SubscriptionCreated time.Time `json:"subscriptionCreated"`
 	SourceType          string    `json:"sourceType"`
+	Severity            string    `json:"severity"`
 	SourceIDs           []string  `json:"sourceIds"`
 	EventCategories     []string  `json:"eventCategories"`
-	Severity            string    `json:"severity"`
 	Enabled             bool      `json:"enabled"`
 }
 
@@ -130,7 +130,11 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	defer b.mu.Unlock()
 
 	if _, exists := b.eventSubscriptions[subscriptionName]; exists {
-		return nil, fmt.Errorf("%w: subscription %s already exists", ErrEventSubscriptionAlreadyExists, subscriptionName)
+		return nil, fmt.Errorf(
+			"%w: subscription %s already exists",
+			ErrEventSubscriptionAlreadyExists,
+			subscriptionName,
+		)
 	}
 
 	srcIDs := make([]string, len(sourceIDs))
@@ -140,16 +144,16 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	copy(evtCats, eventCategories)
 
 	sub := &EventSubscription{
-		CustomerAwsID:      b.accountID,
-		CustSubscriptionID: subscriptionName,
-		SnsTopicArn:        snsTopicArn,
-		Status:             "active",
+		CustomerAwsID:       b.accountID,
+		CustSubscriptionID:  subscriptionName,
+		SnsTopicArn:         snsTopicArn,
+		Status:              "active",
 		SubscriptionCreated: time.Now(),
-		SourceType:         sourceType,
-		SourceIDs:          srcIDs,
-		EventCategories:    evtCats,
-		Severity:           severity,
-		Enabled:            enabled,
+		SourceType:          sourceType,
+		SourceIDs:           srcIDs,
+		EventCategories:     evtCats,
+		Severity:            severity,
+		Enabled:             enabled,
 	}
 	b.eventSubscriptions[subscriptionName] = sub
 

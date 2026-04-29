@@ -215,8 +215,9 @@ func TestRedshiftHandler_RevokeClusterSecurityGroupIngress(t *testing.T) {
 			wantContains: []string{"RevokeClusterSecurityGroupIngressResponse", "revoke-sg"},
 		},
 		{
-			name:         "not_found",
-			body:         "Action=RevokeClusterSecurityGroupIngress&Version=2012-12-01&ClusterSecurityGroupName=nonexistent&CIDRIP=10.0.0.0/8",
+			name: "not_found",
+			body: "Action=RevokeClusterSecurityGroupIngress&Version=2012-12-01" +
+				"&ClusterSecurityGroupName=nonexistent&CIDRIP=10.0.0.0/8",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ClusterSecurityGroupNotFound"},
 		},

@@ -9,7 +9,7 @@ func (b *InMemoryBackend) ModifyCluster(
 	id string,
 	nodeType string,
 	numberOfNodes int,
-	masterUserPassword string,
+	_ string, // masterUserPassword is accepted but not stored (in-memory backend doesn't store passwords)
 	encrypted bool,
 	enhancedVpcRouting bool,
 ) (*Cluster, error) {
@@ -40,8 +40,6 @@ func (b *InMemoryBackend) ModifyCluster(
 	if enhancedVpcRouting {
 		cluster.EnhancedVpcRouting = enhancedVpcRouting
 	}
-
-	// masterUserPassword is accepted but not stored (in-memory backend doesn't store passwords).
 
 	cp := cloneCluster(cluster)
 
@@ -114,7 +112,7 @@ func (b *InMemoryBackend) ResumeCluster(id string) (*Cluster, error) {
 func (b *InMemoryBackend) ResizeCluster(
 	id, nodeType, clusterType string,
 	numberOfNodes int,
-	classic bool,
+	_ bool, // classic is accepted but not used in the in-memory implementation
 ) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
@@ -167,7 +165,7 @@ func (b *InMemoryBackend) RotateEncryptionKey(id string) (*Cluster, error) {
 
 // ModifyClusterIamRoles modifies the IAM roles associated with a cluster.
 // This in-memory implementation accepts the call without persisting IAM roles.
-func (b *InMemoryBackend) ModifyClusterIamRoles(id string, addRoles, removeRoles []string) (*Cluster, error) {
+func (b *InMemoryBackend) ModifyClusterIamRoles(id string, _, _ []string) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -187,7 +185,10 @@ func (b *InMemoryBackend) ModifyClusterIamRoles(id string, addRoles, removeRoles
 
 // ModifyClusterMaintenance modifies the maintenance settings of a cluster.
 // This in-memory implementation accepts the call without persisting maintenance windows.
-func (b *InMemoryBackend) ModifyClusterMaintenance(id, maintenanceTrack string, deferMaintenance bool) (*Cluster, error) {
+func (b *InMemoryBackend) ModifyClusterMaintenance(
+	id, _ string,
+	_ bool,
+) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}

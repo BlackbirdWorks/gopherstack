@@ -25,8 +25,8 @@ type xmlClusterParameter struct {
 	Source               string `xml:"Source,omitempty"`
 	DataType             string `xml:"DataType,omitempty"`
 	ApplyType            string `xml:"ApplyType,omitempty"`
-	IsModifiable         bool   `xml:"IsModifiable"`
 	MinimumEngineVersion string `xml:"MinimumEngineVersion,omitempty"`
+	IsModifiable         bool   `xml:"IsModifiable"`
 }
 
 type xmlClusterParameterList struct {
@@ -36,8 +36,8 @@ type xmlClusterParameterList struct {
 // ---- CreateClusterParameterGroup ----
 
 type createClusterParameterGroupResponse struct {
-	XMLName      xml.Name                  `xml:"CreateClusterParameterGroupResponse"`
-	Xmlns        string                    `xml:"xmlns,attr"`
+	XMLName        xml.Name                 `xml:"CreateClusterParameterGroupResponse"`
+	Xmlns          string                   `xml:"xmlns,attr"`
 	ParameterGroup xmlClusterParameterGroup `xml:"CreateClusterParameterGroupResult>ClusterParameterGroup"`
 }
 
@@ -60,7 +60,7 @@ func (h *Handler) handleCreateClusterParameterGroup(vals url.Values) (any, error
 	}
 
 	return &createClusterParameterGroupResponse{
-		Xmlns:        redshiftXMLNS,
+		Xmlns:          redshiftXMLNS,
 		ParameterGroup: paramGroupToXML(pg),
 	}, nil
 }
@@ -128,16 +128,7 @@ func (h *Handler) handleDescribeClusterParameters(vals url.Values) (any, error) 
 
 	members := make([]xmlClusterParameter, 0, len(params))
 	for _, p := range params {
-		members = append(members, xmlClusterParameter{
-			ParameterName:        p.ParameterName,
-			ParameterValue:       p.ParameterValue,
-			Description:          p.Description,
-			Source:               p.Source,
-			DataType:             p.DataType,
-			ApplyType:            p.ApplyType,
-			IsModifiable:         p.IsModifiable,
-			MinimumEngineVersion: p.MinimumEngineVersion,
-		})
+		members = append(members, xmlClusterParameter(p))
 	}
 
 	return &describeClusterParametersResponse{
@@ -149,10 +140,10 @@ func (h *Handler) handleDescribeClusterParameters(vals url.Values) (any, error) 
 // ---- ModifyClusterParameterGroup ----
 
 type modifyClusterParameterGroupResponse struct {
-	XMLName            xml.Name `xml:"ModifyClusterParameterGroupResponse"`
-	Xmlns              string   `xml:"xmlns,attr"`
-	ParameterGroupName string   `xml:"ModifyClusterParameterGroupResult>ParameterGroupName"`
-	ParameterGroupStatus string `xml:"ModifyClusterParameterGroupResult>ParameterGroupStatus"`
+	XMLName              xml.Name `xml:"ModifyClusterParameterGroupResponse"`
+	Xmlns                string   `xml:"xmlns,attr"`
+	ParameterGroupName   string   `xml:"ModifyClusterParameterGroupResult>ParameterGroupName"`
+	ParameterGroupStatus string   `xml:"ModifyClusterParameterGroupResult>ParameterGroupStatus"`
 }
 
 func (h *Handler) handleModifyClusterParameterGroup(vals url.Values) (any, error) {
@@ -174,15 +165,15 @@ func (h *Handler) handleModifyClusterParameterGroup(vals url.Values) (any, error
 // ---- ResetClusterParameterGroup ----
 
 type resetClusterParameterGroupResponse struct {
-	XMLName            xml.Name `xml:"ResetClusterParameterGroupResponse"`
-	Xmlns              string   `xml:"xmlns,attr"`
-	ParameterGroupName string   `xml:"ResetClusterParameterGroupResult>ParameterGroupName"`
-	ParameterGroupStatus string `xml:"ResetClusterParameterGroupResult>ParameterGroupStatus"`
+	XMLName              xml.Name `xml:"ResetClusterParameterGroupResponse"`
+	Xmlns                string   `xml:"xmlns,attr"`
+	ParameterGroupName   string   `xml:"ResetClusterParameterGroupResult>ParameterGroupName"`
+	ParameterGroupStatus string   `xml:"ResetClusterParameterGroupResult>ParameterGroupStatus"`
 }
 
 func (h *Handler) handleResetClusterParameterGroup(vals url.Values) (any, error) {
 	groupName := vals.Get("ParameterGroupName")
-	resetAll := vals.Get("ResetAllParameters") == "true"
+	resetAll := vals.Get("ResetAllParameters") == paramValueTrue
 	params := parseParameterList(vals)
 
 	pg, err := h.Backend.ResetClusterParameterGroup(groupName, resetAll, params)
@@ -199,11 +190,15 @@ func (h *Handler) handleResetClusterParameterGroup(vals url.Values) (any, error)
 
 // ---- DescribeDefaultClusterParameters ----
 
+type xmlDefaultClusterParametersResult struct {
+	Family     string                  `xml:"DefaultClusterParameters>ParameterGroupFamily"`
+	Parameters xmlClusterParameterList `xml:"DefaultClusterParameters>Parameters"`
+}
+
 type describeDefaultClusterParametersResponse struct {
-	XMLName    xml.Name                `xml:"DescribeDefaultClusterParametersResponse"`
-	Xmlns      string                  `xml:"xmlns,attr"`
-	Parameters xmlClusterParameterList `xml:"DescribeDefaultClusterParametersResult>DefaultClusterParameters>Parameters"`
-	Family     string                  `xml:"DescribeDefaultClusterParametersResult>DefaultClusterParameters>ParameterGroupFamily"`
+	XMLName xml.Name                          `xml:"DescribeDefaultClusterParametersResponse"`
+	Xmlns   string                            `xml:"xmlns,attr"`
+	Result  xmlDefaultClusterParametersResult `xml:"DescribeDefaultClusterParametersResult"`
 }
 
 func (h *Handler) handleDescribeDefaultClusterParameters(vals url.Values) (any, error) {
@@ -228,9 +223,11 @@ func (h *Handler) handleDescribeDefaultClusterParameters(vals url.Values) (any, 
 	}
 
 	return &describeDefaultClusterParametersResponse{
-		Xmlns:      redshiftXMLNS,
-		Family:     family,
-		Parameters: xmlClusterParameterList{Members: members},
+		Xmlns: redshiftXMLNS,
+		Result: xmlDefaultClusterParametersResult{
+			Family:     family,
+			Parameters: xmlClusterParameterList{Members: members},
+		},
 	}, nil
 }
 

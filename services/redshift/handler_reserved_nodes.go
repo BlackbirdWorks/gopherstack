@@ -13,11 +13,11 @@ type xmlReservedNodeOffering struct {
 	ReservedNodeOfferingID   string  `xml:"ReservedNodeOfferingId"`
 	ReservedNodeOfferingType string  `xml:"ReservedNodeOfferingType,omitempty"`
 	NodeType                 string  `xml:"NodeType"`
+	CurrencyCode             string  `xml:"CurrencyCode"`
+	OfferingType             string  `xml:"OfferingType"`
 	Duration                 int     `xml:"Duration"`
 	FixedPrice               float64 `xml:"FixedPrice"`
 	UsagePrice               float64 `xml:"UsagePrice"`
-	CurrencyCode             string  `xml:"CurrencyCode"`
-	OfferingType             string  `xml:"OfferingType"`
 }
 
 type xmlReservedNodeOfferingList struct {
@@ -89,16 +89,7 @@ func (h *Handler) handleDescribeReservedNodeOfferings(vals url.Values) (any, err
 
 	members := make([]xmlReservedNodeOffering, 0, len(offerings))
 	for _, o := range offerings {
-		members = append(members, xmlReservedNodeOffering{
-			ReservedNodeOfferingID:   o.ReservedNodeOfferingID,
-			ReservedNodeOfferingType: o.ReservedNodeOfferingType,
-			NodeType:                 o.NodeType,
-			Duration:                 o.Duration,
-			FixedPrice:               o.FixedPrice,
-			UsagePrice:               o.UsagePrice,
-			CurrencyCode:             o.CurrencyCode,
-			OfferingType:             o.OfferingType,
-		})
+		members = append(members, xmlReservedNodeOffering(o))
 	}
 
 	return &describeReservedNodeOfferingsResponse{
@@ -149,10 +140,18 @@ type xmlReservedNodeExchangeStatus struct {
 	Status            string `xml:"Status"`
 }
 
+type xmlReservedNodeExchangeStatusDetails struct {
+	Members []xmlReservedNodeExchangeStatus `xml:"ReservedNodeExchangeStatus"`
+}
+
+type xmlReservedNodeExchangeStatusResult struct {
+	ReservedNodeExchangeStatusDetails xmlReservedNodeExchangeStatusDetails `xml:"ReservedNodeExchangeStatusDetails"`
+}
+
 type describeReservedNodeExchangeStatusResponse struct {
-	XMLName                        xml.Name                      `xml:"DescribeReservedNodeExchangeStatusResponse"`
-	Xmlns                          string                        `xml:"xmlns,attr"`
-	ReservedNodeExchangeStatusDetails []xmlReservedNodeExchangeStatus `xml:"DescribeReservedNodeExchangeStatusResult>ReservedNodeExchangeStatusDetails>ReservedNodeExchangeStatus"`
+	XMLName xml.Name                            `xml:"DescribeReservedNodeExchangeStatusResponse"`
+	Xmlns   string                              `xml:"xmlns,attr"`
+	Result  xmlReservedNodeExchangeStatusResult `xml:"DescribeReservedNodeExchangeStatusResult"`
 }
 
 func (h *Handler) handleDescribeReservedNodeExchangeStatus(vals url.Values) (any, error) {
@@ -165,8 +164,10 @@ func (h *Handler) handleDescribeReservedNodeExchangeStatus(vals url.Values) (any
 
 	return &describeReservedNodeExchangeStatusResponse{
 		Xmlns: redshiftXMLNS,
-		ReservedNodeExchangeStatusDetails: []xmlReservedNodeExchangeStatus{
-			{Status: status},
+		Result: xmlReservedNodeExchangeStatusResult{
+			ReservedNodeExchangeStatusDetails: xmlReservedNodeExchangeStatusDetails{
+				Members: []xmlReservedNodeExchangeStatus{{Status: status}},
+			},
 		},
 	}, nil
 }
@@ -189,16 +190,7 @@ func (h *Handler) handleGetReservedNodeExchangeOfferings(vals url.Values) (any, 
 
 	members := make([]xmlReservedNodeOffering, 0, len(offerings))
 	for _, o := range offerings {
-		members = append(members, xmlReservedNodeOffering{
-			ReservedNodeOfferingID:   o.ReservedNodeOfferingID,
-			ReservedNodeOfferingType: o.ReservedNodeOfferingType,
-			NodeType:                 o.NodeType,
-			Duration:                 o.Duration,
-			FixedPrice:               o.FixedPrice,
-			UsagePrice:               o.UsagePrice,
-			CurrencyCode:             o.CurrencyCode,
-			OfferingType:             o.OfferingType,
-		})
+		members = append(members, xmlReservedNodeOffering(o))
 	}
 
 	return &getReservedNodeExchangeOfferingsResponse{

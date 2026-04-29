@@ -31,10 +31,7 @@ type xmlClusterSubnetGroupList struct {
 func subnetGroupToXML(sg *ClusterSubnetGroup) xmlClusterSubnetGroup {
 	subnets := make([]xmlSubnet, 0, len(sg.Subnets))
 	for _, s := range sg.Subnets {
-		subnets = append(subnets, xmlSubnet{
-			SubnetIdentifier: s.SubnetIdentifier,
-			SubnetStatus:     s.SubnetStatus,
-		})
+		subnets = append(subnets, xmlSubnet(s))
 	}
 
 	return xmlClusterSubnetGroup{

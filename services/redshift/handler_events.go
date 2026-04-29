@@ -9,9 +9,9 @@ import (
 // ---- Logging XML types ----
 
 type xmlLoggingStatus struct {
-	LoggingEnabled  bool   `xml:"LoggingEnabled"`
-	BucketName      string `xml:"BucketName,omitempty"`
-	S3KeyPrefix     string `xml:"S3KeyPrefix,omitempty"`
+	BucketName     string `xml:"BucketName,omitempty"`
+	S3KeyPrefix    string `xml:"S3KeyPrefix,omitempty"`
+	LoggingEnabled bool   `xml:"LoggingEnabled"`
 }
 
 // ---- EnableLogging ----
@@ -119,27 +119,33 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 // ---- DescribeEventCategories ----
 
 type xmlEventInfoMap struct {
-	EventCategory    string   `xml:"EventCategory"`
-	SourceType       string   `xml:"SourceType"`
+	EventCategory     string   `xml:"EventCategory"`
+	SourceType        string   `xml:"SourceType"`
 	EventDescriptions []string `xml:"EventInfoMapList>EventInfoMap>EventDescription,omitempty"`
 }
 
+type xmlEventCategoriesResult struct {
+	EventCategoriesMapList []xmlEventInfoMap `xml:"EventCategoriesMapList>EventCategoriesMap"`
+}
+
 type describeEventCategoriesResponse struct {
-	XMLName       xml.Name          `xml:"DescribeEventCategoriesResponse"`
-	Xmlns         string            `xml:"xmlns,attr"`
-	EventCategoriesMapList []xmlEventInfoMap `xml:"DescribeEventCategoriesResult>EventCategoriesMapList>EventCategoriesMap"`
+	XMLName xml.Name                 `xml:"DescribeEventCategoriesResponse"`
+	Xmlns   string                   `xml:"xmlns,attr"`
+	Result  xmlEventCategoriesResult `xml:"DescribeEventCategoriesResult"`
 }
 
 func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
 	return &describeEventCategoriesResponse{
 		Xmlns: redshiftXMLNS,
-		EventCategoriesMapList: []xmlEventInfoMap{
-			{SourceType: "cluster", EventCategory: "maintenance"},
-			{SourceType: "cluster", EventCategory: "monitoring"},
-			{SourceType: "cluster", EventCategory: "security"},
-			{SourceType: "cluster-snapshot", EventCategory: "backup"},
-			{SourceType: "cluster-parameter-group", EventCategory: "configuration"},
-			{SourceType: "cluster-security-group", EventCategory: "configuration"},
+		Result: xmlEventCategoriesResult{
+			EventCategoriesMapList: []xmlEventInfoMap{
+				{SourceType: "cluster", EventCategory: "maintenance"},
+				{SourceType: "cluster", EventCategory: "monitoring"},
+				{SourceType: "cluster", EventCategory: "security"},
+				{SourceType: "cluster-snapshot", EventCategory: "backup"},
+				{SourceType: "cluster-parameter-group", EventCategory: "configuration"},
+				{SourceType: "cluster-security-group", EventCategory: "configuration"},
+			},
 		},
 	}, nil
 }

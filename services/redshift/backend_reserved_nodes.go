@@ -5,16 +5,32 @@ import (
 	"time"
 )
 
+// Duration constants for reserved node offerings (in seconds).
+const (
+	durationOneYearSec   = 31536000 // 365 * 24 * 60 * 60
+	durationThreeYearSec = 94608000 // 3 * 365 * 24 * 60 * 60
+)
+
+// Price constants for reserved node offerings (in USD).
+const (
+	priceDC2LargeAllUpfront   = 1000.00
+	priceDC2LargeNoUpfront    = 0.10
+	priceDC28XLargeAllUpfront = 20000.00
+	priceRA3XLPlusAllUpfront  = 5000.00
+	priceRA34XLargeAllUpfront = 40000.00
+	priceZeroUpfront          = 0.00
+)
+
 // ReservedNodeOffering represents an available Redshift reserved node offering.
 type ReservedNodeOffering struct {
 	ReservedNodeOfferingID   string  `json:"reservedNodeOfferingId"`
 	ReservedNodeOfferingType string  `json:"reservedNodeOfferingType"`
 	NodeType                 string  `json:"nodeType"`
+	CurrencyCode             string  `json:"currencyCode"`
+	OfferingType             string  `json:"offeringType"`
 	Duration                 int     `json:"duration"`
 	FixedPrice               float64 `json:"fixedPrice"`
 	UsagePrice               float64 `json:"usagePrice"`
-	CurrencyCode             string  `json:"currencyCode"`
-	OfferingType             string  `json:"offeringType"`
 }
 
 // defaultReservedNodeOfferings returns a curated set of built-in reserved node offerings.
@@ -24,9 +40,9 @@ func defaultReservedNodeOfferings() []*ReservedNodeOffering {
 			ReservedNodeOfferingID:   "offering-dc2-large-1yr-allupfront",
 			ReservedNodeOfferingType: "Regular",
 			NodeType:                 "dc2.large",
-			Duration:                 31536000, // 1 year in seconds
-			FixedPrice:               1000.00,
-			UsagePrice:               0.00,
+			Duration:                 durationOneYearSec,
+			FixedPrice:               priceDC2LargeAllUpfront,
+			UsagePrice:               priceZeroUpfront,
 			CurrencyCode:             "USD",
 			OfferingType:             "All Upfront",
 		},
@@ -34,9 +50,9 @@ func defaultReservedNodeOfferings() []*ReservedNodeOffering {
 			ReservedNodeOfferingID:   "offering-dc2-large-1yr-noupfront",
 			ReservedNodeOfferingType: "Regular",
 			NodeType:                 "dc2.large",
-			Duration:                 31536000,
-			FixedPrice:               0.00,
-			UsagePrice:               0.10,
+			Duration:                 durationOneYearSec,
+			FixedPrice:               priceZeroUpfront,
+			UsagePrice:               priceDC2LargeNoUpfront,
 			CurrencyCode:             "USD",
 			OfferingType:             "No Upfront",
 		},
@@ -44,9 +60,9 @@ func defaultReservedNodeOfferings() []*ReservedNodeOffering {
 			ReservedNodeOfferingID:   "offering-dc2-8xlarge-1yr-allupfront",
 			ReservedNodeOfferingType: "Regular",
 			NodeType:                 "dc2.8xlarge",
-			Duration:                 31536000,
-			FixedPrice:               20000.00,
-			UsagePrice:               0.00,
+			Duration:                 durationOneYearSec,
+			FixedPrice:               priceDC28XLargeAllUpfront,
+			UsagePrice:               priceZeroUpfront,
 			CurrencyCode:             "USD",
 			OfferingType:             "All Upfront",
 		},
@@ -54,9 +70,9 @@ func defaultReservedNodeOfferings() []*ReservedNodeOffering {
 			ReservedNodeOfferingID:   "offering-ra3-xlplus-1yr-allupfront",
 			ReservedNodeOfferingType: "Regular",
 			NodeType:                 "ra3.xlplus",
-			Duration:                 31536000,
-			FixedPrice:               5000.00,
-			UsagePrice:               0.00,
+			Duration:                 durationOneYearSec,
+			FixedPrice:               priceRA3XLPlusAllUpfront,
+			UsagePrice:               priceZeroUpfront,
 			CurrencyCode:             "USD",
 			OfferingType:             "All Upfront",
 		},
@@ -64,9 +80,9 @@ func defaultReservedNodeOfferings() []*ReservedNodeOffering {
 			ReservedNodeOfferingID:   "offering-ra3-4xlarge-3yr-allupfront",
 			ReservedNodeOfferingType: "Regular",
 			NodeType:                 "ra3.4xlarge",
-			Duration:                 94608000, // 3 years in seconds
-			FixedPrice:               40000.00,
-			UsagePrice:               0.00,
+			Duration:                 durationThreeYearSec,
+			FixedPrice:               priceRA34XLargeAllUpfront,
+			UsagePrice:               priceZeroUpfront,
 			CurrencyCode:             "USD",
 			OfferingType:             "All Upfront",
 		},
