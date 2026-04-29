@@ -22,6 +22,14 @@ const (
 	maxStatementHistory = 1000
 	// resultFormatCSV is the CSV result format returned by GetStatementResultV2.
 	resultFormatCSV = "CSV"
+	// maxListStatementsResults is the maximum number of statements AWS allows per ListStatements page.
+	maxListStatementsResults = 100
+	// defaultListStatementsResults is the default page size for ListStatements when MaxResults is 0.
+	defaultListStatementsResults = 100
+	// demoResultRows is the simulated row count returned for FINISHED single statements.
+	demoResultRows = 1
+	// demoResultSize is the simulated result payload size in bytes for FINISHED statements.
+	demoResultSize = 64
 )
 
 var (
@@ -35,26 +43,46 @@ var (
 	ErrNoResultSet = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
+// SubStatementData represents a single sub-statement within a batch, matching
+// the SubStatementData shape returned by AWS DescribeStatement for batch runs.
+type SubStatementData struct {
+	ID           string    `json:"id"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	QueryString  string    `json:"queryString"`
+	Status       string    `json:"status"`
+	Error        string    `json:"error"`
+	HasResultSet bool      `json:"hasResultSet"`
+	ResultRows   int64     `json:"resultRows"`
+	ResultSize   int64     `json:"resultSize"`
+	DurationMs   int64     `json:"durationMs"`
+}
+
 // Statement represents an AWS Redshift Data API SQL statement.
 type Statement struct {
-	CreatedAt         time.Time `json:"createdAt"`
-	UpdatedAt         time.Time `json:"updatedAt"`
-	Database          string    `json:"database"`
-	ID                string    `json:"id"`
-	ClusterIdentifier string    `json:"clusterIdentifier"`
-	WorkgroupName     string    `json:"workgroupName"`
-	QueryString       string    `json:"queryString"`
-	DBUser            string    `json:"dbUser"`
-	SecretARN         string    `json:"secretARN"`
-	StatementName     string    `json:"statementName"`
-	Status            string    `json:"status"`
-	Error             string    `json:"error"`
-	QueryStrings      []string  `json:"queryStrings"`
+	CreatedAt         time.Time          `json:"createdAt"`
+	UpdatedAt         time.Time          `json:"updatedAt"`
+	Database          string             `json:"database"`
+	ID                string             `json:"id"`
+	ClusterIdentifier string             `json:"clusterIdentifier"`
+	WorkgroupName     string             `json:"workgroupName"`
+	QueryString       string             `json:"queryString"`
+	DBUser            string             `json:"dbUser"`
+	SecretARN         string             `json:"secretARN"`
+	StatementName     string             `json:"statementName"`
+	Status            string             `json:"status"`
+	Error             string             `json:"error"`
+	QueryStrings      []string           `json:"queryStrings"`
+	SubStatements     []SubStatementData `json:"subStatements,omitempty"`
 	// DurationMs is the total wall-clock execution time in milliseconds. Populated
 	// when the statement reaches a terminal state (FINISHED / FAILED / ABORTED).
 	DurationMs       int64 `json:"durationMs"`
+	ResultRows       int64 `json:"resultRows"`
+	ResultSize       int64 `json:"resultSize"`
 	HasResultSet     bool  `json:"hasResultSet"`
 	IsBatchStatement bool  `json:"isBatchStatement"`
+	// WithEvent indicates whether an EventBridge event is generated on completion.
+	WithEvent bool `json:"withEvent"`
 }
 
 // InMemoryBackend is an in-memory store for Redshift Data API statements.
@@ -122,6 +150,7 @@ func (b *InMemoryBackend) addStatement(stmt *Statement) {
 // ExecuteStatement creates and immediately completes a SQL statement.
 func (b *InMemoryBackend) ExecuteStatement(
 	sql, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
+	withEvent bool,
 ) (*Statement, error) {
 	if sql == "" {
 		return nil, fmt.Errorf("%w: Sql is required", ErrValidation)
@@ -147,12 +176,15 @@ func (b *InMemoryBackend) ExecuteStatement(
 		Status:            statusFinished,
 		HasResultSet:      true,
 		IsBatchStatement:  false,
+		WithEvent:         withEvent,
 		CreatedAt:         now,
 		UpdatedAt:         now,
 		// Simulated instant execution: 1 ms so the UI always displays a
 		// human-readable duration rather than showing "0ms" which could be
 		// mistaken for a failed or uninitialised measurement.
 		DurationMs: 1,
+		ResultRows: demoResultRows,
+		ResultSize: demoResultSize,
 	}
 	b.addStatement(stmt)
 
@@ -162,6 +194,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 // BatchExecuteStatement creates and immediately completes a batch SQL statement.
 func (b *InMemoryBackend) BatchExecuteStatement(
 	sqls []string, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
+	withEvent bool,
 ) (*Statement, error) {
 	if len(sqls) == 0 {
 		return nil, fmt.Errorf("%w: Sqls is required", ErrValidation)
@@ -175,9 +208,26 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	defer b.mu.Unlock()
 
 	now := time.Now()
+
+	// Build sub-statement data for each SQL in the batch.
+	subs := make([]SubStatementData, len(sqls))
+	for i, sql := range sqls {
+		subs[i] = SubStatementData{
+			ID:           uuid.NewString(),
+			CreatedAt:    now,
+			UpdatedAt:    now,
+			QueryString:  sql,
+			Status:       statusFinished,
+			HasResultSet: false,
+			DurationMs:   1,
+		}
+	}
+
 	stmt := &Statement{
 		ID:                uuid.NewString(),
+		QueryString:       sqls[0], // AWS sets QueryString to the first SQL in the batch.
 		QueryStrings:      append([]string(nil), sqls...),
+		SubStatements:     subs,
 		ClusterIdentifier: clusterIdentifier,
 		WorkgroupName:     workgroupName,
 		Database:          database,
@@ -187,6 +237,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		Status:            statusFinished,
 		HasResultSet:      false,
 		IsBatchStatement:  true,
+		WithEvent:         withEvent,
 		CreatedAt:         now,
 		UpdatedAt:         now,
 		DurationMs:        1,
@@ -231,9 +282,14 @@ func (b *InMemoryBackend) CancelStatement(id string) error {
 	return nil
 }
 
-// ListStatements returns all statements sorted by creation time (newest first),
-// optionally filtered by status, cluster identifier, or workgroup name.
-func (b *InMemoryBackend) ListStatements(clusterIdentifier, workgroupName, statusFilter string) []*Statement {
+// ListStatements returns statements sorted by creation time (newest first),
+// optionally filtered by status, cluster identifier, workgroup name, or role level.
+// maxResults limits the page size (0 = default of 100; max 100).
+// Returns the page slice and a next-token string (non-empty when more pages exist).
+func (b *InMemoryBackend) ListStatements(
+	clusterIdentifier, workgroupName, statusFilter, roleLevel string,
+	maxResults int,
+) ([]*Statement, string) {
 	b.mu.RLock("ListStatements")
 	defer b.mu.RUnlock()
 
@@ -252,6 +308,10 @@ func (b *InMemoryBackend) ListStatements(clusterIdentifier, workgroupName, statu
 			continue
 		}
 
+		if roleLevel == "CALLER" && stmt.DBUser == "" {
+			continue
+		}
+
 		result = append(result, cloneStatement(stmt))
 	}
 
@@ -259,7 +319,18 @@ func (b *InMemoryBackend) ListStatements(clusterIdentifier, workgroupName, statu
 		return result[i].CreatedAt.After(result[j].CreatedAt)
 	})
 
-	return result
+	limit := maxResults
+	if limit <= 0 {
+		limit = defaultListStatementsResults
+	}
+
+	if len(result) <= limit {
+		return result, ""
+	}
+
+	// Return the first page and a synthetic next-token (the ID of the first item
+	// on the next page), matching the real AWS behaviour.
+	return result[:limit], result[limit].ID
 }
 
 // cloneStatement returns a deep copy of stmt.
@@ -268,6 +339,10 @@ func cloneStatement(stmt *Statement) *Statement {
 
 	if stmt.QueryStrings != nil {
 		cp.QueryStrings = append([]string(nil), stmt.QueryStrings...)
+	}
+
+	if stmt.SubStatements != nil {
+		cp.SubStatements = append([]SubStatementData(nil), stmt.SubStatements...)
 	}
 
 	return &cp

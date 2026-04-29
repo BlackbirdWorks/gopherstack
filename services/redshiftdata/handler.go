@@ -160,13 +160,13 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 	case "CancelStatement":
 		return h.handleCancelStatement(ctx, body)
 	case "ListDatabases":
-		return h.handleListDatabases()
+		return h.handleListDatabases(ctx, body)
 	case "ListSchemas":
-		return h.handleListSchemas()
+		return h.handleListSchemas(ctx, body)
 	case "ListTables":
-		return h.handleListTables()
+		return h.handleListTables(ctx, body)
 	case "DescribeTable":
-		return h.handleDescribeTable()
+		return h.handleDescribeTable(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
 	}
@@ -181,6 +181,7 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 		DBUser            string `json:"DbUser"`
 		SecretArn         string `json:"SecretArn"`
 		StatementName     string `json:"StatementName"`
+		WithEvent         bool   `json:"WithEvent"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -190,6 +191,7 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 	stmt, err := h.Backend.ExecuteStatement(
 		req.SQL, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
+		req.WithEvent,
 	)
 	if err != nil {
 		return nil, err
@@ -215,6 +217,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 		SecretArn         string   `json:"SecretArn"`
 		StatementName     string   `json:"StatementName"`
 		Sqls              []string `json:"Sqls"`
+		WithEvent         bool     `json:"WithEvent"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -224,6 +227,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 	stmt, err := h.Backend.BatchExecuteStatement(
 		req.Sqls, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
+		req.WithEvent,
 	)
 	if err != nil {
 		return nil, err
@@ -283,10 +287,21 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: statement %s does not have a result set", ErrNoResultSet, req.ID)
 	}
 
+	// Return a single demo row so the UI can render a non-empty result table.
 	return json.Marshal(map[string]any{
-		"Records":        [][]any{},
-		"ColumnMetadata": []any{},
-		"TotalNumRows":   int64(0),
+		"Records": [][]map[string]any{
+			{{"stringValue": "mock_value"}},
+		},
+		"ColumnMetadata": []map[string]any{
+			{
+				"name":       "column1",
+				"label":      "column1",
+				"typeName":   "varchar",
+				"columnSize": int64(256),
+				"nullable":   int64(1),
+			},
+		},
+		"TotalNumRows": int64(1),
 	})
 }
 
@@ -313,11 +328,20 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: statement %s does not have a result set", ErrNoResultSet, req.ID)
 	}
 
+	// Return a single demo CSV record matching the V2 format.
 	return json.Marshal(map[string]any{
-		"Records":        []any{},
-		"ColumnMetadata": []any{},
-		"TotalNumRows":   int64(0),
-		"ResultFormat":   resultFormatCSV,
+		"Records": []string{"mock_value"},
+		"ColumnMetadata": []map[string]any{
+			{
+				"name":       "column1",
+				"label":      "column1",
+				"typeName":   "varchar",
+				"columnSize": int64(256),
+				"nullable":   int64(1),
+			},
+		},
+		"TotalNumRows": int64(1),
+		"ResultFormat": resultFormatCSV,
 	})
 }
 
@@ -327,22 +351,38 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 		WorkgroupName     string `json:"WorkgroupName"`
 		// Status filters by statement status (e.g. "FINISHED", "FAILED").
 		Status string `json:"Status"`
+		// RoleLevel filters to statements submitted at the specified role level.
+		RoleLevel  string `json:"RoleLevel"`
+		MaxResults int    `json:"MaxResults"`
+		NextToken  string `json:"NextToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	stmts := h.Backend.ListStatements(req.ClusterIdentifier, req.WorkgroupName, req.Status)
+	if req.MaxResults > maxListStatementsResults {
+		return nil, fmt.Errorf("%w: MaxResults must be ≤ %d", ErrValidation, maxListStatementsResults)
+	}
+
+	stmts, nextToken := h.Backend.ListStatements(
+		req.ClusterIdentifier, req.WorkgroupName, req.Status, req.RoleLevel, req.MaxResults,
+	)
 	items := make([]map[string]any, 0, len(stmts))
 
 	for _, stmt := range stmts {
 		items = append(items, statementToListItem(stmt))
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"Statements": items,
-	})
+	}
+
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleCancelStatement(_ context.Context, body []byte) ([]byte, error) {
@@ -362,32 +402,94 @@ func (h *Handler) handleCancelStatement(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
+	// AWS returns {"Status": "true"} as a string, not a boolean.
 	return json.Marshal(map[string]any{
-		"Status": true,
+		"Status": "true",
 	})
 }
 
-func (h *Handler) handleListDatabases() ([]byte, error) {
+func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Database          string `json:"Database"`
+		WorkgroupName     string `json:"WorkgroupName"`
+		ClusterIdentifier string `json:"ClusterIdentifier"`
+		SecretArn         string `json:"SecretArn"`
+		DbUser            string `json:"DbUser"`
+		NextToken         string `json:"NextToken"`
+		MaxResults        int    `json:"MaxResults"`
+	}
+
+	// Best-effort parse; ignore errors since all fields are optional.
+	_ = json.Unmarshal(body, &req)
+
 	return json.Marshal(map[string]any{
-		"Databases": []string{},
+		"Databases": demoDatabases,
 	})
 }
 
-func (h *Handler) handleListSchemas() ([]byte, error) {
+func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Database          string `json:"Database"`
+		WorkgroupName     string `json:"WorkgroupName"`
+		ClusterIdentifier string `json:"ClusterIdentifier"`
+		SecretArn         string `json:"SecretArn"`
+		DbUser            string `json:"DbUser"`
+		SchemaPattern     string `json:"SchemaPattern"`
+		NextToken         string `json:"NextToken"`
+		MaxResults        int    `json:"MaxResults"`
+	}
+
+	// Best-effort parse; ignore errors since all fields are optional.
+	_ = json.Unmarshal(body, &req)
+
 	return json.Marshal(map[string]any{
-		"Schemas": []string{},
+		"Schemas": demoSchemas,
 	})
 }
 
-func (h *Handler) handleListTables() ([]byte, error) {
+func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Database          string `json:"Database"`
+		WorkgroupName     string `json:"WorkgroupName"`
+		ClusterIdentifier string `json:"ClusterIdentifier"`
+		SecretArn         string `json:"SecretArn"`
+		DbUser            string `json:"DbUser"`
+		SchemaPattern     string `json:"SchemaPattern"`
+		TablePattern      string `json:"TablePattern"`
+		TableType         string `json:"TableType"`
+		NextToken         string `json:"NextToken"`
+		MaxResults        int    `json:"MaxResults"`
+	}
+
+	// Best-effort parse; ignore errors since all fields are optional.
+	_ = json.Unmarshal(body, &req)
+
 	return json.Marshal(map[string]any{
-		"Tables": []any{},
+		"Tables": demoTables,
 	})
 }
 
-func (h *Handler) handleDescribeTable() ([]byte, error) {
+func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		Database          string `json:"Database"`
+		WorkgroupName     string `json:"WorkgroupName"`
+		ClusterIdentifier string `json:"ClusterIdentifier"`
+		SecretArn         string `json:"SecretArn"`
+		DbUser            string `json:"DbUser"`
+		Schema            string `json:"Schema"`
+		Table             string `json:"Table"`
+	}
+
+	// Best-effort parse; ignore errors since all fields are optional.
+	_ = json.Unmarshal(body, &req)
+
 	return json.Marshal(map[string]any{
-		"ColumnList": []any{},
+		"ColumnList": demoColumns,
+		"TableName": map[string]any{
+			"schema": req.Schema,
+			"name":   req.Table,
+			"type":   "TABLE",
+		},
 	})
 }
 
@@ -469,6 +571,9 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		"CreatedAt":        epochSeconds(stmt.CreatedAt),
 		"UpdatedAt":        epochSeconds(stmt.UpdatedAt),
 		"Duration":         stmt.DurationMs,
+		"ResultRows":       stmt.ResultRows,
+		"ResultSize":       stmt.ResultSize,
+		"WithEvent":        stmt.WithEvent,
 	}
 
 	if stmt.ClusterIdentifier != "" {
@@ -503,5 +608,55 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		resp["QueryStrings"] = stmt.QueryStrings
 	}
 
+	if len(stmt.SubStatements) > 0 {
+		subs := make([]map[string]any, len(stmt.SubStatements))
+		for i, sub := range stmt.SubStatements {
+			subs[i] = map[string]any{
+				"Id":           sub.ID,
+				"CreatedAt":    epochSeconds(sub.CreatedAt),
+				"UpdatedAt":    epochSeconds(sub.UpdatedAt),
+				"QueryString":  sub.QueryString,
+				"Status":       sub.Status,
+				"HasResultSet": sub.HasResultSet,
+				"Duration":     sub.DurationMs,
+				"ResultRows":   sub.ResultRows,
+				"ResultSize":   sub.ResultSize,
+			}
+
+			if sub.Error != "" {
+				subs[i]["Error"] = sub.Error
+			}
+		}
+
+		resp["SubStatements"] = subs
+	}
+
 	return resp
+}
+
+// demoDatabases is a fixed set of realistic demo databases returned by ListDatabases.
+var demoDatabases = []string{"dev", "prod", "staging", "analytics"}
+
+// demoSchemas is a fixed set of realistic demo schemas returned by ListSchemas.
+var demoSchemas = []string{"public", "information_schema", "pg_catalog", "raw", "curated"}
+
+// demoTables is a fixed set of realistic demo tables returned by ListTables.
+var demoTables = []map[string]any{
+	{"name": "users", "schema": "public", "type": "TABLE"},
+	{"name": "orders", "schema": "public", "type": "TABLE"},
+	{"name": "events", "schema": "raw", "type": "TABLE"},
+	{"name": "sessions", "schema": "raw", "type": "TABLE"},
+	{"name": "daily_summary", "schema": "curated", "type": "VIEW"},
+	{"name": "user_metrics", "schema": "curated", "type": "VIEW"},
+	{"name": "columns", "schema": "information_schema", "type": "TABLE"},
+	{"name": "tables", "schema": "information_schema", "type": "TABLE"},
+}
+
+// demoColumns is a fixed set of column metadata returned by DescribeTable.
+var demoColumns = []map[string]any{
+	{"name": "id", "typeName": "int4", "columnSize": int64(10), "nullable": int64(0), "schemaName": "public"},
+	{"name": "name", "typeName": "varchar", "columnSize": int64(255), "nullable": int64(1), "schemaName": "public"},
+	{"name": "email", "typeName": "varchar", "columnSize": int64(255), "nullable": int64(1), "schemaName": "public"},
+	{"name": "created_at", "typeName": "timestamp", "columnSize": int64(29), "nullable": int64(1), "schemaName": "public"},
+	{"name": "updated_at", "typeName": "timestamp", "columnSize": int64(29), "nullable": int64(1), "schemaName": "public"},
 }
