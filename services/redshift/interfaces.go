@@ -76,6 +76,8 @@ type StorageBackend interface {
 
 	// Endpoint operations
 	AuthorizeEndpointAccess(clusterID, grantee string, vpcIDs []string) (*EndpointAuthorization, error)
+	DescribeEndpointAuthorization(clusterID, account string, grantee bool) ([]EndpointAuthorization, error)
+	RevokeEndpointAccess(clusterID, account string, vpcIDs []string, force bool) (*EndpointAuthorization, error)
 
 	// Data share operations
 	AddPartner(accountID, clusterID, databaseName, partnerName string) (*Partner, error)
@@ -84,9 +86,31 @@ type StorageBackend interface {
 		associateEntireAccount bool,
 	) (*DataShare, error)
 	AuthorizeDataShare(dataShareArn, consumerIdentifier string) (*DataShare, error)
+	DeauthorizeDataShare(dataShareArn, consumerIdentifier string) (*DataShare, error)
+	DescribeDataShares(dataShareArn string) ([]DataShare, error)
+	DescribeDataSharesForConsumer(consumerArn, status string) ([]DataShare, error)
+	DescribeDataSharesForProducer(producerArn, status string) ([]DataShare, error)
+	DisassociateDataShareConsumer(
+		dataShareArn, consumerArn, consumerRegion string,
+		disassociateEntireAccount bool,
+	) (*DataShare, error)
+	RejectDataShare(dataShareArn string) (*DataShare, error)
+
+	// Partner operations
+	DeletePartner(accountID, clusterID, databaseName, partnerName string) error
+	DescribePartners(accountID, clusterID, databaseName, partnerName string) ([]Partner, error)
+	UpdatePartnerStatus(accountID, clusterID, databaseName, partnerName, status, statusMessage string) (*Partner, error)
 
 	// Resize operations
 	CancelResize(clusterID string) (*ResizeProgress, error)
+	DescribeResize(clusterID string) (*ResizeProgress, error)
+
+	// Snapshot management
+	ModifyClusterSnapshot(snapshotID string, retentionPeriod int, force bool) (*Snapshot, error)
+	RevokeSnapshotAccess(snapshotID, accountWithRestoreAccess string) (*Snapshot, error)
+
+	// Credentials
+	GetClusterCredentials(clusterID, dbUser string, autoCreate bool) (*ClusterCredentials, error)
 
 	// Logging operations
 	EnableLogging(clusterID, bucketName, s3KeyPrefix string) (*LoggingStatus, error)
