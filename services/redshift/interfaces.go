@@ -140,6 +140,53 @@ type StorageBackend interface {
 	AddParameterGroupInternal(pg *ClusterParameterGroup)
 	AddSubnetGroupInternal(sg *ClusterSubnetGroup)
 
+	// Snapshot copy grant operations
+	CreateSnapshotCopyGrant(name, kmsKeyID string, tags map[string]string) (*SnapshotCopyGrant, error)
+	DeleteSnapshotCopyGrant(name string) error
+	DescribeSnapshotCopyGrants(name string) ([]SnapshotCopyGrant, error)
+
+	// Snapshot copy operations
+	EnableSnapshotCopy(clusterID, destinationRegion, grantName string, retentionPeriod int) (*Cluster, error)
+	DisableSnapshotCopy(clusterID string) (*Cluster, error)
+	ModifySnapshotCopyRetentionPeriod(clusterID string, retentionPeriod int) (*Cluster, error)
+
+	// Snapshot schedule operations
+	CreateSnapshotSchedule(
+		scheduleID, description string,
+		definitions []string,
+		tags map[string]string,
+	) (*SnapshotSchedule, error)
+	DeleteSnapshotSchedule(scheduleID string) error
+	DescribeSnapshotSchedules(scheduleID string) ([]SnapshotSchedule, error)
+	ModifySnapshotSchedule(scheduleID string, definitions []string) (*SnapshotSchedule, error)
+	ModifyClusterSnapshotSchedule(clusterID, scheduleID string, disassociate bool) error
+
+	// Usage limit operations
+	CreateUsageLimit(
+		clusterID, featureType, limitType, breachAction string,
+		amount int64,
+		tags map[string]string,
+	) (*UsageLimit, error)
+	DeleteUsageLimit(usageLimitID string) error
+	DescribeUsageLimits(clusterID, featureType string) ([]UsageLimit, error)
+	ModifyUsageLimit(usageLimitID, breachAction string, amount int64) (*UsageLimit, error)
+
+	// Authentication profile operations
+	CreateAuthenticationProfile(name, content string) (*AuthenticationProfile, error)
+	DeleteAuthenticationProfile(name string) error
+	DescribeAuthenticationProfiles(name string) ([]AuthenticationProfile, error)
+	ModifyAuthenticationProfile(name, content string) (*AuthenticationProfile, error)
+
+	// Resource policy operations
+	GetResourcePolicy(resourceArn string) (*ResourcePolicy, error)
+	PutResourcePolicy(resourceArn, policy string) (*ResourcePolicy, error)
+	DeleteResourcePolicy(resourceArn string) error
+
+	// Additional operations
+	GetClusterCredentialsWithIAM(clusterID, dbName string) (*ClusterCredentials, error)
+	FailoverPrimaryCompute(clusterID string) (*Cluster, error)
+	DescribeTableRestoreStatus(clusterID string) ([]TableRestoreStatus, error)
+
 	// Lifecycle
 	Reset()
 	Region() string
