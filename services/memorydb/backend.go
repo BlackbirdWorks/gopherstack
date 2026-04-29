@@ -48,12 +48,13 @@ const (
 	reservedChargeRateXLarge   = 0.28
 
 	// Resource kind constants for tag routing.
-	resourceKindCluster        = "cluster"
-	resourceKindACL            = "acl"
-	resourceKindSubnetGroup    = "subnetgroup"
-	resourceKindUser           = "user"
-	resourceKindParameterGroup = "parametergroup"
-	resourceKindSnapshot       = "snapshot"
+	resourceKindCluster             = "cluster"
+	resourceKindACL                 = "acl"
+	resourceKindSubnetGroup         = "subnetgroup"
+	resourceKindUser                = "user"
+	resourceKindParameterGroup      = "parametergroup"
+	resourceKindSnapshot            = "snapshot"
+	resourceKindMultiRegionCluster  = "multiregioncluster"
 )
 
 // ErrValidation is returned when input validation fails.
@@ -119,6 +120,26 @@ var (
 		awserr.ErrAlreadyExists,
 	)
 )
+
+// validateResourceName validates that name is 1-40 characters, contains only
+// lowercase letters, numbers, and hyphens, and starts with a letter.
+func validateResourceName(name string, resourceType string) error {
+	if len(name) == 0 {
+		return fmt.Errorf("%s name cannot be empty: %w", resourceType, ErrValidation)
+	}
+	if len(name) > 40 {
+		return fmt.Errorf("%s name %q exceeds 40 characters: %w", resourceType, name, ErrValidation)
+	}
+	if name[0] < 'a' || name[0] > 'z' {
+		return fmt.Errorf("%s name %q must start with a lowercase letter: %w", resourceType, name, ErrValidation)
+	}
+	for _, ch := range name {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+			return fmt.Errorf("%s name %q contains invalid character %q (only lowercase alphanumeric and hyphens allowed): %w", resourceType, name, ch, ErrValidation)
+		}
+	}
+	return nil
+}
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -316,6 +337,10 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if err := validateResourceName(req.ClusterName, "cluster"); err != nil {
+		return nil, err
+	}
+
 	if _, exists := b.clusters[req.ClusterName]; exists {
 		return nil, ErrClusterAlreadyExists
 	}
@@ -328,6 +353,18 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 
 	if _, ok := b.acls[aclName]; !ok {
 		return nil, fmt.Errorf("ACL %q not found: %w", aclName, ErrACLNotFound)
+	}
+
+	if req.SubnetGroupName != "" {
+		if _, ok := b.subnetGroups[req.SubnetGroupName]; !ok {
+			return nil, fmt.Errorf("subnet group %q not found: %w", req.SubnetGroupName, ErrSubnetGroupNotFound)
+		}
+	}
+
+	if req.ParameterGroupName != "" {
+		if _, ok := b.parameterGroups[req.ParameterGroupName]; !ok {
+			return nil, fmt.Errorf("parameter group %q not found: %w", req.ParameterGroupName, ErrParameterGroupNotFound)
+		}
 	}
 
 	engineVersion := req.EngineVersion
@@ -556,6 +593,10 @@ func (b *InMemoryBackend) CreateACL(region, accountID string, req *createACLRequ
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if err := validateResourceName(req.ACLName, "ACL"); err != nil {
+		return nil, err
+	}
+
 	if _, exists := b.acls[req.ACLName]; exists {
 		return nil, ErrACLAlreadyExists
 	}
@@ -617,6 +658,10 @@ func (b *InMemoryBackend) DeleteACL(name string) (*ACL, error) {
 	a, ok := b.acls[name]
 	if !ok {
 		return nil, ErrACLNotFound
+	}
+
+	if name == openAccessACL {
+		return nil, fmt.Errorf("cannot delete system ACL %q: %w", name, ErrValidation)
 	}
 
 	for _, c := range b.clusters {
@@ -692,6 +737,10 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 ) (*SubnetGroup, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if err := validateResourceName(req.SubnetGroupName, "subnet group"); err != nil {
+		return nil, err
+	}
 
 	if _, exists := b.subnetGroups[req.SubnetGroupName]; exists {
 		return nil, ErrSubnetGroupAlreadyExists
@@ -784,6 +833,10 @@ func (b *InMemoryBackend) UpdateSubnetGroup(req *updateSubnetGroupRequest) (*Sub
 func (b *InMemoryBackend) CreateUser(region, accountID string, req *createUserRequest) (*User, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if err := validateResourceName(req.UserName, "user"); err != nil {
+		return nil, err
+	}
 
 	if _, exists := b.users[req.UserName]; exists {
 		return nil, ErrUserAlreadyExists
@@ -896,6 +949,10 @@ func (b *InMemoryBackend) CreateParameterGroup(
 
 	if req.Family == "" {
 		return nil, fmt.Errorf("family is required: %w", ErrValidation)
+	}
+
+	if err := validateResourceName(req.ParameterGroupName, "parameter group"); err != nil {
+		return nil, err
 	}
 
 	if _, exists := b.parameterGroups[req.ParameterGroupName]; exists {
@@ -1363,6 +1420,11 @@ func (b *InMemoryBackend) AddEvent(ev *Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.appendEventLocked(ev)
+}
+
+// appendEventLocked appends an event without acquiring the lock (caller must hold b.mu).
+func (b *InMemoryBackend) appendEventLocked(ev *Event) {
 	b.events = append(b.events, ev)
 
 	if len(b.events) > maxEvents {
@@ -1443,6 +1505,7 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 	}
 
 	b.multiRegionClusters[fullName] = mrc
+	b.arnToResource[mrARN] = resourceRef{Kind: resourceKindMultiRegionCluster, Name: fullName}
 
 	return mrc, nil
 }
