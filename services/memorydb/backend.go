@@ -113,6 +113,11 @@ var (
 	ErrACLInUse = awserr.New("ACLInUseFault: ACL is currently associated with a cluster", awserr.ErrConflict)
 	// ErrUserInUse is returned when a user cannot be deleted because it is a member of an ACL.
 	ErrUserInUse = awserr.New("UserInUseFault: user is currently a member of an ACL", awserr.ErrConflict)
+	// ErrReservationAlreadyExists is returned when a reserved node with the same ID already exists.
+	ErrReservationAlreadyExists = awserr.New(
+		"ReservedNodeAlreadyExistsFault: reserved node already exists",
+		awserr.ErrAlreadyExists,
+	)
 )
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.
@@ -540,7 +545,7 @@ func (b *InMemoryBackend) UpdateCluster(req *updateClusterRequest) (*Cluster, er
 		c.NumShards = *req.ShardConfiguration.ShardCount
 	}
 
-	return c, nil
+	return cloneCluster(c), nil
 }
 
 // -- ACL operations --------------------------------------------------------------
@@ -573,7 +578,7 @@ func (b *InMemoryBackend) CreateACL(region, accountID string, req *createACLRequ
 	b.acls[req.ACLName] = a
 	b.arnToResource[aclARN] = resourceRef{Kind: resourceKindACL, Name: req.ACLName}
 
-	return a, nil
+	return cloneACL(a), nil
 }
 
 // DescribeACLs returns ACLs, optionally filtered by name.
@@ -674,7 +679,7 @@ func (b *InMemoryBackend) UpdateACL(req *updateACLRequest) (*ACL, error) {
 		a.UserNames = filtered
 	}
 
-	return a, nil
+	return cloneACL(a), nil
 }
 
 // -- SubnetGroup operations -------------------------------------------------------
@@ -705,7 +710,7 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 	b.subnetGroups[req.SubnetGroupName] = sg
 	b.arnToResource[sgARN] = resourceRef{Kind: resourceKindSubnetGroup, Name: req.SubnetGroupName}
 
-	return sg, nil
+	return cloneSubnetGroup(sg), nil
 }
 
 // DescribeSubnetGroups returns subnet groups, optionally filtered by name.
@@ -769,7 +774,7 @@ func (b *InMemoryBackend) UpdateSubnetGroup(req *updateSubnetGroupRequest) (*Sub
 		sg.SubnetIDs = req.SubnetIDs
 	}
 
-	return sg, nil
+	return cloneSubnetGroup(sg), nil
 }
 
 // -- User operations -------------------------------------------------------------
@@ -799,7 +804,7 @@ func (b *InMemoryBackend) CreateUser(region, accountID string, req *createUserRe
 	b.users[req.UserName] = u
 	b.arnToResource[userARN] = resourceRef{Kind: resourceKindUser, Name: req.UserName}
 
-	return u, nil
+	return cloneUser(u), nil
 }
 
 // DescribeUsers returns users, optionally filtered by name.
@@ -875,7 +880,7 @@ func (b *InMemoryBackend) UpdateUser(req *updateUserRequest) (*User, error) {
 		}
 	}
 
-	return u, nil
+	return cloneUser(u), nil
 }
 
 // -- ParameterGroup operations ---------------------------------------------------
@@ -971,7 +976,7 @@ func (b *InMemoryBackend) UpdateParameterGroup(req *updateParameterGroupRequest)
 		pg.Parameters[pnv.ParameterName] = pnv.ParameterValue
 	}
 
-	return pg, nil
+	return cloneParameterGroup(pg), nil
 }
 
 // -- Tag operations --------------------------------------------------------------
@@ -1623,7 +1628,7 @@ func (b *InMemoryBackend) BatchUpdateCluster(clusterNames []string) map[string]*
 
 	for _, name := range clusterNames {
 		if c, ok := b.clusters[name]; ok {
-			result[name] = c
+			result[name] = cloneCluster(c)
 		}
 	}
 
@@ -1705,6 +1710,9 @@ func (b *InMemoryBackend) DescribeReservedNodes(req *describeReservedNodesReques
 func (b *InMemoryBackend) DescribeReservedNodesOfferings(
 	req *describeReservedNodesOfferingsRequest,
 ) ([]*ReservedNodesOffering, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
 	all := defaultReservedNodesOfferings()
 
 	result := make([]*ReservedNodesOffering, 0, len(all))
@@ -1733,6 +1741,9 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 	region, accountID string,
 	req *purchaseReservedNodesOfferingRequest,
 ) (*ReservedNode, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if req.ReservedNodesOfferingID == "" {
 		return nil, fmt.Errorf("ReservedNodesOfferingId is required: %w", ErrValidation)
 	}
@@ -1757,6 +1768,10 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 		reservationID = req.ReservedNodesOfferingID + "-reservation"
 	}
 
+	if _, exists := b.reservedNodes[reservationID]; exists {
+		return nil, fmt.Errorf("reserved node %q already exists: %w", reservationID, ErrReservationAlreadyExists)
+	}
+
 	nodeCount := int32(1)
 	if req.NodeCount != nil {
 		nodeCount = *req.NodeCount
@@ -1778,9 +1793,6 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 		NodeCount:        nodeCount,
 		ARN:              rnARN,
 	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
 
 	b.reservedNodes[reservationID] = rn
 
