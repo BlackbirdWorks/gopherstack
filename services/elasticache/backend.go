@@ -61,6 +61,61 @@ type CacheEvent struct {
 	Message          string    `json:"message"`
 }
 
+// eventRing is a fixed-capacity circular ring buffer for CacheEvents.
+// It stores up to size events, overwriting the oldest when full.
+// Reads allocate and return events in insertion order.
+type eventRing struct {
+	buf  []CacheEvent
+	head int // index of oldest entry
+	n    int // number of valid entries
+	size int
+}
+
+func newEventRing(size int) *eventRing {
+	return &eventRing{buf: make([]CacheEvent, size), size: size}
+}
+
+// push appends e, overwriting the oldest entry when the ring is full.
+func (r *eventRing) push(e CacheEvent) {
+	if r.n < r.size {
+		r.buf[(r.head+r.n)%r.size] = e
+		r.n++
+	} else {
+		// Full: overwrite oldest.
+		r.buf[r.head] = e
+		r.head = (r.head + 1) % r.size
+	}
+}
+
+// all returns a snapshot of all events in insertion order.
+func (r *eventRing) all() []CacheEvent {
+	out := make([]CacheEvent, r.n)
+	for i := range r.n {
+		out[i] = r.buf[(r.head+i)%r.size]
+	}
+
+	return out
+}
+
+// reset clears the ring without reallocating the backing buffer.
+func (r *eventRing) reset() {
+	r.head = 0
+	r.n = 0
+}
+
+// marshalJSON exports events in insertion order for persistence.
+func (r *eventRing) marshalJSON() []CacheEvent {
+	return r.all()
+}
+
+// restoreFromSlice loads previously-persisted events back into the ring.
+func (r *eventRing) restoreFromSlice(events []CacheEvent) {
+	r.reset()
+	for _, e := range events {
+		r.push(e)
+	}
+}
+
 // Cluster represents an ElastiCache cluster.
 type Cluster struct {
 	CreatedAt                  time.Time
@@ -76,8 +131,11 @@ type Cluster struct {
 	CacheParameterGroupName    string
 	PreferredMaintenanceWindow string
 	SnapshotWindow             string
+	ReplicationGroupID         string
 	Port                       int
 	NumCacheNodes              int
+	TransitEncryptionEnabled   bool
+	AtRestEncryptionEnabled    bool
 }
 
 // ReplicationGroup represents an ElastiCache replication group.
@@ -137,7 +195,7 @@ type StorageBackend interface {
 	CreateCluster(id, engine, nodeType string, port int) (*Cluster, error)
 	CreateClusterWithOptions(
 		id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow string,
-		port int,
+		numCacheNodes, port int,
 	) (*Cluster, error)
 	DeleteCluster(id string) error
 	DescribeClusters(id, marker string, maxRecords int) (page.Page[Cluster], error)
@@ -175,7 +233,11 @@ type StorageBackend interface {
 		maxRecords int,
 	) (page.Page[CacheSnapshot], error)
 	CopySnapshot(sourceSnapshotName, targetSnapshotName string) (*CacheSnapshot, error)
-	DescribeEvents(sourceIdentifier, sourceType, marker string, maxRecords int) (page.Page[CacheEvent], error)
+	DescribeEvents(
+		sourceIdentifier, sourceType, marker string,
+		startTime, endTime time.Time,
+		duration, maxRecords int,
+	) (page.Page[CacheEvent], error)
 	// New ops
 	CreateCacheSecurityGroup(name, description string) (*CacheSecurityGroup, error)
 	AuthorizeCacheSecurityGroupIngress(
@@ -197,6 +259,80 @@ type StorageBackend interface {
 		serviceUpdateName string,
 	) (*BatchUpdateResult, error)
 	CompleteMigration(replicationGroupID string, force bool) (*ReplicationGroup, error)
+	// User operations
+	DeleteUser(userID string) (*User, error)
+	DescribeUsers(userID, marker string, maxRecords int) (page.Page[User], error)
+	ModifyUser(userID, accessString string, noPasswordRequired bool) (*User, error)
+	// UserGroup operations
+	CreateUserGroup(groupID, description, engine string, userIDs []string) (*UserGroup, error)
+	DeleteUserGroup(groupID string) (*UserGroup, error)
+	DescribeUserGroups(groupID, marker string, maxRecords int) (page.Page[UserGroup], error)
+	ModifyUserGroup(groupID string, userIDsToAdd, userIDsToRemove []string) (*UserGroup, error)
+	// GlobalReplicationGroup operations
+	DeleteGlobalReplicationGroup(id string, retainPrimaryReplicationGroup bool) (*GlobalReplicationGroup, error)
+	DescribeGlobalReplicationGroups(id, marker string, maxRecords int) (page.Page[GlobalReplicationGroup], error)
+	DisassociateGlobalReplicationGroup(
+		id, replicationGroupID, replicationGroupRegion string,
+	) (*GlobalReplicationGroup, error)
+	FailoverGlobalReplicationGroup(id, primaryRegion, primaryReplicationGroupID string) (*GlobalReplicationGroup, error)
+	IncreaseNodeGroupsInGlobalReplicationGroup(id string, nodeGroupCount int32) (*GlobalReplicationGroup, error)
+	DecreaseNodeGroupsInGlobalReplicationGroup(id string, nodeGroupCount int32) (*GlobalReplicationGroup, error)
+	ModifyGlobalReplicationGroup(
+		id, description, engineVersion string,
+		automaticFailoverEnabled bool,
+	) (*GlobalReplicationGroup, error)
+	RebalanceSlotsInGlobalReplicationGroup(id string) (*GlobalReplicationGroup, error)
+	// ReservedCacheNodes operations
+	DescribeReservedCacheNodes(
+		id, cacheNodeType, offeringType, marker string,
+		maxRecords int,
+	) (page.Page[ReservedCacheNode], error)
+	DescribeReservedCacheNodesOfferings(
+		offeringID, cacheNodeType, offeringType, marker string,
+		maxRecords int,
+	) (page.Page[ReservedCacheNodesOffering], error)
+	PurchaseReservedCacheNodesOffering(
+		offeringID, reservedCacheNodeID string,
+		cacheNodeCount int32,
+	) (*ReservedCacheNode, error)
+	// ServerlessCache operations
+	DeleteServerlessCache(name string) (*ServerlessCache, error)
+	DeleteServerlessCacheSnapshot(name string) (*ServerlessCacheSnapshot, error)
+	DescribeServerlessCaches(name, marker string, maxRecords int) (page.Page[ServerlessCache], error)
+	DescribeServerlessCacheSnapshots(
+		serverlessCacheName, snapshotName, marker string,
+		maxRecords int,
+	) (page.Page[ServerlessCacheSnapshot], error)
+	ExportServerlessCacheSnapshot(snapshotName, s3BucketName string) (*ServerlessCacheSnapshot, error)
+	ModifyServerlessCache(name, description string) (*ServerlessCache, error)
+	// Migration operations
+	StartMigration(replicationGroupID string) (*ReplicationGroup, error)
+	TestMigration(replicationGroupID string) (*ReplicationGroup, error)
+	IncreaseReplicaCount(replicationGroupID string, newReplicaCount int32) (*ReplicationGroup, error)
+	DecreaseReplicaCount(replicationGroupID string, newReplicaCount int32) (*ReplicationGroup, error)
+	ModifyReplicationGroupShardConfiguration(replicationGroupID string, nodeGroupCount int32) (*ReplicationGroup, error)
+	// Cache info operations
+	DescribeCacheEngineVersions(
+		engine, family, engineVersion, marker string,
+		maxRecords int,
+	) (page.Page[CacheEngineVersion], error)
+	RebootCacheCluster(clusterID string, nodeIDs []string) (*Cluster, error)
+	DeleteCacheSecurityGroup(name string) error
+	DescribeCacheSecurityGroups(name, marker string, maxRecords int) (page.Page[CacheSecurityGroup], error)
+	RevokeCacheSecurityGroupIngress(
+		name, ec2SecurityGroupName, ec2SecurityGroupOwnerID string,
+	) (*CacheSecurityGroup, error)
+	DescribeEngineDefaultParameters(
+		cacheParameterGroupFamily, marker string,
+		maxRecords int,
+	) (page.Page[CacheParameter], error)
+	DescribeServiceUpdates(
+		serviceUpdateName, marker string,
+		maxRecords int,
+		status []string,
+	) (page.Page[ServiceUpdate], error)
+	DescribeUpdateActions(serviceUpdateName, marker string, maxRecords int) (page.Page[UpdateAction], error)
+	ListAllowedNodeTypeModifications(clusterID, replicationGroupID string) ([]string, error)
 }
 
 // CacheParameter represents a single cache parameter (for DescribeParameters response).
@@ -232,22 +368,24 @@ func builtinParameterGroupFamilies() []struct{ family, name string } {
 // InMemoryBackend is an in-memory ElastiCache backend.
 type InMemoryBackend struct {
 	dnsRegistrar              DNSRegistrar
-	clusters                  map[string]*Cluster
-	replicationGroups         map[string]*ReplicationGroup
+	globalReplicationGroups   map[string]*GlobalReplicationGroup
+	users                     map[string]*User
 	parameterGroups           map[string]*CacheParameterGroup
 	subnetGroups              map[string]*CacheSubnetGroup
 	snapshots                 map[string]*CacheSnapshot
 	cacheSecurityGroups       map[string]*CacheSecurityGroup
 	cacheSecurityGroupIngress map[string][]EC2SecurityGroupMembership
-	globalReplicationGroups   map[string]*GlobalReplicationGroup
+	clusters                  map[string]*Cluster
+	replicationGroups         map[string]*ReplicationGroup
 	serverlessCaches          map[string]*ServerlessCache
 	serverlessCacheSnapshots  map[string]*ServerlessCacheSnapshot
-	users                     map[string]*User
+	userGroups                map[string]*UserGroup
+	reservedCacheNodes        map[string]*ReservedCacheNode
 	mu                        *lockmetrics.RWMutex
-	engineMode                string
+	events                    *eventRing
 	accountID                 string
 	region                    string
-	events                    []CacheEvent
+	engineMode                string
 }
 
 // NewInMemoryBackend creates a new backend with the given engine mode.
@@ -268,7 +406,9 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 		serverlessCaches:          make(map[string]*ServerlessCache),
 		serverlessCacheSnapshots:  make(map[string]*ServerlessCacheSnapshot),
 		users:                     make(map[string]*User),
-		events:                    make([]CacheEvent, 0),
+		userGroups:                make(map[string]*UserGroup),
+		reservedCacheNodes:        make(map[string]*ReservedCacheNode),
+		events:                    newEventRing(maxEvents),
 		engineMode:                engineMode,
 		accountID:                 accountID,
 		region:                    region,
@@ -324,16 +464,14 @@ func (b *InMemoryBackend) snapshotARN(name string) string {
 	return arn.Build("elasticache", b.region, b.accountID, "snapshot:"+name)
 }
 
+// appendEventLocked records a new event. Must be called with b.mu write-locked.
 func (b *InMemoryBackend) appendEventLocked(sourceIdentifier, sourceType, message string) {
-	b.events = append(b.events, CacheEvent{
+	b.events.push(CacheEvent{
 		Date:             time.Now(),
 		SourceIdentifier: sourceIdentifier,
 		SourceType:       sourceType,
 		Message:          message,
 	})
-	if len(b.events) > maxEvents {
-		b.events = b.events[len(b.events)-maxEvents:]
-	}
 }
 
 func validateParamGroupFamily(engine, family string) error {
@@ -359,10 +497,19 @@ func validateParamGroupFamily(engine, family string) error {
 	return nil
 }
 
+// defaultEngineVersion returns the realistic default version for the given engine.
+func defaultEngineVersion(engine string) string {
+	if engine == "memcached" {
+		return "1.6.17"
+	}
+
+	return "7.1.0"
+}
+
 // createClusterLocked creates a cluster assuming b.mu is already held.
 func (b *InMemoryBackend) createClusterLocked(
 	id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow string,
-	port int,
+	numCacheNodes, port int,
 ) (*Cluster, error) {
 	if engine == "" {
 		engine = engineRedis
@@ -370,14 +517,17 @@ func (b *InMemoryBackend) createClusterLocked(
 	if nodeType == "" {
 		nodeType = "cache.t3.micro"
 	}
+	if numCacheNodes <= 0 {
+		numCacheNodes = 1
+	}
 
 	c := &Cluster{
 		ClusterID:                  id,
 		Engine:                     engine,
-		EngineVersion:              "7.1.0",
+		EngineVersion:              defaultEngineVersion(engine),
 		Status:                     "available",
 		NodeType:                   nodeType,
-		NumCacheNodes:              1,
+		NumCacheNodes:              numCacheNodes,
 		ARN:                        b.clusterARN(id),
 		Tags:                       tags.New("elasticache.cluster." + id + ".tags"),
 		CreatedAt:                  time.Now(),
@@ -422,13 +572,13 @@ func (b *InMemoryBackend) CreateCluster(id, engine, nodeType string, port int) (
 		return nil, ErrClusterAlreadyExists
 	}
 
-	return b.createClusterLocked(id, engine, nodeType, "", "", "", port)
+	return b.createClusterLocked(id, engine, nodeType, "", "", "", 1, port)
 }
 
 // CreateClusterWithOptions creates a new cache cluster with optional parameter group and scheduling windows.
 func (b *InMemoryBackend) CreateClusterWithOptions(
 	id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow string,
-	port int,
+	numCacheNodes, port int,
 ) (*Cluster, error) {
 	b.mu.Lock("CreateClusterWithOptions")
 	defer b.mu.Unlock()
@@ -448,7 +598,16 @@ func (b *InMemoryBackend) CreateClusterWithOptions(
 		}
 	}
 
-	return b.createClusterLocked(id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow, port)
+	return b.createClusterLocked(
+		id,
+		engine,
+		nodeType,
+		paramGroupName,
+		maintenanceWindow,
+		snapshotWindow,
+		numCacheNodes,
+		port,
+	)
 }
 
 // DeleteCluster stops and removes a cluster.
@@ -561,6 +720,12 @@ func (b *InMemoryBackend) collectTagCandidatesLocked() []tagCandidate {
 		candidates = append(
 			candidates,
 			tagCandidate{u.ARN, tagEntry{&u.Tags, "elasticache.user." + u.UserID + ".tags"}},
+		)
+	}
+	for _, ug := range b.userGroups {
+		candidates = append(
+			candidates,
+			tagCandidate{ug.ARN, tagEntry{&ug.Tags, "elasticache.usergroup." + ug.UserGroupID + ".tags"}},
 		)
 	}
 
@@ -1132,11 +1297,20 @@ func (b *InMemoryBackend) CreateSnapshot(snapshotName, clusterID, replicationGro
 			return nil, ErrReplicationGroupNotFound
 		}
 		snap.Engine = engineRedis
-		snap.EngineVersion = "7.1.0"
+		ev := rg.EngineVersion
+		if ev == "" {
+			ev = defaultEngineVersion(engineRedis)
+		}
+		snap.EngineVersion = ev
 		snap.ReplicationGroupID = rg.ReplicationGroupID
 	}
 
 	b.snapshots[snapshotName] = snap
+	sourceID := clusterID
+	if sourceID == "" {
+		sourceID = replicationGroupID
+	}
+	b.appendEventLocked(sourceID, "cache-cluster", "snapshot "+snapshotName+" created")
 
 	return snap, nil
 }
@@ -1154,6 +1328,7 @@ func (b *InMemoryBackend) DeleteSnapshot(snapshotName string) (*CacheSnapshot, e
 	cp := *snap
 	snap.Tags.Close()
 	delete(b.snapshots, snapshotName)
+	b.appendEventLocked(snapshotName, "cache-snapshot", "snapshot deleted")
 
 	return &cp, nil
 }
@@ -1176,7 +1351,8 @@ func (b *InMemoryBackend) DescribeSnapshots(
 	}
 
 	out := make([]CacheSnapshot, 0, len(b.snapshots))
-	for _, snap := range b.snapshots {
+	for k := range b.snapshots {
+		snap := b.snapshots[k]
 		if clusterID != "" && snap.CacheClusterID != clusterID {
 			continue
 		}
@@ -1211,26 +1387,41 @@ func (b *InMemoryBackend) CopySnapshot(sourceSnapshotName, targetSnapshotName st
 	cp.CreatedAt = time.Now()
 	cp.Tags = tags.New("elasticache.snapshot." + targetSnapshotName + ".tags")
 	b.snapshots[targetSnapshotName] = &cp
+	b.appendEventLocked(targetSnapshotName, "cache-snapshot", "snapshot copied from "+sourceSnapshotName)
 
 	result := cp
 
 	return &result, nil
 }
 
-// DescribeEvents returns a paginated list of recorded events, optionally filtered by source.
+// DescribeEvents returns a paginated list of recorded events, optionally filtered by source and time.
 func (b *InMemoryBackend) DescribeEvents(
 	sourceIdentifier, sourceType, marker string,
-	maxRecords int,
+	startTime, endTime time.Time,
+	duration, maxRecords int,
 ) (page.Page[CacheEvent], error) {
 	b.mu.RLock("DescribeEvents")
 	defer b.mu.RUnlock()
 
-	out := make([]CacheEvent, 0, len(b.events))
-	for _, e := range b.events {
+	// If duration (seconds) is specified, derive startTime from it.
+	effectiveStart := startTime
+	if duration > 0 {
+		effectiveStart = time.Now().Add(-time.Duration(duration) * time.Second)
+	}
+
+	all := b.events.all()
+	out := make([]CacheEvent, 0, len(all))
+	for _, e := range all {
 		if sourceIdentifier != "" && e.SourceIdentifier != sourceIdentifier {
 			continue
 		}
 		if sourceType != "" && e.SourceType != sourceType {
+			continue
+		}
+		if !effectiveStart.IsZero() && e.Date.Before(effectiveStart) {
+			continue
+		}
+		if !endTime.IsZero() && e.Date.After(endTime) {
 			continue
 		}
 		out = append(out, e)
@@ -1261,6 +1452,8 @@ func (b *InMemoryBackend) Reset() {
 	b.serverlessCaches = make(map[string]*ServerlessCache)
 	b.serverlessCacheSnapshots = make(map[string]*ServerlessCacheSnapshot)
 	b.users = make(map[string]*User)
-	b.events = make([]CacheEvent, 0)
+	b.userGroups = make(map[string]*UserGroup)
+	b.reservedCacheNodes = make(map[string]*ReservedCacheNode)
+	b.events.reset()
 	b.initDefaultParameterGroups()
 }

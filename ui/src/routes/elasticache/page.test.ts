@@ -8,6 +8,10 @@ vi.mock("$lib/aws-client", () => ({
   getElastiCacheClient: () => ({ send: mockSend }),
 }));
 
+vi.mock("$lib/confirm-dialog", () => ({
+  confirmDestructive: vi.fn().mockResolvedValue(true),
+}));
+
 vi.mock("svelte-sonner", () => ({
   toast: {
     success: vi.fn(),
@@ -21,12 +25,27 @@ describe("ElastiCache Page", () => {
     mockSend.mockReset();
   });
 
-  it("renders page title and create button", () => {
+  it("renders page header with ElastiCache title", () => {
     mockSend.mockResolvedValueOnce({ CacheClusters: [] });
 
     render(ElastiCachePage);
 
-    expect(screen.getByText("ElastiCache Clusters")).toBeInTheDocument();
+    expect(screen.getByText("ElastiCache")).toBeInTheDocument();
+  });
+
+  it("renders Seed Demo button", () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+
+    render(ElastiCachePage);
+
+    expect(screen.getByText("Seed Demo")).toBeInTheDocument();
+  });
+
+  it("renders Create Cluster button on clusters tab", () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+
+    render(ElastiCachePage);
+
     expect(screen.getByText("Create Cluster")).toBeInTheDocument();
   });
 
@@ -67,7 +86,7 @@ describe("ElastiCache Page", () => {
       { timeout: 3000 },
     );
 
-    const searchInput = screen.getByPlaceholderText("Search clusters...");
+    const searchInput = screen.getByPlaceholderText("Search…");
     await fireEvent.input(searchInput, { target: { value: "api" } });
 
     await waitFor(() => {
@@ -77,7 +96,7 @@ describe("ElastiCache Page", () => {
     expect(screen.queryByText("product-cache")).not.toBeInTheDocument();
   });
 
-  it("opens create modal when button is clicked", async () => {
+  it("opens create cluster modal when button is clicked", async () => {
     mockSend.mockResolvedValueOnce({ CacheClusters: [] });
 
     render(ElastiCachePage);
@@ -88,7 +107,7 @@ describe("ElastiCache Page", () => {
     expect(screen.getByPlaceholderText("e.g. session-cache")).toBeInTheDocument();
   });
 
-  it("closes create modal on cancel click", async () => {
+  it("closes create cluster modal on cancel click", async () => {
     mockSend.mockResolvedValueOnce({ CacheClusters: [] });
 
     render(ElastiCachePage);
@@ -158,7 +177,7 @@ describe("ElastiCache Page", () => {
 
     await waitFor(
       () => {
-        expect(screen.getAllByText("prod-cache").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("prod-cache").length).toBeGreaterThan(1);
       },
       { timeout: 3000 },
     );
@@ -186,6 +205,163 @@ describe("ElastiCache Page", () => {
     await waitFor(
       () => {
         expect(vi.mocked(toast.error)).toHaveBeenCalled();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("renders all tab buttons", () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+
+    render(ElastiCachePage);
+
+    expect(screen.getByText("Clusters")).toBeInTheDocument();
+    expect(screen.getByText("Replication Groups")).toBeInTheDocument();
+    expect(screen.getByText("Parameter Groups")).toBeInTheDocument();
+    expect(screen.getByText("Subnet Groups")).toBeInTheDocument();
+    expect(screen.getByText("Snapshots")).toBeInTheDocument();
+    expect(screen.getByText("Users")).toBeInTheDocument();
+    expect(screen.getByText("Serverless")).toBeInTheDocument();
+    expect(screen.getByText("Metrics")).toBeInTheDocument();
+    expect(screen.getByText("Docs")).toBeInTheDocument();
+  });
+
+  it("switches to replication groups tab", async () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+    mockSend.mockResolvedValueOnce({
+      ReplicationGroups: [{ ReplicationGroupId: "my-rg", Status: "available" }],
+    });
+
+    render(ElastiCachePage);
+
+    await fireEvent.click(screen.getByText("Replication Groups"));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("Create Group")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("shows replication groups after loading", async () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+    mockSend.mockResolvedValueOnce({
+      ReplicationGroups: [
+        { ReplicationGroupId: "test-rg", Status: "available", Description: "Test group" },
+      ],
+    });
+
+    render(ElastiCachePage);
+
+    await fireEvent.click(screen.getByText("Replication Groups"));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("test-rg")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("switches to parameter groups tab", async () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+    mockSend.mockResolvedValueOnce({ CacheParameterGroups: [] });
+
+    render(ElastiCachePage);
+
+    await fireEvent.click(screen.getByText("Parameter Groups"));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("No parameter groups found")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("switches to snapshots tab and shows empty state", async () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+    mockSend.mockResolvedValueOnce({ Snapshots: [] });
+
+    render(ElastiCachePage);
+
+    await fireEvent.click(screen.getByText("Snapshots"));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("No snapshots found")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("switches to users tab and shows empty state", async () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+    mockSend.mockResolvedValueOnce({ Users: [] });
+
+    render(ElastiCachePage);
+
+    await fireEvent.click(screen.getByText("Users"));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("No users found")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("switches to serverless tab and shows empty state", async () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+    mockSend.mockResolvedValueOnce({ ServerlessCaches: [] });
+
+    render(ElastiCachePage);
+
+    await fireEvent.click(screen.getByText("Serverless"));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("No serverless caches found")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("switches to metrics tab and shows resource overview", async () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+    mockSend.mockResolvedValue({
+      CacheClusters: [],
+      ReplicationGroups: [],
+      CacheParameterGroups: [],
+      CacheSubnetGroups: [],
+      Snapshots: [],
+      Users: [],
+      ServerlessCaches: [],
+    });
+
+    render(ElastiCachePage);
+
+    await fireEvent.click(screen.getByText("Metrics"));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("Resource Overview")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("switches to docs tab and shows operation documentation", async () => {
+    mockSend.mockResolvedValueOnce({ CacheClusters: [] });
+
+    render(ElastiCachePage);
+
+    await fireEvent.click(screen.getByText("Docs"));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("ElastiCache Operations")).toBeInTheDocument();
       },
       { timeout: 3000 },
     );

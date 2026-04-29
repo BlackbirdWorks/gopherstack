@@ -37,6 +37,8 @@ type backendSnapshot struct {
 	ServerlessCaches          map[string]*ServerlessCache             `json:"serverlessCaches,omitempty"`
 	ServerlessCacheSnapshots  map[string]*ServerlessCacheSnapshot     `json:"serverlessCacheSnapshots,omitempty"`
 	Users                     map[string]*User                        `json:"users,omitempty"`
+	UserGroups                map[string]*UserGroup                   `json:"userGroups,omitempty"`
+	ReservedCacheNodes        map[string]*ReservedCacheNode           `json:"reservedCacheNodes,omitempty"`
 	EngineMode                string                                  `json:"engineMode"`
 	AccountID                 string                                  `json:"accountID"`
 	Region                    string                                  `json:"region"`
@@ -81,7 +83,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ServerlessCaches:          b.serverlessCaches,
 		ServerlessCacheSnapshots:  b.serverlessCacheSnapshots,
 		Users:                     b.users,
-		Events:                    b.events,
+		UserGroups:                b.userGroups,
+		ReservedCacheNodes:        b.reservedCacheNodes,
+		Events:                    b.events.marshalJSON(),
 		EngineMode:                b.engineMode,
 		AccountID:                 b.accountID,
 		Region:                    b.region,
@@ -157,6 +161,18 @@ func (b *InMemoryBackend) restoreNewOpMaps(snap *backendSnapshot) {
 	} else {
 		b.users = make(map[string]*User)
 	}
+
+	if snap.UserGroups != nil {
+		b.userGroups = snap.UserGroups
+	} else {
+		b.userGroups = make(map[string]*UserGroup)
+	}
+
+	if snap.ReservedCacheNodes != nil {
+		b.reservedCacheNodes = snap.ReservedCacheNodes
+	} else {
+		b.reservedCacheNodes = make(map[string]*ReservedCacheNode)
+	}
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -199,11 +215,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.restoreNewOpMaps(&snap)
 
-	if snap.Events != nil {
-		b.events = snap.Events
-	} else {
-		b.events = make([]CacheEvent, 0)
-	}
+	b.events.restoreFromSlice(snap.Events)
 
 	b.engineMode = snap.EngineMode
 	b.accountID = snap.AccountID

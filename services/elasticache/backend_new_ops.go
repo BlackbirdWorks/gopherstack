@@ -215,6 +215,7 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 		Tags:                     tags.New("elasticache.grg." + id + ".tags"),
 	}
 	b.globalReplicationGroups[id] = grg
+	b.appendEventLocked(id, "global-replication-group", "global replication group created")
 
 	return grg, nil
 }
@@ -246,6 +247,7 @@ func (b *InMemoryBackend) CreateServerlessCache(name, description, engine string
 		Tags:        tags.New("elasticache.serverless." + name + ".tags"),
 	}
 	b.serverlessCaches[name] = sc
+	b.appendEventLocked(name, "serverless-cache", "serverless cache created")
 
 	return sc, nil
 }
@@ -347,6 +349,7 @@ func (b *InMemoryBackend) CreateUser(
 		Tags:               tags.New("elasticache.user." + userID + ".tags"),
 	}
 	b.users[userID] = u
+	b.appendEventLocked(userID, "user", "user created")
 
 	return u, nil
 }
