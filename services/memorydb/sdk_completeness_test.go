@@ -17,10 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := memorydb.NewInMemoryBackend()
 	h := memorydb.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &memorydbsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DescribeMultiRegionParameters",
-		"DescribeReservedNodes",
-		"DescribeReservedNodesOfferings",
-		"PurchaseReservedNodesOffering",
-	})
+	sdkcheck.CheckCompleteness(t, &memorydbsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

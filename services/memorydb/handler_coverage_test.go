@@ -103,6 +103,11 @@ func TestHandler_UpdateACL(t *testing.T) {
 			h := newTestHandler(t)
 
 			if tt.name == "updates ACL" {
+				doRequest(t, h, "CreateUser", map[string]any{
+					"UserName":           "user1",
+					"AccessString":       "on ~* &* +@all",
+					"AuthenticationMode": map[string]any{"Type": "no-password"},
+				})
 				doRequest(t, h, "CreateACL", map[string]any{"ACLName": "my-acl"})
 			}
 
