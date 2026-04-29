@@ -3,7 +3,9 @@
 	import { getRedshiftDataClient } from '$lib/aws-client';
 	import {
 		ExecuteStatementCommand,
+		BatchExecuteStatementCommand,
 		DescribeStatementCommand,
+		DescribeTableCommand,
 		GetStatementResultCommand,
 		ListStatementsCommand,
 		CancelStatementCommand,
@@ -27,28 +29,60 @@
 		Download,
 		Trash2,
 		BookOpen,
-		BarChart2
+		BarChart2,
+		Layers,
+		Code2,
+		ChevronDown
 	} from 'lucide-svelte';
 
 	const client = getRedshiftDataClient();
+	const LS_PREFIX = 'gopherstack_redshiftdata_';
+
+	function lsGet(key: string, fallback: string): string {
+		try {
+			return localStorage.getItem(LS_PREFIX + key) ?? fallback;
+		} catch {
+			return fallback;
+		}
+	}
+	function lsSet(key: string, value: string) {
+		try {
+			localStorage.setItem(LS_PREFIX + key, value);
+		} catch {
+			// ignore
+		}
+	}
 
 	let activeTab = $state<'query' | 'history' | 'schema' | 'docs' | 'metrics'>('query');
 
-	// --- Connection settings ---
-	let database = $state('dev');
-	let workgroupName = $state('');
-	let clusterIdentifier = $state('');
-	let dbUser = $state('');
-	let secretArn = $state('');
-	let statementName = $state('');
+	// --- Connection settings (persisted to localStorage) ---
+	let database = $state(lsGet('database', 'dev'));
+	let workgroupName = $state(lsGet('workgroupName', ''));
+	let clusterIdentifier = $state(lsGet('clusterIdentifier', ''));
+	let dbUser = $state(lsGet('dbUser', ''));
+	let secretArn = $state(lsGet('secretArn', ''));
+	let statementName = $state(lsGet('statementName', ''));
+
+	$effect(() => { lsSet('database', database); });
+	$effect(() => { lsSet('workgroupName', workgroupName); });
+	$effect(() => { lsSet('clusterIdentifier', clusterIdentifier); });
+	$effect(() => { lsSet('dbUser', dbUser); });
+	$effect(() => { lsSet('secretArn', secretArn); });
+	$effect(() => { lsSet('statementName', statementName); });
 
 	// --- SQL editor ---
 	let sqlText = $state('SELECT 1;');
+	let batchMode = $state(false);
+	let batchSqls = $state('SELECT 1;\nSELECT 2;');
 	let executing = $state(false);
 	let currentStatementId = $state<string | null>(null);
 	let statementStatus = $state<string | null>(null);
 	let statementError = $state<string | null>(null);
 	let executionDurationMs = $state<number | null>(null);
+	let showRawJson = $state(false);
+	let rawJsonData = $state<string | null>(null);
+	let listTruncated = $state(false);
+	let listNextToken = $state<string | null>(null);
 
 	// --- Results ---
 	let resultColumns = $state<string[]>([]);
@@ -68,6 +102,9 @@
 	let schemaLoading = $state(false);
 	let selectedSchema = $state<string | null>(null);
 	let schemaSearch = $state('');
+	let expandedTable = $state<string | null>(null);
+	let tableColumns = $state<{ name: string; typeName: string; nullable: number; columnSize: number }[]>([]);
+	let tableColumnsLoading = $state(false);
 
 	// --- Metrics ---
 	let metricsData = $state<{ operation: string; count: number }[]>([]);
@@ -132,8 +169,14 @@
 		}
 	}
 
-	function handleReuseQuery(queryString: string) {
-		sqlText = queryString;
+	function handleReuseQuery(stmt: StatementData) {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const s = stmt as any;
+		sqlText = s.QueryString ?? '';
+		// Restore connection settings from the historical statement.
+		if (s.Database) database = s.Database;
+		if (s.WorkgroupName) workgroupName = s.WorkgroupName;
+		if (s.ClusterIdentifier) clusterIdentifier = s.ClusterIdentifier;
 		activeTab = 'query';
 	}
 
@@ -150,6 +193,10 @@
 		statementError = null;
 		currentStatementId = null;
 		executionDurationMs = null;
+		rawJsonData = null;
+		showRawJson = false;
+		listTruncated = false;
+		listNextToken = null;
 	}
 
 	function exportCsv() {
@@ -179,7 +226,8 @@
 
 	// Execute statement
 	async function executeStatement() {
-		if (!sqlText.trim()) return;
+		const activeSql = batchMode ? batchSqls.trim() : sqlText.trim();
+		if (!activeSql) return;
 		executing = true;
 		statementStatus = null;
 		statementError = null;
@@ -188,19 +236,37 @@
 		resultRows = [];
 		currentStatementId = null;
 		executionDurationMs = null;
+		rawJsonData = null;
+		showRawJson = false;
 
 		try {
-			const resp = await client.send(
-				new ExecuteStatementCommand({
-					Sql: sqlText.trim(),
-					Database: database || undefined,
-					WorkgroupName: workgroupName || undefined,
-					ClusterIdentifier: clusterIdentifier || undefined,
-					DbUser: dbUser || undefined,
-					SecretArn: secretArn || undefined,
-					StatementName: statementName || undefined
-				})
-			);
+			let resp: { Id?: string };
+			if (batchMode) {
+				const sqls = batchSqls.split(';').map((s) => s.trim()).filter(Boolean);
+				resp = await client.send(
+					new BatchExecuteStatementCommand({
+						Sqls: sqls,
+						Database: database || undefined,
+						WorkgroupName: workgroupName || undefined,
+						ClusterIdentifier: clusterIdentifier || undefined,
+						DbUser: dbUser || undefined,
+						SecretArn: secretArn || undefined,
+						StatementName: statementName || undefined
+					})
+				);
+			} else {
+				resp = await client.send(
+					new ExecuteStatementCommand({
+						Sql: sqlText.trim(),
+						Database: database || undefined,
+						WorkgroupName: workgroupName || undefined,
+						ClusterIdentifier: clusterIdentifier || undefined,
+						DbUser: dbUser || undefined,
+						SecretArn: secretArn || undefined,
+						StatementName: statementName || undefined
+					})
+				);
+			}
 			currentStatementId = resp.Id ?? null;
 			toast.success('Statement submitted');
 			if (currentStatementId) {
@@ -231,6 +297,8 @@
 						await loadResults(id);
 					}
 					toast.success(`Query finished${executionDurationMs ? ` in ${formatDuration(executionDurationMs)}` : ''}`);
+					// Auto-refresh history so the completed statement appears immediately.
+					await loadHistory();
 				} else if (resp.Status === 'FAILED' || resp.Status === 'ABORTED') {
 					executing = false;
 					executionDurationMs = (resp as { Duration?: number }).Duration ?? null;
@@ -238,6 +306,8 @@
 					toast.error(
 						'Statement ' + (resp.Status?.toLowerCase() ?? '') + (resp.Error ? ': ' + resp.Error : '')
 					);
+					// Auto-refresh history so the failed statement appears immediately.
+					await loadHistory();
 				} else if (attempts > 60) {
 					executing = false;
 					toast.warning('Statement is taking long. Check history for status.');
@@ -256,6 +326,7 @@
 	async function loadResults(id: string) {
 		try {
 			const resp = await client.send(new GetStatementResultCommand({ Id: id }));
+			rawJsonData = JSON.stringify(resp, null, 2);
 			const colInfo = resp.ColumnMetadata ?? [];
 			resultColumnMeta = colInfo;
 			resultColumns = colInfo.map((c) => c.name ?? c.label ?? '');
@@ -296,12 +367,40 @@
 				})
 			);
 			historyStatements = resp.Statements ?? [];
+			listTruncated = !!(resp as { NextToken?: string }).NextToken;
+			listNextToken = (resp as { NextToken?: string }).NextToken ?? null;
 			historyLastRefreshed = new Date();
 		} catch (e) {
 			toast.error('Failed to load history: ' + String(e));
 		} finally {
 			historyLoading = false;
 		}
+	}
+
+	async function seedDemoData() {
+		const demos = [
+			{ sql: 'SELECT * FROM public.users LIMIT 10;', name: 'users-sample' },
+			{ sql: 'SELECT COUNT(*) FROM raw.events;', name: 'events-count' },
+			{ sql: 'SELECT id, name, email FROM public.users WHERE id = 1;', name: 'user-lookup' }
+		];
+		let ok = 0;
+		for (const d of demos) {
+			try {
+				await client.send(
+					new ExecuteStatementCommand({
+						Sql: d.sql,
+						Database: database || 'dev',
+						StatementName: d.name,
+						WorkgroupName: workgroupName || undefined
+					})
+				);
+				ok++;
+			} catch {
+				// ignore individual failures
+			}
+		}
+		toast.success(`Seeded ${ok} demo statement${ok === 1 ? '' : 's'}`);
+		await loadHistory();
 	}
 
 	async function loadSchema() {
@@ -351,6 +450,38 @@
 		}
 	}
 
+	async function loadTableColumns(schema: string, tableName: string) {
+		const key = `${schema}.${tableName}`;
+		if (expandedTable === key) {
+			expandedTable = null;
+			return;
+		}
+		expandedTable = key;
+		tableColumnsLoading = true;
+		try {
+			const resp = await client.send(
+				new DescribeTableCommand({
+					Database: database || undefined,
+					WorkgroupName: workgroupName || undefined,
+					ClusterIdentifier: clusterIdentifier || undefined,
+					Schema: schema,
+					Table: tableName
+				})
+			);
+			tableColumns = (resp.ColumnList ?? []).map((c: { name?: string; typeName?: string; nullable?: number; columnSize?: number }) => ({
+				name: c.name ?? '',
+				typeName: c.typeName ?? '',
+				nullable: c.nullable ?? 1,
+				columnSize: c.columnSize ?? 0
+			}));
+		} catch (e) {
+			toast.error('Failed to load columns: ' + String(e));
+			expandedTable = null;
+		} finally {
+			tableColumnsLoading = false;
+		}
+	}
+
 	async function loadMetrics() {
 		metricsLoading = true;
 		try {
@@ -385,7 +516,7 @@
 		{ op: 'CancelStatement', desc: 'Cancel a running statement. Only allowed for non-terminal states.' },
 		{ op: 'GetStatementResult', desc: 'Retrieve paginated row results for a FINISHED statement with a result set.' },
 		{ op: 'GetStatementResultV2', desc: 'CSV-format variant of GetStatementResult (Redshift Serverless).' },
-		{ op: 'ListStatements', desc: 'List recent statements filtered by workgroup, cluster, or status.' },
+		{ op: 'ListStatements', desc: 'List recent statements filtered by workgroup, cluster, or status. Supports MaxResults pagination.' },
 		{ op: 'ListDatabases', desc: 'Enumerate databases in the connected Redshift cluster or workgroup.' },
 		{ op: 'ListSchemas', desc: 'List schemas within a database, optionally matching a pattern.' },
 		{ op: 'ListTables', desc: 'List tables/views within a schema, optionally matching a pattern.' },
@@ -440,9 +571,24 @@
 
 	<!-- Tabs -->
 	<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-		{#each [['query', 'SQL Editor'], ['history', 'Query History'], ['schema', 'Schema Browser'], ['docs', 'Docs'], ['metrics', 'Metrics']] as [tab, label]}
+		<button
+			onclick={() => handleTabChange('query')}
+			class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'query' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}
+		>
+			SQL Editor
+		</button>
+		<button
+			onclick={() => handleTabChange('history')}
+			class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${activeTab === 'history' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}
+		>
+			Query History
+			{#if historyStatements.length > 0}
+				<span class="text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-1.5 py-0.5 rounded-full">{historyStatements.length}</span>
+			{/if}
+		</button>
+		{#each [['schema', 'Schema Browser'], ['docs', 'Docs'], ['metrics', 'Metrics']] as [tab, label]}
 			<button
-				onclick={() => handleTabChange(tab as 'query' | 'history' | 'schema' | 'docs' | 'metrics')}
+				onclick={() => handleTabChange(tab as 'schema' | 'docs' | 'metrics')}
 				class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}
 			>
 				{label}
@@ -454,10 +600,22 @@
 	{#if activeTab === 'query'}
 		<div>
 			<div class="flex items-center justify-between mb-2">
-				<label for="rd-sql" class="block text-sm font-semibold text-gray-700 dark:text-gray-300">
-					SQL Statement
-					<span class="ml-2 text-xs font-normal text-gray-400">(Ctrl+Enter to run)</span>
-				</label>
+				<div class="flex items-center gap-3">
+					<label for={batchMode ? 'rd-sql-batch' : 'rd-sql'} class="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+						{batchMode ? 'Batch SQL (semicolon-separated)' : 'SQL Statement'}
+						<span class="ml-2 text-xs font-normal text-gray-400">(Ctrl+Enter to run)</span>
+					</label>
+					<!-- Batch mode toggle -->
+					<button
+						onclick={() => { batchMode = !batchMode; }}
+						aria-label="Toggle batch mode"
+						title={batchMode ? 'Switch to single statement mode' : 'Switch to batch mode'}
+						class={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs border transition-colors ${batchMode ? 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-700' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+					>
+						<Layers class="w-3.5 h-3.5" />
+						{batchMode ? 'Batch ON' : 'Batch OFF'}
+					</button>
+				</div>
 				<div class="flex gap-2">
 					{#if resultColumns.length > 0 || statementStatus}
 						<button
@@ -475,7 +633,7 @@
 					{:else}
 						<button
 							onclick={executeStatement}
-							disabled={!sqlText.trim() || !database.trim()}
+							disabled={batchMode ? !batchSqls.trim() || !database.trim() : !sqlText.trim() || !database.trim()}
 							class="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
 							title="Run Query (Ctrl+Enter)"
 						>
@@ -484,6 +642,17 @@
 					{/if}
 				</div>
 			</div>
+			{#if batchMode}
+				<textarea
+					id="rd-sql-batch"
+					bind:value={batchSqls}
+					rows={8}
+					aria-label="Batch SQL"
+					class="w-full px-4 py-3 rounded-xl border border-purple-300 dark:border-purple-700 bg-white dark:bg-gray-900 text-sm font-mono text-gray-900 dark:text-white resize-y focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+					placeholder="-- Semicolon-separated SQL statements&#10;SELECT 1;&#10;SELECT 2;"
+				></textarea>
+				<p class="text-xs text-gray-400 mt-1">Statements separated by semicolons. Uses BatchExecuteStatement (no result set).</p>
+			{:else}
 			<textarea
 				id="rd-sql"
 				bind:value={sqlText}
@@ -492,6 +661,7 @@
 				class="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-mono text-gray-900 dark:text-white resize-y focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 				placeholder="-- Example: SELECT * FROM public.my_table LIMIT 10;"
 			></textarea>
+			{/if}
 		</div>
 
 		<!-- Status banner -->
@@ -540,38 +710,53 @@
 							({resultRows.length} row{resultRows.length === 1 ? '' : 's'}, {resultColumns.length} col{resultColumns.length === 1 ? '' : 's'})
 						</span>
 					</span>
-					<button
-						onclick={exportCsv}
-						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
-					>
-						<Download class="w-3.5 h-3.5" /> Export CSV
-					</button>
+					<div class="flex items-center gap-2">
+						{#if rawJsonData}
+							<button
+								onclick={() => { showRawJson = !showRawJson; }}
+								aria-label="Toggle raw JSON"
+								class={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors ${showRawJson ? 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+							>
+								<Code2 class="w-3.5 h-3.5" /> {showRawJson ? 'Table View' : 'Raw JSON'}
+							</button>
+						{/if}
+						<button
+							onclick={exportCsv}
+							class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+						>
+							<Download class="w-3.5 h-3.5" /> Export CSV
+						</button>
+					</div>
 				</div>
-				<div class="overflow-auto max-h-96 rounded-xl border border-gray-200 dark:border-gray-700">
-					<table class="w-full text-sm">
-						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase sticky top-0">
-							<tr>
-								{#each resultColumns as col, i}
-									<th class="px-4 py-3 text-left whitespace-nowrap" title={resultColumnMeta[i]?.typeName ?? ''}>
-										{col}
-										{#if resultColumnMeta[i]?.typeName}
-											<span class="ml-1 text-gray-400 normal-case font-normal">({resultColumnMeta[i].typeName})</span>
-										{/if}
-									</th>
-								{/each}
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-900">
-							{#each resultRows as row}
-								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-									{#each row as cell}
-										<td class="px-4 py-2 whitespace-nowrap font-mono text-xs">{cell}</td>
+				{#if showRawJson && rawJsonData}
+					<pre class="overflow-auto max-h-96 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300 p-4 font-mono">{rawJsonData}</pre>
+				{:else}
+					<div class="overflow-auto max-h-96 rounded-xl border border-gray-200 dark:border-gray-700">
+						<table class="w-full text-sm">
+							<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase sticky top-0">
+								<tr>
+									{#each resultColumns as col, i}
+										<th class="px-4 py-3 text-left whitespace-nowrap" title={resultColumnMeta[i]?.typeName ?? ''}>
+											{col}
+											{#if resultColumnMeta[i]?.typeName}
+												<span class="ml-1 text-gray-400 normal-case font-normal">({resultColumnMeta[i].typeName})</span>
+											{/if}
+										</th>
 									{/each}
 								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+							</thead>
+							<tbody class="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-900">
+								{#each resultRows as row}
+									<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+										{#each row as cell}
+											<td class={`px-4 py-2 whitespace-nowrap font-mono text-xs ${cell === 'NULL' ? 'text-gray-400 dark:text-gray-500 italic' : ''}`}>{cell}</td>
+										{/each}
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
 			</div>
 		{:else if statementStatus === 'FINISHED'}
 			<div class="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
@@ -594,6 +779,9 @@
 			<div class="flex items-center gap-2">
 				<span class="text-sm text-gray-600 dark:text-gray-400">
 					{filteredHistory.length} statement{filteredHistory.length === 1 ? '' : 's'}
+					{#if listTruncated}
+						<span class="ml-1 text-xs text-yellow-600 dark:text-yellow-400">(truncated — more results available)</span>
+					{/if}
 				</span>
 				{#if historyLastRefreshed}
 					<span class="text-xs text-gray-400">· refreshed {historyLastRefreshed.toLocaleTimeString()}</span>
@@ -614,6 +802,9 @@
 				</select>
 				<button onclick={loadHistory} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800" aria-label="Refresh history">
 					<RefreshCw class="w-4 h-4" /> Refresh
+				</button>
+				<button onclick={seedDemoData} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800" aria-label="Seed demo queries">
+					<Play class="w-4 h-4" /> Seed Demo
 				</button>
 			</div>
 		</div>
@@ -667,7 +858,7 @@
 								</span>
 								{#if stmt.QueryString}
 									<button
-										onclick={() => handleReuseQuery(stmt.QueryString ?? '')}
+										onclick={() => handleReuseQuery(stmt)}
 										class="text-blue-600 dark:text-blue-400 text-xs hover:underline"
 									>
 										Reuse
@@ -742,37 +933,73 @@
 				</div>
 			{/if}
 
-			<!-- Tables -->
-			{#if filteredTables.length > 0}
-				<div>
-					<h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-						Tables ({filteredTables.length})
-					</h3>
-					<div class="overflow-auto max-h-96 rounded-xl border border-gray-200 dark:border-gray-700">
-						<table class="w-full text-sm">
-							<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase sticky top-0">
-								<tr>
-									<th class="px-4 py-3 text-left">Schema</th>
-									<th class="px-4 py-3 text-left">Table</th>
-									<th class="px-4 py-3 text-left">Type</th>
-									<th class="px-4 py-3 text-left">Action</th>
+		<!-- Tables -->
+		{#if filteredTables.length > 0}
+			<div>
+				<h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+					Tables ({filteredTables.length})
+				</h3>
+				<div class="overflow-auto max-h-96 rounded-xl border border-gray-200 dark:border-gray-700">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase sticky top-0">
+							<tr>
+								<th class="px-4 py-3 text-left">Schema</th>
+								<th class="px-4 py-3 text-left">Table</th>
+								<th class="px-4 py-3 text-left">Type</th>
+								<th class="px-4 py-3 text-left">Actions</th>
 								</tr>
 							</thead>
 							<tbody class="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-900">
 								{#each filteredTables as t}
+									{@const key = `${t.schema}.${t.name}`}
 									<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
 										<td class="px-4 py-2 text-gray-500">{t.schema}</td>
 										<td class="px-4 py-2 font-medium text-blue-600 dark:text-blue-400">{t.name}</td>
 										<td class="px-4 py-2 text-xs text-gray-400">{t.type}</td>
 										<td class="px-4 py-2">
-											<button
-												onclick={() => handleTableQuery(t.schema, t.name)}
-												class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-											>
-												Query
-											</button>
+											<div class="flex items-center gap-2">
+												<button
+													onclick={() => handleTableQuery(t.schema, t.name)}
+													class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+												>
+													Query
+												</button>
+												<button
+													onclick={() => loadTableColumns(t.schema, t.name)}
+													aria-label="Show columns for {t.name}"
+													class="flex items-center gap-0.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+													title="View columns"
+												>
+													<ChevronDown class={`w-3.5 h-3.5 transition-transform ${expandedTable === key ? 'rotate-180' : ''}`} />
+													Cols
+												</button>
+											</div>
 										</td>
 									</tr>
+									{#if expandedTable === key}
+										<tr>
+											<td colspan="4" class="px-4 py-3 bg-gray-50 dark:bg-gray-800/60">
+												{#if tableColumnsLoading}
+													<div class="flex items-center gap-2 text-xs text-gray-500">
+														<div class="animate-spin w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+														Loading columns…
+													</div>
+												{:else}
+													<div class="flex flex-wrap gap-2">
+														{#each tableColumns as col}
+															<span class="px-2 py-0.5 rounded bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-xs font-mono">
+																<span class="text-gray-700 dark:text-gray-300">{col.name}</span>
+																<span class="ml-1 text-gray-400">{col.typeName}</span>
+																{#if col.nullable === 0}
+																	<span class="ml-1 text-orange-400">NOT NULL</span>
+																{/if}
+															</span>
+														{/each}
+													</div>
+												{/if}
+											</td>
+										</tr>
+									{/if}
 								{/each}
 							</tbody>
 						</table>
@@ -782,7 +1009,7 @@
 				<div class="text-center py-16 text-gray-500 dark:text-gray-400">
 					<Database class="w-12 h-12 mx-auto mb-3 opacity-40" />
 					<p class="font-medium">No tables found</p>
-					<p class="text-sm mt-1">The mock backend returns an empty schema. Connect to a real Redshift endpoint to browse tables.</p>
+					<p class="text-sm mt-1">Click Refresh to load the schema from the connected Redshift endpoint.</p>
 				</div>
 			{/if}
 		{/if}

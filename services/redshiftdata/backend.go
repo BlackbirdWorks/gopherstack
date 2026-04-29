@@ -26,10 +26,14 @@ const (
 	maxListStatementsResults = 100
 	// defaultListStatementsResults is the default page size for ListStatements when MaxResults is 0.
 	defaultListStatementsResults = 100
+	// mockColumnSize is the VARCHAR column size used in demo result metadata.
+	mockColumnSize = int64(256)
+	// mockColumnNullable indicates the demo column allows NULL.
+	mockColumnNullable = int64(1)
 	// demoResultRows is the simulated row count returned for FINISHED single statements.
-	demoResultRows = 1
+	demoResultRows = int64(1)
 	// demoResultSize is the simulated result payload size in bytes for FINISHED statements.
-	demoResultSize = 64
+	demoResultSize = int64(64)
 )
 
 var (

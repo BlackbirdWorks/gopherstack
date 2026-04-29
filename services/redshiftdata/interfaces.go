@@ -17,7 +17,10 @@ type StorageBackend interface {
 	DescribeStatement(id string) (*Statement, error)
 	CancelStatement(id string) error
 	// ListStatements returns a page of statements and a next-token for pagination.
-	ListStatements(clusterIdentifier, workgroupName, statusFilter, roleLevel string, maxResults int) ([]*Statement, string)
+	ListStatements(
+		clusterIdentifier, workgroupName, statusFilter, roleLevel string,
+		maxResults int,
+	) ([]*Statement, string)
 
 	// Lifecycle
 	Reset()

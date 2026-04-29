@@ -284,7 +284,11 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 	}
 
 	if !stmt.HasResultSet {
-		return nil, fmt.Errorf("%w: statement %s does not have a result set", ErrNoResultSet, req.ID)
+		return nil, fmt.Errorf(
+			"%w: statement %s does not have a result set",
+			ErrNoResultSet,
+			req.ID,
+		)
 	}
 
 	// Return a single demo row so the UI can render a non-empty result table.
@@ -297,8 +301,8 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 				"name":       "column1",
 				"label":      "column1",
 				"typeName":   "varchar",
-				"columnSize": int64(256),
-				"nullable":   int64(1),
+				"columnSize": mockColumnSize,
+				"nullable":   mockColumnNullable,
 			},
 		},
 		"TotalNumRows": int64(1),
@@ -325,7 +329,11 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 	}
 
 	if !stmt.HasResultSet {
-		return nil, fmt.Errorf("%w: statement %s does not have a result set", ErrNoResultSet, req.ID)
+		return nil, fmt.Errorf(
+			"%w: statement %s does not have a result set",
+			ErrNoResultSet,
+			req.ID,
+		)
 	}
 
 	// Return a single demo CSV record matching the V2 format.
@@ -336,8 +344,8 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 				"name":       "column1",
 				"label":      "column1",
 				"typeName":   "varchar",
-				"columnSize": int64(256),
-				"nullable":   int64(1),
+				"columnSize": mockColumnSize,
+				"nullable":   mockColumnNullable,
 			},
 		},
 		"TotalNumRows": int64(1),
@@ -349,12 +357,10 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 	var req struct {
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		WorkgroupName     string `json:"WorkgroupName"`
-		// Status filters by statement status (e.g. "FINISHED", "FAILED").
-		Status string `json:"Status"`
-		// RoleLevel filters to statements submitted at the specified role level.
-		RoleLevel  string `json:"RoleLevel"`
-		MaxResults int    `json:"MaxResults"`
-		NextToken  string `json:"NextToken"`
+		Status            string `json:"Status"`
+		RoleLevel         string `json:"RoleLevel"`
+		NextToken         string `json:"NextToken"`
+		MaxResults        int    `json:"MaxResults"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -362,7 +368,11 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 	}
 
 	if req.MaxResults > maxListStatementsResults {
-		return nil, fmt.Errorf("%w: MaxResults must be ≤ %d", ErrValidation, maxListStatementsResults)
+		return nil, fmt.Errorf(
+			"%w: MaxResults must be ≤ %d",
+			ErrValidation,
+			maxListStatementsResults,
+		)
 	}
 
 	stmts, nextToken := h.Backend.ListStatements(
@@ -414,7 +424,7 @@ func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, e
 		WorkgroupName     string `json:"WorkgroupName"`
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		SecretArn         string `json:"SecretArn"`
-		DbUser            string `json:"DbUser"`
+		DBUser            string `json:"DbUser"`
 		NextToken         string `json:"NextToken"`
 		MaxResults        int    `json:"MaxResults"`
 	}
@@ -423,7 +433,7 @@ func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, e
 	_ = json.Unmarshal(body, &req)
 
 	return json.Marshal(map[string]any{
-		"Databases": demoDatabases,
+		"Databases": buildDemoDatabases(),
 	})
 }
 
@@ -433,7 +443,7 @@ func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, err
 		WorkgroupName     string `json:"WorkgroupName"`
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		SecretArn         string `json:"SecretArn"`
-		DbUser            string `json:"DbUser"`
+		DBUser            string `json:"DbUser"`
 		SchemaPattern     string `json:"SchemaPattern"`
 		NextToken         string `json:"NextToken"`
 		MaxResults        int    `json:"MaxResults"`
@@ -443,7 +453,7 @@ func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, err
 	_ = json.Unmarshal(body, &req)
 
 	return json.Marshal(map[string]any{
-		"Schemas": demoSchemas,
+		"Schemas": buildDemoSchemas(),
 	})
 }
 
@@ -453,7 +463,7 @@ func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, erro
 		WorkgroupName     string `json:"WorkgroupName"`
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		SecretArn         string `json:"SecretArn"`
-		DbUser            string `json:"DbUser"`
+		DBUser            string `json:"DbUser"`
 		SchemaPattern     string `json:"SchemaPattern"`
 		TablePattern      string `json:"TablePattern"`
 		TableType         string `json:"TableType"`
@@ -465,7 +475,7 @@ func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, erro
 	_ = json.Unmarshal(body, &req)
 
 	return json.Marshal(map[string]any{
-		"Tables": demoTables,
+		"Tables": buildDemoTables(),
 	})
 }
 
@@ -475,7 +485,7 @@ func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, e
 		WorkgroupName     string `json:"WorkgroupName"`
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		SecretArn         string `json:"SecretArn"`
-		DbUser            string `json:"DbUser"`
+		DBUser            string `json:"DbUser"`
 		Schema            string `json:"Schema"`
 		Table             string `json:"Table"`
 	}
@@ -484,7 +494,7 @@ func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, e
 	_ = json.Unmarshal(body, &req)
 
 	return json.Marshal(map[string]any{
-		"ColumnList": demoColumns,
+		"ColumnList": buildDemoColumns(),
 		"TableName": map[string]any{
 			"schema": req.Schema,
 			"name":   req.Table,
@@ -505,7 +515,9 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrTerminalState), errors.Is(err, ErrValidation), errors.Is(err, ErrNoResultSet):
+	case errors.Is(err, ErrTerminalState),
+		errors.Is(err, ErrValidation),
+		errors.Is(err, ErrNoResultSet):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "ValidationException",
 			"message": err.Error(),
@@ -634,29 +646,78 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 	return resp
 }
 
-// demoDatabases is a fixed set of realistic demo databases returned by ListDatabases.
-var demoDatabases = []string{"dev", "prod", "staging", "analytics"}
+// listDemoData holds the static demo payloads for metadata list operations.
+// These are package-level functions to avoid gochecknoglobals violations.
 
-// demoSchemas is a fixed set of realistic demo schemas returned by ListSchemas.
-var demoSchemas = []string{"public", "information_schema", "pg_catalog", "raw", "curated"}
-
-// demoTables is a fixed set of realistic demo tables returned by ListTables.
-var demoTables = []map[string]any{
-	{"name": "users", "schema": "public", "type": "TABLE"},
-	{"name": "orders", "schema": "public", "type": "TABLE"},
-	{"name": "events", "schema": "raw", "type": "TABLE"},
-	{"name": "sessions", "schema": "raw", "type": "TABLE"},
-	{"name": "daily_summary", "schema": "curated", "type": "VIEW"},
-	{"name": "user_metrics", "schema": "curated", "type": "VIEW"},
-	{"name": "columns", "schema": "information_schema", "type": "TABLE"},
-	{"name": "tables", "schema": "information_schema", "type": "TABLE"},
+// buildDemoDatabases returns a realistic demo list of database names.
+func buildDemoDatabases() []string {
+	return []string{"dev", "prod", "staging", "analytics"}
 }
 
-// demoColumns is a fixed set of column metadata returned by DescribeTable.
-var demoColumns = []map[string]any{
-	{"name": "id", "typeName": "int4", "columnSize": int64(10), "nullable": int64(0), "schemaName": "public"},
-	{"name": "name", "typeName": "varchar", "columnSize": int64(255), "nullable": int64(1), "schemaName": "public"},
-	{"name": "email", "typeName": "varchar", "columnSize": int64(255), "nullable": int64(1), "schemaName": "public"},
-	{"name": "created_at", "typeName": "timestamp", "columnSize": int64(29), "nullable": int64(1), "schemaName": "public"},
-	{"name": "updated_at", "typeName": "timestamp", "columnSize": int64(29), "nullable": int64(1), "schemaName": "public"},
+// buildDemoSchemas returns a realistic demo list of schema names.
+func buildDemoSchemas() []string {
+	return []string{"public", "information_schema", "pg_catalog", "raw", "curated"}
+}
+
+// buildDemoTables returns a realistic demo list of table descriptors.
+func buildDemoTables() []map[string]any {
+	return []map[string]any{
+		{"name": "users", "schema": "public", "type": "TABLE"},
+		{"name": "orders", "schema": "public", "type": "TABLE"},
+		{"name": "events", "schema": "raw", "type": "TABLE"},
+		{"name": "sessions", "schema": "raw", "type": "TABLE"},
+		{"name": "daily_summary", "schema": "curated", "type": "VIEW"},
+		{"name": "user_metrics", "schema": "curated", "type": "VIEW"},
+		{"name": "columns", "schema": "information_schema", "type": "TABLE"},
+		{"name": "tables", "schema": "information_schema", "type": "TABLE"},
+	}
+}
+
+// buildDemoColumns returns a realistic demo list of column descriptors for DescribeTable.
+func buildDemoColumns() []map[string]any {
+	const (
+		sizeInt       = int64(10)
+		sizeVarchar   = int64(255)
+		sizeTimestamp = int64(29)
+		notNull       = int64(0)
+		nullable      = int64(1)
+	)
+
+	return []map[string]any{
+		{
+			"name":       "id",
+			"typeName":   "int4",
+			"columnSize": sizeInt,
+			"nullable":   notNull,
+			"schemaName": "public",
+		},
+		{
+			"name":       "name",
+			"typeName":   "varchar",
+			"columnSize": sizeVarchar,
+			"nullable":   nullable,
+			"schemaName": "public",
+		},
+		{
+			"name":       "email",
+			"typeName":   "varchar",
+			"columnSize": sizeVarchar,
+			"nullable":   nullable,
+			"schemaName": "public",
+		},
+		{
+			"name":       "created_at",
+			"typeName":   "timestamp",
+			"columnSize": sizeTimestamp,
+			"nullable":   nullable,
+			"schemaName": "public",
+		},
+		{
+			"name":       "updated_at",
+			"typeName":   "timestamp",
+			"columnSize": sizeTimestamp,
+			"nullable":   nullable,
+			"schemaName": "public",
+		},
+	}
 }

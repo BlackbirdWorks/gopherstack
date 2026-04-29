@@ -215,4 +215,94 @@ describe("RedshiftData Page", () => {
       { timeout: 5000 },
     );
   });
+
+  it("shows batch mode toggle button", () => {
+    render(RedshiftDataPage);
+    expect(screen.getByRole("button", { name: "Toggle batch mode" })).toBeInTheDocument();
+  });
+
+  it("toggles to batch mode when Batch OFF button is clicked", async () => {
+    render(RedshiftDataPage);
+    const batchBtn = screen.getByRole("button", { name: "Toggle batch mode" });
+    expect(batchBtn).toHaveTextContent("Batch OFF");
+    await fireEvent.click(batchBtn);
+    expect(batchBtn).toHaveTextContent("Batch ON");
+  });
+
+  it("shows Batch SQL textarea when batch mode is active", async () => {
+    render(RedshiftDataPage);
+    const batchBtn = screen.getByRole("button", { name: "Toggle batch mode" });
+    await fireEvent.click(batchBtn);
+    expect(screen.getByRole("textbox", { name: "Batch SQL" })).toBeInTheDocument();
+  });
+
+  it("shows history statement count badge when there are statements", async () => {
+    mockSend.mockResolvedValue({
+      Statements: [
+        { Id: "s1", QueryString: "SELECT 1", Status: "FINISHED", CreatedAt: new Date() },
+        { Id: "s2", QueryString: "SELECT 2", Status: "FINISHED", CreatedAt: new Date() },
+      ],
+    });
+    render(RedshiftDataPage);
+    await waitFor(
+      () => {
+        // Badge should show count 2
+        expect(screen.getByText("2")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("shows Seed Demo button in history tab", async () => {
+    mockSend.mockResolvedValue({ Statements: [] });
+    render(RedshiftDataPage);
+    await fireEvent.click(screen.getByText("Query History"));
+    await waitFor(
+      () => {
+        expect(screen.getByRole("button", { name: "Seed demo queries" })).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("shows Raw JSON toggle button after results loaded", async () => {
+    mockSend
+      .mockResolvedValueOnce({ Statements: [] })
+      .mockResolvedValueOnce({ Id: "stmt-raw" })
+      .mockResolvedValueOnce({ Status: "FINISHED", HasResultSet: true })
+      .mockResolvedValueOnce({
+        ColumnMetadata: [{ name: "col1", typeName: "varchar" }],
+        Records: [[{ stringValue: "hello" }]],
+      });
+    render(RedshiftDataPage);
+    const btn = screen.getByText("Run Query").closest("button")!;
+    await fireEvent.click(btn);
+    await waitFor(
+      () => {
+        expect(screen.getByRole("button", { name: "Toggle raw JSON" })).toBeInTheDocument();
+      },
+      { timeout: 5000 },
+    );
+  });
+
+  it("NULL cells have italic class in results", async () => {
+    mockSend
+      .mockResolvedValueOnce({ Statements: [] })
+      .mockResolvedValueOnce({ Id: "stmt-null" })
+      .mockResolvedValueOnce({ Status: "FINISHED", HasResultSet: true })
+      .mockResolvedValueOnce({
+        ColumnMetadata: [{ name: "col1", typeName: "varchar" }],
+        Records: [[{ isNull: true }]],
+      });
+    render(RedshiftDataPage);
+    const btn = screen.getByText("Run Query").closest("button")!;
+    await fireEvent.click(btn);
+    await waitFor(
+      () => {
+        const nullCell = screen.getByText("NULL");
+        expect(nullCell.className).toContain("italic");
+      },
+      { timeout: 5000 },
+    );
+  });
 });
