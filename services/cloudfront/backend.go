@@ -32,6 +32,14 @@ var (
 	ErrContinuousDeploymentPolicyNotFound = awserr.New("NoSuchContinuousDeploymentPolicy", awserr.ErrNotFound)
 	// ErrInvalidationNotFound is returned when a requested invalidation does not exist.
 	ErrInvalidationNotFound = awserr.New("NoSuchInvalidation", awserr.ErrNotFound)
+	// ErrOACNotFound is returned when a requested origin access control does not exist.
+	ErrOACNotFound = awserr.New("NoSuchOriginAccessControl", awserr.ErrNotFound)
+	// ErrResponseHeadersPolicyNotFound is returned when a requested response headers policy does not exist.
+	ErrResponseHeadersPolicyNotFound = awserr.New("NoSuchResponseHeadersPolicy", awserr.ErrNotFound)
+	// ErrFunctionNotFound is returned when a requested CloudFront function does not exist.
+	ErrFunctionNotFound = awserr.New("NoSuchFunctionExists", awserr.ErrNotFound)
+	// ErrOriginRequestPolicyNotFound is returned when a requested origin request policy does not exist.
+	ErrOriginRequestPolicyNotFound = awserr.New("NoSuchOriginRequestPolicy", awserr.ErrNotFound)
 	// ErrValidation is returned when request parameters fail validation.
 	ErrValidation = awserr.New("InvalidArgument", awserr.ErrInvalidParameter)
 	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
@@ -128,6 +136,44 @@ type ContinuousDeploymentPolicy struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// OriginAccessControl represents a CloudFront Origin Access Control (OAC).
+type OriginAccessControl struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Description     string `json:"description,omitempty"`
+	OriginType      string `json:"originType"`
+	SigningBehavior string `json:"signingBehavior"`
+	SigningProtocol string `json:"signingProtocol"`
+	ETag            string `json:"eTag"`
+}
+
+// ResponseHeadersPolicy represents a CloudFront Response Headers Policy.
+type ResponseHeadersPolicy struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Comment string `json:"comment,omitempty"`
+	ETag    string `json:"eTag"`
+}
+
+// Function represents a CloudFront Function.
+type Function struct {
+	Name         string `json:"name"`
+	Comment      string `json:"comment,omitempty"`
+	Runtime      string `json:"runtime"`
+	FunctionCode string `json:"functionCode"`
+	Status       string `json:"status"` // UNPUBLISHED or LIVE
+	ETag         string `json:"eTag"`
+	ARN          string `json:"arn"`
+}
+
+// OriginRequestPolicy represents a CloudFront Origin Request Policy.
+type OriginRequestPolicy struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Comment string `json:"comment,omitempty"`
+	ETag    string `json:"eTag"`
+}
+
 // InMemoryBackend stores CloudFront resources in memory.
 type InMemoryBackend struct {
 	distributions                map[string]*Distribution
@@ -145,6 +191,13 @@ type InMemoryBackend struct {
 	connectionFunctions          map[string]*ConnectionFunction
 	connectionGroups             map[string]*ConnectionGroup
 	continuousDeploymentPolicies map[string]*ContinuousDeploymentPolicy
+	originAccessControls         map[string]*OriginAccessControl
+	originAccessControlByName    map[string]string // name → OAC ID (uniqueness)
+	responseHeadersPolicies      map[string]*ResponseHeadersPolicy
+	responseHeadersPolicyByName  map[string]string // name → policy ID (uniqueness)
+	functions                    map[string]*Function // name → function
+	originRequestPolicies        map[string]*OriginRequestPolicy
+	originRequestPolicyByName    map[string]string // name → policy ID (uniqueness)
 	mu                           *lockmetrics.RWMutex
 	accountID                    string
 	region                       string
@@ -168,6 +221,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		connectionFunctions:          make(map[string]*ConnectionFunction),
 		connectionGroups:             make(map[string]*ConnectionGroup),
 		continuousDeploymentPolicies: make(map[string]*ContinuousDeploymentPolicy),
+		originAccessControls:         make(map[string]*OriginAccessControl),
+		originAccessControlByName:    make(map[string]string),
+		responseHeadersPolicies:      make(map[string]*ResponseHeadersPolicy),
+		responseHeadersPolicyByName:  make(map[string]string),
+		functions:                    make(map[string]*Function),
+		originRequestPolicies:        make(map[string]*OriginRequestPolicy),
+		originRequestPolicyByName:    make(map[string]string),
 		mu:                           lockmetrics.New("cloudfront"),
 		accountID:                    accountID,
 		region:                       region,
@@ -194,6 +254,13 @@ func (b *InMemoryBackend) Reset() {
 	b.connectionFunctions = make(map[string]*ConnectionFunction)
 	b.connectionGroups = make(map[string]*ConnectionGroup)
 	b.continuousDeploymentPolicies = make(map[string]*ContinuousDeploymentPolicy)
+	b.originAccessControls = make(map[string]*OriginAccessControl)
+	b.originAccessControlByName = make(map[string]string)
+	b.responseHeadersPolicies = make(map[string]*ResponseHeadersPolicy)
+	b.responseHeadersPolicyByName = make(map[string]string)
+	b.functions = make(map[string]*Function)
+	b.originRequestPolicies = make(map[string]*OriginRequestPolicy)
+	b.originRequestPolicyByName = make(map[string]string)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -218,6 +285,16 @@ func (b *InMemoryBackend) anycastIPListARN(id string) string {
 // connectionGroupARN builds an ARN for a connection group.
 func (b *InMemoryBackend) connectionGroupARN(id string) string {
 	return fmt.Sprintf("arn:aws:cloudfront::%s:connection-group/%s", b.accountID, id)
+}
+
+// oacARN builds an ARN for an Origin Access Control.
+func (b *InMemoryBackend) oacARN(id string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:origin-access-control/%s", b.accountID, id)
+}
+
+// functionARN builds an ARN for a CloudFront Function.
+func (b *InMemoryBackend) functionARN(name string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:function/%s", b.accountID, name)
 }
 
 // CreateDistribution creates a new CloudFront distribution.
@@ -784,4 +861,546 @@ func (b *InMemoryBackend) copyDistribution(d *Distribution) *Distribution {
 	cp.Tags = tagsCopy
 
 	return &cp
+}
+
+// --- Cache Policy CRUD ---
+
+// GetCachePolicy returns a cache policy by ID.
+func (b *InMemoryBackend) GetCachePolicy(id string) (*CachePolicy, error) {
+	b.mu.RLock("GetCachePolicy")
+	defer b.mu.RUnlock()
+
+	p, ok := b.cachePolicies[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: cache policy %s not found", ErrCachePolicyNotFound, id)
+	}
+
+	cp := *p
+
+	return &cp, nil
+}
+
+// ListCachePolicies returns all cache policies sorted by ID.
+func (b *InMemoryBackend) ListCachePolicies() []*CachePolicy {
+	b.mu.RLock("ListCachePolicies")
+	defer b.mu.RUnlock()
+
+	list := make([]*CachePolicy, 0, len(b.cachePolicies))
+	for _, p := range b.cachePolicies {
+		cp := *p
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// UpdateCachePolicy updates an existing cache policy.
+func (b *InMemoryBackend) UpdateCachePolicy(
+	id, name, comment string,
+	defaultTTL, maxTTL, minTTL int64,
+) (*CachePolicy, error) {
+	b.mu.Lock("UpdateCachePolicy")
+	defer b.mu.Unlock()
+
+	p, ok := b.cachePolicies[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: cache policy %s not found", ErrCachePolicyNotFound, id)
+	}
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if minTTL < 0 {
+		return nil, fmt.Errorf("%w: MinTTL must be >= 0", ErrValidation)
+	}
+
+	if defaultTTL < minTTL {
+		return nil, fmt.Errorf("%w: DefaultTTL must be >= MinTTL", ErrValidation)
+	}
+
+	if maxTTL < defaultTTL {
+		return nil, fmt.Errorf("%w: MaxTTL must be >= DefaultTTL", ErrValidation)
+	}
+
+	// If name changed, ensure uniqueness and update index.
+	if name != p.Name {
+		if _, exists := b.cachePolicyByName[name]; exists {
+			return nil, fmt.Errorf("%w: cache policy with name %q already exists", ErrAlreadyExists, name)
+		}
+
+		delete(b.cachePolicyByName, p.Name)
+		b.cachePolicyByName[name] = id
+	}
+
+	p.Name = name
+	p.Comment = comment
+	p.DefaultTTL = defaultTTL
+	p.MaxTTL = maxTTL
+	p.MinTTL = minTTL
+
+	cp := *p
+
+	return &cp, nil
+}
+
+// DeleteCachePolicy deletes a cache policy by ID.
+func (b *InMemoryBackend) DeleteCachePolicy(id string) error {
+	b.mu.Lock("DeleteCachePolicy")
+	defer b.mu.Unlock()
+
+	p, ok := b.cachePolicies[id]
+	if !ok {
+		return fmt.Errorf("%w: cache policy %s not found", ErrCachePolicyNotFound, id)
+	}
+
+	delete(b.cachePolicyByName, p.Name)
+	delete(b.cachePolicies, id)
+
+	return nil
+}
+
+// --- Origin Access Control CRUD ---
+
+// CreateOriginAccessControl creates a new Origin Access Control.
+func (b *InMemoryBackend) CreateOriginAccessControl(
+	name, description, originType, signingBehavior, signingProtocol string,
+) (*OriginAccessControl, error) {
+	b.mu.Lock("CreateOriginAccessControl")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if _, exists := b.originAccessControlByName[name]; exists {
+		return nil, fmt.Errorf("%w: origin access control with name %q already exists", ErrAlreadyExists, name)
+	}
+
+	id := generateID()
+	oac := &OriginAccessControl{
+		ID:              id,
+		Name:            name,
+		Description:     description,
+		OriginType:      originType,
+		SigningBehavior: signingBehavior,
+		SigningProtocol: signingProtocol,
+		ETag:            uuid.NewString(),
+	}
+	b.originAccessControls[id] = oac
+	b.originAccessControlByName[name] = id
+	cp := *oac
+
+	return &cp, nil
+}
+
+// GetOriginAccessControl returns an OAC by ID.
+func (b *InMemoryBackend) GetOriginAccessControl(id string) (*OriginAccessControl, error) {
+	b.mu.RLock("GetOriginAccessControl")
+	defer b.mu.RUnlock()
+
+	oac, ok := b.originAccessControls[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: origin access control %s not found", ErrOACNotFound, id)
+	}
+
+	cp := *oac
+
+	return &cp, nil
+}
+
+// ListOriginAccessControls returns all OACs sorted by ID.
+func (b *InMemoryBackend) ListOriginAccessControls() []*OriginAccessControl {
+	b.mu.RLock("ListOriginAccessControls")
+	defer b.mu.RUnlock()
+
+	list := make([]*OriginAccessControl, 0, len(b.originAccessControls))
+	for _, oac := range b.originAccessControls {
+		cp := *oac
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// UpdateOriginAccessControl updates an existing OAC.
+func (b *InMemoryBackend) UpdateOriginAccessControl(
+	id, name, description, originType, signingBehavior, signingProtocol string,
+) (*OriginAccessControl, error) {
+	b.mu.Lock("UpdateOriginAccessControl")
+	defer b.mu.Unlock()
+
+	oac, ok := b.originAccessControls[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: origin access control %s not found", ErrOACNotFound, id)
+	}
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if name != oac.Name {
+		if _, exists := b.originAccessControlByName[name]; exists {
+			return nil, fmt.Errorf("%w: origin access control with name %q already exists", ErrAlreadyExists, name)
+		}
+
+		delete(b.originAccessControlByName, oac.Name)
+		b.originAccessControlByName[name] = id
+	}
+
+	oac.Name = name
+	oac.Description = description
+	oac.OriginType = originType
+	oac.SigningBehavior = signingBehavior
+	oac.SigningProtocol = signingProtocol
+	oac.ETag = uuid.NewString()
+	cp := *oac
+
+	return &cp, nil
+}
+
+// DeleteOriginAccessControl deletes an OAC by ID.
+func (b *InMemoryBackend) DeleteOriginAccessControl(id string) error {
+	b.mu.Lock("DeleteOriginAccessControl")
+	defer b.mu.Unlock()
+
+	oac, ok := b.originAccessControls[id]
+	if !ok {
+		return fmt.Errorf("%w: origin access control %s not found", ErrOACNotFound, id)
+	}
+
+	delete(b.originAccessControlByName, oac.Name)
+	delete(b.originAccessControls, id)
+
+	return nil
+}
+
+// --- Response Headers Policy CRUD ---
+
+// CreateResponseHeadersPolicy creates a new Response Headers Policy.
+func (b *InMemoryBackend) CreateResponseHeadersPolicy(name, comment string) (*ResponseHeadersPolicy, error) {
+	b.mu.Lock("CreateResponseHeadersPolicy")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if _, exists := b.responseHeadersPolicyByName[name]; exists {
+		return nil, fmt.Errorf("%w: response headers policy with name %q already exists", ErrAlreadyExists, name)
+	}
+
+	id := generateID()
+	p := &ResponseHeadersPolicy{
+		ID:      id,
+		Name:    name,
+		Comment: comment,
+		ETag:    uuid.NewString(),
+	}
+	b.responseHeadersPolicies[id] = p
+	b.responseHeadersPolicyByName[name] = id
+	cp := *p
+
+	return &cp, nil
+}
+
+// GetResponseHeadersPolicy returns a Response Headers Policy by ID.
+func (b *InMemoryBackend) GetResponseHeadersPolicy(id string) (*ResponseHeadersPolicy, error) {
+	b.mu.RLock("GetResponseHeadersPolicy")
+	defer b.mu.RUnlock()
+
+	p, ok := b.responseHeadersPolicies[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: response headers policy %s not found", ErrResponseHeadersPolicyNotFound, id)
+	}
+
+	cp := *p
+
+	return &cp, nil
+}
+
+// ListResponseHeadersPolicies returns all Response Headers Policies sorted by ID.
+func (b *InMemoryBackend) ListResponseHeadersPolicies() []*ResponseHeadersPolicy {
+	b.mu.RLock("ListResponseHeadersPolicies")
+	defer b.mu.RUnlock()
+
+	list := make([]*ResponseHeadersPolicy, 0, len(b.responseHeadersPolicies))
+	for _, p := range b.responseHeadersPolicies {
+		cp := *p
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// UpdateResponseHeadersPolicy updates an existing Response Headers Policy.
+func (b *InMemoryBackend) UpdateResponseHeadersPolicy(id, name, comment string) (*ResponseHeadersPolicy, error) {
+	b.mu.Lock("UpdateResponseHeadersPolicy")
+	defer b.mu.Unlock()
+
+	p, ok := b.responseHeadersPolicies[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: response headers policy %s not found", ErrResponseHeadersPolicyNotFound, id)
+	}
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if name != p.Name {
+		if _, exists := b.responseHeadersPolicyByName[name]; exists {
+			return nil, fmt.Errorf("%w: response headers policy with name %q already exists", ErrAlreadyExists, name)
+		}
+
+		delete(b.responseHeadersPolicyByName, p.Name)
+		b.responseHeadersPolicyByName[name] = id
+	}
+
+	p.Name = name
+	p.Comment = comment
+	p.ETag = uuid.NewString()
+	cp := *p
+
+	return &cp, nil
+}
+
+// DeleteResponseHeadersPolicy deletes a Response Headers Policy by ID.
+func (b *InMemoryBackend) DeleteResponseHeadersPolicy(id string) error {
+	b.mu.Lock("DeleteResponseHeadersPolicy")
+	defer b.mu.Unlock()
+
+	p, ok := b.responseHeadersPolicies[id]
+	if !ok {
+		return fmt.Errorf("%w: response headers policy %s not found", ErrResponseHeadersPolicyNotFound, id)
+	}
+
+	delete(b.responseHeadersPolicyByName, p.Name)
+	delete(b.responseHeadersPolicies, id)
+
+	return nil
+}
+
+// --- CloudFront Function CRUD ---
+
+// CreateFunction creates a new CloudFront Function.
+func (b *InMemoryBackend) CreateFunction(name, comment, runtime, functionCode string) (*Function, error) {
+	b.mu.Lock("CreateFunction")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if _, exists := b.functions[name]; exists {
+		return nil, fmt.Errorf("%w: function with name %q already exists", ErrAlreadyExists, name)
+	}
+
+	fn := &Function{
+		Name:         name,
+		Comment:      comment,
+		Runtime:      runtime,
+		FunctionCode: functionCode,
+		Status:       "UNPUBLISHED",
+		ETag:         uuid.NewString(),
+		ARN:          b.functionARN(name),
+	}
+	b.functions[name] = fn
+	cp := *fn
+
+	return &cp, nil
+}
+
+// GetFunction returns a CloudFront Function by name.
+func (b *InMemoryBackend) GetFunction(name string) (*Function, error) {
+	b.mu.RLock("GetFunction")
+	defer b.mu.RUnlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
+	}
+
+	cp := *fn
+
+	return &cp, nil
+}
+
+// ListFunctions returns all CloudFront Functions sorted by name.
+func (b *InMemoryBackend) ListFunctions() []*Function {
+	b.mu.RLock("ListFunctions")
+	defer b.mu.RUnlock()
+
+	list := make([]*Function, 0, len(b.functions))
+	for _, fn := range b.functions {
+		cp := *fn
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// PublishFunction publishes (promotes to LIVE) a CloudFront Function.
+func (b *InMemoryBackend) PublishFunction(name string) (*Function, error) {
+	b.mu.Lock("PublishFunction")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
+	}
+
+	fn.Status = "LIVE"
+	fn.ETag = uuid.NewString()
+	cp := *fn
+
+	return &cp, nil
+}
+
+// UpdateFunction updates an existing CloudFront Function.
+func (b *InMemoryBackend) UpdateFunction(name, comment, runtime, functionCode string) (*Function, error) {
+	b.mu.Lock("UpdateFunction")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
+	}
+
+	fn.Comment = comment
+	fn.Runtime = runtime
+	fn.FunctionCode = functionCode
+	fn.Status = "UNPUBLISHED"
+	fn.ETag = uuid.NewString()
+	cp := *fn
+
+	return &cp, nil
+}
+
+// DeleteFunction deletes a CloudFront Function by name.
+func (b *InMemoryBackend) DeleteFunction(name string) error {
+	b.mu.Lock("DeleteFunction")
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
+	}
+
+	delete(b.functions, name)
+
+	return nil
+}
+
+// --- Origin Request Policy CRUD ---
+
+// CreateOriginRequestPolicy creates a new Origin Request Policy.
+func (b *InMemoryBackend) CreateOriginRequestPolicy(name, comment string) (*OriginRequestPolicy, error) {
+	b.mu.Lock("CreateOriginRequestPolicy")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if _, exists := b.originRequestPolicyByName[name]; exists {
+		return nil, fmt.Errorf("%w: origin request policy with name %q already exists", ErrAlreadyExists, name)
+	}
+
+	id := generateID()
+	p := &OriginRequestPolicy{
+		ID:      id,
+		Name:    name,
+		Comment: comment,
+		ETag:    uuid.NewString(),
+	}
+	b.originRequestPolicies[id] = p
+	b.originRequestPolicyByName[name] = id
+	cp := *p
+
+	return &cp, nil
+}
+
+// GetOriginRequestPolicy returns an Origin Request Policy by ID.
+func (b *InMemoryBackend) GetOriginRequestPolicy(id string) (*OriginRequestPolicy, error) {
+	b.mu.RLock("GetOriginRequestPolicy")
+	defer b.mu.RUnlock()
+
+	p, ok := b.originRequestPolicies[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: origin request policy %s not found", ErrOriginRequestPolicyNotFound, id)
+	}
+
+	cp := *p
+
+	return &cp, nil
+}
+
+// ListOriginRequestPolicies returns all Origin Request Policies sorted by ID.
+func (b *InMemoryBackend) ListOriginRequestPolicies() []*OriginRequestPolicy {
+	b.mu.RLock("ListOriginRequestPolicies")
+	defer b.mu.RUnlock()
+
+	list := make([]*OriginRequestPolicy, 0, len(b.originRequestPolicies))
+	for _, p := range b.originRequestPolicies {
+		cp := *p
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// UpdateOriginRequestPolicy updates an existing Origin Request Policy.
+func (b *InMemoryBackend) UpdateOriginRequestPolicy(id, name, comment string) (*OriginRequestPolicy, error) {
+	b.mu.Lock("UpdateOriginRequestPolicy")
+	defer b.mu.Unlock()
+
+	p, ok := b.originRequestPolicies[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: origin request policy %s not found", ErrOriginRequestPolicyNotFound, id)
+	}
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if name != p.Name {
+		if _, exists := b.originRequestPolicyByName[name]; exists {
+			return nil, fmt.Errorf("%w: origin request policy with name %q already exists", ErrAlreadyExists, name)
+		}
+
+		delete(b.originRequestPolicyByName, p.Name)
+		b.originRequestPolicyByName[name] = id
+	}
+
+	p.Name = name
+	p.Comment = comment
+	p.ETag = uuid.NewString()
+	cp := *p
+
+	return &cp, nil
+}
+
+// DeleteOriginRequestPolicy deletes an Origin Request Policy by ID.
+func (b *InMemoryBackend) DeleteOriginRequestPolicy(id string) error {
+	b.mu.Lock("DeleteOriginRequestPolicy")
+	defer b.mu.Unlock()
+
+	p, ok := b.originRequestPolicies[id]
+	if !ok {
+		return fmt.Errorf("%w: origin request policy %s not found", ErrOriginRequestPolicyNotFound, id)
+	}
+
+	delete(b.originRequestPolicyByName, p.Name)
+	delete(b.originRequestPolicies, id)
+
+	return nil
 }

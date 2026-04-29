@@ -2706,3 +2706,950 @@ func TestRefinement1_HandleGetInvalidationPathFallback(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), inv.ID)
 	assert.Contains(t, rec.Body.String(), "/assets/*")
 }
+
+// ---- New tests for newly implemented operations ----
+
+// TestCachePolicyCRUD covers cache policy get, list, update and delete.
+func TestCachePolicyCRUD(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+setup      func(*testing.T, *cloudfront.Handler) string
+check      func(*testing.T, *httptest.ResponseRecorder, string)
+headers    func(*testing.T, *cloudfront.Handler, string) map[string]string
+name       string
+method     string
+path       string
+body       []byte
+wantStatus int
+}{
+{
+name:   "create_cache_policy_via_handler",
+method: http.MethodPost,
+path:   "/2020-05-31/cache-policy",
+body:   []byte(`<CachePolicyConfig><Name>test-policy</Name><Comment>test</Comment><DefaultTTL>86400</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>0</MinTTL></CachePolicyConfig>`),
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusCreated,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "<CachePolicy")
+assert.Contains(t, rec.Body.String(), "test-policy")
+assert.NotEmpty(t, rec.Header().Get("Location"))
+},
+},
+{
+name:   "get_cache_policy",
+method: http.MethodGet,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateCachePolicy("get-policy", "comment", 86400, 31536000, 0)
+require.NoError(t, err)
+return "/2020-05-31/cache-policy/" + p.ID
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "get-policy")
+},
+},
+{
+name:   "get_cache_policy_not_found",
+method: http.MethodGet,
+path:   "/2020-05-31/cache-policy/DOESNOTEXIST",
+body:   nil,
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusNotFound,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "NoSuchCachePolicy")
+},
+},
+{
+name:   "get_cache_policy_config",
+method: http.MethodGet,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateCachePolicy("cfg-policy", "comment", 86400, 31536000, 0)
+require.NoError(t, err)
+return "/2020-05-31/cache-policy/" + p.ID + "/config"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "cfg-policy")
+assert.Contains(t, rec.Body.String(), "CachePolicyConfig")
+},
+},
+{
+name:   "list_cache_policies",
+method: http.MethodGet,
+path:   "/2020-05-31/cache-policy",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateCachePolicy("list-policy", "comment", 86400, 31536000, 0)
+require.NoError(t, err)
+return ""
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "CachePolicyList")
+assert.Contains(t, rec.Body.String(), "list-policy")
+},
+},
+{
+name:   "update_cache_policy",
+method: http.MethodPut,
+path:   "",
+body:   []byte(`<CachePolicyConfig><Name>updated-policy</Name><Comment>updated</Comment><DefaultTTL>3600</DefaultTTL><MaxTTL>86400</MaxTTL><MinTTL>0</MinTTL></CachePolicyConfig>`),
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateCachePolicy("upd-policy", "comment", 86400, 31536000, 0)
+require.NoError(t, err)
+return "/2020-05-31/cache-policy/" + p.ID
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "updated-policy")
+},
+},
+{
+name:   "delete_cache_policy",
+method: http.MethodDelete,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateCachePolicy("del-policy", "comment", 86400, 31536000, 0)
+require.NoError(t, err)
+return "/2020-05-31/cache-policy/" + p.ID
+},
+wantStatus: http.StatusNoContent,
+check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
+},
+{
+name:   "delete_cache_policy_not_found",
+method: http.MethodDelete,
+path:   "/2020-05-31/cache-policy/DOESNOTEXIST",
+body:   nil,
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusNotFound,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "NoSuchCachePolicy")
+},
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler()
+path := tt.path
+
+if tt.setup != nil {
+if p := tt.setup(t, h); p != "" {
+path = p
+}
+}
+
+var hdrs map[string]string
+if tt.headers != nil {
+hdrs = tt.headers(t, h, path)
+}
+
+rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
+assert.Equal(t, tt.wantStatus, rec.Code)
+
+if tt.check != nil {
+tt.check(t, rec, path)
+}
+})
+}
+}
+
+// TestOriginAccessControlCRUD covers OAC create, get, list, update and delete.
+func TestOriginAccessControlCRUD(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+setup      func(*testing.T, *cloudfront.Handler) string
+check      func(*testing.T, *httptest.ResponseRecorder, string)
+name       string
+method     string
+path       string
+body       []byte
+wantStatus int
+}{
+{
+name:   "create_oac",
+method: http.MethodPost,
+path:   "/2020-05-31/origin-access-control",
+body:   []byte(`<OriginAccessControlConfig><Name>my-oac</Name><Description>desc</Description><OriginAccessControlOriginType>s3</OriginAccessControlOriginType><SigningBehavior>always</SigningBehavior><SigningProtocol>sigv4</SigningProtocol></OriginAccessControlConfig>`),
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusCreated,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "OriginAccessControl")
+assert.Contains(t, rec.Body.String(), "my-oac")
+assert.NotEmpty(t, rec.Header().Get("Location"))
+assert.NotEmpty(t, rec.Header().Get("ETag"))
+},
+},
+{
+name:   "get_oac",
+method: http.MethodGet,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+oac, err := h.Backend.CreateOriginAccessControl("get-oac", "", "s3", "always", "sigv4")
+require.NoError(t, err)
+return "/2020-05-31/origin-access-control/" + oac.ID
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "get-oac")
+assert.NotEmpty(t, rec.Header().Get("ETag"))
+},
+},
+{
+name:   "get_oac_not_found",
+method: http.MethodGet,
+path:   "/2020-05-31/origin-access-control/DOESNOTEXIST",
+body:   nil,
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusNotFound,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "NoSuchOriginAccessControl")
+},
+},
+{
+name:   "get_oac_config",
+method: http.MethodGet,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+oac, err := h.Backend.CreateOriginAccessControl("cfg-oac", "desc", "s3", "always", "sigv4")
+require.NoError(t, err)
+return "/2020-05-31/origin-access-control/" + oac.ID + "/config"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "OriginAccessControlConfig")
+},
+},
+{
+name:   "list_oacs",
+method: http.MethodGet,
+path:   "/2020-05-31/origin-access-control",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateOriginAccessControl("list-oac", "", "s3", "always", "sigv4")
+require.NoError(t, err)
+return ""
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "OriginAccessControlList")
+assert.Contains(t, rec.Body.String(), "list-oac")
+},
+},
+{
+name:   "update_oac",
+method: http.MethodPut,
+path:   "",
+body:   []byte(`<OriginAccessControlConfig><Name>updated-oac</Name><Description>new desc</Description><OriginAccessControlOriginType>s3</OriginAccessControlOriginType><SigningBehavior>never</SigningBehavior><SigningProtocol>sigv4</SigningProtocol></OriginAccessControlConfig>`),
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+oac, err := h.Backend.CreateOriginAccessControl("orig-oac", "", "s3", "always", "sigv4")
+require.NoError(t, err)
+return "/2020-05-31/origin-access-control/" + oac.ID + "/config"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "updated-oac")
+},
+},
+{
+name:   "delete_oac",
+method: http.MethodDelete,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+oac, err := h.Backend.CreateOriginAccessControl("del-oac", "", "s3", "always", "sigv4")
+require.NoError(t, err)
+return "/2020-05-31/origin-access-control/" + oac.ID
+},
+wantStatus: http.StatusNoContent,
+check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
+},
+{
+name:   "delete_oac_not_found",
+method: http.MethodDelete,
+path:   "/2020-05-31/origin-access-control/DOESNOTEXIST",
+body:   nil,
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusNotFound,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "NoSuchOriginAccessControl")
+},
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler()
+path := tt.path
+
+if tt.setup != nil {
+if p := tt.setup(t, h); p != "" {
+path = p
+}
+}
+
+rec := doXML(t, h, tt.method, path, tt.body)
+assert.Equal(t, tt.wantStatus, rec.Code)
+
+if tt.check != nil {
+tt.check(t, rec, path)
+}
+})
+}
+}
+
+// TestResponseHeadersPolicyCRUD covers response headers policy full lifecycle.
+func TestResponseHeadersPolicyCRUD(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+setup      func(*testing.T, *cloudfront.Handler) string
+check      func(*testing.T, *httptest.ResponseRecorder, string)
+name       string
+method     string
+path       string
+body       []byte
+wantStatus int
+}{
+{
+name:   "create_rhp",
+method: http.MethodPost,
+path:   "/2020-05-31/response-headers-policy",
+body:   []byte(`<ResponseHeadersPolicyConfig><Name>my-rhp</Name><Comment>comment</Comment></ResponseHeadersPolicyConfig>`),
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusCreated,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "ResponseHeadersPolicy")
+assert.Contains(t, rec.Body.String(), "my-rhp")
+assert.NotEmpty(t, rec.Header().Get("Location"))
+},
+},
+{
+name:   "get_rhp",
+method: http.MethodGet,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateResponseHeadersPolicy("get-rhp", "")
+require.NoError(t, err)
+return "/2020-05-31/response-headers-policy/" + p.ID
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "get-rhp")
+},
+},
+{
+name:   "get_rhp_not_found",
+method: http.MethodGet,
+path:   "/2020-05-31/response-headers-policy/DOESNOTEXIST",
+body:   nil,
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusNotFound,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "NoSuchResponseHeadersPolicy")
+},
+},
+{
+name:   "get_rhp_config",
+method: http.MethodGet,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateResponseHeadersPolicy("cfg-rhp", "cfg comment")
+require.NoError(t, err)
+return "/2020-05-31/response-headers-policy/" + p.ID + "/config"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "ResponseHeadersPolicyConfig")
+},
+},
+{
+name:   "list_rhps",
+method: http.MethodGet,
+path:   "/2020-05-31/response-headers-policy",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateResponseHeadersPolicy("list-rhp", "")
+require.NoError(t, err)
+return ""
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "ResponseHeadersPolicyList")
+assert.Contains(t, rec.Body.String(), "list-rhp")
+},
+},
+{
+name:   "update_rhp",
+method: http.MethodPut,
+path:   "",
+body:   []byte(`<ResponseHeadersPolicyConfig><Name>updated-rhp</Name><Comment>new</Comment></ResponseHeadersPolicyConfig>`),
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateResponseHeadersPolicy("orig-rhp", "")
+require.NoError(t, err)
+return "/2020-05-31/response-headers-policy/" + p.ID + "/config"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "updated-rhp")
+},
+},
+{
+name:   "delete_rhp",
+method: http.MethodDelete,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateResponseHeadersPolicy("del-rhp", "")
+require.NoError(t, err)
+return "/2020-05-31/response-headers-policy/" + p.ID
+},
+wantStatus: http.StatusNoContent,
+check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler()
+path := tt.path
+
+if tt.setup != nil {
+if p := tt.setup(t, h); p != "" {
+path = p
+}
+}
+
+rec := doXML(t, h, tt.method, path, tt.body)
+assert.Equal(t, tt.wantStatus, rec.Code)
+
+if tt.check != nil {
+tt.check(t, rec, path)
+}
+})
+}
+}
+
+// TestCloudFrontFunctionCRUD covers function create, get, describe, list, publish, update, delete, test.
+func TestCloudFrontFunctionCRUD(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+setup      func(*testing.T, *cloudfront.Handler) string
+check      func(*testing.T, *httptest.ResponseRecorder, string)
+name       string
+method     string
+path       string
+body       []byte
+wantStatus int
+}{
+{
+name:   "create_function",
+method: http.MethodPost,
+path:   "/2020-05-31/function",
+body:   []byte(`<CreateFunctionRequest><Name>my-fn</Name><FunctionConfig><Comment>test fn</Comment><Runtime>cloudfront-js-2.0</Runtime></FunctionConfig><FunctionCode>ZnVuY3Rpb24gaGFuZGxlcihldmVudCkge3JldHVybiBldmVudC5yZXF1ZXN0O30=</FunctionCode></CreateFunctionRequest>`),
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusCreated,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "FunctionSummary")
+assert.Contains(t, rec.Body.String(), "my-fn")
+assert.NotEmpty(t, rec.Header().Get("Location"))
+},
+},
+{
+name:   "get_function",
+method: http.MethodGet,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateFunction("get-fn", "comment", "cloudfront-js-2.0", "code")
+require.NoError(t, err)
+return "/2020-05-31/function/get-fn"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "get-fn")
+},
+},
+{
+name:   "get_function_not_found",
+method: http.MethodGet,
+path:   "/2020-05-31/function/DOESNOTEXIST",
+body:   nil,
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusNotFound,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "NoSuchFunctionExists")
+},
+},
+{
+name:   "describe_function",
+method: http.MethodGet,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateFunction("desc-fn", "comment", "cloudfront-js-2.0", "code")
+require.NoError(t, err)
+return "/2020-05-31/function/desc-fn/describe"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "desc-fn")
+},
+},
+{
+name:   "list_functions",
+method: http.MethodGet,
+path:   "/2020-05-31/function",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateFunction("list-fn", "comment", "cloudfront-js-2.0", "code")
+require.NoError(t, err)
+return ""
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "FunctionList")
+assert.Contains(t, rec.Body.String(), "list-fn")
+},
+},
+{
+name:   "publish_function",
+method: http.MethodPost,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateFunction("pub-fn", "comment", "cloudfront-js-2.0", "code")
+require.NoError(t, err)
+return "/2020-05-31/function/pub-fn/publish"
+},
+wantStatus: http.StatusCreated,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "LIVE")
+},
+},
+{
+name:   "update_function",
+method: http.MethodPut,
+path:   "",
+body:   []byte(`<CreateFunctionRequest><Name>upd-fn</Name><FunctionConfig><Comment>updated</Comment><Runtime>cloudfront-js-2.0</Runtime></FunctionConfig></CreateFunctionRequest>`),
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateFunction("upd-fn", "original", "cloudfront-js-2.0", "code")
+require.NoError(t, err)
+return "/2020-05-31/function/upd-fn"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "upd-fn")
+},
+},
+{
+name:   "delete_function",
+method: http.MethodDelete,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateFunction("del-fn", "comment", "cloudfront-js-2.0", "code")
+require.NoError(t, err)
+return "/2020-05-31/function/del-fn"
+},
+wantStatus: http.StatusNoContent,
+check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
+},
+{
+name:   "test_function",
+method: http.MethodPost,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateFunction("test-fn", "comment", "cloudfront-js-2.0", "code")
+require.NoError(t, err)
+return "/2020-05-31/function/test-fn/test"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "TestResult")
+assert.Contains(t, rec.Body.String(), "test-fn")
+},
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler()
+path := tt.path
+
+if tt.setup != nil {
+if p := tt.setup(t, h); p != "" {
+path = p
+}
+}
+
+rec := doXML(t, h, tt.method, path, tt.body)
+assert.Equal(t, tt.wantStatus, rec.Code)
+
+if tt.check != nil {
+tt.check(t, rec, path)
+}
+})
+}
+}
+
+// TestOriginRequestPolicyCRUD covers origin request policy full lifecycle.
+func TestOriginRequestPolicyCRUD(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+setup      func(*testing.T, *cloudfront.Handler) string
+check      func(*testing.T, *httptest.ResponseRecorder, string)
+name       string
+method     string
+path       string
+body       []byte
+wantStatus int
+}{
+{
+name:   "create_orp",
+method: http.MethodPost,
+path:   "/2020-05-31/origin-request-policy",
+body:   []byte(`<OriginRequestPolicyConfig><Name>my-orp</Name><Comment>comment</Comment></OriginRequestPolicyConfig>`),
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusCreated,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "OriginRequestPolicy")
+assert.Contains(t, rec.Body.String(), "my-orp")
+assert.NotEmpty(t, rec.Header().Get("Location"))
+},
+},
+{
+name:   "get_orp",
+method: http.MethodGet,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateOriginRequestPolicy("get-orp", "")
+require.NoError(t, err)
+return "/2020-05-31/origin-request-policy/" + p.ID
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "get-orp")
+},
+},
+{
+name:   "get_orp_not_found",
+method: http.MethodGet,
+path:   "/2020-05-31/origin-request-policy/DOESNOTEXIST",
+body:   nil,
+setup: func(t *testing.T, _ *cloudfront.Handler) string {
+t.Helper()
+return ""
+},
+wantStatus: http.StatusNotFound,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "NoSuchOriginRequestPolicy")
+},
+},
+{
+name:   "get_orp_config",
+method: http.MethodGet,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateOriginRequestPolicy("cfg-orp", "")
+require.NoError(t, err)
+return "/2020-05-31/origin-request-policy/" + p.ID + "/config"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "OriginRequestPolicyConfig")
+},
+},
+{
+name:   "list_orps",
+method: http.MethodGet,
+path:   "/2020-05-31/origin-request-policy",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+_, err := h.Backend.CreateOriginRequestPolicy("list-orp", "")
+require.NoError(t, err)
+return ""
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "OriginRequestPolicyList")
+assert.Contains(t, rec.Body.String(), "list-orp")
+},
+},
+{
+name:   "update_orp",
+method: http.MethodPut,
+path:   "",
+body:   []byte(`<OriginRequestPolicyConfig><Name>updated-orp</Name><Comment>new</Comment></OriginRequestPolicyConfig>`),
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateOriginRequestPolicy("orig-orp", "")
+require.NoError(t, err)
+return "/2020-05-31/origin-request-policy/" + p.ID + "/config"
+},
+wantStatus: http.StatusOK,
+check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+t.Helper()
+assert.Contains(t, rec.Body.String(), "updated-orp")
+},
+},
+{
+name:   "delete_orp",
+method: http.MethodDelete,
+path:   "",
+body:   nil,
+setup: func(t *testing.T, h *cloudfront.Handler) string {
+t.Helper()
+p, err := h.Backend.CreateOriginRequestPolicy("del-orp", "")
+require.NoError(t, err)
+return "/2020-05-31/origin-request-policy/" + p.ID
+},
+wantStatus: http.StatusNoContent,
+check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler()
+path := tt.path
+
+if tt.setup != nil {
+if p := tt.setup(t, h); p != "" {
+path = p
+}
+}
+
+rec := doXML(t, h, tt.method, path, tt.body)
+assert.Equal(t, tt.wantStatus, rec.Code)
+
+if tt.check != nil {
+tt.check(t, rec, path)
+}
+})
+}
+}
+
+// TestNewBackendCRUD tests backend methods for new resource types.
+func TestNewBackendCRUD(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+run     func(*testing.T, *cloudfront.InMemoryBackend)
+name    string
+wantErr bool
+}{
+{
+name: "oac_duplicate_name",
+run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+t.Helper()
+_, err := b.CreateOriginAccessControl("dup", "", "s3", "always", "sigv4")
+require.NoError(t, err)
+_, err = b.CreateOriginAccessControl("dup", "", "s3", "always", "sigv4")
+require.Error(t, err)
+},
+},
+{
+name: "oac_delete_not_found",
+run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+t.Helper()
+err := b.DeleteOriginAccessControl("DOESNOTEXIST")
+require.Error(t, err)
+},
+},
+{
+name: "rhp_duplicate_name",
+run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+t.Helper()
+_, err := b.CreateResponseHeadersPolicy("dup-rhp", "")
+require.NoError(t, err)
+_, err = b.CreateResponseHeadersPolicy("dup-rhp", "")
+require.Error(t, err)
+},
+},
+{
+name: "function_duplicate_name",
+run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+t.Helper()
+_, err := b.CreateFunction("dup-fn", "", "cloudfront-js-2.0", "code")
+require.NoError(t, err)
+_, err = b.CreateFunction("dup-fn", "", "cloudfront-js-2.0", "code")
+require.Error(t, err)
+},
+},
+{
+name: "function_publish_sets_live",
+run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+t.Helper()
+_, err := b.CreateFunction("live-fn", "", "cloudfront-js-2.0", "code")
+require.NoError(t, err)
+fn, err := b.PublishFunction("live-fn")
+require.NoError(t, err)
+assert.Equal(t, "LIVE", fn.Status)
+},
+},
+{
+name: "function_update_sets_unpublished",
+run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+t.Helper()
+_, err := b.CreateFunction("upd-fn2", "", "cloudfront-js-2.0", "code")
+require.NoError(t, err)
+_, err = b.PublishFunction("upd-fn2")
+require.NoError(t, err)
+fn, err := b.UpdateFunction("upd-fn2", "new comment", "cloudfront-js-2.0", "new code")
+require.NoError(t, err)
+assert.Equal(t, "UNPUBLISHED", fn.Status)
+},
+},
+{
+name: "orp_duplicate_name",
+run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+t.Helper()
+_, err := b.CreateOriginRequestPolicy("dup-orp", "")
+require.NoError(t, err)
+_, err = b.CreateOriginRequestPolicy("dup-orp", "")
+require.Error(t, err)
+},
+},
+{
+name: "cache_policy_update_name_conflict",
+run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
+t.Helper()
+_, err := b.CreateCachePolicy("p1", "", 86400, 31536000, 0)
+require.NoError(t, err)
+p2, err := b.CreateCachePolicy("p2", "", 86400, 31536000, 0)
+require.NoError(t, err)
+// Try to rename p2 to p1 (conflict)
+_, err = b.UpdateCachePolicy(p2.ID, "p1", "", 86400, 31536000, 0)
+require.Error(t, err)
+},
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+tt.run(t, b)
+})
+}
+}

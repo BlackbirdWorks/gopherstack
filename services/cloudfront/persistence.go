@@ -14,6 +14,10 @@ type backendSnapshot struct {
 	ConnectionFunctions          map[string]*ConnectionFunction         `json:"connectionFunctions,omitempty"`
 	ConnectionGroups             map[string]*ConnectionGroup            `json:"connectionGroups,omitempty"`
 	ContinuousDeploymentPolicies map[string]*ContinuousDeploymentPolicy `json:"continuousDeploymentPolicies,omitempty"`
+	OriginAccessControls         map[string]*OriginAccessControl        `json:"originAccessControls,omitempty"`
+	ResponseHeadersPolicies      map[string]*ResponseHeadersPolicy      `json:"responseHeadersPolicies,omitempty"`
+	Functions                    map[string]*Function                   `json:"functions,omitempty"`
+	OriginRequestPolicies        map[string]*OriginRequestPolicy        `json:"originRequestPolicies,omitempty"`
 	DistributionAliases          map[string][]string                    `json:"distributionAliases,omitempty"`
 	DistributionWebACLs          map[string]string                      `json:"distributionWebACLs,omitempty"`
 	DistributionTenantWebACLs    map[string]string                      `json:"distributionTenantWebACLs,omitempty"`
@@ -35,6 +39,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ConnectionFunctions:          b.connectionFunctions,
 		ConnectionGroups:             b.connectionGroups,
 		ContinuousDeploymentPolicies: b.continuousDeploymentPolicies,
+		OriginAccessControls:         b.originAccessControls,
+		ResponseHeadersPolicies:      b.responseHeadersPolicies,
+		Functions:                    b.functions,
+		OriginRequestPolicies:        b.originRequestPolicies,
 		DistributionAliases:          b.distributionAliases,
 		DistributionWebACLs:          b.distributionWebACLs,
 		DistributionTenantWebACLs:    b.distributionTenantWebACLs,
@@ -91,6 +99,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		cachePolicyByName[cp.Name] = id
 	}
 
+	// Rebuild OAC by-name index.
+	oacByName := make(map[string]string, len(snap.OriginAccessControls))
+	for id, oac := range snap.OriginAccessControls {
+		oacByName[oac.Name] = id
+	}
+
+	// Rebuild response headers policy by-name index.
+	rhpByName := make(map[string]string, len(snap.ResponseHeadersPolicies))
+	for id, p := range snap.ResponseHeadersPolicies {
+		rhpByName[p.Name] = id
+	}
+
+	// Rebuild origin request policy by-name index.
+	orpByName := make(map[string]string, len(snap.OriginRequestPolicies))
+	for id, p := range snap.OriginRequestPolicies {
+		orpByName[p.Name] = id
+	}
+
 	b.distributions = snap.Distributions
 	b.oais = snap.OAIs
 	b.invalidations = snap.Invalidations
@@ -99,6 +125,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.connectionFunctions = snap.ConnectionFunctions
 	b.connectionGroups = snap.ConnectionGroups
 	b.continuousDeploymentPolicies = snap.ContinuousDeploymentPolicies
+	b.originAccessControls = snap.OriginAccessControls
+	b.responseHeadersPolicies = snap.ResponseHeadersPolicies
+	b.functions = snap.Functions
+	b.originRequestPolicies = snap.OriginRequestPolicies
 	b.distributionAliases = snap.DistributionAliases
 	b.distributionWebACLs = snap.DistributionWebACLs
 	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
@@ -106,6 +136,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.distributionCallerRefs = callerRefIndex
 	b.oaiCallerRefs = oaiCallerRefIndex
 	b.cachePolicyByName = cachePolicyByName
+	b.originAccessControlByName = oacByName
+	b.responseHeadersPolicyByName = rhpByName
+	b.originRequestPolicyByName = orpByName
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -147,6 +180,22 @@ func ensureNonNil(snap *backendSnapshot) {
 		snap.ContinuousDeploymentPolicies = make(map[string]*ContinuousDeploymentPolicy)
 	}
 
+	if snap.OriginAccessControls == nil {
+		snap.OriginAccessControls = make(map[string]*OriginAccessControl)
+	}
+
+	if snap.ResponseHeadersPolicies == nil {
+		snap.ResponseHeadersPolicies = make(map[string]*ResponseHeadersPolicy)
+	}
+
+	if snap.Functions == nil {
+		snap.Functions = make(map[string]*Function)
+	}
+
+	if snap.OriginRequestPolicies == nil {
+		snap.OriginRequestPolicies = make(map[string]*OriginRequestPolicy)
+	}
+
 	if snap.DistributionAliases == nil {
 		snap.DistributionAliases = make(map[string][]string)
 	}
@@ -165,3 +214,4 @@ func (h *Handler) Snapshot() []byte { return h.Backend.Snapshot() }
 
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(data []byte) error { return h.Backend.Restore(data) }
+
