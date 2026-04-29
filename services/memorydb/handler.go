@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -478,7 +479,7 @@ func (h *Handler) handleCreateACL(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, createACLResponse{ACL: toACLObject(acl)})
+	return c.JSON(http.StatusOK, createACLResponse{ACL: toACLObject(acl, []string{})})
 }
 
 func (h *Handler) handleDescribeACLs(c *echo.Context, body []byte) error {
@@ -493,13 +494,19 @@ func (h *Handler) handleDescribeACLs(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
+	// Fetch all clusters once to compute the Clusters field on each ACL.
+	allClusters, _ := h.Backend.DescribeClusters("")
+
+	acls, nextToken := paginateItems(acls, req.NextToken, req.MaxResults, func(a *ACL) string { return a.Name })
+
 	objs := make([]aclObject, 0, len(acls))
 
 	for _, a := range acls {
-		objs = append(objs, toACLObject(a))
+		clusterNames := clustersForACL(allClusters, a.Name)
+		objs = append(objs, toACLObject(a, clusterNames))
 	}
 
-	return c.JSON(http.StatusOK, describeACLResponse{ACLs: objs})
+	return c.JSON(http.StatusOK, describeACLResponse{ACLs: objs, NextToken: nextToken})
 }
 
 func (h *Handler) handleDeleteACL(c *echo.Context, body []byte) error {
@@ -518,7 +525,7 @@ func (h *Handler) handleDeleteACL(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, deleteACLResponse{ACL: toACLObject(acl)})
+	return c.JSON(http.StatusOK, deleteACLResponse{ACL: toACLObject(acl, []string{})})
 }
 
 func (h *Handler) handleUpdateACL(c *echo.Context, body []byte) error {
@@ -537,7 +544,10 @@ func (h *Handler) handleUpdateACL(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, updateACLResponse{ACL: toACLObject(acl)})
+	allClusters, _ := h.Backend.DescribeClusters("")
+	clusterNames := clustersForACL(allClusters, acl.Name)
+
+	return c.JSON(http.StatusOK, updateACLResponse{ACL: toACLObject(acl, clusterNames)})
 }
 
 // -- SubnetGroup handlers --------------------------------------------------------
@@ -573,13 +583,15 @@ func (h *Handler) handleDescribeSubnetGroups(c *echo.Context, body []byte) error
 		return h.writeBackendError(c, err)
 	}
 
+	sgs, nextToken := paginateItems(sgs, req.NextToken, req.MaxResults, func(sg *SubnetGroup) string { return sg.Name })
+
 	objs := make([]subnetGroupObject, 0, len(sgs))
 
 	for _, sg := range sgs {
 		objs = append(objs, toSubnetGroupObject(sg))
 	}
 
-	return c.JSON(http.StatusOK, describeSubnetGroupResponse{SubnetGroups: objs})
+	return c.JSON(http.StatusOK, describeSubnetGroupResponse{SubnetGroups: objs, NextToken: nextToken})
 }
 
 func (h *Handler) handleDeleteSubnetGroup(c *echo.Context, body []byte) error {
@@ -653,13 +665,15 @@ func (h *Handler) handleDescribeUsers(c *echo.Context, body []byte) error {
 		return h.writeBackendError(c, err)
 	}
 
+	users, nextToken := paginateItems(users, req.NextToken, req.MaxResults, func(u *User) string { return u.Name })
+
 	objs := make([]userObject, 0, len(users))
 
 	for _, u := range users {
 		objs = append(objs, toUserObject(u))
 	}
 
-	return c.JSON(http.StatusOK, describeUserResponse{Users: objs})
+	return c.JSON(http.StatusOK, describeUserResponse{Users: objs, NextToken: nextToken})
 }
 
 func (h *Handler) handleDeleteUser(c *echo.Context, body []byte) error {
@@ -733,13 +747,20 @@ func (h *Handler) handleDescribeParameterGroups(c *echo.Context, body []byte) er
 		return h.writeBackendError(c, err)
 	}
 
+	pgs, nextToken := paginateItems(
+		pgs,
+		req.NextToken,
+		req.MaxResults,
+		func(pg *ParameterGroup) string { return pg.Name },
+	)
+
 	objs := make([]parameterGroupObject, 0, len(pgs))
 
 	for _, pg := range pgs {
 		objs = append(objs, toParameterGroupObject(pg))
 	}
 
-	return c.JSON(http.StatusOK, describeParameterGroupResponse{ParameterGroups: objs})
+	return c.JSON(http.StatusOK, describeParameterGroupResponse{ParameterGroups: objs, NextToken: nextToken})
 }
 
 func (h *Handler) handleDeleteParameterGroup(c *echo.Context, body []byte) error {
@@ -925,7 +946,7 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	snapshots, err := h.Backend.DescribeSnapshots(req.SnapshotName, req.ClusterName)
+	snapshots, err := h.Backend.DescribeSnapshots(req.SnapshotName, req.ClusterName, req.SnapshotType)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1368,6 +1389,40 @@ func (h *Handler) handleDescribeMultiRegionParameters(c *echo.Context, body []by
 
 // -- helpers ---------------------------------------------------------------------
 
+// paginateItems applies cursor-based pagination to a slice of named items.
+// getName extracts the name used as a pagination cursor from each item.
+func paginateItems[T any](items []T, token string, maxResults *int32, getName func(T) string) ([]T, string) {
+	if token != "" {
+		items = items[findStartIndex(items, token, getName):]
+	}
+
+	limit := 100
+	if maxResults != nil && *maxResults > 0 && int(*maxResults) < limit {
+		limit = int(*maxResults)
+	}
+
+	var nextToken string
+
+	if limit < len(items) {
+		nextToken = getName(items[limit])
+		items = items[:limit]
+	}
+
+	return items, nextToken
+}
+
+// findStartIndex returns the index after the item whose name equals token,
+// or 0 if not found.
+func findStartIndex[T any](items []T, token string, getName func(T) string) int {
+	for i, item := range items {
+		if getName(item) == token {
+			return i + 1
+		}
+	}
+
+	return 0
+}
+
 // writeBackendError translates a backend error to an HTTP response.
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
@@ -1398,6 +1453,11 @@ func toClusterObject(c *Cluster) clusterObject {
 
 	shards := buildShards(c.Name, c.NumShards)
 
+	sgs := make([]securityGroupMembership, 0, len(c.SecurityGroupIDs))
+	for _, id := range c.SecurityGroupIDs {
+		sgs = append(sgs, securityGroupMembership{SecurityGroupID: id, Status: "active"})
+	}
+
 	return clusterObject{
 		Name:                     c.Name,
 		ARN:                      c.ARN,
@@ -1419,6 +1479,7 @@ func toClusterObject(c *Cluster) clusterObject {
 		Shards:                   shards,
 		AvailabilityMode:         c.AvailabilityMode,
 		NumberOfReplicasPerShard: c.NumReplicasPerShard,
+		SecurityGroups:           sgs,
 		ClusterEndpoint: &endpointObject{
 			Address: c.Name + ".memorydb." + region + ".amazonaws.com",
 			Port:    c.Port,
@@ -1466,13 +1527,28 @@ func buildShards(clusterName string, numShards int32) []shardObject {
 	return shards
 }
 
+// clustersForACL returns the names of clusters that reference the given ACL name.
+func clustersForACL(clusters []*Cluster, aclName string) []string {
+	names := make([]string, 0)
+
+	for _, c := range clusters {
+		if c.ACLName == aclName {
+			names = append(names, c.Name)
+		}
+	}
+
+	return names
+}
+
 // toACLObject converts an ACL to its JSON representation.
-func toACLObject(a *ACL) aclObject {
+// clusterNames is the list of cluster names that reference this ACL.
+func toACLObject(a *ACL, clusterNames []string) aclObject {
 	return aclObject{
 		Name:      a.Name,
 		ARN:       a.ARN,
 		Status:    a.Status,
 		UserNames: a.UserNames,
+		Clusters:  clusterNames,
 	}
 }
 
@@ -1495,11 +1571,18 @@ func toSubnetGroupObject(sg *SubnetGroup) subnetGroupObject {
 
 // toUserObject converts a User to its JSON representation.
 func toUserObject(u *User) userObject {
+	auth := &authenticationObject{Type: u.AuthType}
+	if u.AuthType == "password" && len(u.Passwords) > 0 {
+		count := min(len(u.Passwords), math.MaxInt32)
+		auth.PasswordCount = int32(count) //nolint:gosec // count is bounded to math.MaxInt32 above
+	}
+
 	return userObject{
-		Name:         u.Name,
-		ARN:          u.ARN,
-		AccessString: u.AccessString,
-		Status:       u.Status,
+		Name:           u.Name,
+		ARN:            u.ARN,
+		AccessString:   u.AccessString,
+		Status:         u.Status,
+		Authentication: auth,
 	}
 }
 
@@ -1532,6 +1615,7 @@ func toSnapshotObject(s *Snapshot) snapshotObject {
 		ClusterConfiguration: clusterConfig,
 		Status:               s.Status,
 		KmsKeyID:             s.KmsKeyID,
+		SnapshotType:         s.SnapshotType,
 		CreatedAt:            createdAt,
 	}
 }

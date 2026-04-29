@@ -163,7 +163,7 @@ type StorageBackend interface {
 
 	// Snapshot operations
 	CreateSnapshot(region, accountID string, req *createSnapshotRequest) (*Snapshot, error)
-	DescribeSnapshots(name, clusterName string) ([]*Snapshot, error)
+	DescribeSnapshots(name, clusterName, snapshotType string) ([]*Snapshot, error)
 	CopySnapshot(region, accountID string, req *copySnapshotRequest) (*Snapshot, error)
 	DeleteSnapshot(name string) (*Snapshot, error)
 
@@ -470,12 +470,13 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 	if snapshotName != "" {
 		snapshotARN := arn.Build("memorydb", region, accountID, "snapshot/"+snapshotName)
 		s := &Snapshot{
-			Name:        snapshotName,
-			ARN:         snapshotARN,
-			ClusterName: clusterName,
-			Status:      snapshotStatusAvailable,
-			Tags:        make(map[string]string),
-			CreatedAt:   time.Now(),
+			Name:         snapshotName,
+			ARN:          snapshotARN,
+			ClusterName:  clusterName,
+			Status:       snapshotStatusAvailable,
+			SnapshotType: "manual",
+			Tags:         make(map[string]string),
+			CreatedAt:    time.Now(),
 			ClusterConfiguration: snapshotClusterConfig{
 				Name:          c.Name,
 				NodeType:      c.NodeType,
@@ -1182,13 +1183,14 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 	snapshotARN := arn.Build("memorydb", region, accountID, "snapshot/"+req.SnapshotName)
 
 	s := &Snapshot{
-		Name:        req.SnapshotName,
-		ARN:         snapshotARN,
-		ClusterName: req.ClusterName,
-		Status:      snapshotStatusAvailable,
-		KmsKeyID:    req.KmsKeyID,
-		Tags:        tagsFromSlice(req.Tags),
-		CreatedAt:   time.Now(),
+		Name:         req.SnapshotName,
+		ARN:          snapshotARN,
+		ClusterName:  req.ClusterName,
+		Status:       snapshotStatusAvailable,
+		KmsKeyID:     req.KmsKeyID,
+		SnapshotType: "manual",
+		Tags:         tagsFromSlice(req.Tags),
+		CreatedAt:    time.Now(),
 		ClusterConfiguration: snapshotClusterConfig{
 			Name:          c.Name,
 			NodeType:      c.NodeType,
@@ -1205,8 +1207,8 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 	return s, nil
 }
 
-// DescribeSnapshots returns snapshots, optionally filtered by name or cluster name.
-func (b *InMemoryBackend) DescribeSnapshots(name, clusterName string) ([]*Snapshot, error) {
+// DescribeSnapshots returns snapshots, optionally filtered by name, cluster name, or snapshot type.
+func (b *InMemoryBackend) DescribeSnapshots(name, clusterName, snapshotType string) ([]*Snapshot, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1223,6 +1225,10 @@ func (b *InMemoryBackend) DescribeSnapshots(name, clusterName string) ([]*Snapsh
 
 	for _, s := range b.snapshots {
 		if clusterName != "" && s.ClusterName != clusterName {
+			continue
+		}
+
+		if snapshotType != "" && s.SnapshotType != snapshotType {
 			continue
 		}
 
@@ -1271,6 +1277,7 @@ func (b *InMemoryBackend) CopySnapshot(region, accountID string, req *copySnapsh
 		ClusterName:          src.ClusterName,
 		Status:               snapshotStatusAvailable,
 		KmsKeyID:             kmsKeyID,
+		SnapshotType:         "manual",
 		Tags:                 tags,
 		CreatedAt:            time.Now(),
 		ClusterConfiguration: src.ClusterConfiguration,
@@ -1341,6 +1348,10 @@ func (b *InMemoryBackend) DescribeEngineVersions(req *describeEngineVersionsRequ
 		result = append(result, ev)
 	}
 
+	if req.DefaultOnly && len(result) > 0 {
+		result = result[:1]
+	}
+
 	return result, nil
 }
 
@@ -1372,6 +1383,14 @@ func (b *InMemoryBackend) DescribeEvents(req *describeEventsRequest) ([]*Event, 
 		}
 
 		if req.SourceType != "" && ev.SourceType != req.SourceType {
+			continue
+		}
+
+		if req.StartTime != nil && ev.Date.Before(*req.StartTime) {
+			continue
+		}
+
+		if req.EndTime != nil && ev.Date.After(*req.EndTime) {
 			continue
 		}
 

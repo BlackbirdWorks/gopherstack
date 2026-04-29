@@ -263,29 +263,35 @@ type untagResourceRequest struct {
 
 // -- Response types ---------------------------------------------------------------
 
+type securityGroupMembership struct {
+	SecurityGroupID string `json:"SecurityGroupId,omitempty"`
+	Status          string `json:"Status,omitempty"`
+}
+
 type clusterObject struct {
-	ClusterEndpoint          *endpointObject `json:"ClusterEndpoint,omitempty"`
-	SubnetGroupName          string          `json:"SubnetGroupName,omitempty"`
-	SnsTopicArn              string          `json:"SnsTopicArn,omitempty"`
-	Description              string          `json:"Description,omitempty"`
-	Status                   string          `json:"Status,omitempty"`
-	NodeType                 string          `json:"NodeType,omitempty"`
-	EngineVersion            string          `json:"EngineVersion,omitempty"`
-	EnginePatchVersion       string          `json:"EnginePatchVersion,omitempty"`
-	ARN                      string          `json:"ARN,omitempty"`
-	Name                     string          `json:"Name,omitempty"`
-	ACLName                  string          `json:"ACLName,omitempty"`
-	KmsKeyID                 string          `json:"KmsKeyId,omitempty"`
-	MaintenanceWindow        string          `json:"MaintenanceWindow,omitempty"`
-	ParameterGroupName       string          `json:"ParameterGroupName,omitempty"`
-	SnapshotWindow           string          `json:"SnapshotWindow,omitempty"`
-	AvailabilityMode         string          `json:"AvailabilityMode,omitempty"`
-	Shards                   []shardObject   `json:"Shards,omitempty"`
-	Tags                     []tagEntry      `json:"Tags,omitempty"`
-	NumberOfShards           int32           `json:"NumberOfShards,omitempty"`
-	SnapshotRetentionLimit   int32           `json:"SnapshotRetentionLimit,omitempty"`
-	NumberOfReplicasPerShard int32           `json:"NumberOfReplicasPerShard,omitempty"`
-	TLSEnabled               bool            `json:"TLSEnabled"`
+	ClusterEndpoint          *endpointObject           `json:"ClusterEndpoint,omitempty"`
+	SubnetGroupName          string                    `json:"SubnetGroupName,omitempty"`
+	SnsTopicArn              string                    `json:"SnsTopicArn,omitempty"`
+	Description              string                    `json:"Description,omitempty"`
+	Status                   string                    `json:"Status,omitempty"`
+	NodeType                 string                    `json:"NodeType,omitempty"`
+	EngineVersion            string                    `json:"EngineVersion,omitempty"`
+	EnginePatchVersion       string                    `json:"EnginePatchVersion,omitempty"`
+	ARN                      string                    `json:"ARN,omitempty"`
+	Name                     string                    `json:"Name,omitempty"`
+	ACLName                  string                    `json:"ACLName,omitempty"`
+	KmsKeyID                 string                    `json:"KmsKeyId,omitempty"`
+	MaintenanceWindow        string                    `json:"MaintenanceWindow,omitempty"`
+	ParameterGroupName       string                    `json:"ParameterGroupName,omitempty"`
+	SnapshotWindow           string                    `json:"SnapshotWindow,omitempty"`
+	AvailabilityMode         string                    `json:"AvailabilityMode,omitempty"`
+	Shards                   []shardObject             `json:"Shards,omitempty"`
+	Tags                     []tagEntry                `json:"Tags,omitempty"`
+	SecurityGroups           []securityGroupMembership `json:"SecurityGroups,omitempty"`
+	NumberOfShards           int32                     `json:"NumberOfShards,omitempty"`
+	SnapshotRetentionLimit   int32                     `json:"SnapshotRetentionLimit,omitempty"`
+	NumberOfReplicasPerShard int32                     `json:"NumberOfReplicasPerShard,omitempty"`
+	TLSEnabled               bool                      `json:"TLSEnabled"`
 }
 
 // shardObject represents a single shard in a MemoryDB cluster.
@@ -306,6 +312,7 @@ type aclObject struct {
 	Name      string   `json:"Name,omitempty"`
 	Status    string   `json:"Status,omitempty"`
 	UserNames []string `json:"UserNames,omitempty"`
+	Clusters  []string `json:"Clusters,omitempty"`
 }
 
 type subnetGroupObject struct {
@@ -320,11 +327,17 @@ type subnetEntry struct {
 	Identifier string `json:"Identifier,omitempty"`
 }
 
+type authenticationObject struct {
+	Type          string `json:"Type,omitempty"`
+	PasswordCount int32  `json:"PasswordCount,omitempty"`
+}
+
 type userObject struct {
-	ARN          string `json:"ARN,omitempty"`
-	Name         string `json:"Name,omitempty"`
-	AccessString string `json:"AccessString,omitempty"`
-	Status       string `json:"Status,omitempty"`
+	Authentication *authenticationObject `json:"Authentication,omitempty"`
+	ARN            string                `json:"ARN,omitempty"`
+	Name           string                `json:"Name,omitempty"`
+	AccessString   string                `json:"AccessString,omitempty"`
+	Status         string                `json:"Status,omitempty"`
 }
 
 type parameterGroupObject struct {
@@ -459,6 +472,7 @@ type Snapshot struct {
 	ClusterName          string                `json:"clusterName"`
 	Status               string                `json:"status"`
 	KmsKeyID             string                `json:"kmsKeyID"`
+	SnapshotType         string                `json:"snapshotType"`
 	ClusterConfiguration snapshotClusterConfig `json:"clusterConfiguration"`
 }
 
@@ -548,6 +562,7 @@ type snapshotObject struct {
 	Name                 string                 `json:"Name,omitempty"`
 	Status               string                 `json:"Status,omitempty"`
 	KmsKeyID             string                 `json:"KmsKeyId,omitempty"`
+	SnapshotType         string                 `json:"SnapshotType,omitempty"`
 	CreatedAt            string                 `json:"SnapshotCreationTime,omitempty"`
 }
 
@@ -592,11 +607,13 @@ type describeEngineVersionsResponse struct {
 // -- Event request/response types --------------------------------------------
 
 type describeEventsRequest struct {
-	MaxResults *int32 `json:"MaxResults,omitempty"`
-	Duration   *int32 `json:"Duration,omitempty"`
-	SourceName string `json:"SourceName,omitempty"`
-	SourceType string `json:"SourceType,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	StartTime  *time.Time `json:"StartTime,omitempty"`
+	EndTime    *time.Time `json:"EndTime,omitempty"`
+	MaxResults *int32     `json:"MaxResults,omitempty"`
+	Duration   *int32     `json:"Duration,omitempty"`
+	SourceName string     `json:"SourceName,omitempty"`
+	SourceType string     `json:"SourceType,omitempty"`
+	NextToken  string     `json:"NextToken,omitempty"`
 }
 
 type eventObject struct {
