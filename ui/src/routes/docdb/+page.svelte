@@ -49,7 +49,9 @@ Play,
 Square,
 Zap,
 Settings,
-X
+X,
+Copy,
+Check
 } from 'lucide-svelte';
 
 type TabName = 'clusters' | 'instances' | 'snapshots' | 'parametergroups' | 'globalclusters' | 'eventsubscriptions';
@@ -60,6 +62,8 @@ let loading = $state(false);
 let activeTab = $state<TabName>('clusters');
 let searchQuery = $state('');
 let selectedCluster = $state<DBCluster | null>(null);
+let copiedArn = $state(false);
+let snapshotTypeFilter = $state('all');
 
 // Data
 let clusters = $state<DBCluster[]>([]);
@@ -78,7 +82,7 @@ let showCreateGlobal = $state(false);
 let showCreateEvent = $state(false);
 
 // Forms
-let clusterForm = $state({ DBClusterIdentifier: '', MasterUsername: '', MasterUserPassword: '', Engine: 'docdb', BackupRetentionPeriod: 1, StorageEncrypted: false, DeletionProtection: false });
+let clusterForm = $state({ DBClusterIdentifier: '', MasterUsername: '', MasterUserPassword: '', Engine: 'docdb', EngineVersion: '4.0.0', BackupRetentionPeriod: 1, StorageEncrypted: false, DeletionProtection: false });
 let instanceForm = $state({ DBInstanceIdentifier: '', DBClusterIdentifier: '', DBInstanceClass: 'db.t3.medium', Engine: 'docdb' });
 let snapshotForm = $state({ DBClusterSnapshotIdentifier: '', DBClusterIdentifier: '' });
 let paramGroupForm = $state({ DBClusterParameterGroupName: '', DBParameterGroupFamily: 'docdb4.0', Description: '' });
@@ -95,10 +99,25 @@ const stoppedClusters = $derived(clusters.filter(c => c.Status === 'stopped').le
 const q = $derived(searchQuery.toLowerCase());
 const filteredClusters = $derived(clusters.filter(c => !q || (c.DBClusterIdentifier ?? '').toLowerCase().includes(q)));
 const filteredInstances = $derived(instances.filter(i => !q || (i.DBInstanceIdentifier ?? '').toLowerCase().includes(q)));
-const filteredSnapshots = $derived(snapshots.filter(s => !q || (s.DBClusterSnapshotIdentifier ?? '').toLowerCase().includes(q)));
+const filteredSnapshots = $derived(snapshots.filter(s => {
+  const matchQ = !q || (s.DBClusterSnapshotIdentifier ?? '').toLowerCase().includes(q);
+  const matchType = snapshotTypeFilter === 'all' || s.SnapshotType === snapshotTypeFilter;
+  return matchQ && matchType;
+}));
 const filteredParamGroups = $derived(paramGroups.filter(p => !q || (p.DBClusterParameterGroupName ?? '').toLowerCase().includes(q)));
 const filteredGlobal = $derived(globalClusters.filter(g => !q || (g.GlobalClusterIdentifier ?? '').toLowerCase().includes(q)));
 const filteredEvents = $derived(eventSubs.filter(e => !q || (e.CustSubscriptionId ?? '').toLowerCase().includes(q)));
+
+const tabCounts = $derived<Record<TabName, number>>({
+  clusters: clusters.length,
+  instances: instances.length,
+  snapshots: snapshots.length,
+  parametergroups: paramGroups.length,
+  globalclusters: globalClusters.length,
+  eventsubscriptions: eventSubs.length
+});
+
+const clusterInstances = $derived(selectedCluster ? instances.filter(i => i.DBClusterIdentifier === selectedCluster!.DBClusterIdentifier) : []);
 
 function statusClass(status: string | undefined) {
 switch (status) {
@@ -108,6 +127,14 @@ case 'creating': case 'modifying': return 'bg-yellow-100 text-yellow-700 dark:bg
 case 'deleting': case 'failed': case 'failing-over': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
 default: return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400';
 }
+}
+
+async function copyToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    copiedArn = true;
+    setTimeout(() => { copiedArn = false; }, 2000);
+  } catch { /* ignore */ }
 }
 
 async function loadAll() {
@@ -172,7 +199,7 @@ DeletionProtection: clusterForm.DeletionProtection
 }));
 toast.success('Cluster creation initiated');
 showCreateCluster = false;
-clusterForm = { DBClusterIdentifier: '', MasterUsername: '', MasterUserPassword: '', Engine: 'docdb', BackupRetentionPeriod: 1, StorageEncrypted: false, DeletionProtection: false };
+clusterForm = { DBClusterIdentifier: '', MasterUsername: '', MasterUserPassword: '', Engine: 'docdb', EngineVersion: '4.0.0', BackupRetentionPeriod: 1, StorageEncrypted: false, DeletionProtection: false };
 await loadAll();
 } catch (e) { toast.error('Failed to create cluster: ' + String(e)); }
 finally { loading = false; }
@@ -381,6 +408,18 @@ const tabs: { id: TabName; label: string }[] = [
 ];
 </script>
 
+<svelte:window onkeydown={(e) => {
+  if (e.key === 'Escape') {
+    showCreateCluster = false;
+    showCreateInstance = false;
+    showCreateSnapshot = false;
+    showCreateParamGroup = false;
+    showCreateGlobal = false;
+    showCreateEvent = false;
+    if (selectedCluster) selectedCluster = null;
+  }
+}} />
+
 <div class="p-6 space-y-6">
 <!-- Header -->
 <div class="flex items-center justify-between">
@@ -391,13 +430,13 @@ const tabs: { id: TabName; label: string }[] = [
 <p class="text-sm text-gray-500 dark:text-gray-400">MongoDB-compatible document database service</p>
 </div>
 </div>
-<button onclick={loadAll} title="Refresh" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
-<RefreshCw class="w-4 h-4" /> Refresh
+<button onclick={loadAll} disabled={loading} title="Refresh" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm disabled:opacity-50">
+<RefreshCw class="w-4 h-4 {loading ? 'animate-spin' : ''}" /> {loading ? 'Refreshing...' : 'Refresh'}
 </button>
 </div>
 
 <!-- Stat Cards -->
-<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
 <div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
 <div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg"><Database class="w-5 h-5 text-green-600 dark:text-green-400" /></div>
 <div><p class="text-2xl font-bold text-gray-900 dark:text-white">{totalClusters}</p><p class="text-sm text-gray-500 dark:text-gray-400">Total Clusters</p></div>
@@ -413,6 +452,14 @@ const tabs: { id: TabName; label: string }[] = [
 <div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
 <div class="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg"><Square class="w-5 h-5 text-gray-600 dark:text-gray-400" /></div>
 <div><p class="text-2xl font-bold text-gray-900 dark:text-white">{stoppedClusters}</p><p class="text-sm text-gray-500 dark:text-gray-400">Stopped Clusters</p></div>
+</div>
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+<div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg"><Camera class="w-5 h-5 text-purple-600 dark:text-purple-400" /></div>
+<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{snapshots.length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Snapshots</p></div>
+</div>
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+<div class="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg"><Settings class="w-5 h-5 text-orange-600 dark:text-orange-400" /></div>
+<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{paramGroups.length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Param Groups</p></div>
 </div>
 </div>
 
@@ -433,6 +480,7 @@ const tabs: { id: TabName; label: string }[] = [
 {:else if selectedCluster.Status === 'stopped'}
 <button onclick={() => startCluster(selectedCluster!.DBClusterIdentifier!)} class="flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400"><Play class="w-4 h-4" /> Start</button>
 {/if}
+<button onclick={() => { snapshotForm = { DBClusterSnapshotIdentifier: '', DBClusterIdentifier: selectedCluster!.DBClusterIdentifier ?? '' }; showCreateSnapshot = true; }} class="flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400"><Camera class="w-4 h-4" /> Snapshot</button>
 <button onclick={() => deleteCluster(selectedCluster!.DBClusterIdentifier!)} class="flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400"><Trash2 class="w-4 h-4" /> Delete</button>
 </div>
 </div>
@@ -450,11 +498,43 @@ const tabs: { id: TabName; label: string }[] = [
 { label: 'Deletion Protection', value: selectedCluster.DeletionProtection ? 'Yes' : 'No' },
 { label: 'Storage Encrypted', value: selectedCluster.StorageEncrypted ? 'Yes' : 'No' }
 ] as row}
+{#if row.label === 'ARN'}
+  <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+    <div class="text-xs text-gray-500 dark:text-gray-400 font-medium">ARN</div>
+    <div class="flex items-center gap-1 mt-1">
+      <div class="text-sm text-gray-900 dark:text-white font-mono truncate flex-1" title={row.value}>{row.value}</div>
+      <button onclick={() => copyToClipboard(row.value)} title="Copy ARN" class="shrink-0 text-gray-400 hover:text-green-500 dark:hover:text-green-400">
+        {#if copiedArn}<Check class="w-3.5 h-3.5 text-green-500" />{:else}<Copy class="w-3.5 h-3.5" />{/if}
+      </button>
+    </div>
+  </div>
+{:else}
 <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
 <div class="text-xs text-gray-500 dark:text-gray-400 font-medium">{row.label}</div>
 <div class="text-sm text-gray-900 dark:text-white mt-1 font-mono truncate" title={row.value}>{row.value}</div>
 </div>
+{/if}
 {/each}
+</div>
+<div class="mt-4">
+  <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Member Instances</h3>
+  {#if clusterInstances.length === 0}
+    <p class="text-sm text-gray-500 dark:text-gray-400">No instances</p>
+  {:else}
+    <div class="space-y-1">
+      {#each clusterInstances as inst}
+        <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+          <div class="flex items-center gap-2">
+            <span class={`px-2 py-0.5 rounded text-xs font-medium ${statusClass(inst.DBInstanceStatus)}`}>{inst.DBInstanceStatus}</span>
+            <span class="text-sm text-gray-900 dark:text-white">{inst.DBInstanceIdentifier}</span>
+            <span class="text-xs text-gray-500 dark:text-gray-400">{inst.DBInstanceClass}</span>
+          </div>
+          <button onclick={() => deleteInstance(inst.DBInstanceIdentifier!)} class="text-red-400 hover:text-red-600 dark:hover:text-red-400"><Trash2 class="w-3.5 h-3.5" /></button>
+        </div>
+      {/each}
+    </div>
+  {/if}
+  <button onclick={() => { instanceForm = { ...instanceForm, DBClusterIdentifier: selectedCluster!.DBClusterIdentifier ?? '' }; showCreateInstance = true; }} class="mt-2 flex items-center gap-1 text-sm text-green-600 dark:text-green-400 hover:underline"><Plus class="w-3.5 h-3.5" /> Add Instance</button>
 </div>
 </div>
 {:else}
@@ -464,7 +544,7 @@ const tabs: { id: TabName; label: string }[] = [
 <button
 onclick={() => { activeTab = tab.id; searchQuery = ''; }}
 class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${activeTab === tab.id ? 'border-green-500 text-green-600 dark:text-green-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
->{tab.label}</button>
+>{tab.label}{#if tabCounts[tab.id] > 0}<span class="ml-1.5 px-1.5 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{tabCounts[tab.id]}</span>{/if}</button>
 {/each}
 </div>
 
@@ -495,8 +575,15 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <!-- Clusters Tab -->
 {#if activeTab === 'clusters'}
 {#if filteredClusters.length === 0}
-<div class="text-center py-16 text-gray-500 dark:text-gray-400"><Database class="w-12 h-12 mx-auto mb-3 opacity-40" /><p class="font-medium">No clusters found</p></div>
+<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+  <Database class="w-12 h-12 mx-auto mb-3 opacity-40" />
+  <p class="font-medium">No clusters found</p>
+  {#if !searchQuery}
+  <button onclick={() => showCreateCluster = true} class="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium"><Plus class="w-4 h-4" /> Create Cluster</button>
+  {/if}
+</div>
 {:else}
+<div class="text-sm text-gray-500 dark:text-gray-400 mb-2">Showing {filteredClusters.length} of {clusters.length} clusters</div>
 <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
 <table class="w-full text-sm">
 <thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
@@ -505,6 +592,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <th class="px-4 py-3 text-left">Status</th>
 <th class="px-4 py-3 text-left">Engine Version</th>
 <th class="px-4 py-3 text-left">Endpoint</th>
+<th class="px-4 py-3 text-left">Features</th>
 <th class="px-4 py-3 text-left">Actions</th>
 </tr>
 </thead>
@@ -517,6 +605,13 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${statusClass(cluster.Status)}`}>{cluster.Status ?? '-'}</span></td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{cluster.EngineVersion ?? '-'}</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs truncate max-w-xs">{cluster.Endpoint ?? '-'}</td>
+<td class="px-4 py-3">
+  <div class="flex gap-1 flex-wrap">
+    {#if cluster.StorageEncrypted}<span class="px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">Encrypted</span>{/if}
+    {#if cluster.DeletionProtection}<span class="px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">Protected</span>{/if}
+    {#if cluster.MultiAZ}<span class="px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">MultiAZ</span>{/if}
+  </div>
+</td>
 <td class="px-4 py-3">
 <div class="flex gap-1">
 {#if cluster.Status === 'available'}
@@ -537,8 +632,15 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <!-- Instances Tab -->
 {:else if activeTab === 'instances'}
 {#if filteredInstances.length === 0}
-<div class="text-center py-16 text-gray-500 dark:text-gray-400"><Server class="w-12 h-12 mx-auto mb-3 opacity-40" /><p class="font-medium">No instances found</p></div>
+<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+  <Server class="w-12 h-12 mx-auto mb-3 opacity-40" />
+  <p class="font-medium">No instances found</p>
+  {#if !searchQuery}
+  <button onclick={() => showCreateInstance = true} class="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium"><Plus class="w-4 h-4" /> Create Instance</button>
+  {/if}
+</div>
 {:else}
+<div class="text-sm text-gray-500 dark:text-gray-400 mb-2">Showing {filteredInstances.length} of {instances.length} instances</div>
 <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
 <table class="w-full text-sm">
 <thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
@@ -548,6 +650,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <th class="px-4 py-3 text-left">Class</th>
 <th class="px-4 py-3 text-left">Cluster</th>
 <th class="px-4 py-3 text-left">Engine Version</th>
+<th class="px-4 py-3 text-left">Endpoint</th>
 <th class="px-4 py-3 text-left">Actions</th>
 </tr>
 </thead>
@@ -559,6 +662,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{inst.DBInstanceClass ?? '-'}</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{inst.DBClusterIdentifier ?? '-'}</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{inst.EngineVersion ?? '-'}</td>
+<td class="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs truncate max-w-[200px]">{inst.Endpoint?.Address ?? '-'}</td>
 <td class="px-4 py-3">
 <div class="flex gap-1">
 <button onclick={() => rebootInstance(inst.DBInstanceIdentifier!)} title="Reboot" class="p-1.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400"><RefreshCw class="w-3.5 h-3.5" /></button>
@@ -574,9 +678,23 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 
 <!-- Snapshots Tab -->
 {:else if activeTab === 'snapshots'}
+<div class="flex items-center gap-2 mb-3">
+  <select bind:value={snapshotTypeFilter} class="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white">
+    <option value="all">All Types</option>
+    <option value="manual">Manual</option>
+    <option value="automated">Automated</option>
+  </select>
+</div>
 {#if filteredSnapshots.length === 0}
-<div class="text-center py-16 text-gray-500 dark:text-gray-400"><Camera class="w-12 h-12 mx-auto mb-3 opacity-40" /><p class="font-medium">No snapshots found</p></div>
+<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+  <Camera class="w-12 h-12 mx-auto mb-3 opacity-40" />
+  <p class="font-medium">No snapshots found</p>
+  {#if !searchQuery && snapshotTypeFilter === 'all'}
+  <button onclick={() => showCreateSnapshot = true} class="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium"><Plus class="w-4 h-4" /> Create Snapshot</button>
+  {/if}
+</div>
 {:else}
+<div class="text-sm text-gray-500 dark:text-gray-400 mb-2">Showing {filteredSnapshots.length} of {snapshots.length} snapshots</div>
 <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
 <table class="w-full text-sm">
 <thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
@@ -586,6 +704,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <th class="px-4 py-3 text-left">Status</th>
 <th class="px-4 py-3 text-left">Type</th>
 <th class="px-4 py-3 text-left">Engine Version</th>
+<th class="px-4 py-3 text-left">Progress</th>
 <th class="px-4 py-3 text-left">Actions</th>
 </tr>
 </thead>
@@ -597,6 +716,14 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${statusClass(snap.Status)}`}>{snap.Status ?? '-'}</span></td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{snap.SnapshotType ?? '-'}</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{snap.EngineVersion ?? '-'}</td>
+<td class="px-4 py-3">
+  <div class="flex items-center gap-2">
+    <div class="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+      <div class="bg-green-500 h-1.5 rounded-full" style="width: {snap.PercentProgress ?? 0}%"></div>
+    </div>
+    <span class="text-xs text-gray-500">{snap.PercentProgress ?? 0}%</span>
+  </div>
+</td>
 <td class="px-4 py-3">
 <button onclick={() => deleteSnapshot(snap.DBClusterSnapshotIdentifier!)} title="Delete" class="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 dark:text-red-400"><Trash2 class="w-3.5 h-3.5" /></button>
 </td>
@@ -610,8 +737,15 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <!-- Parameter Groups Tab -->
 {:else if activeTab === 'parametergroups'}
 {#if filteredParamGroups.length === 0}
-<div class="text-center py-16 text-gray-500 dark:text-gray-400"><Settings class="w-12 h-12 mx-auto mb-3 opacity-40" /><p class="font-medium">No parameter groups found</p></div>
+<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+  <Settings class="w-12 h-12 mx-auto mb-3 opacity-40" />
+  <p class="font-medium">No parameter groups found</p>
+  {#if !searchQuery}
+  <button onclick={() => showCreateParamGroup = true} class="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium"><Plus class="w-4 h-4" /> Create Group</button>
+  {/if}
+</div>
 {:else}
+<div class="text-sm text-gray-500 dark:text-gray-400 mb-2">Showing {filteredParamGroups.length} of {paramGroups.length} parameter groups</div>
 <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
 <table class="w-full text-sm">
 <thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
@@ -641,8 +775,15 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <!-- Global Clusters Tab -->
 {:else if activeTab === 'globalclusters'}
 {#if filteredGlobal.length === 0}
-<div class="text-center py-16 text-gray-500 dark:text-gray-400"><Globe class="w-12 h-12 mx-auto mb-3 opacity-40" /><p class="font-medium">No global clusters found</p></div>
+<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+  <Globe class="w-12 h-12 mx-auto mb-3 opacity-40" />
+  <p class="font-medium">No global clusters found</p>
+  {#if !searchQuery}
+  <button onclick={() => showCreateGlobal = true} class="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium"><Plus class="w-4 h-4" /> Create Global</button>
+  {/if}
+</div>
 {:else}
+<div class="text-sm text-gray-500 dark:text-gray-400 mb-2">Showing {filteredGlobal.length} of {globalClusters.length} global clusters</div>
 <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
 <table class="w-full text-sm">
 <thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
@@ -651,6 +792,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <th class="px-4 py-3 text-left">Status</th>
 <th class="px-4 py-3 text-left">Engine</th>
 <th class="px-4 py-3 text-left">Engine Version</th>
+<th class="px-4 py-3 text-left">Protection</th>
 <th class="px-4 py-3 text-left">Actions</th>
 </tr>
 </thead>
@@ -661,6 +803,16 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${statusClass(gc.Status)}`}>{gc.Status ?? '-'}</span></td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{gc.Engine ?? '-'}</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{gc.EngineVersion ?? '-'}</td>
+<td class="px-4 py-3">
+  <div class="flex gap-1">
+    {#if gc.DeletionProtection}
+    <span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">Protected</span>
+    {/if}
+    {#if gc.StorageEncrypted}
+    <span class="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">Encrypted</span>
+    {/if}
+  </div>
+</td>
 <td class="px-4 py-3">
 <button onclick={() => deleteGlobal(gc.GlobalClusterIdentifier!)} title="Delete" class="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 dark:text-red-400"><Trash2 class="w-3.5 h-3.5" /></button>
 </td>
@@ -674,8 +826,15 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <!-- Event Subscriptions Tab -->
 {:else if activeTab === 'eventsubscriptions'}
 {#if filteredEvents.length === 0}
-<div class="text-center py-16 text-gray-500 dark:text-gray-400"><Bell class="w-12 h-12 mx-auto mb-3 opacity-40" /><p class="font-medium">No event subscriptions found</p></div>
+<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+  <Bell class="w-12 h-12 mx-auto mb-3 opacity-40" />
+  <p class="font-medium">No event subscriptions found</p>
+  {#if !searchQuery}
+  <button onclick={() => showCreateEvent = true} class="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium"><Plus class="w-4 h-4" /> Create Subscription</button>
+  {/if}
+</div>
 {:else}
+<div class="text-sm text-gray-500 dark:text-gray-400 mb-2">Showing {filteredEvents.length} of {eventSubs.length} subscriptions</div>
 <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
 <table class="w-full text-sm">
 <thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
@@ -731,7 +890,16 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 </div>
 <div>
 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Engine</label>
-<input bind:value={clusterForm.Engine} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<select bind:value={clusterForm.Engine} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+  <option value="docdb">docdb</option>
+</select>
+</div>
+<div>
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Engine Version</label>
+<select bind:value={clusterForm.EngineVersion} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+  <option value="4.0.0">4.0.0</option>
+  <option value="5.0.0">5.0.0</option>
+</select>
 </div>
 <div>
 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Backup Retention Period (days)</label>
@@ -777,6 +945,10 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <option value="db.t3.medium">db.t3.medium</option>
 <option value="db.r5.large">db.r5.large</option>
 <option value="db.r5.xlarge">db.r5.xlarge</option>
+<option value="db.r5.2xlarge">db.r5.2xlarge</option>
+<option value="db.r5.4xlarge">db.r5.4xlarge</option>
+<option value="db.r6g.large">db.r6g.large</option>
+<option value="db.r6g.xlarge">db.r6g.xlarge</option>
 </select>
 </div>
 <div>
@@ -838,7 +1010,10 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 </div>
 <div>
 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Family</label>
-<input bind:value={paramGroupForm.DBParameterGroupFamily} type="text" placeholder="docdb4.0 or docdb5.0" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<select bind:value={paramGroupForm.DBParameterGroupFamily} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+  <option value="docdb4.0">docdb4.0</option>
+  <option value="docdb5.0">docdb5.0</option>
+</select>
 </div>
 <div>
 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
@@ -917,3 +1092,34 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 </div>
 </div>
 {/if}
+
+<div class="mt-8 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+  <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Amazon DocumentDB Operations</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {#each [
+      { name: 'CreateDBCluster', desc: 'Creates a new Amazon DocumentDB cluster.' },
+      { name: 'DescribeDBClusters', desc: 'Returns information about provisioned clusters.' },
+      { name: 'DeleteDBCluster', desc: 'Deletes a previously provisioned cluster.' },
+      { name: 'ModifyDBCluster', desc: 'Modifies a setting for a cluster.' },
+      { name: 'StopDBCluster', desc: 'Stops a running cluster.' },
+      { name: 'StartDBCluster', desc: 'Starts a stopped cluster.' },
+      { name: 'FailoverDBCluster', desc: 'Forces a failover for a cluster.' },
+      { name: 'CreateDBInstance', desc: 'Creates a new instance in a cluster.' },
+      { name: 'DeleteDBInstance', desc: 'Deletes a previously provisioned instance.' },
+      { name: 'RebootDBInstance', desc: 'Might result in a brief downtime during instance reboot.' },
+      { name: 'CreateDBClusterSnapshot', desc: 'Creates a snapshot of a cluster.' },
+      { name: 'DeleteDBClusterSnapshot', desc: 'Deletes a cluster snapshot.' },
+      { name: 'CreateDBClusterParameterGroup', desc: 'Creates a new cluster parameter group.' },
+      { name: 'DeleteDBClusterParameterGroup', desc: 'Deletes a specified cluster parameter group.' },
+      { name: 'CreateGlobalCluster', desc: 'Creates a global cluster that can span multiple regions.' },
+      { name: 'DeleteGlobalCluster', desc: 'Deletes a global cluster.' },
+      { name: 'CreateEventSubscription', desc: 'Creates an event notification subscription.' },
+      { name: 'DeleteEventSubscription', desc: 'Deletes an event notification subscription.' },
+    ] as op}
+    <div class="border border-gray-100 dark:border-gray-700 rounded-lg p-3">
+      <div class="text-sm font-mono font-medium text-green-600 dark:text-green-400">{op.name}</div>
+      <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{op.desc}</div>
+    </div>
+    {/each}
+  </div>
+</div>
