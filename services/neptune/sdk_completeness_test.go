@@ -17,38 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := neptune.NewInMemoryBackend("000000000000", "us-east-1")
 	h := neptune.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &neptunesdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteDBClusterEndpoint",
-		"DeleteDBParameterGroup",
-		"DeleteEventSubscription",
-		"DeleteGlobalCluster",
-		"DescribeDBClusterEndpoints",
-		"DescribeDBClusterParameters",
-		"DescribeDBClusterSnapshotAttributes",
-		"DescribeDBParameterGroups",
-		"DescribeDBParameters",
-		"DescribeEngineDefaultClusterParameters",
-		"DescribeEngineDefaultParameters",
-		"DescribeEventCategories",
-		"DescribeEventSubscriptions",
-		"DescribeEvents",
-		"DescribePendingMaintenanceActions",
-		"DescribeValidDBInstanceModifications",
-		"FailoverGlobalCluster",
-		"ModifyDBClusterEndpoint",
-		"ModifyDBClusterSnapshotAttribute",
-		"ModifyDBParameterGroup",
-		"ModifyDBSubnetGroup",
-		"ModifyEventSubscription",
-		"ModifyGlobalCluster",
-		"PromoteReadReplicaDBCluster",
-		"RemoveFromGlobalCluster",
-		"RemoveRoleFromDBCluster",
-		"RemoveSourceIdentifierFromSubscription",
-		"ResetDBClusterParameterGroup",
-		"ResetDBParameterGroup",
-		"RestoreDBClusterFromSnapshot",
-		"RestoreDBClusterToPointInTime",
-		"SwitchoverGlobalCluster",
-	})
+	sdkcheck.CheckCompleteness(t, &neptunesdk.Client{}, h.GetSupportedOperations(), []string{})
 }
