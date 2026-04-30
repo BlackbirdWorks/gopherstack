@@ -349,8 +349,28 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	masterUser := vals.Get("MasterUsername")
 	dbName := vals.Get("DatabaseName")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
+	subnetGroupName := vals.Get("DBSubnetGroupName")
+	portStr := vals.Get("Port")
+	port := 0
+	if portStr != "" {
+		port, _ = strconv.Atoi(portStr)
+	}
+	storageEncrypted := vals.Get("StorageEncrypted") == "true"
+	deletionProtection := vals.Get("DeletionProtection") == "true"
+	backupRetentionPeriodStr := vals.Get("BackupRetentionPeriod")
+	backupRetentionPeriod := 0
+	if backupRetentionPeriodStr != "" {
+		backupRetentionPeriod, _ = strconv.Atoi(backupRetentionPeriodStr)
+	}
+	preferredBackupWindow := vals.Get("PreferredBackupWindow")
+	preferredMaintenanceWindow := vals.Get("PreferredMaintenanceWindow")
+	availabilityZones := parseAvailabilityZones(vals)
 	tags := parseTags(vals)
-	cluster, err := h.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, 0, tags)
+	cluster, err := h.Backend.CreateDBCluster(
+		id, engine, masterUser, dbName, paramGroupName, subnetGroupName,
+		port, storageEncrypted, deletionProtection, backupRetentionPeriod,
+		preferredBackupWindow, preferredMaintenanceWindow, availabilityZones, tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +420,22 @@ func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
 func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
-	cluster, err := h.Backend.ModifyDBCluster(id, paramGroupName)
+	preferredBackupWindow := vals.Get("PreferredBackupWindow")
+	preferredMaintenanceWindow := vals.Get("PreferredMaintenanceWindow")
+	backupRetentionPeriodStr := vals.Get("BackupRetentionPeriod")
+	backupRetentionPeriod := 0
+	if backupRetentionPeriodStr != "" {
+		backupRetentionPeriod, _ = strconv.Atoi(backupRetentionPeriodStr)
+	}
+	var deletionProtection *bool
+	if dpStr := vals.Get("DeletionProtection"); dpStr != "" {
+		dp := dpStr == "true"
+		deletionProtection = &dp
+	}
+	cluster, err := h.Backend.ModifyDBCluster(
+		id, paramGroupName, deletionProtection, backupRetentionPeriod,
+		preferredBackupWindow, preferredMaintenanceWindow,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +504,8 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-	instances, err := h.Backend.DescribeDBInstances(id)
+	clusterID := vals.Get("DBClusterIdentifier")
+	instances, err := h.Backend.DescribeDBInstances(id, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -591,7 +627,7 @@ func (h *Handler) handleCreateDBClusterParameterGroup(vals url.Values) (any, err
 
 	return &createDBClusterParameterGroupResponse{
 		Xmlns:                   docdbXMLNS,
-		DBClusterParameterGroup: toXMLParameterGroup(pg),
+		DBClusterParameterGroup: toXMLParameterGroup(h.Backend, pg),
 	}, nil
 }
 
@@ -604,7 +640,7 @@ func (h *Handler) handleDescribeDBClusterParameterGroups(vals url.Values) (any, 
 	members := make([]xmlDBClusterParameterGroup, 0, len(groups))
 	for _, pg := range groups {
 		cp := pg
-		members = append(members, toXMLParameterGroup(&cp))
+		members = append(members, toXMLParameterGroup(h.Backend, &cp))
 	}
 
 	return &describeDBClusterParameterGroupsResponse{
@@ -655,7 +691,8 @@ func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	snaps, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, clusterID)
+	snapshotType := vals.Get("SnapshotType")
+	snaps, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, clusterID, snapshotType)
 	if err != nil {
 		return nil, err
 	}
@@ -805,7 +842,7 @@ func (h *Handler) handleCopyDBClusterParameterGroup(vals url.Values) (any, error
 
 	return &copyDBClusterParameterGroupResponse{
 		Xmlns:                   docdbXMLNS,
-		DBClusterParameterGroup: toXMLParameterGroup(pg),
+		DBClusterParameterGroup: toXMLParameterGroup(h.Backend, pg),
 	}, nil
 }
 
@@ -826,8 +863,10 @@ func (h *Handler) handleCopyDBClusterSnapshot(vals url.Values) (any, error) {
 func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
+	sourceType := vals.Get("SourceType")
 	sourceIDs := parseSourceIDMembers(vals)
-	sub, err := h.Backend.CreateEventSubscription(name, snsTopicARN, sourceIDs)
+	eventCategories := parseEventCategoryMembers(vals)
+	sub, err := h.Backend.CreateEventSubscription(name, snsTopicARN, sourceType, sourceIDs, eventCategories)
 	if err != nil {
 		return nil, err
 	}
@@ -841,7 +880,9 @@ func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 func (h *Handler) handleCreateGlobalCluster(vals url.Values) (any, error) {
 	id := vals.Get("GlobalClusterIdentifier")
 	sourceDBClusterID := vals.Get("SourceDBClusterIdentifier")
-	gc, err := h.Backend.CreateGlobalCluster(id, sourceDBClusterID)
+	engine := vals.Get("Engine")
+	engineVersion := vals.Get("EngineVersion")
+	gc, err := h.Backend.CreateGlobalCluster(id, sourceDBClusterID, engine, engineVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -945,9 +986,20 @@ func (h *Handler) handleDescribeDBClusterSnapshotAttributes(vals url.Values) (an
 func (h *Handler) handleModifyDBClusterSnapshotAttribute(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	attributeName := vals.Get("AttributeName")
-	result, err := h.Backend.ModifyDBClusterSnapshotAttribute(snapshotID, attributeName)
+	valuesToAdd := parseAttributeValueMembers(vals, "ValuesToAdd")
+	valuesToRemove := parseAttributeValueMembers(vals, "ValuesToRemove")
+	result, err := h.Backend.ModifyDBClusterSnapshotAttribute(snapshotID, attributeName, valuesToAdd, valuesToRemove)
 	if err != nil {
 		return nil, err
+	}
+	attrs := make([]xmlDBClusterSnapshotAttribute, 0, len(result.Attributes))
+	for _, a := range result.Attributes {
+		attrCopy := make([]string, len(a.AttributeValues))
+		copy(attrCopy, a.AttributeValues)
+		attrs = append(attrs, xmlDBClusterSnapshotAttribute{
+			AttributeName:   a.AttributeName,
+			AttributeValues: xmlAttributeValueList{Members: attrCopy},
+		})
 	}
 
 	return &modifyDBClusterSnapshotAttributeResponse{
@@ -955,7 +1007,7 @@ func (h *Handler) handleModifyDBClusterSnapshotAttribute(vals url.Values) (any, 
 		Result: modifyDBClusterSnapshotAttributeResult{
 			DBClusterSnapshotAttributesResult: xmlDBClusterSnapshotAttributesResult{
 				DBClusterSnapshotIdentifier: result.DBClusterSnapshotIdentifier,
-				DBClusterSnapshotAttributes: xmlDBClusterSnapshotAttributeList{},
+				DBClusterSnapshotAttributes: xmlDBClusterSnapshotAttributeList{Members: attrs},
 			},
 		},
 	}, nil
@@ -1017,7 +1069,9 @@ func (h *Handler) handleDescribeEventSubscriptions(vals url.Values) (any, error)
 func (h *Handler) handleModifyEventSubscription(vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
-	sub, err := h.Backend.ModifyEventSubscription(name, snsTopicARN)
+	sourceType := vals.Get("SourceType")
+	eventCategories := parseEventCategoryMembers(vals)
+	sub, err := h.Backend.ModifyEventSubscription(name, snsTopicARN, sourceType, eventCategories)
 	if err != nil {
 		return nil, err
 	}
@@ -1051,8 +1105,9 @@ func (h *Handler) handleDescribeEvents(_ url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
-	cats := h.Backend.DescribeEventCategories()
+func (h *Handler) handleDescribeEventCategories(vals url.Values) (any, error) {
+	sourceType := vals.Get("SourceType")
+	cats := h.Backend.DescribeEventCategories(sourceType)
 	members := make([]xmlEventCategoryMap, 0, len(cats))
 	for _, cat := range cats {
 		catCopy := make([]string, len(cat.EventCategories))
@@ -1107,7 +1162,13 @@ func (h *Handler) handleModifyDBSubnetGroup(vals url.Values) (any, error) {
 
 func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
 	id := vals.Get("GlobalClusterIdentifier")
-	gc, err := h.Backend.ModifyGlobalCluster(id)
+	newID := vals.Get("NewGlobalClusterIdentifier")
+	var deletionProtection *bool
+	if dpStr := vals.Get("DeletionProtection"); dpStr != "" {
+		dp := dpStr == "true"
+		deletionProtection = &dp
+	}
+	gc, err := h.Backend.ModifyGlobalCluster(id, newID, deletionProtection)
 	if err != nil {
 		return nil, err
 	}
@@ -1210,7 +1271,7 @@ func docdbErrorCode(opErr error) string {
 		ErrClusterSnapshotNotFound, ErrClusterSnapshotAlreadyExists,
 		ErrEventSubscriptionNotFound, ErrEventSubscriptionAlreadyExists,
 		ErrGlobalClusterNotFound, ErrGlobalClusterAlreadyExists,
-		ErrInvalidParameter, ErrUnknownAction,
+		ErrInvalidParameter, ErrInvalidClusterState, ErrUnknownAction,
 	}
 	for _, s := range sentinels {
 		if errors.Is(opErr, s) {
@@ -1285,23 +1346,35 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		DatabaseName:                c.DatabaseName,
 		DBClusterParameterGroupName: c.DBClusterParameterGroupName,
 		Endpoint:                    c.Endpoint,
+		ReaderEndpoint:              c.ReaderEndpoint,
+		DBSubnetGroupName:           c.DBSubnetGroupName,
+		PreferredBackupWindow:       c.PreferredBackupWindow,
+		PreferredMaintenanceWindow:  c.PreferredMaintenanceWindow,
 		Port:                        c.Port,
 		DBClusterArn:                c.DBClusterArn,
 		EngineVersion:               c.EngineVersion,
+		BackupRetentionPeriod:       c.BackupRetentionPeriod,
+		StorageEncrypted:            c.StorageEncrypted,
+		MultiAZ:                     c.MultiAZ,
+		DeletionProtection:          c.DeletionProtection,
 	}
 }
 
 func toXMLInstance(inst *DBInstance) xmlDBInstance {
 	return xmlDBInstance{
-		DBInstanceIdentifier: inst.DBInstanceIdentifier,
-		DBClusterIdentifier:  inst.DBClusterIdentifier,
-		DBInstanceClass:      inst.DBInstanceClass,
-		Engine:               inst.Engine,
-		DBInstanceStatus:     inst.DBInstanceStatus,
-		Endpoint:             inst.Endpoint,
-		Port:                 inst.Port,
-		DBInstanceArn:        inst.DBInstanceArn,
-		EngineVersion:        inst.EngineVersion,
+		DBInstanceIdentifier:    inst.DBInstanceIdentifier,
+		DBClusterIdentifier:     inst.DBClusterIdentifier,
+		DBInstanceClass:         inst.DBInstanceClass,
+		Engine:                  inst.Engine,
+		DBInstanceStatus:        inst.DBInstanceStatus,
+		Endpoint:                inst.Endpoint,
+		Port:                    inst.Port,
+		DBInstanceArn:           inst.DBInstanceArn,
+		EngineVersion:           inst.EngineVersion,
+		AvailabilityZone:        inst.AvailabilityZone,
+		DBSubnetGroupName:       inst.DBSubnetGroupName,
+		AutoMinorVersionUpgrade: inst.AutoMinorVersionUpgrade,
+		PubliclyAccessible:      inst.PubliclyAccessible,
 	}
 }
 
@@ -1320,11 +1393,12 @@ func toXMLSubnetGroup(sg *DBSubnetGroup) xmlDBSubnetGroup {
 	}
 }
 
-func toXMLParameterGroup(pg *DBClusterParameterGroup) xmlDBClusterParameterGroup {
+func toXMLParameterGroup(b *InMemoryBackend, pg *DBClusterParameterGroup) xmlDBClusterParameterGroup {
 	return xmlDBClusterParameterGroup{
 		DBClusterParameterGroupName: pg.DBClusterParameterGroupName,
 		DBParameterGroupFamily:      pg.DBParameterGroupFamily,
 		Description:                 pg.Description,
+		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(pg.DBClusterParameterGroupName),
 	}
 }
 
@@ -1332,9 +1406,14 @@ func toXMLClusterSnapshot(snap *DBClusterSnapshot) xmlDBClusterSnapshot {
 	return xmlDBClusterSnapshot{
 		DBClusterSnapshotIdentifier: snap.DBClusterSnapshotIdentifier,
 		DBClusterIdentifier:         snap.DBClusterIdentifier,
+		DBClusterArn:                snap.DBClusterArn,
 		Engine:                      snap.Engine,
 		Status:                      snap.Status,
+		SnapshotType:                snap.SnapshotType,
+		SnapshotCreateTime:          snap.SnapshotCreateTime,
 		EngineVersion:               snap.EngineVersion,
+		PercentProgress:             snap.PercentProgress,
+		StorageEncrypted:            snap.StorageEncrypted,
 	}
 }
 
@@ -1358,9 +1437,17 @@ type xmlDBCluster struct {
 	DatabaseName                string `xml:"DatabaseName,omitempty"`
 	DBClusterParameterGroupName string `xml:"DBClusterParameterGroup,omitempty"`
 	Endpoint                    string `xml:"Endpoint,omitempty"`
+	ReaderEndpoint              string `xml:"ReaderEndpoint,omitempty"`
+	DBSubnetGroupName           string `xml:"DBSubnetGroup,omitempty"`
+	PreferredBackupWindow       string `xml:"PreferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow  string `xml:"PreferredMaintenanceWindow,omitempty"`
 	DBClusterArn                string `xml:"DBClusterArn,omitempty"`
 	EngineVersion               string `xml:"EngineVersion,omitempty"`
 	Port                        int    `xml:"Port"`
+	BackupRetentionPeriod       int    `xml:"BackupRetentionPeriod,omitempty"`
+	StorageEncrypted            bool   `xml:"StorageEncrypted"`
+	MultiAZ                     bool   `xml:"MultiAZ"`
+	DeletionProtection          bool   `xml:"DeletionProtection"`
 }
 
 type xmlDBClusterList struct {
@@ -1415,15 +1502,19 @@ type failoverDBClusterResponse struct {
 }
 
 type xmlDBInstance struct {
-	DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
-	DBClusterIdentifier  string `xml:"DBClusterIdentifier,omitempty"`
-	DBInstanceClass      string `xml:"DBInstanceClass"`
-	Engine               string `xml:"Engine"`
-	DBInstanceStatus     string `xml:"DBInstanceStatus"`
-	Endpoint             string `xml:"Endpoint>Address,omitempty"`
-	DBInstanceArn        string `xml:"DBInstanceArn,omitempty"`
-	EngineVersion        string `xml:"EngineVersion,omitempty"`
-	Port                 int    `xml:"Endpoint>Port"`
+	DBInstanceIdentifier    string `xml:"DBInstanceIdentifier"`
+	DBClusterIdentifier     string `xml:"DBClusterIdentifier,omitempty"`
+	DBInstanceClass         string `xml:"DBInstanceClass"`
+	Engine                  string `xml:"Engine"`
+	DBInstanceStatus        string `xml:"DBInstanceStatus"`
+	Endpoint                string `xml:"Endpoint>Address,omitempty"`
+	DBInstanceArn           string `xml:"DBInstanceArn,omitempty"`
+	EngineVersion           string `xml:"EngineVersion,omitempty"`
+	AvailabilityZone        string `xml:"AvailabilityZone,omitempty"`
+	DBSubnetGroupName       string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	AutoMinorVersionUpgrade bool   `xml:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible      bool   `xml:"PubliclyAccessible"`
+	Port                    int    `xml:"Endpoint>Port"`
 }
 
 type xmlDBInstanceList struct {
@@ -1511,6 +1602,7 @@ type xmlDBClusterParameterGroup struct {
 	DBClusterParameterGroupName string `xml:"DBClusterParameterGroupName"`
 	DBParameterGroupFamily      string `xml:"DBParameterGroupFamily"`
 	Description                 string `xml:"Description"`
+	DBClusterParameterGroupArn  string `xml:"DBClusterParameterGroupArn,omitempty"`
 }
 
 type xmlDBClusterParameterGroupList struct {
@@ -1547,9 +1639,14 @@ type modifyDBClusterParameterGroupResponse struct {
 type xmlDBClusterSnapshot struct {
 	DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"`
 	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
+	DBClusterArn                string `xml:"DBClusterArn,omitempty"`
 	Engine                      string `xml:"Engine"`
 	Status                      string `xml:"Status"`
+	SnapshotType                string `xml:"SnapshotType,omitempty"`
+	SnapshotCreateTime          string `xml:"SnapshotCreateTime,omitempty"`
 	EngineVersion               string `xml:"EngineVersion,omitempty"`
+	PercentProgress             int    `xml:"PercentProgress"`
+	StorageEncrypted            bool   `xml:"StorageEncrypted"`
 }
 
 type xmlDBClusterSnapshotList struct {
@@ -1652,6 +1749,7 @@ type xmlSourceIDList struct {
 type xmlEventSubscription struct {
 	SubscriptionName string          `xml:"CustSubscriptionId"`
 	SnsTopicARN      string          `xml:"SnsTopicArn,omitempty"`
+	SourceType       string          `xml:"SourceType,omitempty"`
 	Status           string          `xml:"Status"`
 	SourceIDsList    xmlSourceIDList `xml:"SourceIdsList"`
 }
@@ -1707,7 +1805,12 @@ type createEventSubscriptionResponse struct {
 type xmlGlobalCluster struct {
 	GlobalClusterIdentifier   string `xml:"GlobalClusterIdentifier"`
 	SourceDBClusterIdentifier string `xml:"SourceDBClusterIdentifier,omitempty"`
+	Engine                    string `xml:"Engine,omitempty"`
+	EngineVersion             string `xml:"EngineVersion,omitempty"`
+	GlobalClusterArn          string `xml:"GlobalClusterArn,omitempty"`
 	Status                    string `xml:"Status"`
+	StorageEncrypted          bool   `xml:"StorageEncrypted"`
+	DeletionProtection        bool   `xml:"DeletionProtection"`
 }
 
 type createGlobalClusterResponse struct {
@@ -1781,6 +1884,7 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 	return xmlEventSubscription{
 		SubscriptionName: sub.SubscriptionName,
 		SnsTopicARN:      sub.SnsTopicARN,
+		SourceType:       sub.SourceType,
 		Status:           sub.Status,
 		SourceIDsList:    xmlSourceIDList{Members: ids},
 	}
@@ -1976,7 +2080,12 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 	return xmlGlobalCluster{
 		GlobalClusterIdentifier:   gc.GlobalClusterIdentifier,
 		SourceDBClusterIdentifier: gc.SourceDBClusterID,
+		Engine:                    gc.Engine,
+		EngineVersion:             gc.EngineVersion,
+		GlobalClusterArn:          gc.GlobalClusterArn,
 		Status:                    gc.Status,
+		StorageEncrypted:          gc.StorageEncrypted,
+		DeletionProtection:        gc.DeletionProtection,
 	}
 }
 
@@ -2061,4 +2170,37 @@ func applyDocDBMarker[T any](items []T, marker, maxRecordsStr string) ([]T, stri
 	}
 
 	return items[:limit], strconv.Itoa(start + limit)
+}
+
+func parseAvailabilityZones(vals url.Values) []string {
+var azs []string
+for i := 1; ; i++ {
+az := vals.Get(fmt.Sprintf("AvailabilityZones.AvailabilityZone.%d", i))
+if az == "" {
+return azs
+}
+azs = append(azs, az)
+}
+}
+
+func parseEventCategoryMembers(vals url.Values) []string {
+var cats []string
+for i := 1; ; i++ {
+cat := vals.Get(fmt.Sprintf("EventCategories.EventCategory.%d", i))
+if cat == "" {
+return cats
+}
+cats = append(cats, cat)
+}
+}
+
+func parseAttributeValueMembers(vals url.Values, prefix string) []string {
+var values []string
+for i := 1; ; i++ {
+v := vals.Get(fmt.Sprintf("%s.AttributeValue.%d", prefix, i))
+if v == "" {
+return values
+}
+values = append(values, v)
+}
 }

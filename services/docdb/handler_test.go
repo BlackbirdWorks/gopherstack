@@ -120,6 +120,7 @@ func TestHandler_ClusterOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup        func(*testing.T, *docdb.Handler)
 		vals         url.Values
 		name         string
 		wantContains string
@@ -148,6 +149,14 @@ func TestHandler_ClusterOperations(t *testing.T) {
 		},
 		{
 			name: "start_cluster",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				doRequest(t, h, url.Values{
+					"Action":              {"StopDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"my-cluster"},
+				})
+			},
 			vals: url.Values{
 				"Action":              {"StartDBCluster"},
 				"Version":             {"2014-10-31"},
@@ -178,6 +187,10 @@ func TestHandler_ClusterOperations(t *testing.T) {
 				"Version":             {"2014-10-31"},
 				"DBClusterIdentifier": {"my-cluster"},
 			})
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
 
 			rr := doRequest(t, h, tt.vals)
 			assert.Equal(t, tt.wantStatus, rr.Code)
@@ -1493,7 +1506,7 @@ func TestRefinement1_SortedDescribeInstances(t *testing.T) {
 				b.AddDBInstanceInternal(&docdb.DBInstance{DBInstanceIdentifier: id})
 			}
 
-			got, err := b.DescribeDBInstances("")
+			got, err := b.DescribeDBInstances("", "")
 			require.NoError(t, err)
 
 			gotIDs := make([]string, len(got))
@@ -1604,7 +1617,7 @@ func TestRefinement1_SortedDescribeSnapshots(t *testing.T) {
 				b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{DBClusterSnapshotIdentifier: id})
 			}
 
-			got, err := b.DescribeDBClusterSnapshots("", "")
+			got, err := b.DescribeDBClusterSnapshots("", "", "")
 			require.NoError(t, err)
 
 			gotIDs := make([]string, len(got))
@@ -1839,7 +1852,7 @@ func TestRefinement1_TagsOnCreate_Instance(t *testing.T) {
 			resp := doRequest(t, h, vals)
 			require.Equal(t, http.StatusOK, resp.Code)
 
-			instances, err := h.Backend.DescribeDBInstances(tt.id)
+			instances, err := h.Backend.DescribeDBInstances(tt.id, "")
 			require.NoError(t, err)
 			require.Len(t, instances, 1)
 
@@ -1887,7 +1900,7 @@ func TestRefinement1_SnapshotClusterIdFilter(t *testing.T) {
 				DBClusterIdentifier:         "cluster-b",
 			})
 
-			got, err := b.DescribeDBClusterSnapshots("", tt.clusterID)
+			got, err := b.DescribeDBClusterSnapshots("", tt.clusterID, "")
 			require.NoError(t, err)
 
 			assert.Len(t, got, tt.wantCount)
