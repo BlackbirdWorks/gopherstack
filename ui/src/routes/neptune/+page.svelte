@@ -386,13 +386,14 @@
 				>
 					<Plus class="w-4 h-4" />Create Instance
 				</button>
+			{:else}
+				<button
+					onclick={() => { showCreateInstanceModal = true; newInstanceClusterId = selectedCluster?.DBClusterIdentifier ?? ''; }}
+					class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+				>
+					<Plus class="w-4 h-4" />Create Instance
+				</button>
 			{/if}
-			<button
-				onclick={() => { showCreateInstanceModal = true; newInstanceClusterId = selectedCluster?.DBClusterIdentifier ?? ''; }}
-				class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 {activeTab !== 'clusters' ? 'hidden' : ''}"
-			>
-				<Plus class="w-4 h-4" />Create Instance
-			</button>
 			<button
 				onclick={() => { showCreateModal = true; }}
 				class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2"

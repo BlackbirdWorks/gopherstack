@@ -431,8 +431,7 @@ func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string) 
 
 	return &cp, nil
 }
-// DescribeDBInstances returns all Neptune DB instances or a specific one.
-// If clusterID is non-empty, results are filtered to that cluster.
+// DescribeDBInstances returns all Neptune DB instances or a specific one by ID.
 func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 	b.mu.RLock("DescribeDBInstances")
 	defer b.mu.RUnlock()
