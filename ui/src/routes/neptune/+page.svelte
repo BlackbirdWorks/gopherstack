@@ -167,7 +167,8 @@
 
 	async function deleteCluster(cluster: DBCluster) {
 		const id = cluster.DBClusterIdentifier ?? '';
-		if (!await confirmDestructive({ title: 'Delete Cluster', message: `Delete cluster "${id}"? This action cannot be undone.` })) return;
+		const confirmed = await confirmDestructive({ title: 'Delete Cluster', message: `Delete cluster "${id}"? This action cannot be undone.` });
+		if (!confirmed) return;
 		try {
 			await neptune.send(new DeleteDBClusterCommand({ DBClusterIdentifier: id, SkipFinalSnapshot: true }));
 			toast.success(`Cluster "${id}" deletion initiated`);
@@ -204,7 +205,8 @@
 
 	async function deleteInstance(instance: DBInstance) {
 		const id = instance.DBInstanceIdentifier ?? '';
-		if (!await confirmDestructive({ title: 'Delete Instance', message: `Delete instance "${id}"? This action cannot be undone.` })) return;
+		const confirmed = await confirmDestructive({ title: 'Delete Instance', message: `Delete instance "${id}"? This action cannot be undone.` });
+		if (!confirmed) return;
 		try {
 			await neptune.send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id }));
 			toast.success(`Instance "${id}" deletion initiated`);

@@ -1262,6 +1262,7 @@ func (b *InMemoryBackend) DeleteGlobalCluster(globalClusterID string) (*GlobalCl
 }
 
 // FailoverGlobalCluster performs a failover for a Neptune global cluster.
+// targetDBClusterID is accepted for API compatibility but not used in the in-memory backend.
 func (b *InMemoryBackend) FailoverGlobalCluster(globalClusterID, _ string) (*GlobalCluster, error) {
 	b.mu.Lock("FailoverGlobalCluster")
 	defer b.mu.Unlock()
@@ -1314,6 +1315,7 @@ func (b *InMemoryBackend) RemoveFromGlobalCluster(globalClusterID, dbClusterARN 
 }
 
 // SwitchoverGlobalCluster switches over a Neptune global cluster to a new primary.
+// targetDBClusterID is accepted for API compatibility but not used in the in-memory backend.
 func (b *InMemoryBackend) SwitchoverGlobalCluster(globalClusterID, _ string) (*GlobalCluster, error) {
 	b.mu.Lock("SwitchoverGlobalCluster")
 	defer b.mu.Unlock()
