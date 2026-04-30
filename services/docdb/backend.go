@@ -19,11 +19,13 @@ var (
 	ErrInstanceAlreadyExists              = awserr.New("DBInstanceAlreadyExists", awserr.ErrAlreadyExists)
 	ErrSubnetGroupNotFound                = awserr.New("DBSubnetGroupNotFoundFault", awserr.ErrNotFound)
 	ErrSubnetGroupAlreadyExists           = awserr.New("DBSubnetGroupAlreadyExistsFault", awserr.ErrAlreadyExists)
+	ErrSubnetGroupInUse                   = awserr.New("InvalidDBSubnetGroupStateFault", awserr.ErrInvalidParameter)
 	ErrClusterParameterGroupNotFound      = awserr.New("DBClusterParameterGroupNotFoundFault", awserr.ErrNotFound)
 	ErrClusterParameterGroupAlreadyExists = awserr.New(
 		"DBClusterParameterGroupAlreadyExistsFault",
 		awserr.ErrAlreadyExists,
 	)
+	ErrParameterGroupInUse            = awserr.New("InvalidDBParameterGroupStateFault", awserr.ErrInvalidParameter)
 	ErrClusterSnapshotNotFound        = awserr.New("DBClusterSnapshotNotFoundFault", awserr.ErrNotFound)
 	ErrClusterSnapshotAlreadyExists   = awserr.New("DBClusterSnapshotAlreadyExistsFault", awserr.ErrAlreadyExists)
 	ErrEventSubscriptionNotFound      = awserr.New("SubscriptionNotFoundFault", awserr.ErrNotFound)
@@ -44,6 +46,10 @@ const (
 
 	defaultBackupWindow      = "00:00-01:00" //nolint:gosec // not a credential
 	defaultMaintenanceWindow = "mon:05:00-mon:05:30"
+
+	statusAvailable = "available"
+	statusStopped   = "stopped"
+	statusDeleting  = "deleting"
 
 	// OptInType constants for ApplyPendingMaintenanceAction.
 	optInTypeImmediate       = "immediate"
@@ -66,6 +72,7 @@ type DBCluster struct {
 	Status                      string            `json:"status"`
 	DBSubnetGroupName           string            `json:"dbSubnetGroupName"`
 	PreferredBackupWindow       string            `json:"preferredBackupWindow"`
+	ClusterCreateTime           string            `json:"clusterCreateTime"`
 	AvailabilityZones           []string          `json:"availabilityZones"`
 	Port                        int               `json:"port"`
 	BackupRetentionPeriod       int               `json:"backupRetentionPeriod"`
@@ -75,21 +82,23 @@ type DBCluster struct {
 }
 
 type DBInstance struct {
-	Tags                    map[string]string `json:"tags"`
-	DBInstanceIdentifier    string            `json:"dbInstanceIdentifier"`
-	DBClusterIdentifier     string            `json:"dbClusterIdentifier"`
-	DBInstanceClass         string            `json:"dbInstanceClass"`
-	Engine                  string            `json:"engine"`
-	DBInstanceStatus        string            `json:"dbInstanceStatus"`
-	Endpoint                string            `json:"endpoint"`
-	DBInstanceArn           string            `json:"dbInstanceArn"`
-	EngineVersion           string            `json:"engineVersion"`
-	AvailabilityZone        string            `json:"availabilityZone"`
-	DBSubnetGroupName       string            `json:"dbSubnetGroupName"`
-	Port                    int               `json:"port"`
-	StorageEncrypted        bool              `json:"storageEncrypted"`
-	AutoMinorVersionUpgrade bool              `json:"autoMinorVersionUpgrade"`
-	PubliclyAccessible      bool              `json:"publiclyAccessible"`
+	Tags                       map[string]string `json:"tags"`
+	DBInstanceIdentifier       string            `json:"dbInstanceIdentifier"`
+	DBClusterIdentifier        string            `json:"dbClusterIdentifier"`
+	DBInstanceClass            string            `json:"dbInstanceClass"`
+	Engine                     string            `json:"engine"`
+	DBInstanceStatus           string            `json:"dbInstanceStatus"`
+	Endpoint                   string            `json:"endpoint"`
+	DBInstanceArn              string            `json:"dbInstanceArn"`
+	EngineVersion              string            `json:"engineVersion"`
+	AvailabilityZone           string            `json:"availabilityZone"`
+	DBSubnetGroupName          string            `json:"dbSubnetGroupName"`
+	PreferredMaintenanceWindow string            `json:"preferredMaintenanceWindow"`
+	Port                       int               `json:"port"`
+	PromotionTier              int               `json:"promotionTier"`
+	StorageEncrypted           bool              `json:"storageEncrypted"`
+	AutoMinorVersionUpgrade    bool              `json:"autoMinorVersionUpgrade"`
+	PubliclyAccessible         bool              `json:"publiclyAccessible"`
 }
 
 type DBSubnetGroup struct {
@@ -98,6 +107,7 @@ type DBSubnetGroup struct {
 	DBSubnetGroupDescription string            `json:"dbSubnetGroupDescription"`
 	VpcID                    string            `json:"vpcID"`
 	Status                   string            `json:"status"`
+	DBSubnetGroupArn         string            `json:"dbSubnetGroupArn"`
 	SubnetIDs                []string          `json:"subnetIDs"`
 }
 
@@ -111,6 +121,7 @@ type DBClusterParameterGroup struct {
 	DBClusterParameterGroupName string            `json:"dbClusterParameterGroupName"`
 	DBParameterGroupFamily      string            `json:"dbParameterGroupFamily"`
 	Description                 string            `json:"description"`
+	DBClusterParameterGroupArn  string            `json:"dbClusterParameterGroupArn"`
 }
 
 type DBClusterSnapshot struct {
@@ -276,7 +287,7 @@ func (b *InMemoryBackend) globalClusterARN(id string) string {
 }
 
 func (b *InMemoryBackend) CreateDBCluster(
-	id, engine, masterUser, dbName, paramGroupName, subnetGroupName string,
+	id, engine, engineVersion, masterUser, dbName, paramGroupName, subnetGroupName string,
 	port int,
 	storageEncrypted, deletionProtection bool,
 	backupRetentionPeriod int,
@@ -294,6 +305,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 	}
 	if engine == "" {
 		engine = docDBEngine
+	}
+	if engineVersion == "" {
+		engineVersion = defaultEngineVersion
 	}
 	if paramGroupName == "" {
 		paramGroupName = "default.docdb4.0"
@@ -318,7 +332,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	cluster := &DBCluster{
 		DBClusterIdentifier:         id,
 		Engine:                      engine,
-		Status:                      "available",
+		Status:                      statusAvailable,
 		MasterUsername:              masterUser,
 		DatabaseName:                dbName,
 		DBClusterParameterGroupName: paramGroupName,
@@ -327,13 +341,14 @@ func (b *InMemoryBackend) CreateDBCluster(
 		ReaderEndpoint:              readerEndpoint,
 		Port:                        port,
 		DBClusterArn:                clusterArn,
-		EngineVersion:               defaultEngineVersion,
+		EngineVersion:               engineVersion,
 		StorageEncrypted:            storageEncrypted,
 		DeletionProtection:          deletionProtection,
 		BackupRetentionPeriod:       backupRetentionPeriod,
 		PreferredBackupWindow:       preferredBackupWindow,
 		PreferredMaintenanceWindow:  preferredMaintenanceWindow,
 		AvailabilityZones:           azs,
+		ClusterCreateTime:           time.Now().UTC().Format(time.RFC3339),
 		Tags:                        copyTags(tags),
 	}
 	b.clusters[id] = cluster
@@ -376,6 +391,14 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
+	if c.DeletionProtection {
+		return nil, fmt.Errorf("%w: cluster %s has deletion protection enabled", ErrInvalidClusterState, id)
+	}
+	for _, inst := range b.instances {
+		if inst.DBClusterIdentifier == id {
+			return nil, fmt.Errorf("%w: cluster %s still has instances", ErrInvalidClusterState, id)
+		}
+	}
 	cp := copyCluster(c)
 	delete(b.clusters, id)
 	delete(b.tags, b.clusterARN(id))
@@ -394,6 +417,9 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	c, exists := b.clusters[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+	}
+	if c.Status == statusDeleting {
+		return nil, fmt.Errorf("%w: cluster %s is in deleting state", ErrInvalidClusterState, id)
 	}
 	if paramGroupName != "" {
 		c.DBClusterParameterGroupName = paramGroupName
@@ -421,10 +447,10 @@ func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
-	if c.Status != "available" {
+	if c.Status != statusAvailable {
 		return nil, fmt.Errorf("%w: cluster %s is not in available state", ErrInvalidClusterState, id)
 	}
-	c.Status = "stopped"
+	c.Status = statusStopped
 
 	return copyCluster(c), nil
 }
@@ -436,10 +462,10 @@ func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
-	if c.Status != "stopped" {
+	if c.Status != statusStopped {
 		return nil, fmt.Errorf("%w: cluster %s is not in stopped state", ErrInvalidClusterState, id)
 	}
-	c.Status = "available"
+	c.Status = statusAvailable
 
 	return copyCluster(c), nil
 }
@@ -451,12 +477,16 @@ func (b *InMemoryBackend) FailoverDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
+	if c.Status != statusAvailable {
+		return nil, fmt.Errorf("%w: cluster %s is not in available state for failover", ErrInvalidClusterState, id)
+	}
 
 	return copyCluster(c), nil
 }
 
 func (b *InMemoryBackend) CreateDBInstance(
 	id, clusterID, instanceClass, engine string,
+	promotionTier int,
 	tags map[string]string,
 ) (*DBInstance, error) {
 	if id == "" {
@@ -473,6 +503,21 @@ func (b *InMemoryBackend) CreateDBInstance(
 	if instanceClass == "" {
 		instanceClass = defaultInstanceClass
 	}
+	if promotionTier <= 0 {
+		promotionTier = 1
+	}
+	var clusterEngineVersion string
+	var clusterStorageEncrypted bool
+	var clusterAZ string
+	var clusterSubnetGroupName string
+	if clusterID != "" {
+		if parentCluster, exists := b.clusters[clusterID]; exists {
+			clusterEngineVersion = parentCluster.EngineVersion
+			clusterStorageEncrypted = parentCluster.StorageEncrypted
+			clusterAZ = firstAZ(parentCluster.AvailabilityZones)
+			clusterSubnetGroupName = parentCluster.DBSubnetGroupName
+		}
+	}
 	instanceArn := b.instanceARN(id)
 	endpoint := fmt.Sprintf("%s.docdb.%s.amazonaws.com", id, b.region)
 	inst := &DBInstance{
@@ -480,11 +525,15 @@ func (b *InMemoryBackend) CreateDBInstance(
 		DBClusterIdentifier:  clusterID,
 		DBInstanceClass:      instanceClass,
 		Engine:               engine,
-		DBInstanceStatus:     "available",
+		DBInstanceStatus:     statusAvailable,
 		Endpoint:             endpoint,
 		Port:                 defaultDocDBPort,
 		DBInstanceArn:        instanceArn,
-		EngineVersion:        defaultEngineVersion,
+		EngineVersion:        valueOrDefault(clusterEngineVersion, defaultEngineVersion),
+		StorageEncrypted:     clusterStorageEncrypted,
+		AvailabilityZone:     clusterAZ,
+		DBSubnetGroupName:    clusterSubnetGroupName,
+		PromotionTier:        promotionTier,
 		Tags:                 copyTags(tags),
 	}
 	b.instances[id] = inst
@@ -537,7 +586,11 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	return cp, nil
 }
 
-func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string) (*DBInstance, error) {
+func (b *InMemoryBackend) ModifyDBInstance(
+	id, instanceClass string,
+	autoMinorVersionUpgrade *bool,
+	preferredMaintenanceWindow string,
+) (*DBInstance, error) {
 	b.mu.Lock("ModifyDBInstance")
 	defer b.mu.Unlock()
 	inst, exists := b.instances[id]
@@ -546,6 +599,12 @@ func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string) (*DBInstanc
 	}
 	if instanceClass != "" {
 		inst.DBInstanceClass = instanceClass
+	}
+	if autoMinorVersionUpgrade != nil {
+		inst.AutoMinorVersionUpgrade = *autoMinorVersionUpgrade
+	}
+	if preferredMaintenanceWindow != "" {
+		inst.PreferredMaintenanceWindow = preferredMaintenanceWindow
 	}
 
 	return copyInstance(inst), nil
@@ -577,16 +636,17 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 	}
 	ids := make([]string, len(subnetIDs))
 	copy(ids, subnetIDs)
+	sgArn := b.subnetGroupARN(name)
 	sg := &DBSubnetGroup{
 		DBSubnetGroupName:        name,
 		DBSubnetGroupDescription: description,
 		VpcID:                    vpcID,
 		Status:                   "Complete",
 		SubnetIDs:                ids,
+		DBSubnetGroupArn:         sgArn,
 		Tags:                     copyTags(tags),
 	}
 	b.subnetGroups[name] = sg
-	sgArn := b.subnetGroupARN(name)
 	if len(tags) > 0 {
 		b.tags[sgArn] = tagsFromMap(tags)
 	}
@@ -634,6 +694,16 @@ func (b *InMemoryBackend) DeleteDBSubnetGroup(name string) error {
 	if _, exists := b.subnetGroups[name]; !exists {
 		return fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 	}
+	for _, c := range b.clusters {
+		if c.DBSubnetGroupName == name {
+			return fmt.Errorf(
+				"%w: subnet group %s is used by cluster %s",
+				ErrSubnetGroupInUse,
+				name,
+				c.DBClusterIdentifier,
+			)
+		}
+	}
 	delete(b.subnetGroups, name)
 	delete(b.tags, b.subnetGroupARN(name))
 
@@ -660,6 +730,7 @@ func (b *InMemoryBackend) CreateDBClusterParameterGroup(
 		DBClusterParameterGroupName: name,
 		DBParameterGroupFamily:      family,
 		Description:                 description,
+		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(name),
 		Tags:                        copyTags(tags),
 	}
 	b.clusterParameterGroups[name] = pg
@@ -705,6 +776,16 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(name string) error {
 	if _, exists := b.clusterParameterGroups[name]; !exists {
 		return fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 	}
+	for _, c := range b.clusters {
+		if c.DBClusterParameterGroupName == name {
+			return fmt.Errorf(
+				"%w: parameter group %s is used by cluster %s",
+				ErrParameterGroupInUse,
+				name,
+				c.DBClusterIdentifier,
+			)
+		}
+	}
 	delete(b.clusterParameterGroups, name)
 	delete(b.tags, b.clusterParameterGroupARN(name))
 
@@ -747,7 +828,7 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		DBClusterSnapshotIdentifier: snapshotID,
 		DBClusterIdentifier:         clusterID,
 		Engine:                      c.Engine,
-		Status:                      "available",
+		Status:                      statusAvailable,
 		EngineVersion:               c.EngineVersion,
 		StorageEncrypted:            c.StorageEncrypted,
 		SnapshotType:                "manual",
@@ -954,6 +1035,7 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 		DBClusterParameterGroupName: targetName,
 		DBParameterGroupFamily:      src.DBParameterGroupFamily,
 		Description:                 desc,
+		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(targetName),
 	}
 	b.clusterParameterGroups[targetName] = pg
 	cp := *pg
@@ -990,7 +1072,7 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 		DBClusterIdentifier:         src.DBClusterIdentifier,
 		DBClusterArn:                src.DBClusterArn,
 		Engine:                      src.Engine,
-		Status:                      "available",
+		Status:                      statusAvailable,
 		EngineVersion:               src.EngineVersion,
 		StorageEncrypted:            src.StorageEncrypted,
 		SnapshotType:                src.SnapshotType,
@@ -1054,7 +1136,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 	gc := &GlobalCluster{
 		GlobalClusterIdentifier: id,
 		SourceDBClusterID:       sourceDBClusterID,
-		Status:                  "available",
+		Status:                  statusAvailable,
 		Engine:                  engine,
 		EngineVersion:           engineVersion,
 		GlobalClusterArn:        b.globalClusterARN(id),
@@ -1541,18 +1623,34 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	if engine == "" {
 		engine = snap.Engine
 	}
+	engineVersion := snap.EngineVersion
+	if engineVersion == "" {
+		engineVersion = defaultEngineVersion
+	}
+	var paramGroupName, subnetGroupName string
+	if src, exists := b.clusters[snap.DBClusterIdentifier]; exists {
+		paramGroupName = src.DBClusterParameterGroupName
+		subnetGroupName = src.DBSubnetGroupName
+	}
+	if paramGroupName == "" {
+		paramGroupName = "default.docdb4.0"
+	}
 	clusterArn := b.clusterARN(clusterID)
 	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", clusterID, b.region)
+	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", clusterID, b.region)
 	cluster := &DBCluster{
 		DBClusterIdentifier:         clusterID,
 		Engine:                      engine,
-		Status:                      "available",
-		DBClusterParameterGroupName: "default.docdb4.0",
+		Status:                      statusAvailable,
+		DBClusterParameterGroupName: paramGroupName,
+		DBSubnetGroupName:           subnetGroupName,
 		Endpoint:                    endpoint,
+		ReaderEndpoint:              readerEndpoint,
 		Port:                        defaultDocDBPort,
 		DBClusterArn:                clusterArn,
-		EngineVersion:               snap.EngineVersion,
+		EngineVersion:               engineVersion,
 		StorageEncrypted:            snap.StorageEncrypted,
+		ClusterCreateTime:           time.Now().UTC().Format(time.RFC3339),
 	}
 	b.clusters[clusterID] = cluster
 
@@ -1580,22 +1678,55 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	}
 	clusterArn := b.clusterARN(targetClusterID)
 	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", targetClusterID, b.region)
+	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", targetClusterID, b.region)
 	cluster := &DBCluster{
 		DBClusterIdentifier:         targetClusterID,
 		Engine:                      src.Engine,
-		Status:                      "available",
+		Status:                      statusAvailable,
 		MasterUsername:              src.MasterUsername,
 		DatabaseName:                src.DatabaseName,
 		DBClusterParameterGroupName: src.DBClusterParameterGroupName,
+		DBSubnetGroupName:           src.DBSubnetGroupName,
 		Endpoint:                    endpoint,
+		ReaderEndpoint:              readerEndpoint,
 		Port:                        src.Port,
 		DBClusterArn:                clusterArn,
 		EngineVersion:               src.EngineVersion,
 		StorageEncrypted:            src.StorageEncrypted,
+		PreferredBackupWindow:       src.PreferredBackupWindow,
+		PreferredMaintenanceWindow:  src.PreferredMaintenanceWindow,
+		ClusterCreateTime:           time.Now().UTC().Format(time.RFC3339),
 	}
 	b.clusters[targetClusterID] = cluster
 
 	return copyCluster(cluster), nil
+}
+
+// DBEngineVersion represents a supported DocDB engine version.
+type DBEngineVersion struct {
+	Engine              string
+	EngineVersion       string
+	DBEngineDescription string
+}
+
+// DescribeDBEngineVersions returns available engine versions, optionally filtered.
+func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string) []DBEngineVersion {
+	all := []DBEngineVersion{
+		{Engine: docDBEngine, EngineVersion: "4.0.0", DBEngineDescription: "Amazon DocumentDB"},
+		{Engine: docDBEngine, EngineVersion: "5.0.0", DBEngineDescription: "Amazon DocumentDB"},
+	}
+	result := make([]DBEngineVersion, 0, len(all))
+	for _, v := range all {
+		if engine != "" && v.Engine != engine {
+			continue
+		}
+		if engineVersion != "" && v.EngineVersion != engineVersion {
+			continue
+		}
+		result = append(result, v)
+	}
+
+	return result
 }
 
 // DescribeEventCategories returns the event categories for DocDB.
@@ -1728,4 +1859,22 @@ func tagsFromMap(m map[string]string) []Tag {
 	}
 
 	return tags
+}
+
+// firstAZ returns the first availability zone from a slice, or empty string.
+func firstAZ(azs []string) string {
+	if len(azs) == 0 {
+		return ""
+	}
+
+	return azs[0]
+}
+
+// valueOrDefault returns s if non-empty, otherwise returns def.
+func valueOrDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+
+	return s
 }

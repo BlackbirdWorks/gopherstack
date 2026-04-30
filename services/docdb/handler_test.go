@@ -3571,3 +3571,285 @@ func TestRefinement1_SnapshotHasSnapshotType(t *testing.T) {
 		})
 	}
 }
+
+func TestRefinement2_DeleteClusterProtections(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(h *docdb.Handler)
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "deletion_protection_enabled",
+			setup: func(h *docdb.Handler) {
+				doRequest(t, h, url.Values{
+					"Action":              {"CreateDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"protected-cluster"},
+					"DeletionProtection":  {"true"},
+				})
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidDBClusterStateFault",
+		},
+		{
+			name: "active_instance_blocks_delete",
+			setup: func(h *docdb.Handler) {
+				doRequest(t, h, url.Values{
+					"Action":              {"CreateDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"cluster-with-inst"},
+				})
+				doRequest(t, h, url.Values{
+					"Action":               {"CreateDBInstance"},
+					"Version":              {"2014-10-31"},
+					"DBInstanceIdentifier": {"inst1"},
+					"DBClusterIdentifier":  {"cluster-with-inst"},
+					"DBInstanceClass":      {"db.r5.large"},
+					"Engine":               {"docdb"},
+				})
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidDBClusterStateFault",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.setup(h)
+
+			clusterID := "protected-cluster"
+			if tt.name == "active_instance_blocks_delete" {
+				clusterID = "cluster-with-inst"
+			}
+			rr := doRequest(t, h, url.Values{
+				"Action":              {"DeleteDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {clusterID},
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement2_CreateInstanceInheritsCluster(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+	}{
+		{
+			name:         "instance_inherits_storage_encrypted",
+			wantContains: "<StorageEncrypted>true</StorageEncrypted>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"enc-cluster"},
+				"StorageEncrypted":    {"true"},
+			})
+			rr := doRequest(t, h, url.Values{
+				"Action":               {"CreateDBInstance"},
+				"Version":              {"2014-10-31"},
+				"DBInstanceIdentifier": {"enc-inst"},
+				"DBClusterIdentifier":  {"enc-cluster"},
+				"DBInstanceClass":      {"db.r5.large"},
+				"Engine":               {"docdb"},
+			})
+			assert.Equal(t, http.StatusOK, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement2_FailoverStoppedCluster(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:         "failover_stopped_cluster_rejected",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidDBClusterStateFault",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"test-cluster"},
+			})
+			doRequest(t, h, url.Values{
+				"Action":              {"StopDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"test-cluster"},
+			})
+			rr := doRequest(t, h, url.Values{
+				"Action":              {"FailoverDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"test-cluster"},
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement2_CopySnapshotDuplicate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:         "duplicate_snapshot_copy_rejected",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "DBClusterSnapshotAlreadyExistsFault",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"src-cluster"},
+			})
+			doRequest(t, h, url.Values{
+				"Action":                      {"CreateDBClusterSnapshot"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterSnapshotIdentifier": {"src-snap"},
+				"DBClusterIdentifier":         {"src-cluster"},
+			})
+			doRequest(t, h, url.Values{
+				"Action":                            {"CopyDBClusterSnapshot"},
+				"Version":                           {"2014-10-31"},
+				"SourceDBClusterSnapshotIdentifier": {"src-snap"},
+				"TargetDBClusterSnapshotIdentifier": {"dst-snap"},
+			})
+			rr := doRequest(t, h, url.Values{
+				"Action":                            {"CopyDBClusterSnapshot"},
+				"Version":                           {"2014-10-31"},
+				"SourceDBClusterSnapshotIdentifier": {"src-snap"},
+				"TargetDBClusterSnapshotIdentifier": {"dst-snap"},
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement2_DeleteParameterGroupInUse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:         "parameter_group_in_use_rejected",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidDBParameterGroupStateFault",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":                      {"CreateDBClusterParameterGroup"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterParameterGroupName": {"my-pg"},
+				"DBParameterGroupFamily":      {"docdb4.0"},
+				"Description":                 {"test pg"},
+			})
+			doRequest(t, h, url.Values{
+				"Action":                      {"CreateDBCluster"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterIdentifier":         {"pg-cluster"},
+				"DBClusterParameterGroupName": {"my-pg"},
+			})
+			rr := doRequest(t, h, url.Values{
+				"Action":                      {"DeleteDBClusterParameterGroup"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterParameterGroupName": {"my-pg"},
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement2_DeleteSubnetGroupInUse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:         "subnet_group_in_use_rejected",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidDBSubnetGroupStateFault",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":                   {"CreateDBSubnetGroup"},
+				"Version":                  {"2014-10-31"},
+				"DBSubnetGroupName":        {"my-sg"},
+				"DBSubnetGroupDescription": {"test sg"},
+				"SubnetIds.member.1":       {"subnet-aaa"},
+			})
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"sg-cluster"},
+				"DBSubnetGroupName":   {"my-sg"},
+			})
+			rr := doRequest(t, h, url.Values{
+				"Action":            {"DeleteDBSubnetGroup"},
+				"Version":           {"2014-10-31"},
+				"DBSubnetGroupName": {"my-sg"},
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}

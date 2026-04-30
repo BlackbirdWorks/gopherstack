@@ -347,6 +347,7 @@ func (h *Handler) dispatchExtended5(action string, vals url.Values) (any, error)
 func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	engine := vals.Get("Engine")
+	engineVersion := vals.Get("EngineVersion")
 	masterUser := vals.Get("MasterUsername")
 	dbName := vals.Get("DatabaseName")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
@@ -368,7 +369,7 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	availabilityZones := parseAvailabilityZones(vals)
 	tags := parseTags(vals)
 	cluster, err := h.Backend.CreateDBCluster(
-		id, engine, masterUser, dbName, paramGroupName, subnetGroupName,
+		id, engine, engineVersion, masterUser, dbName, paramGroupName, subnetGroupName,
 		port, storageEncrypted, deletionProtection, backupRetentionPeriod,
 		preferredBackupWindow, preferredMaintenanceWindow, availabilityZones, tags,
 	)
@@ -491,8 +492,12 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
 	engine := vals.Get("Engine")
+	promotionTier := 0
+	if ptStr := vals.Get("PromotionTier"); ptStr != "" {
+		promotionTier, _ = strconv.Atoi(ptStr)
+	}
 	tags := parseTags(vals)
-	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass, engine, tags)
+	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass, engine, promotionTier, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -543,7 +548,13 @@ func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
-	inst, err := h.Backend.ModifyDBInstance(id, instanceClass)
+	var autoMinorVersionUpgrade *bool
+	if amvStr := vals.Get("AutoMinorVersionUpgrade"); amvStr != "" {
+		amv := amvStr == boolTrue
+		autoMinorVersionUpgrade = &amv
+	}
+	preferredMaintenanceWindow := vals.Get("PreferredMaintenanceWindow")
+	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, autoMinorVersionUpgrade, preferredMaintenanceWindow)
 	if err != nil {
 		return nil, err
 	}
@@ -628,7 +639,7 @@ func (h *Handler) handleCreateDBClusterParameterGroup(vals url.Values) (any, err
 
 	return &createDBClusterParameterGroupResponse{
 		Xmlns:                   docdbXMLNS,
-		DBClusterParameterGroup: toXMLParameterGroup(h.Backend, pg),
+		DBClusterParameterGroup: toXMLParameterGroup(pg),
 	}, nil
 }
 
@@ -641,7 +652,7 @@ func (h *Handler) handleDescribeDBClusterParameterGroups(vals url.Values) (any, 
 	members := make([]xmlDBClusterParameterGroup, 0, len(groups))
 	for _, pg := range groups {
 		cp := pg
-		members = append(members, toXMLParameterGroup(h.Backend, &cp))
+		members = append(members, toXMLParameterGroup(&cp))
 	}
 
 	return &describeDBClusterParameterGroupsResponse{
@@ -743,8 +754,13 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 
 func (h *Handler) handleAddTagsToResource(vals url.Values) (any, error) {
 	arn := vals.Get("ResourceName")
-	tags := parseTagEntries(vals)
-	h.Backend.AddTagsToResource(arn, tags)
+	tagList := parseTagEntries(vals)
+	for _, tag := range tagList {
+		if tag.Key == "" {
+			return nil, fmt.Errorf("%w: tag key cannot be empty", ErrInvalidParameter)
+		}
+	}
+	h.Backend.AddTagsToResource(arn, tagList)
 
 	return &addTagsToResourceResponse{Xmlns: docdbXMLNS}, nil
 }
@@ -757,10 +773,13 @@ func (h *Handler) handleRemoveTagsFromResource(vals url.Values) (any, error) {
 	return &removeTagsFromResourceResponse{Xmlns: docdbXMLNS}, nil
 }
 
-func (h *Handler) handleDescribeDBEngineVersions(_ url.Values) (any, error) {
-	members := []xmlDBEngineVersion{
-		{Engine: docDBEngine, EngineVersion: "4.0.0", DBEngineDescription: "Amazon DocumentDB"},
-		{Engine: docDBEngine, EngineVersion: "5.0.0", DBEngineDescription: "Amazon DocumentDB"},
+func (h *Handler) handleDescribeDBEngineVersions(vals url.Values) (any, error) {
+	engine := vals.Get("Engine")
+	engineVersion := vals.Get("EngineVersion")
+	versions := h.Backend.DescribeDBEngineVersions(engine, engineVersion)
+	members := make([]xmlDBEngineVersion, 0, len(versions))
+	for _, v := range versions {
+		members = append(members, xmlDBEngineVersion(v))
 	}
 
 	return &describeDBEngineVersionsResponse{
@@ -843,7 +862,7 @@ func (h *Handler) handleCopyDBClusterParameterGroup(vals url.Values) (any, error
 
 	return &copyDBClusterParameterGroupResponse{
 		Xmlns:                   docdbXMLNS,
-		DBClusterParameterGroup: toXMLParameterGroup(h.Backend, pg),
+		DBClusterParameterGroup: toXMLParameterGroup(pg),
 	}, nil
 }
 
@@ -1267,8 +1286,8 @@ func docdbErrorCode(opErr error) string {
 	sentinels := []error{
 		ErrClusterNotFound, ErrClusterAlreadyExists,
 		ErrInstanceNotFound, ErrInstanceAlreadyExists,
-		ErrSubnetGroupNotFound, ErrSubnetGroupAlreadyExists,
-		ErrClusterParameterGroupNotFound, ErrClusterParameterGroupAlreadyExists,
+		ErrSubnetGroupNotFound, ErrSubnetGroupAlreadyExists, ErrSubnetGroupInUse,
+		ErrClusterParameterGroupNotFound, ErrClusterParameterGroupAlreadyExists, ErrParameterGroupInUse,
 		ErrClusterSnapshotNotFound, ErrClusterSnapshotAlreadyExists,
 		ErrEventSubscriptionNotFound, ErrEventSubscriptionAlreadyExists,
 		ErrGlobalClusterNotFound, ErrGlobalClusterAlreadyExists,
@@ -1358,24 +1377,28 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		StorageEncrypted:            c.StorageEncrypted,
 		MultiAZ:                     c.MultiAZ,
 		DeletionProtection:          c.DeletionProtection,
+		ClusterCreateTime:           c.ClusterCreateTime,
 	}
 }
 
 func toXMLInstance(inst *DBInstance) xmlDBInstance {
 	return xmlDBInstance{
-		DBInstanceIdentifier:    inst.DBInstanceIdentifier,
-		DBClusterIdentifier:     inst.DBClusterIdentifier,
-		DBInstanceClass:         inst.DBInstanceClass,
-		Engine:                  inst.Engine,
-		DBInstanceStatus:        inst.DBInstanceStatus,
-		Endpoint:                inst.Endpoint,
-		Port:                    inst.Port,
-		DBInstanceArn:           inst.DBInstanceArn,
-		EngineVersion:           inst.EngineVersion,
-		AvailabilityZone:        inst.AvailabilityZone,
-		DBSubnetGroupName:       inst.DBSubnetGroupName,
-		AutoMinorVersionUpgrade: inst.AutoMinorVersionUpgrade,
-		PubliclyAccessible:      inst.PubliclyAccessible,
+		DBInstanceIdentifier:       inst.DBInstanceIdentifier,
+		DBClusterIdentifier:        inst.DBClusterIdentifier,
+		DBInstanceClass:            inst.DBInstanceClass,
+		Engine:                     inst.Engine,
+		DBInstanceStatus:           inst.DBInstanceStatus,
+		Endpoint:                   inst.Endpoint,
+		Port:                       inst.Port,
+		DBInstanceArn:              inst.DBInstanceArn,
+		EngineVersion:              inst.EngineVersion,
+		AvailabilityZone:           inst.AvailabilityZone,
+		DBSubnetGroupName:          inst.DBSubnetGroupName,
+		AutoMinorVersionUpgrade:    inst.AutoMinorVersionUpgrade,
+		PubliclyAccessible:         inst.PubliclyAccessible,
+		StorageEncrypted:           inst.StorageEncrypted,
+		PromotionTier:              inst.PromotionTier,
+		PreferredMaintenanceWindow: inst.PreferredMaintenanceWindow,
 	}
 }
 
@@ -1391,15 +1414,16 @@ func toXMLSubnetGroup(sg *DBSubnetGroup) xmlDBSubnetGroup {
 		VpcID:                    sg.VpcID,
 		SubnetGroupStatus:        sg.Status,
 		Subnets:                  xmlSubnetList{Members: subnetMembers},
+		DBSubnetGroupArn:         sg.DBSubnetGroupArn,
 	}
 }
 
-func toXMLParameterGroup(b *InMemoryBackend, pg *DBClusterParameterGroup) xmlDBClusterParameterGroup {
+func toXMLParameterGroup(pg *DBClusterParameterGroup) xmlDBClusterParameterGroup {
 	return xmlDBClusterParameterGroup{
 		DBClusterParameterGroupName: pg.DBClusterParameterGroupName,
 		DBParameterGroupFamily:      pg.DBParameterGroupFamily,
 		Description:                 pg.Description,
-		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(pg.DBClusterParameterGroupName),
+		DBClusterParameterGroupArn:  pg.DBClusterParameterGroupArn,
 	}
 }
 
@@ -1444,6 +1468,7 @@ type xmlDBCluster struct {
 	PreferredMaintenanceWindow  string `xml:"PreferredMaintenanceWindow,omitempty"`
 	DBClusterArn                string `xml:"DBClusterArn,omitempty"`
 	EngineVersion               string `xml:"EngineVersion,omitempty"`
+	ClusterCreateTime           string `xml:"ClusterCreateTime,omitempty"`
 	Port                        int    `xml:"Port"`
 	BackupRetentionPeriod       int    `xml:"BackupRetentionPeriod,omitempty"`
 	StorageEncrypted            bool   `xml:"StorageEncrypted"`
@@ -1503,19 +1528,22 @@ type failoverDBClusterResponse struct {
 }
 
 type xmlDBInstance struct {
-	DBInstanceIdentifier    string `xml:"DBInstanceIdentifier"`
-	DBClusterIdentifier     string `xml:"DBClusterIdentifier,omitempty"`
-	DBInstanceClass         string `xml:"DBInstanceClass"`
-	Engine                  string `xml:"Engine"`
-	DBInstanceStatus        string `xml:"DBInstanceStatus"`
-	Endpoint                string `xml:"Endpoint>Address,omitempty"`
-	DBInstanceArn           string `xml:"DBInstanceArn,omitempty"`
-	EngineVersion           string `xml:"EngineVersion,omitempty"`
-	AvailabilityZone        string `xml:"AvailabilityZone,omitempty"`
-	DBSubnetGroupName       string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
-	AutoMinorVersionUpgrade bool   `xml:"AutoMinorVersionUpgrade"`
-	PubliclyAccessible      bool   `xml:"PubliclyAccessible"`
-	Port                    int    `xml:"Endpoint>Port"`
+	DBInstanceIdentifier       string `xml:"DBInstanceIdentifier"`
+	DBClusterIdentifier        string `xml:"DBClusterIdentifier,omitempty"`
+	DBInstanceClass            string `xml:"DBInstanceClass"`
+	Engine                     string `xml:"Engine"`
+	DBInstanceStatus           string `xml:"DBInstanceStatus"`
+	Endpoint                   string `xml:"Endpoint>Address,omitempty"`
+	DBInstanceArn              string `xml:"DBInstanceArn,omitempty"`
+	EngineVersion              string `xml:"EngineVersion,omitempty"`
+	AvailabilityZone           string `xml:"AvailabilityZone,omitempty"`
+	DBSubnetGroupName          string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
+	StorageEncrypted           bool   `xml:"StorageEncrypted"`
+	AutoMinorVersionUpgrade    bool   `xml:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible         bool   `xml:"PubliclyAccessible"`
+	Port                       int    `xml:"Endpoint>Port"`
+	PromotionTier              int    `xml:"PromotionTier,omitempty"`
 }
 
 type xmlDBInstanceList struct {
@@ -1570,6 +1598,7 @@ type xmlDBSubnetGroup struct {
 	DBSubnetGroupDescription string        `xml:"DBSubnetGroupDescription"`
 	VpcID                    string        `xml:"VpcId,omitempty"`
 	SubnetGroupStatus        string        `xml:"SubnetGroupStatus"`
+	DBSubnetGroupArn         string        `xml:"DBSubnetGroupArn,omitempty"`
 	Subnets                  xmlSubnetList `xml:"Subnets"`
 }
 
