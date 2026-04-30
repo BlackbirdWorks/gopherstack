@@ -715,7 +715,8 @@ func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
-	snaps, err := h.Backend.DescribeDBClusterSnapshots(snapshotID)
+	clusterID := vals.Get("DBClusterIdentifier")
+	snaps, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -781,8 +782,14 @@ func (h *Handler) handleRemoveTagsFromResource(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeDBEngineVersions(_ url.Values) (any, error) {
 	members := []xmlDBEngineVersion{
-		{Engine: neptuneEngine, EngineVersion: "1.2.0.0", DBEngineDescription: "Amazon Neptune"},
-		{Engine: neptuneEngine, EngineVersion: "1.3.0.0", DBEngineDescription: "Amazon Neptune"},
+		{Engine: neptuneEngine, EngineVersion: "1.2.0.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.2"},
+		{Engine: neptuneEngine, EngineVersion: "1.2.0.1", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.2"},
+		{Engine: neptuneEngine, EngineVersion: "1.2.0.2", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.2"},
+		{Engine: neptuneEngine, EngineVersion: "1.2.1.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.2"},
+		{Engine: neptuneEngine, EngineVersion: "1.3.0.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.3"},
+		{Engine: neptuneEngine, EngineVersion: "1.3.1.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.3"},
+		{Engine: neptuneEngine, EngineVersion: "1.3.2.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.3"},
+		{Engine: neptuneEngine, EngineVersion: "1.4.0.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.4"},
 	}
 
 	return &describeDBEngineVersionsResponse{
@@ -792,11 +799,21 @@ func (h *Handler) handleDescribeDBEngineVersions(_ url.Values) (any, error) {
 }
 
 func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, error) {
-	members := []xmlOrderableDBInstanceOption{
-		{Engine: neptuneEngine, EngineVersion: "1.2.0.0", DBInstanceClass: "db.r5.large"},
-		{Engine: neptuneEngine, EngineVersion: "1.2.0.0", DBInstanceClass: "db.r5.xlarge"},
-		{Engine: neptuneEngine, EngineVersion: "1.3.0.0", DBInstanceClass: "db.r5.large"},
-		{Engine: neptuneEngine, EngineVersion: "1.3.0.0", DBInstanceClass: "db.r5.xlarge"},
+	engineVersions := []string{"1.2.0.0", "1.2.1.0", "1.3.0.0", "1.3.1.0", "1.4.0.0"}
+	instanceClasses := []string{
+		"db.r5.large", "db.r5.xlarge", "db.r5.2xlarge", "db.r5.4xlarge", "db.r5.8xlarge",
+		"db.r6g.large", "db.r6g.xlarge", "db.r6g.2xlarge", "db.r6g.4xlarge",
+		"db.t3.medium",
+	}
+	var members []xmlOrderableDBInstanceOption
+	for _, ev := range engineVersions {
+		for _, ic := range instanceClasses {
+			members = append(members, xmlOrderableDBInstanceOption{
+				Engine:          neptuneEngine,
+				EngineVersion:   ev,
+				DBInstanceClass: ic,
+			})
+		}
 	}
 
 	return &describeOrderableDBInstanceOptionsResponse{
@@ -1040,7 +1057,14 @@ func (h *Handler) handleDescribeDBParameterGroups(vals url.Values) (any, error) 
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBParameters(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeDBParameters(vals url.Values) (any, error) {
+	name := vals.Get("DBParameterGroupName")
+	if name != "" {
+		if _, err := h.Backend.DescribeDBParameterGroups(name); err != nil {
+			return nil, err
+		}
+	}
+
 	return &describeDBParametersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeDBParametersResult{
@@ -1075,7 +1099,14 @@ func (h *Handler) handleResetDBParameterGroup(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBClusterParameters(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeDBClusterParameters(vals url.Values) (any, error) {
+	name := vals.Get("DBClusterParameterGroupName")
+	if name != "" {
+		if _, err := h.Backend.DescribeDBClusterParameterGroups(name); err != nil {
+			return nil, err
+		}
+	}
+
 	return &describeDBClusterParametersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeDBClusterParametersResult{
@@ -1086,6 +1117,11 @@ func (h *Handler) handleDescribeDBClusterParameters(_ url.Values) (any, error) {
 
 func (h *Handler) handleDescribeDBClusterSnapshotAttributes(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
+	if snapshotID != "" {
+		if _, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, ""); err != nil {
+			return nil, err
+		}
+	}
 
 	return &describeDBClusterSnapshotAttributesResponse{
 		Xmlns: neptuneXMLNS,
@@ -1097,7 +1133,14 @@ func (h *Handler) handleDescribeDBClusterSnapshotAttributes(vals url.Values) (an
 	}, nil
 }
 
-func (h *Handler) handleModifyDBClusterSnapshotAttribute(_ url.Values) (any, error) {
+func (h *Handler) handleModifyDBClusterSnapshotAttribute(vals url.Values) (any, error) {
+	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
+	if snapshotID != "" {
+		if _, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, ""); err != nil {
+			return nil, err
+		}
+	}
+
 	return &modifyDBClusterSnapshotAttributeResponse{Xmlns: neptuneXMLNS}, nil
 }
 
@@ -1180,8 +1223,24 @@ func (h *Handler) handleRemoveSourceIdentifierFromSubscription(vals url.Values) 
 
 func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
 	return &describeEventCategoriesResponse{
-		Xmlns:                  neptuneXMLNS,
-		EventCategoriesMapList: xmlEventCategoriesMapList{},
+		Xmlns: neptuneXMLNS,
+		EventCategoriesMapList: xmlEventCategoriesMapList{
+			Members: []xmlEventCategoriesMap{
+				{SourceType: "db-cluster", EventCategories: xmlEventCategoryList{Members: []string{
+					"failover", "maintenance", "notification", "failure", "availability",
+				}}},
+				{SourceType: "db-instance", EventCategories: xmlEventCategoryList{Members: []string{
+					"availability", "deletion", "failover", "failure", "maintenance",
+					"notification", "recovery", "restoration",
+				}}},
+				{SourceType: "db-parameter-group", EventCategories: xmlEventCategoryList{Members: []string{
+					"configuration change",
+				}}},
+				{SourceType: "db-cluster-snapshot", EventCategories: xmlEventCategoryList{Members: []string{
+					"backup", "notification",
+				}}},
+			},
+		},
 	}, nil
 }
 
@@ -1272,24 +1331,34 @@ func (h *Handler) handleRemoveRoleFromDBCluster(vals url.Values) (any, error) {
 	return &removeRoleFromDBClusterResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleDescribeEngineDefaultClusterParameters(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeEngineDefaultClusterParameters(vals url.Values) (any, error) {
+	family := vals.Get("DBParameterGroupFamily")
+	if family == "" {
+		family = "neptune1.3"
+	}
+
 	return &describeEngineDefaultClusterParametersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeEngineDefaultClusterParametersResult{
 			EngineDefaults: xmlEngineDefaults{
-				DBParameterGroupFamily: "neptune1.3",
+				DBParameterGroupFamily: family,
 				Parameters:             xmlParameterList{},
 			},
 		},
 	}, nil
 }
 
-func (h *Handler) handleDescribeEngineDefaultParameters(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeEngineDefaultParameters(vals url.Values) (any, error) {
+	family := vals.Get("DBParameterGroupFamily")
+	if family == "" {
+		family = "neptune1.3"
+	}
+
 	return &describeEngineDefaultParametersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeEngineDefaultParametersResult{
 			EngineDefaults: xmlEngineDefaults{
-				DBParameterGroupFamily: "neptune1.3",
+				DBParameterGroupFamily: family,
 				Parameters:             xmlParameterList{},
 			},
 		},
@@ -1306,10 +1375,25 @@ func (h *Handler) handleDescribePendingMaintenanceActions(_ url.Values) (any, er
 }
 
 func (h *Handler) handleDescribeValidDBInstanceModifications(_ url.Values) (any, error) {
+	validClasses := []xmlValidStorageOption{
+		{DBInstanceClass: "db.r5.large"},
+		{DBInstanceClass: "db.r5.xlarge"},
+		{DBInstanceClass: "db.r5.2xlarge"},
+		{DBInstanceClass: "db.r5.4xlarge"},
+		{DBInstanceClass: "db.r5.8xlarge"},
+		{DBInstanceClass: "db.r6g.large"},
+		{DBInstanceClass: "db.r6g.xlarge"},
+		{DBInstanceClass: "db.r6g.2xlarge"},
+		{DBInstanceClass: "db.r6g.4xlarge"},
+		{DBInstanceClass: "db.t3.medium"},
+	}
+
 	return &describeValidDBInstanceModificationsResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeValidDBInstanceModificationsResult{
-			ValidDBInstanceModificationsMessage: xmlValidDBInstanceModificationsMessage{},
+			ValidDBInstanceModificationsMessage: xmlValidDBInstanceModificationsMessage{
+				ValidProcessorFeatures: validClasses,
+			},
 		},
 	}, nil
 }
@@ -1484,25 +1568,36 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 
 	return xmlDBCluster{
 		DBClusterIdentifier:         c.DBClusterIdentifier,
+		DBClusterArn:                c.DBClusterArn,
 		Engine:                      c.Engine,
 		EngineVersion:               c.EngineVersion,
 		Status:                      c.Status,
 		DBClusterParameterGroupName: c.DBClusterParameterGroupName,
+		DBSubnetGroupName:           c.DBSubnetGroupName,
 		Endpoint:                    c.Endpoint,
+		ReaderEndpoint:              c.ReaderEndpoint,
 		Port:                        c.Port,
+		StorageEncrypted:            c.StorageEncrypted,
+		MultiAZ:                     c.MultiAZ,
+		BackupRetentionPeriod:       c.BackupRetentionPeriod,
 		DBClusterMembers:            xmlDBClusterMemberList{Members: memberItems},
 	}
 }
 
 func toXMLInstance(inst *DBInstance) xmlDBInstance {
 	return xmlDBInstance{
-		DBInstanceIdentifier: inst.DBInstanceIdentifier,
-		DBClusterIdentifier:  inst.DBClusterIdentifier,
-		DBInstanceClass:      inst.DBInstanceClass,
-		Engine:               inst.Engine,
-		DBInstanceStatus:     inst.DBInstanceStatus,
-		Endpoint:             inst.Endpoint,
-		Port:                 inst.Port,
+		DBInstanceIdentifier:       inst.DBInstanceIdentifier,
+		DBInstanceArn:              inst.DBInstanceArn,
+		DBClusterIdentifier:        inst.DBClusterIdentifier,
+		DBInstanceClass:            inst.DBInstanceClass,
+		Engine:                     inst.Engine,
+		EngineVersion:              inst.EngineVersion,
+		DBInstanceStatus:           inst.DBInstanceStatus,
+		Endpoint:                   inst.Endpoint,
+		Port:                       inst.Port,
+		StorageEncrypted:           inst.StorageEncrypted,
+		AutoMinorVersionUpgrade:    inst.AutoMinorVersionUpgrade,
+		PreferredMaintenanceWindow: inst.PreferredMaintenanceWindow,
 	}
 }
 
@@ -1532,9 +1627,13 @@ func toXMLParameterGroup(pg *DBClusterParameterGroup) xmlDBClusterParameterGroup
 func toXMLClusterSnapshot(snap *DBClusterSnapshot) xmlDBClusterSnapshot {
 	return xmlDBClusterSnapshot{
 		DBClusterSnapshotIdentifier: snap.DBClusterSnapshotIdentifier,
+		DBClusterSnapshotArn:        snap.DBClusterSnapshotArn,
 		DBClusterIdentifier:         snap.DBClusterIdentifier,
 		Engine:                      snap.Engine,
+		EngineVersion:               snap.EngineVersion,
 		Status:                      snap.Status,
+		StorageEncrypted:            snap.StorageEncrypted,
+		SnapshotType:                snap.SnapshotType,
 	}
 }
 
@@ -1617,13 +1716,19 @@ type xmlDBClusterMemberList struct {
 
 type xmlDBCluster struct {
 	DBClusterIdentifier         string                 `xml:"DBClusterIdentifier"`
+	DBClusterArn                string                 `xml:"DBClusterArn,omitempty"`
 	Engine                      string                 `xml:"Engine"`
 	EngineVersion               string                 `xml:"EngineVersion,omitempty"`
 	Status                      string                 `xml:"Status"`
 	DBClusterParameterGroupName string                 `xml:"DBClusterParameterGroup,omitempty"`
+	DBSubnetGroupName           string                 `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
 	Endpoint                    string                 `xml:"Endpoint,omitempty"`
+	ReaderEndpoint              string                 `xml:"ReaderEndpoint,omitempty"`
 	DBClusterMembers            xmlDBClusterMemberList `xml:"DBClusterMembers"`
 	Port                        int                    `xml:"Port"`
+	StorageEncrypted            bool                   `xml:"StorageEncrypted"`
+	MultiAZ                     bool                   `xml:"MultiAZ"`
+	BackupRetentionPeriod       int                    `xml:"BackupRetentionPeriod"`
 }
 
 type xmlDBClusterList struct {
@@ -1678,13 +1783,18 @@ type failoverDBClusterResponse struct {
 }
 
 type xmlDBInstance struct {
-	DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
-	DBClusterIdentifier  string `xml:"DBClusterIdentifier,omitempty"`
-	DBInstanceClass      string `xml:"DBInstanceClass"`
-	Engine               string `xml:"Engine"`
-	DBInstanceStatus     string `xml:"DBInstanceStatus"`
-	Endpoint             string `xml:"Endpoint>Address,omitempty"`
-	Port                 int    `xml:"Endpoint>Port"`
+	DBInstanceIdentifier       string `xml:"DBInstanceIdentifier"`
+	DBInstanceArn              string `xml:"DBInstanceArn,omitempty"`
+	DBClusterIdentifier        string `xml:"DBClusterIdentifier,omitempty"`
+	DBInstanceClass            string `xml:"DBInstanceClass"`
+	Engine                     string `xml:"Engine"`
+	EngineVersion              string `xml:"EngineVersion,omitempty"`
+	DBInstanceStatus           string `xml:"DBInstanceStatus"`
+	Endpoint                   string `xml:"Endpoint>Address,omitempty"`
+	Port                       int    `xml:"Endpoint>Port"`
+	StorageEncrypted           bool   `xml:"StorageEncrypted"`
+	AutoMinorVersionUpgrade    bool   `xml:"AutoMinorVersionUpgrade"`
+	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
 }
 
 type xmlDBInstanceList struct {
@@ -1807,9 +1917,13 @@ type modifyDBClusterParameterGroupResponse struct {
 
 type xmlDBClusterSnapshot struct {
 	DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"`
+	DBClusterSnapshotArn        string `xml:"DBClusterSnapshotArn,omitempty"`
 	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
 	Engine                      string `xml:"Engine"`
+	EngineVersion               string `xml:"EngineVersion,omitempty"`
 	Status                      string `xml:"Status"`
+	StorageEncrypted            bool   `xml:"StorageEncrypted"`
+	SnapshotType                string `xml:"SnapshotType,omitempty"`
 }
 
 type xmlDBClusterSnapshotList struct {
@@ -1860,9 +1974,10 @@ type removeTagsFromResourceResponse struct {
 }
 
 type xmlDBEngineVersion struct {
-	Engine              string `xml:"Engine"`
-	EngineVersion       string `xml:"EngineVersion"`
-	DBEngineDescription string `xml:"DBEngineDescription"`
+	Engine                 string `xml:"Engine"`
+	EngineVersion          string `xml:"EngineVersion"`
+	DBEngineDescription    string `xml:"DBEngineDescription"`
+	DBParameterGroupFamily string `xml:"DBParameterGroupFamily,omitempty"`
 }
 
 type xmlDBEngineVersionList struct {
@@ -2203,9 +2318,13 @@ type removeSourceIdentifierFromSubscriptionResponse struct {
 	EventSubscription xmlEventSubscription `xml:"RemoveSourceIdentifierFromSubscriptionResult>EventSubscription"`
 }
 
+type xmlEventCategoryList struct {
+	Members []string `xml:"EventCategory"`
+}
+
 type xmlEventCategoriesMap struct {
-	SourceType      string   `xml:"SourceType"`
-	EventCategories []string `xml:"EventCategories>EventCategory"`
+	SourceType      string               `xml:"SourceType"`
+	EventCategories xmlEventCategoryList `xml:"EventCategories"`
 }
 
 type xmlEventCategoriesMapList struct {
@@ -2318,7 +2437,13 @@ type describePendingMaintenanceActionsResponse struct {
 	Result  describePendingMaintenanceActionsResult `xml:"DescribePendingMaintenanceActionsResult"`
 }
 
-type xmlValidDBInstanceModificationsMessage struct{}
+type xmlValidStorageOption struct {
+	DBInstanceClass string `xml:"DBInstanceClass"`
+}
+
+type xmlValidDBInstanceModificationsMessage struct {
+	ValidProcessorFeatures []xmlValidStorageOption `xml:"ValidProcessorFeatures>AvailableProcessorFeature"`
+}
 
 type describeValidDBInstanceModificationsResult struct {
 	ValidDBInstanceModificationsMessage xmlValidDBInstanceModificationsMessage `xml:"ValidDBInstanceModificationsMessage"`

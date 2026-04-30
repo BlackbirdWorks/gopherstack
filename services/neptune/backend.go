@@ -33,17 +33,19 @@ var (
 )
 
 const (
-	defaultNeptunePort       = 8182
-	defaultInstanceClass     = "db.r5.large"
-	neptuneEngine            = "neptune"
-	defaultEngineVersion     = "1.3.0.0"
-	clusterStatusAvailable   = "available"
-	clusterStatusStopped     = "stopped"
-	subscriptionStatusActive = "active"
-	endpointTypeReader       = "READER"
-	endpointTypeWriter       = "WRITER"
-	endpointTypeCustom       = "CUSTOM"
-	endpointTypeAny          = "ANY"
+	defaultNeptunePort          = 8182
+	defaultInstanceClass        = "db.r5.large"
+	neptuneEngine               = "neptune"
+	defaultEngineVersion        = "1.3.0.0"
+	defaultBackupRetentionPeriod = 1
+	clusterStatusAvailable      = "available"
+	clusterStatusStopped        = "stopped"
+	subscriptionStatusActive    = "active"
+	endpointTypeReader          = "READER"
+	endpointTypeWriter          = "WRITER"
+	endpointTypeCustom          = "CUSTOM"
+	endpointTypeAny             = "ANY"
+	defaultMaintenanceWindow    = "sun:05:00-sun:06:00"
 )
 
 // DBClusterMember represents a single DB instance member of a Neptune cluster.
@@ -55,24 +57,35 @@ type DBClusterMember struct {
 // DBCluster represents an Amazon Neptune DB cluster.
 type DBCluster struct {
 	DBClusterIdentifier         string            `json:"DBClusterIdentifier"`
+	DBClusterArn                string            `json:"DBClusterArn"`
 	Engine                      string            `json:"Engine"`
 	EngineVersion               string            `json:"EngineVersion"`
 	Status                      string            `json:"Status"`
 	DBClusterParameterGroupName string            `json:"DBClusterParameterGroupName"`
+	DBSubnetGroupName           string            `json:"DBSubnetGroupName"`
 	Endpoint                    string            `json:"Endpoint"`
+	ReaderEndpoint              string            `json:"ReaderEndpoint"`
 	DBClusterMembers            []DBClusterMember `json:"DBClusterMembers"`
 	Port                        int               `json:"Port"`
+	StorageEncrypted            bool              `json:"StorageEncrypted"`
+	MultiAZ                     bool              `json:"MultiAZ"`
+	BackupRetentionPeriod       int               `json:"BackupRetentionPeriod"`
 }
 
 // DBInstance represents an Amazon Neptune DB instance.
 type DBInstance struct {
-	DBInstanceIdentifier string `json:"DBInstanceIdentifier"`
-	DBClusterIdentifier  string `json:"DBClusterIdentifier"`
-	DBInstanceClass      string `json:"DBInstanceClass"`
-	Engine               string `json:"Engine"`
-	DBInstanceStatus     string `json:"DBInstanceStatus"`
-	Endpoint             string `json:"Endpoint"`
-	Port                 int    `json:"Port"`
+	DBInstanceIdentifier        string `json:"DBInstanceIdentifier"`
+	DBInstanceArn               string `json:"DBInstanceArn"`
+	DBClusterIdentifier         string `json:"DBClusterIdentifier"`
+	DBInstanceClass             string `json:"DBInstanceClass"`
+	Engine                      string `json:"Engine"`
+	EngineVersion               string `json:"EngineVersion"`
+	DBInstanceStatus            string `json:"DBInstanceStatus"`
+	Endpoint                    string `json:"Endpoint"`
+	Port                        int    `json:"Port"`
+	StorageEncrypted            bool   `json:"StorageEncrypted"`
+	PreferredMaintenanceWindow  string `json:"PreferredMaintenanceWindow"`
+	AutoMinorVersionUpgrade     bool   `json:"AutoMinorVersionUpgrade"`
 }
 
 // DBSubnetGroup represents a Neptune DB subnet group.
@@ -100,9 +113,13 @@ type DBClusterParameterGroup struct {
 // DBClusterSnapshot represents a Neptune DB cluster snapshot.
 type DBClusterSnapshot struct {
 	DBClusterSnapshotIdentifier string `json:"DBClusterSnapshotIdentifier"`
+	DBClusterSnapshotArn        string `json:"DBClusterSnapshotArn"`
 	DBClusterIdentifier         string `json:"DBClusterIdentifier"`
 	Engine                      string `json:"Engine"`
+	EngineVersion               string `json:"EngineVersion"`
 	Status                      string `json:"Status"`
+	StorageEncrypted            bool   `json:"StorageEncrypted"`
+	SnapshotType                string `json:"SnapshotType"`
 }
 
 // DBParameterGroup represents a Neptune DB parameter group.
@@ -233,19 +250,23 @@ func (b *InMemoryBackend) CreateDBCluster(id, paramGroupName string, port int) (
 	if port <= 0 {
 		port = defaultNeptunePort
 	}
-	endpoint := fmt.Sprintf("%s.cluster.neptune.%s.amazonaws.com", id, b.region)
+	endpoint := fmt.Sprintf("%s.cluster.%s.neptune.amazonaws.com", id, b.region)
+	readerEndpoint := fmt.Sprintf("%s.cluster-ro.%s.neptune.amazonaws.com", id, b.region)
 	cluster := &DBCluster{
 		DBClusterIdentifier:         id,
+		DBClusterArn:                b.clusterARN(id),
 		Engine:                      neptuneEngine,
 		EngineVersion:               defaultEngineVersion,
 		Status:                      clusterStatusAvailable,
 		DBClusterParameterGroupName: paramGroupName,
 		Endpoint:                    endpoint,
+		ReaderEndpoint:              readerEndpoint,
 		Port:                        port,
 		DBClusterMembers:            []DBClusterMember{},
+		BackupRetentionPeriod:       defaultBackupRetentionPeriod,
 	}
 	b.clusters[id] = cluster
-	cp := *cluster
+	cp := cloneCluster(cluster)
 
 	return &cp, nil
 }
@@ -368,18 +389,33 @@ func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string) 
 	if _, exists := b.instances[id]; exists {
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 	}
+	if clusterID != "" {
+		if _, exists := b.clusters[clusterID]; !exists {
+			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+		}
+	}
 	if instanceClass == "" {
 		instanceClass = defaultInstanceClass
 	}
 	endpoint := fmt.Sprintf("%s.neptune.%s.amazonaws.com", id, b.region)
+	engineVersion := defaultEngineVersion
+	if clusterID != "" {
+		if cl, ok := b.clusters[clusterID]; ok {
+			engineVersion = cl.EngineVersion
+		}
+	}
 	inst := &DBInstance{
-		DBInstanceIdentifier: id,
-		DBClusterIdentifier:  clusterID,
-		DBInstanceClass:      instanceClass,
-		Engine:               neptuneEngine,
-		DBInstanceStatus:     "available",
-		Endpoint:             endpoint,
-		Port:                 defaultNeptunePort,
+		DBInstanceIdentifier:       id,
+		DBInstanceArn:              b.instanceARN(id),
+		DBClusterIdentifier:        clusterID,
+		DBInstanceClass:            instanceClass,
+		Engine:                     neptuneEngine,
+		EngineVersion:              engineVersion,
+		DBInstanceStatus:           "available",
+		Endpoint:                   endpoint,
+		Port:                       defaultNeptunePort,
+		AutoMinorVersionUpgrade:    true,
+		PreferredMaintenanceWindow: defaultMaintenanceWindow,
 	}
 	b.instances[id] = inst
 	if clusterID != "" {
@@ -395,6 +431,8 @@ func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string) 
 
 	return &cp, nil
 }
+// DescribeDBInstances returns all Neptune DB instances or a specific one.
+// If clusterID is non-empty, results are filtered to that cluster.
 func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 	b.mu.RLock("DescribeDBInstances")
 	defer b.mu.RUnlock()
@@ -626,14 +664,19 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 	if _, exists := b.clusterSnapshots[snapshotID]; exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s already exists", ErrClusterSnapshotAlreadyExists, snapshotID)
 	}
-	if _, exists := b.clusters[clusterID]; !exists {
+	cl, exists := b.clusters[clusterID]
+	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 	snap := &DBClusterSnapshot{
 		DBClusterSnapshotIdentifier: snapshotID,
+		DBClusterSnapshotArn:        b.clusterSnapshotARN(snapshotID),
 		DBClusterIdentifier:         clusterID,
 		Engine:                      neptuneEngine,
+		EngineVersion:               cl.EngineVersion,
 		Status:                      "available",
+		StorageEncrypted:            cl.StorageEncrypted,
+		SnapshotType:                "manual",
 	}
 	b.clusterSnapshots[snapshotID] = snap
 	cp := *snap
@@ -642,7 +685,8 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 }
 
 // DescribeDBClusterSnapshots returns all Neptune cluster snapshots or a specific one.
-func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID string) ([]DBClusterSnapshot, error) {
+// If clusterID is set, results are filtered to that cluster.
+func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID string) ([]DBClusterSnapshot, error) {
 	b.mu.RLock("DescribeDBClusterSnapshots")
 	defer b.mu.RUnlock()
 	if snapshotID != "" {
@@ -656,6 +700,9 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID string) ([]DBClu
 	}
 	result := make([]DBClusterSnapshot, 0, len(b.clusterSnapshots))
 	for _, snap := range b.clusterSnapshots {
+		if clusterID != "" && snap.DBClusterIdentifier != clusterID {
+			continue
+		}
 		result = append(result, *snap)
 	}
 
@@ -849,9 +896,13 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshot
 	}
 	snap := &DBClusterSnapshot{
 		DBClusterSnapshotIdentifier: targetSnapshotID,
+		DBClusterSnapshotArn:        b.clusterSnapshotARN(targetSnapshotID),
 		DBClusterIdentifier:         src.DBClusterIdentifier,
 		Engine:                      src.Engine,
+		EngineVersion:               src.EngineVersion,
 		Status:                      "available",
+		StorageEncrypted:            src.StorageEncrypted,
+		SnapshotType:                "manual",
 	}
 	b.clusterSnapshots[targetSnapshotID] = snap
 	cp := *snap
@@ -1372,16 +1423,26 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(snapshotID, clusterID str
 	if _, clExists := b.clusters[clusterID]; clExists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
 	}
-	endpoint := fmt.Sprintf("%s.cluster.neptune.%s.amazonaws.com", clusterID, b.region)
+	// Derive parameter group from the source cluster if available.
+	paramGroupName := "default.neptune1.3"
+	if srcCluster, ok := b.clusters[snap.DBClusterIdentifier]; ok {
+		paramGroupName = srcCluster.DBClusterParameterGroupName
+	}
+	endpoint := fmt.Sprintf("%s.cluster.%s.neptune.amazonaws.com", clusterID, b.region)
+	readerEndpoint := fmt.Sprintf("%s.cluster-ro.%s.neptune.amazonaws.com", clusterID, b.region)
 	cluster := &DBCluster{
 		DBClusterIdentifier:         clusterID,
+		DBClusterArn:                b.clusterARN(clusterID),
 		Engine:                      snap.Engine,
-		EngineVersion:               defaultEngineVersion,
+		EngineVersion:               snap.EngineVersion,
 		Status:                      clusterStatusAvailable,
-		DBClusterParameterGroupName: "default.neptune1.3",
+		DBClusterParameterGroupName: paramGroupName,
 		Endpoint:                    endpoint,
+		ReaderEndpoint:              readerEndpoint,
 		Port:                        defaultNeptunePort,
+		StorageEncrypted:            snap.StorageEncrypted,
 		DBClusterMembers:            []DBClusterMember{},
+		BackupRetentionPeriod:       defaultBackupRetentionPeriod,
 	}
 	b.clusters[clusterID] = cluster
 	cp := cloneCluster(cluster)
@@ -1406,16 +1467,21 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(srcClusterID, targetClus
 	if _, tgtExists := b.clusters[targetClusterID]; tgtExists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, targetClusterID)
 	}
-	endpoint := fmt.Sprintf("%s.cluster.neptune.%s.amazonaws.com", targetClusterID, b.region)
+	endpoint := fmt.Sprintf("%s.cluster.%s.neptune.amazonaws.com", targetClusterID, b.region)
+	readerEndpoint := fmt.Sprintf("%s.cluster-ro.%s.neptune.amazonaws.com", targetClusterID, b.region)
 	cluster := &DBCluster{
 		DBClusterIdentifier:         targetClusterID,
+		DBClusterArn:                b.clusterARN(targetClusterID),
 		Engine:                      src.Engine,
 		EngineVersion:               src.EngineVersion,
 		Status:                      clusterStatusAvailable,
 		DBClusterParameterGroupName: src.DBClusterParameterGroupName,
 		Endpoint:                    endpoint,
+		ReaderEndpoint:              readerEndpoint,
 		Port:                        src.Port,
+		StorageEncrypted:            src.StorageEncrypted,
 		DBClusterMembers:            []DBClusterMember{},
+		BackupRetentionPeriod:       src.BackupRetentionPeriod,
 	}
 	b.clusters[targetClusterID] = cluster
 	cp := cloneCluster(cluster)
@@ -1465,18 +1531,22 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) AddClusterInternal(id string) *DBCluster {
 	b.mu.Lock("AddClusterInternal")
 	defer b.mu.Unlock()
-	endpoint := fmt.Sprintf("%s.cluster.neptune.%s.amazonaws.com", id, b.region)
+	endpoint := fmt.Sprintf("%s.cluster.%s.neptune.amazonaws.com", id, b.region)
+	readerEndpoint := fmt.Sprintf("%s.cluster-ro.%s.neptune.amazonaws.com", id, b.region)
 	c := &DBCluster{
 		DBClusterIdentifier:         id,
+		DBClusterArn:                b.clusterARN(id),
 		Engine:                      neptuneEngine,
 		EngineVersion:               "1.3.0.0",
 		Status:                      clusterStatusAvailable,
 		DBClusterParameterGroupName: "default.neptune1.3",
 		Endpoint:                    endpoint,
+		ReaderEndpoint:              readerEndpoint,
 		Port:                        defaultNeptunePort,
+		BackupRetentionPeriod:       defaultBackupRetentionPeriod,
 	}
 	b.clusters[id] = c
-	cp := *c
+	cp := cloneCluster(c)
 
 	return &cp
 }
@@ -1487,9 +1557,12 @@ func (b *InMemoryBackend) AddSnapshotInternal(snapshotID, clusterID string) *DBC
 	defer b.mu.Unlock()
 	snap := &DBClusterSnapshot{
 		DBClusterSnapshotIdentifier: snapshotID,
+		DBClusterSnapshotArn:        b.clusterSnapshotARN(snapshotID),
 		DBClusterIdentifier:         clusterID,
 		Engine:                      neptuneEngine,
+		EngineVersion:               defaultEngineVersion,
 		Status:                      "available",
+		SnapshotType:                "manual",
 	}
 	b.clusterSnapshots[snapshotID] = snap
 	cp := *snap

@@ -32,7 +32,7 @@ type StorageBackend interface {
 
 	// Cluster snapshot operations
 	CreateDBClusterSnapshot(snapshotID, clusterID string) (*DBClusterSnapshot, error)
-	DescribeDBClusterSnapshots(snapshotID string) ([]DBClusterSnapshot, error)
+	DescribeDBClusterSnapshots(snapshotID, clusterID string) ([]DBClusterSnapshot, error)
 	DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error)
 
 	// Tag operations
