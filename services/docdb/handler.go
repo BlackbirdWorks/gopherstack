@@ -20,6 +20,7 @@ import (
 const (
 	docdbVersion = "2014-10-31"
 	docdbXMLNS   = "http://rds.amazonaws.com/doc/2014-10-31/"
+	boolTrue     = "true"
 )
 
 // Handler is the Echo HTTP handler for DocDB operations.
@@ -355,8 +356,8 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	if portStr != "" {
 		port, _ = strconv.Atoi(portStr)
 	}
-	storageEncrypted := vals.Get("StorageEncrypted") == "true"
-	deletionProtection := vals.Get("DeletionProtection") == "true"
+	storageEncrypted := vals.Get("StorageEncrypted") == boolTrue
+	deletionProtection := vals.Get("DeletionProtection") == boolTrue
 	backupRetentionPeriodStr := vals.Get("BackupRetentionPeriod")
 	backupRetentionPeriod := 0
 	if backupRetentionPeriodStr != "" {
@@ -429,7 +430,7 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 	}
 	var deletionProtection *bool
 	if dpStr := vals.Get("DeletionProtection"); dpStr != "" {
-		dp := dpStr == "true"
+		dp := dpStr == boolTrue
 		deletionProtection = &dp
 	}
 	cluster, err := h.Backend.ModifyDBCluster(
@@ -1165,7 +1166,7 @@ func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
 	newID := vals.Get("NewGlobalClusterIdentifier")
 	var deletionProtection *bool
 	if dpStr := vals.Get("DeletionProtection"); dpStr != "" {
-		dp := dpStr == "true"
+		dp := dpStr == boolTrue
 		deletionProtection = &dp
 	}
 	gc, err := h.Backend.ModifyGlobalCluster(id, newID, deletionProtection)
@@ -2173,34 +2174,34 @@ func applyDocDBMarker[T any](items []T, marker, maxRecordsStr string) ([]T, stri
 }
 
 func parseAvailabilityZones(vals url.Values) []string {
-var azs []string
-for i := 1; ; i++ {
-az := vals.Get(fmt.Sprintf("AvailabilityZones.AvailabilityZone.%d", i))
-if az == "" {
-return azs
-}
-azs = append(azs, az)
-}
+	var azs []string
+	for i := 1; ; i++ {
+		az := vals.Get(fmt.Sprintf("AvailabilityZones.AvailabilityZone.%d", i))
+		if az == "" {
+			return azs
+		}
+		azs = append(azs, az)
+	}
 }
 
 func parseEventCategoryMembers(vals url.Values) []string {
-var cats []string
-for i := 1; ; i++ {
-cat := vals.Get(fmt.Sprintf("EventCategories.EventCategory.%d", i))
-if cat == "" {
-return cats
-}
-cats = append(cats, cat)
-}
+	var cats []string
+	for i := 1; ; i++ {
+		cat := vals.Get(fmt.Sprintf("EventCategories.EventCategory.%d", i))
+		if cat == "" {
+			return cats
+		}
+		cats = append(cats, cat)
+	}
 }
 
 func parseAttributeValueMembers(vals url.Values, prefix string) []string {
-var values []string
-for i := 1; ; i++ {
-v := vals.Get(fmt.Sprintf("%s.AttributeValue.%d", prefix, i))
-if v == "" {
-return values
-}
-values = append(values, v)
-}
+	var values []string
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("%s.AttributeValue.%d", prefix, i))
+		if v == "" {
+			return values
+		}
+		values = append(values, v)
+	}
 }

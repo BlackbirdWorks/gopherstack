@@ -36,10 +36,14 @@ var (
 )
 
 const (
-	defaultDocDBPort     = 27017
-	defaultInstanceClass = "db.t3.medium"
-	defaultEngineVersion = "4.0.0"
-	docDBEngine          = "docdb"
+	defaultDocDBPort           = 27017
+	defaultInstanceClass       = "db.t3.medium"
+	defaultEngineVersion       = "4.0.0"
+	docDBEngine                = "docdb"
+	snapshotPercentageComplete = 100
+
+	defaultBackupWindow      = "00:00-01:00" //nolint:gosec // not a credential
+	defaultMaintenanceWindow = "mon:05:00-mon:05:30"
 
 	// OptInType constants for ApplyPendingMaintenanceAction.
 	optInTypeImmediate       = "immediate"
@@ -163,14 +167,14 @@ type DBClusterParameter struct {
 
 // DBClusterSnapshotAttribute represents a single attribute of a cluster snapshot.
 type DBClusterSnapshotAttribute struct {
-	AttributeName   string
-	AttributeValues []string
+	AttributeName   string   `json:"attributeName"`
+	AttributeValues []string `json:"attributeValues"`
 }
 
 // DBClusterSnapshotAttributesResult holds the attributes for a cluster snapshot.
 type DBClusterSnapshotAttributesResult struct {
-	DBClusterSnapshotIdentifier string
-	Attributes                  []DBClusterSnapshotAttribute
+	DBClusterSnapshotIdentifier string                       `json:"dbClusterSnapshotIdentifier"`
+	Attributes                  []DBClusterSnapshotAttribute `json:"attributes"`
 }
 
 // ResourcePendingMaintenanceActions holds pending maintenance actions for a resource.
@@ -301,10 +305,10 @@ func (b *InMemoryBackend) CreateDBCluster(
 		backupRetentionPeriod = 1
 	}
 	if preferredBackupWindow == "" {
-		preferredBackupWindow = "00:00-01:00"
+		preferredBackupWindow = defaultBackupWindow
 	}
 	if preferredMaintenanceWindow == "" {
-		preferredMaintenanceWindow = "mon:05:00-mon:05:30"
+		preferredMaintenanceWindow = defaultMaintenanceWindow
 	}
 	clusterArn := b.clusterARN(id)
 	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", id, b.region)
@@ -747,7 +751,7 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		EngineVersion:               c.EngineVersion,
 		StorageEncrypted:            c.StorageEncrypted,
 		SnapshotType:                "manual",
-		PercentProgress:             100,
+		PercentProgress:             snapshotPercentageComplete,
 		SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
 		DBClusterArn:                b.clusterARN(clusterID),
 		Tags:                        copyTags(tags),
@@ -763,7 +767,9 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID, snapshotType string) ([]DBClusterSnapshot, error) {
+func (b *InMemoryBackend) DescribeDBClusterSnapshots(
+	snapshotID, clusterID, snapshotType string,
+) ([]DBClusterSnapshot, error) {
 	b.mu.RLock("DescribeDBClusterSnapshots")
 	defer b.mu.RUnlock()
 	if snapshotID != "" {
@@ -1199,7 +1205,10 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(name string) []EventSubscri
 }
 
 // ModifyEventSubscription modifies an event subscription.
-func (b *InMemoryBackend) ModifyEventSubscription(name, snsTopicARN, sourceType string, eventCategories []string) (*EventSubscription, error) {
+func (b *InMemoryBackend) ModifyEventSubscription(
+	name, snsTopicARN, sourceType string,
+	eventCategories []string,
+) (*EventSubscription, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
 	}
@@ -1319,6 +1328,7 @@ func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 	for i := range result.Attributes {
 		if result.Attributes[i].AttributeName == attributeName {
 			attr = &result.Attributes[i]
+
 			break
 		}
 	}

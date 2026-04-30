@@ -3007,3 +3007,567 @@ func TestHandler_RestoreClusterOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestRefinement1_StopStartClusterStateValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*testing.T, *docdb.Handler)
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "stop_available_cluster",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				doRequest(t, h, url.Values{
+					"Action":              {"CreateDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"my-cluster"},
+				})
+			},
+			vals: url.Values{
+				"Action":              {"StopDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"my-cluster"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "stopped",
+		},
+		{
+			name: "stop_already_stopped_cluster",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				doRequest(t, h, url.Values{
+					"Action":              {"CreateDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"my-cluster"},
+				})
+				doRequest(t, h, url.Values{
+					"Action":              {"StopDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"my-cluster"},
+				})
+			},
+			vals: url.Values{
+				"Action":              {"StopDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"my-cluster"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidDBClusterStateFault",
+		},
+		{
+			name: "start_stopped_cluster",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				doRequest(t, h, url.Values{
+					"Action":              {"CreateDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"my-cluster"},
+				})
+				doRequest(t, h, url.Values{
+					"Action":              {"StopDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"my-cluster"},
+				})
+			},
+			vals: url.Values{
+				"Action":              {"StartDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"my-cluster"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "available",
+		},
+		{
+			name: "start_already_available_cluster",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				doRequest(t, h, url.Values{
+					"Action":              {"CreateDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"my-cluster"},
+				})
+			},
+			vals: url.Values{
+				"Action":              {"StartDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"my-cluster"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidDBClusterStateFault",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement1_SnapshotAttributePersistence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:         "modify_and_describe_reflects_change",
+			wantContains: "restore",
+			wantStatus:   http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"my-cluster"},
+			})
+			doRequest(t, h, url.Values{
+				"Action":                      {"CreateDBClusterSnapshot"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterSnapshotIdentifier": {"my-snap"},
+				"DBClusterIdentifier":         {"my-cluster"},
+			})
+			modResp := doRequest(t, h, url.Values{
+				"Action":                       {"ModifyDBClusterSnapshotAttribute"},
+				"Version":                      {"2014-10-31"},
+				"DBClusterSnapshotIdentifier":  {"my-snap"},
+				"AttributeName":                {"restore"},
+				"ValuesToAdd.AttributeValue.1": {"123456789012"},
+			})
+			require.Equal(t, http.StatusOK, modResp.Code)
+
+			descResp := doRequest(t, h, url.Values{
+				"Action":                      {"DescribeDBClusterSnapshotAttributes"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterSnapshotIdentifier": {"my-snap"},
+			})
+			assert.Equal(t, tt.wantStatus, descResp.Code)
+			assert.Contains(t, descResp.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement1_CreateClusterNewFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "create_cluster_with_deletion_protection",
+			vals: url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"protected-cluster"},
+				"DeletionProtection":  {"true"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "protected-cluster",
+		},
+		{
+			name: "create_cluster_with_backup_retention",
+			vals: url.Values{
+				"Action":                {"CreateDBCluster"},
+				"Version":               {"2014-10-31"},
+				"DBClusterIdentifier":   {"backup-cluster"},
+				"BackupRetentionPeriod": {"7"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "backup-cluster",
+		},
+		{
+			name: "create_cluster_with_storage_encrypted",
+			vals: url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"encrypted-cluster"},
+				"StorageEncrypted":    {"true"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "encrypted-cluster",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement1_DescribeEventCategoriesFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals            url.Values
+		name            string
+		wantContains    string
+		wantNotContains string
+		wantStatus      int
+	}{
+		{
+			name: "no_source_type_filter",
+			vals: url.Values{
+				"Action":  {"DescribeEventCategories"},
+				"Version": {"2014-10-31"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "db-cluster",
+		},
+		{
+			name: "filter_by_db_instance",
+			vals: url.Values{
+				"Action":     {"DescribeEventCategories"},
+				"Version":    {"2014-10-31"},
+				"SourceType": {"db-instance"},
+			},
+			wantStatus:      http.StatusOK,
+			wantContains:    "db-instance",
+			wantNotContains: "db-cluster-snapshot",
+		},
+		{
+			name: "filter_by_snapshot",
+			vals: url.Values{
+				"Action":     {"DescribeEventCategories"},
+				"Version":    {"2014-10-31"},
+				"SourceType": {"db-cluster-snapshot"},
+			},
+			wantStatus:      http.StatusOK,
+			wantContains:    "db-cluster-snapshot",
+			wantNotContains: "db-instance",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+			if tt.wantNotContains != "" {
+				assert.NotContains(t, rr.Body.String(), tt.wantNotContains)
+			}
+		})
+	}
+}
+
+func TestRefinement1_ModifyGlobalClusterRename(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*testing.T, *docdb.Handler)
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "rename_global_cluster",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				doRequest(t, h, url.Values{
+					"Action":                  {"CreateGlobalCluster"},
+					"Version":                 {"2014-10-31"},
+					"GlobalClusterIdentifier": {"old-global"},
+				})
+			},
+			vals: url.Values{
+				"Action":                     {"ModifyGlobalCluster"},
+				"Version":                    {"2014-10-31"},
+				"GlobalClusterIdentifier":    {"old-global"},
+				"NewGlobalClusterIdentifier": {"new-global"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "new-global",
+		},
+		{
+			name: "modify_global_cluster_deletion_protection",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				doRequest(t, h, url.Values{
+					"Action":                  {"CreateGlobalCluster"},
+					"Version":                 {"2014-10-31"},
+					"GlobalClusterIdentifier": {"my-global"},
+				})
+			},
+			vals: url.Values{
+				"Action":                  {"ModifyGlobalCluster"},
+				"Version":                 {"2014-10-31"},
+				"GlobalClusterIdentifier": {"my-global"},
+				"DeletionProtection":      {"true"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "my-global",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement1_DescribeDBInstancesByCluster(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *docdb.Handler)
+		vals       url.Values
+		name       string
+		wantCount  int
+		wantStatus int
+	}{
+		{
+			name: "filter_by_cluster",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				for _, id := range []string{"inst-a1", "inst-a2", "inst-b1"} {
+					clusterID := "cluster-a"
+					if id == "inst-b1" {
+						clusterID = "cluster-b"
+					}
+					doRequest(t, h, url.Values{
+						"Action":               {"CreateDBInstance"},
+						"Version":              {"2014-10-31"},
+						"DBInstanceIdentifier": {id},
+						"DBClusterIdentifier":  {clusterID},
+					})
+				}
+			},
+			vals: url.Values{
+				"Action":              {"DescribeDBInstances"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"cluster-a"},
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			body := rr.Body.String()
+
+			type instance struct {
+				XMLName xml.Name `xml:"DBInstance"`
+			}
+			type result struct {
+				Instances []instance `xml:"DescribeDBInstancesResult>DBInstances>DBInstance"`
+			}
+			var res result
+			_ = xml.Unmarshal([]byte(body), &res)
+			assert.Len(t, res.Instances, tt.wantCount)
+		})
+	}
+}
+
+func TestRefinement1_DescribeDBClusterSnapshotsByType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*testing.T, *docdb.Handler)
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "filter_by_manual_snapshot_type",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				doRequest(t, h, url.Values{
+					"Action":              {"CreateDBCluster"},
+					"Version":             {"2014-10-31"},
+					"DBClusterIdentifier": {"my-cluster"},
+				})
+				doRequest(t, h, url.Values{
+					"Action":                      {"CreateDBClusterSnapshot"},
+					"Version":                     {"2014-10-31"},
+					"DBClusterSnapshotIdentifier": {"my-snap"},
+					"DBClusterIdentifier":         {"my-cluster"},
+				})
+			},
+			vals: url.Values{
+				"Action":       {"DescribeDBClusterSnapshots"},
+				"Version":      {"2014-10-31"},
+				"SnapshotType": {"manual"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "my-snap",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement1_GlobalClusterWithEngine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "create_global_cluster_with_engine",
+			vals: url.Values{
+				"Action":                  {"CreateGlobalCluster"},
+				"Version":                 {"2014-10-31"},
+				"GlobalClusterIdentifier": {"my-global"},
+				"Engine":                  {"docdb"},
+				"EngineVersion":           {"5.0.0"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "5.0.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement1_EventSubscriptionSourceType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "create_subscription_with_source_type",
+			vals: url.Values{
+				"Action":                          {"CreateEventSubscription"},
+				"Version":                         {"2014-10-31"},
+				"SubscriptionName":                {"my-sub"},
+				"SourceType":                      {"db-cluster"},
+				"EventCategories.EventCategory.1": {"backup"},
+				"EventCategories.EventCategory.2": {"failover"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "db-cluster",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestRefinement1_SnapshotHasSnapshotType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:         "snapshot_has_manual_type",
+			wantContains: "manual",
+			wantStatus:   http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"my-cluster"},
+			})
+			rr := doRequest(t, h, url.Values{
+				"Action":                      {"CreateDBClusterSnapshot"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterSnapshotIdentifier": {"my-snap"},
+				"DBClusterIdentifier":         {"my-cluster"},
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
