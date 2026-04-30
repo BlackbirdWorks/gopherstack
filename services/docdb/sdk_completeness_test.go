@@ -17,23 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := docdb.NewInMemoryBackend("000000000000", "us-east-1")
 	h := docdb.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &docdbsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DescribeDBClusterSnapshotAttributes",
-		"DescribeEngineDefaultClusterParameters",
-		"DescribeEventCategories",
-		"DescribeEventSubscriptions",
-		"DescribeEvents",
-		"DescribePendingMaintenanceActions",
-		"FailoverGlobalCluster",
-		"ModifyDBClusterSnapshotAttribute",
-		"ModifyDBSubnetGroup",
-		"ModifyEventSubscription",
-		"ModifyGlobalCluster",
-		"RemoveFromGlobalCluster",
-		"RemoveSourceIdentifierFromSubscription",
-		"ResetDBClusterParameterGroup",
-		"RestoreDBClusterFromSnapshot",
-		"RestoreDBClusterToPointInTime",
-		"SwitchoverGlobalCluster",
-	})
+	sdkcheck.CheckCompleteness(t, &docdbsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

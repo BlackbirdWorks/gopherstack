@@ -7,16 +7,17 @@ import (
 
 // backendSnapshot is the JSON-serialisable snapshot of InMemoryBackend state.
 type backendSnapshot struct {
-	Clusters               map[string]*DBCluster               `json:"clusters"`
-	Instances              map[string]*DBInstance              `json:"instances"`
-	SubnetGroups           map[string]*DBSubnetGroup           `json:"subnetGroups"`
-	ClusterParameterGroups map[string]*DBClusterParameterGroup `json:"clusterParameterGroups"`
-	ClusterSnapshots       map[string]*DBClusterSnapshot       `json:"clusterSnapshots"`
-	EventSubscriptions     map[string]*EventSubscription       `json:"eventSubscriptions"`
-	GlobalClusters         map[string]*GlobalCluster           `json:"globalClusters"`
-	Tags                   map[string][]Tag                    `json:"tags"`
-	AccountID              string                              `json:"accountID"`
-	Region                 string                              `json:"region"`
+	Clusters               map[string]*DBCluster                         `json:"clusters"`
+	Instances              map[string]*DBInstance                        `json:"instances"`
+	SubnetGroups           map[string]*DBSubnetGroup                     `json:"subnetGroups"`
+	ClusterParameterGroups map[string]*DBClusterParameterGroup           `json:"clusterParameterGroups"`
+	ClusterSnapshots       map[string]*DBClusterSnapshot                 `json:"clusterSnapshots"`
+	SnapshotAttributes     map[string]*DBClusterSnapshotAttributesResult `json:"snapshotAttributes"`
+	EventSubscriptions     map[string]*EventSubscription                 `json:"eventSubscriptions"`
+	GlobalClusters         map[string]*GlobalCluster                     `json:"globalClusters"`
+	Tags                   map[string][]Tag                              `json:"tags"`
+	AccountID              string                                        `json:"accountID"`
+	Region                 string                                        `json:"region"`
 }
 
 // ensureNonNil initialises any nil maps so callers do not need to guard after Restore.
@@ -39,6 +40,10 @@ func (s *backendSnapshot) ensureNonNil() {
 
 	if s.ClusterSnapshots == nil {
 		s.ClusterSnapshots = make(map[string]*DBClusterSnapshot)
+	}
+
+	if s.SnapshotAttributes == nil {
+		s.SnapshotAttributes = make(map[string]*DBClusterSnapshotAttributesResult)
 	}
 
 	if s.EventSubscriptions == nil {
@@ -65,6 +70,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		SubnetGroups:           b.subnetGroups,
 		ClusterParameterGroups: b.clusterParameterGroups,
 		ClusterSnapshots:       b.clusterSnapshots,
+		SnapshotAttributes:     b.snapshotAttributes,
 		EventSubscriptions:     b.eventSubscriptions,
 		GlobalClusters:         b.globalClusters,
 		Tags:                   b.tags,
@@ -72,7 +78,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:                 b.region,
 	}
 
-	data, err := json.Marshal(&snap)
+	data, err := json.Marshal(snap)
 	if err != nil {
 		slog.Default().Warn("docdb: failed to marshal snapshot", "error", err)
 
@@ -100,6 +106,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.subnetGroups = snap.SubnetGroups
 	b.clusterParameterGroups = snap.ClusterParameterGroups
 	b.clusterSnapshots = snap.ClusterSnapshots
+	b.snapshotAttributes = snap.SnapshotAttributes
 	b.eventSubscriptions = snap.EventSubscriptions
 	b.globalClusters = snap.GlobalClusters
 	b.tags = snap.Tags

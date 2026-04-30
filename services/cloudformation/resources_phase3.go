@@ -758,7 +758,23 @@ func (rc *ResourceCreator) createDocDBCluster(
 	dbName := strProp(props, "DatabaseName", params, physicalIDs)
 	paramGroupName := strProp(props, "DBClusterParameterGroupName", params, physicalIDs)
 
-	cluster, err := rc.backends.DocDB.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, 0, nil)
+	cluster, err := rc.backends.DocDB.Backend.CreateDBCluster(
+		id,
+		engine,
+		"",
+		masterUser,
+		dbName,
+		paramGroupName,
+		"",
+		0,
+		false,
+		false,
+		0,
+		"",
+		"",
+		nil,
+		nil,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create DocDB cluster %s: %w", id, err)
 	}
@@ -796,7 +812,7 @@ func (rc *ResourceCreator) createDocDBInstance(
 	instanceClass := strProp(props, "DBInstanceClass", params, physicalIDs)
 	engine := strProp(props, "Engine", params, physicalIDs)
 
-	instance, err := rc.backends.DocDB.Backend.CreateDBInstance(id, clusterID, instanceClass, engine, nil)
+	instance, err := rc.backends.DocDB.Backend.CreateDBInstance(id, clusterID, instanceClass, engine, 0, nil)
 	if err != nil {
 		return "", fmt.Errorf("create DocDB instance %s: %w", id, err)
 	}
