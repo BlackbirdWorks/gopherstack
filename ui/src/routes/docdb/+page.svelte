@@ -134,7 +134,9 @@ async function copyToClipboard(text: string) {
     await navigator.clipboard.writeText(text);
     copiedArn = true;
     setTimeout(() => { copiedArn = false; }, 2000);
-  } catch { /* ignore */ }
+  } catch {
+    // clipboard write failed; ignore silently
+  }
 }
 
 async function loadAll() {

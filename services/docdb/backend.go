@@ -1384,6 +1384,70 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshotAttributes(
 }
 
 // ModifyDBClusterSnapshotAttribute modifies an attribute on a cluster snapshot.
+// findOrCreateAttribute finds an existing attribute by name in the result, or creates and appends a new one.
+func findOrCreateAttribute(
+	result *DBClusterSnapshotAttributesResult,
+	attributeName string,
+) *DBClusterSnapshotAttribute {
+	for i := range result.Attributes {
+		if result.Attributes[i].AttributeName == attributeName {
+			return &result.Attributes[i]
+		}
+	}
+	result.Attributes = append(result.Attributes, DBClusterSnapshotAttribute{
+		AttributeName:   attributeName,
+		AttributeValues: []string{},
+	})
+
+	return &result.Attributes[len(result.Attributes)-1]
+}
+
+// applySnapshotAttributeChanges adds and removes values from an attribute in place.
+func applySnapshotAttributeChanges(attr *DBClusterSnapshotAttribute, valuesToAdd, valuesToRemove []string) {
+	existing := make(map[string]struct{}, len(attr.AttributeValues))
+	for _, v := range attr.AttributeValues {
+		existing[v] = struct{}{}
+	}
+	for _, v := range valuesToAdd {
+		if _, ok := existing[v]; !ok {
+			attr.AttributeValues = append(attr.AttributeValues, v)
+			existing[v] = struct{}{}
+		}
+	}
+	if len(valuesToRemove) == 0 {
+		return
+	}
+	removeSet := make(map[string]bool, len(valuesToRemove))
+	for _, v := range valuesToRemove {
+		removeSet[v] = true
+	}
+	kept := attr.AttributeValues[:0]
+	for _, v := range attr.AttributeValues {
+		if !removeSet[v] {
+			kept = append(kept, v)
+		}
+	}
+	attr.AttributeValues = kept
+}
+
+// copySnapshotAttributesResult returns a deep copy of a DBClusterSnapshotAttributesResult.
+func copySnapshotAttributesResult(result *DBClusterSnapshotAttributesResult) *DBClusterSnapshotAttributesResult {
+	cp := &DBClusterSnapshotAttributesResult{
+		DBClusterSnapshotIdentifier: result.DBClusterSnapshotIdentifier,
+		Attributes:                  make([]DBClusterSnapshotAttribute, len(result.Attributes)),
+	}
+	for i, a := range result.Attributes {
+		vals := make([]string, len(a.AttributeValues))
+		copy(vals, a.AttributeValues)
+		cp.Attributes[i] = DBClusterSnapshotAttribute{
+			AttributeName:   a.AttributeName,
+			AttributeValues: vals,
+		}
+	}
+
+	return cp
+}
+
 func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 	snapshotID, attributeName string,
 	valuesToAdd, valuesToRemove []string,
@@ -1406,59 +1470,11 @@ func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 			Attributes:                  []DBClusterSnapshotAttribute{},
 		}
 	}
-	var attr *DBClusterSnapshotAttribute
-	for i := range result.Attributes {
-		if result.Attributes[i].AttributeName == attributeName {
-			attr = &result.Attributes[i]
-
-			break
-		}
-	}
-	if attr == nil {
-		result.Attributes = append(result.Attributes, DBClusterSnapshotAttribute{
-			AttributeName:   attributeName,
-			AttributeValues: []string{},
-		})
-		attr = &result.Attributes[len(result.Attributes)-1]
-	}
-	existingSet := make(map[string]struct{}, len(attr.AttributeValues))
-	for _, v := range attr.AttributeValues {
-		existingSet[v] = struct{}{}
-	}
-	for _, v := range valuesToAdd {
-		if _, exists := existingSet[v]; !exists {
-			attr.AttributeValues = append(attr.AttributeValues, v)
-			existingSet[v] = struct{}{}
-		}
-	}
-	if len(valuesToRemove) > 0 {
-		kept := attr.AttributeValues[:0]
-		removeSet := make(map[string]bool, len(valuesToRemove))
-		for _, v := range valuesToRemove {
-			removeSet[v] = true
-		}
-		for _, v := range attr.AttributeValues {
-			if !removeSet[v] {
-				kept = append(kept, v)
-			}
-		}
-		attr.AttributeValues = kept
-	}
+	attr := findOrCreateAttribute(result, attributeName)
+	applySnapshotAttributeChanges(attr, valuesToAdd, valuesToRemove)
 	b.snapshotAttributes[snapshotID] = result
-	cp := &DBClusterSnapshotAttributesResult{
-		DBClusterSnapshotIdentifier: result.DBClusterSnapshotIdentifier,
-		Attributes:                  make([]DBClusterSnapshotAttribute, len(result.Attributes)),
-	}
-	for i, a := range result.Attributes {
-		vals := make([]string, len(a.AttributeValues))
-		copy(vals, a.AttributeValues)
-		cp.Attributes[i] = DBClusterSnapshotAttribute{
-			AttributeName:   a.AttributeName,
-			AttributeValues: vals,
-		}
-	}
 
-	return cp, nil
+	return copySnapshotAttributesResult(result), nil
 }
 
 // DescribeEngineDefaultClusterParameters returns the default parameters for an engine family.
