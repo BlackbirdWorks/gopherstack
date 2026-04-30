@@ -20,7 +20,7 @@ import (
 const (
 	docdbVersion = "2014-10-31"
 	docdbXMLNS   = "http://rds.amazonaws.com/doc/2014-10-31/"
-	boolTrue     = "true"
+	stringTrue   = "true"
 )
 
 // Handler is the Echo HTTP handler for DocDB operations.
@@ -357,8 +357,8 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	if portStr != "" {
 		port, _ = strconv.Atoi(portStr)
 	}
-	storageEncrypted := vals.Get("StorageEncrypted") == boolTrue
-	deletionProtection := vals.Get("DeletionProtection") == boolTrue
+	storageEncrypted := vals.Get("StorageEncrypted") == stringTrue
+	deletionProtection := vals.Get("DeletionProtection") == stringTrue
 	backupRetentionPeriodStr := vals.Get("BackupRetentionPeriod")
 	backupRetentionPeriod := 0
 	if backupRetentionPeriodStr != "" {
@@ -429,11 +429,7 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 	if backupRetentionPeriodStr != "" {
 		backupRetentionPeriod, _ = strconv.Atoi(backupRetentionPeriodStr)
 	}
-	var deletionProtection *bool
-	if dpStr := vals.Get("DeletionProtection"); dpStr != "" {
-		dp := dpStr == boolTrue
-		deletionProtection = &dp
-	}
+	deletionProtection := parseBoolParam(vals, "DeletionProtection")
 	cluster, err := h.Backend.ModifyDBCluster(
 		id, paramGroupName, deletionProtection, backupRetentionPeriod,
 		preferredBackupWindow, preferredMaintenanceWindow,
@@ -548,11 +544,7 @@ func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
-	var autoMinorVersionUpgrade *bool
-	if amvStr := vals.Get("AutoMinorVersionUpgrade"); amvStr != "" {
-		amv := amvStr == boolTrue
-		autoMinorVersionUpgrade = &amv
-	}
+	autoMinorVersionUpgrade := parseBoolParam(vals, "AutoMinorVersionUpgrade")
 	preferredMaintenanceWindow := vals.Get("PreferredMaintenanceWindow")
 	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, autoMinorVersionUpgrade, preferredMaintenanceWindow)
 	if err != nil {
@@ -1183,11 +1175,7 @@ func (h *Handler) handleModifyDBSubnetGroup(vals url.Values) (any, error) {
 func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
 	id := vals.Get("GlobalClusterIdentifier")
 	newID := vals.Get("NewGlobalClusterIdentifier")
-	var deletionProtection *bool
-	if dpStr := vals.Get("DeletionProtection"); dpStr != "" {
-		dp := dpStr == boolTrue
-		deletionProtection = &dp
-	}
+	deletionProtection := parseBoolParam(vals, "DeletionProtection")
 	gc, err := h.Backend.ModifyGlobalCluster(id, newID, deletionProtection)
 	if err != nil {
 		return nil, err
@@ -1322,6 +1310,18 @@ func marshalXML(v any) ([]byte, error) {
 	}
 
 	return append([]byte(xml.Header), raw...), nil
+}
+
+// parseBoolParam parses an optional boolean query parameter.
+// Returns nil if the key is absent, otherwise returns a pointer to the parsed value.
+func parseBoolParam(vals url.Values, key string) *bool {
+	s := vals.Get(key)
+	if s == "" {
+		return nil
+	}
+	v := s == stringTrue
+
+	return &v
 }
 
 func parseSubnetIDMembers(vals url.Values) []string {

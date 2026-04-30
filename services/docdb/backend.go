@@ -396,7 +396,7 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 	}
 	for _, inst := range b.instances {
 		if inst.DBClusterIdentifier == id {
-			return nil, fmt.Errorf("%w: cluster %s still has instances", ErrInvalidClusterState, id)
+			return nil, fmt.Errorf("%w: cluster %s still has instances, delete them first", ErrInvalidClusterState, id)
 		}
 	}
 	cp := copyCluster(c)
@@ -1421,9 +1421,14 @@ func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 		})
 		attr = &result.Attributes[len(result.Attributes)-1]
 	}
+	existingSet := make(map[string]struct{}, len(attr.AttributeValues))
+	for _, v := range attr.AttributeValues {
+		existingSet[v] = struct{}{}
+	}
 	for _, v := range valuesToAdd {
-		if !slices.Contains(attr.AttributeValues, v) {
+		if _, exists := existingSet[v]; !exists {
 			attr.AttributeValues = append(attr.AttributeValues, v)
+			existingSet[v] = struct{}{}
 		}
 	}
 	if len(valuesToRemove) > 0 {
