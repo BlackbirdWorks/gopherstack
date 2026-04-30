@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import NeptunePage from "./+page.svelte";
 
-const mockSend = vi.fn();
+const { mockSend, mockConfirm } = vi.hoisted(() => ({
+  mockSend: vi.fn(),
+  mockConfirm: vi.fn(),
+}));
 
 vi.mock("$lib/aws-client", () => ({
   getNeptuneClient: () => ({ send: mockSend }),
@@ -12,10 +15,15 @@ vi.mock("svelte-sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 
+vi.mock("$lib/confirm-dialog", () => ({
+  confirmDestructive: mockConfirm,
+}));
+
 describe("Neptune Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    mockConfirm.mockReset();
   });
 
   it("renders page title", () => {
@@ -161,6 +169,99 @@ describe("Neptune Page", () => {
     await waitFor(
       () => {
         expect(screen.getByText("No snapshots found")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it("shows Create Instance button", () => {
+    mockSend.mockResolvedValue({ DBClusters: [] });
+    render(NeptunePage);
+    expect(screen.getByText("Create Instance")).toBeInTheDocument();
+  });
+
+  it("opens create instance modal", async () => {
+    mockSend.mockResolvedValue({ DBClusters: [] });
+    render(NeptunePage);
+    await fireEvent.click(screen.getByText("Create Instance"));
+    expect(screen.getByText("Create Neptune Instance")).toBeInTheDocument();
+    expect(screen.getByText("Instance Identifier")).toBeInTheDocument();
+    expect(screen.getByText("Cluster Identifier")).toBeInTheDocument();
+    expect(screen.getByText("Instance Class")).toBeInTheDocument();
+  });
+
+  it("cancels create instance modal", async () => {
+    mockSend.mockResolvedValue({ DBClusters: [] });
+    render(NeptunePage);
+    await fireEvent.click(screen.getByText("Create Instance"));
+    const cancelButtons = screen.getAllByText("Cancel");
+    await fireEvent.click(cancelButtons[0]);
+    expect(screen.queryByText("Create Neptune Instance")).not.toBeInTheDocument();
+  });
+
+  it("shows delete button on clusters", async () => {
+    mockSend.mockResolvedValue({
+      DBClusters: [
+        {
+          DBClusterIdentifier: "graph-cluster",
+          Status: "available",
+          Engine: "neptune",
+          EngineVersion: "1.3.1.0",
+        },
+      ],
+    });
+    render(NeptunePage);
+    await waitFor(() => expect(screen.getByText("graph-cluster")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    expect(screen.getAllByTitle("Delete cluster").length).toBeGreaterThan(0);
+  });
+
+  it("deletes cluster after confirmation", async () => {
+    mockSend.mockResolvedValue({
+      DBClusters: [
+        {
+          DBClusterIdentifier: "graph-cluster",
+          Status: "available",
+          Engine: "neptune",
+          EngineVersion: "1.3.1.0",
+        },
+      ],
+    });
+    mockConfirm.mockResolvedValue(true);
+    render(NeptunePage);
+    await waitFor(() => expect(screen.getByText("graph-cluster")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    const deleteButtons = screen.getAllByTitle("Delete cluster");
+    mockSend.mockResolvedValue({});
+    await fireEvent.click(deleteButtons[0]);
+    await waitFor(() => {
+      expect(mockConfirm).toHaveBeenCalled();
+    });
+  });
+
+  it("shows Add Instance button in cluster detail panel", async () => {
+    mockSend.mockResolvedValue({
+      DBClusters: [
+        {
+          DBClusterIdentifier: "graph-cluster",
+          Status: "available",
+          Engine: "neptune",
+          EngineVersion: "1.3.1.0",
+          DBClusterArn: "arn:aws:rds:us-east-1:123:cluster:graph-cluster",
+          DBClusterMembers: [],
+        },
+      ],
+    });
+    render(NeptunePage);
+    await waitFor(() => expect(screen.getByText("graph-cluster")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    await fireEvent.click(screen.getByText("graph-cluster"));
+    await waitFor(
+      () => {
+        expect(screen.getByText("Add Instance")).toBeInTheDocument();
       },
       { timeout: 3000 },
     );

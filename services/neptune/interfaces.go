@@ -32,7 +32,7 @@ type StorageBackend interface {
 
 	// Cluster snapshot operations
 	CreateDBClusterSnapshot(snapshotID, clusterID string) (*DBClusterSnapshot, error)
-	DescribeDBClusterSnapshots(snapshotID string) ([]DBClusterSnapshot, error)
+	DescribeDBClusterSnapshots(snapshotID, clusterID string) ([]DBClusterSnapshot, error)
 	DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error)
 
 	// Tag operations
@@ -52,6 +52,43 @@ type StorageBackend interface {
 	CreateEventSubscription(name, snsTopicARN string, sourceIDs []string) (*EventSubscription, error)
 	CreateGlobalCluster(globalClusterID, sourceDBClusterID string) (*GlobalCluster, error)
 	DescribeGlobalClusters() []GlobalCluster
+
+	// Cluster endpoint operations
+	DeleteDBClusterEndpoint(endpointID string) error
+	DescribeDBClusterEndpoints(endpointID, clusterID string) ([]DBClusterEndpoint, error)
+	ModifyDBClusterEndpoint(endpointID, endpointType string) (*DBClusterEndpoint, error)
+
+	// DB parameter group operations
+	DeleteDBParameterGroup(name string) error
+	DescribeDBParameterGroups(name string) ([]DBParameterGroup, error)
+	ModifyDBParameterGroup(name string) (*DBParameterGroup, error)
+	ResetDBParameterGroup(name string) (*DBParameterGroup, error)
+
+	// Cluster parameter group extended operations
+	ResetDBClusterParameterGroup(name string) (*DBClusterParameterGroup, error)
+
+	// Event subscription extended operations
+	DeleteEventSubscription(name string) (*EventSubscription, error)
+	DescribeEventSubscriptions(name string) ([]EventSubscription, error)
+	ModifyEventSubscription(name, snsTopicARN string) (*EventSubscription, error)
+	RemoveSourceIdentifierFromSubscription(name, sourceID string) (*EventSubscription, error)
+
+	// Global cluster extended operations
+	DeleteGlobalCluster(globalClusterID string) (*GlobalCluster, error)
+	FailoverGlobalCluster(globalClusterID, targetDBClusterID string) (*GlobalCluster, error)
+	ModifyGlobalCluster(globalClusterID string) (*GlobalCluster, error)
+	RemoveFromGlobalCluster(globalClusterID, dbClusterID string) (*GlobalCluster, error)
+	SwitchoverGlobalCluster(globalClusterID, targetDBClusterID string) (*GlobalCluster, error)
+
+	// Role operations
+	RemoveRoleFromDBCluster(clusterID, roleARN string) error
+
+	// Restore operations
+	RestoreDBClusterFromSnapshot(snapshotID, clusterID string) (*DBCluster, error)
+	RestoreDBClusterToPointInTime(srcClusterID, targetClusterID string) (*DBCluster, error)
+
+	// Subnet group extended operations
+	ModifyDBSubnetGroup(name, description string) (*DBSubnetGroup, error)
 
 	// Lifecycle
 	Reset()
