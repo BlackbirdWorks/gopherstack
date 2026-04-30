@@ -782,14 +782,54 @@ func (h *Handler) handleRemoveTagsFromResource(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeDBEngineVersions(_ url.Values) (any, error) {
 	members := []xmlDBEngineVersion{
-		{Engine: neptuneEngine, EngineVersion: "1.2.0.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.2"},
-		{Engine: neptuneEngine, EngineVersion: "1.2.0.1", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.2"},
-		{Engine: neptuneEngine, EngineVersion: "1.2.0.2", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.2"},
-		{Engine: neptuneEngine, EngineVersion: "1.2.1.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.2"},
-		{Engine: neptuneEngine, EngineVersion: "1.3.0.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.3"},
-		{Engine: neptuneEngine, EngineVersion: "1.3.1.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.3"},
-		{Engine: neptuneEngine, EngineVersion: "1.3.2.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.3"},
-		{Engine: neptuneEngine, EngineVersion: "1.4.0.0", DBEngineDescription: "Amazon Neptune", DBParameterGroupFamily: "neptune1.4"},
+		{
+			Engine:                 neptuneEngine,
+			EngineVersion:          "1.2.0.0",
+			DBEngineDescription:    "Amazon Neptune",
+			DBParameterGroupFamily: "neptune1.2",
+		},
+		{
+			Engine:                 neptuneEngine,
+			EngineVersion:          "1.2.0.1",
+			DBEngineDescription:    "Amazon Neptune",
+			DBParameterGroupFamily: "neptune1.2",
+		},
+		{
+			Engine:                 neptuneEngine,
+			EngineVersion:          "1.2.0.2",
+			DBEngineDescription:    "Amazon Neptune",
+			DBParameterGroupFamily: "neptune1.2",
+		},
+		{
+			Engine:                 neptuneEngine,
+			EngineVersion:          "1.2.1.0",
+			DBEngineDescription:    "Amazon Neptune",
+			DBParameterGroupFamily: "neptune1.2",
+		},
+		{
+			Engine:                 neptuneEngine,
+			EngineVersion:          "1.3.0.0",
+			DBEngineDescription:    "Amazon Neptune",
+			DBParameterGroupFamily: "neptune1.3",
+		},
+		{
+			Engine:                 neptuneEngine,
+			EngineVersion:          "1.3.1.0",
+			DBEngineDescription:    "Amazon Neptune",
+			DBParameterGroupFamily: "neptune1.3",
+		},
+		{
+			Engine:                 neptuneEngine,
+			EngineVersion:          "1.3.2.0",
+			DBEngineDescription:    "Amazon Neptune",
+			DBParameterGroupFamily: "neptune1.3",
+		},
+		{
+			Engine:                 neptuneEngine,
+			EngineVersion:          "1.4.0.0",
+			DBEngineDescription:    "Amazon Neptune",
+			DBParameterGroupFamily: "neptune1.4",
+		},
 	}
 
 	return &describeDBEngineVersionsResponse{
@@ -805,7 +845,7 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, e
 		"db.r6g.large", "db.r6g.xlarge", "db.r6g.2xlarge", "db.r6g.4xlarge",
 		"db.t3.medium",
 	}
-	var members []xmlOrderableDBInstanceOption
+	members := make([]xmlOrderableDBInstanceOption, 0, len(instanceClasses)*len(engineVersions))
 	for _, ev := range engineVersions {
 		for _, ic := range instanceClasses {
 			members = append(members, xmlOrderableDBInstanceOption{
@@ -1791,10 +1831,10 @@ type xmlDBInstance struct {
 	EngineVersion              string `xml:"EngineVersion,omitempty"`
 	DBInstanceStatus           string `xml:"DBInstanceStatus"`
 	Endpoint                   string `xml:"Endpoint>Address,omitempty"`
+	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
 	Port                       int    `xml:"Endpoint>Port"`
 	StorageEncrypted           bool   `xml:"StorageEncrypted"`
 	AutoMinorVersionUpgrade    bool   `xml:"AutoMinorVersionUpgrade"`
-	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
 }
 
 type xmlDBInstanceList struct {
@@ -1922,8 +1962,8 @@ type xmlDBClusterSnapshot struct {
 	Engine                      string `xml:"Engine"`
 	EngineVersion               string `xml:"EngineVersion,omitempty"`
 	Status                      string `xml:"Status"`
-	StorageEncrypted            bool   `xml:"StorageEncrypted"`
 	SnapshotType                string `xml:"SnapshotType,omitempty"`
+	StorageEncrypted            bool   `xml:"StorageEncrypted"`
 }
 
 type xmlDBClusterSnapshotList struct {
@@ -2450,9 +2490,9 @@ type describeValidDBInstanceModificationsResult struct {
 }
 
 type describeValidDBInstanceModificationsResponse struct {
-	Result  describeValidDBInstanceModificationsResult `xml:"DescribeValidDBInstanceModificationsResult"`
 	XMLName xml.Name                                   `xml:"DescribeValidDBInstanceModificationsResponse"`
 	Xmlns   string                                     `xml:"xmlns,attr"`
+	Result  describeValidDBInstanceModificationsResult `xml:"DescribeValidDBInstanceModificationsResult"`
 }
 
 type promoteReadReplicaDBClusterResponse struct {

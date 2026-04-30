@@ -223,9 +223,9 @@ func TestRefinement2_CreateDescribeDeleteGlobalCluster(t *testing.T) {
 
 	// Failover
 	rr = doRequest(t, h, url.Values{
-		"Action":                  {"FailoverGlobalCluster"},
-		"Version":                 {"2014-10-31"},
-		"GlobalClusterIdentifier": {"gc-01"},
+		"Action":                    {"FailoverGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"gc-01"},
 		"TargetDbClusterIdentifier": {"some-cluster"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -332,19 +332,19 @@ func TestRefinement2_ModifyDBSubnetGroup(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, url.Values{
-		"Action":                  {"CreateDBSubnetGroup"},
-		"Version":                 {"2014-10-31"},
-		"DBSubnetGroupName":       {"sg-modify"},
+		"Action":                   {"CreateDBSubnetGroup"},
+		"Version":                  {"2014-10-31"},
+		"DBSubnetGroupName":        {"sg-modify"},
 		"DBSubnetGroupDescription": {"test"},
-		"SubnetIds.member.1":      {"subnet-1"},
+		"SubnetIds.member.1":       {"subnet-1"},
 	})
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                  {"ModifyDBSubnetGroup"},
-		"Version":                 {"2014-10-31"},
-		"DBSubnetGroupName":       {"sg-modify"},
+		"Action":                   {"ModifyDBSubnetGroup"},
+		"Version":                  {"2014-10-31"},
+		"DBSubnetGroupName":        {"sg-modify"},
 		"DBSubnetGroupDescription": {"updated desc"},
-		"SubnetIds.member.1":      {"subnet-1"},
+		"SubnetIds.member.1":       {"subnet-1"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 }
@@ -411,11 +411,11 @@ func TestRefinement2_DescribeDBSubnetGroups_ByName(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, url.Values{
-		"Action":                  {"CreateDBSubnetGroup"},
-		"Version":                 {"2014-10-31"},
-		"DBSubnetGroupName":       {"sg-byname"},
+		"Action":                   {"CreateDBSubnetGroup"},
+		"Version":                  {"2014-10-31"},
+		"DBSubnetGroupName":        {"sg-byname"},
 		"DBSubnetGroupDescription": {"test"},
-		"SubnetIds.member.1":      {"subnet-1"},
+		"SubnetIds.member.1":       {"subnet-1"},
 	})
 
 	rr := doRequest(t, h, url.Values{
@@ -525,11 +525,11 @@ func TestRefinement2_Tags_AddListRemove(t *testing.T) {
 
 	// Add tags
 	rr := doRequest(t, h, url.Values{
-		"Action":            {"AddTagsToResource"},
-		"Version":           {"2014-10-31"},
-		"ResourceName":      {arn},
-		"Tags.Tag.1.Key":    {"env"},
-		"Tags.Tag.1.Value":  {"test"},
+		"Action":           {"AddTagsToResource"},
+		"Version":          {"2014-10-31"},
+		"ResourceName":     {arn},
+		"Tags.Tag.1.Key":   {"env"},
+		"Tags.Tag.1.Value": {"test"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 
@@ -544,10 +544,10 @@ func TestRefinement2_Tags_AddListRemove(t *testing.T) {
 
 	// Remove tags
 	rr = doRequest(t, h, url.Values{
-		"Action":                {"RemoveTagsFromResource"},
-		"Version":               {"2014-10-31"},
-		"ResourceName":          {arn},
-		"TagKeys.member.1":      {"env"},
+		"Action":           {"RemoveTagsFromResource"},
+		"Version":          {"2014-10-31"},
+		"ResourceName":     {arn},
+		"TagKeys.member.1": {"env"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 }

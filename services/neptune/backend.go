@@ -33,19 +33,19 @@ var (
 )
 
 const (
-	defaultNeptunePort          = 8182
-	defaultInstanceClass        = "db.r5.large"
-	neptuneEngine               = "neptune"
-	defaultEngineVersion        = "1.3.0.0"
+	defaultNeptunePort           = 8182
+	defaultInstanceClass         = "db.r5.large"
+	neptuneEngine                = "neptune"
+	defaultEngineVersion         = "1.3.0.0"
 	defaultBackupRetentionPeriod = 1
-	clusterStatusAvailable      = "available"
-	clusterStatusStopped        = "stopped"
-	subscriptionStatusActive    = "active"
-	endpointTypeReader          = "READER"
-	endpointTypeWriter          = "WRITER"
-	endpointTypeCustom          = "CUSTOM"
-	endpointTypeAny             = "ANY"
-	defaultMaintenanceWindow    = "sun:05:00-sun:06:00"
+	clusterStatusAvailable       = "available"
+	clusterStatusStopped         = "stopped"
+	subscriptionStatusActive     = "active"
+	endpointTypeReader           = "READER"
+	endpointTypeWriter           = "WRITER"
+	endpointTypeCustom           = "CUSTOM"
+	endpointTypeAny              = "ANY"
+	defaultMaintenanceWindow     = "sun:05:00-sun:06:00"
 )
 
 // DBClusterMember represents a single DB instance member of a Neptune cluster.
@@ -74,18 +74,18 @@ type DBCluster struct {
 
 // DBInstance represents an Amazon Neptune DB instance.
 type DBInstance struct {
-	DBInstanceIdentifier        string `json:"DBInstanceIdentifier"`
-	DBInstanceArn               string `json:"DBInstanceArn"`
-	DBClusterIdentifier         string `json:"DBClusterIdentifier"`
-	DBInstanceClass             string `json:"DBInstanceClass"`
-	Engine                      string `json:"Engine"`
-	EngineVersion               string `json:"EngineVersion"`
-	DBInstanceStatus            string `json:"DBInstanceStatus"`
-	Endpoint                    string `json:"Endpoint"`
-	Port                        int    `json:"Port"`
-	StorageEncrypted            bool   `json:"StorageEncrypted"`
-	PreferredMaintenanceWindow  string `json:"PreferredMaintenanceWindow"`
-	AutoMinorVersionUpgrade     bool   `json:"AutoMinorVersionUpgrade"`
+	DBInstanceIdentifier       string `json:"DBInstanceIdentifier"`
+	DBInstanceArn              string `json:"DBInstanceArn"`
+	DBClusterIdentifier        string `json:"DBClusterIdentifier"`
+	DBInstanceClass            string `json:"DBInstanceClass"`
+	Engine                     string `json:"Engine"`
+	EngineVersion              string `json:"EngineVersion"`
+	DBInstanceStatus           string `json:"DBInstanceStatus"`
+	Endpoint                   string `json:"Endpoint"`
+	PreferredMaintenanceWindow string `json:"PreferredMaintenanceWindow"`
+	Port                       int    `json:"Port"`
+	StorageEncrypted           bool   `json:"StorageEncrypted"`
+	AutoMinorVersionUpgrade    bool   `json:"AutoMinorVersionUpgrade"`
 }
 
 // DBSubnetGroup represents a Neptune DB subnet group.
@@ -118,8 +118,8 @@ type DBClusterSnapshot struct {
 	Engine                      string `json:"Engine"`
 	EngineVersion               string `json:"EngineVersion"`
 	Status                      string `json:"Status"`
-	StorageEncrypted            bool   `json:"StorageEncrypted"`
 	SnapshotType                string `json:"SnapshotType"`
+	StorageEncrypted            bool   `json:"StorageEncrypted"`
 }
 
 // DBParameterGroup represents a Neptune DB parameter group.
@@ -431,6 +431,7 @@ func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string) 
 
 	return &cp, nil
 }
+
 // DescribeDBInstances returns all Neptune DB instances or a specific one by ID.
 func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 	b.mu.RLock("DescribeDBInstances")

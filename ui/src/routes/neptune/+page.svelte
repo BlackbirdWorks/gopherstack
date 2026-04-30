@@ -323,7 +323,7 @@
 			await neptune.send(
 				new RestoreDBClusterFromSnapshotCommand({
 					DBClusterIdentifier: restoreClusterId.trim(),
-					DBClusterSnapshotIdentifier: selectedSnapshot.DBClusterSnapshotIdentifier!,
+					SnapshotIdentifier: selectedSnapshot.DBClusterSnapshotIdentifier!,
 					Engine: 'neptune'
 				})
 			);
@@ -676,7 +676,8 @@
 
 					<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
 						{#each [
-							['Engine', `${selectedCluster.Engine ?? 'neptune'} ${selectedCluster.EngineVersion ?? ''}`],
+							['Engine', selectedCluster.Engine ?? 'neptune'],
+							['Engine Version', selectedCluster.EngineVersion ?? ''],
 							['Status', selectedCluster.Status ?? 'N/A'],
 							['Port', String(selectedCluster.Port ?? 8182)],
 							['Multi-AZ', String(selectedCluster.MultiAZ ?? false)],
