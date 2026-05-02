@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { getAthenaClient } from '$lib/aws-client';
 	import {
 		ListWorkGroupsCommand,
@@ -202,6 +202,13 @@
 	);
 
 	onMount(loadWorkgroups);
+
+	onDestroy(() => {
+		if (pollingInterval !== undefined) {
+			clearInterval(pollingInterval);
+			pollingInterval = undefined;
+		}
+	});
 </script>
 
 <div class="p-6 space-y-6">
