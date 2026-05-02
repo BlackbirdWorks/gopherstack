@@ -18,8 +18,9 @@ const (
 	apiIDChars  = "abcdefghijklmnopqrstuvwxyz0123456789"
 	apiIDLength = 10
 
-	authorizerTypeJWT = "JWT"
-	protocolTypeHTTP  = "HTTP"
+	authorizerTypeJWT   = "JWT"
+	protocolTypeHTTP    = "HTTP"
+	integrationTypeHTTP = "HTTP"
 )
 
 var (
@@ -867,11 +868,11 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 	}
 
 	validTypes := map[string]bool{
-		"AWS":            true,
-		protocolTypeHTTP: true,
-		"MOCK":           true,
-		"AWS_PROXY":      true,
-		"HTTP_PROXY":     true,
+		"AWS":               true,
+		integrationTypeHTTP: true,
+		"MOCK":              true,
+		"AWS_PROXY":         true,
+		"HTTP_PROXY":        true,
 	}
 	if !validTypes[input.IntegrationType] {
 		return nil, fmt.Errorf(
