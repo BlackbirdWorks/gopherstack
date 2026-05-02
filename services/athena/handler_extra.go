@@ -5,6 +5,15 @@ import (
 	"maps"
 )
 
+// --- Response key constants ---
+
+const (
+	keySessionID  = "SessionId"
+	keyState      = "State"
+	keyStatus     = "Status"
+	keyStatistics = "Statistics"
+)
+
 // --- Input types for new operations ---
 
 type startSessionInput struct {
@@ -178,8 +187,7 @@ func (h *Handler) extendedSupportedOperations() []string {
 	}
 }
 
-//nolint:gocognit,goconst,funlen // dispatch table; extracting helpers obscures the shape
-func (h *Handler) sessionOps() map[string]athenaActionFn {
+func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"StartSession": func(b []byte) (any, error) {
 			var input startSessionInput
@@ -195,7 +203,7 @@ func (h *Handler) sessionOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"SessionId": id, "State": state}, nil
+			return map[string]any{keySessionID: id, keyState: state}, nil
 		},
 		"GetSession": func(b []byte) (any, error) {
 			var input sessionIDInput
@@ -209,15 +217,15 @@ func (h *Handler) sessionOps() map[string]athenaActionFn {
 			}
 
 			return map[string]any{
-				"SessionId":            s.SessionID,
+				keySessionID:           s.SessionID,
 				"Description":          s.Description,
 				"WorkGroup":            s.WorkGroup,
 				"EngineVersion":        s.NotebookVersion,
 				"NotebookVersion":      s.NotebookVersion,
 				"EngineConfiguration":  s.EngineConfiguration,
 				"SessionConfiguration": s.SessionConfiguration,
-				"Status":               s.Status,
-				"Statistics":           s.Statistics,
+				keyStatus:              s.Status,
+				keyStatistics:          s.Statistics,
 			}, nil
 		},
 		"GetSessionStatus": func(b []byte) (any, error) {
@@ -231,7 +239,7 @@ func (h *Handler) sessionOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"SessionId": input.SessionID, "Status": st}, nil
+			return map[string]any{keySessionID: input.SessionID, keyStatus: st}, nil
 		},
 		"GetSessionEndpoint": func(b []byte) (any, error) {
 			var input sessionIDInput
@@ -257,8 +265,13 @@ func (h *Handler) sessionOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"State": state}, nil
+			return map[string]any{keyState: state}, nil
 		},
+	}
+}
+
+func (h *Handler) sessionListOps() map[string]athenaActionFn {
+	return map[string]athenaActionFn{
 		"ListSessions": func(b []byte) (any, error) {
 			var input listSessionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -288,8 +301,7 @@ func (h *Handler) sessionOps() map[string]athenaActionFn {
 	}
 }
 
-//nolint:gocognit // dispatch table; extracting helpers obscures the shape
-func (h *Handler) calculationOps() map[string]athenaActionFn {
+func (h *Handler) calcCoreOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"StartCalculationExecution": func(b []byte) (any, error) {
 			var input startCalculationInput
@@ -302,7 +314,7 @@ func (h *Handler) calculationOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"CalculationExecutionId": id, "State": state}, nil
+			return map[string]any{"CalculationExecutionId": id, keyState: state}, nil
 		},
 		"GetCalculationExecution": func(b []byte) (any, error) {
 			var input calculationIDInput
@@ -317,11 +329,11 @@ func (h *Handler) calculationOps() map[string]athenaActionFn {
 
 			return map[string]any{
 				"CalculationExecutionId": c.CalculationID,
-				"SessionId":              c.SessionID,
+				keySessionID:             c.SessionID,
 				"Description":            c.Description,
 				"WorkingDirectory":       c.WorkingDir,
-				"Status":                 c.Status,
-				"Statistics":             c.Statistics,
+				keyStatus:                c.Status,
+				keyStatistics:            c.Statistics,
 				"Result":                 c.Result,
 			}, nil
 		},
@@ -336,7 +348,7 @@ func (h *Handler) calculationOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"Status": st, "Statistics": stats}, nil
+			return map[string]any{keyStatus: st, keyStatistics: stats}, nil
 		},
 		"GetCalculationExecutionCode": func(b []byte) (any, error) {
 			var input calculationIDInput
@@ -351,6 +363,11 @@ func (h *Handler) calculationOps() map[string]athenaActionFn {
 
 			return map[string]any{"CodeBlock": code}, nil
 		},
+	}
+}
+
+func (h *Handler) calcControlOps() map[string]athenaActionFn {
+	return map[string]athenaActionFn{
 		"StopCalculationExecution": func(b []byte) (any, error) {
 			var input calculationIDInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -362,7 +379,7 @@ func (h *Handler) calculationOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"State": state}, nil
+			return map[string]any{keyState: state}, nil
 		},
 		"ListCalculationExecutions": func(b []byte) (any, error) {
 			var input listCalculationsInput
@@ -590,7 +607,7 @@ func (h *Handler) miscOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"ExecutorsSummary": execs, "SessionId": input.SessionID}, nil
+			return map[string]any{"ExecutorsSummary": execs, keySessionID: input.SessionID}, nil
 		},
 		"ListEngineVersions": func(_ []byte) (any, error) {
 			return map[string]any{"EngineVersions": h.Backend.ListEngineVersions()}, nil
@@ -616,8 +633,10 @@ func (h *Handler) miscOps() map[string]athenaActionFn {
 
 // extendedDispatchTable returns the dispatch entries for the new operations.
 func (h *Handler) extendedDispatchTable() map[string]athenaActionFn {
-	ops := h.sessionOps()
-	maps.Copy(ops, h.calculationOps())
+	ops := h.sessionCoreOps()
+	maps.Copy(ops, h.sessionListOps())
+	maps.Copy(ops, h.calcCoreOps())
+	maps.Copy(ops, h.calcControlOps())
 	maps.Copy(ops, h.capacityExtraOps())
 	maps.Copy(ops, h.metadataOps())
 	maps.Copy(ops, h.notebookExtraOps())

@@ -950,7 +950,9 @@ func (b *InMemoryBackend) UpdateNamedQuery(id, name, description, queryString st
 		q.Name = name
 	}
 
-	q.Description = description
+	if description != "" {
+		q.Description = description
+	}
 
 	if queryString != "" {
 		q.QueryString = queryString
