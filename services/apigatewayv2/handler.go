@@ -1198,7 +1198,7 @@ func (h *Handler) handleImportAPI(c *echo.Context) error {
 
 	api, err := h.Backend.CreateAPI(CreateAPIInput{
 		Name:         "imported-api",
-		ProtocolType: "HTTP",
+		ProtocolType: protocolTypeHTTP,
 		Description:  input.Body,
 	})
 	if err != nil {

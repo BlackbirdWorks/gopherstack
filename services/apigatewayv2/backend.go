@@ -19,6 +19,7 @@ const (
 	apiIDLength = 10
 
 	authorizerTypeJWT = "JWT"
+	protocolTypeHTTP  = "HTTP"
 )
 
 var (
@@ -368,7 +369,7 @@ func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
 	b.mu.Lock("CreateAPI")
 	defer b.mu.Unlock()
 
-	validProtocols := map[string]bool{"HTTP": true, "WEBSOCKET": true}
+	validProtocols := map[string]bool{protocolTypeHTTP: true, "WEBSOCKET": true}
 	if !validProtocols[input.ProtocolType] {
 		return nil, fmt.Errorf("%w: protocolType must be HTTP or WEBSOCKET", ErrBadRequest)
 	}
@@ -865,7 +866,13 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 		return nil, ErrAPINotFound
 	}
 
-	validTypes := map[string]bool{"AWS": true, "HTTP": true, "MOCK": true, "AWS_PROXY": true, "HTTP_PROXY": true}
+	validTypes := map[string]bool{
+		"AWS":            true,
+		protocolTypeHTTP: true,
+		"MOCK":           true,
+		"AWS_PROXY":      true,
+		"HTTP_PROXY":     true,
+	}
 	if !validTypes[input.IntegrationType] {
 		return nil, fmt.Errorf(
 			"%w: integrationType must be one of AWS, HTTP, MOCK, AWS_PROXY, HTTP_PROXY",

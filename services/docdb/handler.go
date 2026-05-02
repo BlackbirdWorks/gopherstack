@@ -782,10 +782,10 @@ func (h *Handler) handleDescribeDBEngineVersions(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, error) {
 	members := []xmlOrderableDBInstanceOption{
-		{Engine: docDBEngine, EngineVersion: "4.0.0", DBInstanceClass: "db.t3.medium"},
-		{Engine: docDBEngine, EngineVersion: "4.0.0", DBInstanceClass: "db.r5.large"},
-		{Engine: docDBEngine, EngineVersion: "5.0.0", DBInstanceClass: "db.t3.medium"},
-		{Engine: docDBEngine, EngineVersion: "5.0.0", DBInstanceClass: "db.r5.large"},
+		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBInstanceClass: "db.t3.medium"},
+		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBInstanceClass: "db.r5.large"},
+		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBInstanceClass: "db.t3.medium"},
+		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBInstanceClass: "db.r5.large"},
 	}
 
 	return &describeOrderableDBInstanceOptionsResponse{
