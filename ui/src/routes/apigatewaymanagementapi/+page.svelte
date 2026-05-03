@@ -473,8 +473,8 @@
 					API Gateway Management API
 				</h1>
 				<p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
-					Inspect simulated WebSocket connections, send messages, and trace the lifecycle of each
-					connection.
+					Inspect simulated WebSocket connections, send PostToConnection messages, and trace the
+					lifecycle of each connection.
 				</p>
 			</div>
 			<div class="flex flex-wrap items-center gap-2">

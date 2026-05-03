@@ -92,6 +92,16 @@ func TestAdmin_SimulateDuplicate(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, rec.Code)
 }
 
+func TestAdmin_SimulateEmptyConnectionID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body, _ := json.Marshal(map[string]string{"connectionId": ""})
+	rec := doRequest(t, h, http.MethodPost, "/_gopherstack/apigwmgmt/connections", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestAdmin_GetMessages(t *testing.T) {
 	t.Parallel()
 
@@ -270,6 +280,18 @@ func TestAdmin_Prune(t *testing.T) {
 	pruned := h.Backend.PruneIdle(15 * time.Millisecond)
 	assert.Equal(t, []string{"old"}, pruned)
 	assert.Len(t, h.Backend.ListConnections(), 1)
+}
+
+func TestAdmin_PruneZeroThreshold_ReturnsEmptySlice(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/_gopherstack/apigwmgmt/prune", []byte(`{"idleSeconds": 0}`))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify the response body serialises as [] not null so the frontend can safely call .length
+	assert.Contains(t, rec.Body.String(), `"pruned":[]`)
 }
 
 func TestAdmin_BadJSON(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -51,7 +52,7 @@ func (b *InMemoryBackend) appendEvent(s *connState, ev LifecycleEvent) {
 // CreateConnection creates a new simulated WebSocket connection.
 func (b *InMemoryBackend) CreateConnection(connectionID, sourceIP, userAgent string) (*Connection, error) {
 	if connectionID == "" {
-		return nil, fmt.Errorf("%w: connectionID required", ErrConnectionExists)
+		return nil, fmt.Errorf("%w: connectionID required", awserr.ErrInvalidParameter)
 	}
 
 	b.mu.Lock("CreateConnection")
@@ -298,7 +299,7 @@ func (b *InMemoryBackend) PruneIdle(threshold time.Duration) []string {
 	defer b.mu.Unlock()
 
 	if threshold <= 0 {
-		return nil
+		return []string{}
 	}
 
 	cutoff := time.Now().Add(-threshold)
