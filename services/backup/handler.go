@@ -18,6 +18,46 @@ import (
 )
 
 const (
+	opUnknown          = "Unknown"
+	keyBackupVaultArn  = "BackupVaultArn"
+	keyBackupVaultName = "BackupVaultName"
+	keyCreationDate    = "CreationDate"
+	keyBackupPlanArn   = "BackupPlanArn"
+	keyBackupPlanID    = "BackupPlanId"
+	keyVersionID       = "VersionId"
+	keyBackupJobID     = "BackupJobId"
+	keyCreationTime    = "CreationTime"
+)
+
+const (
+	opAssociateBackupVaultMpaApprovalTeam = "AssociateBackupVaultMpaApprovalTeam"
+	opCancelLegalHold                     = "CancelLegalHold"
+	opCreateBackupPlan                    = "CreateBackupPlan"
+	opCreateBackupSelection               = "CreateBackupSelection"
+	opCreateBackupVault                   = "CreateBackupVault"
+	opCreateFramework                     = "CreateFramework"
+	opCreateLegalHold                     = "CreateLegalHold"
+	opCreateLogicallyAirGappedBackupVault = "CreateLogicallyAirGappedBackupVault"
+	opCreateReportPlan                    = "CreateReportPlan"
+	opCreateRestoreAccessBackupVault      = "CreateRestoreAccessBackupVault"
+	opCreateRestoreTestingPlan            = "CreateRestoreTestingPlan"
+	opCreateRestoreTestingSelection       = "CreateRestoreTestingSelection"
+	opDeleteBackupPlan                    = "DeleteBackupPlan"
+	opDeleteBackupVault                   = "DeleteBackupVault"
+	opDescribeBackupJob                   = "DescribeBackupJob"
+	opDescribeBackupVault                 = "DescribeBackupVault"
+	opGetBackupPlan                       = "GetBackupPlan"
+	opListBackupJobs                      = "ListBackupJobs"
+	opListBackupPlans                     = "ListBackupPlans"
+	opListBackupVaults                    = "ListBackupVaults"
+	opListTags                            = "ListTags"
+	opStartBackupJob                      = "StartBackupJob"
+	opTagResource                         = "TagResource"
+	opUntagResource                       = "UntagResource"
+	opUpdateBackupPlan                    = "UpdateBackupPlan"
+)
+
+const (
 	backupMatchPriority = service.PriorityPathVersioned
 
 	pathBackupVaults        = "/backup-vaults"
@@ -78,31 +118,31 @@ func (h *Handler) Name() string { return "Backup" }
 // GetSupportedOperations returns the list of supported Backup operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"AssociateBackupVaultMpaApprovalTeam",
-		"CancelLegalHold",
-		"CreateBackupSelection",
-		"CreateBackupVault",
-		"CreateFramework",
-		"CreateLegalHold",
-		"CreateLogicallyAirGappedBackupVault",
-		"CreateReportPlan",
-		"CreateRestoreAccessBackupVault",
-		"CreateRestoreTestingPlan",
-		"CreateRestoreTestingSelection",
-		"DescribeBackupVault",
-		"ListBackupVaults",
-		"DeleteBackupVault",
-		"CreateBackupPlan",
-		"GetBackupPlan",
-		"ListBackupPlans",
-		"UpdateBackupPlan",
-		"DeleteBackupPlan",
-		"StartBackupJob",
-		"DescribeBackupJob",
-		"ListBackupJobs",
-		"TagResource",
-		"UntagResource",
-		"ListTags",
+		opAssociateBackupVaultMpaApprovalTeam,
+		opCancelLegalHold,
+		opCreateBackupSelection,
+		opCreateBackupVault,
+		opCreateFramework,
+		opCreateLegalHold,
+		opCreateLogicallyAirGappedBackupVault,
+		opCreateReportPlan,
+		opCreateRestoreAccessBackupVault,
+		opCreateRestoreTestingPlan,
+		opCreateRestoreTestingSelection,
+		opDescribeBackupVault,
+		opListBackupVaults,
+		opDeleteBackupVault,
+		opCreateBackupPlan,
+		opGetBackupPlan,
+		opListBackupPlans,
+		opUpdateBackupPlan,
+		opDeleteBackupPlan,
+		opStartBackupJob,
+		opDescribeBackupJob,
+		opListBackupJobs,
+		opTagResource,
+		opUntagResource,
+		opListTags,
 	}
 }
 
@@ -198,7 +238,7 @@ func parseBackupPath(method, rawPath string) backupRoute {
 		return parseRestoreTestingRoute(method, strings.TrimPrefix(path, pathRestoreTestingPlans))
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 func parseVaultRoute(method, suffix string) backupRoute {
@@ -207,27 +247,27 @@ func parseVaultRoute(method, suffix string) backupRoute {
 	if name == "" {
 		// /backup-vaults
 		if method == http.MethodGet {
-			return backupRoute{operation: "ListBackupVaults"}
+			return backupRoute{operation: opListBackupVaults}
 		}
 	} else if before, ok := strings.CutSuffix(name, "/mpaApprovalTeam"); ok {
 		// /backup-vaults/{name}/mpaApprovalTeam
 		vaultName := before
 		if method == http.MethodPut {
-			return backupRoute{operation: "AssociateBackupVaultMpaApprovalTeam", resource: vaultName}
+			return backupRoute{operation: opAssociateBackupVaultMpaApprovalTeam, resource: vaultName}
 		}
 	} else if !strings.Contains(name, "/") {
 		// /backup-vaults/{name}
 		switch method {
 		case http.MethodPut:
-			return backupRoute{operation: "CreateBackupVault", resource: name}
+			return backupRoute{operation: opCreateBackupVault, resource: name}
 		case http.MethodGet:
-			return backupRoute{operation: "DescribeBackupVault", resource: name}
+			return backupRoute{operation: opDescribeBackupVault, resource: name}
 		case http.MethodDelete:
-			return backupRoute{operation: "DeleteBackupVault", resource: name}
+			return backupRoute{operation: opDeleteBackupVault, resource: name}
 		}
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 func parsePlanRoute(method, suffix string) backupRoute {
@@ -239,9 +279,9 @@ func parsePlanRoute(method, suffix string) backupRoute {
 		// /backup/plans
 		switch method {
 		case http.MethodPut:
-			return backupRoute{operation: "CreateBackupPlan"}
+			return backupRoute{operation: opCreateBackupPlan}
 		case http.MethodGet:
-			return backupRoute{operation: "ListBackupPlans"}
+			return backupRoute{operation: opListBackupPlans}
 		}
 	case strings.Contains(id, "/"):
 		// /backup/plans/{id}/selections
@@ -250,21 +290,21 @@ func parsePlanRoute(method, suffix string) backupRoute {
 		rest := parts[1]
 
 		if rest == "selections" && method == http.MethodPut {
-			return backupRoute{operation: "CreateBackupSelection", resource: planID}
+			return backupRoute{operation: opCreateBackupSelection, resource: planID}
 		}
 	default:
 		// /backup/plans/{id}
 		switch method {
 		case http.MethodGet:
-			return backupRoute{operation: "GetBackupPlan", resource: id}
+			return backupRoute{operation: opGetBackupPlan, resource: id}
 		case http.MethodPost:
-			return backupRoute{operation: "UpdateBackupPlan", resource: id}
+			return backupRoute{operation: opUpdateBackupPlan, resource: id}
 		case http.MethodDelete:
-			return backupRoute{operation: "DeleteBackupPlan", resource: id}
+			return backupRoute{operation: opDeleteBackupPlan, resource: id}
 		}
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 func parseJobRoute(method, suffix string) backupRoute {
@@ -273,31 +313,31 @@ func parseJobRoute(method, suffix string) backupRoute {
 		// /backup-jobs
 		switch method {
 		case http.MethodPut:
-			return backupRoute{operation: "StartBackupJob"}
+			return backupRoute{operation: opStartBackupJob}
 		case http.MethodGet:
-			return backupRoute{operation: "ListBackupJobs"}
+			return backupRoute{operation: opListBackupJobs}
 		}
 	} else if !strings.Contains(id, "/") {
 		// /backup-jobs/{id}
 		if method == http.MethodGet {
-			return backupRoute{operation: "DescribeBackupJob", resource: id}
+			return backupRoute{operation: opDescribeBackupJob, resource: id}
 		}
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 func parseTagsRoute(method, resourceArn string) backupRoute {
 	switch method {
 	case http.MethodPost:
-		return backupRoute{operation: "TagResource", resource: resourceArn}
+		return backupRoute{operation: opTagResource, resource: resourceArn}
 	case http.MethodGet:
-		return backupRoute{operation: "ListTags", resource: resourceArn}
+		return backupRoute{operation: opListTags, resource: resourceArn}
 	case http.MethodDelete:
-		return backupRoute{operation: "UntagResource", resource: resourceArn}
+		return backupRoute{operation: opUntagResource, resource: resourceArn}
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 func parseLegalHoldRoute(method, suffix string) backupRoute {
@@ -305,16 +345,16 @@ func parseLegalHoldRoute(method, suffix string) backupRoute {
 	if id == "" {
 		// /legal-holds
 		if method == http.MethodPost {
-			return backupRoute{operation: "CreateLegalHold"}
+			return backupRoute{operation: opCreateLegalHold}
 		}
 	} else if !strings.Contains(id, "/") {
 		// /legal-holds/{id}
 		if method == http.MethodDelete {
-			return backupRoute{operation: "CancelLegalHold", resource: id}
+			return backupRoute{operation: opCancelLegalHold, resource: id}
 		}
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 func parseFrameworkRoute(method, suffix string) backupRoute {
@@ -322,11 +362,11 @@ func parseFrameworkRoute(method, suffix string) backupRoute {
 	if name == "" {
 		// /audit/frameworks
 		if method == http.MethodPost {
-			return backupRoute{operation: "CreateFramework"}
+			return backupRoute{operation: opCreateFramework}
 		}
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 func parseReportPlanRoute(method, suffix string) backupRoute {
@@ -334,11 +374,11 @@ func parseReportPlanRoute(method, suffix string) backupRoute {
 	if name == "" {
 		// /audit/report-plans
 		if method == http.MethodPost {
-			return backupRoute{operation: "CreateReportPlan"}
+			return backupRoute{operation: opCreateReportPlan}
 		}
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 func parseLogicallyAirGappedRoute(method, suffix string) backupRoute {
@@ -346,11 +386,11 @@ func parseLogicallyAirGappedRoute(method, suffix string) backupRoute {
 	if name != "" && !strings.Contains(name, "/") {
 		// /logically-air-gapped-backup-vaults/{name}
 		if method == http.MethodPut {
-			return backupRoute{operation: "CreateLogicallyAirGappedBackupVault", resource: name}
+			return backupRoute{operation: opCreateLogicallyAirGappedBackupVault, resource: name}
 		}
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 func parseRestoreAccessVaultRoute(method, suffix string) backupRoute {
@@ -358,11 +398,11 @@ func parseRestoreAccessVaultRoute(method, suffix string) backupRoute {
 	if id == "" {
 		// /restore-access-backup-vaults
 		if method == http.MethodPost {
-			return backupRoute{operation: "CreateRestoreAccessBackupVault"}
+			return backupRoute{operation: opCreateRestoreAccessBackupVault}
 		}
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 func parseRestoreTestingRoute(method, suffix string) backupRoute {
@@ -371,7 +411,7 @@ func parseRestoreTestingRoute(method, suffix string) backupRoute {
 	if rest == "" {
 		// /restore-testing/plans
 		if method == http.MethodPut {
-			return backupRoute{operation: "CreateRestoreTestingPlan"}
+			return backupRoute{operation: opCreateRestoreTestingPlan}
 		}
 	} else if strings.Contains(rest, "/") {
 		// /restore-testing/plans/{planName}/selections
@@ -379,11 +419,11 @@ func parseRestoreTestingRoute(method, suffix string) backupRoute {
 		planName := parts[0]
 		sub := parts[1]
 		if sub == "selections" && method == http.MethodPut {
-			return backupRoute{operation: "CreateRestoreTestingSelection", resource: planName}
+			return backupRoute{operation: opCreateRestoreTestingSelection, resource: planName}
 		}
 	}
 
-	return backupRoute{operation: "Unknown"}
+	return backupRoute{operation: opUnknown}
 }
 
 // ExtractOperation extracts the Backup operation name from the REST path.
@@ -428,35 +468,35 @@ func (h *Handler) dispatch(c *echo.Context, route backupRoute, body []byte) erro
 	}
 
 	switch route.operation {
-	case "CreateBackupVault":
+	case opCreateBackupVault:
 		return h.handleCreateBackupVault(c, route.resource, body)
-	case "DescribeBackupVault":
+	case opDescribeBackupVault:
 		return h.handleDescribeBackupVault(c, route.resource)
-	case "ListBackupVaults":
+	case opListBackupVaults:
 		return h.handleListBackupVaults(c)
-	case "DeleteBackupVault":
+	case opDeleteBackupVault:
 		return h.handleDeleteBackupVault(c, route.resource)
-	case "CreateBackupPlan":
+	case opCreateBackupPlan:
 		return h.handleCreateBackupPlan(c, body)
-	case "GetBackupPlan":
+	case opGetBackupPlan:
 		return h.handleGetBackupPlan(c, route.resource)
-	case "ListBackupPlans":
+	case opListBackupPlans:
 		return h.handleListBackupPlans(c)
-	case "UpdateBackupPlan":
+	case opUpdateBackupPlan:
 		return h.handleUpdateBackupPlan(c, route.resource, body)
-	case "DeleteBackupPlan":
+	case opDeleteBackupPlan:
 		return h.handleDeleteBackupPlan(c, route.resource)
-	case "StartBackupJob":
+	case opStartBackupJob:
 		return h.handleStartBackupJob(c, body)
-	case "DescribeBackupJob":
+	case opDescribeBackupJob:
 		return h.handleDescribeBackupJob(c, route.resource)
-	case "ListBackupJobs":
+	case opListBackupJobs:
 		return h.handleListBackupJobs(c)
-	case "TagResource":
+	case opTagResource:
 		return h.handleTagResource(c, route.resource, body)
-	case "UntagResource":
+	case opUntagResource:
 		return h.handleUntagResource(c, route.resource, body)
-	case "ListTags":
+	case opListTags:
 		return h.handleListTags(c, route.resource)
 	default:
 		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
@@ -467,25 +507,25 @@ func (h *Handler) dispatch(c *echo.Context, route backupRoute, body []byte) erro
 // It returns (true, result) if the operation was handled, or (false, nil) otherwise.
 func (h *Handler) dispatchNewOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "AssociateBackupVaultMpaApprovalTeam":
+	case opAssociateBackupVaultMpaApprovalTeam:
 		return true, h.handleAssociateBackupVaultMpaApprovalTeam(c, route.resource, body)
-	case "CancelLegalHold":
+	case opCancelLegalHold:
 		return true, h.handleCancelLegalHold(c, route.resource)
-	case "CreateBackupSelection":
+	case opCreateBackupSelection:
 		return true, h.handleCreateBackupSelection(c, route.resource, body)
-	case "CreateFramework":
+	case opCreateFramework:
 		return true, h.handleCreateFramework(c, body)
-	case "CreateLegalHold":
+	case opCreateLegalHold:
 		return true, h.handleCreateLegalHold(c, body)
-	case "CreateLogicallyAirGappedBackupVault":
+	case opCreateLogicallyAirGappedBackupVault:
 		return true, h.handleCreateLogicallyAirGappedBackupVault(c, route.resource, body)
-	case "CreateReportPlan":
+	case opCreateReportPlan:
 		return true, h.handleCreateReportPlan(c, body)
-	case "CreateRestoreAccessBackupVault":
+	case opCreateRestoreAccessBackupVault:
 		return true, h.handleCreateRestoreAccessBackupVault(c, body)
-	case "CreateRestoreTestingPlan":
+	case opCreateRestoreTestingPlan:
 		return true, h.handleCreateRestoreTestingPlan(c, body)
-	case "CreateRestoreTestingSelection":
+	case opCreateRestoreTestingSelection:
 		return true, h.handleCreateRestoreTestingSelection(c, route.resource, body)
 	}
 
@@ -541,9 +581,9 @@ func (h *Handler) handleCreateBackupVault(c *echo.Context, name string, body []b
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"BackupVaultArn":  v.BackupVaultArn,
-		"BackupVaultName": v.BackupVaultName,
-		"CreationDate":    epochSeconds(v.CreationTime),
+		keyBackupVaultArn:  v.BackupVaultArn,
+		keyBackupVaultName: v.BackupVaultName,
+		keyCreationDate:    epochSeconds(v.CreationTime),
 	})
 }
 
@@ -554,9 +594,9 @@ func (h *Handler) handleDescribeBackupVault(c *echo.Context, name string) error 
 	}
 
 	resp := map[string]any{
-		"BackupVaultName":        v.BackupVaultName,
-		"BackupVaultArn":         v.BackupVaultArn,
-		"CreationDate":           epochSeconds(v.CreationTime),
+		keyBackupVaultName:       v.BackupVaultName,
+		keyBackupVaultArn:        v.BackupVaultArn,
+		keyCreationDate:          epochSeconds(v.CreationTime),
 		"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
 	}
 	if v.EncryptionKeyArn != "" {
@@ -577,9 +617,9 @@ func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 
 	for _, v := range vaults {
 		items = append(items, map[string]any{
-			"BackupVaultName":        v.BackupVaultName,
-			"BackupVaultArn":         v.BackupVaultArn,
-			"CreationDate":           epochSeconds(v.CreationTime),
+			keyBackupVaultName:       v.BackupVaultName,
+			keyBackupVaultArn:        v.BackupVaultArn,
+			keyCreationDate:          epochSeconds(v.CreationTime),
 			"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
 		})
 	}
@@ -670,10 +710,10 @@ func (h *Handler) handleCreateBackupPlan(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"BackupPlanArn": p.BackupPlanArn,
-		"BackupPlanId":  p.BackupPlanID,
-		"VersionId":     p.VersionID,
-		"CreationDate":  epochSeconds(p.CreationTime),
+		keyBackupPlanArn: p.BackupPlanArn,
+		keyBackupPlanID:  p.BackupPlanID,
+		keyVersionID:     p.VersionID,
+		keyCreationDate:  epochSeconds(p.CreationTime),
 	})
 }
 
@@ -684,10 +724,10 @@ func (h *Handler) handleGetBackupPlan(c *echo.Context, id string) error {
 	}
 
 	resp := map[string]any{
-		"BackupPlanArn": p.BackupPlanArn,
-		"BackupPlanId":  p.BackupPlanID,
-		"VersionId":     p.VersionID,
-		"CreationDate":  epochSeconds(p.CreationTime),
+		keyBackupPlanArn: p.BackupPlanArn,
+		keyBackupPlanID:  p.BackupPlanID,
+		keyVersionID:     p.VersionID,
+		keyCreationDate:  epochSeconds(p.CreationTime),
 		"BackupPlan": map[string]any{
 			"BackupPlanName": p.BackupPlanName,
 			"Rules":          rulesToJSON(p.Rules),
@@ -709,10 +749,10 @@ func (h *Handler) handleListBackupPlans(c *echo.Context) error {
 	for _, p := range plans {
 		items = append(items, map[string]any{
 			"BackupPlanName": p.BackupPlanName,
-			"BackupPlanArn":  p.BackupPlanArn,
-			"BackupPlanId":   p.BackupPlanID,
-			"VersionId":      p.VersionID,
-			"CreationDate":   epochSeconds(p.CreationTime),
+			keyBackupPlanArn: p.BackupPlanArn,
+			keyBackupPlanID:  p.BackupPlanID,
+			keyVersionID:     p.VersionID,
+			keyCreationDate:  epochSeconds(p.CreationTime),
 		})
 	}
 
@@ -737,9 +777,9 @@ func (h *Handler) handleUpdateBackupPlan(c *echo.Context, id string, body []byte
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"BackupPlanArn": p.BackupPlanArn,
-		"BackupPlanId":  p.BackupPlanID,
-		"VersionId":     p.VersionID,
+		keyBackupPlanArn: p.BackupPlanArn,
+		keyBackupPlanID:  p.BackupPlanID,
+		keyVersionID:     p.VersionID,
 	})
 }
 
@@ -754,10 +794,10 @@ func (h *Handler) handleDeleteBackupPlan(c *echo.Context, id string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"BackupPlanArn": p.BackupPlanArn,
-		"BackupPlanId":  p.BackupPlanID,
-		"VersionId":     p.VersionID,
-		"DeletionDate":  epochSeconds(time.Now()),
+		keyBackupPlanArn: p.BackupPlanArn,
+		keyBackupPlanID:  p.BackupPlanID,
+		keyVersionID:     p.VersionID,
+		"DeletionDate":   epochSeconds(time.Now()),
 	})
 }
 
@@ -789,9 +829,9 @@ func (h *Handler) handleStartBackupJob(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"BackupJobId":    j.BackupJobID,
-		"BackupVaultArn": j.BackupVaultArn,
-		"CreationDate":   epochSeconds(j.CreationTime),
+		keyBackupJobID:    j.BackupJobID,
+		keyBackupVaultArn: j.BackupVaultArn,
+		keyCreationDate:   epochSeconds(j.CreationTime),
 	})
 }
 
@@ -802,11 +842,11 @@ func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
 	}
 
 	resp := map[string]any{
-		"BackupJobId":     j.BackupJobID,
-		"BackupVaultName": j.BackupVaultName,
-		"BackupVaultArn":  j.BackupVaultArn,
-		"State":           j.State,
-		"CreationDate":    epochSeconds(j.CreationTime),
+		keyBackupJobID:     j.BackupJobID,
+		keyBackupVaultName: j.BackupVaultName,
+		keyBackupVaultArn:  j.BackupVaultArn,
+		"State":            j.State,
+		keyCreationDate:    epochSeconds(j.CreationTime),
 	}
 	if j.ResourceArn != "" {
 		resp["ResourceArn"] = j.ResourceArn
@@ -828,12 +868,12 @@ func (h *Handler) handleListBackupJobs(c *echo.Context) error {
 
 	for _, j := range jobs {
 		items = append(items, map[string]any{
-			"BackupJobId":     j.BackupJobID,
-			"BackupVaultName": j.BackupVaultName,
-			"BackupVaultArn":  j.BackupVaultArn,
-			"ResourceArn":     j.ResourceArn,
-			"State":           j.State,
-			"CreationDate":    epochSeconds(j.CreationTime),
+			keyBackupJobID:     j.BackupJobID,
+			keyBackupVaultName: j.BackupVaultName,
+			keyBackupVaultArn:  j.BackupVaultArn,
+			"ResourceArn":      j.ResourceArn,
+			"State":            j.State,
+			keyCreationDate:    epochSeconds(j.CreationTime),
 		})
 	}
 
@@ -963,9 +1003,9 @@ func (h *Handler) handleCreateBackupSelection(c *echo.Context, planID string, bo
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"BackupPlanId": sel.BackupPlanID,
-		"SelectionId":  sel.SelectionID,
-		"CreationDate": epochSeconds(sel.CreationTime),
+		keyBackupPlanID: sel.BackupPlanID,
+		"SelectionId":   sel.SelectionID,
+		keyCreationDate: epochSeconds(sel.CreationTime),
 	})
 }
 
@@ -1022,12 +1062,12 @@ func (h *Handler) handleCreateLegalHold(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"LegalHoldId":  lh.LegalHoldID,
-		"LegalHoldArn": lh.LegalHoldArn,
-		"Title":        lh.Title,
-		"Description":  lh.Description,
-		"Status":       lh.Status,
-		"CreationDate": epochSeconds(lh.CreationDate),
+		"LegalHoldId":   lh.LegalHoldID,
+		"LegalHoldArn":  lh.LegalHoldArn,
+		"Title":         lh.Title,
+		"Description":   lh.Description,
+		"Status":        lh.Status,
+		keyCreationDate: epochSeconds(lh.CreationDate),
 	})
 }
 
@@ -1058,10 +1098,10 @@ func (h *Handler) handleCreateLogicallyAirGappedBackupVault(c *echo.Context, nam
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"BackupVaultArn":  v.BackupVaultArn,
-		"BackupVaultName": v.BackupVaultName,
-		"CreationDate":    epochSeconds(v.CreationTime),
-		"VaultState":      "CREATING",
+		keyBackupVaultArn:  v.BackupVaultArn,
+		keyBackupVaultName: v.BackupVaultName,
+		keyCreationDate:    epochSeconds(v.CreationTime),
+		"VaultState":       "CREATING",
 	})
 }
 
@@ -1089,7 +1129,7 @@ func (h *Handler) handleCreateReportPlan(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"ReportPlanArn":  rp.ReportPlanArn,
 		"ReportPlanName": rp.ReportPlanName,
-		"CreationTime":   epochSeconds(rp.CreationTime),
+		keyCreationTime:  epochSeconds(rp.CreationTime),
 	})
 }
 
@@ -1121,7 +1161,7 @@ func (h *Handler) handleCreateRestoreAccessBackupVault(c *echo.Context, body []b
 	return c.JSON(http.StatusOK, map[string]any{
 		"RestoreAccessBackupVaultArn":  rav.RestoreAccessBackupVaultArn,
 		"RestoreAccessBackupVaultName": rav.RestoreAccessBackupVaultName,
-		"CreationDate":                 epochSeconds(rav.CreationDate),
+		keyCreationDate:                epochSeconds(rav.CreationDate),
 		"VaultState":                   rav.VaultState,
 	})
 }
@@ -1157,7 +1197,7 @@ func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) e
 	return c.JSON(http.StatusOK, map[string]any{
 		"RestoreTestingPlanArn":  rtp.RestoreTestingPlanArn,
 		"RestoreTestingPlanName": rtp.RestoreTestingPlanName,
-		"CreationTime":           epochSeconds(rtp.CreationTime),
+		keyCreationTime:          epochSeconds(rtp.CreationTime),
 	})
 }
 
@@ -1201,6 +1241,6 @@ func (h *Handler) handleCreateRestoreTestingSelection(c *echo.Context, planName 
 		"RestoreTestingPlanArn":       sel.RestoreTestingPlanArn,
 		"RestoreTestingPlanName":      sel.RestoreTestingPlanName,
 		"RestoreTestingSelectionName": sel.RestoreTestingSelectionName,
-		"CreationTime":                epochSeconds(sel.CreationTime),
+		keyCreationTime:               epochSeconds(sel.CreationTime),
 	})
 }

@@ -566,7 +566,7 @@ type errorResponseJSON struct {
 
 func (h *Handler) writeError(r *http.Request, w http.ResponseWriter, status int, code, message string) {
 	ctx := r.Context()
-	logger.Load(ctx).Error("opensearch error", "code", code, "message", message)
+	logger.Load(ctx).ErrorContext(r.Context(), "opensearch error", "code", code, "message", message)
 	w.Header().Set("x-amzn-ErrorType", code)
 	httputils.WriteJSON(ctx, w, status, errorResponseJSON{Message: message})
 }

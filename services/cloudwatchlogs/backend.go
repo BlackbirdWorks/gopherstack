@@ -24,6 +24,13 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	statusEnabled    = "ENABLED"
+	keyMessageField  = "@message"
+	keyTimestamp     = "@timestamp"
+	keyIngestionTime = "@ingestionTime"
+)
+
 var (
 	ErrLogGroupNotFound              = errors.New("ResourceNotFoundException")
 	ErrLogGroupAlreadyExists         = errors.New("ResourceAlreadyExistsException")
@@ -58,8 +65,8 @@ func validEvaluationFrequencies() map[string]struct{} {
 // validScheduledQueryStates returns the allowed values for the scheduled query state field.
 func validScheduledQueryStates() map[string]struct{} {
 	return map[string]struct{}{
-		"ENABLED":  {},
-		"DISABLED": {},
+		statusEnabled: {},
+		"DISABLED":    {},
 	}
 }
 
@@ -1919,7 +1926,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 			return "", fmt.Errorf("%w: invalid state %q, must be ENABLED or DISABLED", ErrValidation, state)
 		}
 	} else {
-		state = "ENABLED"
+		state = statusEnabled
 	}
 
 	id := uuid.New().String()
@@ -2741,9 +2748,9 @@ func standardLogGroupFields() []LogGroupField {
 	const pct int32 = 100
 
 	return []LogGroupField{
-		{Name: "@message", Percent: pct},
-		{Name: "@timestamp", Percent: pct},
-		{Name: "@ingestionTime", Percent: pct},
+		{Name: keyMessageField, Percent: pct},
+		{Name: keyTimestamp, Percent: pct},
+		{Name: keyIngestionTime, Percent: pct},
 		{Name: "@logStream", Percent: pct},
 	}
 }
@@ -2805,9 +2812,9 @@ func (b *InMemoryBackend) GetLogRecord(logRecordPointer string) (map[string]stri
 
 	ev := evts[idx]
 	result := map[string]string{
-		"@message":       ev.Message,
-		"@timestamp":     strconv.FormatInt(ev.Timestamp, 10),
-		"@ingestionTime": strconv.FormatInt(ev.IngestionTime, 10),
+		keyMessageField:  ev.Message,
+		keyTimestamp:     strconv.FormatInt(ev.Timestamp, 10),
+		keyIngestionTime: strconv.FormatInt(ev.IngestionTime, 10),
 		"@logStream":     streamName,
 		"@logGroup":      groupName,
 	}

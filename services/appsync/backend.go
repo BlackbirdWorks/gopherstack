@@ -19,6 +19,10 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
+const (
+	apiTypeGraphQL = "GRAPHQL"
+)
+
 var (
 	// ErrNotFound is returned when a resource is not found.
 	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
@@ -222,7 +226,7 @@ func isValidDataSourceType(t DataSourceType) bool {
 
 // isValidGraphqlAPIType returns true if the given API type is valid.
 func isValidGraphqlAPIType(t string) bool {
-	return t == "GRAPHQL" || t == "MERGED"
+	return t == apiTypeGraphQL || t == "MERGED"
 }
 
 // isValidTypeFormat returns true if the given type format is valid.
@@ -379,7 +383,7 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 	}
 
 	if apiType == "" {
-		apiType = "GRAPHQL"
+		apiType = apiTypeGraphQL
 	} else if !isValidGraphqlAPIType(apiType) {
 		return nil, fmt.Errorf("%w: invalid apiType %q, must be GRAPHQL or MERGED", ErrValidation, apiType)
 	}
@@ -402,8 +406,8 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 		CreatedAt:          now,
 		UpdatedAt:          now,
 		URIs: map[string]string{
-			"GRAPHQL":  graphqlEndpoint,
-			"REALTIME": graphqlEndpoint,
+			apiTypeGraphQL: graphqlEndpoint,
+			"REALTIME":     graphqlEndpoint,
 		},
 		Tags: tags.New("appsync.api." + apiID + ".tags"),
 	}
@@ -471,7 +475,7 @@ func (b *InMemoryBackend) UpdateGraphqlAPI(
 	return &cp, nil
 }
 
-// ListGraphqlAPIs returns all GraphQL APIs, optionally filtered by apiType ("GRAPHQL" or "MERGED").
+// ListGraphqlAPIs returns all GraphQL APIs, optionally filtered by apiType (apiTypeGraphQL or "MERGED").
 func (b *InMemoryBackend) ListGraphqlAPIs(apiType string) ([]*GraphqlAPI, error) {
 	b.mu.RLock("ListGraphqlApis")
 	defer b.mu.RUnlock()

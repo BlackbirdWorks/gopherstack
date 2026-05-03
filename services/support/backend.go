@@ -12,6 +12,19 @@ import (
 )
 
 const (
+	keyStatusField             = "Status"
+	categoryPerformanceLow     = "performance"
+	categoryGeneralGuidanceLow = "general-guidance"
+)
+
+const (
+	fieldRegion             = "Region"
+	categorySecurity        = "security"
+	categoryPerformance     = "Performance"
+	categoryGeneralGuidance = "General Guidance"
+)
+
+const (
 	// caseStatusOpened is the initial status for a new support case.
 	caseStatusOpened = "opened"
 	// caseStatusResolved is the status for a resolved support case.
@@ -178,7 +191,14 @@ func trustedAdvisorChecks() []TrustedAdvisorCheck {
 			Name:        "Service Limits",
 			Description: "Checks for service usage that is more than 80% of the service limit.",
 			Category:    "service_limits",
-			Metadata:    []string{"Region", "Service", "Limit Name", "Limit Amount", "Current Usage", "Status"},
+			Metadata: []string{
+				fieldRegion,
+				"Service",
+				"Limit Name",
+				"Limit Amount",
+				"Current Usage",
+				keyStatusField,
+			},
 		},
 		{
 			ID:   "DAvU99Dc4C",
@@ -200,29 +220,29 @@ func trustedAdvisorChecks() []TrustedAdvisorCheck {
 			Description: "Checks for Elastic IP addresses (EIPs) that are not associated with a running " +
 				"Amazon Elastic Compute Cloud (Amazon EC2) instance.",
 			Category: "cost_optimizing",
-			Metadata: []string{"Region", "IP Address"},
+			Metadata: []string{fieldRegion, "IP Address"},
 		},
 		{
 			ID:          "hjLMh88uM8",
 			Name:        "MFA on Root Account",
 			Description: "Checks the root account and warns if multi-factor authentication (MFA) is not enabled.",
-			Category:    "security",
-			Metadata:    []string{"Status"},
+			Category:    categorySecurity,
+			Metadata:    []string{keyStatusField},
 		},
 		{
 			ID:          "H7IgqkgtmV",
 			Name:        "IAM Use",
 			Description: "Checks for your use of AWS Identity and Access Management (IAM).",
-			Category:    "security",
-			Metadata:    []string{"Status"},
+			Category:    categorySecurity,
+			Metadata:    []string{keyStatusField},
 		},
 		{
 			ID:          "1iG5NDGVre",
 			Name:        "Amazon S3 Bucket Permissions",
 			Description: "Checks buckets in Amazon Simple Storage Service (Amazon S3) that have open access permissions.",
-			Category:    "security",
+			Category:    categorySecurity,
 			Metadata: []string{
-				"Region",
+				fieldRegion,
 				"Bucket Name",
 				"ACL Allows List",
 				"ACL Allows Upload/Delete",
@@ -234,14 +254,14 @@ func trustedAdvisorChecks() []TrustedAdvisorCheck {
 			Name:        "Amazon RDS Multi-AZ",
 			Description: "Checks for Amazon RDS DB instances that are deployed in a single Availability Zone.",
 			Category:    "fault_tolerance",
-			Metadata:    []string{"Region", "DB Instance", "Multi-AZ"},
+			Metadata:    []string{fieldRegion, "DB Instance", "Multi-AZ"},
 		},
 		{
 			ID:          "xSqX82fQu",
 			Name:        "Amazon EC2 Availability Zone Balance",
 			Description: "Checks the distribution of Amazon EC2 instances across Availability Zones in a region.",
 			Category:    "fault_tolerance",
-			Metadata:    []string{"Region", "Availability Zone", "Instance Count"},
+			Metadata:    []string{fieldRegion, "Availability Zone", "Instance Count"},
 		},
 	}
 }
@@ -607,8 +627,8 @@ func staticServices() []Service {
 			Name: "Amazon Simple Storage Service (Amazon S3)",
 			Categories: []ServiceCategory{
 				{Code: "data-management", Name: "Data Management"},
-				{Code: "performance", Name: "Performance"},
-				{Code: "general-guidance", Name: "General Guidance"},
+				{Code: categoryPerformanceLow, Name: categoryPerformance},
+				{Code: categoryGeneralGuidanceLow, Name: categoryGeneralGuidance},
 			},
 		},
 		{
@@ -616,23 +636,23 @@ func staticServices() []Service {
 			Name: "Amazon Elastic Compute Cloud (Amazon EC2)",
 			Categories: []ServiceCategory{
 				{Code: "instance-issue", Name: "Instance Issue"},
-				{Code: "performance", Name: "Performance"},
-				{Code: "general-guidance", Name: "General Guidance"},
+				{Code: categoryPerformanceLow, Name: categoryPerformance},
+				{Code: categoryGeneralGuidanceLow, Name: categoryGeneralGuidance},
 			},
 		},
 		{
 			Code: "amazon-dynamodb",
 			Name: "Amazon DynamoDB",
 			Categories: []ServiceCategory{
-				{Code: "general-guidance", Name: "General Guidance"},
-				{Code: "performance", Name: "Performance"},
+				{Code: categoryGeneralGuidanceLow, Name: categoryGeneralGuidance},
+				{Code: categoryPerformanceLow, Name: categoryPerformance},
 			},
 		},
 		{
 			Code: "amazon-rds",
 			Name: "Amazon Relational Database Service (Amazon RDS)",
 			Categories: []ServiceCategory{
-				{Code: "general-guidance", Name: "General Guidance"},
+				{Code: categoryGeneralGuidanceLow, Name: categoryGeneralGuidance},
 				{Code: "connectivity", Name: "Connectivity"},
 			},
 		},
@@ -640,8 +660,8 @@ func staticServices() []Service {
 			Code: "amazon-cloudfront",
 			Name: "Amazon CloudFront",
 			Categories: []ServiceCategory{
-				{Code: "general-guidance", Name: "General Guidance"},
-				{Code: "performance", Name: "Performance"},
+				{Code: categoryGeneralGuidanceLow, Name: categoryGeneralGuidance},
+				{Code: categoryPerformanceLow, Name: categoryPerformance},
 			},
 		},
 	}

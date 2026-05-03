@@ -15,6 +15,15 @@ import (
 )
 
 const (
+	keyConnectionID = "connectionId"
+)
+
+const (
+	keyMessageField  = "message"
+	errGoneException = "GoneException"
+)
+
+const (
 	apigwMgmtMatchPriority = 87
 	connectionsPathPrefix  = "/@connections/"
 )
@@ -82,12 +91,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		path := c.Request().URL.Path
 		if !strings.HasPrefix(path, connectionsPathPrefix) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": "not found"})
+			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
 		}
 
 		connectionID := strings.TrimPrefix(path, connectionsPathPrefix)
 		if connectionID == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": "connectionId is required"})
+			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: "connectionId is required"})
 		}
 
 		switch c.Request().Method {
@@ -100,7 +109,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		default:
 			log.Warn("api gateway management api: unsupported method", "method", c.Request().Method)
 
-			return c.JSON(http.StatusMethodNotAllowed, map[string]string{"message": "method not allowed"})
+			return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyMessageField: "method not allowed"})
 		}
 	}
 }
@@ -115,25 +124,28 @@ func (h *Handler) handlePostToConnection(c *echo.Context, connectionID string) e
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(readErr, &maxBytesErr) {
 			return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{
-				"message": "payload too large: exceeds maximum allowed size",
+				keyMessageField: "payload too large: exceeds maximum allowed size",
 			})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to read request body"})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: "failed to read request body"})
 	}
 
 	if err := h.Backend.PostToConnection(connectionID, body); err != nil {
-		log.Error("api gateway management api: post to connection failed", "connectionId", connectionID, "error", err)
+		log.Error("api gateway management api: post to connection failed", keyConnectionID, connectionID, "error", err)
 
 		if errors.Is(err, awserr.ErrNotFound) {
-			return c.JSON(http.StatusGone, map[string]string{"message": "GoneException", "connectionId": connectionID})
+			return c.JSON(
+				http.StatusGone,
+				map[string]string{keyMessageField: errGoneException, keyConnectionID: connectionID},
+			)
 		}
 
 		if errors.Is(err, ErrPayloadTooLarge) {
-			return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{"message": err.Error()})
+			return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{keyMessageField: err.Error()})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -144,13 +156,16 @@ func (h *Handler) handleGetConnection(c *echo.Context, connectionID string) erro
 
 	conn, err := h.Backend.GetConnection(connectionID)
 	if err != nil {
-		log.Error("api gateway management api: get connection failed", "connectionId", connectionID, "error", err)
+		log.Error("api gateway management api: get connection failed", keyConnectionID, connectionID, "error", err)
 
 		if errors.Is(err, awserr.ErrNotFound) {
-			return c.JSON(http.StatusGone, map[string]string{"message": "GoneException", "connectionId": connectionID})
+			return c.JSON(
+				http.StatusGone,
+				map[string]string{keyMessageField: errGoneException, keyConnectionID: connectionID},
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, conn)
@@ -160,13 +175,16 @@ func (h *Handler) handleDeleteConnection(c *echo.Context, connectionID string) e
 	log := logger.Load(c.Request().Context())
 
 	if err := h.Backend.DeleteConnection(connectionID); err != nil {
-		log.Error("api gateway management api: delete connection failed", "connectionId", connectionID, "error", err)
+		log.Error("api gateway management api: delete connection failed", keyConnectionID, connectionID, "error", err)
 
 		if errors.Is(err, awserr.ErrNotFound) {
-			return c.JSON(http.StatusGone, map[string]string{"message": "GoneException", "connectionId": connectionID})
+			return c.JSON(
+				http.StatusGone,
+				map[string]string{keyMessageField: errGoneException, keyConnectionID: connectionID},
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)

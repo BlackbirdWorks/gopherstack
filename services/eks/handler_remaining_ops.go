@@ -50,17 +50,17 @@ func (h *Handler) dispatchRemainingOps(c *echo.Context, route eksRoute, body []b
 
 func (h *Handler) dispatchAddonOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "DeleteAddon":
+	case opDeleteAddon:
 		return true, h.handleDeleteAddon(c, route.clusterName, route.nodegroupName)
-	case "DescribeAddon":
+	case opDescribeAddon:
 		return true, h.handleDescribeAddon(c, route.clusterName, route.nodegroupName)
-	case "ListAddons":
+	case opListAddons:
 		return true, h.handleListAddons(c, route.clusterName)
-	case "UpdateAddon":
+	case opUpdateAddon:
 		return true, h.handleUpdateAddon(c, route.clusterName, route.nodegroupName, body)
-	case "DescribeAddonVersions":
+	case opDescribeAddonVersions:
 		return true, h.handleDescribeAddonVersions(c)
-	case "DescribeAddonConfiguration":
+	case opDescribeAddonConfiguration:
 		return true, h.handleDescribeAddonConfiguration(c)
 	}
 
@@ -119,13 +119,13 @@ func (h *Handler) handleUpdateAddon(c *echo.Context, clusterName, addonName stri
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"update": map[string]any{
-			"id":          uuid.NewString()[:8],
-			"status":      "InProgress",
-			"type":        "AddonUpdate",
-			"clusterName": clusterName,
-			"addonName":   addon.AddonName,
-			"createdAt":   float64(time.Now().Unix()),
+		keyUpdate: map[string]any{
+			"id":           uuid.NewString()[:8],
+			keyStatusField: statusInProgress,
+			keyType:        "AddonUpdate",
+			keyClusterName: clusterName,
+			"addonName":    addon.AddonName,
+			keyCreatedAt:   float64(time.Now().Unix()),
 		},
 	})
 }
@@ -153,11 +153,11 @@ func (h *Handler) handleDescribeAddonConfiguration(c *echo.Context) error {
 
 func addonToJSON(a *Addon) map[string]any {
 	m := map[string]any{
-		"clusterName":  a.ClusterName,
+		keyClusterName: a.ClusterName,
 		"addonName":    a.AddonName,
 		"addonArn":     a.ARN,
-		"status":       a.Status,
-		"createdAt":    a.CreatedAt.Unix(),
+		keyStatusField: a.Status,
+		keyCreatedAt:   a.CreatedAt.Unix(),
 		"addonVersion": a.AddonVersion,
 	}
 
@@ -172,13 +172,13 @@ func addonToJSON(a *Addon) map[string]any {
 
 func (h *Handler) dispatchCapabilityOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "DeleteCapability":
+	case opDeleteCapability:
 		return true, h.handleDeleteCapability(c, route.clusterName)
-	case "DescribeCapability":
+	case opDescribeCapability:
 		return true, h.handleDescribeCapability(c, route.clusterName)
-	case "ListCapabilities":
+	case opListCapabilities:
 		return true, h.handleListCapabilities(c)
-	case "UpdateCapability":
+	case opUpdateCapability:
 		return true, h.handleUpdateCapability(c, route.clusterName, body)
 	}
 
@@ -192,10 +192,10 @@ func (h *Handler) handleDeleteCapability(c *echo.Context, name string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"capability": map[string]any{
-			"name":    capa.Name,
-			"version": capa.Version,
-			"status":  capa.Status,
+		keyCapability: map[string]any{
+			keyName:        capa.Name,
+			keyVersion:     capa.Version,
+			keyStatusField: capa.Status,
 		},
 	})
 }
@@ -207,10 +207,10 @@ func (h *Handler) handleDescribeCapability(c *echo.Context, name string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"capability": map[string]any{
-			"name":    capa.Name,
-			"version": capa.Version,
-			"status":  capa.Status,
+		keyCapability: map[string]any{
+			keyName:        capa.Name,
+			keyVersion:     capa.Version,
+			keyStatusField: capa.Status,
 		},
 	})
 }
@@ -241,10 +241,10 @@ func (h *Handler) handleUpdateCapability(c *echo.Context, name string, body []by
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"capability": map[string]any{
-			"name":    capa.Name,
-			"version": capa.Version,
-			"status":  capa.Status,
+		keyCapability: map[string]any{
+			keyName:        capa.Name,
+			keyVersion:     capa.Version,
+			keyStatusField: capa.Status,
 		},
 	})
 }
@@ -253,13 +253,13 @@ func (h *Handler) handleUpdateCapability(c *echo.Context, name string, body []by
 
 func (h *Handler) dispatchSubscriptionOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "DeleteEksAnywhereSubscription":
+	case opDeleteEksAnywhereSubscription:
 		return true, h.handleDeleteEksAnywhereSubscription(c, route.clusterName)
-	case "DescribeEksAnywhereSubscription":
+	case opDescribeEksAnywhereSubscription:
 		return true, h.handleDescribeEksAnywhereSubscription(c, route.clusterName)
-	case "ListEksAnywhereSubscriptions":
+	case opListEksAnywhereSubscriptions:
 		return true, h.handleListEksAnywhereSubscriptions(c)
-	case "UpdateEksAnywhereSubscription":
+	case opUpdateEksAnywhereSubscription:
 		return true, h.handleUpdateEksAnywhereSubscription(c, route.clusterName, body)
 	}
 
@@ -273,7 +273,7 @@ func (h *Handler) handleDeleteEksAnywhereSubscription(c *echo.Context, id string
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"subscription": subscriptionToJSON(sub),
+		keySubscription: subscriptionToJSON(sub),
 	})
 }
 
@@ -284,7 +284,7 @@ func (h *Handler) handleDescribeEksAnywhereSubscription(c *echo.Context, id stri
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"subscription": subscriptionToJSON(sub),
+		keySubscription: subscriptionToJSON(sub),
 	})
 }
 
@@ -320,7 +320,7 @@ func (h *Handler) handleUpdateEksAnywhereSubscription(c *echo.Context, id string
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"subscription": subscriptionToJSON(sub),
+		keySubscription: subscriptionToJSON(sub),
 	})
 }
 
@@ -328,11 +328,11 @@ func subscriptionToJSON(sub *AnywhereSubscription) map[string]any {
 	return map[string]any{
 		"id":              sub.ID,
 		"arn":             sub.ARN,
-		"name":            sub.Name,
-		"status":          sub.Status,
+		keyName:           sub.Name,
+		keyStatusField:    sub.Status,
 		"licenseType":     sub.LicenseType,
 		"licenseQuantity": sub.LicenseQuantity,
-		"createdAt":       sub.CreatedAt.Unix(),
+		keyCreatedAt:      sub.CreatedAt.Unix(),
 	}
 }
 
@@ -340,11 +340,11 @@ func subscriptionToJSON(sub *AnywhereSubscription) map[string]any {
 
 func (h *Handler) dispatchFargateOps(c *echo.Context, route eksRoute) (bool, error) {
 	switch route.operation {
-	case "DeleteFargateProfile":
+	case opDeleteFargateProfile:
 		return true, h.handleDeleteFargateProfile(c, route.clusterName, route.nodegroupName)
-	case "DescribeFargateProfile":
+	case opDescribeFargateProfile:
 		return true, h.handleDescribeFargateProfile(c, route.clusterName, route.nodegroupName)
-	case "ListFargateProfiles":
+	case opListFargateProfiles:
 		return true, h.handleListFargateProfiles(c, route.clusterName)
 	}
 
@@ -386,13 +386,13 @@ func (h *Handler) handleListFargateProfiles(c *echo.Context, clusterName string)
 
 func fargateProfileToJSON(p *FargateProfile) map[string]any {
 	return map[string]any{
-		"clusterName":         p.ClusterName,
+		keyClusterName:        p.ClusterName,
 		"fargateProfileName":  p.FargateProfileName,
 		"fargateProfileArn":   p.ARN,
 		"podExecutionRoleArn": p.PodExecutionRoleARN,
-		"status":              p.Status,
+		keyStatusField:        p.Status,
 		"selectors":           p.Selectors,
-		"createdAt":           p.CreatedAt.Unix(),
+		keyCreatedAt:          p.CreatedAt.Unix(),
 	}
 }
 
@@ -400,13 +400,13 @@ func fargateProfileToJSON(p *FargateProfile) map[string]any {
 
 func (h *Handler) dispatchPodIdentityOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "DeletePodIdentityAssociation":
+	case opDeletePodIdentityAssociation:
 		return true, h.handleDeletePodIdentityAssociation(c, route.clusterName, route.nodegroupName)
-	case "DescribePodIdentityAssociation":
+	case opDescribePodIdentityAssociation:
 		return true, h.handleDescribePodIdentityAssociation(c, route.clusterName, route.nodegroupName)
-	case "ListPodIdentityAssociations":
+	case opListPodIdentityAssociations:
 		return true, h.handleListPodIdentityAssociations(c, route.clusterName)
-	case "UpdatePodIdentityAssociation":
+	case opUpdatePodIdentityAssociation:
 		return true, h.handleUpdatePodIdentityAssociation(c, route.clusterName, route.nodegroupName, body)
 	}
 
@@ -420,7 +420,7 @@ func (h *Handler) handleDeletePodIdentityAssociation(c *echo.Context, clusterNam
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"association": podIdentityToJSON(assoc),
+		keyAssociation: podIdentityToJSON(assoc),
 	})
 }
 
@@ -431,7 +431,7 @@ func (h *Handler) handleDescribePodIdentityAssociation(c *echo.Context, clusterN
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"association": podIdentityToJSON(assoc),
+		keyAssociation: podIdentityToJSON(assoc),
 	})
 }
 
@@ -469,19 +469,19 @@ func (h *Handler) handleUpdatePodIdentityAssociation(c *echo.Context, clusterNam
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"association": podIdentityToJSON(assoc),
+		keyAssociation: podIdentityToJSON(assoc),
 	})
 }
 
 func podIdentityToJSON(a *PodIdentityAssociation) map[string]any {
 	return map[string]any{
-		"clusterName":    a.ClusterName,
+		keyClusterName:   a.ClusterName,
 		"associationId":  a.AssociationID,
 		"associationArn": a.ARN,
 		"namespace":      a.Namespace,
 		"serviceAccount": a.ServiceAccount,
 		"roleArn":        a.RoleARN,
-		"createdAt":      a.CreatedAt.Unix(),
+		keyCreatedAt:     a.CreatedAt.Unix(),
 	}
 }
 
@@ -489,17 +489,17 @@ func podIdentityToJSON(a *PodIdentityAssociation) map[string]any {
 
 func (h *Handler) dispatchAccessOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "DescribeAccessEntry":
+	case opDescribeAccessEntry:
 		return true, h.handleDescribeAccessEntry(c, route.clusterName, route.principalARN)
-	case "ListAccessEntries":
+	case opListAccessEntries:
 		return true, h.handleListAccessEntries(c, route.clusterName)
-	case "UpdateAccessEntry":
+	case opUpdateAccessEntry:
 		return true, h.handleUpdateAccessEntry(c, route.clusterName, route.principalARN, body)
-	case "ListAccessPolicies":
+	case opListAccessPolicies:
 		return true, h.handleListAccessPolicies(c)
-	case "ListAssociatedAccessPolicies":
+	case opListAssociatedAccessPolicies:
 		return true, h.handleListAssociatedAccessPolicies(c, route.clusterName, route.principalARN)
-	case "DisassociateAccessPolicy":
+	case opDisassociateAccessPolicy:
 		return true, h.handleDisassociateAccessPolicy(c, route.clusterName, route.principalARN, route.resourceARN)
 	}
 
@@ -514,12 +514,12 @@ func (h *Handler) handleDescribeAccessEntry(c *echo.Context, clusterName, princi
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"accessEntry": map[string]any{
-			"clusterName":    entry.ClusterName,
-			"principalArn":   entry.PrincipalARN,
+			keyClusterName:   entry.ClusterName,
+			keyPrincipalArn:  entry.PrincipalARN,
 			"accessEntryArn": entry.ARN,
-			"type":           entry.Type,
+			keyType:          entry.Type,
 			"username":       entry.Username,
-			"createdAt":      entry.CreatedAt.Unix(),
+			keyCreatedAt:     entry.CreatedAt.Unix(),
 		},
 	})
 }
@@ -554,12 +554,12 @@ func (h *Handler) handleUpdateAccessEntry(c *echo.Context, clusterName, principa
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"accessEntry": map[string]any{
-			"clusterName":    entry.ClusterName,
-			"principalArn":   entry.PrincipalARN,
+			keyClusterName:   entry.ClusterName,
+			keyPrincipalArn:  entry.PrincipalARN,
 			"accessEntryArn": entry.ARN,
-			"type":           entry.Type,
+			keyType:          entry.Type,
 			"username":       entry.Username,
-			"createdAt":      entry.CreatedAt.Unix(),
+			keyCreatedAt:     entry.CreatedAt.Unix(),
 		},
 	})
 }
@@ -581,15 +581,15 @@ func (h *Handler) handleListAssociatedAccessPolicies(c *echo.Context, clusterNam
 	result := make([]map[string]any, len(policies))
 	for i, p := range policies {
 		result[i] = map[string]any{
-			"policyArn":    p.PolicyARN,
+			keyPolicyArn:   p.PolicyARN,
 			"accessScope":  p.AccessScope,
 			"associatedAt": p.AssociatedAt.Unix(),
 		}
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"clusterName":              clusterName,
-		"principalArn":             principalARN,
+		keyClusterName:             clusterName,
+		keyPrincipalArn:            principalARN,
 		"associatedAccessPolicies": result,
 	})
 }
@@ -606,11 +606,11 @@ func (h *Handler) handleDisassociateAccessPolicy(c *echo.Context, clusterName, p
 
 func (h *Handler) dispatchIDPOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "DescribeIdentityProviderConfig":
+	case opDescribeIdentityProviderConfig:
 		return true, h.handleDescribeIdentityProviderConfig(c, route.clusterName, body)
-	case "ListIdentityProviderConfigs":
+	case opListIdentityProviderConfigs:
 		return true, h.handleListIdentityProviderConfigs(c, route.clusterName)
-	case "DisassociateIdentityProviderConfig":
+	case opDisassociateIdentityProviderConfig:
 		return true, h.handleDisassociateIdentityProviderConfig(c, route.clusterName, body)
 	}
 
@@ -641,12 +641,12 @@ func (h *Handler) handleDescribeIdentityProviderConfig(c *echo.Context, clusterN
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"identityProviderConfig": map[string]any{
-			"clusterName": cfg.ClusterName,
-			"name":        cfg.Name,
-			"type":        cfg.Type,
-			"status":      cfg.Status,
-			"oidc":        cfg.OIDC,
-			"createdAt":   cfg.CreatedAt.Unix(),
+			keyClusterName: cfg.ClusterName,
+			keyName:        cfg.Name,
+			keyType:        cfg.Type,
+			keyStatusField: cfg.Status,
+			"oidc":         cfg.OIDC,
+			keyCreatedAt:   cfg.CreatedAt.Unix(),
 		},
 	})
 }
@@ -679,11 +679,11 @@ func (h *Handler) handleDisassociateIdentityProviderConfig(c *echo.Context, clus
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"update": map[string]any{
-			"id":          uuid.NewString()[:8],
-			"status":      "InProgress",
-			"type":        "DisassociateIdentityProviderConfig",
-			"clusterName": clusterName,
+		keyUpdate: map[string]any{
+			"id":           uuid.NewString()[:8],
+			keyStatusField: statusInProgress,
+			keyType:        "DisassociateIdentityProviderConfig",
+			keyClusterName: clusterName,
 		},
 	})
 }
@@ -692,13 +692,13 @@ func (h *Handler) handleDisassociateIdentityProviderConfig(c *echo.Context, clus
 
 func (h *Handler) dispatchInsightsOps(c *echo.Context, route eksRoute, _ []byte) (bool, error) {
 	switch route.operation {
-	case "DescribeInsight":
+	case opDescribeInsight:
 		return true, h.handleDescribeInsight(c, route.clusterName, route.nodegroupName)
-	case "ListInsights":
+	case opListInsights:
 		return true, h.handleListInsights(c, route.clusterName)
-	case "StartInsightsRefresh":
+	case opStartInsightsRefresh:
 		return true, h.handleStartInsightsRefresh(c, route.clusterName)
-	case "DescribeInsightsRefresh":
+	case opDescribeInsightsRefresh:
 		return true, h.handleDescribeInsightsRefresh(c, route.clusterName, route.nodegroupName)
 	}
 
@@ -740,10 +740,10 @@ func (h *Handler) handleStartInsightsRefresh(c *echo.Context, clusterName string
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"insightsRefresh": map[string]any{
-			"id":          refresh.ID,
-			"clusterName": refresh.ClusterName,
-			"status":      refresh.Status,
-			"startedAt":   refresh.StartedAt.Unix(),
+			"id":           refresh.ID,
+			keyClusterName: refresh.ClusterName,
+			keyStatusField: refresh.Status,
+			"startedAt":    refresh.StartedAt.Unix(),
 		},
 	})
 }
@@ -756,10 +756,10 @@ func (h *Handler) handleDescribeInsightsRefresh(c *echo.Context, clusterName, re
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"insightsRefresh": map[string]any{
-			"id":          refresh.ID,
-			"clusterName": refresh.ClusterName,
-			"status":      refresh.Status,
-			"startedAt":   refresh.StartedAt.Unix(),
+			"id":           refresh.ID,
+			keyClusterName: refresh.ClusterName,
+			keyStatusField: refresh.Status,
+			"startedAt":    refresh.StartedAt.Unix(),
 		},
 	})
 }
@@ -767,9 +767,9 @@ func (h *Handler) handleDescribeInsightsRefresh(c *echo.Context, clusterName, re
 func insightToJSON(ins *Insight) map[string]any {
 	m := map[string]any{
 		"id":                 ins.ID,
-		"clusterName":        ins.ClusterName,
+		keyClusterName:       ins.ClusterName,
 		"category":           ins.Category,
-		"status":             ins.Status,
+		keyStatusField:       ins.Status,
 		"lastRefreshTime":    ins.LastRefreshTime.Unix(),
 		"lastTransitionTime": ins.LastTransition.Unix(),
 	}
@@ -789,21 +789,21 @@ func insightToJSON(ins *Insight) map[string]any {
 
 func (h *Handler) dispatchClusterUpdateOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "UpdateClusterConfig":
+	case opUpdateClusterConfig:
 		return true, h.handleUpdateClusterConfig(c, route.clusterName)
-	case "UpdateClusterVersion":
+	case opUpdateClusterVersion:
 		return true, h.handleUpdateClusterVersion(c, route.clusterName, body)
-	case "UpdateNodegroupVersion":
+	case opUpdateNodegroupVersion:
 		return true, h.handleUpdateNodegroupVersion(c, route.clusterName, route.nodegroupName, body)
-	case "DescribeUpdate":
+	case opDescribeUpdate:
 		return true, h.handleDescribeUpdate(c, route.clusterName, route.nodegroupName)
-	case "ListUpdates":
+	case opListUpdates:
 		return true, h.handleListUpdates(c, route.clusterName)
-	case "RegisterCluster":
+	case opRegisterCluster:
 		return true, h.handleRegisterCluster(c, body)
-	case "DeregisterCluster":
+	case opDeregisterCluster:
 		return true, h.handleDeregisterCluster(c, route.clusterName)
-	case "DescribeClusterVersions":
+	case opDescribeClusterVersions:
 		return true, h.handleDescribeClusterVersions(c)
 	}
 
@@ -817,7 +817,7 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"update": updateToJSON(update),
+		keyUpdate: updateToJSON(update),
 	})
 }
 
@@ -839,7 +839,7 @@ func (h *Handler) handleUpdateClusterVersion(c *echo.Context, clusterName string
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"update": updateToJSON(update),
+		keyUpdate: updateToJSON(update),
 	})
 }
 
@@ -861,7 +861,7 @@ func (h *Handler) handleUpdateNodegroupVersion(c *echo.Context, clusterName, nod
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"update": updateToJSON(update),
+		keyUpdate: updateToJSON(update),
 	})
 }
 
@@ -872,7 +872,7 @@ func (h *Handler) handleDescribeUpdate(c *echo.Context, clusterName, updateID st
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"update": updateToJSON(update),
+		keyUpdate: updateToJSON(update),
 	})
 }
 
@@ -935,10 +935,10 @@ func (h *Handler) handleDescribeClusterVersions(c *echo.Context) error {
 
 func updateToJSON(u *Update) map[string]any {
 	return map[string]any{
-		"id":        u.ID,
-		"status":    u.Status,
-		"type":      u.Type,
-		"createdAt": float64(u.CreatedAt.Unix()),
+		"id":           u.ID,
+		keyStatusField: u.Status,
+		keyType:        u.Type,
+		keyCreatedAt:   float64(u.CreatedAt.Unix()),
 	}
 }
 

@@ -16,6 +16,46 @@ import (
 )
 
 const (
+	keyError      = "error"
+	keyThingName  = "thingName"
+	keyThingArn   = "thingArn"
+	keyPolicyName = "policyName"
+	keyPolicyArn  = "policyArn"
+)
+
+const (
+	opAcceptCertificateTransfer        = "AcceptCertificateTransfer"
+	opAddThingToBillingGroup           = "AddThingToBillingGroup"
+	opAddThingToThingGroup             = "AddThingToThingGroup"
+	opAssociateSbomWithPackageVersion  = "AssociateSbomWithPackageVersion"
+	opAssociateTargetsWithJob          = "AssociateTargetsWithJob"
+	opAttachPolicy                     = "AttachPolicy"
+	opAttachPrincipalPolicy            = "AttachPrincipalPolicy"
+	opAttachSecurityProfile            = "AttachSecurityProfile"
+	opAttachThingPrincipal             = "AttachThingPrincipal"
+	opCancelAuditMitigationActionsTask = "CancelAuditMitigationActionsTask"
+	opCancelAuditTask                  = "CancelAuditTask"
+	opCreatePolicy                     = "CreatePolicy"
+	opCreateThing                      = "CreateThing"
+	opCreateTopicRule                  = "CreateTopicRule"
+	opDeletePolicy                     = "DeletePolicy"
+	opDeleteThing                      = "DeleteThing"
+	opDeleteTopicRule                  = "DeleteTopicRule"
+	opDescribeEndpoint                 = "DescribeEndpoint"
+	opDescribeThing                    = "DescribeThing"
+	opDisableTopicRule                 = "DisableTopicRule"
+	opEnableTopicRule                  = "EnableTopicRule"
+	opGetPolicy                        = "GetPolicy"
+	opGetTopicRule                     = "GetTopicRule"
+	opListPolicies                     = "ListPolicies"
+	opListThingPrincipals              = "ListThingPrincipals"
+	opListThings                       = "ListThings"
+	opListTopicRules                   = "ListTopicRules"
+	opReplaceTopicRule                 = "ReplaceTopicRule"
+	opUpdateThing                      = "UpdateThing"
+)
+
+const (
 	iotMatchPriority = 90
 	unknownOperation = "Unknown"
 	// headerIoTPrincipal is the HTTP header name for the IoT principal (certificate ARN or Cognito identity).
@@ -51,35 +91,35 @@ func (h *Handler) Name() string { return "IoT" }
 // GetSupportedOperations returns the list of supported IoT control-plane operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"AcceptCertificateTransfer",
-		"AddThingToBillingGroup",
-		"AddThingToThingGroup",
-		"AssociateSbomWithPackageVersion",
-		"AssociateTargetsWithJob",
-		"AttachPolicy",
-		"AttachPrincipalPolicy",
-		"AttachSecurityProfile",
-		"AttachThingPrincipal",
-		"CancelAuditMitigationActionsTask",
-		"CancelAuditTask",
-		"CreatePolicy",
-		"CreateThing",
-		"CreateTopicRule",
-		"DeletePolicy",
-		"DeleteThing",
-		"DeleteTopicRule",
-		"DescribeEndpoint",
-		"DescribeThing",
-		"DisableTopicRule",
-		"EnableTopicRule",
-		"GetPolicy",
-		"GetTopicRule",
-		"ListPolicies",
-		"ListThingPrincipals",
-		"ListThings",
-		"ListTopicRules",
-		"ReplaceTopicRule",
-		"UpdateThing",
+		opAcceptCertificateTransfer,
+		opAddThingToBillingGroup,
+		opAddThingToThingGroup,
+		opAssociateSbomWithPackageVersion,
+		opAssociateTargetsWithJob,
+		opAttachPolicy,
+		opAttachPrincipalPolicy,
+		opAttachSecurityProfile,
+		opAttachThingPrincipal,
+		opCancelAuditMitigationActionsTask,
+		opCancelAuditTask,
+		opCreatePolicy,
+		opCreateThing,
+		opCreateTopicRule,
+		opDeletePolicy,
+		opDeleteThing,
+		opDeleteTopicRule,
+		opDescribeEndpoint,
+		opDescribeThing,
+		opDisableTopicRule,
+		opEnableTopicRule,
+		opGetPolicy,
+		opGetTopicRule,
+		opListPolicies,
+		opListThingPrincipals,
+		opListThings,
+		opListTopicRules,
+		opReplaceTopicRule,
+		opUpdateThing,
 	}
 }
 
@@ -163,7 +203,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	go func() {
 		if err := h.broker.Start(ctx); err != nil {
-			log.ErrorContext(ctx, "IoT MQTT broker stopped", "error", err)
+			log.ErrorContext(ctx, "IoT MQTT broker stopped", keyError, err)
 		}
 	}()
 
@@ -173,15 +213,15 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 func resolveOperation(path, method string) string {
 	switch {
 	case path == "/things" && method == http.MethodGet:
-		return "ListThings"
+		return opListThings
 	case strings.HasPrefix(path, "/things/"):
 		return thingOperation(path, method)
 	case path == "/rules" && method == http.MethodGet:
-		return "ListTopicRules"
+		return opListTopicRules
 	case strings.HasPrefix(path, "/rules/"):
 		return ruleOperation(path, method)
 	case path == "/endpoint" && method == http.MethodGet:
-		return "DescribeEndpoint"
+		return opDescribeEndpoint
 	}
 
 	if op := resolvePolicyAndCertOps(path, method); op != unknownOperation {
@@ -198,19 +238,19 @@ func resolveOperation(path, method string) string {
 func resolvePolicyAndCertOps(path, method string) string {
 	switch {
 	case strings.HasPrefix(path, "/target-policies/") && method == http.MethodPost:
-		return "AttachPrincipalPolicy"
+		return opAttachPrincipalPolicy
 	case strings.HasPrefix(path, "/target-policies/") && method == http.MethodPut:
-		return "AttachPolicy"
+		return opAttachPolicy
 	case path == "/policies" && method == http.MethodGet:
-		return "ListPolicies"
+		return opListPolicies
 	case strings.HasPrefix(path, "/policies/") && method == http.MethodPost:
-		return "CreatePolicy"
+		return opCreatePolicy
 	case strings.HasPrefix(path, "/policies/") && method == http.MethodGet:
-		return "GetPolicy"
+		return opGetPolicy
 	case strings.HasPrefix(path, "/policies/") && method == http.MethodDelete:
-		return "DeletePolicy"
+		return opDeletePolicy
 	case strings.HasPrefix(path, "/accept-certificate-transfer/") && method == http.MethodPatch:
-		return "AcceptCertificateTransfer"
+		return opAcceptCertificateTransfer
 	}
 
 	return unknownOperation
@@ -219,13 +259,13 @@ func resolvePolicyAndCertOps(path, method string) string {
 func resolveGroupAndPackageOps(path, method string) string {
 	switch {
 	case path == "/billing-groups/addThingToBillingGroup" && method == http.MethodPut:
-		return "AddThingToBillingGroup"
+		return opAddThingToBillingGroup
 	case path == "/thing-groups/addThingToThingGroup" && method == http.MethodPut:
-		return "AddThingToThingGroup"
+		return opAddThingToThingGroup
 	case strings.HasPrefix(path, "/packages/") &&
 		strings.HasSuffix(path, "/sbom") &&
 		method == http.MethodPut:
-		return "AssociateSbomWithPackageVersion"
+		return opAssociateSbomWithPackageVersion
 	}
 
 	return unknownOperation
@@ -236,19 +276,19 @@ func resolveJobAndAuditOps(path, method string) string {
 	case strings.HasPrefix(path, "/jobs/") &&
 		strings.HasSuffix(path, "/targets") &&
 		method == http.MethodPost:
-		return "AssociateTargetsWithJob"
+		return opAssociateTargetsWithJob
 	case strings.HasPrefix(path, "/security-profiles/") &&
 		strings.HasSuffix(path, "/targets") &&
 		method == http.MethodPut:
-		return "AttachSecurityProfile"
+		return opAttachSecurityProfile
 	case strings.HasPrefix(path, "/audit/mitigationactions/tasks/") &&
 		strings.HasSuffix(path, "/cancel") &&
 		method == http.MethodPut:
-		return "CancelAuditMitigationActionsTask"
+		return opCancelAuditMitigationActionsTask
 	case strings.HasPrefix(path, "/audit/tasks/") &&
 		strings.HasSuffix(path, "/cancel") &&
 		method == http.MethodPut:
-		return "CancelAuditTask"
+		return opCancelAuditTask
 	}
 
 	return unknownOperation
@@ -257,23 +297,23 @@ func resolveJobAndAuditOps(path, method string) string {
 func thingOperation(path, method string) string {
 	// GET /things/{thingName}/principals → ListThingPrincipals
 	if method == http.MethodGet && strings.HasSuffix(path, "/principals") {
-		return "ListThingPrincipals"
+		return opListThingPrincipals
 	}
 
 	// PUT /things/{thingName}/principals → AttachThingPrincipal
 	if method == http.MethodPut && strings.HasSuffix(path, "/principals") {
-		return "AttachThingPrincipal"
+		return opAttachThingPrincipal
 	}
 
 	switch method {
 	case http.MethodPost:
-		return "CreateThing"
+		return opCreateThing
 	case http.MethodGet:
-		return "DescribeThing"
+		return opDescribeThing
 	case http.MethodDelete:
-		return "DeleteThing"
+		return opDeleteThing
 	case http.MethodPatch:
-		return "UpdateThing"
+		return opUpdateThing
 	}
 
 	return unknownOperation
@@ -282,23 +322,23 @@ func thingOperation(path, method string) string {
 func ruleOperation(path, method string) string {
 	// PATCH /rules/{ruleName}/disable → DisableTopicRule
 	if method == http.MethodPatch && strings.HasSuffix(path, "/disable") {
-		return "DisableTopicRule"
+		return opDisableTopicRule
 	}
 
 	// PATCH /rules/{ruleName}/enable → EnableTopicRule
 	if method == http.MethodPatch && strings.HasSuffix(path, "/enable") {
-		return "EnableTopicRule"
+		return opEnableTopicRule
 	}
 
 	switch method {
 	case http.MethodPost:
-		return "CreateTopicRule"
+		return opCreateTopicRule
 	case http.MethodGet:
-		return "GetTopicRule"
+		return opGetTopicRule
 	case http.MethodDelete:
-		return "DeleteTopicRule"
+		return opDeleteTopicRule
 	case http.MethodPatch:
-		return "ReplaceTopicRule"
+		return opReplaceTopicRule
 	}
 
 	return unknownOperation
@@ -320,7 +360,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return err
 		}
 
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "unknown operation: " + op})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "unknown operation: " + op})
 	}
 }
 
@@ -338,17 +378,17 @@ func (h *Handler) dispatchCoreOp(c *echo.Context, op string) (bool, error) {
 
 func (h *Handler) dispatchThingOps(c *echo.Context, op string) (bool, error) {
 	switch op {
-	case "CreateThing":
+	case opCreateThing:
 		return true, h.handleCreateThing(c)
-	case "DescribeThing":
+	case opDescribeThing:
 		return true, h.handleDescribeThing(c)
-	case "DeleteThing":
+	case opDeleteThing:
 		return true, h.handleDeleteThing(c)
-	case "UpdateThing":
+	case opUpdateThing:
 		return true, h.handleUpdateThing(c)
-	case "ListThings":
+	case opListThings:
 		return true, h.handleListThings(c)
-	case "ListThingPrincipals":
+	case opListThingPrincipals:
 		return true, h.handleListThingPrincipals(c)
 	}
 
@@ -357,19 +397,19 @@ func (h *Handler) dispatchThingOps(c *echo.Context, op string) (bool, error) {
 
 func (h *Handler) dispatchRuleOps(c *echo.Context, op string) (bool, error) {
 	switch op {
-	case "CreateTopicRule":
+	case opCreateTopicRule:
 		return true, h.handleCreateTopicRule(c)
-	case "GetTopicRule":
+	case opGetTopicRule:
 		return true, h.handleGetTopicRule(c)
-	case "DeleteTopicRule":
+	case opDeleteTopicRule:
 		return true, h.handleDeleteTopicRule(c)
-	case "DisableTopicRule":
+	case opDisableTopicRule:
 		return true, h.handleDisableTopicRule(c)
-	case "EnableTopicRule":
+	case opEnableTopicRule:
 		return true, h.handleEnableTopicRule(c)
-	case "ReplaceTopicRule":
+	case opReplaceTopicRule:
 		return true, h.handleReplaceTopicRule(c)
-	case "ListTopicRules":
+	case opListTopicRules:
 		return true, h.handleListTopicRules(c)
 	}
 
@@ -378,17 +418,17 @@ func (h *Handler) dispatchRuleOps(c *echo.Context, op string) (bool, error) {
 
 func (h *Handler) dispatchPolicyOps(c *echo.Context, op string) (bool, error) {
 	switch op {
-	case "AttachPrincipalPolicy":
+	case opAttachPrincipalPolicy:
 		return true, h.handleAttachPrincipalPolicy(c)
-	case "CreatePolicy":
+	case opCreatePolicy:
 		return true, h.handleCreatePolicy(c)
-	case "GetPolicy":
+	case opGetPolicy:
 		return true, h.handleGetPolicy(c)
-	case "DeletePolicy":
+	case opDeletePolicy:
 		return true, h.handleDeletePolicy(c)
-	case "ListPolicies":
+	case opListPolicies:
 		return true, h.handleListPolicies(c)
-	case "DescribeEndpoint":
+	case opDescribeEndpoint:
 		return true, h.handleDescribeEndpoint(c)
 	}
 
@@ -397,25 +437,25 @@ func (h *Handler) dispatchPolicyOps(c *echo.Context, op string) (bool, error) {
 
 func (h *Handler) dispatchNewOp(c *echo.Context, op string) (bool, error) {
 	switch op {
-	case "AcceptCertificateTransfer":
+	case opAcceptCertificateTransfer:
 		return true, h.handleAcceptCertificateTransfer(c)
-	case "AddThingToBillingGroup":
+	case opAddThingToBillingGroup:
 		return true, h.handleAddThingToBillingGroup(c)
-	case "AddThingToThingGroup":
+	case opAddThingToThingGroup:
 		return true, h.handleAddThingToThingGroup(c)
-	case "AssociateSbomWithPackageVersion":
+	case opAssociateSbomWithPackageVersion:
 		return true, h.handleAssociateSbomWithPackageVersion(c)
-	case "AssociateTargetsWithJob":
+	case opAssociateTargetsWithJob:
 		return true, h.handleAssociateTargetsWithJob(c)
-	case "AttachPolicy":
+	case opAttachPolicy:
 		return true, h.handleAttachPolicy(c)
-	case "AttachSecurityProfile":
+	case opAttachSecurityProfile:
 		return true, h.handleAttachSecurityProfile(c)
-	case "AttachThingPrincipal":
+	case opAttachThingPrincipal:
 		return true, h.handleAttachThingPrincipal(c)
-	case "CancelAuditMitigationActionsTask":
+	case opCancelAuditMitigationActionsTask:
 		return true, h.handleCancelAuditMitigationActionsTask(c)
-	case "CancelAuditTask":
+	case opCancelAuditTask:
 		return true, h.handleCancelAuditTask(c)
 	}
 
@@ -428,13 +468,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrThingNotFound),
 		errors.Is(err, ErrRuleNotFound),
 		errors.Is(err, ErrPolicyNotFound):
-		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusNotFound, map[string]string{keyError: err.Error()})
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusConflict, map[string]string{keyError: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 }
 
@@ -447,7 +487,7 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	out, err := h.Backend.CreateThing(&CreateThingInput{
@@ -460,9 +500,9 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
-		"thingName": out.ThingName,
-		"thingArn":  out.ThingARN,
-		"thingId":   out.ThingID,
+		keyThingName: out.ThingName,
+		keyThingArn:  out.ThingARN,
+		"thingId":    out.ThingID,
 	})
 }
 
@@ -475,8 +515,8 @@ func (h *Handler) handleDescribeThing(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"thingName":     t.ThingName,
-		"thingArn":      t.ARN,
+		keyThingName:    t.ThingName,
+		keyThingArn:     t.ARN,
 		"thingId":       t.ThingID,
 		"thingTypeName": t.ThingTypeName,
 		"attributes":    t.Attributes,
@@ -500,7 +540,7 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 	var payload TopicRulePayload
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	if err := h.Backend.CreateTopicRule(&CreateTopicRuleInput{
@@ -553,7 +593,7 @@ func (h *Handler) handleAttachPrincipalPolicy(c *echo.Context) error {
 		PolicyName: policyName,
 		Principal:  principal,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -567,7 +607,7 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	out, err := h.Backend.CreatePolicy(&CreatePolicyInput{
@@ -579,8 +619,8 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
-		"policyName":     out.PolicyName,
-		"policyArn":      out.PolicyARN,
+		keyPolicyName:    out.PolicyName,
+		keyPolicyArn:     out.PolicyARN,
 		"policyDocument": out.PolicyDocument,
 	})
 }
@@ -590,7 +630,7 @@ func (h *Handler) handleDescribeEndpoint(c *echo.Context) error {
 
 	out, err := h.Backend.DescribeEndpoint(endpointType)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -606,14 +646,14 @@ func (h *Handler) handleAcceptCertificateTransfer(c *echo.Context) error {
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	if err := h.Backend.AcceptCertificateTransfer(&AcceptCertificateTransferInput{
 		CertificateID: certID,
 		SetAsActive:   body.SetAsActive,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -623,11 +663,11 @@ func (h *Handler) handleAddThingToBillingGroup(c *echo.Context) error {
 	var body AddThingToBillingGroupInput
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	if err := h.Backend.AddThingToBillingGroup(&body); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -637,11 +677,11 @@ func (h *Handler) handleAddThingToThingGroup(c *echo.Context) error {
 	var body AddThingToThingGroupInput
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	if err := h.Backend.AddThingToThingGroup(&body); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -669,7 +709,7 @@ func (h *Handler) handleAssociateSbomWithPackageVersion(c *echo.Context) error {
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	out, err := h.Backend.AssociateSbomWithPackageVersion(&AssociateSbomWithPackageVersionInput{
@@ -678,7 +718,7 @@ func (h *Handler) handleAssociateSbomWithPackageVersion(c *echo.Context) error {
 		Sbom:        body.Sbom,
 	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, out)
@@ -696,7 +736,7 @@ func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	out, err := h.Backend.AssociateTargetsWithJob(&AssociateTargetsWithJobInput{
@@ -706,7 +746,7 @@ func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
 		NamespaceID: body.NamespaceID,
 	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, out)
@@ -720,14 +760,14 @@ func (h *Handler) handleAttachPolicy(c *echo.Context) error {
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	if err := h.Backend.AttachPolicy(&AttachPolicyInput{
 		PolicyName: policyName,
 		Target:     body.Target,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -743,7 +783,7 @@ func (h *Handler) handleAttachSecurityProfile(c *echo.Context) error {
 		SecurityProfileName:      profileName,
 		SecurityProfileTargetArn: targetArn,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -759,7 +799,7 @@ func (h *Handler) handleAttachThingPrincipal(c *echo.Context) error {
 		ThingName: thingName,
 		Principal: principal,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -773,7 +813,7 @@ func (h *Handler) handleCancelAuditMitigationActionsTask(c *echo.Context) error 
 	if err := h.Backend.CancelAuditMitigationActionsTask(&CancelAuditMitigationActionsTaskInput{
 		TaskID: taskID,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -787,7 +827,7 @@ func (h *Handler) handleCancelAuditTask(c *echo.Context) error {
 	if err := h.Backend.CancelAuditTask(&CancelAuditTaskInput{
 		AuditTaskID: taskID,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -802,8 +842,8 @@ func (h *Handler) handleGetPolicy(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
-		"policyName":     out.PolicyName,
-		"policyArn":      out.PolicyARN,
+		keyPolicyName:    out.PolicyName,
+		keyPolicyArn:     out.PolicyARN,
 		"policyDocument": out.PolicyDocument,
 	})
 }
@@ -824,8 +864,8 @@ func (h *Handler) handleListPolicies(c *echo.Context) error {
 	out := make([]map[string]string, 0, len(policies))
 	for _, p := range policies {
 		out = append(out, map[string]string{
-			"policyName": p.PolicyName,
-			"policyArn":  p.ARN,
+			keyPolicyName: p.PolicyName,
+			keyPolicyArn:  p.ARN,
 		})
 	}
 
@@ -838,8 +878,8 @@ func (h *Handler) handleListThings(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(things))
 	for _, t := range things {
 		out = append(out, map[string]any{
-			"thingName":     t.ThingName,
-			"thingArn":      t.ARN,
+			keyThingName:    t.ThingName,
+			keyThingArn:     t.ARN,
 			"thingTypeName": t.ThingTypeName,
 			"attributes":    t.Attributes,
 			"version":       t.Version,
@@ -872,7 +912,7 @@ func (h *Handler) handleUpdateThing(c *echo.Context) error {
 	var body UpdateThingInput
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	body.ThingName = thingName
@@ -914,7 +954,7 @@ func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 	var payload TopicRulePayload
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 	}
 
 	if err := h.Backend.ReplaceTopicRule(&ReplaceTopicRuleInput{

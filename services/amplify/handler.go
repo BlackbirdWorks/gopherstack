@@ -107,7 +107,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	segs := splitAmplifyPath(c.Request().URL.Path)
 	// Path: /apps/{appId}/...
 	const appIDIndex = 1
-	if len(segs) > appIDIndex && segs[0] == "apps" {
+	if len(segs) > appIDIndex && segs[0] == arnResourceApps {
 		return segs[appIDIndex]
 	}
 
@@ -247,7 +247,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		segs := splitAmplifyPath(path)
 
-		if len(segs) == 0 || segs[0] != "apps" {
+		if len(segs) == 0 || segs[0] != arnResourceApps {
 			return c.JSON(http.StatusNotFound, amplifyError("not found"))
 		}
 
@@ -396,7 +396,7 @@ func (h *Handler) listApps(ctx context.Context, c *echo.Context) error {
 		return h.handleBackendError(ctx, c, "ListApps", err)
 	}
 
-	resp := map[string]any{"apps": toAppViews(apps)}
+	resp := map[string]any{arnResourceApps: toAppViews(apps)}
 	if outToken != "" {
 		resp["nextToken"] = outToken
 	}

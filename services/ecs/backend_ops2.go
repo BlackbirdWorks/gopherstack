@@ -286,7 +286,7 @@ func (b *InMemoryBackend) GetTaskProtection(
 		if _, found := tasks[arn]; !found {
 			failures = append(failures, Failure{
 				Arn:    arn,
-				Reason: "MISSING",
+				Reason: statusMissing,
 				Detail: fmt.Sprintf("task %s not found", arn),
 			})
 
@@ -339,7 +339,7 @@ func (b *InMemoryBackend) UpdateTaskProtection(
 		if _, found := tasks[arn]; !found {
 			failures = append(failures, Failure{
 				Arn:    arn,
-				Reason: "MISSING",
+				Reason: statusMissing,
 				Detail: fmt.Sprintf("task %s not found", arn),
 			})
 

@@ -7,6 +7,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+const ()
+
 type backendSnapshot struct {
 	Templates            map[string]*ExperimentTemplate                    `json:"templates"`
 	Experiments          map[string]*Experiment                            `json:"experiments"`
@@ -78,7 +80,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			ID:    b.accountID,
 			Arn:   safetyLeverARN,
 			Tags:  make(map[string]string),
-			State: SafetyLeverState{Status: "disengaged"},
+			State: SafetyLeverState{Status: statusDisengaged},
 		}
 	}
 

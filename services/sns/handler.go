@@ -21,6 +21,10 @@ import (
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const ()
+
+const ()
+
 const (
 	snsVersion       = "Version=2010-03-31"
 	snsContentType   = "application/x-www-form-urlencoded"
@@ -389,7 +393,7 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 	}
 
 	validProtocols := map[string]bool{
-		"email": true, "email-json": true, "http": true, "https": true,
+		protocolEmail: true, protocolEmailJSON: true, "http": true, "https": true,
 		"sqs": true, "lambda": true, "sms": true, "application": true, "firehose": true,
 	}
 	if !validProtocols[protocol] {
@@ -424,7 +428,7 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 	returnArn := strings.EqualFold(c.Request().FormValue("ReturnSubscriptionArn"), "true")
 	subArn := sub.SubscriptionArn
 	if sub.PendingConfirmation && !returnArn {
-		subArn = "PendingConfirmation"
+		subArn = statusPendingConfirmation
 	}
 
 	return h.writeXML(c, SubscribeResponse{
@@ -1351,14 +1355,14 @@ func attrsToEntries(attrs map[string]string) []XMLAttributeEntry {
 }
 
 // toXMLSubscriptions converts Subscription slice to XMLSubscription slice.
-// Pending (unconfirmed) subscriptions use "PendingConfirmation" as their ARN,
+// Pending (unconfirmed) subscriptions use statusPendingConfirmation as their ARN,
 // matching the AWS SNS ListSubscriptions / ListSubscriptionsByTopic behaviour.
 func toXMLSubscriptions(subs []Subscription) []XMLSubscription {
 	result := make([]XMLSubscription, len(subs))
 	for i, s := range subs {
 		subArn := s.SubscriptionArn
 		if s.PendingConfirmation {
-			subArn = "PendingConfirmation"
+			subArn = statusPendingConfirmation
 		}
 
 		result[i] = XMLSubscription{

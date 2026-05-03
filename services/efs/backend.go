@@ -14,6 +14,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	statusAvailable = "available"
+)
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("FileSystemNotFound", awserr.ErrNotFound)
@@ -250,7 +254,7 @@ func (b *InMemoryBackend) CreateFileSystem(
 		Name:            name,
 		PerformanceMode: performanceMode,
 		ThroughputMode:  throughputMode,
-		LifeCycleState:  "available",
+		LifeCycleState:  statusAvailable,
 		Encrypted:       encrypted,
 		AccountID:       b.accountID,
 		Region:          b.region,
@@ -425,7 +429,7 @@ func (b *InMemoryBackend) CreateMountTarget(fileSystemID, subnetID, ipAddress st
 		FileSystemID:   fileSystemID,
 		SubnetID:       subnetID,
 		IPAddress:      ipAddress,
-		LifeCycleState: "available",
+		LifeCycleState: statusAvailable,
 		OwnerID:        b.accountID,
 	}
 	b.mountTargets[id] = mt
@@ -510,7 +514,7 @@ func (b *InMemoryBackend) CreateAccessPoint(fileSystemID string, kv map[string]s
 		AccessPointArn: apARN,
 		FileSystemID:   fileSystemID,
 		Name:           name,
-		LifeCycleState: "available",
+		LifeCycleState: statusAvailable,
 		Tags:           t,
 		OwnerID:        b.accountID,
 	}

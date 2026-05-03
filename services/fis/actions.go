@@ -12,6 +12,24 @@ import (
 )
 
 const (
+	keyDuration = "duration"
+)
+
+const (
+	targetTypeIAMRole = "aws:iam:role"
+	keyService        = "service"
+	keyOperations     = "operations"
+	keyPercentage     = "percentage"
+	descPercentage    = "Percentage of requests to fault (0-100)"
+	descISO8601       = "ISO 8601 duration (e.g. PT5M)"
+)
+
+const (
+	descTargetAWSService = "AWS service name (e.g. dynamodb, s3)"
+	descCommaSepOps      = "Comma-separated list of operations to fault-inject"
+)
+
+const (
 	// HTTP status codes for FIS built-in fault actions.
 	statusThrottling     = 400
 	statusInternalError  = 500
@@ -42,68 +60,68 @@ func builtinActions() []service.FISActionDefinition {
 		{
 			ActionID:    "aws:fis:inject-api-internal-error",
 			Description: "Return HTTP 500 InternalServerError for matching API calls",
-			TargetType:  "aws:iam:role",
+			TargetType:  targetTypeIAMRole,
 			Parameters: []service.FISParamDef{
-				{Name: "service", Description: "AWS service name (e.g. dynamodb, s3)", Required: true},
+				{Name: keyService, Description: descTargetAWSService, Required: true},
 				{
-					Name:        "operations",
-					Description: "Comma-separated list of operations to fault-inject",
+					Name:        keyOperations,
+					Description: descCommaSepOps,
 					Required:    false,
 				},
 				{
-					Name:        "percentage",
-					Description: "Percentage of requests to fault (0-100)",
+					Name:        keyPercentage,
+					Description: descPercentage,
 					Required:    false,
 					Default:     "100",
 				},
-				{Name: "duration", Description: "ISO 8601 duration (e.g. PT5M)", Required: false},
+				{Name: keyDuration, Description: descISO8601, Required: false},
 			},
 		},
 		{
 			ActionID:    "aws:fis:inject-api-throttle-error",
 			Description: "Return HTTP 400 ThrottlingException for matching API calls",
-			TargetType:  "aws:iam:role",
+			TargetType:  targetTypeIAMRole,
 			Parameters: []service.FISParamDef{
-				{Name: "service", Description: "AWS service name (e.g. dynamodb, s3)", Required: true},
+				{Name: keyService, Description: descTargetAWSService, Required: true},
 				{
-					Name:        "operations",
-					Description: "Comma-separated list of operations to fault-inject",
+					Name:        keyOperations,
+					Description: descCommaSepOps,
 					Required:    false,
 				},
 				{
-					Name:        "percentage",
-					Description: "Percentage of requests to fault (0-100)",
+					Name:        keyPercentage,
+					Description: descPercentage,
 					Required:    false,
 					Default:     "100",
 				},
-				{Name: "duration", Description: "ISO 8601 duration (e.g. PT5M)", Required: false},
+				{Name: keyDuration, Description: descISO8601, Required: false},
 			},
 		},
 		{
 			ActionID:    "aws:fis:inject-api-unavailable-error",
 			Description: "Return HTTP 503 ServiceUnavailable for matching API calls",
-			TargetType:  "aws:iam:role",
+			TargetType:  targetTypeIAMRole,
 			Parameters: []service.FISParamDef{
-				{Name: "service", Description: "AWS service name (e.g. dynamodb, s3)", Required: true},
+				{Name: keyService, Description: descTargetAWSService, Required: true},
 				{
-					Name:        "operations",
-					Description: "Comma-separated list of operations to fault-inject",
+					Name:        keyOperations,
+					Description: descCommaSepOps,
 					Required:    false,
 				},
 				{
-					Name:        "percentage",
-					Description: "Percentage of requests to fault (0-100)",
+					Name:        keyPercentage,
+					Description: descPercentage,
 					Required:    false,
 					Default:     "100",
 				},
-				{Name: "duration", Description: "ISO 8601 duration (e.g. PT5M)", Required: false},
+				{Name: keyDuration, Description: descISO8601, Required: false},
 			},
 		},
 		{
 			ActionID:    "aws:fis:wait",
 			Description: "Pause for a specified duration",
 			Parameters: []service.FISParamDef{
-				{Name: "duration", Description: "ISO 8601 duration (e.g. PT5M)", Required: true},
+				{Name: keyDuration, Description: descISO8601, Required: true},
 			},
 		},
 	}
@@ -157,7 +175,7 @@ func actionDefToSummary(def service.FISActionDefinition, accountID, region strin
 // builtinTargetResourceTypes returns the well-known FIS target resource types.
 func builtinTargetResourceTypes() []TargetResourceTypeSummary {
 	return []TargetResourceTypeSummary{
-		{ResourceType: "aws:iam:role", Description: "IAM role (used for API fault injection targeting)"},
+		{ResourceType: targetTypeIAMRole, Description: "IAM role (used for API fault injection targeting)"},
 		{ResourceType: "aws:ec2:instance", Description: "EC2 instance"},
 		{ResourceType: "aws:lambda:function", Description: "Lambda function"},
 		{ResourceType: "aws:rds:db", Description: "RDS DB instance"},
@@ -187,16 +205,16 @@ func faultErrorForAction(actionID string) chaos.FaultError {
 // buildFaultRules converts an experiment action into one or more chaos.FaultRule values.
 // The action must be one of the aws:fis:inject-api-* actions.
 func buildFaultRules(action ExperimentTemplateAction) []chaos.FaultRule {
-	svcName := action.Parameters["service"]
+	svcName := action.Parameters[keyService]
 	if svcName == "" {
 		return nil
 	}
 
-	pct := parsePercentage(action.Parameters["percentage"])
+	pct := parsePercentage(action.Parameters[keyPercentage])
 	faultErr := faultErrorForAction(action.ActionID)
 	errCopy := faultErr
 
-	ops := parseOperations(action.Parameters["operations"])
+	ops := parseOperations(action.Parameters[keyOperations])
 
 	if len(ops) == 0 {
 		// No specific operations – inject fault for all calls to this service.

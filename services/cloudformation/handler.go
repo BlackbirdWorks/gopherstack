@@ -17,6 +17,24 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+const (
+	resTypeS3Bucket = "AWS::S3::Bucket"
+	resTypeSNSTopic = "AWS::SNS::Topic"
+	resTypeSQSQueue = "AWS::SQS::Queue"
+	resTypeRDSDB    = "AWS::RDS::DBInstance"
+	resTypeSecret   = "AWS::SecretsManager::Secret" //nolint:gosec // CloudFormation resource type, not a credential
+)
+
+const (
+	resTypeLogGroup       = "AWS::Logs::LogGroup"
+	resTypeLambdaFunction = "AWS::Lambda::Function"
+	resTypeDynamoDBTable  = "AWS::DynamoDB::Table"
+	resTypeIAMRole        = "AWS::IAM::Role"
+	resTypeEC2VPC         = "AWS::EC2::VPC"
+	resTypeECSCluster     = "AWS::ECS::Cluster"
+	resTypeKMSKey         = "AWS::KMS::Key"
+)
+
 const cfnNS = "http://cloudformation.amazonaws.com/doc/2010-05-15/"
 
 // Handler is the Echo HTTP service handler for CloudFormation operations.
@@ -176,19 +194,19 @@ func (h *Handler) dispatch(action string, form url.Values, c *echo.Context) erro
 // Falls back to "Id" for unknown types.
 func typeSchemaFor(typeName string) string {
 	primaryIdentifiers := map[string]string{
-		"AWS::Logs::LogGroup":         "LogGroupName",
-		"AWS::S3::Bucket":             "BucketName",
-		"AWS::Lambda::Function":       "FunctionName",
-		"AWS::SNS::Topic":             "TopicArn",
-		"AWS::SQS::Queue":             "QueueUrl",
-		"AWS::DynamoDB::Table":        "TableName",
-		"AWS::IAM::Role":              "RoleName",
-		"AWS::EC2::VPC":               "VpcId",
-		"AWS::EC2::Instance":          "InstanceId",
-		"AWS::RDS::DBInstance":        "DBInstanceIdentifier",
-		"AWS::ECS::Cluster":           "ClusterArn",
-		"AWS::KMS::Key":               "KeyId",
-		"AWS::SecretsManager::Secret": "Id",
+		resTypeLogGroup:       "LogGroupName",
+		resTypeS3Bucket:       "BucketName",
+		resTypeLambdaFunction: "FunctionName",
+		resTypeSNSTopic:       "TopicArn",
+		resTypeSQSQueue:       "QueueUrl",
+		resTypeDynamoDBTable:  "TableName",
+		resTypeIAMRole:        "RoleName",
+		resTypeEC2VPC:         "VpcId",
+		"AWS::EC2::Instance":  "InstanceId",
+		resTypeRDSDB:          "DBInstanceIdentifier",
+		resTypeECSCluster:     "ClusterArn",
+		resTypeKMSKey:         "KeyId",
+		resTypeSecret:         "Id",
 	}
 
 	if prop, ok := primaryIdentifiers[typeName]; ok {

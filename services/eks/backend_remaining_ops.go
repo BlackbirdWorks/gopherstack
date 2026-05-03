@@ -9,6 +9,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	keyNetworking               = "networking"
+	keyCompatibilities          = "compatibilities"
+	keyClusterVersion           = "clusterVersion"
+	keyDefaultVersion           = "defaultVersion"
+	keyEndOfStandardSupportDate = "endOfStandardSupportDate"
+	keyEndOfExtendedSupportDate = "endOfExtendedSupportDate"
+	strFalse                    = "false"
+)
+
+const (
+	keyAddonName         = "addonName"
+	keyAddonVersions     = "addonVersions"
+	keyAddonVersion      = "addonVersion"
+	typeUpgradeReadiness = "UPGRADE_READINESS"
+	typeVersionUpdate    = "VersionUpdate"
+)
+
+const (
+	statusPassing = "PASSING"
+)
+
 // Insight represents an EKS cluster insight.
 type Insight struct {
 	LastRefreshTime time.Time         `json:"lastRefreshTime"`
@@ -155,50 +177,59 @@ func (b *InMemoryBackend) UpdateAddon(
 func (b *InMemoryBackend) DescribeAddonVersions() []map[string]any {
 	return []map[string]any{
 		{
-			"addonName": "vpc-cni",
-			"type":      "networking",
-			"addonVersions": []map[string]any{
+			keyAddonName: "vpc-cni",
+			keyType:      keyNetworking,
+			keyAddonVersions: []map[string]any{
 				{
-					"addonVersion":    "v1.18.5-eksbuild.1",
-					"compatibilities": []map[string]string{{"clusterVersion": "1.32"}, {"clusterVersion": "1.31"}},
+					keyAddonVersion: "v1.18.5-eksbuild.1",
+					keyCompatibilities: []map[string]string{
+						{keyClusterVersion: defaultK8sVersion},
+						{keyClusterVersion: priorK8sVersion},
+					},
 				},
 				{
-					"addonVersion":    "v1.17.1-eksbuild.1",
-					"compatibilities": []map[string]string{{"clusterVersion": "1.30"}, {"clusterVersion": "1.29"}},
-				},
-			},
-		},
-		{
-			"addonName": "coredns",
-			"type":      "networking",
-			"addonVersions": []map[string]any{
-				{
-					"addonVersion":    "v1.11.4-eksbuild.2",
-					"compatibilities": []map[string]string{{"clusterVersion": "1.32"}, {"clusterVersion": "1.31"}},
+					keyAddonVersion:    "v1.17.1-eksbuild.1",
+					keyCompatibilities: []map[string]string{{keyClusterVersion: "1.30"}, {keyClusterVersion: "1.29"}},
 				},
 			},
 		},
 		{
-			"addonName": "kube-proxy",
-			"type":      "networking",
-			"addonVersions": []map[string]any{
+			keyAddonName: "coredns",
+			keyType:      keyNetworking,
+			keyAddonVersions: []map[string]any{
 				{
-					"addonVersion":    "v1.32.0-eksbuild.1",
-					"compatibilities": []map[string]string{{"clusterVersion": "1.32"}},
-				},
-				{
-					"addonVersion":    "v1.31.3-eksbuild.1",
-					"compatibilities": []map[string]string{{"clusterVersion": "1.31"}},
+					keyAddonVersion: "v1.11.4-eksbuild.2",
+					keyCompatibilities: []map[string]string{
+						{keyClusterVersion: defaultK8sVersion},
+						{keyClusterVersion: priorK8sVersion},
+					},
 				},
 			},
 		},
 		{
-			"addonName": "aws-ebs-csi-driver",
-			"type":      "storage",
-			"addonVersions": []map[string]any{
+			keyAddonName: "kube-proxy",
+			keyType:      keyNetworking,
+			keyAddonVersions: []map[string]any{
 				{
-					"addonVersion":    "v1.37.0-eksbuild.1",
-					"compatibilities": []map[string]string{{"clusterVersion": "1.32"}, {"clusterVersion": "1.31"}},
+					keyAddonVersion:    "v1.32.0-eksbuild.1",
+					keyCompatibilities: []map[string]string{{keyClusterVersion: defaultK8sVersion}},
+				},
+				{
+					keyAddonVersion:    "v1.31.3-eksbuild.1",
+					keyCompatibilities: []map[string]string{{keyClusterVersion: priorK8sVersion}},
+				},
+			},
+		},
+		{
+			keyAddonName: "aws-ebs-csi-driver",
+			keyType:      "storage",
+			keyAddonVersions: []map[string]any{
+				{
+					keyAddonVersion: "v1.37.0-eksbuild.1",
+					keyCompatibilities: []map[string]string{
+						{keyClusterVersion: defaultK8sVersion},
+						{keyClusterVersion: priorK8sVersion},
+					},
 				},
 			},
 		},
@@ -208,10 +239,10 @@ func (b *InMemoryBackend) DescribeAddonVersions() []map[string]any {
 // DescribeAddonConfiguration returns static addon configuration schema.
 func (b *InMemoryBackend) DescribeAddonConfiguration(addonName, addonVersion string) map[string]any {
 	return map[string]any{
-		"addonName":    addonName,
-		"addonVersion": addonVersion,
+		keyAddonName:    addonName,
+		keyAddonVersion: addonVersion,
 		"configurationSchema": map[string]any{
-			"type":       "object",
+			keyType:      "object",
 			"properties": map[string]any{},
 		},
 	}
@@ -691,15 +722,15 @@ func (b *InMemoryBackend) UpdateAccessEntry(clusterName, principalARN, username 
 func (b *InMemoryBackend) ListAccessPolicies() []map[string]string {
 	return []map[string]string{
 		{
-			"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
-			"name":      "AmazonEKSClusterAdminPolicy",
+			keyPolicyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
+			keyName:      "AmazonEKSClusterAdminPolicy",
 		},
-		{"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy", "name": "AmazonEKSAdminPolicy"},
-		{"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy", "name": "AmazonEKSEditPolicy"},
-		{"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy", "name": "AmazonEKSViewPolicy"},
+		{keyPolicyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy", keyName: "AmazonEKSAdminPolicy"},
+		{keyPolicyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy", keyName: "AmazonEKSEditPolicy"},
+		{keyPolicyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy", keyName: "AmazonEKSViewPolicy"},
 		{
-			"policyArn": "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminViewPolicy",
-			"name":      "AmazonEKSAdminViewPolicy",
+			keyPolicyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminViewPolicy",
+			keyName:      "AmazonEKSAdminViewPolicy",
 		},
 	}
 }
@@ -825,8 +856,8 @@ func (b *InMemoryBackend) ListIdentityProviderConfigs(clusterName string) ([]map
 
 	for _, cfg := range configs {
 		result = append(result, map[string]string{
-			"name": cfg.Name,
-			"type": cfg.Type,
+			keyName: cfg.Name,
+			keyType: cfg.Type,
 		})
 	}
 
@@ -879,8 +910,8 @@ func (b *InMemoryBackend) DescribeInsight(clusterName, insightID string) (*Insig
 	return &Insight{
 		ID:              insightID,
 		ClusterName:     clusterName,
-		Category:        "UPGRADE_READINESS",
-		Status:          "PASSING",
+		Category:        typeUpgradeReadiness,
+		Status:          statusPassing,
 		Description:     "Cluster is ready for upgrade",
 		Recommendation:  "No action needed",
 		LastRefreshTime: now,
@@ -903,8 +934,8 @@ func (b *InMemoryBackend) ListInsights(clusterName string) ([]*Insight, error) {
 		{
 			ID:              stableID(clusterName + "/upgrade-readiness"),
 			ClusterName:     clusterName,
-			Category:        "UPGRADE_READINESS",
-			Status:          "PASSING",
+			Category:        typeUpgradeReadiness,
+			Status:          statusPassing,
 			Description:     "Cluster is ready for upgrade",
 			LastRefreshTime: now,
 			LastTransition:  now,
@@ -912,8 +943,8 @@ func (b *InMemoryBackend) ListInsights(clusterName string) ([]*Insight, error) {
 		{
 			ID:              stableID(clusterName + "/deprecated-apis"),
 			ClusterName:     clusterName,
-			Category:        "UPGRADE_READINESS",
-			Status:          "PASSING",
+			Category:        typeUpgradeReadiness,
+			Status:          statusPassing,
 			Description:     "No deprecated APIs in use",
 			LastRefreshTime: now,
 			LastTransition:  now,
@@ -969,7 +1000,7 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string) (*Update, erro
 	return &Update{
 		ID:          stableID(clusterName + "/config-update/" + time.Now().String()),
 		ClusterName: clusterName,
-		Status:      "InProgress",
+		Status:      statusInProgress,
 		Type:        "ConfigUpdate",
 		CreatedAt:   time.Now().UTC(),
 	}, nil
@@ -992,8 +1023,8 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 	return &Update{
 		ID:          stableID(clusterName + "/version-update/" + time.Now().String()),
 		ClusterName: clusterName,
-		Status:      "InProgress",
-		Type:        "VersionUpdate",
+		Status:      statusInProgress,
+		Type:        typeVersionUpdate,
 		CreatedAt:   time.Now().UTC(),
 	}, nil
 }
@@ -1021,8 +1052,8 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 	return &Update{
 		ID:          stableID(clusterName + "/" + nodegroupName + "/version-update/" + time.Now().String()),
 		ClusterName: clusterName,
-		Status:      "InProgress",
-		Type:        "VersionUpdate",
+		Status:      statusInProgress,
+		Type:        typeVersionUpdate,
 		CreatedAt:   time.Now().UTC(),
 	}, nil
 }
@@ -1040,7 +1071,7 @@ func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update,
 		ID:          updateID,
 		ClusterName: clusterName,
 		Status:      "Successful",
-		Type:        "VersionUpdate",
+		Type:        typeVersionUpdate,
 		CreatedAt:   time.Now().UTC(),
 	}, nil
 }
@@ -1081,8 +1112,8 @@ func (b *InMemoryBackend) RegisterCluster(
 	c := &Cluster{
 		Name:            name,
 		ARN:             clusterARN,
-		Version:         "1.32",
-		Status:          "ACTIVE",
+		Version:         defaultK8sVersion,
+		Status:          statusActive,
 		Endpoint:        fmt.Sprintf("https://%s.%s.eks.amazonaws.com", stableID(name), b.region),
 		PlatformVersion: "eks.1",
 		AccountID:       b.accountID,
@@ -1114,28 +1145,28 @@ func (b *InMemoryBackend) DeregisterCluster(name string) (*Cluster, error) {
 func (b *InMemoryBackend) DescribeClusterVersions() []map[string]string {
 	return []map[string]string{
 		{
-			"clusterVersion":           "1.32",
-			"defaultVersion":           "true",
-			"endOfStandardSupportDate": "2027-04-01",
-			"endOfExtendedSupportDate": "2028-04-01",
+			keyClusterVersion:           defaultK8sVersion,
+			keyDefaultVersion:           "true",
+			keyEndOfStandardSupportDate: "2027-04-01",
+			keyEndOfExtendedSupportDate: "2028-04-01",
 		},
 		{
-			"clusterVersion":           "1.31",
-			"defaultVersion":           "false",
-			"endOfStandardSupportDate": "2026-11-01",
-			"endOfExtendedSupportDate": "2027-11-01",
+			keyClusterVersion:           "1.31",
+			keyDefaultVersion:           strFalse,
+			keyEndOfStandardSupportDate: "2026-11-01",
+			keyEndOfExtendedSupportDate: "2027-11-01",
 		},
 		{
-			"clusterVersion":           "1.30",
-			"defaultVersion":           "false",
-			"endOfStandardSupportDate": "2026-07-01",
-			"endOfExtendedSupportDate": "2027-07-01",
+			keyClusterVersion:           "1.30",
+			keyDefaultVersion:           strFalse,
+			keyEndOfStandardSupportDate: "2026-07-01",
+			keyEndOfExtendedSupportDate: "2027-07-01",
 		},
 		{
-			"clusterVersion":           "1.29",
-			"defaultVersion":           "false",
-			"endOfStandardSupportDate": "2026-03-01",
-			"endOfExtendedSupportDate": "2027-03-01",
+			keyClusterVersion:           "1.29",
+			keyDefaultVersion:           strFalse,
+			keyEndOfStandardSupportDate: "2026-03-01",
+			keyEndOfExtendedSupportDate: "2027-03-01",
 		},
 	}
 }

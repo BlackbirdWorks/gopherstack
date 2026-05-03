@@ -13,6 +13,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	statusActive = "active"
+	statusReady  = "ready"
+)
+
 var (
 	// ErrNotFound is returned when a requested DMS resource cannot be found.
 	ErrNotFound = awserr.New("ResourceNotFoundFault", awserr.ErrNotFound)
@@ -352,7 +357,7 @@ func (b *InMemoryBackend) CreateEndpoint(
 		DatabaseName:       databaseName,
 		Username:           username,
 		Port:               port,
-		Status:             "active",
+		Status:             statusActive,
 		AccountID:          b.accountID,
 		Region:             b.region,
 		CreationTime:       time.Now().UTC(),
@@ -455,7 +460,7 @@ func (b *InMemoryBackend) CreateReplicationTask(
 		MigrationType:             migrationType,
 		TableMappings:             tableMappings,
 		ReplicationTaskSettings:   settings,
-		Status:                    "ready",
+		Status:                    statusReady,
 		AccountID:                 b.accountID,
 		Region:                    b.region,
 		CreationTime:              time.Now().UTC(),
@@ -769,7 +774,7 @@ func (b *InMemoryBackend) CreateDataMigration(
 		SelectionRules:       selectionRules,
 		NumberOfJobs:         numberOfJobs,
 		EnableCloudwatchLogs: enableCloudwatchLogs,
-		DataMigrationStatus:  "ready",
+		DataMigrationStatus:  statusReady,
 		AccountID:            b.accountID,
 		Region:               b.region,
 		CreationTime:         time.Now().UTC(),
@@ -847,7 +852,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 		SourceIDsList:    sourceIDsCopy,
 		EventCategories:  eventCategoriesCopy,
 		Enabled:          enabled,
-		Status:           "active",
+		Status:           statusActive,
 		AccountID:        b.accountID,
 		Region:           b.region,
 		CreationTime:     time.Now().UTC(),
@@ -1030,7 +1035,7 @@ func (b *InMemoryBackend) AddEndpointInternal(identifier, endpointType, engineNa
 		EndpointArn:        epARN,
 		EndpointType:       endpointType,
 		EngineName:         engineName,
-		Status:             "active",
+		Status:             statusActive,
 		AccountID:          b.accountID,
 		Region:             b.region,
 		CreationTime:       time.Now().UTC(),
@@ -1053,7 +1058,7 @@ func (b *InMemoryBackend) AddReplicationTaskInternal(identifier, srcARN, tgtARN,
 		TargetEndpointArn:         tgtARN,
 		ReplicationInstanceArn:    instARN,
 		MigrationType:             migrationType,
-		Status:                    "ready",
+		Status:                    statusReady,
 		AccountID:                 b.accountID,
 		Region:                    b.region,
 		CreationTime:              time.Now().UTC(),
@@ -1073,7 +1078,7 @@ func (b *InMemoryBackend) AddDataMigrationInternal(name, migrationType string) {
 		DataMigrationName:   name,
 		DataMigrationArn:    migrationARN,
 		DataMigrationType:   migrationType,
-		DataMigrationStatus: "ready",
+		DataMigrationStatus: statusReady,
 		NumberOfJobs:        1,
 		AccountID:           b.accountID,
 		Region:              b.region,
@@ -1112,7 +1117,7 @@ func (b *InMemoryBackend) AddEventSubscriptionInternal(name, snsTopicArn string)
 	es := &EventSubscription{
 		SubscriptionName: name,
 		SnsTopicArn:      snsTopicArn,
-		Status:           "active",
+		Status:           statusActive,
 		Enabled:          true,
 		SourceIDsList:    []string{},
 		EventCategories:  []string{},

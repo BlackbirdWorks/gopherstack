@@ -14,6 +14,49 @@ import (
 )
 
 const (
+	opUnknown = "Unknown"
+	keyTags   = "Tags"
+)
+
+const (
+	opUpdateFileSystem          = "UpdateFileSystem"
+	opTagResource               = "TagResource"
+	opPutLifecycleConfiguration = "PutLifecycleConfiguration"
+	opPutBackupPolicy           = "PutBackupPolicy"
+	opPutFileSystemPolicy       = "PutFileSystemPolicy"
+)
+
+const (
+	keyFileSystemID   = "FileSystemId"
+	keyLifeCycleState = "LifeCycleState"
+	keyOwnerID        = "OwnerId"
+)
+
+const (
+	opCreateFileSystem                  = "CreateFileSystem"
+	opDescribeFileSystems               = "DescribeFileSystems"
+	opDeleteFileSystem                  = "DeleteFileSystem"
+	opCreateMountTarget                 = "CreateMountTarget"
+	opDescribeMountTargets              = "DescribeMountTargets"
+	opDeleteMountTarget                 = "DeleteMountTarget"
+	opCreateAccessPoint                 = "CreateAccessPoint"
+	opDescribeAccessPoints              = "DescribeAccessPoints"
+	opDeleteAccessPoint                 = "DeleteAccessPoint"
+	opListTagsForResource               = "ListTagsForResource"
+	opDescribeLifecycleConfiguration    = "DescribeLifecycleConfiguration"
+	opCreateReplicationConfiguration    = "CreateReplicationConfiguration"
+	opCreateTags                        = "CreateTags"
+	opDeleteFileSystemPolicy            = "DeleteFileSystemPolicy"
+	opDeleteReplicationConfiguration    = "DeleteReplicationConfiguration"
+	opDeleteTags                        = "DeleteTags"
+	opDescribeAccountPreferences        = "DescribeAccountPreferences"
+	opDescribeBackupPolicy              = "DescribeBackupPolicy"
+	opDescribeFileSystemPolicy          = "DescribeFileSystemPolicy"
+	opDescribeMountTargetSecurityGroups = "DescribeMountTargetSecurityGroups"
+	opDescribeReplicationConfigurations = "DescribeReplicationConfigurations"
+)
+
+const (
 	efsMatchPriority = service.PriorityPathVersioned
 
 	pathFileSystems  = "/2015-02-01/file-systems"
@@ -63,32 +106,32 @@ func (h *Handler) Name() string { return "EFS" }
 // GetSupportedOperations returns the list of supported EFS operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateFileSystem",
-		"DescribeFileSystems",
-		"DeleteFileSystem",
-		"UpdateFileSystem",
-		"CreateMountTarget",
-		"DescribeMountTargets",
-		"DeleteMountTarget",
-		"CreateAccessPoint",
-		"DescribeAccessPoints",
-		"DeleteAccessPoint",
-		"TagResource",
-		"ListTagsForResource",
-		"DescribeLifecycleConfiguration",
-		"PutLifecycleConfiguration",
-		"CreateReplicationConfiguration",
-		"CreateTags",
-		"DeleteFileSystemPolicy",
-		"DeleteReplicationConfiguration",
-		"DeleteTags",
-		"DescribeAccountPreferences",
-		"DescribeBackupPolicy",
-		"PutBackupPolicy",
-		"DescribeFileSystemPolicy",
-		"PutFileSystemPolicy",
-		"DescribeMountTargetSecurityGroups",
-		"DescribeReplicationConfigurations",
+		opCreateFileSystem,
+		opDescribeFileSystems,
+		opDeleteFileSystem,
+		opUpdateFileSystem,
+		opCreateMountTarget,
+		opDescribeMountTargets,
+		opDeleteMountTarget,
+		opCreateAccessPoint,
+		opDescribeAccessPoints,
+		opDeleteAccessPoint,
+		opTagResource,
+		opListTagsForResource,
+		opDescribeLifecycleConfiguration,
+		opPutLifecycleConfiguration,
+		opCreateReplicationConfiguration,
+		opCreateTags,
+		opDeleteFileSystemPolicy,
+		opDeleteReplicationConfiguration,
+		opDeleteTags,
+		opDescribeAccountPreferences,
+		opDescribeBackupPolicy,
+		opPutBackupPolicy,
+		opDescribeFileSystemPolicy,
+		opPutFileSystemPolicy,
+		opDescribeMountTargetSecurityGroups,
+		opDescribeReplicationConfigurations,
 	}
 }
 
@@ -149,7 +192,7 @@ func parseEFSPath(method, rawPath string) efsRoute {
 		return parseAccountPrefsRoute(method)
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseFileSystemRoute(method, suffix string) efsRoute {
@@ -159,36 +202,36 @@ func parseFileSystemRoute(method, suffix string) efsRoute {
 	case id == "":
 		switch method {
 		case http.MethodPost:
-			return efsRoute{operation: "CreateFileSystem"}
+			return efsRoute{operation: opCreateFileSystem}
 		case http.MethodGet:
-			return efsRoute{operation: "DescribeFileSystems"}
+			return efsRoute{operation: opDescribeFileSystems}
 		}
 	case id == "replication-configurations":
 		if method == http.MethodGet {
-			return efsRoute{operation: "DescribeReplicationConfigurations"}
+			return efsRoute{operation: opDescribeReplicationConfigurations}
 		}
 	case !strings.Contains(id, "/"):
 		// Treat the single segment as a file system ID.
 		switch method {
 		case http.MethodGet:
-			return efsRoute{operation: "DescribeFileSystems", resource: id}
+			return efsRoute{operation: opDescribeFileSystems, resource: id}
 		case http.MethodDelete:
-			return efsRoute{operation: "DeleteFileSystem", resource: id}
+			return efsRoute{operation: opDeleteFileSystem, resource: id}
 		case http.MethodPut:
-			return efsRoute{operation: "UpdateFileSystem", resource: id}
+			return efsRoute{operation: opUpdateFileSystem, resource: id}
 		}
 	default:
 		return parseFileSystemSubRoute(method, id)
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseFileSystemSubRoute(method, id string) efsRoute {
 	// Sub-resource paths: /{fileSystemId}/{subresource}
 	parts := strings.SplitN(id, "/", subresourcePathParts)
 	if len(parts) < subresourcePathParts {
-		return efsRoute{operation: "Unknown"}
+		return efsRoute{operation: opUnknown}
 	}
 
 	fsID, sub := parts[0], parts[1]
@@ -202,49 +245,49 @@ func parseFileSystemSubRoute(method, id string) efsRoute {
 		return parseFileSystemPolicyRoute(method, fsID)
 	case "backup-policy":
 		if method == http.MethodGet {
-			return efsRoute{operation: "DescribeBackupPolicy", resource: fsID}
+			return efsRoute{operation: opDescribeBackupPolicy, resource: fsID}
 		}
 		if method == http.MethodPut {
-			return efsRoute{operation: "PutBackupPolicy", resource: fsID}
+			return efsRoute{operation: opPutBackupPolicy, resource: fsID}
 		}
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseLifecycleConfigRoute(method, fsID string) efsRoute {
 	switch method {
 	case http.MethodGet:
-		return efsRoute{operation: "DescribeLifecycleConfiguration", resource: fsID}
+		return efsRoute{operation: opDescribeLifecycleConfiguration, resource: fsID}
 	case http.MethodPut:
-		return efsRoute{operation: "PutLifecycleConfiguration", resource: fsID}
+		return efsRoute{operation: opPutLifecycleConfiguration, resource: fsID}
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseReplicationConfigRoute(method, fsID string) efsRoute {
 	switch method {
 	case http.MethodPost:
-		return efsRoute{operation: "CreateReplicationConfiguration", resource: fsID}
+		return efsRoute{operation: opCreateReplicationConfiguration, resource: fsID}
 	case http.MethodDelete:
-		return efsRoute{operation: "DeleteReplicationConfiguration", resource: fsID}
+		return efsRoute{operation: opDeleteReplicationConfiguration, resource: fsID}
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseFileSystemPolicyRoute(method, fsID string) efsRoute {
 	switch method {
 	case http.MethodGet:
-		return efsRoute{operation: "DescribeFileSystemPolicy", resource: fsID}
+		return efsRoute{operation: opDescribeFileSystemPolicy, resource: fsID}
 	case http.MethodPut:
-		return efsRoute{operation: "PutFileSystemPolicy", resource: fsID}
+		return efsRoute{operation: opPutFileSystemPolicy, resource: fsID}
 	case http.MethodDelete:
-		return efsRoute{operation: "DeleteFileSystemPolicy", resource: fsID}
+		return efsRoute{operation: opDeleteFileSystemPolicy, resource: fsID}
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseMountTargetRoute(method, suffix string) efsRoute {
@@ -254,26 +297,26 @@ func parseMountTargetRoute(method, suffix string) efsRoute {
 	case id == "":
 		switch method {
 		case http.MethodPost:
-			return efsRoute{operation: "CreateMountTarget"}
+			return efsRoute{operation: opCreateMountTarget}
 		case http.MethodGet:
-			return efsRoute{operation: "DescribeMountTargets"}
+			return efsRoute{operation: opDescribeMountTargets}
 		}
 	case !strings.Contains(id, "/"):
 		switch method {
 		case http.MethodGet:
-			return efsRoute{operation: "DescribeMountTargets", resource: id}
+			return efsRoute{operation: opDescribeMountTargets, resource: id}
 		case http.MethodDelete:
-			return efsRoute{operation: "DeleteMountTarget", resource: id}
+			return efsRoute{operation: opDeleteMountTarget, resource: id}
 		}
 	default:
 		// Sub-resource paths: /{mountTargetId}/{subresource}
 		parts := strings.SplitN(id, "/", subresourcePathParts)
 		if len(parts) >= subresourcePathParts && parts[1] == "security-groups" && method == http.MethodGet {
-			return efsRoute{operation: "DescribeMountTargetSecurityGroups", resource: parts[0]}
+			return efsRoute{operation: opDescribeMountTargetSecurityGroups, resource: parts[0]}
 		}
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseAccessPointRoute(method, suffix string) efsRoute {
@@ -281,55 +324,55 @@ func parseAccessPointRoute(method, suffix string) efsRoute {
 	if id == "" {
 		switch method {
 		case http.MethodPost:
-			return efsRoute{operation: "CreateAccessPoint"}
+			return efsRoute{operation: opCreateAccessPoint}
 		case http.MethodGet:
-			return efsRoute{operation: "DescribeAccessPoints"}
+			return efsRoute{operation: opDescribeAccessPoints}
 		}
 	} else if !strings.Contains(id, "/") {
 		switch method {
 		case http.MethodGet:
-			return efsRoute{operation: "DescribeAccessPoints", resource: id}
+			return efsRoute{operation: opDescribeAccessPoints, resource: id}
 		case http.MethodDelete:
-			return efsRoute{operation: "DeleteAccessPoint", resource: id}
+			return efsRoute{operation: opDeleteAccessPoint, resource: id}
 		}
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseTagsRoute(method, resourceID string) efsRoute {
 	switch method {
 	case http.MethodPost:
-		return efsRoute{operation: "TagResource", resource: resourceID}
+		return efsRoute{operation: opTagResource, resource: resourceID}
 	case http.MethodGet:
-		return efsRoute{operation: "ListTagsForResource", resource: resourceID}
+		return efsRoute{operation: opListTagsForResource, resource: resourceID}
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseCreateTagsRoute(method, fileSystemID string) efsRoute {
 	if method == http.MethodPost {
-		return efsRoute{operation: "CreateTags", resource: fileSystemID}
+		return efsRoute{operation: opCreateTags, resource: fileSystemID}
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseDeleteTagsRoute(method, fileSystemID string) efsRoute {
 	if method == http.MethodPost {
-		return efsRoute{operation: "DeleteTags", resource: fileSystemID}
+		return efsRoute{operation: opDeleteTags, resource: fileSystemID}
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 func parseAccountPrefsRoute(method string) efsRoute {
 	if method == http.MethodGet {
-		return efsRoute{operation: "DescribeAccountPreferences"}
+		return efsRoute{operation: opDescribeAccountPreferences}
 	}
 
-	return efsRoute{operation: "Unknown"}
+	return efsRoute{operation: opUnknown}
 }
 
 // ExtractOperation extracts the EFS operation name from the REST path.
@@ -385,33 +428,33 @@ func (h *Handler) dispatch(c *echo.Context, route efsRoute, body []byte) error {
 
 func (h *Handler) dispatchFileSystemOps(c *echo.Context, route efsRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "CreateFileSystem":
+	case opCreateFileSystem:
 		return true, h.handleCreateFileSystem(c, body)
-	case "DescribeFileSystems":
+	case opDescribeFileSystems:
 		return true, h.handleDescribeFileSystems(c, route.resource)
-	case "DeleteFileSystem":
+	case opDeleteFileSystem:
 		return true, h.handleDeleteFileSystem(c, route.resource)
-	case "UpdateFileSystem":
+	case opUpdateFileSystem:
 		return true, h.handleUpdateFileSystem(c, route.resource, body)
-	case "DescribeLifecycleConfiguration":
+	case opDescribeLifecycleConfiguration:
 		return true, h.handleDescribeLifecycleConfiguration(c, route.resource)
-	case "PutLifecycleConfiguration":
+	case opPutLifecycleConfiguration:
 		return true, h.handlePutLifecycleConfiguration(c, route.resource, body)
-	case "CreateReplicationConfiguration":
+	case opCreateReplicationConfiguration:
 		return true, h.handleCreateReplicationConfiguration(c, route.resource, body)
-	case "DeleteReplicationConfiguration":
+	case opDeleteReplicationConfiguration:
 		return true, h.handleDeleteReplicationConfiguration(c, route.resource)
-	case "DescribeReplicationConfigurations":
+	case opDescribeReplicationConfigurations:
 		return true, h.handleDescribeReplicationConfigurations(c)
-	case "DescribeFileSystemPolicy":
+	case opDescribeFileSystemPolicy:
 		return true, h.handleDescribeFileSystemPolicy(c, route.resource)
-	case "PutFileSystemPolicy":
+	case opPutFileSystemPolicy:
 		return true, h.handlePutFileSystemPolicy(c, route.resource, body)
-	case "DeleteFileSystemPolicy":
+	case opDeleteFileSystemPolicy:
 		return true, h.handleDeleteFileSystemPolicy(c, route.resource)
-	case "DescribeBackupPolicy":
+	case opDescribeBackupPolicy:
 		return true, h.handleDescribeBackupPolicy(c, route.resource)
-	case "PutBackupPolicy":
+	case opPutBackupPolicy:
 		return true, h.handlePutBackupPolicy(c, route.resource, body)
 	}
 
@@ -420,19 +463,19 @@ func (h *Handler) dispatchFileSystemOps(c *echo.Context, route efsRoute, body []
 
 func (h *Handler) dispatchMountTargetAndAccessPointOps(c *echo.Context, route efsRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "CreateMountTarget":
+	case opCreateMountTarget:
 		return true, h.handleCreateMountTarget(c, body)
-	case "DescribeMountTargets":
+	case opDescribeMountTargets:
 		return true, h.handleDescribeMountTargets(c, route.resource)
-	case "DeleteMountTarget":
+	case opDeleteMountTarget:
 		return true, h.handleDeleteMountTarget(c, route.resource)
-	case "DescribeMountTargetSecurityGroups":
+	case opDescribeMountTargetSecurityGroups:
 		return true, h.handleDescribeMountTargetSecurityGroups(c, route.resource)
-	case "CreateAccessPoint":
+	case opCreateAccessPoint:
 		return true, h.handleCreateAccessPoint(c, body)
-	case "DescribeAccessPoints":
+	case opDescribeAccessPoints:
 		return true, h.handleDescribeAccessPoints(c, route.resource)
-	case "DeleteAccessPoint":
+	case opDeleteAccessPoint:
 		return true, h.handleDeleteAccessPoint(c, route.resource)
 	}
 
@@ -441,15 +484,15 @@ func (h *Handler) dispatchMountTargetAndAccessPointOps(c *echo.Context, route ef
 
 func (h *Handler) dispatchTagAndMiscOps(c *echo.Context, route efsRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "TagResource":
+	case opTagResource:
 		return true, h.handleTagResource(c, route.resource, body)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return true, h.handleListTagsForResource(c, route.resource)
-	case "CreateTags":
+	case opCreateTags:
 		return true, h.handleCreateTags(c, route.resource, body)
-	case "DeleteTags":
+	case opDeleteTags:
 		return true, h.handleDeleteTags(c, route.resource, body)
-	case "DescribeAccountPreferences":
+	case opDescribeAccountPreferences:
 		return true, h.handleDescribeAccountPreferences(c)
 	}
 
@@ -537,7 +580,7 @@ func (h *Handler) handleCreateFileSystem(c *echo.Context, body []byte) error {
 func (h *Handler) handleDescribeFileSystems(c *echo.Context, fileSystemID string) error {
 	// Also accept ?FileSystemId= query param.
 	if fileSystemID == "" {
-		fileSystemID = c.Request().URL.Query().Get("FileSystemId")
+		fileSystemID = c.Request().URL.Query().Get(keyFileSystemID)
 	}
 
 	fsList, err := h.Backend.DescribeFileSystems(fileSystemID)
@@ -565,16 +608,16 @@ func (h *Handler) handleDeleteFileSystem(c *echo.Context, fileSystemID string) e
 
 func fsToResponse(fs *FileSystem) map[string]any {
 	resp := map[string]any{
-		"FileSystemId":         fs.FileSystemID,
+		keyFileSystemID:        fs.FileSystemID,
 		"FileSystemArn":        fs.FileSystemArn,
 		"CreationToken":        fs.CreationToken,
 		"PerformanceMode":      fs.PerformanceMode,
 		"ThroughputMode":       fs.ThroughputMode,
-		"LifeCycleState":       fs.LifeCycleState,
+		keyLifeCycleState:      fs.LifeCycleState,
 		"Encrypted":            fs.Encrypted,
 		"NumberOfMountTargets": fs.NumberOfMountTargets,
-		"OwnerId":              fs.AccountID,
-		"Tags":                 tagsToEntries(fs.Tags.Clone()),
+		keyOwnerID:             fs.AccountID,
+		keyTags:                tagsToEntries(fs.Tags.Clone()),
 		"CreationTime":         float64(fs.CreationTime.Unix()),
 		"SizeInBytes": map[string]any{
 			"Value":     0,
@@ -615,7 +658,7 @@ func (h *Handler) handleCreateMountTarget(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID string) error {
-	fsID := c.Request().URL.Query().Get("FileSystemId")
+	fsID := c.Request().URL.Query().Get(keyFileSystemID)
 	if mountTargetID == "" {
 		mountTargetID = c.Request().URL.Query().Get("MountTargetId")
 	}
@@ -645,12 +688,12 @@ func (h *Handler) handleDeleteMountTarget(c *echo.Context, mountTargetID string)
 
 func mtToResponse(mt *MountTarget) map[string]any {
 	return map[string]any{
-		"MountTargetId":  mt.MountTargetID,
-		"FileSystemId":   mt.FileSystemID,
-		"SubnetId":       mt.SubnetID,
-		"LifeCycleState": mt.LifeCycleState,
-		"IpAddress":      mt.IPAddress,
-		"OwnerId":        mt.OwnerID,
+		"MountTargetId":   mt.MountTargetID,
+		keyFileSystemID:   mt.FileSystemID,
+		"SubnetId":        mt.SubnetID,
+		keyLifeCycleState: mt.LifeCycleState,
+		"IpAddress":       mt.IPAddress,
+		keyOwnerID:        mt.OwnerID,
 	}
 }
 
@@ -681,7 +724,7 @@ func (h *Handler) handleCreateAccessPoint(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleDescribeAccessPoints(c *echo.Context, accessPointID string) error {
-	fsID := c.Request().URL.Query().Get("FileSystemId")
+	fsID := c.Request().URL.Query().Get(keyFileSystemID)
 	if accessPointID == "" {
 		accessPointID = c.Request().URL.Query().Get("AccessPointId")
 	}
@@ -711,12 +754,12 @@ func (h *Handler) handleDeleteAccessPoint(c *echo.Context, accessPointID string)
 
 func apToResponse(ap *AccessPoint) map[string]any {
 	resp := map[string]any{
-		"AccessPointId":  ap.AccessPointID,
-		"AccessPointArn": ap.AccessPointArn,
-		"FileSystemId":   ap.FileSystemID,
-		"LifeCycleState": ap.LifeCycleState,
-		"OwnerId":        ap.OwnerID,
-		"Tags":           tagsToEntries(ap.Tags.Clone()),
+		"AccessPointId":   ap.AccessPointID,
+		"AccessPointArn":  ap.AccessPointArn,
+		keyFileSystemID:   ap.FileSystemID,
+		keyLifeCycleState: ap.LifeCycleState,
+		keyOwnerID:        ap.OwnerID,
+		keyTags:           tagsToEntries(ap.Tags.Clone()),
 	}
 	if ap.Name != "" {
 		resp["Name"] = ap.Name
@@ -752,7 +795,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceID string) 
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"Tags": tagsToEntries(t),
+		keyTags: tagsToEntries(t),
 	})
 }
 
@@ -822,7 +865,7 @@ func (h *Handler) handleDeleteReplicationConfiguration(c *echo.Context, fileSyst
 }
 
 func (h *Handler) handleDescribeReplicationConfigurations(c *echo.Context) error {
-	fsID := c.Request().URL.Query().Get("FileSystemId")
+	fsID := c.Request().URL.Query().Get(keyFileSystemID)
 
 	rcs, err := h.Backend.DescribeReplicationConfigurations(fsID)
 	if err != nil {
@@ -896,8 +939,8 @@ func (h *Handler) handleDescribeFileSystemPolicy(c *echo.Context, fileSystemID s
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"FileSystemId": fileSystemID,
-		"Policy":       policy,
+		keyFileSystemID: fileSystemID,
+		"Policy":        policy,
 	})
 }
 
@@ -992,8 +1035,8 @@ func (h *Handler) handlePutFileSystemPolicy(c *echo.Context, fileSystemID string
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"FileSystemId": fileSystemID,
-		"Policy":       in.Policy,
+		keyFileSystemID: fileSystemID,
+		"Policy":        in.Policy,
 	})
 }
 

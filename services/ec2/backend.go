@@ -36,6 +36,14 @@ const (
 	// and other resources that are not currently in use.
 	stateAvailable = "available"
 
+	stateInUse              = "in-use"
+	stateCancelled          = "cancelled"
+	resourceTypeVPC         = "vpc"
+	vpcDefaultName          = "vpc-default"
+	archX8664               = "x86_64"
+	resourceTypeFISInstance = "aws:ec2:instance"
+	ec2BooleanFalse         = "false"
+
 	// stateActive is the "active" state string used by peering connections,
 	// capacity reservations, and spot instance requests.
 	stateActive = "active"
@@ -248,7 +256,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // initDefaults pre-populates a default VPC, subnet, and security group.
 func (b *InMemoryBackend) initDefaults() {
-	defaultVPCID := "vpc-default"
+	defaultVPCID := vpcDefaultName
 	b.vpcs[defaultVPCID] = &VPC{
 		ID:        defaultVPCID,
 		CIDRBlock: "172.31.0.0/16",
@@ -329,7 +337,7 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 			InstanceID:      id,
 			AttachmentID:    attachID,
 			DeviceIndex:     0,
-			Status:          "in-use",
+			Status:          stateInUse,
 			SourceDestCheck: true,
 		}
 		b.instances[id] = inst
@@ -409,7 +417,7 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 		})
 
 		// Mirror AWS behaviour: when the backing instance of a spot request is
-		// terminated, the request transitions to "closed" (not "cancelled").
+		// terminated, the request transitions to "closed" (not stateCancelled).
 		for _, req := range b.spotRequests {
 			if req.InstanceID == id && req.State == stateActive {
 				req.State = "closed"
@@ -766,7 +774,7 @@ func resourceTypeByID(id string) string {
 	}{
 		{"i-", "instance"},
 		{"sg-", "security-group"},
-		{"vpc-", "vpc"},
+		{"vpc-", resourceTypeVPC},
 		{"subnet-", "subnet"},
 		{"vol-", "volume"},
 		{"igw-", "internet-gateway"},

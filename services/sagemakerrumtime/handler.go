@@ -15,6 +15,12 @@ import (
 )
 
 const (
+	opInvokeEndpoint                   = "InvokeEndpoint"
+	opInvokeEndpointAsync              = "InvokeEndpointAsync"
+	opInvokeEndpointWithResponseStream = "InvokeEndpointWithResponseStream"
+)
+
+const (
 	sagemakerRuntimeService       = "sagemaker-runtime"
 	sagemakerRuntimePathPrefix    = "/endpoints/"
 	sagemakerRuntimeMatchPriority = service.PriorityPathVersioned
@@ -47,9 +53,9 @@ func (h *Handler) Name() string { return "SageMakerRuntime" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"InvokeEndpoint",
-		"InvokeEndpointAsync",
-		"InvokeEndpointWithResponseStream",
+		opInvokeEndpoint,
+		opInvokeEndpointAsync,
+		opInvokeEndpointWithResponseStream,
 	}
 }
 
@@ -108,11 +114,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		op := pathToOperation(r.URL.Path)
 
 		switch op {
-		case "InvokeEndpoint":
+		case opInvokeEndpoint:
 			return h.handleInvokeEndpoint(c, endpointName, body)
-		case "InvokeEndpointAsync":
+		case opInvokeEndpointAsync:
 			return h.handleInvokeEndpointAsync(c, endpointName, body)
-		case "InvokeEndpointWithResponseStream":
+		case opInvokeEndpointWithResponseStream:
 			return h.handleInvokeEndpointWithResponseStream(c, endpointName, body)
 		default:
 			return c.JSON(
@@ -131,7 +137,7 @@ func (h *Handler) handleInvokeEndpoint(
 ) error {
 	out := []byte(`{"Body":"mock response from Gopherstack"}`)
 
-	h.Backend.RecordInvocation("InvokeEndpoint", endpointName, string(body), string(out))
+	h.Backend.RecordInvocation(opInvokeEndpoint, endpointName, string(body), string(out))
 
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().Header().Set("X-Amzn-Invoked-Production-Variant", "AllTraffic")
@@ -147,7 +153,7 @@ func (h *Handler) handleInvokeEndpointAsync(
 ) error {
 	out := []byte(`{"InferenceId":"mock-inference-id","OutputLocation":"s3://mock-bucket/output"}`)
 
-	h.Backend.RecordInvocation("InvokeEndpointAsync", endpointName, string(body), string(out))
+	h.Backend.RecordInvocation(opInvokeEndpointAsync, endpointName, string(body), string(out))
 
 	c.Response().Header().Set("Content-Type", "application/json")
 
@@ -163,7 +169,7 @@ func (h *Handler) handleInvokeEndpointWithResponseStream(
 ) error {
 	out := []byte(`{"Body":"mock streaming response from Gopherstack"}`)
 
-	h.Backend.RecordInvocation("InvokeEndpointWithResponseStream", endpointName, string(body), string(out))
+	h.Backend.RecordInvocation(opInvokeEndpointWithResponseStream, endpointName, string(body), string(out))
 
 	frame := encodeEventStreamMsg([][2]string{
 		{":message-type", "event"},
@@ -195,11 +201,11 @@ func extractEndpointName(path string) string {
 func pathToOperation(path string) string {
 	switch {
 	case strings.HasSuffix(path, "/invocations-response-stream"):
-		return "InvokeEndpointWithResponseStream"
+		return opInvokeEndpointWithResponseStream
 	case strings.HasSuffix(path, "/async-invocations"):
-		return "InvokeEndpointAsync"
+		return opInvokeEndpointAsync
 	case strings.HasSuffix(path, "/invocations"):
-		return "InvokeEndpoint"
+		return opInvokeEndpoint
 	default:
 		return "Unknown"
 	}

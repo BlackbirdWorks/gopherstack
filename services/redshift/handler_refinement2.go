@@ -6,6 +6,10 @@ import (
 	"strconv"
 )
 
+const (
+	modelVersion10 = "1.0"
+)
+
 // ---- DeletePartner ----
 
 type deletePartnerResponse struct {
@@ -523,8 +527,8 @@ func (h *Handler) handleDescribeClusterTracks(_ url.Values) (any, error) {
 		Result: xmlDescribeClusterTracksResult{
 			MaintenanceTracks: xmlMaintenanceTracks{
 				Tracks: []xmlMaintenanceTrack{
-					{MaintenanceTrackName: "current", DatabaseVersion: "1.0"},
-					{MaintenanceTrackName: "trailing", DatabaseVersion: "1.0"},
+					{MaintenanceTrackName: "current", DatabaseVersion: modelVersion10},
+					{MaintenanceTrackName: "trailing", DatabaseVersion: modelVersion10},
 				},
 			},
 		},
@@ -560,7 +564,7 @@ func (h *Handler) handleDescribeClusterVersions(_ url.Values) (any, error) {
 			ClusterVersions: xmlClusterVersionList{
 				Versions: []xmlClusterVersion{
 					{
-						ClusterVersion:              "1.0",
+						ClusterVersion:              modelVersion10,
 						ClusterParameterGroupFamily: "redshift-1.0",
 						Description:                 "Amazon Redshift 1.0",
 					},
@@ -598,10 +602,10 @@ func (h *Handler) handleDescribeOrderableClusterOptions(_ url.Values) (any, erro
 		Result: xmlDescribeOrderableClusterOptionsResult{
 			OrderableClusterOptions: xmlOrderableClusterOptionList{
 				Options: []xmlOrderableClusterOption{
-					{ClusterVersion: "1.0", ClusterType: "multi-node", NodeType: "dc2.large"},
-					{ClusterVersion: "1.0", ClusterType: "single-node", NodeType: "dc2.large"},
-					{ClusterVersion: "1.0", ClusterType: "multi-node", NodeType: "dc2.8xlarge"},
-					{ClusterVersion: "1.0", ClusterType: "single-node", NodeType: "dc2.8xlarge"},
+					{ClusterVersion: modelVersion10, ClusterType: "multi-node", NodeType: defaultNodeType},
+					{ClusterVersion: modelVersion10, ClusterType: "single-node", NodeType: defaultNodeType},
+					{ClusterVersion: modelVersion10, ClusterType: "multi-node", NodeType: nodeTypeDC28xlarge},
+					{ClusterVersion: modelVersion10, ClusterType: "single-node", NodeType: nodeTypeDC28xlarge},
 				},
 			},
 		},

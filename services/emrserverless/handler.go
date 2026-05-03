@@ -18,6 +18,36 @@ import (
 )
 
 const (
+	opUnknown        = "Unknown"
+	keyApplicationID = "applicationId"
+	keyArn           = "arn"
+	keyName          = "name"
+	keyState         = "state"
+	keyCreatedAt     = "createdAt"
+	keyUpdatedAt     = "updatedAt"
+	keyTags          = "tags"
+)
+
+const (
+	opCreateApplication     = "CreateApplication"
+	opGetApplication        = "GetApplication"
+	opListApplications      = "ListApplications"
+	opUpdateApplication     = "UpdateApplication"
+	opDeleteApplication     = "DeleteApplication"
+	opStartApplication      = "StartApplication"
+	opStopApplication       = "StopApplication"
+	opStartJobRun           = "StartJobRun"
+	opGetJobRun             = "GetJobRun"
+	opListJobRuns           = "ListJobRuns"
+	opCancelJobRun          = "CancelJobRun"
+	opGetDashboardForJobRun = "GetDashboardForJobRun"
+	opListJobRunAttempts    = "ListJobRunAttempts"
+	opListTagsForResource   = "ListTagsForResource"
+	opTagResource           = "TagResource"
+	opUntagResource         = "UntagResource"
+)
+
+const (
 	pathApplications     = "/applications"
 	pathTags             = "/tags/"
 	emrServerlessService = "emr-serverless"
@@ -44,22 +74,22 @@ func (h *Handler) Name() string { return "EmrServerless" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateApplication",
-		"GetApplication",
-		"ListApplications",
-		"UpdateApplication",
-		"DeleteApplication",
-		"StartApplication",
-		"StopApplication",
-		"StartJobRun",
-		"GetJobRun",
-		"ListJobRuns",
-		"CancelJobRun",
-		"GetDashboardForJobRun",
-		"ListJobRunAttempts",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
+		opCreateApplication,
+		opGetApplication,
+		opListApplications,
+		opUpdateApplication,
+		opDeleteApplication,
+		opStartApplication,
+		opStopApplication,
+		opStartJobRun,
+		opGetJobRun,
+		opListJobRuns,
+		opCancelJobRun,
+		opGetDashboardForJobRun,
+		opListJobRunAttempts,
+		opListTagsForResource,
+		opTagResource,
+		opUntagResource,
 	}
 }
 
@@ -136,100 +166,100 @@ func parseEMRPath(method, rawPath string) emrRoute {
 		return parseJobRunSubRoute(method, parts[0], parts[1], parts[2], parts[3])
 	}
 
-	return emrRoute{operation: "Unknown"}
+	return emrRoute{operation: opUnknown}
 }
 
 func parseTagRoute(method, resourceARN string) emrRoute {
 	switch method {
 	case http.MethodGet:
-		return emrRoute{operation: "ListTagsForResource", resourceARN: resourceARN}
+		return emrRoute{operation: opListTagsForResource, resourceARN: resourceARN}
 	case http.MethodPost:
-		return emrRoute{operation: "TagResource", resourceARN: resourceARN}
+		return emrRoute{operation: opTagResource, resourceARN: resourceARN}
 	case http.MethodDelete:
-		return emrRoute{operation: "UntagResource", resourceARN: resourceARN}
+		return emrRoute{operation: opUntagResource, resourceARN: resourceARN}
 	}
 
-	return emrRoute{operation: "Unknown"}
+	return emrRoute{operation: opUnknown}
 }
 
 func parseApplicationsCollection(method string) emrRoute {
 	switch method {
 	case http.MethodPost:
-		return emrRoute{operation: "CreateApplication"}
+		return emrRoute{operation: opCreateApplication}
 	case http.MethodGet:
-		return emrRoute{operation: "ListApplications"}
+		return emrRoute{operation: opListApplications}
 	}
 
-	return emrRoute{operation: "Unknown"}
+	return emrRoute{operation: opUnknown}
 }
 
 func parseSingleAppRoute(method, appID string) emrRoute {
 	switch method {
 	case http.MethodGet:
-		return emrRoute{operation: "GetApplication", applicationID: appID}
+		return emrRoute{operation: opGetApplication, applicationID: appID}
 	case http.MethodPatch:
-		return emrRoute{operation: "UpdateApplication", applicationID: appID}
+		return emrRoute{operation: opUpdateApplication, applicationID: appID}
 	case http.MethodDelete:
-		return emrRoute{operation: "DeleteApplication", applicationID: appID}
+		return emrRoute{operation: opDeleteApplication, applicationID: appID}
 	}
 
-	return emrRoute{operation: "Unknown"}
+	return emrRoute{operation: opUnknown}
 }
 
 func parseAppSubRoute(method, appID, sub string) emrRoute {
 	switch sub {
 	case "start":
 		if method == http.MethodPost {
-			return emrRoute{operation: "StartApplication", applicationID: appID}
+			return emrRoute{operation: opStartApplication, applicationID: appID}
 		}
 	case "stop":
 		if method == http.MethodPost {
-			return emrRoute{operation: "StopApplication", applicationID: appID}
+			return emrRoute{operation: opStopApplication, applicationID: appID}
 		}
 	case pathJobRuns:
 		switch method {
 		case http.MethodPost:
-			return emrRoute{operation: "StartJobRun", applicationID: appID}
+			return emrRoute{operation: opStartJobRun, applicationID: appID}
 		case http.MethodGet:
-			return emrRoute{operation: "ListJobRuns", applicationID: appID}
+			return emrRoute{operation: opListJobRuns, applicationID: appID}
 		}
 	}
 
-	return emrRoute{operation: "Unknown"}
+	return emrRoute{operation: opUnknown}
 }
 
 func parseJobRunRoute(method, appID, sub, jobRunID string) emrRoute {
 	if sub != pathJobRuns {
-		return emrRoute{operation: "Unknown"}
+		return emrRoute{operation: opUnknown}
 	}
 
 	switch method {
 	case http.MethodGet:
-		return emrRoute{operation: "GetJobRun", applicationID: appID, jobRunID: jobRunID}
+		return emrRoute{operation: opGetJobRun, applicationID: appID, jobRunID: jobRunID}
 	case http.MethodDelete:
-		return emrRoute{operation: "CancelJobRun", applicationID: appID, jobRunID: jobRunID}
+		return emrRoute{operation: opCancelJobRun, applicationID: appID, jobRunID: jobRunID}
 	}
 
-	return emrRoute{operation: "Unknown"}
+	return emrRoute{operation: opUnknown}
 }
 
 func parseJobRunSubRoute(method, appID, sub, jobRunID, action string) emrRoute {
 	if sub != pathJobRuns {
-		return emrRoute{operation: "Unknown"}
+		return emrRoute{operation: opUnknown}
 	}
 
 	if method != http.MethodGet {
-		return emrRoute{operation: "Unknown"}
+		return emrRoute{operation: opUnknown}
 	}
 
 	switch action {
 	case "dashboard":
-		return emrRoute{operation: "GetDashboardForJobRun", applicationID: appID, jobRunID: jobRunID}
+		return emrRoute{operation: opGetDashboardForJobRun, applicationID: appID, jobRunID: jobRunID}
 	case "attempts":
-		return emrRoute{operation: "ListJobRunAttempts", applicationID: appID, jobRunID: jobRunID}
+		return emrRoute{operation: opListJobRunAttempts, applicationID: appID, jobRunID: jobRunID}
 	}
 
-	return emrRoute{operation: "Unknown"}
+	return emrRoute{operation: opUnknown}
 }
 
 // ExtractOperation returns the operation name from the request.
@@ -279,37 +309,37 @@ func (h *Handler) Handler() echo.HandlerFunc {
 //nolint:cyclop // dispatch table for 16 REST operations is inherently wide
 func (h *Handler) dispatch(c *echo.Context, route emrRoute, body []byte) error {
 	switch route.operation {
-	case "CreateApplication":
+	case opCreateApplication:
 		return h.handleCreateApplication(c, body)
-	case "GetApplication":
+	case opGetApplication:
 		return h.handleGetApplication(c, route.applicationID)
-	case "ListApplications":
+	case opListApplications:
 		return h.handleListApplications(c)
-	case "UpdateApplication":
+	case opUpdateApplication:
 		return h.handleUpdateApplication(c, route.applicationID, body)
-	case "DeleteApplication":
+	case opDeleteApplication:
 		return h.handleDeleteApplication(c, route.applicationID)
-	case "StartApplication":
+	case opStartApplication:
 		return h.handleStartApplication(c, route.applicationID)
-	case "StopApplication":
+	case opStopApplication:
 		return h.handleStopApplication(c, route.applicationID)
-	case "StartJobRun":
+	case opStartJobRun:
 		return h.handleStartJobRun(c, route.applicationID, body)
-	case "GetJobRun":
+	case opGetJobRun:
 		return h.handleGetJobRun(c, route.applicationID, route.jobRunID)
-	case "ListJobRuns":
+	case opListJobRuns:
 		return h.handleListJobRuns(c, route.applicationID)
-	case "CancelJobRun":
+	case opCancelJobRun:
 		return h.handleCancelJobRun(c, route.applicationID, route.jobRunID)
-	case "GetDashboardForJobRun":
+	case opGetDashboardForJobRun:
 		return h.handleGetDashboardForJobRun(c, route.applicationID, route.jobRunID)
-	case "ListJobRunAttempts":
+	case opListJobRunAttempts:
 		return h.handleListJobRunAttempts(c, route.applicationID, route.jobRunID)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return h.handleListTagsForResource(c, route.resourceARN)
-	case "TagResource":
+	case opTagResource:
 		return h.handleTagResource(c, route.resourceARN, body)
-	case "UntagResource":
+	case opUntagResource:
 		return h.handleUntagResource(c, route.resourceARN, c.Request().URL.Query())
 	default:
 		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
@@ -347,16 +377,16 @@ func epochSeconds(ts interface{ Unix() int64 }) float64 {
 // Tags are always included (as an empty map if none are set).
 func applicationToMap(app *Application) map[string]any {
 	return map[string]any{
-		"applicationId": app.ApplicationID,
-		"id":            app.ApplicationID, // ApplicationSummary.id in AWS SDK ListApplications response
-		"arn":           app.Arn,
-		"name":          app.Name,
-		"type":          app.Type,
-		"releaseLabel":  app.ReleaseLabel,
-		"state":         app.State,
-		"createdAt":     epochSeconds(app.CreatedAt),
-		"updatedAt":     epochSeconds(app.UpdatedAt),
-		"tags":          app.Tags,
+		keyApplicationID: app.ApplicationID,
+		"id":             app.ApplicationID, // ApplicationSummary.id in AWS SDK ListApplications response
+		keyArn:           app.Arn,
+		keyName:          app.Name,
+		"type":           app.Type,
+		"releaseLabel":   app.ReleaseLabel,
+		keyState:         app.State,
+		keyCreatedAt:     epochSeconds(app.CreatedAt),
+		keyUpdatedAt:     epochSeconds(app.UpdatedAt),
+		keyTags:          app.Tags,
 	}
 }
 
@@ -366,18 +396,18 @@ func applicationToMap(app *Application) map[string]any {
 // Tags are always included (as an empty map if none are set).
 func jobRunToMap(jr *JobRun) map[string]any {
 	return map[string]any{
-		"applicationId":    jr.ApplicationID,
+		keyApplicationID:   jr.ApplicationID,
 		"jobRunId":         jr.JobRunID,
 		"id":               jr.JobRunID, // JobRunSummary.id in AWS SDK ListJobRuns response
-		"arn":              jr.Arn,
-		"name":             jr.Name,
-		"state":            jr.State,
+		keyArn:             jr.Arn,
+		keyName:            jr.Name,
+		keyState:           jr.State,
 		"stateDetails":     jr.StateDetails,
 		"mode":             jr.Mode,
 		"executionRoleArn": jr.ExecutionRoleArn,
-		"createdAt":        epochSeconds(jr.CreatedAt),
-		"updatedAt":        epochSeconds(jr.UpdatedAt),
-		"tags":             jr.Tags,
+		keyCreatedAt:       epochSeconds(jr.CreatedAt),
+		keyUpdatedAt:       epochSeconds(jr.UpdatedAt),
+		keyTags:            jr.Tags,
 	}
 }
 
@@ -597,8 +627,8 @@ func (h *Handler) handleCancelJobRun(c *echo.Context, applicationID, jobRunID st
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"applicationId": jr.ApplicationID,
-		"jobRunId":      jr.JobRunID,
+		keyApplicationID: jr.ApplicationID,
+		"jobRunId":       jr.JobRunID,
 	})
 }
 
@@ -614,20 +644,20 @@ func (h *Handler) handleGetDashboardForJobRun(c *echo.Context, applicationID, jo
 // jobRunAttemptToMap converts a JobRunAttemptSummary to a map with float64 timestamps.
 func jobRunAttemptToMap(a *JobRunAttemptSummary) map[string]any {
 	return map[string]any{
-		"applicationId": a.ApplicationID,
-		"arn":           a.Arn,
-		"createdAt":     epochSeconds(a.CreatedAt),
-		"updatedAt":     epochSeconds(a.UpdatedAt),
-		"jobCreatedAt":  epochSeconds(a.JobCreatedAt),
-		"createdBy":     a.CreatedBy,
-		"executionRole": a.ExecutionRole,
-		"id":            a.ID,
-		"releaseLabel":  a.ReleaseLabel,
-		"state":         a.State,
-		"stateDetails":  a.StateDetails,
-		"name":          a.Name,
-		"type":          a.Type,
-		"attempt":       a.Attempt,
+		keyApplicationID: a.ApplicationID,
+		keyArn:           a.Arn,
+		keyCreatedAt:     epochSeconds(a.CreatedAt),
+		keyUpdatedAt:     epochSeconds(a.UpdatedAt),
+		"jobCreatedAt":   epochSeconds(a.JobCreatedAt),
+		"createdBy":      a.CreatedBy,
+		"executionRole":  a.ExecutionRole,
+		"id":             a.ID,
+		"releaseLabel":   a.ReleaseLabel,
+		keyState:         a.State,
+		"stateDetails":   a.StateDetails,
+		keyName:          a.Name,
+		"type":           a.Type,
+		"attempt":        a.Attempt,
 	}
 }
 
@@ -673,7 +703,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 		tags = map[string]string{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"tags": tags})
+	return c.JSON(http.StatusOK, map[string]any{keyTags: tags})
 }
 
 type tagResourceBody struct {

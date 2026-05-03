@@ -496,7 +496,7 @@ func TestClient_ReapIdleContainers_WithLogger(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			log := slog.New(slog.DiscardHandler)
 			api := newMockAPI()
 			api.stopError = tt.stopErr
 			c := docker.NewClientWithAPI(api, docker.Config{

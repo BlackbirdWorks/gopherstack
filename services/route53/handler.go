@@ -21,6 +21,14 @@ import (
 )
 
 const (
+	statusInsync = "INSYNC"
+)
+
+const (
+	opDeactivateKeySigningKey = "DeactivateKeySigningKey"
+)
+
+const (
 	route53PathPrefix           = "/2013-04-01/"
 	route53HostedZone           = "/2013-04-01/hostedzone"
 	route53Namespace            = "https://route53.amazonaws.com/doc/2013-04-01/"
@@ -139,7 +147,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateTrafficPolicy",
 		"CreateTrafficPolicyInstance",
 		"CreateTrafficPolicyVersion",
-		"DeactivateKeySigningKey",
+		opDeactivateKeySigningKey,
 		"DeleteCidrCollection",
 		"DeleteHealthCheck",
 		"DeleteHostedZone",
@@ -263,7 +271,7 @@ func extractNewOpsPath(path string) string {
 	case strings.HasSuffix(path, route53ActivateSuffix):
 		return "ActivateKeySigningKey"
 	case strings.HasSuffix(path, route53DeactivateSuffix):
-		return "DeactivateKeySigningKey"
+		return opDeactivateKeySigningKey
 	case strings.HasSuffix(path, route53EnableDNSSECSuffix):
 		return "EnableHostedZoneDNSSEC"
 	case strings.HasSuffix(path, route53DisableDNSSECSuffix):
@@ -314,7 +322,7 @@ func extractDeleteOpsPath(path string) string {
 	switch {
 	case strings.HasPrefix(path, route53KSKPrefix):
 		if strings.HasSuffix(path, route53DeactivateSuffix) {
-			return "DeactivateKeySigningKey"
+			return opDeactivateKeySigningKey
 		}
 
 		return "DeleteKeySigningKey"
@@ -918,11 +926,11 @@ func (h *Handler) createHostedZone(c *echo.Context) error {
 		HostedZone: toXMLHostedZone(hz),
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/change/C" + hz.ID,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
 		DelegationSet: xmlDelegationSet{
-			NameServers: []string{"ns1.gopherstack.invalid", "ns2.gopherstack.invalid"},
+			NameServers: []string{dnsNS1Default, dnsNS2Default},
 		},
 	}
 
@@ -946,7 +954,7 @@ func (h *Handler) getHostedZone(c *echo.Context) error {
 		Xmlns:      route53Namespace,
 		HostedZone: toXMLHostedZone(hz),
 		DelegationSet: xmlDelegationSet{
-			NameServers: []string{"ns1.gopherstack.invalid", "ns2.gopherstack.invalid"},
+			NameServers: []string{dnsNS1Default, dnsNS2Default},
 		},
 	}
 
@@ -970,7 +978,7 @@ func (h *Handler) deleteHostedZone(c *echo.Context) error {
 		ChangeInfo: xmlChangeInfo{
 			SubmittedAt: time.Now(),
 			ID:          "/change/C" + zoneID,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 		},
 	}
 
@@ -1075,7 +1083,7 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/change/C" + zoneID,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
 	}
@@ -1212,7 +1220,7 @@ func (h *Handler) getChange(c *echo.Context, path string) error {
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/" + path,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
 	})
@@ -2156,7 +2164,7 @@ func (h *Handler) createKeySigningKey(c *echo.Context) error {
 		KeySigningKey: toXMLKSK(ksk),
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/change/C" + ksk.HostedZoneID,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
 	}
@@ -2192,7 +2200,7 @@ func (h *Handler) activateKeySigningKey(c *echo.Context, path string) error {
 		KeySigningKey: toXMLKSK(ksk),
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/change/C" + hostedZoneID,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
 	})
@@ -2224,7 +2232,7 @@ func (h *Handler) associateVPCWithHostedZone(c *echo.Context, path string) error
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/change/C" + zoneID,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
 	})
@@ -2479,7 +2487,7 @@ func (h *Handler) enableHostedZoneDNSSEC(c *echo.Context, zoneID string) error {
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/change/enable-dnssec-" + zoneID,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
 	}
@@ -2504,7 +2512,7 @@ func (h *Handler) disableHostedZoneDNSSEC(c *echo.Context, zoneID string) error 
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/change/disable-dnssec-" + zoneID,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
 	}
@@ -2573,7 +2581,7 @@ func (h *Handler) deactivateKeySigningKey(c *echo.Context, path string) error {
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/change/deactivate-ksk-" + zoneID + "-" + name,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
 	}
@@ -2608,7 +2616,7 @@ func (h *Handler) deleteKeySigningKey(c *echo.Context, path string) error {
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/change/delete-ksk-" + zoneID + "-" + name,
-			Status:      "INSYNC",
+			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
 	}

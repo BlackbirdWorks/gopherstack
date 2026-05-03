@@ -15,6 +15,11 @@ import (
 )
 
 const (
+	keyTypeField    = "__type"
+	keyMessageField = "message"
+)
+
+const (
 	// qldbSessionTarget is the X-Amz-Target value for all QLDB Session SendCommand requests.
 	qldbSessionTarget = "QLDBSession.SendCommand"
 )
@@ -443,23 +448,23 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrSessionNotFound), errors.Is(err, ErrTransactionNotFound),
 		errors.Is(err, ErrNoActiveTransaction):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "InvalidSessionException",
-			"message": err.Error(),
+			keyTypeField:    "InvalidSessionException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownCommand),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "BadRequestException",
-			"message": err.Error(),
+			keyTypeField:    "BadRequestException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"__type":  "InternalFailureException",
-			"message": err.Error(),
+			keyTypeField:    "InternalFailureException",
+			keyMessageField: err.Error(),
 		})
 	}
 }

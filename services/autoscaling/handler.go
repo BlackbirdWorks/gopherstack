@@ -20,8 +20,10 @@ import (
 )
 
 const (
-	autoscalingVersion = "2011-01-01"
-	autoscalingXMLNS   = "http://autoscaling.amazonaws.com/doc/2011-01-01/"
+	autoscalingVersion           = "2011-01-01"
+	autoscalingXMLNS             = "http://autoscaling.amazonaws.com/doc/2011-01-01/"
+	errValidationError           = "ValidationError"
+	resourceTypeAutoScalingGroup = "auto-scaling-group"
 )
 
 // Handler is the Echo HTTP handler for Autoscaling operations.
@@ -854,16 +856,16 @@ func autoscalingErrorCode(opErr error) string {
 	}
 
 	mappings := []errorMapping{
-		{ErrGroupNotFound, "ValidationError"},
+		{ErrGroupNotFound, errValidationError},
 		{ErrGroupAlreadyExists, "AlreadyExists"},
-		{ErrLaunchConfigurationNotFound, "ValidationError"},
+		{ErrLaunchConfigurationNotFound, errValidationError},
 		{ErrLaunchConfigurationAlreadyExists, "AlreadyExists"},
-		{ErrInvalidParameter, "ValidationError"},
+		{ErrInvalidParameter, errValidationError},
 		{ErrUnknownAction, "InvalidAction"},
 		{ErrActiveInstanceRefreshNotFound, "ActiveInstanceRefreshNotFound"},
-		{ErrLifecycleHookNotFound, "ValidationError"},
+		{ErrLifecycleHookNotFound, errValidationError},
 		{ErrScalingActivityInProgress, "ScalingActivityInProgress"},
-		{ErrInstanceNotFound, "ValidationError"},
+		{ErrInstanceNotFound, errValidationError},
 	}
 
 	for _, m := range mappings {

@@ -20,6 +20,14 @@ import (
 )
 
 const (
+	familyRedis7    = "redis7"
+	engineMemcached = "memcached"
+	versionRedis710 = "7.1.0"
+	nodeTypeT3Micro = "cache.t3.micro"
+	statusAvailable = "available"
+)
+
+const (
 	randomSuffixLen     = 3
 	engineRedis         = "redis"
 	tagCandidateInitCap = 16
@@ -354,7 +362,7 @@ type DNSRegistrar interface {
 // builtinParameterGroupFamilies returns the well-known default parameter group families.
 func builtinParameterGroupFamilies() []struct{ family, name string } {
 	return []struct{ family, name string }{
-		{"redis7", "default.redis7"},
+		{familyRedis7, "default.redis7"},
 		{"redis6.x", "default.redis6.x"},
 		{"redis5.0", "default.redis5.0"},
 		{"redis4.0", "default.redis4.0"},
@@ -476,8 +484,8 @@ func (b *InMemoryBackend) appendEventLocked(sourceIdentifier, sourceType, messag
 
 func validateParamGroupFamily(engine, family string) error {
 	switch engine {
-	case "memcached":
-		if !strings.HasPrefix(family, "memcached") {
+	case engineMemcached:
+		if !strings.HasPrefix(family, engineMemcached) {
 			return fmt.Errorf(
 				"parameter group family %q does not match engine memcached: %w",
 				family,
@@ -499,11 +507,11 @@ func validateParamGroupFamily(engine, family string) error {
 
 // defaultEngineVersion returns the realistic default version for the given engine.
 func defaultEngineVersion(engine string) string {
-	if engine == "memcached" {
+	if engine == engineMemcached {
 		return "1.6.17"
 	}
 
-	return "7.1.0"
+	return versionRedis710
 }
 
 // createClusterLocked creates a cluster assuming b.mu is already held.
@@ -515,7 +523,7 @@ func (b *InMemoryBackend) createClusterLocked(
 		engine = engineRedis
 	}
 	if nodeType == "" {
-		nodeType = "cache.t3.micro"
+		nodeType = nodeTypeT3Micro
 	}
 	if numCacheNodes <= 0 {
 		numCacheNodes = 1
@@ -525,7 +533,7 @@ func (b *InMemoryBackend) createClusterLocked(
 		ClusterID:                  id,
 		Engine:                     engine,
 		EngineVersion:              defaultEngineVersion(engine),
-		Status:                     "available",
+		Status:                     statusAvailable,
 		NodeType:                   nodeType,
 		NumCacheNodes:              numCacheNodes,
 		ARN:                        b.clusterARN(id),
@@ -805,7 +813,7 @@ func (b *InMemoryBackend) createReplicationGroupLocked(
 	rg := &ReplicationGroup{
 		ReplicationGroupID:         id,
 		Description:                description,
-		Status:                     "available",
+		Status:                     statusAvailable,
 		ARN:                        b.replicationGroupARN(id),
 		Tags:                       tags.New("elasticache.rg." + id + ".tags"),
 		CreatedAt:                  time.Now(),
@@ -1014,7 +1022,7 @@ func (b *InMemoryBackend) FailoverReplicationGroup(id, _ string) (*ReplicationGr
 		return nil, ErrReplicationGroupNotFound
 	}
 
-	rg.Status = "available"
+	rg.Status = statusAvailable
 	b.appendEventLocked(id, "replication-group", "failover completed")
 
 	cp := *rg
@@ -1274,7 +1282,7 @@ func (b *InMemoryBackend) CreateSnapshot(snapshotName, clusterID, replicationGro
 		SnapshotName:       snapshotName,
 		CacheClusterID:     clusterID,
 		ReplicationGroupID: replicationGroupID,
-		Status:             "available",
+		Status:             statusAvailable,
 		ARN:                b.snapshotARN(snapshotName),
 		SnapshotSource:     "manual",
 		CreatedAt:          time.Now(),

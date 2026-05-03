@@ -15,6 +15,11 @@ import (
 )
 
 const (
+	keyNextToken       = "NextToken"
+	keyIdentityStoreID = "IdentityStoreId"
+)
+
+const (
 	// targetPrefix is the X-Amz-Target prefix for the Identity Store JSON protocol.
 	targetPrefix = "AWSIdentityStore."
 	// isMemberInGroupsOp is the operation name for the IsMemberInGroups API call.
@@ -428,8 +433,8 @@ func (h *Handler) handleListUsers(c *echo.Context, body []byte) error {
 	page, nextToken := paginateSlice(filtered, req.MaxResults, req.NextToken)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"Users":     page,
-		"NextToken": nextToken,
+		"Users":      page,
+		keyNextToken: nextToken,
 	})
 }
 
@@ -496,8 +501,8 @@ func (h *Handler) handleGetUserID(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
-		"UserId":          userID,
-		"IdentityStoreId": req.IdentityStoreID,
+		"UserId":           userID,
+		keyIdentityStoreID: req.IdentityStoreID,
 	})
 }
 
@@ -571,8 +576,8 @@ func (h *Handler) handleListGroups(c *echo.Context, body []byte) error {
 	page, nextToken := paginateSlice(filtered, req.MaxResults, req.NextToken)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"Groups":    page,
-		"NextToken": nextToken,
+		"Groups":     page,
+		keyNextToken: nextToken,
 	})
 }
 
@@ -639,8 +644,8 @@ func (h *Handler) handleGetGroupID(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
-		"GroupId":         groupID,
-		"IdentityStoreId": req.IdentityStoreID,
+		"GroupId":          groupID,
+		keyIdentityStoreID: req.IdentityStoreID,
 	})
 }
 
@@ -718,7 +723,7 @@ func (h *Handler) handleListGroupMemberships(c *echo.Context, body []byte) error
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"GroupMemberships": page,
-		"NextToken":        nextToken,
+		keyNextToken:       nextToken,
 	})
 }
 
@@ -767,8 +772,8 @@ func (h *Handler) handleGetGroupMembershipID(c *echo.Context, body []byte) error
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
-		"MembershipId":    membershipID,
-		"IdentityStoreId": req.IdentityStoreID,
+		"MembershipId":     membershipID,
+		keyIdentityStoreID: req.IdentityStoreID,
 	})
 }
 
@@ -791,7 +796,7 @@ func (h *Handler) handleListGroupMembershipsForMember(c *echo.Context, body []by
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"GroupMemberships": page,
-		"NextToken":        nextToken,
+		keyNextToken:       nextToken,
 	})
 }
 

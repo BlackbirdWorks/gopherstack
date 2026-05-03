@@ -15,6 +15,10 @@ import (
 )
 
 const (
+	snapshotSourceManual = "manual"
+)
+
+const (
 	// openAccessACL is the default ACL name that allows all connections.
 	openAccessACL = "open-access"
 	// defaultEngineVersion is the default Redis version for new clusters.
@@ -564,7 +568,7 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 			ARN:          snapshotARN,
 			ClusterName:  clusterName,
 			Status:       snapshotStatusAvailable,
-			SnapshotType: "manual",
+			SnapshotType: snapshotSourceManual,
 			Tags:         make(map[string]string),
 			CreatedAt:    time.Now(),
 			ClusterConfiguration: snapshotClusterConfig{
@@ -1298,7 +1302,7 @@ func (b *InMemoryBackend) CreateSnapshot(region, accountID string, req *createSn
 		ClusterName:  req.ClusterName,
 		Status:       snapshotStatusAvailable,
 		KmsKeyID:     req.KmsKeyID,
-		SnapshotType: "manual",
+		SnapshotType: snapshotSourceManual,
 		Tags:         tagsFromSlice(req.Tags),
 		CreatedAt:    time.Now(),
 		ClusterConfiguration: snapshotClusterConfig{
@@ -1387,7 +1391,7 @@ func (b *InMemoryBackend) CopySnapshot(region, accountID string, req *copySnapsh
 		ClusterName:          src.ClusterName,
 		Status:               snapshotStatusAvailable,
 		KmsKeyID:             kmsKeyID,
-		SnapshotType:         "manual",
+		SnapshotType:         snapshotSourceManual,
 		Tags:                 tags,
 		CreatedAt:            time.Now(),
 		ClusterConfiguration: src.ClusterConfiguration,
@@ -1718,7 +1722,7 @@ func (b *InMemoryBackend) FailoverShard(clusterName, _ string) (*Cluster, error)
 // allowedNodeTypes returns the set of node types available for upgrade/downgrade.
 func allowedNodeTypes() []string {
 	return []string{
-		"db.r6g.large",
+		defaultNodeType,
 		"db.r6g.xlarge",
 		"db.r6g.2xlarge",
 		"db.r6g.4xlarge",
@@ -1777,7 +1781,7 @@ func defaultReservedNodesOfferings() []*ReservedNodesOffering {
 	return []*ReservedNodesOffering{
 		{
 			ReservedNodesOfferingID: "aaa00000-1111-2222-3333-444444444444",
-			NodeType:                "db.r6g.large",
+			NodeType:                defaultNodeType,
 			Duration:                reservedDuration1Year,
 			FixedPrice:              reservedFixedPriceLarge1Y,
 			OfferingType:            "No Upfront",
@@ -1797,7 +1801,7 @@ func defaultReservedNodesOfferings() []*ReservedNodesOffering {
 		},
 		{
 			ReservedNodesOfferingID: "ccc00000-1111-2222-3333-444444444444",
-			NodeType:                "db.r6g.large",
+			NodeType:                defaultNodeType,
 			Duration:                reservedDuration3Years,
 			FixedPrice:              reservedFixedPriceLarge3Y,
 			OfferingType:            "All Upfront",

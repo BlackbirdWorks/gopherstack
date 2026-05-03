@@ -335,7 +335,7 @@ func (b *InMemoryBackend) DeleteTaskDefinitions(taskDefinitionArns []string) ([]
 		if err != nil {
 			failures = append(failures, Failure{
 				Arn:    arnRef,
-				Reason: "MISSING",
+				Reason: statusMissing,
 				Detail: err.Error(),
 			})
 
@@ -387,7 +387,7 @@ func (b *InMemoryBackend) DescribeServiceDeployments(
 		if !ok {
 			failures = append(failures, Failure{
 				Arn:    arn,
-				Reason: "MISSING",
+				Reason: statusMissing,
 				Detail: fmt.Sprintf("service deployment %s not found", arn),
 			})
 

@@ -20,6 +20,14 @@ import (
 )
 
 const (
+	keyMessageField = "message"
+)
+
+const (
+	keyTypeField = "__type"
+)
+
+const (
 	ecrTargetPrefix   = "AmazonEC2ContainerRegistry_V20150921."
 	dummyPassword     = "dummy-password"
 	dummyUser         = "AWS"
@@ -348,7 +356,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrRepositoryNotFound):
 		return c.JSON(
 			http.StatusNotFound,
-			map[string]string{"__type": "RepositoryNotFoundException", "message": err.Error()},
+			map[string]string{keyTypeField: "RepositoryNotFoundException", keyMessageField: err.Error()},
 		)
 	case errors.Is(err, ErrPullThroughCacheRuleNotFound),
 		errors.Is(err, ErrLifecyclePolicyNotFound),
@@ -356,38 +364,38 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errors.Is(err, ErrRegistryPolicyNotFound):
 		return c.JSON(
 			http.StatusNotFound,
-			map[string]string{"__type": "NotFoundException", "message": err.Error()},
+			map[string]string{keyTypeField: "NotFoundException", keyMessageField: err.Error()},
 		)
 	case errors.Is(err, ErrRepositoryAlreadyExists):
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{"__type": "RepositoryAlreadyExistsException", "message": err.Error()},
+			map[string]string{keyTypeField: "RepositoryAlreadyExistsException", keyMessageField: err.Error()},
 		)
 	case errors.Is(err, ErrPullThroughCacheRuleAlreadyExists):
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{"__type": "PullThroughCacheRuleAlreadyExistsException", "message": err.Error()},
+			map[string]string{keyTypeField: "PullThroughCacheRuleAlreadyExistsException", keyMessageField: err.Error()},
 		)
 	case errors.Is(err, ErrRepositoryCreationTemplateAlreadyExists):
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{"__type": "TemplateAlreadyExistsException", "message": err.Error()},
+			map[string]string{keyTypeField: "TemplateAlreadyExistsException", keyMessageField: err.Error()},
 		)
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{"__type": "UnknownOperationException", "message": err.Error()},
+			map[string]string{keyTypeField: "UnknownOperationException", keyMessageField: err.Error()},
 		)
 	case errors.Is(err, ErrInvalidRepositoryName), errors.Is(err, errInvalidRequest),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{"__type": "InvalidParameterException", "message": err.Error()},
+			map[string]string{keyTypeField: "InvalidParameterException", keyMessageField: err.Error()},
 		)
 	default:
 		return c.JSON(
 			http.StatusInternalServerError,
-			map[string]string{"__type": "InternalServerError", "message": err.Error()},
+			map[string]string{keyTypeField: "InternalServerError", keyMessageField: err.Error()},
 		)
 	}
 }

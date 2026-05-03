@@ -22,7 +22,10 @@ var (
 
 // glueARNParts is the number of colon-separated parts in a Glue ARN.
 // Format: arn:aws:glue:{region}:{account}:{resourceType}/{name}.
-const glueARNParts = 6
+const (
+	glueARNParts          = 6
+	errEntityNotFoundCode = "EntityNotFoundException"
+)
 
 // DatabaseInput is the input for creating or updating a Glue database.
 type DatabaseInput struct {
@@ -951,7 +954,7 @@ func (b *InMemoryBackend) BatchDeletePartition(dbName, tableName string, values 
 		if _, ok := b.partitions[key]; !ok {
 			errs = append(errs, PartitionError{
 				PartitionValues: pvl.Values,
-				ErrorDetail:     ErrorDetail{ErrorCode: "EntityNotFoundException", ErrorMessage: "partition not found"},
+				ErrorDetail:     ErrorDetail{ErrorCode: errEntityNotFoundCode, ErrorMessage: "partition not found"},
 			})
 
 			continue
@@ -975,7 +978,7 @@ func (b *InMemoryBackend) BatchDeleteTable(dbName string, tableNames []string) [
 		if _, ok := b.tables[key]; !ok {
 			errs = append(errs, TableError{
 				TableName:   name,
-				ErrorDetail: ErrorDetail{ErrorCode: "EntityNotFoundException", ErrorMessage: "table not found"},
+				ErrorDetail: ErrorDetail{ErrorCode: errEntityNotFoundCode, ErrorMessage: "table not found"},
 			})
 
 			continue
@@ -1001,7 +1004,7 @@ func (b *InMemoryBackend) BatchDeleteTableVersion(dbName, tableName string, vers
 			errs = append(errs, TableVersionError{
 				TableName:   tableName,
 				VersionID:   vid,
-				ErrorDetail: ErrorDetail{ErrorCode: "EntityNotFoundException", ErrorMessage: "table version not found"},
+				ErrorDetail: ErrorDetail{ErrorCode: errEntityNotFoundCode, ErrorMessage: "table version not found"},
 			})
 
 			continue

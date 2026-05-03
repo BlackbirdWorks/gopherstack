@@ -146,10 +146,9 @@ func (b *InMemoryBackend) GetCredentialReport() string {
 	defer b.mu.RUnlock()
 
 	const (
-		notApplicable = "N/A"
-		noInfo        = "no_information"
-		falseStr      = "false"
-		trueStr       = "true"
+		noInfo   = "no_information"
+		falseStr = "false"
+		trueStr  = "true"
 	)
 
 	users := sortedUsers(b.users)

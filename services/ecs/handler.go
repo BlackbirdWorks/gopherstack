@@ -21,8 +21,15 @@ import (
 )
 
 const (
+	keyMessageField = "message"
+)
+
+const (
 	ecsTargetPrefix   = "AmazonEC2ContainerServiceV20141113."
 	unknownActionName = "Unknown"
+	statusMissing     = "MISSING"
+	transportTCP      = "tcp"
+	keyTypeField      = "__type"
 )
 
 var errUnknownAction = errors.New("UnknownOperationException")
@@ -308,24 +315,24 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrNotFound):
 		code := errorCode(err)
 
-		return c.JSON(http.StatusBadRequest, map[string]string{"__type": code, "message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyTypeField: code, keyMessageField: err.Error()})
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		code := errorCode(err)
 
-		return c.JSON(http.StatusBadRequest, map[string]string{"__type": code, "message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyTypeField: code, keyMessageField: err.Error()})
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{"__type": "UnknownOperationException", "message": err.Error()},
+			map[string]string{keyTypeField: "UnknownOperationException", keyMessageField: err.Error()},
 		)
 	case errors.Is(err, awserr.ErrInvalidParameter), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		code := errorCode(err)
 
-		return c.JSON(http.StatusBadRequest, map[string]string{"__type": code, "message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyTypeField: code, keyMessageField: err.Error()})
 	default:
 		return c.JSON(
 			http.StatusInternalServerError,
-			map[string]string{"__type": "ServerException", "message": err.Error()},
+			map[string]string{keyTypeField: "ServerException", keyMessageField: err.Error()},
 		)
 	}
 }

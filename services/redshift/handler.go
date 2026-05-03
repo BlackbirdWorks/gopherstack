@@ -18,6 +18,11 @@ import (
 )
 
 const (
+	statusDisabled     = "disabled"
+	keyResourceCluster = "cluster"
+)
+
+const (
 	redshiftVersion = "2012-12-01"
 	redshiftXMLNS   = "http://redshift.amazonaws.com/doc/2012-12-01/"
 	paramValueTrue  = "true"
@@ -451,12 +456,15 @@ func toXMLCluster(c *Cluster) xmlCluster {
 		EndpointPort:                     c.Port,
 		ClusterStatus:                    c.Status,
 		ClusterAvailabilityStatus:        "Available",
-		AvailabilityZoneRelocationStatus: "disabled",
+		AvailabilityZoneRelocationStatus: statusDisabled,
 		MultiAZ:                          "Disabled",
 		NumberOfNodes:                    c.NumberOfNodes,
 		Encrypted:                        c.Encrypted,
 		EnhancedVpcRouting:               c.EnhancedVpcRouting,
-		AquaConfiguration:                xmlAquaConfig{AquaConfigurationStatus: "disabled", AquaStatus: "disabled"},
+		AquaConfiguration: xmlAquaConfig{
+			AquaConfigurationStatus: statusDisabled,
+			AquaStatus:              statusDisabled,
+		},
 		ClusterNodes: xmlClusterNodes{
 			Members: []xmlClusterNode{{
 				NodeRole:         "LEADER",
@@ -493,7 +501,7 @@ func resolveErrCode(opErr error) (string, int) {
 		{ErrDataShareNotFound, "DataShareNotFound"},
 		{ErrSecurityGroupNotFound, "ClusterSecurityGroupNotFound"},
 		{ErrSecurityGroupAlreadyExists, "ClusterSecurityGroupAlreadyExists"},
-		{ErrSnapshotNotFound, "ClusterSnapshotNotFound"},
+		{ErrSnapshotNotFound, errClusterSnapshotNotFound},
 		{ErrSnapshotAlreadyExists, "ClusterSnapshotAlreadyExists"},
 		{ErrEndpointAuthNotFound, "EndpointAuthorizationNotFound"},
 		{ErrEndpointAuthAlreadyExists, "EndpointAuthorizationAlreadyExists"},
@@ -690,7 +698,7 @@ func (h *Handler) describeTagsResponse() any {
 			resources = append(resources, redshiftTaggedResource{
 				Tag:          svcTags.KV{Key: k, Value: v},
 				ResourceName: clusterID,
-				ResourceType: "cluster",
+				ResourceType: keyResourceCluster,
 			})
 		}
 	}

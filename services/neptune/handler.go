@@ -19,6 +19,13 @@ import (
 )
 
 const (
+	engineDescriptionAmazonNeptune = "Amazon Neptune"
+	pgFamilyNeptune12              = "neptune1.2"
+	pgFamilyNeptune13              = "neptune1.3"
+	sourceTypeNotification         = "notification"
+)
+
+const (
 	neptuneVersion = "2014-10-31"
 	neptuneXMLNS   = "http://rds.amazonaws.com/doc/2014-10-31/"
 )
@@ -785,49 +792,49 @@ func (h *Handler) handleDescribeDBEngineVersions(_ url.Values) (any, error) {
 		{
 			Engine:                 neptuneEngine,
 			EngineVersion:          "1.2.0.0",
-			DBEngineDescription:    "Amazon Neptune",
-			DBParameterGroupFamily: "neptune1.2",
+			DBEngineDescription:    engineDescriptionAmazonNeptune,
+			DBParameterGroupFamily: pgFamilyNeptune12,
 		},
 		{
 			Engine:                 neptuneEngine,
 			EngineVersion:          "1.2.0.1",
-			DBEngineDescription:    "Amazon Neptune",
-			DBParameterGroupFamily: "neptune1.2",
+			DBEngineDescription:    engineDescriptionAmazonNeptune,
+			DBParameterGroupFamily: pgFamilyNeptune12,
 		},
 		{
 			Engine:                 neptuneEngine,
 			EngineVersion:          "1.2.0.2",
-			DBEngineDescription:    "Amazon Neptune",
-			DBParameterGroupFamily: "neptune1.2",
+			DBEngineDescription:    engineDescriptionAmazonNeptune,
+			DBParameterGroupFamily: pgFamilyNeptune12,
 		},
 		{
 			Engine:                 neptuneEngine,
 			EngineVersion:          "1.2.1.0",
-			DBEngineDescription:    "Amazon Neptune",
-			DBParameterGroupFamily: "neptune1.2",
+			DBEngineDescription:    engineDescriptionAmazonNeptune,
+			DBParameterGroupFamily: pgFamilyNeptune12,
 		},
 		{
 			Engine:                 neptuneEngine,
-			EngineVersion:          "1.3.0.0",
-			DBEngineDescription:    "Amazon Neptune",
-			DBParameterGroupFamily: "neptune1.3",
+			EngineVersion:          defaultEngineVersion,
+			DBEngineDescription:    engineDescriptionAmazonNeptune,
+			DBParameterGroupFamily: pgFamilyNeptune13,
 		},
 		{
 			Engine:                 neptuneEngine,
 			EngineVersion:          "1.3.1.0",
-			DBEngineDescription:    "Amazon Neptune",
-			DBParameterGroupFamily: "neptune1.3",
+			DBEngineDescription:    engineDescriptionAmazonNeptune,
+			DBParameterGroupFamily: pgFamilyNeptune13,
 		},
 		{
 			Engine:                 neptuneEngine,
 			EngineVersion:          "1.3.2.0",
-			DBEngineDescription:    "Amazon Neptune",
-			DBParameterGroupFamily: "neptune1.3",
+			DBEngineDescription:    engineDescriptionAmazonNeptune,
+			DBParameterGroupFamily: pgFamilyNeptune13,
 		},
 		{
 			Engine:                 neptuneEngine,
 			EngineVersion:          "1.4.0.0",
-			DBEngineDescription:    "Amazon Neptune",
+			DBEngineDescription:    engineDescriptionAmazonNeptune,
 			DBParameterGroupFamily: "neptune1.4",
 		},
 	}
@@ -839,7 +846,7 @@ func (h *Handler) handleDescribeDBEngineVersions(_ url.Values) (any, error) {
 }
 
 func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, error) {
-	engineVersions := []string{"1.2.0.0", "1.2.1.0", "1.3.0.0", "1.3.1.0", "1.4.0.0"}
+	engineVersions := []string{"1.2.0.0", "1.2.1.0", defaultEngineVersion, "1.3.1.0", "1.4.0.0"}
 	instanceClasses := []string{
 		"db.r5.large", "db.r5.xlarge", "db.r5.2xlarge", "db.r5.4xlarge", "db.r5.8xlarge",
 		"db.r6g.large", "db.r6g.xlarge", "db.r6g.2xlarge", "db.r6g.4xlarge",
@@ -1267,17 +1274,17 @@ func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
 		EventCategoriesMapList: xmlEventCategoriesMapList{
 			Members: []xmlEventCategoriesMap{
 				{SourceType: "db-cluster", EventCategories: xmlEventCategoryList{Members: []string{
-					"failover", "maintenance", "notification", "failure", "availability",
+					"failover", "maintenance", sourceTypeNotification, "failure", "availability",
 				}}},
 				{SourceType: "db-instance", EventCategories: xmlEventCategoryList{Members: []string{
 					"availability", "deletion", "failover", "failure", "maintenance",
-					"notification", "recovery", "restoration",
+					sourceTypeNotification, "recovery", "restoration",
 				}}},
 				{SourceType: "db-parameter-group", EventCategories: xmlEventCategoryList{Members: []string{
 					"configuration change",
 				}}},
 				{SourceType: "db-cluster-snapshot", EventCategories: xmlEventCategoryList{Members: []string{
-					"backup", "notification",
+					"backup", sourceTypeNotification,
 				}}},
 			},
 		},
@@ -1374,7 +1381,7 @@ func (h *Handler) handleRemoveRoleFromDBCluster(vals url.Values) (any, error) {
 func (h *Handler) handleDescribeEngineDefaultClusterParameters(vals url.Values) (any, error) {
 	family := vals.Get("DBParameterGroupFamily")
 	if family == "" {
-		family = "neptune1.3"
+		family = pgFamilyNeptune13
 	}
 
 	return &describeEngineDefaultClusterParametersResponse{
@@ -1391,7 +1398,7 @@ func (h *Handler) handleDescribeEngineDefaultClusterParameters(vals url.Values) 
 func (h *Handler) handleDescribeEngineDefaultParameters(vals url.Values) (any, error) {
 	family := vals.Get("DBParameterGroupFamily")
 	if family == "" {
-		family = "neptune1.3"
+		family = pgFamilyNeptune13
 	}
 
 	return &describeEngineDefaultParametersResponse{

@@ -8,6 +8,8 @@ import (
 	io_prometheus_client "github.com/prometheus/client_model/go"
 )
 
+const ()
+
 const (
 	msPerSecond = 1000.0
 	p50Divisor  = 2
@@ -237,7 +239,7 @@ func getLabelValue(m *io_prometheus_client.Metric, name string) string {
 func extractLockInfo(m *io_prometheus_client.Metric) *DeadlockInfo {
 	return &DeadlockInfo{
 		Lock:      getLabelValue(m, "lock"),
-		Operation: getLabelValue(m, "operation"),
+		Operation: getLabelValue(m, labelOperation),
 		HeldSec:   m.GetGauge().GetValue(),
 	}
 }
@@ -280,7 +282,7 @@ func parseHistogram(mf *io_prometheus_client.MetricFamily) []Summary {
 
 		var operation string
 		for _, label := range metric.GetLabel() {
-			if label.Name != nil && label.GetName() == "operation" {
+			if label.Name != nil && label.GetName() == labelOperation {
 				operation = label.GetValue()
 			}
 		}
@@ -389,7 +391,7 @@ func fillMissingPercentiles(
 func updateAverages(mf *io_prometheus_client.MetricFamily, summaries []Summary) {
 	avgMap := make(map[string]float64)
 	for _, m := range mf.GetMetric() {
-		op := getLabelValue(m, "operation")
+		op := getLabelValue(m, labelOperation)
 		avgMap[op] = m.GetGauge().GetValue()
 	}
 

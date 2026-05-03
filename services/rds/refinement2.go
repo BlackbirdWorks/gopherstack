@@ -522,14 +522,14 @@ func (b *InMemoryBackend) PurchaseReservedDBInstancesOffering(
 	if offering == nil {
 		offering = &ReservedDBInstancesOffering{
 			ReservedDBInstancesOfferingID: offeringID,
-			DBInstanceClass:               "db.t3.micro",
+			DBInstanceClass:               defaultInstanceClass,
 			Duration:                      reservedDurationOneYear,
 			FixedPrice:                    0,
 			UsagePrice:                    0,
-			ProductDescription:            "mysql",
+			ProductDescription:            engineMySQL,
 			OfferingType:                  "No Upfront",
 			MultiAZ:                       false,
-			CurrencyCode:                  "USD",
+			CurrencyCode:                  currencyUSD,
 		}
 	}
 	if reservedDBInstanceID == "" {
@@ -616,7 +616,7 @@ func staticCertificates() []Certificate {
 		{
 			CertificateIdentifier: "rds-ca-rsa2048-g1",
 			CertificateType:       "CA",
-			ValidFrom:             "2021-05-25T00:00:00Z",
+			ValidFrom:             reservedValidFrom,
 			ValidTill:             "2061-05-25T00:00:00Z",
 			CustomerOverride:      false,
 			Thumbprint:            "",
@@ -624,7 +624,7 @@ func staticCertificates() []Certificate {
 		{
 			CertificateIdentifier: "rds-ca-rsa4096-g1",
 			CertificateType:       "CA",
-			ValidFrom:             "2021-05-25T00:00:00Z",
+			ValidFrom:             reservedValidFrom,
 			ValidTill:             "2121-05-25T00:00:00Z",
 			CustomerOverride:      false,
 			Thumbprint:            "",
@@ -632,7 +632,7 @@ func staticCertificates() []Certificate {
 		{
 			CertificateIdentifier: "rds-ca-ecc384-g1",
 			CertificateType:       "CA",
-			ValidFrom:             "2021-05-25T00:00:00Z",
+			ValidFrom:             reservedValidFrom,
 			ValidTill:             "2121-05-25T00:00:00Z",
 			CustomerOverride:      false,
 			Thumbprint:            "",
@@ -642,34 +642,34 @@ func staticCertificates() []Certificate {
 
 func staticSourceRegions() []SourceRegion {
 	return []SourceRegion{
-		{RegionName: "us-east-1", Endpoint: "rds.us-east-1.amazonaws.com", Status: "available"},
-		{RegionName: "us-east-2", Endpoint: "rds.us-east-2.amazonaws.com", Status: "available"},
-		{RegionName: "us-west-1", Endpoint: "rds.us-west-1.amazonaws.com", Status: "available"},
-		{RegionName: "us-west-2", Endpoint: "rds.us-west-2.amazonaws.com", Status: "available"},
-		{RegionName: "eu-west-1", Endpoint: "rds.eu-west-1.amazonaws.com", Status: "available"},
-		{RegionName: "eu-west-2", Endpoint: "rds.eu-west-2.amazonaws.com", Status: "available"},
-		{RegionName: "eu-central-1", Endpoint: "rds.eu-central-1.amazonaws.com", Status: "available"},
-		{RegionName: "ap-southeast-1", Endpoint: "rds.ap-southeast-1.amazonaws.com", Status: "available"},
-		{RegionName: "ap-southeast-2", Endpoint: "rds.ap-southeast-2.amazonaws.com", Status: "available"},
-		{RegionName: "ap-northeast-1", Endpoint: "rds.ap-northeast-1.amazonaws.com", Status: "available"},
-		{RegionName: "sa-east-1", Endpoint: "rds.sa-east-1.amazonaws.com", Status: "available"},
-		{RegionName: "ca-central-1", Endpoint: "rds.ca-central-1.amazonaws.com", Status: "available"},
+		{RegionName: "us-east-1", Endpoint: "rds.us-east-1.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "us-east-2", Endpoint: "rds.us-east-2.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "us-west-1", Endpoint: "rds.us-west-1.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "us-west-2", Endpoint: "rds.us-west-2.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "eu-west-1", Endpoint: "rds.eu-west-1.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "eu-west-2", Endpoint: "rds.eu-west-2.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "eu-central-1", Endpoint: "rds.eu-central-1.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "ap-southeast-1", Endpoint: "rds.ap-southeast-1.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "ap-southeast-2", Endpoint: "rds.ap-southeast-2.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "ap-northeast-1", Endpoint: "rds.ap-northeast-1.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "sa-east-1", Endpoint: "rds.sa-east-1.amazonaws.com", Status: instanceStatusAvailable},
+		{RegionName: "ca-central-1", Endpoint: "rds.ca-central-1.amazonaws.com", Status: instanceStatusAvailable},
 	}
 }
 
 func staticMajorEngineVersions() []DBMajorEngineVersion {
 	return []DBMajorEngineVersion{
-		{Engine: "mysql", MajorEngineVersion: "8.0", Status: "available"},
-		{Engine: "mysql", MajorEngineVersion: "5.7", Status: "available"},
-		{Engine: "postgres", MajorEngineVersion: "15", Status: "available"},
-		{Engine: "postgres", MajorEngineVersion: "14", Status: "available"},
-		{Engine: "postgres", MajorEngineVersion: "13", Status: "available"},
-		{Engine: "mariadb", MajorEngineVersion: "10.6", Status: "available"},
-		{Engine: "oracle-ee", MajorEngineVersion: "19", Status: "available"},
-		{Engine: "sqlserver-ee", MajorEngineVersion: "15.00", Status: "available"},
-		{Engine: "aurora-mysql", MajorEngineVersion: "8.0", Status: "available"},
-		{Engine: "aurora-postgresql", MajorEngineVersion: "15", Status: "available"},
-		{Engine: "aurora-postgresql", MajorEngineVersion: "14", Status: "available"},
+		{Engine: engineMySQL, MajorEngineVersion: "8.0", Status: instanceStatusAvailable},
+		{Engine: engineMySQL, MajorEngineVersion: "5.7", Status: instanceStatusAvailable},
+		{Engine: enginePostgres, MajorEngineVersion: "15", Status: instanceStatusAvailable},
+		{Engine: enginePostgres, MajorEngineVersion: "14", Status: instanceStatusAvailable},
+		{Engine: enginePostgres, MajorEngineVersion: "13", Status: instanceStatusAvailable},
+		{Engine: engineMariaDB, MajorEngineVersion: "10.6", Status: instanceStatusAvailable},
+		{Engine: "oracle-ee", MajorEngineVersion: "19", Status: instanceStatusAvailable},
+		{Engine: "sqlserver-ee", MajorEngineVersion: "15.00", Status: instanceStatusAvailable},
+		{Engine: engineAuroraMySQL, MajorEngineVersion: "8.0", Status: instanceStatusAvailable},
+		{Engine: engineAuroraPostgresql, MajorEngineVersion: "15", Status: instanceStatusAvailable},
+		{Engine: engineAuroraPostgresql, MajorEngineVersion: "14", Status: instanceStatusAvailable},
 	}
 }
 
@@ -677,14 +677,14 @@ func staticReservedOfferings() []ReservedDBInstancesOffering {
 	return []ReservedDBInstancesOffering{
 		{
 			ReservedDBInstancesOfferingID: "01f5e8a3-2f47-4f47-8a7f-1234567890ab",
-			DBInstanceClass:               "db.t3.micro",
+			DBInstanceClass:               defaultInstanceClass,
 			Duration:                      reservedDurationOneYear,
 			FixedPrice:                    reservedFixedPriceMicro,
 			UsagePrice:                    0.0,
-			ProductDescription:            "mysql",
-			OfferingType:                  "All Upfront",
+			ProductDescription:            engineMySQL,
+			OfferingType:                  reservedAllUpfront,
 			MultiAZ:                       false,
-			CurrencyCode:                  "USD",
+			CurrencyCode:                  currencyUSD,
 		},
 		{
 			ReservedDBInstancesOfferingID: "12a1e534-e8a3-4f47-8a7f-2345678901bc",
@@ -692,10 +692,10 @@ func staticReservedOfferings() []ReservedDBInstancesOffering {
 			Duration:                      reservedDurationOneYear,
 			FixedPrice:                    reservedFixedPriceSmall,
 			UsagePrice:                    0.0,
-			ProductDescription:            "mysql",
-			OfferingType:                  "All Upfront",
+			ProductDescription:            engineMySQL,
+			OfferingType:                  reservedAllUpfront,
 			MultiAZ:                       false,
-			CurrencyCode:                  "USD",
+			CurrencyCode:                  currencyUSD,
 		},
 		{
 			ReservedDBInstancesOfferingID: "23b2f645-f9b4-4f47-8a7f-3456789012cd",
@@ -703,10 +703,10 @@ func staticReservedOfferings() []ReservedDBInstancesOffering {
 			Duration:                      reservedDurationOneYear,
 			FixedPrice:                    reservedFixedPriceMedium,
 			UsagePrice:                    0.0,
-			ProductDescription:            "postgres",
-			OfferingType:                  "All Upfront",
+			ProductDescription:            enginePostgres,
+			OfferingType:                  reservedAllUpfront,
 			MultiAZ:                       false,
-			CurrencyCode:                  "USD",
+			CurrencyCode:                  currencyUSD,
 		},
 		{
 			ReservedDBInstancesOfferingID: "34c3g756-g0c5-4f47-8a7f-4567890123de",
@@ -714,10 +714,10 @@ func staticReservedOfferings() []ReservedDBInstancesOffering {
 			Duration:                      reservedDurationOneYear,
 			FixedPrice:                    reservedFixedPriceMediumMulti,
 			UsagePrice:                    0.0,
-			ProductDescription:            "postgres",
-			OfferingType:                  "All Upfront",
+			ProductDescription:            enginePostgres,
+			OfferingType:                  reservedAllUpfront,
 			MultiAZ:                       true,
-			CurrencyCode:                  "USD",
+			CurrencyCode:                  currencyUSD,
 		},
 		{
 			ReservedDBInstancesOfferingID: "45d4h867-h1d6-4f47-8a7f-5678901234ef",
@@ -725,10 +725,10 @@ func staticReservedOfferings() []ReservedDBInstancesOffering {
 			Duration:                      reservedDurationOneYear,
 			FixedPrice:                    reservedFixedPriceLarge,
 			UsagePrice:                    0.0,
-			ProductDescription:            "aurora-mysql",
-			OfferingType:                  "All Upfront",
+			ProductDescription:            engineAuroraMySQL,
+			OfferingType:                  reservedAllUpfront,
 			MultiAZ:                       false,
-			CurrencyCode:                  "USD",
+			CurrencyCode:                  currencyUSD,
 		},
 	}
 }

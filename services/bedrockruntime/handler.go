@@ -35,6 +35,31 @@ const (
 	eventStreamHeaderValueLenBytes = 2
 )
 
+const (
+	opConverse                      = "Converse"
+	opConverseStream                = "ConverseStream"
+	opCountTokens                   = "CountTokens"
+	opInvokeModel                   = "InvokeModel"
+	opInvokeModelWithBidiStream     = "InvokeModelWithBidirectionalStream"
+	opInvokeModelWithResponseStream = "InvokeModelWithResponseStream"
+
+	hdrMessageType = ":message-type"
+	hdrEventType   = ":event-type"
+	hdrContentType = ":content-type"
+
+	keyInputTokens   = "inputTokens"
+	keyUsage         = "usage"
+	keyInvocationArn = "invocationArn"
+	keyText          = "text"
+	keyMessage       = "message"
+
+	mockResponseText  = "This is a mock response from Gopherstack."
+	stopReasonEndTurn = "end_turn"
+
+	hdrMessageTypeEvent = "event"
+	keyStopReason       = "stop_reason"
+)
+
 // Mock response token counts used in model responses.
 const (
 	mockInputTokenCount  = 10
@@ -96,13 +121,13 @@ func (h *Handler) Name() string { return "BedrockRuntime" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"ApplyGuardrail",
-		"Converse",
-		"ConverseStream",
-		"CountTokens",
+		opConverse,
+		opConverseStream,
+		opCountTokens,
 		"GetAsyncInvoke",
-		"InvokeModel",
-		"InvokeModelWithBidirectionalStream",
-		"InvokeModelWithResponseStream",
+		opInvokeModel,
+		opInvokeModelWithBidiStream,
+		opInvokeModelWithResponseStream,
 		"ListAsyncInvokes",
 		"StartAsyncInvoke",
 	}
@@ -211,17 +236,17 @@ func (h *Handler) handleModelPath(c *echo.Context, method, path string, body []b
 	op := pathToOperation(path, method)
 
 	switch op {
-	case "InvokeModel":
+	case opInvokeModel:
 		return h.handleInvokeModel(c, modelID, body)
-	case "InvokeModelWithResponseStream":
+	case opInvokeModelWithResponseStream:
 		return h.handleInvokeModelWithResponseStream(c, modelID, body)
-	case "Converse":
+	case opConverse:
 		return h.handleConverse(c, modelID, body)
-	case "ConverseStream":
+	case opConverseStream:
 		return h.handleConverseStream(c, modelID, body)
-	case "CountTokens":
+	case opCountTokens:
 		return h.handleCountTokens(c, modelID, body)
-	case "InvokeModelWithBidirectionalStream":
+	case opInvokeModelWithBidiStream:
 		return h.handleInvokeModelWithBidirectionalStream(c, modelID, body)
 	default:
 		return c.JSON(http.StatusNotFound, errorResponse("UnknownOperationException", "unknown operation: "+path))
@@ -268,7 +293,7 @@ func (h *Handler) handleInvokeModel(
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation("InvokeModel", modelID, string(body), string(out))
+	h.Backend.RecordInvocation(opInvokeModel, modelID, string(body), string(out))
 
 	c.Response().Header().Set("Content-Type", "application/json")
 
@@ -289,12 +314,12 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation("InvokeModelWithResponseStream", modelID, string(body), string(out))
+	h.Backend.RecordInvocation(opInvokeModelWithResponseStream, modelID, string(body), string(out))
 
 	frame := encodeEventStreamMsg([][2]string{
-		{":message-type", "event"},
-		{":event-type", "chunk"},
-		{":content-type", "application/octet-stream"},
+		{hdrMessageType, hdrMessageTypeEvent},
+		{hdrEventType, "chunk"},
+		{hdrContentType, "application/octet-stream"},
 	}, out)
 
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
@@ -317,7 +342,7 @@ func (h *Handler) handleConverse(
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation("Converse", modelID, string(body), string(out))
+	h.Backend.RecordInvocation(opConverse, modelID, string(body), string(out))
 
 	c.Response().Header().Set("Content-Type", "application/json")
 
@@ -337,12 +362,12 @@ func (h *Handler) handleConverseStream(
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation("ConverseStream", modelID, string(body), string(out))
+	h.Backend.RecordInvocation(opConverseStream, modelID, string(body), string(out))
 
 	frame := encodeEventStreamMsg([][2]string{
-		{":message-type", "event"},
-		{":event-type", "messageStop"},
-		{":content-type", "application/json"},
+		{hdrMessageType, hdrMessageTypeEvent},
+		{hdrEventType, "messageStop"},
+		{hdrContentType, "application/json"},
 	}, out)
 
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
@@ -359,7 +384,7 @@ func (h *Handler) handleCountTokens(
 	body []byte,
 ) error {
 	resp := map[string]any{
-		"inputTokens": mockInputTokenCount,
+		keyInputTokens: mockInputTokenCount,
 	}
 
 	out, err := json.Marshal(resp)
@@ -367,7 +392,7 @@ func (h *Handler) handleCountTokens(
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation("CountTokens", modelID, string(body), string(out))
+	h.Backend.RecordInvocation(opCountTokens, modelID, string(body), string(out))
 
 	c.Response().Header().Set("Content-Type", "application/json")
 
@@ -388,12 +413,12 @@ func (h *Handler) handleInvokeModelWithBidirectionalStream(
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 	}
 
-	h.Backend.RecordInvocation("InvokeModelWithBidirectionalStream", modelID, string(body), string(out))
+	h.Backend.RecordInvocation(opInvokeModelWithBidiStream, modelID, string(body), string(out))
 
 	frame := encodeEventStreamMsg([][2]string{
-		{":message-type", "event"},
-		{":event-type", "chunk"},
-		{":content-type", "application/octet-stream"},
+		{hdrMessageType, hdrMessageTypeEvent},
+		{hdrEventType, "chunk"},
+		{hdrContentType, "application/octet-stream"},
 	}, out)
 
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
@@ -423,7 +448,7 @@ func (h *Handler) handleApplyGuardrail(
 		"action":      "NONE",
 		"assessments": []map[string]any{},
 		"outputs":     []map[string]any{},
-		"usage": map[string]any{
+		keyUsage: map[string]any{
 			"topicPolicyUnits":                    0,
 			"contentPolicyUnits":                  0,
 			"wordPolicyUnits":                     0,
@@ -476,7 +501,7 @@ func (h *Handler) handleStartAsyncInvoke(c *echo.Context, body []byte) error {
 	}
 
 	resp := map[string]any{
-		"invocationArn": inv.InvocationArn,
+		keyInvocationArn: inv.InvocationArn,
 	}
 
 	c.Response().Header().Set("Content-Type", "application/json")
@@ -500,8 +525,8 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 	}
 
 	resp := map[string]any{
-		"invocationArn": inv.InvocationArn,
-		"modelArn":      inv.ModelArn,
+		keyInvocationArn: inv.InvocationArn,
+		"modelArn":       inv.ModelArn,
 		"outputDataConfig": map[string]any{
 			"s3OutputDataConfig": map[string]any{
 				"s3Uri": inv.OutputS3URI,
@@ -543,8 +568,8 @@ func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
 
 	for _, inv := range invocations {
 		summary := map[string]any{
-			"invocationArn": inv.InvocationArn,
-			"modelArn":      inv.ModelArn,
+			keyInvocationArn: inv.InvocationArn,
+			"modelArn":       inv.ModelArn,
 			"outputDataConfig": map[string]any{
 				"s3OutputDataConfig": map[string]any{
 					"s3Uri": inv.OutputS3URI,
@@ -589,41 +614,41 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 	switch {
 	case strings.Contains(modelIDLower, "claude"):
 		return map[string]any{
-			"completion":  "This is a mock response from Gopherstack.",
-			"stop_reason": "end_turn",
+			"completion":  mockResponseText,
+			keyStopReason: stopReasonEndTurn,
 			"model":       modelID,
 		}
 	case strings.Contains(modelIDLower, "titan"):
 		return map[string]any{
 			"results": []map[string]any{
-				{"outputText": "This is a mock response from Gopherstack.", "completionReason": "FINISH"},
+				{"outputText": mockResponseText, "completionReason": "FINISH"},
 			},
 			"inputTextTokenCount": mockInputTokenCount,
 		}
 	case strings.Contains(modelIDLower, "llama"):
 		return map[string]any{
-			"generation":             "This is a mock response from Gopherstack.",
+			"generation":             mockResponseText,
 			"prompt_token_count":     mockInputTokenCount,
 			"generation_token_count": mockOutputTokenCount,
-			"stop_reason":            "stop",
+			keyStopReason:            "stop",
 		}
 	case strings.Contains(modelIDLower, "mistral") || strings.Contains(modelIDLower, "mixtral"):
 		return map[string]any{
 			"outputs": []map[string]any{
-				{"text": "This is a mock response from Gopherstack.", "stop_reason": "stop"},
+				{keyText: mockResponseText, keyStopReason: "stop"},
 			},
 		}
 	case strings.Contains(modelIDLower, "command"):
 		return map[string]any{
-			"text":          "This is a mock response from Gopherstack.",
-			"stop_reason":   "COMPLETE",
+			keyText:         mockResponseText,
+			keyStopReason:   "COMPLETE",
 			"finish_reason": "COMPLETE",
 		}
 	case strings.Contains(modelIDLower, "j2") || strings.Contains(modelIDLower, "jurassic"):
 		return map[string]any{
 			"completions": []map[string]any{
 				{
-					"data":         map[string]any{"text": "This is a mock response from Gopherstack."},
+					"data":         map[string]any{keyText: mockResponseText},
 					"finishReason": map[string]any{"reason": "endoftext"},
 				},
 			},
@@ -631,22 +656,22 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 	case strings.Contains(modelIDLower, "nova"):
 		return map[string]any{
 			"output": map[string]any{
-				"message": map[string]any{
+				keyMessage: map[string]any{
 					"role":    "assistant",
-					"content": []map[string]any{{"text": "This is a mock response from Gopherstack."}},
+					"content": []map[string]any{{keyText: mockResponseText}},
 				},
 			},
-			"stopReason": "end_turn",
-			"usage": map[string]any{
-				"inputTokens":  mockInputTokenCount,
+			"stopReason": stopReasonEndTurn,
+			keyUsage: map[string]any{
+				keyInputTokens: mockInputTokenCount,
 				"outputTokens": mockOutputTokenCount,
 				"totalTokens":  mockTotalTokenCount,
 			},
 		}
 	default:
 		return map[string]any{
-			"completion":  "This is a mock response from Gopherstack.",
-			"stop_reason": "end_turn",
+			"completion":  mockResponseText,
+			keyStopReason: stopReasonEndTurn,
 			"model":       modelID,
 		}
 	}
@@ -655,16 +680,16 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 func mockConverseResponse() map[string]any {
 	return map[string]any{
 		"output": map[string]any{
-			"message": map[string]any{
+			keyMessage: map[string]any{
 				"role": "assistant",
 				"content": []map[string]any{
-					{"text": "This is a mock response from Gopherstack."},
+					{keyText: mockResponseText},
 				},
 			},
 		},
-		"stopReason": "end_turn",
-		"usage": map[string]any{
-			"inputTokens":  mockInputTokenCount,
+		"stopReason": stopReasonEndTurn,
+		keyUsage: map[string]any{
+			keyInputTokens: mockInputTokenCount,
 			"outputTokens": mockOutputTokenCount,
 			"totalTokens":  mockTotalTokenCount,
 		},
@@ -762,17 +787,17 @@ func pathToOperation(path, method string) string {
 func modelPathOperation(path string) string {
 	switch {
 	case strings.HasSuffix(path, "/invoke-with-response-stream"):
-		return "InvokeModelWithResponseStream"
+		return opInvokeModelWithResponseStream
 	case strings.HasSuffix(path, "/invoke-with-bidirectional-stream"):
-		return "InvokeModelWithBidirectionalStream"
+		return opInvokeModelWithBidiStream
 	case strings.HasSuffix(path, "/invoke"):
-		return "InvokeModel"
+		return opInvokeModel
 	case strings.HasSuffix(path, "/converse-stream"):
-		return "ConverseStream"
+		return opConverseStream
 	case strings.HasSuffix(path, "/converse"):
-		return "Converse"
+		return opConverse
 	case strings.HasSuffix(path, "/count-tokens"):
-		return "CountTokens"
+		return opCountTokens
 	default:
 		return ""
 	}
@@ -810,7 +835,7 @@ func extractGuardrailIDAndVersion(path string) (string, string) {
 }
 
 func errorResponse(code, msg string) map[string]string {
-	return map[string]string{"__type": code, "message": msg}
+	return map[string]string{"__type": code, keyMessage: msg}
 }
 
 // handleError writes a standardized error response, mapping sentinel errors to HTTP status codes.

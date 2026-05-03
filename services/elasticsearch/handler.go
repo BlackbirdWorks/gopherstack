@@ -17,6 +17,14 @@ import (
 )
 
 const (
+	keyInstanceType  = "InstanceType"
+	keyInstanceCount = "InstanceCount"
+	keyEBSEnabled    = "EBSEnabled"
+	keyVolumeSize    = "VolumeSize"
+	keyVolumeType    = "VolumeType"
+)
+
+const (
 	elasticsearchPathPrefix     = "/2015-01-01/es/domain"
 	elasticsearchTagsPath       = "/2015-01-01/tags"
 	elasticsearchTagsRemove     = "/2015-01-01/tags-removal"
@@ -613,20 +621,20 @@ func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	activeStatus := elasticsearchConfigStatus{State: "Active"}
+	activeStatus := elasticsearchConfigStatus{State: statusActiveCap}
 	out := describeDomainConfigOutput{}
 	out.DomainConfig.ElasticsearchVersion = elasticsearchConfigValue{
 		Options: domain.ElasticsearchVersion,
 		Status:  activeStatus,
 	}
 	out.DomainConfig.ElasticsearchClusterConfig = elasticsearchConfigValue{Options: map[string]any{
-		"InstanceType":  domain.ClusterConfig.InstanceType,
-		"InstanceCount": domain.ClusterConfig.InstanceCount,
+		keyInstanceType:  domain.ClusterConfig.InstanceType,
+		keyInstanceCount: domain.ClusterConfig.InstanceCount,
 	}, Status: activeStatus}
 	out.DomainConfig.EBSOptions = elasticsearchConfigValue{Options: map[string]any{
-		"EBSEnabled": domain.EBSOptions.EBSEnabled,
-		"VolumeSize": domain.EBSOptions.VolumeSize,
-		"VolumeType": domain.EBSOptions.VolumeType,
+		keyEBSEnabled: domain.EBSOptions.EBSEnabled,
+		keyVolumeSize: domain.EBSOptions.VolumeSize,
+		keyVolumeType: domain.EBSOptions.VolumeType,
 	}, Status: activeStatus}
 	out.DomainConfig.AccessPolicies = elasticsearchConfigValue{Options: "", Status: activeStatus}
 	out.DomainConfig.AdvancedOptions = elasticsearchConfigValue{Options: map[string]any{}, Status: activeStatus}
@@ -642,7 +650,7 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 		ElasticsearchVersion:   d.ElasticsearchVersion,
 		Endpoint:               d.Endpoint,
 		Processing:             false,
-		DomainProcessingStatus: "Active",
+		DomainProcessingStatus: statusActiveCap,
 		EBSOptions: ebsOptionsJSON{
 			EBSEnabled: d.EBSOptions.EBSEnabled,
 			VolumeSize: d.EBSOptions.VolumeSize,
@@ -664,7 +672,7 @@ type errorResponseJSON struct {
 
 func (h *Handler) writeError(r *http.Request, w http.ResponseWriter, status int, code, message string) {
 	ctx := r.Context()
-	logger.Load(ctx).Error("elasticsearch error", "code", code, "message", message)
+	logger.Load(ctx).ErrorContext(r.Context(), "elasticsearch error", "code", code, "message", message)
 	w.Header().Set("x-amzn-ErrorType", code)
 	httputils.WriteJSON(ctx, w, status, errorResponseJSON{Message: message})
 }
@@ -787,20 +795,20 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	activeStatus := elasticsearchConfigStatus{State: "Active"}
+	activeStatus := elasticsearchConfigStatus{State: statusActiveCap}
 	out := describeDomainConfigOutput{}
 	out.DomainConfig.ElasticsearchVersion = elasticsearchConfigValue{
 		Options: d.ElasticsearchVersion,
 		Status:  activeStatus,
 	}
 	out.DomainConfig.ElasticsearchClusterConfig = elasticsearchConfigValue{Options: map[string]any{
-		"InstanceType":  d.ClusterConfig.InstanceType,
-		"InstanceCount": d.ClusterConfig.InstanceCount,
+		keyInstanceType:  d.ClusterConfig.InstanceType,
+		keyInstanceCount: d.ClusterConfig.InstanceCount,
 	}, Status: activeStatus}
 	out.DomainConfig.EBSOptions = elasticsearchConfigValue{Options: map[string]any{
-		"EBSEnabled": d.EBSOptions.EBSEnabled,
-		"VolumeSize": d.EBSOptions.VolumeSize,
-		"VolumeType": d.EBSOptions.VolumeType,
+		keyEBSEnabled: d.EBSOptions.EBSEnabled,
+		keyVolumeSize: d.EBSOptions.VolumeSize,
+		keyVolumeType: d.EBSOptions.VolumeType,
 	}, Status: activeStatus}
 	out.DomainConfig.AccessPolicies = elasticsearchConfigValue{Options: "", Status: activeStatus}
 	out.DomainConfig.AdvancedOptions = elasticsearchConfigValue{Options: map[string]any{}, Status: activeStatus}
@@ -1188,7 +1196,7 @@ func (h *Handler) handleCancelDomainConfigChange(w http.ResponseWriter, r *http.
 		return
 	}
 
-	activeStatus := elasticsearchConfigStatus{State: "Active"}
+	activeStatus := elasticsearchConfigStatus{State: statusActiveCap}
 	out := cancelDomainConfigChangeOutput{}
 	out.DomainConfig.ElasticsearchVersion = elasticsearchConfigValue{
 		Options: d.ElasticsearchVersion,
@@ -1196,16 +1204,16 @@ func (h *Handler) handleCancelDomainConfigChange(w http.ResponseWriter, r *http.
 	}
 	out.DomainConfig.ElasticsearchClusterConfig = elasticsearchConfigValue{
 		Options: map[string]any{
-			"InstanceType":  d.ClusterConfig.InstanceType,
-			"InstanceCount": d.ClusterConfig.InstanceCount,
+			keyInstanceType:  d.ClusterConfig.InstanceType,
+			keyInstanceCount: d.ClusterConfig.InstanceCount,
 		},
 		Status: activeStatus,
 	}
 	out.DomainConfig.EBSOptions = elasticsearchConfigValue{
 		Options: map[string]any{
-			"EBSEnabled": d.EBSOptions.EBSEnabled,
-			"VolumeSize": d.EBSOptions.VolumeSize,
-			"VolumeType": d.EBSOptions.VolumeType,
+			keyEBSEnabled: d.EBSOptions.EBSEnabled,
+			keyVolumeSize: d.EBSOptions.VolumeSize,
+			keyVolumeType: d.EBSOptions.VolumeType,
 		},
 		Status: activeStatus,
 	}

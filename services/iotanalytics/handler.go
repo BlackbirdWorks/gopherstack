@@ -15,6 +15,38 @@ import (
 )
 
 const (
+	opBatchPutMessage            = "BatchPutMessage"
+	opCancelPipelineReprocessing = "CancelPipelineReprocessing"
+	opCreateChannel              = "CreateChannel"
+	opCreateDataset              = "CreateDataset"
+	opCreateDatasetContent       = "CreateDatasetContent"
+	opCreatePipeline             = "CreatePipeline"
+	opDeleteChannel              = "DeleteChannel"
+	opDeleteDataset              = "DeleteDataset"
+	opDeleteDatasetContent       = "DeleteDatasetContent"
+	opDeletePipeline             = "DeletePipeline"
+	opDescribeChannel            = "DescribeChannel"
+	opDescribeDataset            = "DescribeDataset"
+	opDescribeLoggingOptions     = "DescribeLoggingOptions"
+	opDescribePipeline           = "DescribePipeline"
+	opGetDatasetContent          = "GetDatasetContent"
+	opListChannels               = "ListChannels"
+	opListDatasetContents        = "ListDatasetContents"
+	opListDatasets               = "ListDatasets"
+	opListPipelines              = "ListPipelines"
+	opListTagsForResource        = "ListTagsForResource"
+	opPutLoggingOptions          = "PutLoggingOptions"
+	opRunPipelineActivity        = "RunPipelineActivity"
+	opSampleChannelData          = "SampleChannelData"
+	opStartPipelineReprocessing  = "StartPipelineReprocessing"
+	opTagResource                = "TagResource"
+	opUntagResource              = "UntagResource"
+	opUpdateChannel              = "UpdateChannel"
+	opUpdateDataset              = "UpdateDataset"
+	opUpdatePipeline             = "UpdatePipeline"
+)
+
+const (
 	// iotAnalyticsService is the SigV4 service name for IoT Analytics.
 	iotAnalyticsService = "iotanalytics"
 	// pathChannels is the route prefix for channels.
@@ -65,22 +97,22 @@ func (h *Handler) Reset() {
 // buildChannelOps returns the channel-related entries for the dispatch map.
 func buildChannelOps(h *Handler) map[string]handlerFunc {
 	return map[string]handlerFunc{
-		"CreateChannel": func(c *echo.Context, _ string, body []byte) error {
+		opCreateChannel: func(c *echo.Context, _ string, body []byte) error {
 			return h.handleCreateChannel(c, body)
 		},
-		"ListChannels": func(c *echo.Context, _ string, _ []byte) error {
+		opListChannels: func(c *echo.Context, _ string, _ []byte) error {
 			return h.handleListChannels(c)
 		},
-		"DescribeChannel": func(c *echo.Context, resource string, _ []byte) error {
+		opDescribeChannel: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDescribeChannel(c, resource)
 		},
-		"UpdateChannel": func(c *echo.Context, resource string, _ []byte) error {
+		opUpdateChannel: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleUpdateChannel(c, resource)
 		},
-		"DeleteChannel": func(c *echo.Context, resource string, _ []byte) error {
+		opDeleteChannel: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDeleteChannel(c, resource)
 		},
-		"SampleChannelData": func(c *echo.Context, resource string, _ []byte) error {
+		opSampleChannelData: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleSampleChannelData(c, resource)
 		},
 	}
@@ -110,31 +142,31 @@ func buildDatastoreOps(h *Handler) map[string]handlerFunc {
 // buildDatasetOps returns the dataset-related entries for the dispatch map.
 func buildDatasetOps(h *Handler) map[string]handlerFunc {
 	return map[string]handlerFunc{
-		"CreateDataset": func(c *echo.Context, _ string, body []byte) error {
+		opCreateDataset: func(c *echo.Context, _ string, body []byte) error {
 			return h.handleCreateDataset(c, body)
 		},
-		"ListDatasets": func(c *echo.Context, _ string, _ []byte) error {
+		opListDatasets: func(c *echo.Context, _ string, _ []byte) error {
 			return h.handleListDatasets(c)
 		},
-		"DescribeDataset": func(c *echo.Context, resource string, _ []byte) error {
+		opDescribeDataset: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDescribeDataset(c, resource)
 		},
-		"UpdateDataset": func(c *echo.Context, resource string, _ []byte) error {
+		opUpdateDataset: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleUpdateDataset(c, resource)
 		},
-		"DeleteDataset": func(c *echo.Context, resource string, _ []byte) error {
+		opDeleteDataset: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDeleteDataset(c, resource)
 		},
-		"CreateDatasetContent": func(c *echo.Context, resource string, _ []byte) error {
+		opCreateDatasetContent: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleCreateDatasetContent(c, resource)
 		},
-		"GetDatasetContent": func(c *echo.Context, resource string, _ []byte) error {
+		opGetDatasetContent: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleGetDatasetContent(c, resource)
 		},
-		"ListDatasetContents": func(c *echo.Context, resource string, _ []byte) error {
+		opListDatasetContents: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleListDatasetContents(c, resource)
 		},
-		"DeleteDatasetContent": func(c *echo.Context, resource string, _ []byte) error {
+		opDeleteDatasetContent: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDeleteDatasetContent(c, resource)
 		},
 	}
@@ -143,25 +175,25 @@ func buildDatasetOps(h *Handler) map[string]handlerFunc {
 // buildPipelineOps returns the pipeline-related entries for the dispatch map.
 func buildPipelineOps(h *Handler) map[string]handlerFunc {
 	return map[string]handlerFunc{
-		"CreatePipeline": func(c *echo.Context, _ string, body []byte) error {
+		opCreatePipeline: func(c *echo.Context, _ string, body []byte) error {
 			return h.handleCreatePipeline(c, body)
 		},
-		"ListPipelines": func(c *echo.Context, _ string, _ []byte) error {
+		opListPipelines: func(c *echo.Context, _ string, _ []byte) error {
 			return h.handleListPipelines(c)
 		},
-		"DescribePipeline": func(c *echo.Context, resource string, _ []byte) error {
+		opDescribePipeline: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDescribePipeline(c, resource)
 		},
-		"UpdatePipeline": func(c *echo.Context, resource string, _ []byte) error {
+		opUpdatePipeline: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleUpdatePipeline(c, resource)
 		},
-		"DeletePipeline": func(c *echo.Context, resource string, _ []byte) error {
+		opDeletePipeline: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleDeletePipeline(c, resource)
 		},
-		"StartPipelineReprocessing": func(c *echo.Context, resource string, _ []byte) error {
+		opStartPipelineReprocessing: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleStartPipelineReprocessing(c, resource)
 		},
-		"CancelPipelineReprocessing": func(c *echo.Context, resource string, _ []byte) error {
+		opCancelPipelineReprocessing: func(c *echo.Context, resource string, _ []byte) error {
 			return h.handleCancelPipelineReprocessing(c, resource)
 		},
 	}
@@ -170,25 +202,25 @@ func buildPipelineOps(h *Handler) map[string]handlerFunc {
 // buildMiscOps returns the miscellaneous entries (tags, logging, messages) for the dispatch map.
 func buildMiscOps(h *Handler) map[string]handlerFunc {
 	return map[string]handlerFunc{
-		"ListTagsForResource": func(c *echo.Context, _ string, _ []byte) error {
+		opListTagsForResource: func(c *echo.Context, _ string, _ []byte) error {
 			return h.handleListTagsForResource(c)
 		},
-		"TagResource": func(c *echo.Context, _ string, body []byte) error {
+		opTagResource: func(c *echo.Context, _ string, body []byte) error {
 			return h.handleTagResource(c, body)
 		},
-		"UntagResource": func(c *echo.Context, _ string, _ []byte) error {
+		opUntagResource: func(c *echo.Context, _ string, _ []byte) error {
 			return h.handleUntagResource(c)
 		},
-		"DescribeLoggingOptions": func(c *echo.Context, _ string, _ []byte) error {
+		opDescribeLoggingOptions: func(c *echo.Context, _ string, _ []byte) error {
 			return h.handleDescribeLoggingOptions(c)
 		},
-		"PutLoggingOptions": func(c *echo.Context, _ string, body []byte) error {
+		opPutLoggingOptions: func(c *echo.Context, _ string, body []byte) error {
 			return h.handlePutLoggingOptions(c, body)
 		},
-		"BatchPutMessage": func(c *echo.Context, _ string, body []byte) error {
+		opBatchPutMessage: func(c *echo.Context, _ string, body []byte) error {
 			return h.handleBatchPutMessage(c, body)
 		},
-		"RunPipelineActivity": func(c *echo.Context, _ string, body []byte) error {
+		opRunPipelineActivity: func(c *echo.Context, _ string, body []byte) error {
 			return h.handleRunPipelineActivity(c, body)
 		},
 	}
@@ -217,40 +249,40 @@ func (h *Handler) Name() string { return "IoTAnalytics" }
 // GetSupportedOperations returns the list of supported IoT Analytics operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"BatchPutMessage",
-		"CancelPipelineReprocessing",
-		"CreateChannel",
-		"CreateDataset",
-		"CreateDatasetContent",
+		opBatchPutMessage,
+		opCancelPipelineReprocessing,
+		opCreateChannel,
+		opCreateDataset,
+		opCreateDatasetContent,
 		"CreateDatastore",
-		"CreatePipeline",
-		"DeleteChannel",
-		"DeleteDataset",
-		"DeleteDatasetContent",
+		opCreatePipeline,
+		opDeleteChannel,
+		opDeleteDataset,
+		opDeleteDatasetContent,
 		"DeleteDatastore",
-		"DeletePipeline",
-		"DescribeChannel",
-		"DescribeDataset",
+		opDeletePipeline,
+		opDescribeChannel,
+		opDescribeDataset,
 		"DescribeDatastore",
-		"DescribeLoggingOptions",
-		"DescribePipeline",
-		"GetDatasetContent",
-		"ListChannels",
-		"ListDatasetContents",
-		"ListDatasets",
+		opDescribeLoggingOptions,
+		opDescribePipeline,
+		opGetDatasetContent,
+		opListChannels,
+		opListDatasetContents,
+		opListDatasets,
 		"ListDatastores",
-		"ListPipelines",
-		"ListTagsForResource",
-		"PutLoggingOptions",
-		"RunPipelineActivity",
-		"SampleChannelData",
-		"StartPipelineReprocessing",
-		"TagResource",
-		"UntagResource",
-		"UpdateChannel",
-		"UpdateDataset",
+		opListPipelines,
+		opListTagsForResource,
+		opPutLoggingOptions,
+		opRunPipelineActivity,
+		opSampleChannelData,
+		opStartPipelineReprocessing,
+		opTagResource,
+		opUntagResource,
+		opUpdateChannel,
+		opUpdateDataset,
 		"UpdateDatastore",
-		"UpdatePipeline",
+		opUpdatePipeline,
 	}
 }
 
@@ -360,11 +392,11 @@ func parseIoTAnalyticsPath(method, path string) (string, string) {
 		return parseLoggingPath(method)
 	case path == pathMessages+"/batch":
 		if method == http.MethodPost {
-			return "BatchPutMessage", ""
+			return opBatchPutMessage, ""
 		}
 	case path == pathPipelineActivities+"/run":
 		if method == http.MethodPost {
-			return "RunPipelineActivity", ""
+			return opRunPipelineActivity, ""
 		}
 	}
 
@@ -378,9 +410,9 @@ func parseChannelPath(method, path string) (string, string) {
 	if rest == "" || rest == "/" {
 		switch method {
 		case http.MethodPost:
-			return "CreateChannel", ""
+			return opCreateChannel, ""
 		case http.MethodGet:
-			return "ListChannels", ""
+			return opListChannels, ""
 		}
 
 		return "", ""
@@ -394,16 +426,16 @@ func parseChannelPath(method, path string) (string, string) {
 	name := segs[0]
 
 	if len(segs) == minNameSegments && segs[1] == "sample" && method == http.MethodGet {
-		return "SampleChannelData", name
+		return opSampleChannelData, name
 	}
 
 	switch method {
 	case http.MethodGet:
-		return "DescribeChannel", name
+		return opDescribeChannel, name
 	case http.MethodPut:
-		return "UpdateChannel", name
+		return opUpdateChannel, name
 	case http.MethodDelete:
-		return "DeleteChannel", name
+		return opDeleteChannel, name
 	}
 
 	return "", ""
@@ -416,9 +448,9 @@ func parseDatasetPath(method, path string) (string, string) {
 	if rest == "" || rest == "/" {
 		switch method {
 		case http.MethodPost:
-			return "CreateDataset", ""
+			return opCreateDataset, ""
 		case http.MethodGet:
-			return "ListDatasets", ""
+			return opListDatasets, ""
 		}
 
 		return "", ""
@@ -437,11 +469,11 @@ func parseDatasetPath(method, path string) (string, string) {
 
 	switch method {
 	case http.MethodGet:
-		return "DescribeDataset", name
+		return opDescribeDataset, name
 	case http.MethodPut:
-		return "UpdateDataset", name
+		return opUpdateDataset, name
 	case http.MethodDelete:
-		return "DeleteDataset", name
+		return opDeleteDataset, name
 	}
 
 	return "", ""
@@ -453,15 +485,15 @@ func parseDatasetSubPath(method, name, sub string) (string, string) {
 	case "content":
 		switch method {
 		case http.MethodPost:
-			return "CreateDatasetContent", name
+			return opCreateDatasetContent, name
 		case http.MethodGet:
-			return "GetDatasetContent", name
+			return opGetDatasetContent, name
 		case http.MethodDelete:
-			return "DeleteDatasetContent", name
+			return opDeleteDatasetContent, name
 		}
 	case "contents":
 		if method == http.MethodGet {
-			return "ListDatasetContents", name
+			return opListDatasetContents, name
 		}
 	}
 
@@ -475,9 +507,9 @@ func parsePipelinePath(method, path string) (string, string) {
 	if rest == "" || rest == "/" {
 		switch method {
 		case http.MethodPost:
-			return "CreatePipeline", ""
+			return opCreatePipeline, ""
 		case http.MethodGet:
-			return "ListPipelines", ""
+			return opListPipelines, ""
 		}
 
 		return "", ""
@@ -493,14 +525,14 @@ func parsePipelinePath(method, path string) (string, string) {
 	if len(segs) >= minNameSegments && segs[1] == "reprocessing" {
 		if len(segs) == maxSubPathSegments && segs[2] != "" {
 			if method == http.MethodDelete {
-				return "CancelPipelineReprocessing", name + "/" + segs[2]
+				return opCancelPipelineReprocessing, name + "/" + segs[2]
 			}
 
 			return "", ""
 		}
 
 		if method == http.MethodPost {
-			return "StartPipelineReprocessing", name
+			return opStartPipelineReprocessing, name
 		}
 
 		return "", ""
@@ -508,11 +540,11 @@ func parsePipelinePath(method, path string) (string, string) {
 
 	switch method {
 	case http.MethodGet:
-		return "DescribePipeline", name
+		return opDescribePipeline, name
 	case http.MethodPut:
-		return "UpdatePipeline", name
+		return opUpdatePipeline, name
 	case http.MethodDelete:
-		return "DeletePipeline", name
+		return opDeletePipeline, name
 	}
 
 	return "", ""
@@ -522,9 +554,9 @@ func parsePipelinePath(method, path string) (string, string) {
 func parseLoggingPath(method string) (string, string) {
 	switch method {
 	case http.MethodGet:
-		return "DescribeLoggingOptions", ""
+		return opDescribeLoggingOptions, ""
 	case http.MethodPut:
-		return "PutLoggingOptions", ""
+		return opPutLoggingOptions, ""
 	}
 
 	return "", ""
@@ -570,11 +602,11 @@ func parseResourcePath(method, path, prefix, typeName, _ string) (string, string
 func parseTagsPath(method string) (string, string) {
 	switch method {
 	case http.MethodGet:
-		return "ListTagsForResource", ""
+		return opListTagsForResource, ""
 	case http.MethodPost:
-		return "TagResource", ""
+		return opTagResource, ""
 	case http.MethodDelete:
-		return "UntagResource", ""
+		return opUntagResource, ""
 	}
 
 	return "", ""

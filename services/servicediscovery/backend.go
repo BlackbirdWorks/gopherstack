@@ -11,6 +11,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	typeNamespace = "NAMESPACE"
+)
+
 var (
 	// ErrNamespaceNotFound is returned when a namespace does not exist.
 	ErrNamespaceNotFound = awserr.New("NamespaceNotFound", awserr.ErrNotFound)
@@ -172,7 +176,7 @@ func (b *InMemoryBackend) createNamespace(name, nsType, description string, tags
 		Type:       operationTypeCreateNamespace,
 		Status:     operationStatusSuccess,
 		TargetID:   id,
-		TargetType: "NAMESPACE",
+		TargetType: typeNamespace,
 	}
 
 	return opID, nil
@@ -232,7 +236,7 @@ func (b *InMemoryBackend) DeleteNamespace(id string) (string, error) {
 		Type:       operationTypeDeleteNamespace,
 		Status:     operationStatusSuccess,
 		TargetID:   id,
-		TargetType: "NAMESPACE",
+		TargetType: typeNamespace,
 	}
 
 	return opID, nil
@@ -760,7 +764,7 @@ func (b *InMemoryBackend) updateNamespace(id, nsType, description string) (strin
 		Type:       operationTypeUpdateNamespace,
 		Status:     operationStatusSuccess,
 		TargetID:   id,
-		TargetType: "NAMESPACE",
+		TargetType: typeNamespace,
 	}
 
 	return opID, nil

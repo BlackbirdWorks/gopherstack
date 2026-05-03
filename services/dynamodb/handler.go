@@ -27,6 +27,67 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
+const ()
+
+const (
+	opTransactWriteItems                = "TransactWriteItems"
+	opUntagResource                     = "UntagResource"
+	opUpdateContinuousBackups           = "UpdateContinuousBackups"
+	opUpdateContributorInsights         = "UpdateContributorInsights"
+	opUpdateGlobalTable                 = "UpdateGlobalTable"
+	opUpdateGlobalTableSettings         = "UpdateGlobalTableSettings"
+	opUpdateItem                        = "UpdateItem"
+	opUpdateKinesisStreamingDestination = "UpdateKinesisStreamingDestination"
+	opUpdateTable                       = "UpdateTable"
+	opUpdateTableReplicaAutoScaling     = "UpdateTableReplicaAutoScaling"
+	opUpdateTimeToLive                  = "UpdateTimeToLive"
+)
+
+const (
+	statusActive = "ACTIVE"
+
+	opBatchGetItem                        = "BatchGetItem"
+	opBatchWriteItem                      = "BatchWriteItem"
+	opCreateBackup                        = "CreateBackup"
+	opCreateGlobalTable                   = "CreateGlobalTable"
+	opCreateTable                         = "CreateTable"
+	opDeleteBackup                        = "DeleteBackup"
+	opDeleteItem                          = "DeleteItem"
+	opDeleteResourcePolicy                = "DeleteResourcePolicy"
+	opDeleteTable                         = "DeleteTable"
+	opDescribeBackup                      = "DescribeBackup"
+	opDescribeContinuousBackups           = "DescribeContinuousBackups"
+	opDescribeContributorInsights         = "DescribeContributorInsights"
+	opDescribeEndpoints                   = "DescribeEndpoints"
+	opDescribeGlobalTable                 = "DescribeGlobalTable"
+	opDescribeGlobalTableSettings         = "DescribeGlobalTableSettings"
+	opDescribeImport                      = "DescribeImport"
+	opDescribeKinesisStreamingDestination = "DescribeKinesisStreamingDestination"
+	opDescribeLimits                      = "DescribeLimits"
+	opDescribeTable                       = "DescribeTable"
+	opDescribeTableReplicaAutoScaling     = "DescribeTableReplicaAutoScaling"
+	opDescribeTimeToLive                  = "DescribeTimeToLive"
+	opDisableKinesisStreamingDestination  = "DisableKinesisStreamingDestination"
+	opEnableKinesisStreamingDestination   = "EnableKinesisStreamingDestination"
+	opGetItem                             = "GetItem"
+	opGetResourcePolicy                   = "GetResourcePolicy"
+	opImportTable                         = "ImportTable"
+	opListBackups                         = "ListBackups"
+	opListContributorInsights             = "ListContributorInsights"
+	opListGlobalTables                    = "ListGlobalTables"
+	opListImports                         = "ListImports"
+	opListTables                          = "ListTables"
+	opListTagsOfResource                  = "ListTagsOfResource"
+	opPutItem                             = "PutItem"
+	opPutResourcePolicy                   = "PutResourcePolicy"
+	opQuery                               = "Query"
+	opRestoreTableFromBackup              = "RestoreTableFromBackup"
+	opRestoreTableToPointInTime           = "RestoreTableToPointInTime"
+	opScan                                = "Scan"
+	opTagResource                         = "TagResource"
+	opTransactGetItems                    = "TransactGetItems"
+)
+
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
 // regionContextKey is used to store the AWS region in request context.
@@ -159,62 +220,62 @@ var _ service.Shutdowner = (*DynamoDBHandler)(nil)
 func (h *DynamoDBHandler) GetSupportedOperations() []string {
 	return []string{
 		"BatchExecuteStatement",
-		"BatchGetItem",
-		"BatchWriteItem",
-		"CreateBackup",
-		"CreateGlobalTable",
-		"CreateTable",
-		"DeleteBackup",
-		"DeleteItem",
-		"DeleteResourcePolicy",
-		"DeleteTable",
-		"DescribeBackup",
-		"DescribeContributorInsights",
-		"DescribeContinuousBackups",
-		"DescribeEndpoints",
+		opBatchGetItem,
+		opBatchWriteItem,
+		opCreateBackup,
+		opCreateGlobalTable,
+		opCreateTable,
+		opDeleteBackup,
+		opDeleteItem,
+		opDeleteResourcePolicy,
+		opDeleteTable,
+		opDescribeBackup,
+		opDescribeContributorInsights,
+		opDescribeContinuousBackups,
+		opDescribeEndpoints,
 		"DescribeExport",
-		"DescribeGlobalTable",
-		"DescribeGlobalTableSettings",
-		"DescribeImport",
-		"DescribeKinesisStreamingDestination",
-		"DescribeLimits",
-		"DescribeTable",
-		"DescribeTableReplicaAutoScaling",
-		"DescribeTimeToLive",
-		"DisableKinesisStreamingDestination",
-		"EnableKinesisStreamingDestination",
+		opDescribeGlobalTable,
+		opDescribeGlobalTableSettings,
+		opDescribeImport,
+		opDescribeKinesisStreamingDestination,
+		opDescribeLimits,
+		opDescribeTable,
+		opDescribeTableReplicaAutoScaling,
+		opDescribeTimeToLive,
+		opDisableKinesisStreamingDestination,
+		opEnableKinesisStreamingDestination,
 		"ExecuteStatement",
 		"ExecuteTransaction",
 		"ExportTableToPointInTime",
-		"GetItem",
-		"GetResourcePolicy",
-		"ImportTable",
-		"ListBackups",
-		"ListContributorInsights",
+		opGetItem,
+		opGetResourcePolicy,
+		opImportTable,
+		opListBackups,
+		opListContributorInsights,
 		"ListExports",
-		"ListGlobalTables",
-		"ListImports",
-		"ListTables",
-		"ListTagsOfResource",
-		"PutItem",
-		"PutResourcePolicy",
-		"Query",
-		"RestoreTableFromBackup",
-		"RestoreTableToPointInTime",
-		"Scan",
-		"TagResource",
-		"TransactGetItems",
-		"TransactWriteItems",
-		"UntagResource",
-		"UpdateContinuousBackups",
-		"UpdateContributorInsights",
-		"UpdateGlobalTable",
-		"UpdateGlobalTableSettings",
-		"UpdateItem",
-		"UpdateKinesisStreamingDestination",
-		"UpdateTable",
-		"UpdateTableReplicaAutoScaling",
-		"UpdateTimeToLive",
+		opListGlobalTables,
+		opListImports,
+		opListTables,
+		opListTagsOfResource,
+		opPutItem,
+		opPutResourcePolicy,
+		opQuery,
+		opRestoreTableFromBackup,
+		opRestoreTableToPointInTime,
+		opScan,
+		opTagResource,
+		opTransactGetItems,
+		opTransactWriteItems,
+		opUntagResource,
+		opUpdateContinuousBackups,
+		opUpdateContributorInsights,
+		opUpdateGlobalTable,
+		opUpdateGlobalTableSettings,
+		opUpdateItem,
+		opUpdateKinesisStreamingDestination,
+		opUpdateTable,
+		opUpdateTableReplicaAutoScaling,
+		opUpdateTimeToLive,
 	}
 }
 
@@ -420,27 +481,27 @@ func extractTableFromBackupARN(arnStr string) string {
 
 func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
-	case "CreateTable",
-		"DeleteTable",
-		"DescribeTable",
-		"ListTables",
-		"TagResource",
-		"UntagResource",
-		"ListTagsOfResource",
-		"UpdateTable",
-		"UpdateTimeToLive",
-		"DescribeTimeToLive":
+	case opCreateTable,
+		opDeleteTable,
+		opDescribeTable,
+		opListTables,
+		opTagResource,
+		opUntagResource,
+		opListTagsOfResource,
+		opUpdateTable,
+		opUpdateTimeToLive,
+		opDescribeTimeToLive:
 		return h.dispatchTableOps(ctx, action, body)
-	case "PutItem",
-		"GetItem",
-		"DeleteItem",
-		"UpdateItem",
-		"Query",
-		"Scan",
-		"BatchGetItem",
-		"BatchWriteItem":
+	case opPutItem,
+		opGetItem,
+		opDeleteItem,
+		opUpdateItem,
+		opQuery,
+		opScan,
+		opBatchGetItem,
+		opBatchWriteItem:
 		return h.dispatchItemOps(ctx, action, body)
-	case "TransactWriteItems", "TransactGetItems":
+	case opTransactWriteItems, opTransactGetItems:
 		return h.dispatchTransactOps(ctx, action, body)
 	case "DescribeStream", "GetShardIterator", "GetRecords", "ListStreams":
 		return h.dispatchStreamsOps(ctx, action, body)
@@ -448,15 +509,15 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		return h.handleExecuteStatement(ctx, body)
 	case "BatchExecuteStatement":
 		return h.handleBatchExecuteStatement(ctx, body)
-	case "DescribeContinuousBackups",
-		"UpdateContinuousBackups",
-		"CreateBackup",
-		"DescribeBackup",
-		"DeleteBackup",
-		"ListBackups",
-		"RestoreTableFromBackup",
-		"RestoreTableToPointInTime",
-		"DescribeTableReplicaAutoScaling":
+	case opDescribeContinuousBackups,
+		opUpdateContinuousBackups,
+		opCreateBackup,
+		opDescribeBackup,
+		opDeleteBackup,
+		opListBackups,
+		opRestoreTableFromBackup,
+		opRestoreTableToPointInTime,
+		opDescribeTableReplicaAutoScaling:
 		return h.dispatchBackupOps(ctx, action, body)
 	case "ExportTableToPointInTime":
 		return h.exportTableToPointInTime(ctx, body)
@@ -464,28 +525,28 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		return h.describeExport(ctx, body)
 	case "ListExports":
 		return h.listExports(ctx, body)
-	case "CreateGlobalTable",
-		"DescribeGlobalTable",
-		"DescribeGlobalTableSettings",
-		"ListGlobalTables",
-		"UpdateGlobalTable",
-		"UpdateGlobalTableSettings",
-		"EnableKinesisStreamingDestination",
-		"DescribeKinesisStreamingDestination",
-		"DisableKinesisStreamingDestination",
-		"UpdateKinesisStreamingDestination",
-		"DescribeLimits",
-		"DescribeEndpoints",
-		"DescribeContributorInsights",
-		"ListContributorInsights",
-		"UpdateContributorInsights",
-		"UpdateTableReplicaAutoScaling",
-		"DeleteResourcePolicy",
-		"GetResourcePolicy",
-		"PutResourcePolicy",
-		"DescribeImport",
-		"ImportTable",
-		"ListImports":
+	case opCreateGlobalTable,
+		opDescribeGlobalTable,
+		opDescribeGlobalTableSettings,
+		opListGlobalTables,
+		opUpdateGlobalTable,
+		opUpdateGlobalTableSettings,
+		opEnableKinesisStreamingDestination,
+		opDescribeKinesisStreamingDestination,
+		opDisableKinesisStreamingDestination,
+		opUpdateKinesisStreamingDestination,
+		opDescribeLimits,
+		opDescribeEndpoints,
+		opDescribeContributorInsights,
+		opListContributorInsights,
+		opUpdateContributorInsights,
+		opUpdateTableReplicaAutoScaling,
+		opDeleteResourcePolicy,
+		opGetResourcePolicy,
+		opPutResourcePolicy,
+		opDescribeImport,
+		opImportTable,
+		opListImports:
 		return h.dispatchExtraOps(ctx, action, body)
 	case "ExecuteTransaction":
 		return h.handleExecuteTransaction(ctx, body)
@@ -496,23 +557,23 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 
 func (h *DynamoDBHandler) dispatchBackupOps(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
-	case "DescribeContinuousBackups":
+	case opDescribeContinuousBackups:
 		return h.describeContinuousBackups(ctx, body)
-	case "UpdateContinuousBackups":
+	case opUpdateContinuousBackups:
 		return h.updateContinuousBackups(ctx, body)
-	case "CreateBackup":
+	case opCreateBackup:
 		return h.createBackup(ctx, body)
-	case "DescribeBackup":
+	case opDescribeBackup:
 		return h.describeBackup(ctx, body)
-	case "DeleteBackup":
+	case opDeleteBackup:
 		return h.deleteBackup(ctx, body)
-	case "ListBackups":
+	case opListBackups:
 		return h.listBackups(ctx, body)
-	case "RestoreTableFromBackup":
+	case opRestoreTableFromBackup:
 		return h.restoreTableFromBackup(ctx, body)
-	case "RestoreTableToPointInTime":
+	case opRestoreTableToPointInTime:
 		return h.restoreTableToPointInTime(ctx, body)
-	case "DescribeTableReplicaAutoScaling":
+	case opDescribeTableReplicaAutoScaling:
 		return h.describeTableReplicaAutoScaling(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
@@ -604,47 +665,47 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 
 func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
-	case "CreateTable":
+	case opCreateTable:
 		return handleOp(
 			ctx, action, body,
 			models.ToSDKCreateTableInput, h.Backend.CreateTable, models.FromSDKCreateTableOutput,
 		)
-	case "DeleteTable":
+	case opDeleteTable:
 		return handleOp(
 			ctx, action, body,
 			models.ToSDKDeleteTableInput, h.Backend.DeleteTable, models.FromSDKDeleteTableOutput,
 		)
-	case "DescribeTable":
+	case opDescribeTable:
 		return handleOp(
 			ctx, action, body,
 			models.ToSDKDescribeTableInput, h.Backend.DescribeTable, models.FromSDKDescribeTableOutput,
 		)
-	case "ListTables":
+	case opListTables:
 		return handleOp(
 			ctx, action, body,
 			models.ToSDKListTablesInput, h.Backend.ListTables, models.FromSDKListTablesOutput,
 		)
-	case "UpdateTable":
+	case opUpdateTable:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKUpdateTableInput, h.Backend.UpdateTable, models.FromSDKUpdateTableOutput,
 		)
-	case "TagResource":
+	case opTagResource:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKTagResourceInput, h.Backend.TagResource, models.FromSDKTagResourceOutput,
 		)
-	case "UntagResource":
+	case opUntagResource:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKUntagResourceInput, h.Backend.UntagResource, models.FromSDKUntagResourceOutput,
 		)
-	case "ListTagsOfResource":
+	case opListTagsOfResource:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKListTagsOfResourceInput, h.Backend.ListTagsOfResource, models.FromSDKListTagsOfResourceOutput,
 		)
-	case "UpdateTimeToLive":
+	case opUpdateTimeToLive:
 		return handleOp(
 			ctx,
 			action,
@@ -653,7 +714,7 @@ func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, b
 			h.Backend.UpdateTimeToLive,
 			models.FromSDKUpdateTimeToLiveOutput,
 		)
-	case "DescribeTimeToLive":
+	case opDescribeTimeToLive:
 		return handleOp(
 			ctx,
 			action,
@@ -669,42 +730,42 @@ func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, b
 
 func (h *DynamoDBHandler) dispatchItemOps(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
-	case "PutItem":
+	case opPutItem:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKPutItemInput, h.Backend.PutItem, models.FromSDKPutItemOutput,
 		)
-	case "GetItem":
+	case opGetItem:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKGetItemInput, h.Backend.GetItem, models.FromSDKGetItemOutput,
 		)
-	case "DeleteItem":
+	case opDeleteItem:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKDeleteItemInput, h.Backend.DeleteItem, models.FromSDKDeleteItemOutput,
 		)
-	case "Scan":
+	case opScan:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKScanInput, h.Backend.Scan, models.FromSDKScanOutput,
 		)
-	case "UpdateItem":
+	case opUpdateItem:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKUpdateItemInput, h.Backend.UpdateItem, models.FromSDKUpdateItemOutput,
 		)
-	case "Query":
+	case opQuery:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKQueryInput, h.Backend.Query, models.FromSDKQueryOutput,
 		)
-	case "BatchGetItem":
+	case opBatchGetItem:
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKBatchGetItemInput, h.Backend.BatchGetItem, models.FromSDKBatchGetItemOutput,
 		)
-	case "BatchWriteItem":
+	case opBatchWriteItem:
 		return handleOpErr(
 			ctx,
 			action,
@@ -724,7 +785,7 @@ func (h *DynamoDBHandler) dispatchTransactOps(
 	body []byte,
 ) (any, error) {
 	switch action {
-	case "TransactWriteItems":
+	case opTransactWriteItems:
 		return handleOpErr(ctx,
 			action,
 			body,
@@ -732,7 +793,7 @@ func (h *DynamoDBHandler) dispatchTransactOps(
 			h.Backend.TransactWriteItems,
 			models.FromSDKTransactWriteItemsOutput,
 		)
-	case "TransactGetItems":
+	case opTransactGetItems:
 		return handleOpErr(ctx,
 			action,
 			body,
@@ -849,7 +910,7 @@ func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 	var wireErr *Error
 	if errors.As(reqErr, &wireErr) {
 		// Map type to status code. Most DynamoDB errors return 400.
-		if wireErr.Type == "com.amazonaws.dynamodb.v20120810#InternalServerError" {
+		if wireErr.Type == errInternalServerErrorType {
 			return http.StatusInternalServerError, wireErr
 		}
 
@@ -871,7 +932,7 @@ func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 	}
 
 	return http.StatusInternalServerError, &Error{
-		Type:    "com.amazonaws.dynamodb.v20120810#InternalServerError",
+		Type:    errInternalServerErrorType,
 		Message: reqErr.Error(),
 	}
 }
@@ -916,7 +977,7 @@ func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []
 			return nil, err
 		}
 
-		table.mu.RLock("DescribeContinuousBackups")
+		table.mu.RLock(opDescribeContinuousBackups)
 		pitrEnabled = table.PITREnabled
 		table.mu.RUnlock()
 	}
@@ -964,7 +1025,7 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 			return nil, err
 		}
 
-		table.mu.Lock("UpdateContinuousBackups")
+		table.mu.Lock(opUpdateContinuousBackups)
 		table.PITREnabled = pitrEnabled
 		table.mu.Unlock()
 	}
@@ -1143,7 +1204,7 @@ func (h *DynamoDBHandler) describeTableReplicaAutoScaling(ctx context.Context, b
 			return nil, err
 		}
 
-		table.mu.RLock("DescribeTableReplicaAutoScaling")
+		table.mu.RLock(opDescribeTableReplicaAutoScaling)
 		for _, r := range table.Replicas {
 			replicas = append(replicas, replicaAutoScalingDescription{
 				RegionName:    r.RegionName,
@@ -1368,28 +1429,28 @@ func (h *DynamoDBHandler) dispatchExtraOps(
 	updGTSettings := func() (any, error) { return h.handleUpdateGlobalTableSettings(ctx, body) }
 
 	handlers := map[string]handlerFn{
-		"CreateGlobalTable":                   func() (any, error) { return h.handleCreateGlobalTable(ctx, body) },
-		"DescribeGlobalTable":                 func() (any, error) { return h.handleDescribeGlobalTable(ctx, body) },
-		"DescribeGlobalTableSettings":         func() (any, error) { return h.handleDescribeGlobalTableSettings(ctx, body) },
-		"ListGlobalTables":                    func() (any, error) { return h.handleListGlobalTables(ctx, body) },
-		"UpdateGlobalTable":                   func() (any, error) { return h.handleUpdateGlobalTable(ctx, body) },
-		"UpdateGlobalTableSettings":           updGTSettings,
-		"EnableKinesisStreamingDestination":   enableKinesis,
-		"DescribeKinesisStreamingDestination": describeKinesis,
-		"DisableKinesisStreamingDestination":  disableKinesis,
-		"UpdateKinesisStreamingDestination":   updateKinesis,
-		"DescribeLimits":                      func() (any, error) { return h.handleDescribeLimits(ctx) },
-		"DescribeEndpoints":                   func() (any, error) { return h.handleDescribeEndpoints(ctx) },
-		"DescribeContributorInsights":         descContrib,
-		"ListContributorInsights":             listContrib,
-		"UpdateContributorInsights":           updContrib,
-		"UpdateTableReplicaAutoScaling":       updASReplica,
-		"GetResourcePolicy":                   func() (any, error) { return h.handleGetResourcePolicy(ctx, body) },
-		"PutResourcePolicy":                   func() (any, error) { return h.handlePutResourcePolicy(ctx, body) },
-		"DeleteResourcePolicy":                func() (any, error) { return h.handleDeleteResourcePolicy(ctx, body) },
-		"DescribeImport":                      func() (any, error) { return h.handleDescribeImport(ctx, body) },
-		"ImportTable":                         func() (any, error) { return h.handleImportTable(ctx, body) },
-		"ListImports":                         func() (any, error) { return h.handleListImports(ctx, body) },
+		opCreateGlobalTable:                   func() (any, error) { return h.handleCreateGlobalTable(ctx, body) },
+		opDescribeGlobalTable:                 func() (any, error) { return h.handleDescribeGlobalTable(ctx, body) },
+		opDescribeGlobalTableSettings:         func() (any, error) { return h.handleDescribeGlobalTableSettings(ctx, body) },
+		opListGlobalTables:                    func() (any, error) { return h.handleListGlobalTables(ctx, body) },
+		opUpdateGlobalTable:                   func() (any, error) { return h.handleUpdateGlobalTable(ctx, body) },
+		opUpdateGlobalTableSettings:           updGTSettings,
+		opEnableKinesisStreamingDestination:   enableKinesis,
+		opDescribeKinesisStreamingDestination: describeKinesis,
+		opDisableKinesisStreamingDestination:  disableKinesis,
+		opUpdateKinesisStreamingDestination:   updateKinesis,
+		opDescribeLimits:                      func() (any, error) { return h.handleDescribeLimits(ctx) },
+		opDescribeEndpoints:                   func() (any, error) { return h.handleDescribeEndpoints(ctx) },
+		opDescribeContributorInsights:         descContrib,
+		opListContributorInsights:             listContrib,
+		opUpdateContributorInsights:           updContrib,
+		opUpdateTableReplicaAutoScaling:       updASReplica,
+		opGetResourcePolicy:                   func() (any, error) { return h.handleGetResourcePolicy(ctx, body) },
+		opPutResourcePolicy:                   func() (any, error) { return h.handlePutResourcePolicy(ctx, body) },
+		opDeleteResourcePolicy:                func() (any, error) { return h.handleDeleteResourcePolicy(ctx, body) },
+		opDescribeImport:                      func() (any, error) { return h.handleDescribeImport(ctx, body) },
+		opImportTable:                         func() (any, error) { return h.handleImportTable(ctx, body) },
+		opListImports:                         func() (any, error) { return h.handleListImports(ctx, body) },
 	}
 
 	fn, ok := handlers[action]

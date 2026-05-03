@@ -13,6 +13,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+const (
+	dnsNS1Default = "ns1.gopherstack.invalid"
+	dnsNS2Default = "ns2.gopherstack.invalid"
+)
+
 // Errors returned by the backend.
 var (
 	ErrHostedZoneNotFound         = errors.New("NoSuchHostedZone")
@@ -942,7 +947,7 @@ func (b *InMemoryBackend) CreateReusableDelegationSet(
 	ds := &ReusableDelegationSet{
 		ID:              id,
 		CallerReference: callerRef,
-		NameServers:     []string{"ns1.gopherstack.invalid", "ns2.gopherstack.invalid"},
+		NameServers:     []string{dnsNS1Default, dnsNS2Default},
 		CreatedAt:       time.Now(),
 	}
 

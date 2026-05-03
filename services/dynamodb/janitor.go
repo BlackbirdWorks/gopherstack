@@ -79,7 +79,7 @@ func NewJanitor(backend *InMemoryDB, settings Settings) *Janitor {
 func (j *Janitor) Run(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Load(ctx).Error("DynamoDB janitor: panic recovered, loop exiting",
+			logger.Load(ctx).ErrorContext(ctx, "DynamoDB janitor: panic recovered, loop exiting",
 				"panic", fmt.Sprintf("%v", r))
 		}
 	}()

@@ -468,7 +468,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 
 	switch {
 	case errors.Is(reqErr, ErrSecretNotFound), errors.Is(reqErr, ErrVersionNotFound):
-		errorType = "ResourceNotFoundException"
+		errorType = errResourceNotFoundException
 	case errors.Is(reqErr, ErrSecretAlreadyExists):
 		errorType = "ResourceExistsException"
 	case errors.Is(reqErr, ErrSecretDeleted):

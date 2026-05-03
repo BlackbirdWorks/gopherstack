@@ -338,8 +338,8 @@ func (b *InMemoryBackend) provisionResources(
 // rollbackCreateResources deletes all resources that were created during a
 // failed CreateStack provisioning pass, in reverse order.
 func (b *InMemoryBackend) rollbackCreateResources(ctx context.Context, stack *Stack, created []string) {
-	for i := len(created) - 1; i >= 0; i-- {
-		logicalID := created[i]
+	for _, v := range slices.Backward(created) {
+		logicalID := v
 		res, ok := b.resources[stack.StackID][logicalID]
 		if !ok {
 			continue

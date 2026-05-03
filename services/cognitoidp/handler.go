@@ -19,6 +19,19 @@ import (
 )
 
 const (
+	medEmail = "EMAIL"
+)
+
+const (
+	errInvalidParameterException = "InvalidParameterException"
+	keyDeliveryMedium            = "DeliveryMedium"
+	keyDestination               = "Destination"
+	keyAttributeName             = "AttributeName"
+	keyConfirmationCode          = "ConfirmationCode"
+	authTypeBearer               = "Bearer"
+)
+
+const (
 	cognitoTargetPrefix = "AWSCognitoIdentityProviderService."
 	jwksPathSuffix      = "/.well-known/jwks.json"
 	contentType         = "application/x-amz-json-1.1"
@@ -334,12 +347,12 @@ func resolveErrorType(err error) (string, int) {
 
 	var syntaxErr *json.SyntaxError
 	if errors.As(err, &syntaxErr) {
-		return "InvalidParameterException", http.StatusBadRequest
+		return errInvalidParameterException, http.StatusBadRequest
 	}
 
 	var typeErr *json.UnmarshalTypeError
 	if errors.As(err, &typeErr) {
-		return "InvalidParameterException", http.StatusBadRequest
+		return errInvalidParameterException, http.StatusBadRequest
 	}
 
 	return "InternalFailure", http.StatusInternalServerError
@@ -352,7 +365,7 @@ func (h *Handler) handleJWKS(c *echo.Context) error {
 
 	if len(parts) == 0 || parts[0] == "" {
 		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
-			Type:    "InvalidParameterException",
+			Type:    errInvalidParameterException,
 			Message: "missing user pool ID in path",
 		})
 	}
@@ -667,10 +680,10 @@ func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutpu
 	// directly so test harnesses don't need an out-of-band code delivery mechanism.
 	if user.ConfirmCode != "" {
 		out.CodeDeliveryDetails = map[string]string{
-			"DeliveryMedium":   "EMAIL",
-			"Destination":      "mock",
-			"AttributeName":    "email",
-			"ConfirmationCode": user.ConfirmCode,
+			keyDeliveryMedium:   medEmail,
+			keyDestination:      "mock",
+			keyAttributeName:    attrEmail,
+			keyConfirmationCode: user.ConfirmCode,
 		}
 	}
 
@@ -728,7 +741,7 @@ func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOut
 				// AWS does not rotate the refresh token on every refresh by default;
 				// we return the new token to keep the mock consistent with rotation.
 				RefreshToken: tokens.RefreshToken,
-				TokenType:    "Bearer",
+				TokenType:    authTypeBearer,
 				ExpiresIn:    tokens.ExpiresIn,
 			},
 		}, nil
@@ -747,7 +760,7 @@ func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOut
 			AccessToken:  tokens.AccessToken,
 			IDToken:      tokens.IDToken,
 			RefreshToken: tokens.RefreshToken,
-			TokenType:    "Bearer",
+			TokenType:    authTypeBearer,
 			ExpiresIn:    tokens.ExpiresIn,
 		},
 	}, nil
@@ -766,7 +779,7 @@ func (h *Handler) handleAdminInitiateAuth(_ context.Context, in *authInput) (*au
 				AccessToken:  tokens.AccessToken,
 				IDToken:      tokens.IDToken,
 				RefreshToken: tokens.RefreshToken,
-				TokenType:    "Bearer",
+				TokenType:    authTypeBearer,
 				ExpiresIn:    tokens.ExpiresIn,
 			},
 		}, nil
@@ -785,7 +798,7 @@ func (h *Handler) handleAdminInitiateAuth(_ context.Context, in *authInput) (*au
 			AccessToken:  tokens.AccessToken,
 			IDToken:      tokens.IDToken,
 			RefreshToken: tokens.RefreshToken,
-			TokenType:    "Bearer",
+			TokenType:    authTypeBearer,
 			ExpiresIn:    tokens.ExpiresIn,
 		},
 	}, nil
@@ -1039,10 +1052,10 @@ func (h *Handler) handleForgotPassword(
 
 	return &forgotPasswordOutput{
 		CodeDeliveryDetails: map[string]string{
-			"Destination":      "mock@example.com",
-			"DeliveryMedium":   "EMAIL",
-			"AttributeName":    "email",
-			"ConfirmationCode": code,
+			keyDestination:      "mock@example.com",
+			keyDeliveryMedium:   medEmail,
+			keyAttributeName:    attrEmail,
+			keyConfirmationCode: code,
 		},
 	}, nil
 }
@@ -1521,10 +1534,10 @@ func (h *Handler) handleResendConfirmationCode(
 
 	return &resendConfirmationCodeOutput{
 		CodeDeliveryDetails: map[string]string{
-			"DeliveryMedium":   "EMAIL",
-			"Destination":      "mock",
-			"AttributeName":    "email",
-			"ConfirmationCode": code,
+			keyDeliveryMedium:   medEmail,
+			keyDestination:      "mock",
+			keyAttributeName:    attrEmail,
+			keyConfirmationCode: code,
 		},
 	}, nil
 }

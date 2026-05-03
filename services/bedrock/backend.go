@@ -11,6 +11,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	textTypeText = "TEXT"
+)
+
 const bedrockDefaultPageSize = 100
 
 var (
@@ -271,15 +275,15 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			ModelName:        "Titan Text G1 - Express",
 			ProviderName:     "Amazon",
 			ModelArn:         prefix + "amazon.titan-text-express-v1",
-			InputModalities:  []string{"TEXT"},
-			OutputModalities: []string{"TEXT"},
+			InputModalities:  []string{textTypeText},
+			OutputModalities: []string{textTypeText},
 		},
 		{
 			ModelID:          "amazon.titan-embed-text-v1",
 			ModelName:        "Titan Embeddings G1 - Text",
 			ProviderName:     "Amazon",
 			ModelArn:         prefix + "amazon.titan-embed-text-v1",
-			InputModalities:  []string{"TEXT"},
+			InputModalities:  []string{textTypeText},
 			OutputModalities: []string{"EMBEDDING"},
 		},
 		{
@@ -287,24 +291,24 @@ func (b *InMemoryBackend) seedFoundationModels() {
 			ModelName:        "Claude",
 			ProviderName:     "Anthropic",
 			ModelArn:         prefix + "anthropic.claude-v2",
-			InputModalities:  []string{"TEXT"},
-			OutputModalities: []string{"TEXT"},
+			InputModalities:  []string{textTypeText},
+			OutputModalities: []string{textTypeText},
 		},
 		{
 			ModelID:          "anthropic.claude-3-sonnet-20240229-v1:0",
 			ModelName:        "Claude 3 Sonnet",
 			ProviderName:     "Anthropic",
 			ModelArn:         prefix + "anthropic.claude-3-sonnet-20240229-v1:0",
-			InputModalities:  []string{"TEXT", "IMAGE"},
-			OutputModalities: []string{"TEXT"},
+			InputModalities:  []string{textTypeText, "IMAGE"},
+			OutputModalities: []string{textTypeText},
 		},
 		{
 			ModelID:          "meta.llama3-8b-instruct-v1:0",
 			ModelName:        "Llama 3 8B Instruct",
 			ProviderName:     "Meta",
 			ModelArn:         prefix + "meta.llama3-8b-instruct-v1:0",
-			InputModalities:  []string{"TEXT"},
-			OutputModalities: []string{"TEXT"},
+			InputModalities:  []string{textTypeText},
+			OutputModalities: []string{textTypeText},
 		},
 	}
 }

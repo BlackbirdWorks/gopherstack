@@ -18,6 +18,23 @@ import (
 )
 
 const (
+	keyMessageField = "message"
+)
+
+const (
+	opCreatePipe          = "CreatePipe"
+	opDescribePipe        = "DescribePipe"
+	opListPipes           = "ListPipes"
+	opDeletePipe          = "DeletePipe"
+	opUpdatePipe          = "UpdatePipe"
+	opStartPipe           = "StartPipe"
+	opStopPipe            = "StopPipe"
+	opTagResource         = "TagResource"
+	opUntagResource       = "UntagResource"
+	opListTagsForResource = "ListTagsForResource"
+)
+
+const (
 	pipesService       = "pipes"
 	pipesMatchPriority = 87
 	pipesPathPrefix    = "/v1/pipes"
@@ -89,16 +106,16 @@ var _ service.Shutdowner = (*Handler)(nil)
 // GetSupportedOperations returns the list of supported Pipes operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreatePipe",
-		"DescribePipe",
-		"ListPipes",
-		"DeletePipe",
-		"UpdatePipe",
-		"StartPipe",
-		"StopPipe",
-		"TagResource",
-		"UntagResource",
-		"ListTagsForResource",
+		opCreatePipe,
+		opDescribePipe,
+		opListPipes,
+		opDeletePipe,
+		opUpdatePipe,
+		opStartPipe,
+		opStopPipe,
+		opTagResource,
+		opUntagResource,
+		opListTagsForResource,
 	}
 }
 
@@ -139,11 +156,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	if strings.HasPrefix(path, pipesTagsPrefix) {
 		switch method {
 		case http.MethodGet:
-			return "ListTagsForResource"
+			return opListTagsForResource
 		case http.MethodPost:
-			return "TagResource"
+			return opTagResource
 		case http.MethodDelete:
-			return "UntagResource"
+			return opUntagResource
 		}
 	}
 
@@ -152,24 +169,24 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	switch {
 	case method == http.MethodGet && len(segments) >= 2 && segments[1] == pipeNameSegment &&
 		(len(segments) == 2 || (len(segments) == 3 && segments[2] == "")):
-		return "ListPipes"
+		return opListPipes
 	case len(segments) == pipePathMinSegments && segments[0] == "v1" && segments[1] == pipeNameSegment:
 		switch method {
 		case http.MethodPost:
-			return "CreatePipe"
+			return opCreatePipe
 		case http.MethodGet:
-			return "DescribePipe"
+			return opDescribePipe
 		case http.MethodDelete:
-			return "DeletePipe"
+			return opDeletePipe
 		case http.MethodPut:
-			return "UpdatePipe"
+			return opUpdatePipe
 		}
 	case len(segments) == 4 && segments[0] == "v1" && segments[1] == pipeNameSegment && method == http.MethodPost:
 		switch segments[3] {
 		case "start":
-			return "StartPipe"
+			return opStartPipe
 		case "stop":
-			return "StopPipe"
+			return opStopPipe
 		}
 	}
 
@@ -221,25 +238,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatch(ctx context.Context, op, path string, query url.Values, body []byte) ([]byte, error) {
 	switch op {
-	case "CreatePipe":
+	case opCreatePipe:
 		return h.handleCreatePipe(ctx, path, body)
-	case "DescribePipe":
+	case opDescribePipe:
 		return h.handleDescribePipe(ctx, path)
-	case "ListPipes":
+	case opListPipes:
 		return h.handleListPipes(ctx)
-	case "DeletePipe":
+	case opDeletePipe:
 		return h.handleDeletePipe(ctx, path)
-	case "UpdatePipe":
+	case opUpdatePipe:
 		return h.handleUpdatePipe(ctx, path, body)
-	case "StartPipe":
+	case opStartPipe:
 		return h.handleStartPipe(ctx, path)
-	case "StopPipe":
+	case opStopPipe:
 		return h.handleStopPipe(ctx, path)
-	case "TagResource":
+	case opTagResource:
 		return h.handleTagResource(ctx, path, body)
-	case "UntagResource":
+	case opUntagResource:
 		return h.handleUntagResource(ctx, path, query)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return h.handleListTagsForResource(ctx, path)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
@@ -253,23 +270,23 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "NotFoundException",
-			"message": err.Error(),
+			"__type":        "NotFoundException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, ErrAlreadyExists):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ConflictException",
-			"message": err.Error(),
+			"__type":        "ConflictException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 }
 

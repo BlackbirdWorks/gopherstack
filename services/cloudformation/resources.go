@@ -64,6 +64,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
+const ()
+
 // ServiceBackends holds references to all service backends.
 type ServiceBackends struct {
 	DynamoDB        *ddbbackend.DynamoDBHandler
@@ -170,19 +172,19 @@ func (rc *ResourceCreator) createCoreResource(
 	physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
-	case "AWS::S3::Bucket":
+	case resTypeS3Bucket:
 		id, err := rc.createS3Bucket(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
-	case "AWS::DynamoDB::Table":
+	case resTypeDynamoDBTable:
 		id, err := rc.createDynamoDBTable(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
-	case "AWS::SQS::Queue":
+	case resTypeSQSQueue:
 		id, err := rc.createSQSQueue(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
-	case "AWS::SNS::Topic":
+	case resTypeSNSTopic:
 		id, err := rc.createSNSTopic(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
@@ -190,11 +192,11 @@ func (rc *ResourceCreator) createCoreResource(
 		id, err := rc.createSSMParameter(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
-	case "AWS::KMS::Key":
+	case resTypeKMSKey:
 		id, err := rc.createKMSKey(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
-	case "AWS::SecretsManager::Secret":
+	case resTypeSecret:
 		id, err := rc.createSecretsManagerSecret(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
@@ -254,7 +256,7 @@ func (rc *ResourceCreator) createLambdaResources(
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
-	case "AWS::Lambda::Function":
+	case resTypeLambdaFunction:
 		physID, err := rc.createLambdaFunction(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -299,7 +301,7 @@ func (rc *ResourceCreator) createPlatformResources(
 		physID, err := rc.createStepFunctionsStateMachine(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::Logs::LogGroup":
+	case resTypeLogGroup:
 		physID, err := rc.createCloudWatchLogGroup(ctx, logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -350,7 +352,7 @@ func (rc *ResourceCreator) createIAMEC2Resource(
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
-	case "AWS::IAM::Role":
+	case resTypeIAMRole:
 		physID, err := rc.createIAMRole(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -370,7 +372,7 @@ func (rc *ResourceCreator) createIAMEC2Resource(
 		physID, err := rc.createEC2SecurityGroup(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::EC2::VPC":
+	case resTypeEC2VPC:
 		physID, err := rc.createEC2VPC(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -463,7 +465,7 @@ func (rc *ResourceCreator) createRDSResource(
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
-	case "AWS::RDS::DBInstance":
+	case resTypeRDSDB:
 		physID, err := rc.createRDSDBInstance(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -488,7 +490,7 @@ func (rc *ResourceCreator) createContainerResource(
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
-	case "AWS::ECS::Cluster":
+	case resTypeECSCluster:
 		physID, err := rc.createECSCluster(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -757,19 +759,19 @@ func (rc *ResourceCreator) Delete(
 // deleteCoreResource handles deletion of the original 7 core AWS resource types.
 func (rc *ResourceCreator) deleteCoreResource(ctx context.Context, resourceType, physicalID string) (bool, error) {
 	switch resourceType {
-	case "AWS::S3::Bucket":
+	case resTypeS3Bucket:
 		return true, rc.deleteS3Bucket(ctx, physicalID)
-	case "AWS::DynamoDB::Table":
+	case resTypeDynamoDBTable:
 		return true, rc.deleteDynamoDBTable(ctx, physicalID)
-	case "AWS::SQS::Queue":
+	case resTypeSQSQueue:
 		return true, rc.deleteSQSQueue(ctx, physicalID)
-	case "AWS::SNS::Topic":
+	case resTypeSNSTopic:
 		return true, rc.deleteSNSTopic(ctx, physicalID)
 	case "AWS::SSM::Parameter":
 		return true, rc.deleteSSMParameter(ctx, physicalID)
-	case "AWS::KMS::Key":
+	case resTypeKMSKey:
 		return true, rc.deleteKMSKey(ctx, physicalID)
-	case "AWS::SecretsManager::Secret":
+	case resTypeSecret:
 		return true, rc.deleteSecretsManagerSecret(ctx, physicalID)
 	default:
 		return false, nil
@@ -797,7 +799,7 @@ func (rc *ResourceCreator) deleteInfraResource(ctx context.Context, resourceType
 // deleteLambdaResource handles Lambda and Lambda-adjacent resource deletions.
 func (rc *ResourceCreator) deleteLambdaResource(resourceType, physicalID string) (bool, error) {
 	switch resourceType {
-	case "AWS::Lambda::Function":
+	case resTypeLambdaFunction:
 		return true, rc.deleteLambdaFunction(physicalID)
 	case "AWS::Lambda::EventSourceMapping":
 		return true, rc.deleteLambdaEventSourceMapping(physicalID)
@@ -821,7 +823,7 @@ func (rc *ResourceCreator) deletePlatformResource(ctx context.Context, resourceT
 		return true, rc.deleteEventBus(physicalID)
 	case "AWS::StepFunctions::StateMachine":
 		return true, rc.deleteStepFunctionsStateMachine(ctx, physicalID)
-	case "AWS::Logs::LogGroup":
+	case resTypeLogGroup:
 		return true, rc.deleteCloudWatchLogGroup(physicalID)
 	case "AWS::ApiGateway::RestApi":
 		return true, rc.deleteAPIGatewayRestAPI(ctx, physicalID)
@@ -851,7 +853,7 @@ func (rc *ResourceCreator) deleteServiceResource(ctx context.Context, resourceTy
 // deleteIAMEC2Resource handles IAM and EC2 resource deletions.
 func (rc *ResourceCreator) deleteIAMEC2Resource(resourceType, physicalID string) (bool, error) {
 	switch resourceType {
-	case "AWS::IAM::Role":
+	case resTypeIAMRole:
 		return true, rc.deleteIAMRole(physicalID)
 	case "AWS::IAM::Policy", "AWS::IAM::ManagedPolicy":
 		return true, rc.deleteIAMPolicy(physicalID)
@@ -859,7 +861,7 @@ func (rc *ResourceCreator) deleteIAMEC2Resource(resourceType, physicalID string)
 		return true, rc.deleteIAMInstanceProfile(physicalID)
 	case "AWS::EC2::SecurityGroup":
 		return true, rc.deleteEC2SecurityGroup(physicalID)
-	case "AWS::EC2::VPC":
+	case resTypeEC2VPC:
 		return true, rc.deleteEC2VPC(physicalID)
 	case "AWS::EC2::Subnet":
 		return true, rc.deleteEC2Subnet(physicalID)
@@ -924,13 +926,13 @@ func (rc *ResourceCreator) deleteNewServiceResource(physicalID, resourceType str
 // deleteComputeStorageResource handles RDS, ECS, ECR, Lambda layer, Redshift, and OpenSearch deletions.
 func (rc *ResourceCreator) deleteComputeStorageResource(physicalID, resourceType string) (bool, error) {
 	switch resourceType {
-	case "AWS::RDS::DBInstance":
+	case resTypeRDSDB:
 		return true, rc.deleteRDSDBInstance(physicalID)
 	case "AWS::RDS::DBSubnetGroup":
 		return true, rc.deleteRDSDBSubnetGroup(physicalID)
 	case "AWS::RDS::DBParameterGroup":
 		return true, rc.deleteRDSDBParameterGroup(physicalID)
-	case "AWS::ECS::Cluster":
+	case resTypeECSCluster:
 		return true, rc.deleteECSCluster(physicalID)
 	case "AWS::ECS::TaskDefinition":
 		return true, rc.deleteECSTaskDefinition(physicalID)

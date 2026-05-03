@@ -983,7 +983,11 @@ func (b *InMemoryBackend) UpdatePreparedStatement(name, workGroup, queryStatemen
 	}
 
 	ps.QueryStatement = queryStatement
-	ps.Description = description
+
+	if description != "" {
+		ps.Description = description
+	}
+
 	ps.LastModifiedTime = nowSeconds()
 
 	return nil

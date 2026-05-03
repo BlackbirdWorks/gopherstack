@@ -260,8 +260,8 @@ func reasonFromEventName(eventName string) string {
 		return "PutObject"
 	case "Copy":
 		return "CopyObject"
-	case "CompleteMultipartUpload":
-		return "CompleteMultipartUpload"
+	case opCompleteMultipartUpload:
+		return opCompleteMultipartUpload
 	case "Delete", "DeleteMarkerCreated":
 		return "DeleteObject"
 	default:

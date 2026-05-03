@@ -45,6 +45,16 @@ import (
 )
 
 const (
+	envTag = "env"
+)
+
+const (
+	keyVisibilityTimeout      = "VisibilityTimeout"
+	keyMessageRetentionPeriod = "MessageRetentionPeriod"
+	sourceDemo                = "demo"
+)
+
+const (
 	defaultCapacity = 5
 )
 
@@ -287,11 +297,11 @@ func loadSQS(ctx context.Context, sqsClient *sqs.Client) {
 	if _, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: &queueName,
 		Attributes: map[string]string{
-			"VisibilityTimeout":             "30",
-			"MessageRetentionPeriod":        "86400",
+			keyVisibilityTimeout:            "30",
+			keyMessageRetentionPeriod:       "86400",
 			"ReceiveMessageWaitTimeSeconds": "5",
 		},
-		Tags: map[string]string{"env": "demo", "team": "platform"},
+		Tags: map[string]string{envTag: sourceDemo, "team": "platform"},
 	}); err != nil {
 		log.WarnContext(ctx, "Failed to create queue", "name", queueName, "error", err)
 	} else {
@@ -302,8 +312,8 @@ func loadSQS(ctx context.Context, sqsClient *sqs.Client) {
 	dlqName := "order-processing-dlq"
 	dlqOut, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName:  &dlqName,
-		Attributes: map[string]string{"MessageRetentionPeriod": "1209600"},
-		Tags:       map[string]string{"env": "demo", "purpose": "dlq"},
+		Attributes: map[string]string{keyMessageRetentionPeriod: "1209600"},
+		Tags:       map[string]string{envTag: sourceDemo, "purpose": "dlq"},
 	})
 	if err != nil {
 		log.WarnContext(ctx, "Failed to create DLQ", "name", dlqName, "error", err)
@@ -315,8 +325,8 @@ func loadSQS(ctx context.Context, sqsClient *sqs.Client) {
 	orderQueueName := "order-processing"
 	dlqARN := arn.Build("sqs", config.DefaultRegion, config.DefaultAccountID, dlqName)
 	orderAttrs := map[string]string{
-		"VisibilityTimeout":      "60",
-		"MessageRetentionPeriod": "345600",
+		keyVisibilityTimeout:      "60",
+		keyMessageRetentionPeriod: "345600",
 	}
 	if dlqOut != nil {
 		orderAttrs["RedrivePolicy"] = `{"deadLetterTargetArn":"` + dlqARN + `","maxReceiveCount":"3"}`
@@ -324,7 +334,7 @@ func loadSQS(ctx context.Context, sqsClient *sqs.Client) {
 	if _, createErr := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName:  &orderQueueName,
 		Attributes: orderAttrs,
-		Tags:       map[string]string{"env": "demo", "service": "orders"},
+		Tags:       map[string]string{envTag: sourceDemo, "service": "orders"},
 	}); createErr != nil {
 		log.WarnContext(ctx, "Failed to create order queue", "error", createErr)
 	} else {
@@ -338,9 +348,9 @@ func loadSQS(ctx context.Context, sqsClient *sqs.Client) {
 		Attributes: map[string]string{
 			"FifoQueue":                 "true",
 			"ContentBasedDeduplication": "false",
-			"VisibilityTimeout":         "30",
+			keyVisibilityTimeout:        "30",
 		},
-		Tags: map[string]string{"env": "demo", "service": "orders"},
+		Tags: map[string]string{envTag: sourceDemo, "service": "orders"},
 	}); fifoErr != nil {
 		log.WarnContext(ctx, "Failed to create FIFO queue", "name", fifoQueueName, "error", fifoErr)
 	} else {
@@ -813,7 +823,7 @@ func loadCodePipeline(ctx context.Context, client *codepipelinesvc.Client) {
 				},
 			},
 			Tags: []codepipelinetypes.Tag{
-				{Key: aws.String("Environment"), Value: aws.String("demo")},
+				{Key: aws.String("Environment"), Value: aws.String(sourceDemo)},
 			},
 		})
 		if err != nil {
@@ -870,7 +880,7 @@ func loadLambda(ctx context.Context, client *lambdasdk.Client) {
 			description: "Hello World demo function",
 			memory:      demoHelloWorldMemory,
 			timeout:     demoHelloWorldTimeout,
-			env:         map[string]string{"STAGE": "demo", "LOG_LEVEL": "INFO"},
+			env:         map[string]string{"STAGE": sourceDemo, "LOG_LEVEL": "INFO"},
 		},
 		{
 			name:        "demo-s3-processor",

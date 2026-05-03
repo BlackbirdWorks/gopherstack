@@ -367,7 +367,7 @@ func (h *S3Handler) routeBucketGetStubs(
 		ctx,
 		w,
 		http.StatusOK,
-		s3RequestPaymentConfiguration{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Payer: "BucketOwner"},
+		s3RequestPaymentConfiguration{Xmlns: xmlNamespaceS3, Payer: "BucketOwner"},
 	)
 
 	return true
@@ -384,8 +384,8 @@ func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *h
 
 	resp := ListAllMyBucketsResult{
 		Owner: &Owner{
-			ID:          "gopherstack",
-			DisplayName: "gopherstack",
+			ID:          gopherstackName,
+			DisplayName: gopherstackName,
 		},
 	}
 
@@ -622,7 +622,7 @@ func (h *S3Handler) getBucketLocation(
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, &LocationConstraintResponse{
-		Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
+		Xmlns:  xmlNamespaceS3,
 		Region: region,
 	})
 }
@@ -832,8 +832,8 @@ func (h *S3Handler) listObjectVersions(
 			ETag:         etag,
 			Size:         size,
 			Owner: &Owner{
-				ID:          "gopherstack",
-				DisplayName: "gopherstack",
+				ID:          gopherstackName,
+				DisplayName: gopherstackName,
 			},
 			StorageClass: "STANDARD",
 		})
@@ -846,8 +846,8 @@ func (h *S3Handler) listObjectVersions(
 			IsLatest:     *d.IsLatest,
 			LastModified: d.LastModified.Format(time.RFC3339),
 			Owner: &Owner{
-				ID:          "gopherstack",
-				DisplayName: "gopherstack",
+				ID:          gopherstackName,
+				DisplayName: gopherstackName,
 			},
 		})
 	}
@@ -862,7 +862,7 @@ func (h *S3Handler) listObjectVersions(
 // validCannedACLs is the complete set of canned ACL strings that AWS S3 accepts
 // for PutBucketAcl.
 var validCannedACLs = map[string]struct{}{ //nolint:gochecknoglobals // package-level lookup table
-	"private":                   {},
+	aclPrivate:                  {},
 	"public-read":               {},
 	"public-read-write":         {},
 	"authenticated-read":        {},
@@ -915,10 +915,10 @@ func (h *S3Handler) getBucketACL(
 	}
 
 	resp := AccessControlPolicy{
-		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		Xmlns: xmlNamespaceS3,
 		Owner: Owner{
-			ID:          "gopherstack",
-			DisplayName: "gopherstack",
+			ID:          gopherstackName,
+			DisplayName: gopherstackName,
 		},
 		ACL: AccessControlList{
 			Grants: []Grant{
@@ -926,7 +926,7 @@ func (h *S3Handler) getBucketACL(
 					Grantee: Grantee{
 						XmlnsXsi: "http://www.w3.org/2001/XMLSchema-instance",
 						XsiType:  "CanonicalUser",
-						ID:       "gopherstack",
+						ID:       gopherstackName,
 					},
 					Permission: "FULL_CONTROL",
 				},
@@ -990,8 +990,8 @@ func (h *S3Handler) putBucketCORS(ctx context.Context, w http.ResponseWriter, r 
 	var cfg CORSConfiguration
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
-			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
 
 		return
@@ -1042,8 +1042,8 @@ func (h *S3Handler) putBucketWebsite(ctx context.Context, w http.ResponseWriter,
 	var cfg WebsiteConfiguration
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
-			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
 
 		return
@@ -1092,8 +1092,8 @@ func (h *S3Handler) putBucketEncryption(ctx context.Context, w http.ResponseWrit
 	var cfg ServerSideEncryptionConfiguration
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
-			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
 
 		return
@@ -1143,8 +1143,8 @@ func (h *S3Handler) putPublicAccessBlock(ctx context.Context, w http.ResponseWri
 	var cfg PublicAccessBlockConfiguration
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
-			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
 
 		return
@@ -1204,8 +1204,8 @@ func (h *S3Handler) putBucketOwnershipControls(
 	var cfg OwnershipControls
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
-			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
 
 		return
@@ -1265,8 +1265,8 @@ func (h *S3Handler) putBucketLogging(ctx context.Context, w http.ResponseWriter,
 	var cfg BucketLoggingStatus
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
-			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
 
 		return
@@ -1295,7 +1295,7 @@ func (h *S3Handler) getBucketLogging(ctx context.Context, w http.ResponseWriter,
 			ctx,
 			w,
 			http.StatusOK,
-			s3BucketLoggingStatus{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"},
+			s3BucketLoggingStatus{Xmlns: xmlNamespaceS3},
 		)
 
 		return
@@ -1318,8 +1318,8 @@ func (h *S3Handler) putBucketReplication(ctx context.Context, w http.ResponseWri
 	var cfg ReplicationConfiguration
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
-			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
 
 		return
@@ -1375,8 +1375,8 @@ func (h *S3Handler) putBucketTagging(ctx context.Context, w http.ResponseWriter,
 	var tagging Tagging
 	if xmlErr := xml.Unmarshal(body, &tagging); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
-			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
 
 		return
@@ -2211,7 +2211,7 @@ func writeConfigListXML(w http.ResponseWriter, rootTag, elementTag string, confi
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	sb.WriteString(`<`)
 	sb.WriteString(rootTag)
-	sb.WriteString(` xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
+	sb.WriteString(` xmlns=xmlNamespaceS3>`)
 	sb.WriteString(`<IsTruncated>false</IsTruncated>`)
 	for _, cfg := range configs {
 		sb.WriteString(`<`)

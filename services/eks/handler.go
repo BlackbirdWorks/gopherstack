@@ -15,6 +15,110 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+const (
+	keyName           = "name"
+	keyStatusField    = "status"
+	keyVersion        = "version"
+	keyCreatedAt      = "createdAt"
+	keyNodegroup      = "nodegroup"
+	keyUpdate         = "update"
+	keyType           = "type"
+	keyPrincipalArn   = "principalArn"
+	keyUsername       = "username"
+	keyPolicyArn      = "policyArn"
+	keySubscription   = "subscription"
+	keyFargateProfile = "fargateProfile"
+)
+
+const (
+	opUnknown         = "Unknown"
+	keyAddons         = "addons"
+	keyArn            = "arn"
+	keyClusterName    = "clusterName"
+	keyCluster        = "cluster"
+	keyAccessEntry    = "accessEntry"
+	keyAccessEntryArn = "accessEntryArn"
+	keyAddon          = "addon"
+	keyCapability     = "capability"
+	keyAssociation    = "association"
+)
+
+const (
+	opUpdateNodegroupConfig         = "UpdateNodegroupConfig"
+	opUpdateNodegroupVersion        = "UpdateNodegroupVersion"
+	opTagResource                   = "TagResource"
+	opUntagResource                 = "UntagResource"
+	opUpdateAccessEntry             = "UpdateAccessEntry"
+	opUpdateAddon                   = "UpdateAddon"
+	opUpdateCapability              = "UpdateCapability"
+	opUpdateEksAnywhereSubscription = "UpdateEksAnywhereSubscription"
+	opUpdatePodIdentityAssociation  = "UpdatePodIdentityAssociation"
+	opStartInsightsRefresh          = "StartInsightsRefresh"
+	opUpdateClusterConfig           = "UpdateClusterConfig"
+	opUpdateClusterVersion          = "UpdateClusterVersion"
+	opRegisterCluster               = "RegisterCluster"
+)
+
+const (
+	opListClusters                 = "ListClusters"
+	opListNodegroups               = "ListNodegroups"
+	opListTagsForResource          = "ListTagsForResource"
+	opListAccessEntries            = "ListAccessEntries"
+	opListAccessPolicies           = "ListAccessPolicies"
+	opListAssociatedAccessPolicies = "ListAssociatedAccessPolicies"
+	opListAddons                   = "ListAddons"
+	opListCapabilities             = "ListCapabilities"
+	opListEksAnywhereSubscriptions = "ListEksAnywhereSubscriptions"
+	opListFargateProfiles          = "ListFargateProfiles"
+	opListPodIdentityAssociations  = "ListPodIdentityAssociations"
+	opListIdentityProviderConfigs  = "ListIdentityProviderConfigs"
+	opListInsights                 = "ListInsights"
+	opListUpdates                  = "ListUpdates"
+)
+
+const (
+	opDescribeNodegroup                  = "DescribeNodegroup"
+	opDisassociateAccessPolicy           = "DisassociateAccessPolicy"
+	opDescribePodIdentityAssociation     = "DescribePodIdentityAssociation"
+	opDisassociateIdentityProviderConfig = "DisassociateIdentityProviderConfig"
+	opDescribeInsight                    = "DescribeInsight"
+	opDescribeInsightsRefresh            = "DescribeInsightsRefresh"
+	opDescribeUpdate                     = "DescribeUpdate"
+)
+
+const (
+	opAssociateAccessPolicy           = "AssociateAccessPolicy"
+	opAssociateEncryptionConfig       = "AssociateEncryptionConfig"
+	opAssociateIdentityProviderConfig = "AssociateIdentityProviderConfig"
+	opCreateAccessEntry               = "CreateAccessEntry"
+	opCreateAddon                     = "CreateAddon"
+	opCreateCapability                = "CreateCapability"
+	opCreateCluster                   = "CreateCluster"
+	opCreateEksAnywhereSubscription   = "CreateEksAnywhereSubscription"
+	opCreateFargateProfile            = "CreateFargateProfile"
+	opCreateNodegroup                 = "CreateNodegroup"
+	opCreatePodIdentityAssociation    = "CreatePodIdentityAssociation"
+	opDeleteAccessEntry               = "DeleteAccessEntry"
+	opDeleteAddon                     = "DeleteAddon"
+	opDeleteCapability                = "DeleteCapability"
+	opDeleteCluster                   = "DeleteCluster"
+	opDeleteEksAnywhereSubscription   = "DeleteEksAnywhereSubscription"
+	opDeleteFargateProfile            = "DeleteFargateProfile"
+	opDeleteNodegroup                 = "DeleteNodegroup"
+	opDeletePodIdentityAssociation    = "DeletePodIdentityAssociation"
+	opDeregisterCluster               = "DeregisterCluster"
+	opDescribeAccessEntry             = "DescribeAccessEntry"
+	opDescribeAddon                   = "DescribeAddon"
+	opDescribeAddonConfiguration      = "DescribeAddonConfiguration"
+	opDescribeAddonVersions           = "DescribeAddonVersions"
+	opDescribeCapability              = "DescribeCapability"
+	opDescribeCluster                 = "DescribeCluster"
+	opDescribeClusterVersions         = "DescribeClusterVersions"
+	opDescribeEksAnywhereSubscription = "DescribeEksAnywhereSubscription"
+	opDescribeFargateProfile          = "DescribeFargateProfile"
+	opDescribeIdentityProviderConfig  = "DescribeIdentityProviderConfig"
+)
+
 const statusDeleting = "DELETING"
 
 const (
@@ -49,70 +153,70 @@ func (h *Handler) Name() string { return "EKS" }
 // GetSupportedOperations returns the list of supported EKS operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateCluster",
-		"DescribeCluster",
-		"ListClusters",
-		"DeleteCluster",
-		"CreateNodegroup",
-		"DescribeNodegroup",
-		"ListNodegroups",
-		"DeleteNodegroup",
-		"UpdateNodegroupConfig",
-		"UpdateNodegroupVersion",
-		"TagResource",
-		"UntagResource",
-		"ListTagsForResource",
-		"AssociateAccessPolicy",
-		"AssociateEncryptionConfig",
-		"AssociateIdentityProviderConfig",
-		"CreateAccessEntry",
-		"DeleteAccessEntry",
-		"DescribeAccessEntry",
-		"ListAccessEntries",
-		"UpdateAccessEntry",
-		"ListAccessPolicies",
-		"ListAssociatedAccessPolicies",
-		"DisassociateAccessPolicy",
-		"CreateAddon",
-		"DeleteAddon",
-		"DescribeAddon",
-		"DescribeAddonConfiguration",
-		"DescribeAddonVersions",
-		"ListAddons",
-		"UpdateAddon",
-		"CreateCapability",
-		"DeleteCapability",
-		"DescribeCapability",
-		"ListCapabilities",
-		"UpdateCapability",
-		"CreateEksAnywhereSubscription",
-		"DeleteEksAnywhereSubscription",
-		"DescribeEksAnywhereSubscription",
-		"ListEksAnywhereSubscriptions",
-		"UpdateEksAnywhereSubscription",
-		"CreateFargateProfile",
-		"DeleteFargateProfile",
-		"DescribeFargateProfile",
-		"ListFargateProfiles",
-		"CreatePodIdentityAssociation",
-		"DeletePodIdentityAssociation",
-		"DescribePodIdentityAssociation",
-		"ListPodIdentityAssociations",
-		"UpdatePodIdentityAssociation",
-		"DescribeIdentityProviderConfig",
-		"ListIdentityProviderConfigs",
-		"DisassociateIdentityProviderConfig",
-		"DescribeInsight",
-		"ListInsights",
-		"StartInsightsRefresh",
-		"DescribeInsightsRefresh",
-		"UpdateClusterConfig",
-		"UpdateClusterVersion",
-		"DescribeUpdate",
-		"ListUpdates",
-		"RegisterCluster",
-		"DeregisterCluster",
-		"DescribeClusterVersions",
+		opCreateCluster,
+		opDescribeCluster,
+		opListClusters,
+		opDeleteCluster,
+		opCreateNodegroup,
+		opDescribeNodegroup,
+		opListNodegroups,
+		opDeleteNodegroup,
+		opUpdateNodegroupConfig,
+		opUpdateNodegroupVersion,
+		opTagResource,
+		opUntagResource,
+		opListTagsForResource,
+		opAssociateAccessPolicy,
+		opAssociateEncryptionConfig,
+		opAssociateIdentityProviderConfig,
+		opCreateAccessEntry,
+		opDeleteAccessEntry,
+		opDescribeAccessEntry,
+		opListAccessEntries,
+		opUpdateAccessEntry,
+		opListAccessPolicies,
+		opListAssociatedAccessPolicies,
+		opDisassociateAccessPolicy,
+		opCreateAddon,
+		opDeleteAddon,
+		opDescribeAddon,
+		opDescribeAddonConfiguration,
+		opDescribeAddonVersions,
+		opListAddons,
+		opUpdateAddon,
+		opCreateCapability,
+		opDeleteCapability,
+		opDescribeCapability,
+		opListCapabilities,
+		opUpdateCapability,
+		opCreateEksAnywhereSubscription,
+		opDeleteEksAnywhereSubscription,
+		opDescribeEksAnywhereSubscription,
+		opListEksAnywhereSubscriptions,
+		opUpdateEksAnywhereSubscription,
+		opCreateFargateProfile,
+		opDeleteFargateProfile,
+		opDescribeFargateProfile,
+		opListFargateProfiles,
+		opCreatePodIdentityAssociation,
+		opDeletePodIdentityAssociation,
+		opDescribePodIdentityAssociation,
+		opListPodIdentityAssociations,
+		opUpdatePodIdentityAssociation,
+		opDescribeIdentityProviderConfig,
+		opListIdentityProviderConfigs,
+		opDisassociateIdentityProviderConfig,
+		opDescribeInsight,
+		opListInsights,
+		opStartInsightsRefresh,
+		opDescribeInsightsRefresh,
+		opUpdateClusterConfig,
+		opUpdateClusterVersion,
+		opDescribeUpdate,
+		opListUpdates,
+		opRegisterCluster,
+		opDeregisterCluster,
+		opDescribeClusterVersions,
 	}
 }
 
@@ -163,34 +267,34 @@ func parseNodegroupRoute(method, clusterName string, parts []string) eksRoute {
 	if len(parts) == nodeGroupPathParts {
 		switch method {
 		case http.MethodPost:
-			return eksRoute{operation: "CreateNodegroup", clusterName: clusterName}
+			return eksRoute{operation: opCreateNodegroup, clusterName: clusterName}
 		case http.MethodGet:
-			return eksRoute{operation: "ListNodegroups", clusterName: clusterName}
+			return eksRoute{operation: opListNodegroups, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	tail := parts[2]
 
 	if before, ok := strings.CutSuffix(tail, "/update-version"); ok {
 		if method == http.MethodPost {
-			return eksRoute{operation: "UpdateNodegroupVersion", clusterName: clusterName, nodegroupName: before}
+			return eksRoute{operation: opUpdateNodegroupVersion, clusterName: clusterName, nodegroupName: before}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	switch method {
 	case http.MethodGet:
-		return eksRoute{operation: "DescribeNodegroup", clusterName: clusterName, nodegroupName: tail}
+		return eksRoute{operation: opDescribeNodegroup, clusterName: clusterName, nodegroupName: tail}
 	case http.MethodDelete:
-		return eksRoute{operation: "DeleteNodegroup", clusterName: clusterName, nodegroupName: tail}
+		return eksRoute{operation: opDeleteNodegroup, clusterName: clusterName, nodegroupName: tail}
 	case http.MethodPost:
-		return eksRoute{operation: "UpdateNodegroupConfig", clusterName: clusterName, nodegroupName: tail}
+		return eksRoute{operation: opUpdateNodegroupConfig, clusterName: clusterName, nodegroupName: tail}
 	}
 
-	return eksRoute{operation: "Unknown"}
+	return eksRoute{operation: opUnknown}
 }
 
 // parseAccessEntryRoute returns the route for access entry paths:
@@ -201,12 +305,12 @@ func parseAccessEntryRoute(method, clusterName string, parts []string) eksRoute 
 	if len(parts) == accessEntryParts {
 		switch method {
 		case http.MethodPost:
-			return eksRoute{operation: "CreateAccessEntry", clusterName: clusterName}
+			return eksRoute{operation: opCreateAccessEntry, clusterName: clusterName}
 		case http.MethodGet:
-			return eksRoute{operation: "ListAccessEntries", clusterName: clusterName}
+			return eksRoute{operation: opListAccessEntries, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	// parts[2] may be principalArn, principalArn/access-policies, or principalArn/access-policies/{policyArn}
@@ -219,14 +323,14 @@ func parseAccessEntryRoute(method, clusterName string, parts []string) eksRoute 
 
 		if method == http.MethodDelete {
 			return eksRoute{
-				operation:    "DisassociateAccessPolicy",
+				operation:    opDisassociateAccessPolicy,
 				clusterName:  clusterName,
 				principalARN: principalARN,
 				resourceARN:  policyARN,
 			}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	if before, ok := strings.CutSuffix(tail, "/access-policies"); ok {
@@ -234,29 +338,29 @@ func parseAccessEntryRoute(method, clusterName string, parts []string) eksRoute 
 
 		switch method {
 		case http.MethodPost:
-			return eksRoute{operation: "AssociateAccessPolicy", clusterName: clusterName, principalARN: principalARN}
+			return eksRoute{operation: opAssociateAccessPolicy, clusterName: clusterName, principalARN: principalARN}
 		case http.MethodGet:
 			return eksRoute{
-				operation:    "ListAssociatedAccessPolicies",
+				operation:    opListAssociatedAccessPolicies,
 				clusterName:  clusterName,
 				principalARN: principalARN,
 			}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	// plain principalArn
 	switch method {
 	case http.MethodDelete:
-		return eksRoute{operation: "DeleteAccessEntry", clusterName: clusterName, principalARN: tail}
+		return eksRoute{operation: opDeleteAccessEntry, clusterName: clusterName, principalARN: tail}
 	case http.MethodGet:
-		return eksRoute{operation: "DescribeAccessEntry", clusterName: clusterName, principalARN: tail}
+		return eksRoute{operation: opDescribeAccessEntry, clusterName: clusterName, principalARN: tail}
 	case http.MethodPut:
-		return eksRoute{operation: "UpdateAccessEntry", clusterName: clusterName, principalARN: tail}
+		return eksRoute{operation: opUpdateAccessEntry, clusterName: clusterName, principalARN: tail}
 	}
 
-	return eksRoute{operation: "Unknown"}
+	return eksRoute{operation: opUnknown}
 }
 
 // parseAddonRoute returns the route for /clusters/{name}/addons[/{addonName}] paths.
@@ -266,26 +370,26 @@ func parseAddonRoute(method, clusterName string, parts []string) eksRoute {
 	if len(parts) == addonParts {
 		switch method {
 		case http.MethodPost:
-			return eksRoute{operation: "CreateAddon", clusterName: clusterName}
+			return eksRoute{operation: opCreateAddon, clusterName: clusterName}
 		case http.MethodGet:
-			return eksRoute{operation: "ListAddons", clusterName: clusterName}
+			return eksRoute{operation: opListAddons, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	addonName := parts[2]
 
 	switch method {
 	case http.MethodGet:
-		return eksRoute{operation: "DescribeAddon", clusterName: clusterName, nodegroupName: addonName}
+		return eksRoute{operation: opDescribeAddon, clusterName: clusterName, nodegroupName: addonName}
 	case http.MethodDelete:
-		return eksRoute{operation: "DeleteAddon", clusterName: clusterName, nodegroupName: addonName}
+		return eksRoute{operation: opDeleteAddon, clusterName: clusterName, nodegroupName: addonName}
 	case http.MethodPut:
-		return eksRoute{operation: "UpdateAddon", clusterName: clusterName, nodegroupName: addonName}
+		return eksRoute{operation: opUpdateAddon, clusterName: clusterName, nodegroupName: addonName}
 	}
 
-	return eksRoute{operation: "Unknown"}
+	return eksRoute{operation: opUnknown}
 }
 
 // parseFargateProfileRoute returns the route for /clusters/{name}/fargate-profiles[/{profileName}] paths.
@@ -295,24 +399,24 @@ func parseFargateProfileRoute(method, clusterName string, parts []string) eksRou
 	if len(parts) == fargateProfileParts {
 		switch method {
 		case http.MethodPost:
-			return eksRoute{operation: "CreateFargateProfile", clusterName: clusterName}
+			return eksRoute{operation: opCreateFargateProfile, clusterName: clusterName}
 		case http.MethodGet:
-			return eksRoute{operation: "ListFargateProfiles", clusterName: clusterName}
+			return eksRoute{operation: opListFargateProfiles, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	profileName := parts[2]
 
 	switch method {
 	case http.MethodGet:
-		return eksRoute{operation: "DescribeFargateProfile", clusterName: clusterName, nodegroupName: profileName}
+		return eksRoute{operation: opDescribeFargateProfile, clusterName: clusterName, nodegroupName: profileName}
 	case http.MethodDelete:
-		return eksRoute{operation: "DeleteFargateProfile", clusterName: clusterName, nodegroupName: profileName}
+		return eksRoute{operation: opDeleteFargateProfile, clusterName: clusterName, nodegroupName: profileName}
 	}
 
-	return eksRoute{operation: "Unknown"}
+	return eksRoute{operation: opUnknown}
 }
 
 // parsePodIdentityRoute returns the route for /clusters/{name}/pod-identity-associations[/{id}] paths.
@@ -322,65 +426,65 @@ func parsePodIdentityRoute(method, clusterName string, parts []string) eksRoute 
 	if len(parts) == podIdentityParts {
 		switch method {
 		case http.MethodPost:
-			return eksRoute{operation: "CreatePodIdentityAssociation", clusterName: clusterName}
+			return eksRoute{operation: opCreatePodIdentityAssociation, clusterName: clusterName}
 		case http.MethodGet:
-			return eksRoute{operation: "ListPodIdentityAssociations", clusterName: clusterName}
+			return eksRoute{operation: opListPodIdentityAssociations, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	assocID := parts[2]
 
 	switch method {
 	case http.MethodGet:
-		return eksRoute{operation: "DescribePodIdentityAssociation", clusterName: clusterName, nodegroupName: assocID}
+		return eksRoute{operation: opDescribePodIdentityAssociation, clusterName: clusterName, nodegroupName: assocID}
 	case http.MethodDelete:
-		return eksRoute{operation: "DeletePodIdentityAssociation", clusterName: clusterName, nodegroupName: assocID}
+		return eksRoute{operation: opDeletePodIdentityAssociation, clusterName: clusterName, nodegroupName: assocID}
 	case http.MethodPut:
-		return eksRoute{operation: "UpdatePodIdentityAssociation", clusterName: clusterName, nodegroupName: assocID}
+		return eksRoute{operation: opUpdatePodIdentityAssociation, clusterName: clusterName, nodegroupName: assocID}
 	}
 
-	return eksRoute{operation: "Unknown"}
+	return eksRoute{operation: opUnknown}
 }
 
 // parseIdentityProviderRoute returns routes for /clusters/{name}/identity-provider-configs/...
 func parseIdentityProviderRoute(method, clusterName string, parts []string, maxParts int) eksRoute {
 	if len(parts) == maxParts && parts[2] == "associate" {
 		if method == http.MethodPost {
-			return eksRoute{operation: "AssociateIdentityProviderConfig", clusterName: clusterName}
+			return eksRoute{operation: opAssociateIdentityProviderConfig, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	if len(parts) == maxParts && parts[2] == "disassociate" {
 		if method == http.MethodPost {
-			return eksRoute{operation: "DisassociateIdentityProviderConfig", clusterName: clusterName}
+			return eksRoute{operation: opDisassociateIdentityProviderConfig, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	const idpListParts = 2
 
 	if len(parts) == idpListParts {
 		if method == http.MethodGet {
-			return eksRoute{operation: "ListIdentityProviderConfigs", clusterName: clusterName}
+			return eksRoute{operation: opListIdentityProviderConfigs, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	if len(parts) == maxParts {
 		if method == http.MethodPost {
-			return eksRoute{operation: "DescribeIdentityProviderConfig", clusterName: clusterName}
+			return eksRoute{operation: opDescribeIdentityProviderConfig, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
-	return eksRoute{operation: "Unknown"}
+	return eksRoute{operation: opUnknown}
 }
 
 // parseClusterSubPath handles /clusters/{name}/... paths after extracting clusterName.
@@ -391,14 +495,14 @@ func parseClusterSubPath(method, clusterName string, parts []string) eksRoute {
 	if len(parts) == 1 {
 		switch method {
 		case http.MethodGet:
-			return eksRoute{operation: "DescribeCluster", clusterName: clusterName}
+			return eksRoute{operation: opDescribeCluster, clusterName: clusterName}
 		case http.MethodDelete:
-			return eksRoute{operation: "DeleteCluster", clusterName: clusterName}
+			return eksRoute{operation: opDeleteCluster, clusterName: clusterName}
 		case http.MethodPut:
-			return eksRoute{operation: "UpdateClusterConfig", clusterName: clusterName}
+			return eksRoute{operation: opUpdateClusterConfig, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	switch parts[1] {
@@ -406,7 +510,7 @@ func parseClusterSubPath(method, clusterName string, parts []string) eksRoute {
 		return parseNodegroupRoute(method, clusterName, parts)
 	case "access-entries":
 		return parseAccessEntryRoute(method, clusterName, parts)
-	case "addons":
+	case keyAddons:
 		return parseAddonRoute(method, clusterName, parts)
 	case "fargate-profiles":
 		return parseFargateProfileRoute(method, clusterName, parts)
@@ -427,36 +531,36 @@ func parseInsightsRoute(method, clusterName string, parts []string) eksRoute {
 
 	if len(parts) == insightsParts {
 		if method == http.MethodGet {
-			return eksRoute{operation: "ListInsights", clusterName: clusterName}
+			return eksRoute{operation: opListInsights, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	tail := parts[2]
 
 	if before, ok := strings.CutSuffix(tail, "/refresh"); ok {
 		if method == http.MethodPost {
-			return eksRoute{operation: "StartInsightsRefresh", clusterName: clusterName, nodegroupName: before}
+			return eksRoute{operation: opStartInsightsRefresh, clusterName: clusterName, nodegroupName: before}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	if _, after, ok := strings.Cut(tail, "/refresh/"); ok {
 		refreshID := after
 		if method == http.MethodGet {
-			return eksRoute{operation: "DescribeInsightsRefresh", clusterName: clusterName, nodegroupName: refreshID}
+			return eksRoute{operation: opDescribeInsightsRefresh, clusterName: clusterName, nodegroupName: refreshID}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	if method == http.MethodGet {
-		return eksRoute{operation: "DescribeInsight", clusterName: clusterName, nodegroupName: tail}
+		return eksRoute{operation: opDescribeInsight, clusterName: clusterName, nodegroupName: tail}
 	}
 
-	return eksRoute{operation: "Unknown"}
+	return eksRoute{operation: opUnknown}
 }
 
 // parseUpdatesRoute returns the route for /clusters/{name}/updates[/{id}].
@@ -465,29 +569,29 @@ func parseUpdatesRoute(method, clusterName string, parts []string) eksRoute {
 
 	if len(parts) == updatesParts {
 		if method == http.MethodGet {
-			return eksRoute{operation: "ListUpdates", clusterName: clusterName}
+			return eksRoute{operation: opListUpdates, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	updateID := parts[2]
 
 	if method == http.MethodGet {
-		return eksRoute{operation: "DescribeUpdate", clusterName: clusterName, nodegroupName: updateID}
+		return eksRoute{operation: opDescribeUpdate, clusterName: clusterName, nodegroupName: updateID}
 	}
 
-	return eksRoute{operation: "Unknown"}
+	return eksRoute{operation: opUnknown}
 }
 
 // parseClusterAssocPath handles associate paths and pod-identity-associations.
 func parseClusterAssocPath(method, clusterName string, parts []string, maxParts int) eksRoute {
 	if parts[1] == "encryption-config" && len(parts) == maxParts && parts[2] == "associate" {
 		if method == http.MethodPost {
-			return eksRoute{operation: "AssociateEncryptionConfig", clusterName: clusterName}
+			return eksRoute{operation: opAssociateEncryptionConfig, clusterName: clusterName}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	if parts[1] == "identity-provider-configs" {
@@ -498,7 +602,7 @@ func parseClusterAssocPath(method, clusterName string, parts []string, maxParts 
 		return parsePodIdentityRoute(method, clusterName, parts)
 	}
 
-	return eksRoute{operation: "Unknown"}
+	return eksRoute{operation: opUnknown}
 }
 
 // parseEKSPath maps HTTP method + path to an operation name and resource identifiers.
@@ -511,7 +615,7 @@ func parseEKSPath(method, rawPath string) eksRoute {
 
 	// /clusters and /clusters/{name}/...
 	if !strings.HasPrefix(path, pathClusters) {
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	rest := strings.TrimPrefix(path, pathClusters)
@@ -519,13 +623,13 @@ func parseEKSPath(method, rawPath string) eksRoute {
 	// /clusters
 	if rest == "" {
 		if method == http.MethodPost {
-			return eksRoute{operation: "CreateCluster"}
+			return eksRoute{operation: opCreateCluster}
 		}
 		if method == http.MethodGet {
-			return eksRoute{operation: "ListClusters"}
+			return eksRoute{operation: opListClusters}
 		}
 
-		return eksRoute{operation: "Unknown"}
+		return eksRoute{operation: opUnknown}
 	}
 
 	// /clusters/{name}[/...]
@@ -543,14 +647,14 @@ func parseGlobalEKSPath(method, path string) (eksRoute, bool) {
 	if after, ok := strings.CutPrefix(path, pathEKSTags); ok {
 		switch method {
 		case http.MethodPost:
-			return eksRoute{operation: "TagResource", resourceARN: after}, true
+			return eksRoute{operation: opTagResource, resourceARN: after}, true
 		case http.MethodDelete:
-			return eksRoute{operation: "UntagResource", resourceARN: after}, true
+			return eksRoute{operation: opUntagResource, resourceARN: after}, true
 		case http.MethodGet:
-			return eksRoute{operation: "ListTagsForResource", resourceARN: after}, true
+			return eksRoute{operation: opListTagsForResource, resourceARN: after}, true
 		}
 
-		return eksRoute{operation: "Unknown"}, true
+		return eksRoute{operation: opUnknown}, true
 	}
 
 	if r, ok := parseStaticEKSPath(method, path); ok {
@@ -564,22 +668,22 @@ func parseStaticEKSPath(method, path string) (eksRoute, bool) {
 	switch path {
 	case pathAccessPolicies:
 		if method == http.MethodGet {
-			return eksRoute{operation: "ListAccessPolicies"}, true
+			return eksRoute{operation: opListAccessPolicies}, true
 		}
 
-		return eksRoute{operation: "Unknown"}, true
+		return eksRoute{operation: opUnknown}, true
 	case pathAddonVersions:
 		if method == http.MethodGet {
-			return eksRoute{operation: "DescribeAddonVersions"}, true
+			return eksRoute{operation: opDescribeAddonVersions}, true
 		}
 
-		return eksRoute{operation: "Unknown"}, true
+		return eksRoute{operation: opUnknown}, true
 	case pathClusterVersions:
 		if method == http.MethodGet {
-			return eksRoute{operation: "DescribeClusterVersions"}, true
+			return eksRoute{operation: opDescribeClusterVersions}, true
 		}
 
-		return eksRoute{operation: "Unknown"}, true
+		return eksRoute{operation: opUnknown}, true
 	}
 
 	return eksRoute{}, false
@@ -588,34 +692,34 @@ func parseStaticEKSPath(method, path string) (eksRoute, bool) {
 func parseResourceEKSPath(method, path string) (eksRoute, bool) {
 	if strings.HasPrefix(path, pathAddonConfiguration) {
 		if method == http.MethodGet {
-			return eksRoute{operation: "DescribeAddonConfiguration"}, true
+			return eksRoute{operation: opDescribeAddonConfiguration}, true
 		}
 
-		return eksRoute{operation: "Unknown"}, true
+		return eksRoute{operation: opUnknown}, true
 	}
 
 	if path == pathCapabilities {
 		if method == http.MethodPost {
-			return eksRoute{operation: "CreateCapability"}, true
+			return eksRoute{operation: opCreateCapability}, true
 		}
 		if method == http.MethodGet {
-			return eksRoute{operation: "ListCapabilities"}, true
+			return eksRoute{operation: opListCapabilities}, true
 		}
 
-		return eksRoute{operation: "Unknown"}, true
+		return eksRoute{operation: opUnknown}, true
 	}
 
 	if after, ok := strings.CutPrefix(path, pathCapabilities+"/"); ok {
 		switch method {
 		case http.MethodGet:
-			return eksRoute{operation: "DescribeCapability", clusterName: after}, true
+			return eksRoute{operation: opDescribeCapability, clusterName: after}, true
 		case http.MethodDelete:
-			return eksRoute{operation: "DeleteCapability", clusterName: after}, true
+			return eksRoute{operation: opDeleteCapability, clusterName: after}, true
 		case http.MethodPut:
-			return eksRoute{operation: "UpdateCapability", clusterName: after}, true
+			return eksRoute{operation: opUpdateCapability, clusterName: after}, true
 		}
 
-		return eksRoute{operation: "Unknown"}, true
+		return eksRoute{operation: opUnknown}, true
 	}
 
 	return parseSubscriptionEKSPath(method, path)
@@ -624,26 +728,26 @@ func parseResourceEKSPath(method, path string) (eksRoute, bool) {
 func parseSubscriptionEKSPath(method, path string) (eksRoute, bool) {
 	if path == pathSubscriptions {
 		if method == http.MethodPost {
-			return eksRoute{operation: "CreateEksAnywhereSubscription"}, true
+			return eksRoute{operation: opCreateEksAnywhereSubscription}, true
 		}
 		if method == http.MethodGet {
-			return eksRoute{operation: "ListEksAnywhereSubscriptions"}, true
+			return eksRoute{operation: opListEksAnywhereSubscriptions}, true
 		}
 
-		return eksRoute{operation: "Unknown"}, true
+		return eksRoute{operation: opUnknown}, true
 	}
 
 	if after, ok := strings.CutPrefix(path, pathSubscriptions+"/"); ok {
 		switch method {
 		case http.MethodGet:
-			return eksRoute{operation: "DescribeEksAnywhereSubscription", clusterName: after}, true
+			return eksRoute{operation: opDescribeEksAnywhereSubscription, clusterName: after}, true
 		case http.MethodDelete:
-			return eksRoute{operation: "DeleteEksAnywhereSubscription", clusterName: after}, true
+			return eksRoute{operation: opDeleteEksAnywhereSubscription, clusterName: after}, true
 		case http.MethodPut:
-			return eksRoute{operation: "UpdateEksAnywhereSubscription", clusterName: after}, true
+			return eksRoute{operation: opUpdateEksAnywhereSubscription, clusterName: after}, true
 		}
 
-		return eksRoute{operation: "Unknown"}, true
+		return eksRoute{operation: opUnknown}, true
 	}
 
 	return eksRoute{}, false
@@ -653,19 +757,19 @@ func parseClusterLifecycleRoute(method, clusterName string, parts []string) eksR
 	switch parts[1] {
 	case "update-version":
 		if method == http.MethodPost {
-			return eksRoute{operation: "UpdateClusterVersion", clusterName: clusterName}
+			return eksRoute{operation: opUpdateClusterVersion, clusterName: clusterName}
 		}
 	case "register":
 		if method == http.MethodPost {
-			return eksRoute{operation: "RegisterCluster"}
+			return eksRoute{operation: opRegisterCluster}
 		}
 	case "deregister":
 		if method == http.MethodPost {
-			return eksRoute{operation: "DeregisterCluster", clusterName: clusterName}
+			return eksRoute{operation: opDeregisterCluster, clusterName: clusterName}
 		}
 	}
 
-	return eksRoute{operation: "Unknown"}
+	return eksRoute{operation: opUnknown}
 }
 
 // ExtractOperation extracts the EKS operation name from the REST path.
@@ -691,7 +795,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		log := logger.Load(c.Request().Context())
 		route := parseEKSPath(c.Request().Method, c.Request().URL.Path)
 
-		log.Debug("eks request", "operation", route.operation, "cluster", route.clusterName)
+		log.Debug("eks request", "operation", route.operation, keyCluster, route.clusterName)
 
 		var body []byte
 		if c.Request().Body != nil {
@@ -729,19 +833,19 @@ func (h *Handler) dispatch(c *echo.Context, route eksRoute, body []byte) error {
 // dispatchClusterAndTagOps handles cluster CRUD and tag operations.
 func (h *Handler) dispatchClusterAndTagOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "CreateCluster":
+	case opCreateCluster:
 		return true, h.handleCreateCluster(c, body)
-	case "DescribeCluster":
+	case opDescribeCluster:
 		return true, h.handleDescribeCluster(c, route.clusterName)
-	case "ListClusters":
+	case opListClusters:
 		return true, h.handleListClusters(c)
-	case "DeleteCluster":
+	case opDeleteCluster:
 		return true, h.handleDeleteCluster(c, route.clusterName)
-	case "TagResource":
+	case opTagResource:
 		return true, h.handleTagResource(c, route.resourceARN, body)
-	case "UntagResource":
+	case opUntagResource:
 		return true, h.handleUntagResource(c, route.resourceARN)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return true, h.handleListTagsForResource(c, route.resourceARN)
 	}
 
@@ -751,21 +855,21 @@ func (h *Handler) dispatchClusterAndTagOps(c *echo.Context, route eksRoute, body
 // dispatchNodegroupAndEntryOps handles nodegroup and access entry operations.
 func (h *Handler) dispatchNodegroupAndEntryOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "CreateNodegroup":
+	case opCreateNodegroup:
 		return true, h.handleCreateNodegroup(c, route.clusterName, body)
-	case "DescribeNodegroup":
+	case opDescribeNodegroup:
 		return true, h.handleDescribeNodegroup(c, route.clusterName, route.nodegroupName)
-	case "ListNodegroups":
+	case opListNodegroups:
 		return true, h.handleListNodegroups(c, route.clusterName)
-	case "DeleteNodegroup":
+	case opDeleteNodegroup:
 		return true, h.handleDeleteNodegroup(c, route.clusterName, route.nodegroupName)
-	case "UpdateNodegroupConfig":
+	case opUpdateNodegroupConfig:
 		return true, h.handleUpdateNodegroupConfig(c, route.clusterName, route.nodegroupName, body)
-	case "CreateAccessEntry":
+	case opCreateAccessEntry:
 		return true, h.handleCreateAccessEntry(c, route.clusterName, body)
-	case "DeleteAccessEntry":
+	case opDeleteAccessEntry:
 		return true, h.handleDeleteAccessEntry(c, route.clusterName, route.principalARN)
-	case "AssociateAccessPolicy":
+	case opAssociateAccessPolicy:
 		return true, h.handleAssociateAccessPolicy(c, route.clusterName, route.principalARN, body)
 	}
 
@@ -775,19 +879,19 @@ func (h *Handler) dispatchNodegroupAndEntryOps(c *echo.Context, route eksRoute, 
 // dispatchNewOps handles the newer EKS operations added in the initial implementation.
 func (h *Handler) dispatchNewOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
-	case "AssociateEncryptionConfig":
+	case opAssociateEncryptionConfig:
 		return true, h.handleAssociateEncryptionConfig(c, route.clusterName, body)
-	case "AssociateIdentityProviderConfig":
+	case opAssociateIdentityProviderConfig:
 		return true, h.handleAssociateIdentityProviderConfig(c, route.clusterName, body)
-	case "CreateAddon":
+	case opCreateAddon:
 		return true, h.handleCreateAddon(c, route.clusterName, body)
-	case "CreateCapability":
+	case opCreateCapability:
 		return true, h.handleCreateCapability(c, body)
-	case "CreateEksAnywhereSubscription":
+	case opCreateEksAnywhereSubscription:
 		return true, h.handleCreateEksAnywhereSubscription(c, body)
-	case "CreateFargateProfile":
+	case opCreateFargateProfile:
 		return true, h.handleCreateFargateProfile(c, route.clusterName, body)
-	case "CreatePodIdentityAssociation":
+	case opCreatePodIdentityAssociation:
 		return true, h.handleCreatePodIdentityAssociation(c, route.clusterName, body)
 	}
 
@@ -814,11 +918,11 @@ func errResp(code, msg string) map[string]string {
 // clusterToJSON converts a Cluster to a JSON-serializable map.
 func clusterToJSON(c *Cluster) map[string]any {
 	m := map[string]any{
-		"name":            c.Name,
-		"arn":             c.ARN,
-		"status":          c.Status,
-		"version":         c.Version,
-		"createdAt":       c.CreatedAt.Unix(),
+		keyName:           c.Name,
+		keyArn:            c.ARN,
+		keyStatusField:    c.Status,
+		keyVersion:        c.Version,
+		keyCreatedAt:      c.CreatedAt.Unix(),
 		"platformVersion": c.PlatformVersion,
 	}
 	if c.Endpoint != "" {
@@ -835,10 +939,10 @@ func clusterToJSON(c *Cluster) map[string]any {
 func nodegroupToJSON(ng *Nodegroup) map[string]any {
 	m := map[string]any{
 		"nodegroupName": ng.NodegroupName,
-		"clusterName":   ng.ClusterName,
+		keyClusterName:  ng.ClusterName,
 		"nodegroupArn":  ng.ARN,
-		"status":        ng.Status,
-		"createdAt":     ng.CreatedAt.Unix(),
+		keyStatusField:  ng.Status,
+		keyCreatedAt:    ng.CreatedAt.Unix(),
 		"scalingConfig": map[string]any{
 			"desiredSize": ng.DesiredSize,
 			"minSize":     ng.MinSize,
@@ -858,7 +962,7 @@ func nodegroupToJSON(ng *Nodegroup) map[string]any {
 		m["nodeRole"] = ng.NodeRole
 	}
 	if ng.Version != "" {
-		m["version"] = ng.Version
+		m[keyVersion] = ng.Version
 	}
 
 	return m
@@ -889,7 +993,7 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"cluster": clusterToJSON(cluster),
+		keyCluster: clusterToJSON(cluster),
 	})
 }
 
@@ -900,7 +1004,7 @@ func (h *Handler) handleDescribeCluster(c *echo.Context, name string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"cluster": clusterToJSON(cluster),
+		keyCluster: clusterToJSON(cluster),
 	})
 }
 
@@ -919,7 +1023,7 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, name string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"cluster": clusterToJSON(cluster),
+		keyCluster: clusterToJSON(cluster),
 	})
 }
 
@@ -964,7 +1068,7 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"nodegroup": nodegroupToJSON(ng),
+		keyNodegroup: nodegroupToJSON(ng),
 	})
 }
 
@@ -975,7 +1079,7 @@ func (h *Handler) handleDescribeNodegroup(c *echo.Context, clusterName, nodegrou
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"nodegroup": nodegroupToJSON(ng),
+		keyNodegroup: nodegroupToJSON(ng),
 	})
 }
 
@@ -997,7 +1101,7 @@ func (h *Handler) handleDeleteNodegroup(c *echo.Context, clusterName, nodegroupN
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"nodegroup": nodegroupToJSON(ng),
+		keyNodegroup: nodegroupToJSON(ng),
 	})
 }
 
@@ -1078,12 +1182,12 @@ func (h *Handler) handleUpdateNodegroupConfig(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"update": map[string]any{
+		keyUpdate: map[string]any{
 			"id":            uuid.NewString()[:8],
-			"status":        "InProgress",
-			"type":          "ConfigUpdate",
-			"createdAt":     float64(time.Now().Unix()),
-			"clusterName":   clusterName,
+			keyStatusField:  statusInProgress,
+			keyType:         "ConfigUpdate",
+			keyCreatedAt:    float64(time.Now().Unix()),
+			keyClusterName:  clusterName,
 			"nodegroupName": ng.NodegroupName,
 		},
 	})
@@ -1114,13 +1218,13 @@ func (h *Handler) handleCreateAccessEntry(c *echo.Context, clusterName string, b
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"accessEntry": map[string]any{
-			"clusterName":    entry.ClusterName,
-			"principalArn":   entry.PrincipalARN,
-			"accessEntryArn": entry.ARN,
-			"type":           entry.Type,
-			"username":       entry.Username,
-			"createdAt":      entry.CreatedAt.Unix(),
+		keyAccessEntry: map[string]any{
+			keyClusterName:    entry.ClusterName,
+			keyPrincipalArn:   entry.PrincipalARN,
+			keyAccessEntryArn: entry.ARN,
+			keyType:           entry.Type,
+			keyUsername:       entry.Username,
+			keyCreatedAt:      entry.CreatedAt.Unix(),
 		},
 	})
 }
@@ -1155,11 +1259,11 @@ func (h *Handler) handleAssociateAccessPolicy(c *echo.Context, clusterName, prin
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"associatedAccessPolicy": map[string]any{
-			"clusterName":  assoc.ClusterName,
-			"principalArn": assoc.PrincipalARN,
-			"policyArn":    assoc.PolicyARN,
-			"associatedAt": assoc.AssociatedAt.Unix(),
-			"accessScope":  assoc.AccessScope,
+			keyClusterName:  assoc.ClusterName,
+			keyPrincipalArn: assoc.PrincipalARN,
+			keyPolicyArn:    assoc.PolicyARN,
+			"associatedAt":  assoc.AssociatedAt.Unix(),
+			"accessScope":   assoc.AccessScope,
 		},
 	})
 }
@@ -1190,11 +1294,11 @@ func (h *Handler) handleAssociateEncryptionConfig(c *echo.Context, clusterName s
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"update": map[string]any{
-			"id":          uuid.NewString()[:8],
-			"status":      "InProgress",
-			"type":        "AssociateEncryptionConfig",
-			"clusterName": clusterName,
+		keyUpdate: map[string]any{
+			"id":           uuid.NewString()[:8],
+			keyStatusField: statusInProgress,
+			keyType:        opAssociateEncryptionConfig,
+			keyClusterName: clusterName,
 			"params": map[string]any{
 				"encryptionConfig": result,
 			},
@@ -1250,11 +1354,11 @@ func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, cluster
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"update": map[string]any{
-			"id":          uuid.NewString()[:8],
-			"status":      "InProgress",
-			"type":        "AssociateIdentityProviderConfig",
-			"clusterName": clusterName,
+		keyUpdate: map[string]any{
+			"id":           uuid.NewString()[:8],
+			keyStatusField: statusInProgress,
+			keyType:        opAssociateIdentityProviderConfig,
+			keyClusterName: clusterName,
 		},
 		"tags": cfg.Tags.Clone(),
 	})
@@ -1283,14 +1387,14 @@ func (h *Handler) handleCreateAddon(c *echo.Context, clusterName string, body []
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"addon": map[string]any{
-			"clusterName":           addon.ClusterName,
-			"addonName":             addon.AddonName,
+		keyAddon: map[string]any{
+			keyClusterName:          addon.ClusterName,
+			keyAddonName:            addon.AddonName,
 			"addonArn":              addon.ARN,
-			"addonVersion":          addon.AddonVersion,
-			"status":                addon.Status,
+			keyAddonVersion:         addon.AddonVersion,
+			keyStatusField:          addon.Status,
 			"serviceAccountRoleArn": addon.ServiceAccountRoleARN,
-			"createdAt":             addon.CreatedAt.Unix(),
+			keyCreatedAt:            addon.CreatedAt.Unix(),
 		},
 	})
 }
@@ -1316,10 +1420,10 @@ func (h *Handler) handleCreateCapability(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"capability": map[string]any{
-			"name":    capa.Name,
-			"version": capa.Version,
-			"status":  capa.Status,
+		keyCapability: map[string]any{
+			keyName:        capa.Name,
+			keyVersion:     capa.Version,
+			keyStatusField: capa.Status,
 		},
 	})
 }
@@ -1347,14 +1451,14 @@ func (h *Handler) handleCreateEksAnywhereSubscription(c *echo.Context, body []by
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"subscription": map[string]any{
+		keySubscription: map[string]any{
 			"id":              sub.ID,
-			"arn":             sub.ARN,
-			"name":            sub.Name,
-			"status":          sub.Status,
+			keyArn:            sub.ARN,
+			keyName:           sub.Name,
+			keyStatusField:    sub.Status,
 			"licenseType":     sub.LicenseType,
 			"licenseQuantity": sub.LicenseQuantity,
-			"createdAt":       sub.CreatedAt.Unix(),
+			keyCreatedAt:      sub.CreatedAt.Unix(),
 		},
 	})
 }
@@ -1398,14 +1502,14 @@ func (h *Handler) handleCreateFargateProfile(c *echo.Context, clusterName string
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"fargateProfile": map[string]any{
-			"clusterName":         profile.ClusterName,
+		keyFargateProfile: map[string]any{
+			keyClusterName:        profile.ClusterName,
 			"fargateProfileName":  profile.FargateProfileName,
 			"fargateProfileArn":   profile.ARN,
 			"podExecutionRoleArn": profile.PodExecutionRoleARN,
-			"status":              profile.Status,
+			keyStatusField:        profile.Status,
 			"selectors":           profile.Selectors,
-			"createdAt":           profile.CreatedAt.Unix(),
+			keyCreatedAt:          profile.CreatedAt.Unix(),
 		},
 	})
 }
@@ -1443,14 +1547,14 @@ func (h *Handler) handleCreatePodIdentityAssociation(c *echo.Context, clusterNam
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"association": map[string]any{
-			"clusterName":    assoc.ClusterName,
+		keyAssociation: map[string]any{
+			keyClusterName:   assoc.ClusterName,
 			"associationId":  assoc.AssociationID,
 			"associationArn": assoc.ARN,
 			"namespace":      assoc.Namespace,
 			"serviceAccount": assoc.ServiceAccount,
 			"roleArn":        assoc.RoleARN,
-			"createdAt":      assoc.CreatedAt.Unix(),
+			keyCreatedAt:     assoc.CreatedAt.Unix(),
 		},
 	})
 }

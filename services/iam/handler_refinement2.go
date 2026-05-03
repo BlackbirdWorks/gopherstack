@@ -24,7 +24,7 @@ func (h *Handler) iamRefinement2DispatchTable() map[string]iamActionFn {
 // iamRefinement2ListTable provides PathPrefix-filtered overrides for ListUsers, ListRoles, ListGroups.
 func (h *Handler) iamRefinement2ListTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"ListUsers": func(vals url.Values, reqID string) (any, error) {
+		opListUsers: func(vals url.Values, reqID string) (any, error) {
 			p, err := h.Backend.ListUsers(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
@@ -49,7 +49,7 @@ func (h *Handler) iamRefinement2ListTable() map[string]iamActionFn {
 			}, nil
 		},
 
-		"ListRoles": func(vals url.Values, reqID string) (any, error) {
+		opListRoles: func(vals url.Values, reqID string) (any, error) {
 			p, err := h.Backend.ListRoles(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
@@ -74,7 +74,7 @@ func (h *Handler) iamRefinement2ListTable() map[string]iamActionFn {
 			}, nil
 		},
 
-		"ListGroups": func(vals url.Values, reqID string) (any, error) {
+		opListGroups: func(vals url.Values, reqID string) (any, error) {
 			p, err := h.Backend.ListGroups(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
@@ -104,11 +104,11 @@ func (h *Handler) iamRefinement2ListTable() map[string]iamActionFn {
 // iamRefinement2ListTable2 provides PathPrefix-filtered overrides for ListPolicies and ListInstanceProfiles.
 func (h *Handler) iamRefinement2ListTable2() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"ListPolicies": func(vals url.Values, reqID string) (any, error) {
+		opListPolicies: func(vals url.Values, reqID string) (any, error) {
 			return h.listPoliciesFiltered(vals, reqID)
 		},
 
-		"ListInstanceProfiles": func(vals url.Values, reqID string) (any, error) {
+		opListInstanceProfiles: func(vals url.Values, reqID string) (any, error) {
 			p, err := h.Backend.ListInstanceProfiles(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
@@ -194,7 +194,7 @@ func (h *Handler) iamRefinement2PermsBoundaryTable() map[string]iamActionFn {
 			if u.PermissionsBoundary != "" {
 				pb = &PermissionsBoundaryXML{
 					PermissionsBoundaryArn:  u.PermissionsBoundary,
-					PermissionsBoundaryType: "Policy",
+					PermissionsBoundaryType: xmlElemPolicy,
 				}
 			}
 
@@ -215,7 +215,7 @@ func (h *Handler) iamRefinement2PermsBoundaryTable() map[string]iamActionFn {
 			if r.PermissionsBoundary != "" {
 				pb = &PermissionsBoundaryXML{
 					PermissionsBoundaryArn:  r.PermissionsBoundary,
-					PermissionsBoundaryType: "Policy",
+					PermissionsBoundaryType: xmlElemPolicy,
 				}
 			}
 

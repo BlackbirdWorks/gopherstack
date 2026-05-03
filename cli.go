@@ -194,6 +194,13 @@ const (
 	defaultReadHeaderTimeout = 5 * time.Second
 	configDirPerm            = 0o700
 	configFilePerm           = 0o600
+
+	keyMessageField      = "message"
+	logLevelDebug        = "debug"
+	demoAppName          = "demo-app"
+	contentTypeJSON      = "application/json"
+	emrServerlessRoleARN = "arn:aws:iam::000000000000:role/EMRServerlessRole"
+	envProduction        = "production"
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -1747,7 +1754,7 @@ func run(ctx context.Context, cli CLI) error {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Error("purge worker: panic recovered",
+				log.ErrorContext(ctx, "purge worker: panic recovered",
 					"panic", fmt.Sprintf("%v", r))
 			}
 		}()
@@ -1933,7 +1940,7 @@ func buildHTTPErrorHandler() func(*echo.Context, error) {
 		}
 
 		if resp, _ := echo.UnwrapResponse(c.Response()); resp == nil || !resp.Committed {
-			_ = c.JSON(httpErr.Code, map[string]any{"message": httpErr.Message})
+			_ = c.JSON(httpErr.Code, map[string]any{keyMessageField: httpErr.Message})
 		}
 	}
 }
@@ -1982,9 +1989,9 @@ func buildResetHandler(services []service.Registerable) echo.HandlerFunc {
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"status":  "ok",
-			"reset":   reset,
-			"message": fmt.Sprintf("reset %d service(s)", reset),
+			"status":        "ok",
+			"reset":         reset,
+			keyMessageField: fmt.Sprintf("reset %d service(s)", reset),
 		})
 	}
 }
@@ -3941,7 +3948,7 @@ func buildLogger(level string) *slog.Logger {
 	var slogLevel slog.Level
 
 	switch strings.ToLower(strings.TrimSpace(level)) {
-	case "debug":
+	case logLevelDebug:
 		slogLevel = slog.LevelDebug
 	case "warn":
 		slogLevel = slog.LevelWarn
@@ -4431,19 +4438,19 @@ func seedAppConfigDataDemoProfiles(ctx context.Context, h service.Registerable, 
 		app, env, profile, content, contentType string
 	}{
 		{
-			app: "demo-app", env: "production", profile: "feature-flags",
+			app: demoAppName, env: envProduction, profile: "feature-flags",
 			content:     `{"featureFlagX":true,"enableNewUI":false,"maxRetries":3}`,
-			contentType: "application/json",
+			contentType: contentTypeJSON,
 		},
 		{
-			app: "demo-app", env: "production", profile: "rate-limits",
+			app: demoAppName, env: envProduction, profile: "rate-limits",
 			content:     `{"requestsPerMinute":100,"burstLimit":200}`,
-			contentType: "application/json",
+			contentType: contentTypeJSON,
 		},
 		{
-			app: "demo-app", env: "staging", profile: "feature-flags",
+			app: demoAppName, env: "staging", profile: "feature-flags",
 			content:     `{"featureFlagX":true,"enableNewUI":true,"maxRetries":5}`,
-			contentType: "application/json",
+			contentType: contentTypeJSON,
 		},
 	}
 
@@ -4547,7 +4554,7 @@ func seedEMRServerlessDemoData(ctx context.Context, h service.Registerable, log 
 		Type:          "SPARK",
 		ReleaseLabel:  "emr-6.10.0",
 		State:         emrserverlessbackend.ApplicationStateStarted,
-		Tags:          map[string]string{"team": "data-engineering", "env": "production"},
+		Tags:          map[string]string{"team": "data-engineering", "env": envProduction},
 		CreatedAt:     now.Add(-72 * time.Hour),
 		UpdatedAt:     now.Add(-1 * time.Hour),
 	}
@@ -4572,7 +4579,7 @@ func seedEMRServerlessDemoData(ctx context.Context, h service.Registerable, log 
 		Arn:              "arn:aws:emr-serverless:us-east-1:000000000000:/applications/demo0spark1/jobruns/demo0jr001",
 		Name:             "daily-etl-pipeline",
 		State:            emrserverlessbackend.JobRunStateSuccess,
-		ExecutionRoleArn: "arn:aws:iam::000000000000:role/EMRServerlessRole",
+		ExecutionRoleArn: emrServerlessRoleARN,
 		CreatedAt:        now.Add(-24 * time.Hour),
 		UpdatedAt:        now.Add(-23 * time.Hour),
 		Tags:             map[string]string{"run": "daily"},
@@ -4583,7 +4590,7 @@ func seedEMRServerlessDemoData(ctx context.Context, h service.Registerable, log 
 		Arn:              "arn:aws:emr-serverless:us-east-1:000000000000:/applications/demo0spark1/jobruns/demo0jr002",
 		Name:             "hourly-aggregation",
 		State:            emrserverlessbackend.JobRunStateSubmitted,
-		ExecutionRoleArn: "arn:aws:iam::000000000000:role/EMRServerlessRole",
+		ExecutionRoleArn: emrServerlessRoleARN,
 		CreatedAt:        now.Add(-15 * time.Minute),
 		UpdatedAt:        now.Add(-15 * time.Minute),
 		Tags:             map[string]string{"run": "hourly"},
@@ -4595,7 +4602,7 @@ func seedEMRServerlessDemoData(ctx context.Context, h service.Registerable, log 
 		Name:             "backfill-2024-q1",
 		State:            emrserverlessbackend.JobRunStateFailed,
 		StateDetails:     "SparkContext stopped due to OOM in executor",
-		ExecutionRoleArn: "arn:aws:iam::000000000000:role/EMRServerlessRole",
+		ExecutionRoleArn: emrServerlessRoleARN,
 		CreatedAt:        now.Add(-48 * time.Hour),
 		UpdatedAt:        now.Add(-47 * time.Hour),
 		Tags:             map[string]string{},
@@ -4607,7 +4614,7 @@ func seedEMRServerlessDemoData(ctx context.Context, h service.Registerable, log 
 		Name:             "schema-migration-v2",
 		State:            emrserverlessbackend.JobRunStateCancelled,
 		StateDetails:     "Job run cancelled by user request",
-		ExecutionRoleArn: "arn:aws:iam::000000000000:role/EMRServerlessRole",
+		ExecutionRoleArn: emrServerlessRoleARN,
 		CreatedAt:        now.Add(-12 * time.Hour),
 		UpdatedAt:        now.Add(-12 * time.Hour),
 		Tags:             map[string]string{},

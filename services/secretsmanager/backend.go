@@ -23,15 +23,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	errResourceNotFoundException = "ResourceNotFoundException"
+)
+
 var (
 	// ErrSecretNotFound is returned when the specified secret does not exist.
-	ErrSecretNotFound = errors.New("ResourceNotFoundException")
+	ErrSecretNotFound = errors.New(errResourceNotFoundException)
 	// ErrSecretAlreadyExists is returned when a secret with the given name already exists.
 	ErrSecretAlreadyExists = errors.New("ResourceExistsException")
 	// ErrSecretDeleted is returned when an operation is attempted on a deleted secret.
 	ErrSecretDeleted = errors.New("InvalidRequestException")
 	// ErrVersionNotFound is returned when the specified version does not exist.
-	ErrVersionNotFound = errors.New("ResourceNotFoundException")
+	ErrVersionNotFound = errors.New(errResourceNotFoundException)
 	// ErrInvalidPasswordParameters is returned when password generation parameters are invalid
 	// (e.g. PasswordLength out of range, or empty charset after exclusions, or too few positions
 	// to satisfy RequireEachIncludedType).
@@ -1474,7 +1478,7 @@ func (b *InMemoryBackend) batchGetByIDList(ids []string, out *BatchGetSecretValu
 		secret, ok := b.secrets[name]
 		if !ok {
 			out.Errors = append(out.Errors, APIErrorType{
-				ErrorCode: "ResourceNotFoundException",
+				ErrorCode: errResourceNotFoundException,
 				Message:   "Secrets Manager can't find the specified secret.",
 				SecretID:  id,
 			})
@@ -1495,7 +1499,7 @@ func (b *InMemoryBackend) batchGetByIDList(ids []string, out *BatchGetSecretValu
 		ver := b.findVersion(secret, "", StagingLabelCurrent)
 		if ver == nil {
 			out.Errors = append(out.Errors, APIErrorType{
-				ErrorCode: "ResourceNotFoundException",
+				ErrorCode: errResourceNotFoundException,
 				Message:   "Secrets Manager can't find the specified secret version.",
 				SecretID:  id,
 			})

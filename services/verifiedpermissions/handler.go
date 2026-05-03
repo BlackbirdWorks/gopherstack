@@ -17,7 +17,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const targetPrefix = "VerifiedPermissions."
+const (
+	targetPrefix    = "VerifiedPermissions."
+	keyTypeField    = "__type"
+	keyMessageField = "message"
+)
 
 var (
 	errUnknownAction  = errors.New("unknown action")
@@ -207,24 +211,24 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "ResourceNotFoundException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceNotFoundException",
+			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrConflict):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "ResourceConflictException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceConflictException",
+			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, errInvalidRequest),
 		errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "ValidationException",
-			"message": err.Error(),
+			keyTypeField:    "ValidationException",
+			keyMessageField: err.Error(),
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"__type":  "InternalServerException",
-			"message": err.Error(),
+			keyTypeField:    "InternalServerException",
+			keyMessageField: err.Error(),
 		})
 	}
 }

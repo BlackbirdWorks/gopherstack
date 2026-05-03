@@ -15,6 +15,19 @@ import (
 )
 
 const (
+	keyMessageField = "message"
+)
+
+const (
+	opBatchExecuteStatement = "BatchExecuteStatement"
+	opBeginTransaction      = "BeginTransaction"
+	opCommitTransaction     = "CommitTransaction"
+	opExecuteSQL            = "ExecuteSql"
+	opExecuteStatement      = "ExecuteStatement"
+	opRollbackTransaction   = "RollbackTransaction"
+)
+
+const (
 	rdsdataService       = "rds-data"
 	rdsdataMatchPriority = 87
 
@@ -59,12 +72,12 @@ func (h *Handler) Name() string { return "RDSData" }
 // GetSupportedOperations returns the list of supported RDS Data operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"BatchExecuteStatement",
-		"BeginTransaction",
-		"CommitTransaction",
-		"ExecuteSql",
-		"ExecuteStatement",
-		"RollbackTransaction",
+		opBatchExecuteStatement,
+		opBeginTransaction,
+		opCommitTransaction,
+		opExecuteSQL,
+		opExecuteStatement,
+		opRollbackTransaction,
 	}
 }
 
@@ -105,17 +118,17 @@ func (h *Handler) MatchPriority() int { return rdsdataMatchPriority }
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	switch c.Request().URL.Path {
 	case pathExecute:
-		return "ExecuteStatement"
+		return opExecuteStatement
 	case pathBatchExecute:
-		return "BatchExecuteStatement"
+		return opBatchExecuteStatement
 	case pathBeginTransaction:
-		return "BeginTransaction"
+		return opBeginTransaction
 	case pathCommitTransaction:
-		return "CommitTransaction"
+		return opCommitTransaction
 	case pathRollbackTransaction:
-		return "RollbackTransaction"
+		return opRollbackTransaction
 	case pathExecuteSQL:
-		return "ExecuteSql"
+		return opExecuteSQL
 	default:
 		return "Unknown"
 	}
@@ -159,17 +172,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte, error) {
 	switch op {
-	case "ExecuteStatement":
+	case opExecuteStatement:
 		return h.handleExecuteStatement(ctx, body)
-	case "BatchExecuteStatement":
+	case opBatchExecuteStatement:
 		return h.handleBatchExecuteStatement(ctx, body)
-	case "BeginTransaction":
+	case opBeginTransaction:
 		return h.handleBeginTransaction(ctx, body)
-	case "CommitTransaction":
+	case opCommitTransaction:
 		return h.handleCommitTransaction(ctx, body)
-	case "RollbackTransaction":
+	case opRollbackTransaction:
 		return h.handleRollbackTransaction(ctx, body)
-	case "ExecuteSql":
+	case opExecuteSQL:
 		return h.handleExecuteSQL(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
@@ -183,23 +196,23 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrTransactionNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "TransactionNotFoundException",
-			"message": err.Error(),
+			"__type":        "TransactionNotFoundException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errIsValidation(err):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "BadRequestException",
-			"message": err.Error(),
+			"__type":        "BadRequestException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 }
 

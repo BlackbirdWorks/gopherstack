@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+const (
+	offeringClassRegular = "Regular"
+	currencyUSD          = "USD"
+	reservedAllUpfront   = "All Upfront"
+	nodeTypeDC28xlarge   = "dc2.8xlarge"
+)
+
 // Duration constants for reserved node offerings (in seconds).
 const (
 	durationOneYearSec   = 31536000 // 365 * 24 * 60 * 60
@@ -38,53 +45,53 @@ func defaultReservedNodeOfferings() []*ReservedNodeOffering {
 	return []*ReservedNodeOffering{
 		{
 			ReservedNodeOfferingID:   "offering-dc2-large-1yr-allupfront",
-			ReservedNodeOfferingType: "Regular",
-			NodeType:                 "dc2.large",
+			ReservedNodeOfferingType: offeringClassRegular,
+			NodeType:                 defaultNodeType,
 			Duration:                 durationOneYearSec,
 			FixedPrice:               priceDC2LargeAllUpfront,
 			UsagePrice:               priceZeroUpfront,
-			CurrencyCode:             "USD",
-			OfferingType:             "All Upfront",
+			CurrencyCode:             currencyUSD,
+			OfferingType:             reservedAllUpfront,
 		},
 		{
 			ReservedNodeOfferingID:   "offering-dc2-large-1yr-noupfront",
-			ReservedNodeOfferingType: "Regular",
-			NodeType:                 "dc2.large",
+			ReservedNodeOfferingType: offeringClassRegular,
+			NodeType:                 defaultNodeType,
 			Duration:                 durationOneYearSec,
 			FixedPrice:               priceZeroUpfront,
 			UsagePrice:               priceDC2LargeNoUpfront,
-			CurrencyCode:             "USD",
+			CurrencyCode:             currencyUSD,
 			OfferingType:             "No Upfront",
 		},
 		{
 			ReservedNodeOfferingID:   "offering-dc2-8xlarge-1yr-allupfront",
-			ReservedNodeOfferingType: "Regular",
-			NodeType:                 "dc2.8xlarge",
+			ReservedNodeOfferingType: offeringClassRegular,
+			NodeType:                 nodeTypeDC28xlarge,
 			Duration:                 durationOneYearSec,
 			FixedPrice:               priceDC28XLargeAllUpfront,
 			UsagePrice:               priceZeroUpfront,
-			CurrencyCode:             "USD",
-			OfferingType:             "All Upfront",
+			CurrencyCode:             currencyUSD,
+			OfferingType:             reservedAllUpfront,
 		},
 		{
 			ReservedNodeOfferingID:   "offering-ra3-xlplus-1yr-allupfront",
-			ReservedNodeOfferingType: "Regular",
+			ReservedNodeOfferingType: offeringClassRegular,
 			NodeType:                 "ra3.xlplus",
 			Duration:                 durationOneYearSec,
 			FixedPrice:               priceRA3XLPlusAllUpfront,
 			UsagePrice:               priceZeroUpfront,
-			CurrencyCode:             "USD",
-			OfferingType:             "All Upfront",
+			CurrencyCode:             currencyUSD,
+			OfferingType:             reservedAllUpfront,
 		},
 		{
 			ReservedNodeOfferingID:   "offering-ra3-4xlarge-3yr-allupfront",
-			ReservedNodeOfferingType: "Regular",
+			ReservedNodeOfferingType: offeringClassRegular,
 			NodeType:                 "ra3.4xlarge",
 			Duration:                 durationThreeYearSec,
 			FixedPrice:               priceRA34XLargeAllUpfront,
 			UsagePrice:               priceZeroUpfront,
-			CurrencyCode:             "USD",
-			OfferingType:             "All Upfront",
+			CurrencyCode:             currencyUSD,
+			OfferingType:             reservedAllUpfront,
 		},
 	}
 }
@@ -209,7 +216,7 @@ func (b *InMemoryBackend) DescribeReservedNodeExchangeStatus(reservedNodeID stri
 		return "", fmt.Errorf("%w: reserved node %s not found", ErrReservedNodeNotFound, reservedNodeID)
 	}
 
-	return "Active", nil
+	return partnerStatusActive, nil
 }
 
 // GetReservedNodeExchangeOfferings returns offerings available for exchange of a reserved node.

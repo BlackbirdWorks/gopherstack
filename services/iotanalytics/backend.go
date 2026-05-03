@@ -10,6 +10,10 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	statusActive = "ACTIVE"
+)
+
 // StorageBackend is the interface for the IoT Analytics backend.
 type StorageBackend interface {
 	CreateChannel(name string, tags map[string]string) (*Channel, error)
@@ -221,7 +225,7 @@ func (b *InMemoryBackend) CreateChannel(name string, tags map[string]string) (*C
 	c := &Channel{
 		Name:         name,
 		ARN:          arn,
-		Status:       "ACTIVE",
+		Status:       statusActive,
 		CreationTime: now,
 		LastUpdate:   now,
 		Tags:         make(map[string]string),
@@ -314,7 +318,7 @@ func (b *InMemoryBackend) CreateDatastore(name string, tags map[string]string) (
 	d := &Datastore{
 		Name:         name,
 		ARN:          arn,
-		Status:       "ACTIVE",
+		Status:       statusActive,
 		CreationTime: now,
 		LastUpdate:   now,
 		Tags:         make(map[string]string),
@@ -407,7 +411,7 @@ func (b *InMemoryBackend) CreateDataset(name string, tags map[string]string) (*D
 	d := &Dataset{
 		Name:         name,
 		ARN:          arn,
-		Status:       "ACTIVE",
+		Status:       statusActive,
 		CreationTime: now,
 		LastUpdate:   now,
 		Tags:         make(map[string]string),

@@ -14,6 +14,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	statusActive = "ACTIVE"
+)
+
 var (
 	// ErrGroupNotFound is returned when an X-Ray group is not found.
 	ErrGroupNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
@@ -163,7 +167,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		mu:               lockmetrics.New("xray"),
 		encryptionConfig: &EncryptionConfig{
 			Type:   "NONE",
-			Status: "ACTIVE",
+			Status: statusActive,
 		},
 	}
 }
@@ -470,7 +474,7 @@ func (b *InMemoryBackend) Reset() {
 	b.resourcePolicies = make(map[string]*ResourcePolicy)
 	b.traceRetrievals = make(map[string]*TraceRetrieval)
 	b.indexingRules = defaultIndexingRules()
-	b.encryptionConfig = &EncryptionConfig{Type: "NONE", Status: "ACTIVE"}
+	b.encryptionConfig = &EncryptionConfig{Type: "NONE", Status: statusActive}
 }
 
 // GetEncryptionConfig returns the current X-Ray encryption configuration.
@@ -500,7 +504,7 @@ func (b *InMemoryBackend) PutEncryptionConfig(encType, keyID string) (*Encryptio
 	b.encryptionConfig = &EncryptionConfig{
 		Type:   encType,
 		KeyID:  keyID,
-		Status: "ACTIVE",
+		Status: statusActive,
 	}
 
 	cp := *b.encryptionConfig

@@ -12,6 +12,17 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+const (
+	keyStateValue = "StateValue"
+	keyState      = "State"
+)
+
+const (
+	keyNamespace  = "Namespace"
+	keyMetricName = "MetricName"
+	keyName       = "Name"
+)
+
 const cborServicePath = "/service/GraniteServiceVersion20100801/operation/"
 
 // nanosPerSecond is the number of nanoseconds in a second.
@@ -67,13 +78,13 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 // dispatchCBOR routes a decoded CBOR operation to the appropriate handler.
 func (h *Handler) dispatchCBOR(op string, input cbor.Map, c *echo.Context) error {
 	switch op {
-	case "PutMetricData":
+	case opPutMetricData:
 		return h.cborPutMetricData(input, c)
-	case "GetMetricStatistics":
+	case opGetMetricStatistics:
 		return h.cborGetMetricStatistics(input, c)
-	case "GetMetricData":
+	case opGetMetricData:
 		return h.cborGetMetricData(input, c)
-	case "ListMetrics":
+	case opListMetrics:
 		return h.cborListMetrics(input, c)
 	case cborOpListTagsForResource, cborOpTagResource, cborOpUntagResource:
 		return h.cborTagOperation(op, input, c)
@@ -84,13 +95,13 @@ func (h *Handler) dispatchCBOR(op string, input cbor.Map, c *echo.Context) error
 
 func (h *Handler) dispatchDashboardCBOR(op string, input cbor.Map, c *echo.Context) error {
 	switch op {
-	case "PutDashboard":
+	case opPutDashboard:
 		return h.cborPutDashboard(input, c)
-	case "GetDashboard":
+	case opGetDashboard:
 		return h.cborGetDashboard(input, c)
-	case "ListDashboards":
+	case opListDashboards:
 		return h.cborListDashboards(input, c)
-	case "DeleteDashboards":
+	case opDeleteDashboards:
 		return h.cborDeleteDashboards(input, c)
 	default:
 		return h.dispatchResourceManagementCBOR(op, input, c)
@@ -99,21 +110,21 @@ func (h *Handler) dispatchDashboardCBOR(op string, input cbor.Map, c *echo.Conte
 
 func (h *Handler) dispatchResourceManagementCBOR(op string, input cbor.Map, c *echo.Context) error {
 	switch op {
-	case "PutAlarmMuteRule":
+	case opPutAlarmMuteRule:
 		return h.cborPutAlarmMuteRule(input, c)
-	case "UpdateAlarmMuteRule":
+	case opUpdateAlarmMuteRule:
 		return h.cborUpdateAlarmMuteRule(input, c)
-	case "PutInsightRule":
+	case opPutInsightRule:
 		return h.cborPutInsightRule(input, c)
-	case "UpdateInsightRule":
+	case opUpdateInsightRule:
 		return h.cborUpdateInsightRule(input, c)
-	case "PutMetricStream":
+	case opPutMetricStream:
 		return h.cborPutMetricStream(input, c)
-	case "UpdateMetricStream":
+	case opUpdateMetricStream:
 		return h.cborUpdateMetricStream(input, c)
-	case "GetAlarmMuteRule":
+	case opGetAlarmMuteRule:
 		return h.cborGetAlarmMuteRule(input, c)
-	case "DeleteAlarmMuteRule":
+	case opDeleteAlarmMuteRule:
 		return h.cborDeleteAlarmMuteRule(input, c)
 	default:
 		return h.dispatchAlarmCBOR(op, input, c)
@@ -123,23 +134,23 @@ func (h *Handler) dispatchResourceManagementCBOR(op string, input cbor.Map, c *e
 // dispatchAlarmCBOR routes alarm-specific CBOR operations.
 func (h *Handler) dispatchAlarmCBOR(op string, input cbor.Map, c *echo.Context) error {
 	switch op {
-	case "PutMetricAlarm":
+	case opPutMetricAlarm:
 		return h.cborPutMetricAlarm(input, c)
-	case "PutCompositeAlarm":
+	case opPutCompositeAlarm:
 		return h.cborPutCompositeAlarm(input, c)
-	case "DescribeAlarms":
+	case opDescribeAlarms:
 		return h.cborDescribeAlarms(input, c)
-	case "DescribeAlarmsForMetric":
+	case opDescribeAlarmsForMetric:
 		return h.cborDescribeAlarmsForMetric(input, c)
-	case "DescribeAlarmHistory":
+	case opDescribeAlarmHistory:
 		return h.cborDescribeAlarmHistory(input, c)
-	case "DeleteAlarms":
+	case opDeleteAlarms:
 		return h.cborDeleteAlarms(input, c)
-	case "SetAlarmState":
+	case opSetAlarmState:
 		return h.cborSetAlarmState(input, c)
-	case "EnableAlarmActions":
+	case opEnableAlarmActions:
 		return h.cborEnableAlarmActions(input, c)
-	case "DisableAlarmActions":
+	case opDisableAlarmActions:
 		return h.cborDisableAlarmActions(input, c)
 	default:
 		return h.dispatchExtendedCBOR(op, input, c)
@@ -158,19 +169,19 @@ func (h *Handler) dispatchExtendedCBOR(op string, input cbor.Map, c *echo.Contex
 // dispatchAnomalyMetricStreamCBOR routes anomaly detector and metric stream CBOR operations.
 func (h *Handler) dispatchAnomalyMetricStreamCBOR(op string, input cbor.Map, c *echo.Context) (bool, error) {
 	switch op {
-	case "PutAnomalyDetector":
+	case opPutAnomalyDetector:
 		return true, h.cborPutAnomalyDetector(input, c)
-	case "DeleteAnomalyDetector":
+	case opDeleteAnomalyDetector:
 		return true, h.cborDeleteAnomalyDetector(input, c)
-	case "DescribeAnomalyDetectors":
+	case opDescribeAnomalyDetectors:
 		return true, h.cborDescribeAnomalyDetectors(input, c)
-	case "ListMetricStreams":
+	case opListMetricStreams:
 		return true, h.cborListMetricStreams(input, c)
-	case "GetMetricStream":
+	case opGetMetricStream:
 		return true, h.cborGetMetricStream(input, c)
-	case "DeleteMetricStream":
+	case opDeleteMetricStream:
 		return true, h.cborDeleteMetricStream(input, c)
-	case "DescribeAlarmContributors":
+	case opDescribeAlarmContributors:
 		return true, h.cborDescribeAlarmContributors(input, c)
 	}
 
@@ -180,23 +191,23 @@ func (h *Handler) dispatchAnomalyMetricStreamCBOR(op string, input cbor.Map, c *
 // dispatchInsightMetricFilterCBOR routes insight rule and metric filter CBOR operations.
 func (h *Handler) dispatchInsightMetricFilterCBOR(op string, input cbor.Map, c *echo.Context) error {
 	switch op {
-	case "DeleteInsightRules":
+	case opDeleteInsightRules:
 		return h.cborDeleteInsightRules(input, c)
-	case "DescribeInsightRules":
+	case opDescribeInsightRules:
 		return h.cborDescribeInsightRules(input, c)
-	case "DisableInsightRules":
+	case opDisableInsightRules:
 		return h.cborDisableInsightRules(input, c)
-	case "EnableInsightRules":
+	case opEnableInsightRules:
 		return h.cborEnableInsightRules(input, c)
-	case "GetInsightRuleReport":
+	case opGetInsightRuleReport:
 		return h.cborGetInsightRuleReport(input, c)
-	case "PutMetricFilter":
+	case opPutMetricFilter:
 		return h.cborPutMetricFilter(input, c)
-	case "DescribeMetricFilters":
+	case opDescribeMetricFilters:
 		return h.cborDescribeMetricFilters(input, c)
-	case "DeleteMetricFilter":
+	case opDeleteMetricFilter:
 		return h.cborDeleteMetricFilter(input, c)
-	case "TestMetricFilter":
+	case opTestMetricFilter:
 		return h.cborTestMetricFilter(c)
 	default:
 		return h.cborError(c, http.StatusBadRequest, "InvalidAction", "unknown operation: "+op)
@@ -363,7 +374,7 @@ func cborFromTime(t time.Time) cbor.Value {
 }
 
 func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
-	namespace := cborStr(input, "Namespace")
+	namespace := cborStr(input, keyNamespace)
 	if namespace == "" {
 		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Namespace is required")
 	}
@@ -381,7 +392,7 @@ func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
 				val := cborFloat(m, "Value")
 				ts := cborTime(m, "Timestamp")
 				data = append(data, MetricDatum{
-					MetricName: cborStr(m, "MetricName"),
+					MetricName: cborStr(m, keyMetricName),
 					Value:      val,
 					Unit:       cborStr(m, "Unit"),
 					Timestamp:  ts,
@@ -402,8 +413,8 @@ func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
 }
 
 func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error {
-	namespace := cborStr(input, "Namespace")
-	metricName := cborStr(input, "MetricName")
+	namespace := cborStr(input, keyNamespace)
+	metricName := cborStr(input, keyMetricName)
 	startTime := cborTime(input, "StartTime")
 	endTime := cborTime(input, "EndTime")
 	period := cborInt32(input, "Period")
@@ -466,8 +477,8 @@ func applyMetricStatToQuery(q *MetricDataQuery, msMap cbor.Map) {
 
 	if mVal, hasMet := msMap["Metric"]; hasMet {
 		if mMap, isMMap := mVal.(cbor.Map); isMMap {
-			q.MetricStat.Namespace = cborStr(mMap, "Namespace")
-			q.MetricStat.MetricName = cborStr(mMap, "MetricName")
+			q.MetricStat.Namespace = cborStr(mMap, keyNamespace)
+			q.MetricStat.MetricName = cborStr(mMap, keyMetricName)
 		}
 	}
 }
@@ -549,8 +560,8 @@ func (h *Handler) cborGetMetricData(input cbor.Map, c *echo.Context) error {
 }
 
 func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
-	namespace := cborStr(input, "Namespace")
-	metricName := cborStr(input, "MetricName")
+	namespace := cborStr(input, keyNamespace)
+	metricName := cborStr(input, keyMetricName)
 	nextToken := cborStr(input, "NextToken")
 	maxResults := int(cborInt32(input, "MaxResults"))
 
@@ -563,8 +574,8 @@ func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
 
 	for _, m := range p.Data {
 		mList = append(mList, cbor.Map{
-			"Namespace":  cbor.String(m.Namespace),
-			"MetricName": cbor.String(m.MetricName),
+			keyNamespace:  cbor.String(m.Namespace),
+			keyMetricName: cbor.String(m.MetricName),
 		})
 	}
 
@@ -593,8 +604,8 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 
 	alarm := &MetricAlarm{
 		AlarmName:               alarmName,
-		Namespace:               cborStr(input, "Namespace"),
-		MetricName:              cborStr(input, "MetricName"),
+		Namespace:               cborStr(input, keyNamespace),
+		MetricName:              cborStr(input, keyMetricName),
 		ComparisonOperator:      cborStr(input, "ComparisonOperator"),
 		Statistic:               cborStr(input, "Statistic"),
 		ExtendedStatistic:       cborStr(input, "ExtendedStatistic"),
@@ -625,7 +636,7 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 	alarmNames := cborStrList(input, "AlarmNames")
 	alarmTypes := cborStrList(input, "AlarmTypes")
 	alarmNamePrefix := cborStr(input, "AlarmNamePrefix")
-	stateValue := cborStr(input, "StateValue")
+	stateValue := cborStr(input, keyStateValue)
 	nextToken := cborStr(input, "NextToken")
 	maxRecords := int(cborInt32(input, "MaxRecords"))
 
@@ -755,16 +766,16 @@ func cborStringList(ss []string) cbor.List {
 // buildMetricAlarmCBOR converts a MetricAlarm to a cbor.Map.
 func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 	m := cbor.Map{
-		"AlarmName":          cbor.String(a.AlarmName),
-		"AlarmArn":           cbor.String(a.AlarmArn),
+		keyAlarmName:         cbor.String(a.AlarmName),
+		keyAlarmArn:          cbor.String(a.AlarmArn),
 		"AlarmType":          cbor.String("MetricAlarm"),
-		"Namespace":          cbor.String(a.Namespace),
-		"MetricName":         cbor.String(a.MetricName),
+		keyNamespace:         cbor.String(a.Namespace),
+		keyMetricName:        cbor.String(a.MetricName),
 		"ComparisonOperator": cbor.String(a.ComparisonOperator),
 		"Statistic":          cbor.String(a.Statistic),
-		"StateValue":         cbor.String(a.StateValue),
+		keyStateValue:        cbor.String(a.StateValue),
 		"StateReason":        cbor.String(a.StateReason),
-		"AlarmDescription":   cbor.String(a.AlarmDescription),
+		keyAlarmDescription:  cbor.String(a.AlarmDescription),
 		"Threshold":          cbor.Float64(a.Threshold),
 		"EvaluationPeriods":  cbor.Uint(uint64(a.EvaluationPeriods)), //nolint:gosec // EvaluationPeriods is positive
 		"Period":             cbor.Uint(uint64(a.Period)),            //nolint:gosec // Period is positive
@@ -795,7 +806,7 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 		dims := make(cbor.List, 0, len(a.Dimensions))
 		for _, d := range a.Dimensions {
 			dims = append(dims, cbor.Map{
-				"Name":  cbor.String(d.Name),
+				keyName: cbor.String(d.Name),
 				"Value": cbor.String(d.Value),
 			})
 		}
@@ -817,14 +828,14 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 // buildCompositeAlarmCBOR converts a CompositeAlarm to a cbor.Map.
 func buildCompositeAlarmCBOR(a *CompositeAlarm) cbor.Map {
 	m := cbor.Map{
-		"AlarmName":        cbor.String(a.AlarmName),
-		"AlarmArn":         cbor.String(a.AlarmArn),
-		"AlarmType":        cbor.String("CompositeAlarm"),
-		"AlarmRule":        cbor.String(a.AlarmRule),
-		"StateValue":       cbor.String(a.StateValue),
-		"StateReason":      cbor.String(a.StateReason),
-		"AlarmDescription": cbor.String(a.AlarmDescription),
-		"ActionsEnabled":   cbor.Bool(a.ActionsEnabled),
+		keyAlarmName:        cbor.String(a.AlarmName),
+		keyAlarmArn:         cbor.String(a.AlarmArn),
+		"AlarmType":         cbor.String("CompositeAlarm"),
+		"AlarmRule":         cbor.String(a.AlarmRule),
+		keyStateValue:       cbor.String(a.StateValue),
+		"StateReason":       cbor.String(a.StateReason),
+		keyAlarmDescription: cbor.String(a.AlarmDescription),
+		"ActionsEnabled":    cbor.Bool(a.ActionsEnabled),
 	}
 	if !a.CreatedAt.IsZero() {
 		m["AlarmCreatedAt"] = cborFromTime(a.CreatedAt)
@@ -877,8 +888,8 @@ func (h *Handler) cborPutCompositeAlarm(input cbor.Map, c *echo.Context) error {
 }
 
 func (h *Handler) cborDescribeAlarmsForMetric(input cbor.Map, c *echo.Context) error {
-	namespace := cborStr(input, "Namespace")
-	metricName := cborStr(input, "MetricName")
+	namespace := cborStr(input, keyNamespace)
+	metricName := cborStr(input, keyMetricName)
 	alarmNames := cborStrList(input, "AlarmNames")
 	nextToken := cborStr(input, "NextToken")
 	maxRecords := int(cborInt32(input, "MaxRecords"))
@@ -925,7 +936,7 @@ func (h *Handler) cborDescribeAlarmHistory(input cbor.Map, c *echo.Context) erro
 	histList := make(cbor.List, 0, len(p.Data))
 	for _, item := range p.Data {
 		m := cbor.Map{
-			"AlarmName":       cbor.String(item.AlarmName),
+			keyAlarmName:      cbor.String(item.AlarmName),
 			"HistoryItemType": cbor.String(item.HistoryItemType),
 			"HistorySummary":  cbor.String(item.HistorySummary),
 			"HistoryData":     cbor.String(item.HistoryData),
@@ -954,7 +965,7 @@ func (h *Handler) cborSetAlarmState(input cbor.Map, c *echo.Context) error {
 	if err := h.Backend.SetAlarmState(
 		c.Request().Context(),
 		alarmName,
-		cborStr(input, "StateValue"),
+		cborStr(input, keyStateValue),
 		cborStr(input, "StateReason"),
 	); err != nil {
 		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
@@ -1173,7 +1184,7 @@ func (h *Handler) cborUpdateInsightRule(input cbor.Map, c *echo.Context) error {
 }
 
 func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
-	name := cborStr(input, "Name")
+	name := cborStr(input, keyName)
 	if name == "" {
 		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
 	}
@@ -1183,7 +1194,7 @@ func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 		FirehoseArn:  cborStr(input, "FirehoseArn"),
 		RoleArn:      cborStr(input, "RoleArn"),
 		OutputFormat: cborStr(input, "OutputFormat"),
-		State:        cborStr(input, "State"),
+		State:        cborStr(input, keyState),
 	}); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1192,7 +1203,7 @@ func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 }
 
 func (h *Handler) cborUpdateMetricStream(input cbor.Map, c *echo.Context) error {
-	name := cborStr(input, "Name")
+	name := cborStr(input, keyName)
 	if name == "" {
 		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
 	}
@@ -1210,16 +1221,16 @@ func (h *Handler) cborPutAnomalyDetector(input cbor.Map, c *echo.Context) error 
 
 	if smadRaw, hasSmad := input["SingleMetricAnomalyDetector"]; hasSmad {
 		if smad, isMap := smadRaw.(cbor.Map); isMap {
-			namespace = cborStr(smad, "Namespace")
-			metricName = cborStr(smad, "MetricName")
+			namespace = cborStr(smad, keyNamespace)
+			metricName = cborStr(smad, keyMetricName)
 			stat = cborStr(smad, "Stat")
 		}
 	}
 	if namespace == "" {
-		namespace = cborStr(input, "Namespace")
+		namespace = cborStr(input, keyNamespace)
 	}
 	if metricName == "" {
-		metricName = cborStr(input, "MetricName")
+		metricName = cborStr(input, keyMetricName)
 	}
 	if stat == "" {
 		stat = cborStr(input, "Stat")
@@ -1233,7 +1244,7 @@ func (h *Handler) cborPutAnomalyDetector(input cbor.Map, c *echo.Context) error 
 		Namespace:  namespace,
 		MetricName: metricName,
 		Stat:       stat,
-		StateValue: "TRAINED_INSUFFICIENT_DATA",
+		StateValue: statusTrainedInsufficient,
 	}); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1248,16 +1259,16 @@ func (h *Handler) cborDeleteAnomalyDetector(input cbor.Map, c *echo.Context) err
 
 	if smadRaw, hasSmad := input["SingleMetricAnomalyDetector"]; hasSmad {
 		if smad, isMap := smadRaw.(cbor.Map); isMap {
-			namespace = cborStr(smad, "Namespace")
-			metricName = cborStr(smad, "MetricName")
+			namespace = cborStr(smad, keyNamespace)
+			metricName = cborStr(smad, keyMetricName)
 			stat = cborStr(smad, "Stat")
 		}
 	}
 	if namespace == "" {
-		namespace = cborStr(input, "Namespace")
+		namespace = cborStr(input, keyNamespace)
 	}
 	if metricName == "" {
-		metricName = cborStr(input, "MetricName")
+		metricName = cborStr(input, keyMetricName)
 	}
 	if stat == "" {
 		stat = cborStr(input, "Stat")
@@ -1271,8 +1282,8 @@ func (h *Handler) cborDeleteAnomalyDetector(input cbor.Map, c *echo.Context) err
 }
 
 func (h *Handler) cborDescribeAnomalyDetectors(input cbor.Map, c *echo.Context) error {
-	namespace := cborStr(input, "Namespace")
-	metricName := cborStr(input, "MetricName")
+	namespace := cborStr(input, keyNamespace)
+	metricName := cborStr(input, keyMetricName)
 	nextToken := cborStr(input, "NextToken")
 	maxResults := int(cborInt32(input, "MaxResults"))
 
@@ -1284,11 +1295,11 @@ func (h *Handler) cborDescribeAnomalyDetectors(input cbor.Map, c *echo.Context) 
 	members := make(cbor.List, 0, len(p.Data))
 	for _, d := range p.Data {
 		entry := cbor.Map{
-			"StateValue": cbor.String(d.StateValue),
+			keyStateValue: cbor.String(d.StateValue),
 			"SingleMetricAnomalyDetector": cbor.Map{
-				"Namespace":  cbor.String(d.Namespace),
-				"MetricName": cbor.String(d.MetricName),
-				"Stat":       cbor.String(d.Stat),
+				keyNamespace:  cbor.String(d.Namespace),
+				keyMetricName: cbor.String(d.MetricName),
+				"Stat":        cbor.String(d.Stat),
 			},
 		}
 		members = append(members, entry)
@@ -1316,10 +1327,10 @@ func (h *Handler) cborListMetricStreams(input cbor.Map, c *echo.Context) error {
 	entries := make(cbor.List, 0, len(p.Data))
 	for _, s := range p.Data {
 		entry := cbor.Map{
-			"Name":         cbor.String(s.Name),
+			keyName:        cbor.String(s.Name),
 			"Arn":          cbor.String(s.Arn),
 			"FirehoseArn":  cbor.String(s.FirehoseArn),
-			"State":        cbor.String(s.State),
+			keyState:       cbor.String(s.State),
 			"OutputFormat": cbor.String(s.OutputFormat),
 		}
 		if !s.CreationDate.IsZero() {
@@ -1342,7 +1353,7 @@ func (h *Handler) cborListMetricStreams(input cbor.Map, c *echo.Context) error {
 }
 
 func (h *Handler) cborGetMetricStream(input cbor.Map, c *echo.Context) error {
-	name := cborStr(input, "Name")
+	name := cborStr(input, keyName)
 	if name == "" {
 		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
 	}
@@ -1353,11 +1364,11 @@ func (h *Handler) cborGetMetricStream(input cbor.Map, c *echo.Context) error {
 	}
 
 	out := cbor.Map{
-		"Name":         cbor.String(stream.Name),
+		keyName:        cbor.String(stream.Name),
 		"Arn":          cbor.String(stream.Arn),
 		"FirehoseArn":  cbor.String(stream.FirehoseArn),
 		"RoleArn":      cbor.String(stream.RoleArn),
-		"State":        cbor.String(stream.State),
+		keyState:       cbor.String(stream.State),
 		"OutputFormat": cbor.String(stream.OutputFormat),
 	}
 	if !stream.CreationDate.IsZero() {
@@ -1371,7 +1382,7 @@ func (h *Handler) cborGetMetricStream(input cbor.Map, c *echo.Context) error {
 }
 
 func (h *Handler) cborDeleteMetricStream(input cbor.Map, c *echo.Context) error {
-	name := cborStr(input, "Name")
+	name := cborStr(input, keyName)
 	if name == "" {
 		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
 	}
@@ -1409,8 +1420,8 @@ func (h *Handler) cborDescribeInsightRules(input cbor.Map, c *echo.Context) erro
 	rules := make(cbor.List, 0, len(p.Data))
 	for _, r := range p.Data {
 		entry := cbor.Map{
-			"Name":        cbor.String(r.Name),
-			"State":       cbor.String(r.State),
+			keyName:       cbor.String(r.Name),
+			keyState:      cbor.String(r.State),
 			"Schema":      cbor.String(r.Schema),
 			"Definition":  cbor.String(r.Definition),
 			"ManagedRule": cbor.Bool(r.ManagedRule),
@@ -1497,7 +1508,7 @@ func (h *Handler) cborPutMetricFilter(input cbor.Map, c *echo.Context) error {
 			for _, mtRaw := range mtsList {
 				if mt, isMap := mtRaw.(cbor.Map); isMap {
 					filter.MetricTransformations = append(filter.MetricTransformations, MetricTransformation{
-						MetricName:      cborStr(mt, "MetricName"),
+						MetricName:      cborStr(mt, keyMetricName),
 						MetricNamespace: cborStr(mt, "MetricNamespace"),
 						MetricValue:     cborStr(mt, "MetricValue"),
 						Unit:            cborStr(mt, "Unit"),
@@ -1538,7 +1549,7 @@ func (h *Handler) cborDescribeMetricFilters(input cbor.Map, c *echo.Context) err
 			mts := make(cbor.List, 0, len(f.MetricTransformations))
 			for _, mt := range f.MetricTransformations {
 				mts = append(mts, cbor.Map{
-					"MetricName":      cbor.String(mt.MetricName),
+					keyMetricName:     cbor.String(mt.MetricName),
 					"MetricNamespace": cbor.String(mt.MetricNamespace),
 					"MetricValue":     cbor.String(mt.MetricValue),
 					"Unit":            cbor.String(mt.Unit),

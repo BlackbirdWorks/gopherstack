@@ -12,6 +12,10 @@ import (
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	shareStatusNotShared = "NOT_SHARED"
+)
+
 var (
 	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("ResourceExistsException", awserr.ErrAlreadyExists)
@@ -489,7 +493,7 @@ func (b *InMemoryBackend) CreateResolverRule(
 		DomainName:         domainName,
 		RuleType:           ruleType,
 		Status:             statusComplete,
-		ShareStatus:        "NOT_SHARED",
+		ShareStatus:        shareStatusNotShared,
 		ResolverEndpointID: endpointID,
 		AccountID:          b.accountID,
 		Region:             b.region,
@@ -936,7 +940,7 @@ func (b *InMemoryBackend) AddRuleInternal(name, domainName, ruleType string) *Re
 		DomainName:  domainName,
 		RuleType:    ruleType,
 		Status:      statusComplete,
-		ShareStatus: "NOT_SHARED",
+		ShareStatus: shareStatusNotShared,
 		AccountID:   b.accountID,
 		Region:      b.region,
 	}
@@ -1040,7 +1044,7 @@ func (b *InMemoryBackend) AddRuleInternalWithEndpoint(name, domainName, ruleType
 		DomainName:         domainName,
 		RuleType:           ruleType,
 		Status:             statusComplete,
-		ShareStatus:        "NOT_SHARED",
+		ShareStatus:        shareStatusNotShared,
 		ResolverEndpointID: endpointID,
 		AccountID:          b.accountID,
 		Region:             b.region,
