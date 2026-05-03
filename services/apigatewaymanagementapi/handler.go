@@ -26,6 +26,21 @@ const (
 const (
 	apigwMgmtMatchPriority = 87
 	connectionsPathPrefix  = "/@connections/"
+	adminPathPrefix        = "/_gopherstack/apigwmgmt/"
+
+	adminConnections        = "connections"
+	adminConnectionsPrefix  = "connections/"
+	adminBroadcastEndpoint  = "broadcast"
+	adminStatsEndpoint      = "stats"
+	adminPruneEndpoint      = "prune"
+	adminMessagesSuffix     = "messages"
+	adminTimelineSuffix     = "timeline"
+	adminPingSuffix         = "ping"
+	adminUnknownEndpointMsg = "unknown admin endpoint"
+	adminInvalidJSONMsg     = "invalid JSON body"
+	adminConnNotFoundMsg    = "connection not found"
+
+	opUnknown = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for API Gateway Management API operations.
@@ -56,17 +71,29 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // RouteMatcher returns a function matching API Gateway Management API requests.
+// In addition to the AWS-shaped /@connections/* prefix it also claims the
+// /_gopherstack/apigwmgmt/* prefix, which exposes diagnostic endpoints used by
+// the gopherstack UI (list, broadcast, timeline, stats).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().URL.Path, connectionsPathPrefix)
+		path := c.Request().URL.Path
+
+		return strings.HasPrefix(path, connectionsPathPrefix) ||
+			strings.HasPrefix(path, adminPathPrefix)
 	}
 }
 
 // MatchPriority returns the routing priority.
 func (h *Handler) MatchPriority() int { return apigwMgmtMatchPriority }
 
-// ExtractOperation returns the operation name based on HTTP method.
+// ExtractOperation returns the operation name based on path / HTTP method.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	path := c.Request().URL.Path
+
+	if sub, ok := strings.CutPrefix(path, adminPathPrefix); ok {
+		return "Admin:" + adminAction(c.Request().Method, sub)
+	}
+
 	switch c.Request().Method {
 	case http.MethodPost:
 		return "PostToConnection"
@@ -75,21 +102,32 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	case http.MethodDelete:
 		return "DeleteConnection"
 	default:
-		return "Unknown"
+		return opUnknown
 	}
 }
 
-// ExtractResource extracts the connection ID from the URL path.
+// ExtractResource extracts the connection ID from the URL path. For admin paths
+// it returns the trailing segment after the admin prefix.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	return strings.TrimPrefix(c.Request().URL.Path, connectionsPathPrefix)
+	path := c.Request().URL.Path
+	if sub, ok := strings.CutPrefix(path, adminPathPrefix); ok {
+		return sub
+	}
+
+	return strings.TrimPrefix(path, connectionsPathPrefix)
 }
 
 // Handler returns the Echo handler function for API Gateway Management API operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		path := c.Request().URL.Path
+
+		if sub, ok := strings.CutPrefix(path, adminPathPrefix); ok {
+			return h.handleAdmin(c, sub)
+		}
+
 		log := logger.Load(c.Request().Context())
 
-		path := c.Request().URL.Path
 		if !strings.HasPrefix(path, connectionsPathPrefix) {
 			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
 		}
@@ -188,4 +226,58 @@ func (h *Handler) handleDeleteConnection(c *echo.Context, connectionID string) e
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+func adminAction(method, sub string) string {
+	if action := adminTopLevelAction(method, sub); action != "" {
+		return action
+	}
+
+	if rest, ok := strings.CutPrefix(sub, adminConnectionsPrefix); ok {
+		return adminConnSubresourceAction(method, rest)
+	}
+
+	return opUnknown
+}
+
+func adminTopLevelAction(method, sub string) string {
+	switch sub {
+	case adminConnections:
+		if method == http.MethodGet {
+			return "ListConnections"
+		}
+
+		if method == http.MethodPost {
+			return "SimulateConnection"
+		}
+	case adminBroadcastEndpoint:
+		if method == http.MethodPost {
+			return "Broadcast"
+		}
+	case adminStatsEndpoint:
+		if method == http.MethodGet {
+			return "Stats"
+		}
+	case adminPruneEndpoint:
+		if method == http.MethodPost {
+			return "PruneIdle"
+		}
+	}
+
+	return ""
+}
+
+func adminConnSubresourceAction(method, rest string) string {
+	switch {
+	case strings.HasSuffix(rest, "/"+adminMessagesSuffix) && method == http.MethodGet:
+		return "GetMessages"
+	case strings.HasSuffix(rest, "/"+adminMessagesSuffix) && method == http.MethodDelete:
+		return "ClearMessages"
+	case strings.HasSuffix(rest, "/"+adminTimelineSuffix) && method == http.MethodGet:
+		return "GetTimeline"
+	case strings.HasSuffix(rest, "/"+adminPingSuffix) && method == http.MethodPost:
+		return "PingConnection"
+	}
+
+	return opUnknown
 }

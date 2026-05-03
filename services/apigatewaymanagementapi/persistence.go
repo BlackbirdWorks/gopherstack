@@ -2,9 +2,15 @@ package apigatewaymanagementapi
 
 import "encoding/json"
 
+type persistedConn struct {
+	Connection *Connection      `json:"connection"`
+	Messages   []PostedMessage  `json:"messages,omitempty"`
+	Events     []LifecycleEvent `json:"events,omitempty"`
+}
+
 type backendSnapshot struct {
-	Connections map[string]*Connection     `json:"connections"`
-	Messages    map[string][]PostedMessage `json:"messages"`
+	Connections map[string]persistedConn `json:"connections"`
+	Stats       Stats                    `json:"stats"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -14,8 +20,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Connections: b.connections,
-		Messages:    b.messages,
+		Connections: make(map[string]persistedConn, len(b.connections)),
+		Stats:       b.stats,
+	}
+
+	for id, state := range b.connections {
+		snap.Connections[id] = persistedConn{
+			Connection: state.conn,
+			Messages:   state.msgs.snapshot(),
+			Events:     append([]LifecycleEvent(nil), state.events...),
+		}
 	}
 
 	data, err := json.Marshal(snap)
@@ -38,16 +52,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Connections == nil {
-		snap.Connections = make(map[string]*Connection)
-	}
+	b.connections = make(map[string]*connState, len(snap.Connections))
+	b.stats = snap.Stats
 
-	if snap.Messages == nil {
-		snap.Messages = make(map[string][]PostedMessage)
-	}
+	for id, persisted := range snap.Connections {
+		ring := newMessageRing(maxMessagesPerConnection)
+		for _, m := range persisted.Messages {
+			ring.push(m)
+		}
 
-	b.connections = snap.Connections
-	b.messages = snap.Messages
+		b.connections[id] = &connState{
+			conn:   persisted.Connection,
+			msgs:   ring,
+			events: append([]LifecycleEvent(nil), persisted.Events...),
+		}
+	}
 
 	return nil
 }
@@ -57,8 +76,8 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.connections = make(map[string]*Connection)
-	b.messages = make(map[string][]PostedMessage)
+	b.connections = make(map[string]*connState)
+	b.stats = Stats{}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
