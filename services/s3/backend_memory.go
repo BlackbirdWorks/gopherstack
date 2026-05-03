@@ -3425,7 +3425,7 @@ func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (s
 		return "", err
 	}
 
-	const sessionXML = `<CreateSessionResponse xmlns=xmlNamespaceS3>` +
+	const sessionXML = `<CreateSessionResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
 		`<Credentials>` +
 		`<SessionToken>gopherstack-mock-session-token</SessionToken>` +
 		`<SecretAccessKey>gopherstack-mock-secret</SecretAccessKey>` +
