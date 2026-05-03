@@ -60,6 +60,7 @@ import { Route53Client } from "@aws-sdk/client-route-53";
 import { WAFV2Client } from "@aws-sdk/client-wafv2";
 import { SFNClient } from "@aws-sdk/client-sfn";
 import { WorkSpacesClient } from "@aws-sdk/client-workspaces";
+import { ApplicationAutoScalingClient } from "@aws-sdk/client-application-auto-scaling";
 
 const defaultRegion = "us-east-1";
 
@@ -631,4 +632,8 @@ export function getSWFClient(region?: string): SWFClient {
 
 export function getLakeFormationClient(region?: string): LakeFormationClient {
   return new LakeFormationClient(clientConfig(region));
+}
+
+export function getApplicationAutoScalingClient(region?: string): ApplicationAutoScalingClient {
+  return new ApplicationAutoScalingClient(clientConfig(region));
 }
