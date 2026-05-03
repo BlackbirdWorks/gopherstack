@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	elbv2Version = "2015-12-01"
-	elbv2XMLNS   = "http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"
+	elbv2Version   = "2015-12-01"
+	elbv2XMLNS     = "http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"
+	attrValueFalse = "false"
 )
 
 // Handler is the Echo HTTP handler for ELBv2 operations.
@@ -394,8 +395,8 @@ func (h *Handler) handleDescribeLoadBalancerAttributes(vals url.Values) (any, er
 		Result: describeLoadBalancerAttributesResult{
 			Attributes: xmlLBAttributeList{
 				Members: []xmlLBAttribute{
-					{Key: "access_logs.s3.enabled", Value: "false"},
-					{Key: "deletion_protection.enabled", Value: "false"},
+					{Key: "access_logs.s3.enabled", Value: attrValueFalse},
+					{Key: "deletion_protection.enabled", Value: attrValueFalse},
 					{Key: "idle_timeout.timeout_seconds", Value: "60"},
 					{Key: "routing.http2.enabled", Value: "true"},
 					{Key: "routing.http.desync_mitigation_mode", Value: "defensive"},
@@ -599,7 +600,7 @@ func (h *Handler) handleDescribeTargetGroupAttributes(vals url.Values) (any, err
 			Attributes: xmlTGAttributeList{
 				Members: []xmlTGAttribute{
 					{Key: "deregistration_delay.timeout_seconds", Value: "300"},
-					{Key: "stickiness.enabled", Value: "false"},
+					{Key: "stickiness.enabled", Value: attrValueFalse},
 					{Key: "load_balancing.algorithm.type", Value: "round_robin"},
 				},
 			},

@@ -275,7 +275,7 @@ func (b *InMemoryBackend) CreateTransitGateway(description string) (*TransitGate
 	tgw := &TransitGateway{
 		ID:          "tgw-" + b.AccountID[:8],
 		Description: description,
-		State:       "available",
+		State:       stateAvailable,
 		OwnerID:     b.AccountID,
 	}
 	b.transitGateways[tgw.ID] = tgw

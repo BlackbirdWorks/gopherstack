@@ -18,6 +18,16 @@ import (
 )
 
 const (
+	keyArn = "Arn"
+)
+
+const (
+	opTagResource         = "TagResource"
+	opUntagResource       = "UntagResource"
+	opListTagsForResource = "ListTagsForResource"
+)
+
+const (
 	timestreamQueryService      = "timestream"
 	timestreamQueryTargetPrefix = "Timestream_20181101."
 	contentType                 = "application/x-amz-json-1.0"
@@ -31,9 +41,9 @@ const (
 // not claim these operations.
 func writeServiceTagOps() map[string]bool {
 	return map[string]bool{
-		"TagResource":         true,
-		"UntagResource":       true,
-		"ListTagsForResource": true,
+		opTagResource:         true,
+		opUntagResource:       true,
+		opListTagsForResource: true,
 	}
 }
 
@@ -80,11 +90,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeScheduledQuery",
 		"ExecuteScheduledQuery",
 		"ListScheduledQueries",
-		"ListTagsForResource",
+		opListTagsForResource,
 		"PrepareQuery",
 		"Query",
-		"TagResource",
-		"UntagResource",
+		opTagResource,
+		opUntagResource,
 		"UpdateAccountSettings",
 		"UpdateScheduledQuery",
 	}
@@ -225,11 +235,11 @@ func (h *Handler) dispatchScheduledQueryAndTagOps(op string, body []byte) ([]byt
 		return h.handleListScheduledQueries()
 	case "UpdateScheduledQuery":
 		return h.handleUpdateScheduledQuery(body)
-	case "TagResource":
+	case opTagResource:
 		return h.handleTagResource(body)
-	case "UntagResource":
+	case opUntagResource:
 		return h.handleUntagResource(body)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return h.handleListTagsForResource(body)
 	default:
 		return h.dispatchAccountOps(op, body)
@@ -398,7 +408,7 @@ func (h *Handler) handleCreateScheduledQuery(body []byte) ([]byte, error) {
 	}
 
 	return json.Marshal(map[string]any{
-		"Arn": sq.Arn,
+		keyArn: sq.Arn,
 	})
 }
 
@@ -478,7 +488,7 @@ func (h *Handler) handleListScheduledQueries() ([]byte, error) {
 	items := make([]map[string]any, 0, len(list))
 	for _, sq := range list {
 		items = append(items, map[string]any{
-			"Arn":   sq.Arn,
+			keyArn:  sq.Arn,
 			"Name":  sq.Name,
 			"State": sq.State,
 		})
@@ -683,7 +693,7 @@ func errorPayload(errType, msg string) []byte {
 // scheduledQueryToView converts a ScheduledQuery to an API response map.
 func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 	view := map[string]any{
-		"Arn":          sq.Arn,
+		keyArn:         sq.Arn,
 		"Name":         sq.Name,
 		"State":        sq.State,
 		"QueryString":  sq.QueryString,

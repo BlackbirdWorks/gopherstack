@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+const (
+	strFalse            = "false"
+	sourceEngineDefault = "engine-default"
+	applyTypeDynamic    = "dynamic"
+	dataTypeString      = "string"
+)
+
 // ClusterParameter represents a single parameter within a cluster parameter group.
 type ClusterParameter struct {
 	ParameterName        string `json:"parameterName"`
@@ -31,9 +38,9 @@ func defaultParameters() []ClusterParameter {
 	return []ClusterParameter{
 		{
 			ParameterName:  "enable_user_activity_logging",
-			ParameterValue: "false",
+			ParameterValue: strFalse,
 			Description:    "enable logging of user activity",
-			Source:         "engine-default",
+			Source:         sourceEngineDefault,
 			DataType:       "boolean",
 			ApplyType:      "static",
 			IsModifiable:   true,
@@ -42,45 +49,45 @@ func defaultParameters() []ClusterParameter {
 			ParameterName:  "max_cursor_result_set_size",
 			ParameterValue: "0",
 			Description:    "max cursor result set size",
-			Source:         "engine-default",
+			Source:         sourceEngineDefault,
 			DataType:       "integer",
-			ApplyType:      "dynamic",
+			ApplyType:      applyTypeDynamic,
 			IsModifiable:   true,
 		},
 		{
 			ParameterName:  "query_group",
 			ParameterValue: "default",
 			Description:    "query group label",
-			Source:         "engine-default",
-			DataType:       "string",
-			ApplyType:      "dynamic",
+			Source:         sourceEngineDefault,
+			DataType:       dataTypeString,
+			ApplyType:      applyTypeDynamic,
 			IsModifiable:   true,
 		},
 		{
 			ParameterName:  "search_path",
 			ParameterValue: "$user, public",
 			Description:    "sets the schema search order for names that are not schema-qualified",
-			Source:         "engine-default",
-			DataType:       "string",
-			ApplyType:      "dynamic",
+			Source:         sourceEngineDefault,
+			DataType:       dataTypeString,
+			ApplyType:      applyTypeDynamic,
 			IsModifiable:   true,
 		},
 		{
 			ParameterName:  "statement_timeout",
 			ParameterValue: "0",
 			Description:    "abort any statement that takes more than the specified number of milliseconds",
-			Source:         "engine-default",
+			Source:         sourceEngineDefault,
 			DataType:       "integer",
-			ApplyType:      "dynamic",
+			ApplyType:      applyTypeDynamic,
 			IsModifiable:   true,
 		},
 		{
 			ParameterName:  "wlm_json_configuration",
 			ParameterValue: `[{"auto_wlm":true}]`,
 			Description:    "Workload management configuration",
-			Source:         "engine-default",
-			DataType:       "string",
-			ApplyType:      "dynamic",
+			Source:         sourceEngineDefault,
+			DataType:       dataTypeString,
+			ApplyType:      applyTypeDynamic,
 			IsModifiable:   true,
 		},
 	}

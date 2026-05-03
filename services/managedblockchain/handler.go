@@ -16,8 +16,36 @@ import (
 )
 
 const (
+	opCreateProposal      = "CreateProposal"
+	opDeleteAccessor      = "DeleteAccessor"
+	opDeleteMember        = "DeleteMember"
+	opDeleteNode          = "DeleteNode"
+	opGetAccessor         = "GetAccessor"
+	opGetMember           = "GetMember"
+	opGetNetwork          = "GetNetwork"
+	opGetNode             = "GetNode"
+	opGetProposal         = "GetProposal"
+	opListAccessors       = "ListAccessors"
+	opListInvitations     = "ListInvitations"
+	opListMembers         = "ListMembers"
+	opListNetworks        = "ListNetworks"
+	opListNodes           = "ListNodes"
+	opListProposalVotes   = "ListProposalVotes"
+	opListProposals       = "ListProposals"
+	opListTagsForResource = "ListTagsForResource"
+	opRejectInvitation    = "RejectInvitation"
+	opTagResource         = "TagResource"
+	opUntagResource       = "UntagResource"
+)
+
+const (
 	managedblockchainService       = "managedblockchain"
 	managedblockchainMatchPriority = 87
+
+	opCreateAccessor = "CreateAccessor"
+	opCreateMember   = "CreateMember"
+	opCreateNetwork  = "CreateNetwork"
+	opCreateNode     = "CreateNode"
 )
 
 // Handler is the HTTP handler for the Managed Blockchain REST API.
@@ -38,30 +66,30 @@ func (h *Handler) Name() string { return "ManagedBlockchain" }
 // GetSupportedOperations returns the list of supported Managed Blockchain operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateAccessor",
-		"CreateMember",
-		"CreateNetwork",
-		"CreateNode",
-		"CreateProposal",
-		"DeleteAccessor",
-		"DeleteMember",
-		"DeleteNode",
-		"GetAccessor",
-		"GetMember",
-		"GetNetwork",
-		"GetNode",
-		"GetProposal",
-		"ListAccessors",
-		"ListInvitations",
-		"ListMembers",
-		"ListNetworks",
-		"ListNodes",
-		"ListProposalVotes",
-		"ListProposals",
-		"ListTagsForResource",
-		"RejectInvitation",
-		"TagResource",
-		"UntagResource",
+		opCreateAccessor,
+		opCreateMember,
+		opCreateNetwork,
+		opCreateNode,
+		opCreateProposal,
+		opDeleteAccessor,
+		opDeleteMember,
+		opDeleteNode,
+		opGetAccessor,
+		opGetMember,
+		opGetNetwork,
+		opGetNode,
+		opGetProposal,
+		opListAccessors,
+		opListInvitations,
+		opListMembers,
+		opListNetworks,
+		opListNodes,
+		opListProposalVotes,
+		opListProposals,
+		opListTagsForResource,
+		opRejectInvitation,
+		opTagResource,
+		opUntagResource,
 	}
 }
 
@@ -199,11 +227,11 @@ func parsePath(method, path string) (string, string) {
 
 		switch method {
 		case http.MethodGet:
-			return "ListTagsForResource", arnEncoded
+			return opListTagsForResource, arnEncoded
 		case http.MethodPost:
-			return "TagResource", arnEncoded
+			return opTagResource, arnEncoded
 		case http.MethodDelete:
-			return "UntagResource", arnEncoded
+			return opUntagResource, arnEncoded
 		}
 
 		return "", ""
@@ -233,7 +261,7 @@ func parseNetworksPath(method string, parts []string) (string, string) {
 	// /networks/{networkId}
 	if len(parts) == networkIDSegment {
 		if method == http.MethodGet {
-			return "GetNetwork", networkID
+			return opGetNetwork, networkID
 		}
 
 		return "", ""
@@ -256,9 +284,9 @@ func parseNetworksPath(method string, parts []string) (string, string) {
 func parseRootNetworksMethod(method string) (string, string) {
 	switch method {
 	case http.MethodPost:
-		return "CreateNetwork", ""
+		return opCreateNetwork, ""
 	case http.MethodGet:
-		return "ListNetworks", ""
+		return opListNetworks, ""
 	}
 
 	return "", ""
@@ -269,9 +297,9 @@ func parseMembersPath(method string, parts []string, networkID string) (string, 
 	if len(parts) == 3 || (len(parts) == 4 && parts[3] == "") {
 		switch method {
 		case http.MethodPost:
-			return "CreateMember", networkID
+			return opCreateMember, networkID
 		case http.MethodGet:
-			return "ListMembers", networkID
+			return opListMembers, networkID
 		}
 
 		return "", ""
@@ -290,9 +318,9 @@ func parseMembersPath(method string, parts []string, networkID string) (string, 
 
 		switch method {
 		case http.MethodGet:
-			return "GetMember", resource
+			return opGetMember, resource
 		case http.MethodDelete:
-			return "DeleteMember", resource
+			return opDeleteMember, resource
 		}
 	}
 
@@ -307,9 +335,9 @@ func parseNodesPath(method string, parts []string, networkID, memberID string) (
 	if len(parts) == 5 || (len(parts) == 6 && parts[5] == "") {
 		switch method {
 		case http.MethodPost:
-			return "CreateNode", resource
+			return opCreateNode, resource
 		case http.MethodGet:
-			return "ListNodes", resource
+			return opListNodes, resource
 		}
 
 		return "", ""
@@ -322,9 +350,9 @@ func parseNodesPath(method string, parts []string, networkID, memberID string) (
 
 		switch method {
 		case http.MethodGet:
-			return "GetNode", nodeResource
+			return opGetNode, nodeResource
 		case http.MethodDelete:
-			return "DeleteNode", nodeResource
+			return opDeleteNode, nodeResource
 		}
 	}
 
@@ -337,9 +365,9 @@ func parseProposalsPath(method string, parts []string, networkID string) (string
 	if len(parts) == 3 || (len(parts) == 4 && parts[3] == "") {
 		switch method {
 		case http.MethodPost:
-			return "CreateProposal", networkID
+			return opCreateProposal, networkID
 		case http.MethodGet:
-			return "ListProposals", networkID
+			return opListProposals, networkID
 		}
 
 		return "", ""
@@ -352,13 +380,13 @@ func parseProposalsPath(method string, parts []string, networkID string) (string
 
 		// /networks/{networkId}/proposals/{proposalId}/votes
 		if len(parts) >= 5 && parts[4] == "votes" && method == http.MethodGet {
-			return "ListProposalVotes", resource
+			return opListProposalVotes, resource
 		}
 
 		// /networks/{networkId}/proposals/{proposalId}
 		if len(parts) == 4 || (len(parts) == 5 && parts[4] == "") {
 			if method == http.MethodGet {
-				return "GetProposal", resource
+				return opGetProposal, resource
 			}
 		}
 	}
@@ -372,9 +400,9 @@ func parseAccessorsPath(method string, parts []string) (string, string) {
 	if len(parts) == 1 || (len(parts) == 2 && parts[1] == "") {
 		switch method {
 		case http.MethodPost:
-			return "CreateAccessor", ""
+			return opCreateAccessor, ""
 		case http.MethodGet:
-			return "ListAccessors", ""
+			return opListAccessors, ""
 		}
 
 		return "", ""
@@ -386,9 +414,9 @@ func parseAccessorsPath(method string, parts []string) (string, string) {
 
 		switch method {
 		case http.MethodGet:
-			return "GetAccessor", accessorID
+			return opGetAccessor, accessorID
 		case http.MethodDelete:
-			return "DeleteAccessor", accessorID
+			return opDeleteAccessor, accessorID
 		}
 	}
 
@@ -400,7 +428,7 @@ func parseInvitationsPath(method string, parts []string) (string, string) {
 	// /invitations  or  /invitations/
 	if len(parts) == 1 || (len(parts) == 2 && parts[1] == "") {
 		if method == http.MethodGet {
-			return "ListInvitations", ""
+			return opListInvitations, ""
 		}
 
 		return "", ""
@@ -411,7 +439,7 @@ func parseInvitationsPath(method string, parts []string) (string, string) {
 		invitationID := parts[1]
 
 		if method == http.MethodDelete {
-			return "RejectInvitation", invitationID
+			return opRejectInvitation, invitationID
 		}
 	}
 
@@ -447,33 +475,33 @@ func (h *Handler) dispatchNetworkOps(
 	c *echo.Context, op, resource string, body []byte, query url.Values,
 ) error {
 	switch op {
-	case "CreateNetwork":
+	case opCreateNetwork:
 		return h.handleCreateNetwork(c, body)
-	case "GetNetwork":
+	case opGetNetwork:
 		return h.handleGetNetwork(c, resource)
-	case "ListNetworks":
+	case opListNetworks:
 		return h.handleListNetworks(c)
-	case "CreateMember":
+	case opCreateMember:
 		return h.handleCreateMember(c, resource, body)
-	case "GetMember":
+	case opGetMember:
 		return h.handleGetMember(c, resource)
-	case "ListMembers":
+	case opListMembers:
 		return h.handleListMembers(c, resource)
-	case "DeleteMember":
+	case opDeleteMember:
 		return h.handleDeleteMember(c, resource)
-	case "CreateNode":
+	case opCreateNode:
 		return h.handleCreateNode(c, resource, body)
-	case "GetNode":
+	case opGetNode:
 		return h.handleGetNode(c, resource)
-	case "ListNodes":
+	case opListNodes:
 		return h.handleListNodes(c, resource)
-	case "DeleteNode":
+	case opDeleteNode:
 		return h.handleDeleteNode(c, resource)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return h.handleListTagsForResource(c, resource)
-	case "TagResource":
+	case opTagResource:
 		return h.handleTagResource(c, resource, body)
-	case "UntagResource":
+	case opUntagResource:
 		return h.handleUntagResource(c, resource, query)
 	}
 
@@ -483,13 +511,13 @@ func (h *Handler) dispatchNetworkOps(
 // dispatchAccessorOps handles accessor operations.
 func (h *Handler) dispatchAccessorOps(c *echo.Context, op, resource string, body []byte) error {
 	switch op {
-	case "CreateAccessor":
+	case opCreateAccessor:
 		return h.handleCreateAccessor(c, body)
-	case "GetAccessor":
+	case opGetAccessor:
 		return h.handleGetAccessor(c, resource)
-	case "DeleteAccessor":
+	case opDeleteAccessor:
 		return h.handleDeleteAccessor(c, resource)
-	case "ListAccessors":
+	case opListAccessors:
 		return h.handleListAccessors(c)
 	}
 
@@ -499,13 +527,13 @@ func (h *Handler) dispatchAccessorOps(c *echo.Context, op, resource string, body
 // dispatchProposalOps handles proposal operations.
 func (h *Handler) dispatchProposalOps(c *echo.Context, op, resource string, body []byte) error {
 	switch op {
-	case "CreateProposal":
+	case opCreateProposal:
 		return h.handleCreateProposal(c, resource, body)
-	case "GetProposal":
+	case opGetProposal:
 		return h.handleGetProposal(c, resource)
-	case "ListProposals":
+	case opListProposals:
 		return h.handleListProposals(c, resource)
-	case "ListProposalVotes":
+	case opListProposalVotes:
 		return h.handleListProposalVotes(c, resource)
 	}
 
@@ -515,9 +543,9 @@ func (h *Handler) dispatchProposalOps(c *echo.Context, op, resource string, body
 // dispatchInvitationOps handles invitation operations.
 func (h *Handler) dispatchInvitationOps(c *echo.Context, op, resource string) error {
 	switch op {
-	case "ListInvitations":
+	case opListInvitations:
 		return h.handleListInvitations(c)
-	case "RejectInvitation":
+	case opRejectInvitation:
 		return h.handleRejectInvitation(c, resource)
 	}
 

@@ -19,7 +19,10 @@ import (
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-const firehoseTargetPrefix = "Firehose_20150804."
+const (
+	firehoseTargetPrefix = "Firehose_20150804."
+	errFieldMessage      = "message"
+)
 
 var (
 	errUnknownAction  = errors.New("unknown action")
@@ -198,13 +201,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound,
-			map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()})
+			map[string]any{"__type": "ResourceNotFoundException", errFieldMessage: err.Error()})
 	case errors.Is(err, ErrAlreadyExists), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, ErrValidation),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{errFieldMessage: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{errFieldMessage: err.Error()})
 	}
 }
 

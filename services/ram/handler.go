@@ -19,6 +19,38 @@ import (
 )
 
 const (
+	keyTypeField    = "__type"
+	keyMessageField = "message"
+	permStandard    = "STANDARD"
+
+	opCreatePermissionVersion             = "CreatePermissionVersion"
+	opCreateResourceShare                 = "CreateResourceShare"
+	opDeletePermission                    = "DeletePermission"
+	opDeletePermissionVersion             = "DeletePermissionVersion"
+	opDeleteResourceShare                 = "DeleteResourceShare"
+	opDisassociateResourceShare           = "DisassociateResourceShare"
+	opDisassociateResourceSharePermission = "DisassociateResourceSharePermission"
+	opEnableSharingWithAwsOrganization    = "EnableSharingWithAwsOrganization"
+	opGetPermission                       = "GetPermission"
+	opGetResourcePolicies                 = "GetResourcePolicies"
+	opGetResourceShareAssociations        = "GetResourceShareAssociations"
+	opGetResourceShareInvitations         = "GetResourceShareInvitations"
+	opGetResourceShares                   = "GetResourceShares"
+	opListResourceSharePermissions        = "ListResourceSharePermissions"
+	opListTagsForResource                 = "ListTagsForResource"
+	opTagResource                         = "TagResource"
+	opUntagResource                       = "UntagResource"
+	opUpdateResourceShare                 = "UpdateResourceShare"
+)
+
+const (
+	opAcceptResourceShareInvitation    = "AcceptResourceShareInvitation"
+	opAssociateResourceShare           = "AssociateResourceShare"
+	opAssociateResourceSharePermission = "AssociateResourceSharePermission"
+	opCreatePermission                 = "CreatePermission"
+)
+
+const (
 	ramService       = "ram"
 	ramMatchPriority = 87
 )
@@ -50,28 +82,28 @@ func (h *Handler) Name() string { return "RAM" }
 // GetSupportedOperations returns the list of supported RAM operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"AcceptResourceShareInvitation",
-		"AssociateResourceShare",
-		"AssociateResourceSharePermission",
-		"CreatePermission",
-		"CreatePermissionVersion",
-		"CreateResourceShare",
-		"DeletePermission",
-		"DeletePermissionVersion",
-		"DeleteResourceShare",
-		"DisassociateResourceShare",
-		"DisassociateResourceSharePermission",
-		"EnableSharingWithAwsOrganization",
-		"GetPermission",
-		"GetResourcePolicies",
-		"GetResourceShareAssociations",
-		"GetResourceShareInvitations",
-		"GetResourceShares",
-		"ListResourceSharePermissions",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
-		"UpdateResourceShare",
+		opAcceptResourceShareInvitation,
+		opAssociateResourceShare,
+		opAssociateResourceSharePermission,
+		opCreatePermission,
+		opCreatePermissionVersion,
+		opCreateResourceShare,
+		opDeletePermission,
+		opDeletePermissionVersion,
+		opDeleteResourceShare,
+		opDisassociateResourceShare,
+		opDisassociateResourceSharePermission,
+		opEnableSharingWithAwsOrganization,
+		opGetPermission,
+		opGetResourcePolicies,
+		opGetResourceShareAssociations,
+		opGetResourceShareInvitations,
+		opGetResourceShares,
+		opListResourceSharePermissions,
+		opListTagsForResource,
+		opTagResource,
+		opUntagResource,
+		opUpdateResourceShare,
 	}
 }
 
@@ -167,23 +199,23 @@ func extractCommonOperation(path string) string {
 func extractCreateDeleteOp(path string) string {
 	switch {
 	case strings.HasPrefix(path, "/acceptresourceshareinvitation"):
-		return "AcceptResourceShareInvitation"
+		return opAcceptResourceShareInvitation
 	case strings.HasPrefix(path, "/createpermissionversion"):
-		return "CreatePermissionVersion"
+		return opCreatePermissionVersion
 	case strings.HasPrefix(path, "/createpermission"):
-		return "CreatePermission"
+		return opCreatePermission
 	case strings.HasPrefix(path, "/createresourceshare"):
-		return "CreateResourceShare"
+		return opCreateResourceShare
 	case strings.HasPrefix(path, "/deletepermissionversion"):
-		return "DeletePermissionVersion"
+		return opDeletePermissionVersion
 	case strings.HasPrefix(path, "/deletepermission"):
-		return "DeletePermission"
+		return opDeletePermission
 	case strings.HasPrefix(path, "/deleteresourceshare"):
-		return "DeleteResourceShare"
+		return opDeleteResourceShare
 	case strings.HasPrefix(path, "/enablesharingwithawsorganization"):
-		return "EnableSharingWithAwsOrganization"
+		return opEnableSharingWithAwsOrganization
 	case strings.HasPrefix(path, "/updateresourceshare"):
-		return "UpdateResourceShare"
+		return opUpdateResourceShare
 	default:
 		return ""
 	}
@@ -193,23 +225,23 @@ func extractCreateDeleteOp(path string) string {
 func extractGetListOp(path string) string {
 	switch {
 	case strings.HasPrefix(path, "/getpermission"):
-		return "GetPermission"
+		return opGetPermission
 	case strings.HasPrefix(path, "/getresourcepolicies"):
-		return "GetResourcePolicies"
+		return opGetResourcePolicies
 	case strings.HasPrefix(path, "/getresourceshareassociations"):
-		return "GetResourceShareAssociations"
+		return opGetResourceShareAssociations
 	case strings.HasPrefix(path, "/getresourceshareinvitations"):
-		return "GetResourceShareInvitations"
+		return opGetResourceShareInvitations
 	case strings.HasPrefix(path, "/getresourceshares"):
-		return "GetResourceShares"
+		return opGetResourceShares
 	case strings.HasPrefix(path, "/listresourcesharepermissions"):
-		return "ListResourceSharePermissions"
+		return opListResourceSharePermissions
 	case strings.HasPrefix(path, "/listtagsforresource"):
-		return "ListTagsForResource"
+		return opListTagsForResource
 	case strings.HasPrefix(path, "/tagresource"):
-		return "TagResource"
+		return opTagResource
 	case strings.HasPrefix(path, "/untagresource"):
-		return "UntagResource"
+		return opUntagResource
 	default:
 		return ""
 	}
@@ -219,13 +251,13 @@ func extractGetListOp(path string) string {
 func extractAssociationOperation(path string) string {
 	switch {
 	case strings.HasPrefix(path, "/associateresourcesharepermission"):
-		return "AssociateResourceSharePermission"
+		return opAssociateResourceSharePermission
 	case strings.HasPrefix(path, "/disassociateresourcesharepermission"):
-		return "DisassociateResourceSharePermission"
+		return opDisassociateResourceSharePermission
 	case strings.HasPrefix(path, "/disassociateresourceshare"):
-		return "DisassociateResourceShare"
+		return opDisassociateResourceShare
 	case strings.HasPrefix(path, "/associateresourceshare"):
-		return "AssociateResourceShare"
+		return opAssociateResourceShare
 	default:
 		return "Unknown"
 	}
@@ -300,47 +332,47 @@ func (h *Handler) dispatchCRUDOps(
 	body []byte,
 ) ([]byte, bool, error) {
 	switch op {
-	case "AcceptResourceShareInvitation":
+	case opAcceptResourceShareInvitation:
 		r, err := h.handleAcceptResourceShareInvitation(ctx, body)
 
 		return r, true, err
-	case "CreatePermission":
+	case opCreatePermission:
 		r, err := h.handleCreatePermission(ctx, body)
 
 		return r, true, err
-	case "CreatePermissionVersion":
+	case opCreatePermissionVersion:
 		r, err := h.handleCreatePermissionVersion(ctx, body)
 
 		return r, true, err
-	case "CreateResourceShare":
+	case opCreateResourceShare:
 		r, err := h.handleCreateResourceShare(ctx, body)
 
 		return r, true, err
-	case "DeletePermission":
+	case opDeletePermission:
 		r, err := h.handleDeletePermission(ctx, c)
 
 		return r, true, err
-	case "DeletePermissionVersion":
+	case opDeletePermissionVersion:
 		r, err := h.handleDeletePermissionVersion(ctx, c)
 
 		return r, true, err
-	case "DeleteResourceShare":
+	case opDeleteResourceShare:
 		r, err := h.handleDeleteResourceShare(ctx, c)
 
 		return r, true, err
-	case "UpdateResourceShare":
+	case opUpdateResourceShare:
 		r, err := h.handleUpdateResourceShare(ctx, body)
 
 		return r, true, err
-	case "EnableSharingWithAwsOrganization":
+	case opEnableSharingWithAwsOrganization:
 		r, err := h.handleEnableSharingWithAwsOrganization()
 
 		return r, true, err
-	case "TagResource":
+	case opTagResource:
 		err := h.handleTagResource(ctx, body)
 
 		return nil, true, err
-	case "UntagResource":
+	case opUntagResource:
 		err := h.handleUntagResource(ctx, body)
 
 		return nil, true, err
@@ -351,19 +383,19 @@ func (h *Handler) dispatchCRUDOps(
 
 func (h *Handler) dispatchAssocOps(ctx context.Context, op string, body []byte) ([]byte, bool, error) {
 	switch op {
-	case "AssociateResourceSharePermission":
+	case opAssociateResourceSharePermission:
 		r, err := h.handleAssociateResourceSharePermission(ctx, body)
 
 		return r, true, err
-	case "AssociateResourceShare":
+	case opAssociateResourceShare:
 		r, err := h.handleAssociateResourceShare(ctx, body)
 
 		return r, true, err
-	case "DisassociateResourceSharePermission":
+	case opDisassociateResourceSharePermission:
 		r, err := h.handleDisassociateResourceSharePermission(ctx, body)
 
 		return r, true, err
-	case "DisassociateResourceShare":
+	case opDisassociateResourceShare:
 		r, err := h.handleDisassociateResourceShare(ctx, body)
 
 		return r, true, err
@@ -374,31 +406,31 @@ func (h *Handler) dispatchAssocOps(ctx context.Context, op string, body []byte) 
 
 func (h *Handler) dispatchReadOps(ctx context.Context, op string, body []byte) ([]byte, bool, error) {
 	switch op {
-	case "GetPermission":
+	case opGetPermission:
 		r, err := h.handleGetPermission(ctx, body)
 
 		return r, true, err
-	case "GetResourcePolicies":
+	case opGetResourcePolicies:
 		r, err := h.handleGetResourcePolicies(ctx, body)
 
 		return r, true, err
-	case "GetResourceShareAssociations":
+	case opGetResourceShareAssociations:
 		r, err := h.handleGetResourceShareAssociations(ctx, body)
 
 		return r, true, err
-	case "GetResourceShareInvitations":
+	case opGetResourceShareInvitations:
 		r, err := h.handleGetResourceShareInvitations(ctx, body)
 
 		return r, true, err
-	case "GetResourceShares":
+	case opGetResourceShares:
 		r, err := h.handleGetResourceShares(ctx, body)
 
 		return r, true, err
-	case "ListResourceSharePermissions":
+	case opListResourceSharePermissions:
 		r, err := h.handleListResourceSharePermissions(ctx, body)
 
 		return r, true, err
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		r, err := h.handleListTagsForResource(ctx, body)
 
 		return r, true, err
@@ -414,51 +446,51 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "UnknownResourceException",
-			"message": err.Error(),
+			keyTypeField:    "UnknownResourceException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrPermissionNotFound), errors.Is(err, ErrPermissionVersionNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "InvalidParameterException",
-			"message": err.Error(),
+			keyTypeField:    "InvalidParameterException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrInvitationNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceShareInvitationArnNotFoundException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceShareInvitationArnNotFoundException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrAlreadyExists):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceShareAlreadyExistsException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceShareAlreadyExistsException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrInvitationAlreadyAccepted):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceShareInvitationAlreadyAcceptedException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceShareInvitationAlreadyAcceptedException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "MalformedQueryStringException",
-			"message": err.Error(),
+			keyTypeField:    "MalformedQueryStringException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 }
 
@@ -524,7 +556,7 @@ func toResourceShareObject(rs *ResourceShare) resourceShareObject {
 		OwningAccountID:         rs.OwningAccountID,
 		Status:                  rs.Status,
 		StatusMessage:           rs.StatusMessage,
-		FeatureSet:              "STANDARD",
+		FeatureSet:              permStandard,
 		AllowExternalPrincipals: rs.AllowExternalPrincipals,
 		CreationTime:            epochSeconds(rs.CreationTime),
 		LastUpdatedTime:         epochSeconds(rs.LastUpdatedTime),
@@ -975,7 +1007,7 @@ func toPermissionSummaryObject(p *Permission) permissionSummaryObject {
 		Name:            p.Name,
 		ResourceType:    p.ResourceType,
 		PermissionType:  permissionTypeCustomer,
-		FeatureSet:      "STANDARD",
+		FeatureSet:      permStandard,
 		CreationTime:    epochSeconds(p.CreationTime),
 		LastUpdatedTime: epochSeconds(p.LastUpdatedTime),
 		Version:         strconv.Itoa(int(p.DefaultVersion)),
@@ -995,7 +1027,7 @@ func toPermissionDetailObject(p *Permission, pv *PermissionVersion) permissionDe
 		Name:            p.Name,
 		ResourceType:    p.ResourceType,
 		PermissionType:  permissionTypeCustomer,
-		FeatureSet:      "STANDARD",
+		FeatureSet:      permStandard,
 		CreationTime:    epochSeconds(p.CreationTime),
 		LastUpdatedTime: epochSeconds(p.LastUpdatedTime),
 		Version:         strconv.Itoa(int(pv.Version)),

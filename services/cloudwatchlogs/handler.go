@@ -1367,10 +1367,10 @@ func (h *Handler) handleCreateScheduledQuery(b []byte) (any, error) {
 		return nil, err
 	}
 
-	// The backend defaults an empty state to "ENABLED"; reflect the effective value in the response.
+	// The backend defaults an empty state to statusEnabled; reflect the effective value in the response.
 	effectiveState := input.State
 	if effectiveState == "" {
-		effectiveState = "ENABLED"
+		effectiveState = statusEnabled
 	}
 
 	return &createScheduledQueryOutput{ScheduledQueryArn: queryArn, State: effectiveState}, nil

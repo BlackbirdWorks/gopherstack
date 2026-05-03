@@ -217,7 +217,8 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 
 	if readErr != nil {
 		// Log but continue — partial body may still be useful.
-		slog.Default().Warn("lambda: error reading invocation result body", "requestID", requestID, "error", readErr)
+		slog.Default().
+			WarnContext(r.Context(), "lambda: error reading invocation result body", "requestID", requestID, "error", readErr)
 	}
 
 	raw, ok := s.pending.LoadAndDelete(requestID)
@@ -229,7 +230,7 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 
 	inv, isInv := raw.(*pendingInvocation)
 	if !isInv {
-		slog.Default().Error("lambda: unexpected type in pending invocations map")
+		slog.Default().ErrorContext(r.Context(), "lambda: unexpected type in pending invocations map")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -259,10 +260,10 @@ func (s *runtimeServer) handleInitError(w http.ResponseWriter, r *http.Request) 
 
 	if readErr != nil {
 		// Log but continue — partial body may still be useful.
-		slog.Default().Warn("lambda: error reading init error body", "error", readErr)
+		slog.Default().WarnContext(r.Context(), "lambda: error reading init error body", "error", readErr)
 	}
 
-	slog.Default().Error("lambda runtime init error", "error", string(body))
+	slog.Default().ErrorContext(r.Context(), "lambda runtime init error", "error", string(body))
 
 	// Deliver the init error to the first pending invocation so the caller gets an
 	// immediate error response instead of timing out.

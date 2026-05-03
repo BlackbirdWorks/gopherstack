@@ -12,6 +12,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	contentTypeOctetStream = "application/octet-stream"
+)
+
 const appConfigIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
 
 // newResourceID generates a cryptographically random 7-character lowercase alphanumeric ID,
@@ -1185,7 +1189,7 @@ func (b *InMemoryBackend) latestConfigVersion(appID, profileID string) *HostedCo
 		return &HostedConfigurationVersion{
 			ApplicationID:          appID,
 			ConfigurationProfileID: profileID,
-			ContentType:            "application/octet-stream",
+			ContentType:            contentTypeOctetStream,
 			Content:                []byte{},
 		}
 	}

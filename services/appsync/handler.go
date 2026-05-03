@@ -17,6 +17,20 @@ import (
 )
 
 const (
+	keySourceAPIAssociations = "sourceApiAssociations"
+	keyEnvironmentVariables  = "environmentVariables"
+	keyGraphqlAPI            = "graphqlApi"
+	keyDataSource            = "dataSource"
+	keyResolver              = "resolver"
+	keyAPICache              = "apiCache"
+	keyFunctionConfiguration = "functionConfiguration"
+	keyType                  = "type"
+	keyDomainNameConfig      = "domainNameConfig"
+	keyAPI                   = "api"
+	keyChannelNamespace      = "channelNamespace"
+)
+
+const (
 	appsyncPathPrefix   = "/v1/apis"
 	appsyncV2PathPrefix = "/v2/apis"
 	appsyncDomainPrefix = "/v1/domainnames"
@@ -293,7 +307,7 @@ func parseOperationSourceAPIs(method string, segs []string) string {
 
 func parseOperationMergedAPIs(method string, segs []string) string {
 	// /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations
-	if len(segs) < pathSegsAPISubresource || segs[3] != "sourceApiAssociations" {
+	if len(segs) < pathSegsAPISubresource || segs[3] != keySourceAPIAssociations {
 		return opUnknown
 	}
 
@@ -452,7 +466,7 @@ func parseOperationSub(method, seg string) string {
 		return parseOperationSubFunctions(method)
 	case pathSegTypes:
 		return parseOperationSubTypes(method)
-	case "environmentVariables":
+	case keyEnvironmentVariables:
 		if method == http.MethodPut {
 			return "PutGraphqlApiEnvironmentVariables"
 		}
@@ -699,7 +713,7 @@ func (h *Handler) handleAPIResource(ctx context.Context, c *echo.Context, segs [
 		return h.handleFunctions(ctx, c, apiID, segs)
 	case pathSegTags:
 		return h.handleTags(ctx, c, apiID)
-	case "environmentVariables":
+	case keyEnvironmentVariables:
 		return h.handleEnvironmentVariables(ctx, c, apiID)
 	default:
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
@@ -753,7 +767,7 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		return h.handleError(ctx, c, "CreateGraphqlApi", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"graphqlApi": api})
+	return c.JSON(http.StatusCreated, map[string]any{keyGraphqlAPI: api})
 }
 
 // listGraphqlAPIs handles GET /v1/apis.
@@ -775,7 +789,7 @@ func (h *Handler) getGraphqlAPI(ctx context.Context, c *echo.Context, apiID stri
 		return h.handleError(ctx, c, "GetGraphqlApi", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"graphqlApi": api})
+	return c.JSON(http.StatusOK, map[string]any{keyGraphqlAPI: api})
 }
 
 // deleteGraphqlAPI handles DELETE /v1/apis/{apiId}.
@@ -909,7 +923,7 @@ func (h *Handler) createDataSource(ctx context.Context, c *echo.Context, apiID s
 		return h.handleError(ctx, c, "CreateDataSource", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"dataSource": created})
+	return c.JSON(http.StatusCreated, map[string]any{keyDataSource: created})
 }
 
 // getDataSource handles GET /v1/apis/{apiId}/datasources/{name}.
@@ -919,7 +933,7 @@ func (h *Handler) getDataSource(ctx context.Context, c *echo.Context, apiID, nam
 		return h.handleError(ctx, c, "GetDataSource", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"dataSource": ds})
+	return c.JSON(http.StatusOK, map[string]any{keyDataSource: ds})
 }
 
 // listDataSources handles GET /v1/apis/{apiId}/datasources.
@@ -1038,7 +1052,7 @@ func (h *Handler) createResolver(ctx context.Context, c *echo.Context, apiID, ty
 		return h.handleError(ctx, c, "CreateResolver", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"resolver": created})
+	return c.JSON(http.StatusCreated, map[string]any{keyResolver: created})
 }
 
 // getResolver handles GET /v1/apis/{apiId}/types/{typeName}/resolvers/{fieldName}.
@@ -1048,7 +1062,7 @@ func (h *Handler) getResolver(ctx context.Context, c *echo.Context, apiID, typeN
 		return h.handleError(ctx, c, "GetResolver", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"resolver": r})
+	return c.JSON(http.StatusOK, map[string]any{keyResolver: r})
 }
 
 // listResolvers handles GET /v1/apis/{apiId}/types/{typeName}/resolvers.
@@ -1232,7 +1246,7 @@ func (h *Handler) createAPICache(ctx context.Context, c *echo.Context, apiID str
 		return h.handleError(ctx, c, "CreateApiCache", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"apiCache": created})
+	return c.JSON(http.StatusCreated, map[string]any{keyAPICache: created})
 }
 
 // handleFunctions handles /v1/apis/{apiId}/functions[/{functionId}[/resolvers]].
@@ -1298,7 +1312,7 @@ func (h *Handler) createFunction(ctx context.Context, c *echo.Context, apiID str
 		return h.handleError(ctx, c, "CreateFunction", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"functionConfiguration": created})
+	return c.JSON(http.StatusCreated, map[string]any{keyFunctionConfiguration: created})
 }
 
 // createTypeHandler handles POST /v1/apis/{apiId}/types within handleTypes.
@@ -1331,7 +1345,7 @@ func (h *Handler) createTypeHandler(ctx context.Context, c *echo.Context, apiID 
 		return h.handleError(ctx, c, "CreateType", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"type": created})
+	return c.JSON(http.StatusCreated, map[string]any{keyType: created})
 }
 
 // handleDomainNames handles /v1/domainnames[/{domainName}[/apiassociation]].
@@ -1421,7 +1435,7 @@ func (h *Handler) createDomainName(ctx context.Context, c *echo.Context) error {
 		return h.handleError(ctx, c, "CreateDomainName", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"domainNameConfig": dn})
+	return c.JSON(http.StatusCreated, map[string]any{keyDomainNameConfig: dn})
 }
 
 // associateAPI handles POST /v1/domainnames/{domainName}/apiassociation.
@@ -1531,7 +1545,7 @@ func (h *Handler) associateMergedGraphqlAPI(ctx context.Context, c *echo.Context
 
 // handleMergedAPIs handles /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations[/{assocId}].
 func (h *Handler) handleMergedAPIs(ctx context.Context, c *echo.Context, segs []string) error {
-	if len(segs) < pathSegsAPISubresource || segs[3] != "sourceApiAssociations" {
+	if len(segs) < pathSegsAPISubresource || segs[3] != keySourceAPIAssociations {
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
 	}
 
@@ -1679,7 +1693,7 @@ func (h *Handler) createAPI(ctx context.Context, c *echo.Context) error {
 		return h.handleError(ctx, c, "CreateApi", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"api": api})
+	return c.JSON(http.StatusCreated, map[string]any{keyAPI: api})
 }
 
 // createChannelNamespace handles POST /v2/apis/{apiId}/channelNamespaces.
@@ -1707,7 +1721,7 @@ func (h *Handler) createChannelNamespace(ctx context.Context, c *echo.Context, a
 		return h.handleError(ctx, c, "CreateChannelNamespace", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"channelNamespace": ns})
+	return c.JSON(http.StatusCreated, map[string]any{keyChannelNamespace: ns})
 }
 
 // updateGraphqlAPI handles PATCH /v1/apis/{apiId}.
@@ -1737,7 +1751,7 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 		return h.handleError(ctx, c, "UpdateGraphqlApi", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"graphqlApi": api})
+	return c.JSON(http.StatusOK, map[string]any{keyGraphqlAPI: api})
 }
 
 // listAPIKeys handles GET /v1/apis/{apiId}/apikeys.
@@ -1766,7 +1780,7 @@ func (h *Handler) getAPICache(ctx context.Context, c *echo.Context, apiID string
 		return h.handleError(ctx, c, "GetApiCache", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"apiCache": cache})
+	return c.JSON(http.StatusOK, map[string]any{keyAPICache: cache})
 }
 
 // deleteAPICache handles DELETE /v1/apis/{apiId}/ApiCaches.
@@ -1785,7 +1799,7 @@ func (h *Handler) getFunction(ctx context.Context, c *echo.Context, apiID, funct
 		return h.handleError(ctx, c, "GetFunction", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"functionConfiguration": fn})
+	return c.JSON(http.StatusOK, map[string]any{keyFunctionConfiguration: fn})
 }
 
 // listFunctions handles GET /v1/apis/{apiId}/functions.
@@ -1816,7 +1830,7 @@ func (h *Handler) getType(ctx context.Context, c *echo.Context, apiID, typeName 
 		return h.handleError(ctx, c, "GetType", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"type": t})
+	return c.JSON(http.StatusOK, map[string]any{keyType: t})
 }
 
 // listTypes handles GET /v1/apis/{apiId}/types.
@@ -1847,7 +1861,7 @@ func (h *Handler) getDomainName(ctx context.Context, c *echo.Context, domainName
 		return h.handleError(ctx, c, "GetDomainName", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"domainNameConfig": dn})
+	return c.JSON(http.StatusOK, map[string]any{keyDomainNameConfig: dn})
 }
 
 // listDomainNames handles GET /v1/domainnames.
@@ -1920,7 +1934,7 @@ func (h *Handler) updateAPICache(ctx context.Context, c *echo.Context, apiID str
 		return h.handleError(ctx, c, "UpdateApiCache", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"apiCache": updated})
+	return c.JSON(http.StatusOK, map[string]any{keyAPICache: updated})
 }
 
 // flushAPICache handles DELETE /v1/apis/{apiId}/ApiCaches/entries.
@@ -1949,7 +1963,7 @@ func (h *Handler) updateDataSource(ctx context.Context, c *echo.Context, apiID, 
 		return h.handleError(ctx, c, "UpdateDataSource", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"dataSource": updated})
+	return c.JSON(http.StatusOK, map[string]any{keyDataSource: updated})
 }
 
 // updateFunction handles PUT /v1/apis/{apiId}/functions/{functionId}.
@@ -1969,7 +1983,7 @@ func (h *Handler) updateFunction(ctx context.Context, c *echo.Context, apiID, fu
 		return h.handleError(ctx, c, "UpdateFunction", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"functionConfiguration": updated})
+	return c.JSON(http.StatusOK, map[string]any{keyFunctionConfiguration: updated})
 }
 
 // updateResolver handles PUT/PATCH /v1/apis/{apiId}/types/{typeName}/resolvers/{fieldName}.
@@ -1991,7 +2005,7 @@ func (h *Handler) updateResolver(ctx context.Context, c *echo.Context, apiID, ty
 		return h.handleError(ctx, c, "UpdateResolver", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"resolver": updated})
+	return c.JSON(http.StatusOK, map[string]any{keyResolver: updated})
 }
 
 // updateType handles PUT /v1/apis/{apiId}/types/{typeName}.
@@ -2015,7 +2029,7 @@ func (h *Handler) updateType(ctx context.Context, c *echo.Context, apiID, typeNa
 		return h.handleError(ctx, c, "UpdateType", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"type": updated})
+	return c.JSON(http.StatusOK, map[string]any{keyType: updated})
 }
 
 // handleTags handles /v1/apis/{apiId}/tags.
@@ -2102,7 +2116,7 @@ func (h *Handler) updateDomainName(ctx context.Context, c *echo.Context, domainN
 		return h.handleError(ctx, c, "UpdateDomainName", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"domainNameConfig": dn})
+	return c.JSON(http.StatusOK, map[string]any{keyDomainNameConfig: dn})
 }
 
 // disassociateAPI handles DELETE /v1/domainnames/{domainName}/apiassociation.
@@ -2121,7 +2135,7 @@ func (h *Handler) getAPI(ctx context.Context, c *echo.Context, apiID string) err
 		return h.handleError(ctx, c, "GetApi", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"api": api})
+	return c.JSON(http.StatusOK, map[string]any{keyAPI: api})
 }
 
 // listAPIs handles GET /v2/apis.
@@ -2164,7 +2178,7 @@ func (h *Handler) updateAPI(ctx context.Context, c *echo.Context, apiID string) 
 		return h.handleError(ctx, c, "UpdateApi", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"api": api})
+	return c.JSON(http.StatusOK, map[string]any{keyAPI: api})
 }
 
 // getChannelNamespace handles GET /v2/apis/{apiId}/channelNamespaces/{name}.
@@ -2174,7 +2188,7 @@ func (h *Handler) getChannelNamespace(ctx context.Context, c *echo.Context, apiI
 		return h.handleError(ctx, c, "GetChannelNamespace", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"channelNamespace": ns})
+	return c.JSON(http.StatusOK, map[string]any{keyChannelNamespace: ns})
 }
 
 // listChannelNamespaces handles GET /v2/apis/{apiId}/channelNamespaces.
@@ -2207,7 +2221,7 @@ func (h *Handler) updateChannelNamespace(ctx context.Context, c *echo.Context, a
 		return h.handleError(ctx, c, "UpdateChannelNamespace", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"channelNamespace": updated})
+	return c.JSON(http.StatusOK, map[string]any{keyChannelNamespace: updated})
 }
 
 // deleteChannelNamespace handles DELETE /v2/apis/{apiId}/channelNamespaces/{name}.
@@ -2236,7 +2250,7 @@ func (h *Handler) listSourceAPIAssociations(ctx context.Context, c *echo.Context
 		return h.handleError(ctx, c, "ListSourceApiAssociations", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"sourceApiAssociations": assocs})
+	return c.JSON(http.StatusOK, map[string]any{keySourceAPIAssociations: assocs})
 }
 
 // listResolversByFunction handles GET /v1/apis/{apiId}/functions/{functionId}/resolvers.
@@ -2258,7 +2272,7 @@ func (h *Handler) handleEnvironmentVariables(ctx context.Context, c *echo.Contex
 			return h.handleError(ctx, c, "GetGraphqlApiEnvironmentVariables", err)
 		}
 
-		return c.JSON(http.StatusOK, map[string]any{"environmentVariables": envVars})
+		return c.JSON(http.StatusOK, map[string]any{keyEnvironmentVariables: envVars})
 	case http.MethodPut:
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
@@ -2278,7 +2292,7 @@ func (h *Handler) handleEnvironmentVariables(ctx context.Context, c *echo.Contex
 			return h.handleError(ctx, c, "PutGraphqlApiEnvironmentVariables", putErr)
 		}
 
-		return c.JSON(http.StatusOK, map[string]any{"environmentVariables": envVars, "apiId": apiID})
+		return c.JSON(http.StatusOK, map[string]any{keyEnvironmentVariables: envVars, "apiId": apiID})
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 	}

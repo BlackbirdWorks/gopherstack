@@ -15,6 +15,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	presetCustom = "CUSTOM"
+)
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
@@ -264,7 +268,7 @@ func (b *InMemoryBackend) CreateQueue(
 		Description: description,
 		PricingPlan: pricingPlan,
 		Status:      status,
-		Type:        "CUSTOM",
+		Type:        presetCustom,
 		Tags:        nonNilTagsCopy(tags),
 		CreatedAt:   now,
 		LastUpdated: now,
@@ -404,7 +408,7 @@ func (b *InMemoryBackend) CreateJobTemplate(
 		Priority:    priority,
 		Settings:    deepCopySettings(settings),
 		Tags:        nonNilTagsCopy(tags),
-		Type:        "CUSTOM",
+		Type:        presetCustom,
 		CreatedAt:   now,
 		LastUpdated: now,
 	}
@@ -684,7 +688,7 @@ func (b *InMemoryBackend) CreatePreset(
 		Category:    category,
 		Settings:    deepCopySettings(settings),
 		Tags:        nonNilTagsCopy(tags),
-		Type:        "CUSTOM",
+		Type:        presetCustom,
 		CreatedAt:   now,
 		LastUpdated: now,
 	}

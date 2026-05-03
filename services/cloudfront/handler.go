@@ -17,6 +17,69 @@ import (
 )
 
 const (
+	opTestFunction                = "TestFunction"
+	opUntagResource               = "UntagResource"
+	opUpdateCachePolicy           = "UpdateCachePolicy"
+	opUpdateDistribution          = "UpdateDistribution"
+	opUpdateFunction              = "UpdateFunction"
+	opUpdateOriginAccessControl   = "UpdateOriginAccessControl"
+	opUpdateOriginRequestPolicy   = "UpdateOriginRequestPolicy"
+	opUpdateResponseHeadersPolicy = "UpdateResponseHeadersPolicy"
+)
+
+const (
+	opAssociateAlias                          = "AssociateAlias"
+	opAssociateDistributionTenantWebACL       = "AssociateDistributionTenantWebACL"
+	opAssociateDistributionWebACL             = "AssociateDistributionWebACL"
+	opCopyDistribution                        = "CopyDistribution"
+	opCreateAnycastIPList                     = "CreateAnycastIpList"
+	opCreateCachePolicy                       = "CreateCachePolicy"
+	opCreateCloudFrontOriginAccessIdentity    = "CreateCloudFrontOriginAccessIdentity"
+	opCreateConnectionFunction                = "CreateConnectionFunction"
+	opCreateConnectionGroup                   = "CreateConnectionGroup"
+	opCreateContinuousDeploymentPolicy        = "CreateContinuousDeploymentPolicy"
+	opCreateDistribution                      = "CreateDistribution"
+	opCreateFunction                          = "CreateFunction"
+	opCreateInvalidation                      = "CreateInvalidation"
+	opCreateOriginAccessControl               = "CreateOriginAccessControl"
+	opCreateOriginRequestPolicy               = "CreateOriginRequestPolicy"
+	opCreateResponseHeadersPolicy             = "CreateResponseHeadersPolicy"
+	opDeleteCachePolicy                       = "DeleteCachePolicy"
+	opDeleteCloudFrontOriginAccessIdentity    = "DeleteCloudFrontOriginAccessIdentity"
+	opDeleteDistribution                      = "DeleteDistribution"
+	opDeleteFunction                          = "DeleteFunction"
+	opDeleteOriginAccessControl               = "DeleteOriginAccessControl"
+	opDeleteOriginRequestPolicy               = "DeleteOriginRequestPolicy"
+	opDeleteResponseHeadersPolicy             = "DeleteResponseHeadersPolicy"
+	opDescribeFunction                        = "DescribeFunction"
+	opGetCachePolicy                          = "GetCachePolicy"
+	opGetCachePolicyConfig                    = "GetCachePolicyConfig"
+	opGetCloudFrontOriginAccessIdentity       = "GetCloudFrontOriginAccessIdentity"
+	opGetCloudFrontOriginAccessIdentityConfig = "GetCloudFrontOriginAccessIdentityConfig"
+	opGetDistribution                         = "GetDistribution"
+	opGetDistributionConfig                   = "GetDistributionConfig"
+	opGetFunction                             = "GetFunction"
+	opGetInvalidation                         = "GetInvalidation"
+	opGetOriginAccessControl                  = "GetOriginAccessControl"
+	opGetOriginAccessControlConfig            = "GetOriginAccessControlConfig"
+	opGetOriginRequestPolicy                  = "GetOriginRequestPolicy"
+	opGetOriginRequestPolicyConfig            = "GetOriginRequestPolicyConfig"
+	opGetResponseHeadersPolicy                = "GetResponseHeadersPolicy"
+	opGetResponseHeadersPolicyConfig          = "GetResponseHeadersPolicyConfig"
+	opListCachePolicies                       = "ListCachePolicies"
+	opListCloudFrontOriginAccessIdentities    = "ListCloudFrontOriginAccessIdentities"
+	opListDistributions                       = "ListDistributions"
+	opListFunctions                           = "ListFunctions"
+	opListInvalidations                       = "ListInvalidations"
+	opListOriginAccessControls                = "ListOriginAccessControls"
+	opListOriginRequestPolicies               = "ListOriginRequestPolicies"
+	opListResponseHeadersPolicies             = "ListResponseHeadersPolicies"
+	opListTagsForResource                     = "ListTagsForResource"
+	opPublishFunction                         = "PublishFunction"
+	opTagResource                             = "TagResource"
+)
+
+const (
 	cfNS         = "http://cloudfront.amazonaws.com/doc/2020-05-31/"
 	cfPathPrefix = "/2020-05-31/"
 	maxItems     = 100
@@ -43,64 +106,64 @@ func (h *Handler) Name() string { return "CloudFront" }
 // GetSupportedOperations returns the list of supported CloudFront operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"AssociateAlias",
-		"AssociateDistributionTenantWebACL",
-		"AssociateDistributionWebACL",
-		"CopyDistribution",
-		"CreateAnycastIpList",
-		"CreateCachePolicy",
-		"CreateCloudFrontOriginAccessIdentity",
-		"CreateConnectionFunction",
-		"CreateConnectionGroup",
-		"CreateContinuousDeploymentPolicy",
-		"CreateDistribution",
-		"CreateFunction",
-		"CreateInvalidation",
-		"CreateOriginAccessControl",
-		"CreateOriginRequestPolicy",
-		"CreateResponseHeadersPolicy",
-		"DeleteCachePolicy",
-		"DeleteCloudFrontOriginAccessIdentity",
-		"DeleteDistribution",
-		"DeleteFunction",
-		"DeleteOriginAccessControl",
-		"DeleteOriginRequestPolicy",
-		"DeleteResponseHeadersPolicy",
-		"DescribeFunction",
-		"GetCachePolicy",
-		"GetCachePolicyConfig",
-		"GetCloudFrontOriginAccessIdentity",
-		"GetCloudFrontOriginAccessIdentityConfig",
-		"GetDistribution",
-		"GetDistributionConfig",
-		"GetFunction",
-		"GetInvalidation",
-		"GetOriginAccessControl",
-		"GetOriginAccessControlConfig",
-		"GetOriginRequestPolicy",
-		"GetOriginRequestPolicyConfig",
-		"GetResponseHeadersPolicy",
-		"GetResponseHeadersPolicyConfig",
-		"ListCachePolicies",
-		"ListCloudFrontOriginAccessIdentities",
-		"ListDistributions",
-		"ListFunctions",
-		"ListInvalidations",
-		"ListOriginAccessControls",
-		"ListOriginRequestPolicies",
-		"ListResponseHeadersPolicies",
-		"ListTagsForResource",
-		"PublishFunction",
-		"TagResource",
-		"TestFunction",
-		"UntagResource",
-		"UpdateCachePolicy",
+		opAssociateAlias,
+		opAssociateDistributionTenantWebACL,
+		opAssociateDistributionWebACL,
+		opCopyDistribution,
+		opCreateAnycastIPList,
+		opCreateCachePolicy,
+		opCreateCloudFrontOriginAccessIdentity,
+		opCreateConnectionFunction,
+		opCreateConnectionGroup,
+		opCreateContinuousDeploymentPolicy,
+		opCreateDistribution,
+		opCreateFunction,
+		opCreateInvalidation,
+		opCreateOriginAccessControl,
+		opCreateOriginRequestPolicy,
+		opCreateResponseHeadersPolicy,
+		opDeleteCachePolicy,
+		opDeleteCloudFrontOriginAccessIdentity,
+		opDeleteDistribution,
+		opDeleteFunction,
+		opDeleteOriginAccessControl,
+		opDeleteOriginRequestPolicy,
+		opDeleteResponseHeadersPolicy,
+		opDescribeFunction,
+		opGetCachePolicy,
+		opGetCachePolicyConfig,
+		opGetCloudFrontOriginAccessIdentity,
+		opGetCloudFrontOriginAccessIdentityConfig,
+		opGetDistribution,
+		opGetDistributionConfig,
+		opGetFunction,
+		opGetInvalidation,
+		opGetOriginAccessControl,
+		opGetOriginAccessControlConfig,
+		opGetOriginRequestPolicy,
+		opGetOriginRequestPolicyConfig,
+		opGetResponseHeadersPolicy,
+		opGetResponseHeadersPolicyConfig,
+		opListCachePolicies,
+		opListCloudFrontOriginAccessIdentities,
+		opListDistributions,
+		opListFunctions,
+		opListInvalidations,
+		opListOriginAccessControls,
+		opListOriginRequestPolicies,
+		opListResponseHeadersPolicies,
+		opListTagsForResource,
+		opPublishFunction,
+		opTagResource,
+		opTestFunction,
+		opUntagResource,
+		opUpdateCachePolicy,
 		opUpdateCloudFrontOAI,
-		"UpdateDistribution",
-		"UpdateFunction",
-		"UpdateOriginAccessControl",
-		"UpdateOriginRequestPolicy",
-		"UpdateResponseHeadersPolicy",
+		opUpdateDistribution,
+		opUpdateFunction,
+		opUpdateOriginAccessControl,
+		opUpdateOriginRequestPolicy,
+		opUpdateResponseHeadersPolicy,
 	}
 }
 
@@ -159,76 +222,76 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 
 	switch {
 	case suffix == "distribution" && method == http.MethodPost:
-		return "CreateDistribution", ""
+		return opCreateDistribution, ""
 	case suffix == "distribution" && method == http.MethodGet:
-		return "ListDistributions", ""
+		return opListDistributions, ""
 	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/config"):
 		id := strings.TrimPrefix(suffix, "distribution/")
 		id = strings.TrimSuffix(id, "/config")
 		switch method {
 		case http.MethodGet:
-			return "GetDistributionConfig", id
+			return opGetDistributionConfig, id
 		case http.MethodPut:
-			return "UpdateDistribution", id
+			return opUpdateDistribution, id
 		}
 	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/invalidation"):
 		id := strings.TrimPrefix(suffix, "distribution/")
 		id = strings.TrimSuffix(id, "/invalidation")
 		switch method {
 		case http.MethodPost:
-			return "CreateInvalidation", id
+			return opCreateInvalidation, id
 		case http.MethodGet:
-			return "ListInvalidations", id
+			return opListInvalidations, id
 		}
 	case strings.HasPrefix(suffix, "distribution/") && strings.Contains(suffix, "/invalidation/"):
 		// distribution/{distID}/invalidation/{invID}
 		inner := strings.TrimPrefix(suffix, "distribution/")
 		before, _, ok := strings.Cut(inner, "/invalidation/")
 		if ok && method == http.MethodGet {
-			return "GetInvalidation", before
+			return opGetInvalidation, before
 		}
 	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/associate-alias"):
 		id := strings.TrimPrefix(suffix, "distribution/")
 		id = strings.TrimSuffix(id, "/associate-alias")
 		if method == http.MethodPut {
-			return "AssociateAlias", id
+			return opAssociateAlias, id
 		}
 	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/associate-web-acl"):
 		id := strings.TrimPrefix(suffix, "distribution/")
 		id = strings.TrimSuffix(id, "/associate-web-acl")
 		if method == http.MethodPut {
-			return "AssociateDistributionWebACL", id
+			return opAssociateDistributionWebACL, id
 		}
 	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/copy"):
 		id := strings.TrimPrefix(suffix, "distribution/")
 		id = strings.TrimSuffix(id, "/copy")
 		if method == http.MethodPost {
-			return "CopyDistribution", id
+			return opCopyDistribution, id
 		}
 	case strings.HasPrefix(suffix, "distribution/") &&
 		!strings.Contains(strings.TrimPrefix(suffix, "distribution/"), "/"):
 		id := strings.TrimPrefix(suffix, "distribution/")
 		switch method {
 		case http.MethodGet:
-			return "GetDistribution", id
+			return opGetDistribution, id
 		case http.MethodDelete:
-			return "DeleteDistribution", id
+			return opDeleteDistribution, id
 		}
 	case strings.HasPrefix(suffix, "distribution-tenant/") && strings.HasSuffix(suffix, "/associate-web-acl"):
 		id := strings.TrimPrefix(suffix, "distribution-tenant/")
 		id = strings.TrimSuffix(id, "/associate-web-acl")
 		if method == http.MethodPut {
-			return "AssociateDistributionTenantWebACL", id
+			return opAssociateDistributionTenantWebACL, id
 		}
 	case suffix == "origin-access-identity/cloudfront" && method == http.MethodPost:
-		return "CreateCloudFrontOriginAccessIdentity", ""
+		return opCreateCloudFrontOriginAccessIdentity, ""
 	case suffix == "origin-access-identity/cloudfront" && method == http.MethodGet:
-		return "ListCloudFrontOriginAccessIdentities", ""
+		return opListCloudFrontOriginAccessIdentities, ""
 	case strings.HasPrefix(suffix, "origin-access-identity/cloudfront/") && strings.HasSuffix(suffix, "/config"):
 		id := strings.TrimPrefix(suffix, "origin-access-identity/cloudfront/")
 		id = strings.TrimSuffix(id, "/config")
 		if method == http.MethodGet {
-			return "GetCloudFrontOriginAccessIdentityConfig", id
+			return opGetCloudFrontOriginAccessIdentityConfig, id
 		}
 		if method == http.MethodPut {
 			return opUpdateCloudFrontOAI, id
@@ -238,153 +301,153 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		id := strings.TrimPrefix(suffix, "origin-access-identity/cloudfront/")
 		switch method {
 		case http.MethodGet:
-			return "GetCloudFrontOriginAccessIdentity", id
+			return opGetCloudFrontOriginAccessIdentity, id
 		case http.MethodPut:
 			return opUpdateCloudFrontOAI, id
 		case http.MethodDelete:
-			return "DeleteCloudFrontOriginAccessIdentity", id
+			return opDeleteCloudFrontOriginAccessIdentity, id
 		}
 	case suffix == "anycast-ip-list" && method == http.MethodPost:
-		return "CreateAnycastIpList", ""
+		return opCreateAnycastIPList, ""
 	// --- Cache Policy ---
 	case suffix == "cache-policy" && method == http.MethodPost:
-		return "CreateCachePolicy", ""
+		return opCreateCachePolicy, ""
 	case suffix == "cache-policy" && method == http.MethodGet:
-		return "ListCachePolicies", ""
+		return opListCachePolicies, ""
 	case strings.HasPrefix(suffix, "cache-policy/") && strings.HasSuffix(suffix, "/config"):
 		id := strings.TrimPrefix(suffix, "cache-policy/")
 		id = strings.TrimSuffix(id, "/config")
 		if method == http.MethodGet {
-			return "GetCachePolicyConfig", id
+			return opGetCachePolicyConfig, id
 		}
 	case strings.HasPrefix(suffix, "cache-policy/") &&
 		!strings.Contains(strings.TrimPrefix(suffix, "cache-policy/"), "/"):
 		id := strings.TrimPrefix(suffix, "cache-policy/")
 		switch method {
 		case http.MethodGet:
-			return "GetCachePolicy", id
+			return opGetCachePolicy, id
 		case http.MethodPut:
-			return "UpdateCachePolicy", id
+			return opUpdateCachePolicy, id
 		case http.MethodDelete:
-			return "DeleteCachePolicy", id
+			return opDeleteCachePolicy, id
 		}
 	// --- Origin Access Control ---
 	case suffix == "origin-access-control" && method == http.MethodPost:
-		return "CreateOriginAccessControl", ""
+		return opCreateOriginAccessControl, ""
 	case suffix == "origin-access-control" && method == http.MethodGet:
-		return "ListOriginAccessControls", ""
+		return opListOriginAccessControls, ""
 	case strings.HasPrefix(suffix, "origin-access-control/") && strings.HasSuffix(suffix, "/config"):
 		id := strings.TrimPrefix(suffix, "origin-access-control/")
 		id = strings.TrimSuffix(id, "/config")
 		switch method {
 		case http.MethodGet:
-			return "GetOriginAccessControlConfig", id
+			return opGetOriginAccessControlConfig, id
 		case http.MethodPut:
-			return "UpdateOriginAccessControl", id
+			return opUpdateOriginAccessControl, id
 		}
 	case strings.HasPrefix(suffix, "origin-access-control/") &&
 		!strings.Contains(strings.TrimPrefix(suffix, "origin-access-control/"), "/"):
 		id := strings.TrimPrefix(suffix, "origin-access-control/")
 		switch method {
 		case http.MethodGet:
-			return "GetOriginAccessControl", id
+			return opGetOriginAccessControl, id
 		case http.MethodDelete:
-			return "DeleteOriginAccessControl", id
+			return opDeleteOriginAccessControl, id
 		}
 	// --- Response Headers Policy ---
 	case suffix == "response-headers-policy" && method == http.MethodPost:
-		return "CreateResponseHeadersPolicy", ""
+		return opCreateResponseHeadersPolicy, ""
 	case suffix == "response-headers-policy" && method == http.MethodGet:
-		return "ListResponseHeadersPolicies", ""
+		return opListResponseHeadersPolicies, ""
 	case strings.HasPrefix(suffix, "response-headers-policy/") && strings.HasSuffix(suffix, "/config"):
 		id := strings.TrimPrefix(suffix, "response-headers-policy/")
 		id = strings.TrimSuffix(id, "/config")
 		switch method {
 		case http.MethodGet:
-			return "GetResponseHeadersPolicyConfig", id
+			return opGetResponseHeadersPolicyConfig, id
 		case http.MethodPut:
-			return "UpdateResponseHeadersPolicy", id
+			return opUpdateResponseHeadersPolicy, id
 		}
 	case strings.HasPrefix(suffix, "response-headers-policy/") &&
 		!strings.Contains(strings.TrimPrefix(suffix, "response-headers-policy/"), "/"):
 		id := strings.TrimPrefix(suffix, "response-headers-policy/")
 		switch method {
 		case http.MethodGet:
-			return "GetResponseHeadersPolicy", id
+			return opGetResponseHeadersPolicy, id
 		case http.MethodDelete:
-			return "DeleteResponseHeadersPolicy", id
+			return opDeleteResponseHeadersPolicy, id
 		}
 	// --- CloudFront Function ---
 	case suffix == "function" && method == http.MethodPost:
-		return "CreateFunction", ""
+		return opCreateFunction, ""
 	case suffix == "function" && method == http.MethodGet:
-		return "ListFunctions", ""
+		return opListFunctions, ""
 	case strings.HasPrefix(suffix, "function/") && strings.HasSuffix(suffix, "/publish"):
 		name := strings.TrimPrefix(suffix, "function/")
 		name = strings.TrimSuffix(name, "/publish")
 		if method == http.MethodPost {
-			return "PublishFunction", name
+			return opPublishFunction, name
 		}
 	case strings.HasPrefix(suffix, "function/") && strings.HasSuffix(suffix, "/describe"):
 		name := strings.TrimPrefix(suffix, "function/")
 		name = strings.TrimSuffix(name, "/describe")
 		if method == http.MethodGet {
-			return "DescribeFunction", name
+			return opDescribeFunction, name
 		}
 	case strings.HasPrefix(suffix, "function/") && strings.HasSuffix(suffix, "/test"):
 		name := strings.TrimPrefix(suffix, "function/")
 		name = strings.TrimSuffix(name, "/test")
 		if method == http.MethodPost {
-			return "TestFunction", name
+			return opTestFunction, name
 		}
 	case strings.HasPrefix(suffix, "function/") && !strings.Contains(strings.TrimPrefix(suffix, "function/"), "/"):
 		name := strings.TrimPrefix(suffix, "function/")
 		switch method {
 		case http.MethodGet:
-			return "GetFunction", name
+			return opGetFunction, name
 		case http.MethodPut:
-			return "UpdateFunction", name
+			return opUpdateFunction, name
 		case http.MethodDelete:
-			return "DeleteFunction", name
+			return opDeleteFunction, name
 		}
 	// --- Origin Request Policy ---
 	case suffix == "origin-request-policy" && method == http.MethodPost:
-		return "CreateOriginRequestPolicy", ""
+		return opCreateOriginRequestPolicy, ""
 	case suffix == "origin-request-policy" && method == http.MethodGet:
-		return "ListOriginRequestPolicies", ""
+		return opListOriginRequestPolicies, ""
 	case strings.HasPrefix(suffix, "origin-request-policy/") && strings.HasSuffix(suffix, "/config"):
 		id := strings.TrimPrefix(suffix, "origin-request-policy/")
 		id = strings.TrimSuffix(id, "/config")
 		switch method {
 		case http.MethodGet:
-			return "GetOriginRequestPolicyConfig", id
+			return opGetOriginRequestPolicyConfig, id
 		case http.MethodPut:
-			return "UpdateOriginRequestPolicy", id
+			return opUpdateOriginRequestPolicy, id
 		}
 	case strings.HasPrefix(suffix, "origin-request-policy/") &&
 		!strings.Contains(strings.TrimPrefix(suffix, "origin-request-policy/"), "/"):
 		id := strings.TrimPrefix(suffix, "origin-request-policy/")
 		switch method {
 		case http.MethodGet:
-			return "GetOriginRequestPolicy", id
+			return opGetOriginRequestPolicy, id
 		case http.MethodDelete:
-			return "DeleteOriginRequestPolicy", id
+			return opDeleteOriginRequestPolicy, id
 		}
 	// --- Connection / ContinuousDeployment / Tags ---
 	case suffix == "connection-function" && method == http.MethodPost:
-		return "CreateConnectionFunction", ""
+		return opCreateConnectionFunction, ""
 	case suffix == "connection-group" && method == http.MethodPost:
-		return "CreateConnectionGroup", ""
+		return opCreateConnectionGroup, ""
 	case suffix == "continuous-deployment-policy" && method == http.MethodPost:
-		return "CreateContinuousDeploymentPolicy", ""
+		return opCreateContinuousDeploymentPolicy, ""
 	case suffix == "tagging":
 		switch method {
 		case http.MethodGet:
-			return "ListTagsForResource", resourceParam
+			return opListTagsForResource, resourceParam
 		case http.MethodPost:
-			return "TagResource", resourceParam
+			return opTagResource, resourceParam
 		case http.MethodDelete:
-			return "UntagResource", resourceParam
+			return opUntagResource, resourceParam
 		}
 	}
 
@@ -528,27 +591,27 @@ var errNotDispatched = errors.New("not dispatched")
 
 func (h *Handler) dispatchCreate(c *echo.Context, operation string) error {
 	switch operation {
-	case "CreateAnycastIpList":
+	case opCreateAnycastIPList:
 		return h.handleCreateAnycastIPList(c)
-	case "CreateCachePolicy":
+	case opCreateCachePolicy:
 		return h.handleCreateCachePolicy(c)
-	case "CreateCloudFrontOriginAccessIdentity":
+	case opCreateCloudFrontOriginAccessIdentity:
 		return h.handleCreateOAI(c)
-	case "CreateConnectionFunction":
+	case opCreateConnectionFunction:
 		return h.handleCreateConnectionFunction(c)
-	case "CreateConnectionGroup":
+	case opCreateConnectionGroup:
 		return h.handleCreateConnectionGroup(c)
-	case "CreateContinuousDeploymentPolicy":
+	case opCreateContinuousDeploymentPolicy:
 		return h.handleCreateContinuousDeploymentPolicy(c)
-	case "CreateDistribution":
+	case opCreateDistribution:
 		return h.handleCreateDistribution(c)
-	case "CreateFunction":
+	case opCreateFunction:
 		return h.handleCreateFunction(c)
-	case "CreateOriginAccessControl":
+	case opCreateOriginAccessControl:
 		return h.handleCreateOriginAccessControl(c)
-	case "CreateOriginRequestPolicy":
+	case opCreateOriginRequestPolicy:
 		return h.handleCreateOriginRequestPolicy(c)
-	case "CreateResponseHeadersPolicy":
+	case opCreateResponseHeadersPolicy:
 		return h.handleCreateResponseHeadersPolicy(c)
 	default:
 		return errNotDispatched
@@ -560,61 +623,61 @@ func (h *Handler) dispatchCreate(c *echo.Context, operation string) error {
 //nolint:cyclop,funlen // combined GET/mutate dispatch table is inherently wide
 func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource string) error {
 	switch operation {
-	case "GetCachePolicy":
+	case opGetCachePolicy:
 		return h.handleGetCachePolicy(c, resource)
-	case "GetCachePolicyConfig":
+	case opGetCachePolicyConfig:
 		return h.handleGetCachePolicyConfig(c, resource)
-	case "GetDistribution":
+	case opGetDistribution:
 		return h.handleGetDistribution(c, resource)
-	case "GetDistributionConfig":
+	case opGetDistributionConfig:
 		return h.handleGetDistributionConfig(c, resource)
-	case "GetFunction":
+	case opGetFunction:
 		return h.handleGetFunction(c, resource)
-	case "GetInvalidation":
+	case opGetInvalidation:
 		return h.handleGetInvalidation(c, resource)
-	case "GetOriginAccessControl":
+	case opGetOriginAccessControl:
 		return h.handleGetOriginAccessControl(c, resource)
-	case "GetOriginAccessControlConfig":
+	case opGetOriginAccessControlConfig:
 		return h.handleGetOriginAccessControlConfig(c, resource)
-	case "GetCloudFrontOriginAccessIdentity":
+	case opGetCloudFrontOriginAccessIdentity:
 		return h.handleGetOAI(c, resource)
-	case "GetCloudFrontOriginAccessIdentityConfig":
+	case opGetCloudFrontOriginAccessIdentityConfig:
 		return h.handleGetOAIConfig(c, resource)
-	case "GetOriginRequestPolicy":
+	case opGetOriginRequestPolicy:
 		return h.handleGetOriginRequestPolicy(c, resource)
-	case "GetOriginRequestPolicyConfig":
+	case opGetOriginRequestPolicyConfig:
 		return h.handleGetOriginRequestPolicyConfig(c, resource)
-	case "GetResponseHeadersPolicy":
+	case opGetResponseHeadersPolicy:
 		return h.handleGetResponseHeadersPolicy(c, resource)
-	case "GetResponseHeadersPolicyConfig":
+	case opGetResponseHeadersPolicyConfig:
 		return h.handleGetResponseHeadersPolicyConfig(c, resource)
-	case "DeleteCachePolicy":
+	case opDeleteCachePolicy:
 		return h.handleDeleteCachePolicy(c, resource)
-	case "DeleteDistribution":
+	case opDeleteDistribution:
 		return h.handleDeleteDistribution(c, resource)
-	case "DeleteFunction":
+	case opDeleteFunction:
 		return h.handleDeleteFunction(c, resource)
-	case "DeleteOriginAccessControl":
+	case opDeleteOriginAccessControl:
 		return h.handleDeleteOriginAccessControl(c, resource)
-	case "DeleteCloudFrontOriginAccessIdentity":
+	case opDeleteCloudFrontOriginAccessIdentity:
 		return h.handleDeleteOAI(c, resource)
-	case "DeleteOriginRequestPolicy":
+	case opDeleteOriginRequestPolicy:
 		return h.handleDeleteOriginRequestPolicy(c, resource)
-	case "DeleteResponseHeadersPolicy":
+	case opDeleteResponseHeadersPolicy:
 		return h.handleDeleteResponseHeadersPolicy(c, resource)
 	case opUpdateCloudFrontOAI:
 		return h.handleUpdateOAI(c, resource)
-	case "UpdateCachePolicy":
+	case opUpdateCachePolicy:
 		return h.handleUpdateCachePolicy(c, resource)
-	case "UpdateDistribution":
+	case opUpdateDistribution:
 		return h.handleUpdateDistribution(c, resource)
-	case "UpdateFunction":
+	case opUpdateFunction:
 		return h.handleUpdateFunction(c, resource)
-	case "UpdateOriginAccessControl":
+	case opUpdateOriginAccessControl:
 		return h.handleUpdateOriginAccessControl(c, resource)
-	case "UpdateOriginRequestPolicy":
+	case opUpdateOriginRequestPolicy:
 		return h.handleUpdateOriginRequestPolicy(c, resource)
-	case "UpdateResponseHeadersPolicy":
+	case opUpdateResponseHeadersPolicy:
 		return h.handleUpdateResponseHeadersPolicy(c, resource)
 	default:
 		return errNotDispatched
@@ -623,23 +686,23 @@ func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource strin
 
 func (h *Handler) dispatchList(c *echo.Context, operation, resource string) error {
 	switch operation {
-	case "ListCachePolicies":
+	case opListCachePolicies:
 		return h.handleListCachePolicies(c)
-	case "ListDistributions":
+	case opListDistributions:
 		return h.handleListDistributions(c)
-	case "ListFunctions":
+	case opListFunctions:
 		return h.handleListFunctions(c)
-	case "ListInvalidations":
+	case opListInvalidations:
 		return h.handleListInvalidations(c, resource)
-	case "ListOriginAccessControls":
+	case opListOriginAccessControls:
 		return h.handleListOriginAccessControls(c)
-	case "ListCloudFrontOriginAccessIdentities":
+	case opListCloudFrontOriginAccessIdentities:
 		return h.handleListOAIs(c)
-	case "ListOriginRequestPolicies":
+	case opListOriginRequestPolicies:
 		return h.handleListOriginRequestPolicies(c)
-	case "ListResponseHeadersPolicies":
+	case opListResponseHeadersPolicies:
 		return h.handleListResponseHeadersPolicies(c)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return h.handleListTagsForResource(c)
 	default:
 		return errNotDispatched
@@ -648,25 +711,25 @@ func (h *Handler) dispatchList(c *echo.Context, operation, resource string) erro
 
 func (h *Handler) dispatchMisc(c *echo.Context, operation, resource string) error {
 	switch operation {
-	case "AssociateAlias":
+	case opAssociateAlias:
 		return h.handleAssociateAlias(c, resource)
-	case "AssociateDistributionTenantWebACL":
+	case opAssociateDistributionTenantWebACL:
 		return h.handleAssociateDistributionTenantWebACL(c, resource)
-	case "AssociateDistributionWebACL":
+	case opAssociateDistributionWebACL:
 		return h.handleAssociateDistributionWebACL(c, resource)
-	case "CopyDistribution":
+	case opCopyDistribution:
 		return h.handleCopyDistribution(c, resource)
-	case "CreateInvalidation":
+	case opCreateInvalidation:
 		return h.handleCreateInvalidation(c, resource)
-	case "DescribeFunction":
+	case opDescribeFunction:
 		return h.handleDescribeFunction(c, resource)
-	case "PublishFunction":
+	case opPublishFunction:
 		return h.handlePublishFunction(c, resource)
-	case "TagResource":
+	case opTagResource:
 		return h.handleTagResource(c)
-	case "TestFunction":
+	case opTestFunction:
 		return h.handleTestFunction(c, resource)
-	case "UntagResource":
+	case opUntagResource:
 		return h.handleUntagResource(c)
 	default:
 		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOperation", "unknown operation: "+operation))

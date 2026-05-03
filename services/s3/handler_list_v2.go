@@ -58,7 +58,7 @@ func (h *S3Handler) prepareListObjectsV2Input(
 		StartAfter:        aws.String(q.Get("start-after")),
 		MaxKeys:           aws.Int32(maxKeys),
 		EncodingType:      types.EncodingType(q.Get("encoding-type")),
-		FetchOwner:        aws.Bool(q.Get("fetch-owner") == "true"),
+		FetchOwner:        aws.Bool(q.Get("fetch-owner") == sqlValTrue),
 	}
 }
 

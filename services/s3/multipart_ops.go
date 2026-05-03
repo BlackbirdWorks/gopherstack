@@ -168,7 +168,7 @@ func (h *S3Handler) completeMultipartUpload(
 	r *http.Request,
 	bucketName, key string,
 ) {
-	h.setOperation(ctx, "CompleteMultipartUpload")
+	h.setOperation(ctx, opCompleteMultipartUpload)
 	uploadID := r.URL.Query().Get("uploadId")
 
 	var partsReq CompleteMultipartUpload
@@ -311,7 +311,7 @@ func (h *S3Handler) listMultipartUploads(
 	}
 
 	result := ListMultipartUploadsResult{
-		Xmlns:              "http://s3.amazonaws.com/doc/2006-03-01/",
+		Xmlns:              xmlNamespaceS3,
 		Bucket:             bucketName,
 		MaxUploads:         int(aws.ToInt32(out.MaxUploads)),
 		IsTruncated:        aws.ToBool(out.IsTruncated),
@@ -357,7 +357,7 @@ func (h *S3Handler) listParts(
 	}
 
 	result := ListPartsResult{
-		Xmlns:       "http://s3.amazonaws.com/doc/2006-03-01/",
+		Xmlns:       xmlNamespaceS3,
 		Bucket:      bucketName,
 		Key:         key,
 		UploadID:    uploadID,

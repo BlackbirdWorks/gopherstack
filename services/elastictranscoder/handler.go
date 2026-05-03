@@ -14,6 +14,33 @@ import (
 )
 
 const (
+	opUnknown = "Unknown"
+)
+
+const (
+	opCreatePipeline              = "CreatePipeline"
+	opReadPipeline                = "ReadPipeline"
+	opListPipelines               = "ListPipelines"
+	opUpdatePipeline              = "UpdatePipeline"
+	opDeletePipeline              = "DeletePipeline"
+	opUpdatePipelineNotifications = "UpdatePipelineNotifications"
+	opUpdatePipelineStatus        = "UpdatePipelineStatus"
+	opCreatePreset                = "CreatePreset"
+	opReadPreset                  = "ReadPreset"
+	opListPresets                 = "ListPresets"
+	opDeletePreset                = "DeletePreset"
+	opCreateJob                   = "CreateJob"
+	opReadJob                     = "ReadJob"
+	opListJobsByPipeline          = "ListJobsByPipeline"
+	opListJobsByStatus            = "ListJobsByStatus"
+	opCancelJob                   = "CancelJob"
+	opTestRole                    = "TestRole"
+	opAddTagsToResource           = "AddTagsToResource"
+	opRemoveTagsFromResource      = "RemoveTagsFromResource"
+	opListTagsForResource         = "ListTagsForResource"
+)
+
+const (
 	etMatchPriority = service.PriorityPathVersioned
 	pathPrefix      = "/2012-09-25/"
 	pipelinesPath   = "/2012-09-25/pipelines"
@@ -43,26 +70,26 @@ func (h *Handler) Name() string { return "ElasticTranscoder" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreatePipeline",
-		"ReadPipeline",
-		"ListPipelines",
-		"UpdatePipeline",
-		"DeletePipeline",
-		"UpdatePipelineNotifications",
-		"UpdatePipelineStatus",
-		"CreatePreset",
-		"ReadPreset",
-		"ListPresets",
-		"DeletePreset",
-		"CreateJob",
-		"ReadJob",
-		"ListJobsByPipeline",
-		"ListJobsByStatus",
-		"CancelJob",
-		"TestRole",
-		"AddTagsToResource",
-		"RemoveTagsFromResource",
-		"ListTagsForResource",
+		opCreatePipeline,
+		opReadPipeline,
+		opListPipelines,
+		opUpdatePipeline,
+		opDeletePipeline,
+		opUpdatePipelineNotifications,
+		opUpdatePipelineStatus,
+		opCreatePreset,
+		opReadPreset,
+		opListPresets,
+		opDeletePreset,
+		opCreateJob,
+		opReadJob,
+		opListJobsByPipeline,
+		opListJobsByStatus,
+		opCancelJob,
+		opTestRole,
+		opAddTagsToResource,
+		opRemoveTagsFromResource,
+		opListTagsForResource,
 	}
 }
 
@@ -123,29 +150,29 @@ func (h *Handler) dispatch(c *echo.Context, route etRoute) error {
 	}
 
 	switch route.operation {
-	case "ListPipelines":
+	case opListPipelines:
 		return h.handleListPipelines(c)
-	case "ReadPipeline":
+	case opReadPipeline:
 		return h.handleReadPipeline(c, route.resource)
-	case "DeletePipeline":
+	case opDeletePipeline:
 		return h.handleDeletePipeline(c, route.resource)
-	case "ListPresets":
+	case opListPresets:
 		return h.handleListPresets(c)
-	case "ReadPreset":
+	case opReadPreset:
 		return h.handleReadPreset(c, route.resource)
-	case "DeletePreset":
+	case opDeletePreset:
 		return h.handleDeletePreset(c, route.resource)
-	case "ReadJob":
+	case opReadJob:
 		return h.handleReadJob(c, route.resource)
-	case "CancelJob":
+	case opCancelJob:
 		return h.handleCancelJob(c, route.resource)
-	case "ListJobsByPipeline":
+	case opListJobsByPipeline:
 		return h.handleListJobsByPipeline(c, route.resource)
-	case "ListJobsByStatus":
+	case opListJobsByStatus:
 		return h.handleListJobsByStatus(c, route.resource)
-	case "TestRole":
+	case opTestRole:
 		return h.handleTestRole(c)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return h.handleListTagsForResource(c, route.resource)
 	}
 
@@ -160,21 +187,21 @@ func (h *Handler) dispatchMutating(c *echo.Context, route etRoute, readBody func
 	}
 
 	switch route.operation {
-	case "CreatePipeline":
+	case opCreatePipeline:
 		return h.handleCreatePipeline(c, body)
-	case "UpdatePipeline":
+	case opUpdatePipeline:
 		return h.handleUpdatePipeline(c, route.resource, body)
-	case "UpdatePipelineNotifications":
+	case opUpdatePipelineNotifications:
 		return h.handleUpdatePipelineNotifications(c, route.resource, body)
-	case "UpdatePipelineStatus":
+	case opUpdatePipelineStatus:
 		return h.handleUpdatePipelineStatus(c, route.resource, body)
-	case "CreatePreset":
+	case opCreatePreset:
 		return h.handleCreatePreset(c, body)
-	case "CreateJob":
+	case opCreateJob:
 		return h.handleCreateJob(c, body)
-	case "AddTagsToResource":
+	case opAddTagsToResource:
 		return h.handleAddTagsToResource(c, route.resource, body)
-	case "RemoveTagsFromResource":
+	case opRemoveTagsFromResource:
 		return h.handleRemoveTagsFromResource(c, route.resource, body)
 	}
 
@@ -197,25 +224,25 @@ func parseRoute(method, path string) etRoute {
 	case strings.HasPrefix(path, "/2012-09-25/jobsByStatus/"):
 		status := strings.TrimPrefix(path, "/2012-09-25/jobsByStatus/")
 
-		return etRoute{operation: "ListJobsByStatus", resource: status}
+		return etRoute{operation: opListJobsByStatus, resource: status}
 	case strings.HasPrefix(path, "/2012-09-25/jobsByPipeline/"):
 		id := strings.TrimPrefix(path, "/2012-09-25/jobsByPipeline/")
 
-		return etRoute{operation: "ListJobsByPipeline", resource: id}
+		return etRoute{operation: opListJobsByPipeline, resource: id}
 	case path == "/2012-09-25/roleTests" && method == http.MethodGet:
-		return etRoute{operation: "TestRole"}
+		return etRoute{operation: opTestRole}
 	case strings.HasPrefix(path, taggingPath+"/"):
 		resourceARN := strings.TrimPrefix(path, taggingPath+"/")
 		switch method {
 		case http.MethodGet:
-			return etRoute{operation: "ListTagsForResource", resource: resourceARN}
+			return etRoute{operation: opListTagsForResource, resource: resourceARN}
 		case http.MethodPost:
-			return etRoute{operation: "AddTagsToResource", resource: resourceARN}
+			return etRoute{operation: opAddTagsToResource, resource: resourceARN}
 		case http.MethodDelete:
-			return etRoute{operation: "RemoveTagsFromResource", resource: resourceARN}
+			return etRoute{operation: opRemoveTagsFromResource, resource: resourceARN}
 		}
 
-		return etRoute{operation: "Unknown"}
+		return etRoute{operation: opUnknown}
 	case strings.HasPrefix(path, pipelinesPath):
 		return parsePipelineRoute(method, strings.TrimPrefix(path, pipelinesPath))
 	case strings.HasPrefix(path, presetsPath):
@@ -224,7 +251,7 @@ func parseRoute(method, path string) etRoute {
 		return parseJobRoute(method, strings.TrimPrefix(path, jobsPath))
 	}
 
-	return etRoute{operation: "Unknown"}
+	return etRoute{operation: opUnknown}
 }
 
 func parsePipelineRoute(method, suffix string) etRoute {
@@ -233,9 +260,9 @@ func parsePipelineRoute(method, suffix string) etRoute {
 	if id == "" {
 		switch method {
 		case http.MethodGet:
-			return etRoute{operation: "ListPipelines"}
+			return etRoute{operation: opListPipelines}
 		case http.MethodPost:
-			return etRoute{operation: "CreatePipeline"}
+			return etRoute{operation: opCreatePipeline}
 		}
 	}
 
@@ -243,27 +270,27 @@ func parsePipelineRoute(method, suffix string) etRoute {
 	if before, ok := strings.CutSuffix(id, "/notifications"); ok {
 		pipelineID := before
 		if method == http.MethodPost {
-			return etRoute{operation: "UpdatePipelineNotifications", resource: pipelineID}
+			return etRoute{operation: opUpdatePipelineNotifications, resource: pipelineID}
 		}
 	}
 
 	if before, ok := strings.CutSuffix(id, "/status"); ok {
 		pipelineID := before
 		if method == http.MethodPost {
-			return etRoute{operation: "UpdatePipelineStatus", resource: pipelineID}
+			return etRoute{operation: opUpdatePipelineStatus, resource: pipelineID}
 		}
 	}
 
 	switch method {
 	case http.MethodGet:
-		return etRoute{operation: "ReadPipeline", resource: id}
+		return etRoute{operation: opReadPipeline, resource: id}
 	case http.MethodPut:
-		return etRoute{operation: "UpdatePipeline", resource: id}
+		return etRoute{operation: opUpdatePipeline, resource: id}
 	case http.MethodDelete:
-		return etRoute{operation: "DeletePipeline", resource: id}
+		return etRoute{operation: opDeletePipeline, resource: id}
 	}
 
-	return etRoute{operation: "Unknown"}
+	return etRoute{operation: opUnknown}
 }
 
 func parsePresetRoute(method, suffix string) etRoute {
@@ -272,37 +299,37 @@ func parsePresetRoute(method, suffix string) etRoute {
 	if id == "" {
 		switch method {
 		case http.MethodGet:
-			return etRoute{operation: "ListPresets"}
+			return etRoute{operation: opListPresets}
 		case http.MethodPost:
-			return etRoute{operation: "CreatePreset"}
+			return etRoute{operation: opCreatePreset}
 		}
 	}
 
 	switch method {
 	case http.MethodGet:
-		return etRoute{operation: "ReadPreset", resource: id}
+		return etRoute{operation: opReadPreset, resource: id}
 	case http.MethodDelete:
-		return etRoute{operation: "DeletePreset", resource: id}
+		return etRoute{operation: opDeletePreset, resource: id}
 	}
 
-	return etRoute{operation: "Unknown"}
+	return etRoute{operation: opUnknown}
 }
 
 func parseJobRoute(method, suffix string) etRoute {
 	id := strings.TrimPrefix(suffix, "/")
 
 	if id == "" && method == http.MethodPost {
-		return etRoute{operation: "CreateJob"}
+		return etRoute{operation: opCreateJob}
 	}
 
 	switch method {
 	case http.MethodGet:
-		return etRoute{operation: "ReadJob", resource: id}
+		return etRoute{operation: opReadJob, resource: id}
 	case http.MethodDelete:
-		return etRoute{operation: "CancelJob", resource: id}
+		return etRoute{operation: opCancelJob, resource: id}
 	}
 
-	return etRoute{operation: "Unknown"}
+	return etRoute{operation: opUnknown}
 }
 
 // --- Pipeline handlers ---

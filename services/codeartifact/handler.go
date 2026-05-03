@@ -17,6 +17,58 @@ import (
 )
 
 const (
+	keyName         = "name"
+	keyStatusField  = "status"
+	keyDomainOwner  = "domainOwner"
+	keyRepository   = "repository"
+	keyPolicy       = "policy"
+	keyRevision     = "revision"
+	keyResourceArn  = "resourceArn"
+	keyPackageGroup = "packageGroup"
+	keyVersion      = "version"
+)
+
+const (
+	opUnknown     = "Unknown"
+	keyArn        = "arn"
+	keyDomain     = "domain"
+	keyDomainName = "domainName"
+	keyDocument   = "document"
+)
+
+const (
+	opAssociateExternalConnection       = "AssociateExternalConnection"
+	opCopyPackageVersions               = "CopyPackageVersions"
+	opCreateDomain                      = "CreateDomain"
+	opCreatePackageGroup                = "CreatePackageGroup"
+	opCreateRepository                  = "CreateRepository"
+	opDeleteDomain                      = "DeleteDomain"
+	opDeleteDomainPermissionsPolicy     = "DeleteDomainPermissionsPolicy"
+	opDeletePackage                     = "DeletePackage"
+	opDeletePackageGroup                = "DeletePackageGroup"
+	opDeletePackageVersions             = "DeletePackageVersions"
+	opDeleteRepository                  = "DeleteRepository"
+	opDeleteRepositoryPermissionsPolicy = "DeleteRepositoryPermissionsPolicy"
+	opDescribeDomain                    = "DescribeDomain"
+	opDescribePackage                   = "DescribePackage"
+	opDescribePackageGroup              = "DescribePackageGroup"
+	opDescribePackageVersion            = "DescribePackageVersion"
+	opDescribeRepository                = "DescribeRepository"
+	opGetAuthorizationToken             = "GetAuthorizationToken"
+	opGetDomainPermissionsPolicy        = "GetDomainPermissionsPolicy"
+	opGetRepositoryEndpoint             = "GetRepositoryEndpoint"
+	opGetRepositoryPermissionsPolicy    = "GetRepositoryPermissionsPolicy"
+	opListDomains                       = "ListDomains"
+	opListRepositories                  = "ListRepositories"
+	opListRepositoriesInDomain          = "ListRepositoriesInDomain"
+	opListTagsForResource               = "ListTagsForResource"
+	opPutDomainPermissionsPolicy        = "PutDomainPermissionsPolicy"
+	opPutRepositoryPermissionsPolicy    = "PutRepositoryPermissionsPolicy"
+	opTagResource                       = "TagResource"
+	opUntagResource                     = "UntagResource"
+)
+
+const (
 	codeartifactMatchPriority = service.PriorityPathVersioned + 1
 
 	pathV1Domain                       = "/v1/domain"
@@ -71,35 +123,35 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 // GetSupportedOperations returns the list of supported CodeArtifact operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"AssociateExternalConnection",
-		"CopyPackageVersions",
-		"CreateDomain",
-		"CreatePackageGroup",
-		"CreateRepository",
-		"DeleteDomain",
-		"DeletePackage",
-		"DeletePackageGroup",
-		"DeletePackageVersions",
-		"DeleteRepository",
-		"DeleteRepositoryPermissionsPolicy",
-		"DescribeDomain",
-		"DescribePackage",
-		"DescribePackageGroup",
-		"DescribePackageVersion",
-		"DescribeRepository",
-		"GetAuthorizationToken",
-		"GetDomainPermissionsPolicy",
-		"GetRepositoryEndpoint",
-		"GetRepositoryPermissionsPolicy",
-		"ListDomains",
-		"ListRepositories",
-		"ListRepositoriesInDomain",
-		"ListTagsForResource",
-		"PutDomainPermissionsPolicy",
-		"DeleteDomainPermissionsPolicy",
-		"PutRepositoryPermissionsPolicy",
-		"TagResource",
-		"UntagResource",
+		opAssociateExternalConnection,
+		opCopyPackageVersions,
+		opCreateDomain,
+		opCreatePackageGroup,
+		opCreateRepository,
+		opDeleteDomain,
+		opDeletePackage,
+		opDeletePackageGroup,
+		opDeletePackageVersions,
+		opDeleteRepository,
+		opDeleteRepositoryPermissionsPolicy,
+		opDescribeDomain,
+		opDescribePackage,
+		opDescribePackageGroup,
+		opDescribePackageVersion,
+		opDescribeRepository,
+		opGetAuthorizationToken,
+		opGetDomainPermissionsPolicy,
+		opGetRepositoryEndpoint,
+		opGetRepositoryPermissionsPolicy,
+		opListDomains,
+		opListRepositories,
+		opListRepositoriesInDomain,
+		opListTagsForResource,
+		opPutDomainPermissionsPolicy,
+		opDeleteDomainPermissionsPolicy,
+		opPutRepositoryPermissionsPolicy,
+		opTagResource,
+		opUntagResource,
 	}
 }
 
@@ -160,32 +212,32 @@ func parseDomainRepoPath(method, path string) codeartifactRoute {
 	case pathV1Domain:
 		return parseDomainRoute(method)
 	case pathV1Domains:
-		return codeartifactRoute{operation: "ListDomains"}
+		return codeartifactRoute{operation: opListDomains}
 	case pathV1DomainRepositories:
-		return codeartifactRoute{operation: "ListRepositoriesInDomain"}
+		return codeartifactRoute{operation: opListRepositoriesInDomain}
 	case pathV1DomainPermissions:
 		return parseDomainPermissionsRoute(method)
 	case pathV1Repository:
 		return parseRepositoryRoute(method)
 	case pathV1RepositoryEndpoint:
-		return codeartifactRoute{operation: "GetRepositoryEndpoint"}
+		return codeartifactRoute{operation: opGetRepositoryEndpoint}
 	case pathV1RepositoryExternalConnection:
-		return codeartifactRoute{operation: "AssociateExternalConnection"}
+		return codeartifactRoute{operation: opAssociateExternalConnection}
 	case pathV1RepositoryPermissions:
 		return parseRepositoryPermissionsRoute(method)
 	case pathV1Repositories:
-		return codeartifactRoute{operation: "ListRepositories"}
+		return codeartifactRoute{operation: opListRepositories}
 	case pathV1Tags:
-		return codeartifactRoute{operation: "ListTagsForResource"}
+		return codeartifactRoute{operation: opListTagsForResource}
 	case pathV1Tag:
-		return codeartifactRoute{operation: "TagResource"}
+		return codeartifactRoute{operation: opTagResource}
 	case pathV1Untag:
-		return codeartifactRoute{operation: "UntagResource"}
+		return codeartifactRoute{operation: opUntagResource}
 	case pathV1AuthToken:
-		return codeartifactRoute{operation: "GetAuthorizationToken"}
+		return codeartifactRoute{operation: opGetAuthorizationToken}
 	}
 
-	return codeartifactRoute{operation: "Unknown"}
+	return codeartifactRoute{operation: opUnknown}
 }
 
 // parsePackageOpPath handles package, package-group, and package-version routes.
@@ -196,90 +248,90 @@ func parsePackageOpPath(method, path string) codeartifactRoute {
 	case pathV1Package:
 		return parsePackageRoute(method)
 	case pathV1PackageVersion:
-		return codeartifactRoute{operation: "DescribePackageVersion"}
+		return codeartifactRoute{operation: opDescribePackageVersion}
 	case pathV1PackageVersionsCopy:
-		return codeartifactRoute{operation: "CopyPackageVersions"}
+		return codeartifactRoute{operation: opCopyPackageVersions}
 	case pathV1PackageVersionsDelete:
-		return codeartifactRoute{operation: "DeletePackageVersions"}
+		return codeartifactRoute{operation: opDeletePackageVersions}
 	}
 
-	return codeartifactRoute{operation: "Unknown"}
+	return codeartifactRoute{operation: opUnknown}
 }
 
 func parseDomainRoute(method string) codeartifactRoute {
 	switch method {
 	case http.MethodPost:
-		return codeartifactRoute{operation: "CreateDomain"}
+		return codeartifactRoute{operation: opCreateDomain}
 	case http.MethodGet:
-		return codeartifactRoute{operation: "DescribeDomain"}
+		return codeartifactRoute{operation: opDescribeDomain}
 	case http.MethodDelete:
-		return codeartifactRoute{operation: "DeleteDomain"}
+		return codeartifactRoute{operation: opDeleteDomain}
 	}
 
-	return codeartifactRoute{operation: "Unknown"}
+	return codeartifactRoute{operation: opUnknown}
 }
 
 func parseDomainPermissionsRoute(method string) codeartifactRoute {
 	switch method {
 	case http.MethodGet:
-		return codeartifactRoute{operation: "GetDomainPermissionsPolicy"}
+		return codeartifactRoute{operation: opGetDomainPermissionsPolicy}
 	case http.MethodPut:
-		return codeartifactRoute{operation: "PutDomainPermissionsPolicy"}
+		return codeartifactRoute{operation: opPutDomainPermissionsPolicy}
 	case http.MethodDelete:
-		return codeartifactRoute{operation: "DeleteDomainPermissionsPolicy"}
+		return codeartifactRoute{operation: opDeleteDomainPermissionsPolicy}
 	}
 
-	return codeartifactRoute{operation: "Unknown"}
+	return codeartifactRoute{operation: opUnknown}
 }
 
 func parseRepositoryRoute(method string) codeartifactRoute {
 	switch method {
 	case http.MethodPost:
-		return codeartifactRoute{operation: "CreateRepository"}
+		return codeartifactRoute{operation: opCreateRepository}
 	case http.MethodGet:
-		return codeartifactRoute{operation: "DescribeRepository"}
+		return codeartifactRoute{operation: opDescribeRepository}
 	case http.MethodDelete:
-		return codeartifactRoute{operation: "DeleteRepository"}
+		return codeartifactRoute{operation: opDeleteRepository}
 	}
 
-	return codeartifactRoute{operation: "Unknown"}
+	return codeartifactRoute{operation: opUnknown}
 }
 
 func parseRepositoryPermissionsRoute(method string) codeartifactRoute {
 	switch method {
 	case http.MethodGet:
-		return codeartifactRoute{operation: "GetRepositoryPermissionsPolicy"}
+		return codeartifactRoute{operation: opGetRepositoryPermissionsPolicy}
 	case http.MethodPut:
-		return codeartifactRoute{operation: "PutRepositoryPermissionsPolicy"}
+		return codeartifactRoute{operation: opPutRepositoryPermissionsPolicy}
 	case http.MethodDelete:
-		return codeartifactRoute{operation: "DeleteRepositoryPermissionsPolicy"}
+		return codeartifactRoute{operation: opDeleteRepositoryPermissionsPolicy}
 	}
 
-	return codeartifactRoute{operation: "Unknown"}
+	return codeartifactRoute{operation: opUnknown}
 }
 
 func parsePackageGroupRoute(method string) codeartifactRoute {
 	switch method {
 	case http.MethodPost:
-		return codeartifactRoute{operation: "CreatePackageGroup"}
+		return codeartifactRoute{operation: opCreatePackageGroup}
 	case http.MethodGet:
-		return codeartifactRoute{operation: "DescribePackageGroup"}
+		return codeartifactRoute{operation: opDescribePackageGroup}
 	case http.MethodDelete:
-		return codeartifactRoute{operation: "DeletePackageGroup"}
+		return codeartifactRoute{operation: opDeletePackageGroup}
 	}
 
-	return codeartifactRoute{operation: "Unknown"}
+	return codeartifactRoute{operation: opUnknown}
 }
 
 func parsePackageRoute(method string) codeartifactRoute {
 	switch method {
 	case http.MethodGet:
-		return codeartifactRoute{operation: "DescribePackage"}
+		return codeartifactRoute{operation: opDescribePackage}
 	case http.MethodDelete:
-		return codeartifactRoute{operation: "DeletePackage"}
+		return codeartifactRoute{operation: opDeletePackage}
 	}
 
-	return codeartifactRoute{operation: "Unknown"}
+	return codeartifactRoute{operation: opUnknown}
 }
 
 // ExtractOperation extracts the CodeArtifact operation name from the REST path.
@@ -292,15 +344,15 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 // ExtractResource extracts the primary resource identifier from the URL path or query params.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	q := c.Request().URL.Query()
-	if domain := q.Get("domain"); domain != "" {
-		if repo := q.Get("repository"); repo != "" {
+	if domain := q.Get(keyDomain); domain != "" {
+		if repo := q.Get(keyRepository); repo != "" {
 			return domain + "/" + repo
 		}
 
 		return domain
 	}
 
-	return q.Get("resourceArn")
+	return q.Get(keyResourceArn)
 }
 
 // Handler returns the Echo handler function for CodeArtifact requests.
@@ -343,143 +395,143 @@ func (h *Handler) buildOps() map[string]func(*echo.Context, []byte) error {
 
 func (h *Handler) buildDomainRepoOps() map[string]func(*echo.Context, []byte) error {
 	return map[string]func(*echo.Context, []byte) error{
-		"CreateDomain": func(c *echo.Context, body []byte) error {
-			return h.handleCreateDomain(c, c.Request().URL.Query().Get("domain"), body)
+		opCreateDomain: func(c *echo.Context, body []byte) error {
+			return h.handleCreateDomain(c, c.Request().URL.Query().Get(keyDomain), body)
 		},
-		"DescribeDomain": func(c *echo.Context, _ []byte) error {
-			return h.handleDescribeDomain(c, c.Request().URL.Query().Get("domain"))
+		opDescribeDomain: func(c *echo.Context, _ []byte) error {
+			return h.handleDescribeDomain(c, c.Request().URL.Query().Get(keyDomain))
 		},
-		"DeleteDomain": func(c *echo.Context, _ []byte) error {
-			return h.handleDeleteDomain(c, c.Request().URL.Query().Get("domain"))
+		opDeleteDomain: func(c *echo.Context, _ []byte) error {
+			return h.handleDeleteDomain(c, c.Request().URL.Query().Get(keyDomain))
 		},
-		"ListDomains": func(c *echo.Context, _ []byte) error {
+		opListDomains: func(c *echo.Context, _ []byte) error {
 			return h.handleListDomains(c)
 		},
-		"CreateRepository": func(c *echo.Context, body []byte) error {
+		opCreateRepository: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleCreateRepository(c, q.Get("domain"), q.Get("repository"), body)
+			return h.handleCreateRepository(c, q.Get(keyDomain), q.Get(keyRepository), body)
 		},
-		"DescribeRepository": func(c *echo.Context, _ []byte) error {
+		opDescribeRepository: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleDescribeRepository(c, q.Get("domain"), q.Get("repository"))
+			return h.handleDescribeRepository(c, q.Get(keyDomain), q.Get(keyRepository))
 		},
-		"DeleteRepository": func(c *echo.Context, _ []byte) error {
+		opDeleteRepository: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleDeleteRepository(c, q.Get("domain"), q.Get("repository"))
+			return h.handleDeleteRepository(c, q.Get(keyDomain), q.Get(keyRepository))
 		},
-		"ListRepositoriesInDomain": func(c *echo.Context, _ []byte) error {
-			return h.handleListRepositoriesInDomain(c, c.Request().URL.Query().Get("domain"))
+		opListRepositoriesInDomain: func(c *echo.Context, _ []byte) error {
+			return h.handleListRepositoriesInDomain(c, c.Request().URL.Query().Get(keyDomain))
 		},
-		"ListRepositories": func(c *echo.Context, _ []byte) error {
+		opListRepositories: func(c *echo.Context, _ []byte) error {
 			return h.handleListRepositories(c)
 		},
-		"GetRepositoryEndpoint": func(c *echo.Context, _ []byte) error {
+		opGetRepositoryEndpoint: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleGetRepositoryEndpoint(c, q.Get("domain"), q.Get("repository"), q.Get("format"))
+			return h.handleGetRepositoryEndpoint(c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"))
 		},
-		"GetAuthorizationToken": func(c *echo.Context, _ []byte) error {
-			return h.handleGetAuthorizationToken(c, c.Request().URL.Query().Get("domain"))
+		opGetAuthorizationToken: func(c *echo.Context, _ []byte) error {
+			return h.handleGetAuthorizationToken(c, c.Request().URL.Query().Get(keyDomain))
 		},
-		"ListTagsForResource": func(c *echo.Context, _ []byte) error {
-			return h.handleListTagsForResource(c, c.Request().URL.Query().Get("resourceArn"))
+		opListTagsForResource: func(c *echo.Context, _ []byte) error {
+			return h.handleListTagsForResource(c, c.Request().URL.Query().Get(keyResourceArn))
 		},
-		"TagResource": func(c *echo.Context, body []byte) error {
-			return h.handleTagResource(c, c.Request().URL.Query().Get("resourceArn"), body)
+		opTagResource: func(c *echo.Context, body []byte) error {
+			return h.handleTagResource(c, c.Request().URL.Query().Get(keyResourceArn), body)
 		},
-		"UntagResource": func(c *echo.Context, body []byte) error {
-			return h.handleUntagResource(c, c.Request().URL.Query().Get("resourceArn"), body)
+		opUntagResource: func(c *echo.Context, body []byte) error {
+			return h.handleUntagResource(c, c.Request().URL.Query().Get(keyResourceArn), body)
 		},
-		"GetDomainPermissionsPolicy": func(c *echo.Context, _ []byte) error {
-			return h.handleGetDomainPermissionsPolicy(c, c.Request().URL.Query().Get("domain"))
+		opGetDomainPermissionsPolicy: func(c *echo.Context, _ []byte) error {
+			return h.handleGetDomainPermissionsPolicy(c, c.Request().URL.Query().Get(keyDomain))
 		},
-		"PutDomainPermissionsPolicy": func(c *echo.Context, body []byte) error {
-			return h.handlePutDomainPermissionsPolicy(c, c.Request().URL.Query().Get("domain"), body)
+		opPutDomainPermissionsPolicy: func(c *echo.Context, body []byte) error {
+			return h.handlePutDomainPermissionsPolicy(c, c.Request().URL.Query().Get(keyDomain), body)
 		},
-		"DeleteDomainPermissionsPolicy": func(c *echo.Context, _ []byte) error {
-			return h.handleDeleteDomainPermissionsPolicy(c, c.Request().URL.Query().Get("domain"))
+		opDeleteDomainPermissionsPolicy: func(c *echo.Context, _ []byte) error {
+			return h.handleDeleteDomainPermissionsPolicy(c, c.Request().URL.Query().Get(keyDomain))
 		},
-		"AssociateExternalConnection": func(c *echo.Context, _ []byte) error {
+		opAssociateExternalConnection: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
 			return h.handleAssociateExternalConnection(
 				c,
-				q.Get("domain"),
-				q.Get("repository"),
+				q.Get(keyDomain),
+				q.Get(keyRepository),
 				q.Get("externalConnection"),
 			)
 		},
-		"GetRepositoryPermissionsPolicy": func(c *echo.Context, _ []byte) error {
+		opGetRepositoryPermissionsPolicy: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleGetRepositoryPermissionsPolicy(c, q.Get("domain"), q.Get("repository"))
+			return h.handleGetRepositoryPermissionsPolicy(c, q.Get(keyDomain), q.Get(keyRepository))
 		},
-		"PutRepositoryPermissionsPolicy": func(c *echo.Context, body []byte) error {
+		opPutRepositoryPermissionsPolicy: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handlePutRepositoryPermissionsPolicy(c, q.Get("domain"), q.Get("repository"), body)
+			return h.handlePutRepositoryPermissionsPolicy(c, q.Get(keyDomain), q.Get(keyRepository), body)
 		},
-		"DeleteRepositoryPermissionsPolicy": func(c *echo.Context, _ []byte) error {
+		opDeleteRepositoryPermissionsPolicy: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleDeleteRepositoryPermissionsPolicy(c, q.Get("domain"), q.Get("repository"))
+			return h.handleDeleteRepositoryPermissionsPolicy(c, q.Get(keyDomain), q.Get(keyRepository))
 		},
 	}
 }
 
 func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error {
 	return map[string]func(*echo.Context, []byte) error{
-		"CopyPackageVersions": func(c *echo.Context, body []byte) error {
+		opCopyPackageVersions: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
 
 			return h.handleCopyPackageVersions(
-				c, q.Get("domain"), q.Get("sourceRepository"), q.Get("destinationRepository"),
+				c, q.Get(keyDomain), q.Get("sourceRepository"), q.Get("destinationRepository"),
 				q.Get("format"), q.Get("namespace"), q.Get("package"), body,
 			)
 		},
-		"CreatePackageGroup": func(c *echo.Context, body []byte) error {
-			return h.handleCreatePackageGroup(c, c.Request().URL.Query().Get("domain"), body)
+		opCreatePackageGroup: func(c *echo.Context, body []byte) error {
+			return h.handleCreatePackageGroup(c, c.Request().URL.Query().Get(keyDomain), body)
 		},
-		"DeletePackage": func(c *echo.Context, _ []byte) error {
+		opDeletePackage: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
 			return h.handleDeletePackage(
-				c, q.Get("domain"), q.Get("repository"), q.Get("format"), q.Get("namespace"), q.Get("package"),
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"), q.Get("namespace"), q.Get("package"),
 			)
 		},
-		"DeletePackageGroup": func(c *echo.Context, _ []byte) error {
+		opDeletePackageGroup: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleDeletePackageGroup(c, q.Get("domain"), q.Get("packageGroup"))
+			return h.handleDeletePackageGroup(c, q.Get(keyDomain), q.Get(keyPackageGroup))
 		},
-		"DeletePackageVersions": func(c *echo.Context, body []byte) error {
+		opDeletePackageVersions: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
 
 			return h.handleDeletePackageVersions(
-				c, q.Get("domain"), q.Get("repository"), q.Get("format"), q.Get("namespace"), q.Get("package"), body,
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"), q.Get("namespace"), q.Get("package"), body,
 			)
 		},
-		"DescribePackage": func(c *echo.Context, _ []byte) error {
+		opDescribePackage: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
 			return h.handleDescribePackage(
-				c, q.Get("domain"), q.Get("repository"), q.Get("format"), q.Get("namespace"), q.Get("package"),
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"), q.Get("namespace"), q.Get("package"),
 			)
 		},
-		"DescribePackageGroup": func(c *echo.Context, _ []byte) error {
+		opDescribePackageGroup: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleDescribePackageGroup(c, q.Get("domain"), q.Get("packageGroup"))
+			return h.handleDescribePackageGroup(c, q.Get(keyDomain), q.Get(keyPackageGroup))
 		},
-		"DescribePackageVersion": func(c *echo.Context, _ []byte) error {
+		opDescribePackageVersion: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
 			return h.handleDescribePackageVersion(
-				c, q.Get("domain"), q.Get("repository"), q.Get("format"),
-				q.Get("namespace"), q.Get("package"), q.Get("version"),
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
+				q.Get("namespace"), q.Get("package"), q.Get(keyVersion),
 			)
 		},
 	}
@@ -532,10 +584,10 @@ func tagsFromSlice(raw []map[string]any) map[string]string {
 
 func domainToMap(d *Domain, repoCount int) map[string]any {
 	m := map[string]any{
-		"arn":             d.ARN,
-		"name":            d.Name,
+		keyArn:            d.ARN,
+		keyName:           d.Name,
 		"owner":           d.Owner,
-		"status":          d.Status,
+		keyStatusField:    d.Status,
 		"createdTime":     epochSeconds(d.CreatedTime),
 		"assetSizeBytes":  d.AssetSizeBytes,
 		"repositoryCount": repoCount,
@@ -552,11 +604,11 @@ func domainToMap(d *Domain, repoCount int) map[string]any {
 
 func domainSummaryToMap(d *Domain) map[string]any {
 	m := map[string]any{
-		"arn":         d.ARN,
-		"name":        d.Name,
-		"owner":       d.Owner,
-		"status":      d.Status,
-		"createdTime": epochSeconds(d.CreatedTime),
+		keyArn:         d.ARN,
+		keyName:        d.Name,
+		"owner":        d.Owner,
+		keyStatusField: d.Status,
+		"createdTime":  epochSeconds(d.CreatedTime),
 	}
 	if d.EncryptionKey != "" {
 		m["encryptionKey"] = d.EncryptionKey
@@ -583,7 +635,7 @@ func (h *Handler) handleCreateDomain(c *echo.Context, name string, body []byte) 
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"domain": domainToMap(d, 0),
+		keyDomain: domainToMap(d, 0),
 	})
 }
 
@@ -600,7 +652,7 @@ func (h *Handler) handleDescribeDomain(c *echo.Context, name string) error {
 	repoCount := h.Backend.CountRepositoriesInDomain(name)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"domain": domainToMap(d, repoCount),
+		keyDomain: domainToMap(d, repoCount),
 	})
 }
 
@@ -630,7 +682,7 @@ func (h *Handler) handleDeleteDomain(c *echo.Context, name string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"domain": domainToMap(d, repoCount),
+		keyDomain: domainToMap(d, repoCount),
 	})
 }
 
@@ -643,10 +695,10 @@ type createRepositoryBody struct {
 
 func repoToMap(r *Repository, connections []ExternalConnection) map[string]any {
 	m := map[string]any{
-		"arn":                  r.ARN,
-		"name":                 r.Name,
-		"domainName":           r.DomainName,
-		"domainOwner":          r.DomainOwner,
+		keyArn:                 r.ARN,
+		keyName:                r.Name,
+		keyDomainName:          r.DomainName,
+		keyDomainOwner:         r.DomainOwner,
 		"administratorAccount": r.AdministratorAccount,
 	}
 	if r.Description != "" {
@@ -658,7 +710,7 @@ func repoToMap(r *Repository, connections []ExternalConnection) map[string]any {
 		extConns = append(extConns, map[string]any{
 			"externalConnectionName": ec.ExternalConnectionName,
 			"packageFormat":          ec.PackageFormat,
-			"status":                 ec.Status,
+			keyStatusField:           ec.Status,
 		})
 	}
 	m["externalConnections"] = extConns
@@ -687,7 +739,7 @@ func (h *Handler) handleCreateRepository(c *echo.Context, domainName, repoName s
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"repository": repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
+		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
 	})
 }
 
@@ -705,7 +757,7 @@ func (h *Handler) handleDescribeRepository(c *echo.Context, domainName, repoName
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"repository": repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
+		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
 	})
 }
 
@@ -725,7 +777,7 @@ func (h *Handler) handleDeleteRepository(c *echo.Context, domainName, repoName s
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"repository": repoToMap(r, conns),
+		keyRepository: repoToMap(r, conns),
 	})
 }
 
@@ -743,10 +795,10 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 
 	for _, r := range repos {
 		items = append(items, map[string]any{
-			"arn":         r.ARN,
-			"name":        r.Name,
-			"domainName":  r.DomainName,
-			"domainOwner": r.DomainOwner,
+			keyArn:         r.ARN,
+			keyName:        r.Name,
+			keyDomainName:  r.DomainName,
+			keyDomainOwner: r.DomainOwner,
 		})
 	}
 
@@ -761,10 +813,10 @@ func (h *Handler) handleListRepositories(c *echo.Context) error {
 
 	for _, r := range repos {
 		items = append(items, map[string]any{
-			"arn":         r.ARN,
-			"name":        r.Name,
-			"domainName":  r.DomainName,
-			"domainOwner": r.DomainOwner,
+			keyArn:         r.ARN,
+			keyName:        r.Name,
+			keyDomainName:  r.DomainName,
+			keyDomainOwner: r.DomainOwner,
 		})
 	}
 
@@ -896,10 +948,10 @@ func (h *Handler) handleGetDomainPermissionsPolicy(c *echo.Context, domainName s
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policy": map[string]any{
-			"document":    pol.Document,
-			"revision":    pol.Revision,
-			"resourceArn": pol.ResourceARN,
+		keyPolicy: map[string]any{
+			keyDocument:    pol.Document,
+			keyRevision:    pol.Revision,
+			keyResourceArn: pol.ResourceARN,
 		},
 	})
 }
@@ -930,10 +982,10 @@ func (h *Handler) handlePutDomainPermissionsPolicy(c *echo.Context, domainName s
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policy": map[string]any{
-			"document":    pol.Document,
-			"revision":    pol.Revision,
-			"resourceArn": pol.ResourceARN,
+		keyPolicy: map[string]any{
+			keyDocument:    pol.Document,
+			keyRevision:    pol.Revision,
+			keyResourceArn: pol.ResourceARN,
 		},
 	})
 }
@@ -949,10 +1001,10 @@ func (h *Handler) handleDeleteDomainPermissionsPolicy(c *echo.Context, domainNam
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policy": map[string]any{
-			"document":    pol.Document,
-			"revision":    pol.Revision,
-			"resourceArn": pol.ResourceARN,
+		keyPolicy: map[string]any{
+			keyDocument:    pol.Document,
+			keyRevision:    pol.Revision,
+			keyResourceArn: pol.ResourceARN,
 		},
 	})
 }
@@ -968,10 +1020,10 @@ type createPackageGroupBody struct {
 
 func packageGroupToMap(pg *PackageGroup) map[string]any {
 	m := map[string]any{
-		"arn":         pg.ARN,
-		"domainName":  pg.DomainName,
-		"domainOwner": pg.DomainOwner,
-		"pattern":     pg.Pattern,
+		keyArn:         pg.ARN,
+		keyDomainName:  pg.DomainName,
+		keyDomainOwner: pg.DomainOwner,
+		"pattern":      pg.Pattern,
 	}
 	if pg.Description != "" {
 		m["description"] = pg.Description
@@ -1006,7 +1058,7 @@ func (h *Handler) handleCreatePackageGroup(c *echo.Context, domainName string, b
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"packageGroup": packageGroupToMap(pg),
+		keyPackageGroup: packageGroupToMap(pg),
 	})
 }
 
@@ -1024,7 +1076,7 @@ func (h *Handler) handleDescribePackageGroup(c *echo.Context, domainName, patter
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"packageGroup": packageGroupToMap(pg),
+		keyPackageGroup: packageGroupToMap(pg),
 	})
 }
 
@@ -1042,7 +1094,7 @@ func (h *Handler) handleDeletePackageGroup(c *echo.Context, domainName, pattern 
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"packageGroup": packageGroupToMap(pg),
+		keyPackageGroup: packageGroupToMap(pg),
 	})
 }
 
@@ -1050,11 +1102,11 @@ func (h *Handler) handleDeletePackageGroup(c *echo.Context, domainName, pattern 
 
 func packageToMap(pkg *Package) map[string]any {
 	m := map[string]any{
-		"format":      pkg.Format,
-		"name":        pkg.Name,
-		"domainName":  pkg.DomainName,
-		"domainOwner": pkg.DomainOwner,
-		"repository":  pkg.Repository,
+		"format":       pkg.Format,
+		keyName:        pkg.Name,
+		keyDomainName:  pkg.DomainName,
+		keyDomainOwner: pkg.DomainOwner,
+		keyRepository:  pkg.Repository,
 	}
 	if pkg.Namespace != "" {
 		m["namespace"] = pkg.Namespace
@@ -1115,11 +1167,11 @@ func (h *Handler) handleDeletePackage(c *echo.Context, domainName, repoName, for
 
 func packageVersionToMap(pv *PackageVersion) map[string]any {
 	m := map[string]any{
-		"version":     pv.Version,
-		"status":      pv.Status,
-		"format":      pv.Format,
-		"publishedAt": epochSeconds(pv.PublishedAt),
-		"revision":    pv.Revision,
+		keyVersion:     pv.Version,
+		keyStatusField: pv.Status,
+		"format":       pv.Format,
+		"publishedAt":  epochSeconds(pv.PublishedAt),
+		keyRevision:    pv.Revision,
 	}
 	if pv.Namespace != "" {
 		m["namespace"] = pv.Namespace
@@ -1194,13 +1246,13 @@ func (h *Handler) handleDeletePackageVersions(
 
 	failedList := make([]map[string]string, 0, len(failed))
 	for v, code := range failed {
-		failedList = append(failedList, map[string]string{"version": v, "errorCode": code})
+		failedList = append(failedList, map[string]string{keyVersion: v, "errorCode": code})
 	}
 
 	successList := make([]map[string]string, 0)
 	for _, v := range in.Versions {
 		if _, ok := failed[v]; !ok {
-			successList = append(successList, map[string]string{"version": v, "status": "Deleted"})
+			successList = append(successList, map[string]string{keyVersion: v, keyStatusField: "Deleted"})
 		}
 	}
 
@@ -1249,13 +1301,13 @@ func (h *Handler) handleCopyPackageVersions(
 
 	failedList := make([]map[string]string, 0, len(failed))
 	for v, code := range failed {
-		failedList = append(failedList, map[string]string{"version": v, "errorCode": code})
+		failedList = append(failedList, map[string]string{keyVersion: v, "errorCode": code})
 	}
 
 	successList := make([]map[string]string, 0)
 	for _, v := range in.Versions {
 		if _, ok := failed[v]; !ok {
-			successList = append(successList, map[string]string{"version": v, "status": "Copied"})
+			successList = append(successList, map[string]string{keyVersion: v, keyStatusField: "Copied"})
 		}
 	}
 
@@ -1287,7 +1339,7 @@ func (h *Handler) handleAssociateExternalConnection(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"repository": repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
+		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
 	})
 }
 
@@ -1307,10 +1359,10 @@ func (h *Handler) handleGetRepositoryPermissionsPolicy(c *echo.Context, domainNa
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policy": map[string]any{
-			"document":    pol.Document,
-			"revision":    pol.Revision,
-			"resourceArn": pol.ResourceARN,
+		keyPolicy: map[string]any{
+			keyDocument:    pol.Document,
+			keyRevision:    pol.Revision,
+			keyResourceArn: pol.ResourceARN,
 		},
 	})
 }
@@ -1348,10 +1400,10 @@ func (h *Handler) handlePutRepositoryPermissionsPolicy(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policy": map[string]any{
-			"document":    pol.Document,
-			"revision":    pol.Revision,
-			"resourceArn": pol.ResourceARN,
+		keyPolicy: map[string]any{
+			keyDocument:    pol.Document,
+			keyRevision:    pol.Revision,
+			keyResourceArn: pol.ResourceARN,
 		},
 	})
 }
@@ -1370,10 +1422,10 @@ func (h *Handler) handleDeleteRepositoryPermissionsPolicy(c *echo.Context, domai
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policy": map[string]any{
-			"document":    pol.Document,
-			"revision":    pol.Revision,
-			"resourceArn": pol.ResourceARN,
+		keyPolicy: map[string]any{
+			keyDocument:    pol.Document,
+			keyRevision:    pol.Revision,
+			keyResourceArn: pol.ResourceARN,
 		},
 	})
 }

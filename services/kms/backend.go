@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -59,6 +60,9 @@ var (
 )
 
 const (
+	algoRSAESOAEPSHA1 = "RSAES_OAEP_SHA_1"
+	algoECDH          = "ECDH"
+
 	// keySpecRSA3072 is the key spec for RSA-3072 asymmetric keys.
 	keySpecRSA3072 = "RSA_3072"
 	// keySpecRSA4096 is the key spec for RSA-4096 asymmetric keys.
@@ -557,7 +561,7 @@ func (b *InMemoryBackend) ListKeys(input *ListKeysInput) (*ListKeysOutput, error
 }
 
 // encryptionAlgorithmForSpec returns the EncryptionAlgorithm string for a given key spec.
-// Returns "RSAES_OAEP_SHA_256" for RSA keys and "SYMMETRIC_DEFAULT" for symmetric keys.
+// Returns encryptionAlgorithmRSAOAEP for RSA keys and "SYMMETRIC_DEFAULT" for symmetric keys.
 func encryptionAlgorithmForSpec(keySpec string) string {
 	switch keySpec {
 	case keySpecRSA2048, keySpecRSA3072, keySpecRSA4096:
@@ -719,8 +723,8 @@ func (b *InMemoryBackend) decryptPayload(
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) decryptWithHistory(blob []byte, encCtx map[string]string, keyID string) ([]byte, error) {
 	history := b.keyMaterialHistory[keyID]
-	for i := len(history) - 1; i >= 0; i-- {
-		plaintext, _, err := decryptData(blob, encCtx, history[i])
+	for _, v := range slices.Backward(history) {
+		plaintext, _, err := decryptData(blob, encCtx, v)
 		if err == nil {
 			return plaintext, nil
 		}
@@ -1036,7 +1040,7 @@ func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyO
 	case KeyUsageKeyAgreement:
 		out.KeyAgreementAlgorithms = keyAgreementAlgorithms(key.KeyUsage)
 	case KeyUsageEncryptDecrypt:
-		out.EncryptionAlgorithms = []string{"RSAES_OAEP_SHA_1", "RSAES_OAEP_SHA_256"}
+		out.EncryptionAlgorithms = []string{algoRSAESOAEPSHA1, encryptionAlgorithmRSAOAEP}
 	}
 
 	return out, nil
@@ -1390,9 +1394,9 @@ func (b *InMemoryBackend) populateNextRotationDate(key *Key, out *GetKeyRotation
 // falling back to legacy slices and finally the key creation date.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) lastScheduledRotationDate(key *Key) float64 {
-	for i := len(key.Rotations) - 1; i >= 0; i-- {
-		if key.Rotations[i].RotationType == rotationTypeAWSKMS {
-			return key.Rotations[i].Date
+	for _, v := range slices.Backward(key.Rotations) {
+		if v.RotationType == rotationTypeAWSKMS {
+			return v.Date
 		}
 	}
 
@@ -1407,9 +1411,9 @@ func (b *InMemoryBackend) lastScheduledRotationDate(key *Key) float64 {
 // falling back to the legacy OnDemandRotationDates slice.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) lastOnDemandRotationDate(key *Key) float64 {
-	for i := len(key.Rotations) - 1; i >= 0; i-- {
-		if key.Rotations[i].RotationType == rotationTypeImported {
-			return key.Rotations[i].Date
+	for _, v := range slices.Backward(key.Rotations) {
+		if v.RotationType == rotationTypeImported {
+			return v.Date
 		}
 	}
 
@@ -1670,7 +1674,7 @@ func applyAlgorithmFields(k *Key, meta *KeyMetadata) {
 	switch k.KeyUsage {
 	case KeyUsageEncryptDecrypt:
 		if k.KeySpec == keySpecRSA2048 || k.KeySpec == keySpecRSA3072 || k.KeySpec == keySpecRSA4096 {
-			meta.EncryptionAlgorithms = []string{"RSAES_OAEP_SHA_1", "RSAES_OAEP_SHA_256"}
+			meta.EncryptionAlgorithms = []string{algoRSAESOAEPSHA1, encryptionAlgorithmRSAOAEP}
 		} else {
 			meta.EncryptionAlgorithms = []string{"SYMMETRIC_DEFAULT"}
 		}
@@ -1679,7 +1683,7 @@ func applyAlgorithmFields(k *Key, meta *KeyMetadata) {
 	case KeyUsageGenerateMac:
 		meta.MacAlgorithms = defaultMacAlgorithms(k.KeySpec)
 	case KeyUsageKeyAgreement:
-		meta.KeyAgreementAlgorithms = []string{"ECDH"}
+		meta.KeyAgreementAlgorithms = []string{algoECDH}
 	}
 }
 
@@ -2041,7 +2045,7 @@ func (b *InMemoryBackend) GetParametersForImport(
 	validWrappingAlgorithms := map[string]struct{}{
 		"RSAES_PKCS1_V1_5":         {},
 		"RSAES_OAEP_SHA_1":         {},
-		"RSAES_OAEP_SHA_256":       {},
+		encryptionAlgorithmRSAOAEP: {},
 		"RSA_AES_KEY_WRAP_SHA_1":   {},
 		"RSA_AES_KEY_WRAP_SHA_256": {},
 	}
@@ -2639,7 +2643,7 @@ func (b *InMemoryBackend) UpdateCustomKeyStore(input *UpdateCustomKeyStoreInput)
 func (b *InMemoryBackend) DeriveSharedSecret(
 	input *DeriveSharedSecretInput,
 ) (*DeriveSharedSecretOutput, error) {
-	if input.KeyAgreementAlgorithm != "" && input.KeyAgreementAlgorithm != "ECDH" {
+	if input.KeyAgreementAlgorithm != "" && input.KeyAgreementAlgorithm != algoECDH {
 		return nil, fmt.Errorf(
 			"%w: KeyAgreementAlgorithm must be ECDH, got %q",
 			ErrValidation, input.KeyAgreementAlgorithm,
@@ -2681,7 +2685,7 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 
 	algo := input.KeyAgreementAlgorithm
 	if algo == "" {
-		algo = "ECDH"
+		algo = algoECDH
 	}
 
 	return &DeriveSharedSecretOutput{

@@ -15,6 +15,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+const (
+	keyRepositoryID   = "repositoryId"
+	keyRepositoryName = "repositoryName"
+	keyCreationDate   = "creationDate"
+	keyErrors         = "errors"
+)
+
 const codecommitTargetPrefix = "CodeCommit_20150413."
 
 var (
@@ -245,13 +252,13 @@ type listTagsForResourceInput struct {
 
 func repoMetadata(r *Repository) map[string]any {
 	m := map[string]any{
-		"repositoryId":     r.RepositoryID,
-		"repositoryName":   r.RepositoryName,
+		keyRepositoryID:    r.RepositoryID,
+		keyRepositoryName:  r.RepositoryName,
 		"Arn":              r.ARN,
 		"accountId":        r.AccountID,
 		"cloneUrlHttp":     r.CloneURLHTTP,
 		"cloneUrlSsh":      r.CloneURLSSH,
-		"creationDate":     r.CreationDate.Unix(),
+		keyCreationDate:    r.CreationDate.Unix(),
 		"lastModifiedDate": r.LastModifiedDate.Unix(),
 	}
 	if r.Description != "" {
@@ -311,7 +318,7 @@ func (h *Handler) handleDeleteRepository(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"repositoryId": r.RepositoryID,
+		keyRepositoryID: r.RepositoryID,
 	}, nil
 }
 
@@ -321,8 +328,8 @@ func (h *Handler) handleListRepositories(_ []byte) (any, error) {
 
 	for _, r := range repos {
 		items = append(items, map[string]any{
-			"repositoryId":   r.RepositoryID,
-			"repositoryName": r.RepositoryName,
+			keyRepositoryID:   r.RepositoryID,
+			keyRepositoryName: r.RepositoryName,
 		})
 	}
 
@@ -461,7 +468,7 @@ func approvalRuleTemplateToMap(t *ApprovalRuleTemplate) map[string]any {
 		"approvalRuleTemplateArn":         t.ApprovalRuleTemplateARN,
 		"approvalRuleTemplateContent":     t.ApprovalRuleTemplateContent,
 		"approvalRuleTemplateDescription": t.ApprovalRuleTemplateDescription,
-		"creationDate":                    t.CreationDate.Unix(),
+		keyCreationDate:                   t.CreationDate.Unix(),
 		"lastModifiedDate":                t.LastModifiedDate.Unix(),
 		"ruleContentSha256":               t.RuleContentSha256,
 	}
@@ -549,7 +556,7 @@ func (h *Handler) handleBatchAssociateApprovalRuleTemplateWithRepositories(body 
 
 	return map[string]any{
 		"associatedRepositoryNames": associated,
-		"errors":                    batchErrors,
+		keyErrors:                   batchErrors,
 	}, nil
 }
 
@@ -578,7 +585,7 @@ func (h *Handler) handleBatchDisassociateApprovalRuleTemplateFromRepositories(bo
 
 	return map[string]any{
 		"disassociatedRepositoryNames": disassociated,
-		"errors":                       batchErrors,
+		keyErrors:                      batchErrors,
 	}, nil
 }
 
@@ -641,7 +648,7 @@ func (h *Handler) handleBatchDescribeMergeConflicts(body []byte) (any, error) {
 		"conflicts":           result.Conflicts,
 		"destinationCommitId": result.DestinationCommitID,
 		"sourceCommitId":      result.SourceCommitID,
-		"errors":              errs,
+		keyErrors:             errs,
 	}, nil
 }
 
@@ -671,7 +678,7 @@ func (h *Handler) handleBatchGetCommits(body []byte) (any, error) {
 
 	return map[string]any{
 		"commits": commits,
-		"errors":  batchErrors,
+		keyErrors: batchErrors,
 	}, nil
 }
 
@@ -781,7 +788,7 @@ func pullRequestToMap(pr *PullRequest) map[string]any {
 	targets := make([]map[string]any, 0, len(pr.PullRequestTargets))
 	for _, t := range pr.PullRequestTargets {
 		targets = append(targets, map[string]any{
-			"repositoryName":       t.RepositoryName,
+			keyRepositoryName:      t.RepositoryName,
 			"sourceReference":      t.SourceReference,
 			"destinationReference": t.DestinationReference,
 			"sourceCommit":         t.SourceCommit,
@@ -796,7 +803,7 @@ func pullRequestToMap(pr *PullRequest) map[string]any {
 		"description":        pr.Description,
 		"authorArn":          pr.AuthorARN,
 		"pullRequestStatus":  pr.PullRequestStatus,
-		"creationDate":       pr.CreationDate.Unix(),
+		keyCreationDate:      pr.CreationDate.Unix(),
 		"lastActivityDate":   pr.LastActivityDate.Unix(),
 		"revisionId":         pr.RevisionID,
 		"pullRequestTargets": targets,

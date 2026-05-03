@@ -18,6 +18,35 @@ import (
 )
 
 const (
+	opCreateExperimentTemplate                  = "CreateExperimentTemplate"
+	opCreateTargetAccountConfiguration          = "CreateTargetAccountConfiguration"
+	opDeleteExperimentTemplate                  = "DeleteExperimentTemplate"
+	opDeleteTargetAccountConfiguration          = "DeleteTargetAccountConfiguration"
+	opGetAction                                 = "GetAction"
+	opGetExperiment                             = "GetExperiment"
+	opGetExperimentTargetAccountConfiguration   = "GetExperimentTargetAccountConfiguration"
+	opGetExperimentTemplate                     = "GetExperimentTemplate"
+	opGetSafetyLever                            = "GetSafetyLever"
+	opGetTargetAccountConfiguration             = "GetTargetAccountConfiguration"
+	opGetTargetResourceType                     = "GetTargetResourceType"
+	opListActions                               = "ListActions"
+	opListExperimentResolvedTargets             = "ListExperimentResolvedTargets"
+	opListExperimentTargetAccountConfigurations = "ListExperimentTargetAccountConfigurations"
+	opListExperimentTemplates                   = "ListExperimentTemplates"
+	opListExperiments                           = "ListExperiments"
+	opListTagsForResource                       = "ListTagsForResource"
+	opListTargetAccountConfigurations           = "ListTargetAccountConfigurations"
+	opListTargetResourceTypes                   = "ListTargetResourceTypes"
+	opStartExperiment                           = "StartExperiment"
+	opStopExperiment                            = "StopExperiment"
+	opTagResource                               = "TagResource"
+	opUntagResource                             = "UntagResource"
+	opUpdateExperimentTemplate                  = "UpdateExperimentTemplate"
+	opUpdateSafetyLeverState                    = "UpdateSafetyLeverState"
+	opUpdateTargetAccountConfiguration          = "UpdateTargetAccountConfiguration"
+)
+
+const (
 	// minSegmentsForID is the minimum number of path segments required for a resource ID.
 	minSegmentsForID = 2
 	// maxPathSegments limits how many segments pathSegments returns.
@@ -109,32 +138,32 @@ func (h *Handler) Name() string { return "FIS" }
 // GetSupportedOperations returns the list of supported FIS operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateExperimentTemplate",
-		"GetExperimentTemplate",
-		"UpdateExperimentTemplate",
-		"DeleteExperimentTemplate",
-		"ListExperimentTemplates",
-		"StartExperiment",
-		"GetExperiment",
-		"StopExperiment",
-		"ListExperiments",
-		"ListExperimentResolvedTargets",
-		"GetAction",
-		"ListActions",
-		"GetTargetResourceType",
-		"ListTargetResourceTypes",
-		"GetSafetyLever",
-		"UpdateSafetyLeverState",
-		"TagResource",
-		"UntagResource",
-		"ListTagsForResource",
-		"CreateTargetAccountConfiguration",
-		"DeleteTargetAccountConfiguration",
-		"GetExperimentTargetAccountConfiguration",
-		"GetTargetAccountConfiguration",
-		"ListExperimentTargetAccountConfigurations",
-		"ListTargetAccountConfigurations",
-		"UpdateTargetAccountConfiguration",
+		opCreateExperimentTemplate,
+		opGetExperimentTemplate,
+		opUpdateExperimentTemplate,
+		opDeleteExperimentTemplate,
+		opListExperimentTemplates,
+		opStartExperiment,
+		opGetExperiment,
+		opStopExperiment,
+		opListExperiments,
+		opListExperimentResolvedTargets,
+		opGetAction,
+		opListActions,
+		opGetTargetResourceType,
+		opListTargetResourceTypes,
+		opGetSafetyLever,
+		opUpdateSafetyLeverState,
+		opTagResource,
+		opUntagResource,
+		opListTagsForResource,
+		opCreateTargetAccountConfiguration,
+		opDeleteTargetAccountConfiguration,
+		opGetExperimentTargetAccountConfiguration,
+		opGetTargetAccountConfiguration,
+		opListExperimentTargetAccountConfigurations,
+		opListTargetAccountConfigurations,
+		opUpdateTargetAccountConfiguration,
 	}
 }
 
@@ -227,45 +256,45 @@ func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op, id string, 
 	}
 
 	switch op {
-	case "CreateExperimentTemplate":
+	case opCreateExperimentTemplate:
 		return h.handleCreateExperimentTemplate(ctx, c, body)
-	case "GetExperimentTemplate":
+	case opGetExperimentTemplate:
 		return h.handleGetExperimentTemplate(c, id)
-	case "UpdateExperimentTemplate":
+	case opUpdateExperimentTemplate:
 		return h.handleUpdateExperimentTemplate(c, id, body)
-	case "DeleteExperimentTemplate":
+	case opDeleteExperimentTemplate:
 		return h.handleDeleteExperimentTemplate(c, id)
-	case "ListExperimentTemplates":
+	case opListExperimentTemplates:
 		return h.handleListExperimentTemplates(c)
-	case "StartExperiment":
+	case opStartExperiment:
 		return h.handleStartExperiment(ctx, c, body)
-	case "GetExperiment":
+	case opGetExperiment:
 		return h.handleGetExperiment(c, id)
-	case "StopExperiment":
+	case opStopExperiment:
 		return h.handleStopExperiment(c, id)
-	case "ListExperiments":
+	case opListExperiments:
 		return h.handleListExperiments(c)
-	case "ListExperimentResolvedTargets":
+	case opListExperimentResolvedTargets:
 		return h.handleListExperimentResolvedTargets(c, id)
-	case "GetAction":
+	case opGetAction:
 		return h.handleGetAction(c, id)
-	case "ListActions":
+	case opListActions:
 		return h.handleListActions(c)
-	case "GetTargetResourceType":
+	case opGetTargetResourceType:
 		rt, _ := url.PathUnescape(id)
 
 		return h.handleGetTargetResourceType(c, rt)
-	case "ListTargetResourceTypes":
+	case opListTargetResourceTypes:
 		return h.handleListTargetResourceTypes(c)
-	case "TagResource":
+	case opTagResource:
 		return h.handleTagResource(c, id, body)
-	case "UntagResource":
+	case opUntagResource:
 		return h.handleUntagResource(c, id, c.Request().URL.Query())
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return h.handleListTagsForResource(c, id)
-	case "GetSafetyLever":
+	case opGetSafetyLever:
 		return h.handleGetSafetyLever(c, id)
-	case "UpdateSafetyLeverState":
+	case opUpdateSafetyLeverState:
 		return h.handleUpdateSafetyLeverState(c, id, body)
 	}
 
@@ -276,19 +305,19 @@ func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op, id string, 
 // Returns (true, err) when the operation was handled, (false, nil) otherwise.
 func (h *Handler) dispatchTargetAccountOps(c *echo.Context, op, id string, body []byte) (bool, error) {
 	switch op {
-	case "CreateTargetAccountConfiguration":
+	case opCreateTargetAccountConfiguration:
 		return true, h.handleCreateTargetAccountConfiguration(c, id, body)
-	case "DeleteTargetAccountConfiguration":
+	case opDeleteTargetAccountConfiguration:
 		return true, h.handleDeleteTargetAccountConfiguration(c, id)
-	case "GetTargetAccountConfiguration":
+	case opGetTargetAccountConfiguration:
 		return true, h.handleGetTargetAccountConfiguration(c, id)
-	case "UpdateTargetAccountConfiguration":
+	case opUpdateTargetAccountConfiguration:
 		return true, h.handleUpdateTargetAccountConfiguration(c, id, body)
-	case "ListTargetAccountConfigurations":
+	case opListTargetAccountConfigurations:
 		return true, h.handleListTargetAccountConfigurations(c, id)
-	case "GetExperimentTargetAccountConfiguration":
+	case opGetExperimentTargetAccountConfiguration:
 		return true, h.handleGetExperimentTargetAccountConfiguration(c, id)
-	case "ListExperimentTargetAccountConfigurations":
+	case opListExperimentTargetAccountConfigurations:
 		return true, h.handleListExperimentTargetAccountConfigurations(c, id)
 	}
 
@@ -755,76 +784,76 @@ func parseFISPath(method, path string) (string, string) {
 	case pathExperimentTemplates:
 		switch {
 		case method == http.MethodPost && !hasID:
-			return "CreateExperimentTemplate", ""
+			return opCreateExperimentTemplate, ""
 		case method == http.MethodGet && !hasID:
-			return "ListExperimentTemplates", ""
+			return opListExperimentTemplates, ""
 		// Must check 4-segment paths before 3-segment paths and generic 2-segment paths.
 		case len(segs) >= 4 && segs[2] == pathTargetAccountConfigurations:
 			// /experimentTemplates/{tplId}/targetAccountConfigurations/{accountId}
 			compositeID := segs[1] + "/" + segs[3]
 			switch method {
 			case http.MethodPost:
-				return "CreateTargetAccountConfiguration", compositeID
+				return opCreateTargetAccountConfiguration, compositeID
 			case http.MethodGet:
-				return "GetTargetAccountConfiguration", compositeID
+				return opGetTargetAccountConfiguration, compositeID
 			case http.MethodPatch:
-				return "UpdateTargetAccountConfiguration", compositeID
+				return opUpdateTargetAccountConfiguration, compositeID
 			case http.MethodDelete:
-				return "DeleteTargetAccountConfiguration", compositeID
+				return opDeleteTargetAccountConfiguration, compositeID
 			}
 		case len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations:
 			// /experimentTemplates/{tplId}/targetAccountConfigurations
 			if method == http.MethodGet {
-				return "ListTargetAccountConfigurations", segs[1]
+				return opListTargetAccountConfigurations, segs[1]
 			}
 		case method == http.MethodGet && hasID:
-			return "GetExperimentTemplate", segs[1]
+			return opGetExperimentTemplate, segs[1]
 		case method == http.MethodPatch && hasID:
-			return "UpdateExperimentTemplate", segs[1]
+			return opUpdateExperimentTemplate, segs[1]
 		case method == http.MethodDelete && hasID:
-			return "DeleteExperimentTemplate", segs[1]
+			return opDeleteExperimentTemplate, segs[1]
 		}
 
 	case pathExperiments:
 		switch {
 		case method == http.MethodPost && !hasID:
-			return "StartExperiment", ""
+			return opStartExperiment, ""
 		case method == http.MethodGet && !hasID:
-			return "ListExperiments", ""
+			return opListExperiments, ""
 		// Must check 3+ segment paths before generic 2-segment GET.
 		case method == http.MethodGet && len(segs) >= 3 && segs[2] == subPathResolvedTargets:
-			return "ListExperimentResolvedTargets", segs[1]
+			return opListExperimentResolvedTargets, segs[1]
 		case len(segs) >= 4 && segs[2] == pathTargetAccountConfigurations:
 			// /experiments/{expId}/targetAccountConfigurations/{accountId}
 			if method == http.MethodGet {
-				return "GetExperimentTargetAccountConfiguration", segs[1] + "/" + segs[3]
+				return opGetExperimentTargetAccountConfiguration, segs[1] + "/" + segs[3]
 			}
 		case len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations:
 			// /experiments/{expId}/targetAccountConfigurations
 			if method == http.MethodGet {
-				return "ListExperimentTargetAccountConfigurations", segs[1]
+				return opListExperimentTargetAccountConfigurations, segs[1]
 			}
 		case method == http.MethodGet && hasID:
-			return "GetExperiment", segs[1]
+			return opGetExperiment, segs[1]
 		case method == http.MethodDelete && hasID:
-			return "StopExperiment", segs[1]
+			return opStopExperiment, segs[1]
 		}
 
 	case pathActions:
 		switch {
 		case method == http.MethodGet && !hasID:
-			return "ListActions", ""
+			return opListActions, ""
 		case method == http.MethodGet && hasID:
-			return "GetAction", segs[1]
+			return opGetAction, segs[1]
 		}
 
 	case pathTargetResourceTypes:
 		switch {
 		case method == http.MethodGet && !hasID:
-			return "ListTargetResourceTypes", ""
+			return opListTargetResourceTypes, ""
 		case method == http.MethodGet && hasID:
 			// Resource type may be URL-encoded (e.g. aws%3Aec2%3Ainstance); the caller decodes.
-			return "GetTargetResourceType", segs[1]
+			return opGetTargetResourceType, segs[1]
 		}
 
 	case pathTags:
@@ -832,11 +861,11 @@ func parseFISPath(method, path string) (string, string) {
 			arnStr := strings.Join(segs[1:], "/")
 			switch method {
 			case http.MethodGet:
-				return "ListTagsForResource", arnStr
+				return opListTagsForResource, arnStr
 			case http.MethodPost:
-				return "TagResource", arnStr
+				return opTagResource, arnStr
 			case http.MethodDelete:
-				return "UntagResource", arnStr
+				return opUntagResource, arnStr
 			}
 		}
 
@@ -844,9 +873,9 @@ func parseFISPath(method, path string) (string, string) {
 		if hasID {
 			switch method {
 			case http.MethodGet:
-				return "GetSafetyLever", segs[1]
+				return opGetSafetyLever, segs[1]
 			case http.MethodPatch:
-				return "UpdateSafetyLeverState", segs[1]
+				return opUpdateSafetyLeverState, segs[1]
 			}
 		}
 	}

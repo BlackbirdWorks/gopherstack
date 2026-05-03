@@ -34,6 +34,8 @@ var (
 )
 
 const (
+	lockStateInProgress = "InProgress"
+
 	// archiveIDLength is the length of the random archive ID suffix.
 	archiveIDLength = 60
 	// jobIDLength is the length of the random job ID.
@@ -947,7 +949,7 @@ func (b *InMemoryBackend) SetVaultLock(accountID, region, vaultName, policy, loc
 	}
 
 	if existing, ok := b.vaultLocks[key]; ok {
-		if existing.State == "InProgress" {
+		if existing.State == lockStateInProgress {
 			return ErrLockConflict
 		}
 
@@ -960,7 +962,7 @@ func (b *InMemoryBackend) SetVaultLock(accountID, region, vaultName, policy, loc
 	b.vaultLocks[key] = &VaultLock{
 		Policy:         policy,
 		LockID:         lockID,
-		State:          "InProgress",
+		State:          lockStateInProgress,
 		CreationDate:   formatDate(now),
 		ExpirationDate: formatDate(now.Add(vaultLockExpirationHours * time.Hour)),
 	}
@@ -1093,7 +1095,7 @@ func (b *InMemoryBackend) CompleteVaultLock(accountID, region, vaultName, lockID
 	}
 
 	lock, ok := b.vaultLocks[key]
-	if !ok || lock.State != "InProgress" {
+	if !ok || lock.State != lockStateInProgress {
 		return ErrValidation
 	}
 

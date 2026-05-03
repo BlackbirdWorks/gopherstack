@@ -17,6 +17,10 @@ import (
 )
 
 const (
+	attrEmail = "email"
+)
+
+const (
 	// bcryptCost is the bcrypt cost used for password hashing.
 	bcryptCost = 10
 
@@ -1569,7 +1573,7 @@ func (b *InMemoryBackend) VerifyUserAttribute(accessToken, attributeName, _ stri
 
 	// Attribute name validation: must be a known verifiable attribute.
 	switch attributeName {
-	case "email", "phone_number":
+	case attrEmail, "phone_number":
 		// valid
 	default:
 		return fmt.Errorf("%w: attribute %q is not verifiable", ErrInvalidUserPoolConfig, attributeName)

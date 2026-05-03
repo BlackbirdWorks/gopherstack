@@ -9,6 +9,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	pgFamilyDefaultNeptune13 = "default.neptune1.3"
+	snapshotSourceManual     = "manual"
+)
+
 var (
 	ErrClusterNotFound                    = errors.New("DBClusterNotFound")
 	ErrClusterAlreadyExists               = errors.New("DBClusterAlreadyExists")
@@ -245,7 +250,7 @@ func (b *InMemoryBackend) CreateDBCluster(id, paramGroupName string, port int) (
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
 	if paramGroupName == "" {
-		paramGroupName = "default.neptune1.3"
+		paramGroupName = pgFamilyDefaultNeptune13
 	}
 	if port <= 0 {
 		port = defaultNeptunePort
@@ -411,7 +416,7 @@ func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string) 
 		DBInstanceClass:            instanceClass,
 		Engine:                     neptuneEngine,
 		EngineVersion:              engineVersion,
-		DBInstanceStatus:           "available",
+		DBInstanceStatus:           clusterStatusAvailable,
 		Endpoint:                   endpoint,
 		Port:                       defaultNeptunePort,
 		AutoMinorVersionUpgrade:    true,
@@ -674,9 +679,9 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 		DBClusterIdentifier:         clusterID,
 		Engine:                      neptuneEngine,
 		EngineVersion:               cl.EngineVersion,
-		Status:                      "available",
+		Status:                      clusterStatusAvailable,
 		StorageEncrypted:            cl.StorageEncrypted,
-		SnapshotType:                "manual",
+		SnapshotType:                snapshotSourceManual,
 	}
 	b.clusterSnapshots[snapshotID] = snap
 	cp := *snap
@@ -900,9 +905,9 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshot
 		DBClusterIdentifier:         src.DBClusterIdentifier,
 		Engine:                      src.Engine,
 		EngineVersion:               src.EngineVersion,
-		Status:                      "available",
+		Status:                      clusterStatusAvailable,
 		StorageEncrypted:            src.StorageEncrypted,
-		SnapshotType:                "manual",
+		SnapshotType:                snapshotSourceManual,
 	}
 	b.clusterSnapshots[targetSnapshotID] = snap
 	cp := *snap
@@ -975,7 +980,7 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 		DBClusterEndpointIdentifier: endpointID,
 		DBClusterIdentifier:         clusterID,
 		EndpointType:                endpointType,
-		Status:                      "available",
+		Status:                      clusterStatusAvailable,
 		Endpoint:                    fmt.Sprintf("%s.cluster-custom.neptune.%s.amazonaws.com", endpointID, b.region),
 	}
 	b.clusterEndpoints[endpointID] = ep
@@ -1049,7 +1054,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(globalClusterID, sourceDBClusterID
 	}
 	gc := &GlobalCluster{
 		GlobalClusterIdentifier: globalClusterID,
-		Status:                  "available",
+		Status:                  clusterStatusAvailable,
 	}
 	if sourceDBClusterID != "" {
 		if cl, exists := b.clusters[sourceDBClusterID]; exists {
@@ -1424,7 +1429,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(snapshotID, clusterID str
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
 	}
 	// Derive parameter group from the source cluster if available.
-	paramGroupName := "default.neptune1.3"
+	paramGroupName := pgFamilyDefaultNeptune13
 	if srcCluster, ok := b.clusters[snap.DBClusterIdentifier]; ok {
 		paramGroupName = srcCluster.DBClusterParameterGroupName
 	}
@@ -1537,9 +1542,9 @@ func (b *InMemoryBackend) AddClusterInternal(id string) *DBCluster {
 		DBClusterIdentifier:         id,
 		DBClusterArn:                b.clusterARN(id),
 		Engine:                      neptuneEngine,
-		EngineVersion:               "1.3.0.0",
+		EngineVersion:               defaultEngineVersion,
 		Status:                      clusterStatusAvailable,
-		DBClusterParameterGroupName: "default.neptune1.3",
+		DBClusterParameterGroupName: pgFamilyDefaultNeptune13,
 		Endpoint:                    endpoint,
 		ReaderEndpoint:              readerEndpoint,
 		Port:                        defaultNeptunePort,
@@ -1561,8 +1566,8 @@ func (b *InMemoryBackend) AddSnapshotInternal(snapshotID, clusterID string) *DBC
 		DBClusterIdentifier:         clusterID,
 		Engine:                      neptuneEngine,
 		EngineVersion:               defaultEngineVersion,
-		Status:                      "available",
-		SnapshotType:                "manual",
+		Status:                      clusterStatusAvailable,
+		SnapshotType:                snapshotSourceManual,
 	}
 	b.clusterSnapshots[snapshotID] = snap
 	cp := *snap

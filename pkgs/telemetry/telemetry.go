@@ -10,6 +10,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	labelOperation = "operation"
+	labelService   = "service"
+	labelWorker    = "worker"
+)
+
 // SetServiceCount records the number of registered services. Call this once at
 // startup after all services have been initialised. The value is exposed via the
 // "gopherstack_registered_services" Prometheus gauge and included in the
@@ -33,7 +39,7 @@ var (
 			Help:    "Operation latency in seconds",
 			Buckets: []float64{.0001, .0005, .001, .005, .01, .05, .1, .5, 1, 5},
 		},
-		[]string{"operation"},
+		[]string{labelOperation},
 	)
 
 	// Operation running average latencies (seconds).
@@ -42,7 +48,7 @@ var (
 			Name: "operation_avg_duration_seconds",
 			Help: "Running average operation latency in seconds",
 		},
-		[]string{"operation"},
+		[]string{labelOperation},
 	)
 
 	// Operation counters.
@@ -52,7 +58,7 @@ var (
 			Name: "operations_total",
 			Help: "Total operations",
 		},
-		[]string{"operation", "status"},
+		[]string{labelOperation, "status"},
 	)
 
 	// Lock hold times.
@@ -73,7 +79,7 @@ var (
 			Name: "gopherstack_delete_queue_depth",
 			Help: "Number of resources currently queued for async background deletion",
 		},
-		[]string{"service"},
+		[]string{labelService},
 	)
 
 	// ttlEvictions is a counter for items deleted via TTL sweep.
@@ -82,7 +88,7 @@ var (
 			Name: "gopherstack_ttl_evictions_total",
 			Help: "Total items evicted via TTL background sweep",
 		},
-		[]string{"service"},
+		[]string{labelService},
 	)
 
 	// streamEventsTotal is a counter for DynamoDB Streams records delivered via GetRecords.
@@ -91,7 +97,7 @@ var (
 			Name: "gopherstack_stream_events_total",
 			Help: "Total stream records delivered via GetRecords",
 		},
-		[]string{"service"},
+		[]string{labelService},
 	)
 
 	// workerTasksTotal records total tasks processed by background workers.
@@ -100,7 +106,7 @@ var (
 			Name: "gopherstack_worker_tasks_total",
 			Help: "Total tasks processed by background workers",
 		},
-		[]string{"service", "worker", "status"},
+		[]string{labelService, labelWorker, "status"},
 	)
 
 	// workerItemsTotal records total items (objects, table rows, etc.) processed by workers.
@@ -109,7 +115,7 @@ var (
 			Name: "gopherstack_worker_items_total",
 			Help: "Total items processed by background workers",
 		},
-		[]string{"service", "worker"},
+		[]string{labelService, labelWorker},
 	)
 
 	// workerQueueDepth is a gauge for pending work in background workers.
@@ -118,7 +124,7 @@ var (
 			Name: "gopherstack_worker_queue_depth",
 			Help: "Current queue depth for background workers",
 		},
-		[]string{"service", "worker"},
+		[]string{labelService, labelWorker},
 	)
 
 	// registeredServicesGauge records the total number of services initialised at

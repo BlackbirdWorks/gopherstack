@@ -18,8 +18,22 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
+const (
+	statusTrainedInsufficient = "TRAINED_INSUFFICIENT_DATA"
+)
+
+const (
+	errResourceNotFoundException = "ResourceNotFoundException"
+)
+
+const (
+	keyAlarmName        = "AlarmName"
+	keyAlarmDescription = "AlarmDescription"
+	keyAlarmArn         = "AlarmArn"
+)
+
 // ErrAlarmNotFound is returned when a requested alarm does not exist.
-var ErrAlarmNotFound = errors.New("ResourceNotFoundException")
+var ErrAlarmNotFound = errors.New(errResourceNotFoundException)
 
 // ErrAlarmNameRequired is returned when an alarm name is missing.
 var ErrAlarmNameRequired = errors.New("AlarmName is required")
@@ -28,25 +42,25 @@ var ErrAlarmNameRequired = errors.New("AlarmName is required")
 var ErrAlarmRuleRequired = errors.New("AlarmRule is required")
 
 // ErrDashboardNotFound is returned when a requested dashboard does not exist.
-var ErrDashboardNotFound = errors.New("ResourceNotFoundException")
+var ErrDashboardNotFound = errors.New(errResourceNotFoundException)
 
 // ErrDashboardNameRequired is returned when a dashboard name is missing.
 var ErrDashboardNameRequired = errors.New("DashboardName is required")
 
 // ErrAlarmMuteRuleNotFound is returned when a requested alarm mute rule does not exist.
-var ErrAlarmMuteRuleNotFound = errors.New("ResourceNotFoundException")
+var ErrAlarmMuteRuleNotFound = errors.New(errResourceNotFoundException)
 
 // ErrAnomalyDetectorNotFound is returned when a requested anomaly detector does not exist.
-var ErrAnomalyDetectorNotFound = errors.New("ResourceNotFoundException")
+var ErrAnomalyDetectorNotFound = errors.New(errResourceNotFoundException)
 
 // ErrMetricStreamNotFound is returned when a requested metric stream does not exist.
-var ErrMetricStreamNotFound = errors.New("ResourceNotFoundException")
+var ErrMetricStreamNotFound = errors.New(errResourceNotFoundException)
 
 // ErrInsightRuleNotFound is returned when a requested insight rule does not exist.
-var ErrInsightRuleNotFound = errors.New("ResourceNotFoundException")
+var ErrInsightRuleNotFound = errors.New(errResourceNotFoundException)
 
 // ErrMetricFilterNotFound is returned when a requested metric filter does not exist.
-var ErrMetricFilterNotFound = errors.New("ResourceNotFoundException")
+var ErrMetricFilterNotFound = errors.New(errResourceNotFoundException)
 
 // ErrValidation is returned when a caller provides an invalid or missing parameter.
 var ErrValidation = errors.New("InvalidParameterValue")
@@ -1079,7 +1093,7 @@ func (b *InMemoryBackend) appendHistory(alarmName, alarmTypeName, itemType, summ
 // stateChangeHistoryData builds a JSON string for a state-change history item.
 func (b *InMemoryBackend) stateChangeHistoryData(alarmName, oldState, newState, reason string) string {
 	data := map[string]string{
-		"AlarmName":      alarmName,
+		keyAlarmName:     alarmName,
 		"OldStateValue":  oldState,
 		"NewStateValue":  newState,
 		"NewStateReason": reason,
@@ -1095,15 +1109,15 @@ func (b *InMemoryBackend) buildAlarmActionPayload(
 	alarmName, alarmDesc, alarmArn, oldState, newState, reason string,
 ) []byte {
 	data := map[string]string{
-		"AlarmName":        alarmName,
-		"AlarmDescription": alarmDesc,
-		"AlarmArn":         alarmArn,
-		"AWSAccountId":     b.accountID,
-		"Region":           b.region,
-		"NewStateValue":    newState,
-		"NewStateReason":   reason,
-		"OldStateValue":    oldState,
-		"StateChangeTime":  time.Now().UTC().Format(time.RFC3339),
+		keyAlarmName:        alarmName,
+		keyAlarmDescription: alarmDesc,
+		keyAlarmArn:         alarmArn,
+		"AWSAccountId":      b.accountID,
+		"Region":            b.region,
+		"NewStateValue":     newState,
+		"NewStateReason":    reason,
+		"OldStateValue":     oldState,
+		"StateChangeTime":   time.Now().UTC().Format(time.RFC3339),
 	}
 	// map[string]string marshaling cannot fail; error is intentionally ignored.
 	bs, _ := json.Marshal(data)
@@ -1380,7 +1394,7 @@ func (b *InMemoryBackend) PutAnomalyDetectorInternal(detector *AnomalyDetector) 
 	cp := *detector
 	if cp.StateValue == "" {
 		// TRAINED_INSUFFICIENT_DATA is the realistic initial state for a new detector.
-		cp.StateValue = "TRAINED_INSUFFICIENT_DATA"
+		cp.StateValue = statusTrainedInsufficient
 	}
 
 	b.anomalyDetectors[key] = &cp
@@ -1437,7 +1451,7 @@ func (b *InMemoryBackend) DeleteInsightRules(ruleNames []string) ([]InsightRuleF
 		if _, ok := b.insightRules[name]; !ok {
 			failures = append(failures, InsightRuleFailure{
 				RuleName:           name,
-				FailureCode:        "ResourceNotFoundException",
+				FailureCode:        errResourceNotFoundException,
 				FailureDescription: fmt.Sprintf("Insight rule %q does not exist", name),
 			})
 
@@ -1530,7 +1544,7 @@ func (b *InMemoryBackend) DisableInsightRules(ruleNames []string) ([]InsightRule
 		if !ok {
 			failures = append(failures, InsightRuleFailure{
 				RuleName:           name,
-				FailureCode:        "ResourceNotFoundException",
+				FailureCode:        errResourceNotFoundException,
 				FailureDescription: fmt.Sprintf("Insight rule %q does not exist", name),
 			})
 
@@ -1555,7 +1569,7 @@ func (b *InMemoryBackend) EnableInsightRules(ruleNames []string) ([]InsightRuleF
 		if !ok {
 			failures = append(failures, InsightRuleFailure{
 				RuleName:           name,
-				FailureCode:        "ResourceNotFoundException",
+				FailureCode:        errResourceNotFoundException,
 				FailureDescription: fmt.Sprintf("Insight rule %q does not exist", name),
 			})
 

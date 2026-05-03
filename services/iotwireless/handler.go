@@ -15,6 +15,20 @@ import (
 )
 
 const (
+	opAssociateAwsAccountWithPartnerAccount     = "AssociateAwsAccountWithPartnerAccount"
+	opAssociateMulticastGroupWithFuotaTask      = "AssociateMulticastGroupWithFuotaTask"
+	opAssociateWirelessDeviceWithFuotaTask      = "AssociateWirelessDeviceWithFuotaTask"
+	opAssociateWirelessDeviceWithMulticastGroup = "AssociateWirelessDeviceWithMulticastGroup"
+	opAssociateWirelessDeviceWithThing          = "AssociateWirelessDeviceWithThing"
+	opAssociateWirelessGatewayWithCertificate   = "AssociateWirelessGatewayWithCertificate"
+	opAssociateWirelessGatewayWithThing         = "AssociateWirelessGatewayWithThing"
+	opCancelMulticastGroupSession               = "CancelMulticastGroupSession"
+	opListTagsForResource                       = "ListTagsForResource"
+	opTagResource                               = "TagResource"
+	opUntagResource                             = "UntagResource"
+)
+
+const (
 	iotwirelessService       = "iotwireless"
 	iotwirelessMatchPriority = 86
 )
@@ -60,17 +74,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetDestination",
 		"ListDestinations",
 		"DeleteDestination",
-		"TagResource",
-		"UntagResource",
-		"ListTagsForResource",
-		"AssociateAwsAccountWithPartnerAccount",
-		"AssociateMulticastGroupWithFuotaTask",
-		"AssociateWirelessDeviceWithFuotaTask",
-		"AssociateWirelessDeviceWithMulticastGroup",
-		"AssociateWirelessDeviceWithThing",
-		"AssociateWirelessGatewayWithCertificate",
-		"AssociateWirelessGatewayWithThing",
-		"CancelMulticastGroupSession",
+		opTagResource,
+		opUntagResource,
+		opListTagsForResource,
+		opAssociateAwsAccountWithPartnerAccount,
+		opAssociateMulticastGroupWithFuotaTask,
+		opAssociateWirelessDeviceWithFuotaTask,
+		opAssociateWirelessDeviceWithMulticastGroup,
+		opAssociateWirelessDeviceWithThing,
+		opAssociateWirelessGatewayWithCertificate,
+		opAssociateWirelessGatewayWithThing,
+		opCancelMulticastGroupSession,
 		"CreateDeviceProfile",
 		"GetDeviceProfile",
 		"ListDeviceProfiles",
@@ -201,11 +215,11 @@ func parseIoTWirelessPath(method, path string) (string, string) {
 
 		switch method {
 		case http.MethodGet:
-			return "ListTagsForResource", arnEncoded
+			return opListTagsForResource, arnEncoded
 		case http.MethodPost:
-			return "TagResource", arnEncoded
+			return opTagResource, arnEncoded
 		case http.MethodDelete:
-			return "UntagResource", arnEncoded
+			return opUntagResource, arnEncoded
 		}
 
 		return "", ""
@@ -243,7 +257,7 @@ func parseIoTWirelessBase(method, base, id, subPath string, hasID bool) (string,
 		return parseMulticastGroupPath(method, id, subPath, hasID)
 	case pathBasePartnerAccounts:
 		if hasID && method == http.MethodPut {
-			return "AssociateAwsAccountWithPartnerAccount", id
+			return opAssociateAwsAccountWithPartnerAccount, id
 		}
 
 		return "", ""
@@ -255,7 +269,7 @@ func parseIoTWirelessBase(method, base, id, subPath string, hasID bool) (string,
 // parseWirelessDevicePath handles wireless-devices sub-path routing.
 func parseWirelessDevicePath(method, id, subPath string, hasID bool) (string, string) {
 	if hasID && subPath == "thing" && method == http.MethodPut {
-		return "AssociateWirelessDeviceWithThing", id
+		return opAssociateWirelessDeviceWithThing, id
 	}
 
 	return parseCollectionPath(method, "WirelessDevice", hasID, id)
@@ -264,11 +278,11 @@ func parseWirelessDevicePath(method, id, subPath string, hasID bool) (string, st
 // parseWirelessGatewayPath handles wireless-gateways sub-path routing.
 func parseWirelessGatewayPath(method, id, subPath string, hasID bool) (string, string) {
 	if hasID && subPath == "certificate" && method == http.MethodPut {
-		return "AssociateWirelessGatewayWithCertificate", id
+		return opAssociateWirelessGatewayWithCertificate, id
 	}
 
 	if hasID && subPath == "thing" && method == http.MethodPut {
-		return "AssociateWirelessGatewayWithThing", id
+		return opAssociateWirelessGatewayWithThing, id
 	}
 
 	return parseCollectionPath(method, "WirelessGateway", hasID, id)
@@ -280,11 +294,11 @@ func parseFuotaTaskPath(method, id, subPath string, hasID bool) (string, string)
 		switch subPath {
 		case pathBaseMulticastGroups:
 			if method == http.MethodPut {
-				return "AssociateMulticastGroupWithFuotaTask", id
+				return opAssociateMulticastGroupWithFuotaTask, id
 			}
 		case pathBaseWirelessDevices:
 			if method == http.MethodPut {
-				return "AssociateWirelessDeviceWithFuotaTask", id
+				return opAssociateWirelessDeviceWithFuotaTask, id
 			}
 		}
 	}
@@ -298,11 +312,11 @@ func parseMulticastGroupPath(method, id, subPath string, hasID bool) (string, st
 		switch subPath {
 		case pathBaseWirelessDevices:
 			if method == http.MethodPut {
-				return "AssociateWirelessDeviceWithMulticastGroup", id
+				return opAssociateWirelessDeviceWithMulticastGroup, id
 			}
 		case "session":
 			if method == http.MethodDelete {
-				return "CancelMulticastGroupSession", id
+				return opCancelMulticastGroupSession, id
 			}
 		}
 	}
@@ -356,11 +370,11 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte, qu
 	}
 
 	switch op {
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return h.listTagsForResource(c, resource)
-	case "TagResource":
+	case opTagResource:
 		return h.tagResource(c, resource, body)
-	case "UntagResource":
+	case opUntagResource:
 		return h.untagResource(c, resource, query)
 	}
 
@@ -467,21 +481,21 @@ func (h *Handler) dispatchNewCRUDOps(c *echo.Context, op, resource string, body 
 // dispatchAssociationOps handles AWS IoT Wireless resource-association operations.
 func (h *Handler) dispatchAssociationOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "AssociateAwsAccountWithPartnerAccount":
+	case opAssociateAwsAccountWithPartnerAccount:
 		return true, h.associateAwsAccountWithPartnerAccount(c, resource, body)
-	case "AssociateMulticastGroupWithFuotaTask":
+	case opAssociateMulticastGroupWithFuotaTask:
 		return true, h.associateMulticastGroupWithFuotaTask(c, resource, body)
-	case "AssociateWirelessDeviceWithFuotaTask":
+	case opAssociateWirelessDeviceWithFuotaTask:
 		return true, h.associateWirelessDeviceWithFuotaTask(c, resource, body)
-	case "AssociateWirelessDeviceWithMulticastGroup":
+	case opAssociateWirelessDeviceWithMulticastGroup:
 		return true, h.associateWirelessDeviceWithMulticastGroup(c, resource, body)
-	case "AssociateWirelessDeviceWithThing":
+	case opAssociateWirelessDeviceWithThing:
 		return true, h.associateWirelessDeviceWithThing(c, resource, body)
-	case "AssociateWirelessGatewayWithCertificate":
+	case opAssociateWirelessGatewayWithCertificate:
 		return true, h.associateWirelessGatewayWithCertificate(c, resource, body)
-	case "AssociateWirelessGatewayWithThing":
+	case opAssociateWirelessGatewayWithThing:
 		return true, h.associateWirelessGatewayWithThing(c, resource, body)
-	case "CancelMulticastGroupSession":
+	case opCancelMulticastGroupSession:
 		return true, h.cancelMulticastGroupSession(c, resource)
 	}
 

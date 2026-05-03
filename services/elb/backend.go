@@ -17,6 +17,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	policyTypeAppCookie = "AppCookieStickinessPolicyType"
+	policyTypeLBCookie  = "LBCookieStickinessPolicyType"
+	notApplicable       = "N/A"
+)
+
 var (
 	// ErrLoadBalancerNotFound is returned when the requested load balancer does not exist.
 	ErrLoadBalancerNotFound = awserr.New("LoadBalancerNotFound", awserr.ErrNotFound)
@@ -50,8 +56,8 @@ var (
 
 	// knownPolicyTypes is the set of built-in Classic ELB policy type names.
 	knownPolicyTypes = map[string]struct{}{ //nolint:gochecknoglobals // immutable lookup table
-		"AppCookieStickinessPolicyType":         {},
-		"LBCookieStickinessPolicyType":          {},
+		policyTypeAppCookie:                     {},
+		policyTypeLBCookie:                      {},
 		"ProxyProtocolPolicyType":               {},
 		"SSLNegotiationPolicyType":              {},
 		"BackendServerAuthenticationPolicyType": {},
@@ -1067,7 +1073,7 @@ func (b *InMemoryBackend) CreateAppCookieStickinessPolicy(name, policyName, cook
 
 	b.policies[k] = &LoadBalancerPolicy{
 		PolicyName:       policyName,
-		PolicyTypeName:   "AppCookieStickinessPolicyType",
+		PolicyTypeName:   policyTypeAppCookie,
 		LoadBalancerName: name,
 		PolicyAttributeDescriptions: []PolicyAttribute{
 			{AttributeName: "CookieName", AttributeValue: cookieName},
@@ -1102,7 +1108,7 @@ func (b *InMemoryBackend) CreateLBCookieStickinessPolicy(name, policyName string
 
 	b.policies[k] = &LoadBalancerPolicy{
 		PolicyName:       policyName,
-		PolicyTypeName:   "LBCookieStickinessPolicyType",
+		PolicyTypeName:   policyTypeLBCookie,
 		LoadBalancerName: name,
 		PolicyAttributeDescriptions: []PolicyAttribute{
 			{AttributeName: "CookieExpirationPeriod", AttributeValue: expStr},
@@ -1233,8 +1239,8 @@ func (b *InMemoryBackend) DescribeInstanceHealth(name string, instances []Instan
 			result = append(result, InstanceState{
 				InstanceID:  inst.InstanceID,
 				State:       "InService",
-				ReasonCode:  "N/A",
-				Description: "N/A",
+				ReasonCode:  notApplicable,
+				Description: notApplicable,
 			})
 		}
 
@@ -1247,8 +1253,8 @@ func (b *InMemoryBackend) DescribeInstanceHealth(name string, instances []Instan
 		result = append(result, InstanceState{
 			InstanceID:  inst.InstanceID,
 			State:       "InService",
-			ReasonCode:  "N/A",
-			Description: "N/A",
+			ReasonCode:  notApplicable,
+			Description: notApplicable,
 		})
 	}
 
@@ -1308,7 +1314,7 @@ func (b *InMemoryBackend) DescribeLoadBalancerPolicies(
 func builtinPolicyTypes() []PolicyTypeDescription {
 	return []PolicyTypeDescription{
 		{
-			PolicyTypeName: "AppCookieStickinessPolicyType",
+			PolicyTypeName: policyTypeAppCookie,
 			Description:    "Stickiness policy with sticky session lifetimes controlled by the application-generated cookie.",
 			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{
 				{
@@ -1320,7 +1326,7 @@ func builtinPolicyTypes() []PolicyTypeDescription {
 			},
 		},
 		{
-			PolicyTypeName: "LBCookieStickinessPolicyType",
+			PolicyTypeName: policyTypeLBCookie,
 			Description:    "Stickiness policy with sticky session lifetimes controlled by the browser or an expiration period.",
 			PolicyAttributeTypeDescriptions: []PolicyAttributeTypeDescription{
 				{

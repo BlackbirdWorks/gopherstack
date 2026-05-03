@@ -197,6 +197,7 @@ const (
 	confidenceWord1 = 99.8
 	confidenceWord2 = 99.7
 	confidenceWord3 = 99.9
+	blockTypeWord   = "WORD"
 )
 
 // syntheticBlocks returns a fixed set of synthetic text blocks for a document.
@@ -209,9 +210,9 @@ func syntheticBlocks(documentURI string) []Block {
 			Confidence: confidenceLine,
 			ID:         uuid.NewString(),
 		},
-		{BlockType: "WORD", Text: "Synthetic", Confidence: confidenceWord1, ID: uuid.NewString()},
-		{BlockType: "WORD", Text: "extracted", Confidence: confidenceWord2, ID: uuid.NewString()},
-		{BlockType: "WORD", Text: "text", Confidence: confidenceWord3, ID: uuid.NewString()},
+		{BlockType: blockTypeWord, Text: "Synthetic", Confidence: confidenceWord1, ID: uuid.NewString()},
+		{BlockType: blockTypeWord, Text: "extracted", Confidence: confidenceWord2, ID: uuid.NewString()},
+		{BlockType: blockTypeWord, Text: "text", Confidence: confidenceWord3, ID: uuid.NewString()},
 	}
 }
 

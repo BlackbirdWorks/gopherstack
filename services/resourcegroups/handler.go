@@ -16,6 +16,32 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	keyArn = "Arn"
+)
+
+const (
+	opCreateGroup           = "CreateGroup"
+	opGetGroup              = "GetGroup"
+	opDeleteGroup           = "DeleteGroup"
+	opListGroups            = "ListGroups"
+	opGetGroupQuery         = "GetGroupQuery"
+	opGetGroupConfiguration = "GetGroupConfiguration"
+	opUpdateGroup           = "UpdateGroup"
+	opUpdateGroupQuery      = "UpdateGroupQuery"
+	opCancelTagSyncTask     = "CancelTagSyncTask"
+	opGetAccountSettings    = "GetAccountSettings"
+	opGetTagSyncTask        = "GetTagSyncTask"
+	opGroupResources        = "GroupResources"
+	opListGroupResources    = "ListGroupResources"
+	opListGroupingStatuses  = "ListGroupingStatuses"
+	opListTagSyncTasks      = "ListTagSyncTasks"
+	opPutGroupConfiguration = "PutGroupConfiguration"
+	opSearchResources       = "SearchResources"
+	opStartTagSyncTask      = "StartTagSyncTask"
+	opUpdateAccountSettings = "UpdateAccountSettings"
+)
+
 var (
 	// ErrUnknownOperation is returned when the requested Resource Groups operation is not supported.
 	ErrUnknownOperation = errors.New("UnknownOperationException")
@@ -43,26 +69,26 @@ type untagResourceInput struct {
 
 // rgRESTPathOps is the static mapping of REST API paths to Resource Groups operation names.
 var rgRESTPathOps = map[string]string{ //nolint:gochecknoglobals // lookup table for REST path routing
-	"/groups":                  "CreateGroup",
-	"/get-group":               "GetGroup",
-	"/delete-group":            "DeleteGroup",
-	"/groups-list":             "ListGroups",
-	"/get-group-query":         "GetGroupQuery",
-	"/get-group-configuration": "GetGroupConfiguration",
-	"/update-group":            "UpdateGroup",
-	"/update-group-query":      "UpdateGroupQuery",
+	"/groups":                  opCreateGroup,
+	"/get-group":               opGetGroup,
+	"/delete-group":            opDeleteGroup,
+	"/groups-list":             opListGroups,
+	"/get-group-query":         opGetGroupQuery,
+	"/get-group-configuration": opGetGroupConfiguration,
+	"/update-group":            opUpdateGroup,
+	"/update-group-query":      opUpdateGroupQuery,
 	// New operations
-	"/cancel-tag-sync-task":    "CancelTagSyncTask",
-	"/get-account-settings":    "GetAccountSettings",
-	"/get-tag-sync-task":       "GetTagSyncTask",
-	"/group-resources":         "GroupResources",
-	"/list-group-resources":    "ListGroupResources",
-	"/list-grouping-statuses":  "ListGroupingStatuses",
-	"/list-tag-sync-tasks":     "ListTagSyncTasks",
-	"/put-group-configuration": "PutGroupConfiguration",
-	"/resources/search":        "SearchResources",
-	"/start-tag-sync-task":     "StartTagSyncTask",
-	"/update-account-settings": "UpdateAccountSettings",
+	"/cancel-tag-sync-task":    opCancelTagSyncTask,
+	"/get-account-settings":    opGetAccountSettings,
+	"/get-tag-sync-task":       opGetTagSyncTask,
+	"/group-resources":         opGroupResources,
+	"/list-group-resources":    opListGroupResources,
+	"/list-grouping-statuses":  opListGroupingStatuses,
+	"/list-tag-sync-tasks":     opListTagSyncTasks,
+	"/put-group-configuration": opPutGroupConfiguration,
+	"/resources/search":        opSearchResources,
+	"/start-tag-sync-task":     opStartTagSyncTask,
+	"/update-account-settings": opUpdateAccountSettings,
 }
 
 type groupNameInput struct {
@@ -99,26 +125,26 @@ func NewHandler(backend StorageBackend) *Handler {
 // buildOps constructs the static dispatch table once at handler creation.
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateGroup":           service.WrapOp(h.handleCreateGroup),
-		"DeleteGroup":           service.WrapOp(h.handleDeleteGroup),
-		"ListGroups":            service.WrapOp(h.handleListGroups),
-		"GetGroup":              service.WrapOp(h.handleGetGroup),
-		"GetGroupQuery":         service.WrapOp(h.handleGetGroupQuery),
-		"GetGroupConfiguration": service.WrapOp(h.handleGetGroupConfiguration),
-		"UpdateGroup":           service.WrapOp(h.handleUpdateGroup),
-		"UpdateGroupQuery":      service.WrapOp(h.handleUpdateGroupQuery),
+		opCreateGroup:           service.WrapOp(h.handleCreateGroup),
+		opDeleteGroup:           service.WrapOp(h.handleDeleteGroup),
+		opListGroups:            service.WrapOp(h.handleListGroups),
+		opGetGroup:              service.WrapOp(h.handleGetGroup),
+		opGetGroupQuery:         service.WrapOp(h.handleGetGroupQuery),
+		opGetGroupConfiguration: service.WrapOp(h.handleGetGroupConfiguration),
+		opUpdateGroup:           service.WrapOp(h.handleUpdateGroup),
+		opUpdateGroupQuery:      service.WrapOp(h.handleUpdateGroupQuery),
 		// New operations
-		"CancelTagSyncTask":     service.WrapOp(h.handleCancelTagSyncTask),
-		"GetAccountSettings":    service.WrapOp(h.handleGetAccountSettings),
-		"GetTagSyncTask":        service.WrapOp(h.handleGetTagSyncTask),
-		"GroupResources":        service.WrapOp(h.handleGroupResources),
-		"ListGroupResources":    service.WrapOp(h.handleListGroupResources),
-		"ListGroupingStatuses":  service.WrapOp(h.handleListGroupingStatuses),
-		"ListTagSyncTasks":      service.WrapOp(h.handleListTagSyncTasks),
-		"PutGroupConfiguration": service.WrapOp(h.handlePutGroupConfiguration),
-		"SearchResources":       service.WrapOp(h.handleSearchResources),
-		"StartTagSyncTask":      service.WrapOp(h.handleStartTagSyncTask),
-		"UpdateAccountSettings": service.WrapOp(h.handleUpdateAccountSettings),
+		opCancelTagSyncTask:     service.WrapOp(h.handleCancelTagSyncTask),
+		opGetAccountSettings:    service.WrapOp(h.handleGetAccountSettings),
+		opGetTagSyncTask:        service.WrapOp(h.handleGetTagSyncTask),
+		opGroupResources:        service.WrapOp(h.handleGroupResources),
+		opListGroupResources:    service.WrapOp(h.handleListGroupResources),
+		opListGroupingStatuses:  service.WrapOp(h.handleListGroupingStatuses),
+		opListTagSyncTasks:      service.WrapOp(h.handleListTagSyncTasks),
+		opPutGroupConfiguration: service.WrapOp(h.handlePutGroupConfiguration),
+		opSearchResources:       service.WrapOp(h.handleSearchResources),
+		opStartTagSyncTask:      service.WrapOp(h.handleStartTagSyncTask),
+		opUpdateAccountSettings: service.WrapOp(h.handleUpdateAccountSettings),
 	}
 }
 
@@ -128,28 +154,28 @@ func (h *Handler) Name() string { return "ResourceGroups" }
 // GetSupportedOperations returns the list of supported Resource Groups operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CancelTagSyncTask",
-		"CreateGroup",
-		"DeleteGroup",
-		"GetAccountSettings",
-		"GetGroup",
-		"GetGroupConfiguration",
-		"GetGroupQuery",
-		"GetTagSyncTask",
+		opCancelTagSyncTask,
+		opCreateGroup,
+		opDeleteGroup,
+		opGetAccountSettings,
+		opGetGroup,
+		opGetGroupConfiguration,
+		opGetGroupQuery,
+		opGetTagSyncTask,
 		"GetTags",
-		"GroupResources",
-		"ListGroupResources",
-		"ListGroupingStatuses",
-		"ListGroups",
-		"ListTagSyncTasks",
-		"PutGroupConfiguration",
-		"SearchResources",
-		"StartTagSyncTask",
+		opGroupResources,
+		opListGroupResources,
+		opListGroupingStatuses,
+		opListGroups,
+		opListTagSyncTasks,
+		opPutGroupConfiguration,
+		opSearchResources,
+		opStartTagSyncTask,
 		"Tag",
 		"Untag",
-		"UpdateAccountSettings",
-		"UpdateGroup",
-		"UpdateGroupQuery",
+		opUpdateAccountSettings,
+		opUpdateGroup,
+		opUpdateGroupQuery,
 	}
 }
 
@@ -543,7 +569,7 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"Arn":  resourceARN,
+			keyArn: resourceARN,
 			"Tags": tagMap,
 		})
 
@@ -567,7 +593,7 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"Arn":  resourceARN,
+			keyArn: resourceARN,
 			"Tags": tagMap,
 		})
 
@@ -590,7 +616,7 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"Arn":  resourceARN,
+			keyArn: resourceARN,
 			"Keys": in.Keys,
 		})
 

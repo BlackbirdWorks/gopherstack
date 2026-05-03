@@ -17,6 +17,10 @@ import (
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	keyMessageField = "message"
+)
+
 const resolverTargetPrefix = "Route53Resolver."
 
 var (
@@ -217,12 +221,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 }
 

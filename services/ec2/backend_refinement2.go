@@ -194,7 +194,7 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 	b.images[newImage.ImageID] = newImage
 	b.imageUsageReports[newImage.ImageID] = &ImageUsageReport{
 		ImageID:        newImage.ImageID,
-		State:          "available",
+		State:          stateAvailable,
 		GenerationDate: time.Now().UTC().Format(time.RFC3339),
 	}
 

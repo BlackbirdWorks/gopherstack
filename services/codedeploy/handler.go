@@ -246,7 +246,7 @@ func (h *Handler) handleCreateApplication(
 	}
 
 	if in.ComputePlatform == "" {
-		in.ComputePlatform = "Server"
+		in.ComputePlatform = computePlatformServer
 	}
 
 	app, err := h.Backend.CreateApplication(in.ApplicationName, in.ComputePlatform, tagEntriesToMap(in.Tags))

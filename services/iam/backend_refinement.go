@@ -44,9 +44,9 @@ func (b *InMemoryBackend) GetAccessKeyLastUsed(accessKeyID string) (*AccessKeyLa
 	return &AccessKeyLastUsed{
 		UserName:     ak.UserName,
 		AccessKeyID:  accessKeyID,
-		LastUsedDate: "N/A",
-		ServiceName:  "N/A",
-		Region:       "N/A",
+		LastUsedDate: notApplicable,
+		ServiceName:  notApplicable,
+		Region:       notApplicable,
 	}, nil
 }
 

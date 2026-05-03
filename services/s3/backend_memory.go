@@ -1098,8 +1098,8 @@ func (b *InMemoryBackend) processObjectSnapshots(objectSnapshots []*StoredObject
 			StorageClass:      types.ObjectStorageClassStandard,
 			ChecksumAlgorithm: checksumAlgos,
 			Owner: &types.Owner{
-				ID:          aws.String("gopherstack"),
-				DisplayName: aws.String("gopherstack"),
+				ID:          aws.String(gopherstackName),
+				DisplayName: aws.String(gopherstackName),
 			},
 		})
 	}
@@ -1369,7 +1369,7 @@ func buildVersionPage(snapshots []versionSnapshot, maxKeys int32) (
 				VersionId:    aws.String(snap.versionID),
 				IsLatest:     aws.Bool(snap.isLatest),
 				LastModified: aws.Time(snap.lastModified),
-				Owner:        &types.Owner{ID: aws.String("gopherstack"), DisplayName: aws.String("gopherstack")},
+				Owner:        &types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)},
 			})
 		} else {
 			versions = append(versions, types.ObjectVersion{
@@ -1380,7 +1380,7 @@ func buildVersionPage(snapshots []versionSnapshot, maxKeys int32) (
 				ETag:         aws.String(snap.etag),
 				Size:         aws.Int64(snap.size),
 				StorageClass: types.ObjectVersionStorageClassStandard,
-				Owner:        &types.Owner{ID: aws.String("gopherstack"), DisplayName: aws.String("gopherstack")},
+				Owner:        &types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)},
 			})
 		}
 
@@ -1745,7 +1745,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	// 1. Read the upload pointer — we need it for assembly but don't consume
 	// the upload yet, since assembly may fail (e.g. ErrInvalidPart) and the
 	// caller should still be able to retry or abort.
-	b.mu.RLock("CompleteMultipartUpload")
+	b.mu.RLock(opCompleteMultipartUpload)
 	upload := b.uploads[bucketName][uploadID] // nil map read returns nil safely
 	b.mu.RUnlock()
 
@@ -1773,7 +1773,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	}
 
 	// 4. Update bucket/object state.
-	b.mu.RLock("CompleteMultipartUpload")
+	b.mu.RLock(opCompleteMultipartUpload)
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
@@ -1833,7 +1833,7 @@ func (b *InMemoryBackend) assembleMultipartData(
 	upload *StoredMultipartUpload,
 	input *s3.CompleteMultipartUploadInput,
 ) (multipartAssemblyResult, error) {
-	upload.mu.RLock("CompleteMultipartUpload")
+	upload.mu.RLock(opCompleteMultipartUpload)
 	parts := input.MultipartUpload.Parts
 
 	// Validate parts are in strictly ascending order (AWS requirement).
@@ -1928,7 +1928,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 	assembled multipartAssemblyResult,
 	tagging string,
 ) string {
-	bucket.mu.Lock("CompleteMultipartUpload")
+	bucket.mu.Lock(opCompleteMultipartUpload)
 
 	obj, exists := bucket.Objects[key]
 	if !exists {
@@ -1954,7 +1954,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 
 	// Acquire obj.mu while bucket.mu is still held to prevent TOCTOU and to
 	// serialize version-map mutations with concurrent readers (obj.mu.RLock).
-	obj.mu.Lock("CompleteMultipartUpload")
+	obj.mu.Lock(opCompleteMultipartUpload)
 	bucket.mu.Unlock()
 
 	for _, v := range obj.Versions {
@@ -2175,7 +2175,7 @@ func (b *InMemoryBackend) GetBucketACL(_ context.Context, bucketName string) (st
 
 	acl := bucket.ACL
 	if acl == "" {
-		acl = "private"
+		acl = aclPrivate
 	}
 
 	return acl, nil
@@ -3425,7 +3425,7 @@ func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (s
 		return "", err
 	}
 
-	const sessionXML = `<CreateSessionResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+	const sessionXML = `<CreateSessionResponse xmlns=xmlNamespaceS3>` +
 		`<Credentials>` +
 		`<SessionToken>gopherstack-mock-session-token</SessionToken>` +
 		`<SecretAccessKey>gopherstack-mock-secret</SecretAccessKey>` +

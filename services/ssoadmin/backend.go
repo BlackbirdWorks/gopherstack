@@ -16,6 +16,11 @@ import (
 )
 
 const (
+	statusSucceeded   = "SUCCEEDED"
+	appProviderCustom = "arn:aws:sso::aws:applicationProvider/custom"
+)
+
+const (
 	identityStoreIDPrefixLen = 8
 	identityStoreIDMaxLen    = 12
 	uuidShortLen             = 8
@@ -599,7 +604,7 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 	requestID := uuid.NewString()
 	b.creationStatuses[requestID] = &ProvisioningStatus{
 		RequestID:   requestID,
-		Status:      "SUCCEEDED",
+		Status:      statusSucceeded,
 		CreatedDate: time.Now().UTC(),
 	}
 	b.assignmentCreationIDs[idempotencyKey] = requestID
@@ -692,7 +697,7 @@ func (b *InMemoryBackend) DeleteAccountAssignment(
 	requestID := uuid.NewString()
 	b.deletionStatuses[requestID] = &ProvisioningStatus{
 		RequestID:   requestID,
-		Status:      "SUCCEEDED",
+		Status:      statusSucceeded,
 		CreatedDate: time.Now().UTC(),
 	}
 
@@ -894,7 +899,7 @@ func (b *InMemoryBackend) ProvisionPermissionSet(instanceArn, permissionSetArn s
 	requestID := uuid.NewString()
 	b.provisioningStatuses[requestID] = &ProvisioningStatus{
 		RequestID:   requestID,
-		Status:      "SUCCEEDED",
+		Status:      statusSucceeded,
 		CreatedDate: time.Now().UTC(),
 	}
 
@@ -1217,7 +1222,7 @@ func (b *InMemoryBackend) AddApplicationInternal(instanceArn, name string) *Appl
 	appArn := fmt.Sprintf("arn:aws:sso::%s:application/%s/apl-%s", b.accountID, instanceID, id)
 	app := &Application{
 		ApplicationArn:         appArn,
-		ApplicationProviderArn: "arn:aws:sso::aws:applicationProvider/custom",
+		ApplicationProviderArn: appProviderCustom,
 		InstanceArn:            instanceArn,
 		Name:                   name,
 		Status:                 appStatusEnabled,
@@ -1730,7 +1735,7 @@ func (b *InMemoryBackend) ListApplicationProviders() []*ApplicationProvider {
 	defer b.mu.RUnlock()
 
 	seen := map[string]struct{}{
-		"arn:aws:sso::aws:applicationProvider/custom": {},
+		appProviderCustom: {},
 	}
 	for _, app := range b.applications {
 		if app.ApplicationProviderArn == "" {
@@ -1762,7 +1767,7 @@ func (b *InMemoryBackend) DescribeApplicationProvider(
 
 	// Check apps for a matching provider ARN.
 	seen := map[string]struct{}{
-		"arn:aws:sso::aws:applicationProvider/custom": {},
+		appProviderCustom: {},
 	}
 	for _, app := range b.applications {
 		if app.ApplicationProviderArn != "" {

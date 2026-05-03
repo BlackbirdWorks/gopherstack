@@ -17,6 +17,42 @@ import (
 )
 
 const (
+	schemaTypeRaw = "raw"
+)
+
+const (
+	schemaPublic = "public"
+)
+
+const (
+	keyName     = "name"
+	typeVarchar = "varchar"
+	keyType     = "type"
+	schemaInfo  = "information_schema"
+)
+
+const (
+	keyCreatedAt           = "CreatedAt"
+	valColumn1             = "column1"
+	keyTypeName            = "typeName"
+	keyColumnSize          = "columnSize"
+	keyNullable            = "nullable"
+	keyNextToken           = "NextToken"
+	keyStatusField         = "Status"
+	keySchema              = "schema"
+	valTABLE               = "TABLE"
+	keyTypeField           = "__type"
+	keyMessageField        = "message"
+	errValidationException = "ValidationException"
+	keyQueryString         = "QueryString"
+	keyHasResultSet        = "HasResultSet"
+	keyUpdatedAt           = "UpdatedAt"
+	keyDuration            = "Duration"
+	valCurated             = "curated"
+	keySchemaName          = "schemaName"
+)
+
+const (
 	redshiftDataService      = "redshift-data"
 	redshiftDataTargetPrefix = "RedshiftData."
 )
@@ -229,7 +265,7 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 		"Database":          stmt.Database,
 		"DbUser":            stmt.DBUser,
 		"SecretArn":         stmt.SecretARN,
-		"CreatedAt":         epochSeconds(stmt.CreatedAt),
+		keyCreatedAt:        epochSeconds(stmt.CreatedAt),
 	})
 }
 
@@ -265,7 +301,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 		"Database":          stmt.Database,
 		"DbUser":            stmt.DBUser,
 		"SecretArn":         stmt.SecretARN,
-		"CreatedAt":         epochSeconds(stmt.CreatedAt),
+		keyCreatedAt:        epochSeconds(stmt.CreatedAt),
 	})
 }
 
@@ -324,15 +360,15 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 		},
 		"ColumnMetadata": []map[string]any{
 			{
-				"name":       "column1",
-				"label":      "column1",
-				"typeName":   "varchar",
-				"columnSize": mockColumnSize,
-				"nullable":   mockColumnNullable,
+				keyName:       valColumn1,
+				"label":       valColumn1,
+				keyTypeName:   typeVarchar,
+				keyColumnSize: mockColumnSize,
+				keyNullable:   mockColumnNullable,
 			},
 		},
 		"TotalNumRows": int64(1),
-		"NextToken":    "",
+		keyNextToken:   "",
 	})
 }
 
@@ -369,16 +405,16 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 		"Records": []string{"mock_value"},
 		"ColumnMetadata": []map[string]any{
 			{
-				"name":       "column1",
-				"label":      "column1",
-				"typeName":   "varchar",
-				"columnSize": mockColumnSize,
-				"nullable":   mockColumnNullable,
+				keyName:       valColumn1,
+				"label":       valColumn1,
+				keyTypeName:   typeVarchar,
+				keyColumnSize: mockColumnSize,
+				keyNullable:   mockColumnNullable,
 			},
 		},
 		"TotalNumRows": int64(1),
 		"ResultFormat": resultFormatCSV,
-		"NextToken":    "",
+		keyNextToken:   "",
 	})
 }
 
@@ -418,7 +454,7 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 	}
 
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp[keyNextToken] = nextToken
 	}
 
 	return json.Marshal(resp)
@@ -441,9 +477,9 @@ func (h *Handler) handleCancelStatement(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	// AWS returns {"Status": "true"} as a string, not a boolean.
+	// AWS returns {keyStatusField: "true"} as a string, not a boolean.
 	return json.Marshal(map[string]any{
-		"Status": "true",
+		keyStatusField: "true",
 	})
 }
 
@@ -463,8 +499,8 @@ func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, e
 	}
 
 	return json.Marshal(map[string]any{
-		"Databases": buildDemoDatabases(),
-		"NextToken": "",
+		"Databases":  buildDemoDatabases(),
+		keyNextToken: "",
 	})
 }
 
@@ -485,8 +521,8 @@ func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, err
 	}
 
 	return json.Marshal(map[string]any{
-		"Schemas":   buildDemoSchemas(),
-		"NextToken": "",
+		"Schemas":    buildDemoSchemas(),
+		keyNextToken: "",
 	})
 }
 
@@ -509,8 +545,8 @@ func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, erro
 	}
 
 	return json.Marshal(map[string]any{
-		"Tables":    buildDemoTables(),
-		"NextToken": "",
+		"Tables":     buildDemoTables(),
+		keyNextToken: "",
 	})
 }
 
@@ -532,9 +568,9 @@ func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, e
 	return json.Marshal(map[string]any{
 		"ColumnList": buildDemoColumns(),
 		"TableName": map[string]any{
-			"schema": req.Schema,
-			"name":   req.Table,
-			"type":   "TABLE",
+			keySchema: req.Schema,
+			keyName:   req.Table,
+			keyType:   valTABLE,
 		},
 	})
 }
@@ -546,8 +582,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceNotFoundException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceNotFoundException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
@@ -555,26 +591,26 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.Is(err, ErrValidation),
 		errors.Is(err, ErrNoResultSet):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ValidationException",
-			"message": err.Error(),
+			keyTypeField:    errValidationException,
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "ValidationException",
-			"message": err.Error(),
+			keyTypeField:    errValidationException,
+			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errMissingID),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "ValidationException",
-			"message": err.Error(),
+			keyTypeField:    errValidationException,
+			keyMessageField: err.Error(),
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"__type":  "InternalServerException",
-			"message": err.Error(),
+			keyTypeField:    "InternalServerException",
+			keyMessageField: err.Error(),
 		})
 	}
 }
@@ -589,13 +625,13 @@ func epochSeconds(t time.Time) float64 {
 func statementToListItem(stmt *Statement) map[string]any {
 	item := map[string]any{
 		"Id":               stmt.ID,
-		"Status":           stmt.Status,
-		"QueryString":      stmt.QueryString,
+		keyStatusField:     stmt.Status,
+		keyQueryString:     stmt.QueryString,
 		"IsBatchStatement": stmt.IsBatchStatement,
-		"HasResultSet":     stmt.HasResultSet,
-		"CreatedAt":        epochSeconds(stmt.CreatedAt),
-		"UpdatedAt":        epochSeconds(stmt.UpdatedAt),
-		"Duration":         stmt.DurationMs,
+		keyHasResultSet:    stmt.HasResultSet,
+		keyCreatedAt:       epochSeconds(stmt.CreatedAt),
+		keyUpdatedAt:       epochSeconds(stmt.UpdatedAt),
+		keyDuration:        stmt.DurationMs,
 	}
 
 	if stmt.StatementName != "" {
@@ -629,13 +665,13 @@ func statementToListItem(stmt *Statement) map[string]any {
 func statementToDescribeResponse(stmt *Statement) map[string]any {
 	resp := map[string]any{
 		"Id":               stmt.ID,
-		"Status":           stmt.Status,
-		"QueryString":      stmt.QueryString,
-		"HasResultSet":     stmt.HasResultSet,
+		keyStatusField:     stmt.Status,
+		keyQueryString:     stmt.QueryString,
+		keyHasResultSet:    stmt.HasResultSet,
 		"IsBatchStatement": stmt.IsBatchStatement,
-		"CreatedAt":        epochSeconds(stmt.CreatedAt),
-		"UpdatedAt":        epochSeconds(stmt.UpdatedAt),
-		"Duration":         stmt.DurationMs,
+		keyCreatedAt:       epochSeconds(stmt.CreatedAt),
+		keyUpdatedAt:       epochSeconds(stmt.UpdatedAt),
+		keyDuration:        stmt.DurationMs,
 		"ResultRows":       stmt.ResultRows,
 		"ResultSize":       stmt.ResultSize,
 		"WithEvent":        stmt.WithEvent,
@@ -681,15 +717,15 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		subs := make([]map[string]any, len(stmt.SubStatements))
 		for i, sub := range stmt.SubStatements {
 			subs[i] = map[string]any{
-				"Id":           sub.ID,
-				"CreatedAt":    epochSeconds(sub.CreatedAt),
-				"UpdatedAt":    epochSeconds(sub.UpdatedAt),
-				"QueryString":  sub.QueryString,
-				"Status":       sub.Status,
-				"HasResultSet": sub.HasResultSet,
-				"Duration":     sub.DurationMs,
-				"ResultRows":   sub.ResultRows,
-				"ResultSize":   sub.ResultSize,
+				"Id":            sub.ID,
+				keyCreatedAt:    epochSeconds(sub.CreatedAt),
+				keyUpdatedAt:    epochSeconds(sub.UpdatedAt),
+				keyQueryString:  sub.QueryString,
+				keyStatusField:  sub.Status,
+				keyHasResultSet: sub.HasResultSet,
+				keyDuration:     sub.DurationMs,
+				"ResultRows":    sub.ResultRows,
+				"ResultSize":    sub.ResultSize,
 			}
 
 			if sub.Error != "" {
@@ -713,20 +749,20 @@ func buildDemoDatabases() []string {
 
 // buildDemoSchemas returns a realistic demo list of schema names.
 func buildDemoSchemas() []string {
-	return []string{"public", "information_schema", "pg_catalog", "raw", "curated"}
+	return []string{schemaPublic, schemaInfo, "pg_catalog", schemaTypeRaw, valCurated}
 }
 
 // buildDemoTables returns a realistic demo list of table descriptors.
 func buildDemoTables() []map[string]any {
 	return []map[string]any{
-		{"name": "users", "schema": "public", "type": "TABLE"},
-		{"name": "orders", "schema": "public", "type": "TABLE"},
-		{"name": "events", "schema": "raw", "type": "TABLE"},
-		{"name": "sessions", "schema": "raw", "type": "TABLE"},
-		{"name": "daily_summary", "schema": "curated", "type": "VIEW"},
-		{"name": "user_metrics", "schema": "curated", "type": "VIEW"},
-		{"name": "columns", "schema": "information_schema", "type": "TABLE"},
-		{"name": "tables", "schema": "information_schema", "type": "TABLE"},
+		{keyName: "users", keySchema: schemaPublic, keyType: valTABLE},
+		{keyName: "orders", keySchema: schemaPublic, keyType: valTABLE},
+		{keyName: "events", keySchema: schemaTypeRaw, keyType: valTABLE},
+		{keyName: "sessions", keySchema: schemaTypeRaw, keyType: valTABLE},
+		{keyName: "daily_summary", keySchema: valCurated, keyType: "VIEW"},
+		{keyName: "user_metrics", keySchema: valCurated, keyType: "VIEW"},
+		{keyName: "columns", keySchema: schemaInfo, keyType: valTABLE},
+		{keyName: "tables", keySchema: schemaInfo, keyType: valTABLE},
 	}
 }
 
@@ -742,39 +778,39 @@ func buildDemoColumns() []map[string]any {
 
 	return []map[string]any{
 		{
-			"name":       "id",
-			"typeName":   "int4",
-			"columnSize": sizeInt,
-			"nullable":   notNull,
-			"schemaName": "public",
+			keyName:       "id",
+			keyTypeName:   "int4",
+			keyColumnSize: sizeInt,
+			keyNullable:   notNull,
+			keySchemaName: schemaPublic,
 		},
 		{
-			"name":       "name",
-			"typeName":   "varchar",
-			"columnSize": sizeVarchar,
-			"nullable":   nullable,
-			"schemaName": "public",
+			keyName:       keyName,
+			keyTypeName:   typeVarchar,
+			keyColumnSize: sizeVarchar,
+			keyNullable:   nullable,
+			keySchemaName: schemaPublic,
 		},
 		{
-			"name":       "email",
-			"typeName":   "varchar",
-			"columnSize": sizeVarchar,
-			"nullable":   nullable,
-			"schemaName": "public",
+			keyName:       "email",
+			keyTypeName:   typeVarchar,
+			keyColumnSize: sizeVarchar,
+			keyNullable:   nullable,
+			keySchemaName: schemaPublic,
 		},
 		{
-			"name":       "created_at",
-			"typeName":   "timestamp",
-			"columnSize": sizeTimestamp,
-			"nullable":   nullable,
-			"schemaName": "public",
+			keyName:       "created_at",
+			keyTypeName:   "timestamp",
+			keyColumnSize: sizeTimestamp,
+			keyNullable:   nullable,
+			keySchemaName: schemaPublic,
 		},
 		{
-			"name":       "updated_at",
-			"typeName":   "timestamp",
-			"columnSize": sizeTimestamp,
-			"nullable":   nullable,
-			"schemaName": "public",
+			keyName:       "updated_at",
+			keyTypeName:   "timestamp",
+			keyColumnSize: sizeTimestamp,
+			keyNullable:   nullable,
+			keySchemaName: schemaPublic,
 		},
 	}
 }

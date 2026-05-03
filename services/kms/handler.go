@@ -21,6 +21,24 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	opCreateGrant                         = "CreateGrant"
+	opDecrypt                             = "Decrypt"
+	opDeriveSharedSecret                  = "DeriveSharedSecret"
+	opDescribeKey                         = "DescribeKey"
+	opEncrypt                             = "Encrypt"
+	opGenerateDataKey                     = "GenerateDataKey"
+	opGenerateDataKeyPair                 = "GenerateDataKeyPair"
+	opGenerateDataKeyPairWithoutPlaintext = "GenerateDataKeyPairWithoutPlaintext"
+	opGenerateDataKeyWithoutPlaintext     = "GenerateDataKeyWithoutPlaintext"
+	opGenerateMac                         = "GenerateMac"
+	opGetPublicKey                        = "GetPublicKey"
+	opRetireGrant                         = "RetireGrant"
+	opSign                                = "Sign"
+	opVerify                              = "Verify"
+	opVerifyMac                           = "VerifyMac"
+)
+
 // ErrUnknownOperation is returned when the requested KMS operation is not supported.
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
@@ -199,31 +217,31 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ConnectCustomKeyStore",
 		"CreateAlias",
 		"CreateCustomKeyStore",
-		"CreateGrant",
+		opCreateGrant,
 		"CreateKey",
-		"Decrypt",
+		opDecrypt,
 		"DeleteAlias",
 		"DeleteCustomKeyStore",
 		"DeleteImportedKeyMaterial",
-		"DeriveSharedSecret",
+		opDeriveSharedSecret,
 		"DescribeCustomKeyStores",
-		"DescribeKey",
+		opDescribeKey,
 		"DisableKey",
 		"DisableKeyRotation",
 		"DisconnectCustomKeyStore",
 		"EnableKey",
 		"EnableKeyRotation",
-		"Encrypt",
-		"GenerateDataKey",
-		"GenerateDataKeyPair",
-		"GenerateDataKeyPairWithoutPlaintext",
-		"GenerateDataKeyWithoutPlaintext",
-		"GenerateMac",
+		opEncrypt,
+		opGenerateDataKey,
+		opGenerateDataKeyPair,
+		opGenerateDataKeyPairWithoutPlaintext,
+		opGenerateDataKeyWithoutPlaintext,
+		opGenerateMac,
 		"GenerateRandom",
 		"GetKeyPolicy",
 		"GetKeyRotationStatus",
 		"GetParametersForImport",
-		"GetPublicKey",
+		opGetPublicKey,
 		"ImportKeyMaterial",
 		"ListAliases",
 		"ListGrants",
@@ -235,19 +253,19 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutKeyPolicy",
 		"ReEncrypt",
 		"ReplicateKey",
-		"RetireGrant",
+		opRetireGrant,
 		"RevokeGrant",
 		"RotateKeyOnDemand",
 		"ScheduleKeyDeletion",
-		"Sign",
+		opSign,
 		"TagResource",
 		"UntagResource",
 		"UpdateAlias",
 		"UpdateCustomKeyStore",
 		"UpdateKeyDescription",
 		"UpdatePrimaryRegion",
-		"Verify",
-		"VerifyMac",
+		opVerify,
+		opVerifyMac,
 	}
 }
 
@@ -339,7 +357,7 @@ func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
 func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
 		"CreateKey": h.createKeyAction,
-		"DescribeKey": unmarshalAction(
+		opDescribeKey: unmarshalAction(
 			func(i *DescribeKeyInput) (any, error) { return h.Backend.DescribeKey(i) },
 		),
 		"ListKeys": unmarshalAction(func(i *ListKeysInput) (any, error) { return h.Backend.ListKeys(i) }),
@@ -400,7 +418,7 @@ func (h *Handler) createKeyAction(region string, b []byte) (any, error) {
 // buildCryptoActions returns dispatch entries for encrypt, decrypt, sign, verify, and data-key operations.
 func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"Encrypt": func(_ string, b []byte) (any, error) {
+		opEncrypt: func(_ string, b []byte) (any, error) {
 			var input EncryptInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -408,7 +426,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 
 			return h.Backend.Encrypt(&input)
 		},
-		"Decrypt": func(_ string, b []byte) (any, error) {
+		opDecrypt: func(_ string, b []byte) (any, error) {
 			var input DecryptInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -416,7 +434,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 
 			return h.Backend.Decrypt(&input)
 		},
-		"GenerateDataKey": func(_ string, b []byte) (any, error) {
+		opGenerateDataKey: func(_ string, b []byte) (any, error) {
 			var input GenerateDataKeyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -424,7 +442,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 
 			return h.Backend.GenerateDataKey(&input)
 		},
-		"GenerateDataKeyWithoutPlaintext": func(_ string, b []byte) (any, error) {
+		opGenerateDataKeyWithoutPlaintext: func(_ string, b []byte) (any, error) {
 			var input GenerateDataKeyWithoutPlaintextInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -440,7 +458,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 
 			return h.Backend.ReEncrypt(&input)
 		},
-		"Sign": func(_ string, b []byte) (any, error) {
+		opSign: func(_ string, b []byte) (any, error) {
 			var input SignInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -448,7 +466,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 
 			return h.Backend.Sign(&input)
 		},
-		"Verify": func(_ string, b []byte) (any, error) {
+		opVerify: func(_ string, b []byte) (any, error) {
 			var input VerifyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -456,7 +474,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 
 			return h.Backend.Verify(&input)
 		},
-		"GetPublicKey": func(_ string, b []byte) (any, error) {
+		opGetPublicKey: func(_ string, b []byte) (any, error) {
 			var input GetPublicKeyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -532,7 +550,7 @@ func (h *Handler) buildAliasRotationActions() map[string]kmsActionFn {
 // buildGrantPolicyActions returns dispatch entries for grant and key policy operations.
 func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"CreateGrant": func(_ string, b []byte) (any, error) {
+		opCreateGrant: func(_ string, b []byte) (any, error) {
 			var input CreateGrantInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -556,7 +574,7 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 
 			return struct{}{}, h.Backend.RevokeGrant(&input)
 		},
-		"RetireGrant": func(_ string, b []byte) (any, error) {
+		opRetireGrant: func(_ string, b []byte) (any, error) {
 			var input RetireGrantInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -821,7 +839,7 @@ func (h *Handler) buildCustomKeyStoreActions() map[string]kmsActionFn {
 
 			return struct{}{}, h.Backend.DisconnectCustomKeyStore(&input)
 		},
-		"DeriveSharedSecret": func(_ string, b []byte) (any, error) {
+		opDeriveSharedSecret: func(_ string, b []byte) (any, error) {
 			var input DeriveSharedSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -835,7 +853,7 @@ func (h *Handler) buildCustomKeyStoreActions() map[string]kmsActionFn {
 // buildGenerateAndMacActions returns dispatch entries for data key pair, MAC, and random operations.
 func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"GenerateDataKeyPair": func(_ string, b []byte) (any, error) {
+		opGenerateDataKeyPair: func(_ string, b []byte) (any, error) {
 			var input GenerateDataKeyPairInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -843,7 +861,7 @@ func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 
 			return h.Backend.GenerateDataKeyPair(&input)
 		},
-		"GenerateDataKeyPairWithoutPlaintext": func(_ string, b []byte) (any, error) {
+		opGenerateDataKeyPairWithoutPlaintext: func(_ string, b []byte) (any, error) {
 			var input GenerateDataKeyPairWithoutPlaintextInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -851,7 +869,7 @@ func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 
 			return h.Backend.GenerateDataKeyPairWithoutPlaintext(&input)
 		},
-		"GenerateMac": func(_ string, b []byte) (any, error) {
+		opGenerateMac: func(_ string, b []byte) (any, error) {
 			var input GenerateMacInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -867,7 +885,7 @@ func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 
 			return h.Backend.GenerateRandom(&input)
 		},
-		"VerifyMac": func(_ string, b []byte) (any, error) {
+		opVerifyMac: func(_ string, b []byte) (any, error) {
 			var input VerifyMacInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err

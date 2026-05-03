@@ -41,8 +41,16 @@ const (
 	defaultDocDBPort           = 27017
 	defaultInstanceClass       = "db.t3.medium"
 	defaultEngineVersion       = "4.0.0"
+	docDBEngineVersion5        = "5.0.0"
 	docDBEngine                = "docdb"
 	snapshotPercentageComplete = 100
+
+	paramEnabled   = "enabled"
+	paramTypeStr   = "string"
+	eventCatBackup = "backup"
+	eventCatCreate = "creation"
+	eventCatDelete = "deletion"
+	eventCatNotify = "notification"
 
 	defaultBackupWindow      = "00:00-01:00" //nolint:gosec // not a credential
 	defaultMaintenanceWindow = "mon:05:00-mon:05:30"
@@ -1218,20 +1226,20 @@ func (b *InMemoryBackend) DescribeDBClusterParameters(groupName string) ([]DBClu
 	params := []DBClusterParameter{
 		{
 			ParameterName:  "tls",
-			ParameterValue: "enabled",
+			ParameterValue: paramEnabled,
 			Description:    "Specifies the TLS setting",
 			Source:         "system",
 			ApplyType:      "static",
-			DataType:       "string",
+			DataType:       paramTypeStr,
 			IsModifiable:   true,
 		},
 		{
 			ParameterName:  "ttl_monitor",
-			ParameterValue: "enabled",
+			ParameterValue: paramEnabled,
 			Description:    "Specifies the TTL monitor setting",
 			Source:         "system",
 			ApplyType:      "dynamic",
-			DataType:       "string",
+			DataType:       paramTypeStr,
 			IsModifiable:   true,
 		},
 	}
@@ -1484,20 +1492,20 @@ func (b *InMemoryBackend) DescribeEngineDefaultClusterParameters(
 	return []DBClusterParameter{
 		{
 			ParameterName:  "tls",
-			ParameterValue: "enabled",
+			ParameterValue: paramEnabled,
 			Description:    "Specifies the TLS setting",
 			Source:         "engine-default",
 			ApplyType:      "static",
-			DataType:       "string",
+			DataType:       paramTypeStr,
 			IsModifiable:   true,
 		},
 		{
 			ParameterName:  "ttl_monitor",
-			ParameterValue: "enabled",
+			ParameterValue: paramEnabled,
 			Description:    "Specifies the TTL monitor setting",
 			Source:         "engine-default",
 			ApplyType:      "dynamic",
-			DataType:       "string",
+			DataType:       paramTypeStr,
 			IsModifiable:   true,
 		},
 	}
@@ -1733,8 +1741,8 @@ type DBEngineVersion struct {
 // DescribeDBEngineVersions returns available engine versions, optionally filtered.
 func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string) []DBEngineVersion {
 	all := []DBEngineVersion{
-		{Engine: docDBEngine, EngineVersion: "4.0.0", DBEngineDescription: "Amazon DocumentDB"},
-		{Engine: docDBEngine, EngineVersion: "5.0.0", DBEngineDescription: "Amazon DocumentDB"},
+		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBEngineDescription: "Amazon DocumentDB"},
+		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBEngineDescription: "Amazon DocumentDB"},
 	}
 	result := make([]DBEngineVersion, 0, len(all))
 	for _, v := range all {
@@ -1753,16 +1761,16 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 // DescribeEventCategories returns the event categories for DocDB.
 func (b *InMemoryBackend) DescribeEventCategories(sourceType string) []EventCategoryMap {
 	clusterCategories := []string{
-		"availability", "backup", "configuration change",
-		"creation", "deletion", "failover", "maintenance", "notification",
+		"availability", eventCatBackup, "configuration change",
+		eventCatCreate, eventCatDelete, "failover", "maintenance", eventCatNotify,
 	}
 	instanceCategories := []string{
-		"availability", "backup", "configuration change",
-		"creation", "deletion", "failover", "maintenance",
-		"notification", "recovery", "restoration",
+		"availability", eventCatBackup, "configuration change",
+		eventCatCreate, eventCatDelete, "failover", "maintenance",
+		eventCatNotify, "recovery", "restoration",
 	}
 	snapshotCategories := []string{
-		"backup", "creation", "deletion", "notification", "restoration",
+		eventCatBackup, eventCatCreate, eventCatDelete, eventCatNotify, "restoration",
 	}
 	all := []EventCategoryMap{
 		{SourceType: "db-cluster", EventCategories: clusterCategories},

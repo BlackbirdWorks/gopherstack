@@ -24,6 +24,58 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const ()
+
+const (
+	opSetAlarmState       = "SetAlarmState"
+	opUpdateAlarmMuteRule = "UpdateAlarmMuteRule"
+	opUpdateInsightRule   = "UpdateInsightRule"
+	opUpdateMetricStream  = "UpdateMetricStream"
+	opTestMetricFilter    = "TestMetricFilter"
+)
+
+const (
+	opPutMetricData        = "PutMetricData"
+	opGetMetricStatistics  = "GetMetricStatistics"
+	opGetMetricData        = "GetMetricData"
+	opListMetrics          = "ListMetrics"
+	opPutMetricAlarm       = "PutMetricAlarm"
+	opPutCompositeAlarm    = "PutCompositeAlarm"
+	opPutDashboard         = "PutDashboard"
+	opListDashboards       = "ListDashboards"
+	opPutAlarmMuteRule     = "PutAlarmMuteRule"
+	opPutAnomalyDetector   = "PutAnomalyDetector"
+	opPutInsightRule       = "PutInsightRule"
+	opGetInsightRuleReport = "GetInsightRuleReport"
+	opPutMetricStream      = "PutMetricStream"
+	opListMetricStreams    = "ListMetricStreams"
+	opGetMetricStream      = "GetMetricStream"
+	opPutMetricFilter      = "PutMetricFilter"
+)
+
+const (
+	opDescribeAlarms            = "DescribeAlarms"
+	opDescribeAlarmsForMetric   = "DescribeAlarmsForMetric"
+	opDescribeAlarmHistory      = "DescribeAlarmHistory"
+	opDeleteAlarms              = "DeleteAlarms"
+	opEnableAlarmActions        = "EnableAlarmActions"
+	opDisableAlarmActions       = "DisableAlarmActions"
+	opDeleteDashboards          = "DeleteDashboards"
+	opDeleteAlarmMuteRule       = "DeleteAlarmMuteRule"
+	opDeleteAnomalyDetector     = "DeleteAnomalyDetector"
+	opDeleteInsightRules        = "DeleteInsightRules"
+	opDeleteMetricStream        = "DeleteMetricStream"
+	opDescribeMetricFilters     = "DescribeMetricFilters"
+	opDeleteMetricFilter        = "DeleteMetricFilter"
+	opDescribeAlarmContributors = "DescribeAlarmContributors"
+	opDescribeAnomalyDetectors  = "DescribeAnomalyDetectors"
+	opDescribeInsightRules      = "DescribeInsightRules"
+	opDisableInsightRules       = "DisableInsightRules"
+	opEnableInsightRules        = "EnableInsightRules"
+	opGetAlarmMuteRule          = "GetAlarmMuteRule"
+	opGetDashboard              = "GetDashboard"
+)
+
 const cloudwatchNS = "http://monitoring.amazonaws.com/doc/2010-08-01/"
 
 // Handler is the Echo HTTP service handler for CloudWatch operations.
@@ -95,50 +147,50 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // GetSupportedOperations returns all mocked CloudWatch operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"PutMetricData",
-		"GetMetricStatistics",
-		"GetMetricData",
-		"ListMetrics",
-		"PutMetricAlarm",
-		"PutCompositeAlarm",
-		"DescribeAlarms",
-		"DescribeAlarmsForMetric",
-		"DescribeAlarmHistory",
-		"DeleteAlarms",
-		"SetAlarmState",
-		"EnableAlarmActions",
-		"DisableAlarmActions",
+		opPutMetricData,
+		opGetMetricStatistics,
+		opGetMetricData,
+		opListMetrics,
+		opPutMetricAlarm,
+		opPutCompositeAlarm,
+		opDescribeAlarms,
+		opDescribeAlarmsForMetric,
+		opDescribeAlarmHistory,
+		opDeleteAlarms,
+		opSetAlarmState,
+		opEnableAlarmActions,
+		opDisableAlarmActions,
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
-		"PutDashboard",
-		"GetDashboard",
-		"ListDashboards",
-		"DeleteDashboards",
-		"PutAlarmMuteRule",
-		"DeleteAlarmMuteRule",
-		"UpdateAlarmMuteRule",
-		"PutAnomalyDetector",
-		"DeleteAnomalyDetector",
-		"PutInsightRule",
-		"DeleteInsightRules",
-		"UpdateInsightRule",
-		"GetInsightRuleReport",
-		"PutMetricStream",
-		"ListMetricStreams",
-		"GetMetricStream",
-		"DeleteMetricStream",
-		"UpdateMetricStream",
-		"PutMetricFilter",
-		"DescribeMetricFilters",
-		"DeleteMetricFilter",
-		"TestMetricFilter",
-		"DescribeAlarmContributors",
-		"DescribeAnomalyDetectors",
-		"DescribeInsightRules",
-		"DisableInsightRules",
-		"EnableInsightRules",
-		"GetAlarmMuteRule",
+		opPutDashboard,
+		opGetDashboard,
+		opListDashboards,
+		opDeleteDashboards,
+		opPutAlarmMuteRule,
+		opDeleteAlarmMuteRule,
+		opUpdateAlarmMuteRule,
+		opPutAnomalyDetector,
+		opDeleteAnomalyDetector,
+		opPutInsightRule,
+		opDeleteInsightRules,
+		opUpdateInsightRule,
+		opGetInsightRuleReport,
+		opPutMetricStream,
+		opListMetricStreams,
+		opGetMetricStream,
+		opDeleteMetricStream,
+		opUpdateMetricStream,
+		opPutMetricFilter,
+		opDescribeMetricFilters,
+		opDeleteMetricFilter,
+		opTestMetricFilter,
+		opDescribeAlarmContributors,
+		opDescribeAnomalyDetectors,
+		opDescribeInsightRules,
+		opDisableInsightRules,
+		opEnableInsightRules,
+		opGetAlarmMuteRule,
 	}
 }
 
@@ -320,13 +372,13 @@ func (h *Handler) handleTargetRequest(c *echo.Context, r *http.Request) (bool, e
 // dispatchFormAction routes a form-encoded action to the appropriate handler.
 func (h *Handler) dispatchFormAction(action string, form url.Values, c *echo.Context) error {
 	switch action {
-	case "PutMetricData":
+	case opPutMetricData:
 		return h.handlePutMetricData(form, c)
-	case "GetMetricStatistics":
+	case opGetMetricStatistics:
 		return h.handleGetMetricStatistics(form, c)
-	case "GetMetricData":
+	case opGetMetricData:
 		return h.handleGetMetricData(form, c)
-	case "ListMetrics":
+	case opListMetrics:
 		return h.handleListMetrics(form, c)
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(form, c)
@@ -334,13 +386,13 @@ func (h *Handler) dispatchFormAction(action string, form url.Values, c *echo.Con
 		return h.handleTagResource(form, c)
 	case "UntagResource":
 		return h.handleUntagResource(form, c)
-	case "PutDashboard":
+	case opPutDashboard:
 		return h.handlePutDashboard(form, c)
-	case "GetDashboard":
+	case opGetDashboard:
 		return h.handleGetDashboard(form, c)
-	case "ListDashboards":
+	case opListDashboards:
 		return h.handleListDashboards(form, c)
-	case "DeleteDashboards":
+	case opDeleteDashboards:
 		return h.handleDeleteDashboards(form, c)
 	default:
 		return h.dispatchExtendedFormAction(action, form, c)
@@ -354,25 +406,25 @@ func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *
 	}
 
 	switch action {
-	case "DeleteAlarmMuteRule":
+	case opDeleteAlarmMuteRule:
 		return h.handleDeleteAlarmMuteRule(form, c)
-	case "GetAlarmMuteRule":
+	case opGetAlarmMuteRule:
 		return h.handleGetAlarmMuteRule(form, c)
-	case "ListMetricStreams":
+	case opListMetricStreams:
 		return h.handleListMetricStreams(form, c)
-	case "GetMetricStream":
+	case opGetMetricStream:
 		return h.handleGetMetricStream(form, c)
-	case "DeleteMetricStream":
+	case opDeleteMetricStream:
 		return h.handleDeleteMetricStream(form, c)
-	case "PutMetricFilter":
+	case opPutMetricFilter:
 		return h.handlePutMetricFilter(form, c)
-	case "DescribeMetricFilters":
+	case opDescribeMetricFilters:
 		return h.handleDescribeMetricFilters(form, c)
-	case "DeleteMetricFilter":
+	case opDeleteMetricFilter:
 		return h.handleDeleteMetricFilter(form, c)
-	case "TestMetricFilter":
+	case opTestMetricFilter:
 		return h.handleTestMetricFilter(form, c)
-	case "DescribeAlarmContributors":
+	case opDescribeAlarmContributors:
 		return h.handleDescribeAlarmContributors(form, c)
 	default:
 		return h.dispatchResourceUpsertFormAction(action, form, c)
@@ -383,21 +435,21 @@ func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *
 // Returns (true, err) when the action was handled, (false, nil) otherwise.
 func (h *Handler) dispatchAnomalyInsightFormAction(action string, form url.Values, c *echo.Context) (bool, error) {
 	switch action {
-	case "PutAnomalyDetector":
+	case opPutAnomalyDetector:
 		return true, h.handlePutAnomalyDetector(form, c)
-	case "DeleteAnomalyDetector":
+	case opDeleteAnomalyDetector:
 		return true, h.handleDeleteAnomalyDetector(form, c)
-	case "DescribeAnomalyDetectors":
+	case opDescribeAnomalyDetectors:
 		return true, h.handleDescribeAnomalyDetectors(form, c)
-	case "DeleteInsightRules":
+	case opDeleteInsightRules:
 		return true, h.handleDeleteInsightRules(form, c)
-	case "DescribeInsightRules":
+	case opDescribeInsightRules:
 		return true, h.handleDescribeInsightRules(form, c)
-	case "DisableInsightRules":
+	case opDisableInsightRules:
 		return true, h.handleDisableInsightRules(form, c)
-	case "EnableInsightRules":
+	case opEnableInsightRules:
 		return true, h.handleEnableInsightRules(form, c)
-	case "GetInsightRuleReport":
+	case opGetInsightRuleReport:
 		return true, h.handleGetInsightRuleReport(form, c)
 	}
 
@@ -410,17 +462,17 @@ func (h *Handler) dispatchResourceUpsertFormAction(
 	c *echo.Context,
 ) error {
 	switch action {
-	case "PutAlarmMuteRule":
+	case opPutAlarmMuteRule:
 		return h.handlePutAlarmMuteRule(form, c)
-	case "UpdateAlarmMuteRule":
+	case opUpdateAlarmMuteRule:
 		return h.handleUpdateAlarmMuteRule(form, c)
-	case "PutInsightRule":
+	case opPutInsightRule:
 		return h.handlePutInsightRule(form, c)
-	case "UpdateInsightRule":
+	case opUpdateInsightRule:
 		return h.handleUpdateInsightRule(form, c)
-	case "PutMetricStream":
+	case opPutMetricStream:
 		return h.handlePutMetricStream(form, c)
-	case "UpdateMetricStream":
+	case opUpdateMetricStream:
 		return h.handleUpdateMetricStream(form, c)
 	default:
 		return h.dispatchAlarmFormAction(action, form, c)
@@ -430,23 +482,23 @@ func (h *Handler) dispatchResourceUpsertFormAction(
 // dispatchAlarmFormAction routes alarm-specific form-encoded actions.
 func (h *Handler) dispatchAlarmFormAction(action string, form url.Values, c *echo.Context) error {
 	switch action {
-	case "PutMetricAlarm":
+	case opPutMetricAlarm:
 		return h.handlePutMetricAlarm(form, c)
-	case "PutCompositeAlarm":
+	case opPutCompositeAlarm:
 		return h.handlePutCompositeAlarm(form, c)
-	case "DescribeAlarms":
+	case opDescribeAlarms:
 		return h.handleDescribeAlarms(form, c)
-	case "DescribeAlarmsForMetric":
+	case opDescribeAlarmsForMetric:
 		return h.handleDescribeAlarmsForMetric(form, c)
-	case "DescribeAlarmHistory":
+	case opDescribeAlarmHistory:
 		return h.handleDescribeAlarmHistory(form, c)
-	case "DeleteAlarms":
+	case opDeleteAlarms:
 		return h.handleDeleteAlarms(form, c)
-	case "SetAlarmState":
+	case opSetAlarmState:
 		return h.handleSetAlarmState(form, c)
-	case "EnableAlarmActions":
+	case opEnableAlarmActions:
 		return h.handleEnableAlarmActions(form, c)
-	case "DisableAlarmActions":
+	case opDisableAlarmActions:
 		return h.handleDisableAlarmActions(form, c)
 	default:
 		return h.xmlError(c, http.StatusBadRequest, "InvalidAction", "unknown action: "+action)
@@ -1962,7 +2014,7 @@ func (h *Handler) handlePutAnomalyDetector(form url.Values, c *echo.Context) err
 		Namespace:  namespace,
 		MetricName: metricName,
 		Stat:       stat,
-		StateValue: "TRAINED_INSUFFICIENT_DATA",
+		StateValue: statusTrainedInsufficient,
 	}); err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}

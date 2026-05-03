@@ -20,6 +20,7 @@ import (
 const (
 	kinesisanalyticsTargetPrefix = "KinesisAnalytics_20150814."
 	kinesisanalyticsService      = "kinesisanalytics"
+	errInvalidArgumentException  = "InvalidArgumentException"
 )
 
 var (
@@ -204,7 +205,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			errorResponse{Type: "ResourceInUseException", Message: err.Error()})
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest,
-			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
+			errorResponse{Type: errInvalidArgumentException, Message: err.Error()})
 	case errors.Is(err, ErrConcurrentUpdate):
 		return c.JSON(http.StatusBadRequest,
 			errorResponse{Type: "ConcurrentModificationException", Message: err.Error()})
@@ -212,7 +213,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errors.As(err, &syntaxErr),
 		errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest,
-			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
+			errorResponse{Type: errInvalidArgumentException, Message: err.Error()})
 	case errors.Is(err, errApplicationName),
 		errors.Is(err, errResourceARN),
 		errors.Is(err, errInputID),
@@ -220,7 +221,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errors.Is(err, errReferenceID),
 		errors.Is(err, errCWLOptionID):
 		return c.JSON(http.StatusBadRequest,
-			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
+			errorResponse{Type: errInvalidArgumentException, Message: err.Error()})
 	default:
 		return c.JSON(http.StatusInternalServerError,
 			errorResponse{Type: "InternalServiceException", Message: err.Error()})

@@ -13,7 +13,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-const layerUploadPartSize = 20 * 1024 * 1024
+const (
+	layerUploadPartSize = 20 * 1024 * 1024
+	scanTypeBasic       = "BASIC"
+	scanStatusComplete  = "COMPLETE"
+	imageStatusActive   = "ACTIVE"
+)
 
 var (
 	// ErrRepositoryNotFound is returned when a repository does not exist.
@@ -388,7 +393,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		imageScanFindings:           make(map[string]map[string]*ImageScanFindingsResult),
 		accountSettings:             make(map[string]string),
 		pullTimeUpdateExclusions:    make(map[string]*PullTimeUpdateExclusion),
-		registryScanningConfig:      &RegistryScanningSettings{ScanType: "BASIC"},
+		registryScanningConfig:      &RegistryScanningSettings{ScanType: scanTypeBasic},
 		replicationConfig:           &ReplicationConfig{},
 		mu:                          lockmetrics.New("ecr"),
 		accountID:                   accountID,
@@ -1047,7 +1052,7 @@ func (b *InMemoryBackend) StartLifecyclePolicyPreview(
 		PreviewResults:      images,
 		RepositoryName:      repositoryName,
 		RegistryID:          b.accountID,
-		Status:              "COMPLETE",
+		Status:              scanStatusComplete,
 	}
 	b.lifecyclePolicyPreviews[repositoryName] = preview
 
@@ -1190,7 +1195,7 @@ func (b *InMemoryBackend) GetRegistryPolicy() (*RegistryPolicyResult, error) {
 	return &RegistryPolicyResult{
 		PolicyText: b.registryPolicy,
 		RegistryID: b.accountID,
-		Status:     "ACTIVE",
+		Status:     imageStatusActive,
 	}, nil
 }
 
@@ -1224,11 +1229,11 @@ func (b *InMemoryBackend) PutRegistryScanningConfiguration(
 	defer b.mu.Unlock()
 
 	if settings == nil {
-		settings = &RegistryScanningSettings{ScanType: "BASIC"}
+		settings = &RegistryScanningSettings{ScanType: scanTypeBasic}
 	}
 
 	if settings.ScanType == "" {
-		settings.ScanType = "BASIC"
+		settings.ScanType = scanTypeBasic
 	}
 
 	b.registryScanningConfig = copyRegistryScanningSettings(settings)
@@ -1357,7 +1362,7 @@ func (b *InMemoryBackend) DescribeImageSigningStatus(
 		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 	}
 
-	out := []ImageSigningStatusRecord{{Status: "COMPLETE"}}
+	out := []ImageSigningStatusRecord{{Status: scanStatusComplete}}
 	if b.signingConfig != nil && len(b.signingConfig.Rules) > 0 {
 		out[0].SigningProfileArn = b.signingConfig.Rules[0].SigningProfileArn
 	}
@@ -1390,7 +1395,7 @@ func (b *InMemoryBackend) DescribeImageScanFindings(
 			ImageID:               img.ImageID,
 			RepositoryName:        repositoryName,
 			RegistryID:            b.accountID,
-			Status:                "COMPLETE",
+			Status:                scanStatusComplete,
 			Description:           "The scan completed successfully with no findings.",
 			CompletedAt:           time.Now(),
 		}
@@ -1423,7 +1428,7 @@ func (b *InMemoryBackend) StartImageScan(
 		ImageID:               img.ImageID,
 		RepositoryName:        repositoryName,
 		RegistryID:            b.accountID,
-		Status:                "COMPLETE",
+		Status:                scanStatusComplete,
 		Description:           "The scan completed successfully with no findings.",
 		CompletedAt:           time.Now(),
 	}
@@ -1510,7 +1515,7 @@ func (b *InMemoryBackend) PutImage(repositoryName string, image Image) (*Image, 
 	}
 
 	if image.ImageStatus == "" {
-		image.ImageStatus = "ACTIVE"
+		image.ImageStatus = imageStatusActive
 	}
 
 	if b.images[repositoryName] == nil {
@@ -1588,7 +1593,7 @@ func (b *InMemoryBackend) DescribeImageReplicationStatus(
 	return &ImageReplicationStatusResult{
 		ImageID:           img.ImageID,
 		RepositoryName:    repositoryName,
-		ReplicationStatus: "COMPLETE",
+		ReplicationStatus: scanStatusComplete,
 	}, nil
 }
 
@@ -1823,7 +1828,7 @@ func copyRepositoryCreationTemplate(in *RepositoryCreationTemplate) RepositoryCr
 
 func copyRegistryScanningSettings(in *RegistryScanningSettings) *RegistryScanningSettings {
 	if in == nil {
-		return &RegistryScanningSettings{ScanType: "BASIC"}
+		return &RegistryScanningSettings{ScanType: scanTypeBasic}
 	}
 
 	out := &RegistryScanningSettings{
@@ -1904,7 +1909,7 @@ func (b *InMemoryBackend) Reset() {
 	b.accountSettings = make(map[string]string)
 	b.pullTimeUpdateExclusions = make(map[string]*PullTimeUpdateExclusion)
 	b.registryPolicy = ""
-	b.registryScanningConfig = &RegistryScanningSettings{ScanType: "BASIC"}
+	b.registryScanningConfig = &RegistryScanningSettings{ScanType: scanTypeBasic}
 	b.replicationConfig = &ReplicationConfig{}
 	b.signingConfig = nil
 }

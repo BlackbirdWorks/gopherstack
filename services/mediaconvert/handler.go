@@ -14,6 +14,43 @@ import (
 )
 
 const (
+	opUnknown = "Unknown"
+)
+
+const (
+	opAssociateCertificate    = "AssociateCertificate"
+	opCancelJob               = "CancelJob"
+	opCreateJob               = "CreateJob"
+	opCreateJobTemplate       = "CreateJobTemplate"
+	opCreatePreset            = "CreatePreset"
+	opCreateQueue             = "CreateQueue"
+	opCreateResourceShare     = "CreateResourceShare"
+	opDeleteJobTemplate       = "DeleteJobTemplate"
+	opDeletePolicy            = "DeletePolicy"
+	opDeletePreset            = "DeletePreset"
+	opDeleteQueue             = "DeleteQueue"
+	opDescribeEndpoints       = "DescribeEndpoints"
+	opDisassociateCertificate = "DisassociateCertificate"
+	opGetJob                  = "GetJob"
+	opGetJobTemplate          = "GetJobTemplate"
+	opGetJobsQueryResults     = "GetJobsQueryResults"
+	opGetPolicy               = "GetPolicy"
+	opGetPreset               = "GetPreset"
+	opGetQueue                = "GetQueue"
+	opListJobTemplates        = "ListJobTemplates"
+	opListJobs                = "ListJobs"
+	opListPresets             = "ListPresets"
+	opListQueues              = "ListQueues"
+	opListTagsForResource     = "ListTagsForResource"
+	opPutPolicy               = "PutPolicy"
+	opTagResource             = "TagResource"
+	opUntagResource           = "UntagResource"
+	opUpdateJobTemplate       = "UpdateJobTemplate"
+	opUpdatePreset            = "UpdatePreset"
+	opUpdateQueue             = "UpdateQueue"
+)
+
+const (
 	mcMatchPriority    = service.PriorityPathVersioned
 	pathPrefix         = "/2017-08-29/"
 	queuesPath         = "/2017-08-29/queues"
@@ -49,36 +86,36 @@ func (h *Handler) Name() string { return "MediaConvert" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"AssociateCertificate",
-		"CancelJob",
-		"CreateJob",
-		"CreateJobTemplate",
-		"CreatePreset",
-		"CreateQueue",
-		"CreateResourceShare",
-		"DeleteJobTemplate",
-		"DeletePolicy",
-		"DeletePreset",
-		"DeleteQueue",
-		"DescribeEndpoints",
-		"DisassociateCertificate",
-		"GetJob",
-		"GetJobTemplate",
-		"GetJobsQueryResults",
-		"GetPolicy",
-		"GetPreset",
-		"GetQueue",
-		"ListJobTemplates",
-		"ListJobs",
-		"ListPresets",
-		"ListQueues",
-		"ListTagsForResource",
-		"PutPolicy",
-		"TagResource",
-		"UntagResource",
-		"UpdateJobTemplate",
-		"UpdatePreset",
-		"UpdateQueue",
+		opAssociateCertificate,
+		opCancelJob,
+		opCreateJob,
+		opCreateJobTemplate,
+		opCreatePreset,
+		opCreateQueue,
+		opCreateResourceShare,
+		opDeleteJobTemplate,
+		opDeletePolicy,
+		opDeletePreset,
+		opDeleteQueue,
+		opDescribeEndpoints,
+		opDisassociateCertificate,
+		opGetJob,
+		opGetJobTemplate,
+		opGetJobsQueryResults,
+		opGetPolicy,
+		opGetPreset,
+		opGetQueue,
+		opListJobTemplates,
+		opListJobs,
+		opListPresets,
+		opListQueues,
+		opListTagsForResource,
+		opPutPolicy,
+		opTagResource,
+		opUntagResource,
+		opUpdateJobTemplate,
+		opUpdatePreset,
+		opUpdateQueue,
 	}
 }
 
@@ -149,29 +186,29 @@ func (h *Handler) dispatch(c *echo.Context, route mcRoute) error {
 // This includes both read operations and DELETE operations where no body is needed.
 func (h *Handler) dispatchReadOnly(c *echo.Context, route mcRoute) (bool, error) {
 	switch route.operation {
-	case "ListQueues":
+	case opListQueues:
 		return true, h.handleListQueues(c)
-	case "GetQueue":
+	case opGetQueue:
 		return true, h.handleGetQueue(c, route.resource)
-	case "DeleteQueue":
+	case opDeleteQueue:
 		return true, h.handleDeleteQueue(c, route.resource)
-	case "ListJobTemplates":
+	case opListJobTemplates:
 		return true, h.handleListJobTemplates(c)
-	case "GetJobTemplate":
+	case opGetJobTemplate:
 		return true, h.handleGetJobTemplate(c, route.resource)
-	case "DeleteJobTemplate":
+	case opDeleteJobTemplate:
 		return true, h.handleDeleteJobTemplate(c, route.resource)
-	case "ListJobs":
+	case opListJobs:
 		return true, h.handleListJobs(c)
-	case "GetJob":
+	case opGetJob:
 		return true, h.handleGetJob(c, route.resource)
-	case "CancelJob":
+	case opCancelJob:
 		return true, h.handleCancelJob(c, route.resource)
-	case "DescribeEndpoints":
+	case opDescribeEndpoints:
 		return true, h.handleDescribeEndpoints(c)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return true, h.handleListTagsForResource(c, route.resource)
-	case "UntagResource":
+	case opUntagResource:
 		return true, h.handleUntagResource(c, route.resource)
 	}
 
@@ -182,19 +219,19 @@ func (h *Handler) dispatchReadOnly(c *echo.Context, route mcRoute) (bool, error)
 // These are the operations added after the initial implementation.
 func (h *Handler) dispatchReadOnlyNewOps(c *echo.Context, route mcRoute) (bool, error) {
 	switch route.operation {
-	case "ListPresets":
+	case opListPresets:
 		return true, h.handleListPresets(c)
-	case "GetPreset":
+	case opGetPreset:
 		return true, h.handleGetPreset(c, route.resource)
-	case "DeletePreset":
+	case opDeletePreset:
 		return true, h.handleDeletePreset(c, route.resource)
-	case "GetPolicy":
+	case opGetPolicy:
 		return true, h.handleGetPolicy(c)
-	case "DeletePolicy":
+	case opDeletePolicy:
 		return true, h.handleDeletePolicy(c)
-	case "DisassociateCertificate":
+	case opDisassociateCertificate:
 		return true, h.handleDisassociateCertificate(c, route.resource)
-	case "GetJobsQueryResults":
+	case opGetJobsQueryResults:
 		return true, h.handleGetJobsQueryResults(c, route.resource)
 	}
 
@@ -209,27 +246,27 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mcRoute, readBody func
 	}
 
 	switch route.operation {
-	case "CreateQueue":
+	case opCreateQueue:
 		return h.handleCreateQueue(c, body)
-	case "UpdateQueue":
+	case opUpdateQueue:
 		return h.handleUpdateQueue(c, route.resource, body)
-	case "CreateJobTemplate":
+	case opCreateJobTemplate:
 		return h.handleCreateJobTemplate(c, body)
-	case "UpdateJobTemplate":
+	case opUpdateJobTemplate:
 		return h.handleUpdateJobTemplate(c, route.resource, body)
-	case "CreateJob":
+	case opCreateJob:
 		return h.handleCreateJob(c, body)
-	case "TagResource":
+	case opTagResource:
 		return h.handleTagResource(c, route.resource, body)
-	case "CreatePreset":
+	case opCreatePreset:
 		return h.handleCreatePreset(c, body)
-	case "UpdatePreset":
+	case opUpdatePreset:
 		return h.handleUpdatePreset(c, route.resource, body)
-	case "PutPolicy":
+	case opPutPolicy:
 		return h.handlePutPolicy(c, body)
-	case "AssociateCertificate":
+	case opAssociateCertificate:
 		return h.handleAssociateCertificate(c, body)
-	case "CreateResourceShare":
+	case opCreateResourceShare:
 		return h.handleCreateResourceShare(c, body)
 	}
 
@@ -265,14 +302,14 @@ func parseRoute(method, path string) mcRoute {
 	case path == policyPath:
 		return parsePolicyRoute(method)
 	case path == endpointsPath:
-		return mcRoute{operation: "DescribeEndpoints"}
+		return mcRoute{operation: opDescribeEndpoints}
 	case path == resourceSharesPath:
 		if method == http.MethodPost {
-			return mcRoute{operation: "CreateResourceShare"}
+			return mcRoute{operation: opCreateResourceShare}
 		}
 	}
 
-	return mcRoute{operation: "Unknown"}
+	return mcRoute{operation: opUnknown}
 }
 
 func parseQueueRoute(method, suffix string) mcRoute {
@@ -281,22 +318,22 @@ func parseQueueRoute(method, suffix string) mcRoute {
 	if name == "" {
 		switch method {
 		case http.MethodGet:
-			return mcRoute{operation: "ListQueues"}
+			return mcRoute{operation: opListQueues}
 		case http.MethodPost:
-			return mcRoute{operation: "CreateQueue"}
+			return mcRoute{operation: opCreateQueue}
 		}
 	}
 
 	switch method {
 	case http.MethodGet:
-		return mcRoute{operation: "GetQueue", resource: name}
+		return mcRoute{operation: opGetQueue, resource: name}
 	case http.MethodPut:
-		return mcRoute{operation: "UpdateQueue", resource: name}
+		return mcRoute{operation: opUpdateQueue, resource: name}
 	case http.MethodDelete:
-		return mcRoute{operation: "DeleteQueue", resource: name}
+		return mcRoute{operation: opDeleteQueue, resource: name}
 	}
 
-	return mcRoute{operation: "Unknown"}
+	return mcRoute{operation: opUnknown}
 }
 
 func parseJobTemplateRoute(method, suffix string) mcRoute {
@@ -305,22 +342,22 @@ func parseJobTemplateRoute(method, suffix string) mcRoute {
 	if name == "" {
 		switch method {
 		case http.MethodGet:
-			return mcRoute{operation: "ListJobTemplates"}
+			return mcRoute{operation: opListJobTemplates}
 		case http.MethodPost:
-			return mcRoute{operation: "CreateJobTemplate"}
+			return mcRoute{operation: opCreateJobTemplate}
 		}
 	}
 
 	switch method {
 	case http.MethodGet:
-		return mcRoute{operation: "GetJobTemplate", resource: name}
+		return mcRoute{operation: opGetJobTemplate, resource: name}
 	case http.MethodPut:
-		return mcRoute{operation: "UpdateJobTemplate", resource: name}
+		return mcRoute{operation: opUpdateJobTemplate, resource: name}
 	case http.MethodDelete:
-		return mcRoute{operation: "DeleteJobTemplate", resource: name}
+		return mcRoute{operation: opDeleteJobTemplate, resource: name}
 	}
 
-	return mcRoute{operation: "Unknown"}
+	return mcRoute{operation: opUnknown}
 }
 
 func parseJobRoute(method, suffix string) mcRoute {
@@ -329,20 +366,20 @@ func parseJobRoute(method, suffix string) mcRoute {
 	if id == "" {
 		switch method {
 		case http.MethodGet:
-			return mcRoute{operation: "ListJobs"}
+			return mcRoute{operation: opListJobs}
 		case http.MethodPost:
-			return mcRoute{operation: "CreateJob"}
+			return mcRoute{operation: opCreateJob}
 		}
 	}
 
 	switch method {
 	case http.MethodGet:
-		return mcRoute{operation: "GetJob", resource: id}
+		return mcRoute{operation: opGetJob, resource: id}
 	case http.MethodDelete:
-		return mcRoute{operation: "CancelJob", resource: id}
+		return mcRoute{operation: opCancelJob, resource: id}
 	}
 
-	return mcRoute{operation: "Unknown"}
+	return mcRoute{operation: opUnknown}
 }
 
 func parseTagRoute(method, suffix string) mcRoute {
@@ -350,14 +387,14 @@ func parseTagRoute(method, suffix string) mcRoute {
 
 	switch method {
 	case http.MethodGet:
-		return mcRoute{operation: "ListTagsForResource", resource: resourceARN}
+		return mcRoute{operation: opListTagsForResource, resource: resourceARN}
 	case http.MethodPost:
-		return mcRoute{operation: "TagResource", resource: resourceARN}
+		return mcRoute{operation: opTagResource, resource: resourceARN}
 	case http.MethodDelete:
-		return mcRoute{operation: "UntagResource", resource: resourceARN}
+		return mcRoute{operation: opUntagResource, resource: resourceARN}
 	}
 
-	return mcRoute{operation: "Unknown"}
+	return mcRoute{operation: opUnknown}
 }
 
 func parsePresetRoute(method, suffix string) mcRoute {
@@ -366,35 +403,35 @@ func parsePresetRoute(method, suffix string) mcRoute {
 	if name == "" {
 		switch method {
 		case http.MethodGet:
-			return mcRoute{operation: "ListPresets"}
+			return mcRoute{operation: opListPresets}
 		case http.MethodPost:
-			return mcRoute{operation: "CreatePreset"}
+			return mcRoute{operation: opCreatePreset}
 		}
 	}
 
 	switch method {
 	case http.MethodGet:
-		return mcRoute{operation: "GetPreset", resource: name}
+		return mcRoute{operation: opGetPreset, resource: name}
 	case http.MethodPut:
-		return mcRoute{operation: "UpdatePreset", resource: name}
+		return mcRoute{operation: opUpdatePreset, resource: name}
 	case http.MethodDelete:
-		return mcRoute{operation: "DeletePreset", resource: name}
+		return mcRoute{operation: opDeletePreset, resource: name}
 	}
 
-	return mcRoute{operation: "Unknown"}
+	return mcRoute{operation: opUnknown}
 }
 
 func parsePolicyRoute(method string) mcRoute {
 	switch method {
 	case http.MethodGet:
-		return mcRoute{operation: "GetPolicy"}
+		return mcRoute{operation: opGetPolicy}
 	case http.MethodPut:
-		return mcRoute{operation: "PutPolicy"}
+		return mcRoute{operation: opPutPolicy}
 	case http.MethodDelete:
-		return mcRoute{operation: "DeletePolicy"}
+		return mcRoute{operation: opDeletePolicy}
 	}
 
-	return mcRoute{operation: "Unknown"}
+	return mcRoute{operation: opUnknown}
 }
 
 func parseCertificateRoute(method, suffix string) mcRoute {
@@ -402,27 +439,27 @@ func parseCertificateRoute(method, suffix string) mcRoute {
 
 	if certARN == "" {
 		if method == http.MethodPost {
-			return mcRoute{operation: "AssociateCertificate"}
+			return mcRoute{operation: opAssociateCertificate}
 		}
 
-		return mcRoute{operation: "Unknown"}
+		return mcRoute{operation: opUnknown}
 	}
 
 	if method == http.MethodDelete {
-		return mcRoute{operation: "DisassociateCertificate", resource: certARN}
+		return mcRoute{operation: opDisassociateCertificate, resource: certARN}
 	}
 
-	return mcRoute{operation: "Unknown"}
+	return mcRoute{operation: opUnknown}
 }
 
 func parseJobsQueriesRoute(method, suffix string) mcRoute {
 	id := strings.TrimPrefix(suffix, "/")
 
 	if id != "" && method == http.MethodGet {
-		return mcRoute{operation: "GetJobsQueryResults", resource: id}
+		return mcRoute{operation: opGetJobsQueryResults, resource: id}
 	}
 
-	return mcRoute{operation: "Unknown"}
+	return mcRoute{operation: opUnknown}
 }
 
 // --- Queue handlers ---

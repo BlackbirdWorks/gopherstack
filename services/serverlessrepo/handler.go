@@ -20,6 +20,32 @@ import (
 )
 
 const (
+	keyTypeField       = "__type"
+	keyMessageField    = "message"
+	keyApplicationID   = "applicationId"
+	keySemanticVersion = "semanticVersion"
+	keyCreationTime    = "creationTime"
+	keyTemplateURL     = "templateUrl"
+)
+
+const (
+	opCreateApplication             = "CreateApplication"
+	opCreateApplicationVersion      = "CreateApplicationVersion"
+	opCreateCloudFormationChangeSet = "CreateCloudFormationChangeSet"
+	opCreateCloudFormationTemplate  = "CreateCloudFormationTemplate"
+	opDeleteApplication             = "DeleteApplication"
+	opGetApplication                = "GetApplication"
+	opGetApplicationPolicy          = "GetApplicationPolicy"
+	opGetCloudFormationTemplate     = "GetCloudFormationTemplate"
+	opListApplicationDependencies   = "ListApplicationDependencies"
+	opListApplicationVersions       = "ListApplicationVersions"
+	opListApplications              = "ListApplications"
+	opPutApplicationPolicy          = "PutApplicationPolicy"
+	opUnshareApplication            = "UnshareApplication"
+	opUpdateApplication             = "UpdateApplication"
+)
+
+const (
 	serverlessrepoService       = "serverlessrepo"
 	serverlessrepoMatchPriority = 87
 	// pathSegmentsMax is used to split the URL path into at most 2 parts.
@@ -83,20 +109,20 @@ func (h *Handler) Name() string { return "ServerlessRepo" }
 // GetSupportedOperations returns the list of supported Serverless Application Repository operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateApplication",
-		"CreateApplicationVersion",
-		"CreateCloudFormationChangeSet",
-		"CreateCloudFormationTemplate",
-		"DeleteApplication",
-		"GetApplication",
-		"GetApplicationPolicy",
-		"GetCloudFormationTemplate",
-		"ListApplicationDependencies",
-		"ListApplicationVersions",
-		"ListApplications",
-		"PutApplicationPolicy",
-		"UnshareApplication",
-		"UpdateApplication",
+		opCreateApplication,
+		opCreateApplicationVersion,
+		opCreateCloudFormationChangeSet,
+		opCreateCloudFormationTemplate,
+		opDeleteApplication,
+		opGetApplication,
+		opGetApplicationPolicy,
+		opGetCloudFormationTemplate,
+		opListApplicationDependencies,
+		opListApplicationVersions,
+		opListApplications,
+		opPutApplicationPolicy,
+		opUnshareApplication,
+		opUpdateApplication,
 	}
 }
 
@@ -159,9 +185,9 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 func extractRootOp(method string) string {
 	switch method {
 	case http.MethodGet:
-		return "ListApplications"
+		return opListApplications
 	case http.MethodPost:
-		return "CreateApplication"
+		return opCreateApplication
 	}
 
 	return ""
@@ -171,11 +197,11 @@ func extractRootOp(method string) string {
 func extractSingleSegOp(method string) string {
 	switch method {
 	case http.MethodGet:
-		return "GetApplication"
+		return opGetApplication
 	case http.MethodPatch:
-		return "UpdateApplication"
+		return opUpdateApplication
 	case http.MethodDelete:
-		return "DeleteApplication"
+		return opDeleteApplication
 	}
 
 	return ""
@@ -188,23 +214,23 @@ func extractTwoSegOp(method, seg string) string {
 		return extractPolicyOp(method)
 	case pathSegChangesets:
 		if method == http.MethodPost {
-			return "CreateCloudFormationChangeSet"
+			return opCreateCloudFormationChangeSet
 		}
 	case pathSegTemplates:
 		if method == http.MethodPost {
-			return "CreateCloudFormationTemplate"
+			return opCreateCloudFormationTemplate
 		}
 	case pathSegVersions:
 		if method == http.MethodGet {
-			return "ListApplicationVersions"
+			return opListApplicationVersions
 		}
 	case pathSegDependencies:
 		if method == http.MethodGet {
-			return "ListApplicationDependencies"
+			return opListApplicationDependencies
 		}
 	case pathSegUnshare:
 		if method == http.MethodPost {
-			return "UnshareApplication"
+			return opUnshareApplication
 		}
 	}
 
@@ -215,9 +241,9 @@ func extractTwoSegOp(method, seg string) string {
 func extractPolicyOp(method string) string {
 	switch method {
 	case http.MethodGet:
-		return "GetApplicationPolicy"
+		return opGetApplicationPolicy
 	case http.MethodPut:
-		return "PutApplicationPolicy"
+		return opPutApplicationPolicy
 	}
 
 	return ""
@@ -227,9 +253,9 @@ func extractPolicyOp(method string) string {
 func extractThreeSegOp(method, seg string) string {
 	switch {
 	case seg == pathSegVersions && method == http.MethodPut:
-		return "CreateApplicationVersion"
+		return opCreateApplicationVersion
 	case seg == pathSegTemplates && method == http.MethodGet:
-		return "GetCloudFormationTemplate"
+		return opGetCloudFormationTemplate
 	}
 
 	return ""
@@ -304,29 +330,29 @@ func (h *Handler) dispatch(ctx context.Context, op string, req *http.Request, bo
 
 func (h *Handler) dispatchAppOps(ctx context.Context, op string, req *http.Request, body []byte) ([]byte, bool, error) {
 	switch op {
-	case "CreateApplication":
+	case opCreateApplication:
 		result, err := h.handleCreateApplication(ctx, body)
 
 		return result, true, err
-	case "GetApplication":
+	case opGetApplication:
 		result, err := h.handleGetApplication(req)
 
 		return result, true, err
-	case "ListApplications":
+	case opListApplications:
 		result, err := h.handleListApplications(req)
 
 		return result, true, err
-	case "UpdateApplication":
+	case opUpdateApplication:
 		result, err := h.handleUpdateApplication(ctx, req, body)
 
 		return result, true, err
-	case "DeleteApplication":
+	case opDeleteApplication:
 		return nil, true, h.handleDeleteApplication(ctx, req)
-	case "CreateApplicationVersion":
+	case opCreateApplicationVersion:
 		result, err := h.handleCreateApplicationVersion(ctx, req, body)
 
 		return result, true, err
-	case "ListApplicationVersions":
+	case opListApplicationVersions:
 		result, err := h.handleListApplicationVersions(req)
 
 		return result, true, err
@@ -337,15 +363,15 @@ func (h *Handler) dispatchAppOps(ctx context.Context, op string, req *http.Reque
 
 func (h *Handler) dispatchCFOps(ctx context.Context, op string, req *http.Request, body []byte) ([]byte, bool, error) {
 	switch op {
-	case "CreateCloudFormationTemplate":
+	case opCreateCloudFormationTemplate:
 		result, err := h.handleCreateCloudFormationTemplate(ctx, req, body)
 
 		return result, true, err
-	case "GetCloudFormationTemplate":
+	case opGetCloudFormationTemplate:
 		result, err := h.handleGetCloudFormationTemplate(req)
 
 		return result, true, err
-	case "CreateCloudFormationChangeSet":
+	case opCreateCloudFormationChangeSet:
 		result, err := h.handleCreateCloudFormationChangeSet(ctx, req, body)
 
 		return result, true, err
@@ -361,19 +387,19 @@ func (h *Handler) dispatchPolicyAndMiscOps(
 	body []byte,
 ) ([]byte, bool, error) {
 	switch op {
-	case "GetApplicationPolicy":
+	case opGetApplicationPolicy:
 		result, err := h.handleGetApplicationPolicy(req)
 
 		return result, true, err
-	case "PutApplicationPolicy":
+	case opPutApplicationPolicy:
 		result, err := h.handlePutApplicationPolicy(ctx, req, body)
 
 		return result, true, err
-	case "ListApplicationDependencies":
+	case opListApplicationDependencies:
 		result, err := h.handleListApplicationDependencies(req)
 
 		return result, true, err
-	case "UnshareApplication":
+	case opUnshareApplication:
 		return nil, true, h.handleUnshareApplication(ctx, req, body)
 	}
 
@@ -388,15 +414,15 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrNotFound):
 		// json.Marshal on map[string]string never returns an error; _ is intentional.
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "NotFoundException",
-			"message": err.Error(),
+			keyTypeField:    "NotFoundException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, awserr.ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ConflictException",
-			"message": err.Error(),
+			keyTypeField:    "ConflictException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
@@ -406,15 +432,15 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.As(err, &syntaxErr),
 		errors.As(err, &typeErr):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "BadRequestException",
-			"message": err.Error(),
+			keyTypeField:    "BadRequestException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "InternalServerException",
-			"message": err.Error(),
+			keyTypeField:    "InternalServerException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusInternalServerError, payload)
@@ -644,7 +670,7 @@ func (h *Handler) handleGetApplication(req *http.Request) ([]byte, error) {
 	resp := toApplicationResponse(a)
 
 	// If a specific semantic version is requested, embed its full version details.
-	if sv := req.URL.Query().Get("semanticVersion"); sv != "" {
+	if sv := req.URL.Query().Get(keySemanticVersion); sv != "" {
 		v, vErr := h.Backend.GetApplicationVersion(name, sv)
 		if vErr != nil {
 			return nil, vErr
@@ -826,7 +852,7 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 	}
 
 	// Optional: filter by specific semantic version.
-	if sv := req.URL.Query().Get("semanticVersion"); sv != "" {
+	if sv := req.URL.Query().Get(keySemanticVersion); sv != "" {
 		filtered := versions[:0]
 
 		for _, v := range versions {
@@ -862,10 +888,10 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 
 	for _, v := range page {
 		summaries = append(summaries, map[string]any{
-			"applicationId":   v.ApplicationID,
-			"semanticVersion": v.SemanticVersion,
-			"sourceCodeUrl":   v.SourceCodeURL,
-			"creationTime":    isoTimestamp(v.CreationTime),
+			keyApplicationID:   v.ApplicationID,
+			keySemanticVersion: v.SemanticVersion,
+			"sourceCodeUrl":    v.SourceCodeURL,
+			keyCreationTime:    isoTimestamp(v.CreationTime),
 		})
 	}
 
@@ -881,12 +907,12 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 // toVersionResponse converts an ApplicationVersion to a map matching the AWS SAR Version shape.
 func toVersionResponse(v *ApplicationVersion) map[string]any {
 	return map[string]any{
-		"applicationId":        v.ApplicationID,
-		"semanticVersion":      v.SemanticVersion,
+		keyApplicationID:       v.ApplicationID,
+		keySemanticVersion:     v.SemanticVersion,
 		"sourceCodeUrl":        v.SourceCodeURL,
 		"sourceCodeArchiveUrl": v.SourceCodeArchiveURL,
-		"templateUrl":          v.TemplateURL,
-		"creationTime":         isoTimestamp(v.CreationTime),
+		keyTemplateURL:         v.TemplateURL,
+		keyCreationTime:        isoTimestamp(v.CreationTime),
 		"parameterDefinitions": v.ParameterDefinitions,
 		"requiredCapabilities": v.RequiredCapabilities,
 		"resourcesSupported":   v.ResourcesSupported,
@@ -923,13 +949,13 @@ func (h *Handler) handleCreateCloudFormationTemplate(
 		"app", appName, "templateId", t.TemplateID)
 
 	b, marshalErr := json.Marshal(map[string]any{
-		"applicationId":   t.ApplicationID,
-		"templateId":      t.TemplateID,
-		"semanticVersion": t.SemanticVersion,
-		"status":          t.Status,
-		"creationTime":    isoTimestamp(t.CreationTime),
-		"expirationTime":  isoTimestamp(t.ExpirationTime),
-		"templateUrl":     t.TemplateURL,
+		keyApplicationID:   t.ApplicationID,
+		"templateId":       t.TemplateID,
+		keySemanticVersion: t.SemanticVersion,
+		"status":           t.Status,
+		keyCreationTime:    isoTimestamp(t.CreationTime),
+		"expirationTime":   isoTimestamp(t.ExpirationTime),
+		keyTemplateURL:     t.TemplateURL,
 	})
 	if marshalErr != nil {
 		return nil, marshalErr
@@ -964,13 +990,13 @@ func (h *Handler) handleGetCloudFormationTemplate(req *http.Request) ([]byte, er
 	}
 
 	return json.Marshal(map[string]any{
-		"applicationId":   t.ApplicationID,
-		"templateId":      t.TemplateID,
-		"semanticVersion": t.SemanticVersion,
-		"status":          status,
-		"creationTime":    isoTimestamp(t.CreationTime),
-		"expirationTime":  isoTimestamp(t.ExpirationTime),
-		"templateUrl":     t.TemplateURL,
+		keyApplicationID:   t.ApplicationID,
+		"templateId":       t.TemplateID,
+		keySemanticVersion: t.SemanticVersion,
+		"status":           status,
+		keyCreationTime:    isoTimestamp(t.CreationTime),
+		"expirationTime":   isoTimestamp(t.ExpirationTime),
+		keyTemplateURL:     t.TemplateURL,
 	})
 }
 
@@ -1022,10 +1048,10 @@ func (h *Handler) handleCreateCloudFormationChangeSet(
 	)
 
 	b, marshalErr := json.Marshal(map[string]any{
-		"applicationId":   cs.ApplicationID,
-		"changeSetId":     cs.ChangeSetID,
-		"semanticVersion": cs.SemanticVersion,
-		"stackId":         cs.StackID,
+		keyApplicationID:   cs.ApplicationID,
+		"changeSetId":      cs.ChangeSetID,
+		keySemanticVersion: cs.SemanticVersion,
+		"stackId":          cs.StackID,
 	})
 	if marshalErr != nil {
 		return nil, marshalErr
@@ -1114,7 +1140,7 @@ func (h *Handler) handleListApplicationDependencies(req *http.Request) ([]byte, 
 		return nil, err
 	}
 
-	semanticVersion := req.URL.Query().Get("semanticVersion")
+	semanticVersion := req.URL.Query().Get(keySemanticVersion)
 
 	deps, backendErr := h.Backend.ListApplicationDependencies(appName, semanticVersion)
 	if backendErr != nil {
@@ -1124,8 +1150,8 @@ func (h *Handler) handleListApplicationDependencies(req *http.Request) ([]byte, 
 	depList := make([]map[string]any, 0, len(deps))
 	for _, d := range deps {
 		depList = append(depList, map[string]any{
-			"applicationId":   d.ApplicationID,
-			"semanticVersion": d.SemanticVersion,
+			keyApplicationID:   d.ApplicationID,
+			keySemanticVersion: d.SemanticVersion,
 		})
 	}
 

@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+const (
+	valFalse = "false"
+)
+
 // ---- Logging XML types ----
 
 type xmlLoggingStatus struct {
@@ -139,9 +143,9 @@ func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
 		Xmlns: redshiftXMLNS,
 		Result: xmlEventCategoriesResult{
 			EventCategoriesMapList: []xmlEventInfoMap{
-				{SourceType: "cluster", EventCategory: "maintenance"},
-				{SourceType: "cluster", EventCategory: "monitoring"},
-				{SourceType: "cluster", EventCategory: "security"},
+				{SourceType: keyResourceCluster, EventCategory: "maintenance"},
+				{SourceType: keyResourceCluster, EventCategory: "monitoring"},
+				{SourceType: keyResourceCluster, EventCategory: "security"},
 				{SourceType: "cluster-snapshot", EventCategory: "backup"},
 				{SourceType: "cluster-parameter-group", EventCategory: "configuration"},
 				{SourceType: "cluster-security-group", EventCategory: "configuration"},
@@ -197,7 +201,7 @@ func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 	severity := vals.Get("Severity")
 	sourceIDs := parseStringList(vals, "SourceIds.SourceId.")
 	eventCategories := parseStringList(vals, "EventCategories.EventCategory.")
-	enabled := vals.Get("Enabled") != "false"
+	enabled := vals.Get("Enabled") != valFalse
 
 	sub, err := h.Backend.CreateEventSubscription(
 		subscriptionName, snsTopicArn, sourceType, severity,
@@ -276,7 +280,7 @@ func (h *Handler) handleModifyEventSubscription(vals url.Values) (any, error) {
 
 	var enabled *bool
 	if v := vals.Get("Enabled"); v != "" {
-		b := v != "false"
+		b := v != valFalse
 		enabled = &b
 	}
 

@@ -441,7 +441,7 @@ func (h *Handler) iamInstanceProfileRefinementDispatch() map[string]iamActionFn 
 				ResponseMetadata:         ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListInstanceProfilesForRole": func(vals url.Values, reqID string) (any, error) {
+		opListInstanceProfilesForRole: func(vals url.Values, reqID string) (any, error) {
 			profiles, err := h.Backend.ListInstanceProfilesForRole(vals.Get("RoleName"))
 			if err != nil {
 				return nil, err

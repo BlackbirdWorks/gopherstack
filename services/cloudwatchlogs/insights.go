@@ -27,14 +27,14 @@ type insightsQuery struct {
 
 // defaultInsightsFields are returned when no explicit fields command is given.
 func defaultInsightsFields() []string {
-	return []string{"@timestamp", "@message", "@ingestionTime"}
+	return []string{keyTimestamp, keyMessageField, keyIngestionTime}
 }
 
 // parseInsightsQuery parses a CloudWatch Logs Insights query string into an insightsQuery.
 // The query is a sequence of pipe-separated commands.
 func parseInsightsQuery(query string) (*insightsQuery, error) {
 	q := &insightsQuery{
-		sortField: "@timestamp",
+		sortField: keyTimestamp,
 		sortDesc:  false,
 		limit:     0,
 	}
@@ -328,11 +328,11 @@ func sortEvents(events []*OutputLogEvent, field string, desc bool) []*OutputLogE
 // because timestamps are int64 represented as decimal strings of equal length.
 func fieldValue(ev *OutputLogEvent, field string) string {
 	switch field {
-	case "@timestamp":
+	case keyTimestamp:
 		return fmt.Sprintf("%020d", ev.Timestamp)
-	case "@ingestionTime":
+	case keyIngestionTime:
 		return fmt.Sprintf("%020d", ev.IngestionTime)
-	case "@message":
+	case keyMessageField:
 		return ev.Message
 	}
 
@@ -354,11 +354,11 @@ func projectFields(ev *OutputLogEvent, fields []string) []ResultField {
 
 func eventFieldAsString(ev *OutputLogEvent, field string) string {
 	switch field {
-	case "@timestamp":
+	case keyTimestamp:
 		return strconv.FormatInt(ev.Timestamp, 10)
-	case "@ingestionTime":
+	case keyIngestionTime:
 		return strconv.FormatInt(ev.IngestionTime, 10)
-	case "@message":
+	case keyMessageField:
 		return ev.Message
 	}
 

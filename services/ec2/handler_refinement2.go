@@ -147,7 +147,7 @@ func (h *Handler) handleModifyVpcAttribute(vals url.Values, reqID string) (any, 
 	return &genericReturnResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Return:    "true",
+		Return:    ec2BooleanTrue,
 	}, nil
 }
 
@@ -173,7 +173,7 @@ func (h *Handler) handleModifySubnetAttribute(vals url.Values, reqID string) (an
 	return &genericReturnResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Return:    "true",
+		Return:    ec2BooleanTrue,
 	}, nil
 }
 
@@ -264,7 +264,7 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 
 func (h *Handler) handleModifySecurityGroupRules(vals url.Values, reqID string) (any, error) {
 	groupID := vals.Get("GroupId")
-	egress := vals.Get("Egress") == "true"
+	egress := vals.Get("Egress") == ec2BooleanTrue
 
 	rules := parseIPPermissions(vals)
 
@@ -275,7 +275,7 @@ func (h *Handler) handleModifySecurityGroupRules(vals url.Values, reqID string) 
 	return &genericReturnResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Return:    "true",
+		Return:    ec2BooleanTrue,
 	}, nil
 }
 

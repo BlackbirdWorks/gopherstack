@@ -12,6 +12,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	statusRunning = "Running"
+)
+
 const sagemakerDefaultPageSize = 100
 
 const (
@@ -873,7 +877,7 @@ func (b *InMemoryBackend) AttachClusterNodeVolume(
 	if !ok {
 		node = &ClusterNode{
 			NodeID:     nodeID,
-			NodeStatus: "Running",
+			NodeStatus: statusRunning,
 		}
 		c.Nodes[nodeID] = node
 	}
@@ -906,7 +910,7 @@ func (b *InMemoryBackend) BatchAddClusterNodes(
 		}
 
 		if node.NodeStatus == "" {
-			node.NodeStatus = "Running"
+			node.NodeStatus = statusRunning
 		}
 
 		if _, exists := c.Nodes[node.NodeID]; exists {
@@ -1047,7 +1051,7 @@ func (b *InMemoryBackend) BatchReplaceClusterNodes(
 		}
 
 		nodeCopy := *node
-		nodeCopy.NodeStatus = "Running"
+		nodeCopy.NodeStatus = statusRunning
 		c.Nodes[node.NodeID] = &nodeCopy
 	}
 

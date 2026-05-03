@@ -137,7 +137,7 @@ func supportedOpsExtended() []string {
 		"DescribeEventSubscriptions",
 		"DescribeEvents",
 		"DescribeExportTasks",
-		"DescribeGlobalClusters",
+		opDescribeGlobalClusters,
 		"DescribeOptionGroupOptions",
 		"DescribeOptionGroups",
 		"DescribeOrderableDBInstanceOptions",
@@ -409,7 +409,7 @@ func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error)
 // within limits.
 func (h *Handler) dispatchExtended3(action string, vals url.Values) (any, error) {
 	switch action {
-	case "DescribeGlobalClusters":
+	case opDescribeGlobalClusters:
 		return h.handleDescribeGlobalClusters(vals)
 	case "StartDBCluster":
 		return h.handleStartDBCluster(vals)
@@ -468,7 +468,7 @@ func (h *Handler) dispatchExtended5(action string, vals url.Values) (any, error)
 		return h.handleStopDBInstance(vals)
 	case "CreateGlobalCluster":
 		return h.handleCreateGlobalCluster(vals)
-	case "DescribeGlobalClusters":
+	case opDescribeGlobalClusters:
 		return h.handleDescribeGlobalClusters(vals)
 	case "DeleteGlobalCluster":
 		return h.handleDeleteGlobalCluster(vals)

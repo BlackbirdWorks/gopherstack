@@ -134,7 +134,7 @@ func (j *Janitor) sweepTerminatedInstances(ctx context.Context) {
 }
 
 // sweepCancelledSpotRequests removes spot instance requests that have been in
-// the "cancelled" or "closed" state longer than CancelledSpotTTL.
+// the stateCancelled or "closed" state longer than CancelledSpotTTL.
 // In AWS, cancelled/closed spot requests remain visible for approximately
 // 6 hours before they are permanently removed.
 func (j *Janitor) sweepCancelledSpotRequests(ctx context.Context) {
@@ -145,7 +145,7 @@ func (j *Janitor) sweepCancelledSpotRequests(ctx context.Context) {
 	var swept []string
 
 	for id, req := range j.Backend.spotRequests {
-		terminal := req.State == "cancelled" || req.State == "closed"
+		terminal := req.State == stateCancelled || req.State == "closed"
 		if terminal && !req.CancelledAt.IsZero() && req.CancelledAt.Before(cutoff) {
 			swept = append(swept, id)
 			delete(j.Backend.spotRequests, id)

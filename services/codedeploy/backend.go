@@ -15,6 +15,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	statusSucceeded       = "Succeeded"
+	computePlatformServer = "Server"
+)
+
 // simulatedDeployDuration is the simulated time for a deployment to complete.
 const simulatedDeployDuration = 5 * time.Second
 
@@ -445,7 +450,7 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName, description, creator
 		ApplicationName:      appName,
 		DeploymentGroupName:  dgName,
 		DeploymentConfigName: dg.DeploymentConfigName,
-		Status:               "Succeeded",
+		Status:               statusSucceeded,
 		Creator:              creator,
 		Description:          description,
 		CreateTime:           now,
@@ -611,9 +616,9 @@ func (b *InMemoryBackend) DeploymentConfigARN(name string) string {
 // validComputePlatforms lists the accepted CodeDeploy compute platforms.
 func validComputePlatforms() map[string]struct{} {
 	return map[string]struct{}{
-		"Server": {},
-		"Lambda": {},
-		"ECS":    {},
+		computePlatformServer: {},
+		"Lambda":              {},
+		"ECS":                 {},
 	}
 }
 
@@ -725,7 +730,7 @@ func (b *InMemoryBackend) BatchGetDeploymentInstances(
 		result = append(result, InstanceSummaryItem{
 			DeploymentID: d.DeploymentID,
 			InstanceID:   id,
-			Status:       "Succeeded",
+			Status:       statusSucceeded,
 		})
 	}
 
@@ -750,7 +755,7 @@ func (b *InMemoryBackend) BatchGetDeploymentTargets(
 		result = append(result, &DeploymentTargetItem{
 			DeploymentID: deploymentID,
 			TargetID:     id,
-			Status:       "Succeeded",
+			Status:       statusSucceeded,
 			TargetType:   "instanceTarget",
 		})
 	}
@@ -827,7 +832,7 @@ func (b *InMemoryBackend) CreateDeploymentConfig(name, computePlatform string) (
 	}
 
 	if computePlatform == "" {
-		computePlatform = "Server"
+		computePlatform = computePlatformServer
 	}
 
 	if _, ok := validComputePlatforms()[computePlatform]; !ok {

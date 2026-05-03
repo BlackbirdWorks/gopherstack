@@ -930,16 +930,16 @@ func partiqlParseScalar(token string, params []map[string]any, paramIdx *int) (m
 	// TRUE / FALSE
 	upper := strings.ToUpper(token)
 	if upper == "TRUE" {
-		return map[string]any{"BOOL": true}, nil
+		return map[string]any{typeBOOL: true}, nil
 	}
 
 	if upper == "FALSE" {
-		return map[string]any{"BOOL": false}, nil
+		return map[string]any{typeBOOL: false}, nil
 	}
 
 	// NULL
 	if upper == "NULL" {
-		return map[string]any{"NULL": true}, nil
+		return map[string]any{typeNULL: true}, nil
 	}
 
 	// Numeric literal (integer or decimal)

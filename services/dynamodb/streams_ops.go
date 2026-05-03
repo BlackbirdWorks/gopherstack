@@ -409,14 +409,14 @@ func dispatchStreamType(typKey string, val any) (streamstypes.AttributeValue, er
 		}
 
 		return &streamstypes.AttributeValueMemberN{Value: s}, nil
-	case "BOOL":
+	case typeBOOL:
 		b, ok := val.(bool)
 		if !ok {
 			return nil, ErrTypeMismatchBOOL
 		}
 
 		return &streamstypes.AttributeValueMemberBOOL{Value: b}, nil
-	case "NULL":
+	case typeNULL:
 		return &streamstypes.AttributeValueMemberNULL{Value: true}, nil
 	case "M":
 		return handleMapAttribute(val)

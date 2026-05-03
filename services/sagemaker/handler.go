@@ -20,6 +20,16 @@ import (
 )
 
 const (
+	keyTypeField = "__type"
+)
+
+const (
+	errValidationException = "ValidationException"
+	keyMessageField        = "message"
+	keyClusterArn          = "ClusterArn"
+)
+
+const (
 	sagemakerService       = "sagemaker"
 	sagemakerTargetPrefix  = "SageMaker."
 	sagemakerMatchPriority = service.PriorityHeaderExact
@@ -230,30 +240,30 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ValidationException",
-			"message": err.Error(),
+			keyTypeField:    errValidationException,
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, awserr.ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ValidationException",
-			"message": err.Error(),
+			keyTypeField:    errValidationException,
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, awserr.ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceInUse",
-			"message": err.Error(),
+			keyTypeField:    "ResourceInUse",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 }
 
@@ -771,8 +781,8 @@ func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte
 	log.InfoContext(ctx, "sagemaker: attached cluster node volume", "cluster", clusterArn, "node", nodeID)
 
 	return json.Marshal(map[string]string{
-		"ClusterArn": clusterArn,
-		"NodeId":     nodeID,
+		keyClusterArn: clusterArn,
+		"NodeId":      nodeID,
 	})
 }
 
@@ -802,8 +812,8 @@ func (h *Handler) batchClusterNodesWithFailures(
 	}
 
 	return json.Marshal(map[string]any{
-		"ClusterArn": clusterArn,
-		"Failures":   failures,
+		keyClusterArn: clusterArn,
+		"Failures":    failures,
 	})
 }
 
@@ -879,9 +889,9 @@ func (h *Handler) handleBatchDeleteClusterNodes(ctx context.Context, body []byte
 	}
 
 	return json.Marshal(map[string]any{
-		"ClusterArn": clusterArn,
-		"Errors":     errored,
-		"Successful": successful,
+		keyClusterArn: clusterArn,
+		"Errors":      errored,
+		"Successful":  successful,
 	})
 }
 
@@ -975,9 +985,9 @@ func (h *Handler) handleBatchRebootClusterNodes(ctx context.Context, body []byte
 	}
 
 	return json.Marshal(map[string]any{
-		"ClusterArn": clusterArn,
-		"Failures":   failures,
-		"Successful": successful,
+		keyClusterArn: clusterArn,
+		"Failures":    failures,
+		"Successful":  successful,
 	})
 }
 

@@ -180,7 +180,7 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"CreateMultipartUpload",
 		"UploadPart",
 		"UploadPartCopy",
-		"CompleteMultipartUpload",
+		opCompleteMultipartUpload,
 		"AbortMultipartUpload",
 		"ListMultipartUploads",
 		"ListParts",
@@ -541,14 +541,14 @@ func (h *S3Handler) ServeWebsite(c *echo.Context) error {
 	if err != nil {
 		if errors.Is(err, ErrNoSuchBucket) {
 			return c.JSON(http.StatusNotFound, map[string]string{
-				"Code":    "NoSuchBucket",
-				"Message": "The specified bucket does not exist",
+				xmlElemCode:    "NoSuchBucket",
+				xmlElemMessage: "The specified bucket does not exist",
 			})
 		}
 
 		return c.JSON(http.StatusNotFound, map[string]string{
-			"Code":    "NoSuchWebsiteConfiguration",
-			"Message": "The specified bucket does not have a website configuration",
+			xmlElemCode:    "NoSuchWebsiteConfiguration",
+			xmlElemMessage: "The specified bucket does not have a website configuration",
 		})
 	}
 

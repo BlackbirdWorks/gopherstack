@@ -21,6 +21,12 @@ const (
 	shieldService       = "shield"
 	shieldTargetPrefix  = "AWSShield_20160616."
 	shieldMatchPriority = service.PriorityHeaderExact
+
+	keyTypeField    = "__type"
+	keyMessageField = "message"
+	keyStartTime    = "StartTime"
+	keyEndTime      = "EndTime"
+	keyResourceArn  = "ResourceArn"
 )
 
 var (
@@ -293,15 +299,15 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceNotFoundException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceNotFoundException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, awserr.ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceAlreadyExistsException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceAlreadyExistsException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
@@ -309,15 +315,15 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "InvalidParameterException",
-			"message": err.Error(),
+			keyTypeField:    "InvalidParameterException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "InternalErrorException",
-			"message": err.Error(),
+			keyTypeField:    "InternalErrorException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusInternalServerError, payload)
@@ -351,8 +357,8 @@ func (h *Handler) handleDescribeSubscription() ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"Subscription": map[string]any{
-			"StartTime":            sub.StartTime.Unix(),
-			"EndTime":              sub.EndTime.Unix(),
+			keyStartTime:           sub.StartTime.Unix(),
+			keyEndTime:             sub.EndTime.Unix(),
 			"AutoRenew":            sub.AutoRenew,
 			"TimeCommitmentInDays": sub.TimeCommitmentInDays,
 			"SubscriptionArn":      subscriptionArn,
@@ -597,7 +603,7 @@ func protectionToMap(p *Protection) map[string]any {
 		"Id":             p.ID,
 		"ProtectionArn":  p.ProtectionArn,
 		"Name":           p.Name,
-		"ResourceArn":    p.ResourceARN,
+		keyResourceArn:   p.ResourceARN,
 		"HealthCheckIds": healthChecks,
 		"CreationTime":   p.CreationTime.Unix(),
 	}
@@ -937,10 +943,10 @@ func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
 
 	for _, a := range attacks {
 		items = append(items, map[string]any{
-			"AttackId":    a.AttackID,
-			"ResourceArn": a.ResourceARN,
-			"StartTime":   a.StartTime.Unix(),
-			"EndTime":     a.EndTime.Unix(),
+			"AttackId":     a.AttackID,
+			keyResourceArn: a.ResourceARN,
+			keyStartTime:   a.StartTime.Unix(),
+			keyEndTime:     a.EndTime.Unix(),
 		})
 	}
 
@@ -1010,10 +1016,10 @@ func (h *Handler) handleDescribeAttack(body []byte) ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"Attack": map[string]any{
-			"AttackId":    attack.AttackID,
-			"ResourceArn": attack.ResourceARN,
-			"StartTime":   attack.StartTime.Unix(),
-			"EndTime":     attack.EndTime.Unix(),
+			"AttackId":     attack.AttackID,
+			keyResourceArn: attack.ResourceARN,
+			keyStartTime:   attack.StartTime.Unix(),
+			keyEndTime:     attack.EndTime.Unix(),
 		},
 	})
 }

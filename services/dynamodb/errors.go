@@ -5,6 +5,10 @@ import (
 	"fmt"
 )
 
+const (
+	errInternalServerErrorType = "com.amazonaws.dynamodb.v20120810#InternalServerError"
+)
+
 // ErrValidation is a sentinel used for validation-related errors so callers can
 // use [errors.Is] without parsing error message strings.
 var ErrValidation = errors.New("validation error")
@@ -47,7 +51,7 @@ func NewConditionalCheckFailedException(msg string) *Error {
 
 func NewInternalServerError(msg string) *Error {
 	return &Error{
-		Type:    "com.amazonaws.dynamodb.v20120810#InternalServerError",
+		Type:    errInternalServerErrorType,
 		Message: msg,
 	}
 }

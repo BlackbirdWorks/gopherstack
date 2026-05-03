@@ -9,6 +9,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	statusActive = "active"
+)
+
 // ----------------------------------------
 // Sentinel errors for new op types
 // ----------------------------------------
@@ -197,7 +201,7 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 	}
 
 	engine := engineRedis
-	engineVersion := "7.1.0"
+	engineVersion := versionRedis710
 	if rg, ok := b.replicationGroups[primaryReplicationGroupID]; ok {
 		if rg.EngineVersion != "" {
 			engineVersion = rg.EngineVersion
@@ -207,7 +211,7 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 	grg := &GlobalReplicationGroup{
 		GlobalReplicationGroupID: id,
 		Description:              description,
-		Status:                   "available",
+		Status:                   statusAvailable,
 		ARN:                      b.globalReplicationGroupARN(id),
 		Engine:                   engine,
 		EngineVersion:            engineVersion,
@@ -240,7 +244,7 @@ func (b *InMemoryBackend) CreateServerlessCache(name, description, engine string
 	sc := &ServerlessCache{
 		Name:        name,
 		Description: description,
-		Status:      "available",
+		Status:      statusAvailable,
 		ARN:         b.serverlessCacheARN(name),
 		Engine:      engine,
 		CreatedAt:   time.Now(),
@@ -273,7 +277,7 @@ func (b *InMemoryBackend) CreateServerlessCacheSnapshot(
 
 	snap := &ServerlessCacheSnapshot{
 		Name:                snapshotName,
-		Status:              "available",
+		Status:              statusAvailable,
 		ARN:                 b.serverlessCacheSnapshotARN(snapshotName),
 		ServerlessCacheName: serverlessCacheName,
 		SnapshotType:        "manual",
@@ -340,7 +344,7 @@ func (b *InMemoryBackend) CreateUser(
 	u := &User{
 		UserID:             userID,
 		UserName:           userName,
-		Status:             "active",
+		Status:             statusActive,
 		ARN:                b.userARN(userID),
 		Engine:             engine,
 		AccessString:       accessString,
@@ -451,7 +455,7 @@ func (b *InMemoryBackend) CompleteMigration(replicationGroupID string, _ bool) (
 		return nil, ErrReplicationGroupNotFound
 	}
 
-	rg.Status = "available"
+	rg.Status = statusAvailable
 	result := *rg
 
 	return &result, nil

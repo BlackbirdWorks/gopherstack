@@ -257,6 +257,56 @@ type StorageBackend interface {
 	CreatePresignedNotebookURL(sessionID string) (string, error)
 	DeleteNotebook(notebookID string) error
 	ExportNotebook(notebookID string) (NotebookMetadata, string, error)
+	GetNotebookMetadata(notebookID string) (*NotebookMetadata, error)
+	ListNotebookMetadata(workGroup, namePrefix string) ([]NotebookMetadata, error)
+	ImportNotebook(workGroup, name, payload, notebookType string) (string, error)
+	UpdateNotebook(notebookID, payload, notebookType, sessionID string) error
+	UpdateNotebookMetadata(notebookID, newName string) error
+
+	// Sessions
+	StartSession(
+		workGroup, description, notebookVersion string,
+		engineCfg EngineConfiguration,
+		sessionCfg SessionConfiguration,
+		notebookID string,
+	) (string, string, error)
+	GetSession(id string) (*Session, error)
+	GetSessionStatus(id string) (SessionStatus, error)
+	GetSessionEndpoint(id string) (string, error)
+	TerminateSession(id string) (string, error)
+	ListSessions(workGroup, stateFilter string) ([]SessionSummary, error)
+	ListNotebookSessions(notebookID string) ([]SessionSummary, error)
+
+	// Calculations
+	StartCalculationExecution(sessionID, description, codeBlock string) (string, string, error)
+	GetCalculationExecution(id string) (*CalculationExecution, error)
+	GetCalculationExecutionStatus(id string) (CalculationStatus, CalculationStatistics, error)
+	GetCalculationExecutionCode(id string) (string, error)
+	StopCalculationExecution(id string) (string, error)
+	ListCalculationExecutions(sessionID, stateFilter string) ([]CalculationSummary, error)
+
+	// Capacity reservations (extended)
+	GetCapacityReservation(name string) (*CapacityReservation, error)
+	ListCapacityReservations() ([]CapacityReservation, error)
+	UpdateCapacityReservation(name string, targetDPUs int32) error
+	PutCapacityAssignmentConfiguration(name string, assignments []CapacityAssignment) error
+	GetCapacityAssignmentConfiguration(name string) (*CapacityAssignmentConfiguration, error)
+
+	// Database / table metadata
+	GetDatabase(catalog, name string) (*Database, error)
+	ListDatabases(catalog string) ([]Database, error)
+	GetTableMetadata(catalog, database, table string) (*TableMetadata, error)
+	ListTableMetadata(catalog, database, expr string) ([]TableMetadata, error)
+
+	// Misc updates / runtime stats
+	UpdateNamedQuery(id, name, description, queryString string) error
+	UpdatePreparedStatement(name, workGroup, queryStatement, description string) error
+	GetQueryRuntimeStatistics(id string) (*QueryRuntimeStatistics, error)
+
+	// Engine version / executor / DPU listings
+	ListEngineVersions() []EngineVersionDescriptor
+	ListApplicationDPUSizes() []ApplicationDPUSizes
+	ListExecutors(sessionID, stateFilter string) ([]Executor, error)
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -270,6 +320,11 @@ type InMemoryBackend struct {
 	capacityReservations map[string]*CapacityReservation
 	notebooks            map[string]*Notebook // key: notebookID
 	notebookNames        map[string]struct{}  // key: "workGroup/name", for uniqueness
+	sessions             map[string]*Session
+	calculations         map[string]*CalculationExecution
+	capacityAssignments  map[string]*CapacityAssignmentConfiguration // key: capacity reservation name
+	databases            map[string]map[string]*Database             // catalog -> name -> db
+	tables               map[string]map[string]*TableMetadata        // "catalog/database" -> name -> table
 	mu                   *lockmetrics.RWMutex
 }
 
@@ -285,6 +340,11 @@ func NewInMemoryBackend() *InMemoryBackend {
 		capacityReservations: make(map[string]*CapacityReservation),
 		notebooks:            make(map[string]*Notebook),
 		notebookNames:        make(map[string]struct{}),
+		sessions:             make(map[string]*Session),
+		calculations:         make(map[string]*CalculationExecution),
+		capacityAssignments:  make(map[string]*CapacityAssignmentConfiguration),
+		databases:            make(map[string]map[string]*Database),
+		tables:               make(map[string]map[string]*TableMetadata),
 		mu:                   lockmetrics.New("athena"),
 	}
 
@@ -293,7 +353,36 @@ func NewInMemoryBackend() *InMemoryBackend {
 		State: "ENABLED",
 	}
 
+	b.seedDefaultMetadata()
+
 	return b
+}
+
+// seedDefaultMetadata seeds an example database and table for the AwsDataCatalog
+// so that the metadata operations (GetDatabase, ListTableMetadata, etc.) return
+// useful sample data without requiring an explicit catalog setup.
+func (b *InMemoryBackend) seedDefaultMetadata() {
+	const catalog = "AwsDataCatalog"
+
+	const database = "default"
+
+	b.databases[catalog] = map[string]*Database{
+		database: {
+			Name:        database,
+			Description: "Default Athena database",
+		},
+	}
+
+	b.tables[catalog+"/"+database] = map[string]*TableMetadata{
+		"sample_table": {
+			Name:      "sample_table",
+			TableType: "EXTERNAL_TABLE",
+			Columns: []Column{
+				{Name: "id", Type: "bigint"},
+				{Name: "value", Type: "string"},
+			},
+		},
+	}
 }
 
 // randomID generates a cryptographically random 10-character hex ID.

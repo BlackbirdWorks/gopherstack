@@ -612,7 +612,7 @@ func (h *Handler) handleDescribeVpcAttribute(vals url.Values, reqID string) (any
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		VpcID:     vpcID,
-		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: "false"},
+		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: ec2BooleanFalse},
 	}, nil
 }
 
@@ -624,7 +624,7 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
-	if tags := parseTagSpecification(vals, "vpc"); len(tags) > 0 {
+	if tags := parseTagSpecification(vals, resourceTypeVPC); len(tags) > 0 {
 		if err = h.Backend.CreateTags([]string{v.ID}, tags); err != nil {
 			return nil, err
 		}
@@ -834,12 +834,12 @@ func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string)
 	attr := vals.Get("Attribute")
 
 	// Default values match common AWS defaults; the attribute name is the XML element name.
-	// Boolean attributes (AttributeBooleanValue) must return "true" or "false" so that
+	// Boolean attributes (AttributeBooleanValue) must return "true" or ec2BooleanFalse so that
 	// strconv.ParseBool succeeds in the SDK deserializer.
 	attrValue := "stop"
 	switch attr {
 	case "disableApiStop", "disableApiTermination", attrSourceDest, "ebsOptimized", "enaSupport":
-		attrValue = "false"
+		attrValue = ec2BooleanFalse
 	}
 
 	return &describeInstanceAttributeResponse{
@@ -983,7 +983,7 @@ func parseEC2TagKeys(vals url.Values) []string {
 }
 
 // parseTagSpecification extracts tags from TagSpecification.N.Tag.M.Key/Value form values
-// for a specific resourceType (e.g. "vpc", "subnet", "instance", "security-group").
+// for a specific resourceType (e.g. resourceTypeVPC, "subnet", "instance", "security-group").
 // Terraform and the AWS SDK send inline tags this way during resource creation.
 // Returns a map of tag keys to values for the matched resource type, or an empty map if none found.
 func parseTagSpecification(vals url.Values, resourceType string) map[string]string {
@@ -1052,7 +1052,7 @@ func toSGItem(sg *SecurityGroup) sgItem {
 }
 
 func toVPCItem(v *VPC) vpcItem {
-	isDefault := "false"
+	isDefault := ec2BooleanFalse
 	if v.IsDefault {
 		isDefault = ec2BooleanTrue
 	}

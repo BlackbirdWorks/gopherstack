@@ -178,21 +178,21 @@ var stubAMIs = []AMIStub{
 		ImageID:        "ami-0c55b159cbfafe1f0",
 		Name:           "amzn2-ami-hvm",
 		Description:    "Amazon Linux 2 (x86_64)",
-		Architecture:   "x86_64",
+		Architecture:   archX8664,
 		RootDeviceName: "/dev/xvda",
 	},
 	{
 		ImageID:        "ami-0eb260c4d5475b901",
 		Name:           "ubuntu-22.04-lts",
 		Description:    "Ubuntu 22.04 LTS (x86_64)",
-		Architecture:   "x86_64",
+		Architecture:   archX8664,
 		RootDeviceName: "/dev/sda1",
 	},
 	{
 		ImageID:        "ami-09d3b3274b6c5d4aa",
 		Name:           "windows-server-2022",
 		Description:    "Windows Server 2022",
-		Architecture:   "x86_64",
+		Architecture:   archX8664,
 		Platform:       "windows",
 		RootDeviceName: "/dev/sda1",
 	},
@@ -609,7 +609,7 @@ func (b *InMemoryBackend) AttachVolume(volumeID, instanceID, device string) (*Vo
 		AttachTime: time.Now(),
 	}
 	vol.Attachment = att
-	vol.State = "in-use"
+	vol.State = stateInUse
 
 	return att, nil
 }
@@ -1197,7 +1197,7 @@ func (b *InMemoryBackend) AttachNetworkInterface(eniID, instanceID string, devic
 	eni.InstanceID = instanceID
 	eni.AttachmentID = attachmentID
 	eni.DeviceIndex = deviceIndex
-	eni.Status = "in-use"
+	eni.Status = stateInUse
 	b.indexENILocked(eniID, eni)
 
 	return attachmentID, nil
@@ -1401,7 +1401,7 @@ func (b *InMemoryBackend) CancelSpotInstanceRequests(ids []string) error {
 			return fmt.Errorf("%w: %s", ErrSpotRequestNotFound, id)
 		}
 
-		req.State = "cancelled"
+		req.State = stateCancelled
 		req.CancelledAt = time.Now()
 	}
 

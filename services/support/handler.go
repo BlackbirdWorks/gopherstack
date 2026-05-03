@@ -17,6 +17,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+const (
+	keyMessageField = "message"
+)
+
 const supportTargetPrefix = "AWSSupport_20130415."
 
 var errUnknownAction = errors.New("unknown action")
@@ -219,13 +223,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAttachmentNotFound):
-		return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
 	case errors.Is(err, ErrValidation), errors.Is(err, ErrAlreadyResolved),
 		errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 }
 
