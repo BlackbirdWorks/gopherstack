@@ -181,8 +181,23 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.closeAllTableMutexesLocked()
 	b.nextTaskID = 0
 	b.ensureNonNilMapsLocked()
+}
+
+// closeAllTableMutexesLocked closes every per-table lockmetrics.RWMutex held in
+// b.records. Must be called with b.mu held in write mode before any operation
+// that abandons the records map (Reset, Restore) or before the receiver is
+// discarded; otherwise the mutexes leak in lockmetrics' liveCollector registry.
+func (b *InMemoryBackend) closeAllTableMutexesLocked() {
+	for _, dbSlots := range b.records {
+		for _, slot := range dbSlots {
+			if slot != nil && slot.mu != nil {
+				slot.mu.Close()
+			}
+		}
+	}
 }
 
 // AccountID returns the simulated AWS account ID.
@@ -324,9 +339,16 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 		return fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, name)
 	}
 
-	// Clean up tags for all tables in this database before deleting.
+	// Clean up tags and per-table mutexes for all tables in this database
+	// before dropping the records map so lockmetrics doesn't leak handles.
 	for tblName := range b.tables[name] {
 		delete(b.tags, tableARN(name, tblName))
+	}
+
+	for _, slot := range b.records[name] {
+		if slot != nil && slot.mu != nil {
+			slot.mu.Close()
+		}
 	}
 
 	delete(b.databases, name)
@@ -461,6 +483,11 @@ func (b *InMemoryBackend) DeleteTable(dbName, tblName string) error {
 	}
 
 	arn := tableARN(dbName, tblName)
+
+	if slot := b.records[dbName][tblName]; slot != nil && slot.mu != nil {
+		slot.mu.Close()
+	}
+
 	delete(b.tables[dbName], tblName)
 	delete(b.records[dbName], tblName)
 	delete(b.tags, arn)

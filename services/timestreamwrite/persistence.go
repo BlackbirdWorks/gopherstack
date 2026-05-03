@@ -94,6 +94,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	// Close all existing per-table mutexes before discarding the records map;
+	// otherwise lockmetrics' global registry leaks one entry per pre-restore table.
+	b.closeAllTableMutexesLocked()
+
 	b.nextTaskID = snap.NextTaskID
 	b.databases = snap.Databases
 	b.tables = snap.Tables
