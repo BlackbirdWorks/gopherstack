@@ -316,9 +316,11 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 		return fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, name)
 	}
 
-	// Clean up tags for all tables in this database before deleting.
+	// Clean up tags and per-table mutexes for all tables in this database before deleting.
 	for tblName := range b.tables[name] {
-		delete(b.tags, tableARN(name, tblName))
+		arn := tableARN(name, tblName)
+		delete(b.tags, arn)
+		delete(b.tableMus, arn)
 	}
 
 	delete(b.databases, name)

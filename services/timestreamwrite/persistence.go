@@ -19,9 +19,13 @@ type backendSnapshot struct {
 }
 
 // Snapshot serialises the current backend state into a JSON byte slice.
+//
+// Holds the global write lock to serialise against WriteRecords, which only
+// holds the global read lock and writes to the inner b.records map; concurrent
+// map iteration here and map write there would be a fatal Go data race.
 func (b *InMemoryBackend) Snapshot() ([]byte, error) {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
+	b.mu.Lock("Snapshot")
+	defer b.mu.Unlock()
 
 	snap := backendSnapshot{
 		Databases:      make(map[string]*Database, len(b.databases)),

@@ -760,3 +760,69 @@ func TestInMemoryBackend_DeleteTable_CleansUpTags(t *testing.T) {
 
 	assert.Empty(t, b.ListTagsForResource(tblARN))
 }
+
+func TestInMemoryBackend_DeleteDatabase_CleansUpTableMutexes(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	_, err := b.CreateDatabase("db", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateTable("db", "t1", nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateTable("db", "t2", nil, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, timestreamwrite.TableMutexCount(b))
+
+	require.NoError(t, b.DeleteDatabase("db"))
+
+	assert.Equal(t, 0, timestreamwrite.TableMutexCount(b))
+}
+
+// TestInMemoryBackend_WriteRecords_SnapshotRace concurrently writes and snapshots
+// the backend; with the race detector enabled this catches any concurrent map
+// read/write between WriteRecords (under global RLock + per-table WLock) and
+// Snapshot (which previously also held only RLock and iterated b.records).
+func TestInMemoryBackend_WriteRecords_SnapshotRace(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := b.CreateDatabase("db", nil)
+	require.NoError(t, err)
+	_, err = b.CreateTable("db", "tbl", nil, nil)
+	require.NoError(t, err)
+
+	rec := []timestreamwrite.Record{{
+		MeasureName:  "m",
+		MeasureValue: "1",
+		Time:         "1700000000",
+		TimeUnit:     "SECONDS",
+	}}
+
+	const writers = 4
+	const iterations = 200
+
+	done := make(chan struct{})
+	for range writers {
+		go func() {
+			for range iterations {
+				_, _ = b.WriteRecords("db", "tbl", rec)
+			}
+			done <- struct{}{}
+		}()
+	}
+
+	go func() {
+		for range iterations {
+			_, _ = b.Snapshot()
+		}
+		done <- struct{}{}
+	}()
+
+	for range writers + 1 {
+		<-done
+	}
+}

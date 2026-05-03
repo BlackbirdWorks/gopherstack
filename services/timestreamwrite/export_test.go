@@ -47,3 +47,12 @@ func TagCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// TableMutexCount returns the number of per-table mutexes stored in the backend.
+// Exposed for testing only.
+func TableMutexCount(b *InMemoryBackend) int {
+	b.mu.RLock("TableMutexCount")
+	defer b.mu.RUnlock()
+
+	return len(b.tableMus)
+}
