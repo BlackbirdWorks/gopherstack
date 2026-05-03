@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // backendSnapshot is the serialisable representation of the backend state.
@@ -101,7 +103,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // ensureNonNilMapsFromSnapshot initialises any nil maps that may result from
-// restoring a snapshot with missing fields.
+// restoring a snapshot with missing fields, and rebuilds the tableMus index.
 func (b *InMemoryBackend) ensureNonNilMapsFromSnapshot() {
 	if b.databases == nil {
 		b.databases = make(map[string]*Database)
@@ -121,5 +123,13 @@ func (b *InMemoryBackend) ensureNonNilMapsFromSnapshot() {
 
 	if b.batchLoadTasks == nil {
 		b.batchLoadTasks = make(map[string]*BatchLoadTask)
+	}
+
+	// Rebuild per-table mutexes from the restored table map.
+	b.tableMus = make(map[string]*lockmetrics.RWMutex)
+	for _, tbls := range b.tables {
+		for _, tbl := range tbls {
+			b.tableMus[tbl.ARN] = lockmetrics.New("timestreamwrite.table")
+		}
 	}
 }
