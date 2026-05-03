@@ -825,6 +825,8 @@ func (h *DashboardHandler) setupSubRouter() {
 		return c.JSON(http.StatusCreated, host)
 	})
 
+	h.registerAPIGatewayManagementAPIRoutes()
+
 	h.SubRouter.GET("/dashboard/api/cognitoidp/user-pools", func(c *echo.Context) error {
 		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
 			return c.JSON(http.StatusOK, map[string]any{"userPools": []any{}})
@@ -1323,6 +1325,123 @@ func (h *DashboardHandler) ExtractResource(_ *echo.Context) string {
 // GetSupportedOperations returns a list of operations supported by the dashboard (none).
 func (h *DashboardHandler) GetSupportedOperations() []string {
 	return nil
+}
+
+// registerAPIGatewayManagementAPIRoutes wires JSON endpoints under
+// /dashboard/api/apigatewaymanagementapi/* used by the dashboard UI to manage
+// simulated WebSocket connections and inspect their message history.
+func (h *DashboardHandler) registerAPIGatewayManagementAPIRoutes() {
+	const unavailableMsg = "api gateway management api backend unavailable"
+
+	backendOK := func() bool {
+		return h.config.APIGatewayManagementAPIOps != nil &&
+			h.config.APIGatewayManagementAPIOps.Backend != nil
+	}
+
+	h.SubRouter.GET("/dashboard/api/apigatewaymanagementapi/connections", func(c *echo.Context) error {
+		if !backendOK() {
+			return c.JSON(http.StatusOK, map[string]any{"connections": []any{}})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"connections": h.config.APIGatewayManagementAPIOps.Backend.ListConnections(),
+		})
+	})
+
+	h.SubRouter.POST("/dashboard/api/apigatewaymanagementapi/connections", func(c *echo.Context) error {
+		if !backendOK() {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: unavailableMsg})
+		}
+
+		var req struct {
+			ConnectionID string `json:"connectionId"`
+			SourceIP     string `json:"sourceIp"`
+			UserAgent    string `json:"userAgent"`
+		}
+		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		}
+
+		if req.ConnectionID == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: "connectionId is required"})
+		}
+
+		if req.SourceIP == "" {
+			req.SourceIP = "127.0.0.1"
+		}
+
+		if req.UserAgent == "" {
+			req.UserAgent = "Gopherstack UI"
+		}
+
+		conn, err := h.config.APIGatewayManagementAPIOps.Backend.CreateConnection(
+			req.ConnectionID, req.SourceIP, req.UserAgent,
+		)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		}
+
+		return c.JSON(http.StatusCreated, conn)
+	})
+
+	h.SubRouter.GET("/dashboard/api/apigatewaymanagementapi/connections/:id", func(c *echo.Context) error {
+		if !backendOK() {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: unavailableMsg})
+		}
+
+		conn, err := h.config.APIGatewayManagementAPIOps.Backend.GetConnection(c.Param("id"))
+		if err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{keyError: err.Error()})
+		}
+
+		return c.JSON(http.StatusOK, conn)
+	})
+
+	h.SubRouter.DELETE("/dashboard/api/apigatewaymanagementapi/connections/:id", func(c *echo.Context) error {
+		if !backendOK() {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: unavailableMsg})
+		}
+
+		if err := h.config.APIGatewayManagementAPIOps.Backend.DeleteConnection(c.Param("id")); err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{keyError: err.Error()})
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	})
+
+	h.SubRouter.GET("/dashboard/api/apigatewaymanagementapi/connections/:id/messages", func(c *echo.Context) error {
+		if !backendOK() {
+			return c.JSON(http.StatusOK, map[string]any{"messages": []any{}})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"messages": h.config.APIGatewayManagementAPIOps.Backend.GetMessages(c.Param("id")),
+		})
+	})
+
+	h.SubRouter.POST(
+		"/dashboard/api/apigatewaymanagementapi/connections/:id/messages",
+		func(c *echo.Context) error {
+			if !backendOK() {
+				return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: unavailableMsg})
+			}
+
+			var req struct {
+				Data string `json:"data"`
+			}
+			if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
+
+			if err := h.config.APIGatewayManagementAPIOps.Backend.PostToConnection(
+				c.Param("id"), []byte(req.Data),
+			); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
+
+			return c.NoContent(http.StatusAccepted)
+		},
+	)
 }
 
 // apiGatewayManagementAPICreateConnection handles POST /dashboard/apigatewaymanagementapi/connection/create.

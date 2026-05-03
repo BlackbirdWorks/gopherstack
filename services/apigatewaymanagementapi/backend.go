@@ -12,10 +12,73 @@ const (
 	maxMessagesPerConnection = 1000
 )
 
+// messageBuffer is a fixed-capacity circular buffer of PostedMessage values.
+// PostToConnection runs at write rates that previously triggered a slice
+// copy on every overflow; ring storage reduces that to O(1).
+type messageBuffer struct {
+	items []PostedMessage
+	head  int
+	size  int
+}
+
+func newMessageBuffer(capacity int) *messageBuffer {
+	return &messageBuffer{items: make([]PostedMessage, capacity)}
+}
+
+func (rb *messageBuffer) push(m PostedMessage) {
+	rb.items[rb.head] = m
+	rb.head = (rb.head + 1) % len(rb.items)
+
+	if rb.size < len(rb.items) {
+		rb.size++
+	}
+}
+
+// snapshot returns the buffered messages in chronological order (oldest first).
+// The returned slice does not alias the internal storage.
+func (rb *messageBuffer) snapshot() []PostedMessage {
+	if rb == nil || rb.size == 0 {
+		return []PostedMessage{}
+	}
+
+	out := make([]PostedMessage, rb.size)
+	capacity := len(rb.items)
+	start := (rb.head - rb.size + capacity) % capacity
+
+	if start+rb.size <= capacity {
+		copy(out, rb.items[start:start+rb.size])
+
+		return out
+	}
+
+	n := capacity - start
+	copy(out, rb.items[start:])
+	copy(out[n:], rb.items[:rb.size-n])
+
+	return out
+}
+
+// loadOrdered seeds the buffer from a chronological slice (oldest first).
+// Excess items past capacity are dropped from the head.
+func (rb *messageBuffer) loadOrdered(msgs []PostedMessage) {
+	capacity := len(rb.items)
+	rb.head = 0
+	rb.size = 0
+
+	start := 0
+	if len(msgs) > capacity {
+		start = len(msgs) - capacity
+	}
+
+	for _, m := range msgs[start:] {
+		rb.push(m)
+	}
+}
+
 // InMemoryBackend implements the StorageBackend for API Gateway Management API.
 type InMemoryBackend struct {
 	connections map[string]*Connection
-	messages    map[string][]PostedMessage
+	messages    map[string]*messageBuffer
 	mu          *lockmetrics.RWMutex
 }
 
@@ -23,7 +86,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		connections: make(map[string]*Connection),
-		messages:    make(map[string][]PostedMessage),
+		messages:    make(map[string]*messageBuffer),
 		mu:          lockmetrics.New("apigatewaymanagementapi"),
 	}
 }
@@ -65,19 +128,17 @@ func (b *InMemoryBackend) PostToConnection(connectionID string, data []byte) err
 	conn.LastActiveAt = time.Now()
 	conn.PostedMessages++
 
-	b.messages[connectionID] = append(b.messages[connectionID], PostedMessage{
+	buf, ok := b.messages[connectionID]
+	if !ok {
+		buf = newMessageBuffer(maxMessagesPerConnection)
+		b.messages[connectionID] = buf
+	}
+
+	buf.push(PostedMessage{
 		ReceivedAt:   conn.LastActiveAt,
 		ConnectionID: connectionID,
 		Data:         data,
 	})
-
-	if len(b.messages[connectionID]) > maxMessagesPerConnection {
-		old := b.messages[connectionID]
-		start := len(old) - maxMessagesPerConnection
-		fresh := make([]PostedMessage, maxMessagesPerConnection)
-		copy(fresh, old[start:])
-		b.messages[connectionID] = fresh
-	}
 
 	return nil
 }
@@ -125,14 +186,11 @@ func (b *InMemoryBackend) ListConnections() []Connection {
 	return out
 }
 
-// GetMessages returns all messages posted to the given connection.
+// GetMessages returns all messages posted to the given connection in
+// chronological order (oldest first).
 func (b *InMemoryBackend) GetMessages(connectionID string) []PostedMessage {
 	b.mu.RLock("GetMessages")
 	defer b.mu.RUnlock()
 
-	msgs := b.messages[connectionID]
-	out := make([]PostedMessage, len(msgs))
-	copy(out, msgs)
-
-	return out
+	return b.messages[connectionID].snapshot()
 }

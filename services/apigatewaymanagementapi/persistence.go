@@ -13,9 +13,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	msgs := make(map[string][]PostedMessage, len(b.messages))
+	for id, buf := range b.messages {
+		msgs[id] = buf.snapshot()
+	}
+
 	snap := backendSnapshot{
 		Connections: b.connections,
-		Messages:    b.messages,
+		Messages:    msgs,
 	}
 
 	data, err := json.Marshal(snap)
@@ -42,12 +47,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Connections = make(map[string]*Connection)
 	}
 
-	if snap.Messages == nil {
-		snap.Messages = make(map[string][]PostedMessage)
-	}
-
 	b.connections = snap.Connections
-	b.messages = snap.Messages
+	b.messages = make(map[string]*messageBuffer, len(snap.Messages))
+
+	for id, msgs := range snap.Messages {
+		buf := newMessageBuffer(maxMessagesPerConnection)
+		buf.loadOrdered(msgs)
+		b.messages[id] = buf
+	}
 
 	return nil
 }
@@ -58,7 +65,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.connections = make(map[string]*Connection)
-	b.messages = make(map[string][]PostedMessage)
+	b.messages = make(map[string]*messageBuffer)
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

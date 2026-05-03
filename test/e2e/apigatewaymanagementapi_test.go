@@ -83,16 +83,17 @@ func TestAPIGatewayManagementAPIDashboard_CreateConnection(t *testing.T) {
 	err = page.Locator("button:has-text('+ Simulate Connection')").Click()
 	require.NoError(t, err)
 
-	// Fill in the connection ID.
-	err = page.Locator("input[name='connectionId']").Fill("e2e-conn-001")
+	// Fill in the connection ID. The first text input inside the modal is the
+	// connectionId field.
+	err = page.Locator("input[placeholder='e.g. conn-001']").Fill("e2e-conn-001")
 	require.NoError(t, err)
 
 	// Submit the form.
 	err = page.Locator("button[type='submit']:has-text('Create')").Last().Click()
 	require.NoError(t, err)
 
-	// Wait for the connection row to appear in the table after the form submit and redirect.
-	connRow := page.Locator("td:has-text('e2e-conn-001')")
+	// Wait for the new connection card to appear in the connections list.
+	connRow := page.Locator("button:has-text('e2e-conn-001')").First()
 	err = connRow.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
