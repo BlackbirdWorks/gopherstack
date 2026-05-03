@@ -8,11 +8,13 @@
 		CreateDeliveryStreamCommand,
 		DeleteDeliveryStreamCommand,
 		PutRecordCommand,
+		StartDeliveryStreamEncryptionCommand,
+		StopDeliveryStreamEncryptionCommand,
 		type DeliveryStreamDescription,
 		type DestinationDescription
 	} from '@aws-sdk/client-firehose';
 	import { toast } from 'svelte-sonner';
-	import { Flame, Search, RefreshCw, Plus, Trash2, ChevronRight, Send, Database, Archive } from 'lucide-svelte';
+	import { Flame, Search, RefreshCw, Plus, Trash2, ChevronRight, Send, Database, Archive, Key, Shield, ShieldOff } from 'lucide-svelte';
 
 	const firehose = getFirehoseClient();
 
@@ -20,7 +22,7 @@
 	let streamNames = $state<string[]>([]);
 	let selectedStream = $state<DeliveryStreamDescription | null>(null);
 	let loadingDetail = $state(false);
-	let activeTab = $state<'overview' | 'destinations' | 'put'>('overview');
+	let activeTab = $state<'overview' | 'destinations' | 'encryption' | 'put'>('overview');
 	let searchQuery = $state('');
 
 	// Create Stream
@@ -39,6 +41,10 @@
 	let putData = $state('{"key": "value"}');
 	let puttingRecord = $state(false);
 	let putResult = $state('');
+
+	// Encryption
+	let managingEncryption = $state(false);
+	let newKmsKeyArn = $state('');
 
 	const filteredNames = $derived(
 		streamNames.filter((n) => !searchQuery || n.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -147,6 +153,44 @@
 		}
 	}
 
+	async function startEncryption() {
+		if (!selectedStream?.DeliveryStreamName) return;
+		managingEncryption = true;
+		try {
+			await firehose.send(new StartDeliveryStreamEncryptionCommand({
+				DeliveryStreamName: selectedStream.DeliveryStreamName,
+				DeliveryStreamEncryptionConfigurationInput: {
+					KeyType: newKmsKeyArn.trim() ? 'CUSTOMER_MANAGED_CMK' : 'AWS_OWNED_CMK',
+					KeyARN: newKmsKeyArn.trim() || undefined
+				}
+			}));
+			toast.success('Started delivery stream encryption update');
+			newKmsKeyArn = '';
+			await selectStream(selectedStream.DeliveryStreamName);
+		} catch (e) {
+			toast.error('Failed to update encryption: ' + String(e));
+		} finally {
+			managingEncryption = false;
+		}
+	}
+
+	async function stopEncryption() {
+		if (!selectedStream?.DeliveryStreamName) return;
+		if (!await confirmDestructive({ title: 'Stop Encryption', message: `Stop encryption for delivery stream "${selectedStream.DeliveryStreamName}"?` })) return;
+		managingEncryption = true;
+		try {
+			await firehose.send(new StopDeliveryStreamEncryptionCommand({
+				DeliveryStreamName: selectedStream.DeliveryStreamName
+			}));
+			toast.success('Stopped delivery stream encryption');
+			await selectStream(selectedStream.DeliveryStreamName);
+		} catch (e) {
+			toast.error('Failed to stop encryption: ' + String(e));
+		} finally {
+			managingEncryption = false;
+		}
+	}
+
 	function formatDate(d: Date | undefined): string {
 		if (!d) return '-';
 		return d.toLocaleString();
@@ -157,6 +201,11 @@
 		if (dest.RedshiftDestinationDescription) return `Redshift: ${dest.RedshiftDestinationDescription.ClusterJDBCURL ?? ''}`;
 		if (dest.AmazonopensearchserviceDestinationDescription) return `OpenSearch: ${dest.AmazonopensearchserviceDestinationDescription.DomainARN ?? ''}`;
 		return 'Unknown destination';
+	}
+
+	function getRetryDuration(dest: DestinationDescription): number | undefined {
+		return dest.RedshiftDestinationDescription?.RetryOptions?.DurationInSeconds ??
+			dest.AmazonopensearchserviceDestinationDescription?.RetryOptions?.DurationInSeconds;
 	}
 
 	onMount(loadStreams);
@@ -235,9 +284,9 @@
 
 		<!-- Tabs -->
 		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-			{#each [['overview', 'Overview'], ['destinations', 'Destinations'], ['put', 'Put Record']] as [tab, label]}
+			{#each [['overview', 'Overview'], ['destinations', 'Destinations'], ['encryption', 'Encryption'], ['put', 'Put Record']] as [tab, label]}
 				<button
-					onclick={() => (activeTab = tab as 'overview' | 'destinations' | 'put')}
+					onclick={() => (activeTab = tab as 'overview' | 'destinations' | 'encryption' | 'put')}
 					class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-red-500 text-red-600 dark:text-red-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
 				>
 					{label}
@@ -276,22 +325,94 @@
 						<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
 							<div class="flex items-start gap-3">
 								<Archive class="w-5 h-5 text-red-500 mt-0.5" />
-								<div>
+								<div class="flex-1">
 									<div class="font-medium text-sm">{dest.DestinationId}</div>
 									<div class="text-xs text-gray-500 mt-1">{getDestinationLabel(dest)}</div>
-									{#if dest.S3DestinationDescription}
-										<div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+									<div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+										{#if dest.S3DestinationDescription}
 											<div class="text-gray-500">Buffer Size: {dest.S3DestinationDescription.BufferingHints?.SizeInMBs ?? '-'} MB</div>
 											<div class="text-gray-500">Buffer Interval: {dest.S3DestinationDescription.BufferingHints?.IntervalInSeconds ?? '-'}s</div>
 											<div class="text-gray-500">Compression: {dest.S3DestinationDescription.CompressionFormat ?? 'UNCOMPRESSED'}</div>
-										</div>
-									{/if}
+										{/if}
+										{#if getRetryDuration(dest) !== undefined}
+											<div class="text-gray-500 font-medium">Retry Duration: {getRetryDuration(dest)}s</div>
+										{/if}
+									</div>
 								</div>
 							</div>
 						</div>
 					{/each}
 				</div>
 			{/if}
+		{/if}
+
+		{#if activeTab === 'encryption'}
+			<div class="max-w-lg space-y-6">
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+					<div class="flex items-center gap-3 mb-4">
+						{#if selectedStream.DeliveryStreamEncryptionConfiguration?.Status === 'ENABLED' || selectedStream.DeliveryStreamEncryptionConfiguration?.Status === 'ENABLING'}
+							<div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+								<Shield class="w-6 h-6 text-green-600 dark:text-green-400" />
+							</div>
+							<div>
+								<h3 class="font-medium text-gray-900 dark:text-white text-base">Server-Side Encryption</h3>
+								<p class="text-sm text-green-600 dark:text-green-400 font-medium">
+									{selectedStream.DeliveryStreamEncryptionConfiguration.Status}
+									({selectedStream.DeliveryStreamEncryptionConfiguration.KeyType === 'CUSTOMER_MANAGED_CMK' ? 'Customer Managed Key' : 'AWS Owned Key'})
+								</p>
+							</div>
+						{:else}
+							<div class="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+								<ShieldOff class="w-6 h-6 text-gray-500 dark:text-gray-400" />
+							</div>
+							<div>
+								<h3 class="font-medium text-gray-900 dark:text-white text-base">Server-Side Encryption</h3>
+								<p class="text-sm text-gray-500 dark:text-gray-400">
+									{selectedStream.DeliveryStreamEncryptionConfiguration?.Status || 'DISABLED'}
+								</p>
+							</div>
+						{/if}
+					</div>
+
+					{#if selectedStream.DeliveryStreamEncryptionConfiguration?.FailureDescription}
+						<div class="mt-3 p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-100">
+							<strong>Encryption Error:</strong> {selectedStream.DeliveryStreamEncryptionConfiguration.FailureDescription.Details}
+						</div>
+					{/if}
+
+					{#if selectedStream.DeliveryStreamEncryptionConfiguration?.KeyType === 'CUSTOMER_MANAGED_CMK' && selectedStream.DeliveryStreamEncryptionConfiguration.KeyARN}
+						<div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800">
+							<p class="text-xs text-gray-500 font-medium mb-1">Current KMS Key ARN</p>
+							<p class="text-sm font-mono text-gray-900 dark:text-white break-all">{selectedStream.DeliveryStreamEncryptionConfiguration.KeyARN}</p>
+						</div>
+					{/if}
+				</div>
+
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+					<h3 class="font-medium text-gray-900 dark:text-white mb-2">Rotate or Enable Encryption</h3>
+					<p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+						Update the KMS key used for server-side encryption. Leave the KMS Key ARN blank to use an AWS-owned CMK.
+					</p>
+					
+					<div class="space-y-3">
+						<div>
+							<label for="kms-key-arn" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">KMS Key ARN (Optional)</label>
+							<input id="kms-key-arn" bind:value={newKmsKeyArn} type="text" placeholder="arn:aws:kms:..." class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+						</div>
+						
+						<div class="flex gap-3 pt-2">
+							<button onclick={startEncryption} disabled={managingEncryption} class="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+								<Key class="w-4 h-4" /> {managingEncryption ? 'Updating...' : 'Enable / Rotate Key'}
+							</button>
+							{#if selectedStream.DeliveryStreamEncryptionConfiguration?.Status === 'ENABLED' || selectedStream.DeliveryStreamEncryptionConfiguration?.Status === 'ENABLING'}
+								<button onclick={stopEncryption} disabled={managingEncryption} class="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-red-600 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50">
+									Stop Encryption
+								</button>
+							{/if}
+						</div>
+					</div>
+				</div>
+			</div>
 		{/if}
 
 		{#if activeTab === 'put'}
