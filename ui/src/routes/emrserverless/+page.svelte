@@ -36,8 +36,13 @@
 		TERMINATED_WITH_ERRORS: 'bg-red-200 dark:bg-red-900/50 text-red-800 dark:text-red-300'
 	};
 
+	// Single source of truth for app states used in filter pills and the AppStateFilter type.
+	const APP_STATES = ['ALL', 'CREATING', 'STARTING', 'STARTED', 'STOPPING', 'STOPPED', 'TERMINATED', 'TERMINATED_WITH_ERRORS'] as const;
+
 	type JobSortKey = 'newest' | 'oldest' | 'name-asc' | 'name-desc';
 	type JobStateFilter = (typeof JOB_STATES)[number];
+	type AppSortKey = 'newest' | 'oldest' | 'name-asc' | 'name-desc';
+	type AppStateFilter = (typeof APP_STATES)[number];
 	type MainTab = 'applications' | 'jobs' | 'docs';
 
 	let loading = $state(false);
@@ -46,15 +51,32 @@
 	let searchQuery = $state('');
 	let jobStateFilter = $state<JobStateFilter>('ALL');
 	let jobSort = $state<JobSortKey>('newest');
+	let appStateFilter = $state<AppStateFilter>('ALL');
+	let appSort = $state<AppSortKey>('newest');
 	let applications = $state<ApplicationSummary[]>([]);
 	let jobRuns = $state<JobRunSummary[]>([]);
 	let selectedAppId = $state<string | null>(null);
 
 	const selectedApp = $derived(applications.find((a) => a.id === selectedAppId) ?? null);
 
-	const filteredApps = $derived(
-		applications.filter((a) => (a.name ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
-	);
+	const filteredApps = $derived((() => {
+		const result = applications.filter((a) => {
+			const search = searchQuery.toLowerCase();
+			const matchesSearch = (a.name ?? a.id ?? '').toLowerCase().includes(search);
+			const matchesState = appStateFilter === 'ALL' || a.state === appStateFilter;
+			return matchesSearch && matchesState;
+		});
+		if (appSort === 'newest') {
+			result.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+		} else if (appSort === 'oldest') {
+			result.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+		} else if (appSort === 'name-asc') {
+			result.sort((a, b) => (a.name ?? a.id ?? '').localeCompare(b.name ?? b.id ?? ''));
+		} else if (appSort === 'name-desc') {
+			result.sort((a, b) => (b.name ?? b.id ?? '').localeCompare(a.name ?? a.id ?? ''));
+		}
+		return result;
+	})());
 
 	const filteredJobs = $derived((() => {
 		const result = jobRuns.filter((j) => {
@@ -194,7 +216,35 @@
 				{/if}
 			</div>
 
-			{#if activeTab === 'jobs'}
+			{#if activeTab === 'applications'}
+				<!-- State filter + sort row -->
+				<div class="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between">
+					<div class="flex flex-wrap gap-1" role="group" aria-label="Filter applications by state">
+						{#each APP_STATES as s}
+							<button
+								type="button"
+								aria-pressed={appStateFilter === s}
+								onclick={() => (appStateFilter = s)}
+								class="px-2 py-1 rounded text-xs font-medium transition-colors {appStateFilter === s ? 'bg-yellow-500 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'}"
+							>
+								{s}
+							</button>
+						{/each}
+					</div>
+					<div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 shrink-0">
+						<ArrowUpDown class="w-4 h-4" />
+						<select
+							bind:value={appSort}
+							class="py-1 px-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm"
+						>
+							<option value="newest">Newest first</option>
+							<option value="oldest">Oldest first</option>
+							<option value="name-asc">Name A→Z</option>
+							<option value="name-desc">Name Z→A</option>
+						</select>
+					</div>
+				</div>
+			{:else if activeTab === 'jobs'}
 				<!-- Selected application context line -->
 				{#if selectedApp}
 					<p class="text-xs text-gray-500 dark:text-gray-400">
