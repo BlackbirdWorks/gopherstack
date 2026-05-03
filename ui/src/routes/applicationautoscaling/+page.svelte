@@ -1089,7 +1089,10 @@
 							</div>
 							<button
 								onclick={loadForecast}
-								disabled={loadingForecast || !forecastPolicyName.trim()}
+								disabled={loadingForecast ||
+								!forecastPolicyName.trim() ||
+								!forecastStartTime ||
+								!forecastEndTime}
 								class="flex items-center gap-1 rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700 disabled:opacity-50"
 							>
 								<BarChart2 size={12} />
