@@ -765,22 +765,35 @@ func TestInMemoryBackend_DeleteTable_CleansUpTags(t *testing.T) {
 func TestInMemoryBackend_DeleteDatabase_CleansUpTableMutexes(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	tests := []struct {
+		name       string
+		tableNames []string
+	}{
+		{name: "no tables", tableNames: nil},
+		{name: "single table", tableNames: []string{"only"}},
+		{name: "multiple tables", tableNames: []string{"t1", "t2", "t3"}},
+	}
 
-	_, err := b.CreateDatabase("db", nil)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err = b.CreateTable("db", "t1", nil, nil)
-	require.NoError(t, err)
+			b := newBackend()
+			_, err := b.CreateDatabase("db", nil)
+			require.NoError(t, err)
 
-	_, err = b.CreateTable("db", "t2", nil, nil)
-	require.NoError(t, err)
+			for _, name := range tt.tableNames {
+				_, err = b.CreateTable("db", name, nil, nil)
+				require.NoError(t, err)
+			}
 
-	require.Equal(t, 2, timestreamwrite.TableMutexCount(b))
+			require.Equal(t, len(tt.tableNames), timestreamwrite.TableMutexCount(b))
 
-	require.NoError(t, b.DeleteDatabase("db"))
+			require.NoError(t, b.DeleteDatabase("db"))
 
-	assert.Equal(t, 0, timestreamwrite.TableMutexCount(b))
+			assert.Equal(t, 0, timestreamwrite.TableMutexCount(b))
+		})
+	}
 }
 
 // TestInMemoryBackend_WriteRecords_CrossTableRace exercises concurrent
@@ -793,39 +806,50 @@ func TestInMemoryBackend_DeleteDatabase_CleansUpTableMutexes(t *testing.T) {
 func TestInMemoryBackend_WriteRecords_CrossTableRace(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
-	_, err := b.CreateDatabase("db", nil)
-	require.NoError(t, err)
-
-	const tableCount = 8
-
-	for i := range tableCount {
-		_, err = b.CreateTable("db", "tbl"+strconv.Itoa(i), nil, nil)
-		require.NoError(t, err)
+	tests := []struct {
+		name       string
+		tableCount int
+		iterations int
+	}{
+		{name: "two tables few writes", tableCount: 2, iterations: 50},
+		{name: "eight tables many writes", tableCount: 8, iterations: 200},
 	}
 
-	rec := []timestreamwrite.Record{{
-		MeasureName:  "m",
-		MeasureValue: "1",
-		Time:         "1700000000",
-		TimeUnit:     "SECONDS",
-	}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	const iterations = 200
+			b := newBackend()
+			_, err := b.CreateDatabase("db", nil)
+			require.NoError(t, err)
 
-	done := make(chan struct{})
-	for i := range tableCount {
-		go func() {
-			tbl := "tbl" + strconv.Itoa(i)
-			for range iterations {
-				_, _ = b.WriteRecords("db", tbl, rec)
+			for i := range tt.tableCount {
+				_, err = b.CreateTable("db", "tbl"+strconv.Itoa(i), nil, nil)
+				require.NoError(t, err)
 			}
-			done <- struct{}{}
-		}()
-	}
 
-	for range tableCount {
-		<-done
+			rec := []timestreamwrite.Record{{
+				MeasureName:  "m",
+				MeasureValue: "1",
+				Time:         "1700000000",
+				TimeUnit:     "SECONDS",
+			}}
+
+			done := make(chan struct{})
+			for i := range tt.tableCount {
+				go func() {
+					tbl := "tbl" + strconv.Itoa(i)
+					for range tt.iterations {
+						_, _ = b.WriteRecords("db", tbl, rec)
+					}
+					done <- struct{}{}
+				}()
+			}
+
+			for range tt.tableCount {
+				<-done
+			}
+		})
 	}
 }
 
@@ -836,40 +860,52 @@ func TestInMemoryBackend_WriteRecords_CrossTableRace(t *testing.T) {
 func TestInMemoryBackend_WriteRecords_SnapshotRace(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
-	_, err := b.CreateDatabase("db", nil)
-	require.NoError(t, err)
-	_, err = b.CreateTable("db", "tbl", nil, nil)
-	require.NoError(t, err)
-
-	rec := []timestreamwrite.Record{{
-		MeasureName:  "m",
-		MeasureValue: "1",
-		Time:         "1700000000",
-		TimeUnit:     "SECONDS",
-	}}
-
-	const writers = 4
-	const iterations = 200
-
-	done := make(chan struct{})
-	for range writers {
-		go func() {
-			for range iterations {
-				_, _ = b.WriteRecords("db", "tbl", rec)
-			}
-			done <- struct{}{}
-		}()
+	tests := []struct {
+		name       string
+		writers    int
+		iterations int
+	}{
+		{name: "single writer", writers: 1, iterations: 50},
+		{name: "four writers", writers: 4, iterations: 200},
 	}
 
-	go func() {
-		for range iterations {
-			_, _ = b.Snapshot()
-		}
-		done <- struct{}{}
-	}()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	for range writers + 1 {
-		<-done
+			b := newBackend()
+			_, err := b.CreateDatabase("db", nil)
+			require.NoError(t, err)
+			_, err = b.CreateTable("db", "tbl", nil, nil)
+			require.NoError(t, err)
+
+			rec := []timestreamwrite.Record{{
+				MeasureName:  "m",
+				MeasureValue: "1",
+				Time:         "1700000000",
+				TimeUnit:     "SECONDS",
+			}}
+
+			done := make(chan struct{})
+			for range tt.writers {
+				go func() {
+					for range tt.iterations {
+						_, _ = b.WriteRecords("db", "tbl", rec)
+					}
+					done <- struct{}{}
+				}()
+			}
+
+			go func() {
+				for range tt.iterations {
+					_, _ = b.Snapshot()
+				}
+				done <- struct{}{}
+			}()
+
+			for range tt.writers + 1 {
+				<-done
+			}
+		})
 	}
 }

@@ -845,6 +845,13 @@ func (b *InMemoryBackend) AddTableInternal(tbl *Table) {
 
 	cp := *tbl
 	b.tables[tbl.DatabaseName][tbl.TableName] = &cp
+
+	// If a slot already exists for this table, close its mutex before
+	// overwriting so we don't leak the old lockmetrics.RWMutex.
+	if existing := b.records[tbl.DatabaseName][tbl.TableName]; existing != nil && existing.mu != nil {
+		existing.mu.Close()
+	}
+
 	b.records[tbl.DatabaseName][tbl.TableName] = &tableRecords{
 		mu: lockmetrics.New("timestreamwrite.table"),
 	}
