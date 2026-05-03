@@ -2211,7 +2211,7 @@ func writeConfigListXML(w http.ResponseWriter, rootTag, elementTag string, confi
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	sb.WriteString(`<`)
 	sb.WriteString(rootTag)
-	sb.WriteString(` xmlns=xmlNamespaceS3>`)
+	sb.WriteString(` xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
 	sb.WriteString(`<IsTruncated>false</IsTruncated>`)
 	for _, cfg := range configs {
 		sb.WriteString(`<`)
