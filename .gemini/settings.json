@@ -1,0 +1,77 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "Bash\\(gh pr create.*\\)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/homebrew/bin/gt tap guard pr-workflow"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash\\(git checkout -b.*\\)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/homebrew/bin/gt tap guard pr-workflow"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash\\(git switch -c.*\\)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/homebrew/bin/gt tap guard pr-workflow"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "GT_SESSION_ID=${GT_SESSION_ID:-$(uuidgen)} GT_HOOK_SOURCE=startup /opt/homebrew/bin/gt prime --hook && /opt/homebrew/bin/gt mail check --inject"
+          }
+        ]
+      }
+    ],
+    "PreCompress": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "GT_HOOK_SOURCE=compact /opt/homebrew/bin/gt prime --hook"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/homebrew/bin/gt mail check --inject"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/homebrew/bin/gt costs record &"
+          }
+        ]
+      }
+    ]
+  }
+}

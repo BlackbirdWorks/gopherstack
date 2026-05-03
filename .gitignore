@@ -27,3 +27,7 @@ ui/.svelte-kit/
 ui/build/
 /dashboard/static/spa/*
 !/dashboard/static/spa/.keep
+.beads/
+.gemini/
+.runtime/
+CLAUDE.md

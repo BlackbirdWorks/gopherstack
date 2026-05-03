@@ -17,42 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := emr.NewInMemoryBackend("000000000000", "us-east-1")
 	h := emr.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &emrsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DescribeJobFlows",
-		"DescribeNotebookExecution",
-		"DescribePersistentAppUI",
-		"DescribeReleaseLabel",
-		"DescribeStep",
-		"DescribeStudio",
-		"GetBlockPublicAccessConfiguration",
-		"GetClusterSessionCredentials",
-		"GetOnClusterAppUIPresignedURL",
-		"GetPersistentAppUIPresignedURL",
-		"GetStudioSessionMapping",
-		"ListInstances",
-		"ListNotebookExecutions",
-		"ListReleaseLabels",
-		"ListSecurityConfigurations",
-		"ListStudioSessionMappings",
-		"ListStudios",
-		"ListSupportedInstanceTypes",
-		"ModifyCluster",
-		"ModifyInstanceFleet",
-		"ModifyInstanceGroups",
-		"PutAutoScalingPolicy",
-		"PutAutoTerminationPolicy",
-		"PutBlockPublicAccessConfiguration",
-		"PutManagedScalingPolicy",
-		"RemoveAutoScalingPolicy",
-		"RemoveAutoTerminationPolicy",
-		"RemoveManagedScalingPolicy",
-		"SetKeepJobFlowAliveWhenNoSteps",
-		"SetTerminationProtection",
-		"SetUnhealthyNodeReplacement",
-		"SetVisibleToAllUsers",
-		"StartNotebookExecution",
-		"StopNotebookExecution",
-		"UpdateStudio",
-		"UpdateStudioSessionMapping",
-	})
+	sdkcheck.CheckCompleteness(t, &emrsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

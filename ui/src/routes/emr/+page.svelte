@@ -22,7 +22,7 @@
 	let loading = $state(false);
 	let clusters = $state<ClusterSummary[]>([]);
 	let selectedCluster = $state<Cluster | null>(null);
-	let activeTab = $state<'overview' | 'steps' | 'instances'>('overview');
+	let activeTab = $state<'overview' | 'steps' | 'instances' | 'modifications' | 'autoscaling' | 'notebooks' | 'studios' | 'bootstrap-actions' | 'instance-fleets'>('overview');
 	let searchQuery = $state('');
 
 	// Steps
@@ -87,7 +87,7 @@
 		}
 	}
 
-	async function handleTabChange(tab: 'overview' | 'steps' | 'instances') {
+	async function handleTabChange(tab: 'overview' | 'steps' | 'instances' | 'modifications' | 'autoscaling' | 'notebooks' | 'studios' | 'bootstrap-actions' | 'instance-fleets') {
 		activeTab = tab;
 		if (!selectedCluster) return;
 		if (tab === 'steps' && steps.length === 0) {
@@ -194,9 +194,9 @@
 
 		<!-- Tabs -->
 		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-			{#each [['overview', 'Overview'], ['steps', 'Steps'], ['instances', 'Instances']] as [tab, label]}
+			{#each [['overview', 'Overview'], ['steps', 'Steps'], ['instances', 'Instances'], ['modifications', 'Modifications'], ['autoscaling', 'Autoscaling'], ['notebooks', 'Notebooks'], ['studios', 'Studios'], ['bootstrap-actions', 'Bootstrap Actions'], ['instance-fleets', 'Instance Fleets']] as [tab, label]}
 				<button
-					onclick={() => handleTabChange(tab as 'overview' | 'steps' | 'instances')}
+					onclick={() => handleTabChange(tab as 'overview' | 'steps' | 'instances' | 'modifications' | 'autoscaling' | 'notebooks' | 'studios' | 'bootstrap-actions' | 'instance-fleets')}
 					class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
 				>
 					{label}
@@ -302,6 +302,30 @@
 					</table>
 				</div>
 			{/if}
+		{/if}
+
+		{#if activeTab === 'modifications'}
+			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Cluster modification details not yet implemented</p></div>
+		{/if}
+
+		{#if activeTab === 'autoscaling'}
+			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Autoscaling policies not yet implemented</p></div>
+		{/if}
+
+		{#if activeTab === 'notebooks'}
+			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Notebook executions not yet implemented</p></div>
+		{/if}
+
+		{#if activeTab === 'studios'}
+			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Studios not yet implemented</p></div>
+		{/if}
+
+		{#if activeTab === 'bootstrap-actions'}
+			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Bootstrap actions not yet implemented</p></div>
+		{/if}
+
+		{#if activeTab === 'instance-fleets'}
+			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Instance fleets not yet implemented</p></div>
 		{/if}
 
 	{:else}
