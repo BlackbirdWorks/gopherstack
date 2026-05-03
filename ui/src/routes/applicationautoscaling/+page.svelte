@@ -93,8 +93,8 @@
 	let creatingScheduled = $state(false);
 	let scheduledName = $state('');
 	let scheduledSchedule = $state('cron(0 12 * * ? *)');
-	let scheduledMinCap = $state<number | undefined>(undefined);
-	let scheduledMaxCap = $state<number | undefined>(undefined);
+	let scheduledMinCap = $state<number | undefined>();
+	let scheduledMaxCap = $state<number | undefined>();
 
 	// Namespace options
 	const namespaceOptions = [
