@@ -1,6 +1,7 @@
 package timestreamwrite_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -759,4 +760,152 @@ func TestInMemoryBackend_DeleteTable_CleansUpTags(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Empty(t, b.ListTagsForResource(tblARN))
+}
+
+func TestInMemoryBackend_DeleteDatabase_CleansUpTableMutexes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		tableNames []string
+	}{
+		{name: "no tables", tableNames: nil},
+		{name: "single table", tableNames: []string{"only"}},
+		{name: "multiple tables", tableNames: []string{"t1", "t2", "t3"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			_, err := b.CreateDatabase("db", nil)
+			require.NoError(t, err)
+
+			for _, name := range tt.tableNames {
+				_, err = b.CreateTable("db", name, nil, nil)
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, len(tt.tableNames), timestreamwrite.TableMutexCount(b))
+
+			require.NoError(t, b.DeleteDatabase("db"))
+
+			assert.Equal(t, 0, timestreamwrite.TableMutexCount(b))
+		})
+	}
+}
+
+// TestInMemoryBackend_WriteRecords_CrossTableRace exercises concurrent
+// WriteRecords for different tables in the SAME database. Under the previous
+// design these would each acquire a different per-table mutex but still write
+// to the shared inner b.records[dbName] map (b.records[dbName][tblName] = append(...)),
+// which is a fatal "concurrent map writes" race in Go even on different keys.
+// The fix moves each table's slice into a *tableRecords slot pointer so the
+// append never touches the enclosing map.
+func TestInMemoryBackend_WriteRecords_CrossTableRace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		tableCount int
+		iterations int
+	}{
+		{name: "two tables few writes", tableCount: 2, iterations: 50},
+		{name: "eight tables many writes", tableCount: 8, iterations: 200},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			_, err := b.CreateDatabase("db", nil)
+			require.NoError(t, err)
+
+			for i := range tt.tableCount {
+				_, err = b.CreateTable("db", "tbl"+strconv.Itoa(i), nil, nil)
+				require.NoError(t, err)
+			}
+
+			rec := []timestreamwrite.Record{{
+				MeasureName:  "m",
+				MeasureValue: "1",
+				Time:         "1700000000",
+				TimeUnit:     "SECONDS",
+			}}
+
+			done := make(chan struct{})
+			for i := range tt.tableCount {
+				go func() {
+					tbl := "tbl" + strconv.Itoa(i)
+					for range tt.iterations {
+						_, _ = b.WriteRecords("db", tbl, rec)
+					}
+					done <- struct{}{}
+				}()
+			}
+
+			for range tt.tableCount {
+				<-done
+			}
+		})
+	}
+}
+
+// TestInMemoryBackend_WriteRecords_SnapshotRace concurrently writes and snapshots
+// the backend; with the race detector enabled this catches any concurrent map
+// read/write between WriteRecords (under global RLock + per-table WLock) and
+// Snapshot (which previously also held only RLock and iterated b.records).
+func TestInMemoryBackend_WriteRecords_SnapshotRace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		writers    int
+		iterations int
+	}{
+		{name: "single writer", writers: 1, iterations: 50},
+		{name: "four writers", writers: 4, iterations: 200},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			_, err := b.CreateDatabase("db", nil)
+			require.NoError(t, err)
+			_, err = b.CreateTable("db", "tbl", nil, nil)
+			require.NoError(t, err)
+
+			rec := []timestreamwrite.Record{{
+				MeasureName:  "m",
+				MeasureValue: "1",
+				Time:         "1700000000",
+				TimeUnit:     "SECONDS",
+			}}
+
+			done := make(chan struct{})
+			for range tt.writers {
+				go func() {
+					for range tt.iterations {
+						_, _ = b.WriteRecords("db", "tbl", rec)
+					}
+					done <- struct{}{}
+				}()
+			}
+
+			go func() {
+				for range tt.iterations {
+					_, _ = b.Snapshot()
+				}
+				done <- struct{}{}
+			}()
+
+			for range tt.writers + 1 {
+				<-done
+			}
+		})
+	}
 }
