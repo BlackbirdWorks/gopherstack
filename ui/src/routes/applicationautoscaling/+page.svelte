@@ -20,7 +20,8 @@
 		ScalableDimension,
 		type ScalableTarget,
 		type ScalingPolicy,
-		type ScheduledAction
+		type ScheduledAction,
+		type PredefinedMetricSpecification
 	} from '@aws-sdk/client-application-auto-scaling';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -87,6 +88,44 @@
 	let policyName = $state('');
 	let policyType = $state<'TargetTrackingScaling' | 'StepScaling'>('TargetTrackingScaling');
 	let targetValue = $state(75);
+	let policyMetricType = $state('ECSServiceAverageCPUUtilization');
+
+	// Predefined Application Auto Scaling metric types grouped by service namespace.
+	// Each namespace's first entry is used as the default when the user opens the
+	// create-policy form for a target in that namespace.
+	const metricTypesByNamespace: Record<string, string[]> = {
+		ecs: ['ECSServiceAverageCPUUtilization', 'ECSServiceAverageMemoryUtilization', 'ALBRequestCountPerTarget'],
+		dynamodb: ['DynamoDBReadCapacityUtilization', 'DynamoDBWriteCapacityUtilization'],
+		rds: ['RDSReaderAverageCPUUtilization', 'RDSReaderAverageDatabaseConnections'],
+		ec2: [
+			'EC2SpotFleetRequestAverageCPUUtilization',
+			'EC2SpotFleetRequestAverageNetworkIn',
+			'EC2SpotFleetRequestAverageNetworkOut'
+		],
+		sagemaker: [
+			'SageMakerVariantInvocationsPerInstance',
+			'SageMakerVariantConcurrentRequestsPerModel',
+			'SageMakerInferenceComponentInvocationsPerCopy',
+			'SageMakerInferenceComponentConcurrentRequestsPerCopyHighResolution'
+		],
+		appstream: ['AppStreamAverageCapacityUtilization'],
+		elasticache: [
+			'ElastiCachePrimaryEngineCPUUtilization',
+			'ElastiCacheReplicaEngineCPUUtilization',
+			'ElastiCacheDatabaseMemoryUsageCountedForEvictPercentage'
+		],
+		comprehend: ['ComprehendInferenceUtilization'],
+		lambda: ['LambdaProvisionedConcurrencyUtilization'],
+		cassandra: ['CassandraReadCapacityUtilization', 'CassandraWriteCapacityUtilization'],
+		kafka: ['KafkaBrokerStorageUtilization'],
+		neptune: ['NeptuneReaderAverageCPUUtilization'],
+		'custom-resource': []
+	};
+
+	function metricTypesFor(ns: string | undefined): string[] {
+		if (!ns) return metricTypesByNamespace.ecs;
+		return metricTypesByNamespace[ns] ?? [];
+	}
 
 	// Create scheduled action form
 	let showCreateScheduled = $state(false);
@@ -177,6 +216,13 @@
 		scheduledActions = [];
 		tags = {};
 		forecastCapacity = [];
+
+		// Default the predefined metric type to the first one valid for this
+		// namespace so Target Tracking policies don't fail with "metric not valid
+		// for ServiceNamespace".
+		const opts = metricTypesFor(t.ServiceNamespace);
+		if (opts.length > 0) policyMetricType = opts[0];
+
 		await loadPolicies();
 	}
 
@@ -333,7 +379,7 @@
 							? {
 									TargetValue: targetValue,
 									PredefinedMetricSpecification: {
-										PredefinedMetricType: 'ECSServiceAverageCPUUtilization'
+										PredefinedMetricType: policyMetricType as PredefinedMetricSpecification['PredefinedMetricType']
 									}
 								}
 							: undefined
@@ -750,6 +796,23 @@
 									<option value="StepScaling">Step Scaling</option>
 								</select>
 								{#if policyType === 'TargetTrackingScaling'}
+									{@const metricOptions = metricTypesFor(selectedTarget?.ServiceNamespace)}
+									{#if metricOptions.length > 0}
+										<select
+											bind:value={policyMetricType}
+											class="w-full rounded border border-slate-200 px-3 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+										>
+											{#each metricOptions as opt (opt)}
+												<option value={opt}>{opt}</option>
+											{/each}
+										</select>
+									{:else}
+										<input
+											bind:value={policyMetricType}
+											placeholder="Predefined metric type"
+											class="w-full rounded border border-slate-200 px-3 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+										/>
+									{/if}
 									<div class="flex items-center gap-2">
 										<label class="w-24 text-xs text-slate-600 dark:text-slate-300">Target %</label>
 										<input
