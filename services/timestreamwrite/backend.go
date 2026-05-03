@@ -611,30 +611,7 @@ func (b *InMemoryBackend) SweepRetention(ctx context.Context) {
 
 	for dbName, dbTables := range b.tables {
 		for tblName, tbl := range dbTables {
-			if tbl.RetentionProperties == nil || tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours == 0 {
-				continue
-			}
-
-			retention := time.Duration(tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours) * time.Hour
-			cutoff := now.Add(-retention)
-
-			slot := b.records[dbName][tblName]
-			if slot == nil {
-				continue
-			}
-
-			newRecords := make([]Record, 0, len(slot.records))
-			for _, r := range slot.records {
-				if r.InternalTimestamp.After(cutoff) {
-					newRecords = append(newRecords, r)
-				}
-			}
-
-			pruned := len(slot.records) - len(newRecords)
-			if pruned > 0 {
-				slot.records = newRecords
-				totalPruned += pruned
-			}
+			totalPruned += b.pruneTableRecords(dbName, tblName, tbl, now)
 		}
 	}
 
@@ -642,7 +619,39 @@ func (b *InMemoryBackend) SweepRetention(ctx context.Context) {
 		telemetry.RecordWorkerItems("timestreamwrite", "RetentionSweeper", totalPruned)
 		logger.Load(ctx).InfoContext(ctx, "Timestream janitor: expired records pruned", "count", totalPruned)
 	}
+
 	telemetry.RecordWorkerTask("timestreamwrite", "RetentionSweeper", "success")
+}
+
+// pruneTableRecords drops records older than the table's memory-store retention
+// window. Returns the number of records removed. Caller must hold b.mu in write
+// mode. Returns 0 (no-op) when the table has no retention configured or no slot.
+func (b *InMemoryBackend) pruneTableRecords(dbName, tblName string, tbl *Table, now time.Time) int {
+	if tbl.RetentionProperties == nil || tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours == 0 {
+		return 0
+	}
+
+	slot := b.records[dbName][tblName]
+	if slot == nil {
+		return 0
+	}
+
+	retention := time.Duration(tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours) * time.Hour
+	cutoff := now.Add(-retention)
+
+	newRecords := make([]Record, 0, len(slot.records))
+	for _, r := range slot.records {
+		if r.InternalTimestamp.After(cutoff) {
+			newRecords = append(newRecords, r)
+		}
+	}
+
+	pruned := len(slot.records) - len(newRecords)
+	if pruned > 0 {
+		slot.records = newRecords
+	}
+
+	return pruned
 }
 
 // TagResource stores tags for the given ARN.
