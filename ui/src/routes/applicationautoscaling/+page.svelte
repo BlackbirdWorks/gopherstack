@@ -90,6 +90,15 @@
 	let targetValue = $state(75);
 	let policyMetricType = $state('ECSServiceAverageCPUUtilization');
 
+	// StepScaling fields. The single StepAdjustment row covers the common
+	// "scale up by N when threshold crossed" use-case; users wanting more
+	// complex multi-step policies can hand-craft via the SDK.
+	let stepAdjustmentType = $state<'ChangeInCapacity' | 'PercentChangeInCapacity' | 'ExactCapacity'>(
+		'ChangeInCapacity'
+	);
+	let stepScalingAdjustment = $state(1);
+	let stepCooldown = $state(60);
+
 	// Predefined Application Auto Scaling metric types grouped by service namespace.
 	// Each namespace's first entry is used as the default when the user opens the
 	// create-policy form for a target in that namespace.
@@ -381,6 +390,19 @@
 									PredefinedMetricSpecification: {
 										PredefinedMetricType: policyMetricType as PredefinedMetricSpecification['PredefinedMetricType']
 									}
+								}
+							: undefined,
+					StepScalingPolicyConfiguration:
+						policyType === 'StepScaling'
+							? {
+									AdjustmentType: stepAdjustmentType,
+									Cooldown: stepCooldown,
+									StepAdjustments: [
+										{
+											MetricIntervalLowerBound: 0,
+											ScalingAdjustment: stepScalingAdjustment
+										}
+									]
 								}
 							: undefined
 				})
@@ -820,6 +842,32 @@
 											type="number"
 											min="1"
 											max="100"
+											class="w-24 rounded border border-slate-200 px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+										/>
+									</div>
+								{:else if policyType === 'StepScaling'}
+									<select
+										bind:value={stepAdjustmentType}
+										class="w-full rounded border border-slate-200 px-3 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+									>
+										<option value="ChangeInCapacity">ChangeInCapacity</option>
+										<option value="PercentChangeInCapacity">PercentChangeInCapacity</option>
+										<option value="ExactCapacity">ExactCapacity</option>
+									</select>
+									<div class="flex items-center gap-2">
+										<label class="w-24 text-xs text-slate-600 dark:text-slate-300">Adjustment</label>
+										<input
+											bind:value={stepScalingAdjustment}
+											type="number"
+											class="w-24 rounded border border-slate-200 px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+										/>
+									</div>
+									<div class="flex items-center gap-2">
+										<label class="w-24 text-xs text-slate-600 dark:text-slate-300">Cooldown (s)</label>
+										<input
+											bind:value={stepCooldown}
+											type="number"
+											min="0"
 											class="w-24 rounded border border-slate-200 px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
 										/>
 									</div>
