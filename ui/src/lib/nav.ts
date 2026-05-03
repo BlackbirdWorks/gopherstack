@@ -18,6 +18,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "appconfig",
   "athena",
   "autoscaling",
+  "applicationautoscaling",
   "acm",
   "apigateway",
   "apigatewayv2",
@@ -263,6 +264,12 @@ export const sidebarCategories: DashboardCategory[] = [
         href: "/dashboard/autoscaling",
         label: "Auto Scaling",
         icon: "autoscaling",
+      },
+      {
+        id: "applicationautoscaling",
+        href: "/dashboard/applicationautoscaling",
+        label: "Application Auto Scaling",
+        icon: "applicationautoscaling",
       },
       { id: "lightsail", href: "/dashboard/lightsail", label: "Lightsail", icon: "lightsail" },
       {
