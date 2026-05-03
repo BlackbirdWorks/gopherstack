@@ -48,11 +48,16 @@ func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
 
-// TableMutexCount returns the number of per-table mutexes stored in the backend.
-// Exposed for testing only.
+// TableMutexCount returns the number of per-table records slots (each owning a
+// mutex) stored in the backend. Exposed for testing only.
 func TableMutexCount(b *InMemoryBackend) int {
 	b.mu.RLock("TableMutexCount")
 	defer b.mu.RUnlock()
 
-	return len(b.tableMus)
+	total := 0
+	for _, slots := range b.records {
+		total += len(slots)
+	}
+
+	return total
 }

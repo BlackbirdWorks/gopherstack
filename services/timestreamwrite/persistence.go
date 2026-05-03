@@ -49,11 +49,11 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 		}
 	}
 
-	for dbName, tblRecords := range b.records {
-		snap.Records[dbName] = make(map[string][]Record, len(tblRecords))
-		for tblName, recs := range tblRecords {
-			out := make([]Record, len(recs))
-			for i, r := range recs {
+	for dbName, tblSlots := range b.records {
+		snap.Records[dbName] = make(map[string][]Record, len(tblSlots))
+		for tblName, slot := range tblSlots {
+			out := make([]Record, len(slot.records))
+			for i, r := range slot.records {
 				dims := make([]Dimension, len(r.Dimensions))
 				copy(dims, r.Dimensions)
 				r.Dimensions = dims
@@ -97,9 +97,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.nextTaskID = snap.NextTaskID
 	b.databases = snap.Databases
 	b.tables = snap.Tables
-	b.records = snap.Records
 	b.tags = snap.Tags
 	b.batchLoadTasks = snap.BatchLoadTasks
+
+	// Convert snapshot's flat record map back into per-table slots so that
+	// each table owns its own mutex and slice independent of the enclosing maps.
+	b.records = make(map[string]map[string]*tableRecords, len(snap.Records))
+	for dbName, tblRecs := range snap.Records {
+		b.records[dbName] = make(map[string]*tableRecords, len(tblRecs))
+		for tblName, recs := range tblRecs {
+			b.records[dbName][tblName] = &tableRecords{
+				mu:      lockmetrics.New("timestreamwrite.table"),
+				records: recs,
+			}
+		}
+	}
 
 	b.ensureNonNilMapsFromSnapshot()
 
@@ -107,7 +119,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // ensureNonNilMapsFromSnapshot initialises any nil maps that may result from
-// restoring a snapshot with missing fields, and rebuilds the tableMus index.
+// restoring a snapshot with missing fields, and ensures each table has a slot
+// with an initialised mutex even if its records slice is missing.
 func (b *InMemoryBackend) ensureNonNilMapsFromSnapshot() {
 	if b.databases == nil {
 		b.databases = make(map[string]*Database)
@@ -118,7 +131,7 @@ func (b *InMemoryBackend) ensureNonNilMapsFromSnapshot() {
 	}
 
 	if b.records == nil {
-		b.records = make(map[string]map[string][]Record)
+		b.records = make(map[string]map[string]*tableRecords)
 	}
 
 	if b.tags == nil {
@@ -129,11 +142,19 @@ func (b *InMemoryBackend) ensureNonNilMapsFromSnapshot() {
 		b.batchLoadTasks = make(map[string]*BatchLoadTask)
 	}
 
-	// Rebuild per-table mutexes from the restored table map.
-	b.tableMus = make(map[string]*lockmetrics.RWMutex)
-	for _, tbls := range b.tables {
-		for _, tbl := range tbls {
-			b.tableMus[tbl.ARN] = lockmetrics.New("timestreamwrite.table")
+	// Make sure every restored table has a corresponding records slot so
+	// WriteRecords always finds an initialised *tableRecords with a mutex.
+	for dbName, tbls := range b.tables {
+		if b.records[dbName] == nil {
+			b.records[dbName] = make(map[string]*tableRecords, len(tbls))
+		}
+
+		for tblName := range tbls {
+			if b.records[dbName][tblName] == nil {
+				b.records[dbName][tblName] = &tableRecords{
+					mu: lockmetrics.New("timestreamwrite.table"),
+				}
+			}
 		}
 	}
 }

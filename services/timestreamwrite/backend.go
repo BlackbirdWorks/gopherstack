@@ -143,19 +143,29 @@ type BatchLoadTask struct {
 	RecordVersion           int64                    `json:"record_version,omitempty"`
 }
 
+// tableRecords owns the records slice and per-table mutex for a single table.
+// Storing the slice and lock together inside a pointer lets WriteRecords mutate
+// the slice through the pointer without writing to the enclosing maps in
+// b.records — which would race against concurrent WriteRecords calls to other
+// tables in the same database under the global read-lock.
+type tableRecords struct {
+	mu      *lockmetrics.RWMutex
+	records []Record
+}
+
 // InMemoryBackend is the in-memory store for Timestream Write resources.
 type InMemoryBackend struct {
-	databases      map[string]*Database
-	tables         map[string]map[string]*Table
-	records        map[string]map[string][]Record
+	databases map[string]*Database
+	tables    map[string]map[string]*Table
+	// records is keyed dbName -> tblName -> *tableRecords. Each *tableRecords
+	// carries its own RWMutex so WriteRecords mutates the slice via the pointer
+	// (never the map), allowing parallel writes to different tables under a
+	// global read-lock without racing on inner maps.
+	records        map[string]map[string]*tableRecords
 	tags           map[string]map[string]string
 	batchLoadTasks map[string]*BatchLoadTask
-	// tableMus holds a per-table RWMutex keyed by table ARN. WriteRecords
-	// acquires the per-table lock under a global read-lock so concurrent
-	// writes to different tables proceed in parallel.
-	tableMus   map[string]*lockmetrics.RWMutex
-	mu         *lockmetrics.RWMutex
-	nextTaskID int
+	mu             *lockmetrics.RWMutex
+	nextTaskID     int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -185,20 +195,18 @@ func (b *InMemoryBackend) Region() string { return config.DefaultRegion }
 func (b *InMemoryBackend) ensureNonNilMaps() {
 	b.databases = make(map[string]*Database)
 	b.tables = make(map[string]map[string]*Table)
-	b.records = make(map[string]map[string][]Record)
+	b.records = make(map[string]map[string]*tableRecords)
 	b.tags = make(map[string]map[string]string)
 	b.batchLoadTasks = make(map[string]*BatchLoadTask)
-	b.tableMus = make(map[string]*lockmetrics.RWMutex)
 }
 
 // ensureNonNilMapsLocked initialises all maps when the lock is already held.
 func (b *InMemoryBackend) ensureNonNilMapsLocked() {
 	b.databases = make(map[string]*Database)
 	b.tables = make(map[string]map[string]*Table)
-	b.records = make(map[string]map[string][]Record)
+	b.records = make(map[string]map[string]*tableRecords)
 	b.tags = make(map[string]map[string]string)
 	b.batchLoadTasks = make(map[string]*BatchLoadTask)
-	b.tableMus = make(map[string]*lockmetrics.RWMutex)
 }
 
 func databaseARN(name string) string {
@@ -262,7 +270,7 @@ func (b *InMemoryBackend) CreateDatabase(name string, tags map[string]string) (*
 	}
 	b.databases[name] = db
 	b.tables[name] = make(map[string]*Table)
-	b.records[name] = make(map[string][]Record)
+	b.records[name] = make(map[string]*tableRecords)
 
 	if len(tags) > 0 {
 		b.tags[db.ARN] = make(map[string]string, len(tags))
@@ -316,11 +324,9 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 		return fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, name)
 	}
 
-	// Clean up tags and per-table mutexes for all tables in this database before deleting.
+	// Clean up tags for all tables in this database before deleting.
 	for tblName := range b.tables[name] {
-		arn := tableARN(name, tblName)
-		delete(b.tags, arn)
-		delete(b.tableMus, arn)
+		delete(b.tags, tableARN(name, tblName))
 	}
 
 	delete(b.databases, name)
@@ -387,9 +393,8 @@ func (b *InMemoryBackend) CreateTable(
 	}
 
 	b.tables[dbName][tblName] = tbl
-	b.records[dbName][tblName] = []Record{}
+	b.records[dbName][tblName] = &tableRecords{mu: lockmetrics.New("timestreamwrite.table")}
 	b.databases[dbName].TableCount++
-	b.tableMus[tbl.ARN] = lockmetrics.New("timestreamwrite.table")
 
 	if len(tags) > 0 {
 		b.tags[tbl.ARN] = make(map[string]string, len(tags))
@@ -459,7 +464,6 @@ func (b *InMemoryBackend) DeleteTable(dbName, tblName string) error {
 	delete(b.tables[dbName], tblName)
 	delete(b.records[dbName], tblName)
 	delete(b.tags, arn)
-	delete(b.tableMus, arn)
 	b.databases[dbName].TableCount--
 
 	return nil
@@ -509,10 +513,15 @@ type WriteRecordsOutput struct {
 
 // WriteRecords appends records to the specified table.
 //
-// Lock ordering: global RLock first, then per-table WLock. The global read
-// lock prevents structural changes (CreateTable/DeleteTable) from racing with
-// writes; the per-table write lock serialises concurrent writes to the same
+// Lock ordering: global RLock first, then per-table WLock on the *tableRecords
+// slot. The global read lock prevents structural changes
+// (CreateTable/DeleteTable/CreateDatabase/DeleteDatabase) from racing with
+// writes; the slot's write lock serialises concurrent writes to the same
 // table while allowing writes to different tables to proceed in parallel.
+//
+// Records are mutated through the slot pointer (slot.records = append(...))
+// rather than the enclosing map, so two writers in different tables of the
+// same database never write to the b.records[dbName] map concurrently.
 func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record) (*WriteRecordsOutput, error) {
 	b.mu.RLock("WriteRecords")
 	defer b.mu.RUnlock()
@@ -521,21 +530,23 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
 	}
 
-	if _, ok := b.tables[dbName][tblName]; !ok {
+	slot, ok := b.records[dbName][tblName]
+	if !ok {
 		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
 
-	arn := tableARN(dbName, tblName)
-	tblMu := b.tableMus[arn]
+	slot.mu.Lock("WriteRecords")
+	defer slot.mu.Unlock()
 
-	tblMu.Lock("WriteRecords")
-	defer tblMu.Unlock()
+	// Append first, then stamp InternalTimestamp on the copies inside slot.records
+	// so that we never mutate the caller's input slice (which they may share
+	// across goroutines).
+	start := len(slot.records)
+	slot.records = append(slot.records, records...)
 
-	for i := range records {
-		records[i].InternalTimestamp = parseTimestreamTime(records[i].Time, records[i].TimeUnit)
+	for i := start; i < len(slot.records); i++ {
+		slot.records[i].InternalTimestamp = parseTimestreamTime(slot.records[i].Time, slot.records[i].TimeUnit)
 	}
-
-	b.records[dbName][tblName] = append(b.records[dbName][tblName], records...)
 
 	// Record counts are bounded by request size limits (< MaxInt32).
 	count := int32(len(records)) //#nosec G115
@@ -580,17 +591,21 @@ func (b *InMemoryBackend) SweepRetention(ctx context.Context) {
 			retention := time.Duration(tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours) * time.Hour
 			cutoff := now.Add(-retention)
 
-			records := b.records[dbName][tblName]
-			newRecords := make([]Record, 0, len(records))
-			for _, r := range records {
+			slot := b.records[dbName][tblName]
+			if slot == nil {
+				continue
+			}
+
+			newRecords := make([]Record, 0, len(slot.records))
+			for _, r := range slot.records {
 				if r.InternalTimestamp.After(cutoff) {
 					newRecords = append(newRecords, r)
 				}
 			}
 
-			pruned := len(records) - len(newRecords)
+			pruned := len(slot.records) - len(newRecords)
 			if pruned > 0 {
-				b.records[dbName][tblName] = newRecords
+				slot.records = newRecords
 				totalPruned += pruned
 			}
 		}
@@ -783,7 +798,7 @@ func (b *InMemoryBackend) AddDatabaseInternal(db *Database) {
 	}
 
 	if b.records[db.DatabaseName] == nil {
-		b.records[db.DatabaseName] = make(map[string][]Record)
+		b.records[db.DatabaseName] = make(map[string]*tableRecords)
 	}
 }
 
@@ -798,13 +813,14 @@ func (b *InMemoryBackend) AddTableInternal(tbl *Table) {
 	}
 
 	if b.records[tbl.DatabaseName] == nil {
-		b.records[tbl.DatabaseName] = make(map[string][]Record)
+		b.records[tbl.DatabaseName] = make(map[string]*tableRecords)
 	}
 
 	cp := *tbl
 	b.tables[tbl.DatabaseName][tbl.TableName] = &cp
-	b.records[tbl.DatabaseName][tbl.TableName] = []Record{}
-	b.tableMus[cp.ARN] = lockmetrics.New("timestreamwrite.table")
+	b.records[tbl.DatabaseName][tbl.TableName] = &tableRecords{
+		mu: lockmetrics.New("timestreamwrite.table"),
+	}
 
 	if db, ok := b.databases[tbl.DatabaseName]; ok {
 		db.TableCount++

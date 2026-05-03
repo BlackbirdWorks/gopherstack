@@ -1,6 +1,7 @@
 package timestreamwrite_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -780,6 +781,52 @@ func TestInMemoryBackend_DeleteDatabase_CleansUpTableMutexes(t *testing.T) {
 	require.NoError(t, b.DeleteDatabase("db"))
 
 	assert.Equal(t, 0, timestreamwrite.TableMutexCount(b))
+}
+
+// TestInMemoryBackend_WriteRecords_CrossTableRace exercises concurrent
+// WriteRecords for different tables in the SAME database. Under the previous
+// design these would each acquire a different per-table mutex but still write
+// to the shared inner b.records[dbName] map (b.records[dbName][tblName] = append(...)),
+// which is a fatal "concurrent map writes" race in Go even on different keys.
+// The fix moves each table's slice into a *tableRecords slot pointer so the
+// append never touches the enclosing map.
+func TestInMemoryBackend_WriteRecords_CrossTableRace(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := b.CreateDatabase("db", nil)
+	require.NoError(t, err)
+
+	const tableCount = 8
+
+	for i := range tableCount {
+		_, err = b.CreateTable("db", "tbl"+strconv.Itoa(i), nil, nil)
+		require.NoError(t, err)
+	}
+
+	rec := []timestreamwrite.Record{{
+		MeasureName:  "m",
+		MeasureValue: "1",
+		Time:         "1700000000",
+		TimeUnit:     "SECONDS",
+	}}
+
+	const iterations = 200
+
+	done := make(chan struct{})
+	for i := range tableCount {
+		go func() {
+			tbl := "tbl" + strconv.Itoa(i)
+			for range iterations {
+				_, _ = b.WriteRecords("db", tbl, rec)
+			}
+			done <- struct{}{}
+		}()
+	}
+
+	for range tableCount {
+		<-done
+	}
 }
 
 // TestInMemoryBackend_WriteRecords_SnapshotRace concurrently writes and snapshots
