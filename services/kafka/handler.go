@@ -17,6 +17,34 @@ import (
 )
 
 const (
+	opBatchAssociateScramSecret    = "BatchAssociateScramSecret"
+	opBatchDisassociateScramSecret = "BatchDisassociateScramSecret"
+	opCreateCluster                = "CreateCluster"
+	opCreateClusterV2              = "CreateClusterV2"
+	opCreateConfiguration          = "CreateConfiguration"
+	opCreateReplicator             = "CreateReplicator"
+	opCreateTopic                  = "CreateTopic"
+	opCreateVpcConnection          = "CreateVpcConnection"
+	opDeleteCluster                = "DeleteCluster"
+	opDeleteClusterPolicy          = "DeleteClusterPolicy"
+	opDeleteConfiguration          = "DeleteConfiguration"
+	opDeleteReplicator             = "DeleteReplicator"
+	opDeleteTopic                  = "DeleteTopic"
+	opDeleteVpcConnection          = "DeleteVpcConnection"
+	opDescribeCluster              = "DescribeCluster"
+	opDescribeClusterOperation     = "DescribeClusterOperation"
+	opDescribeClusterV2            = "DescribeClusterV2"
+	opDescribeConfiguration        = "DescribeConfiguration"
+	opGetBootstrapBrokers          = "GetBootstrapBrokers"
+	opListClusters                 = "ListClusters"
+	opListClustersV2               = "ListClustersV2"
+	opListConfigurations           = "ListConfigurations"
+	opListTagsForResource          = "ListTagsForResource"
+	opTagResource                  = "TagResource"
+	opUntagResource                = "UntagResource"
+)
+
+const (
 	clustersV1Prefix       = "/v1/clusters/"
 	clustersV2Prefix       = "/api/v2/clusters/"
 	configurationsPrefix   = "/v1/configurations/"
@@ -59,31 +87,31 @@ func (h *Handler) Reset() {
 // GetSupportedOperations returns the list of supported MSK operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"BatchAssociateScramSecret",
-		"BatchDisassociateScramSecret",
-		"CreateCluster",
-		"CreateClusterV2",
-		"CreateConfiguration",
-		"CreateReplicator",
-		"CreateTopic",
-		"CreateVpcConnection",
-		"DeleteCluster",
-		"DeleteClusterPolicy",
-		"DeleteConfiguration",
-		"DeleteReplicator",
-		"DeleteTopic",
-		"DeleteVpcConnection",
-		"DescribeCluster",
-		"DescribeClusterOperation",
-		"DescribeClusterV2",
-		"DescribeConfiguration",
-		"GetBootstrapBrokers",
-		"ListClusters",
-		"ListClustersV2",
-		"ListConfigurations",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
+		opBatchAssociateScramSecret,
+		opBatchDisassociateScramSecret,
+		opCreateCluster,
+		opCreateClusterV2,
+		opCreateConfiguration,
+		opCreateReplicator,
+		opCreateTopic,
+		opCreateVpcConnection,
+		opDeleteCluster,
+		opDeleteClusterPolicy,
+		opDeleteConfiguration,
+		opDeleteReplicator,
+		opDeleteTopic,
+		opDeleteVpcConnection,
+		opDescribeCluster,
+		opDescribeClusterOperation,
+		opDescribeClusterV2,
+		opDescribeConfiguration,
+		opGetBootstrapBrokers,
+		opListClusters,
+		opListClustersV2,
+		opListConfigurations,
+		opListTagsForResource,
+		opTagResource,
+		opUntagResource,
 	}
 }
 
@@ -252,9 +280,9 @@ func parseExtendedOpsPath(method, path string) (string, string) {
 func parseClusterRootV1(method string) (string, string) {
 	switch method {
 	case http.MethodGet:
-		return "ListClusters", ""
+		return opListClusters, ""
 	case http.MethodPost:
-		return "CreateCluster", ""
+		return opCreateCluster, ""
 	}
 
 	return "", ""
@@ -269,7 +297,7 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 		topicName := decoded[idx+len(topicsSuffix)+1:]
 
 		if method == http.MethodDelete {
-			return "DeleteTopic", arnStr + topicKeySeparator + topicName
+			return opDeleteTopic, arnStr + topicKeySeparator + topicName
 		}
 
 		return "", ""
@@ -280,7 +308,7 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 		arnStr := decoded[:len(decoded)-len(topicsSuffix)]
 
 		if method == http.MethodPost {
-			return "CreateTopic", arnStr
+			return opCreateTopic, arnStr
 		}
 
 		return "", ""
@@ -292,9 +320,9 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 
 		switch method {
 		case http.MethodPost:
-			return "BatchAssociateScramSecret", arnStr
+			return opBatchAssociateScramSecret, arnStr
 		case http.MethodPatch:
-			return "BatchDisassociateScramSecret", arnStr
+			return opBatchDisassociateScramSecret, arnStr
 		}
 
 		return "", ""
@@ -305,7 +333,7 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 		arnStr := decoded[:len(decoded)-len(policySuffix)]
 
 		if method == http.MethodDelete {
-			return "DeleteClusterPolicy", arnStr
+			return opDeleteClusterPolicy, arnStr
 		}
 
 		return "", ""
@@ -316,7 +344,7 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 		arnStr := decoded[:len(decoded)-len(bootstrapBrokersSuffix)]
 
 		if method == http.MethodGet {
-			return "GetBootstrapBrokers", arnStr
+			return opGetBootstrapBrokers, arnStr
 		}
 
 		return "", ""
@@ -324,9 +352,9 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 
 	switch method {
 	case http.MethodGet:
-		return "DescribeCluster", decoded
+		return opDescribeCluster, decoded
 	case http.MethodDelete:
-		return "DeleteCluster", decoded
+		return opDeleteCluster, decoded
 	}
 
 	return "", ""
@@ -335,9 +363,9 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 func parseClusterRootV2(method string) (string, string) {
 	switch method {
 	case http.MethodGet:
-		return "ListClustersV2", ""
+		return opListClustersV2, ""
 	case http.MethodPost:
-		return "CreateClusterV2", ""
+		return opCreateClusterV2, ""
 	}
 
 	return "", ""
@@ -347,7 +375,7 @@ func parseClusterResourceV2(method, remainder string) (string, string) {
 	decoded, _ := url.PathUnescape(remainder)
 
 	if method == http.MethodGet {
-		return "DescribeClusterV2", decoded
+		return opDescribeClusterV2, decoded
 	}
 
 	return "", ""
@@ -356,9 +384,9 @@ func parseClusterResourceV2(method, remainder string) (string, string) {
 func parseConfigurationRoot(method string) (string, string) {
 	switch method {
 	case http.MethodGet:
-		return "ListConfigurations", ""
+		return opListConfigurations, ""
 	case http.MethodPost:
-		return "CreateConfiguration", ""
+		return opCreateConfiguration, ""
 	}
 
 	return "", ""
@@ -369,9 +397,9 @@ func parseConfigurationResource(method, remainder string) (string, string) {
 
 	switch method {
 	case http.MethodGet:
-		return "DescribeConfiguration", decoded
+		return opDescribeConfiguration, decoded
 	case http.MethodDelete:
-		return "DeleteConfiguration", decoded
+		return opDeleteConfiguration, decoded
 	}
 
 	return "", ""
@@ -382,11 +410,11 @@ func parseTagsResource(method, remainder string) (string, string) {
 
 	switch method {
 	case http.MethodGet:
-		return "ListTagsForResource", decoded
+		return opListTagsForResource, decoded
 	case http.MethodPost:
-		return "TagResource", decoded
+		return opTagResource, decoded
 	case http.MethodDelete:
-		return "UntagResource", decoded
+		return opUntagResource, decoded
 	}
 
 	return "", ""
@@ -396,7 +424,7 @@ func parseOperationResource(method, remainder string) (string, string) {
 	decoded, _ := url.PathUnescape(remainder)
 
 	if method == http.MethodGet {
-		return "DescribeClusterOperation", decoded
+		return opDescribeClusterOperation, decoded
 	}
 
 	return "", ""
@@ -404,7 +432,7 @@ func parseOperationResource(method, remainder string) (string, string) {
 
 func parseReplicatorsRoot(method string) (string, string) {
 	if method == http.MethodPost {
-		return "CreateReplicator", ""
+		return opCreateReplicator, ""
 	}
 
 	return "", ""
@@ -414,7 +442,7 @@ func parseReplicatorResource(method, remainder string) (string, string) {
 	decoded, _ := url.PathUnescape(remainder)
 
 	if method == http.MethodDelete {
-		return "DeleteReplicator", decoded
+		return opDeleteReplicator, decoded
 	}
 
 	return "", ""
@@ -422,7 +450,7 @@ func parseReplicatorResource(method, remainder string) (string, string) {
 
 func parseVpcConnectionRoot(method string) (string, string) {
 	if method == http.MethodPost {
-		return "CreateVpcConnection", ""
+		return opCreateVpcConnection, ""
 	}
 
 	return "", ""
@@ -432,7 +460,7 @@ func parseVpcConnectionResource(method, remainder string) (string, string) {
 	decoded, _ := url.PathUnescape(remainder)
 
 	if method == http.MethodDelete {
-		return "DeleteVpcConnection", decoded
+		return opDeleteVpcConnection, decoded
 	}
 
 	return "", ""
@@ -457,35 +485,35 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) er
 //nolint:cyclop // dispatch switch complexity is inherent to the number of operations
 func (h *Handler) dispatchCoreOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "CreateCluster":
+	case opCreateCluster:
 		return true, h.handleCreateCluster(c, body)
-	case "CreateClusterV2":
+	case opCreateClusterV2:
 		return true, h.handleCreateClusterV2(c, body)
-	case "ListClusters":
+	case opListClusters:
 		return true, h.handleListClusters(c)
-	case "ListClustersV2":
+	case opListClustersV2:
 		return true, h.handleListClustersV2(c)
-	case "DescribeCluster":
+	case opDescribeCluster:
 		return true, h.handleDescribeCluster(c, resource)
-	case "DescribeClusterV2":
+	case opDescribeClusterV2:
 		return true, h.handleDescribeClusterV2(c, resource)
-	case "DeleteCluster":
+	case opDeleteCluster:
 		return true, h.handleDeleteCluster(c, resource)
-	case "GetBootstrapBrokers":
+	case opGetBootstrapBrokers:
 		return true, h.handleGetBootstrapBrokers(c, resource)
-	case "CreateConfiguration":
+	case opCreateConfiguration:
 		return true, h.handleCreateConfiguration(c, body)
-	case "ListConfigurations":
+	case opListConfigurations:
 		return true, h.handleListConfigurations(c)
-	case "DescribeConfiguration":
+	case opDescribeConfiguration:
 		return true, h.handleDescribeConfiguration(c, resource)
-	case "DeleteConfiguration":
+	case opDeleteConfiguration:
 		return true, h.handleDeleteConfiguration(c, resource)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return true, h.handleListTagsForResource(c, resource)
-	case "TagResource":
+	case opTagResource:
 		return true, h.handleTagResource(c, resource, body)
-	case "UntagResource":
+	case opUntagResource:
 		return true, h.handleUntagResource(c, resource, c.Request().URL)
 	}
 
@@ -496,25 +524,25 @@ func (h *Handler) dispatchCoreOps(c *echo.Context, op, resource string, body []b
 // Returns (true, err) if the operation was handled, (false, nil) otherwise.
 func (h *Handler) dispatchNewOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "BatchAssociateScramSecret":
+	case opBatchAssociateScramSecret:
 		return true, h.handleBatchAssociateScramSecret(c, resource, body)
-	case "BatchDisassociateScramSecret":
+	case opBatchDisassociateScramSecret:
 		return true, h.handleBatchDisassociateScramSecret(c, resource, body)
-	case "CreateReplicator":
+	case opCreateReplicator:
 		return true, h.handleCreateReplicator(c, body)
-	case "DeleteReplicator":
+	case opDeleteReplicator:
 		return true, h.handleDeleteReplicator(c, resource)
-	case "CreateTopic":
+	case opCreateTopic:
 		return true, h.handleCreateTopic(c, resource, body)
-	case "DeleteTopic":
+	case opDeleteTopic:
 		return true, h.handleDeleteTopic(c, resource)
-	case "CreateVpcConnection":
+	case opCreateVpcConnection:
 		return true, h.handleCreateVpcConnection(c, body)
-	case "DeleteVpcConnection":
+	case opDeleteVpcConnection:
 		return true, h.handleDeleteVpcConnection(c, resource)
-	case "DeleteClusterPolicy":
+	case opDeleteClusterPolicy:
 		return true, h.handleDeleteClusterPolicy(c, resource)
-	case "DescribeClusterOperation":
+	case opDescribeClusterOperation:
 		return true, h.handleDescribeClusterOperation(c, resource)
 	}
 

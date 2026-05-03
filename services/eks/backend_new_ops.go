@@ -285,7 +285,7 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 		ClusterName: clusterName,
 		Name:        name,
 		Type:        configType,
-		Status:      "ACTIVE",
+		Status:      statusActive,
 		OIDC:        params,
 		CreatedAt:   time.Now().UTC(),
 		Tags:        t,
@@ -334,7 +334,7 @@ func (b *InMemoryBackend) CreateAddon(
 		ARN:                   addonARN,
 		AddonVersion:          addonVersion,
 		ServiceAccountRoleARN: serviceAccountRoleARN,
-		Status:                "ACTIVE",
+		Status:                statusActive,
 		CreatedAt:             time.Now().UTC(),
 		Tags:                  t,
 	}
@@ -356,7 +356,7 @@ func (b *InMemoryBackend) CreateCapability(name, version string) (*Capability, e
 	capa := &Capability{
 		Name:    name,
 		Version: version,
-		Status:  "ACTIVE",
+		Status:  statusActive,
 	}
 	b.capabilities[name] = capa
 	cp := *capa
@@ -386,7 +386,7 @@ func (b *InMemoryBackend) CreateEksAnywhereSubscription(
 		ID:              id,
 		ARN:             subARN,
 		Name:            name,
-		Status:          "ACTIVE",
+		Status:          statusActive,
 		LicenseType:     licenseType,
 		LicenseQuantity: licenseQuantity,
 		CreatedAt:       time.Now().UTC(),
@@ -444,7 +444,7 @@ func (b *InMemoryBackend) CreateFargateProfile(
 		FargateProfileName:  profileName,
 		ARN:                 profileARN,
 		PodExecutionRoleARN: podExecutionRoleARN,
-		Status:              "ACTIVE",
+		Status:              statusActive,
 		Selectors:           sels,
 		CreatedAt:           time.Now().UTC(),
 		Tags:                t,

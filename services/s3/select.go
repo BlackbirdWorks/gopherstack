@@ -150,8 +150,8 @@ func (h *S3Handler) readSelectRequest(
 
 	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
-			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
 
 		return nil, nil, 0, false

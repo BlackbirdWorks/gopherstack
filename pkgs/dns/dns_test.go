@@ -3,7 +3,6 @@ package dns_test
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"testing"
@@ -289,7 +288,7 @@ func TestServer_TCPQuery(t *testing.T) {
 func TestRegister_WithLogger(t *testing.T) {
 	t.Parallel()
 
-	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	log := slog.New(slog.DiscardHandler)
 	s, err := gopherDNS.New(gopherDNS.Config{Logger: log})
 	require.NoError(t, err)
 

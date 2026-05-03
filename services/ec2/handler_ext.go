@@ -859,7 +859,7 @@ func (h *Handler) handleAllocateAddress(_ url.Values, reqID string) (any, error)
 		RequestID:    reqID,
 		PublicIP:     addr.PublicIP,
 		AllocationID: addr.AllocationID,
-		Domain:       "vpc",
+		Domain:       resourceTypeVPC,
 	}, nil
 }
 
@@ -929,7 +929,7 @@ func (h *Handler) handleDescribeAddresses(vals url.Values, reqID string) (any, e
 			AssociationID: addr.AssociationID,
 			PublicIP:      addr.PublicIP,
 			InstanceID:    addr.InstanceID,
-			Domain:        "vpc",
+			Domain:        resourceTypeVPC,
 		})
 	}
 
@@ -1870,7 +1870,7 @@ func (h *Handler) handleCancelSpotInstanceRequests(vals url.Values, reqID string
 
 	items := make([]cancelledSpotItem, 0, len(ids))
 	for _, id := range ids {
-		items = append(items, cancelledSpotItem{SpotInstanceRequestID: id, State: "cancelled"})
+		items = append(items, cancelledSpotItem{SpotInstanceRequestID: id, State: stateCancelled})
 	}
 
 	return &cancelSpotInstanceRequestsResponse{
@@ -2028,7 +2028,7 @@ func (h *Handler) handleDescribeVolumeAttribute(vals url.Values, reqID string) (
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		VolumeID:  volumeID,
-		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: "false"},
+		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: ec2BooleanFalse},
 	}, nil
 }
 

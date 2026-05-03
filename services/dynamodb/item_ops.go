@@ -73,7 +73,7 @@ func (db *InMemoryDB) getTable(ctx context.Context, name string) (*Table, error)
 	status := table.Status
 	table.mu.RUnlock()
 
-	if status != "ACTIVE" && status != "" {
+	if status != statusActive && status != "" {
 		return nil, NewResourceNotFoundException("Requested resource not found")
 	}
 

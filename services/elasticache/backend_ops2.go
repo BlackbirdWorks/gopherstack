@@ -11,6 +11,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	engineRedisCap = "Redis"
+	allUpfrontPlan = "All Upfront"
+)
+
 var (
 	ErrUserGroupNotFound                  = errors.New("UserGroupNotFound")
 	ErrUserGroupAlreadyExists             = errors.New("UserGroupAlreadyExistsFault")
@@ -103,8 +108,8 @@ func builtinReservedOfferings() []ReservedCacheNodesOffering {
 			Duration:           reservedOneYearSeconds,
 			FixedPrice:         reservedPriceLarge,
 			UsagePrice:         0.0,
-			ProductDescription: "Redis",
-			OfferingType:       "All Upfront",
+			ProductDescription: engineRedisCap,
+			OfferingType:       allUpfrontPlan,
 		},
 		{
 			OfferingID:         "649fd0c8-cf6d-47a0-bfa6-060f8e75e95f",
@@ -112,17 +117,17 @@ func builtinReservedOfferings() []ReservedCacheNodesOffering {
 			Duration:           reservedOneYearSeconds,
 			FixedPrice:         reservedPriceXLarge,
 			UsagePrice:         0.0,
-			ProductDescription: "Redis",
-			OfferingType:       "All Upfront",
+			ProductDescription: engineRedisCap,
+			OfferingType:       allUpfrontPlan,
 		},
 		{
 			OfferingID:         "a2b54b70-d5b3-4b96-a72e-afedbc16e70f",
-			CacheNodeType:      "cache.t3.micro",
+			CacheNodeType:      nodeTypeT3Micro,
 			Duration:           reservedOneYearSeconds,
 			FixedPrice:         reservedPriceMicro,
 			UsagePrice:         0.0,
-			ProductDescription: "Redis",
-			OfferingType:       "All Upfront",
+			ProductDescription: engineRedisCap,
+			OfferingType:       allUpfrontPlan,
 		},
 	}
 }
@@ -130,42 +135,42 @@ func builtinReservedOfferings() []ReservedCacheNodesOffering {
 func builtinCacheEngineVersions() []CacheEngineVersion {
 	return []CacheEngineVersion{
 		{
-			Engine:                        "redis",
-			EngineVersion:                 "7.1.0",
-			CacheParameterGroupFamily:     "redis7",
-			CacheEngineDescription:        "Redis",
+			Engine:                        engineRedis,
+			EngineVersion:                 versionRedis710,
+			CacheParameterGroupFamily:     familyRedis7,
+			CacheEngineDescription:        engineRedisCap,
 			CacheEngineVersionDescription: "Redis 7.1.0",
 		},
 		{
-			Engine:                        "redis",
+			Engine:                        engineRedis,
 			EngineVersion:                 "7.0.7",
-			CacheParameterGroupFamily:     "redis7",
-			CacheEngineDescription:        "Redis",
+			CacheParameterGroupFamily:     familyRedis7,
+			CacheEngineDescription:        engineRedisCap,
 			CacheEngineVersionDescription: "Redis 7.0.7",
 		},
 		{
-			Engine:                        "redis",
+			Engine:                        engineRedis,
 			EngineVersion:                 "6.2.6",
 			CacheParameterGroupFamily:     "redis6.x",
-			CacheEngineDescription:        "Redis",
+			CacheEngineDescription:        engineRedisCap,
 			CacheEngineVersionDescription: "Redis 6.2.6",
 		},
 		{
-			Engine:                        "redis",
+			Engine:                        engineRedis,
 			EngineVersion:                 "5.0.6",
 			CacheParameterGroupFamily:     "redis5.0",
-			CacheEngineDescription:        "Redis",
+			CacheEngineDescription:        engineRedisCap,
 			CacheEngineVersionDescription: "Redis 5.0.6",
 		},
 		{
-			Engine:                        "memcached",
+			Engine:                        engineMemcached,
 			EngineVersion:                 "1.6.17",
 			CacheParameterGroupFamily:     "memcached1.6",
 			CacheEngineDescription:        "Memcached",
 			CacheEngineVersionDescription: "Memcached 1.6.17",
 		},
 		{
-			Engine:                        "memcached",
+			Engine:                        engineMemcached,
 			EngineVersion:                 "1.5.16",
 			CacheParameterGroupFamily:     "memcached1.5",
 			CacheEngineDescription:        "Memcached",
@@ -251,7 +256,7 @@ func (b *InMemoryBackend) CreateUserGroup(groupID, description, engine string, u
 	ug := &UserGroup{
 		UserGroupID: groupID,
 		Description: description,
-		Status:      "active",
+		Status:      statusActive,
 		ARN:         b.userGroupARN(groupID),
 		Engine:      engine,
 		UserIDs:     userIDs,
@@ -599,7 +604,7 @@ func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
 		ProductDescription:  found.ProductDescription,
 		OfferingType:        found.OfferingType,
 		OfferingID:          found.OfferingID,
-		State:               "active",
+		State:               statusActive,
 		CacheNodeCount:      cacheNodeCount,
 		StartTime:           time.Now(),
 	}
@@ -980,7 +985,7 @@ func (b *InMemoryBackend) DescribeUpdateActions(
 // ListAllowedNodeTypeModifications returns a list of allowed node type modifications.
 func (b *InMemoryBackend) ListAllowedNodeTypeModifications(_, _ string) ([]string, error) {
 	return []string{
-		"cache.t3.micro", "cache.t3.small", "cache.t3.medium",
+		nodeTypeT3Micro, "cache.t3.small", "cache.t3.medium",
 		"cache.m6g.large", "cache.m6g.xlarge",
 		"cache.r6g.large", "cache.r6g.xlarge", "cache.r6g.2xlarge",
 	}, nil

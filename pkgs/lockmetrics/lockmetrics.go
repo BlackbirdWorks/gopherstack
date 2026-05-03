@@ -36,6 +36,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+const (
+	labelLock        = "lock"
+	labelOperation   = "operation"
+	metricsNamespace = "gopherstack"
+)
+
 // liveCollector implements [prometheus.Collector] and emits live gauges for
 // the current write-lock hold duration and waiter counts for every registered
 // [RWMutex]. It is shared across all instances via registerOrReuse.
@@ -55,7 +61,7 @@ func newLiveCollector() *liveCollector {
 			"gopherstack_lock_write_held_seconds",
 			"Live duration in seconds that the write lock is currently held (emitted only while held). "+
 				"A consistently high value indicates a potential deadlock.",
-			[]string{"lock", "operation"},
+			[]string{labelLock, labelOperation},
 			nil,
 		),
 		writeWaitersDesc: prometheus.NewDesc(
@@ -63,14 +69,14 @@ func newLiveCollector() *liveCollector {
 			"Number of goroutines currently blocked waiting to acquire the write lock. "+
 				"A non-zero value combined with a large gopherstack_lock_write_held_seconds "+
 				"indicates a deadlock: something holds the lock and cannot release it.",
-			[]string{"lock"},
+			[]string{labelLock},
 			nil,
 		),
 		readWaitersDesc: prometheus.NewDesc(
 			"gopherstack_lock_read_waiters",
 			"Number of goroutines currently blocked waiting to acquire the read lock. "+
 				"Persistent non-zero values alongside a held write lock indicate lock starvation.",
-			[]string{"lock"},
+			[]string{labelLock},
 			nil,
 		),
 	}
@@ -169,7 +175,7 @@ type RWMutex struct {
 	readWaiters  atomic.Int32
 }
 
-// New creates a new [RWMutex]. The name appears as the "lock" label in all
+// New creates a new [RWMutex]. The name appears as the labelLock label in all
 // emitted metrics and should be a stable, human-readable identifier
 // (e.g. "s3", "ddb.table.users").
 func New(name string) *RWMutex {
@@ -180,37 +186,37 @@ func New(name string) *RWMutex {
 
 	m.waitSeconds = registerOrReuse(prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "gopherstack",
+			Namespace: metricsNamespace,
 			Name:      "lock_wait_seconds",
 			Help:      "Time spent waiting to acquire a lock, by lock name, operation, and type (read|write).",
 			Buckets:   buckets,
 		},
-		[]string{"lock", "operation", "type"},
+		[]string{labelLock, labelOperation, "type"},
 	))
 	m.holdSeconds = registerOrReuse(prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "gopherstack",
+			Namespace: metricsNamespace,
 			Name:      "lock_hold_seconds",
 			Help:      "Duration a write lock was held, by lock name and operation.",
 			Buckets:   buckets,
 		},
-		[]string{"lock", "operation"},
+		[]string{labelLock, labelOperation},
 	))
 	m.activeWriters = registerOrReuse(prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Namespace: "gopherstack",
+			Namespace: metricsNamespace,
 			Name:      "lock_active_writers",
 			Help:      "Current number of goroutines holding the write lock (0 or 1 per lock).",
 		},
-		[]string{"lock", "operation"},
+		[]string{labelLock, labelOperation},
 	))
 	m.activeReaders = registerOrReuse(prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Namespace: "gopherstack",
+			Namespace: metricsNamespace,
 			Name:      "lock_active_readers",
 			Help:      "Current number of goroutines holding the read lock.",
 		},
-		[]string{"lock"},
+		[]string{labelLock},
 	))
 
 	// Register the shared live-state Collector. All instances share one Collector
@@ -235,10 +241,10 @@ func (m *RWMutex) Close() {
 
 	// Remove all label-value combinations for this lock name from every metric
 	// family. Because "operation" is dynamic we use DeletePartialMatch to sweep
-	// all series whose "lock" label equals m.name in a single call.
-	m.waitSeconds.DeletePartialMatch(prometheus.Labels{"lock": m.name})
-	m.holdSeconds.DeletePartialMatch(prometheus.Labels{"lock": m.name})
-	m.activeWriters.DeletePartialMatch(prometheus.Labels{"lock": m.name})
+	// all series whose labelLock label equals m.name in a single call.
+	m.waitSeconds.DeletePartialMatch(prometheus.Labels{labelLock: m.name})
+	m.holdSeconds.DeletePartialMatch(prometheus.Labels{labelLock: m.name})
+	m.activeWriters.DeletePartialMatch(prometheus.Labels{labelLock: m.name})
 	m.activeReaders.DeleteLabelValues(m.name)
 }
 

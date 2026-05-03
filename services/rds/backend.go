@@ -96,6 +96,18 @@ const (
 	instanceTransitionDelay            = 250 * time.Millisecond
 	reconcilerDivisor                  = 5
 	maxEvents                          = 512
+
+	engineMySQL            = "mysql"
+	engineMariaDB          = "mariadb"
+	enginePostgres         = "postgres"
+	engineAuroraMySQL      = "aurora-mysql"
+	engineAuroraPostgresql = "aurora-postgresql"
+
+	currencyUSD              = "USD"
+	reservedValidFrom        = "2021-05-25T00:00:00Z"
+	reservedAllUpfront       = "All Upfront"
+	clusterEndpointReadWrite = "READ_WRITE"
+	opDescribeGlobalClusters = "DescribeGlobalClusters"
 )
 
 // DBInstance represents an RDS database instance.
@@ -563,7 +575,7 @@ func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 // enginePort returns the default port for the given database engine.
 func enginePort(engine string) int {
 	switch engine {
-	case "mysql", "mariadb", "aurora-mysql":
+	case engineMySQL, engineMariaDB, engineAuroraMySQL:
 		return mysqlPort
 	default:
 		return defaultPort
@@ -839,7 +851,7 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 		DBInstanceIdentifier: instanceID,
 		Engine:               inst.Engine,
 		EngineVersion:        inst.EngineVersion,
-		Status:               "available",
+		Status:               instanceStatusAvailable,
 		AllocatedStorage:     inst.AllocatedStorage,
 		Port:                 inst.Port,
 		StorageType:          inst.StorageType,
@@ -916,7 +928,7 @@ func (b *InMemoryBackend) CopyDBSnapshot(sourceSnapshotID, targetSnapshotID stri
 		DBInstanceIdentifier: src.DBInstanceIdentifier,
 		Engine:               src.Engine,
 		EngineVersion:        src.EngineVersion,
-		Status:               "available",
+		Status:               instanceStatusAvailable,
 		AllocatedStorage:     src.AllocatedStorage,
 		Port:                 src.Port,
 		StorageType:          src.StorageType,
@@ -1499,7 +1511,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	cluster := &DBCluster{
 		DBClusterIdentifier:         id,
 		Engine:                      engine,
-		Status:                      "available",
+		Status:                      instanceStatusAvailable,
 		MasterUsername:              masterUser,
 		DatabaseName:                dbName,
 		DBClusterParameterGroupName: paramGroupName,
@@ -1630,7 +1642,7 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 		DBClusterSnapshotIdentifier: snapshotID,
 		DBClusterIdentifier:         clusterID,
 		Engine:                      cluster.Engine,
-		Status:                      "available",
+		Status:                      instanceStatusAvailable,
 	}
 	b.clusterSnapshots[snapshotID] = snap
 	cp := *snap
@@ -1733,13 +1745,13 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 // DescribeDBEngineVersions returns available engine versions, filtered by engine and/or version.
 func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string) []DBEngineVersion {
 	all := []DBEngineVersion{
-		{Engine: "postgres", EngineVersion: "14.10", DBEngineDescription: "PostgreSQL 14.10"},
-		{Engine: "postgres", EngineVersion: "15.5", DBEngineDescription: "PostgreSQL 15.5"},
-		{Engine: "mysql", EngineVersion: "8.0.35", DBEngineDescription: "MySQL 8.0.35"},
-		{Engine: "mariadb", EngineVersion: "10.6.14", DBEngineDescription: "MariaDB 10.6.14"},
-		{Engine: "aurora-mysql", EngineVersion: "3.04.0", DBEngineDescription: "Aurora MySQL 3.04.0"},
-		{Engine: "aurora-postgresql", EngineVersion: "14.9", DBEngineDescription: "Aurora PostgreSQL 14.9"},
-		{Engine: "aurora-postgresql", EngineVersion: "15.4", DBEngineDescription: "Aurora PostgreSQL 15.4"},
+		{Engine: enginePostgres, EngineVersion: "14.10", DBEngineDescription: "PostgreSQL 14.10"},
+		{Engine: enginePostgres, EngineVersion: "15.5", DBEngineDescription: "PostgreSQL 15.5"},
+		{Engine: engineMySQL, EngineVersion: "8.0.35", DBEngineDescription: "MySQL 8.0.35"},
+		{Engine: engineMariaDB, EngineVersion: "10.6.14", DBEngineDescription: "MariaDB 10.6.14"},
+		{Engine: engineAuroraMySQL, EngineVersion: "3.04.0", DBEngineDescription: "Aurora MySQL 3.04.0"},
+		{Engine: engineAuroraPostgresql, EngineVersion: "14.9", DBEngineDescription: "Aurora PostgreSQL 14.9"},
+		{Engine: engineAuroraPostgresql, EngineVersion: "15.4", DBEngineDescription: "Aurora PostgreSQL 15.4"},
 	}
 	if engine == "" && engineVersion == "" {
 		return all
@@ -1760,7 +1772,7 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 
 // DescribeOrderableDBInstanceOptions returns orderable instance options for the given engine.
 func (b *InMemoryBackend) DescribeOrderableDBInstanceOptions(engine, engineVersion string) []OrderableDBInstanceOption {
-	classes := []string{"db.t3.micro", "db.t3.small", "db.t3.medium", "db.r5.large", "db.r5.xlarge"}
+	classes := []string{defaultInstanceClass, "db.t3.small", "db.t3.medium", "db.r5.large", "db.r5.xlarge"}
 	if engine == "" {
 		engine = "postgres"
 	}
@@ -1816,7 +1828,7 @@ func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
-	cluster.Status = "available"
+	cluster.Status = instanceStatusAvailable
 	cp := *cluster
 
 	return &cp, nil
@@ -1881,7 +1893,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(clusterID, snapshotID, en
 	cluster := &DBCluster{
 		DBClusterIdentifier:         clusterID,
 		Engine:                      engine,
-		Status:                      "available",
+		Status:                      instanceStatusAvailable,
 		DBClusterParameterGroupName: "default." + engine,
 		Endpoint:                    endpoint,
 		Port:                        enginePort(engine),
@@ -1913,7 +1925,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(clusterID, sourceCluster
 	cluster := &DBCluster{
 		DBClusterIdentifier:         clusterID,
 		Engine:                      source.Engine,
-		Status:                      "available",
+		Status:                      instanceStatusAvailable,
 		MasterUsername:              source.MasterUsername,
 		DatabaseName:                source.DatabaseName,
 		DBClusterParameterGroupName: source.DBClusterParameterGroupName,
@@ -1951,7 +1963,7 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshot
 		DBClusterSnapshotIdentifier: targetSnapshotID,
 		DBClusterIdentifier:         source.DBClusterIdentifier,
 		Engine:                      source.Engine,
-		Status:                      "available",
+		Status:                      instanceStatusAvailable,
 	}
 	b.clusterSnapshots[targetSnapshotID] = snap
 	cp := *snap
@@ -1984,7 +1996,7 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 		DBClusterEndpointIdentifier: endpointID,
 		DBClusterIdentifier:         clusterID,
 		EndpointType:                endpointType,
-		Status:                      "available",
+		Status:                      instanceStatusAvailable,
 		Endpoint: fmt.Sprintf(
 			"%s.cluster-custom.%s.%s.rds.amazonaws.com",
 			endpointID,
@@ -2136,7 +2148,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 		GlobalClusterIdentifier: id,
 		Engine:                  engine,
 		EngineVersion:           engineVersion,
-		Status:                  "available",
+		Status:                  instanceStatusAvailable,
 		StorageEncrypted:        storageEncrypted,
 		DeletionProtection:      deletionProtection,
 	}

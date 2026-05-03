@@ -13,7 +13,7 @@ func (h *Handler) FISActions() []service.FISActionDefinition {
 		{
 			ActionID:    "aws:ec2:stop-instances",
 			Description: "Stop EC2 instances",
-			TargetType:  "aws:ec2:instance",
+			TargetType:  resourceTypeFISInstance,
 			Parameters: []service.FISParamDef{
 				{
 					Name:        "startInstancesAfterDuration",
@@ -25,12 +25,12 @@ func (h *Handler) FISActions() []service.FISActionDefinition {
 		{
 			ActionID:    "aws:ec2:terminate-instances",
 			Description: "Terminate EC2 instances",
-			TargetType:  "aws:ec2:instance",
+			TargetType:  resourceTypeFISInstance,
 		},
 		{
 			ActionID:    "aws:ec2:reboot-instances",
 			Description: "Reboot EC2 instances",
-			TargetType:  "aws:ec2:instance",
+			TargetType:  resourceTypeFISInstance,
 		},
 	}
 }

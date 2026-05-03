@@ -13,6 +13,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	targetTypeOU      = "ORGANIZATIONAL_UNIT"
+	targetTypeAccount = "ACCOUNT"
+)
+
 // Sentinel errors.
 var (
 	// ErrOrgNotFound is returned when no organization exists.
@@ -802,13 +807,13 @@ func (b *InMemoryBackend) ListParents(childID string) ([]ParentSummary, error) {
 	return nil, ErrChildNotFound
 }
 
-// resolveParentType returns "ROOT" or "ORGANIZATIONAL_UNIT" for a given parent ID.
+// resolveParentType returns "ROOT" or targetTypeOU for a given parent ID.
 func (b *InMemoryBackend) resolveParentType(parentID string) string {
 	if b.root != nil && b.root.ID == parentID {
 		return "ROOT"
 	}
 
-	return "ORGANIZATIONAL_UNIT"
+	return targetTypeOU
 }
 
 // ListChildren returns children of a given type under a parent.
@@ -827,16 +832,16 @@ func (b *InMemoryBackend) ListChildren(parentID, childType string) ([]ChildSumma
 	var out []ChildSummary
 
 	switch childType {
-	case "ACCOUNT":
+	case targetTypeAccount:
 		for acctID, pid := range b.accountParent {
 			if pid == parentID {
-				out = append(out, ChildSummary{ID: acctID, Type: "ACCOUNT"})
+				out = append(out, ChildSummary{ID: acctID, Type: targetTypeAccount})
 			}
 		}
-	case "ORGANIZATIONAL_UNIT":
+	case targetTypeOU:
 		for ouID, ou := range b.ous {
 			if ou.ParentID == parentID {
-				out = append(out, ChildSummary{ID: ouID, Type: "ORGANIZATIONAL_UNIT"})
+				out = append(out, ChildSummary{ID: ouID, Type: targetTypeOU})
 			}
 		}
 	default:
@@ -1082,7 +1087,7 @@ func (b *InMemoryBackend) resolveTargetSummary(targetID string) PolicyTargetSumm
 			TargetID: targetID,
 			ARN:      ou.ARN,
 			Name:     ou.Name,
-			Type:     "ORGANIZATIONAL_UNIT",
+			Type:     targetTypeOU,
 		}
 	}
 
@@ -1091,11 +1096,11 @@ func (b *InMemoryBackend) resolveTargetSummary(targetID string) PolicyTargetSumm
 			TargetID: targetID,
 			ARN:      acct.ARN,
 			Name:     acct.Name,
-			Type:     "ACCOUNT",
+			Type:     targetTypeAccount,
 		}
 	}
 
-	return PolicyTargetSummary{TargetID: targetID, Type: "ACCOUNT"}
+	return PolicyTargetSummary{TargetID: targetID, Type: targetTypeAccount}
 }
 
 // EnablePolicyType enables a policy type on the root.

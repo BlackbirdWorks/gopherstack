@@ -16,15 +16,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	errRepoDoesNotExist             = "RepositoryDoesNotExistException"
+	errApprovalRuleTemplateNotExist = "ApprovalRuleTemplateDoesNotExistException"
+)
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
-	ErrNotFound = awserr.New("RepositoryDoesNotExistException", awserr.ErrNotFound)
+	ErrNotFound = awserr.New(errRepoDoesNotExist, awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("RepositoryNameExistsException", awserr.ErrConflict)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
 	// ErrApprovalRuleTemplateNotFound is returned when an approval rule template is not found.
-	ErrApprovalRuleTemplateNotFound = awserr.New("ApprovalRuleTemplateDoesNotExistException", awserr.ErrNotFound)
+	ErrApprovalRuleTemplateNotFound = awserr.New(errApprovalRuleTemplateNotExist, awserr.ErrNotFound)
 	// ErrApprovalRuleTemplateAlreadyExists is returned when an approval rule template already exists.
 	ErrApprovalRuleTemplateAlreadyExists = awserr.New(
 		"ApprovalRuleTemplateNameAlreadyExistsException",
@@ -419,7 +424,7 @@ func (b *InMemoryBackend) BatchAssociateApprovalRuleTemplateWithRepositories(
 		for _, name := range repositoryNames {
 			errors = append(errors, BatchAssociationError{
 				RepositoryName: name,
-				ErrorCode:      "ApprovalRuleTemplateDoesNotExistException",
+				ErrorCode:      errApprovalRuleTemplateNotExist,
 				ErrorMessage:   fmt.Sprintf("approval rule template %s not found", templateName),
 			})
 		}
@@ -431,7 +436,7 @@ func (b *InMemoryBackend) BatchAssociateApprovalRuleTemplateWithRepositories(
 		if _, ok := b.repositories[name]; !ok {
 			errors = append(errors, BatchAssociationError{
 				RepositoryName: name,
-				ErrorCode:      "RepositoryDoesNotExistException",
+				ErrorCode:      errRepoDoesNotExist,
 				ErrorMessage:   fmt.Sprintf("repository %s not found", name),
 			})
 
@@ -464,7 +469,7 @@ func (b *InMemoryBackend) BatchDisassociateApprovalRuleTemplateFromRepositories(
 		for _, name := range repositoryNames {
 			errors = append(errors, BatchAssociationError{
 				RepositoryName: name,
-				ErrorCode:      "ApprovalRuleTemplateDoesNotExistException",
+				ErrorCode:      errApprovalRuleTemplateNotExist,
 				ErrorMessage:   fmt.Sprintf("approval rule template %s not found", templateName),
 			})
 		}
@@ -476,7 +481,7 @@ func (b *InMemoryBackend) BatchDisassociateApprovalRuleTemplateFromRepositories(
 		if _, ok := b.repositories[name]; !ok {
 			errors = append(errors, BatchAssociationError{
 				RepositoryName: name,
-				ErrorCode:      "RepositoryDoesNotExistException",
+				ErrorCode:      errRepoDoesNotExist,
 				ErrorMessage:   fmt.Sprintf("repository %s not found", name),
 			})
 

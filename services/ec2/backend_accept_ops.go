@@ -173,14 +173,14 @@ func (b *InMemoryBackend) Reset() {
 
 	// Re-populate defaults (must be called without the lock held since it acquires its own).
 	// Since we already hold the lock, populate inline.
-	b.vpcs["vpc-default"] = &VPC{
-		ID:        "vpc-default",
+	b.vpcs[vpcDefaultName] = &VPC{
+		ID:        vpcDefaultName,
 		CIDRBlock: "172.31.0.0/16",
 		IsDefault: true,
 	}
 	b.subnets["subnet-default"] = &Subnet{
 		ID:               "subnet-default",
-		VPCID:            "vpc-default",
+		VPCID:            vpcDefaultName,
 		CIDRBlock:        "172.31.0.0/20",
 		AvailabilityZone: b.Region + "a",
 		IsDefault:        true,
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) Reset() {
 		ID:          "sg-default",
 		Name:        "default",
 		Description: "default VPC security group",
-		VPCID:       "vpc-default",
+		VPCID:       vpcDefaultName,
 	}
 }
 

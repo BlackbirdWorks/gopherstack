@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -430,8 +431,8 @@ func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
 
 	// Sort indices in descending order to delete in-place without shifting issues
 	sort.Ints(indices)
-	for i := len(indices) - 1; i >= 0; i-- {
-		idx := indices[i]
+	for _, v := range slices.Backward(indices) {
+		idx := v
 		if idx < 0 || idx >= len(table.Items) {
 			continue
 		}

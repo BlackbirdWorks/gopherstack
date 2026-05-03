@@ -3,6 +3,7 @@ package ses
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -561,8 +562,8 @@ func (b *InMemoryBackend) GetSendQuota() SendQuota {
 	cutoff := time.Now().UTC().Add(-24 * time.Hour)
 	sent := 0
 
-	for i := len(b.emails) - 1; i >= 0; i-- {
-		if b.emails[i].Timestamp.Before(cutoff) {
+	for _, v := range slices.Backward(b.emails) {
+		if v.Timestamp.Before(cutoff) {
 			break
 		}
 

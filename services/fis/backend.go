@@ -17,6 +17,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+const (
+	statusDisengaged = "disengaged"
+)
+
 // ----------------------------------------
 // Sentinel errors
 // ----------------------------------------
@@ -224,7 +228,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 			ID:    accountID,
 			Arn:   safetyLeverARN,
 			Tags:  make(map[string]string),
-			State: SafetyLeverState{Status: "disengaged"},
+			State: SafetyLeverState{Status: statusDisengaged},
 		},
 	}
 }
@@ -252,7 +256,7 @@ func (b *InMemoryBackend) Reset() {
 		ID:    b.accountID,
 		Arn:   safetyLeverARN,
 		Tags:  make(map[string]string),
-		State: SafetyLeverState{Status: "disengaged"},
+		State: SafetyLeverState{Status: statusDisengaged},
 	}
 }
 

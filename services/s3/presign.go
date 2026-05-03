@@ -44,7 +44,7 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 	if algorithm == "" || credential == "" || dateStr == "" || expiresStr == "" || signedHeaders == "" ||
 		signature == "" {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code: "AuthorizationQueryParametersError",
+			Code: errAuthQueryParams,
 			Message: "Query-string authentication requires the X-Amz-Algorithm, X-Amz-Credential, " +
 				"X-Amz-Date, X-Amz-Expires, X-Amz-SignedHeaders, and X-Amz-Signature parameters.",
 		}, http.StatusBadRequest)
@@ -55,7 +55,7 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 	// Validate the signing algorithm.
 	if algorithm != presignedAlgorithm {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "AuthorizationQueryParametersError",
+			Code:    errAuthQueryParams,
 			Message: "X-Amz-Algorithm must be AWS4-HMAC-SHA256.",
 		}, http.StatusBadRequest)
 
@@ -66,7 +66,7 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 	credParts := strings.Split(credential, "/")
 	if len(credParts) < minPresignCredentialParts {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "AuthorizationQueryParametersError",
+			Code:    errAuthQueryParams,
 			Message: "X-Amz-Credential is not well-formed.",
 		}, http.StatusBadRequest)
 
@@ -76,7 +76,7 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 	signedAt, err := time.Parse(presignedDateFormat, dateStr)
 	if err != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "AuthorizationQueryParametersError",
+			Code:    errAuthQueryParams,
 			Message: "X-Amz-Date must be in the ISO 8601 basic format.",
 		}, http.StatusBadRequest)
 
@@ -86,7 +86,7 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 	expires, err := strconv.ParseInt(expiresStr, 10, 64)
 	if err != nil || expires <= 0 {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "AuthorizationQueryParametersError",
+			Code:    errAuthQueryParams,
 			Message: "X-Amz-Expires must be a positive integer.",
 		}, http.StatusBadRequest)
 

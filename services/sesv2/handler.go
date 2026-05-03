@@ -16,6 +16,31 @@ import (
 )
 
 const (
+	opBatchGetMetricData                     = "BatchGetMetricData"
+	opCancelExportJob                        = "CancelExportJob"
+	opCreateConfigurationSet                 = "CreateConfigurationSet"
+	opCreateConfigurationSetEventDestination = "CreateConfigurationSetEventDestination"
+	opCreateContact                          = "CreateContact"
+	opCreateContactList                      = "CreateContactList"
+	opCreateCustomVerificationEmailTemplate  = "CreateCustomVerificationEmailTemplate"
+	opCreateDedicatedIPPool                  = "CreateDedicatedIpPool"
+	opCreateDeliverabilityTestReport         = "CreateDeliverabilityTestReport"
+	opCreateEmailIdentity                    = "CreateEmailIdentity"
+	opCreateEmailIdentityPolicy              = "CreateEmailIdentityPolicy"
+	opCreateEmailTemplate                    = "CreateEmailTemplate"
+	opDeleteConfigurationSet                 = "DeleteConfigurationSet"
+	opDeleteEmailIdentity                    = "DeleteEmailIdentity"
+	opGetConfigurationSet                    = "GetConfigurationSet"
+	opGetEmailIdentity                       = "GetEmailIdentity"
+	opListConfigurationSets                  = "ListConfigurationSets"
+	opListEmailIdentities                    = "ListEmailIdentities"
+	opListTagsForResource                    = "ListTagsForResource"
+	opSendEmail                              = "SendEmail"
+	opTagResource                            = "TagResource"
+	opUntagResource                          = "UntagResource"
+)
+
+const (
 	sesv2PathPrefix = "/v2/email/"
 	unknownAction   = "Unknown"
 )
@@ -43,28 +68,28 @@ func (h *Handler) Name() string {
 // GetSupportedOperations returns the list of supported SES v2 operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"BatchGetMetricData",
-		"CancelExportJob",
-		"CreateConfigurationSet",
-		"CreateConfigurationSetEventDestination",
-		"CreateContact",
-		"CreateContactList",
-		"CreateCustomVerificationEmailTemplate",
-		"CreateDedicatedIpPool",
-		"CreateDeliverabilityTestReport",
-		"CreateEmailIdentity",
-		"CreateEmailIdentityPolicy",
-		"CreateEmailTemplate",
-		"DeleteConfigurationSet",
-		"DeleteEmailIdentity",
-		"GetConfigurationSet",
-		"GetEmailIdentity",
-		"ListConfigurationSets",
-		"ListEmailIdentities",
-		"ListTagsForResource",
-		"SendEmail",
-		"TagResource",
-		"UntagResource",
+		opBatchGetMetricData,
+		opCancelExportJob,
+		opCreateConfigurationSet,
+		opCreateConfigurationSetEventDestination,
+		opCreateContact,
+		opCreateContactList,
+		opCreateCustomVerificationEmailTemplate,
+		opCreateDedicatedIPPool,
+		opCreateDeliverabilityTestReport,
+		opCreateEmailIdentity,
+		opCreateEmailIdentityPolicy,
+		opCreateEmailTemplate,
+		opDeleteConfigurationSet,
+		opDeleteEmailIdentity,
+		opGetConfigurationSet,
+		opGetEmailIdentity,
+		opListConfigurationSets,
+		opListEmailIdentities,
+		opListTagsForResource,
+		opSendEmail,
+		opTagResource,
+		opUntagResource,
 	}
 }
 
@@ -133,7 +158,7 @@ func parseSESv2Path(method, path string) (string, string) {
 		return parseIdentityPath(method, segments)
 	case "outbound-emails":
 		if method == http.MethodPost {
-			return "SendEmail", ""
+			return opSendEmail, ""
 		}
 	case "configuration-sets":
 		return parseConfigSetPath(method, segments)
@@ -157,17 +182,17 @@ func parseMiscPaths(method string, segments []string) (string, string) {
 		return parseContactListPath(method, segments)
 	case "custom-verification-email-templates":
 		if method == http.MethodPost && len(segments) == 1 {
-			return "CreateCustomVerificationEmailTemplate", ""
+			return opCreateCustomVerificationEmailTemplate, ""
 		}
 	case "dedicated-ip-pools":
 		if method == http.MethodPost && len(segments) == 1 {
-			return "CreateDedicatedIpPool", ""
+			return opCreateDedicatedIPPool, ""
 		}
 	case "deliverability-dashboard":
 		return parseDeliverabilityDashboardPath(method, segments)
 	case "templates":
 		if method == http.MethodPost && len(segments) == 1 {
-			return "CreateEmailTemplate", ""
+			return opCreateEmailTemplate, ""
 		}
 	}
 
@@ -179,7 +204,7 @@ const exportJobPathSegments = 3
 
 func parseMetricsPath(method string, segments []string) (string, string) {
 	if len(segments) == metricsPathSegments && segments[1] == "batch" && method == http.MethodPost {
-		return "BatchGetMetricData", ""
+		return opBatchGetMetricData, ""
 	}
 
 	return unknownAction, ""
@@ -187,7 +212,7 @@ func parseMetricsPath(method string, segments []string) (string, string) {
 
 func parseExportJobsPath(method string, segments []string) (string, string) {
 	if len(segments) == exportJobPathSegments && segments[2] == "cancel" && method == http.MethodPut {
-		return "CancelExportJob", segments[1]
+		return opCancelExportJob, segments[1]
 	}
 
 	return unknownAction, ""
@@ -195,7 +220,7 @@ func parseExportJobsPath(method string, segments []string) (string, string) {
 
 func parseDeliverabilityDashboardPath(method string, segments []string) (string, string) {
 	if len(segments) == metricsPathSegments && segments[1] == "test" && method == http.MethodPost {
-		return "CreateDeliverabilityTestReport", ""
+		return opCreateDeliverabilityTestReport, ""
 	}
 
 	return unknownAction, ""
@@ -204,16 +229,16 @@ func parseDeliverabilityDashboardPath(method string, segments []string) (string,
 func parseIdentityPath(method string, segments []string) (string, string) {
 	switch {
 	case method == http.MethodGet && len(segments) == 1:
-		return "ListEmailIdentities", ""
+		return opListEmailIdentities, ""
 	case method == http.MethodPost && len(segments) == 1:
-		return "CreateEmailIdentity", ""
+		return opCreateEmailIdentity, ""
 	case method == http.MethodGet && len(segments) == 2:
-		return "GetEmailIdentity", segments[1]
+		return opGetEmailIdentity, segments[1]
 	case method == http.MethodDelete && len(segments) == 2:
-		return "DeleteEmailIdentity", segments[1]
+		return opDeleteEmailIdentity, segments[1]
 	case method == http.MethodPost && len(segments) == 4 && segments[2] == "policies":
 		// POST /v2/email/identities/{identity}/policies/{policyName}
-		return "CreateEmailIdentityPolicy", segments[1]
+		return opCreateEmailIdentityPolicy, segments[1]
 	}
 
 	return unknownAction, ""
@@ -222,9 +247,9 @@ func parseIdentityPath(method string, segments []string) (string, string) {
 func parseContactListPath(method string, segments []string) (string, string) {
 	switch {
 	case method == http.MethodPost && len(segments) == 1:
-		return "CreateContactList", ""
+		return opCreateContactList, ""
 	case method == http.MethodPost && len(segments) == 3 && segments[2] == "contacts":
-		return "CreateContact", segments[1]
+		return opCreateContact, segments[1]
 	}
 
 	return unknownAction, ""
@@ -233,15 +258,15 @@ func parseContactListPath(method string, segments []string) (string, string) {
 func parseConfigSetPath(method string, segments []string) (string, string) {
 	switch {
 	case method == http.MethodGet && len(segments) == 1:
-		return "ListConfigurationSets", ""
+		return opListConfigurationSets, ""
 	case method == http.MethodPost && len(segments) == 1:
-		return "CreateConfigurationSet", ""
+		return opCreateConfigurationSet, ""
 	case method == http.MethodGet && len(segments) == 2:
-		return "GetConfigurationSet", segments[1]
+		return opGetConfigurationSet, segments[1]
 	case method == http.MethodDelete && len(segments) == 2:
-		return "DeleteConfigurationSet", segments[1]
+		return opDeleteConfigurationSet, segments[1]
 	case method == http.MethodPost && len(segments) == 3 && segments[2] == "event-destinations":
-		return "CreateConfigurationSetEventDestination", segments[1]
+		return opCreateConfigurationSetEventDestination, segments[1]
 	}
 
 	return unknownAction, ""
@@ -250,11 +275,11 @@ func parseConfigSetPath(method string, segments []string) (string, string) {
 func parseTagsPath(method string) (string, string) {
 	switch method {
 	case http.MethodGet:
-		return "ListTagsForResource", ""
+		return opListTagsForResource, ""
 	case http.MethodPost:
-		return "TagResource", ""
+		return opTagResource, ""
 	case http.MethodDelete:
-		return "UntagResource", ""
+		return opUntagResource, ""
 	}
 
 	return unknownAction, ""
@@ -317,27 +342,27 @@ func (h *Handler) dispatchOp(c *echo.Context, op, resource string) (any, error) 
 // dispatchCoreOps handles the original 12 SES v2 operations.
 func (h *Handler) dispatchCoreOps(c *echo.Context, op, resource string) (any, error) {
 	switch op {
-	case "CreateEmailIdentity":
+	case opCreateEmailIdentity:
 		return h.handleCreateEmailIdentity(c)
-	case "GetEmailIdentity":
+	case opGetEmailIdentity:
 		return h.handleGetEmailIdentity(resource)
-	case "ListEmailIdentities":
+	case opListEmailIdentities:
 		return h.handleListEmailIdentities(c), nil
-	case "DeleteEmailIdentity":
+	case opDeleteEmailIdentity:
 		return h.handleDeleteEmailIdentity(resource)
-	case "SendEmail":
+	case opSendEmail:
 		return h.handleSendEmail(c)
-	case "CreateConfigurationSet":
+	case opCreateConfigurationSet:
 		return h.handleCreateConfigurationSet(c)
-	case "GetConfigurationSet":
+	case opGetConfigurationSet:
 		return h.handleGetConfigurationSet(resource)
-	case "ListConfigurationSets":
+	case opListConfigurationSets:
 		return h.handleListConfigurationSets(c), nil
-	case "DeleteConfigurationSet":
+	case opDeleteConfigurationSet:
 		return h.handleDeleteConfigurationSet(resource)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return h.handleListTagsForResource(), nil
-	case "TagResource", "UntagResource":
+	case opTagResource, opUntagResource:
 		return &emptyDeleteOutput{}, nil
 	default:
 		return nil, errOpNotHandled
@@ -347,25 +372,25 @@ func (h *Handler) dispatchCoreOps(c *echo.Context, op, resource string) (any, er
 // dispatchNewOps handles the 10 newly added SES v2 operations.
 func (h *Handler) dispatchNewOps(c *echo.Context, op, resource string) (any, error) {
 	switch op {
-	case "BatchGetMetricData":
+	case opBatchGetMetricData:
 		return h.handleBatchGetMetricData(c)
-	case "CancelExportJob":
+	case opCancelExportJob:
 		return h.handleCancelExportJob(resource)
-	case "CreateConfigurationSetEventDestination":
+	case opCreateConfigurationSetEventDestination:
 		return h.handleCreateConfigurationSetEventDestination(c, resource)
-	case "CreateContact":
+	case opCreateContact:
 		return h.handleCreateContact(c, resource)
-	case "CreateContactList":
+	case opCreateContactList:
 		return h.handleCreateContactList(c)
-	case "CreateCustomVerificationEmailTemplate":
+	case opCreateCustomVerificationEmailTemplate:
 		return h.handleCreateCustomVerificationEmailTemplate(c)
-	case "CreateDedicatedIpPool":
+	case opCreateDedicatedIPPool:
 		return h.handleCreateDedicatedIPPool(c)
-	case "CreateDeliverabilityTestReport":
+	case opCreateDeliverabilityTestReport:
 		return h.handleCreateDeliverabilityTestReport(c)
-	case "CreateEmailIdentityPolicy":
+	case opCreateEmailIdentityPolicy:
 		return h.handleCreateEmailIdentityPolicy(c, resource)
-	case "CreateEmailTemplate":
+	case opCreateEmailTemplate:
 		return h.handleCreateEmailTemplate(c)
 	default:
 		return nil, errOpNotHandled

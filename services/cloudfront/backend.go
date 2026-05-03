@@ -15,6 +15,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	statusDeployed = "Deployed"
+)
+
 var (
 	// ErrNotFound is returned when a requested distribution does not exist.
 	ErrNotFound = awserr.New("NoSuchDistribution", awserr.ErrNotFound)
@@ -318,7 +322,7 @@ func (b *InMemoryBackend) CreateDistribution(
 		ID:              id,
 		ARN:             b.distributionARN(id),
 		DomainName:      strings.ToLower(id) + ".cloudfront.net",
-		Status:          "Deployed",
+		Status:          statusDeployed,
 		ETag:            uuid.NewString(),
 		CallerReference: callerRef,
 		Comment:         comment,
@@ -717,7 +721,7 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 		ID:              id,
 		ARN:             b.distributionARN(id),
 		DomainName:      strings.ToLower(id) + ".cloudfront.net",
-		Status:          "Deployed",
+		Status:          statusDeployed,
 		ETag:            uuid.NewString(),
 		CallerReference: callerRef,
 		Comment:         src.Comment,
@@ -750,7 +754,7 @@ func (b *InMemoryBackend) CreateAnycastIPList(name string, ipCount int32) (*Anyc
 		ID:      id,
 		ARN:     b.anycastIPListARN(id),
 		Name:    name,
-		Status:  "Deployed",
+		Status:  statusDeployed,
 		IPCount: ipCount,
 	}
 	b.anycastIPLists[id] = list

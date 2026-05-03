@@ -814,7 +814,7 @@ func applyReplicaCreate(table *Table, regionName string) {
 
 	table.Replicas = append(table.Replicas, models.ReplicaDescription{
 		RegionName:    regionName,
-		ReplicaStatus: "ACTIVE",
+		ReplicaStatus: statusActive,
 	})
 }
 

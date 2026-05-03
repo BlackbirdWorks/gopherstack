@@ -18,6 +18,10 @@ import (
 )
 
 const (
+	ownerElasticacheStub = "elasticache-stub"
+)
+
+const (
 	elasticacheVersion = "2015-02-02"
 	elasticacheNS      = "http://elasticache.amazonaws.com/doc/2015-02-02/"
 	unknownOp          = "Unknown"
@@ -893,7 +897,7 @@ func (h *Handler) deleteCacheParameterGroup(c *echo.Context, form url.Values) er
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: "elasticache-stub"})
+	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: ownerElasticacheStub})
 }
 
 // describeCacheParameterGroupsResultXML is the XML result for DescribeCacheParameterGroups.
@@ -1157,7 +1161,7 @@ func (h *Handler) deleteCacheSubnetGroup(c *echo.Context, form url.Values) error
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: "elasticache-stub"})
+	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: ownerElasticacheStub})
 }
 
 // describeCacheSubnetGroupsResultXML is the XML result for DescribeCacheSubnetGroups.
@@ -1592,7 +1596,7 @@ func xmlError(c *echo.Context, status int, code, message string) error {
 	resp := xmlErrorResp{}
 	resp.Error.Code = code
 	resp.Error.Message = message
-	resp.RequestID = "elasticache-stub"
+	resp.RequestID = ownerElasticacheStub
 
 	return xmlResp(c, status, resp)
 }

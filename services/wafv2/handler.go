@@ -18,6 +18,19 @@ import (
 )
 
 const (
+	keyTypeField        = "__type"
+	keyMessageField     = "message"
+	keySummary          = "Summary"
+	keyName             = "Name"
+	keyARN              = "ARN"
+	keyLockToken        = "LockToken"
+	keyDescription      = "Description"
+	keyVisibilityConfig = "VisibilityConfig"
+	keyNextLockToken    = "NextLockToken"
+	keyScope            = "Scope"
+)
+
+const (
 	wafv2Service       = "wafv2"
 	wafv2TargetPrefix  = "AWSWAF_20190729."
 	wafv2MatchPriority = service.PriorityHeaderExact
@@ -222,36 +235,36 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "WAFNonexistentItemException",
-			"message": err.Error(),
+			keyTypeField:    "WAFNonexistentItemException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, awserr.ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "WAFDuplicateItemException",
-			"message": err.Error(),
+			keyTypeField:    "WAFDuplicateItemException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "WAFInvalidParameterException",
-			"message": err.Error(),
+			keyTypeField:    "WAFInvalidParameterException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errUnknownAction):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "WAFInvalidOperationException",
-			"message": err.Error(),
+			keyTypeField:    "WAFInvalidOperationException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "WAFInternalErrorException",
-			"message": err.Error(),
+			keyTypeField:    "WAFInternalErrorException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusInternalServerError, payload)
@@ -337,11 +350,11 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 	arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 
 	return json.Marshal(map[string]any{
-		"Summary": map[string]string{
-			"Id":        w.ID,
-			"Name":      w.Name,
-			"ARN":       arnStr,
-			"LockToken": w.LockToken,
+		keySummary: map[string]string{
+			"Id":         w.ID,
+			keyName:      w.Name,
+			keyARN:       arnStr,
+			keyLockToken: w.LockToken,
 		},
 	})
 }
@@ -374,15 +387,15 @@ func (h *Handler) handleGetWebACL(body []byte) ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"WebACL": map[string]any{
-			"Id":               w.ID,
-			"Name":             w.Name,
-			"ARN":              arnStr,
-			"LockToken":        w.LockToken,
-			"Description":      w.Description,
-			"DefaultAction":    defaultActionMap,
-			"VisibilityConfig": visConfig,
+			"Id":                w.ID,
+			keyName:             w.Name,
+			keyARN:              arnStr,
+			keyLockToken:        w.LockToken,
+			keyDescription:      w.Description,
+			"DefaultAction":     defaultActionMap,
+			keyVisibilityConfig: visConfig,
 		},
-		"LockToken": w.LockToken,
+		keyLockToken: w.LockToken,
 	})
 }
 
@@ -419,7 +432,7 @@ func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, 
 	log.InfoContext(ctx, "wafv2: updated web ACL", "id", req.ID)
 
 	return json.Marshal(map[string]string{
-		"NextLockToken": w.LockToken,
+		keyNextLockToken: w.LockToken,
 	})
 }
 
@@ -471,11 +484,11 @@ func (h *Handler) handleListWebACLs(body []byte) ([]byte, error) {
 			arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 
 			return map[string]string{
-				"Id":          w.ID,
-				"Name":        w.Name,
-				"ARN":         arnStr,
-				"LockToken":   w.LockToken,
-				"Description": w.Description,
+				"Id":           w.ID,
+				keyName:        w.Name,
+				keyARN:         arnStr,
+				keyLockToken:   w.LockToken,
+				keyDescription: w.Description,
 			}
 		},
 	)
@@ -539,11 +552,11 @@ func (h *Handler) handleCreateIPSet(ctx context.Context, body []byte) ([]byte, e
 	arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
 
 	return json.Marshal(map[string]any{
-		"Summary": map[string]string{
-			"Id":        s.ID,
-			"Name":      s.Name,
-			"ARN":       arnStr,
-			"LockToken": s.LockToken,
+		keySummary: map[string]string{
+			"Id":         s.ID,
+			keyName:      s.Name,
+			keyARN:       arnStr,
+			keyLockToken: s.LockToken,
 		},
 	})
 }
@@ -575,14 +588,14 @@ func (h *Handler) handleGetIPSet(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"IPSet": map[string]any{
 			"Id":               s.ID,
-			"Name":             s.Name,
-			"ARN":              arnStr,
-			"LockToken":        s.LockToken,
-			"Description":      s.Description,
+			keyName:            s.Name,
+			keyARN:             arnStr,
+			keyLockToken:       s.LockToken,
+			keyDescription:     s.Description,
 			"IPAddressVersion": s.IPAddressVersion,
 			"Addresses":        s.Addresses,
 		},
-		"LockToken": s.LockToken,
+		keyLockToken: s.LockToken,
 	})
 }
 
@@ -615,7 +628,7 @@ func (h *Handler) handleUpdateIPSet(ctx context.Context, body []byte) ([]byte, e
 	log.InfoContext(ctx, "wafv2: updated IP set", "id", req.ID)
 
 	return json.Marshal(map[string]string{
-		"NextLockToken": s.LockToken,
+		keyNextLockToken: s.LockToken,
 	})
 }
 
@@ -667,11 +680,11 @@ func (h *Handler) handleListIPSets(body []byte) ([]byte, error) {
 			arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
 
 			return map[string]string{
-				"Id":          s.ID,
-				"Name":        s.Name,
-				"ARN":         arnStr,
-				"LockToken":   s.LockToken,
-				"Description": s.Description,
+				"Id":           s.ID,
+				keyName:        s.Name,
+				keyARN:         arnStr,
+				keyLockToken:   s.LockToken,
+				keyDescription: s.Description,
 			}
 		},
 	)
@@ -893,15 +906,15 @@ func (h *Handler) handleGetWebACLForResource(body []byte) ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"WebACL": map[string]any{
-			"Id":               w.ID,
-			"Name":             w.Name,
-			"ARN":              arnStr,
-			"LockToken":        w.LockToken,
-			"Scope":            w.Scope,
-			"Description":      w.Description,
-			"DefaultAction":    defaultActionMap,
-			"VisibilityConfig": visConfig,
-			"Rules":            []any{},
+			"Id":                w.ID,
+			keyName:             w.Name,
+			keyARN:              arnStr,
+			keyLockToken:        w.LockToken,
+			keyScope:            w.Scope,
+			keyDescription:      w.Description,
+			"DefaultAction":     defaultActionMap,
+			keyVisibilityConfig: visConfig,
+			"Rules":             []any{},
 		},
 	})
 }
@@ -1035,11 +1048,11 @@ func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) 
 	arnStr := h.Backend.RegexPatternSetARN(rps.Name, rps.ID, rps.Scope)
 
 	return json.Marshal(map[string]any{
-		"Summary": map[string]string{
-			"Id":        rps.ID,
-			"Name":      rps.Name,
-			"ARN":       arnStr,
-			"LockToken": rps.LockToken,
+		keySummary: map[string]string{
+			"Id":         rps.ID,
+			keyName:      rps.Name,
+			keyARN:       arnStr,
+			keyLockToken: rps.LockToken,
 		},
 	})
 }
@@ -1120,11 +1133,11 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 	arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
 
 	return json.Marshal(map[string]any{
-		"Summary": map[string]string{
-			"Id":        rg.ID,
-			"Name":      rg.Name,
-			"ARN":       arnStr,
-			"LockToken": rg.LockToken,
+		keySummary: map[string]string{
+			"Id":         rg.ID,
+			keyName:      rg.Name,
+			keyARN:       arnStr,
+			keyLockToken: rg.LockToken,
 		},
 	})
 }
@@ -1235,12 +1248,12 @@ func (h *Handler) handleGetRegexPatternSet(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"RegexPatternSet": map[string]any{
 			"Id":                    r.ID,
-			"Name":                  r.Name,
-			"ARN":                   arnStr,
-			"Description":           r.Description,
+			keyName:                 r.Name,
+			keyARN:                  arnStr,
+			keyDescription:          r.Description,
 			"RegularExpressionList": r.RegularExpressionList,
 		},
-		"LockToken": r.LockToken,
+		keyLockToken: r.LockToken,
 	})
 }
 
@@ -1262,11 +1275,11 @@ func (h *Handler) handleListRegexPatternSets(body []byte) ([]byte, error) {
 		func(r *RegexPatternSet) string { return r.Scope },
 		func(r *RegexPatternSet) map[string]string {
 			return map[string]string{
-				"Id":          r.ID,
-				"Name":        r.Name,
-				"ARN":         h.Backend.RegexPatternSetARN(r.Name, r.ID, r.Scope),
-				"LockToken":   r.LockToken,
-				"Description": r.Description,
+				"Id":           r.ID,
+				keyName:        r.Name,
+				keyARN:         h.Backend.RegexPatternSetARN(r.Name, r.ID, r.Scope),
+				keyLockToken:   r.LockToken,
+				keyDescription: r.Description,
 			}
 		},
 	)
@@ -1302,7 +1315,7 @@ func (h *Handler) handleUpdateRegexPatternSet(ctx context.Context, body []byte) 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: updated regex pattern set", "id", req.ID)
 
-	return json.Marshal(map[string]string{"NextLockToken": r.LockToken})
+	return json.Marshal(map[string]string{keyNextLockToken: r.LockToken})
 }
 
 // getRuleGroupRequest is the request body for GetRuleGroup.
@@ -1333,15 +1346,15 @@ func (h *Handler) handleGetRuleGroup(body []byte) ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"RuleGroup": map[string]any{
-			"Id":               rg.ID,
-			"Name":             rg.Name,
-			"ARN":              arnStr,
-			"Description":      rg.Description,
-			"Capacity":         rg.Capacity,
-			"Rules":            rg.Rules,
-			"VisibilityConfig": visConfig,
+			"Id":                rg.ID,
+			keyName:             rg.Name,
+			keyARN:              arnStr,
+			keyDescription:      rg.Description,
+			"Capacity":          rg.Capacity,
+			"Rules":             rg.Rules,
+			keyVisibilityConfig: visConfig,
 		},
-		"LockToken": rg.LockToken,
+		keyLockToken: rg.LockToken,
 	})
 }
 
@@ -1363,11 +1376,11 @@ func (h *Handler) handleListRuleGroups(body []byte) ([]byte, error) {
 		func(rg *RuleGroup) string { return rg.Scope },
 		func(rg *RuleGroup) map[string]string {
 			return map[string]string{
-				"Id":          rg.ID,
-				"Name":        rg.Name,
-				"ARN":         h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope),
-				"LockToken":   rg.LockToken,
-				"Description": rg.Description,
+				"Id":           rg.ID,
+				keyName:        rg.Name,
+				keyARN:         h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope),
+				keyLockToken:   rg.LockToken,
+				keyDescription: rg.Description,
 			}
 		},
 	)
@@ -1404,7 +1417,7 @@ func (h *Handler) handleUpdateRuleGroup(ctx context.Context, body []byte) ([]byt
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: updated rule group", "id", req.ID)
 
-	return json.Marshal(map[string]string{"NextLockToken": rg.LockToken})
+	return json.Marshal(map[string]string{keyNextLockToken: rg.LockToken})
 }
 
 // listAPIKeysRequest is the request body for ListAPIKeys.
@@ -1426,7 +1439,7 @@ func (h *Handler) handleListAPIKeys(body []byte) ([]byte, error) {
 	for _, k := range keys {
 		items = append(items, map[string]any{
 			"APIKey":       k.APIKeyValue,
-			"Scope":        k.Scope,
+			keyScope:       k.Scope,
 			"TokenDomains": k.TokenDomains,
 		})
 	}
@@ -1461,7 +1474,7 @@ func (h *Handler) handleGetDecryptedAPIKey(body []byte) ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"TokenDomains": a.TokenDomains,
-		"Scope":        a.Scope,
+		keyScope:       a.Scope,
 	})
 }
 

@@ -17,6 +17,38 @@ import (
 )
 
 const (
+	opUnknown   = "Unknown"
+	keyBrokerID = "brokerId"
+)
+
+const (
+	opCreateBroker                  = "CreateBroker"
+	opCreateConfiguration           = "CreateConfiguration"
+	opCreateTags                    = "CreateTags"
+	opCreateUser                    = "CreateUser"
+	opDeleteBroker                  = "DeleteBroker"
+	opDeleteConfiguration           = "DeleteConfiguration"
+	opDeleteTags                    = "DeleteTags"
+	opDeleteUser                    = "DeleteUser"
+	opDescribeBroker                = "DescribeBroker"
+	opDescribeBrokerEngineTypes     = "DescribeBrokerEngineTypes"
+	opDescribeBrokerInstanceOptions = "DescribeBrokerInstanceOptions"
+	opDescribeConfiguration         = "DescribeConfiguration"
+	opDescribeConfigurationRevision = "DescribeConfigurationRevision"
+	opDescribeUser                  = "DescribeUser"
+	opListBrokers                   = "ListBrokers"
+	opListConfigurationRevisions    = "ListConfigurationRevisions"
+	opListConfigurations            = "ListConfigurations"
+	opListTags                      = "ListTags"
+	opListUsers                     = "ListUsers"
+	opPromote                       = "Promote"
+	opRebootBroker                  = "RebootBroker"
+	opUpdateBroker                  = "UpdateBroker"
+	opUpdateConfiguration           = "UpdateConfiguration"
+	opUpdateUser                    = "UpdateUser"
+)
+
+const (
 	mqMatchPriority       = service.PriorityPathVersioned + 1 // 86 – higher than Kafka (85) to win /v1/configurations
 	brokersPath           = "/v1/brokers"
 	configurationsPath    = "/v1/configurations"
@@ -45,30 +77,30 @@ func (h *Handler) Name() string { return "MQ" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateBroker",
-		"CreateConfiguration",
-		"CreateTags",
-		"CreateUser",
-		"DeleteBroker",
-		"DeleteConfiguration",
-		"DeleteTags",
-		"DeleteUser",
-		"DescribeBroker",
-		"DescribeBrokerEngineTypes",
-		"DescribeBrokerInstanceOptions",
-		"DescribeConfiguration",
-		"DescribeConfigurationRevision",
-		"DescribeUser",
-		"ListBrokers",
-		"ListConfigurationRevisions",
-		"ListConfigurations",
-		"ListTags",
-		"ListUsers",
-		"Promote",
-		"RebootBroker",
-		"UpdateBroker",
-		"UpdateConfiguration",
-		"UpdateUser",
+		opCreateBroker,
+		opCreateConfiguration,
+		opCreateTags,
+		opCreateUser,
+		opDeleteBroker,
+		opDeleteConfiguration,
+		opDeleteTags,
+		opDeleteUser,
+		opDescribeBroker,
+		opDescribeBrokerEngineTypes,
+		opDescribeBrokerInstanceOptions,
+		opDescribeConfiguration,
+		opDescribeConfigurationRevision,
+		opDescribeUser,
+		opListBrokers,
+		opListConfigurationRevisions,
+		opListConfigurations,
+		opListTags,
+		opListUsers,
+		opPromote,
+		opRebootBroker,
+		opUpdateBroker,
+		opUpdateConfiguration,
+		opUpdateUser,
 	}
 }
 
@@ -152,15 +184,15 @@ func parseRoute(method, path string) mqRoute {
 		return parseTagRoute(method, strings.TrimPrefix(path, tagsPath))
 	case strings.HasPrefix(path, brokerEngineTypesPath):
 		if method == http.MethodGet {
-			return mqRoute{operation: "DescribeBrokerEngineTypes"}
+			return mqRoute{operation: opDescribeBrokerEngineTypes}
 		}
 	case strings.HasPrefix(path, brokerInstanceOptPath):
 		if method == http.MethodGet {
-			return mqRoute{operation: "DescribeBrokerInstanceOptions"}
+			return mqRoute{operation: opDescribeBrokerInstanceOptions}
 		}
 	}
 
-	return mqRoute{operation: "Unknown"}
+	return mqRoute{operation: opUnknown}
 }
 
 func parseBrokerRoute(method, suffix string) mqRoute {
@@ -169,23 +201,23 @@ func parseBrokerRoute(method, suffix string) mqRoute {
 	if id == "" {
 		switch method {
 		case http.MethodGet:
-			return mqRoute{operation: "ListBrokers"}
+			return mqRoute{operation: opListBrokers}
 		case http.MethodPost:
-			return mqRoute{operation: "CreateBroker"}
+			return mqRoute{operation: opCreateBroker}
 		}
 	}
 
 	// /v1/brokers/{id}/reboot
 	if before, ok := strings.CutSuffix(id, rebootSuffix); ok {
 		if method == http.MethodPost {
-			return mqRoute{operation: "RebootBroker", resource: before}
+			return mqRoute{operation: opRebootBroker, resource: before}
 		}
 	}
 
 	// /v1/brokers/{id}/promote
 	if before, ok := strings.CutSuffix(id, promoteSuffix); ok {
 		if method == http.MethodPost {
-			return mqRoute{operation: "Promote", resource: before}
+			return mqRoute{operation: opPromote, resource: before}
 		}
 	}
 
@@ -196,38 +228,38 @@ func parseBrokerRoute(method, suffix string) mqRoute {
 
 	switch method {
 	case http.MethodGet:
-		return mqRoute{operation: "DescribeBroker", resource: id}
+		return mqRoute{operation: opDescribeBroker, resource: id}
 	case http.MethodPut:
-		return mqRoute{operation: "UpdateBroker", resource: id}
+		return mqRoute{operation: opUpdateBroker, resource: id}
 	case http.MethodDelete:
-		return mqRoute{operation: "DeleteBroker", resource: id}
+		return mqRoute{operation: opDeleteBroker, resource: id}
 	}
 
-	return mqRoute{operation: "Unknown"}
+	return mqRoute{operation: opUnknown}
 }
 
 // parseUserRoute returns the route for /v1/brokers/{id}/users[/{username}] paths.
 func parseUserRoute(method, brokerID, username string) mqRoute {
 	if username == "" {
 		if method == http.MethodGet {
-			return mqRoute{operation: "ListUsers", resource: brokerID}
+			return mqRoute{operation: opListUsers, resource: brokerID}
 		}
 
-		return mqRoute{operation: "Unknown"}
+		return mqRoute{operation: opUnknown}
 	}
 
 	switch method {
 	case http.MethodGet:
-		return mqRoute{operation: "DescribeUser", resource: brokerID, subresource: username}
+		return mqRoute{operation: opDescribeUser, resource: brokerID, subresource: username}
 	case http.MethodPost:
-		return mqRoute{operation: "CreateUser", resource: brokerID, subresource: username}
+		return mqRoute{operation: opCreateUser, resource: brokerID, subresource: username}
 	case http.MethodPut:
-		return mqRoute{operation: "UpdateUser", resource: brokerID, subresource: username}
+		return mqRoute{operation: opUpdateUser, resource: brokerID, subresource: username}
 	case http.MethodDelete:
-		return mqRoute{operation: "DeleteUser", resource: brokerID, subresource: username}
+		return mqRoute{operation: opDeleteUser, resource: brokerID, subresource: username}
 	}
 
-	return mqRoute{operation: "Unknown"}
+	return mqRoute{operation: opUnknown}
 }
 
 func parseConfigurationRoute(method, suffix string) mqRoute {
@@ -236,9 +268,9 @@ func parseConfigurationRoute(method, suffix string) mqRoute {
 	if id == "" {
 		switch method {
 		case http.MethodGet:
-			return mqRoute{operation: "ListConfigurations"}
+			return mqRoute{operation: opListConfigurations}
 		case http.MethodPost:
-			return mqRoute{operation: "CreateConfiguration"}
+			return mqRoute{operation: opCreateConfiguration}
 		}
 	}
 
@@ -249,27 +281,27 @@ func parseConfigurationRoute(method, suffix string) mqRoute {
 
 	switch method {
 	case http.MethodGet:
-		return mqRoute{operation: "DescribeConfiguration", resource: id}
+		return mqRoute{operation: opDescribeConfiguration, resource: id}
 	case http.MethodPut:
-		return mqRoute{operation: "UpdateConfiguration", resource: id}
+		return mqRoute{operation: opUpdateConfiguration, resource: id}
 	case http.MethodDelete:
-		return mqRoute{operation: "DeleteConfiguration", resource: id}
+		return mqRoute{operation: opDeleteConfiguration, resource: id}
 	}
 
-	return mqRoute{operation: "Unknown"}
+	return mqRoute{operation: opUnknown}
 }
 
 // parseRevisionRoute returns the route for /v1/configurations/{id}/revisions[/{revision}] paths.
 func parseRevisionRoute(method, configID, rev string) mqRoute {
 	if method != http.MethodGet {
-		return mqRoute{operation: "Unknown"}
+		return mqRoute{operation: opUnknown}
 	}
 
 	if rev == "" {
-		return mqRoute{operation: "ListConfigurationRevisions", resource: configID}
+		return mqRoute{operation: opListConfigurationRevisions, resource: configID}
 	}
 
-	return mqRoute{operation: "DescribeConfigurationRevision", resource: configID, subresource: rev}
+	return mqRoute{operation: opDescribeConfigurationRevision, resource: configID, subresource: rev}
 }
 
 func parseTagRoute(method, suffix string) mqRoute {
@@ -281,14 +313,14 @@ func parseTagRoute(method, suffix string) mqRoute {
 
 	switch method {
 	case http.MethodGet:
-		return mqRoute{operation: "ListTags", resource: resourceARN}
+		return mqRoute{operation: opListTags, resource: resourceARN}
 	case http.MethodPost:
-		return mqRoute{operation: "CreateTags", resource: resourceARN}
+		return mqRoute{operation: opCreateTags, resource: resourceARN}
 	case http.MethodDelete:
-		return mqRoute{operation: "DeleteTags", resource: resourceARN}
+		return mqRoute{operation: opDeleteTags, resource: resourceARN}
 	}
 
-	return mqRoute{operation: "Unknown"}
+	return mqRoute{operation: opUnknown}
 }
 
 // dispatch routes the request to the appropriate handler based on the parsed route.
@@ -318,23 +350,23 @@ func (h *Handler) dispatch(c *echo.Context, route mqRoute) error {
 // Returns (true, err) if the operation was matched, (false, nil) if not.
 func (h *Handler) dispatchReadOps(c *echo.Context, route mqRoute) (bool, error) {
 	switch route.operation {
-	case "ListBrokers":
+	case opListBrokers:
 		return true, h.handleListBrokers(c)
-	case "DescribeBroker":
+	case opDescribeBroker:
 		return true, h.handleDescribeBroker(c, route.resource)
-	case "DeleteBroker":
+	case opDeleteBroker:
 		return true, h.handleDeleteBroker(c, route.resource)
-	case "RebootBroker":
+	case opRebootBroker:
 		return true, h.handleRebootBroker(c, route.resource)
-	case "DescribeBrokerEngineTypes":
+	case opDescribeBrokerEngineTypes:
 		return true, h.handleDescribeBrokerEngineTypes(c)
-	case "DescribeBrokerInstanceOptions":
+	case opDescribeBrokerInstanceOptions:
 		return true, h.handleDescribeBrokerInstanceOptions(c)
-	case "ListUsers":
+	case opListUsers:
 		return true, h.handleListUsers(c, route.resource)
-	case "DescribeUser":
+	case opDescribeUser:
 		return true, h.handleDescribeUser(c, route.resource, route.subresource)
-	case "DeleteUser":
+	case opDeleteUser:
 		return true, h.handleDeleteUser(c, route.resource, route.subresource)
 	}
 
@@ -345,19 +377,19 @@ func (h *Handler) dispatchReadOps(c *echo.Context, route mqRoute) (bool, error) 
 // Returns (true, err) if the operation was matched, (false, nil) if not.
 func (h *Handler) dispatchReadConfigOps(c *echo.Context, route mqRoute) (bool, error) {
 	switch route.operation {
-	case "ListConfigurations":
+	case opListConfigurations:
 		return true, h.handleListConfigurations(c)
-	case "DescribeConfiguration":
+	case opDescribeConfiguration:
 		return true, h.handleDescribeConfiguration(c, route.resource)
-	case "DeleteConfiguration":
+	case opDeleteConfiguration:
 		return true, h.handleDeleteConfiguration(c, route.resource)
-	case "ListConfigurationRevisions":
+	case opListConfigurationRevisions:
 		return true, h.handleListConfigurationRevisions(c, route.resource)
-	case "DescribeConfigurationRevision":
+	case opDescribeConfigurationRevision:
 		return true, h.handleDescribeConfigurationRevision(c, route.resource, route.subresource)
-	case "ListTags":
+	case opListTags:
 		return true, h.handleListTags(c, route.resource)
-	case "DeleteTags":
+	case opDeleteTags:
 		return true, h.handleDeleteTags(c, route.resource)
 	}
 
@@ -372,21 +404,21 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mqRoute, readBody func
 	}
 
 	switch route.operation {
-	case "CreateBroker":
+	case opCreateBroker:
 		return h.handleCreateBroker(c, body)
-	case "UpdateBroker":
+	case opUpdateBroker:
 		return h.handleUpdateBroker(c, route.resource, body)
-	case "Promote":
+	case opPromote:
 		return h.handlePromote(c, route.resource, body)
-	case "CreateUser":
+	case opCreateUser:
 		return h.handleCreateUser(c, route.resource, route.subresource, body)
-	case "UpdateUser":
+	case opUpdateUser:
 		return h.handleUpdateUser(c, route.resource, route.subresource, body)
-	case "CreateConfiguration":
+	case opCreateConfiguration:
 		return h.handleCreateConfiguration(c, body)
-	case "UpdateConfiguration":
+	case opUpdateConfiguration:
 		return h.handleUpdateConfiguration(c, route.resource, body)
-	case "CreateTags":
+	case opCreateTags:
 		return h.handleCreateTags(c, route.resource, body)
 	}
 
@@ -461,7 +493,7 @@ func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
-		"brokerId":  br.BrokerID,
+		keyBrokerID: br.BrokerID,
 		"brokerArn": br.BrokerArn,
 	})
 }
@@ -530,7 +562,7 @@ func (h *Handler) handleUpdateBroker(c *echo.Context, brokerID string, body []by
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{"brokerId": br.BrokerID})
+	return c.JSON(http.StatusOK, map[string]string{keyBrokerID: br.BrokerID})
 }
 
 func (h *Handler) handleDeleteBroker(c *echo.Context, brokerID string) error {
@@ -539,7 +571,7 @@ func (h *Handler) handleDeleteBroker(c *echo.Context, brokerID string) error {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{"brokerId": br.BrokerID})
+	return c.JSON(http.StatusOK, map[string]string{keyBrokerID: br.BrokerID})
 }
 
 func (h *Handler) handleRebootBroker(c *echo.Context, brokerID string) error {
@@ -622,7 +654,7 @@ func (h *Handler) handleDescribeUser(c *echo.Context, brokerID, username string)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"brokerId":      brokerID,
+		keyBrokerID:     brokerID,
 		"username":      u.Username,
 		"consoleAccess": u.Console,
 		"groups":        u.Groups,
@@ -663,8 +695,8 @@ func (h *Handler) handleListUsers(c *echo.Context, brokerID string) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"brokerId": brokerID,
-		"users":    users,
+		keyBrokerID: brokerID,
+		"users":     users,
 	})
 }
 
@@ -848,7 +880,7 @@ func (h *Handler) handlePromote(c *echo.Context, brokerID string, body []byte) e
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{"brokerId": br.BrokerID})
+	return c.JSON(http.StatusOK, map[string]string{keyBrokerID: br.BrokerID})
 }
 
 // --- Configuration revision handlers ---

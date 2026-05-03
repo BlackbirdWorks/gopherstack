@@ -20,6 +20,11 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	documentFormatJSON = "JSON"
+	statusActive       = "Active"
+)
+
 var (
 	ErrParameterNotFound                  = errors.New("ParameterNotFound")
 	ErrParameterAlreadyExists             = errors.New("ParameterAlreadyExists")
@@ -748,8 +753,8 @@ func (b *InMemoryBackend) registerDefaultDocuments() {
 			Name:            d.name,
 			Content:         d.content,
 			DocumentType:    d.docType,
-			DocumentFormat:  "JSON",
-			Status:          "Active",
+			DocumentFormat:  documentFormatJSON,
+			Status:          statusActive,
 			SchemaVersion:   "2.2",
 			PlatformTypes:   d.platform,
 			CreatedDate:     now,
@@ -764,8 +769,8 @@ func (b *InMemoryBackend) registerDefaultDocuments() {
 				DocumentVersion:  "1",
 				CreatedDate:      now,
 				IsDefaultVersion: true,
-				DocumentFormat:   "JSON",
-				Status:           "Active",
+				DocumentFormat:   documentFormatJSON,
+				Status:           statusActive,
 				Content:          d.content,
 			},
 		}
@@ -785,7 +790,7 @@ func (b *InMemoryBackend) CreateDocument(input *CreateDocumentInput) (*CreateDoc
 
 	format := input.DocumentFormat
 	if format == "" {
-		format = "JSON"
+		format = documentFormatJSON
 	}
 
 	docType := input.DocumentType
@@ -799,7 +804,7 @@ func (b *InMemoryBackend) CreateDocument(input *CreateDocumentInput) (*CreateDoc
 		Content:         input.Content,
 		DocumentType:    docType,
 		DocumentFormat:  format,
-		Status:          "Active",
+		Status:          statusActive,
 		TargetType:      input.TargetType,
 		Description:     input.Description,
 		PlatformTypes:   input.PlatformTypes,
@@ -818,7 +823,7 @@ func (b *InMemoryBackend) CreateDocument(input *CreateDocumentInput) (*CreateDoc
 			CreatedDate:      now,
 			IsDefaultVersion: true,
 			DocumentFormat:   format,
-			Status:           "Active",
+			Status:           statusActive,
 			Content:          input.Content,
 		},
 	}
@@ -966,7 +971,7 @@ func (b *InMemoryBackend) UpdateDocument(input *UpdateDocumentInput) (*UpdateDoc
 		CreatedDate:      now,
 		IsDefaultVersion: false,
 		DocumentFormat:   format,
-		Status:           "Active",
+		Status:           statusActive,
 		Content:          input.Content,
 	})
 

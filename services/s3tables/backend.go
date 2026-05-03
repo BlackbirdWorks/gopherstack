@@ -14,6 +14,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	statusEnabled = "enabled"
+	keySettings   = "settings"
+)
+
 var (
 	// ErrTableBucketNotFound is returned when a TableBucket does not exist.
 	ErrTableBucketNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
@@ -279,8 +284,8 @@ func (b *InMemoryBackend) CreateTableBucket(name string) (*TableBucket, error) {
 		CreatedAt:      time.Now().UTC(),
 		MaintenanceConfiguration: map[string]any{
 			"icebergUnreferencedFileRemoval": map[string]any{
-				"status": "enabled",
-				"settings": map[string]any{
+				keyStatusField: statusEnabled,
+				keySettings: map[string]any{
 					"icebergUnreferencedFileRemoval": map[string]any{
 						"nonCurrentDays":   float64(1),
 						"unreferencedDays": float64(3), //nolint:mnd // AWS default: 3 days for unreferenced files
@@ -567,8 +572,8 @@ func (b *InMemoryBackend) CreateTable(tableBucketARN string, namespace []string,
 		OwnerAccountID:    b.accountID,
 		MaintenanceConfiguration: map[string]any{
 			"icebergCompaction": map[string]any{
-				"status": "enabled",
-				"settings": map[string]any{
+				keyStatusField: statusEnabled,
+				keySettings: map[string]any{
 					"icebergCompaction": map[string]any{
 						"targetFileSizeMB": float64(512), //nolint:mnd // AWS default: 512 MB target file size
 						"strategy":         "binpack",
@@ -576,8 +581,8 @@ func (b *InMemoryBackend) CreateTable(tableBucketARN string, namespace []string,
 				},
 			},
 			"icebergSnapshotManagement": map[string]any{
-				"status": "enabled",
-				"settings": map[string]any{
+				keyStatusField: statusEnabled,
+				keySettings: map[string]any{
 					"icebergSnapshotManagement": map[string]any{
 						"maxSnapshotAgeHours": float64(120), //nolint:mnd // AWS default: 120 hours (5 days)
 						"minSnapshotsToKeep":  float64(1),

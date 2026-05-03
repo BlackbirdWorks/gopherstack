@@ -54,6 +54,19 @@ func (h *Handler) GetJanitorExecutionTTL() time.Duration {
 	return h.janitor.ExecutionTTL
 }
 
+// SetCalculationState overrides a calculation's state for tests.
+func (b *InMemoryBackend) SetCalculationState(id, state string) {
+	b.mu.Lock("SetCalculationState")
+	defer b.mu.Unlock()
+
+	c, ok := b.calculations[id]
+	if !ok {
+		return
+	}
+
+	c.Status.State = state
+}
+
 // GetJanitorInterval returns the Interval configured on the handler's janitor.
 // Used in tests to verify WithJanitor correctly propagates the interval.
 func (h *Handler) GetJanitorInterval() time.Duration {

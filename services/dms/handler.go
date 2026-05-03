@@ -18,6 +18,28 @@ import (
 )
 
 const (
+	opAddTagsToResource             = "AddTagsToResource"
+	opApplyPendingMaintenanceAction = "ApplyPendingMaintenanceAction"
+	opCreateDataMigration           = "CreateDataMigration"
+	opCreateDataProvider            = "CreateDataProvider"
+	opCreateEndpoint                = "CreateEndpoint"
+	opCreateEventSubscription       = "CreateEventSubscription"
+	opCreateFleetAdvisorCollector   = "CreateFleetAdvisorCollector"
+	opCreateInstanceProfile         = "CreateInstanceProfile"
+	opCreateReplicationInstance     = "CreateReplicationInstance"
+	opCreateReplicationTask         = "CreateReplicationTask"
+	opDeleteEndpoint                = "DeleteEndpoint"
+	opDeleteReplicationInstance     = "DeleteReplicationInstance"
+	opDeleteReplicationTask         = "DeleteReplicationTask"
+	opDescribeEndpoints             = "DescribeEndpoints"
+	opDescribeReplicationInstances  = "DescribeReplicationInstances"
+	opDescribeReplicationTasks      = "DescribeReplicationTasks"
+	opListTagsForResource           = "ListTagsForResource"
+	opStartReplicationTask          = "StartReplicationTask"
+	opStopReplicationTask           = "StopReplicationTask"
+)
+
+const (
 	dmsTargetPrefix    = "AmazonDMSv20160101."
 	contentType        = "application/x-amz-json-1.1"
 	dmsDefaultPageSize = 100
@@ -42,29 +64,29 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateReplicationInstance":          service.WrapOp(h.handleCreateReplicationInstance),
-		"DescribeReplicationInstances":       service.WrapOp(h.handleDescribeReplicationInstances),
-		"DeleteReplicationInstance":          service.WrapOp(h.handleDeleteReplicationInstance),
-		"CreateEndpoint":                     service.WrapOp(h.handleCreateEndpoint),
-		"DescribeEndpoints":                  service.WrapOp(h.handleDescribeEndpoints),
-		"DeleteEndpoint":                     service.WrapOp(h.handleDeleteEndpoint),
-		"CreateReplicationTask":              service.WrapOp(h.handleCreateReplicationTask),
-		"DescribeReplicationTasks":           service.WrapOp(h.handleDescribeReplicationTasks),
-		"StartReplicationTask":               service.WrapOp(h.handleStartReplicationTask),
-		"StopReplicationTask":                service.WrapOp(h.handleStopReplicationTask),
-		"DeleteReplicationTask":              service.WrapOp(h.handleDeleteReplicationTask),
-		"AddTagsToResource":                  service.WrapOp(h.handleAddTagsToResource),
-		"ListTagsForResource":                service.WrapOp(h.handleListTagsForResource),
-		"ApplyPendingMaintenanceAction":      service.WrapOp(h.handleApplyPendingMaintenanceAction),
+		opCreateReplicationInstance:          service.WrapOp(h.handleCreateReplicationInstance),
+		opDescribeReplicationInstances:       service.WrapOp(h.handleDescribeReplicationInstances),
+		opDeleteReplicationInstance:          service.WrapOp(h.handleDeleteReplicationInstance),
+		opCreateEndpoint:                     service.WrapOp(h.handleCreateEndpoint),
+		opDescribeEndpoints:                  service.WrapOp(h.handleDescribeEndpoints),
+		opDeleteEndpoint:                     service.WrapOp(h.handleDeleteEndpoint),
+		opCreateReplicationTask:              service.WrapOp(h.handleCreateReplicationTask),
+		opDescribeReplicationTasks:           service.WrapOp(h.handleDescribeReplicationTasks),
+		opStartReplicationTask:               service.WrapOp(h.handleStartReplicationTask),
+		opStopReplicationTask:                service.WrapOp(h.handleStopReplicationTask),
+		opDeleteReplicationTask:              service.WrapOp(h.handleDeleteReplicationTask),
+		opAddTagsToResource:                  service.WrapOp(h.handleAddTagsToResource),
+		opListTagsForResource:                service.WrapOp(h.handleListTagsForResource),
+		opApplyPendingMaintenanceAction:      service.WrapOp(h.handleApplyPendingMaintenanceAction),
 		"BatchStartRecommendations":          service.WrapOp(h.handleBatchStartRecommendations),
 		"CancelMetadataModelConversion":      service.WrapOp(h.handleCancelMetadataModelConversion),
 		"CancelMetadataModelCreation":        service.WrapOp(h.handleCancelMetadataModelCreation),
 		"CancelReplicationTaskAssessmentRun": service.WrapOp(h.handleCancelReplicationTaskAssessmentRun),
-		"CreateDataMigration":                service.WrapOp(h.handleCreateDataMigration),
-		"CreateDataProvider":                 service.WrapOp(h.handleCreateDataProvider),
-		"CreateEventSubscription":            service.WrapOp(h.handleCreateEventSubscription),
-		"CreateFleetAdvisorCollector":        service.WrapOp(h.handleCreateFleetAdvisorCollector),
-		"CreateInstanceProfile":              service.WrapOp(h.handleCreateInstanceProfile),
+		opCreateDataMigration:                service.WrapOp(h.handleCreateDataMigration),
+		opCreateDataProvider:                 service.WrapOp(h.handleCreateDataProvider),
+		opCreateEventSubscription:            service.WrapOp(h.handleCreateEventSubscription),
+		opCreateFleetAdvisorCollector:        service.WrapOp(h.handleCreateFleetAdvisorCollector),
+		opCreateInstanceProfile:              service.WrapOp(h.handleCreateInstanceProfile),
 	}
 }
 
@@ -79,29 +101,29 @@ func (h *Handler) Name() string { return "DMS" }
 // GetSupportedOperations returns the list of supported DMS operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateReplicationInstance",
-		"DescribeReplicationInstances",
-		"DeleteReplicationInstance",
-		"CreateEndpoint",
-		"DescribeEndpoints",
-		"DeleteEndpoint",
-		"CreateReplicationTask",
-		"DescribeReplicationTasks",
-		"StartReplicationTask",
-		"StopReplicationTask",
-		"DeleteReplicationTask",
-		"AddTagsToResource",
-		"ListTagsForResource",
-		"ApplyPendingMaintenanceAction",
+		opCreateReplicationInstance,
+		opDescribeReplicationInstances,
+		opDeleteReplicationInstance,
+		opCreateEndpoint,
+		opDescribeEndpoints,
+		opDeleteEndpoint,
+		opCreateReplicationTask,
+		opDescribeReplicationTasks,
+		opStartReplicationTask,
+		opStopReplicationTask,
+		opDeleteReplicationTask,
+		opAddTagsToResource,
+		opListTagsForResource,
+		opApplyPendingMaintenanceAction,
 		"BatchStartRecommendations",
 		"CancelMetadataModelConversion",
 		"CancelMetadataModelCreation",
 		"CancelReplicationTaskAssessmentRun",
-		"CreateDataMigration",
-		"CreateDataProvider",
-		"CreateEventSubscription",
-		"CreateFleetAdvisorCollector",
-		"CreateInstanceProfile",
+		opCreateDataMigration,
+		opCreateDataProvider,
+		opCreateEventSubscription,
+		opCreateFleetAdvisorCollector,
+		opCreateInstanceProfile,
 	}
 }
 
@@ -141,26 +163,26 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	action := h.ExtractOperation(c)
 
 	switch action {
-	case "CreateReplicationInstance", "DescribeReplicationInstances", "DeleteReplicationInstance":
+	case opCreateReplicationInstance, opDescribeReplicationInstances, opDeleteReplicationInstance:
 		return extractField(c, "ReplicationInstanceIdentifier", "ReplicationInstanceArn")
-	case "CreateEndpoint", "DescribeEndpoints", "DeleteEndpoint":
+	case opCreateEndpoint, opDescribeEndpoints, opDeleteEndpoint:
 		return extractField(c, "EndpointIdentifier", "EndpointArn")
-	case "CreateReplicationTask", "DescribeReplicationTasks",
-		"StartReplicationTask", "StopReplicationTask", "DeleteReplicationTask":
+	case opCreateReplicationTask, opDescribeReplicationTasks,
+		opStartReplicationTask, opStopReplicationTask, opDeleteReplicationTask:
 		return extractField(c, "ReplicationTaskIdentifier", "ReplicationTaskArn")
-	case "AddTagsToResource", "ListTagsForResource":
+	case opAddTagsToResource, opListTagsForResource:
 		return extractField(c, "ResourceArn")
-	case "ApplyPendingMaintenanceAction":
+	case opApplyPendingMaintenanceAction:
 		return extractField(c, "ReplicationInstanceArn")
-	case "CreateDataMigration":
+	case opCreateDataMigration:
 		return extractField(c, "DataMigrationName")
-	case "CreateDataProvider":
+	case opCreateDataProvider:
 		return extractField(c, "DataProviderName")
-	case "CreateEventSubscription":
+	case opCreateEventSubscription:
 		return extractField(c, "SubscriptionName")
-	case "CreateFleetAdvisorCollector":
+	case opCreateFleetAdvisorCollector:
 		return extractField(c, "CollectorName")
-	case "CreateInstanceProfile":
+	case opCreateInstanceProfile:
 		return extractField(c, "InstanceProfileName")
 	}
 

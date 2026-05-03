@@ -16,6 +16,17 @@ import (
 )
 
 const (
+	keyNextToken              = "NextToken"
+	keyInstanceArn            = "InstanceArn"
+	keyName                   = "Name"
+	keyStatus                 = "Status"
+	keyTags                   = "Tags"
+	keyApplicationArn         = "ApplicationArn"
+	keyApplication            = "Application"
+	keyApplicationProviderArn = "ApplicationProviderArn"
+)
+
+const (
 	targetPrefix    = "SWBExternalService."
 	ssoAdminService = "sso"
 )
@@ -469,8 +480,8 @@ func (h *Handler) handleListInstances(c *echo.Context, _ []byte) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Instances": views,
-		"NextToken": nil,
+		"Instances":  views,
+		keyNextToken: nil,
 	})
 }
 
@@ -490,7 +501,7 @@ func (h *Handler) handleCreateInstance(c *echo.Context, body []byte) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"InstanceArn": inst.InstanceArn,
+		keyInstanceArn: inst.InstanceArn,
 	})
 }
 
@@ -517,13 +528,13 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"InstanceArn":     inst.InstanceArn,
+		keyInstanceArn:    inst.InstanceArn,
 		"OwnerAccountId":  inst.OwnerAccountID,
 		"IdentityStoreId": inst.IdentityStoreID,
-		"Name":            inst.Name,
-		"Status":          inst.Status,
+		keyName:           inst.Name,
+		keyStatus:         inst.Status,
 		"CreatedDate":     float64(inst.CreatedDate.Unix()),
-		"Tags":            tagList,
+		keyTags:           tagList,
 	})
 }
 
@@ -643,7 +654,7 @@ func (h *Handler) handleListPermissionSets(c *echo.Context, body []byte) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"PermissionSets": arns,
-		"NextToken":      nil,
+		keyNextToken:     nil,
 	})
 }
 
@@ -866,7 +877,7 @@ func (h *Handler) handleListAccountAssignments(c *echo.Context, body []byte) err
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AccountAssignments": views,
-		"NextToken":          nil,
+		keyNextToken:         nil,
 	})
 }
 
@@ -940,7 +951,7 @@ func (h *Handler) handleListManagedPoliciesInPermissionSet(c *echo.Context, body
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AttachedManagedPolicies": views,
-		"NextToken":               nil,
+		keyNextToken:              nil,
 	})
 }
 
@@ -1124,8 +1135,8 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Tags":      tagList,
-		"NextToken": nil,
+		keyTags:      tagList,
+		keyNextToken: nil,
 	})
 }
 
@@ -1269,8 +1280,8 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"ApplicationArn": app.ApplicationArn,
-		"Application": applicationView{
+		keyApplicationArn: app.ApplicationArn,
+		keyApplication: applicationView{
 			ApplicationArn:         app.ApplicationArn,
 			ApplicationProviderArn: app.ApplicationProviderArn,
 			Name:                   app.Name,
@@ -1515,15 +1526,15 @@ func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error 
 	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Application": map[string]any{
-			"ApplicationArn":         app.ApplicationArn,
-			"ApplicationProviderArn": app.ApplicationProviderArn,
-			"Name":                   app.Name,
-			"Description":            app.Description,
-			"InstanceArn":            app.InstanceArn,
-			"Status":                 app.Status,
-			"CreatedDate":            float64(app.CreatedDate.Unix()),
-			"Tags":                   tagList,
+		keyApplication: map[string]any{
+			keyApplicationArn:         app.ApplicationArn,
+			keyApplicationProviderArn: app.ApplicationProviderArn,
+			keyName:                   app.Name,
+			"Description":             app.Description,
+			keyInstanceArn:            app.InstanceArn,
+			keyStatus:                 app.Status,
+			"CreatedDate":             float64(app.CreatedDate.Unix()),
+			keyTags:                   tagList,
 		},
 	})
 }
@@ -1545,9 +1556,9 @@ func (h *Handler) handleDescribeApplicationAssignment(c *echo.Context, body []by
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"ApplicationAssignment": map[string]any{
-			"ApplicationArn": assignment.ApplicationArn,
-			"PrincipalId":    assignment.PrincipalID,
-			"PrincipalType":  assignment.PrincipalType,
+			keyApplicationArn: assignment.ApplicationArn,
+			"PrincipalId":     assignment.PrincipalID,
+			"PrincipalType":   assignment.PrincipalType,
 		},
 	})
 }
@@ -1566,8 +1577,8 @@ func (h *Handler) handleDescribeApplicationProvider(c *echo.Context, body []byte
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"ApplicationProviderArn": provider.ApplicationProviderArn,
-		"DisplayData":            provider.DisplayData,
+		keyApplicationProviderArn: provider.ApplicationProviderArn,
+		"DisplayData":             provider.DisplayData,
 	})
 }
 
@@ -1584,8 +1595,8 @@ func (h *Handler) handleListApplicationAccessScopes(c *echo.Context, body []byte
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Scopes":    scopes,
-		"NextToken": nil,
+		"Scopes":     scopes,
+		keyNextToken: nil,
 	})
 }
 
@@ -1612,15 +1623,15 @@ func (h *Handler) handleListApplicationAssignments(c *echo.Context, body []byte)
 	out := make([]map[string]any, 0, len(assignments))
 	for _, assignment := range assignments {
 		out = append(out, map[string]any{
-			"ApplicationArn": assignment.ApplicationArn,
-			"PrincipalId":    assignment.PrincipalID,
-			"PrincipalType":  assignment.PrincipalType,
+			keyApplicationArn: assignment.ApplicationArn,
+			"PrincipalId":     assignment.PrincipalID,
+			"PrincipalType":   assignment.PrincipalType,
 		})
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"ApplicationAssignments": out,
-		"NextToken":              nil,
+		keyNextToken:             nil,
 	})
 }
 
@@ -1643,7 +1654,7 @@ func (h *Handler) handleListApplicationAuthenticationMethods(c *echo.Context, bo
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AuthenticationMethods": out,
-		"NextToken":             nil,
+		keyNextToken:            nil,
 	})
 }
 
@@ -1665,8 +1676,8 @@ func (h *Handler) handleListApplicationGrants(c *echo.Context, body []byte) erro
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Grants":    out,
-		"NextToken": nil,
+		"Grants":     out,
+		keyNextToken: nil,
 	})
 }
 
@@ -1675,14 +1686,14 @@ func (h *Handler) handleListApplicationProviders(c *echo.Context, _ []byte) erro
 	out := make([]map[string]any, 0, len(providers))
 	for _, provider := range providers {
 		out = append(out, map[string]any{
-			"ApplicationProviderArn": provider.ApplicationProviderArn,
-			"DisplayData":            provider.DisplayData,
+			keyApplicationProviderArn: provider.ApplicationProviderArn,
+			"DisplayData":             provider.DisplayData,
 		})
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"ApplicationProviders": out,
-		"NextToken":            nil,
+		keyNextToken:           nil,
 	})
 }
 
@@ -1710,7 +1721,7 @@ func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Applications": out,
-		"NextToken":    nil,
+		keyNextToken:   nil,
 	})
 }
 
@@ -1814,7 +1825,7 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Application": applicationView{
+		keyApplication: applicationView{
 			ApplicationArn:         app.ApplicationArn,
 			ApplicationProviderArn: app.ApplicationProviderArn,
 			Name:                   app.Name,
@@ -1864,10 +1875,10 @@ func (h *Handler) handleDescribeTrustedTokenIssuer(c *echo.Context, body []byte)
 
 	ttiMap := map[string]any{
 		"TrustedTokenIssuerArn":  issuer.TrustedTokenIssuerArn,
-		"Name":                   issuer.Name,
-		"InstanceArn":            issuer.InstanceArn,
+		keyName:                  issuer.Name,
+		keyInstanceArn:           issuer.InstanceArn,
 		"TrustedTokenIssuerType": issuer.TrustedTokenIssuerType,
-		"Tags":                   tagList,
+		keyTags:                  tagList,
 	}
 	if issuer.TrustedTokenIssuerConfiguration != nil {
 		cfgMap := map[string]any{}
@@ -1912,7 +1923,7 @@ func (h *Handler) handleListTrustedTokenIssuers(c *echo.Context, body []byte) er
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"TrustedTokenIssuers": out,
-		"NextToken":           nil,
+		keyNextToken:          nil,
 	})
 }
 
@@ -2008,7 +2019,7 @@ func (h *Handler) handleDescribeInstanceAccessControlAttributeConfiguration(c *e
 		"InstanceAccessControlAttributeConfiguration": map[string]any{
 			"AccessControlAttributes": attrs,
 		},
-		"Status": "ENABLED",
+		keyStatus: "ENABLED",
 	})
 }
 
@@ -2076,7 +2087,7 @@ func (h *Handler) handleListAccountAssignmentCreationStatus(c *echo.Context, bod
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AccountAssignmentsCreationStatus": out,
-		"NextToken":                        nil,
+		keyNextToken:                       nil,
 	})
 }
 
@@ -2100,7 +2111,7 @@ func (h *Handler) handleListAccountAssignmentDeletionStatus(c *echo.Context, bod
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AccountAssignmentsDeletionStatus": out,
-		"NextToken":                        nil,
+		keyNextToken:                       nil,
 	})
 }
 
@@ -2124,7 +2135,7 @@ func (h *Handler) handleListPermissionSetProvisioningStatus(c *echo.Context, bod
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"PermissionSetsProvisioningStatus": out,
-		"NextToken":                        nil,
+		keyNextToken:                       nil,
 	})
 }
 
@@ -2211,7 +2222,7 @@ func (h *Handler) handleListCustomerManagedPolicyReferencesInPermissionSet(c *ec
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"CustomerManagedPolicyReferences": out,
-		"NextToken":                       nil,
+		keyNextToken:                      nil,
 	})
 }
 
@@ -2260,8 +2271,8 @@ func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Regions":   out,
-		"NextToken": nil,
+		"Regions":    out,
+		keyNextToken: nil,
 	})
 }
 
@@ -2370,7 +2381,7 @@ func (h *Handler) handleListPermissionSetsProvisionedToAccount(c *echo.Context, 
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"PermissionSets": arns,
-		"NextToken":      nil,
+		keyNextToken:     nil,
 	})
 }
 
@@ -2407,7 +2418,7 @@ func (h *Handler) handleListAccountAssignmentsForPrincipal(c *echo.Context, body
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AccountAssignments": views,
-		"NextToken":          nil,
+		keyNextToken:         nil,
 	})
 }
 
@@ -2513,7 +2524,7 @@ func (h *Handler) handleListAccountsForProvisionedPermissionSet(c *echo.Context,
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"AccountIds": accounts,
-		"NextToken":  nil,
+		keyNextToken: nil,
 	})
 }
 
@@ -2554,6 +2565,6 @@ func (h *Handler) handleListApplicationAssignmentsForPrincipal(c *echo.Context, 
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"ApplicationAssignments": views,
-		"NextToken":              nil,
+		keyNextToken:             nil,
 	})
 }

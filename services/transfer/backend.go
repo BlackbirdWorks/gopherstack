@@ -13,6 +13,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	protocolSFTP = "SFTP"
+)
+
 var (
 	// ErrServerNotFound is returned when a Transfer server is not found.
 	ErrServerNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -292,12 +296,12 @@ func (b *InMemoryBackend) CreateServer(protocols []string, tags map[string]strin
 	serverID := "s-" + uuid.NewString()[:20]
 
 	if len(protocols) == 0 {
-		protocols = []string{"SFTP"}
+		protocols = []string{protocolSFTP}
 	}
 
 	for _, p := range protocols {
 		switch p {
-		case "SFTP", "FTP", "FTPS", "AS2":
+		case protocolSFTP, "FTP", "FTPS", "AS2":
 			// valid
 		default:
 			return nil, fmt.Errorf("%w: %s", ErrInvalidProtocol, p)
@@ -830,7 +834,7 @@ func (b *InMemoryBackend) AddServerInternal(serverID string) {
 	b.servers[serverID] = &Server{
 		ServerID:  serverID,
 		State:     serverStatusOnline,
-		Protocols: []string{"SFTP"},
+		Protocols: []string{protocolSFTP},
 		Domain:    "S3",
 		Endpoint:  fmt.Sprintf("%s.server.transfer.%s.amazonaws.com", serverID, b.region),
 		CreatedAt: time.Now(),

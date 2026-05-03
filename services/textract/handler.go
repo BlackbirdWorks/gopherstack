@@ -16,7 +16,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const textractTargetPrefix = "Textract."
+const (
+	textractTargetPrefix = "Textract."
+	keyTypeField         = "__type"
+	keyMessageField      = "message"
+	modelVersion10       = "1.0"
+)
 
 var (
 	errUnknownAction  = errors.New("unknown action")
@@ -200,25 +205,25 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, ErrJobNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "InvalidJobIdException",
-			"message": err.Error(),
+			keyTypeField:    "InvalidJobIdException",
+			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, ErrAdapterNotFound), errors.Is(err, ErrAdapterVersionNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "InvalidParameterException",
-			"message": err.Error(),
+			keyTypeField:    "InvalidParameterException",
+			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, ErrValidation), errors.Is(err, errInvalidRequest),
 		errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "ValidationException",
-			"message": err.Error(),
+			keyTypeField:    "ValidationException",
+			keyMessageField: err.Error(),
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"__type":  "InternalServerError",
-			"message": err.Error(),
+			keyTypeField:    "InternalServerError",
+			keyMessageField: err.Error(),
 		})
 	}
 }
@@ -462,7 +467,7 @@ func (h *Handler) handleAnalyzeID(
 	docs := h.Backend.AnalyzeID(uris)
 
 	resp := &analyzeIDResponse{
-		AnalyzeIDModelVersion: "1.0",
+		AnalyzeIDModelVersion: modelVersion10,
 		IdentityDocuments:     docs,
 	}
 	resp.DocumentMetadata.Pages = len(in.DocumentPages)
@@ -884,7 +889,7 @@ func (h *Handler) handleGetExpenseAnalysis(
 	}
 
 	resp := &getExpenseAnalysisResponse{
-		AnalyzeExpenseModelVersion: "1.0",
+		AnalyzeExpenseModelVersion: modelVersion10,
 		ExpenseDocuments:           job.ExpenseDocuments,
 		JobStatus:                  job.JobStatus,
 	}
@@ -953,7 +958,7 @@ func (h *Handler) handleGetLendingAnalysis(
 	}
 
 	resp := &getLendingAnalysisResponse{
-		AnalyzeLendingModelVersion: "1.0",
+		AnalyzeLendingModelVersion: modelVersion10,
 		JobStatus:                  job.JobStatus,
 		Results:                    job.Results,
 	}
@@ -990,7 +995,7 @@ func (h *Handler) handleGetLendingAnalysisSummary(
 	}
 
 	resp := &getLendingAnalysisSummaryResponse{
-		AnalyzeLendingModelVersion: "1.0",
+		AnalyzeLendingModelVersion: modelVersion10,
 		JobStatus:                  job.JobStatus,
 	}
 	resp.DocumentMetadata.Pages = 1

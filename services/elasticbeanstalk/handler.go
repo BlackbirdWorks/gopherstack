@@ -18,6 +18,10 @@ import (
 )
 
 const (
+	errInvalidParameterValue = "InvalidParameterValue"
+)
+
+const (
 	ebXMLNS = "https://elasticbeanstalk.amazonaws.com/docs/2010-12-01/"
 )
 
@@ -914,9 +918,9 @@ func (h *Handler) handleOpError(c *echo.Context, opErr error) error {
 	}
 
 	mappings := []errorMapping{
-		{ErrNotFound, "InvalidParameterValue"},
-		{ErrAlreadyExists, "InvalidParameterValue"},
-		{ErrInvalidParameter, "InvalidParameterValue"},
+		{ErrNotFound, errInvalidParameterValue},
+		{ErrAlreadyExists, errInvalidParameterValue},
+		{ErrInvalidParameter, errInvalidParameterValue},
 		{ErrValidation, "ValidationException"},
 		{ErrUnknownAction, "UnknownOperationException"},
 	}

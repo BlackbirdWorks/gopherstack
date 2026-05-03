@@ -15,6 +15,8 @@ import (
 const (
 	cloudtrailMatchPriority = service.PriorityHeaderExact
 	cloudtrailTargetPrefix  = "CloudTrail_20131101."
+	keyTrailARN             = "TrailARN"
+	keyName                 = "Name"
 )
 
 var errInvalidRequest = errors.New("invalid request")
@@ -440,7 +442,7 @@ func (h *Handler) handlePutEventSelectors(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"TrailARN":       t.TrailARN,
+		keyTrailARN:      t.TrailARN,
 		"EventSelectors": t.EventSelectors,
 	})
 }
@@ -467,7 +469,7 @@ func (h *Handler) handleGetEventSelectors(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"TrailARN":       trailARN,
+		keyTrailARN:      trailARN,
 		"EventSelectors": selectors,
 	})
 }
@@ -566,8 +568,8 @@ func (h *Handler) handleListTrails(c *echo.Context, _ []byte) error {
 
 	for _, t := range trails {
 		items = append(items, map[string]any{
-			"TrailARN":   t.TrailARN,
-			"Name":       t.Name,
+			keyTrailARN:  t.TrailARN,
+			keyName:      t.Name,
 			"HomeRegion": t.HomeRegion,
 		})
 	}
@@ -612,7 +614,7 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"ChannelArn":   ch.ChannelARN,
-		"Name":         ch.Name,
+		keyName:        ch.Name,
 		"Source":       ch.Source,
 		"Destinations": ch.Destinations,
 	})
@@ -666,7 +668,7 @@ func (h *Handler) handleCreateDashboard(c *echo.Context, body []byte) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"DashboardArn": d.DashboardARN,
-		"Name":         d.Name,
+		keyName:        d.Name,
 		"Type":         d.Type,
 		"Status":       d.Status,
 	})
@@ -730,7 +732,7 @@ func (h *Handler) handleCreateEventDataStore(c *echo.Context, body []byte) error
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"EventDataStoreArn":            eds.EventDataStoreARN,
-		"Name":                         eds.Name,
+		keyName:                        eds.Name,
 		"Status":                       eds.Status,
 		"MultiRegionEnabled":           eds.MultiRegionEnabled,
 		"OrganizationEnabled":          eds.OrganizationEnabled,
@@ -864,9 +866,9 @@ func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
 // trailToMap converts a Trail to the JSON map used in API responses.
 func trailToMap(t *Trail) map[string]any {
 	m := map[string]any{
-		"Name":                       t.Name,
+		keyName:                      t.Name,
 		"S3BucketName":               t.S3BucketName,
-		"TrailARN":                   t.TrailARN,
+		keyTrailARN:                  t.TrailARN,
 		"HomeRegion":                 t.HomeRegion,
 		"IncludeGlobalServiceEvents": t.IncludeGlobalServiceEvents,
 		"IsMultiRegionTrail":         t.IsMultiRegionTrail,

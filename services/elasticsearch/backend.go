@@ -12,6 +12,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	statusActiveCap = "Active"
+	statusActive    = "ACTIVE"
+)
+
 // Errors returned by the Elasticsearch backend.
 var (
 	ErrDomainNotFound      = errors.New("ResourceNotFoundException")
@@ -198,7 +203,7 @@ func (b *InMemoryBackend) CreateDomain(
 		ARN:                  domainARN,
 		ElasticsearchVersion: esVersion,
 		Endpoint:             endpoint,
-		Status:               "Active",
+		Status:               statusActiveCap,
 		ClusterConfig:        clusterConfig,
 		EBSOptions:           ebsOpts,
 		Tags:                 tags.New("elasticsearch." + name + ".tags"),
@@ -429,7 +434,7 @@ func (b *InMemoryBackend) AcceptInboundCrossClusterSearchConnection(connectionID
 		return nil, fmt.Errorf("%w: inbound connection %s not found", ErrConnectionNotFound, connectionID)
 	}
 
-	conn.ConnectionStatus = "ACTIVE"
+	conn.ConnectionStatus = statusActive
 	cp := *conn
 
 	return &cp, nil
@@ -490,7 +495,7 @@ func (b *InMemoryBackend) CreateVpcEndpoint(domainARN string, vpcOptions map[str
 		OwnerAccountID: b.accountID,
 		DomainARN:      domainARN,
 		Endpoint:       fmt.Sprintf("vpc-%s.%s.es.amazonaws.com", id, b.region),
-		Status:         "ACTIVE",
+		Status:         statusActive,
 		VpcOptions:     optsCopy,
 	}
 	b.vpcEndpoints[id] = endpoint

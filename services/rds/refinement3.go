@@ -122,7 +122,7 @@ func (b *InMemoryBackend) CreateDBProxy(name, engineFamily, roleARN string, auth
 	proxy := &DBProxy{
 		DBProxyName:       name,
 		DBProxyARN:        fmt.Sprintf("arn:aws:rds:%s:%s:db-proxy:prx-%s", b.region, b.accountID, name),
-		Status:            "available",
+		Status:            instanceStatusAvailable,
 		Endpoint:          fmt.Sprintf("%s.proxy-abcd1234.%s.rds.amazonaws.com", name, b.region),
 		EngineFamily:      engineFamily,
 		RoleARN:           roleARN,
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) CreateDBProxy(name, engineFamily, roleARN string, auth
 		TargetGroupName:      proxyDefaultTargetGroupName,
 		TargetGroupARN:       fmt.Sprintf("arn:aws:rds:%s:%s:target-group:%s/default", b.region, b.accountID, name),
 		IsDefault:            true,
-		Status:               "available",
+		Status:               instanceStatusAvailable,
 		CreatedDate:          time.Now(),
 		UpdatedDate:          time.Now(),
 		ConnectionPoolConfig: proxy.ConnectionPoolConfig,
@@ -259,7 +259,7 @@ func (b *InMemoryBackend) RegisterDBProxyTargets(
 			RdsResourceID: id,
 			Port:          proxyDefaultPort,
 			Type:          "RDS_INSTANCE",
-			Role:          "READ_WRITE",
+			Role:          clusterEndpointReadWrite,
 			TargetHealth:  "AVAILABLE",
 		}
 		targets = append(targets, target)
@@ -274,7 +274,7 @@ func (b *InMemoryBackend) RegisterDBProxyTargets(
 			RdsResourceID:    id,
 			Port:             proxyDefaultPort,
 			Type:             "TRACKED_CLUSTER",
-			Role:             "READ_WRITE",
+			Role:             clusterEndpointReadWrite,
 			TargetHealth:     "AVAILABLE",
 		}
 		targets = append(targets, target)
@@ -399,14 +399,14 @@ func (b *InMemoryBackend) CreateDBProxyEndpoint(
 	}
 
 	if targetRole == "" {
-		targetRole = "READ_WRITE"
+		targetRole = clusterEndpointReadWrite
 	}
 
 	ep := &DBProxyEndpoint{
 		DBProxyEndpointName: endpointName,
 		DBProxyEndpointARN:  fmt.Sprintf("arn:aws:rds:%s:%s:db-proxy-endpoint:%s", b.region, b.accountID, endpointName),
 		DBProxyName:         proxyName,
-		Status:              "available",
+		Status:              instanceStatusAvailable,
 		Endpoint:            fmt.Sprintf("%s.endpoint.proxy-abcd1234.%s.rds.amazonaws.com", endpointName, b.region),
 		TargetRole:          targetRole,
 		VpcSubnetIDs:        vpcSubnetIDs,

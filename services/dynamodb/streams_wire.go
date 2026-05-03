@@ -126,9 +126,9 @@ func fromStreamAttributeValue(av streamstypes.AttributeValue) (map[string]any, e
 	case *streamstypes.AttributeValueMemberN:
 		return map[string]any{"N": v.Value}, nil
 	case *streamstypes.AttributeValueMemberBOOL:
-		return map[string]any{"BOOL": v.Value}, nil
+		return map[string]any{typeBOOL: v.Value}, nil
 	case *streamstypes.AttributeValueMemberNULL:
-		return map[string]any{"NULL": v.Value}, nil
+		return map[string]any{typeNULL: v.Value}, nil
 	case *streamstypes.AttributeValueMemberB:
 		return map[string]any{"B": v.Value}, nil
 	case *streamstypes.AttributeValueMemberSS:

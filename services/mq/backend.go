@@ -14,6 +14,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	engineVersion5183  = "5.18.3"
+	engineVersion5176  = "5.17.6"
+	engineVersion5167  = "5.16.7"
+	engineVersion51516 = "5.15.16"
+)
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
@@ -740,10 +747,10 @@ func (b *InMemoryBackend) DescribeBrokerEngineTypes(engineType string) []BrokerE
 		{
 			EngineType: EngineTypeActiveMQ,
 			EngineVersions: []EngineVersion{
-				{Name: "5.18.3"},
-				{Name: "5.17.6"},
-				{Name: "5.16.7"},
-				{Name: "5.15.16"},
+				{Name: engineVersion5183},
+				{Name: engineVersion5176},
+				{Name: engineVersion5167},
+				{Name: engineVersion51516},
 			},
 		},
 		{
@@ -802,23 +809,33 @@ func (b *InMemoryBackend) DescribeBrokerInstanceOptions(
 			HostInstanceType:         "mq.m5.large",
 			StorageType:              "efs",
 			AvailabilityZones:        zones,
-			SupportedDeploymentModes: []string{"SINGLE_INSTANCE", "ACTIVE_STANDBY_MULTI_AZ"},
-			SupportedEngineVersions:  []string{"5.18.3", "5.17.6", "5.16.7", "5.15.16"},
+			SupportedDeploymentModes: []string{DeploymentModeSingleInstance, "ACTIVE_STANDBY_MULTI_AZ"},
+			SupportedEngineVersions: []string{
+				engineVersion5183,
+				engineVersion5176,
+				engineVersion5167,
+				engineVersion51516,
+			},
 		},
 		{
 			EngineType:               EngineTypeActiveMQ,
 			HostInstanceType:         "mq.m5.xlarge",
 			StorageType:              "efs",
 			AvailabilityZones:        zones,
-			SupportedDeploymentModes: []string{"SINGLE_INSTANCE", "ACTIVE_STANDBY_MULTI_AZ"},
-			SupportedEngineVersions:  []string{"5.18.3", "5.17.6", "5.16.7", "5.15.16"},
+			SupportedDeploymentModes: []string{DeploymentModeSingleInstance, "ACTIVE_STANDBY_MULTI_AZ"},
+			SupportedEngineVersions: []string{
+				engineVersion5183,
+				engineVersion5176,
+				engineVersion5167,
+				engineVersion51516,
+			},
 		},
 		{
 			EngineType:               EngineTypeRabbitMQ,
 			HostInstanceType:         "mq.m5.large",
 			StorageType:              "ebs",
 			AvailabilityZones:        zones,
-			SupportedDeploymentModes: []string{"SINGLE_INSTANCE", "CLUSTER_MULTI_AZ"},
+			SupportedDeploymentModes: []string{DeploymentModeSingleInstance, "CLUSTER_MULTI_AZ"},
 			SupportedEngineVersions:  []string{"3.13.2", "3.12.13", "3.11.28", "3.10.25"},
 		},
 	}

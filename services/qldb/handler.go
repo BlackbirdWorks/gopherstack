@@ -20,6 +20,32 @@ import (
 )
 
 const (
+	keyMessageField = "message"
+	keyTypeField    = "__type"
+)
+
+const (
+	opCancelJournalKinesisStream         = "CancelJournalKinesisStream"
+	opCreateLedger                       = "CreateLedger"
+	opDeleteLedger                       = "DeleteLedger"
+	opDescribeJournalKinesisStream       = "DescribeJournalKinesisStream"
+	opDescribeJournalS3Export            = "DescribeJournalS3Export"
+	opDescribeLedger                     = "DescribeLedger"
+	opExportJournalToS3                  = "ExportJournalToS3"
+	opGetBlock                           = "GetBlock"
+	opGetDigest                          = "GetDigest"
+	opGetRevision                        = "GetRevision"
+	opListJournalKinesisStreamsForLedger = "ListJournalKinesisStreamsForLedger"
+	opListJournalS3Exports               = "ListJournalS3Exports"
+	opListJournalS3ExportsForLedger      = "ListJournalS3ExportsForLedger"
+	opListLedgers                        = "ListLedgers"
+	opListTagsForResource                = "ListTagsForResource"
+	opTagResource                        = "TagResource"
+	opUntagResource                      = "UntagResource"
+	opUpdateLedger                       = "UpdateLedger"
+)
+
+const (
 	qldbService        = "qldb"
 	qldbMatchPriority  = 87
 	qldbLedgersPath    = "/ledgers"
@@ -80,24 +106,24 @@ func (h *Handler) Reset() {
 // GetSupportedOperations returns the list of supported QLDB operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CancelJournalKinesisStream",
-		"CreateLedger",
-		"DeleteLedger",
-		"DescribeJournalKinesisStream",
-		"DescribeJournalS3Export",
-		"DescribeLedger",
-		"ExportJournalToS3",
-		"GetBlock",
-		"GetDigest",
-		"GetRevision",
-		"ListJournalKinesisStreamsForLedger",
-		"ListJournalS3Exports",
-		"ListJournalS3ExportsForLedger",
-		"ListLedgers",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
-		"UpdateLedger",
+		opCancelJournalKinesisStream,
+		opCreateLedger,
+		opDeleteLedger,
+		opDescribeJournalKinesisStream,
+		opDescribeJournalS3Export,
+		opDescribeLedger,
+		opExportJournalToS3,
+		opGetBlock,
+		opGetDigest,
+		opGetRevision,
+		opListJournalKinesisStreamsForLedger,
+		opListJournalS3Exports,
+		opListJournalS3ExportsForLedger,
+		opListLedgers,
+		opListTagsForResource,
+		opTagResource,
+		opUntagResource,
+		opUpdateLedger,
 	}
 }
 
@@ -144,7 +170,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 	// Global /journal-s3-exports (no ledger name prefix).
 	if path == qldbJournalS3ExportsPath && method == http.MethodGet {
-		return "ListJournalS3Exports"
+		return opListJournalS3Exports
 	}
 
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
@@ -159,11 +185,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 func extractTagsOperation(method string) string {
 	switch method {
 	case http.MethodGet:
-		return "ListTagsForResource"
+		return opListTagsForResource
 	case http.MethodPost:
-		return "TagResource"
+		return opTagResource
 	case http.MethodDelete:
-		return "UntagResource"
+		return opUntagResource
 	}
 
 	return opUnknown
@@ -194,9 +220,9 @@ func extractLedgerOp(segments []string, method string) string {
 func extractLedgersRootOp(method string) string {
 	switch method {
 	case http.MethodGet:
-		return "ListLedgers"
+		return opListLedgers
 	case http.MethodPost:
-		return "CreateLedger"
+		return opCreateLedger
 	}
 
 	return opUnknown
@@ -205,11 +231,11 @@ func extractLedgersRootOp(method string) string {
 func extractLedgerByNameOp(method string) string {
 	switch method {
 	case http.MethodGet:
-		return "DescribeLedger"
+		return opDescribeLedger
 	case http.MethodPatch:
-		return "UpdateLedger"
+		return opUpdateLedger
 	case http.MethodDelete:
-		return "DeleteLedger"
+		return opDeleteLedger
 	}
 
 	return opUnknown
@@ -218,17 +244,17 @@ func extractLedgerByNameOp(method string) string {
 func extractLedgerSubOp(sub, method string) string {
 	switch {
 	case sub == qldbJournalKinesisSegment && method == http.MethodGet:
-		return "ListJournalKinesisStreamsForLedger"
+		return opListJournalKinesisStreamsForLedger
 	case sub == qldbJournalS3Segment && method == http.MethodPost:
-		return "ExportJournalToS3"
+		return opExportJournalToS3
 	case sub == qldbJournalS3Segment && method == http.MethodGet:
-		return "ListJournalS3ExportsForLedger"
+		return opListJournalS3ExportsForLedger
 	case sub == qldbBlockSegment && method == http.MethodPost:
-		return "GetBlock"
+		return opGetBlock
 	case sub == qldbDigestSegment && method == http.MethodPost:
-		return "GetDigest"
+		return opGetDigest
 	case sub == qldbRevisionSegment && method == http.MethodPost:
-		return "GetRevision"
+		return opGetRevision
 	}
 
 	return opUnknown
@@ -237,11 +263,11 @@ func extractLedgerSubOp(sub, method string) string {
 func extractLedgerSubIDOp(sub, method string) string {
 	switch {
 	case sub == qldbJournalKinesisSegment && method == http.MethodGet:
-		return "DescribeJournalKinesisStream"
+		return opDescribeJournalKinesisStream
 	case sub == qldbJournalKinesisSegment && method == http.MethodDelete:
-		return "CancelJournalKinesisStream"
+		return opCancelJournalKinesisStream
 	case sub == qldbJournalS3Segment && method == http.MethodGet:
-		return "DescribeJournalS3Export"
+		return opDescribeJournalS3Export
 	}
 
 	return opUnknown
@@ -306,29 +332,29 @@ func (h *Handler) dispatchLedgerOps(
 	ctx context.Context, op, path string, query url.Values, body []byte,
 ) ([]byte, bool, error) {
 	switch op {
-	case "CreateLedger":
+	case opCreateLedger:
 		res, err := h.handleCreateLedger(ctx, body)
 
 		return res, true, err
-	case "DescribeLedger":
+	case opDescribeLedger:
 		res, err := h.handleDescribeLedger(ctx, path)
 
 		return res, true, err
-	case "ListLedgers":
+	case opListLedgers:
 		res, err := h.handleListLedgers(ctx)
 
 		return res, true, err
-	case "UpdateLedger":
+	case opUpdateLedger:
 		res, err := h.handleUpdateLedger(ctx, path, body)
 
 		return res, true, err
-	case "DeleteLedger":
+	case opDeleteLedger:
 		return nil, true, h.handleDeleteLedger(ctx, path)
-	case "TagResource":
+	case opTagResource:
 		return nil, true, h.handleTagResource(ctx, path, body)
-	case "UntagResource":
+	case opUntagResource:
 		return nil, true, h.handleUntagResource(ctx, path, query)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		res, err := h.handleListTagsForResource(ctx, path)
 
 		return res, true, err
@@ -341,43 +367,43 @@ func (h *Handler) dispatchJournalOps(
 	ctx context.Context, op, path string, body []byte,
 ) ([]byte, bool, error) {
 	switch op {
-	case "CancelJournalKinesisStream":
+	case opCancelJournalKinesisStream:
 		res, err := h.handleCancelJournalKinesisStream(ctx, path)
 
 		return res, true, err
-	case "DescribeJournalKinesisStream":
+	case opDescribeJournalKinesisStream:
 		res, err := h.handleDescribeJournalKinesisStream(ctx, path)
 
 		return res, true, err
-	case "ListJournalKinesisStreamsForLedger":
+	case opListJournalKinesisStreamsForLedger:
 		res, err := h.handleListJournalKinesisStreamsForLedger(ctx, path)
 
 		return res, true, err
-	case "ExportJournalToS3":
+	case opExportJournalToS3:
 		res, err := h.handleExportJournalToS3(ctx, path, body)
 
 		return res, true, err
-	case "DescribeJournalS3Export":
+	case opDescribeJournalS3Export:
 		res, err := h.handleDescribeJournalS3Export(ctx, path)
 
 		return res, true, err
-	case "ListJournalS3Exports":
+	case opListJournalS3Exports:
 		res, err := h.handleListJournalS3Exports(ctx)
 
 		return res, true, err
-	case "ListJournalS3ExportsForLedger":
+	case opListJournalS3ExportsForLedger:
 		res, err := h.handleListJournalS3ExportsForLedger(ctx, path)
 
 		return res, true, err
-	case "GetBlock":
+	case opGetBlock:
 		res, err := h.handleGetBlock(ctx, path)
 
 		return res, true, err
-	case "GetDigest":
+	case opGetDigest:
 		res, err := h.handleGetDigest(ctx, path)
 
 		return res, true, err
-	case "GetRevision":
+	case opGetRevision:
 		res, err := h.handleGetRevision(ctx, path)
 
 		return res, true, err
@@ -393,33 +419,33 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 
 	switch {
 	case errors.Is(err, ErrValidation), errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	case errors.Is(err, ErrDeletionProtection):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourcePreconditionNotMetException",
-			"message": err.Error(),
+			keyTypeField:    "ResourcePreconditionNotMetException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrNotFound), errors.Is(err, awserr.ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceNotFoundException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceNotFoundException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, ErrAlreadyExists), errors.Is(err, awserr.ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceAlreadyExistsException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceAlreadyExistsException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 }
 

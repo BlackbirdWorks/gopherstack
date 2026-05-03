@@ -25,6 +25,17 @@ import (
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	protocolEmailJSON = "email-json"
+	protocolHTTPS     = "https"
+)
+
+const (
+	protocolEmail             = "email"
+	protocolHTTP              = "http"
+	statusPendingConfirmation = "PendingConfirmation"
+)
+
 var (
 	ErrTopicNotFound                    = errors.New("NotFound")
 	ErrTopicAlreadyExists               = errors.New("TopicAlreadyExists")
@@ -589,7 +600,7 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 	}
 
 	// Validate email/email-json endpoints look like email addresses.
-	if (protocol == "email" || protocol == "email-json") && !isValidEmail(endpoint) {
+	if (protocol == protocolEmail || protocol == protocolEmailJSON) && !isValidEmail(endpoint) {
 		return nil, fmt.Errorf(
 			"%w: Invalid parameter: Endpoint must be a valid email address for %s protocol",
 			ErrInvalidParameter,
@@ -623,8 +634,8 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 	// HTTP and HTTPS subscriptions require out-of-band confirmation.
 	// Email/email-json require the recipient to click a link.
 	// SQS, Lambda, Firehose, and Application (mobile push) are auto-confirmed.
-	pending := protocol == "http" || protocol == "https" ||
-		protocol == "email" || protocol == "email-json"
+	pending := protocol == protocolHTTP || protocol == protocolHTTPS ||
+		protocol == protocolEmail || protocol == protocolEmailJSON
 
 	sub := &Subscription{
 		SubscriptionArn:     subArn,
@@ -700,7 +711,7 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 		"Protocol":                     sub.Protocol,
 		"Endpoint":                     sub.Endpoint,
 		"Owner":                        sub.Owner,
-		"PendingConfirmation":          strconv.FormatBool(sub.PendingConfirmation),
+		statusPendingConfirmation:      strconv.FormatBool(sub.PendingConfirmation),
 		"ConfirmationWasAuthenticated": strconv.FormatBool(!sub.PendingConfirmation),
 		attrRawMessageDelivery:         strconv.FormatBool(sub.RawMessageDelivery),
 	}
@@ -888,7 +899,7 @@ func (b *InMemoryBackend) collectPublishTargets(
 
 		msg := resolveMsg(sub.Protocol)
 
-		if sub.Protocol == "http" || sub.Protocol == "https" {
+		if sub.Protocol == protocolHTTP || sub.Protocol == protocolHTTPS {
 			out.httpDeliveries = append(out.httpDeliveries, httpDelivery{
 				endpoint:        sub.Endpoint,
 				body:            msg,

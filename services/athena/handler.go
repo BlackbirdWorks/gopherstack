@@ -64,6 +64,10 @@ func (h *Handler) Name() string { return "Athena" }
 
 // GetSupportedOperations returns the list of mocked Athena operations.
 func (h *Handler) GetSupportedOperations() []string {
+	return append(h.baseSupportedOperations(), h.extendedSupportedOperations()...)
+}
+
+func (h *Handler) baseSupportedOperations() []string {
 	return []string{
 		"CreateWorkGroup",
 		"GetWorkGroup",
@@ -356,6 +360,7 @@ func (h *Handler) buildDispatchTable() map[string]athenaActionFn {
 	maps.Copy(ops, h.preparedStatementOps())
 	maps.Copy(ops, h.capacityReservationOps())
 	maps.Copy(ops, h.notebookOps())
+	maps.Copy(ops, h.extendedDispatchTable())
 
 	return ops
 }

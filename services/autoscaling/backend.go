@@ -715,7 +715,7 @@ func (b *InMemoryBackend) BatchDeleteScheduledAction(
 		if actions == nil || actions[name] == nil {
 			failed = append(failed, FailedScheduledAction{
 				ScheduledActionName: name,
-				ErrorCode:           "ValidationError",
+				ErrorCode:           errValidationError,
 				ErrorMessage:        fmt.Sprintf("scheduled action %q not found", name),
 			})
 
@@ -750,7 +750,7 @@ func (b *InMemoryBackend) BatchPutScheduledUpdateGroupAction(
 		if a.ScheduledActionName == "" {
 			failed = append(failed, FailedScheduledAction{
 				ScheduledActionName: a.ScheduledActionName,
-				ErrorCode:           "ValidationError",
+				ErrorCode:           errValidationError,
 				ErrorMessage:        "ScheduledActionName is required",
 			})
 
@@ -822,7 +822,7 @@ func (b *InMemoryBackend) CreateOrUpdateTags(tags []ResourceTag) error {
 	defer b.mu.Unlock()
 
 	for _, tag := range tags {
-		if tag.ResourceType != "auto-scaling-group" {
+		if tag.ResourceType != resourceTypeAutoScalingGroup {
 			continue
 		}
 
@@ -1134,7 +1134,7 @@ func (b *InMemoryBackend) DeleteTags(tags []ResourceTag) error {
 	defer b.mu.Unlock()
 
 	for _, tag := range tags {
-		if tag.ResourceType != "auto-scaling-group" {
+		if tag.ResourceType != resourceTypeAutoScalingGroup {
 			continue
 		}
 
@@ -1180,7 +1180,7 @@ func tagMatchesFilters(filterMap map[string]map[string]bool, resourceID, key, va
 		return true
 	}
 
-	if ids, ok := filterMap["auto-scaling-group"]; ok && !ids[resourceID] {
+	if ids, ok := filterMap[resourceTypeAutoScalingGroup]; ok && !ids[resourceID] {
 		return false
 	}
 
@@ -1209,7 +1209,7 @@ func (b *InMemoryBackend) DescribeTags(filters []TagFilter) ([]ResourceTag, erro
 			if tagMatchesFilters(filterMap, g.AutoScalingGroupName, t.Key, t.Value) {
 				result = append(result, ResourceTag{
 					ResourceID:   g.AutoScalingGroupName,
-					ResourceType: "auto-scaling-group",
+					ResourceType: resourceTypeAutoScalingGroup,
 					Key:          t.Key,
 					Value:        t.Value,
 				})

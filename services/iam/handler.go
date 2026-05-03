@@ -27,6 +27,15 @@ import (
 const (
 	iamAPIVersion = "Version=2010-05-08"
 	unknownOp     = "Unknown"
+
+	opListUsers                   = "ListUsers"
+	opListRoles                   = "ListRoles"
+	opListPolicies                = "ListPolicies"
+	opListGroups                  = "ListGroups"
+	opListInstanceProfiles        = "ListInstanceProfiles"
+	opListInstanceProfilesForRole = "ListInstanceProfilesForRole"
+	xmlElemPolicy                 = "Policy"
+	notApplicable                 = "N/A"
 )
 
 // Handler is the Echo HTTP handler for IAM operations.
@@ -86,9 +95,9 @@ func (h *Handler) Name() string {
 // GetSupportedOperations returns the list of supported IAM operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateUser", "DeleteUser", "ListUsers", "GetUser", "UpdateUser",
-		"CreateRole", "DeleteRole", "ListRoles", "GetRole", "UpdateRole", "UpdateRoleDescription",
-		"CreatePolicy", "DeletePolicy", "ListPolicies",
+		"CreateUser", "DeleteUser", opListUsers, "GetUser", "UpdateUser",
+		"CreateRole", "DeleteRole", opListRoles, "GetRole", "UpdateRole", "UpdateRoleDescription",
+		"CreatePolicy", "DeletePolicy", opListPolicies,
 		"GetPolicy", "GetPolicyVersion",
 		"AttachUserPolicy", "DetachUserPolicy", "AttachRolePolicy",
 		"DetachRolePolicy",
@@ -102,13 +111,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetAccountAuthorizationDetails",
 		"SimulatePrincipalPolicy",
 		"GenerateCredentialReport", "GetCredentialReport",
-		"CreateGroup", "DeleteGroup", "AddUserToGroup", "ListGroups", "UpdateGroup",
+		"CreateGroup", "DeleteGroup", "AddUserToGroup", opListGroups, "UpdateGroup",
 		"RemoveUserFromGroup", "GetGroup",
 		"AttachGroupPolicy", "DetachGroupPolicy", "ListAttachedGroupPolicies",
 		"CreateAccessKey", "DeleteAccessKey", "ListAccessKeys",
 		"UpdateAccessKey", "GetAccessKeyLastUsed",
-		"CreateInstanceProfile", "DeleteInstanceProfile", "ListInstanceProfiles", "GetInstanceProfile",
-		"AddRoleToInstanceProfile", "RemoveRoleFromInstanceProfile", "ListInstanceProfilesForRole",
+		"CreateInstanceProfile", "DeleteInstanceProfile", opListInstanceProfiles, "GetInstanceProfile",
+		"AddRoleToInstanceProfile", "RemoveRoleFromInstanceProfile", opListInstanceProfilesForRole,
 		"ListRoleTags", "TagRole", "UntagRole",
 		"ListPolicyTags", "TagPolicy", "UntagPolicy",
 		"ListUserTags", "TagUser", "UntagUser",
@@ -391,7 +400,7 @@ func (h *Handler) iamUserDispatchTable() map[string]iamActionFn {
 
 			return &DeleteUserResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
-		"ListUsers": func(vals url.Values, reqID string) (any, error) {
+		opListUsers: func(vals url.Values, reqID string) (any, error) {
 			p, err := h.Backend.ListUsers(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
@@ -463,7 +472,7 @@ func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
 
 			return &DeleteRoleResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
-		"ListRoles": func(vals url.Values, reqID string) (any, error) {
+		opListRoles: func(vals url.Values, reqID string) (any, error) {
 			p, err := h.Backend.ListRoles(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
@@ -510,7 +519,7 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 
 			return &DeletePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
-		"ListPolicies": func(vals url.Values, reqID string) (any, error) {
+		opListPolicies: func(vals url.Values, reqID string) (any, error) {
 			p, err := h.Backend.ListPolicies(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
@@ -662,7 +671,7 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 				ResponseMetadata:       ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListInstanceProfilesForRole": func(_ url.Values, reqID string) (any, error) {
+		opListInstanceProfilesForRole: func(_ url.Values, reqID string) (any, error) {
 			type listInstanceProfilesResult struct {
 				XMLName          xml.Name `xml:"ListInstanceProfilesForRoleResult"`
 				InstanceProfiles []any    `xml:"InstanceProfiles>member"`
@@ -1075,7 +1084,7 @@ func (h *Handler) iamGroupDispatchTable() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListGroups": func(vals url.Values, reqID string) (any, error) {
+		opListGroups: func(vals url.Values, reqID string) (any, error) {
 			p, err := h.Backend.ListGroups(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
@@ -1174,7 +1183,7 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListInstanceProfiles": func(vals url.Values, reqID string) (any, error) {
+		opListInstanceProfiles: func(vals url.Values, reqID string) (any, error) {
 			p, err := h.Backend.ListInstanceProfiles(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
@@ -1482,7 +1491,7 @@ func toUserXML(u *User) UserXML {
 	if u.PermissionsBoundary != "" {
 		x.PermissionsBoundary = &PermissionsBoundaryXML{
 			PermissionsBoundaryArn:  u.PermissionsBoundary,
-			PermissionsBoundaryType: "Policy",
+			PermissionsBoundaryType: xmlElemPolicy,
 		}
 	}
 
@@ -1504,7 +1513,7 @@ func toRoleXML(r *Role) RoleXML {
 	if r.PermissionsBoundary != "" {
 		x.PermissionsBoundary = &PermissionsBoundaryXML{
 			PermissionsBoundaryArn:  r.PermissionsBoundary,
-			PermissionsBoundaryType: "Policy",
+			PermissionsBoundaryType: xmlElemPolicy,
 		}
 	}
 

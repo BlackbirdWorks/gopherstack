@@ -23,6 +23,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	opListProvisionedConcurrencyConfigs = "ListProvisionedConcurrencyConfigs"
+)
+
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
 const lambdaPathPrefix = "/2015-03-31/functions"
 
@@ -131,7 +135,7 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodGet, hasSuffixConcurrency, "GetFunctionConcurrency"},
 	{http.MethodDelete, hasSuffixConcurrency, "DeleteFunctionConcurrency"},
 	{http.MethodPut, hasSuffixProvisionedConcurrency, "PutProvisionedConcurrencyConfig"},
-	{http.MethodGet, hasSuffixProvisionedConcurrency, "ListProvisionedConcurrencyConfigs"},
+	{http.MethodGet, hasSuffixProvisionedConcurrency, opListProvisionedConcurrencyConfigs},
 	{http.MethodDelete, hasSuffixProvisionedConcurrency, "DeleteProvisionedConcurrencyConfig"},
 	{http.MethodGet, hasSuffixCodeSigningConfig, "GetFunctionCodeSigningConfig"},
 	{http.MethodPut, hasSuffixCodeSigningConfig, "PutFunctionCodeSigningConfig"},
@@ -291,7 +295,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListFunctionUrlConfigs",
 		"ListLayerVersions",
 		"ListLayers",
-		"ListProvisionedConcurrencyConfigs",
+		opListProvisionedConcurrencyConfigs,
 		"ListTags",
 		"ListVersionsByFunction",
 		"AddLayerVersionPermission",
@@ -550,7 +554,7 @@ func resolveProvisionedConcurrencyOp(method, rest, qualifier string) string {
 		return "GetProvisionedConcurrencyConfig"
 	}
 
-	return "ListProvisionedConcurrencyConfigs"
+	return opListProvisionedConcurrencyConfigs
 }
 
 // esmIAMAction returns the IAM action for an event source mapping request.

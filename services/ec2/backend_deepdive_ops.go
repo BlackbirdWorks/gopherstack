@@ -30,13 +30,13 @@ func (b *InMemoryBackend) CreateImage(instanceID, name, description string) (*AM
 		ImageID:        imageID,
 		Name:           name,
 		Description:    description,
-		Architecture:   "x86_64",
+		Architecture:   archX8664,
 		RootDeviceName: "/dev/xvda",
 	}
 	b.images[imageID] = image
 	b.imageUsageReports[imageID] = &ImageUsageReport{
 		ImageID:        imageID,
-		State:          "available",
+		State:          stateAvailable,
 		GenerationDate: time.Now().UTC().Format(time.RFC3339),
 	}
 

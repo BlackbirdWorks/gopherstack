@@ -15,6 +15,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	statusValid = "VALID"
+)
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("ClientException", awserr.ErrNotFound)
@@ -344,7 +348,7 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 		ComputeEnvironmentArn:  ceARN,
 		Type:                   ceType,
 		State:                  state,
-		Status:                 "VALID",
+		Status:                 statusValid,
 		Tags:                   tagsCopy,
 		ServiceRole:            serviceRole,
 		MinvCpus:               minvCpus,
@@ -490,7 +494,7 @@ func (b *InMemoryBackend) CreateJobQueue(
 		JobQueueName:            name,
 		JobQueueArn:             jqARN,
 		State:                   state,
-		Status:                  "VALID",
+		Status:                  statusValid,
 		Priority:                priority,
 		ComputeEnvironmentOrder: orderCopy,
 		Tags:                    tagsCopy,
@@ -1335,7 +1339,7 @@ func (b *InMemoryBackend) CreateServiceEnvironment(
 		ServiceEnvironmentArn:  seARN,
 		ServiceEnvironmentType: envType,
 		State:                  state,
-		Status:                 "VALID",
+		Status:                 statusValid,
 		Tags:                   maps.Clone(tags),
 	}
 	b.serviceEnvironments[name] = se

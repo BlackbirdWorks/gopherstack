@@ -78,10 +78,10 @@ func CalculateAttrSize(v any) int64 {
 	if b, ok := m["B"].(string); ok {
 		return base64DecodedLen(b)
 	}
-	if _, ok := m["BOOL"]; ok {
+	if _, ok := m[typeBOOL]; ok {
 		return 1
 	}
-	if _, ok := m["NULL"]; ok {
+	if _, ok := m[typeNULL]; ok {
 		return 1
 	}
 	if total, ok := calcSSSize(m["SS"]); ok {
@@ -444,7 +444,7 @@ func validateScalarValue(k, t string, val any) error {
 				fmt.Sprintf("Attribute %s of type N must be a valid number", k),
 			)
 		}
-	case "BOOL":
+	case typeBOOL:
 		if _, ok := val.(bool); !ok {
 			return NewValidationException(
 				fmt.Sprintf("Attribute %s of type BOOL must be a boolean", k),

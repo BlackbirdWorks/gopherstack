@@ -19,6 +19,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
+const (
+	stateActive = "ACTIVE"
+)
+
 var (
 	ErrEventBusNotFound       = errors.New("ResourceNotFoundException")
 	ErrEventBusAlreadyExists  = errors.New("ResourceAlreadyExistsException")
@@ -163,7 +167,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		svcCtx = context.Background()
 	}
 
-	ctx, cancel := context.WithCancel(svcCtx) //nolint:gosec // cancel is retained on backend for shutdown cleanup
+	ctx, cancel := context.WithCancel(svcCtx)
 	b := &InMemoryBackend{
 		accountID:       accountID,
 		region:          region,
@@ -904,7 +908,7 @@ func (b *InMemoryBackend) ActivateEventSource(name string) error {
 		return fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
 	}
 
-	src.State = "ACTIVE"
+	src.State = stateActive
 
 	return nil
 }
@@ -1018,7 +1022,7 @@ func (b *InMemoryBackend) CreateAPIDestination(input CreateAPIDestinationInput) 
 	now := time.Now()
 	dst := &APIDestination{
 		APIDestinationArn:            b.apiDestinationARN(input.Name),
-		APIDestinationState:          "ACTIVE",
+		APIDestinationState:          stateActive,
 		ConnectionArn:                input.ConnectionArn,
 		CreationTime:                 now,
 		Description:                  input.Description,
@@ -1153,7 +1157,7 @@ func (b *InMemoryBackend) CreateEndpoint(input CreateEndpointInput) (*Endpoint, 
 		ReplicationConfig: input.ReplicationConfig,
 		RoleArn:           input.RoleArn,
 		RoutingConfig:     input.RoutingConfig,
-		State:             "ACTIVE",
+		State:             stateActive,
 	}
 	b.endpoints[input.Name] = ep
 

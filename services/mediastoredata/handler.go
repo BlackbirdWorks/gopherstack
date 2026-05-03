@@ -14,6 +14,10 @@ import (
 )
 
 const (
+	itemTypeObject = "OBJECT"
+)
+
+const (
 	// msdMatchPriority must be higher than S3 (0) to intercept mediastoredata SDK requests.
 	msdMatchPriority = 87
 	// userAgentMarker is the AWS SDK marker present in User-Agent for MediaStore Data requests.
@@ -211,7 +215,7 @@ func (h *Handler) handleListItems(c *echo.Context) error {
 			Type: item.Type,
 		}
 
-		if item.Type == "OBJECT" {
+		if item.Type == itemTypeObject {
 			ts := float64(item.LastModified.Unix())
 			entry.LastModified = &ts
 			entry.ContentLength = &item.ContentLength

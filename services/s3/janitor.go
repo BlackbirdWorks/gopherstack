@@ -176,7 +176,7 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 func (j *Janitor) Run(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Load(ctx).Error("S3 janitor: panic recovered, loop exiting",
+			logger.Load(ctx).ErrorContext(ctx, "S3 janitor: panic recovered, loop exiting",
 				"panic", fmt.Sprintf("%v", r))
 		}
 	}()
@@ -261,7 +261,7 @@ func (j *Janitor) sweepAndDrain(ctx context.Context) {
 				// from processBucket. Cleanup (semaphore release) runs after recovery.
 				defer func() {
 					if r := recover(); r != nil {
-						logger.Load(ctx).Error("S3 janitor: panic in drain goroutine",
+						logger.Load(ctx).ErrorContext(ctx, "S3 janitor: panic in drain goroutine",
 							"bucket", n, "panic", fmt.Sprintf("%v", r))
 					}
 				}()

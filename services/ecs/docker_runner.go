@@ -186,7 +186,7 @@ func buildPortMappings(mappings []PortMapping) (dockernetwork.PortMap, dockernet
 	for _, pm := range mappings {
 		proto := pm.Protocol
 		if proto == "" {
-			proto = "tcp"
+			proto = transportTCP
 		}
 
 		containerPort, err := dockernetwork.ParsePort(fmt.Sprintf("%d/%s", pm.ContainerPort, proto))

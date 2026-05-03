@@ -674,7 +674,7 @@ func defaultMacAlgorithms(keySpec string) []string {
 // keyAgreementAlgorithms returns the key agreement algorithms supported by a key usage.
 func keyAgreementAlgorithms(keyUsage string) []string {
 	if keyUsage == KeyUsageKeyAgreement {
-		return []string{"ECDH"}
+		return []string{algoECDH}
 	}
 
 	return nil

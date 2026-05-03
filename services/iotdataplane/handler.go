@@ -27,6 +27,10 @@ const (
 	retainedMessagePath = "/retainedMessage"
 	// retainedMessagePathSlash is the prefix used to match individual topic paths.
 	retainedMessagePathSlash = retainedMessagePath + "/"
+
+	keyError            = "error"
+	keyMessage          = "message"
+	errMethodNotAllowed = "method not allowed"
 )
 
 // Handler is the Echo HTTP handler for IoT Data Plane operations.
@@ -159,21 +163,21 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrShadowNotFound), errors.Is(err, ErrRetainedMessageNotFound):
 		return c.JSON(http.StatusNotFound, map[string]string{
-			"error":   "ResourceNotFoundException",
-			"message": err.Error(),
+			keyError:   "ResourceNotFoundException",
+			keyMessage: err.Error(),
 		})
 	case errors.Is(err, ErrVersionConflict):
 		return c.JSON(http.StatusConflict, map[string]string{
-			"error":   "VersionConflictException",
-			"message": err.Error(),
+			keyError:   "VersionConflictException",
+			keyMessage: err.Error(),
 		})
 	case errors.Is(err, ErrValidation):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error":   "InvalidRequestException",
-			"message": err.Error(),
+			keyError:   "InvalidRequestException",
+			keyMessage: err.Error(),
 		})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 }
 
@@ -195,7 +199,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
 			return h.handleShadow(c)
 		default:
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "not found"})
+			return c.JSON(http.StatusNotFound, map[string]string{keyError: "not found"})
 		}
 	}
 }
@@ -239,12 +243,12 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
 
 	if c.Request().Method != http.MethodPost {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
 	}
 
 	topic := strings.TrimPrefix(c.Request().URL.Path, "/topics/")
 	if topic == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "topic is required"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "topic is required"})
 	}
 
 	qos, qosErr := parsePublishQoS(c.Request().URL.Query().Get("qos"))
@@ -257,7 +261,7 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{keyError: "request body too large"})
 	}
 
 	payload := unwrapPublishPayload(body)
@@ -269,7 +273,7 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		} else {
 			log.Error("iot data plane publish failed", "topic", topic, "error", publishErr)
 
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": publishErr.Error()})
+			return c.JSON(http.StatusInternalServerError, map[string]string{keyError: publishErr.Error()})
 		}
 	}
 
@@ -298,12 +302,12 @@ func (h *Handler) handleRetain(c *echo.Context, topic string, payload []byte, qo
 // Query params: cleanSession (bool), preventWillMessage (bool) – accepted but not enforced.
 func (h *Handler) handleDeleteConnection(c *echo.Context) error {
 	if c.Request().Method != http.MethodDelete {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
 	}
 
 	clientID := strings.TrimPrefix(c.Request().URL.Path, "/connections/")
 	if clientID == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "clientId is required"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "clientId is required"})
 	}
 
 	if err := h.Backend.DeleteConnection(clientID); err != nil {
@@ -316,12 +320,12 @@ func (h *Handler) handleDeleteConnection(c *echo.Context) error {
 // handleGetRetainedMessage processes GET /retainedMessage/{topic} requests.
 func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
 	}
 
 	topic := strings.TrimPrefix(c.Request().URL.Path, retainedMessagePathSlash)
 	if topic == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "topic is required"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "topic is required"})
 	}
 
 	msg, err := h.Backend.GetRetainedMessage(topic)
@@ -343,12 +347,12 @@ func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 // Query params: nextToken (string), maxResults (int).
 func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
 	}
 
 	msgs, err := h.Backend.ListRetainedMessages()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	// Apply simple nextToken pagination using the topic as the cursor.
@@ -404,7 +408,7 @@ func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 func (h *Handler) handleShadow(c *echo.Context) error {
 	thingName := parseShadowPath(c.Request().URL.Path)
 	if thingName == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "thingName is required"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "thingName is required"})
 	}
 
 	// Named shadow support via ?name= query parameter.
@@ -418,7 +422,7 @@ func (h *Handler) handleShadow(c *echo.Context) error {
 	case http.MethodDelete:
 		return h.handleDeleteThingShadow(c, thingName, shadowName)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
 	}
 }
 
@@ -438,7 +442,7 @@ func (h *Handler) handleUpdateThingShadow(c *echo.Context, thingName, shadowName
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{keyError: "request body too large"})
 	}
 
 	updated, updateErr := h.Backend.UpdateThingShadow(thingName, shadowName, body)
@@ -464,17 +468,17 @@ func (h *Handler) handleDeleteThingShadow(c *echo.Context, thingName, shadowName
 // Response includes results, nextToken (pagination), and timestamp (AWS SDK compat).
 func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
 	}
 
 	thingName := strings.TrimPrefix(c.Request().URL.Path, "/api/things/shadow/ListNamedShadowsForThing/")
 	if thingName == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "thingName is required"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "thingName is required"})
 	}
 
 	names, err := h.Backend.ListNamedShadowsForThing(thingName)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
 
 	// Apply simple nextToken pagination using the shadow name as cursor.

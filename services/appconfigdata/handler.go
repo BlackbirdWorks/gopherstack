@@ -15,6 +15,10 @@ import (
 )
 
 const (
+	keyMessageField = "message"
+)
+
+const (
 	appConfigDataMatchPriority   = 86
 	configurationsessionsPath    = "/configurationsessions"
 	configurationPath            = "/configuration"
@@ -116,7 +120,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		default:
 			log.Warn("appconfigdata: unmatched request", "path", path, "method", c.Request().Method)
 
-			return c.JSON(http.StatusNotFound, map[string]string{"message": "not found"})
+			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
 		}
 	}
 }
@@ -128,12 +132,12 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
 		log.Error("appconfigdata: failed to decode StartConfigurationSession request", "error", err)
 
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: "invalid request body"})
 	}
 
 	if req.ApplicationIdentifier == "" || req.EnvironmentIdentifier == "" || req.ConfigurationProfileIdentifier == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"message": "ApplicationIdentifier, EnvironmentIdentifier, and ConfigurationProfileIdentifier are required",
+			keyMessageField: "ApplicationIdentifier, EnvironmentIdentifier, and ConfigurationProfileIdentifier are required",
 		})
 	}
 
@@ -145,7 +149,7 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 	if err != nil {
 		log.Error("appconfigdata: StartConfigurationSession failed", "error", err)
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusCreated, startSessionResponse{InitialConfigurationToken: token})
@@ -155,7 +159,7 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 	log := logger.Load(c.Request().Context())
 
 	if token == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "configuration token is required"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: "configuration token is required"})
 	}
 
 	content, contentType, nextToken, err := h.Backend.GetLatestConfiguration(token)
@@ -168,10 +172,10 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 		log.Error("appconfigdata: GetLatestConfiguration failed", "token_prefix", redacted, "error", err)
 
 		if errors.Is(err, ErrSessionNotFound) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	c.Response().Header().Set(nextPollTokenHeader, nextToken)

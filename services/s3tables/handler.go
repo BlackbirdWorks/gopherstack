@@ -18,6 +18,21 @@ import (
 )
 
 const (
+	keyArn              = "arn"
+	keyName             = "name"
+	keyOwnerAccountID   = "ownerAccountId"
+	keyCreatedAt        = "createdAt"
+	keyTableBucketARN   = "tableBucketARN"
+	keyConfiguration    = "configuration"
+	keyTableARN         = "tableARN"
+	keyStatusField      = "status"
+	keyVersionToken     = "versionToken"
+	keyMetadataLocation = "metadataLocation"
+	keyNamespace        = "namespace"
+	keyCreatedBy        = "createdBy"
+)
+
+const (
 	s3tablesService         = "s3tables"
 	s3tablesMatchPriority   = service.PriorityPathVersioned
 	segMaintenance          = "maintenance"
@@ -142,7 +157,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	switch segs[0] {
 	case "table-bucket-replication", "table-replication", "table-record-expiration":
 		q := c.Request().URL.Query()
-		if arn := q.Get("tableBucketARN"); arn != "" {
+		if arn := q.Get(keyTableBucketARN); arn != "" {
 			return arn
 		}
 
@@ -425,10 +440,10 @@ func (h *Handler) handleCreateTableBucket(ctx context.Context, _ *http.Request, 
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: created table bucket", "name", tb.Name, "arn", tb.ARN)
+	log.InfoContext(ctx, "s3tables: created table bucket", keyName, tb.Name, keyArn, tb.ARN)
 
 	return json.Marshal(map[string]string{
-		"arn": tb.ARN,
+		keyArn: tb.ARN,
 	})
 }
 
@@ -446,13 +461,13 @@ func (h *Handler) handleGetTableBucket(ctx context.Context, r *http.Request, _ [
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table bucket", "arn", tb.ARN)
+	log.InfoContext(ctx, "s3tables: got table bucket", keyArn, tb.ARN)
 
 	return json.Marshal(map[string]any{
-		"arn":            tb.ARN,
-		"name":           tb.Name,
-		"ownerAccountId": tb.OwnerAccountID,
-		"createdAt":      tb.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+		keyArn:            tb.ARN,
+		keyName:           tb.Name,
+		keyOwnerAccountID: tb.OwnerAccountID,
+		keyCreatedAt:      tb.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
 	})
 }
 
@@ -469,7 +484,7 @@ func (h *Handler) handleDeleteTableBucket(ctx context.Context, r *http.Request, 
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: deleted table bucket", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: deleted table bucket", keyArn, bucketARN)
 
 	return nil, nil
 }
@@ -482,10 +497,10 @@ func (h *Handler) handleListTableBuckets(ctx context.Context, r *http.Request, _
 
 	for _, tb := range list {
 		summaries = append(summaries, map[string]any{
-			"arn":            tb.ARN,
-			"name":           tb.Name,
-			"ownerAccountId": tb.OwnerAccountID,
-			"createdAt":      tb.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+			keyArn:            tb.ARN,
+			keyName:           tb.Name,
+			keyOwnerAccountID: tb.OwnerAccountID,
+			keyCreatedAt:      tb.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
 		})
 	}
 
@@ -521,11 +536,11 @@ func (h *Handler) handleGetTableBucketMaintenanceConfiguration(
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table bucket maintenance configuration", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: got table bucket maintenance configuration", keyArn, bucketARN)
 
 	return json.Marshal(map[string]any{
-		"tableBucketARN": bucketARN,
-		"configuration":  cfg,
+		keyTableBucketARN: bucketARN,
+		keyConfiguration:  cfg,
 	})
 }
 
@@ -560,7 +575,7 @@ func (h *Handler) handlePutTableBucketMaintenanceConfiguration(
 	log.InfoContext(
 		ctx,
 		"s3tables: put table bucket maintenance configuration",
-		"arn",
+		keyArn,
 		bucketARN,
 		"type",
 		maintenanceType,
@@ -586,7 +601,7 @@ func (h *Handler) handleGetTableBucketEncryption(ctx context.Context, r *http.Re
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table bucket encryption", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: got table bucket encryption", keyArn, bucketARN)
 
 	return nil, awserr.ErrNotFound
 }
@@ -604,7 +619,7 @@ func (h *Handler) handleDeleteTableBucketEncryption(ctx context.Context, r *http
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: deleted table bucket encryption", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: deleted table bucket encryption", keyArn, bucketARN)
 
 	return nil, nil
 }
@@ -626,11 +641,11 @@ func (h *Handler) handleGetTableBucketMetricsConfiguration(
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table bucket metrics configuration", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: got table bucket metrics configuration", keyArn, bucketARN)
 
 	return json.Marshal(map[string]any{
-		"tableBucketARN": bucketARN,
-		"configuration":  map[string]any{},
+		keyTableBucketARN: bucketARN,
+		keyConfiguration:  map[string]any{},
 	})
 }
 
@@ -651,7 +666,7 @@ func (h *Handler) handleDeleteTableBucketMetricsConfiguration(
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: deleted table bucket metrics configuration", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: deleted table bucket metrics configuration", keyArn, bucketARN)
 
 	return nil, nil
 }
@@ -669,11 +684,11 @@ func (h *Handler) handleGetTableBucketStorageClass(ctx context.Context, r *http.
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table bucket storage class", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: got table bucket storage class", keyArn, bucketARN)
 
 	return json.Marshal(map[string]any{
-		"tableBucketARN": bucketARN,
-		"storageClass":   "STANDARD",
+		keyTableBucketARN: bucketARN,
+		"storageClass":    "STANDARD",
 	})
 }
 
@@ -713,7 +728,7 @@ func (h *Handler) routeTableRecordExpiration(method string, r *http.Request) (st
 }
 
 func (h *Handler) handleGetTableBucketReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
-	bucketARN := r.URL.Query().Get("tableBucketARN")
+	bucketARN := r.URL.Query().Get(keyTableBucketARN)
 	if bucketARN == "" {
 		return nil, fmt.Errorf("%w: tableBucketARN is required", errInvalidRequest)
 	}
@@ -724,16 +739,16 @@ func (h *Handler) handleGetTableBucketReplication(ctx context.Context, r *http.R
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table bucket replication", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: got table bucket replication", keyArn, bucketARN)
 
 	return json.Marshal(map[string]any{
-		"tableBucketARN": bucketARN,
-		"destinations":   cfg.Destinations,
+		keyTableBucketARN: bucketARN,
+		"destinations":    cfg.Destinations,
 	})
 }
 
 func (h *Handler) handleDeleteTableBucketReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
-	bucketARN := r.URL.Query().Get("tableBucketARN")
+	bucketARN := r.URL.Query().Get(keyTableBucketARN)
 	if bucketARN == "" {
 		return nil, fmt.Errorf("%w: tableBucketARN is required", errInvalidRequest)
 	}
@@ -743,7 +758,7 @@ func (h *Handler) handleDeleteTableBucketReplication(ctx context.Context, r *htt
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: deleted table bucket replication", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: deleted table bucket replication", keyArn, bucketARN)
 
 	return nil, nil
 }
@@ -784,11 +799,11 @@ func (h *Handler) handleGetTableMaintenanceJobStatus(
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table maintenance job status", "name", name)
+	log.InfoContext(ctx, "s3tables: got table maintenance job status", keyName, name)
 
 	return json.Marshal(map[string]any{
-		"tableARN": table.ARN,
-		"status":   map[string]any{},
+		keyTableARN:    table.ARN,
+		keyStatusField: map[string]any{},
 	})
 }
 
@@ -808,12 +823,12 @@ func (h *Handler) handleGetTableMetadataLocation(ctx context.Context, r *http.Re
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table metadata location", "name", name)
+	log.InfoContext(ctx, "s3tables: got table metadata location", keyName, name)
 
 	return json.Marshal(map[string]any{
-		"versionToken":      table.VersionToken,
+		keyVersionToken:     table.VersionToken,
 		"warehouseLocation": table.WarehouseLocation,
-		"metadataLocation":  table.MetadataLocation,
+		keyMetadataLocation: table.MetadataLocation,
 	})
 }
 
@@ -836,8 +851,8 @@ func (h *Handler) handleGetTableRecordExpirationConfiguration(
 	log.InfoContext(ctx, "s3tables: got table record expiration configuration", "tableArn", tableArn)
 
 	return json.Marshal(map[string]any{
-		"tableArn": tableArn,
-		"status":   cfg.Status,
+		"tableArn":     tableArn,
+		keyStatusField: cfg.Status,
 	})
 }
 
@@ -856,7 +871,7 @@ func (h *Handler) handleGetTableEncryption(ctx context.Context, r *http.Request,
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table encryption", "name", name)
+	log.InfoContext(ctx, "s3tables: got table encryption", keyName, name)
 
 	return json.Marshal(map[string]any{
 		"encryptionConfiguration": map[string]string{
@@ -881,7 +896,7 @@ func (h *Handler) handleGetTableBucketPolicy(ctx context.Context, r *http.Reques
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table bucket policy", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: got table bucket policy", keyArn, bucketARN)
 
 	return json.Marshal(map[string]string{
 		"resourcePolicy": policy,
@@ -911,7 +926,7 @@ func (h *Handler) handlePutTableBucketPolicy(ctx context.Context, r *http.Reques
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: put table bucket policy", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: put table bucket policy", keyArn, bucketARN)
 
 	return nil, nil
 }
@@ -929,7 +944,7 @@ func (h *Handler) handleDeleteTableBucketPolicy(ctx context.Context, r *http.Req
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: deleted table bucket policy", "arn", bucketARN)
+	log.InfoContext(ctx, "s3tables: deleted table bucket policy", keyArn, bucketARN)
 
 	return nil, nil
 }
@@ -964,11 +979,11 @@ func (h *Handler) handleCreateNamespace(ctx context.Context, r *http.Request, bo
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: created namespace", "namespace", joinNamespace(ns.Namespace), "bucket", bucketARN)
+	log.InfoContext(ctx, "s3tables: created namespace", keyNamespace, joinNamespace(ns.Namespace), "bucket", bucketARN)
 
 	return json.Marshal(map[string]any{
-		"namespace":      ns.Namespace,
-		"tableBucketARN": ns.TableBucketARN,
+		keyNamespace:      ns.Namespace,
+		keyTableBucketARN: ns.TableBucketARN,
 	})
 }
 
@@ -987,13 +1002,13 @@ func (h *Handler) handleGetNamespace(ctx context.Context, r *http.Request, _ []b
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got namespace", "namespace", nsName, "bucket", bucketARN)
+	log.InfoContext(ctx, "s3tables: got namespace", keyNamespace, nsName, "bucket", bucketARN)
 
 	return json.Marshal(map[string]any{
-		"namespace":      ns.Namespace,
-		"createdAt":      ns.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
-		"createdBy":      ns.CreatedBy,
-		"ownerAccountId": ns.OwnerAccountID,
+		keyNamespace:      ns.Namespace,
+		keyCreatedAt:      ns.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+		keyCreatedBy:      ns.CreatedBy,
+		keyOwnerAccountID: ns.OwnerAccountID,
 	})
 }
 
@@ -1011,7 +1026,7 @@ func (h *Handler) handleDeleteNamespace(ctx context.Context, r *http.Request, _ 
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: deleted namespace", "namespace", nsName, "bucket", bucketARN)
+	log.InfoContext(ctx, "s3tables: deleted namespace", keyNamespace, nsName, "bucket", bucketARN)
 
 	return nil, nil
 }
@@ -1033,10 +1048,10 @@ func (h *Handler) handleListNamespaces(ctx context.Context, r *http.Request, _ [
 
 	for _, ns := range list {
 		summaries = append(summaries, map[string]any{
-			"namespace":      ns.Namespace,
-			"createdAt":      ns.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
-			"createdBy":      ns.CreatedBy,
-			"ownerAccountId": ns.OwnerAccountID,
+			keyNamespace:      ns.Namespace,
+			keyCreatedAt:      ns.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+			keyCreatedBy:      ns.CreatedBy,
+			keyOwnerAccountID: ns.OwnerAccountID,
 		})
 	}
 
@@ -1084,19 +1099,19 @@ func (h *Handler) handleCreateTable(ctx context.Context, r *http.Request, body [
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: created table", "name", table.Name, "arn", table.ARN)
+	log.InfoContext(ctx, "s3tables: created table", keyName, table.Name, keyArn, table.ARN)
 
 	return json.Marshal(map[string]string{
-		"tableARN":     table.ARN,
-		"versionToken": table.VersionToken,
+		keyTableARN:     table.ARN,
+		keyVersionToken: table.VersionToken,
 	})
 }
 
 func (h *Handler) handleGetTable(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	q := r.URL.Query()
-	bucketARN := q.Get("tableBucketARN")
-	nsName := q.Get("namespace")
-	name := q.Get("name")
+	bucketARN := q.Get(keyTableBucketARN)
+	nsName := q.Get(keyNamespace)
+	name := q.Get(keyName)
 
 	if bucketARN == "" || nsName == "" || name == "" {
 		return nil, fmt.Errorf("%w: tableBucketARN, namespace and name are required", errInvalidRequest)
@@ -1108,23 +1123,23 @@ func (h *Handler) handleGetTable(ctx context.Context, r *http.Request, _ []byte)
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table", "name", table.Name, "arn", table.ARN)
+	log.InfoContext(ctx, "s3tables: got table", keyName, table.Name, keyArn, table.ARN)
 
 	return json.Marshal(map[string]any{
-		"name":              table.Name,
-		"namespace":         table.Namespace,
-		"tableARN":          table.ARN,
-		"tableBucketARN":    table.TableBucketARN,
+		keyName:             table.Name,
+		keyNamespace:        table.Namespace,
+		keyTableARN:         table.ARN,
+		keyTableBucketARN:   table.TableBucketARN,
 		"format":            table.Format,
 		"type":              "customer",
-		"versionToken":      table.VersionToken,
-		"metadataLocation":  table.MetadataLocation,
+		keyVersionToken:     table.VersionToken,
+		keyMetadataLocation: table.MetadataLocation,
 		"warehouseLocation": table.WarehouseLocation,
-		"createdAt":         table.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+		keyCreatedAt:        table.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
 		"modifiedAt":        table.ModifiedAt.Format("2006-01-02T15:04:05.999Z"),
-		"createdBy":         table.OwnerAccountID,
+		keyCreatedBy:        table.OwnerAccountID,
 		"modifiedBy":        table.OwnerAccountID,
-		"ownerAccountId":    table.OwnerAccountID,
+		keyOwnerAccountID:   table.OwnerAccountID,
 	})
 }
 
@@ -1143,7 +1158,7 @@ func (h *Handler) handleDeleteTable(ctx context.Context, r *http.Request, _ []by
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: deleted table", "name", name, "bucket", bucketARN)
+	log.InfoContext(ctx, "s3tables: deleted table", keyName, name, "bucket", bucketARN)
 
 	return nil, nil
 }
@@ -1155,7 +1170,7 @@ func (h *Handler) handleListTables(ctx context.Context, r *http.Request, _ []byt
 	}
 
 	bucketARN := segs[1]
-	namespace := r.URL.Query().Get("namespace")
+	namespace := r.URL.Query().Get(keyNamespace)
 
 	list, err := h.Backend.ListTables(bucketARN, namespace)
 	if err != nil {
@@ -1166,13 +1181,13 @@ func (h *Handler) handleListTables(ctx context.Context, r *http.Request, _ []byt
 
 	for _, t := range list {
 		summaries = append(summaries, map[string]any{
-			"name":           t.Name,
-			"namespace":      t.Namespace,
-			"tableARN":       t.ARN,
-			"tableBucketARN": t.TableBucketARN,
-			"type":           "customer",
-			"createdAt":      t.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
-			"modifiedAt":     t.ModifiedAt.Format("2006-01-02T15:04:05.999Z"),
+			keyName:           t.Name,
+			keyNamespace:      t.Namespace,
+			keyTableARN:       t.ARN,
+			keyTableBucketARN: t.TableBucketARN,
+			"type":            "customer",
+			keyCreatedAt:      t.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+			"modifiedAt":      t.ModifiedAt.Format("2006-01-02T15:04:05.999Z"),
 		})
 	}
 
@@ -1259,15 +1274,15 @@ func (h *Handler) handleUpdateTableMetadataLocation(ctx context.Context, r *http
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: updated table metadata location", "name", name)
+	log.InfoContext(ctx, "s3tables: updated table metadata location", keyName, name)
 
 	return json.Marshal(map[string]any{
-		"name":             table.Name,
-		"tableARN":         table.ARN,
-		"tableBucketARN":   table.TableBucketARN,
-		"namespace":        table.Namespace,
-		"versionToken":     table.VersionToken,
-		"metadataLocation": table.MetadataLocation,
+		keyName:             table.Name,
+		keyTableARN:         table.ARN,
+		keyTableBucketARN:   table.TableBucketARN,
+		keyNamespace:        table.Namespace,
+		keyVersionToken:     table.VersionToken,
+		keyMetadataLocation: table.MetadataLocation,
 	})
 }
 
@@ -1295,11 +1310,11 @@ func (h *Handler) handleGetTableMaintenanceConfiguration(
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table maintenance configuration", "name", name)
+	log.InfoContext(ctx, "s3tables: got table maintenance configuration", keyName, name)
 
 	return json.Marshal(map[string]any{
-		"tableARN":      tableARN,
-		"configuration": cfg,
+		keyTableARN:      tableARN,
+		keyConfiguration: cfg,
 	})
 }
 
@@ -1339,7 +1354,7 @@ func (h *Handler) handlePutTableMaintenanceConfiguration(
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: put table maintenance configuration", "name", name, "type", maintenanceType)
+	log.InfoContext(ctx, "s3tables: put table maintenance configuration", keyName, name, "type", maintenanceType)
 
 	return nil, nil
 }
@@ -1360,7 +1375,7 @@ func (h *Handler) handleGetTablePolicy(ctx context.Context, r *http.Request, _ [
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: got table policy", "name", name)
+	log.InfoContext(ctx, "s3tables: got table policy", keyName, name)
 
 	return json.Marshal(map[string]string{
 		"resourcePolicy": policy,
@@ -1392,7 +1407,7 @@ func (h *Handler) handlePutTablePolicy(ctx context.Context, r *http.Request, bod
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: put table policy", "name", name)
+	log.InfoContext(ctx, "s3tables: put table policy", keyName, name)
 
 	return nil, nil
 }
@@ -1412,7 +1427,7 @@ func (h *Handler) handleDeleteTablePolicy(ctx context.Context, r *http.Request, 
 	}
 
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3tables: deleted table policy", "name", name)
+	log.InfoContext(ctx, "s3tables: deleted table policy", keyName, name)
 
 	return nil, nil
 }

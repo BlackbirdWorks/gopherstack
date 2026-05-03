@@ -16,6 +16,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+const (
+	opAssociateResourceTypes              = "AssociateResourceTypes"
+	opBatchGetAggregateResourceConfig     = "BatchGetAggregateResourceConfig"
+	opDeleteConfigRule                    = "DeleteConfigRule"
+	opDeleteConfigurationAggregator       = "DeleteConfigurationAggregator"
+	opDeleteConfigurationRecorder         = "DeleteConfigurationRecorder"
+	opDeleteConformancePack               = "DeleteConformancePack"
+	opDeleteDeliveryChannel               = "DeleteDeliveryChannel"
+	opDeleteEvaluationResults             = "DeleteEvaluationResults"
+	opDeleteOrganizationConfigRule        = "DeleteOrganizationConfigRule"
+	opDeleteOrganizationConformancePack   = "DeleteOrganizationConformancePack"
+	opDescribeConfigRules                 = "DescribeConfigRules"
+	opDescribeConfigurationRecorderStatus = "DescribeConfigurationRecorderStatus"
+	opDescribeConfigurationRecorders      = "DescribeConfigurationRecorders"
+	opDescribeDeliveryChannels            = "DescribeDeliveryChannels"
+	opGetComplianceDetailsByConfigRule    = "GetComplianceDetailsByConfigRule"
+	opPutConfigurationRecorder            = "PutConfigurationRecorder"
+	opPutDeliveryChannel                  = "PutDeliveryChannel"
+	opStartConfigurationRecorder          = "StartConfigurationRecorder"
+	opStopConfigurationRecorder           = "StopConfigurationRecorder"
+)
+
 const awsConfigTargetPrefix = "StarlingDoveService."
 
 var errUnknownAction = errors.New("unknown action")
@@ -44,27 +66,27 @@ func (h *Handler) Name() string { return "AWSConfig" }
 // GetSupportedOperations returns the list of supported AWS Config operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"PutConfigurationRecorder",
-		"DescribeConfigurationRecorders",
-		"DescribeConfigurationRecorderStatus",
-		"StartConfigurationRecorder",
-		"StopConfigurationRecorder",
-		"DeleteConfigurationRecorder",
-		"PutDeliveryChannel",
-		"DescribeDeliveryChannels",
-		"DeleteDeliveryChannel",
-		"DescribeConfigRules",
-		"GetComplianceDetailsByConfigRule",
-		"AssociateResourceTypes",
-		"BatchGetAggregateResourceConfig",
+		opPutConfigurationRecorder,
+		opDescribeConfigurationRecorders,
+		opDescribeConfigurationRecorderStatus,
+		opStartConfigurationRecorder,
+		opStopConfigurationRecorder,
+		opDeleteConfigurationRecorder,
+		opPutDeliveryChannel,
+		opDescribeDeliveryChannels,
+		opDeleteDeliveryChannel,
+		opDescribeConfigRules,
+		opGetComplianceDetailsByConfigRule,
+		opAssociateResourceTypes,
+		opBatchGetAggregateResourceConfig,
 		"BatchGetResourceConfig",
 		"DeleteAggregationAuthorization",
-		"DeleteConfigRule",
-		"DeleteConfigurationAggregator",
-		"DeleteConformancePack",
-		"DeleteEvaluationResults",
-		"DeleteOrganizationConfigRule",
-		"DeleteOrganizationConformancePack",
+		opDeleteConfigRule,
+		opDeleteConfigurationAggregator,
+		opDeleteConformancePack,
+		opDeleteEvaluationResults,
+		opDeleteOrganizationConfigRule,
+		opDeleteOrganizationConformancePack,
 	}
 }
 
@@ -106,27 +128,27 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	switch h.ExtractOperation(c) {
-	case "PutConfigurationRecorder":
+	case opPutConfigurationRecorder:
 		return extractConfigRecorderName(body)
-	case "StartConfigurationRecorder", "StopConfigurationRecorder", "DeleteConfigurationRecorder":
+	case opStartConfigurationRecorder, opStopConfigurationRecorder, opDeleteConfigurationRecorder:
 		return extractTopLevelRecorderName(body)
-	case "DescribeConfigurationRecorders", "DescribeConfigurationRecorderStatus":
+	case opDescribeConfigurationRecorders, opDescribeConfigurationRecorderStatus:
 		return extractFirstRecorderName(body)
-	case "PutDeliveryChannel":
+	case opPutDeliveryChannel:
 		return extractDeliveryChannelName(body)
-	case "DescribeDeliveryChannels", "DeleteDeliveryChannel":
+	case opDescribeDeliveryChannels, opDeleteDeliveryChannel:
 		return extractFirstDeliveryChannelName(body)
-	case "DeleteConfigRule", "DescribeConfigRules", "GetComplianceDetailsByConfigRule", "DeleteEvaluationResults":
+	case opDeleteConfigRule, opDescribeConfigRules, opGetComplianceDetailsByConfigRule, opDeleteEvaluationResults:
 		return extractNamedField(body, "ConfigRuleName")
-	case "DeleteConfigurationAggregator", "BatchGetAggregateResourceConfig":
+	case opDeleteConfigurationAggregator, opBatchGetAggregateResourceConfig:
 		return extractNamedField(body, "ConfigurationAggregatorName")
-	case "DeleteConformancePack":
+	case opDeleteConformancePack:
 		return extractNamedField(body, "ConformancePackName")
-	case "DeleteOrganizationConfigRule":
+	case opDeleteOrganizationConfigRule:
 		return extractNamedField(body, "OrganizationConfigRuleName")
-	case "DeleteOrganizationConformancePack":
+	case opDeleteOrganizationConformancePack:
 		return extractNamedField(body, "OrganizationConformancePackName")
-	case "AssociateResourceTypes":
+	case opAssociateResourceTypes:
 		return extractNamedField(body, "ConfigurationRecorderArn")
 	default:
 		return extractTopLevelRecorderName(body)
@@ -241,27 +263,27 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildDispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"PutConfigurationRecorder":            service.WrapOp(h.handlePutConfigurationRecorder),
-		"DescribeConfigurationRecorders":      service.WrapOp(h.handleDescribeConfigurationRecorders),
-		"DescribeConfigurationRecorderStatus": service.WrapOp(h.handleDescribeConfigurationRecorderStatus),
-		"StartConfigurationRecorder":          service.WrapOp(h.handleStartConfigurationRecorder),
-		"StopConfigurationRecorder":           service.WrapOp(h.handleStopConfigurationRecorder),
-		"DeleteConfigurationRecorder":         service.WrapOp(h.handleDeleteConfigurationRecorder),
-		"PutDeliveryChannel":                  service.WrapOp(h.handlePutDeliveryChannel),
-		"DescribeDeliveryChannels":            service.WrapOp(h.handleDescribeDeliveryChannels),
-		"DeleteDeliveryChannel":               service.WrapOp(h.handleDeleteDeliveryChannel),
-		"DescribeConfigRules":                 service.WrapOp(h.handleDescribeConfigRules),
-		"GetComplianceDetailsByConfigRule":    service.WrapOp(h.handleGetComplianceDetailsByConfigRule),
-		"AssociateResourceTypes":              service.WrapOp(h.handleAssociateResourceTypes),
-		"BatchGetAggregateResourceConfig":     service.WrapOp(h.handleBatchGetAggregateResourceConfig),
+		opPutConfigurationRecorder:            service.WrapOp(h.handlePutConfigurationRecorder),
+		opDescribeConfigurationRecorders:      service.WrapOp(h.handleDescribeConfigurationRecorders),
+		opDescribeConfigurationRecorderStatus: service.WrapOp(h.handleDescribeConfigurationRecorderStatus),
+		opStartConfigurationRecorder:          service.WrapOp(h.handleStartConfigurationRecorder),
+		opStopConfigurationRecorder:           service.WrapOp(h.handleStopConfigurationRecorder),
+		opDeleteConfigurationRecorder:         service.WrapOp(h.handleDeleteConfigurationRecorder),
+		opPutDeliveryChannel:                  service.WrapOp(h.handlePutDeliveryChannel),
+		opDescribeDeliveryChannels:            service.WrapOp(h.handleDescribeDeliveryChannels),
+		opDeleteDeliveryChannel:               service.WrapOp(h.handleDeleteDeliveryChannel),
+		opDescribeConfigRules:                 service.WrapOp(h.handleDescribeConfigRules),
+		opGetComplianceDetailsByConfigRule:    service.WrapOp(h.handleGetComplianceDetailsByConfigRule),
+		opAssociateResourceTypes:              service.WrapOp(h.handleAssociateResourceTypes),
+		opBatchGetAggregateResourceConfig:     service.WrapOp(h.handleBatchGetAggregateResourceConfig),
 		"BatchGetResourceConfig":              service.WrapOp(h.handleBatchGetResourceConfig),
 		"DeleteAggregationAuthorization":      service.WrapOp(h.handleDeleteAggregationAuthorization),
-		"DeleteConfigRule":                    service.WrapOp(h.handleDeleteConfigRule),
-		"DeleteConfigurationAggregator":       service.WrapOp(h.handleDeleteConfigurationAggregator),
-		"DeleteConformancePack":               service.WrapOp(h.handleDeleteConformancePack),
-		"DeleteEvaluationResults":             service.WrapOp(h.handleDeleteEvaluationResults),
-		"DeleteOrganizationConfigRule":        service.WrapOp(h.handleDeleteOrganizationConfigRule),
-		"DeleteOrganizationConformancePack":   service.WrapOp(h.handleDeleteOrganizationConformancePack),
+		opDeleteConfigRule:                    service.WrapOp(h.handleDeleteConfigRule),
+		opDeleteConfigurationAggregator:       service.WrapOp(h.handleDeleteConfigurationAggregator),
+		opDeleteConformancePack:               service.WrapOp(h.handleDeleteConformancePack),
+		opDeleteEvaluationResults:             service.WrapOp(h.handleDeleteEvaluationResults),
+		opDeleteOrganizationConfigRule:        service.WrapOp(h.handleDeleteOrganizationConfigRule),
+		opDeleteOrganizationConformancePack:   service.WrapOp(h.handleDeleteOrganizationConformancePack),
 	}
 }
 

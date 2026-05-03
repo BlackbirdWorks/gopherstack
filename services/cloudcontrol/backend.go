@@ -15,6 +15,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+const (
+	opStatusSuccess        = "SUCCESS"
+	opStatusCancelComplete = "CANCEL_COMPLETE"
+)
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -46,12 +51,12 @@ var validOperations = map[string]struct{}{
 //
 //nolint:gochecknoglobals // lookup set
 var validOperationStatuses = map[string]struct{}{
-	"PENDING":            {},
-	"IN_PROGRESS":        {},
-	"SUCCESS":            {},
-	"FAILED":             {},
-	"CANCEL_IN_PROGRESS": {},
-	"CANCEL_COMPLETE":    {},
+	"PENDING":              {},
+	"IN_PROGRESS":          {},
+	opStatusSuccess:        {},
+	"FAILED":               {},
+	"CANCEL_IN_PROGRESS":   {},
+	opStatusCancelComplete: {},
 }
 
 // unixEpochTime wraps [time.Time] and marshals to/from a JSON number (Unix seconds),
@@ -172,7 +177,7 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 		Identifier:      identifier,
 		RequestToken:    token,
 		Operation:       "CREATE",
-		OperationStatus: "SUCCESS",
+		OperationStatus: opStatusSuccess,
 	}
 	b.requests[token] = event
 
@@ -275,7 +280,7 @@ func (b *InMemoryBackend) DeleteResource(typeName, identifier string) (*Progress
 		Identifier:      identifier,
 		RequestToken:    token,
 		Operation:       "DELETE",
-		OperationStatus: "SUCCESS",
+		OperationStatus: opStatusSuccess,
 	}
 	b.requests[token] = event
 
@@ -307,7 +312,7 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument str
 		Identifier:      identifier,
 		RequestToken:    token,
 		Operation:       "UPDATE",
-		OperationStatus: "SUCCESS",
+		OperationStatus: opStatusSuccess,
 	}
 	b.requests[token] = event
 
@@ -350,7 +355,7 @@ func (b *InMemoryBackend) CancelResourceRequest(requestToken string) (*ProgressE
 		Identifier:      event.Identifier,
 		RequestToken:    requestToken,
 		Operation:       event.Operation,
-		OperationStatus: "CANCEL_COMPLETE",
+		OperationStatus: opStatusCancelComplete,
 	}
 	b.requests[requestToken] = cancelled
 
@@ -480,7 +485,7 @@ func (b *InMemoryBackend) AddProgressEvent(event *ProgressEvent) {
 // isTerminalStatus reports whether the given operation status is a terminal state.
 func isTerminalStatus(status string) bool {
 	switch status {
-	case "SUCCESS", "FAILED", "CANCEL_COMPLETE":
+	case opStatusSuccess, "FAILED", opStatusCancelComplete:
 		return true
 	}
 

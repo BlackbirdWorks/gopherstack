@@ -16,6 +16,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
+const (
+	errGlobalTableNotFoundType = "com.amazonaws.dynamodb.v20120810#GlobalTableNotFoundException"
+)
+
 // --- Hardcoded limits matching AWS defaults ---
 
 const (
@@ -134,7 +138,7 @@ func buildAllReplicas(regions []string) []models.ReplicaDescription {
 	for _, r := range regions {
 		all = append(all, models.ReplicaDescription{
 			RegionName:    r,
-			ReplicaStatus: "ACTIVE",
+			ReplicaStatus: statusActive,
 		})
 	}
 
@@ -178,7 +182,7 @@ func (db *InMemoryDB) buildReplicaTable(name, region string, source *Table, now 
 
 	t := &Table{
 		Name:             name,
-		Status:           "ACTIVE",
+		Status:           statusActive,
 		Items:            make([]map[string]any, 0),
 		TableID:          uuid.New().String(),
 		CreationDateTime: now,
@@ -223,7 +227,7 @@ func (db *InMemoryDB) DescribeGlobalTable(
 
 	if !exists {
 		return nil, &Error{
-			Type:    "com.amazonaws.dynamodb.v20120810#GlobalTableNotFoundException",
+			Type:    errGlobalTableNotFoundType,
 			Message: fmt.Sprintf("Global table with name %s not found", name),
 		}
 	}
@@ -266,7 +270,7 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 
 	if !exists {
 		return nil, &Error{
-			Type:    "com.amazonaws.dynamodb.v20120810#GlobalTableNotFoundException",
+			Type:    errGlobalTableNotFoundType,
 			Message: fmt.Sprintf("Global table with name %s not found", name),
 		}
 	}
@@ -545,7 +549,7 @@ func (db *InMemoryDB) UpdateGlobalTable(
 	gt, exists := db.GlobalTables[name]
 	if !exists {
 		return nil, &Error{
-			Type:    "com.amazonaws.dynamodb.v20120810#GlobalTableNotFoundException",
+			Type:    errGlobalTableNotFoundType,
 			Message: fmt.Sprintf("Global table with name %s not found", name),
 		}
 	}
@@ -692,7 +696,7 @@ func (db *InMemoryDB) buildReplicaTableLocked(name, region string, source *Table
 
 	t := &Table{
 		Name:             name,
-		Status:           "ACTIVE",
+		Status:           statusActive,
 		Items:            make([]map[string]any, 0),
 		TableID:          uuid.New().String(),
 		CreationDateTime: time.Now(),
@@ -920,7 +924,7 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 
 	if !exists {
 		return nil, &Error{
-			Type:    "com.amazonaws.dynamodb.v20120810#GlobalTableNotFoundException",
+			Type:    errGlobalTableNotFoundType,
 			Message: fmt.Sprintf("Global table with name %s not found", name),
 		}
 	}
@@ -1155,7 +1159,7 @@ func cloneTableSchema(src *Table, name, region, accountID string) *Table {
 
 	t := &Table{
 		Name:                      name,
-		Status:                    "ACTIVE",
+		Status:                    statusActive,
 		Items:                     make([]map[string]any, 0),
 		TableID:                   uuid.New().String(),
 		CreationDateTime:          time.Now(),

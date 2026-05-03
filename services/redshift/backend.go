@@ -9,6 +9,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	errClusterSnapshotNotFound = "ClusterSnapshotNotFound"
+)
+
 var (
 	ErrClusterNotFound                = errors.New("ClusterNotFound")
 	ErrClusterAlreadyExists           = errors.New("ClusterAlreadyExists")
@@ -20,7 +24,7 @@ var (
 	ErrDataShareNotFound              = errors.New("DataShareNotFound")
 	ErrSecurityGroupNotFound          = errors.New("ClusterSecurityGroupNotFound")
 	ErrSecurityGroupAlreadyExists     = errors.New("ClusterSecurityGroupAlreadyExists")
-	ErrSnapshotNotFound               = errors.New("ClusterSnapshotNotFound")
+	ErrSnapshotNotFound               = errors.New(errClusterSnapshotNotFound)
 	ErrSnapshotAlreadyExists          = errors.New("ClusterSnapshotAlreadyExists")
 	ErrEndpointAuthNotFound           = errors.New("EndpointAuthorizationNotFound")
 	ErrEndpointAuthAlreadyExists      = errors.New("EndpointAuthorizationAlreadyExists")
@@ -760,7 +764,7 @@ func (b *InMemoryBackend) BatchDeleteClusterSnapshots(identifiers []string) ([]S
 		if _, exists := b.snapshots[id]; !exists {
 			batchErrors = append(batchErrors, SnapshotBatchError{
 				SnapshotIdentifier: id,
-				FailureCode:        "ClusterSnapshotNotFound",
+				FailureCode:        errClusterSnapshotNotFound,
 				FailureReason:      fmt.Sprintf("snapshot %s not found", id),
 			})
 
@@ -794,7 +798,7 @@ func (b *InMemoryBackend) BatchModifyClusterSnapshots(
 		if !exists {
 			batchErrors = append(batchErrors, SnapshotBatchError{
 				SnapshotIdentifier: id,
-				FailureCode:        "ClusterSnapshotNotFound",
+				FailureCode:        errClusterSnapshotNotFound,
 				FailureReason:      fmt.Sprintf("snapshot %s not found", id),
 			})
 

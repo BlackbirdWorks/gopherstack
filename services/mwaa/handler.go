@@ -18,6 +18,7 @@ const (
 	mwaaService       = "airflow"
 	mwaaMatchPriority = 87
 	opUnknown         = "Unknown"
+	keyArn            = "Arn"
 
 	// Path prefix constants.
 	pathEnvironments   = "/environments"
@@ -308,7 +309,7 @@ func (h *Handler) handleCreateEnvironment(c *echo.Context, name string) error {
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
-		"Arn": env.ARN,
+		keyArn: env.ARN,
 	})
 
 	return nil
@@ -342,7 +343,7 @@ func (h *Handler) handleDeleteEnvironment(c *echo.Context, name string) error {
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
-		"Arn": env.ARN,
+		keyArn: env.ARN,
 	})
 
 	return nil
@@ -374,7 +375,7 @@ func (h *Handler) handleUpdateEnvironment(c *echo.Context, name string) error {
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
-		"Arn": env.ARN,
+		keyArn: env.ARN,
 	})
 
 	return nil

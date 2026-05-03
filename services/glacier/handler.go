@@ -16,6 +16,31 @@ import (
 )
 
 const (
+	opInitiateJob                 = "InitiateJob"
+	opDescribeJob                 = "DescribeJob"
+	opListJobs                    = "ListJobs"
+	opGetJobOutput                = "GetJobOutput"
+	opSetVaultNotifications       = "SetVaultNotifications"
+	opGetVaultNotifications       = "GetVaultNotifications"
+	opDeleteVaultNotifications    = "DeleteVaultNotifications"
+	opSetVaultAccessPolicy        = "SetVaultAccessPolicy"
+	opGetVaultAccessPolicy        = "GetVaultAccessPolicy"
+	opDeleteVaultAccessPolicy     = "DeleteVaultAccessPolicy"
+	opAddTagsToVault              = "AddTagsToVault"
+	opListTagsForVault            = "ListTagsForVault"
+	opRemoveTagsFromVault         = "RemoveTagsFromVault"
+	opSetDataRetrievalPolicy      = "SetDataRetrievalPolicy"
+	opInitiateMultipartUpload     = "InitiateMultipartUpload"
+	opUploadMultipartPart         = "UploadMultipartPart"
+	opCompleteMultipartUpload     = "CompleteMultipartUpload"
+	opAbortMultipartUpload        = "AbortMultipartUpload"
+	opListMultipartUploads        = "ListMultipartUploads"
+	opListParts                   = "ListParts"
+	opListProvisionedCapacity     = "ListProvisionedCapacity"
+	opPurchaseProvisionedCapacity = "PurchaseProvisionedCapacity"
+)
+
+const (
 	// minVaultPathSegments is the minimum segments in a path to contain a vault name.
 	minVaultPathSegments = 3
 	// minPoliciesPathSegments is the minimum segments for policies paths.
@@ -43,6 +68,13 @@ const (
 	opCompleteVaultLock = "CompleteVaultLock"
 	// opGetVaultLock is the operation name for GetVaultLock.
 	opGetVaultLock = "GetVaultLock"
+
+	opCreateVault   = "CreateVault"
+	opDescribeVault = "DescribeVault"
+	opDeleteVault   = "DeleteVault"
+	opListVaults    = "ListVaults"
+	opUploadArchive = "UploadArchive"
+	opDeleteArchive = "DeleteArchive"
 )
 
 // Handler is the HTTP handler for the Glacier REST API.
@@ -63,39 +95,39 @@ func (h *Handler) Name() string { return "Glacier" }
 // GetSupportedOperations returns the list of supported Glacier operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateVault",
-		"DescribeVault",
-		"DeleteVault",
-		"ListVaults",
-		"UploadArchive",
-		"DeleteArchive",
-		"InitiateJob",
-		"DescribeJob",
-		"ListJobs",
-		"GetJobOutput",
-		"SetVaultNotifications",
-		"GetVaultNotifications",
-		"DeleteVaultNotifications",
-		"SetVaultAccessPolicy",
-		"GetVaultAccessPolicy",
-		"DeleteVaultAccessPolicy",
-		"AddTagsToVault",
-		"ListTagsForVault",
-		"RemoveTagsFromVault",
+		opCreateVault,
+		opDescribeVault,
+		opDeleteVault,
+		opListVaults,
+		opUploadArchive,
+		opDeleteArchive,
+		opInitiateJob,
+		opDescribeJob,
+		opListJobs,
+		opGetJobOutput,
+		opSetVaultNotifications,
+		opGetVaultNotifications,
+		opDeleteVaultNotifications,
+		opSetVaultAccessPolicy,
+		opGetVaultAccessPolicy,
+		opDeleteVaultAccessPolicy,
+		opAddTagsToVault,
+		opListTagsForVault,
+		opRemoveTagsFromVault,
 		"InitiateVaultLock",
 		"AbortVaultLock",
 		"CompleteVaultLock",
 		"GetVaultLock",
 		"GetDataRetrievalPolicy",
-		"SetDataRetrievalPolicy",
-		"InitiateMultipartUpload",
-		"UploadMultipartPart",
-		"CompleteMultipartUpload",
-		"AbortMultipartUpload",
-		"ListMultipartUploads",
-		"ListParts",
-		"ListProvisionedCapacity",
-		"PurchaseProvisionedCapacity",
+		opSetDataRetrievalPolicy,
+		opInitiateMultipartUpload,
+		opUploadMultipartPart,
+		opCompleteMultipartUpload,
+		opAbortMultipartUpload,
+		opListMultipartUploads,
+		opListParts,
+		opListProvisionedCapacity,
+		opPurchaseProvisionedCapacity,
 	}
 }
 
@@ -207,7 +239,7 @@ func parseGlacierPath(method, path, query string) (string, string) {
 	// /{accountId}/vaults
 	if len(segs) == 2 { //nolint:mnd // exactly 2 segments means list vaults
 		if method == http.MethodGet {
-			return "ListVaults", accountID
+			return opListVaults, accountID
 		}
 
 		return "", ""
@@ -219,11 +251,11 @@ func parseGlacierPath(method, path, query string) (string, string) {
 	if len(segs) == minVaultPathSegments {
 		switch method {
 		case http.MethodPut:
-			return "CreateVault", vaultName
+			return opCreateVault, vaultName
 		case http.MethodGet:
-			return "DescribeVault", vaultName
+			return opDescribeVault, vaultName
 		case http.MethodDelete:
-			return "DeleteVault", vaultName
+			return opDeleteVault, vaultName
 		}
 
 		return "", ""
@@ -245,7 +277,7 @@ func parsePoliciesPath(method string, segs []string) (string, string) {
 		case http.MethodGet:
 			return "GetDataRetrievalPolicy", ""
 		case http.MethodPut:
-			return "SetDataRetrievalPolicy", ""
+			return opSetDataRetrievalPolicy, ""
 		}
 	}
 
@@ -256,9 +288,9 @@ func parsePoliciesPath(method string, segs []string) (string, string) {
 func parseProvisionedCapacityPath(method, accountID string) (string, string) {
 	switch method {
 	case http.MethodGet:
-		return "ListProvisionedCapacity", accountID
+		return opListProvisionedCapacity, accountID
 	case http.MethodPost:
-		return "PurchaseProvisionedCapacity", accountID
+		return opPurchaseProvisionedCapacity, accountID
 	}
 
 	return "", ""
@@ -292,7 +324,7 @@ func parseVaultSubPath(method string, segs []string, vaultName, subPath, query s
 func parseArchivesPath(method string, segs []string, vaultName string) (string, string) {
 	if len(segs) == 4 { //nolint:mnd // 4 segs = /account/vaults/name/archives
 		if method == http.MethodPost {
-			return "UploadArchive", vaultName
+			return opUploadArchive, vaultName
 		}
 
 		return "", ""
@@ -301,7 +333,7 @@ func parseArchivesPath(method string, segs []string, vaultName string) (string, 
 	archiveID := segs[4]
 
 	if method == http.MethodDelete {
-		return "DeleteArchive", vaultName + "/" + archiveID
+		return opDeleteArchive, vaultName + "/" + archiveID
 	}
 
 	return "", ""
@@ -312,9 +344,9 @@ func parseJobsPath(method string, segs []string, vaultName string) (string, stri
 	if len(segs) == 4 { //nolint:mnd // 4 segs = /account/vaults/name/jobs
 		switch method {
 		case http.MethodPost:
-			return "InitiateJob", vaultName
+			return opInitiateJob, vaultName
 		case http.MethodGet:
-			return "ListJobs", vaultName
+			return opListJobs, vaultName
 		}
 
 		return "", ""
@@ -324,7 +356,7 @@ func parseJobsPath(method string, segs []string, vaultName string) (string, stri
 
 	if len(segs) == minJobPathSegments {
 		if method == http.MethodGet {
-			return "DescribeJob", vaultName + "/" + jobID
+			return opDescribeJob, vaultName + "/" + jobID
 		}
 
 		return "", ""
@@ -332,7 +364,7 @@ func parseJobsPath(method string, segs []string, vaultName string) (string, stri
 
 	if len(segs) >= 6 && segs[5] == "output" {
 		if method == http.MethodGet {
-			return "GetJobOutput", vaultName + "/" + jobID
+			return opGetJobOutput, vaultName + "/" + jobID
 		}
 	}
 
@@ -344,9 +376,9 @@ func parseMultipartUploadsPath(method string, segs []string, vaultName string) (
 	if len(segs) == 4 { //nolint:mnd // 4 segs = /account/vaults/name/multipart-uploads
 		switch method {
 		case http.MethodPost:
-			return "InitiateMultipartUpload", vaultName
+			return opInitiateMultipartUpload, vaultName
 		case http.MethodGet:
-			return "ListMultipartUploads", vaultName
+			return opListMultipartUploads, vaultName
 		}
 
 		return "", ""
@@ -356,13 +388,13 @@ func parseMultipartUploadsPath(method string, segs []string, vaultName string) (
 
 	switch method {
 	case http.MethodPut:
-		return "UploadMultipartPart", vaultName + "/" + uploadID
+		return opUploadMultipartPart, vaultName + "/" + uploadID
 	case http.MethodPost:
-		return "CompleteMultipartUpload", vaultName + "/" + uploadID
+		return opCompleteMultipartUpload, vaultName + "/" + uploadID
 	case http.MethodDelete:
-		return "AbortMultipartUpload", vaultName + "/" + uploadID
+		return opAbortMultipartUpload, vaultName + "/" + uploadID
 	case http.MethodGet:
-		return "ListParts", vaultName + "/" + uploadID
+		return opListParts, vaultName + "/" + uploadID
 	}
 
 	return "", ""
@@ -373,14 +405,14 @@ func parseTagsPath(method, query, vaultName string) (string, string) {
 	switch method {
 	case http.MethodPost:
 		if strings.Contains(query, "operation=add") {
-			return "AddTagsToVault", vaultName
+			return opAddTagsToVault, vaultName
 		}
 
 		if strings.Contains(query, "operation=remove") {
-			return "RemoveTagsFromVault", vaultName
+			return opRemoveTagsFromVault, vaultName
 		}
 	case http.MethodGet:
-		return "ListTagsForVault", vaultName
+		return opListTagsForVault, vaultName
 	}
 
 	return "", ""
@@ -390,11 +422,11 @@ func parseTagsPath(method, query, vaultName string) (string, string) {
 func parseNotificationPath(method, vaultName string) (string, string) {
 	switch method {
 	case http.MethodPut:
-		return "SetVaultNotifications", vaultName
+		return opSetVaultNotifications, vaultName
 	case http.MethodGet:
-		return "GetVaultNotifications", vaultName
+		return opGetVaultNotifications, vaultName
 	case http.MethodDelete:
-		return "DeleteVaultNotifications", vaultName
+		return opDeleteVaultNotifications, vaultName
 	}
 
 	return "", ""
@@ -404,11 +436,11 @@ func parseNotificationPath(method, vaultName string) (string, string) {
 func parseAccessPolicyPath(method, vaultName string) (string, string) {
 	switch method {
 	case http.MethodPut:
-		return "SetVaultAccessPolicy", vaultName
+		return opSetVaultAccessPolicy, vaultName
 	case http.MethodGet:
-		return "GetVaultAccessPolicy", vaultName
+		return opGetVaultAccessPolicy, vaultName
 	case http.MethodDelete:
-		return "DeleteVaultAccessPolicy", vaultName
+		return opDeleteVaultAccessPolicy, vaultName
 	}
 
 	return "", ""
@@ -456,13 +488,13 @@ func extractSubID(resource string) string {
 // dispatchVaultOps routes vault CRUD operations.
 func (h *Handler) dispatchVaultOps(c *echo.Context, op, resource string) (bool, error) {
 	switch op {
-	case "CreateVault":
+	case opCreateVault:
 		return true, h.handleCreateVault(c, resource)
-	case "DescribeVault":
+	case opDescribeVault:
 		return true, h.handleDescribeVault(c, resource)
-	case "DeleteVault":
+	case opDeleteVault:
 		return true, h.handleDeleteVault(c, resource)
-	case "ListVaults":
+	case opListVaults:
 		return true, h.handleListVaults(c)
 	}
 
@@ -472,17 +504,17 @@ func (h *Handler) dispatchVaultOps(c *echo.Context, op, resource string) (bool, 
 // dispatchArchiveAndJobOps routes archive and job operations.
 func (h *Handler) dispatchArchiveAndJobOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "UploadArchive":
+	case opUploadArchive:
 		return true, h.handleUploadArchive(c, resource, body)
-	case "DeleteArchive":
+	case opDeleteArchive:
 		return true, h.handleDeleteArchive(c, extractVaultName(resource), extractSubID(resource))
-	case "InitiateJob":
+	case opInitiateJob:
 		return true, h.handleInitiateJob(c, resource, body)
-	case "DescribeJob":
+	case opDescribeJob:
 		return true, h.handleDescribeJob(c, extractVaultName(resource), extractSubID(resource))
-	case "ListJobs":
+	case opListJobs:
 		return true, h.handleListJobs(c, resource)
-	case "GetJobOutput":
+	case opGetJobOutput:
 		return true, h.handleGetJobOutput(c, extractVaultName(resource), extractSubID(resource))
 	}
 
@@ -492,23 +524,23 @@ func (h *Handler) dispatchArchiveAndJobOps(c *echo.Context, op, resource string,
 // dispatchTagsAndPoliciesOps routes tag, notification, and access-policy operations.
 func (h *Handler) dispatchTagsAndPoliciesOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "SetVaultNotifications":
+	case opSetVaultNotifications:
 		return true, h.handleSetVaultNotifications(c, resource, body)
-	case "GetVaultNotifications":
+	case opGetVaultNotifications:
 		return true, h.handleGetVaultNotifications(c, resource)
-	case "DeleteVaultNotifications":
+	case opDeleteVaultNotifications:
 		return true, h.handleDeleteVaultNotifications(c, resource)
-	case "SetVaultAccessPolicy":
+	case opSetVaultAccessPolicy:
 		return true, h.handleSetVaultAccessPolicy(c, resource, body)
-	case "GetVaultAccessPolicy":
+	case opGetVaultAccessPolicy:
 		return true, h.handleGetVaultAccessPolicy(c, resource)
-	case "DeleteVaultAccessPolicy":
+	case opDeleteVaultAccessPolicy:
 		return true, h.handleDeleteVaultAccessPolicy(c, resource)
-	case "AddTagsToVault":
+	case opAddTagsToVault:
 		return true, h.handleAddTagsToVault(c, resource, body)
-	case "ListTagsForVault":
+	case opListTagsForVault:
 		return true, h.handleListTagsForVault(c, resource)
-	case "RemoveTagsFromVault":
+	case opRemoveTagsFromVault:
 		return true, h.handleRemoveTagsFromVault(c, resource, body)
 	}
 
@@ -518,21 +550,21 @@ func (h *Handler) dispatchTagsAndPoliciesOps(c *echo.Context, op, resource strin
 // dispatchMultipartAndCapacityOps routes multipart upload and provisioned capacity operations.
 func (h *Handler) dispatchMultipartAndCapacityOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "InitiateMultipartUpload":
+	case opInitiateMultipartUpload:
 		return true, h.handleInitiateMultipartUpload(c, resource, body)
-	case "UploadMultipartPart":
+	case opUploadMultipartPart:
 		return true, h.handleUploadMultipartPart(c, extractVaultName(resource), extractSubID(resource), body)
-	case "CompleteMultipartUpload":
+	case opCompleteMultipartUpload:
 		return true, h.handleCompleteMultipartUpload(c, extractVaultName(resource), extractSubID(resource), body)
-	case "AbortMultipartUpload":
+	case opAbortMultipartUpload:
 		return true, h.handleAbortMultipartUpload(c, extractVaultName(resource), extractSubID(resource))
-	case "ListMultipartUploads":
+	case opListMultipartUploads:
 		return true, h.handleListMultipartUploads(c, resource)
-	case "ListParts":
+	case opListParts:
 		return true, h.handleListParts(c, extractVaultName(resource), extractSubID(resource))
-	case "ListProvisionedCapacity":
+	case opListProvisionedCapacity:
 		return true, h.handleListProvisionedCapacity(c, resource)
-	case "PurchaseProvisionedCapacity":
+	case opPurchaseProvisionedCapacity:
 		return true, h.handlePurchaseProvisionedCapacity(c, resource)
 	}
 
@@ -556,7 +588,7 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) er
 	switch op {
 	case opInitiateVaultLock, opAbortVaultLock, opCompleteVaultLock, opGetVaultLock:
 		return h.handleVaultLock(c, op, resource, body)
-	case opGetDataRetrievalPolicy, "SetDataRetrievalPolicy":
+	case opGetDataRetrievalPolicy, opSetDataRetrievalPolicy:
 		return h.handleDataRetrievalPolicy(c, op, body)
 	}
 

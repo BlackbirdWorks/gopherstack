@@ -110,7 +110,7 @@ func CheckCompleteness(tb testing.TB, sdkClientPtr any, supportedOps []string, n
 		return
 	}
 
-	if rt.Kind() != reflect.Ptr {
+	if rt.Kind() != reflect.Pointer {
 		assert.Fail(tb, fmt.Sprintf(
 			"sdkClientPtr must be a pointer (e.g. &s3.Client{}), got %T", sdkClientPtr))
 

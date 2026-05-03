@@ -17,6 +17,18 @@ import (
 )
 
 const (
+	keyTypeField    = "__type"
+	keyMessageField = "message"
+	errInvalidInput = "InvalidInput"
+	keyOperationID  = "OperationId"
+	keyService      = "Service"
+	keyAttributes   = "Attributes"
+	keyStatusField  = "Status"
+	keyTags         = "Tags"
+	keyArn          = "Arn"
+)
+
+const (
 	serviceDiscoveryService      = "servicediscovery"
 	serviceDiscoveryTargetPrefix = "Route53AutoNaming_v20170314."
 )
@@ -320,38 +332,38 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.Is(err, ErrInstanceNotFound), errors.Is(err, ErrOperationNotFound),
 		errors.Is(err, ErrServiceAttributesNotFound), errors.Is(err, ErrResourceNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "ResourceNotFoundException",
-			"message": err.Error(),
+			keyTypeField:    "ResourceNotFoundException",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrNamespaceAlreadyExists):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":  "NamespaceAlreadyExists",
-			"message": err.Error(),
+			keyTypeField:    "NamespaceAlreadyExists",
+			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrInvalidInput):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "InvalidInput",
-			"message": err.Error(),
+			keyTypeField:    errInvalidInput,
+			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "InvalidInput",
-			"message": err.Error(),
+			keyTypeField:    errInvalidInput,
+			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, errInvalidRequest),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "InvalidInput",
-			"message": err.Error(),
+			keyTypeField:    errInvalidInput,
+			keyMessageField: err.Error(),
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"__type":  "InternalServiceError",
-			"message": err.Error(),
+			keyTypeField:    "InternalServiceError",
+			keyMessageField: err.Error(),
 		})
 	}
 }
@@ -380,7 +392,7 @@ func (h *Handler) handleCreateHTTPNamespace(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": opID})
+	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
 type createPrivateDNSNamespaceRequest struct {
@@ -406,7 +418,7 @@ func (h *Handler) handleCreatePrivateDNSNamespace(_ context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": opID})
+	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
 type createPublicDNSNamespaceRequest struct {
@@ -431,7 +443,7 @@ func (h *Handler) handleCreatePublicDNSNamespace(_ context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": opID})
+	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
 type deleteNamespaceRequest struct {
@@ -453,7 +465,7 @@ func (h *Handler) handleDeleteNamespace(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": opID})
+	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
 type getNamespaceRequest struct {
@@ -531,7 +543,7 @@ func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, e
 	}
 
 	return json.Marshal(map[string]any{
-		"Service": serviceToMap(svc),
+		keyService: serviceToMap(svc),
 	})
 }
 
@@ -572,7 +584,7 @@ func (h *Handler) handleGetService(_ context.Context, body []byte) ([]byte, erro
 	}
 
 	return json.Marshal(map[string]any{
-		"Service": serviceToMap(svc),
+		keyService: serviceToMap(svc),
 	})
 }
 
@@ -645,7 +657,7 @@ func (h *Handler) handleRegisterInstance(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": opID})
+	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
 type deregisterInstanceRequest struct {
@@ -672,7 +684,7 @@ func (h *Handler) handleDeregisterInstance(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": opID})
+	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
 type getInstanceRequest struct {
@@ -701,8 +713,8 @@ func (h *Handler) handleGetInstance(_ context.Context, body []byte) ([]byte, err
 
 	return json.Marshal(map[string]any{
 		"Instance": map[string]any{
-			"Id":         inst.ID,
-			"Attributes": inst.Attributes,
+			"Id":          inst.ID,
+			keyAttributes: inst.Attributes,
 		},
 	})
 }
@@ -732,8 +744,8 @@ func (h *Handler) handleListInstances(_ context.Context, body []byte) ([]byte, e
 
 	for _, inst := range instances {
 		items = append(items, map[string]any{
-			"Id":         inst.ID,
-			"Attributes": inst.Attributes,
+			"Id":          inst.ID,
+			keyAttributes: inst.Attributes,
 		})
 	}
 
@@ -778,8 +790,8 @@ func (h *Handler) handleDiscoverInstances(_ context.Context, body []byte) ([]byt
 
 	for _, inst := range instances {
 		items = append(items, map[string]any{
-			"InstanceId": inst.ID,
-			"Attributes": inst.Attributes,
+			"InstanceId":  inst.ID,
+			keyAttributes: inst.Attributes,
 		})
 	}
 
@@ -811,9 +823,9 @@ func (h *Handler) handleGetOperation(_ context.Context, body []byte) ([]byte, er
 
 	return json.Marshal(map[string]any{
 		"Operation": map[string]any{
-			"Id":     op.ID,
-			"Type":   op.Type,
-			"Status": op.Status,
+			"Id":           op.ID,
+			"Type":         op.Type,
+			keyStatusField: op.Status,
 			"Targets": map[string]string{
 				op.TargetType: op.TargetID,
 			},
@@ -838,8 +850,8 @@ func (h *Handler) handleListOperations(_ context.Context, body []byte) ([]byte, 
 
 	for _, op := range ops {
 		items = append(items, map[string]any{
-			"Id":     op.ID,
-			"Status": op.Status,
+			"Id":           op.ID,
+			keyStatusField: op.Status,
 		})
 	}
 
@@ -872,7 +884,7 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 	tagList := mapToTagEntries(tags)
 
 	return json.Marshal(map[string]any{
-		"Tags": tagList,
+		keyTags: tagList,
 	})
 }
 
@@ -966,11 +978,11 @@ func mapToTagEntries(tags map[string]string) []tagEntry {
 func namespaceToMap(ns *Namespace) map[string]any {
 	return map[string]any{
 		"Id":          ns.ID,
-		"Arn":         ns.ARN,
+		keyArn:        ns.ARN,
 		"Name":        ns.Name,
 		"Type":        ns.Type,
 		"Description": ns.Description,
-		"Tags":        mapToTagEntries(ns.Tags),
+		keyTags:       mapToTagEntries(ns.Tags),
 		"CreateDate":  ns.CreatedAt.Unix(),
 	}
 }
@@ -979,11 +991,11 @@ func namespaceToMap(ns *Namespace) map[string]any {
 func serviceToMap(svc *Service) map[string]any {
 	return map[string]any{
 		"Id":          svc.ID,
-		"Arn":         svc.ARN,
+		keyArn:        svc.ARN,
 		"Name":        svc.Name,
 		"NamespaceId": svc.NamespaceID,
 		"Description": svc.Description,
-		"Tags":        mapToTagEntries(svc.Tags),
+		keyTags:       mapToTagEntries(svc.Tags),
 		"CreateDate":  svc.CreatedAt.Unix(),
 	}
 }
@@ -1020,7 +1032,7 @@ func (h *Handler) handleGetInstancesHealthStatus(_ context.Context, body []byte)
 	}
 
 	return json.Marshal(map[string]any{
-		"Status": statuses,
+		keyStatusField: statuses,
 	})
 }
 
@@ -1051,7 +1063,7 @@ func (h *Handler) handleUpdateHTTPNamespace(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": opID})
+	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
 type updatePrivateDNSNamespaceRequest struct {
@@ -1075,7 +1087,7 @@ func (h *Handler) handleUpdatePrivateDNSNamespace(_ context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": opID})
+	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
 type updatePublicDNSNamespaceRequest struct {
@@ -1099,7 +1111,7 @@ func (h *Handler) handleUpdatePublicDNSNamespace(_ context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"OperationId": opID})
+	return json.Marshal(map[string]string{keyOperationID: opID})
 }
 
 // --- UpdateService ---
@@ -1129,7 +1141,7 @@ func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, e
 	}
 
 	return json.Marshal(map[string]any{
-		"Service": serviceToMap(svc),
+		keyService: serviceToMap(svc),
 	})
 }
 
@@ -1156,8 +1168,8 @@ func (h *Handler) handleGetServiceAttributes(_ context.Context, body []byte) ([]
 
 	return json.Marshal(map[string]any{
 		"ServiceAttributes": map[string]any{
-			"Arn":        arn,
-			"Attributes": attrs,
+			keyArn:        arn,
+			keyAttributes: attrs,
 		},
 	})
 }

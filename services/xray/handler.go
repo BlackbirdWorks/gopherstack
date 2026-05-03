@@ -17,7 +17,47 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+const (
+	keyTypeField = "__type"
+)
+
+const (
+	opGetEncryptionConfig      = "GetEncryptionConfig"
+	errInvalidRequestException = "InvalidRequestException"
+	keyMessageField            = "message"
+	keyGroup                   = "Group"
+	keyNextToken               = "NextToken"
+	keySamplingRuleRecord      = "SamplingRuleRecord"
+)
+
 const pathEncryptionConfig = "/EncryptionConfig"
+const (
+	pathTraceSegments                 = "/TraceSegments"
+	pathTelemetryRecords              = "/TelemetryRecords"
+	pathTraceSummaries                = "/TraceSummaries"
+	pathTraces                        = "/Traces"
+	pathCreateGroup                   = "/CreateGroup"
+	pathGetGroup                      = "/GetGroup"
+	pathGroups                        = "/Groups"
+	pathUpdateGroup                   = "/UpdateGroup"
+	pathDeleteGroup                   = "/DeleteGroup"
+	pathCreateSamplingRule            = "/CreateSamplingRule"
+	pathGetSamplingRules              = "/GetSamplingRules"
+	pathUpdateSamplingRule            = "/UpdateSamplingRule"
+	pathDeleteSamplingRule            = "/DeleteSamplingRule"
+	pathCancelTraceRetrieval          = "/CancelTraceRetrieval"
+	pathDeleteResourcePolicy          = "/DeleteResourcePolicy"
+	pathListResourcePolicies          = "/ListResourcePolicies"
+	pathPutResourcePolicy             = "/PutResourcePolicy"
+	pathGetIndexingRules              = "/GetIndexingRules"
+	pathGetInsight                    = "/GetInsight"
+	pathGetInsightEvents              = "/GetInsightEvents"
+	pathGetInsightImpactGraph         = "/GetInsightImpactGraph"
+	pathGetInsightSummaries           = "/GetInsightSummaries"
+	pathGetRetrievedTracesGraph       = "/GetRetrievedTracesGraph"
+	pathGetSamplingStatisticSummaries = "/GetSamplingStatisticSummaries"
+	pathGetSamplingTargets            = "/GetSamplingTargets"
+)
 
 var (
 	errUnknownPath    = errors.New("unknown path")
@@ -26,62 +66,62 @@ var (
 
 // xrayPaths is the set of supported X-Ray REST API paths.
 var xrayPaths = map[string]bool{ //nolint:gochecknoglobals // package-level routing table
-	"/TraceSegments":                 true,
-	"/TelemetryRecords":              true,
-	"/TraceSummaries":                true,
-	"/Traces":                        true,
-	"/CreateGroup":                   true,
-	"/GetGroup":                      true,
-	"/Groups":                        true,
-	"/UpdateGroup":                   true,
-	"/DeleteGroup":                   true,
-	"/CreateSamplingRule":            true,
-	"/GetSamplingRules":              true,
-	"/UpdateSamplingRule":            true,
-	"/DeleteSamplingRule":            true,
-	pathEncryptionConfig:             true,
-	"/CancelTraceRetrieval":          true,
-	"/DeleteResourcePolicy":          true,
-	"/ListResourcePolicies":          true,
-	"/PutResourcePolicy":             true,
-	"/GetIndexingRules":              true,
-	"/GetInsight":                    true,
-	"/GetInsightEvents":              true,
-	"/GetInsightImpactGraph":         true,
-	"/GetInsightSummaries":           true,
-	"/GetRetrievedTracesGraph":       true,
-	"/GetSamplingStatisticSummaries": true,
-	"/GetSamplingTargets":            true,
+	pathTraceSegments:                 true,
+	pathTelemetryRecords:              true,
+	pathTraceSummaries:                true,
+	pathTraces:                        true,
+	pathCreateGroup:                   true,
+	pathGetGroup:                      true,
+	pathGroups:                        true,
+	pathUpdateGroup:                   true,
+	pathDeleteGroup:                   true,
+	pathCreateSamplingRule:            true,
+	pathGetSamplingRules:              true,
+	pathUpdateSamplingRule:            true,
+	pathDeleteSamplingRule:            true,
+	pathEncryptionConfig:              true,
+	pathCancelTraceRetrieval:          true,
+	pathDeleteResourcePolicy:          true,
+	pathListResourcePolicies:          true,
+	pathPutResourcePolicy:             true,
+	pathGetIndexingRules:              true,
+	pathGetInsight:                    true,
+	pathGetInsightEvents:              true,
+	pathGetInsightImpactGraph:         true,
+	pathGetInsightSummaries:           true,
+	pathGetRetrievedTracesGraph:       true,
+	pathGetSamplingStatisticSummaries: true,
+	pathGetSamplingTargets:            true,
 }
 
 // pathToOperation maps X-Ray REST API paths to operation names.
 var pathToOperation = map[string]string{ //nolint:gochecknoglobals // package-level routing table
-	"/TraceSegments":                 "PutTraceSegments",
-	"/TelemetryRecords":              "PutTelemetryRecords",
-	"/TraceSummaries":                "GetTraceSummaries",
-	"/Traces":                        "BatchGetTraces",
-	"/CreateGroup":                   "CreateGroup",
-	"/GetGroup":                      "GetGroup",
-	"/Groups":                        "GetGroups",
-	"/UpdateGroup":                   "UpdateGroup",
-	"/DeleteGroup":                   "DeleteGroup",
-	"/CreateSamplingRule":            "CreateSamplingRule",
-	"/GetSamplingRules":              "GetSamplingRules",
-	"/UpdateSamplingRule":            "UpdateSamplingRule",
-	"/DeleteSamplingRule":            "DeleteSamplingRule",
-	pathEncryptionConfig:             "GetEncryptionConfig", // default; overridden by method
-	"/CancelTraceRetrieval":          "CancelTraceRetrieval",
-	"/DeleteResourcePolicy":          "DeleteResourcePolicy",
-	"/ListResourcePolicies":          "ListResourcePolicies",
-	"/PutResourcePolicy":             "PutResourcePolicy",
-	"/GetIndexingRules":              "GetIndexingRules",
-	"/GetInsight":                    "GetInsight",
-	"/GetInsightEvents":              "GetInsightEvents",
-	"/GetInsightImpactGraph":         "GetInsightImpactGraph",
-	"/GetInsightSummaries":           "GetInsightSummaries",
-	"/GetRetrievedTracesGraph":       "GetRetrievedTracesGraph",
-	"/GetSamplingStatisticSummaries": "GetSamplingStatisticSummaries",
-	"/GetSamplingTargets":            "GetSamplingTargets",
+	pathTraceSegments:                 "PutTraceSegments",
+	pathTelemetryRecords:              "PutTelemetryRecords",
+	pathTraceSummaries:                "GetTraceSummaries",
+	pathTraces:                        "BatchGetTraces",
+	pathCreateGroup:                   "CreateGroup",
+	pathGetGroup:                      "GetGroup",
+	pathGroups:                        "GetGroups",
+	pathUpdateGroup:                   "UpdateGroup",
+	pathDeleteGroup:                   "DeleteGroup",
+	pathCreateSamplingRule:            "CreateSamplingRule",
+	pathGetSamplingRules:              "GetSamplingRules",
+	pathUpdateSamplingRule:            "UpdateSamplingRule",
+	pathDeleteSamplingRule:            "DeleteSamplingRule",
+	pathEncryptionConfig:              opGetEncryptionConfig, // default; overridden by method
+	pathCancelTraceRetrieval:          "CancelTraceRetrieval",
+	pathDeleteResourcePolicy:          "DeleteResourcePolicy",
+	pathListResourcePolicies:          "ListResourcePolicies",
+	pathPutResourcePolicy:             "PutResourcePolicy",
+	pathGetIndexingRules:              "GetIndexingRules",
+	pathGetInsight:                    "GetInsight",
+	pathGetInsightEvents:              "GetInsightEvents",
+	pathGetInsightImpactGraph:         "GetInsightImpactGraph",
+	pathGetInsightSummaries:           "GetInsightSummaries",
+	pathGetRetrievedTracesGraph:       "GetRetrievedTracesGraph",
+	pathGetSamplingStatisticSummaries: "GetSamplingStatisticSummaries",
+	pathGetSamplingTargets:            "GetSamplingTargets",
 }
 
 // Handler is the Echo HTTP handler for AWS X-Ray operations.
@@ -135,7 +175,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteGroup",
 		"DeleteResourcePolicy",
 		"DeleteSamplingRule",
-		"GetEncryptionConfig",
+		opGetEncryptionConfig,
 		"GetGroup",
 		"GetGroups",
 		"GetIndexingRules",
@@ -194,7 +234,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 	if path == pathEncryptionConfig {
 		if c.Request().Method == http.MethodGet {
-			return "GetEncryptionConfig"
+			return opGetEncryptionConfig
 		}
 
 		return "PutEncryptionConfig"
@@ -275,32 +315,32 @@ type xrayHandlerFn func(*Handler, context.Context, []byte) ([]byte, error)
 // dispatchTable maps X-Ray paths to their handler functions (POST operations).
 // This table-driven approach keeps the dispatch cyclomatic complexity at O(1).
 var dispatchTable = map[string]xrayHandlerFn{ //nolint:gochecknoglobals // package-level dispatch table
-	"/TraceSegments":                 (*Handler).handlePutTraceSegments,
-	"/TelemetryRecords":              (*Handler).handlePutTelemetryRecords,
-	"/TraceSummaries":                (*Handler).handleGetTraceSummaries,
-	"/Traces":                        (*Handler).handleBatchGetTraces,
-	"/CreateGroup":                   (*Handler).handleCreateGroup,
-	"/GetGroup":                      (*Handler).handleGetGroup,
-	"/Groups":                        (*Handler).handleGetGroups,
-	"/UpdateGroup":                   (*Handler).handleUpdateGroup,
-	"/DeleteGroup":                   (*Handler).handleDeleteGroup,
-	"/CreateSamplingRule":            (*Handler).handleCreateSamplingRule,
-	"/GetSamplingRules":              (*Handler).handleGetSamplingRules,
-	"/UpdateSamplingRule":            (*Handler).handleUpdateSamplingRule,
-	"/DeleteSamplingRule":            (*Handler).handleDeleteSamplingRule,
-	pathEncryptionConfig:             (*Handler).handlePutEncryptionConfig,
-	"/CancelTraceRetrieval":          (*Handler).handleCancelTraceRetrieval,
-	"/DeleteResourcePolicy":          (*Handler).handleDeleteResourcePolicy,
-	"/ListResourcePolicies":          (*Handler).handleListResourcePolicies,
-	"/PutResourcePolicy":             (*Handler).handlePutResourcePolicy,
-	"/GetIndexingRules":              (*Handler).handleGetIndexingRules,
-	"/GetInsight":                    (*Handler).handleGetInsight,
-	"/GetInsightEvents":              (*Handler).handleGetInsightEvents,
-	"/GetInsightImpactGraph":         (*Handler).handleGetInsightImpactGraph,
-	"/GetInsightSummaries":           (*Handler).handleGetInsightSummaries,
-	"/GetRetrievedTracesGraph":       (*Handler).handleGetRetrievedTracesGraph,
-	"/GetSamplingStatisticSummaries": (*Handler).handleGetSamplingStatisticSummaries,
-	"/GetSamplingTargets":            (*Handler).handleGetSamplingTargets,
+	pathTraceSegments:                 (*Handler).handlePutTraceSegments,
+	pathTelemetryRecords:              (*Handler).handlePutTelemetryRecords,
+	pathTraceSummaries:                (*Handler).handleGetTraceSummaries,
+	pathTraces:                        (*Handler).handleBatchGetTraces,
+	pathCreateGroup:                   (*Handler).handleCreateGroup,
+	pathGetGroup:                      (*Handler).handleGetGroup,
+	pathGroups:                        (*Handler).handleGetGroups,
+	pathUpdateGroup:                   (*Handler).handleUpdateGroup,
+	pathDeleteGroup:                   (*Handler).handleDeleteGroup,
+	pathCreateSamplingRule:            (*Handler).handleCreateSamplingRule,
+	pathGetSamplingRules:              (*Handler).handleGetSamplingRules,
+	pathUpdateSamplingRule:            (*Handler).handleUpdateSamplingRule,
+	pathDeleteSamplingRule:            (*Handler).handleDeleteSamplingRule,
+	pathEncryptionConfig:              (*Handler).handlePutEncryptionConfig,
+	pathCancelTraceRetrieval:          (*Handler).handleCancelTraceRetrieval,
+	pathDeleteResourcePolicy:          (*Handler).handleDeleteResourcePolicy,
+	pathListResourcePolicies:          (*Handler).handleListResourcePolicies,
+	pathPutResourcePolicy:             (*Handler).handlePutResourcePolicy,
+	pathGetIndexingRules:              (*Handler).handleGetIndexingRules,
+	pathGetInsight:                    (*Handler).handleGetInsight,
+	pathGetInsightEvents:              (*Handler).handleGetInsightEvents,
+	pathGetInsightImpactGraph:         (*Handler).handleGetInsightImpactGraph,
+	pathGetInsightSummaries:           (*Handler).handleGetInsightSummaries,
+	pathGetRetrievedTracesGraph:       (*Handler).handleGetRetrievedTracesGraph,
+	pathGetSamplingStatisticSummaries: (*Handler).handleGetSamplingStatisticSummaries,
+	pathGetSamplingTargets:            (*Handler).handleGetSamplingTargets,
 }
 
 func (h *Handler) dispatch(ctx context.Context, path string, body []byte) ([]byte, error) {
@@ -319,11 +359,11 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "InvalidRequestException",
-			"message": err.Error(),
+			keyTypeField:    errInvalidRequestException,
+			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrConflict):
-		typeName := "InvalidRequestException"
+		typeName := errInvalidRequestException
 		if errors.Is(err, ErrGroupAlreadyExists) {
 			typeName = "GroupAlreadyExistsException"
 		} else if errors.Is(err, ErrSamplingRuleAlreadyExists) {
@@ -331,24 +371,24 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 		}
 
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  typeName,
-			"message": err.Error(),
+			keyTypeField:    typeName,
+			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "InvalidRequestException",
-			"message": err.Error(),
+			keyTypeField:    errInvalidRequestException,
+			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownPath),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"__type":  "InvalidRequestException",
-			"message": err.Error(),
+			keyTypeField:    errInvalidRequestException,
+			keyMessageField: err.Error(),
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"__type":  "InternalServiceError",
-			"message": err.Error(),
+			keyTypeField:    "InternalServiceError",
+			keyMessageField: err.Error(),
 		})
 	}
 }
@@ -410,7 +450,7 @@ func (h *Handler) handleCreateGroup(_ context.Context, body []byte) ([]byte, err
 	}
 
 	return json.Marshal(map[string]any{
-		"Group": toGroupView(g),
+		keyGroup: toGroupView(g),
 	})
 }
 
@@ -436,7 +476,7 @@ func (h *Handler) handleGetGroup(_ context.Context, body []byte) ([]byte, error)
 	}
 
 	return json.Marshal(map[string]any{
-		"Group": toGroupView(g),
+		keyGroup: toGroupView(g),
 	})
 }
 
@@ -449,8 +489,8 @@ func (h *Handler) handleGetGroups(_ context.Context, _ []byte) ([]byte, error) {
 	}
 
 	return json.Marshal(map[string]any{
-		"Groups":    views,
-		"NextToken": "",
+		"Groups":     views,
+		keyNextToken: "",
 	})
 }
 
@@ -477,7 +517,7 @@ func (h *Handler) handleUpdateGroup(_ context.Context, body []byte) ([]byte, err
 	}
 
 	return json.Marshal(map[string]any{
-		"Group": toGroupView(g),
+		keyGroup: toGroupView(g),
 	})
 }
 
@@ -606,7 +646,7 @@ func (h *Handler) handleCreateSamplingRule(_ context.Context, body []byte) ([]by
 	}
 
 	return json.Marshal(map[string]any{
-		"SamplingRuleRecord": toSamplingRuleRecord(r),
+		keySamplingRuleRecord: toSamplingRuleRecord(r),
 	})
 }
 
@@ -620,7 +660,7 @@ func (h *Handler) handleGetSamplingRules(_ context.Context, _ []byte) ([]byte, e
 
 	return json.Marshal(map[string]any{
 		"SamplingRuleRecords": records,
-		"NextToken":           "",
+		keyNextToken:          "",
 	})
 }
 
@@ -671,7 +711,7 @@ func (h *Handler) handleUpdateSamplingRule(_ context.Context, body []byte) ([]by
 	}
 
 	return json.Marshal(map[string]any{
-		"SamplingRuleRecord": toSamplingRuleRecord(r),
+		keySamplingRuleRecord: toSamplingRuleRecord(r),
 	})
 }
 
@@ -697,7 +737,7 @@ func (h *Handler) handleDeleteSamplingRule(_ context.Context, body []byte) ([]by
 	}
 
 	return json.Marshal(map[string]any{
-		"SamplingRuleRecord": toSamplingRuleRecord(r),
+		keySamplingRuleRecord: toSamplingRuleRecord(r),
 	})
 }
 
@@ -776,7 +816,7 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 	return json.Marshal(map[string]any{
 		"TraceSummaries":       summaries,
 		"TracesProcessedCount": len(summaries),
-		"NextToken":            "",
+		keyNextToken:           "",
 	})
 }
 
@@ -933,7 +973,7 @@ func (h *Handler) handleGetIndexingRules(_ context.Context, _ []byte) ([]byte, e
 
 	return json.Marshal(map[string]any{
 		"IndexingRules": views,
-		"NextToken":     "",
+		keyNextToken:    "",
 	})
 }
 
@@ -1025,7 +1065,7 @@ func (h *Handler) handleGetInsightEvents(_ context.Context, body []byte) ([]byte
 
 	return json.Marshal(map[string]any{
 		"InsightEvents": views,
-		"NextToken":     "",
+		keyNextToken:    "",
 	})
 }
 
@@ -1062,7 +1102,7 @@ func (h *Handler) handleGetInsightImpactGraph(_ context.Context, body []byte) ([
 		"EndTime":               in.EndTime,
 		"ServiceGraphStartTime": in.StartTime,
 		"ServiceGraphEndTime":   in.EndTime,
-		"NextToken":             "",
+		keyNextToken:            "",
 	})
 }
 
@@ -1095,7 +1135,7 @@ func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]b
 
 	return json.Marshal(map[string]any{
 		"InsightSummaries": views,
-		"NextToken":        "",
+		keyNextToken:       "",
 	})
 }
 
@@ -1123,7 +1163,7 @@ func (h *Handler) handleGetRetrievedTracesGraph(_ context.Context, body []byte) 
 	return json.Marshal(map[string]any{
 		"RetrievalStatus": status,
 		"Services":        []any{},
-		"NextToken":       "",
+		keyNextToken:      "",
 	})
 }
 
@@ -1153,7 +1193,7 @@ func (h *Handler) handleGetSamplingStatisticSummaries(_ context.Context, _ []byt
 
 	return json.Marshal(map[string]any{
 		"SamplingStatisticSummaries": views,
-		"NextToken":                  "",
+		keyNextToken:                 "",
 	})
 }
 
@@ -1251,7 +1291,7 @@ func (h *Handler) handleListResourcePolicies(_ context.Context, _ []byte) ([]byt
 
 	return json.Marshal(map[string]any{
 		"ResourcePolicies": views,
-		"NextToken":        "",
+		keyNextToken:       "",
 	})
 }
 

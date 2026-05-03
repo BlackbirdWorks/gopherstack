@@ -37,7 +37,7 @@ func (b *InMemoryBackend) CreateClusterSubnetGroup(
 
 	subnets := make([]Subnet, 0, len(subnetIDs))
 	for _, id := range subnetIDs {
-		subnets = append(subnets, Subnet{SubnetIdentifier: id, SubnetStatus: "Active"})
+		subnets = append(subnets, Subnet{SubnetIdentifier: id, SubnetStatus: partnerStatusActive})
 	}
 
 	sg := &ClusterSubnetGroup{
@@ -116,7 +116,7 @@ func (b *InMemoryBackend) ModifyClusterSubnetGroup(
 	if len(subnetIDs) > 0 {
 		subnets := make([]Subnet, 0, len(subnetIDs))
 		for _, id := range subnetIDs {
-			subnets = append(subnets, Subnet{SubnetIdentifier: id, SubnetStatus: "Active"})
+			subnets = append(subnets, Subnet{SubnetIdentifier: id, SubnetStatus: partnerStatusActive})
 		}
 
 		sg.Subnets = subnets

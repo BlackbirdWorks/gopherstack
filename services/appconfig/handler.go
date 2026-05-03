@@ -16,6 +16,64 @@ import (
 )
 
 const (
+	keyMessageField       = "message"
+	errInvalidRequestBody = "invalid request body"
+)
+
+const (
+	opUnknown = "Unknown"
+	keyItems  = "Items"
+)
+
+const (
+	opCreateApplication                = "CreateApplication"
+	opCreateConfigurationProfile       = "CreateConfigurationProfile"
+	opCreateDeploymentStrategy         = "CreateDeploymentStrategy"
+	opCreateEnvironment                = "CreateEnvironment"
+	opCreateExtension                  = "CreateExtension"
+	opCreateExtensionAssociation       = "CreateExtensionAssociation"
+	opCreateHostedConfigurationVersion = "CreateHostedConfigurationVersion"
+	opDeleteApplication                = "DeleteApplication"
+	opDeleteConfigurationProfile       = "DeleteConfigurationProfile"
+	opDeleteDeploymentStrategy         = "DeleteDeploymentStrategy"
+	opDeleteEnvironment                = "DeleteEnvironment"
+	opDeleteExtension                  = "DeleteExtension"
+	opDeleteExtensionAssociation       = "DeleteExtensionAssociation"
+	opDeleteHostedConfigurationVersion = "DeleteHostedConfigurationVersion"
+	opGetAccountSettings               = "GetAccountSettings"
+	opGetApplication                   = "GetApplication"
+	opGetConfiguration                 = "GetConfiguration"
+	opGetConfigurationProfile          = "GetConfigurationProfile"
+	opGetDeployment                    = "GetDeployment"
+	opGetDeploymentStrategy            = "GetDeploymentStrategy"
+	opGetEnvironment                   = "GetEnvironment"
+	opGetExtension                     = "GetExtension"
+	opGetExtensionAssociation          = "GetExtensionAssociation"
+	opGetHostedConfigurationVersion    = "GetHostedConfigurationVersion"
+	opListApplications                 = "ListApplications"
+	opListConfigurationProfiles        = "ListConfigurationProfiles"
+	opListDeploymentStrategies         = "ListDeploymentStrategies"
+	opListDeployments                  = "ListDeployments"
+	opListEnvironments                 = "ListEnvironments"
+	opListExtensionAssociations        = "ListExtensionAssociations"
+	opListExtensions                   = "ListExtensions"
+	opListHostedConfigurationVersions  = "ListHostedConfigurationVersions"
+	opListTagsForResource              = "ListTagsForResource"
+	opStartDeployment                  = "StartDeployment"
+	opStopDeployment                   = "StopDeployment"
+	opTagResource                      = "TagResource"
+	opUntagResource                    = "UntagResource"
+	opUpdateAccountSettings            = "UpdateAccountSettings"
+	opUpdateApplication                = "UpdateApplication"
+	opUpdateConfigurationProfile       = "UpdateConfigurationProfile"
+	opUpdateDeploymentStrategy         = "UpdateDeploymentStrategy"
+	opUpdateEnvironment                = "UpdateEnvironment"
+	opUpdateExtension                  = "UpdateExtension"
+	opUpdateExtensionAssociation       = "UpdateExtensionAssociation"
+	opValidateConfiguration            = "ValidateConfiguration"
+)
+
+const (
 	appConfigMatchPriority = 86
 
 	// pathParts* constants define the expected segment counts for route matching.
@@ -42,51 +100,51 @@ func (h *Handler) Name() string { return "AppConfig" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateApplication",
-		"GetApplication",
-		"ListApplications",
-		"UpdateApplication",
-		"DeleteApplication",
-		"CreateEnvironment",
-		"GetEnvironment",
-		"ListEnvironments",
-		"UpdateEnvironment",
-		"DeleteEnvironment",
-		"CreateConfigurationProfile",
-		"GetConfigurationProfile",
-		"ListConfigurationProfiles",
-		"UpdateConfigurationProfile",
-		"DeleteConfigurationProfile",
-		"CreateHostedConfigurationVersion",
-		"GetHostedConfigurationVersion",
-		"ListHostedConfigurationVersions",
-		"DeleteHostedConfigurationVersion",
-		"CreateDeploymentStrategy",
-		"GetDeploymentStrategy",
-		"ListDeploymentStrategies",
-		"UpdateDeploymentStrategy",
-		"DeleteDeploymentStrategy",
-		"StartDeployment",
-		"GetDeployment",
-		"ListDeployments",
-		"StopDeployment",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
-		"CreateExtension",
-		"GetExtension",
-		"ListExtensions",
-		"UpdateExtension",
-		"DeleteExtension",
-		"CreateExtensionAssociation",
-		"GetExtensionAssociation",
-		"ListExtensionAssociations",
-		"UpdateExtensionAssociation",
-		"DeleteExtensionAssociation",
-		"GetAccountSettings",
-		"UpdateAccountSettings",
-		"GetConfiguration",
-		"ValidateConfiguration",
+		opCreateApplication,
+		opGetApplication,
+		opListApplications,
+		opUpdateApplication,
+		opDeleteApplication,
+		opCreateEnvironment,
+		opGetEnvironment,
+		opListEnvironments,
+		opUpdateEnvironment,
+		opDeleteEnvironment,
+		opCreateConfigurationProfile,
+		opGetConfigurationProfile,
+		opListConfigurationProfiles,
+		opUpdateConfigurationProfile,
+		opDeleteConfigurationProfile,
+		opCreateHostedConfigurationVersion,
+		opGetHostedConfigurationVersion,
+		opListHostedConfigurationVersions,
+		opDeleteHostedConfigurationVersion,
+		opCreateDeploymentStrategy,
+		opGetDeploymentStrategy,
+		opListDeploymentStrategies,
+		opUpdateDeploymentStrategy,
+		opDeleteDeploymentStrategy,
+		opStartDeployment,
+		opGetDeployment,
+		opListDeployments,
+		opStopDeployment,
+		opListTagsForResource,
+		opTagResource,
+		opUntagResource,
+		opCreateExtension,
+		opGetExtension,
+		opListExtensions,
+		opUpdateExtension,
+		opDeleteExtension,
+		opCreateExtensionAssociation,
+		opGetExtensionAssociation,
+		opListExtensionAssociations,
+		opUpdateExtensionAssociation,
+		opDeleteExtensionAssociation,
+		opGetAccountSettings,
+		opUpdateAccountSettings,
+		opGetConfiguration,
+		opValidateConfiguration,
 	}
 }
 
@@ -156,7 +214,7 @@ func parseAppConfigPath(method, path string) appConfigRoute {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 
 	if len(parts) == 0 {
-		return appConfigRoute{operation: "Unknown"}
+		return appConfigRoute{operation: opUnknown}
 	}
 
 	switch parts[0] {
@@ -172,9 +230,9 @@ func parseAppConfigPath(method, path string) appConfigRoute {
 		if len(parts) == 1 {
 			switch method {
 			case http.MethodGet:
-				return appConfigRoute{operation: "GetAccountSettings"}
+				return appConfigRoute{operation: opGetAccountSettings}
 			case http.MethodPatch:
-				return appConfigRoute{operation: "UpdateAccountSettings"}
+				return appConfigRoute{operation: opUpdateAccountSettings}
 			}
 		}
 	case "tags":
@@ -182,7 +240,7 @@ func parseAppConfigPath(method, path string) appConfigRoute {
 		return parseTagRoute(method, strings.Join(parts[1:], "/"))
 	}
 
-	return appConfigRoute{operation: "Unknown"}
+	return appConfigRoute{operation: opUnknown}
 }
 
 func parseTagRoute(method, resourceArn string) appConfigRoute {
@@ -190,13 +248,13 @@ func parseTagRoute(method, resourceArn string) appConfigRoute {
 
 	switch method {
 	case http.MethodGet:
-		base.operation = "ListTagsForResource"
+		base.operation = opListTagsForResource
 	case http.MethodPost:
-		base.operation = "TagResource"
+		base.operation = opTagResource
 	case http.MethodDelete:
-		base.operation = "UntagResource"
+		base.operation = opUntagResource
 	default:
-		base.operation = "Unknown"
+		base.operation = opUnknown
 	}
 
 	return base
@@ -206,78 +264,78 @@ func parseExtensionRoute(method string, parts []string) appConfigRoute {
 	if len(parts) == 1 {
 		switch method {
 		case http.MethodPost:
-			return appConfigRoute{operation: "CreateExtension"}
+			return appConfigRoute{operation: opCreateExtension}
 		case http.MethodGet:
-			return appConfigRoute{operation: "ListExtensions"}
+			return appConfigRoute{operation: opListExtensions}
 		}
 
-		return appConfigRoute{operation: "Unknown"}
+		return appConfigRoute{operation: opUnknown}
 	}
 
 	extID := parts[1]
 
 	switch method {
 	case http.MethodGet:
-		return appConfigRoute{extensionID: extID, operation: "GetExtension"}
+		return appConfigRoute{extensionID: extID, operation: opGetExtension}
 	case http.MethodPatch:
-		return appConfigRoute{extensionID: extID, operation: "UpdateExtension"}
+		return appConfigRoute{extensionID: extID, operation: opUpdateExtension}
 	case http.MethodDelete:
-		return appConfigRoute{extensionID: extID, operation: "DeleteExtension"}
+		return appConfigRoute{extensionID: extID, operation: opDeleteExtension}
 	}
 
-	return appConfigRoute{extensionID: extID, operation: "Unknown"}
+	return appConfigRoute{extensionID: extID, operation: opUnknown}
 }
 
 func parseExtensionAssociationRoute(method string, parts []string) appConfigRoute {
 	if len(parts) == 1 {
 		switch method {
 		case http.MethodPost:
-			return appConfigRoute{operation: "CreateExtensionAssociation"}
+			return appConfigRoute{operation: opCreateExtensionAssociation}
 		case http.MethodGet:
-			return appConfigRoute{operation: "ListExtensionAssociations"}
+			return appConfigRoute{operation: opListExtensionAssociations}
 		}
 
-		return appConfigRoute{operation: "Unknown"}
+		return appConfigRoute{operation: opUnknown}
 	}
 
 	assocID := parts[1]
 
 	switch method {
 	case http.MethodGet:
-		return appConfigRoute{extensionAssociationID: assocID, operation: "GetExtensionAssociation"}
+		return appConfigRoute{extensionAssociationID: assocID, operation: opGetExtensionAssociation}
 	case http.MethodPatch:
-		return appConfigRoute{extensionAssociationID: assocID, operation: "UpdateExtensionAssociation"}
+		return appConfigRoute{extensionAssociationID: assocID, operation: opUpdateExtensionAssociation}
 	case http.MethodDelete:
-		return appConfigRoute{extensionAssociationID: assocID, operation: "DeleteExtensionAssociation"}
+		return appConfigRoute{extensionAssociationID: assocID, operation: opDeleteExtensionAssociation}
 	}
 
-	return appConfigRoute{extensionAssociationID: assocID, operation: "Unknown"}
+	return appConfigRoute{extensionAssociationID: assocID, operation: opUnknown}
 }
 
 func parseDeploymentStrategyRoute(method string, parts []string) appConfigRoute {
 	if len(parts) == 1 {
 		switch method {
 		case http.MethodPost:
-			return appConfigRoute{operation: "CreateDeploymentStrategy"}
+			return appConfigRoute{operation: opCreateDeploymentStrategy}
 		case http.MethodGet:
-			return appConfigRoute{operation: "ListDeploymentStrategies"}
+			return appConfigRoute{operation: opListDeploymentStrategies}
 		}
 
-		return appConfigRoute{operation: "Unknown"}
+		return appConfigRoute{operation: opUnknown}
 	}
 
 	strategyID := parts[1]
 
 	switch method {
 	case http.MethodGet:
-		return appConfigRoute{strategyID: strategyID, operation: "GetDeploymentStrategy"}
+		return appConfigRoute{strategyID: strategyID, operation: opGetDeploymentStrategy}
 	case http.MethodPatch:
-		return appConfigRoute{strategyID: strategyID, operation: "UpdateDeploymentStrategy"}
+		return appConfigRoute{strategyID: strategyID, operation: opUpdateDeploymentStrategy}
 	case http.MethodDelete:
-		return appConfigRoute{strategyID: strategyID, operation: "DeleteDeploymentStrategy"}
+		return appConfigRoute{strategyID: strategyID, operation: opDeleteDeploymentStrategy}
 	}
 
-	return appConfigRoute{strategyID: strategyID, operation: "Unknown"}
+	return appConfigRoute{strategyID: strategyID, operation: opUnknown}
 }
 
 // parseApplicationRoute parses routes starting with /applications.
@@ -287,12 +345,12 @@ func parseApplicationRoute(method string, parts []string) appConfigRoute {
 	if len(parts) == 1 {
 		switch method {
 		case http.MethodPost:
-			return appConfigRoute{operation: "CreateApplication"}
+			return appConfigRoute{operation: opCreateApplication}
 		case http.MethodGet:
-			return appConfigRoute{operation: "ListApplications"}
+			return appConfigRoute{operation: opListApplications}
 		}
 
-		return appConfigRoute{operation: "Unknown"}
+		return appConfigRoute{operation: opUnknown}
 	}
 
 	appID := parts[1]
@@ -308,32 +366,32 @@ func parseApplicationRoute(method string, parts []string) appConfigRoute {
 		return parseConfigProfileRoute(method, appID, parts)
 	}
 
-	return appConfigRoute{applicationID: appID, operation: "Unknown"}
+	return appConfigRoute{applicationID: appID, operation: opUnknown}
 }
 
 func parseAppIDRoute(method, appID string) appConfigRoute {
 	switch method {
 	case http.MethodGet:
-		return appConfigRoute{applicationID: appID, operation: "GetApplication"}
+		return appConfigRoute{applicationID: appID, operation: opGetApplication}
 	case http.MethodPatch:
-		return appConfigRoute{applicationID: appID, operation: "UpdateApplication"}
+		return appConfigRoute{applicationID: appID, operation: opUpdateApplication}
 	case http.MethodDelete:
-		return appConfigRoute{applicationID: appID, operation: "DeleteApplication"}
+		return appConfigRoute{applicationID: appID, operation: opDeleteApplication}
 	}
 
-	return appConfigRoute{applicationID: appID, operation: "Unknown"}
+	return appConfigRoute{applicationID: appID, operation: opUnknown}
 }
 
 func parseEnvironmentRoute(method, appID string, parts []string) appConfigRoute {
 	if len(parts) == pathPartsSubLevel {
 		switch method {
 		case http.MethodPost:
-			return appConfigRoute{applicationID: appID, operation: "CreateEnvironment"}
+			return appConfigRoute{applicationID: appID, operation: opCreateEnvironment}
 		case http.MethodGet:
-			return appConfigRoute{applicationID: appID, operation: "ListEnvironments"}
+			return appConfigRoute{applicationID: appID, operation: opListEnvironments}
 		}
 
-		return appConfigRoute{applicationID: appID, operation: "Unknown"}
+		return appConfigRoute{applicationID: appID, operation: opUnknown}
 	}
 
 	envID := parts[3]
@@ -351,24 +409,24 @@ func parseEnvironmentRoute(method, appID string, parts []string) appConfigRoute 
 			applicationID:   appID,
 			environmentID:   envID,
 			configurationID: parts[5],
-			operation:       "GetConfiguration",
+			operation:       opGetConfiguration,
 		}
 	}
 
-	return appConfigRoute{applicationID: appID, environmentID: envID, operation: "Unknown"}
+	return appConfigRoute{applicationID: appID, environmentID: envID, operation: opUnknown}
 }
 
 func parseEnvIDRoute(method, appID, envID string) appConfigRoute {
 	switch method {
 	case http.MethodGet:
-		return appConfigRoute{applicationID: appID, environmentID: envID, operation: "GetEnvironment"}
+		return appConfigRoute{applicationID: appID, environmentID: envID, operation: opGetEnvironment}
 	case http.MethodPatch:
-		return appConfigRoute{applicationID: appID, environmentID: envID, operation: "UpdateEnvironment"}
+		return appConfigRoute{applicationID: appID, environmentID: envID, operation: opUpdateEnvironment}
 	case http.MethodDelete:
-		return appConfigRoute{applicationID: appID, environmentID: envID, operation: "DeleteEnvironment"}
+		return appConfigRoute{applicationID: appID, environmentID: envID, operation: opDeleteEnvironment}
 	}
 
-	return appConfigRoute{applicationID: appID, environmentID: envID, operation: "Unknown"}
+	return appConfigRoute{applicationID: appID, environmentID: envID, operation: opUnknown}
 }
 
 // parseDeploymentRoute parses deployment routes under /environments/{envId}/deployments.
@@ -378,17 +436,17 @@ func parseDeploymentRoute(method, appID, envID string, parts []string) appConfig
 	if len(parts) == pathPartsDeepLevel {
 		switch method {
 		case http.MethodPost:
-			return appConfigRoute{applicationID: appID, environmentID: envID, operation: "StartDeployment"}
+			return appConfigRoute{applicationID: appID, environmentID: envID, operation: opStartDeployment}
 		case http.MethodGet:
-			return appConfigRoute{applicationID: appID, environmentID: envID, operation: "ListDeployments"}
+			return appConfigRoute{applicationID: appID, environmentID: envID, operation: opListDeployments}
 		}
 
-		return appConfigRoute{applicationID: appID, environmentID: envID, operation: "Unknown"}
+		return appConfigRoute{applicationID: appID, environmentID: envID, operation: opUnknown}
 	}
 
 	depNum, err := strconv.ParseInt(parts[5], 10, 32)
 	if err != nil {
-		return appConfigRoute{applicationID: appID, environmentID: envID, operation: "Unknown"}
+		return appConfigRoute{applicationID: appID, environmentID: envID, operation: opUnknown}
 	}
 
 	num := int32(depNum)
@@ -399,18 +457,18 @@ func parseDeploymentRoute(method, appID, envID string, parts []string) appConfig
 			applicationID: appID,
 			environmentID: envID,
 			deploymentNum: num,
-			operation:     "GetDeployment",
+			operation:     opGetDeployment,
 		}
 	case http.MethodDelete:
 		return appConfigRoute{
 			applicationID: appID,
 			environmentID: envID,
 			deploymentNum: num,
-			operation:     "StopDeployment",
+			operation:     opStopDeployment,
 		}
 	}
 
-	return appConfigRoute{applicationID: appID, environmentID: envID, deploymentNum: num, operation: "Unknown"}
+	return appConfigRoute{applicationID: appID, environmentID: envID, deploymentNum: num, operation: opUnknown}
 }
 
 // parseConfigProfileRoute parses configuration profile routes.
@@ -420,12 +478,12 @@ func parseConfigProfileRoute(method, appID string, parts []string) appConfigRout
 	if len(parts) == pathPartsSubLevel {
 		switch method {
 		case http.MethodPost:
-			return appConfigRoute{applicationID: appID, operation: "CreateConfigurationProfile"}
+			return appConfigRoute{applicationID: appID, operation: opCreateConfigurationProfile}
 		case http.MethodGet:
-			return appConfigRoute{applicationID: appID, operation: "ListConfigurationProfiles"}
+			return appConfigRoute{applicationID: appID, operation: opListConfigurationProfiles}
 		}
 
-		return appConfigRoute{applicationID: appID, operation: "Unknown"}
+		return appConfigRoute{applicationID: appID, operation: opUnknown}
 	}
 
 	profileID := parts[3]
@@ -442,24 +500,24 @@ func parseConfigProfileRoute(method, appID string, parts []string) appConfigRout
 		return appConfigRoute{
 			applicationID: appID,
 			profileID:     profileID,
-			operation:     "ValidateConfiguration",
+			operation:     opValidateConfiguration,
 		}
 	}
 
-	return appConfigRoute{applicationID: appID, profileID: profileID, operation: "Unknown"}
+	return appConfigRoute{applicationID: appID, profileID: profileID, operation: opUnknown}
 }
 
 func parseProfileIDRoute(method, appID, profileID string) appConfigRoute {
 	switch method {
 	case http.MethodGet:
-		return appConfigRoute{applicationID: appID, profileID: profileID, operation: "GetConfigurationProfile"}
+		return appConfigRoute{applicationID: appID, profileID: profileID, operation: opGetConfigurationProfile}
 	case http.MethodPatch:
-		return appConfigRoute{applicationID: appID, profileID: profileID, operation: "UpdateConfigurationProfile"}
+		return appConfigRoute{applicationID: appID, profileID: profileID, operation: opUpdateConfigurationProfile}
 	case http.MethodDelete:
-		return appConfigRoute{applicationID: appID, profileID: profileID, operation: "DeleteConfigurationProfile"}
+		return appConfigRoute{applicationID: appID, profileID: profileID, operation: opDeleteConfigurationProfile}
 	}
 
-	return appConfigRoute{applicationID: appID, profileID: profileID, operation: "Unknown"}
+	return appConfigRoute{applicationID: appID, profileID: profileID, operation: opUnknown}
 }
 
 // parseHostedVersionRoute parses hosted configuration version routes.
@@ -472,22 +530,22 @@ func parseHostedVersionRoute(method, appID, profileID string, parts []string) ap
 			return appConfigRoute{
 				applicationID: appID,
 				profileID:     profileID,
-				operation:     "CreateHostedConfigurationVersion",
+				operation:     opCreateHostedConfigurationVersion,
 			}
 		case http.MethodGet:
 			return appConfigRoute{
 				applicationID: appID,
 				profileID:     profileID,
-				operation:     "ListHostedConfigurationVersions",
+				operation:     opListHostedConfigurationVersions,
 			}
 		}
 
-		return appConfigRoute{applicationID: appID, profileID: profileID, operation: "Unknown"}
+		return appConfigRoute{applicationID: appID, profileID: profileID, operation: opUnknown}
 	}
 
 	verNum, err := strconv.ParseInt(parts[5], 10, 32)
 	if err != nil {
-		return appConfigRoute{applicationID: appID, profileID: profileID, operation: "Unknown"}
+		return appConfigRoute{applicationID: appID, profileID: profileID, operation: opUnknown}
 	}
 
 	num := int32(verNum)
@@ -498,18 +556,18 @@ func parseHostedVersionRoute(method, appID, profileID string, parts []string) ap
 			applicationID: appID,
 			profileID:     profileID,
 			versionNumber: num,
-			operation:     "GetHostedConfigurationVersion",
+			operation:     opGetHostedConfigurationVersion,
 		}
 	case http.MethodDelete:
 		return appConfigRoute{
 			applicationID: appID,
 			profileID:     profileID,
 			versionNumber: num,
-			operation:     "DeleteHostedConfigurationVersion",
+			operation:     opDeleteHostedConfigurationVersion,
 		}
 	}
 
-	return appConfigRoute{applicationID: appID, profileID: profileID, versionNumber: num, operation: "Unknown"}
+	return appConfigRoute{applicationID: appID, profileID: profileID, versionNumber: num, operation: opUnknown}
 }
 
 // Handler returns the Echo handler function for AppConfig operations.
@@ -521,119 +579,119 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		route := parseAppConfigPath(c.Request().Method, c.Request().URL.Path)
 
 		switch route.operation {
-		case "CreateApplication":
+		case opCreateApplication:
 			return h.handleCreateApplication(c)
-		case "GetApplication":
+		case opGetApplication:
 			return h.handleGetApplication(c, route.applicationID)
-		case "ListApplications":
+		case opListApplications:
 			return h.handleListApplications(c)
-		case "UpdateApplication":
+		case opUpdateApplication:
 			return h.handleUpdateApplication(c, route.applicationID)
-		case "DeleteApplication":
+		case opDeleteApplication:
 			return h.handleDeleteApplication(c, route.applicationID)
-		case "CreateEnvironment":
+		case opCreateEnvironment:
 			return h.handleCreateEnvironment(c, route.applicationID)
-		case "GetEnvironment":
+		case opGetEnvironment:
 			return h.handleGetEnvironment(c, route.applicationID, route.environmentID)
-		case "ListEnvironments":
+		case opListEnvironments:
 			return h.handleListEnvironments(c, route.applicationID)
-		case "UpdateEnvironment":
+		case opUpdateEnvironment:
 			return h.handleUpdateEnvironment(c, route.applicationID, route.environmentID)
-		case "DeleteEnvironment":
+		case opDeleteEnvironment:
 			return h.handleDeleteEnvironment(c, route.applicationID, route.environmentID)
-		case "CreateConfigurationProfile":
+		case opCreateConfigurationProfile:
 			return h.handleCreateConfigurationProfile(c, route.applicationID)
-		case "GetConfigurationProfile":
+		case opGetConfigurationProfile:
 			return h.handleGetConfigurationProfile(c, route.applicationID, route.profileID)
-		case "ListConfigurationProfiles":
+		case opListConfigurationProfiles:
 			return h.handleListConfigurationProfiles(c, route.applicationID)
-		case "UpdateConfigurationProfile":
+		case opUpdateConfigurationProfile:
 			return h.handleUpdateConfigurationProfile(c, route.applicationID, route.profileID)
-		case "DeleteConfigurationProfile":
+		case opDeleteConfigurationProfile:
 			return h.handleDeleteConfigurationProfile(c, route.applicationID, route.profileID)
-		case "CreateHostedConfigurationVersion":
+		case opCreateHostedConfigurationVersion:
 			return h.handleCreateHostedConfigurationVersion(c, route.applicationID, route.profileID)
-		case "GetHostedConfigurationVersion":
+		case opGetHostedConfigurationVersion:
 			return h.handleGetHostedConfigurationVersion(c, route.applicationID, route.profileID, route.versionNumber)
-		case "ListHostedConfigurationVersions":
+		case opListHostedConfigurationVersions:
 			return h.handleListHostedConfigurationVersions(c, route.applicationID, route.profileID)
-		case "DeleteHostedConfigurationVersion":
+		case opDeleteHostedConfigurationVersion:
 			return h.handleDeleteHostedConfigurationVersion(
 				c,
 				route.applicationID,
 				route.profileID,
 				route.versionNumber,
 			)
-		case "CreateDeploymentStrategy":
+		case opCreateDeploymentStrategy:
 			return h.handleCreateDeploymentStrategy(c)
-		case "GetDeploymentStrategy":
+		case opGetDeploymentStrategy:
 			return h.handleGetDeploymentStrategy(c, route.strategyID)
-		case "ListDeploymentStrategies":
+		case opListDeploymentStrategies:
 			return h.handleListDeploymentStrategies(c)
-		case "UpdateDeploymentStrategy":
+		case opUpdateDeploymentStrategy:
 			return h.handleUpdateDeploymentStrategy(c, route.strategyID)
-		case "DeleteDeploymentStrategy":
+		case opDeleteDeploymentStrategy:
 			return h.handleDeleteDeploymentStrategy(c, route.strategyID)
-		case "StartDeployment":
+		case opStartDeployment:
 			return h.handleStartDeployment(c, route.applicationID, route.environmentID)
-		case "GetDeployment":
+		case opGetDeployment:
 			return h.handleGetDeployment(c, route.applicationID, route.environmentID, route.deploymentNum)
-		case "ListDeployments":
+		case opListDeployments:
 			return h.handleListDeployments(c, route.applicationID, route.environmentID)
-		case "StopDeployment":
+		case opStopDeployment:
 			return h.handleStopDeployment(c, route.applicationID, route.environmentID, route.deploymentNum)
-		case "ListTagsForResource":
+		case opListTagsForResource:
 			return h.handleListTagsForResource(c, route.resourceArn)
-		case "TagResource":
+		case opTagResource:
 			return h.handleTagResource(c, route.resourceArn)
-		case "UntagResource":
+		case opUntagResource:
 			return h.handleUntagResource(c, route.resourceArn)
-		case "CreateExtension":
+		case opCreateExtension:
 			return h.handleCreateExtension(c)
-		case "GetExtension":
+		case opGetExtension:
 			return h.handleGetExtension(c, route.extensionID)
-		case "ListExtensions":
+		case opListExtensions:
 			return h.handleListExtensions(c)
-		case "UpdateExtension":
+		case opUpdateExtension:
 			return h.handleUpdateExtension(c, route.extensionID)
-		case "DeleteExtension":
+		case opDeleteExtension:
 			return h.handleDeleteExtension(c, route.extensionID)
-		case "CreateExtensionAssociation":
+		case opCreateExtensionAssociation:
 			return h.handleCreateExtensionAssociation(c)
-		case "GetExtensionAssociation":
+		case opGetExtensionAssociation:
 			return h.handleGetExtensionAssociation(c, route.extensionAssociationID)
-		case "ListExtensionAssociations":
+		case opListExtensionAssociations:
 			return h.handleListExtensionAssociations(c)
-		case "UpdateExtensionAssociation":
+		case opUpdateExtensionAssociation:
 			return h.handleUpdateExtensionAssociation(c, route.extensionAssociationID)
-		case "DeleteExtensionAssociation":
+		case opDeleteExtensionAssociation:
 			return h.handleDeleteExtensionAssociation(c, route.extensionAssociationID)
-		case "GetAccountSettings":
+		case opGetAccountSettings:
 			return h.handleGetAccountSettings(c)
-		case "UpdateAccountSettings":
+		case opUpdateAccountSettings:
 			return h.handleUpdateAccountSettings(c)
-		case "GetConfiguration":
+		case opGetConfiguration:
 			return h.handleGetConfiguration(c, route.applicationID, route.environmentID, route.configurationID)
-		case "ValidateConfiguration":
+		case opValidateConfiguration:
 			return h.handleValidateConfiguration(c, route.applicationID, route.profileID)
 		default:
 			log.Warn("appconfig: unmatched route", "method", c.Request().Method, "path", c.Request().URL.Path)
 
-			return c.JSON(http.StatusNotFound, map[string]string{"message": "not found"})
+			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
 		}
 	}
 }
 
 func notFoundResponse(c *echo.Context, err error) error {
-	return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+	return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
 }
 
 func badRequestResponse(c *echo.Context, err error) error {
-	return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+	return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 }
 
 func conflictResponse(c *echo.Context, err error) error {
-	return c.JSON(http.StatusConflict, map[string]string{"message": err.Error()})
+	return c.JSON(http.StatusConflict, map[string]string{keyMessageField: err.Error()})
 }
 
 func (h *Handler) handleCreateApplication(c *echo.Context) error {
@@ -642,7 +700,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context) error {
 		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	app, err := h.Backend.CreateApplication(req.Name, req.Description)
@@ -651,7 +709,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context) error {
 			return badRequestResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusCreated, app)
@@ -664,7 +722,7 @@ func (h *Handler) handleGetApplication(c *echo.Context, applicationID string) er
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, app)
@@ -674,7 +732,7 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
 	apps, outToken := h.Backend.ListApplications(nextToken, maxResults)
 
-	resp := map[string]any{"Items": apps}
+	resp := map[string]any{keyItems: apps}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -688,7 +746,7 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string)
 		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	app, err := h.Backend.UpdateApplication(applicationID, req.Name, req.Description)
@@ -697,7 +755,7 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string)
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, app)
@@ -709,7 +767,7 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, applicationID string)
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -721,7 +779,7 @@ func (h *Handler) handleCreateEnvironment(c *echo.Context, applicationID string)
 		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	env, err := h.Backend.CreateEnvironment(applicationID, req.Name, req.Description)
@@ -730,7 +788,7 @@ func (h *Handler) handleCreateEnvironment(c *echo.Context, applicationID string)
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusCreated, env)
@@ -743,7 +801,7 @@ func (h *Handler) handleGetEnvironment(c *echo.Context, applicationID, environme
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, env)
@@ -758,10 +816,10 @@ func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) 
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
-	resp := map[string]any{"Items": envs}
+	resp := map[string]any{keyItems: envs}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -775,7 +833,7 @@ func (h *Handler) handleUpdateEnvironment(c *echo.Context, applicationID, enviro
 		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	env, err := h.Backend.UpdateEnvironment(applicationID, environmentID, req.Name, req.Description)
@@ -784,7 +842,7 @@ func (h *Handler) handleUpdateEnvironment(c *echo.Context, applicationID, enviro
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, env)
@@ -796,7 +854,7 @@ func (h *Handler) handleDeleteEnvironment(c *echo.Context, applicationID, enviro
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -810,7 +868,7 @@ func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationI
 		Type        string `json:"Type"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	profile, err := h.Backend.CreateConfigurationProfile(
@@ -825,7 +883,7 @@ func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationI
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusCreated, profile)
@@ -838,7 +896,7 @@ func (h *Handler) handleGetConfigurationProfile(c *echo.Context, applicationID, 
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, profile)
@@ -853,10 +911,10 @@ func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
-	resp := map[string]any{"Items": profiles}
+	resp := map[string]any{keyItems: profiles}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -870,7 +928,7 @@ func (h *Handler) handleUpdateConfigurationProfile(c *echo.Context, applicationI
 		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	profile, err := h.Backend.UpdateConfigurationProfile(applicationID, profileID, req.Name, req.Description)
@@ -879,7 +937,7 @@ func (h *Handler) handleUpdateConfigurationProfile(c *echo.Context, applicationI
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, profile)
@@ -891,7 +949,7 @@ func (h *Handler) handleDeleteConfigurationProfile(c *echo.Context, applicationI
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -905,7 +963,7 @@ func (h *Handler) handleCreateHostedConfigurationVersion(c *echo.Context, applic
 
 	content, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to read request body"})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: "failed to read request body"})
 	}
 
 	v, err := h.Backend.CreateHostedConfigurationVersion(applicationID, profileID, contentType, content)
@@ -914,7 +972,7 @@ func (h *Handler) handleCreateHostedConfigurationVersion(c *echo.Context, applic
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	c.Response().Header().Set("Appconfig-Configuration-Version", strconv.Itoa(int(v.VersionNumber)))
@@ -933,7 +991,7 @@ func (h *Handler) handleGetHostedConfigurationVersion(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	c.Response().Header().Set("Content-Type", v.ContentType)
@@ -956,10 +1014,10 @@ func (h *Handler) handleListHostedConfigurationVersions(c *echo.Context, applica
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
-	resp := map[string]any{"Items": versions}
+	resp := map[string]any{keyItems: versions}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -977,7 +1035,7 @@ func (h *Handler) handleDeleteHostedConfigurationVersion(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -994,7 +1052,7 @@ func (h *Handler) handleCreateDeploymentStrategy(c *echo.Context) error {
 		GrowthFactor                float32 `json:"GrowthFactor"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	strategy, err := h.Backend.CreateDeploymentStrategy(
@@ -1003,7 +1061,7 @@ func (h *Handler) handleCreateDeploymentStrategy(c *echo.Context) error {
 		req.GrowthFactor, req.GrowthType, req.ReplicateTo,
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusCreated, strategy)
@@ -1016,7 +1074,7 @@ func (h *Handler) handleGetDeploymentStrategy(c *echo.Context, strategyID string
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, strategy)
@@ -1026,7 +1084,7 @@ func (h *Handler) handleListDeploymentStrategies(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
 	strategies, outToken := h.Backend.ListDeploymentStrategies(nextToken, maxResults)
 
-	resp := map[string]any{"Items": strategies}
+	resp := map[string]any{keyItems: strategies}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -1043,7 +1101,7 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 		Description                 string   `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	// Fetch current values to use as defaults for omitted pointer fields.
@@ -1053,7 +1111,7 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	deployDur := existing.DeploymentDurationInMinutes
@@ -1081,7 +1139,7 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, strategy)
@@ -1093,7 +1151,7 @@ func (h *Handler) handleDeleteDeploymentStrategy(c *echo.Context, strategyID str
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1106,7 +1164,7 @@ func (h *Handler) handleStartDeployment(c *echo.Context, applicationID, environm
 		ConfigurationVersion   string `json:"ConfigurationVersion"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	deployment, err := h.Backend.StartDeployment(
@@ -1119,7 +1177,7 @@ func (h *Handler) handleStartDeployment(c *echo.Context, applicationID, environm
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusCreated, deployment)
@@ -1136,7 +1194,7 @@ func (h *Handler) handleGetDeployment(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, deployment)
@@ -1151,10 +1209,10 @@ func (h *Handler) handleListDeployments(c *echo.Context, applicationID, environm
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
-	resp := map[string]any{"Items": deployments}
+	resp := map[string]any{keyItems: deployments}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -1172,7 +1230,7 @@ func (h *Handler) handleStopDeployment(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1181,7 +1239,7 @@ func (h *Handler) handleStopDeployment(
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string) error {
 	tags, err := h.Backend.ListTagsForResource(resourceArn)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"Tags": tags})
@@ -1192,11 +1250,11 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceArn string) error {
 		Tags map[string]string `json:"Tags"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	if err := h.Backend.TagResource(resourceArn, req.Tags); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1206,7 +1264,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string) error
 	keysToRemove := c.Request().URL.Query()["tagKeys"]
 
 	if err := h.Backend.UntagResource(resourceArn, keysToRemove); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1220,7 +1278,7 @@ func (h *Handler) handleCreateExtension(c *echo.Context) error {
 		Description string                        `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	ext, err := h.Backend.CreateExtension(req.Name, req.Description, req.Actions, req.Parameters)
@@ -1233,7 +1291,7 @@ func (h *Handler) handleCreateExtension(c *echo.Context) error {
 			return conflictResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusCreated, ext)
@@ -1246,7 +1304,7 @@ func (h *Handler) handleGetExtension(c *echo.Context, extensionID string) error 
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, ext)
@@ -1257,7 +1315,7 @@ func (h *Handler) handleListExtensions(c *echo.Context) error {
 	nameFilter := c.Request().URL.Query().Get("name")
 	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter)
 
-	resp := map[string]any{"Items": exts}
+	resp := map[string]any{keyItems: exts}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -1272,7 +1330,7 @@ func (h *Handler) handleUpdateExtension(c *echo.Context, extensionID string) err
 		Description string                        `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	ext, err := h.Backend.UpdateExtension(extensionID, req.Description, req.Actions, req.Parameters)
@@ -1281,7 +1339,7 @@ func (h *Handler) handleUpdateExtension(c *echo.Context, extensionID string) err
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, ext)
@@ -1293,7 +1351,7 @@ func (h *Handler) handleDeleteExtension(c *echo.Context, extensionID string) err
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1307,7 +1365,7 @@ func (h *Handler) handleCreateExtensionAssociation(c *echo.Context) error {
 		ResourceIdentifier     string            `json:"ResourceIdentifier"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	assoc, err := h.Backend.CreateExtensionAssociation(
@@ -1325,7 +1383,7 @@ func (h *Handler) handleCreateExtensionAssociation(c *echo.Context) error {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusCreated, assoc)
@@ -1338,7 +1396,7 @@ func (h *Handler) handleGetExtensionAssociation(c *echo.Context, extensionAssoci
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, assoc)
@@ -1348,7 +1406,7 @@ func (h *Handler) handleListExtensionAssociations(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
 	assocs, outToken := h.Backend.ListExtensionAssociations(nextToken, maxResults)
 
-	resp := map[string]any{"Items": assocs}
+	resp := map[string]any{keyItems: assocs}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -1361,7 +1419,7 @@ func (h *Handler) handleUpdateExtensionAssociation(c *echo.Context, extensionAss
 		Parameters map[string]string `json:"Parameters"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	assoc, err := h.Backend.UpdateExtensionAssociation(extensionAssociationID, req.Parameters)
@@ -1370,7 +1428,7 @@ func (h *Handler) handleUpdateExtensionAssociation(c *echo.Context, extensionAss
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, assoc)
@@ -1382,7 +1440,7 @@ func (h *Handler) handleDeleteExtensionAssociation(c *echo.Context, extensionAss
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1391,7 +1449,7 @@ func (h *Handler) handleDeleteExtensionAssociation(c *echo.Context, extensionAss
 func (h *Handler) handleGetAccountSettings(c *echo.Context) error {
 	settings, err := h.Backend.GetAccountSettings()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, settings)
@@ -1402,12 +1460,12 @@ func (h *Handler) handleUpdateAccountSettings(c *echo.Context) error {
 		DeletionProtection *DeletionProtectionSettings `json:"DeletionProtection"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
 	settings, err := h.Backend.UpdateAccountSettings(req.DeletionProtection)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, settings)
@@ -1420,7 +1478,7 @@ func (h *Handler) handleGetConfiguration(c *echo.Context, application, environme
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	if configVersion.VersionNumber > 0 {
@@ -1447,7 +1505,7 @@ func (h *Handler) handleValidateConfiguration(c *echo.Context, applicationID, pr
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.NoContent(http.StatusNoContent)

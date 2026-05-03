@@ -13,6 +13,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	statusActive      = "ACTIVE"
+	statusInProgress  = "InProgress"
+	defaultK8sVersion = "1.32"
+	priorK8sVersion   = "1.31"
+)
+
 var (
 	// ErrNotFound is returned when an EKS resource is not found.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -220,7 +227,7 @@ func (b *InMemoryBackend) CreateCluster(name, version, roleARN string, kv map[st
 	}
 
 	if version == "" {
-		version = "1.32"
+		version = defaultK8sVersion
 	}
 
 	c := &Cluster{
@@ -228,7 +235,7 @@ func (b *InMemoryBackend) CreateCluster(name, version, roleARN string, kv map[st
 		ARN:             clusterARN,
 		Version:         version,
 		RoleARN:         roleARN,
-		Status:          "ACTIVE",
+		Status:          statusActive,
 		Endpoint:        fmt.Sprintf("https://%s.%s.eks.amazonaws.com", stableID(name), b.region),
 		PlatformVersion: "eks.1",
 		AccountID:       b.accountID,
@@ -403,7 +410,7 @@ func (b *InMemoryBackend) CreateNodegroup(
 		ClusterName:   clusterName,
 		ARN:           ngARN,
 		NodeRole:      nodeRole,
-		Status:        "ACTIVE",
+		Status:        statusActive,
 		AMIType:       amiType,
 		CapacityType:  capacityType,
 		InstanceTypes: instanceTypes,

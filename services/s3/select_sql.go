@@ -464,7 +464,7 @@ func (p *sqlParser) parseAnd() (sqlExpr, error) {
 			return nil, rightErr
 		}
 
-		left = &sqlBinaryExpr{op: "AND", left: left, right: right}
+		left = &sqlBinaryExpr{op: sqlOpAND, left: left, right: right}
 	}
 
 	return left, nil
@@ -721,9 +721,9 @@ func (p *sqlParser) parseIdentExpr(name string) (sqlExpr, error) {
 	case "NULL":
 		return &sqlLiteral{null: true}, nil
 	case "TRUE":
-		return &sqlLiteral{val: "true"}, nil
+		return &sqlLiteral{val: sqlValTrue}, nil
 	case "FALSE":
-		return &sqlLiteral{val: "false"}, nil
+		return &sqlLiteral{val: sqlValFalse}, nil
 	case "CAST":
 		return p.parseCast()
 	default:

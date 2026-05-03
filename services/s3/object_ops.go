@@ -620,7 +620,7 @@ func (h *S3Handler) deleteObjects(
 
 	if len(req.Objects) > maxDeleteObjects {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "InvalidArgument",
+			Code:    errInvalidArgument,
 			Message: "You have attempted to delete more objects than allowed by the service's max-delete limit (1000).",
 		}, http.StatusBadRequest)
 
@@ -833,8 +833,8 @@ func (h *S3Handler) getObjectACL(
 	const ownerID = "gopherstack-mock-owner"
 
 	acp := AccessControlPolicy{
-		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
-		Owner: Owner{ID: ownerID, DisplayName: "gopherstack"},
+		Xmlns: xmlNamespaceS3,
+		Owner: Owner{ID: ownerID, DisplayName: gopherstackName},
 		ACL: AccessControlList{
 			Grants: []Grant{
 				{
@@ -1128,7 +1128,7 @@ func (h *S3Handler) putObjectRetention(
 	var ret ObjectRetention
 	if xmlErr := xml.NewDecoder(bytes.NewReader(body)).Decode(&ret); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
+			Code:    errMalformedXML,
 			Message: "The XML you provided was not well-formed",
 		}, http.StatusBadRequest)
 
@@ -1141,7 +1141,7 @@ func (h *S3Handler) putObjectRetention(
 		retainUntil, parseErr = time.Parse("2006-01-02T15:04:05.999Z", ret.RetainUntilDate)
 		if parseErr != nil {
 			httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-				Code:    "InvalidArgument",
+				Code:    errInvalidArgument,
 				Message: "Invalid RetainUntilDate format",
 			}, http.StatusBadRequest)
 
@@ -1201,7 +1201,7 @@ func (h *S3Handler) getObjectRetention(
 	}
 
 	ret := ObjectRetention{
-		Xmlns:           "http://s3.amazonaws.com/doc/2006-03-01/",
+		Xmlns:           xmlNamespaceS3,
 		Mode:            mode,
 		RetainUntilDate: retainUntil.UTC().Format(time.RFC3339),
 	}
@@ -1227,7 +1227,7 @@ func (h *S3Handler) putObjectLegalHold(
 	var lh ObjectLegalHold
 	if xmlErr := xml.NewDecoder(bytes.NewReader(body)).Decode(&lh); xmlErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "MalformedXML",
+			Code:    errMalformedXML,
 			Message: "The XML you provided was not well-formed",
 		}, http.StatusBadRequest)
 
@@ -1277,7 +1277,7 @@ func (h *S3Handler) getObjectLegalHold(
 	}
 
 	lh := ObjectLegalHold{
-		Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
+		Xmlns:  xmlNamespaceS3,
 		Status: status,
 	}
 

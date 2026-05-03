@@ -17,6 +17,26 @@ import (
 )
 
 const (
+	keyNamePrefix = "NamePrefix"
+	keyNextToken  = "NextToken"
+	keyMaxResults = "MaxResults"
+)
+
+const (
+	opCreateSchedule      = "CreateSchedule"
+	opCreateScheduleGroup = "CreateScheduleGroup"
+	opDeleteSchedule      = "DeleteSchedule"
+	opDeleteScheduleGroup = "DeleteScheduleGroup"
+	opGetSchedule         = "GetSchedule"
+	opGetScheduleGroup    = "GetScheduleGroup"
+	opListScheduleGroups  = "ListScheduleGroups"
+	opListSchedules       = "ListSchedules"
+	opListTagsForResource = "ListTagsForResource"
+	opTagResource         = "TagResource"
+	opUpdateSchedule      = "UpdateSchedule"
+)
+
+const (
 	schedulerTargetPrefix    = "AWSScheduler."
 	schedulerPathSegment     = "schedules"
 	scheduleGroupPathSegment = "schedule-groups"
@@ -132,18 +152,18 @@ var _ service.Shutdowner = (*Handler)(nil)
 // GetSupportedOperations returns the list of supported Scheduler operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateSchedule",
-		"CreateScheduleGroup",
-		"DeleteSchedule",
-		"DeleteScheduleGroup",
-		"GetSchedule",
-		"GetScheduleGroup",
-		"ListScheduleGroups",
-		"ListSchedules",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
-		"UpdateSchedule",
+		opCreateSchedule,
+		opCreateScheduleGroup,
+		opDeleteSchedule,
+		opDeleteScheduleGroup,
+		opGetSchedule,
+		opGetScheduleGroup,
+		opListScheduleGroups,
+		opListSchedules,
+		opListTagsForResource,
+		opTagResource,
+		opUntagResource,
+		opUpdateSchedule,
 	}
 }
 
@@ -257,11 +277,11 @@ func parseTagsRESTPath(method string, segments []string) (string, string) {
 
 	switch method {
 	case http.MethodGet:
-		return "ListTagsForResource", resourceARN
+		return opListTagsForResource, resourceARN
 	case http.MethodPost:
-		return "TagResource", resourceARN
+		return opTagResource, resourceARN
 	case http.MethodDelete:
-		return "UntagResource", resourceARN
+		return opUntagResource, resourceARN
 	}
 
 	return restOpUnknown, ""
@@ -273,19 +293,19 @@ func parseScheduleRESTPath(method string, segments []string) (string, string) {
 	// GET /schedules or GET /schedules/ → ListSchedules
 	case method == http.MethodGet &&
 		(len(segments) == 1 || (len(segments) == schedulesPathMinSegments && segments[1] == "")):
-		return "ListSchedules", ""
+		return opListSchedules, ""
 	// POST /schedules/{name} → CreateSchedule
 	case method == http.MethodPost && len(segments) == schedulesPathMinSegments:
-		return "CreateSchedule", segments[1]
+		return opCreateSchedule, segments[1]
 	// GET /schedules/{name} → GetSchedule
 	case method == http.MethodGet && len(segments) == schedulesPathMinSegments:
-		return "GetSchedule", segments[1]
+		return opGetSchedule, segments[1]
 	// DELETE /schedules/{name} → DeleteSchedule
 	case method == http.MethodDelete && len(segments) == schedulesPathMinSegments:
-		return "DeleteSchedule", segments[1]
+		return opDeleteSchedule, segments[1]
 	// PUT /schedules/{name} → UpdateSchedule
 	case method == http.MethodPut && len(segments) == schedulesPathMinSegments:
-		return "UpdateSchedule", segments[1]
+		return opUpdateSchedule, segments[1]
 	}
 
 	return restOpUnknown, ""
@@ -297,16 +317,16 @@ func parseScheduleGroupRESTPath(method string, segments []string) (string, strin
 	// GET /schedule-groups or GET /schedule-groups/ → ListScheduleGroups
 	case method == http.MethodGet &&
 		(len(segments) == 1 || (len(segments) == schedulesPathMinSegments && segments[1] == "")):
-		return "ListScheduleGroups", ""
+		return opListScheduleGroups, ""
 	// POST /schedule-groups/{name} → CreateScheduleGroup
 	case method == http.MethodPost && len(segments) == schedulesPathMinSegments:
-		return "CreateScheduleGroup", segments[1]
+		return opCreateScheduleGroup, segments[1]
 	// GET /schedule-groups/{name} → GetScheduleGroup
 	case method == http.MethodGet && len(segments) == schedulesPathMinSegments:
-		return "GetScheduleGroup", segments[1]
+		return opGetScheduleGroup, segments[1]
 	// DELETE /schedule-groups/{name} → DeleteScheduleGroup
 	case method == http.MethodDelete && len(segments) == schedulesPathMinSegments:
-		return "DeleteScheduleGroup", segments[1]
+		return opDeleteScheduleGroup, segments[1]
 	}
 
 	return restOpUnknown, ""
@@ -370,17 +390,17 @@ func (h *Handler) enrichRESTBody(action, name string, body []byte, q interface{ 
 	m := unmarshalOrEmpty(body)
 
 	switch action {
-	case "GetSchedule", "DeleteSchedule", "UpdateSchedule":
+	case opGetSchedule, opDeleteSchedule, opUpdateSchedule:
 		enrichScheduleByPath(m, name, q)
-	case "CreateSchedule", "CreateScheduleGroup", "GetScheduleGroup", "DeleteScheduleGroup":
+	case opCreateSchedule, opCreateScheduleGroup, opGetScheduleGroup, opDeleteScheduleGroup:
 		if name != "" {
 			setJSONString(m, "Name", name)
 		}
-	case "ListSchedules":
+	case opListSchedules:
 		enrichListSchedulesQuery(m, q)
-	case "ListScheduleGroups":
+	case opListScheduleGroups:
 		enrichListScheduleGroupsQuery(m, q)
-	case "ListTagsForResource", "TagResource", opUntagResource:
+	case opListTagsForResource, opTagResource, opUntagResource:
 		enrichTagsPath(m, name, action, q)
 	}
 
@@ -407,10 +427,10 @@ func enrichListSchedulesQuery(m map[string]json.RawMessage, q interface{ Get(str
 	}
 
 	for _, qk := range []struct{ query, json string }{
-		{"NamePrefix", "NamePrefix"},
+		{keyNamePrefix, keyNamePrefix},
 		{"State", "State"},
-		{"NextToken", "NextToken"},
-		{"MaxResults", "MaxResults"},
+		{keyNextToken, keyNextToken},
+		{keyMaxResults, keyMaxResults},
 	} {
 		if v := q.Get(qk.query); v != "" {
 			setJSONString(m, qk.json, v)
@@ -421,9 +441,9 @@ func enrichListSchedulesQuery(m map[string]json.RawMessage, q interface{ Get(str
 // enrichListScheduleGroupsQuery injects ListScheduleGroups query parameters into the JSON map.
 func enrichListScheduleGroupsQuery(m map[string]json.RawMessage, q interface{ Get(string) string }) {
 	for _, qk := range []struct{ query, json string }{
-		{"NamePrefix", "NamePrefix"},
-		{"NextToken", "NextToken"},
-		{"MaxResults", "MaxResults"},
+		{keyNamePrefix, keyNamePrefix},
+		{keyNextToken, keyNextToken},
+		{keyMaxResults, keyMaxResults},
 	} {
 		if v := q.Get(qk.query); v != "" {
 			setJSONString(m, qk.json, v)
@@ -472,18 +492,18 @@ func setJSONString(m map[string]json.RawMessage, key, value string) {
 // buildOps constructs the dispatch map once at handler creation time.
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateSchedule":      service.WrapOp(h.handleCreateSchedule),
-		"CreateScheduleGroup": service.WrapOp(h.handleCreateScheduleGroup),
-		"DeleteSchedule":      service.WrapOp(h.handleDeleteSchedule),
-		"DeleteScheduleGroup": service.WrapOp(h.handleDeleteScheduleGroup),
-		"GetSchedule":         service.WrapOp(h.handleGetSchedule),
-		"GetScheduleGroup":    service.WrapOp(h.handleGetScheduleGroup),
-		"ListScheduleGroups":  service.WrapOp(h.handleListScheduleGroups),
-		"ListSchedules":       service.WrapOp(h.handleListSchedules),
-		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
-		"TagResource":         service.WrapOp(h.handleTagResource),
-		"UntagResource":       service.WrapOp(h.handleUntagResource),
-		"UpdateSchedule":      service.WrapOp(h.handleUpdateSchedule),
+		opCreateSchedule:      service.WrapOp(h.handleCreateSchedule),
+		opCreateScheduleGroup: service.WrapOp(h.handleCreateScheduleGroup),
+		opDeleteSchedule:      service.WrapOp(h.handleDeleteSchedule),
+		opDeleteScheduleGroup: service.WrapOp(h.handleDeleteScheduleGroup),
+		opGetSchedule:         service.WrapOp(h.handleGetSchedule),
+		opGetScheduleGroup:    service.WrapOp(h.handleGetScheduleGroup),
+		opListScheduleGroups:  service.WrapOp(h.handleListScheduleGroups),
+		opListSchedules:       service.WrapOp(h.handleListSchedules),
+		opListTagsForResource: service.WrapOp(h.handleListTagsForResource),
+		opTagResource:         service.WrapOp(h.handleTagResource),
+		opUntagResource:       service.WrapOp(h.handleUntagResource),
+		opUpdateSchedule:      service.WrapOp(h.handleUpdateSchedule),
 	}
 }
 

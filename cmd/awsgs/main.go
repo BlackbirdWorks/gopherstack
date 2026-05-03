@@ -36,6 +36,9 @@ const (
 	// endpointURLArgCount is the number of extra arguments added by buildArgs
 	// when injecting --endpoint-url.
 	endpointURLArgCount = 2
+
+	envGopherstackPort = "GOPHERSTACK_PORT"
+	flagEndpointURL    = "--endpoint-url"
 )
 
 func main() {
@@ -126,7 +129,7 @@ func parseAwsgsFlags(args []string) (string, string, []string) {
 // resolvePort returns the port from environment variables or the default.
 // Priority: AWSGS_PORT → GOPHERSTACK_PORT → defaultPort.
 func resolvePort() string {
-	for _, env := range []string{"AWSGS_PORT", "GOPHERSTACK_PORT"} {
+	for _, env := range []string{"AWSGS_PORT", envGopherstackPort} {
 		if v := os.Getenv(env); v != "" {
 			if _, err := strconv.Atoi(v); err != nil {
 				fmt.Fprintf(os.Stderr, "awsgs: invalid port in %s, using default %s\n", env, defaultPort)
@@ -145,14 +148,14 @@ func resolvePort() string {
 // If --endpoint-url is already present it is left unchanged.
 func buildArgs(args []string, endpoint string) []string {
 	for _, a := range args {
-		if a == "--endpoint-url" || strings.HasPrefix(a, "--endpoint-url=") {
+		if a == flagEndpointURL || strings.HasPrefix(a, flagEndpointURL+"=") {
 			// Already set — pass through as-is.
 			return args
 		}
 	}
 
 	result := make([]string, 0, len(args)+endpointURLArgCount)
-	result = append(result, "--endpoint-url", endpoint)
+	result = append(result, flagEndpointURL, endpoint)
 	result = append(result, args...)
 
 	return result
