@@ -201,7 +201,7 @@
 		await loadInstances(serviceId);
 	}
 
-	async function switchTab(tab: typeof activeTab) {
+	function switchTab(tab: typeof activeTab) {
 		activeTab = tab;
 		searchQuery = '';
 	}

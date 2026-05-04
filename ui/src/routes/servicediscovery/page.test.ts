@@ -101,7 +101,7 @@ describe("Service Discovery Page", () => {
     render(ServiceDiscoveryPage);
     // Click Operations tab
     const opsTabs = await screen.findAllByText("Operations");
-    fireEvent.click(opsTabs[opsTabs.length - 1]);
+    fireEvent.click(opsTabs.at(-1)!);
     await waitFor(
       () => {
         expect(screen.getByText("op-abc123")).toBeInTheDocument();
@@ -118,46 +118,65 @@ describe("Service Discovery Page", () => {
   it("opens create namespace modal on button click", async () => {
     render(ServiceDiscoveryPage);
     fireEvent.click(screen.getByText("Create Namespace"));
-    await waitFor(() => {
-      expect(screen.getByLabelText(/create namespace/i) ?? screen.getByRole("dialog")).toBeInTheDocument();
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        expect(
+          screen.getByLabelText(/create namespace/i) ?? screen.getByRole("dialog"),
+        ).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it("shows Create Service button on services tab", async () => {
     render(ServiceDiscoveryPage);
     const serviceTabs = screen.getAllByText("Services");
-    fireEvent.click(serviceTabs[serviceTabs.length - 1]);
-    await waitFor(() => {
-      expect(screen.getByText("Create Service")).toBeInTheDocument();
-    }, { timeout: 3000 });
+    fireEvent.click(serviceTabs.at(-1)!);
+    await waitFor(
+      () => {
+        expect(screen.getByText("Create Service")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it("shows Register Instance button on instances tab", async () => {
     render(ServiceDiscoveryPage);
     const instancesTabs = screen.getAllByText("Instances");
-    fireEvent.click(instancesTabs[instancesTabs.length - 1]);
-    await waitFor(() => {
-      expect(screen.getByText("Register Instance")).toBeInTheDocument();
-    }, { timeout: 3000 });
+    fireEvent.click(instancesTabs.at(-1)!);
+    await waitFor(
+      () => {
+        expect(screen.getByText("Register Instance")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it("instances tab shows service selector empty state", async () => {
     render(ServiceDiscoveryPage);
     const instancesTabs = screen.getAllByText("Instances");
-    fireEvent.click(instancesTabs[instancesTabs.length - 1]);
-    await waitFor(() => {
-      expect(screen.getByText(/select a service to view its instances/i)).toBeInTheDocument();
-    }, { timeout: 3000 });
+    fireEvent.click(instancesTabs.at(-1)!);
+    await waitFor(
+      () => {
+        expect(screen.getByText(/select a service to view its instances/i)).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it("opens register instance modal", async () => {
     render(ServiceDiscoveryPage);
     const instancesTabs = screen.getAllByText("Instances");
-    fireEvent.click(instancesTabs[instancesTabs.length - 1]);
+    fireEvent.click(instancesTabs.at(-1)!);
     await waitFor(() => screen.getByText("Register Instance"), { timeout: 3000 });
     fireEvent.click(screen.getByText("Register Instance"));
-    await waitFor(() => {
-      expect(screen.getByText("Register Instance", { selector: "h3" }) ?? screen.getByRole("dialog")).toBeInTheDocument();
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        expect(
+          screen.getByText("Register Instance", { selector: "h3" }) ?? screen.getByRole("dialog"),
+        ).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 });
