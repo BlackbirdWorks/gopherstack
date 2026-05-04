@@ -278,6 +278,56 @@ func (b *InMemoryBackend) trimJobsIfNeeded() {
 	}
 }
 
+// trimExpenseJobsIfNeeded bounds the expenseJobs map by evicting oldest entries.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) trimExpenseJobsIfNeeded() {
+	if len(b.expenseJobs) <= b.maxJobs {
+		return
+	}
+
+	type entry struct {
+		t  time.Time
+		id string
+	}
+
+	entries := make([]entry, 0, len(b.expenseJobs))
+	for id, j := range b.expenseJobs {
+		entries = append(entries, entry{id: id, t: j.CreationTime})
+	}
+
+	sort.Slice(entries, func(i, k int) bool { return entries[i].t.Before(entries[k].t) })
+
+	excess := len(b.expenseJobs) - b.maxJobs
+	for i := range excess {
+		delete(b.expenseJobs, entries[i].id)
+	}
+}
+
+// trimLendingJobsIfNeeded bounds the lendingJobs map by evicting oldest entries.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) trimLendingJobsIfNeeded() {
+	if len(b.lendingJobs) <= b.maxJobs {
+		return
+	}
+
+	type entry struct {
+		t  time.Time
+		id string
+	}
+
+	entries := make([]entry, 0, len(b.lendingJobs))
+	for id, j := range b.lendingJobs {
+		entries = append(entries, entry{id: id, t: j.CreationTime})
+	}
+
+	sort.Slice(entries, func(i, k int) bool { return entries[i].t.Before(entries[k].t) })
+
+	excess := len(b.lendingJobs) - b.maxJobs
+	for i := range excess {
+		delete(b.lendingJobs, entries[i].id)
+	}
+}
+
 // AnalyzeDocument performs a synchronous document analysis and returns synthetic blocks.
 func (b *InMemoryBackend) AnalyzeDocument(documentURI string) []Block {
 	return syntheticBlocks(documentURI)
@@ -444,6 +494,7 @@ func (b *InMemoryBackend) StartExpenseAnalysis(documentURI string) (*ExpenseJob,
 		},
 	}
 	b.expenseJobs[jobID] = job
+	b.trimExpenseJobsIfNeeded()
 
 	return cloneExpenseJob(job), nil
 }
@@ -474,6 +525,7 @@ func (b *InMemoryBackend) StartLendingAnalysis(_ string) (*LendingJob, error) {
 		Results:      []LendingResult{{Page: 1}},
 	}
 	b.lendingJobs[jobID] = job
+	b.trimLendingJobsIfNeeded()
 
 	return cloneLendingJob(job), nil
 }
