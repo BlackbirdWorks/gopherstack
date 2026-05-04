@@ -130,3 +130,6 @@ func (b *InMemoryBackend) AddSamplingRuleInternal(rule SamplingRule) {
 
 // MaxSegmentsPerTrace exposes the per-trace segment cap for tests.
 const MaxSegmentsPerTrace = maxSegmentsPerTrace
+
+// SegmentCompactionHighWater exposes the compaction trigger for tests.
+const SegmentCompactionHighWater = segmentCompactionHighWater

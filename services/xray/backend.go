@@ -141,6 +141,9 @@ const (
 	// single trace so one runaway producer cannot consume unbounded memory
 	// before the janitor's TTL sweep removes the trace.
 	maxSegmentsPerTrace = 5000
+	// segmentCompactionHighWater is the slice length that triggers compaction.
+	// Compacting only every 2x cap keeps the per-call cost amortized O(1).
+	segmentCompactionHighWater = 2 * maxSegmentsPerTrace
 )
 
 // InMemoryBackend is the in-memory store for X-Ray resources.
@@ -429,8 +432,8 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 		// Reslice into a fresh backing array so the dropped prefix and any
 		// over-allocated tail are released for GC immediately rather than
 		// pinned for the lifetime of the trace.
-		if len(t.Segments) >= 2*maxSegmentsPerTrace {
-			trimmed := make([]string, maxSegmentsPerTrace, 2*maxSegmentsPerTrace)
+		if len(t.Segments) >= segmentCompactionHighWater {
+			trimmed := make([]string, maxSegmentsPerTrace, segmentCompactionHighWater)
 			copy(trimmed, t.Segments[len(t.Segments)-maxSegmentsPerTrace:])
 			t.Segments = trimmed
 		}

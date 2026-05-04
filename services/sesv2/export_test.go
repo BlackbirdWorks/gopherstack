@@ -71,3 +71,6 @@ func EmailCount(b *InMemoryBackend) int {
 
 // MaxRetainedEmails exposes the email retention cap for tests.
 const MaxRetainedEmails = maxRetainedEmails
+
+// EmailCompactionHighWater exposes the compaction trigger for tests.
+const EmailCompactionHighWater = emailCompactionHighWater

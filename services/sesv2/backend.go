@@ -42,6 +42,10 @@ const (
 // instance cannot leak memory through repeated SendEmail calls.
 const maxRetainedEmails = 10000
 
+// emailCompactionHighWater is the slice length that triggers compaction.
+// Compacting only every 2x cap keeps trimming amortized O(1) per SendEmail.
+const emailCompactionHighWater = 2 * maxRetainedEmails
+
 // EmailIdentity represents a verified email address or domain identity.
 type EmailIdentity struct {
 	Identity           string `json:"identity"`
@@ -410,11 +414,11 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 	// amortized O(1) per send rather than O(maxRetainedEmails) on every send
 	// past the cap. The dropped prefix becomes unreachable once the slice
 	// header advances and is collected on the next reslice/grow.
-	if len(b.emails) >= 2*maxRetainedEmails {
+	if len(b.emails) >= emailCompactionHighWater {
 		// Reslice into a fresh backing array so the dropped tail can be GC'd
 		// immediately rather than held by the original (now larger) backing
 		// array.
-		trimmed := make([]Email, maxRetainedEmails, 2*maxRetainedEmails)
+		trimmed := make([]Email, maxRetainedEmails, emailCompactionHighWater)
 		copy(trimmed, b.emails[len(b.emails)-maxRetainedEmails:])
 		b.emails = trimmed
 	}

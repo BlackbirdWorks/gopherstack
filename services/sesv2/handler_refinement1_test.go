@@ -1070,7 +1070,7 @@ func TestSESv2Backend_SendEmailCap(t *testing.T) {
 	// Send beyond 2x the cap so the amortized compaction path runs at least
 	// once. After compaction the slice length must stay between
 	// maxRetainedEmails and 2*maxRetainedEmails.
-	total := 2*sesv2.MaxRetainedEmails + 5
+	total := sesv2.EmailCompactionHighWater + 5
 	for i := range total {
 		_, err := b.SendEmail("a@example.com", []string{"b@example.com"},
 			"s", "h", "t")
@@ -1080,6 +1080,6 @@ func TestSESv2Backend_SendEmailCap(t *testing.T) {
 	got := sesv2.EmailCount(b)
 	assert.GreaterOrEqual(t, got, sesv2.MaxRetainedEmails,
 		"retain at least the cap")
-	assert.LessOrEqual(t, got, 2*sesv2.MaxRetainedEmails,
+	assert.LessOrEqual(t, got, sesv2.EmailCompactionHighWater,
 		"never exceed the compaction high-water mark")
 }

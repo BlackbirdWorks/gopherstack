@@ -605,7 +605,7 @@ func TestInMemoryBackend_PutTraceSegmentsCap(t *testing.T) {
 	const traceID = "1-58406520-a006649127e371903a2de979"
 	segTemplate := `{"trace_id":"` + traceID + `","id":"%d"}`
 
-	total := 2*xray.MaxSegmentsPerTrace + 50
+	total := xray.SegmentCompactionHighWater + 50
 	segs := make([]string, 0, total)
 
 	for i := range total {
@@ -619,7 +619,7 @@ func TestInMemoryBackend_PutTraceSegmentsCap(t *testing.T) {
 
 	// After amortized compaction the slice length is bounded by 2x the cap;
 	// the cap itself is the floor maintained between compactions.
-	assert.LessOrEqual(t, len(got.Segments), 2*xray.MaxSegmentsPerTrace,
+	assert.LessOrEqual(t, len(got.Segments), xray.SegmentCompactionHighWater,
 		"segments must never exceed compaction high-water mark")
 	assert.GreaterOrEqual(t, len(got.Segments), xray.MaxSegmentsPerTrace,
 		"segments must retain at least the cap")
