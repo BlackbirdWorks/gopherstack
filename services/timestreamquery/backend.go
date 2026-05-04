@@ -267,19 +267,22 @@ func (b *InMemoryBackend) Query(queryString string) *QueryResult {
 		Columns:     []map[string]any{},
 	}
 
-	b.queries[queryID] = result
-
 	// Evict arbitrary entries when over the cap so a long-running instance
 	// cannot leak memory through repeated Query calls. Map iteration order
 	// is random in Go; for the simulator this is acceptable since only
 	// CancelQuery interacts with stored results.
-	for len(b.queries) > maxRetainedQueries {
+	// Evict before inserting so the new query is never randomly chosen for
+	// eviction — callers that immediately CancelQuery on the returned ID
+	// must not see a spurious ErrNotFound.
+	for len(b.queries) >= maxRetainedQueries {
 		for id := range b.queries {
 			delete(b.queries, id)
 
 			break
 		}
 	}
+
+	b.queries[queryID] = result
 
 	// queryString is intentionally not evaluated — this is a simulation.
 	_ = queryString
