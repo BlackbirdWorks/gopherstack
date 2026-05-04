@@ -141,9 +141,10 @@ const (
 	// single trace so one runaway producer cannot consume unbounded memory
 	// before the janitor's TTL sweep removes the trace.
 	maxSegmentsPerTrace = 5000
-	// segmentCompactionHighWater is the slice length that triggers compaction.
-	// Compacting only every 2x cap keeps the per-call cost amortized O(1).
-	segmentCompactionHighWater = 2 * maxSegmentsPerTrace
+	// segmentCompactionHighWater is the slice length that triggers
+	// compaction. Compacting only when the slice has grown to twice the cap
+	// keeps the per-call cost amortized O(1).
+	segmentCompactionHighWater = maxSegmentsPerTrace + maxSegmentsPerTrace
 )
 
 // InMemoryBackend is the in-memory store for X-Ray resources.

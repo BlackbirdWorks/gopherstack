@@ -43,8 +43,9 @@ const (
 const maxRetainedEmails = 10000
 
 // emailCompactionHighWater is the slice length that triggers compaction.
-// Compacting only every 2x cap keeps trimming amortized O(1) per SendEmail.
-const emailCompactionHighWater = 2 * maxRetainedEmails
+// Compacting only when the slice has grown to twice the cap keeps
+// trimming amortized O(1) per SendEmail.
+const emailCompactionHighWater = maxRetainedEmails + maxRetainedEmails
 
 // EmailIdentity represents a verified email address or domain identity.
 type EmailIdentity struct {
