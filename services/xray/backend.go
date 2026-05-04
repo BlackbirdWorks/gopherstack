@@ -426,9 +426,13 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 		// consume unbounded memory before the janitor's TTL sweep evicts it.
 		// Compact only when the slice has grown to twice the cap so the per-call
 		// cost is amortized O(1) rather than O(cap) on every insert past the cap.
+		// Reslice into a fresh backing array so the dropped prefix and any
+		// over-allocated tail are released for GC immediately rather than
+		// pinned for the lifetime of the trace.
 		if len(t.Segments) >= 2*maxSegmentsPerTrace {
-			copy(t.Segments, t.Segments[len(t.Segments)-maxSegmentsPerTrace:])
-			t.Segments = t.Segments[:maxSegmentsPerTrace]
+			trimmed := make([]string, maxSegmentsPerTrace, 2*maxSegmentsPerTrace)
+			copy(trimmed, t.Segments[len(t.Segments)-maxSegmentsPerTrace:])
+			t.Segments = trimmed
 		}
 
 		t.Segments = append(t.Segments, seg)
