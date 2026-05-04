@@ -133,7 +133,8 @@ describe("Serverless Application Repository Page", () => {
           { ApplicationId: "arn:1", Name: "my-api-app", Author: "MyOrg", Description: "A REST API" },
         ],
       })
-      .mockResolvedValueOnce({ Versions: [] }); // loadVersions
+      // loadVersions
+      .mockResolvedValueOnce({ Versions: [] });
 
     render(ServerlessRepoPage);
 
