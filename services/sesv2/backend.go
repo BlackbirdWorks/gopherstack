@@ -37,6 +37,11 @@ const (
 	exportJobStatusCancelled           = "CANCELLED"
 )
 
+// maxRetainedEmails is the maximum number of sent emails retained in memory.
+// When the cap is exceeded the oldest entries are dropped FIFO so a long-running
+// instance cannot leak memory through repeated SendEmail calls.
+const maxRetainedEmails = 10000
+
 // EmailIdentity represents a verified email address or domain identity.
 type EmailIdentity struct {
 	Identity           string `json:"identity"`
@@ -401,6 +406,13 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 
 	b.mu.Lock("SendEmail")
 	b.emails = append(b.emails, email)
+	if len(b.emails) > maxRetainedEmails {
+		// Drop the oldest entries, preserving roughly the last maxRetainedEmails.
+		// Reslice into a fresh backing array so the dropped tail can be GC'd.
+		trimmed := make([]Email, maxRetainedEmails)
+		copy(trimmed, b.emails[len(b.emails)-maxRetainedEmails:])
+		b.emails = trimmed
+	}
 	b.mu.Unlock()
 
 	return msgID, nil

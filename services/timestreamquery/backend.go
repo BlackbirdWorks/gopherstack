@@ -74,12 +74,19 @@ type PrepareQueryResult struct {
 	Parameters  []map[string]any
 }
 
+// maxRetainedQueries bounds the queries map so a long-running instance cannot
+// leak memory through repeated Query calls. The map only stores queries that
+// were not explicitly cancelled; in real Timestream, Query results are
+// transient anyway.
+const maxRetainedQueries = 10000
+
 // InMemoryBackend is the in-memory backend for the Timestream Query service.
 type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
 	scheduledQueries map[string]*ScheduledQuery // keyed by name
 	arnIndex         map[string]string          // ARN → name
 	queries          map[string]*QueryResult
+	queryOrder       []string // FIFO of query IDs for bounded eviction
 	accountSettings  AccountSettings
 	accountID        string
 	region           string
@@ -106,6 +113,7 @@ func (b *InMemoryBackend) Reset() {
 	b.scheduledQueries = make(map[string]*ScheduledQuery)
 	b.arnIndex = make(map[string]string)
 	b.queries = make(map[string]*QueryResult)
+	b.queryOrder = nil
 	b.accountSettings = AccountSettings{QueryPricingModel: pricingModelBytesScanned}
 }
 
@@ -262,6 +270,13 @@ func (b *InMemoryBackend) Query(queryString string) *QueryResult {
 	}
 
 	b.queries[queryID] = result
+	b.queryOrder = append(b.queryOrder, queryID)
+
+	if len(b.queryOrder) > maxRetainedQueries {
+		oldest := b.queryOrder[0]
+		b.queryOrder = b.queryOrder[1:]
+		delete(b.queries, oldest)
+	}
 
 	// queryString is intentionally not evaluated — this is a simulation.
 	_ = queryString
@@ -279,6 +294,14 @@ func (b *InMemoryBackend) CancelQuery(queryID string) error {
 	}
 
 	delete(b.queries, queryID)
+
+	for i, id := range b.queryOrder {
+		if id == queryID {
+			b.queryOrder = append(b.queryOrder[:i], b.queryOrder[i+1:]...)
+
+			break
+		}
+	}
 
 	return nil
 }
