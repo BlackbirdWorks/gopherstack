@@ -31,7 +31,6 @@
 	let operations = $state<OperationSummary[]>([]);
 	let selectedServiceId = $state('');
 	let loadingInstances = $state(false);
-	let loadingOperations = $state(false);
 
 	// Create Namespace modal
 	let showCreateNamespace = $state(false);
@@ -70,12 +69,14 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const [nsResp, svcResp] = await Promise.all([
+			const [nsResp, svcResp, opsResp] = await Promise.all([
 				sd.send(new ListNamespacesCommand({})),
-				sd.send(new ListServicesCommand({}))
+				sd.send(new ListServicesCommand({})),
+				sd.send(new ListOperationsCommand({}))
 			]);
 			namespaces = nsResp.Namespaces ?? [];
 			services = svcResp.Services ?? [];
+			operations = opsResp.Operations ?? [];
 		} catch (e) {
 			toast.error('Failed to load Service Discovery data: ' + String(e));
 		} finally {
@@ -96,20 +97,9 @@
 		}
 	}
 
-	async function loadOperations() {
-		loadingOperations = true;
-		try {
-			const resp = await sd.send(new ListOperationsCommand({}));
-			operations = resp.Operations ?? [];
-		} catch (e) {
-			toast.error('Failed to load operations: ' + String(e));
-		} finally {
-			loadingOperations = false;
-		}
-	}
-
 	async function createNamespace() {
 		if (!nsName.trim()) { toast.error('Name is required'); return; }
+		if (nsType === 'PRIVATE_DNS' && !nsVpc.trim()) { toast.error('VPC ID is required for Private DNS namespace'); return; }
 		creatingNs = true;
 		try {
 			if (nsType === 'HTTP') {
@@ -214,7 +204,6 @@
 	async function switchTab(tab: typeof activeTab) {
 		activeTab = tab;
 		searchQuery = '';
-		if (tab === 'operations') await loadOperations();
 	}
 
 	function operationStatusColor(status?: string) {
@@ -384,9 +373,7 @@
 					</div>
 				{/if}
 			{:else if activeTab === 'operations'}
-				{#if loadingOperations}
-					<div class="text-center py-8 text-gray-500 dark:text-gray-400">Loading operations...</div>
-				{:else if operations.length === 0}
+				{#if operations.length === 0}
 					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No operations found</div>
 				{:else}
 					<div class="space-y-2">
@@ -419,9 +406,9 @@
 		onclick={() => (showCreateNamespace = false)}
 		onkeydown={(e) => e.key === 'Escape' && (showCreateNamespace = false)}>
 		<div class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
-			role="dialog" aria-modal="true" aria-labelledby="create-ns-title"
+			role="dialog" aria-modal="true" aria-labelledby="create-ns-title" tabindex="-1"
 			onclick={(e) => e.stopPropagation()}
-			onkeydown={(e) => e.stopPropagation()}>
+			onkeydown={(e) => { if (e.key === 'Escape') showCreateNamespace = false; }}>
 			<h3 id="create-ns-title" class="mb-4 font-semibold text-white">Create Namespace</h3>
 			<div class="space-y-3">
 				<div>
@@ -468,9 +455,9 @@
 		onclick={() => (showCreateService = false)}
 		onkeydown={(e) => e.key === 'Escape' && (showCreateService = false)}>
 		<div class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
-			role="dialog" aria-modal="true" aria-labelledby="create-svc-title"
+			role="dialog" aria-modal="true" aria-labelledby="create-svc-title" tabindex="-1"
 			onclick={(e) => e.stopPropagation()}
-			onkeydown={(e) => e.stopPropagation()}>
+			onkeydown={(e) => { if (e.key === 'Escape') showCreateService = false; }}>
 			<h3 id="create-svc-title" class="mb-4 font-semibold text-white">Create Service</h3>
 			<div class="space-y-3">
 				<div>
@@ -511,9 +498,9 @@
 		onclick={() => (showRegisterInstance = false)}
 		onkeydown={(e) => e.key === 'Escape' && (showRegisterInstance = false)}>
 		<div class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
-			role="dialog" aria-modal="true" aria-labelledby="register-inst-title"
+			role="dialog" aria-modal="true" aria-labelledby="register-inst-title" tabindex="-1"
 			onclick={(e) => e.stopPropagation()}
-			onkeydown={(e) => e.stopPropagation()}>
+			onkeydown={(e) => { if (e.key === 'Escape') showRegisterInstance = false; }}>
 			<h3 id="register-inst-title" class="mb-4 font-semibold text-white">Register Instance</h3>
 			<div class="space-y-3">
 				<div>
@@ -559,9 +546,9 @@
 		onclick={() => (showUpdateHealth = false)}
 		onkeydown={(e) => e.key === 'Escape' && (showUpdateHealth = false)}>
 		<div class="w-80 rounded-lg border border-gray-700 bg-gray-800 p-6"
-			role="dialog" aria-modal="true" aria-labelledby="update-health-title"
+			role="dialog" aria-modal="true" aria-labelledby="update-health-title" tabindex="-1"
 			onclick={(e) => e.stopPropagation()}
-			onkeydown={(e) => e.stopPropagation()}>
+			onkeydown={(e) => { if (e.key === 'Escape') showUpdateHealth = false; }}>
 			<h3 id="update-health-title" class="mb-4 font-semibold text-white">Update Custom Health Status</h3>
 			<p class="text-xs text-gray-400 mb-3">Instance: <span class="text-white font-mono">{healthInstanceId}</span></p>
 			<div class="space-y-3">
