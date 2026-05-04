@@ -80,5 +80,5 @@ func TestSWFDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No domains registered")
+	assert.Contains(t, content, "No domains found")
 }
