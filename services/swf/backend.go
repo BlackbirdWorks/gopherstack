@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -44,6 +46,39 @@ const (
 	// defaultAccountID is used when no account ID is provided.
 	defaultAccountID = "123456789012"
 )
+
+// HistoryEvent is a single event in a workflow execution's history.
+type HistoryEvent struct {
+	EventID   int64   `json:"eventId"`
+	EventType string  `json:"eventType"`
+	Timestamp float64 `json:"eventTimestamp"`
+}
+
+// ActivityTaskActivityType is the activity type reference within an activity task.
+type ActivityTaskActivityType struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// ActivityTask represents a pending activity task returned by PollForActivityTask.
+type ActivityTask struct {
+	TaskToken      string                   `json:"taskToken"`
+	ActivityID     string                   `json:"activityId"`
+	ActivityType   ActivityTaskActivityType  `json:"activityType"`
+	Input          string                   `json:"input,omitempty"`
+	WorkflowID     string                   `json:"workflowId"`
+	RunID          string                   `json:"runId"`
+	StartedEventID int64                    `json:"startedEventId"`
+}
+
+// DecisionTask represents a pending decision task returned by PollForDecisionTask.
+type DecisionTask struct {
+	TaskToken      string         `json:"taskToken"`
+	WorkflowID     string         `json:"workflowId"`
+	RunID          string         `json:"runId"`
+	StartedEventID int64          `json:"startedEventId"`
+	Events         []HistoryEvent `json:"events"`
+}
 
 // Domain represents an SWF domain.
 type Domain struct {
@@ -85,8 +120,12 @@ type WorkflowExecution struct {
 type InMemoryBackend struct {
 	domains        map[string]*Domain
 	workflows      map[string]*WorkflowType      // key: domain+":"+name+":"+version
-	activities     map[string]*ActivityType      // key: domain+":"+name+":"+version
-	executions     map[string]*WorkflowExecution // key: domain+":"+workflowID
+	activities     map[string]*ActivityType       // key: domain+":"+name+":"+version
+	executions     map[string]*WorkflowExecution  // key: domain+":"+workflowID
+	history        map[string][]HistoryEvent      // key: domain+":"+workflowID
+	activityQueues map[string][]*ActivityTask     // key: domain+":"+taskList
+	decisionQueues map[string][]*DecisionTask     // key: domain+":"+taskList
+	tags           map[string]map[string]string   // key: resourceARN
 	mu             *lockmetrics.RWMutex
 	executionOrder []string // FIFO order of execution keys for eviction
 }
@@ -94,11 +133,15 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		domains:    make(map[string]*Domain),
-		workflows:  make(map[string]*WorkflowType),
-		activities: make(map[string]*ActivityType),
-		executions: make(map[string]*WorkflowExecution),
-		mu:         lockmetrics.New("swf"),
+		domains:        make(map[string]*Domain),
+		workflows:      make(map[string]*WorkflowType),
+		activities:     make(map[string]*ActivityType),
+		executions:     make(map[string]*WorkflowExecution),
+		history:        make(map[string][]HistoryEvent),
+		activityQueues: make(map[string][]*ActivityTask),
+		decisionQueues: make(map[string][]*DecisionTask),
+		tags:           make(map[string]map[string]string),
+		mu:             lockmetrics.New("swf"),
 	}
 }
 
@@ -111,7 +154,52 @@ func (b *InMemoryBackend) Reset() {
 	b.workflows = make(map[string]*WorkflowType)
 	b.activities = make(map[string]*ActivityType)
 	b.executions = make(map[string]*WorkflowExecution)
+	b.history = make(map[string][]HistoryEvent)
+	b.activityQueues = make(map[string][]*ActivityTask)
+	b.decisionQueues = make(map[string][]*DecisionTask)
+	b.tags = make(map[string]map[string]string)
 	b.executionOrder = nil
+}
+
+// appendHistoryEventLocked appends a history event for a workflow execution.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) appendHistoryEventLocked(domain, workflowID, eventType string) {
+	key := domain + ":" + workflowID
+	events := b.history[key]
+	b.history[key] = append(events, HistoryEvent{
+		EventID:   int64(len(events)) + 1,
+		EventType: eventType,
+		Timestamp: float64(time.Now().Unix()),
+	})
+}
+
+// EnqueueActivityTaskInternal seeds an activity task in a task list for testing.
+func (b *InMemoryBackend) EnqueueActivityTaskInternal(
+	domain, taskList, activityID, activityName, activityVersion, input, workflowID, runID string,
+) {
+	b.mu.Lock("EnqueueActivityTaskInternal")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + taskList
+	b.activityQueues[key] = append(b.activityQueues[key], &ActivityTask{
+		ActivityID:   activityID,
+		ActivityType: ActivityTaskActivityType{Name: activityName, Version: activityVersion},
+		Input:        input,
+		WorkflowID:   workflowID,
+		RunID:        runID,
+	})
+}
+
+// EnqueueDecisionTaskInternal seeds a decision task in a task list for testing.
+func (b *InMemoryBackend) EnqueueDecisionTaskInternal(domain, taskList, workflowID, runID string) {
+	b.mu.Lock("EnqueueDecisionTaskInternal")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + taskList
+	b.decisionQueues[key] = append(b.decisionQueues[key], &DecisionTask{
+		WorkflowID: workflowID,
+		RunID:      runID,
+	})
 }
 
 // AccountID returns the account ID for this backend.
@@ -570,6 +658,7 @@ func (b *InMemoryBackend) StartWorkflowExecution(domain, workflowID, runID strin
 		StartTimestamp: now,
 	}
 	b.executions[key] = exec
+	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionStarted")
 
 	cp := *exec
 
@@ -594,6 +683,7 @@ func (b *InMemoryBackend) TerminateWorkflowExecution(domain, workflowID string) 
 	exec.Status = statusTerminated
 	exec.CloseStatus = statusTerminated
 	exec.CloseTimestamp = float64(time.Now().Unix())
+	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionTerminated")
 
 	return nil
 }
@@ -612,4 +702,197 @@ func (b *InMemoryBackend) DescribeWorkflowExecution(domain, workflowID string) (
 	cp := *exec
 
 	return &cp, nil
+}
+
+// GetWorkflowExecutionHistory returns history events for a workflow execution.
+func (b *InMemoryBackend) GetWorkflowExecutionHistory(domain, workflowID string) []HistoryEvent {
+	b.mu.RLock("GetWorkflowExecutionHistory")
+	defer b.mu.RUnlock()
+
+	events := b.history[domain+":"+workflowID]
+	if len(events) == 0 {
+		return []HistoryEvent{}
+	}
+
+	cp := make([]HistoryEvent, len(events))
+	copy(cp, events)
+
+	return cp
+}
+
+// ListOpenWorkflowExecutions returns all running executions in a domain.
+func (b *InMemoryBackend) ListOpenWorkflowExecutions(domain string) []WorkflowExecution {
+	b.mu.RLock("ListOpenWorkflowExecutions")
+	defer b.mu.RUnlock()
+
+	out := make([]WorkflowExecution, 0)
+	for _, e := range b.executions {
+		if e.Domain == domain && e.Status == statusRunning {
+			out = append(out, *e)
+		}
+	}
+
+	return out
+}
+
+// ListClosedWorkflowExecutions returns all closed executions in a domain.
+func (b *InMemoryBackend) ListClosedWorkflowExecutions(domain string) []WorkflowExecution {
+	b.mu.RLock("ListClosedWorkflowExecutions")
+	defer b.mu.RUnlock()
+
+	out := make([]WorkflowExecution, 0)
+	for _, e := range b.executions {
+		if e.Domain == domain && e.Status != statusRunning {
+			out = append(out, *e)
+		}
+	}
+
+	return out
+}
+
+// ListTagsForResource returns tags for a resource ARN.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) map[string]string {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	tags := b.tags[resourceARN]
+	cp := make(map[string]string, len(tags))
+	for k, v := range tags {
+		cp[k] = v
+	}
+
+	return cp
+}
+
+// TagResource adds or updates tags on a resource.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	if b.tags[resourceARN] == nil {
+		b.tags[resourceARN] = make(map[string]string)
+	}
+
+	for k, v := range tags {
+		b.tags[resourceARN][k] = v
+	}
+
+	return nil
+}
+
+// UntagResource removes tags from a resource.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	if b.tags[resourceARN] != nil {
+		for _, k := range tagKeys {
+			delete(b.tags[resourceARN], k)
+		}
+	}
+
+	return nil
+}
+
+// PollForActivityTask returns the next available activity task for a task list, or nil if none.
+func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *ActivityTask {
+	b.mu.Lock("PollForActivityTask")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + taskList
+	queue := b.activityQueues[key]
+	if len(queue) == 0 {
+		return nil
+	}
+
+	task := *queue[0]
+	b.activityQueues[key] = queue[1:]
+	task.TaskToken = uuid.New().String()
+
+	return &task
+}
+
+// PollForDecisionTask returns the next available decision task for a task list, or nil if none.
+func (b *InMemoryBackend) PollForDecisionTask(domain, taskList string) *DecisionTask {
+	b.mu.Lock("PollForDecisionTask")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + taskList
+	queue := b.decisionQueues[key]
+	if len(queue) == 0 {
+		return nil
+	}
+
+	task := *queue[0]
+	b.decisionQueues[key] = queue[1:]
+	task.TaskToken = uuid.New().String()
+
+	histEvents := b.history[domain+":"+task.WorkflowID]
+	if len(histEvents) > 0 {
+		task.Events = make([]HistoryEvent, len(histEvents))
+		copy(task.Events, histEvents)
+	}
+
+	return &task
+}
+
+// RecordActivityTaskHeartbeat acknowledges a heartbeat for an activity task token.
+// Returns true if cancel has been requested; always false in this emulator.
+func (b *InMemoryBackend) RecordActivityTaskHeartbeat(_ string) bool {
+	return false
+}
+
+// RequestCancelWorkflowExecution requests cancellation of a running execution.
+func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID string) error {
+	b.mu.Lock("RequestCancelWorkflowExecution")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + workflowID
+	exec, ok := b.executions[key]
+	if !ok {
+		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
+	}
+
+	if exec.Status != statusRunning {
+		return fmt.Errorf("%w: execution %s/%s is not running", ErrValidation, domain, workflowID)
+	}
+
+	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionCancelRequested")
+
+	return nil
+}
+
+// RespondActivityTaskCanceled marks an activity task as canceled.
+func (b *InMemoryBackend) RespondActivityTaskCanceled(_ string) error {
+	return nil
+}
+
+// RespondActivityTaskCompleted marks an activity task as completed.
+func (b *InMemoryBackend) RespondActivityTaskCompleted(_ string) error {
+	return nil
+}
+
+// RespondActivityTaskFailed marks an activity task as failed.
+func (b *InMemoryBackend) RespondActivityTaskFailed(_ string) error {
+	return nil
+}
+
+// RespondDecisionTaskCompleted marks a decision task as completed.
+func (b *InMemoryBackend) RespondDecisionTaskCompleted(_ string) error {
+	return nil
+}
+
+// SignalWorkflowExecution sends a signal to a workflow execution, recording it in history.
+func (b *InMemoryBackend) SignalWorkflowExecution(domain, workflowID, _, _ string) error {
+	b.mu.Lock("SignalWorkflowExecution")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + workflowID
+	if _, ok := b.executions[key]; !ok {
+		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
+	}
+
+	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionSignaled")
+
+	return nil
 }

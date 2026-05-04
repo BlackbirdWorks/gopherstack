@@ -11,6 +11,8 @@ type backendSnapshot struct {
 	Activities     map[string]*ActivityType      `json:"activities"`
 	Executions     map[string]*WorkflowExecution `json:"executions"`
 	ExecutionOrder []string                      `json:"executionOrder"`
+	History        map[string][]HistoryEvent     `json:"history,omitempty"`
+	Tags           map[string]map[string]string  `json:"tags,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -42,12 +44,31 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	order := make([]string, len(b.executionOrder))
 	copy(order, b.executionOrder)
 
+	history := make(map[string][]HistoryEvent, len(b.history))
+	for k, v := range b.history {
+		cp := make([]HistoryEvent, len(v))
+		copy(cp, v)
+		history[k] = cp
+	}
+
+	tags := make(map[string]map[string]string, len(b.tags))
+	for k, v := range b.tags {
+		cp := make(map[string]string, len(v))
+		for tk, tv := range v {
+			cp[tk] = tv
+		}
+
+		tags[k] = cp
+	}
+
 	snap := backendSnapshot{
 		Domains:        domains,
 		Workflows:      workflows,
 		Activities:     activities,
 		Executions:     executions,
 		ExecutionOrder: order,
+		History:        history,
+		Tags:           tags,
 	}
 
 	data, err := json.Marshal(snap)
@@ -107,6 +128,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.activities = snap.Activities
 	b.executions = snap.Executions
 	b.executionOrder = snap.ExecutionOrder
+	b.history = snap.History
+	b.tags = snap.Tags
 
 	return nil
 }
@@ -127,6 +150,14 @@ func ensureNonNilMaps(s *backendSnapshot) {
 
 	if s.Executions == nil {
 		s.Executions = make(map[string]*WorkflowExecution)
+	}
+
+	if s.History == nil {
+		s.History = make(map[string][]HistoryEvent)
+	}
+
+	if s.Tags == nil {
+		s.Tags = make(map[string]map[string]string)
 	}
 }
 

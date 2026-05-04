@@ -64,17 +64,32 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeDomain",
 		"DescribeWorkflowExecution",
 		"DescribeWorkflowType",
+		"GetWorkflowExecutionHistory",
 		"ListActivityTypes",
+		"ListClosedWorkflowExecutions",
 		"ListDomains",
+		"ListOpenWorkflowExecutions",
+		"ListTagsForResource",
 		"ListWorkflowTypes",
+		"PollForActivityTask",
+		"PollForDecisionTask",
+		"RecordActivityTaskHeartbeat",
 		"RegisterActivityType",
 		"RegisterDomain",
 		"RegisterWorkflowType",
+		"RequestCancelWorkflowExecution",
+		"RespondActivityTaskCanceled",
+		"RespondActivityTaskCompleted",
+		"RespondActivityTaskFailed",
+		"RespondDecisionTaskCompleted",
+		"SignalWorkflowExecution",
 		"StartWorkflowExecution",
+		"TagResource",
 		"TerminateWorkflowExecution",
 		"UndeprecateActivityType",
 		"UndeprecateDomain",
 		"UndeprecateWorkflowType",
+		"UntagResource",
 	}
 }
 
@@ -145,30 +160,45 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"RegisterDomain":                service.WrapOp(h.handleRegisterDomain),
-		"DescribeDomain":                service.WrapOp(h.handleDescribeDomain),
-		"ListDomains":                   service.WrapOp(h.handleListDomains),
-		"DeprecateDomain":               service.WrapOp(h.handleDeprecateDomain),
-		"UndeprecateDomain":             service.WrapOp(h.handleUndeprecateDomain),
-		"RegisterWorkflowType":          service.WrapOp(h.handleRegisterWorkflowType),
-		"ListWorkflowTypes":             service.WrapOp(h.handleListWorkflowTypes),
-		"DescribeWorkflowType":          service.WrapOp(h.handleDescribeWorkflowType),
-		"DeprecateWorkflowType":         service.WrapOp(h.handleDeprecateWorkflowType),
-		"UndeprecateWorkflowType":       service.WrapOp(h.handleUndeprecateWorkflowType),
-		"DeleteWorkflowType":            service.WrapOp(h.handleDeleteWorkflowType),
-		"RegisterActivityType":          service.WrapOp(h.handleRegisterActivityType),
-		"ListActivityTypes":             service.WrapOp(h.handleListActivityTypes),
-		"DescribeActivityType":          service.WrapOp(h.handleDescribeActivityType),
-		"DeprecateActivityType":         service.WrapOp(h.handleDeprecateActivityType),
-		"UndeprecateActivityType":       service.WrapOp(h.handleUndeprecateActivityType),
-		"DeleteActivityType":            service.WrapOp(h.handleDeleteActivityType),
-		"CountOpenWorkflowExecutions":   service.WrapOp(h.handleCountOpenWorkflowExecutions),
-		"CountClosedWorkflowExecutions": service.WrapOp(h.handleCountClosedWorkflowExecutions),
-		"CountPendingActivityTasks":     service.WrapOp(h.handleCountPendingActivityTasks),
-		"CountPendingDecisionTasks":     service.WrapOp(h.handleCountPendingDecisionTasks),
-		"StartWorkflowExecution":        service.WrapOp(h.handleStartWorkflowExecution),
-		"TerminateWorkflowExecution":    service.WrapOp(h.handleTerminateWorkflowExecution),
-		"DescribeWorkflowExecution":     service.WrapOp(h.handleDescribeWorkflowExecution),
+		"RegisterDomain":                  service.WrapOp(h.handleRegisterDomain),
+		"DescribeDomain":                  service.WrapOp(h.handleDescribeDomain),
+		"ListDomains":                     service.WrapOp(h.handleListDomains),
+		"DeprecateDomain":                 service.WrapOp(h.handleDeprecateDomain),
+		"UndeprecateDomain":               service.WrapOp(h.handleUndeprecateDomain),
+		"RegisterWorkflowType":            service.WrapOp(h.handleRegisterWorkflowType),
+		"ListWorkflowTypes":               service.WrapOp(h.handleListWorkflowTypes),
+		"DescribeWorkflowType":            service.WrapOp(h.handleDescribeWorkflowType),
+		"DeprecateWorkflowType":           service.WrapOp(h.handleDeprecateWorkflowType),
+		"UndeprecateWorkflowType":         service.WrapOp(h.handleUndeprecateWorkflowType),
+		"DeleteWorkflowType":              service.WrapOp(h.handleDeleteWorkflowType),
+		"RegisterActivityType":            service.WrapOp(h.handleRegisterActivityType),
+		"ListActivityTypes":               service.WrapOp(h.handleListActivityTypes),
+		"DescribeActivityType":            service.WrapOp(h.handleDescribeActivityType),
+		"DeprecateActivityType":           service.WrapOp(h.handleDeprecateActivityType),
+		"UndeprecateActivityType":         service.WrapOp(h.handleUndeprecateActivityType),
+		"DeleteActivityType":              service.WrapOp(h.handleDeleteActivityType),
+		"CountOpenWorkflowExecutions":     service.WrapOp(h.handleCountOpenWorkflowExecutions),
+		"CountClosedWorkflowExecutions":   service.WrapOp(h.handleCountClosedWorkflowExecutions),
+		"CountPendingActivityTasks":       service.WrapOp(h.handleCountPendingActivityTasks),
+		"CountPendingDecisionTasks":       service.WrapOp(h.handleCountPendingDecisionTasks),
+		"StartWorkflowExecution":          service.WrapOp(h.handleStartWorkflowExecution),
+		"TerminateWorkflowExecution":      service.WrapOp(h.handleTerminateWorkflowExecution),
+		"DescribeWorkflowExecution":       service.WrapOp(h.handleDescribeWorkflowExecution),
+		"GetWorkflowExecutionHistory":     service.WrapOp(h.handleGetWorkflowExecutionHistory),
+		"ListOpenWorkflowExecutions":      service.WrapOp(h.handleListOpenWorkflowExecutions),
+		"ListClosedWorkflowExecutions":    service.WrapOp(h.handleListClosedWorkflowExecutions),
+		"ListTagsForResource":             service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                     service.WrapOp(h.handleTagResource),
+		"UntagResource":                   service.WrapOp(h.handleUntagResource),
+		"PollForActivityTask":             service.WrapOp(h.handlePollForActivityTask),
+		"PollForDecisionTask":             service.WrapOp(h.handlePollForDecisionTask),
+		"RecordActivityTaskHeartbeat":     service.WrapOp(h.handleRecordActivityTaskHeartbeat),
+		"RequestCancelWorkflowExecution":  service.WrapOp(h.handleRequestCancelWorkflowExecution),
+		"RespondActivityTaskCanceled":     service.WrapOp(h.handleRespondActivityTaskCanceled),
+		"RespondActivityTaskCompleted":    service.WrapOp(h.handleRespondActivityTaskCompleted),
+		"RespondActivityTaskFailed":       service.WrapOp(h.handleRespondActivityTaskFailed),
+		"RespondDecisionTaskCompleted":    service.WrapOp(h.handleRespondDecisionTaskCompleted),
+		"SignalWorkflowExecution":         service.WrapOp(h.handleSignalWorkflowExecution),
 	}
 }
 
@@ -746,4 +776,333 @@ func applyPageTokenSlice[T any](items []T, nextPageToken string, maximumPageSize
 	p := page.New(items, nextPageToken, maximumPageSize, defaultSWFMaxPageSize)
 
 	return p.Data, p.Next
+}
+
+// --- GetWorkflowExecutionHistory ---
+
+type handleGetWorkflowExecutionHistoryInput struct {
+	Domain    string               `json:"domain"`
+	Execution workflowExecutionRef `json:"execution"`
+	// MaximumPageSize and ReverseOrder ignored in this emulator.
+}
+
+type getWorkflowExecutionHistoryOutput struct {
+	Events        []HistoryEvent `json:"events"`
+	NextPageToken string         `json:"nextPageToken,omitempty"`
+}
+
+func (h *Handler) handleGetWorkflowExecutionHistory(
+	_ context.Context,
+	in *handleGetWorkflowExecutionHistoryInput,
+) (*getWorkflowExecutionHistoryOutput, error) {
+	events := h.Backend.GetWorkflowExecutionHistory(in.Domain, in.Execution.WorkflowID)
+
+	return &getWorkflowExecutionHistoryOutput{Events: events}, nil
+}
+
+// --- ListOpenWorkflowExecutions ---
+
+type executionFilter struct {
+	WorkflowID string `json:"workflowId,omitempty"`
+}
+
+type handleListOpenWorkflowExecutionsInput struct {
+	Domain          string          `json:"domain"`
+	ExecutionFilter *executionFilter `json:"executionFilter,omitempty"`
+	NextPageToken   string          `json:"nextPageToken,omitempty"`
+	MaximumPageSize int             `json:"maximumPageSize,omitempty"`
+}
+
+type listWorkflowExecutionsOutput struct {
+	ExecutionInfos []WorkflowExecution `json:"executionInfos"`
+	NextPageToken  string              `json:"nextPageToken,omitempty"`
+}
+
+func (h *Handler) handleListOpenWorkflowExecutions(
+	_ context.Context,
+	in *handleListOpenWorkflowExecutionsInput,
+) (*listWorkflowExecutionsOutput, error) {
+	execs := h.Backend.ListOpenWorkflowExecutions(in.Domain)
+
+	execs, nextPageToken := applyPageTokenSlice(execs, in.NextPageToken, in.MaximumPageSize)
+
+	return &listWorkflowExecutionsOutput{ExecutionInfos: execs, NextPageToken: nextPageToken}, nil
+}
+
+// --- ListClosedWorkflowExecutions ---
+
+type handleListClosedWorkflowExecutionsInput struct {
+	Domain          string          `json:"domain"`
+	ExecutionFilter *executionFilter `json:"executionFilter,omitempty"`
+	NextPageToken   string          `json:"nextPageToken,omitempty"`
+	MaximumPageSize int             `json:"maximumPageSize,omitempty"`
+}
+
+func (h *Handler) handleListClosedWorkflowExecutions(
+	_ context.Context,
+	in *handleListClosedWorkflowExecutionsInput,
+) (*listWorkflowExecutionsOutput, error) {
+	execs := h.Backend.ListClosedWorkflowExecutions(in.Domain)
+
+	execs, nextPageToken := applyPageTokenSlice(execs, in.NextPageToken, in.MaximumPageSize)
+
+	return &listWorkflowExecutionsOutput{ExecutionInfos: execs, NextPageToken: nextPageToken}, nil
+}
+
+// --- ListTagsForResource ---
+
+type handleListTagsForResourceInput struct {
+	ResourceArn string `json:"resourceArn"`
+}
+
+type resourceTag struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags []resourceTag `json:"tags"`
+}
+
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *handleListTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
+	tagMap := h.Backend.ListTagsForResource(in.ResourceArn)
+
+	tags := make([]resourceTag, 0, len(tagMap))
+	for k, v := range tagMap {
+		tags = append(tags, resourceTag{Key: k, Value: v})
+	}
+
+	return &listTagsForResourceOutput{Tags: tags}, nil
+}
+
+// --- TagResource ---
+
+type handleTagResourceInput struct {
+	ResourceArn string        `json:"resourceArn"`
+	Tags        []resourceTag `json:"tags"`
+}
+
+type tagResourceOutput struct{}
+
+func (h *Handler) handleTagResource(
+	_ context.Context,
+	in *handleTagResourceInput,
+) (*tagResourceOutput, error) {
+	tagMap := make(map[string]string, len(in.Tags))
+	for _, t := range in.Tags {
+		tagMap[t.Key] = t.Value
+	}
+
+	if err := h.Backend.TagResource(in.ResourceArn, tagMap); err != nil {
+		return nil, err
+	}
+
+	return &tagResourceOutput{}, nil
+}
+
+// --- UntagResource ---
+
+type handleUntagResourceInput struct {
+	ResourceArn string   `json:"resourceArn"`
+	TagKeys     []string `json:"tagKeys"`
+}
+
+type untagResourceOutput struct{}
+
+func (h *Handler) handleUntagResource(
+	_ context.Context,
+	in *handleUntagResourceInput,
+) (*untagResourceOutput, error) {
+	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return &untagResourceOutput{}, nil
+}
+
+// --- PollForActivityTask ---
+
+type handlePollForActivityTaskInput struct {
+	Domain   string      `json:"domain"`
+	TaskList taskListRef `json:"taskList"`
+}
+
+func (h *Handler) handlePollForActivityTask(
+	_ context.Context,
+	in *handlePollForActivityTaskInput,
+) (*ActivityTask, error) {
+	task := h.Backend.PollForActivityTask(in.Domain, in.TaskList.Name)
+	if task == nil {
+		return &ActivityTask{}, nil
+	}
+
+	return task, nil
+}
+
+// --- PollForDecisionTask ---
+
+type handlePollForDecisionTaskInput struct {
+	Domain          string      `json:"domain"`
+	TaskList        taskListRef `json:"taskList"`
+	NextPageToken   string      `json:"nextPageToken,omitempty"`
+	MaximumPageSize int         `json:"maximumPageSize,omitempty"`
+}
+
+func (h *Handler) handlePollForDecisionTask(
+	_ context.Context,
+	in *handlePollForDecisionTaskInput,
+) (*DecisionTask, error) {
+	task := h.Backend.PollForDecisionTask(in.Domain, in.TaskList.Name)
+	if task == nil {
+		return &DecisionTask{}, nil
+	}
+
+	return task, nil
+}
+
+// --- RecordActivityTaskHeartbeat ---
+
+type handleRecordActivityTaskHeartbeatInput struct {
+	TaskToken string `json:"taskToken"`
+}
+
+type recordActivityTaskHeartbeatOutput struct {
+	CancelRequested bool `json:"cancelRequested"`
+}
+
+func (h *Handler) handleRecordActivityTaskHeartbeat(
+	_ context.Context,
+	in *handleRecordActivityTaskHeartbeatInput,
+) (*recordActivityTaskHeartbeatOutput, error) {
+	cancelRequested := h.Backend.RecordActivityTaskHeartbeat(in.TaskToken)
+
+	return &recordActivityTaskHeartbeatOutput{CancelRequested: cancelRequested}, nil
+}
+
+// --- RequestCancelWorkflowExecution ---
+
+type handleRequestCancelWorkflowExecutionInput struct {
+	Domain     string `json:"domain"`
+	WorkflowID string `json:"workflowId"`
+	RunID      string `json:"runId,omitempty"`
+}
+
+type requestCancelWorkflowExecutionOutput struct{}
+
+func (h *Handler) handleRequestCancelWorkflowExecution(
+	_ context.Context,
+	in *handleRequestCancelWorkflowExecutionInput,
+) (*requestCancelWorkflowExecutionOutput, error) {
+	if err := h.Backend.RequestCancelWorkflowExecution(in.Domain, in.WorkflowID); err != nil {
+		return nil, err
+	}
+
+	return &requestCancelWorkflowExecutionOutput{}, nil
+}
+
+// --- RespondActivityTaskCanceled ---
+
+type handleRespondActivityTaskCanceledInput struct {
+	TaskToken string `json:"taskToken"`
+	Details   string `json:"details,omitempty"`
+}
+
+type respondActivityTaskCanceledOutput struct{}
+
+func (h *Handler) handleRespondActivityTaskCanceled(
+	_ context.Context,
+	in *handleRespondActivityTaskCanceledInput,
+) (*respondActivityTaskCanceledOutput, error) {
+	if err := h.Backend.RespondActivityTaskCanceled(in.TaskToken); err != nil {
+		return nil, err
+	}
+
+	return &respondActivityTaskCanceledOutput{}, nil
+}
+
+// --- RespondActivityTaskCompleted ---
+
+type handleRespondActivityTaskCompletedInput struct {
+	TaskToken string `json:"taskToken"`
+	Result    string `json:"result,omitempty"`
+}
+
+type respondActivityTaskCompletedOutput struct{}
+
+func (h *Handler) handleRespondActivityTaskCompleted(
+	_ context.Context,
+	in *handleRespondActivityTaskCompletedInput,
+) (*respondActivityTaskCompletedOutput, error) {
+	if err := h.Backend.RespondActivityTaskCompleted(in.TaskToken); err != nil {
+		return nil, err
+	}
+
+	return &respondActivityTaskCompletedOutput{}, nil
+}
+
+// --- RespondActivityTaskFailed ---
+
+type handleRespondActivityTaskFailedInput struct {
+	TaskToken string `json:"taskToken"`
+	Reason    string `json:"reason,omitempty"`
+	Details   string `json:"details,omitempty"`
+}
+
+type respondActivityTaskFailedOutput struct{}
+
+func (h *Handler) handleRespondActivityTaskFailed(
+	_ context.Context,
+	in *handleRespondActivityTaskFailedInput,
+) (*respondActivityTaskFailedOutput, error) {
+	if err := h.Backend.RespondActivityTaskFailed(in.TaskToken); err != nil {
+		return nil, err
+	}
+
+	return &respondActivityTaskFailedOutput{}, nil
+}
+
+// --- RespondDecisionTaskCompleted ---
+
+type handleRespondDecisionTaskCompletedInput struct {
+	TaskToken string `json:"taskToken"`
+	// Decisions slice ignored in this emulator.
+}
+
+type respondDecisionTaskCompletedOutput struct{}
+
+func (h *Handler) handleRespondDecisionTaskCompleted(
+	_ context.Context,
+	in *handleRespondDecisionTaskCompletedInput,
+) (*respondDecisionTaskCompletedOutput, error) {
+	if err := h.Backend.RespondDecisionTaskCompleted(in.TaskToken); err != nil {
+		return nil, err
+	}
+
+	return &respondDecisionTaskCompletedOutput{}, nil
+}
+
+// --- SignalWorkflowExecution ---
+
+type handleSignalWorkflowExecutionInput struct {
+	Domain     string `json:"domain"`
+	WorkflowID string `json:"workflowId"`
+	RunID      string `json:"runId,omitempty"`
+	SignalName string `json:"signalName"`
+	Input      string `json:"input,omitempty"`
+}
+
+type signalWorkflowExecutionOutput struct{}
+
+func (h *Handler) handleSignalWorkflowExecution(
+	_ context.Context,
+	in *handleSignalWorkflowExecutionInput,
+) (*signalWorkflowExecutionOutput, error) {
+	if err := h.Backend.SignalWorkflowExecution(in.Domain, in.WorkflowID, in.SignalName, in.Input); err != nil {
+		return nil, err
+	}
+
+	return &signalWorkflowExecutionOutput{}, nil
 }
