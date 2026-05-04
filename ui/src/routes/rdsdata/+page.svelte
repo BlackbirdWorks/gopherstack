@@ -1,13 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { getRDSDataClient } from '$lib/aws-client';
 	import {
 		ExecuteStatementCommand,
 		BatchExecuteStatementCommand,
 		BeginTransactionCommand,
 		CommitTransactionCommand,
-		RollbackTransactionCommand,
-		ExecuteSqlCommand
+		RollbackTransactionCommand
 	} from '@aws-sdk/client-rds-data';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -43,7 +41,7 @@
 		try {
 			localStorage.setItem(LS_PREFIX + key, value);
 		} catch {
-			// ignore
+			// storage unavailable
 		}
 	}
 
@@ -74,13 +72,14 @@
 	interface LocalTransaction {
 		id: string;
 		resourceArn: string;
+		secretArn: string;
 		startedAt: Date;
 		status: 'active';
 	}
 	let transactions = $state<LocalTransaction[]>([]);
-	let beginningTx = $state(false);
 	let committingTx = $state<string | null>(null);
 	let rollingBackTx = $state<string | null>(null);
+	let beginningTx = $state(false);
 
 	// ── Statement History ──────────────────────────────────────────────────────
 	interface HistoryEntry {
@@ -240,18 +239,20 @@
 			return;
 		}
 		beginningTx = true;
+		const capturedArn = resourceArn.trim();
+		const capturedSecret = secretArn.trim();
 		try {
 			const resp = await client.send(
 				new BeginTransactionCommand({
-					resourceArn: resourceArn.trim(),
-					secretArn: secretArn.trim() || undefined,
+					resourceArn: capturedArn,
+					secretArn: capturedSecret || undefined,
 					database: database.trim() || undefined
 				})
 			);
 			const txId = resp.transactionId ?? `txn-${Date.now()}`;
 			transactions = [
 				...transactions,
-				{ id: txId, resourceArn: resourceArn.trim(), startedAt: new Date(), status: 'active' }
+				{ id: txId, resourceArn: capturedArn, secretArn: capturedSecret, startedAt: new Date(), status: 'active' }
 			];
 			toast.success(`Transaction ${txId} started`);
 		} catch (e) {
@@ -261,12 +262,19 @@
 		}
 	}
 
-	async function commitTransaction(txId: string) {
-		committingTx = txId;
+	async function commitTransaction(tx: LocalTransaction) {
+		committingTx = tx.id;
 		try {
-			await client.send(new CommitTransactionCommand({ transactionId: txId, resourceArn: resourceArn.trim() || 'arn:aws:rds:us-east-1:123456789012:cluster:local' }));
-			transactions = transactions.filter((t) => t.id !== txId);
-			toast.success(`Transaction ${txId} committed`);
+			await client.send(
+				new CommitTransactionCommand({
+					transactionId: tx.id,
+					resourceArn: tx.resourceArn,
+					secretArn: tx.secretArn
+				})
+			);
+			transactions = transactions.filter((t) => t.id !== tx.id);
+			if (transactionIdInput === tx.id) transactionIdInput = '';
+			toast.success(`Transaction ${tx.id} committed`);
 		} catch (e) {
 			toast.error('Commit failed: ' + String(e));
 		} finally {
@@ -274,12 +282,19 @@
 		}
 	}
 
-	async function rollbackTransaction(txId: string) {
-		rollingBackTx = txId;
+	async function rollbackTransaction(tx: LocalTransaction) {
+		rollingBackTx = tx.id;
 		try {
-			await client.send(new RollbackTransactionCommand({ transactionId: txId, resourceArn: resourceArn.trim() || 'arn:aws:rds:us-east-1:123456789012:cluster:local' }));
-			transactions = transactions.filter((t) => t.id !== txId);
-			toast.success(`Transaction ${txId} rolled back`);
+			await client.send(
+				new RollbackTransactionCommand({
+					transactionId: tx.id,
+					resourceArn: tx.resourceArn,
+					secretArn: tx.secretArn
+				})
+			);
+			transactions = transactions.filter((t) => t.id !== tx.id);
+			if (transactionIdInput === tx.id) transactionIdInput = '';
+			toast.success(`Transaction ${tx.id} rolled back`);
 		} catch (e) {
 			toast.error('Rollback failed: ' + String(e));
 		} finally {
@@ -335,10 +350,6 @@
 		history = [...entries, ...history].slice(0, 200);
 		toast.success('Demo history seeded');
 	}
-
-	onMount(() => {
-		// nothing to auto-load; state is client-side
-	});
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -395,11 +406,11 @@
 	<!-- Tabs -->
 	<div class="flex gap-1 mb-4 border-b border-gray-200 dark:border-gray-700">
 		{#each ([
-			{ id: 'runner', label: 'SQL Runner', icon: Play },
-			{ id: 'transactions', label: 'Transaction Browser', icon: Layers, badge: transactions.length > 0 ? String(transactions.length) : null },
-			{ id: 'history', label: 'Statement History', icon: Clock, badge: history.length > 0 ? String(history.length) : null },
-			{ id: 'docs', label: 'Docs', icon: BookOpen }
-		] as const) as tab}
+			{ id: 'runner' as ActiveTab, label: 'SQL Runner', icon: Play, badge: null as string | null },
+			{ id: 'transactions' as ActiveTab, label: 'Transaction Browser', icon: Layers, badge: transactions.length > 0 ? String(transactions.length) : null as string | null },
+			{ id: 'history' as ActiveTab, label: 'Statement History', icon: Clock, badge: history.length > 0 ? String(history.length) : null as string | null },
+			{ id: 'docs' as ActiveTab, label: 'Docs', icon: BookOpen, badge: null as string | null }
+		]) as tab}
 			{@const Icon = tab.icon}
 			<button
 				type="button"
@@ -428,7 +439,7 @@
 					>
 						Batch {batchMode ? 'ON' : 'OFF'}
 					</button>
-					<span class="text-xs text-gray-400 hidden sm:inline">Ctrl+Enter to run · Escape to cancel</span>
+					<span class="text-xs text-gray-400 hidden sm:inline">Ctrl+Enter to run</span>
 				</div>
 				<div class="flex items-center gap-2">
 					{#if executionMs !== null}
@@ -542,6 +553,7 @@
 			{:else}
 				<div class="space-y-2">
 					{#each transactions as tx (tx.id)}
+						{@const txBusy = committingTx === tx.id || rollingBackTx === tx.id}
 						<div class="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
 							<div class="flex items-center gap-3 min-w-0">
 								<div class="w-2 h-2 rounded-full bg-green-500 shrink-0"></div>
@@ -562,8 +574,8 @@
 								</button>
 								<button
 									type="button"
-									onclick={() => commitTransaction(tx.id)}
-									disabled={committingTx === tx.id}
+									onclick={() => commitTransaction(tx)}
+									disabled={txBusy}
 									class="text-xs px-2 py-1 rounded border border-green-400 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center gap-1 disabled:opacity-50"
 								>
 									<Send class="w-3 h-3" />
@@ -571,8 +583,8 @@
 								</button>
 								<button
 									type="button"
-									onclick={() => rollbackTransaction(tx.id)}
-									disabled={rollingBackTx === tx.id}
+									onclick={() => rollbackTransaction(tx)}
+									disabled={txBusy}
 									class="text-xs px-2 py-1 rounded border border-red-400 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-1 disabled:opacity-50"
 								>
 									<RotateCcw class="w-3 h-3" />
@@ -625,6 +637,7 @@
 			<div class="mb-3">
 				<input
 					type="text"
+					aria-label="Filter statement history"
 					bind:value={historyFilter}
 					placeholder="Filter by SQL or resource ARN…"
 					class="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -665,7 +678,7 @@
 								onclick={() => {
 									sqlText = entry.sql;
 									resourceArn = entry.resourceArn;
-									if (entry.transactionId) transactionIdInput = entry.transactionId;
+									transactionIdInput = entry.transactionId ?? '';
 									activeTab = 'runner';
 								}}
 								class="shrink-0 text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1"
