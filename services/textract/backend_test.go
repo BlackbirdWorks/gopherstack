@@ -229,6 +229,34 @@ func TestInMemoryBackend_JobHistoryCap(t *testing.T) {
 	}
 }
 
+func TestInMemoryBackend_ExpenseJobHistoryCap(t *testing.T) {
+	t.Parallel()
+
+	b := textract.NewInMemoryBackendWithCap(3)
+
+	for range 6 {
+		_, err := b.StartExpenseAnalysis("s3://bucket/receipt.pdf")
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, 3, textract.ExpenseJobCount(b),
+		"expense jobs map should be capped at 3 once over the cap")
+}
+
+func TestInMemoryBackend_LendingJobHistoryCap(t *testing.T) {
+	t.Parallel()
+
+	b := textract.NewInMemoryBackendWithCap(2)
+
+	for range 5 {
+		_, err := b.StartLendingAnalysis("s3://bucket/loan.pdf")
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, 2, textract.LendingJobCount(b),
+		"lending jobs map should be capped at 2 once over the cap")
+}
+
 func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 	t.Parallel()
 

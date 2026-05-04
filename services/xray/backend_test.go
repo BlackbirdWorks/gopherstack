@@ -1,6 +1,7 @@
 package xray_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -594,4 +595,32 @@ func TestInMemoryBackend_GetTrace(t *testing.T) {
 			assert.Equal(t, tt.traceID, trace.TraceID)
 		})
 	}
+}
+
+func TestInMemoryBackend_PutTraceSegmentsCap(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+
+	const traceID = "1-58406520-a006649127e371903a2de979"
+	segTemplate := `{"trace_id":"` + traceID + `","id":"%d"}`
+
+	total := 2*xray.MaxSegmentsPerTrace + 50
+	segs := make([]string, 0, total)
+
+	for i := range total {
+		segs = append(segs, fmt.Sprintf(segTemplate, i))
+	}
+
+	_ = b.PutTraceSegments(segs)
+
+	got := b.GetTrace(traceID)
+	require.NotNil(t, got, "trace must exist")
+
+	// After amortized compaction the slice length is bounded by 2x the cap;
+	// the cap itself is the floor maintained between compactions.
+	assert.LessOrEqual(t, len(got.Segments), 2*xray.MaxSegmentsPerTrace,
+		"segments must never exceed compaction high-water mark")
+	assert.GreaterOrEqual(t, len(got.Segments), xray.MaxSegmentsPerTrace,
+		"segments must retain at least the cap")
 }

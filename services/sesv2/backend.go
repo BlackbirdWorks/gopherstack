@@ -406,10 +406,15 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 
 	b.mu.Lock("SendEmail")
 	b.emails = append(b.emails, email)
-	if len(b.emails) > maxRetainedEmails {
-		// Drop the oldest entries, preserving roughly the last maxRetainedEmails.
-		// Reslice into a fresh backing array so the dropped tail can be GC'd.
-		trimmed := make([]Email, maxRetainedEmails)
+	// Compact only when the slice has grown to twice the cap so trimming is
+	// amortized O(1) per send rather than O(maxRetainedEmails) on every send
+	// past the cap. The dropped prefix becomes unreachable once the slice
+	// header advances and is collected on the next reslice/grow.
+	if len(b.emails) >= 2*maxRetainedEmails {
+		// Reslice into a fresh backing array so the dropped tail can be GC'd
+		// immediately rather than held by the original (now larger) backing
+		// array.
+		trimmed := make([]Email, maxRetainedEmails, 2*maxRetainedEmails)
 		copy(trimmed, b.emails[len(b.emails)-maxRetainedEmails:])
 		b.emails = trimmed
 	}

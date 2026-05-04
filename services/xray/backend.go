@@ -424,11 +424,14 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 
 		// Cap per-trace segment count so a single misbehaving trace cannot
 		// consume unbounded memory before the janitor's TTL sweep evicts it.
-		if len(t.Segments) >= maxSegmentsPerTrace {
-			t.Segments = append(t.Segments[1:], seg)
-		} else {
-			t.Segments = append(t.Segments, seg)
+		// Compact only when the slice has grown to twice the cap so the per-call
+		// cost is amortized O(1) rather than O(cap) on every insert past the cap.
+		if len(t.Segments) >= 2*maxSegmentsPerTrace {
+			copy(t.Segments, t.Segments[len(t.Segments)-maxSegmentsPerTrace:])
+			t.Segments = t.Segments[:maxSegmentsPerTrace]
 		}
+
+		t.Segments = append(t.Segments, seg)
 	}
 
 	return unprocessed

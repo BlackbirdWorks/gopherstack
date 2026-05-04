@@ -127,3 +127,6 @@ func (b *InMemoryBackend) AddSamplingRuleInternal(rule SamplingRule) {
 
 	b.samplingRules[rule.RuleName] = &rule
 }
+
+// MaxSegmentsPerTrace exposes the per-trace segment cap for tests.
+const MaxSegmentsPerTrace = maxSegmentsPerTrace

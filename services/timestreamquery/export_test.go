@@ -23,3 +23,6 @@ func QueryCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.supportedOps)
 }
+
+// MaxRetainedQueries exposes the cap for tests.
+const MaxRetainedQueries = maxRetainedQueries
