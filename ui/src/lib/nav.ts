@@ -127,6 +127,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "s3control",
   "support",
   "redshiftdata",
+  "rdsdata",
 ]);
 
 // The 25 most commonly used AWS services shown in the sidebar.
@@ -285,6 +286,7 @@ export const sidebarCategories: DashboardCategory[] = [
     label: "Databases & Analytics",
     routes: [
       { id: "rds", href: "/dashboard/rds", label: "RDS", icon: "rds", common: true },
+      { id: "rdsdata", href: "/dashboard/rdsdata", label: "RDS Data", icon: "rds" },
       { id: "docdb", href: "/dashboard/docdb", label: "DocumentDB", icon: "docdb" },
       {
         id: "neptune",

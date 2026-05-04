@@ -330,6 +330,7 @@ export function getCognitoIDPClient(region?: string): CognitoIdentityProviderCli
 import { IAMClient } from "@aws-sdk/client-iam";
 import { KMSClient } from "@aws-sdk/client-kms";
 import { RDSClient } from "@aws-sdk/client-rds";
+import { RDSDataClient } from "@aws-sdk/client-rds-data";
 import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import { NeptuneClient } from "@aws-sdk/client-neptune";
 import { MqClient } from "@aws-sdk/client-mq";
@@ -346,6 +347,10 @@ export function getKMSClient(region?: string): KMSClient {
 
 export function getRDSClient(region?: string): RDSClient {
   return new RDSClient(clientConfig(region));
+}
+
+export function getRDSDataClient(region?: string): RDSDataClient {
+  return new RDSDataClient(clientConfig(region));
 }
 
 export function getSecretsManagerClient(region?: string): SecretsManagerClient {
