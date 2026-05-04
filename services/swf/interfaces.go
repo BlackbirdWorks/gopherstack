@@ -36,6 +36,25 @@ type StorageBackend interface {
 	StartWorkflowExecution(domain, workflowID, runID string) (*WorkflowExecution, error)
 	TerminateWorkflowExecution(domain, workflowID string) error
 	DescribeWorkflowExecution(domain, workflowID string) (*WorkflowExecution, error)
+	GetWorkflowExecutionHistory(domain, workflowID string) []HistoryEvent
+	ListOpenWorkflowExecutions(domain string) []WorkflowExecution
+	ListClosedWorkflowExecutions(domain string) []WorkflowExecution
+	RequestCancelWorkflowExecution(domain, workflowID string) error
+	SignalWorkflowExecution(domain, workflowID, signalName, input string) error
+
+	// Task polling and responses
+	PollForActivityTask(domain, taskList string) *ActivityTask
+	PollForDecisionTask(domain, taskList string) *DecisionTask
+	RecordActivityTaskHeartbeat(taskToken string) bool
+	RespondActivityTaskCanceled(taskToken string) error
+	RespondActivityTaskCompleted(taskToken string) error
+	RespondActivityTaskFailed(taskToken string) error
+	RespondDecisionTaskCompleted(taskToken string) error
+
+	// Resource tagging
+	ListTagsForResource(resourceARN string) map[string]string
+	TagResource(resourceARN string, tags map[string]string) error
+	UntagResource(resourceARN string, tagKeys []string) error
 
 	// Backend lifecycle
 	Reset()
