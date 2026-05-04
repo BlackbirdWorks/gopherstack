@@ -42,6 +42,8 @@ var (
 	ErrInvitationNotFound = awserr.New("ResourceNotFoundException: invitation not found", awserr.ErrNotFound)
 	// ErrMissingMemberID is returned when the member ID is missing for a proposal.
 	ErrMissingMemberID = errors.New("MemberId is required for CreateProposal")
+	// ErrMissingVoterMemberID is returned when the voter member ID is missing for VoteOnProposal.
+	ErrMissingVoterMemberID = errors.New("VoterMemberId is required for VoteOnProposal")
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("InvalidRequestException: validation error", awserr.ErrInvalidParameter)
 )
@@ -106,7 +108,7 @@ type StorageBackend interface {
 	ListProposalVotes(networkID, proposalID string) ([]*ProposalVote, error)
 	ListInvitations() ([]*Invitation, error)
 	RejectInvitation(invitationID string) error
-	UpdateMember(networkID, memberID, description string) (*Member, error)
+	UpdateMember(networkID, memberID string) (*Member, error)
 	UpdateNode(networkID, memberID, nodeID string) (*Node, error)
 	VoteOnProposal(networkID, proposalID, memberID, vote string) error
 }
@@ -1111,10 +1113,10 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 	return cloneProposal(proposal)
 }
 
-// UpdateMember updates a member's description.
-func (b *InMemoryBackend) UpdateMember(networkID, memberID, description string) (*Member, error) {
-	b.mu.Lock("UpdateMember")
-	defer b.mu.Unlock()
+// UpdateMember validates the member exists; log publishing config is accepted but not stored in this mock.
+func (b *InMemoryBackend) UpdateMember(networkID, memberID string) (*Member, error) {
+	b.mu.RLock("UpdateMember")
+	defer b.mu.RUnlock()
 
 	if _, exists := b.networks[networkID]; !exists {
 		return nil, ErrNetworkNotFound
@@ -1124,8 +1126,6 @@ func (b *InMemoryBackend) UpdateMember(networkID, memberID, description string) 
 	if !ok || members[memberID] == nil {
 		return nil, ErrMemberNotFound
 	}
-
-	members[memberID].Description = description
 
 	return cloneMember(members[memberID]), nil
 }

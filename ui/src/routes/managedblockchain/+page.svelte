@@ -27,7 +27,6 @@
 		type NetworkSummary,
 		type MemberSummary,
 		type NodeSummary,
-		type Member,
 		type Proposal,
 		type ProposalSummary,
 		type VoteSummary,
@@ -79,8 +78,6 @@
 	// ── Members ───────────────────────────────────────────────────────────────
 	let membersByNetwork = $state<Record<string, MemberSummary[]>>({});
 	let loadingMembers = $state<Record<string, boolean>>({});
-	let selectedMember = $state<Member | null>(null);
-	let showMemberDetail = $state(false);
 
 	// Create member form
 	let showCreateMember = $state(false);
@@ -93,7 +90,6 @@
 	let showEditMember = $state(false);
 	let editMemberNetworkId = $state('');
 	let editMemberId = $state('');
-	let editMemberDesc = $state('');
 	let editingMember = $state(false);
 
 	// ── Nodes ─────────────────────────────────────────────────────────────────
@@ -402,14 +398,13 @@
 		}
 	}
 
-	async function saveMemberDescription() {
+	async function updateMember() {
 		editingMember = true;
 		try {
 			await client.send(
 				new UpdateMemberCommand({
 					NetworkId: editMemberNetworkId,
-					MemberId: editMemberId,
-					LogPublishingConfiguration: undefined
+					MemberId: editMemberId
 				})
 			);
 			toast.success('Member updated');
@@ -741,6 +736,8 @@
 						<div class="flex items-center gap-3 p-4">
 							<button
 								class="text-gray-400 hover:text-gray-200"
+								aria-label="Expand {network.Name}"
+								aria-expanded={expandedNetworks.has(network.Id!)}
 								onclick={() => toggleNetworkExpanded(network.Id!)}
 							>
 								{#if expandedNetworks.has(network.Id!)}
@@ -808,7 +805,6 @@
 															onclick={() => {
 																editMemberNetworkId = network.Id!;
 																editMemberId = member.Id!;
-																editMemberDesc = member.Description ?? '';
 																showEditMember = true;
 															}}
 														>
@@ -890,9 +886,21 @@
 
 		<!-- Create member modal -->
 		{#if showCreateMember}
-			<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-				<div class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6">
-					<h3 class="mb-4 font-semibold">Add Member to Network</h3>
+			<div
+				class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+				role="presentation"
+				onclick={() => (showCreateMember = false)}
+				onkeydown={(e) => e.key === 'Escape' && (showCreateMember = false)}
+			>
+				<div
+					class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="create-member-title"
+					onclick={(e) => e.stopPropagation()}
+					onkeydown={(e) => e.stopPropagation()}
+				>
+					<h3 id="create-member-title" class="mb-4 font-semibold">Add Member to Network</h3>
 					<div class="space-y-3">
 						<div>
 							<label class="mb-1 block text-xs text-gray-400">Member Name *</label>
@@ -932,9 +940,21 @@
 
 		<!-- Edit member modal -->
 		{#if showEditMember}
-			<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-				<div class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6">
-					<h3 class="mb-4 font-semibold">Update Member</h3>
+			<div
+				class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+				role="presentation"
+				onclick={() => (showEditMember = false)}
+				onkeydown={(e) => e.key === 'Escape' && (showEditMember = false)}
+			>
+				<div
+					class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="edit-member-title"
+					onclick={(e) => e.stopPropagation()}
+					onkeydown={(e) => e.stopPropagation()}
+				>
+					<h3 id="edit-member-title" class="mb-4 font-semibold">Update Member</h3>
 					<div>
 						<label class="mb-1 block text-xs text-gray-400">Member ID</label>
 						<div class="text-sm text-gray-300">{editMemberId}</div>
@@ -948,7 +968,7 @@
 						</button>
 						<button
 							class="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-							onclick={saveMemberDescription}
+							onclick={updateMember}
 							disabled={editingMember}
 						>
 							{editingMember ? 'Saving…' : 'Update'}
@@ -960,9 +980,21 @@
 
 		<!-- Create node modal -->
 		{#if showCreateNode}
-			<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-				<div class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6">
-					<h3 class="mb-4 font-semibold">Create Node</h3>
+			<div
+				class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+				role="presentation"
+				onclick={() => (showCreateNode = false)}
+				onkeydown={(e) => e.key === 'Escape' && (showCreateNode = false)}
+			>
+				<div
+					class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="create-node-title"
+					onclick={(e) => e.stopPropagation()}
+					onkeydown={(e) => e.stopPropagation()}
+				>
+					<h3 id="create-node-title" class="mb-4 font-semibold">Create Node</h3>
 					<div class="space-y-3">
 						<div>
 							<label class="mb-1 block text-xs text-gray-400">Instance Type</label>
@@ -1292,9 +1324,21 @@
 
 			<!-- Vote modal -->
 			{#if showVoteForm}
-				<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-					<div class="w-80 rounded-lg border border-gray-700 bg-gray-800 p-6">
-						<h3 class="mb-4 font-semibold">Cast Vote</h3>
+				<div
+					class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+					role="presentation"
+					onclick={() => (showVoteForm = false)}
+					onkeydown={(e) => e.key === 'Escape' && (showVoteForm = false)}
+				>
+					<div
+						class="w-80 rounded-lg border border-gray-700 bg-gray-800 p-6"
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="cast-vote-title"
+						onclick={(e) => e.stopPropagation()}
+						onkeydown={(e) => e.stopPropagation()}
+					>
+						<h3 id="cast-vote-title" class="mb-4 font-semibold">Cast Vote</h3>
 						<div class="space-y-3">
 							<div>
 								<label class="mb-1 block text-xs text-gray-400">Voter Member ID *</label>
@@ -1307,12 +1351,12 @@
 							<div>
 								<label class="mb-1 block text-xs text-gray-400">Vote</label>
 								<div class="flex gap-3">
-									<label class="flex items-center gap-2 text-sm">
-										<input type="radio" bind:group={voteChoice} value="YES" />
+									<label for="vote-yes" class="flex items-center gap-2 text-sm">
+										<input id="vote-yes" type="radio" bind:group={voteChoice} value="YES" />
 										<span class="text-green-400">YES</span>
 									</label>
-									<label class="flex items-center gap-2 text-sm">
-										<input type="radio" bind:group={voteChoice} value="NO" />
+									<label for="vote-no" class="flex items-center gap-2 text-sm">
+										<input id="vote-no" type="radio" bind:group={voteChoice} value="NO" />
 										<span class="text-red-400">NO</span>
 									</label>
 								</div>

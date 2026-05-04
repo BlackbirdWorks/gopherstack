@@ -1034,7 +1034,7 @@ func (h *Handler) handleUpdateMember(c *echo.Context, resource string, body []by
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	_, err := h.Backend.UpdateMember(networkID, memberID, req.Description)
+	_, err := h.Backend.UpdateMember(networkID, memberID)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1068,11 +1068,11 @@ func (h *Handler) handleVoteOnProposal(c *echo.Context, resource string, body []
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	if req.MemberID == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingMemberID.Error())
+	if req.VoterMemberID == "" {
+		return writeError(c, http.StatusBadRequest, ErrMissingVoterMemberID.Error())
 	}
 
-	if err := h.Backend.VoteOnProposal(networkID, proposalID, req.MemberID, req.Vote); err != nil {
+	if err := h.Backend.VoteOnProposal(networkID, proposalID, req.VoterMemberID, req.Vote); err != nil {
 		return h.writeBackendError(c, err)
 	}
 

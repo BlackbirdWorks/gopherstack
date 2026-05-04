@@ -227,10 +227,10 @@ describe("ManagedBlockchainPage", () => {
 
     mockSend.mockResolvedValue({ Members: [exampleMember] });
 
-    const chevronBtn = document.querySelector(
-      "button[class*='text-gray-400']",
-    ) as HTMLButtonElement;
-    if (chevronBtn) await fireEvent.click(chevronBtn);
+    const expandBtn = screen.getByRole("button", {
+      name: /Expand test-network/i,
+    });
+    await fireEvent.click(expandBtn);
 
     await waitFor(() => {
       expect(mockSend).toHaveBeenCalled();

@@ -430,11 +430,14 @@ type listInvitationsResponse struct {
 
 // updateMemberRequest is the request body for PATCH /networks/{networkId}/members/{memberId}.
 type updateMemberRequest struct {
-	Description string `json:"Description"`
+	LogPublishingConfiguration *memberLogPublishingConfig `json:"LogPublishingConfiguration,omitempty"`
 }
+
+// memberLogPublishingConfig holds optional log publishing settings for a member.
+type memberLogPublishingConfig struct{}
 
 // voteOnProposalRequest is the request body for POST /networks/{networkId}/proposals/{proposalId}/votes.
 type voteOnProposalRequest struct {
-	MemberID string `json:"MemberId"`
-	Vote     string `json:"Vote"`
+	VoterMemberID string `json:"VoterMemberId"`
+	Vote          string `json:"Vote"`
 }
