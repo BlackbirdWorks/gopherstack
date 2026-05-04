@@ -36,3 +36,6 @@ func ConnectionCount(b *InMemoryBackend) int {
 
 	return len(b.connections)
 }
+
+// MaxShadowsPerThing exposes the cap constant for white-box testing.
+const MaxShadowsPerThing = maxShadowsPerThing

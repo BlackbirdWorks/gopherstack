@@ -502,3 +502,52 @@ func TestRefinement1_DeepCopy_ListRetainedMessages(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte("hello"), msg.Payload)
 }
+
+// --- maxShadowsPerThing cap ---
+
+func TestRefinement1_MaxShadowsPerThing_CapEnforced(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+
+	// Fill to cap.
+	for i := range iotdataplane.MaxShadowsPerThing {
+		_, err := b.UpdateThingShadow("thing1", fmt.Sprintf("shadow-%d", i), []byte(`{}`))
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, iotdataplane.MaxShadowsPerThing, iotdataplane.ShadowCount(b))
+
+	// One more new shadow for the same thing must fail.
+	_, err := b.UpdateThingShadow("thing1", "overflow-shadow", []byte(`{}`))
+	require.ErrorIs(t, err, iotdataplane.ErrValidation)
+}
+
+func TestRefinement1_MaxShadowsPerThing_UpdateExistingNotCapped(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	b.AddShadowInternal("thing1", "existing", []byte(`{"state":{}}`))
+
+	// Updating existing shadow must succeed regardless of cap.
+	for range iotdataplane.MaxShadowsPerThing + 10 {
+		_, err := b.UpdateThingShadow("thing1", "existing", []byte(`{"state":{"desired":{"k":"v"}}}`))
+		require.NoError(t, err)
+	}
+}
+
+func TestRefinement1_MaxShadowsPerThing_CapPerThing(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+
+	// Fill thing1 to cap.
+	for i := range iotdataplane.MaxShadowsPerThing {
+		_, err := b.UpdateThingShadow("thing1", fmt.Sprintf("s-%d", i), []byte(`{}`))
+		require.NoError(t, err)
+	}
+
+	// thing2 must still accept new shadows.
+	_, err := b.UpdateThingShadow("thing2", "new-shadow", []byte(`{}`))
+	require.NoError(t, err)
+}

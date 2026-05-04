@@ -30,6 +30,10 @@ var ErrValidation = errors.New("InvalidRequestException")
 // This prevents unbounded memory growth when many topics are used.
 const maxRetainedMessages = 1000
 
+// maxShadowsPerThing is the maximum number of shadows (classic + named) per thing.
+// AWS IoT enforces a similar limit; we cap here to prevent memory exhaustion.
+const maxShadowsPerThing = 100
+
 // compile-time interface check.
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
@@ -170,6 +174,12 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	}
 
 	current := b.shadows[thingName][shadowName]
+
+	// Enforce per-thing shadow cap when creating a new shadow (not updating existing).
+	if current == nil && len(b.shadows[thingName]) >= maxShadowsPerThing {
+		return nil, fmt.Errorf("%w: shadow limit (%d) per thing exceeded for %s",
+			ErrValidation, maxShadowsPerThing, thingName)
+	}
 
 	// Check optimistic locking version if the caller supplied one.
 	// An unmarshal error here is intentional: if the document is not valid JSON
