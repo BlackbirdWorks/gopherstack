@@ -17,7 +17,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 func (b *InMemoryBackend) Snapshot() []byte {
-	b.mu.RLock()
+	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
@@ -50,7 +50,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	ensureNonNilMaps(&snap)
 
-	b.mu.Lock()
+	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	b.networks = snap.Networks

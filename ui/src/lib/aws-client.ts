@@ -1,5 +1,6 @@
 import { EC2Client } from "@aws-sdk/client-ec2";
 import { LakeFormationClient } from "@aws-sdk/client-lakeformation";
+import { ManagedBlockchainClient } from "@aws-sdk/client-managedblockchain";
 import { ECSClient } from "@aws-sdk/client-ecs";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { AthenaClient } from "@aws-sdk/client-athena";
@@ -641,4 +642,8 @@ export function getLakeFormationClient(region?: string): LakeFormationClient {
 
 export function getApplicationAutoScalingClient(region?: string): ApplicationAutoScalingClient {
   return new ApplicationAutoScalingClient(clientConfig(region));
+}
+
+export function getManagedBlockchainClient(region?: string): ManagedBlockchainClient {
+  return new ManagedBlockchainClient(clientConfig(region));
 }

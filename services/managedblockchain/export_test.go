@@ -2,7 +2,7 @@ package managedblockchain
 
 // NetworkCount returns the number of networks stored in b (for test use only).
 func NetworkCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
 	return len(b.networks)
@@ -10,7 +10,7 @@ func NetworkCount(b *InMemoryBackend) int {
 
 // MemberCount returns the total number of members across all networks (for test use only).
 func MemberCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
 	total := 0
@@ -24,7 +24,7 @@ func MemberCount(b *InMemoryBackend) int {
 
 // NodeCount returns the total number of nodes across all networks and members (for test use only).
 func NodeCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
 	total := 0
@@ -40,7 +40,7 @@ func NodeCount(b *InMemoryBackend) int {
 
 // AccessorCount returns the number of accessors stored in b (for test use only).
 func AccessorCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
 	return len(b.accessors)
@@ -48,7 +48,7 @@ func AccessorCount(b *InMemoryBackend) int {
 
 // ProposalCount returns the total number of proposals across all networks (for test use only).
 func ProposalCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
 	total := 0
@@ -62,7 +62,7 @@ func ProposalCount(b *InMemoryBackend) int {
 
 // InvitationCount returns the number of invitations stored in b (for test use only).
 func InvitationCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
 	return len(b.invitations)
@@ -75,7 +75,7 @@ func HandlerOpsLen(h *Handler) int {
 
 // ARNIndexSize returns the number of entries in the ARN index (for test use only).
 func ARNIndexSize(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
 	return len(b.arnToResource)

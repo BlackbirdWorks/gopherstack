@@ -94,6 +94,7 @@
     "@aws-sdk/client-lakeformation": "3.1032.0",
     "@aws-sdk/client-lambda": "3.1032.0",
     "@aws-sdk/client-lightsail": "3.1032.0",
+    "@aws-sdk/client-managedblockchain": "3.1032.0",
     "@aws-sdk/client-mediaconvert": "3.1032.0",
     "@aws-sdk/client-mediastore": "3.1032.0",
     "@aws-sdk/client-mediastore-data": "3.1032.0",
