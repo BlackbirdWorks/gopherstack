@@ -385,24 +385,31 @@ func parseProposalsPath(method string, parts []string, networkID string) (string
 
 	// /networks/{networkId}/proposals/{proposalId}[/votes]
 	if len(parts) >= 4 && parts[3] != "" {
-		proposalID := parts[3]
-		resource := networkID + "/" + proposalID
+		return parseProposalIDPath(method, parts, networkID)
+	}
 
-		// /networks/{networkId}/proposals/{proposalId}/votes
-		if len(parts) >= 5 && parts[4] == "votes" {
-			switch method {
-			case http.MethodGet:
-				return opListProposalVotes, resource
-			case http.MethodPost:
-				return opVoteOnProposal, resource
-			}
+	return "", ""
+}
+
+// parseProposalIDPath handles routing for /networks/{networkId}/proposals/{proposalId}[/votes].
+func parseProposalIDPath(method string, parts []string, networkID string) (string, string) {
+	proposalID := parts[3]
+	resource := networkID + "/" + proposalID
+
+	// /networks/{networkId}/proposals/{proposalId}/votes
+	if len(parts) >= 5 && parts[4] == "votes" {
+		switch method {
+		case http.MethodGet:
+			return opListProposalVotes, resource
+		case http.MethodPost:
+			return opVoteOnProposal, resource
 		}
+	}
 
-		// /networks/{networkId}/proposals/{proposalId}
-		if len(parts) == 4 || (len(parts) == 5 && parts[4] == "") {
-			if method == http.MethodGet {
-				return opGetProposal, resource
-			}
+	// /networks/{networkId}/proposals/{proposalId}
+	if len(parts) == 4 || (len(parts) == 5 && parts[4] == "") {
+		if method == http.MethodGet {
+			return opGetProposal, resource
 		}
 	}
 
@@ -496,6 +503,24 @@ func (h *Handler) dispatchNetworkOps(
 		return h.handleGetNetwork(c, resource)
 	case opListNetworks:
 		return h.handleListNetworks(c)
+	case opListTagsForResource:
+		return h.handleListTagsForResource(c, resource)
+	case opTagResource:
+		return h.handleTagResource(c, resource, body)
+	case opUntagResource:
+		return h.handleUntagResource(c, resource, query)
+	}
+
+	if err := h.dispatchMemberNodeOps(c, op, resource, body); !errors.Is(err, errUnknownOp) {
+		return err
+	}
+
+	return errUnknownOp
+}
+
+// dispatchMemberNodeOps handles member and node operations.
+func (h *Handler) dispatchMemberNodeOps(c *echo.Context, op, resource string, body []byte) error {
+	switch op {
 	case opCreateMember:
 		return h.handleCreateMember(c, resource, body)
 	case opGetMember:
@@ -504,6 +529,8 @@ func (h *Handler) dispatchNetworkOps(
 		return h.handleListMembers(c, resource)
 	case opDeleteMember:
 		return h.handleDeleteMember(c, resource)
+	case opUpdateMember:
+		return h.handleUpdateMember(c, resource, body)
 	case opCreateNode:
 		return h.handleCreateNode(c, resource, body)
 	case opGetNode:
@@ -512,14 +539,6 @@ func (h *Handler) dispatchNetworkOps(
 		return h.handleListNodes(c, resource)
 	case opDeleteNode:
 		return h.handleDeleteNode(c, resource)
-	case opListTagsForResource:
-		return h.handleListTagsForResource(c, resource)
-	case opTagResource:
-		return h.handleTagResource(c, resource, body)
-	case opUntagResource:
-		return h.handleUntagResource(c, resource, query)
-	case opUpdateMember:
-		return h.handleUpdateMember(c, resource, body)
 	case opUpdateNode:
 		return h.handleUpdateNode(c, resource)
 	}
