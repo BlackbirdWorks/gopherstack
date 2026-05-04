@@ -188,7 +188,7 @@
 		}
 	}
 
-	async function confirmDelete(name: string) {
+	function confirmDelete(name: string) {
 		deleteTarget = name;
 	}
 
