@@ -630,7 +630,7 @@
 				{:else}
 					<div class="flex flex-col items-center justify-center p-16 text-center opacity-30">
 						<Package class="w-12 h-12 text-slate-600 mb-4" />
-						<p class="text-[10px] text-slate-500 font-black uppercase italic">No applications found</p>
+						<p class="text-[10px] text-slate-500 font-black uppercase italic">No serverless applications found</p>
 					</div>
 				{/if}
 			</div>

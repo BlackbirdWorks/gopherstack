@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRDSDataDashboard verifies the removed RDSData route returns 404.
+// TestRDSDataDashboard verifies the restored RDSData dashboard loads correctly.
 func TestRDSDataDashboard(t *testing.T) {
 	stack := newStack(t)
 
@@ -35,12 +35,52 @@ func TestRDSDataDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/rdsdata")
 	require.NoError(t, err)
 
-	err = page.Locator("text=404").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=RDS Data").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(30000),
 	})
 	require.NoError(t, err)
 }
 
-// TestRDSDataDashboard_Empty is no longer applicable (route removed).
-// Kept as placeholder for backward compatibility with test runner.
+// TestRDSDataDashboard_SQLRunner verifies the SQL Runner tab is visible.
+func TestRDSDataDashboard_SQLRunner(t *testing.T) {
+	stack := newStack(t)
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	ctx, err := browser.NewContext()
+	require.NoError(t, err)
+	defer ctx.Close()
+
+	page, err := ctx.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestRDSDataDashboard_SQLRunner")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard/rdsdata")
+	require.NoError(t, err)
+
+	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "SQL Runner"}).WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(30000),
+	})
+	require.NoError(t, err)
+
+	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Transaction Browser"}).WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
+	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Statement History"}).WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+}
