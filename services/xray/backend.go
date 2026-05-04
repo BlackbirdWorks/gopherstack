@@ -137,6 +137,10 @@ const (
 	traceRetrievalStatusComplete = "COMPLETE"
 	// samplingTargetInterval is the recommended polling interval for sampling targets.
 	samplingTargetInterval = 10
+	// maxSegmentsPerTrace caps the number of raw segment payloads stored for a
+	// single trace so one runaway producer cannot consume unbounded memory
+	// before the janitor's TTL sweep removes the trace.
+	maxSegmentsPerTrace = 5000
 )
 
 // InMemoryBackend is the in-memory store for X-Ray resources.
@@ -418,7 +422,13 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 			b.traces[hdr.TraceID] = t
 		}
 
-		t.Segments = append(t.Segments, seg)
+		// Cap per-trace segment count so a single misbehaving trace cannot
+		// consume unbounded memory before the janitor's TTL sweep evicts it.
+		if len(t.Segments) >= maxSegmentsPerTrace {
+			t.Segments = append(t.Segments[1:], seg)
+		} else {
+			t.Segments = append(t.Segments, seg)
+		}
 	}
 
 	return unprocessed
