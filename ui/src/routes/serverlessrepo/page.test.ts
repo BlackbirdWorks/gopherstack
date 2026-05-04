@@ -93,7 +93,7 @@ describe("Serverless Application Repository Page", () => {
 
     await waitFor(
       () => {
-        expect(screen.getByText(/No applications found/)).toBeInTheDocument();
+        expect(screen.getByText(/No serverless applications found/)).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
@@ -130,7 +130,12 @@ describe("Serverless Application Repository Page", () => {
     mockSend
       .mockResolvedValueOnce({
         Applications: [
-          { ApplicationId: "arn:1", Name: "my-api-app", Author: "MyOrg", Description: "A REST API" },
+          {
+            ApplicationId: "arn:1",
+            Name: "my-api-app",
+            Author: "MyOrg",
+            Description: "A REST API",
+          },
         ],
       })
       // loadVersions
@@ -138,7 +143,9 @@ describe("Serverless Application Repository Page", () => {
 
     render(ServerlessRepoPage);
 
-    await waitFor(() => expect(screen.getByText("my-api-app")).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText("my-api-app")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
 
     const appRow = screen.getAllByText("my-api-app")[0];
     await fireEvent.click(appRow);
