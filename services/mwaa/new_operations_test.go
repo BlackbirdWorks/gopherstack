@@ -905,13 +905,6 @@ func TestHandler_PublishMetrics(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "method_not_allowed",
-			envName:    "metrics-method-not-allowed",
-			seed:       false,
-			body:       nil,
-			wantStatus: http.StatusMethodNotAllowed,
-		},
-		{
 			name:       "invalid_json",
 			envName:    "metrics-invalid-json-env",
 			seed:       true,
@@ -931,13 +924,6 @@ func TestHandler_PublishMetrics(t *testing.T) {
 					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
 				})
 				require.Equal(t, http.StatusOK, seedRec.Code)
-			}
-
-			if tt.name == "method_not_allowed" {
-				rec := doMWAARequest(t, h, http.MethodGet, "/metrics/environments/"+tt.envName, nil)
-				assert.Equal(t, tt.wantStatus, rec.Code)
-
-				return
 			}
 
 			if tt.name == "invalid_json" {
@@ -962,6 +948,40 @@ func TestHandler_PublishMetrics(t *testing.T) {
 	}
 }
 
+func TestHandler_GetMetrics(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+
+	// Create environment.
+	seedRec := doMWAARequest(t, h, http.MethodPut, "/environments/metrics-env", map[string]any{
+		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+	})
+	require.Equal(t, http.StatusOK, seedRec.Code)
+
+	// Publish some metrics.
+	pubRec := doMWAARequest(t, h, http.MethodPost, "/metrics/environments/metrics-env", map[string]any{
+		"MetricData": []map[string]any{
+			{"MetricName": "TaskInstance", "Value": 5.0, "Unit": "Count"},
+		},
+	})
+	require.Equal(t, http.StatusOK, pubRec.Code)
+
+	// Get metrics.
+	getRec := doMWAARequest(t, h, http.MethodGet, "/metrics/environments/metrics-env", nil)
+	assert.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	data, ok := resp["MetricData"].([]any)
+	assert.True(t, ok)
+	assert.Len(t, data, 1)
+
+	// Not found.
+	notFoundRec := doMWAARequest(t, h, http.MethodGet, "/metrics/environments/missing-env", nil)
+	assert.Equal(t, http.StatusNotFound, notFoundRec.Code)
+}
+
 func TestHandler_ExtractOperation_NewOps(t *testing.T) {
 	t.Parallel()
 
@@ -982,6 +1002,12 @@ func TestHandler_ExtractOperation_NewOps(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/metrics/environments/my-env",
 			wantOp: "PublishMetrics",
+		},
+		{
+			name:   "get_metrics",
+			method: http.MethodGet,
+			path:   "/metrics/environments/my-env",
+			wantOp: "GetMetrics",
 		},
 	}
 
