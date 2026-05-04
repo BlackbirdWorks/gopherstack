@@ -3,6 +3,7 @@ package swf
 import (
 	"encoding/json"
 	"log/slog"
+	"maps"
 )
 
 type backendSnapshot struct {
@@ -10,9 +11,9 @@ type backendSnapshot struct {
 	Workflows      map[string]*WorkflowType      `json:"workflows"`
 	Activities     map[string]*ActivityType      `json:"activities"`
 	Executions     map[string]*WorkflowExecution `json:"executions"`
-	ExecutionOrder []string                      `json:"executionOrder"`
 	History        map[string][]HistoryEvent     `json:"history,omitempty"`
 	Tags           map[string]map[string]string  `json:"tags,omitempty"`
+	ExecutionOrder []string                      `json:"executionOrder"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -54,10 +55,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	tags := make(map[string]map[string]string, len(b.tags))
 	for k, v := range b.tags {
 		cp := make(map[string]string, len(v))
-		for tk, tv := range v {
-			cp[tk] = tv
-		}
-
+		maps.Copy(cp, v)
 		tags[k] = cp
 	}
 

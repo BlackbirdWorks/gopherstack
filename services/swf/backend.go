@@ -3,6 +3,7 @@ package swf
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,8 +50,8 @@ const (
 
 // HistoryEvent is a single event in a workflow execution's history.
 type HistoryEvent struct {
-	EventID   int64   `json:"eventId"`
 	EventType string  `json:"eventType"`
+	EventID   int64   `json:"eventId"`
 	Timestamp float64 `json:"eventTimestamp"`
 }
 
@@ -64,7 +65,7 @@ type ActivityTaskActivityType struct {
 type ActivityTask struct {
 	TaskToken      string                   `json:"taskToken"`
 	ActivityID     string                   `json:"activityId"`
-	ActivityType   ActivityTaskActivityType  `json:"activityType"`
+	ActivityType   ActivityTaskActivityType `json:"activityType"`
 	Input          string                   `json:"input,omitempty"`
 	WorkflowID     string                   `json:"workflowId"`
 	RunID          string                   `json:"runId"`
@@ -76,8 +77,8 @@ type DecisionTask struct {
 	TaskToken      string         `json:"taskToken"`
 	WorkflowID     string         `json:"workflowId"`
 	RunID          string         `json:"runId"`
-	StartedEventID int64          `json:"startedEventId"`
 	Events         []HistoryEvent `json:"events"`
+	StartedEventID int64          `json:"startedEventId"`
 }
 
 // Domain represents an SWF domain.
@@ -120,12 +121,12 @@ type WorkflowExecution struct {
 type InMemoryBackend struct {
 	domains        map[string]*Domain
 	workflows      map[string]*WorkflowType      // key: domain+":"+name+":"+version
-	activities     map[string]*ActivityType       // key: domain+":"+name+":"+version
-	executions     map[string]*WorkflowExecution  // key: domain+":"+workflowID
-	history        map[string][]HistoryEvent      // key: domain+":"+workflowID
-	activityQueues map[string][]*ActivityTask     // key: domain+":"+taskList
-	decisionQueues map[string][]*DecisionTask     // key: domain+":"+taskList
-	tags           map[string]map[string]string   // key: resourceARN
+	activities     map[string]*ActivityType      // key: domain+":"+name+":"+version
+	executions     map[string]*WorkflowExecution // key: domain+":"+workflowID
+	history        map[string][]HistoryEvent     // key: domain+":"+workflowID
+	activityQueues map[string][]*ActivityTask    // key: domain+":"+taskList
+	decisionQueues map[string][]*DecisionTask    // key: domain+":"+taskList
+	tags           map[string]map[string]string  // key: resourceARN
 	mu             *lockmetrics.RWMutex
 	executionOrder []string // FIFO order of execution keys for eviction
 }
@@ -757,9 +758,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) map[string]str
 
 	tags := b.tags[resourceARN]
 	cp := make(map[string]string, len(tags))
-	for k, v := range tags {
-		cp[k] = v
-	}
+	maps.Copy(cp, tags)
 
 	return cp
 }
@@ -773,9 +772,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		b.tags[resourceARN] = make(map[string]string)
 	}
 
-	for k, v := range tags {
-		b.tags[resourceARN][k] = v
-	}
+	maps.Copy(b.tags[resourceARN], tags)
 
 	return nil
 }

@@ -210,7 +210,7 @@
 			const resp = await swf.send(
 				new GetWorkflowExecutionHistoryCommand({
 					domain: historyDomain,
-					execution: { workflowId: historyWorkflowId }
+					execution: { workflowId: historyWorkflowId, runId: '' }
 				})
 			);
 			historyEvents = resp.events ?? [];
@@ -260,14 +260,14 @@
 		}
 		startingExec = true;
 		try {
-			const input: Record<string, unknown> = {
+			await swf.send(new StartWorkflowExecutionCommand({
 				domain: startDomain,
-				workflowId: startWorkflowId.trim()
-			};
-			if (startWorkflowName && startWorkflowVersion) {
-				input.workflowType = { name: startWorkflowName, version: startWorkflowVersion };
-			}
-			await swf.send(new StartWorkflowExecutionCommand(input as Parameters<typeof swf.send>[0]['input']));
+				workflowId: startWorkflowId.trim(),
+				workflowType: {
+					name: startWorkflowName || 'default',
+					version: startWorkflowVersion || '1.0'
+				}
+			}));
 			toast.success(`Workflow execution started`);
 			showStartExec = false;
 			startWorkflowId = '';
@@ -471,7 +471,7 @@
 
 	function fmtTs(ts?: Date | number) {
 		if (!ts) return '—';
-		const d = ts instanceof Date ? ts : new Date(ts instanceof Object ? 0 : Number(ts) * 1000);
+		const d = ts instanceof Date ? ts : new Date(Number(ts) * 1000);
 		return d.toLocaleString();
 	}
 
@@ -542,12 +542,12 @@
 		<!-- Tab bar -->
 		<div class="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
 			<div class="flex flex-wrap gap-2">
-				{#each [['domains', 'Domains', Globe], ['workflows', 'Workflow Types', List], ['executions', 'Executions', Activity], ['history', 'Exec History', History], ['polling', 'Polling', Bell]] as [tab, label, Icon]}
+				{#each (['domains', 'workflows', 'executions', 'history', 'polling'] as Tab[]) as tab}
 					<button
-						onclick={() => { activeTab = tab as Tab; searchQuery = ''; }}
+						onclick={() => { activeTab = tab; searchQuery = ''; }}
 						class="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium {activeTab === tab ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-gray-300 dark:hover:bg-slate-600'}"
 					>
-						<Icon class="h-4 w-4" />{label}
+						{tab === 'domains' ? 'Domains' : tab === 'workflows' ? 'Workflow Types' : tab === 'executions' ? 'Executions' : tab === 'history' ? 'Exec History' : 'Polling'}
 					</button>
 				{/each}
 			</div>

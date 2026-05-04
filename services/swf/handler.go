@@ -160,45 +160,45 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"RegisterDomain":                  service.WrapOp(h.handleRegisterDomain),
-		"DescribeDomain":                  service.WrapOp(h.handleDescribeDomain),
-		"ListDomains":                     service.WrapOp(h.handleListDomains),
-		"DeprecateDomain":                 service.WrapOp(h.handleDeprecateDomain),
-		"UndeprecateDomain":               service.WrapOp(h.handleUndeprecateDomain),
-		"RegisterWorkflowType":            service.WrapOp(h.handleRegisterWorkflowType),
-		"ListWorkflowTypes":               service.WrapOp(h.handleListWorkflowTypes),
-		"DescribeWorkflowType":            service.WrapOp(h.handleDescribeWorkflowType),
-		"DeprecateWorkflowType":           service.WrapOp(h.handleDeprecateWorkflowType),
-		"UndeprecateWorkflowType":         service.WrapOp(h.handleUndeprecateWorkflowType),
-		"DeleteWorkflowType":              service.WrapOp(h.handleDeleteWorkflowType),
-		"RegisterActivityType":            service.WrapOp(h.handleRegisterActivityType),
-		"ListActivityTypes":               service.WrapOp(h.handleListActivityTypes),
-		"DescribeActivityType":            service.WrapOp(h.handleDescribeActivityType),
-		"DeprecateActivityType":           service.WrapOp(h.handleDeprecateActivityType),
-		"UndeprecateActivityType":         service.WrapOp(h.handleUndeprecateActivityType),
-		"DeleteActivityType":              service.WrapOp(h.handleDeleteActivityType),
-		"CountOpenWorkflowExecutions":     service.WrapOp(h.handleCountOpenWorkflowExecutions),
-		"CountClosedWorkflowExecutions":   service.WrapOp(h.handleCountClosedWorkflowExecutions),
-		"CountPendingActivityTasks":       service.WrapOp(h.handleCountPendingActivityTasks),
-		"CountPendingDecisionTasks":       service.WrapOp(h.handleCountPendingDecisionTasks),
-		"StartWorkflowExecution":          service.WrapOp(h.handleStartWorkflowExecution),
-		"TerminateWorkflowExecution":      service.WrapOp(h.handleTerminateWorkflowExecution),
-		"DescribeWorkflowExecution":       service.WrapOp(h.handleDescribeWorkflowExecution),
-		"GetWorkflowExecutionHistory":     service.WrapOp(h.handleGetWorkflowExecutionHistory),
-		"ListOpenWorkflowExecutions":      service.WrapOp(h.handleListOpenWorkflowExecutions),
-		"ListClosedWorkflowExecutions":    service.WrapOp(h.handleListClosedWorkflowExecutions),
-		"ListTagsForResource":             service.WrapOp(h.handleListTagsForResource),
-		"TagResource":                     service.WrapOp(h.handleTagResource),
-		"UntagResource":                   service.WrapOp(h.handleUntagResource),
-		"PollForActivityTask":             service.WrapOp(h.handlePollForActivityTask),
-		"PollForDecisionTask":             service.WrapOp(h.handlePollForDecisionTask),
-		"RecordActivityTaskHeartbeat":     service.WrapOp(h.handleRecordActivityTaskHeartbeat),
-		"RequestCancelWorkflowExecution":  service.WrapOp(h.handleRequestCancelWorkflowExecution),
-		"RespondActivityTaskCanceled":     service.WrapOp(h.handleRespondActivityTaskCanceled),
-		"RespondActivityTaskCompleted":    service.WrapOp(h.handleRespondActivityTaskCompleted),
-		"RespondActivityTaskFailed":       service.WrapOp(h.handleRespondActivityTaskFailed),
-		"RespondDecisionTaskCompleted":    service.WrapOp(h.handleRespondDecisionTaskCompleted),
-		"SignalWorkflowExecution":         service.WrapOp(h.handleSignalWorkflowExecution),
+		"RegisterDomain":                 service.WrapOp(h.handleRegisterDomain),
+		"DescribeDomain":                 service.WrapOp(h.handleDescribeDomain),
+		"ListDomains":                    service.WrapOp(h.handleListDomains),
+		"DeprecateDomain":                service.WrapOp(h.handleDeprecateDomain),
+		"UndeprecateDomain":              service.WrapOp(h.handleUndeprecateDomain),
+		"RegisterWorkflowType":           service.WrapOp(h.handleRegisterWorkflowType),
+		"ListWorkflowTypes":              service.WrapOp(h.handleListWorkflowTypes),
+		"DescribeWorkflowType":           service.WrapOp(h.handleDescribeWorkflowType),
+		"DeprecateWorkflowType":          service.WrapOp(h.handleDeprecateWorkflowType),
+		"UndeprecateWorkflowType":        service.WrapOp(h.handleUndeprecateWorkflowType),
+		"DeleteWorkflowType":             service.WrapOp(h.handleDeleteWorkflowType),
+		"RegisterActivityType":           service.WrapOp(h.handleRegisterActivityType),
+		"ListActivityTypes":              service.WrapOp(h.handleListActivityTypes),
+		"DescribeActivityType":           service.WrapOp(h.handleDescribeActivityType),
+		"DeprecateActivityType":          service.WrapOp(h.handleDeprecateActivityType),
+		"UndeprecateActivityType":        service.WrapOp(h.handleUndeprecateActivityType),
+		"DeleteActivityType":             service.WrapOp(h.handleDeleteActivityType),
+		"CountOpenWorkflowExecutions":    service.WrapOp(h.handleCountOpenWorkflowExecutions),
+		"CountClosedWorkflowExecutions":  service.WrapOp(h.handleCountClosedWorkflowExecutions),
+		"CountPendingActivityTasks":      service.WrapOp(h.handleCountPendingActivityTasks),
+		"CountPendingDecisionTasks":      service.WrapOp(h.handleCountPendingDecisionTasks),
+		"StartWorkflowExecution":         service.WrapOp(h.handleStartWorkflowExecution),
+		"TerminateWorkflowExecution":     service.WrapOp(h.handleTerminateWorkflowExecution),
+		"DescribeWorkflowExecution":      service.WrapOp(h.handleDescribeWorkflowExecution),
+		"GetWorkflowExecutionHistory":    service.WrapOp(h.handleGetWorkflowExecutionHistory),
+		"ListOpenWorkflowExecutions":     service.WrapOp(h.handleListOpenWorkflowExecutions),
+		"ListClosedWorkflowExecutions":   service.WrapOp(h.handleListClosedWorkflowExecutions),
+		"ListTagsForResource":            service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                    service.WrapOp(h.handleTagResource),
+		"UntagResource":                  service.WrapOp(h.handleUntagResource),
+		"PollForActivityTask":            service.WrapOp(h.handlePollForActivityTask),
+		"PollForDecisionTask":            service.WrapOp(h.handlePollForDecisionTask),
+		"RecordActivityTaskHeartbeat":    service.WrapOp(h.handleRecordActivityTaskHeartbeat),
+		"RequestCancelWorkflowExecution": service.WrapOp(h.handleRequestCancelWorkflowExecution),
+		"RespondActivityTaskCanceled":    service.WrapOp(h.handleRespondActivityTaskCanceled),
+		"RespondActivityTaskCompleted":   service.WrapOp(h.handleRespondActivityTaskCompleted),
+		"RespondActivityTaskFailed":      service.WrapOp(h.handleRespondActivityTaskFailed),
+		"RespondDecisionTaskCompleted":   service.WrapOp(h.handleRespondDecisionTaskCompleted),
+		"SignalWorkflowExecution":        service.WrapOp(h.handleSignalWorkflowExecution),
 	}
 }
 
@@ -787,8 +787,8 @@ type handleGetWorkflowExecutionHistoryInput struct {
 }
 
 type getWorkflowExecutionHistoryOutput struct {
-	Events        []HistoryEvent `json:"events"`
 	NextPageToken string         `json:"nextPageToken,omitempty"`
+	Events        []HistoryEvent `json:"events"`
 }
 
 func (h *Handler) handleGetWorkflowExecutionHistory(
@@ -807,15 +807,15 @@ type executionFilter struct {
 }
 
 type handleListOpenWorkflowExecutionsInput struct {
-	Domain          string          `json:"domain"`
+	Domain          string           `json:"domain"`
 	ExecutionFilter *executionFilter `json:"executionFilter,omitempty"`
-	NextPageToken   string          `json:"nextPageToken,omitempty"`
-	MaximumPageSize int             `json:"maximumPageSize,omitempty"`
+	NextPageToken   string           `json:"nextPageToken,omitempty"`
+	MaximumPageSize int              `json:"maximumPageSize,omitempty"`
 }
 
 type listWorkflowExecutionsOutput struct {
-	ExecutionInfos []WorkflowExecution `json:"executionInfos"`
 	NextPageToken  string              `json:"nextPageToken,omitempty"`
+	ExecutionInfos []WorkflowExecution `json:"executionInfos"`
 }
 
 func (h *Handler) handleListOpenWorkflowExecutions(
@@ -832,10 +832,10 @@ func (h *Handler) handleListOpenWorkflowExecutions(
 // --- ListClosedWorkflowExecutions ---
 
 type handleListClosedWorkflowExecutionsInput struct {
-	Domain          string          `json:"domain"`
+	Domain          string           `json:"domain"`
 	ExecutionFilter *executionFilter `json:"executionFilter,omitempty"`
-	NextPageToken   string          `json:"nextPageToken,omitempty"`
-	MaximumPageSize int             `json:"maximumPageSize,omitempty"`
+	NextPageToken   string           `json:"nextPageToken,omitempty"`
+	MaximumPageSize int              `json:"maximumPageSize,omitempty"`
 }
 
 func (h *Handler) handleListClosedWorkflowExecutions(
