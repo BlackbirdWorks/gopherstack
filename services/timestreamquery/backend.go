@@ -86,7 +86,6 @@ type InMemoryBackend struct {
 	scheduledQueries map[string]*ScheduledQuery // keyed by name
 	arnIndex         map[string]string          // ARN → name
 	queries          map[string]*QueryResult
-	queryOrder       []string // FIFO of query IDs for bounded eviction
 	accountSettings  AccountSettings
 	accountID        string
 	region           string
@@ -113,7 +112,6 @@ func (b *InMemoryBackend) Reset() {
 	b.scheduledQueries = make(map[string]*ScheduledQuery)
 	b.arnIndex = make(map[string]string)
 	b.queries = make(map[string]*QueryResult)
-	b.queryOrder = nil
 	b.accountSettings = AccountSettings{QueryPricingModel: pricingModelBytesScanned}
 }
 
@@ -270,12 +268,17 @@ func (b *InMemoryBackend) Query(queryString string) *QueryResult {
 	}
 
 	b.queries[queryID] = result
-	b.queryOrder = append(b.queryOrder, queryID)
 
-	if len(b.queryOrder) > maxRetainedQueries {
-		oldest := b.queryOrder[0]
-		b.queryOrder = b.queryOrder[1:]
-		delete(b.queries, oldest)
+	// Evict arbitrary entries when over the cap so a long-running instance
+	// cannot leak memory through repeated Query calls. Map iteration order
+	// is random in Go; for the simulator this is acceptable since only
+	// CancelQuery interacts with stored results.
+	for len(b.queries) > maxRetainedQueries {
+		for id := range b.queries {
+			delete(b.queries, id)
+
+			break
+		}
 	}
 
 	// queryString is intentionally not evaluated — this is a simulation.
@@ -294,14 +297,6 @@ func (b *InMemoryBackend) CancelQuery(queryID string) error {
 	}
 
 	delete(b.queries, queryID)
-
-	for i, id := range b.queryOrder {
-		if id == queryID {
-			b.queryOrder = append(b.queryOrder[:i], b.queryOrder[i+1:]...)
-
-			break
-		}
-	}
 
 	return nil
 }
