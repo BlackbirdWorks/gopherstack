@@ -17,19 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
 	h := s3tables.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &s3tablessdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetTableRecordExpirationJobStatus",
-		"GetTableReplication",
-		"GetTableReplicationStatus",
-		"GetTableStorageClass",
-		"ListTagsForResource",
-		"PutTableBucketEncryption",
-		"PutTableBucketMetricsConfiguration",
-		"PutTableBucketReplication",
-		"PutTableBucketStorageClass",
-		"PutTableRecordExpirationConfiguration",
-		"PutTableReplication",
-		"TagResource",
-		"UntagResource",
-	})
+	sdkcheck.CheckCompleteness(t, &s3tablessdk.Client{}, h.GetSupportedOperations(), []string{})
 }

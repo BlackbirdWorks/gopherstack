@@ -6,32 +6,42 @@ import (
 )
 
 type backendSnapshot struct {
-	TableBuckets      map[string]*TableBucket             `json:"tableBuckets"`
-	Namespaces        map[string]*Namespace               `json:"namespaces"`
-	Tables            map[string]*Table                   `json:"tables"`
-	TableIndex        map[string]string                   `json:"tableIndex"`
-	BucketReplication map[string]*BucketReplicationConfig `json:"bucketReplication"`
-	TableReplication  map[string]bool                     `json:"tableReplication"`
-	TableRecordExpiry map[string]*TableRecordExpiryConfig `json:"tableRecordExpiry"`
-	AccountID         string                              `json:"accountID"`
-	Region            string                              `json:"region"`
+	TableBuckets            map[string]*TableBucket             `json:"tableBuckets"`
+	Namespaces              map[string]*Namespace               `json:"namespaces"`
+	Tables                  map[string]*Table                   `json:"tables"`
+	TableIndex              map[string]string                   `json:"tableIndex"`
+	BucketReplication       map[string]*BucketReplicationConfig `json:"bucketReplication"`
+	TableReplication        map[string]bool                     `json:"tableReplication"`
+	TableRecordExpiry       map[string]*TableRecordExpiryConfig `json:"tableRecordExpiry"`
+	Tags                    map[string]map[string]string        `json:"tags"`
+	TableReplicationConfigs map[string]map[string]any           `json:"tableReplicationConfigs"`
+	AccountID               string                              `json:"accountID"`
+	Region                  string                              `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
 func (b *InMemoryBackend) Snapshot() []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
+	b.muBuckets.RLock("Snapshot")
+	b.muNamespaces.RLock("Snapshot")
+	b.muTables.RLock("Snapshot")
+	b.muState.RLock("Snapshot")
+	defer b.muBuckets.RUnlock()
+	defer b.muNamespaces.RUnlock()
+	defer b.muTables.RUnlock()
+	defer b.muState.RUnlock()
 
 	snap := backendSnapshot{
-		TableBuckets:      b.tableBuckets,
-		Namespaces:        b.namespaces,
-		Tables:            b.tables,
-		TableIndex:        b.tableIndex,
-		BucketReplication: b.bucketReplication,
-		TableReplication:  b.tableReplication,
-		TableRecordExpiry: b.tableRecordExpiry,
-		AccountID:         b.accountID,
-		Region:            b.region,
+		TableBuckets:            b.tableBuckets,
+		Namespaces:              b.namespaces,
+		Tables:                  b.tables,
+		TableIndex:              b.tableIndex,
+		BucketReplication:       b.bucketReplication,
+		TableReplication:        b.tableReplication,
+		TableRecordExpiry:       b.tableRecordExpiry,
+		Tags:                    b.tags,
+		TableReplicationConfigs: b.tableReplicationConfigs,
+		AccountID:               b.accountID,
+		Region:                  b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -54,8 +64,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	ensureNonNilMaps(&snap)
 
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
+	b.muBuckets.Lock("Restore")
+	b.muNamespaces.Lock("Restore")
+	b.muTables.Lock("Restore")
+	b.muState.Lock("Restore")
+	defer b.muBuckets.Unlock()
+	defer b.muNamespaces.Unlock()
+	defer b.muTables.Unlock()
+	defer b.muState.Unlock()
 
 	b.tableBuckets = snap.TableBuckets
 	b.namespaces = snap.Namespaces
@@ -64,6 +80,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.bucketReplication = snap.BucketReplication
 	b.tableReplication = snap.TableReplication
 	b.tableRecordExpiry = snap.TableRecordExpiry
+	b.tags = snap.Tags
+	b.tableReplicationConfigs = snap.TableReplicationConfigs
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -97,5 +115,13 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.TableRecordExpiry == nil {
 		snap.TableRecordExpiry = make(map[string]*TableRecordExpiryConfig)
+	}
+
+	if snap.Tags == nil {
+		snap.Tags = make(map[string]map[string]string)
+	}
+
+	if snap.TableReplicationConfigs == nil {
+		snap.TableReplicationConfigs = make(map[string]map[string]any)
 	}
 }
