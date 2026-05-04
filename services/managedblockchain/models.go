@@ -427,3 +427,14 @@ type listInvitationsResponse struct {
 	NextToken   *string            `json:"NextToken,omitempty"`
 	Invitations []invitationObject `json:"Invitations"`
 }
+
+// updateMemberRequest is the request body for PATCH /networks/{networkId}/members/{memberId}.
+type updateMemberRequest struct {
+	Description string `json:"Description"`
+}
+
+// voteOnProposalRequest is the request body for POST /networks/{networkId}/proposals/{proposalId}/votes.
+type voteOnProposalRequest struct {
+	MemberID string `json:"MemberId"`
+	Vote     string `json:"Vote"`
+}

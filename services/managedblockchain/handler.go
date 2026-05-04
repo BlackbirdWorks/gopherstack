@@ -36,6 +36,9 @@ const (
 	opRejectInvitation    = "RejectInvitation"
 	opTagResource         = "TagResource"
 	opUntagResource       = "UntagResource"
+	opUpdateMember        = "UpdateMember"
+	opUpdateNode          = "UpdateNode"
+	opVoteOnProposal      = "VoteOnProposal"
 )
 
 const (
@@ -90,6 +93,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		opRejectInvitation,
 		opTagResource,
 		opUntagResource,
+		opUpdateMember,
+		opUpdateNode,
+		opVoteOnProposal,
 	}
 }
 
@@ -321,6 +327,8 @@ func parseMembersPath(method string, parts []string, networkID string) (string, 
 			return opGetMember, resource
 		case http.MethodDelete:
 			return opDeleteMember, resource
+		case http.MethodPatch:
+			return opUpdateMember, resource
 		}
 	}
 
@@ -353,6 +361,8 @@ func parseNodesPath(method string, parts []string, networkID, memberID string) (
 			return opGetNode, nodeResource
 		case http.MethodDelete:
 			return opDeleteNode, nodeResource
+		case http.MethodPatch:
+			return opUpdateNode, nodeResource
 		}
 	}
 
@@ -379,8 +389,13 @@ func parseProposalsPath(method string, parts []string, networkID string) (string
 		resource := networkID + "/" + proposalID
 
 		// /networks/{networkId}/proposals/{proposalId}/votes
-		if len(parts) >= 5 && parts[4] == "votes" && method == http.MethodGet {
-			return opListProposalVotes, resource
+		if len(parts) >= 5 && parts[4] == "votes" {
+			switch method {
+			case http.MethodGet:
+				return opListProposalVotes, resource
+			case http.MethodPost:
+				return opVoteOnProposal, resource
+			}
 		}
 
 		// /networks/{networkId}/proposals/{proposalId}
@@ -503,6 +518,10 @@ func (h *Handler) dispatchNetworkOps(
 		return h.handleTagResource(c, resource, body)
 	case opUntagResource:
 		return h.handleUntagResource(c, resource, query)
+	case opUpdateMember:
+		return h.handleUpdateMember(c, resource, body)
+	case opUpdateNode:
+		return h.handleUpdateNode(c, resource)
 	}
 
 	return errUnknownOp
@@ -535,6 +554,8 @@ func (h *Handler) dispatchProposalOps(c *echo.Context, op, resource string, body
 		return h.handleListProposals(c, resource)
 	case opListProposalVotes:
 		return h.handleListProposalVotes(c, resource)
+	case opVoteOnProposal:
+		return h.handleVoteOnProposal(c, resource, body)
 	}
 
 	return errUnknownOp
@@ -976,6 +997,63 @@ func (h *Handler) handleListInvitations(c *echo.Context) error {
 
 func (h *Handler) handleRejectInvitation(c *echo.Context, invitationID string) error {
 	if err := h.Backend.RejectInvitation(invitationID); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleUpdateMember(c *echo.Context, resource string, body []byte) error {
+	networkID, memberID, ok := splitResource(resource)
+	if !ok {
+		return writeError(c, http.StatusBadRequest, "invalid resource path")
+	}
+
+	var req updateMemberRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	_, err := h.Backend.UpdateMember(networkID, memberID, req.Description)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleUpdateNode(c *echo.Context, resource string) error {
+	networkID, memberID, nodeID, ok := splitThreePart(resource)
+	if !ok {
+		return writeError(c, http.StatusBadRequest, "invalid resource path")
+	}
+
+	_, err := h.Backend.UpdateNode(networkID, memberID, nodeID)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleVoteOnProposal(c *echo.Context, resource string, body []byte) error {
+	networkID, proposalID, ok := splitResource(resource)
+	if !ok {
+		return writeError(c, http.StatusBadRequest, "invalid resource path")
+	}
+
+	var req voteOnProposalRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	if req.MemberID == "" {
+		return writeError(c, http.StatusBadRequest, ErrMissingMemberID.Error())
+	}
+
+	if err := h.Backend.VoteOnProposal(networkID, proposalID, req.MemberID, req.Vote); err != nil {
 		return h.writeBackendError(c, err)
 	}
 

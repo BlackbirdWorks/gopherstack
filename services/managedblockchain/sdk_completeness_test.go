@@ -17,9 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := managedblockchain.NewInMemoryBackend()
 	h := managedblockchain.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &managedblockchainsdk.Client{}, h.GetSupportedOperations(), []string{
-		"UpdateMember",
-		"UpdateNode",
-		"VoteOnProposal",
-	})
+	sdkcheck.CheckCompleteness(t, &managedblockchainsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

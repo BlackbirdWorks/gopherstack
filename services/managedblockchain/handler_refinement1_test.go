@@ -77,7 +77,7 @@ func TestRefinement1_GetSupportedOperations_Sorted(t *testing.T) {
 	ops := h.GetSupportedOperations()
 
 	require.NotEmpty(t, ops)
-	assert.Equal(t, 24, managedblockchain.HandlerOpsLen(h))
+	assert.Equal(t, 27, managedblockchain.HandlerOpsLen(h))
 
 	for i := 1; i < len(ops); i++ {
 		assert.LessOrEqual(t, ops[i-1], ops[i], "ops must be sorted: %s >= %s", ops[i-1], ops[i])
