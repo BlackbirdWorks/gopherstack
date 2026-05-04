@@ -171,7 +171,7 @@ describe("ManagedBlockchainPage", () => {
     const input = screen.getByPlaceholderText("Enter network ID");
     await fireEvent.input(input, { target: { value: "net-abc123" } });
 
-    mockSend.mockResolvedValue({ ProposalSummaries: [exampleProposal] });
+    mockSend.mockResolvedValue({ Proposals: [exampleProposal] });
     const loadBtn = screen.getByText("Load");
     await fireEvent.click(loadBtn);
 
@@ -228,7 +228,7 @@ describe("ManagedBlockchainPage", () => {
     mockSend.mockResolvedValue({ Members: [exampleMember] });
 
     const chevronBtn = document.querySelector(
-      "button[class*='text-gray-400']"
+      "button[class*='text-gray-400']",
     ) as HTMLButtonElement;
     if (chevronBtn) await fireEvent.click(chevronBtn);
 

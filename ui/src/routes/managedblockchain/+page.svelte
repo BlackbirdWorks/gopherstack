@@ -4,10 +4,8 @@
 	import { getManagedBlockchainClient } from '$lib/aws-client';
 	import {
 		ListNetworksCommand,
-		GetNetworkCommand,
 		CreateNetworkCommand,
 		ListMembersCommand,
-		GetMemberCommand,
 		CreateMemberCommand,
 		DeleteMemberCommand,
 		UpdateMemberCommand,
@@ -25,12 +23,14 @@
 		VoteOnProposalCommand,
 		ListInvitationsCommand,
 		RejectInvitationCommand,
+		AccessorNetworkType,
 		type NetworkSummary,
 		type MemberSummary,
 		type NodeSummary,
 		type Member,
 		type Proposal,
-		type ProposalVoteSummary,
+		type ProposalSummary,
+		type VoteSummary,
 		type AccessorSummary,
 		type Invitation
 	} from '@aws-sdk/client-managedblockchain';
@@ -40,7 +40,6 @@
 		Users,
 		Server,
 		Key,
-		FileText,
 		Mail,
 		RefreshCw,
 		Plus,
@@ -115,15 +114,15 @@
 	let loadingAccessors = $state(false);
 	let showCreateAccessor = $state(false);
 	let newAccessorType = $state('BILLING_TOKEN');
-	let newAccessorNetworkType = $state('ETHEREUM_MAINNET');
+	let newAccessorNetworkType = $state<AccessorNetworkType>(AccessorNetworkType.ETHEREUM_MAINNET);
 	let creatingAccessor = $state(false);
 
 	// ── Proposals ─────────────────────────────────────────────────────────────
 	let proposalNetworkId = $state('');
-	let proposals = $state<Proposal[]>([]);
+	let proposals = $state<ProposalSummary[]>([]);
 	let loadingProposals = $state(false);
 	let selectedProposal = $state<Proposal | null>(null);
-	let proposalVotes = $state<ProposalVoteSummary[]>([]);
+	let proposalVotes = $state<VoteSummary[]>([]);
 	let loadingVotes = $state(false);
 	let showCreateProposal = $state(false);
 	let newProposalMemberId = $state('');
@@ -234,7 +233,7 @@
 		loadingProposals = true;
 		try {
 			const r = await client.send(new ListProposalsCommand({ NetworkId: proposalNetworkId }));
-			proposals = (r.ProposalSummaries ?? []) as unknown as Proposal[];
+			proposals = r.Proposals ?? [];
 		} catch (e) {
 			toast.error('Failed to load proposals: ' + String(e));
 		} finally {
@@ -242,17 +241,18 @@
 		}
 	}
 
-	async function selectProposal(p: Proposal) {
-		selectedProposal = p;
+	async function selectProposal(p: ProposalSummary) {
 		loadingVotes = true;
 		try {
-			const proposalId = (p as { ProposalId?: string }).ProposalId ?? '';
-			const r = await client.send(
-				new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })
-			);
-			proposalVotes = r.ProposalVotes ?? [];
+			const proposalId = p.ProposalId ?? '';
+			const [fullR, votesR] = await Promise.all([
+				client.send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })),
+				client.send(new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }))
+			]);
+			selectedProposal = fullR.Proposal ?? null;
+			proposalVotes = votesR.ProposalVotes ?? [];
 		} catch (e) {
-			toast.error('Failed to load votes: ' + String(e));
+			toast.error('Failed to load proposal details: ' + String(e));
 		} finally {
 			loadingVotes = false;
 		}
@@ -307,7 +307,11 @@
 					Description: newNetworkDesc,
 					Framework: newNetworkFramework as 'HYPERLEDGER_FABRIC' | 'ETHEREUM',
 					FrameworkVersion: newNetworkVersion,
-					MemberConfiguration: { Name: newMemberName, Description: newMemberDesc },
+					MemberConfiguration: {
+						Name: newMemberName,
+						Description: newMemberDesc,
+						FrameworkConfiguration: { Fabric: { AdminUsername: 'admin', AdminPassword: 'Admin12345!' } }
+					},
 					VotingPolicy: { ApprovalThresholdPolicy: { ThresholdPercentage: 50, ProposalDurationInHours: 24, ThresholdComparator: 'GREATER_THAN_OR_EQUAL_TO' } }
 				})
 			);
@@ -362,7 +366,12 @@
 			await client.send(
 				new CreateMemberCommand({
 					NetworkId: createMemberNetworkId,
-					MemberConfiguration: { Name: newMemberFormName, Description: newMemberFormDesc }
+					InvitationId: 'N/A',
+					MemberConfiguration: {
+						Name: newMemberFormName,
+						Description: newMemberFormDesc,
+						FrameworkConfiguration: { Fabric: { AdminUsername: 'admin', AdminPassword: 'Admin12345!' } }
+					}
 				})
 			);
 			toast.success('Member created');
@@ -380,7 +389,7 @@
 	async function deleteMember(networkId: string, memberId: string) {
 		const confirmed = await confirmDestructive({
 			title: 'Delete Member',
-			description: 'This will permanently delete the member and all its nodes.',
+			message: 'This will permanently delete the member and all its nodes.',
 			confirmLabel: 'Delete'
 		});
 		if (!confirmed) return;
@@ -442,7 +451,7 @@
 	async function deleteNode(networkId: string, memberId: string, nodeId: string) {
 		const confirmed = await confirmDestructive({
 			title: 'Delete Node',
-			description: 'This will permanently delete the peer node.',
+			message: 'This will permanently delete the peer node.',
 			confirmLabel: 'Delete'
 		});
 		if (!confirmed) return;
@@ -490,7 +499,7 @@
 	async function deleteAccessor(accessorId: string) {
 		const confirmed = await confirmDestructive({
 			title: 'Delete Accessor',
-			description: 'This will permanently delete the accessor token.',
+			message: 'This will permanently delete the accessor token.',
 			confirmLabel: 'Delete'
 		});
 		if (!confirmed) return;
@@ -548,11 +557,14 @@
 			toast.success('Vote cast');
 			showVoteForm = false;
 			voteMemberId = '';
-			if (selectedProposal) {
-				const proposalId = (selectedProposal as { ProposalId?: string }).ProposalId ?? '';
-				const r = await client.send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }));
-				if (r.Proposal) selectedProposal = r.Proposal;
-				await selectProposal(selectedProposal);
+			if (selectedProposal?.ProposalId) {
+				const proposalId = selectedProposal.ProposalId;
+				const [fullR, votesR] = await Promise.all([
+					client.send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })),
+					client.send(new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }))
+				]);
+				if (fullR.Proposal) selectedProposal = fullR.Proposal;
+				proposalVotes = votesR.ProposalVotes ?? [];
 			}
 		} catch (e) {
 			toast.error('Failed to cast vote: ' + String(e));
@@ -564,7 +576,7 @@
 	async function rejectInvitation(invitationId: string) {
 		const confirmed = await confirmDestructive({
 			title: 'Reject Invitation',
-			description: 'Reject this network invitation?',
+			message: 'Reject this network invitation?',
 			confirmLabel: 'Reject'
 		});
 		if (!confirmed) return;
@@ -1035,10 +1047,10 @@
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newAccessorNetworkType}
 							>
-								<option value="ETHEREUM_MAINNET">Ethereum Mainnet</option>
-								<option value="ETHEREUM_GOERLI_TESTNET">Ethereum Goerli Testnet</option>
-								<option value="POLYGON_MAINNET">Polygon Mainnet</option>
-								<option value="POLYGON_MUMBAI_TESTNET">Polygon Mumbai Testnet</option>
+								<option value={AccessorNetworkType.ETHEREUM_MAINNET}>Ethereum Mainnet</option>
+								<option value={AccessorNetworkType.ETHEREUM_GOERLI}>Ethereum Goerli</option>
+								<option value={AccessorNetworkType.POLYGON_MAINNET}>Polygon Mainnet</option>
+								<option value={AccessorNetworkType.POLYGON_MUMBAI}>Polygon Mumbai</option>
 							</select>
 						</div>
 					</div>
@@ -1184,24 +1196,23 @@
 							No proposals
 						</div>
 					{:else}
-						{#each proposals as proposal ((proposal as { ProposalId?: string }).ProposalId)}
-							{@const proposalId = (proposal as { ProposalId?: string }).ProposalId ?? ''}
+						{#each proposals as proposal (proposal.ProposalId)}
+							{@const proposalId = proposal.ProposalId ?? ''}
 							<button
-								class="w-full rounded-lg border p-3 text-left transition-colors {selectedProposal && (selectedProposal as { ProposalId?: string }).ProposalId === proposalId
+								class="w-full rounded-lg border p-3 text-left transition-colors {selectedProposal?.ProposalId === proposalId
 									? 'border-blue-500 bg-gray-800'
 									: 'border-gray-700 bg-gray-900 hover:border-gray-600'}"
 								onclick={() => selectProposal(proposal)}
 							>
 								<div class="flex items-center justify-between">
 									<span class="text-sm font-medium truncate">{proposalId.slice(0, 12)}…</span>
-									<span class="text-xs {proposalStatusColor((proposal as { Status?: string }).Status ?? '')}">
-										{(proposal as { Status?: string }).Status}
+									<span class="text-xs {proposalStatusColor(proposal.Status ?? '')}">
+										{proposal.Status}
 									</span>
 								</div>
-								<div class="mt-1 text-xs text-gray-400">{(proposal as { Description?: string }).Description || '(no description)'}</div>
-								<div class="mt-1 flex items-center gap-2 text-xs">
-									<span class="text-green-500">✓ {(proposal as { YesVoteCount?: number }).YesVoteCount ?? 0}</span>
-									<span class="text-red-500">✗ {(proposal as { NoVoteCount?: number }).NoVoteCount ?? 0}</span>
+								<div class="mt-1 text-xs text-gray-400">{proposal.Description || '(no description)'}</div>
+								<div class="mt-1 text-xs text-gray-400">
+									by {proposal.ProposedByMemberName || proposal.ProposedByMemberId || '—'}
 								</div>
 							</button>
 						{/each}
@@ -1211,14 +1222,13 @@
 				<!-- Proposal detail -->
 				<div class="col-span-2">
 					{#if selectedProposal}
-						{@const p = selectedProposal as { ProposalId?: string; Status?: string; Description?: string; ProposedByMemberName?: string; YesVoteCount?: number; NoVoteCount?: number; OutstandingVoteCount?: number }}
 						<div class="rounded-lg border border-gray-700 bg-gray-800 p-4">
 							<div class="mb-4 flex items-center justify-between">
 								<h3 class="font-semibold">Proposal Detail</h3>
 								<button
 									class="flex items-center gap-1 rounded border border-blue-600 px-2 py-1 text-xs text-blue-400 hover:bg-blue-600/20"
 									onclick={() => {
-										voteProposalId = p.ProposalId ?? '';
+										voteProposalId = selectedProposal?.ProposalId ?? '';
 										showVoteForm = true;
 									}}
 								>
@@ -1229,24 +1239,24 @@
 							<dl class="space-y-2 text-sm">
 								<div class="flex gap-2">
 									<dt class="w-36 text-gray-400">ID</dt>
-									<dd class="font-mono text-xs">{p.ProposalId}</dd>
+									<dd class="font-mono text-xs">{selectedProposal.ProposalId}</dd>
 								</div>
 								<div class="flex gap-2">
 									<dt class="w-36 text-gray-400">Status</dt>
-									<dd class="{proposalStatusColor(p.Status)}">{p.Status}</dd>
+									<dd class="{proposalStatusColor(selectedProposal.Status ?? '')}">{selectedProposal.Status}</dd>
 								</div>
 								<div class="flex gap-2">
 									<dt class="w-36 text-gray-400">Description</dt>
-									<dd>{p.Description || '—'}</dd>
+									<dd>{selectedProposal.Description || '—'}</dd>
 								</div>
 								<div class="flex gap-2">
 									<dt class="w-36 text-gray-400">Proposed By</dt>
-									<dd>{p.ProposedByMemberName || '—'}</dd>
+									<dd>{selectedProposal.ProposedByMemberName || '—'}</dd>
 								</div>
 								<div class="flex gap-4">
-									<span class="text-green-500">YES: {p.YesVoteCount ?? 0}</span>
-									<span class="text-red-500">NO: {p.NoVoteCount ?? 0}</span>
-									<span class="text-gray-400">Outstanding: {p.OutstandingVoteCount ?? 0}</span>
+									<span class="text-green-500">YES: {selectedProposal.YesVoteCount ?? 0}</span>
+									<span class="text-red-500">NO: {selectedProposal.NoVoteCount ?? 0}</span>
+									<span class="text-gray-400">Outstanding: {selectedProposal.OutstandingVoteCount ?? 0}</span>
 								</div>
 							</dl>
 
@@ -1258,15 +1268,15 @@
 								{:else if proposalVotes.length === 0}
 									<div class="text-sm text-gray-500">No votes cast yet</div>
 								{:else}
-									{#each proposalVotes as v ((v as { MemberId?: string }).MemberId)}
+									{#each proposalVotes as v (v.MemberId)}
 										<div class="flex items-center gap-3 py-1">
-											{#if (v as { Vote?: string }).Vote === 'YES'}
+											{#if v.Vote === 'YES'}
 												<CheckCircle class="h-4 w-4 text-green-500" />
 											{:else}
 												<XCircle class="h-4 w-4 text-red-500" />
 											{/if}
-											<span class="text-sm">{(v as { MemberName?: string }).MemberName || (v as { MemberId?: string }).MemberId}</span>
-											<span class="text-xs {(v as { Vote?: string }).Vote === 'YES' ? 'text-green-500' : 'text-red-500'}">{(v as { Vote?: string }).Vote}</span>
+											<span class="text-sm">{v.MemberName || v.MemberId}</span>
+											<span class="text-xs {v.Vote === 'YES' ? 'text-green-500' : 'text-red-500'}">{v.Vote}</span>
 										</div>
 									{/each}
 								{/if}
