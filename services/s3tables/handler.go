@@ -97,14 +97,27 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetTableMetadataLocation",
 		"GetTablePolicy",
 		"GetTableRecordExpirationConfiguration",
+		"GetTableRecordExpirationJobStatus",
+		"GetTableReplication",
+		"GetTableReplicationStatus",
+		"GetTableStorageClass",
 		"ListNamespaces",
 		"ListTableBuckets",
 		"ListTables",
+		"ListTagsForResource",
+		"PutTableBucketEncryption",
 		"PutTableBucketMaintenanceConfiguration",
+		"PutTableBucketMetricsConfiguration",
 		"PutTableBucketPolicy",
+		"PutTableBucketReplication",
+		"PutTableBucketStorageClass",
 		"PutTableMaintenanceConfiguration",
 		"PutTablePolicy",
+		"PutTableRecordExpirationConfiguration",
+		"PutTableReplication",
 		"RenameTable",
+		"TagResource",
+		"UntagResource",
 		"UpdateTableMetadataLocation",
 	}
 }
@@ -132,7 +145,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/get-table") ||
 			strings.HasPrefix(path, "/table-bucket-replication") ||
 			strings.HasPrefix(path, "/table-replication") ||
-			strings.HasPrefix(path, "/table-record-expiration")
+			strings.HasPrefix(path, "/table-record-expiration") ||
+			strings.HasPrefix(path, "/replication-status") ||
+			strings.HasPrefix(path, "/table-record-expiration-job-status") ||
+			strings.HasPrefix(path, "/tag/")
 	}
 }
 
@@ -155,13 +171,20 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	switch segs[0] {
-	case "table-bucket-replication", "table-replication", "table-record-expiration":
+	case "table-bucket-replication", "table-replication", "table-record-expiration",
+		"replication-status", "table-record-expiration-job-status":
 		q := c.Request().URL.Query()
 		if arn := q.Get(keyTableBucketARN); arn != "" {
 			return arn
 		}
 
 		return q.Get("tableArn")
+	case "tag":
+		if len(segs) > 1 {
+			return segs[1]
+		}
+
+		return ""
 	}
 
 	if len(segs) > 1 {
@@ -234,12 +257,22 @@ func (h *Handler) routeRequest(r *http.Request) (string, dispatchFunc) {
 		return h.routeTableReplication(method, r)
 	case "table-record-expiration":
 		return h.routeTableRecordExpiration(method, r)
+	case "replication-status":
+		if method == http.MethodGet {
+			return "GetTableReplicationStatus", h.handleGetTableReplicationStatus
+		}
+	case "table-record-expiration-job-status":
+		if method == http.MethodGet {
+			return "GetTableRecordExpirationJobStatus", h.handleGetTableRecordExpirationJobStatus
+		}
+	case "tag":
+		return h.routeTag(segs, method)
 	}
 
 	return "", nil
 }
 
-//nolint:cyclop,gocognit // routing table is inherently switch-heavy
+//nolint:cyclop,gocognit,funlen // routing table is inherently switch-heavy
 func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (string, dispatchFunc) {
 	switch len(segs) {
 	case 1:
@@ -267,6 +300,8 @@ func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (s
 			switch method {
 			case http.MethodGet:
 				return "GetTableBucketEncryption", h.handleGetTableBucketEncryption
+			case http.MethodPut:
+				return "PutTableBucketEncryption", h.handlePutTableBucketEncryption
 			case http.MethodDelete:
 				return "DeleteTableBucketEncryption", h.handleDeleteTableBucketEncryption
 			}
@@ -274,12 +309,17 @@ func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (s
 			switch method {
 			case http.MethodGet:
 				return "GetTableBucketMetricsConfiguration", h.handleGetTableBucketMetricsConfiguration
+			case http.MethodPut:
+				return "PutTableBucketMetricsConfiguration", h.handlePutTableBucketMetricsConfiguration
 			case http.MethodDelete:
 				return "DeleteTableBucketMetricsConfiguration", h.handleDeleteTableBucketMetricsConfiguration
 			}
 		case segStorageClass:
-			if method == http.MethodGet {
+			switch method {
+			case http.MethodGet:
 				return "GetTableBucketStorageClass", h.handleGetTableBucketStorageClass
+			case http.MethodPut:
+				return "PutTableBucketStorageClass", h.handlePutTableBucketStorageClass
 			}
 		case "policy":
 			switch method {
@@ -373,6 +413,10 @@ func (h *Handler) routeTableSubResource(sub, method string, _ *http.Request) (st
 	case segEncryption:
 		if method == http.MethodGet {
 			return "GetTableEncryption", h.handleGetTableEncryption
+		}
+	case segStorageClass:
+		if method == http.MethodGet {
+			return "GetTableStorageClass", h.handleGetTableStorageClass
 		}
 	case "policy":
 		switch method {
@@ -596,14 +640,21 @@ func (h *Handler) handleGetTableBucketEncryption(ctx context.Context, r *http.Re
 
 	bucketARN := segs[1]
 
-	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+	tb, err := h.Backend.GetTableBucket(bucketARN)
+	if err != nil {
 		return nil, err
+	}
+
+	if tb.Encryption == nil {
+		return nil, awserr.ErrNotFound
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got table bucket encryption", keyArn, bucketARN)
 
-	return nil, awserr.ErrNotFound
+	return json.Marshal(map[string]any{
+		"encryptionConfiguration": tb.Encryption,
+	})
 }
 
 func (h *Handler) handleDeleteTableBucketEncryption(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -679,8 +730,14 @@ func (h *Handler) handleGetTableBucketStorageClass(ctx context.Context, r *http.
 
 	bucketARN := segs[1]
 
-	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+	tb, err := h.Backend.GetTableBucket(bucketARN)
+	if err != nil {
 		return nil, err
+	}
+
+	sc := tb.StorageClass
+	if sc == "" {
+		sc = storageClassStandard
 	}
 
 	log := logger.Load(ctx)
@@ -688,7 +745,7 @@ func (h *Handler) handleGetTableBucketStorageClass(ctx context.Context, r *http.
 
 	return json.Marshal(map[string]any{
 		keyTableBucketARN: bucketARN,
-		"storageClass":    "STANDARD",
+		"storageClass":    sc,
 	})
 }
 
@@ -698,6 +755,8 @@ func (h *Handler) routeTableBucketReplication(method string, r *http.Request) (s
 	switch method {
 	case http.MethodGet:
 		return "GetTableBucketReplication", h.handleGetTableBucketReplication
+	case http.MethodPut:
+		return "PutTableBucketReplication", h.handlePutTableBucketReplication
 	case http.MethodDelete:
 		return "DeleteTableBucketReplication", h.handleDeleteTableBucketReplication
 	}
@@ -708,7 +767,12 @@ func (h *Handler) routeTableBucketReplication(method string, r *http.Request) (s
 }
 
 func (h *Handler) routeTableReplication(method string, r *http.Request) (string, dispatchFunc) {
-	if method == http.MethodDelete {
+	switch method {
+	case http.MethodGet:
+		return "GetTableReplication", h.handleGetTableReplication
+	case http.MethodPut:
+		return "PutTableReplication", h.handlePutTableReplication
+	case http.MethodDelete:
 		return "DeleteTableReplication", h.handleDeleteTableReplication
 	}
 
@@ -718,8 +782,11 @@ func (h *Handler) routeTableReplication(method string, r *http.Request) (string,
 }
 
 func (h *Handler) routeTableRecordExpiration(method string, r *http.Request) (string, dispatchFunc) {
-	if method == http.MethodGet {
+	switch method {
+	case http.MethodGet:
 		return "GetTableRecordExpirationConfiguration", h.handleGetTableRecordExpirationConfiguration
+	case http.MethodPut:
+		return "PutTableRecordExpirationConfiguration", h.handlePutTableRecordExpirationConfiguration
 	}
 
 	_ = r
@@ -1432,6 +1499,369 @@ func (h *Handler) handleDeleteTablePolicy(ctx context.Context, r *http.Request, 
 	return nil, nil
 }
 
+// === Tag operations ===
+
+// routeTag handles /tag/{resourceArn}.
+func (h *Handler) routeTag(segs []string, method string) (string, dispatchFunc) {
+	if len(segs) < 2 { //nolint:mnd // need at least tag + resourceArn
+		return "", nil
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "ListTagsForResource", h.handleListTagsForResource
+	case http.MethodPost:
+		return "TagResource", h.handleTagResource
+	case http.MethodDelete:
+		return "UntagResource", h.handleUntagResource
+	}
+
+	return "", nil
+}
+
+func (h *Handler) handleListTagsForResource(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing resourceArn", errInvalidRequest)
+	}
+
+	resourceArn := segs[1]
+
+	tags, err := h.Backend.ListTagsForResource(resourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: listed tags for resource", "resourceArn", resourceArn)
+
+	return json.Marshal(map[string]any{
+		"tags": tags,
+	})
+}
+
+// tagResourceRequest is the request body for TagResource.
+type tagResourceRequest struct {
+	Tags map[string]string `json:"tags"`
+}
+
+func (h *Handler) handleTagResource(ctx context.Context, r *http.Request, body []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing resourceArn", errInvalidRequest)
+	}
+
+	resourceArn := segs[1]
+
+	var req tagResourceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := h.Backend.TagResource(resourceArn, req.Tags); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: tagged resource", "resourceArn", resourceArn)
+
+	return nil, nil
+}
+
+func (h *Handler) handleUntagResource(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing resourceArn", errInvalidRequest)
+	}
+
+	resourceArn := segs[1]
+	tagKeys := r.URL.Query()["tagKeys"]
+
+	if err := h.Backend.UntagResource(resourceArn, tagKeys); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: untagged resource", "resourceArn", resourceArn)
+
+	return nil, nil
+}
+
+// === New bucket sub-resource handlers ===
+
+// putTableBucketEncryptionRequest is the request body for PutTableBucketEncryption.
+type putTableBucketEncryptionRequest struct {
+	EncryptionConfiguration map[string]any `json:"encryptionConfiguration"`
+}
+
+func (h *Handler) handlePutTableBucketEncryption(ctx context.Context, r *http.Request, body []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+
+	var req putTableBucketEncryptionRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := h.Backend.PutTableBucketEncryption(bucketARN, req.EncryptionConfiguration); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: put table bucket encryption", keyArn, bucketARN)
+
+	return nil, nil
+}
+
+func (h *Handler) handlePutTableBucketMetricsConfiguration(
+	ctx context.Context,
+	r *http.Request,
+	_ []byte,
+) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+
+	if err := h.Backend.PutTableBucketMetricsConfiguration(bucketARN); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: put table bucket metrics configuration", keyArn, bucketARN)
+
+	return nil, nil
+}
+
+// putTableBucketStorageClassRequest is the request body for PutTableBucketStorageClass.
+type putTableBucketStorageClassRequest struct {
+	StorageClassConfiguration map[string]any `json:"storageClassConfiguration"`
+}
+
+func (h *Handler) handlePutTableBucketStorageClass(ctx context.Context, r *http.Request, body []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+
+	var req putTableBucketStorageClassRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	storageClass := storageClassStandard
+	if scVal, found := req.StorageClassConfiguration["storageClass"]; found {
+		if scStr, isStr := scVal.(string); isStr && scStr != "" {
+			storageClass = scStr
+		}
+	}
+
+	if err := h.Backend.PutTableBucketStorageClass(bucketARN, storageClass); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: put table bucket storage class", keyArn, bucketARN)
+
+	return nil, nil
+}
+
+// === New table-bucket replication handler ===
+
+// putTableBucketReplicationRequest is the request body for PutTableBucketReplication.
+type putTableBucketReplicationRequest struct {
+	Configuration map[string]any `json:"configuration"`
+}
+
+func (h *Handler) handlePutTableBucketReplication(ctx context.Context, r *http.Request, body []byte) ([]byte, error) {
+	bucketARN := r.URL.Query().Get(keyTableBucketARN)
+	if bucketARN == "" {
+		return nil, fmt.Errorf("%w: tableBucketARN is required", errInvalidRequest)
+	}
+
+	var req putTableBucketReplicationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	cfg := &BucketReplicationConfig{
+		Destinations: parseBucketReplicationDestinations(req.Configuration),
+	}
+
+	if err := h.Backend.PutTableBucketReplication(bucketARN, cfg); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: put table bucket replication", keyArn, bucketARN)
+
+	return nil, nil
+}
+
+// === New table replication handlers ===
+
+func (h *Handler) handleGetTableReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	tableArn := r.URL.Query().Get("tableArn")
+	if tableArn == "" {
+		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
+	}
+
+	cfg, err := h.Backend.GetTableReplicationConfig(tableArn)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table replication", "tableArn", tableArn)
+
+	return json.Marshal(map[string]any{
+		keyConfiguration: cfg,
+		keyVersionToken:  "",
+	})
+}
+
+// putTableReplicationRequest is the request body for PutTableReplication.
+type putTableReplicationRequest struct {
+	Configuration map[string]any `json:"configuration"`
+}
+
+func (h *Handler) handlePutTableReplication(ctx context.Context, r *http.Request, body []byte) ([]byte, error) {
+	tableArn := r.URL.Query().Get("tableArn")
+	if tableArn == "" {
+		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
+	}
+
+	var req putTableReplicationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := h.Backend.SetTableReplicationConfig(tableArn, req.Configuration); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: put table replication", "tableArn", tableArn)
+
+	return json.Marshal(map[string]any{
+		keyStatusField:  "ACTIVE",
+		keyVersionToken: "1",
+	})
+}
+
+func (h *Handler) handleGetTableReplicationStatus(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	tableArn := r.URL.Query().Get("tableArn")
+	if tableArn == "" {
+		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.ValidateTableExists(tableArn); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table replication status", "tableArn", tableArn)
+
+	return json.Marshal(map[string]any{
+		"sourceTableArn": tableArn,
+		"destinations":   []any{},
+	})
+}
+
+// === New table record expiration handlers ===
+
+// putTableRecordExpirationRequest is the request body for PutTableRecordExpirationConfiguration.
+type putTableRecordExpirationRequest struct {
+	Value map[string]any `json:"value"`
+}
+
+func (h *Handler) handlePutTableRecordExpirationConfiguration(
+	ctx context.Context,
+	r *http.Request,
+	body []byte,
+) ([]byte, error) {
+	tableArn := r.URL.Query().Get("tableArn")
+	if tableArn == "" {
+		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
+	}
+
+	var req putTableRecordExpirationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	cfg := &TableRecordExpiryConfig{Status: "DISABLED"}
+	if st, ok := req.Value[keyStatusField].(string); ok {
+		cfg.Status = st
+	}
+
+	if err := h.Backend.PutTableRecordExpirationConfiguration(tableArn, cfg); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: put table record expiration configuration", "tableArn", tableArn)
+
+	return nil, nil
+}
+
+func (h *Handler) handleGetTableRecordExpirationJobStatus(
+	ctx context.Context,
+	r *http.Request,
+	_ []byte,
+) ([]byte, error) {
+	tableArn := r.URL.Query().Get("tableArn")
+	if tableArn == "" {
+		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.ValidateTableExists(tableArn); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table record expiration job status", "tableArn", tableArn)
+
+	return json.Marshal(map[string]any{
+		keyStatusField: "SUCCEEDED",
+	})
+}
+
+// === New table storage-class handler ===
+
+func (h *Handler) handleGetTableStorageClass(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 4 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN, namespace or name", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+	nsName := segs[2]
+	name := segs[3]
+
+	sc, err := h.Backend.GetTableStorageClass(bucketARN, splitNamespace(nsName), name)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table storage class", keyName, name)
+
+	return json.Marshal(map[string]any{
+		"storageClassConfiguration": map[string]any{
+			"storageClass": sc,
+		},
+	})
+}
+
 // rawPathSegments splits the raw (or decoded) URL path into non-empty segments,
 // URL-decoding each segment individually so that encoded slashes in path params
 // (e.g. ARNs) are preserved as a single segment.
@@ -1460,4 +1890,35 @@ func rawPathSegments(r *http.Request) []string {
 	}
 
 	return segments
+}
+
+// parseBucketReplicationDestinations extracts replication destinations from a config map.
+func parseBucketReplicationDestinations(cfg map[string]any) []ReplicationDestination {
+	destsRaw, ok := cfg["destinations"]
+	if !ok {
+		return nil
+	}
+
+	destSlice, ok := destsRaw.([]any)
+	if !ok {
+		return nil
+	}
+
+	destinations := make([]ReplicationDestination, 0, len(destSlice))
+
+	for _, d := range destSlice {
+		dm, isMap := d.(map[string]any)
+		if !isMap {
+			continue
+		}
+
+		dest := ReplicationDestination{}
+		if arn, isStr := dm["destinationBucketARN"].(string); isStr {
+			dest.DestinationBucketARN = arn
+		}
+
+		destinations = append(destinations, dest)
+	}
+
+	return destinations
 }
