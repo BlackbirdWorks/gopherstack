@@ -17,26 +17,11 @@ vi.mock("svelte-sonner", () => ({
   },
 }));
 
-const localStorageStore: Record<string, string> = {};
-vi.stubGlobal("localStorage", {
-  getItem: (key: string) => localStorageStore[key] ?? null,
-  setItem: (key: string, value: string) => {
-    localStorageStore[key] = value;
-  },
-  removeItem: (key: string) => {
-    delete localStorageStore[key];
-  },
-  clear: () => {
-    Object.keys(localStorageStore).forEach((k) => delete localStorageStore[k]);
-  },
-});
-
 describe("RDSData Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
     mockSend.mockResolvedValue({});
-    localStorage.clear();
   });
 
   it("renders page title", () => {
@@ -63,7 +48,7 @@ describe("RDSData Page", () => {
     expect(screen.getByRole("textbox", { name: "SQL Query" })).toBeInTheDocument();
   });
 
-  it("Run Query button is disabled when resource ARN is empty", () => {
+  it("Run Query button is disabled when resource ARN is empty", async () => {
     render(RDSDataPage);
     const btn = screen.getByText("Run Query").closest("button")!;
     expect(btn).toBeDisabled();
