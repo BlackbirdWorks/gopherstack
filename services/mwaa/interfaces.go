@@ -17,6 +17,7 @@ type StorageBackend interface {
 	// REST API / metrics
 	InvokeRestAPI(envName string, req *invokeRestAPIRequest) (*InvokeRestAPIResponse, error)
 	PublishMetrics(envName string, req *publishMetricsRequest) error
+	GetMetrics(envName string) ([]MetricDatum, error)
 
 	// Token operations
 	CreateCliToken(envName string) (string, error)

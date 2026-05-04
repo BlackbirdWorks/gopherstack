@@ -137,7 +137,7 @@ func TestRefinement1_GetSupportedOperations(t *testing.T) {
 		"CreateEnvironment", "GetEnvironment", "DeleteEnvironment",
 		"UpdateEnvironment", "ListEnvironments", "ListTagsForResource",
 		"TagResource", "UntagResource", "CreateCliToken",
-		"CreateWebLoginToken", "InvokeRestApi", "PublishMetrics",
+		"CreateWebLoginToken", "InvokeRestApi", "PublishMetrics", "GetMetrics",
 	}
 
 	for _, op := range expectedOps {
@@ -618,7 +618,6 @@ func TestRefinement1_MethodNotAllowed(t *testing.T) {
 		{name: "clitoken_get", path: "/clitoken/env", method: http.MethodGet},
 		{name: "webtoken_get", path: "/webtoken/env", method: http.MethodGet},
 		{name: "restapi_get", path: "/restapi/env", method: http.MethodGet},
-		{name: "metrics_get", path: "/metrics/environments/env", method: http.MethodGet},
 		{name: "environments_list_post", path: "/environments", method: http.MethodPost},
 		{name: "environment_options", path: "/environments/env", method: http.MethodOptions},
 	}

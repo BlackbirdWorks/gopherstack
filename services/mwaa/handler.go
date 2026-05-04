@@ -64,6 +64,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateWebLoginToken",
 		"InvokeRestApi",
 		"PublishMetrics",
+		"GetMetrics",
 	}
 }
 
@@ -117,13 +118,25 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	case strings.HasPrefix(path, pathRestAPIPrefix):
 		return "InvokeRestApi"
 	case strings.HasPrefix(path, pathMetricsPrefix):
-		return "PublishMetrics"
+		return extractMetricsOperation(method)
 	case strings.HasPrefix(path, pathTagsPrefix):
 		return extractTagOperation(method)
 	case path == pathEnvironments || path == pathEnvironments+"/":
 		return extractEnvironmentListOperation(method)
 	case strings.HasPrefix(path, pathEnvironments+"/"):
 		return extractEnvironmentOperation(method)
+	}
+
+	return opUnknown
+}
+
+// extractMetricsOperation returns the operation name for a /metrics/environments/ path.
+func extractMetricsOperation(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "PublishMetrics"
+	case http.MethodGet:
+		return "GetMetrics"
 	}
 
 	return opUnknown
@@ -539,11 +552,36 @@ func (h *Handler) handleInvokeRestAPI(c *echo.Context, name string) error {
 
 func (h *Handler) dispatchMetrics(c *echo.Context, path string) error {
 	name := strings.TrimPrefix(path, pathMetricsPrefix)
-	if c.Request().Method == http.MethodPost {
+
+	switch c.Request().Method {
+	case http.MethodPost:
 		return h.handlePublishMetrics(c, name)
+	case http.MethodGet:
+		return h.handleGetMetrics(c, name)
 	}
 
 	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) handleGetMetrics(c *echo.Context, name string) error {
+	metrics, err := h.Backend.GetMetrics(name)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		}
+
+		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
+	}
+
+	if metrics == nil {
+		metrics = []MetricDatum{}
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{
+		"MetricData": metrics,
+	})
+
+	return nil
 }
 
 func (h *Handler) handlePublishMetrics(c *echo.Context, name string) error {
