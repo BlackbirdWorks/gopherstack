@@ -441,6 +441,22 @@ func (b *InMemoryBackend) PublishMetrics(envName string, req *publishMetricsRequ
 	return nil
 }
 
+// GetMetrics returns the stored metrics for the specified environment.
+func (b *InMemoryBackend) GetMetrics(envName string) ([]MetricDatum, error) {
+	b.mu.RLock("GetMetrics")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.environments[envName]; !ok {
+		return nil, ErrEnvironmentNotFound
+	}
+
+	data := b.metrics[envName]
+	result := make([]MetricDatum, len(data))
+	copy(result, data)
+
+	return result, nil
+}
+
 // CreateCliToken validates that the environment exists and returns a stub CLI token.
 func (b *InMemoryBackend) CreateCliToken(envName string) (string, error) {
 	b.mu.RLock("CreateCliToken")
