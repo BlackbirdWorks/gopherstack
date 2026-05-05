@@ -530,7 +530,7 @@
 	}
 
 	$effect(() => {
-		if (activeTab === 'streams' && selectedTable) {
+		if (activeTab === 'streams' && selectedTable && streamsEnabled) {
 			streamBackendUnavailable = false;
 			streamEventsHtml = '';
 			streamInfo = null;
@@ -1346,7 +1346,7 @@
 													<td class="py-2 pr-4 text-slate-700 dark:text-slate-300 truncate max-w-[200px]" title={shard.shardId}>{shard.shardId}</td>
 													<td class="py-2 pr-4 text-slate-500 dark:text-slate-400">{shard.startSeq || '—'}</td>
 													<td class="py-2 pr-4 text-slate-500 dark:text-slate-400">{shard.endSeq || '(open)'}</td>
-													<td class="py-2 text-amber-600 dark:text-amber-400">15 min from use</td>
+													<td class="py-2 text-amber-600 dark:text-amber-400">15 min from creation</td>
 												</tr>
 											{/each}
 										</tbody>

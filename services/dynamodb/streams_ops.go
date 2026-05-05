@@ -133,7 +133,6 @@ func (db *InMemoryDB) DescribeStream(
 	found.mu.RLock("DescribeStream")
 	tableName := found.Name
 	viewType := found.StreamViewType
-	creationTime := found.CreationDateTime
 	keySchema := found.KeySchema
 	seqFirst := ""
 	seqLast := ""

@@ -191,4 +191,105 @@ describe("DynamoDB Page", () => {
       { timeout: 3000 },
     );
   });
+
+  describe("Streams tab", () => {
+    const streamEnabledTable = {
+      TableName: "StreamsTable",
+      TableStatus: "ACTIVE",
+      ItemCount: 0,
+      KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+      AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+      StreamSpecification: { StreamEnabled: true, StreamViewType: "NEW_AND_OLD_IMAGES" },
+      LatestStreamArn: "arn:aws:dynamodb:us-east-1:000000000000:table/StreamsTable/stream/2024-01-01",
+    };
+
+    it("shows 'not enabled' banner when streams are disabled", async () => {
+      mockSend.mockResolvedValueOnce({ TableNames: ["StreamsTable"] });
+      mockSend.mockResolvedValueOnce({
+        Table: { ...streamEnabledTable, StreamSpecification: { StreamEnabled: false } },
+      });
+
+      render(DynamoDBPage);
+
+      await waitFor(() => expect(screen.getByText("StreamsTable")).toBeInTheDocument(), { timeout: 3000 });
+      await fireEvent.click(screen.getByText("StreamsTable"));
+
+      // Wait for table detail to open (Overview tab is default)
+      await waitFor(() => expect(screen.getByText("Stream Events")).toBeInTheDocument(), { timeout: 3000 });
+      await fireEvent.click(screen.getByText("Stream Events"));
+
+      await waitFor(
+        () => expect(screen.getByText("DynamoDB Streams are not enabled for this table.")).toBeInTheDocument(),
+        { timeout: 3000 },
+      );
+    });
+
+    it("shows stats cards and filter buttons when streams are enabled", async () => {
+      const mockStreamInfo = {
+        available: true,
+        eventCount: 3,
+        shards: [{ shardId: "shardId-00000000000000000001-00000001", startSeq: "1", endSeq: "3" }],
+        latestEventUnix: Math.floor(Date.now() / 1000) - 2,
+        lagSeconds: 2,
+        oldestSeq: "1",
+        latestSeq: "3",
+        eventTypes: { insert: 2, modify: 1, remove: 0 },
+      };
+
+      // Mock fetch for stream-info and stream-events
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("stream-info")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockStreamInfo),
+          });
+        }
+        if (url.includes("stream-events")) {
+          return Promise.resolve({ ok: true, text: () => Promise.resolve("") });
+        }
+        return Promise.resolve({ ok: false });
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      // loadTables: ListTables + DescribeTable
+      mockSend.mockResolvedValueOnce({ TableNames: ["StreamsTable"] });
+      mockSend.mockResolvedValueOnce({ Table: streamEnabledTable });
+      // openTable: DescribeTable + DescribeTimeToLive (TTL rejects silently)
+      mockSend.mockResolvedValueOnce({ Table: streamEnabledTable });
+      mockSend.mockRejectedValueOnce(new Error("TTL not supported"));
+
+      render(DynamoDBPage);
+
+      await waitFor(() => expect(screen.getByText("StreamsTable")).toBeInTheDocument(), { timeout: 3000 });
+      await fireEvent.click(screen.getByText("StreamsTable"));
+
+      await waitFor(() => expect(screen.getByText("Stream Events")).toBeInTheDocument(), { timeout: 3000 });
+      await fireEvent.click(screen.getByText("Stream Events"));
+
+      // Stats cards should appear (streamsEnabled=true triggers fetch)
+      await waitFor(
+        () => expect(screen.getByText("Buffered Events")).toBeInTheDocument(),
+        { timeout: 3000 },
+      );
+      await waitFor(
+        () => expect(screen.getByText("Active Shards")).toBeInTheDocument(),
+        { timeout: 3000 },
+      );
+      await waitFor(
+        () => expect(screen.getByText("Shard Breakdown")).toBeInTheDocument(),
+        { timeout: 3000 },
+      );
+
+      // Filter buttons should be present
+      expect(screen.getByRole("button", { name: "ALL" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "INSERT" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "MODIFY" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "REMOVE" })).toBeInTheDocument();
+
+      // Iterator Expiry card shows "15 min"
+      expect(screen.getByText("15 min")).toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+  });
 });
