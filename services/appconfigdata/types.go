@@ -15,13 +15,22 @@ var (
 	ErrProfileNotFound = errors.New("resource not found: configuration profile not found")
 )
 
+// ConfigVersion records a historical snapshot of configuration content.
+type ConfigVersion struct {
+	Content     string    `json:"content"`
+	ContentType string    `json:"contentType"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
 // ConfigurationProfile stores configuration content for an application/environment/profile combination.
 type ConfigurationProfile struct {
-	ApplicationIdentifier          string `json:"applicationIdentifier"`
-	EnvironmentIdentifier          string `json:"environmentIdentifier"`
-	ConfigurationProfileIdentifier string `json:"configurationProfileIdentifier"`
-	Content                        string `json:"content"`
-	ContentType                    string `json:"contentType"`
+	ApplicationIdentifier          string          `json:"applicationIdentifier"`
+	EnvironmentIdentifier          string          `json:"environmentIdentifier"`
+	ConfigurationProfileIdentifier string          `json:"configurationProfileIdentifier"`
+	Content                        string          `json:"content"`
+	ContentType                    string          `json:"contentType"`
+	UpdatedAt                      time.Time       `json:"updatedAt"`
+	History                        []ConfigVersion `json:"history"`
 }
 
 // Session represents an active configuration retrieval session.
@@ -32,6 +41,7 @@ type Session struct {
 	ApplicationIdentifier          string    `json:"applicationIdentifier"`
 	EnvironmentIdentifier          string    `json:"environmentIdentifier"`
 	ConfigurationProfileIdentifier string    `json:"configurationProfileIdentifier"`
+	PollIntervalInSeconds          int       `json:"pollIntervalInSeconds"`
 }
 
 // startSessionRequest is the JSON body for StartConfigurationSession.

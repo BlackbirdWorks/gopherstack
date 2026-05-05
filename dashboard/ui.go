@@ -1156,6 +1156,22 @@ func (h *DashboardHandler) setupSubRouter() {
 		return c.NoContent(http.StatusNoContent)
 	})
 
+	h.SubRouter.GET("/dashboard/api/appconfigdata/sessions", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.JSON(http.StatusOK, map[string]any{"sessions": []any{}})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"sessions": h.config.AppConfigDataOps.Backend.ListSessions()})
+	})
+
+	h.SubRouter.GET("/dashboard/api/appconfigdata/profiles", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.JSON(http.StatusOK, map[string]any{"profiles": []any{}})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"profiles": h.config.AppConfigDataOps.Backend.ListProfiles()})
+	})
+
 	h.SubRouter.GET("/dashboard/api/mediastoredata/objects", func(c *echo.Context) error {
 		if h.config.MediaStoreDataOps == nil || h.config.MediaStoreDataOps.Backend == nil {
 			return c.JSON(http.StatusOK, map[string]any{"objects": []string{}})

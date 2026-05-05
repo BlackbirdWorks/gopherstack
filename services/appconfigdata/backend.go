@@ -39,17 +39,31 @@ func (b *InMemoryBackend) SetConfiguration(app, env, profile, content, contentTy
 	defer b.mu.Unlock()
 
 	key := profileKey(app, env, profile)
+	now := time.Now().UTC()
+
+	existing := b.profiles[key]
+	var history []ConfigVersion
+	if existing != nil {
+		history = append(existing.History, ConfigVersion{
+			Content:     existing.Content,
+			ContentType: existing.ContentType,
+			UpdatedAt:   existing.UpdatedAt,
+		})
+	}
+
 	b.profiles[key] = &ConfigurationProfile{
 		ApplicationIdentifier:          app,
 		EnvironmentIdentifier:          env,
 		ConfigurationProfileIdentifier: profile,
 		Content:                        content,
 		ContentType:                    contentType,
+		UpdatedAt:                      now,
+		History:                        history,
 	}
 }
 
 // StartSession creates a new retrieval session and returns the initial token.
-func (b *InMemoryBackend) StartSession(app, env, profile string) (string, error) {
+func (b *InMemoryBackend) StartSession(app, env, profile string, pollIntervalInSeconds int) (string, error) {
 	b.mu.Lock("StartSession")
 	defer b.mu.Unlock()
 
@@ -66,6 +80,7 @@ func (b *InMemoryBackend) StartSession(app, env, profile string) (string, error)
 		ConfigurationProfileIdentifier: profile,
 		CreatedAt:                      now,
 		LastAccessedAt:                 now,
+		PollIntervalInSeconds:          pollIntervalInSeconds,
 	}
 
 	return token, nil

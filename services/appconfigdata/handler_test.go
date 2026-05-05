@@ -166,7 +166,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 			method: http.MethodGet,
 			setup: func(h *appconfigdata.Handler) string {
 				h.Backend.SetConfiguration("my-app", "prod", "my-profile", `{}`, "application/json")
-				token, _ := h.Backend.StartSession("my-app", "prod", "my-profile")
+				token, _ := h.Backend.StartSession("my-app", "prod", "my-profile", 0)
 
 				return "/configuration?configuration_token=" + token
 			},
@@ -410,10 +410,10 @@ func TestBackend_ListSessions(t *testing.T) {
 
 	assert.Empty(t, b.ListSessions())
 
-	_, err := b.StartSession("app", "env", "profile")
+	_, err := b.StartSession("app", "env", "profile", 0)
 	require.NoError(t, err)
 
-	_, err = b.StartSession("app", "env", "profile")
+	_, err = b.StartSession("app", "env", "profile", 0)
 	require.NoError(t, err)
 
 	sessions := b.ListSessions()
@@ -426,7 +426,7 @@ func TestBackend_DeleteProfile(t *testing.T) {
 	b := appconfigdata.NewInMemoryBackend()
 	b.SetConfiguration("app", "env", "profile", "data", "text/plain")
 
-	_, err := b.StartSession("app", "env", "profile")
+	_, err := b.StartSession("app", "env", "profile", 0)
 	require.NoError(t, err)
 
 	assert.True(t, b.DeleteProfile("app", "env", "profile"))

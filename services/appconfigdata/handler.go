@@ -145,6 +145,7 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 		req.ApplicationIdentifier,
 		req.EnvironmentIdentifier,
 		req.ConfigurationProfileIdentifier,
+		req.RequiredMinimumPollIntervalInSeconds,
 	)
 	if err != nil {
 		log.Error("appconfigdata: StartConfigurationSession failed", "error", err)
