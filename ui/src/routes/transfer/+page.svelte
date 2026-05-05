@@ -907,7 +907,14 @@
 										<td class="px-3 py-2 text-muted-foreground font-mono text-xs">
 											{user.HomeDirectory ?? '/'}
 										</td>
-										<td class="px-3 py-2 text-right">
+										<td class="px-3 py-2 text-right flex justify-end gap-1">
+											<button
+												onclick={() => { sshKeyTargetUser = user.UserName ?? ''; showImportSshKeyModal = true; }}
+												class="rounded p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
+												title="Import SSH key for this user"
+											>
+												<Plus class="h-3.5 w-3.5" />
+											</button>
 											<button
 												onclick={() => deleteUser(user.UserName ?? '')}
 												class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
@@ -921,6 +928,58 @@
 						</table>
 					</div>
 				{/if}
+
+				<!-- Host Keys section -->
+				<div class="border-t pt-4 mt-2">
+					<div class="flex items-center justify-between mb-2">
+						<h4 class="text-sm font-semibold flex items-center gap-1.5">
+							<FileKey class="h-4 w-4" />
+							Host Keys
+						</h4>
+						<button
+							onclick={() => (showImportHostKeyModal = true)}
+							class="flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
+						>
+							<Plus class="h-3 w-3" />
+							Import Host Key
+						</button>
+					</div>
+					{#if loadingHostKeys}
+						<RefreshCw class="h-4 w-4 animate-spin text-muted-foreground" />
+					{:else if serverHostKeys.length === 0}
+						<p class="text-xs text-muted-foreground">No host keys imported.</p>
+					{:else}
+						<div class="rounded border overflow-hidden">
+							<table class="w-full text-xs">
+								<thead class="bg-muted/50">
+									<tr>
+										<th class="px-3 py-2 text-left font-medium">Host Key ID</th>
+										<th class="px-3 py-2 text-left font-medium">Type</th>
+										<th class="px-3 py-2 text-left font-medium">Description</th>
+										<th class="px-3 py-2 text-right font-medium">Actions</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y">
+									{#each serverHostKeys as hk}
+										<tr>
+											<td class="px-3 py-2 font-mono">{hk.HostKeyId ?? '—'}</td>
+											<td class="px-3 py-2">{hk.Type ?? '—'}</td>
+											<td class="px-3 py-2 text-muted-foreground">{hk.Description ?? '—'}</td>
+											<td class="px-3 py-2 text-right">
+												<button
+													onclick={() => deleteHostKey(hk.HostKeyId ?? '')}
+													class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+												>
+													<Trash2 class="h-3 w-3" />
+												</button>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</div>
 			</div>
 		{/if}
 	{/if}
@@ -1071,7 +1130,8 @@
 		{:else if connectors.length === 0}
 			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
 				<Link class="h-12 w-12 mb-3 opacity-30" />
-				<p>No connectors found</p>
+				<p>No connectors configured</p>
+				<p class="text-sm">Create a connector to transfer files to remote servers.</p>
 			</div>
 		{:else}
 			<div class="rounded-lg border overflow-hidden">
@@ -1119,7 +1179,8 @@
 		{:else if profiles.length === 0}
 			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
 				<ShieldCheck class="h-12 w-12 mb-3 opacity-30" />
-				<p>No profiles found</p>
+				<p>No AS2 profiles</p>
+				<p class="text-sm">Create a local or partner profile for AS2 transfers.</p>
 			</div>
 		{:else}
 			<div class="rounded-lg border overflow-hidden">
@@ -1169,7 +1230,8 @@
 		{:else if webApps.length === 0}
 			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
 				<Globe class="h-12 w-12 mb-3 opacity-30" />
-				<p>No web apps found</p>
+				<p>No web apps</p>
+				<p class="text-sm">Create a web app for browser-based file transfers.</p>
 			</div>
 		{:else}
 			<div class="rounded-lg border overflow-hidden">
@@ -1215,7 +1277,8 @@
 		{:else if workflows.length === 0}
 			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
 				<GitBranch class="h-12 w-12 mb-3 opacity-30" />
-				<p>No workflows found</p>
+				<p>No workflows</p>
+				<p class="text-sm">Workflows process files after transfer completes.</p>
 			</div>
 		{:else}
 			<div class="rounded-lg border overflow-hidden">
@@ -1263,7 +1326,8 @@
 		{:else if certificates.length === 0}
 			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
 				<ShieldCheck class="h-12 w-12 mb-3 opacity-30" />
-				<p>No certificates found</p>
+				<p>No certificates imported</p>
+				<p class="text-sm">Import certificates for AS2 or TLS connections.</p>
 			</div>
 		{:else}
 			<div class="rounded-lg border overflow-hidden">
@@ -1614,6 +1678,61 @@
 					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
 				>
 					{importingCert ? 'Importing...' : 'Import Certificate'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Import Host Key Modal -->
+{#if showImportHostKeyModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="text-lg font-semibold mb-4">Import Host Key</h2>
+			<div class="space-y-3">
+				<div>
+					<label for="hk-body" class="block text-sm font-medium mb-1">Host Key Body *</label>
+					<textarea id="hk-body" bind:value={newHostKeyBody} placeholder="ssh-rsa AAAAB3NzaC1yc2EAAAA..." rows={4} class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"></textarea>
+				</div>
+				<div>
+					<label for="hk-desc" class="block text-sm font-medium mb-1">Description</label>
+					<input id="hk-desc" type="text" bind:value={newHostKeyDescription} placeholder="My host key" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+				</div>
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button onclick={() => (showImportHostKeyModal = false)} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
+				<button
+					onclick={importHostKey}
+					disabled={importingHostKey || !newHostKeyBody.trim()}
+					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					{importingHostKey ? 'Importing...' : 'Import Host Key'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Import SSH Public Key Modal -->
+{#if showImportSshKeyModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="text-lg font-semibold mb-4">Import SSH Public Key</h2>
+			<p class="text-sm text-muted-foreground mb-3">Importing key for user: <span class="font-mono font-medium">{sshKeyTargetUser}</span></p>
+			<div class="space-y-3">
+				<div>
+					<label for="ssh-key-body" class="block text-sm font-medium mb-1">SSH Public Key *</label>
+					<textarea id="ssh-key-body" bind:value={newSshKeyBody} placeholder="ssh-rsa AAAAB3NzaC1yc2EAAAA... user@host" rows={4} class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"></textarea>
+				</div>
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button onclick={() => (showImportSshKeyModal = false)} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
+				<button
+					onclick={importSshKey}
+					disabled={importingSshKey || !newSshKeyBody.trim()}
+					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					{importingSshKey ? 'Importing...' : 'Import Key'}
 				</button>
 			</div>
 		</div>

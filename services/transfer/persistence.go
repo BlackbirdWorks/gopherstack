@@ -19,6 +19,7 @@ type backendSnapshot struct {
 	Certificates  map[string]*Certificate                        `json:"certificates"`
 	HostKeys      map[string]map[string]*HostKey                 `json:"host_keys"`
 	SSHPublicKeys map[string]map[string]map[string]*SSHPublicKey `json:"ssh_public_keys"`
+	Executions    map[string]map[string]*Execution               `json:"executions"`
 	TagsStore     map[string]map[string]string                   `json:"tags_store"`
 }
 
@@ -42,6 +43,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Certificates:  make(map[string]*Certificate, len(b.certificates)),
 		HostKeys:      make(map[string]map[string]*HostKey, len(b.hostKeys)),
 		SSHPublicKeys: make(map[string]map[string]map[string]*SSHPublicKey, len(b.sshPublicKeys)),
+		Executions:    make(map[string]map[string]*Execution, len(b.executions)),
 		TagsStore:     make(map[string]map[string]string, len(b.tagsStore)),
 	}
 
@@ -117,6 +119,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		snap.SSHPublicKeys[sid] = um
 	}
 
+	for wid, execMap := range b.executions {
+		em := make(map[string]*Execution, len(execMap))
+		for k, v := range execMap {
+			cp := *v
+			em[k] = &cp
+		}
+		snap.Executions[wid] = em
+	}
+
 	for arn, tagMap := range b.tagsStore {
 		m := make(map[string]string, len(tagMap))
 		maps.Copy(m, tagMap)
@@ -158,6 +169,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.certificates = snap.Certificates
 	b.hostKeys = snap.HostKeys
 	b.sshPublicKeys = snap.SSHPublicKeys
+	b.executions = snap.Executions
 	b.tagsStore = snap.TagsStore
 
 	return nil
@@ -208,6 +220,10 @@ func ensureNonNilMaps(s *backendSnapshot) {
 
 	if s.SSHPublicKeys == nil {
 		s.SSHPublicKeys = make(map[string]map[string]map[string]*SSHPublicKey)
+	}
+
+	if s.Executions == nil {
+		s.Executions = make(map[string]map[string]*Execution)
 	}
 
 	if s.TagsStore == nil {

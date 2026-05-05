@@ -2117,15 +2117,74 @@ func (h *Handler) handleListTagsForResource(
 	}, nil
 }
 
-// --- Stub operations ---
+// --- Execution operations ---
 
-func (h *Handler) handleDescribeExecution(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{"Execution": map[string]any{}}, nil
+type listExecutionsInput struct {
+	WorkflowID string `json:"WorkflowId"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
-func (h *Handler) handleListExecutions(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{"Executions": []any{}, keyWorkflowID: ""}, nil
+func (h *Handler) handleListExecutions(
+	_ context.Context,
+	in *listExecutionsInput,
+) (*map[string]any, error) {
+	if in.WorkflowID == "" {
+		return nil, fmt.Errorf("%w: WorkflowId is required", errInvalidRequest)
+	}
+
+	items, err := h.Backend.ListExecutions(in.WorkflowID)
+	if err != nil {
+		return nil, err
+	}
+
+	pageItems, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+	out := make([]any, len(pageItems))
+
+	for i, e := range pageItems {
+		out[i] = map[string]any{
+			"ExecutionId":  e.ExecutionID,
+			keyWorkflowID: e.WorkflowID,
+			keyStatus:     e.Status,
+		}
+	}
+
+	return &map[string]any{"Executions": out, keyWorkflowID: in.WorkflowID, "NextToken": next}, nil
 }
+
+type describeExecutionInput struct {
+	WorkflowID  string `json:"WorkflowId"`
+	ExecutionID string `json:"ExecutionId"`
+}
+
+func (h *Handler) handleDescribeExecution(
+	_ context.Context,
+	in *describeExecutionInput,
+) (*map[string]any, error) {
+	if in.WorkflowID == "" {
+		return nil, fmt.Errorf("%w: WorkflowId is required", errInvalidRequest)
+	}
+
+	if in.ExecutionID == "" {
+		return nil, fmt.Errorf("%w: ExecutionId is required", errInvalidRequest)
+	}
+
+	e, err := h.Backend.DescribeExecution(in.WorkflowID, in.ExecutionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &map[string]any{
+		"Execution": map[string]any{
+			"ExecutionId":  e.ExecutionID,
+			keyWorkflowID: e.WorkflowID,
+			keyStatus:     e.Status,
+		},
+		keyWorkflowID: in.WorkflowID,
+	}, nil
+}
+
+// --- Other improved operations ---
 
 func (h *Handler) handleListFileTransferResults(
 	_ context.Context,
@@ -2147,10 +2206,28 @@ func (h *Handler) handleDescribeSecurityPolicy(
 		name = "TransferSecurityPolicy-2024-01"
 	}
 
+	isFIPS := strings.Contains(name, "FIPS")
+
+	ciphers := []string{"aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"}
+	kexs := []string{"curve25519-sha256", "ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"}
+	macs := []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256"}
+	tlsCiphers := []string{"TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"}
+
+	if isFIPS {
+		ciphers = []string{"aes256-ctr", "aes192-ctr", "aes128-ctr"}
+		kexs = []string{"ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"}
+		macs = []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com"}
+		tlsCiphers = []string{"TLS_AES_256_GCM_SHA384", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"}
+	}
+
 	return &map[string]any{
 		"SecurityPolicy": map[string]any{
 			"SecurityPolicyName": name,
 			"Protocols":          []string{"SFTP"},
+			"SshCiphers":         ciphers,
+			"SshKexs":            kexs,
+			"SshMacs":            macs,
+			"TlsCiphers":         tlsCiphers,
 		},
 	}, nil
 }
@@ -2169,18 +2246,66 @@ func (h *Handler) handleListSecurityPolicies(
 	}, nil
 }
 
-func (h *Handler) handleSendWorkflowStepState(_ context.Context, _ *struct{}) (*struct{}, error) {
+type sendWorkflowStepStateInput struct {
+	WorkflowID  string `json:"WorkflowId"`
+	ExecutionID string `json:"ExecutionId"`
+	Token       string `json:"Token"`
+	Status      string `json:"Status"`
+}
+
+func (h *Handler) handleSendWorkflowStepState(
+	_ context.Context,
+	in *sendWorkflowStepStateInput,
+) (*struct{}, error) {
+	if in.WorkflowID == "" {
+		return nil, fmt.Errorf("%w: WorkflowId is required", errInvalidRequest)
+	}
+
+	if in.ExecutionID == "" {
+		return nil, fmt.Errorf("%w: ExecutionId is required", errInvalidRequest)
+	}
+
+	if in.Token == "" {
+		return nil, fmt.Errorf("%w: Token is required", errInvalidRequest)
+	}
+
 	return &struct{}{}, nil
+}
+
+type startDirectoryListingInput struct {
+	ConnectorID          string   `json:"ConnectorId"`
+	RemoteDirectoryPaths []string `json:"RemoteDirectoryPaths"`
+	MaxItems             int      `json:"MaxItems,omitempty"`
+	OutputDirectoryPath  string   `json:"OutputDirectoryPath,omitempty"`
 }
 
 func (h *Handler) handleStartDirectoryListing(
 	_ context.Context,
-	_ *struct{},
+	in *startDirectoryListingInput,
 ) (*map[string]any, error) {
+	if in.ConnectorID == "" {
+		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
+	}
+
 	return &map[string]any{"DirectoryListingId": "listing-" + strings.Repeat("0", idSuffixLen)}, nil
 }
 
-func (h *Handler) handleStartFileTransfer(_ context.Context, _ *struct{}) (*map[string]any, error) {
+type startFileTransferInput struct {
+	ConnectorID         string   `json:"ConnectorId"`
+	SendFilePaths       []string `json:"SendFilePaths,omitempty"`
+	RetrieveFilePaths   []string `json:"RetrieveFilePaths,omitempty"`
+	LocalDirectoryPath  string   `json:"LocalDirectoryPath,omitempty"`
+	RemoteDirectoryPath string   `json:"RemoteDirectoryPath,omitempty"`
+}
+
+func (h *Handler) handleStartFileTransfer(
+	_ context.Context,
+	in *startFileTransferInput,
+) (*map[string]any, error) {
+	if in.ConnectorID == "" {
+		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
+	}
+
 	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", idSuffixLen)}, nil
 }
 
@@ -2192,17 +2317,54 @@ func (h *Handler) handleStartRemoteMove(_ context.Context, _ *struct{}) (*map[st
 	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", idSuffixLen)}, nil
 }
 
-func (h *Handler) handleTestConnection(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{keyStatus: "OK", "StatusMessage": "Connection successful"}, nil
+type testConnectionInput struct {
+	ConnectorID string `json:"ConnectorId"`
+}
+
+func (h *Handler) handleTestConnection(
+	_ context.Context,
+	in *testConnectionInput,
+) (*map[string]any, error) {
+	if in.ConnectorID == "" {
+		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.DescribeConnector(in.ConnectorID); err != nil {
+		return nil, err
+	}
+
+	return &map[string]any{
+		"ConnectorId":   in.ConnectorID,
+		keyStatus:       "OK",
+		"StatusMessage": "Connection to remote server is successful",
+	}, nil
+}
+
+type testIdentityProviderInput struct {
+	ServerID       string `json:"ServerId"`
+	UserName       string `json:"UserName"`
+	UserPassword   string `json:"UserPassword,omitempty"`
+	ServerProtocol string `json:"ServerProtocol,omitempty"`
+	SourceIP       string `json:"SourceIp,omitempty"`
 }
 
 func (h *Handler) handleTestIdentityProvider(
 	_ context.Context,
-	_ *struct{},
+	in *testIdentityProviderInput,
 ) (*map[string]any, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.UserName == "" {
+		return nil, fmt.Errorf("%w: UserName is required", errInvalidRequest)
+	}
+
 	return &map[string]any{
 		"StatusCode": http.StatusOK,
-		"Message":    "Identity provider test successful",
+		"Message":    "",
+		"Response":   `{"Role":"arn:aws:iam::000000000000:role/transfer-test-role","HomeDirectory":"/"}`,
+		"Url":        "",
 	}, nil
 }
 
