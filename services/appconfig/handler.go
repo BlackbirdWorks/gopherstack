@@ -304,9 +304,15 @@ func parseExtensionAssociationRoute(method string, parts []string) appConfigRout
 	case http.MethodGet:
 		return appConfigRoute{extensionAssociationID: assocID, operation: opGetExtensionAssociation}
 	case http.MethodPatch:
-		return appConfigRoute{extensionAssociationID: assocID, operation: opUpdateExtensionAssociation}
+		return appConfigRoute{
+			extensionAssociationID: assocID,
+			operation:              opUpdateExtensionAssociation,
+		}
 	case http.MethodDelete:
-		return appConfigRoute{extensionAssociationID: assocID, operation: opDeleteExtensionAssociation}
+		return appConfigRoute{
+			extensionAssociationID: assocID,
+			operation:              opDeleteExtensionAssociation,
+		}
 	}
 
 	return appConfigRoute{extensionAssociationID: assocID, operation: opUnknown}
@@ -419,11 +425,23 @@ func parseEnvironmentRoute(method, appID string, parts []string) appConfigRoute 
 func parseEnvIDRoute(method, appID, envID string) appConfigRoute {
 	switch method {
 	case http.MethodGet:
-		return appConfigRoute{applicationID: appID, environmentID: envID, operation: opGetEnvironment}
+		return appConfigRoute{
+			applicationID: appID,
+			environmentID: envID,
+			operation:     opGetEnvironment,
+		}
 	case http.MethodPatch:
-		return appConfigRoute{applicationID: appID, environmentID: envID, operation: opUpdateEnvironment}
+		return appConfigRoute{
+			applicationID: appID,
+			environmentID: envID,
+			operation:     opUpdateEnvironment,
+		}
 	case http.MethodDelete:
-		return appConfigRoute{applicationID: appID, environmentID: envID, operation: opDeleteEnvironment}
+		return appConfigRoute{
+			applicationID: appID,
+			environmentID: envID,
+			operation:     opDeleteEnvironment,
+		}
 	}
 
 	return appConfigRoute{applicationID: appID, environmentID: envID, operation: opUnknown}
@@ -436,9 +454,17 @@ func parseDeploymentRoute(method, appID, envID string, parts []string) appConfig
 	if len(parts) == pathPartsDeepLevel {
 		switch method {
 		case http.MethodPost:
-			return appConfigRoute{applicationID: appID, environmentID: envID, operation: opStartDeployment}
+			return appConfigRoute{
+				applicationID: appID,
+				environmentID: envID,
+				operation:     opStartDeployment,
+			}
 		case http.MethodGet:
-			return appConfigRoute{applicationID: appID, environmentID: envID, operation: opListDeployments}
+			return appConfigRoute{
+				applicationID: appID,
+				environmentID: envID,
+				operation:     opListDeployments,
+			}
 		}
 
 		return appConfigRoute{applicationID: appID, environmentID: envID, operation: opUnknown}
@@ -468,7 +494,12 @@ func parseDeploymentRoute(method, appID, envID string, parts []string) appConfig
 		}
 	}
 
-	return appConfigRoute{applicationID: appID, environmentID: envID, deploymentNum: num, operation: opUnknown}
+	return appConfigRoute{
+		applicationID: appID,
+		environmentID: envID,
+		deploymentNum: num,
+		operation:     opUnknown,
+	}
 }
 
 // parseConfigProfileRoute parses configuration profile routes.
@@ -510,11 +541,23 @@ func parseConfigProfileRoute(method, appID string, parts []string) appConfigRout
 func parseProfileIDRoute(method, appID, profileID string) appConfigRoute {
 	switch method {
 	case http.MethodGet:
-		return appConfigRoute{applicationID: appID, profileID: profileID, operation: opGetConfigurationProfile}
+		return appConfigRoute{
+			applicationID: appID,
+			profileID:     profileID,
+			operation:     opGetConfigurationProfile,
+		}
 	case http.MethodPatch:
-		return appConfigRoute{applicationID: appID, profileID: profileID, operation: opUpdateConfigurationProfile}
+		return appConfigRoute{
+			applicationID: appID,
+			profileID:     profileID,
+			operation:     opUpdateConfigurationProfile,
+		}
 	case http.MethodDelete:
-		return appConfigRoute{applicationID: appID, profileID: profileID, operation: opDeleteConfigurationProfile}
+		return appConfigRoute{
+			applicationID: appID,
+			profileID:     profileID,
+			operation:     opDeleteConfigurationProfile,
+		}
 	}
 
 	return appConfigRoute{applicationID: appID, profileID: profileID, operation: opUnknown}
@@ -567,7 +610,12 @@ func parseHostedVersionRoute(method, appID, profileID string, parts []string) ap
 		}
 	}
 
-	return appConfigRoute{applicationID: appID, profileID: profileID, versionNumber: num, operation: opUnknown}
+	return appConfigRoute{
+		applicationID: appID,
+		profileID:     profileID,
+		versionNumber: num,
+		operation:     opUnknown,
+	}
 }
 
 // Handler returns the Echo handler function for AppConfig operations.
@@ -612,7 +660,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case opCreateHostedConfigurationVersion:
 			return h.handleCreateHostedConfigurationVersion(c, route.applicationID, route.profileID)
 		case opGetHostedConfigurationVersion:
-			return h.handleGetHostedConfigurationVersion(c, route.applicationID, route.profileID, route.versionNumber)
+			return h.handleGetHostedConfigurationVersion(
+				c,
+				route.applicationID,
+				route.profileID,
+				route.versionNumber,
+			)
 		case opListHostedConfigurationVersions:
 			return h.handleListHostedConfigurationVersions(c, route.applicationID, route.profileID)
 		case opDeleteHostedConfigurationVersion:
@@ -635,11 +688,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case opStartDeployment:
 			return h.handleStartDeployment(c, route.applicationID, route.environmentID)
 		case opGetDeployment:
-			return h.handleGetDeployment(c, route.applicationID, route.environmentID, route.deploymentNum)
+			return h.handleGetDeployment(
+				c,
+				route.applicationID,
+				route.environmentID,
+				route.deploymentNum,
+			)
 		case opListDeployments:
 			return h.handleListDeployments(c, route.applicationID, route.environmentID)
 		case opStopDeployment:
-			return h.handleStopDeployment(c, route.applicationID, route.environmentID, route.deploymentNum)
+			return h.handleStopDeployment(
+				c,
+				route.applicationID,
+				route.environmentID,
+				route.deploymentNum,
+			)
 		case opListTagsForResource:
 			return h.handleListTagsForResource(c, route.resourceArn)
 		case opTagResource:
@@ -671,11 +734,22 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case opUpdateAccountSettings:
 			return h.handleUpdateAccountSettings(c)
 		case opGetConfiguration:
-			return h.handleGetConfiguration(c, route.applicationID, route.environmentID, route.configurationID)
+			return h.handleGetConfiguration(
+				c,
+				route.applicationID,
+				route.environmentID,
+				route.configurationID,
+			)
 		case opValidateConfiguration:
 			return h.handleValidateConfiguration(c, route.applicationID, route.profileID)
 		default:
-			log.Warn("appconfig: unmatched route", "method", c.Request().Method, "path", c.Request().URL.Path)
+			log.Warn(
+				"appconfig: unmatched route",
+				"method",
+				c.Request().Method,
+				"path",
+				c.Request().URL.Path,
+			)
 
 			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
 		}
@@ -700,7 +774,10 @@ func (h *Handler) handleCreateApplication(c *echo.Context) error {
 		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	app, err := h.Backend.CreateApplication(req.Name, req.Description)
@@ -709,7 +786,14 @@ func (h *Handler) handleCreateApplication(c *echo.Context) error {
 			return badRequestResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
+		}
+
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusCreated, app)
@@ -722,7 +806,10 @@ func (h *Handler) handleGetApplication(c *echo.Context, applicationID string) er
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, app)
@@ -746,7 +833,10 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string)
 		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	app, err := h.Backend.UpdateApplication(applicationID, req.Name, req.Description)
@@ -755,7 +845,10 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string)
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, app)
@@ -767,7 +860,10 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, applicationID string)
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -775,20 +871,35 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, applicationID string)
 
 func (h *Handler) handleCreateEnvironment(c *echo.Context, applicationID string) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
+		Name        string    `json:"Name"`
+		Description string    `json:"Description"`
+		Monitors    []Monitor `json:"Monitors"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
-	env, err := h.Backend.CreateEnvironment(applicationID, req.Name, req.Description)
+	env, err := h.Backend.CreateEnvironment(applicationID, req.Name, req.Description, req.Monitors)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
+		}
+
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusCreated, env)
@@ -801,7 +912,10 @@ func (h *Handler) handleGetEnvironment(c *echo.Context, applicationID, environme
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, env)
@@ -816,7 +930,10 @@ func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) 
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	resp := map[string]any{keyItems: envs}
@@ -827,13 +944,19 @@ func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) 
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *Handler) handleUpdateEnvironment(c *echo.Context, applicationID, environmentID string) error {
+func (h *Handler) handleUpdateEnvironment(
+	c *echo.Context,
+	applicationID, environmentID string,
+) error {
 	var req struct {
 		Name        string `json:"Name"`
 		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	env, err := h.Backend.UpdateEnvironment(applicationID, environmentID, req.Name, req.Description)
@@ -842,19 +965,28 @@ func (h *Handler) handleUpdateEnvironment(c *echo.Context, applicationID, enviro
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, env)
 }
 
-func (h *Handler) handleDeleteEnvironment(c *echo.Context, applicationID, environmentID string) error {
+func (h *Handler) handleDeleteEnvironment(
+	c *echo.Context,
+	applicationID, environmentID string,
+) error {
 	if err := h.Backend.DeleteEnvironment(applicationID, environmentID); err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -862,13 +994,18 @@ func (h *Handler) handleDeleteEnvironment(c *echo.Context, applicationID, enviro
 
 func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationID string) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
-		LocationURI string `json:"LocationUri"`
-		Type        string `json:"Type"`
+		Name             string      `json:"Name"`
+		Description      string      `json:"Description"`
+		LocationURI      string      `json:"LocationUri"`
+		Type             string      `json:"Type"`
+		RetrievalRoleArn string      `json:"RetrievalRoleArn"`
+		Validators       []Validator `json:"Validators"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	profile, err := h.Backend.CreateConfigurationProfile(
@@ -877,26 +1014,45 @@ func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationI
 		req.Description,
 		req.LocationURI,
 		req.Type,
+		req.RetrievalRoleArn,
+		req.Validators,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
+		}
+
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusCreated, profile)
 }
 
-func (h *Handler) handleGetConfigurationProfile(c *echo.Context, applicationID, profileID string) error {
+func (h *Handler) handleGetConfigurationProfile(
+	c *echo.Context,
+	applicationID, profileID string,
+) error {
 	profile, err := h.Backend.GetConfigurationProfile(applicationID, profileID)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, profile)
@@ -904,14 +1060,21 @@ func (h *Handler) handleGetConfigurationProfile(c *echo.Context, applicationID, 
 
 func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID string) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
-	profiles, outToken, err := h.Backend.ListConfigurationProfiles(applicationID, nextToken, maxResults)
+	profiles, outToken, err := h.Backend.ListConfigurationProfiles(
+		applicationID,
+		nextToken,
+		maxResults,
+	)
 
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	resp := map[string]any{keyItems: profiles}
@@ -922,57 +1085,105 @@ func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *Handler) handleUpdateConfigurationProfile(c *echo.Context, applicationID, profileID string) error {
+func (h *Handler) handleUpdateConfigurationProfile(
+	c *echo.Context,
+	applicationID, profileID string,
+) error {
 	var req struct {
 		Name        string `json:"Name"`
 		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
-	profile, err := h.Backend.UpdateConfigurationProfile(applicationID, profileID, req.Name, req.Description)
+	profile, err := h.Backend.UpdateConfigurationProfile(
+		applicationID,
+		profileID,
+		req.Name,
+		req.Description,
+	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, profile)
 }
 
-func (h *Handler) handleDeleteConfigurationProfile(c *echo.Context, applicationID, profileID string) error {
+func (h *Handler) handleDeleteConfigurationProfile(
+	c *echo.Context,
+	applicationID, profileID string,
+) error {
 	if err := h.Backend.DeleteConfigurationProfile(applicationID, profileID); err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleCreateHostedConfigurationVersion(c *echo.Context, applicationID, profileID string) error {
+func (h *Handler) handleCreateHostedConfigurationVersion(
+	c *echo.Context,
+	applicationID, profileID string,
+) error {
 	contentType := c.Request().Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
+	// AWS AppConfig accepts description and version label via custom request headers.
+	description := c.Request().Header.Get("Description")
+	versionLabel := c.Request().Header.Get("Versionlabel")
+
 	content, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: "failed to read request body"})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: "failed to read request body"},
+		)
 	}
 
-	v, err := h.Backend.CreateHostedConfigurationVersion(applicationID, profileID, contentType, content)
+	v, err := h.Backend.CreateHostedConfigurationVersion(
+		applicationID,
+		profileID,
+		contentType,
+		description,
+		versionLabel,
+		content,
+	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
+		}
+
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	c.Response().Header().Set("Appconfig-Configuration-Version", strconv.Itoa(int(v.VersionNumber)))
@@ -991,7 +1202,10 @@ func (h *Handler) handleGetHostedConfigurationVersion(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	c.Response().Header().Set("Content-Type", v.ContentType)
@@ -1000,12 +1214,17 @@ func (h *Handler) handleGetHostedConfigurationVersion(
 	return c.Blob(http.StatusOK, v.ContentType, v.Content)
 }
 
-func (h *Handler) handleListHostedConfigurationVersions(c *echo.Context, applicationID, profileID string) error {
+func (h *Handler) handleListHostedConfigurationVersions(
+	c *echo.Context,
+	applicationID, profileID string,
+) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
+	versionLabel := c.Request().URL.Query().Get("version_label")
 	versions, outToken, err := h.Backend.ListHostedConfigurationVersions(
 		applicationID,
 		profileID,
 		nextToken,
+		versionLabel,
 		maxResults,
 	)
 
@@ -1014,7 +1233,10 @@ func (h *Handler) handleListHostedConfigurationVersions(c *echo.Context, applica
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	resp := map[string]any{keyItems: versions}
@@ -1035,7 +1257,10 @@ func (h *Handler) handleDeleteHostedConfigurationVersion(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1052,7 +1277,10 @@ func (h *Handler) handleCreateDeploymentStrategy(c *echo.Context) error {
 		GrowthFactor                float32 `json:"GrowthFactor"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	strategy, err := h.Backend.CreateDeploymentStrategy(
@@ -1061,7 +1289,10 @@ func (h *Handler) handleCreateDeploymentStrategy(c *echo.Context) error {
 		req.GrowthFactor, req.GrowthType, req.ReplicateTo,
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusCreated, strategy)
@@ -1074,7 +1305,10 @@ func (h *Handler) handleGetDeploymentStrategy(c *echo.Context, strategyID string
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, strategy)
@@ -1101,7 +1335,10 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 		Description                 string   `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	// Fetch current values to use as defaults for omitted pointer fields.
@@ -1111,7 +1348,10 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	deployDur := existing.DeploymentDurationInMinutes
@@ -1139,7 +1379,10 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, strategy)
@@ -1151,33 +1394,50 @@ func (h *Handler) handleDeleteDeploymentStrategy(c *echo.Context, strategyID str
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleStartDeployment(c *echo.Context, applicationID, environmentID string) error {
+func (h *Handler) handleStartDeployment(
+	c *echo.Context,
+	applicationID, environmentID string,
+) error {
 	var req struct {
 		ConfigurationProfileID string `json:"ConfigurationProfileId"`
 		DeploymentStrategyID   string `json:"DeploymentStrategyId"`
 		ConfigurationVersion   string `json:"ConfigurationVersion"`
+		Description            string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	deployment, err := h.Backend.StartDeployment(
 		applicationID, environmentID,
 		req.ConfigurationProfileID, req.DeploymentStrategyID,
-		req.ConfigurationVersion,
+		req.ConfigurationVersion, req.Description,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
+		}
+
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusCreated, deployment)
@@ -1194,22 +1454,36 @@ func (h *Handler) handleGetDeployment(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, deployment)
 }
 
-func (h *Handler) handleListDeployments(c *echo.Context, applicationID, environmentID string) error {
+func (h *Handler) handleListDeployments(
+	c *echo.Context,
+	applicationID, environmentID string,
+) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
-	deployments, outToken, err := h.Backend.ListDeployments(applicationID, environmentID, nextToken, maxResults)
+	deployments, outToken, err := h.Backend.ListDeployments(
+		applicationID,
+		environmentID,
+		nextToken,
+		maxResults,
+	)
 
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	resp := map[string]any{keyItems: deployments}
@@ -1230,7 +1504,10 @@ func (h *Handler) handleStopDeployment(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1239,7 +1516,10 @@ func (h *Handler) handleStopDeployment(
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string) error {
 	tags, err := h.Backend.ListTagsForResource(resourceArn)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"Tags": tags})
@@ -1250,11 +1530,17 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceArn string) error {
 		Tags map[string]string `json:"Tags"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	if err := h.Backend.TagResource(resourceArn, req.Tags); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1264,7 +1550,10 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string) error
 	keysToRemove := c.Request().URL.Query()["tagKeys"]
 
 	if err := h.Backend.UntagResource(resourceArn, keysToRemove); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1278,7 +1567,10 @@ func (h *Handler) handleCreateExtension(c *echo.Context) error {
 		Description string                        `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	ext, err := h.Backend.CreateExtension(req.Name, req.Description, req.Actions, req.Parameters)
@@ -1291,7 +1583,10 @@ func (h *Handler) handleCreateExtension(c *echo.Context) error {
 			return conflictResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusCreated, ext)
@@ -1304,7 +1599,10 @@ func (h *Handler) handleGetExtension(c *echo.Context, extensionID string) error 
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, ext)
@@ -1312,8 +1610,15 @@ func (h *Handler) handleGetExtension(c *echo.Context, extensionID string) error 
 
 func (h *Handler) handleListExtensions(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
-	nameFilter := c.Request().URL.Query().Get("name")
-	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter)
+	q := c.Request().URL.Query()
+	nameFilter := q.Get("name")
+	var versionNumber int32
+	if s := q.Get("extension_version_number"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			versionNumber = int32(n) //nolint:gosec // version number bounded by API constraints
+		}
+	}
+	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter, versionNumber)
 
 	resp := map[string]any{keyItems: exts}
 	if outToken != "" {
@@ -1330,7 +1635,10 @@ func (h *Handler) handleUpdateExtension(c *echo.Context, extensionID string) err
 		Description string                        `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	ext, err := h.Backend.UpdateExtension(extensionID, req.Description, req.Actions, req.Parameters)
@@ -1339,7 +1647,10 @@ func (h *Handler) handleUpdateExtension(c *echo.Context, extensionID string) err
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, ext)
@@ -1351,7 +1662,10 @@ func (h *Handler) handleDeleteExtension(c *echo.Context, extensionID string) err
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1365,7 +1679,10 @@ func (h *Handler) handleCreateExtensionAssociation(c *echo.Context) error {
 		ResourceIdentifier     string            `json:"ResourceIdentifier"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	assoc, err := h.Backend.CreateExtensionAssociation(
@@ -1383,20 +1700,29 @@ func (h *Handler) handleCreateExtensionAssociation(c *echo.Context) error {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusCreated, assoc)
 }
 
-func (h *Handler) handleGetExtensionAssociation(c *echo.Context, extensionAssociationID string) error {
+func (h *Handler) handleGetExtensionAssociation(
+	c *echo.Context,
+	extensionAssociationID string,
+) error {
 	assoc, err := h.Backend.GetExtensionAssociation(extensionAssociationID)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, assoc)
@@ -1404,7 +1730,15 @@ func (h *Handler) handleGetExtensionAssociation(c *echo.Context, extensionAssoci
 
 func (h *Handler) handleListExtensionAssociations(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
-	assocs, outToken := h.Backend.ListExtensionAssociations(nextToken, maxResults)
+	q := c.Request().URL.Query()
+	extIdentifier := q.Get("extension_identifier")
+	resourceIdentifier := q.Get("resource_identifier")
+	assocs, outToken := h.Backend.ListExtensionAssociations(
+		nextToken,
+		extIdentifier,
+		resourceIdentifier,
+		maxResults,
+	)
 
 	resp := map[string]any{keyItems: assocs}
 	if outToken != "" {
@@ -1414,12 +1748,18 @@ func (h *Handler) handleListExtensionAssociations(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *Handler) handleUpdateExtensionAssociation(c *echo.Context, extensionAssociationID string) error {
+func (h *Handler) handleUpdateExtensionAssociation(
+	c *echo.Context,
+	extensionAssociationID string,
+) error {
 	var req struct {
 		Parameters map[string]string `json:"Parameters"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	assoc, err := h.Backend.UpdateExtensionAssociation(extensionAssociationID, req.Parameters)
@@ -1428,19 +1768,28 @@ func (h *Handler) handleUpdateExtensionAssociation(c *echo.Context, extensionAss
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, assoc)
 }
 
-func (h *Handler) handleDeleteExtensionAssociation(c *echo.Context, extensionAssociationID string) error {
+func (h *Handler) handleDeleteExtensionAssociation(
+	c *echo.Context,
+	extensionAssociationID string,
+) error {
 	if err := h.Backend.DeleteExtensionAssociation(extensionAssociationID); err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1449,7 +1798,10 @@ func (h *Handler) handleDeleteExtensionAssociation(c *echo.Context, extensionAss
 func (h *Handler) handleGetAccountSettings(c *echo.Context) error {
 	settings, err := h.Backend.GetAccountSettings()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, settings)
@@ -1460,29 +1812,43 @@ func (h *Handler) handleUpdateAccountSettings(c *echo.Context) error {
 		DeletionProtection *DeletionProtectionSettings `json:"DeletionProtection"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: errInvalidRequestBody},
+		)
 	}
 
 	settings, err := h.Backend.UpdateAccountSettings(req.DeletionProtection)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusOK, settings)
 }
 
-func (h *Handler) handleGetConfiguration(c *echo.Context, application, environment, configuration string) error {
+func (h *Handler) handleGetConfiguration(
+	c *echo.Context,
+	application, environment, configuration string,
+) error {
 	configVersion, err := h.Backend.GetConfiguration(application, environment, configuration)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	if configVersion.VersionNumber > 0 {
-		c.Response().Header().Set("Configuration-Version", strconv.Itoa(int(configVersion.VersionNumber)))
+		c.Response().
+			Header().
+			Set("Configuration-Version", strconv.Itoa(int(configVersion.VersionNumber)))
 	}
 
 	if len(configVersion.Content) == 0 {
@@ -1497,7 +1863,10 @@ func (h *Handler) handleGetConfiguration(c *echo.Context, application, environme
 	return c.Blob(http.StatusOK, contentType, configVersion.Content)
 }
 
-func (h *Handler) handleValidateConfiguration(c *echo.Context, applicationID, profileID string) error {
+func (h *Handler) handleValidateConfiguration(
+	c *echo.Context,
+	applicationID, profileID string,
+) error {
 	configVersion := c.Request().URL.Query().Get("configuration_version")
 
 	if err := h.Backend.ValidateConfiguration(applicationID, profileID, configVersion); err != nil {
@@ -1505,7 +1874,10 @@ func (h *Handler) handleValidateConfiguration(c *echo.Context, applicationID, pr
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.NoContent(http.StatusNoContent)

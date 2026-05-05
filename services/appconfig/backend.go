@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -49,6 +51,7 @@ type InMemoryBackend struct {
 	versionCounters       map[string]map[string]int32
 	deploymentCounters    map[string]map[string]int32
 	mu                    *lockmetrics.RWMutex
+	paginationSecret      string
 	accountID             string
 	region                string
 }
@@ -68,10 +71,14 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		versionCounters:       make(map[string]map[string]int32),
 		deploymentCounters:    make(map[string]map[string]int32),
 		mu:                    lockmetrics.New("appconfig"),
+		paginationSecret:      uuid.NewString(),
 		accountID:             accountID,
 		region:                region,
 	}
 }
+
+// PaginationSecret returns the HMAC secret for pagination tokens.
+func (b *InMemoryBackend) PaginationSecret() string { return b.paginationSecret }
 
 // appconfigARN builds an AppConfig resource ARN for tag lookup/cleanup.
 func (b *InMemoryBackend) appconfigARN(resourcePath string) string {
@@ -85,6 +92,12 @@ func (b *InMemoryBackend) CreateApplication(name, description string) (*Applicat
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
+	}
+
+	for _, a := range b.applications {
+		if a.Name == name {
+			return nil, fmt.Errorf("%w: application with name %q already exists", ErrConflict, name)
+		}
 	}
 
 	now := time.Now()
@@ -117,7 +130,10 @@ func (b *InMemoryBackend) GetApplication(applicationID string) (*Application, er
 }
 
 // ListApplications returns paginated applications.
-func (b *InMemoryBackend) ListApplications(nextToken string, maxResults int) ([]Application, string) {
+func (b *InMemoryBackend) ListApplications(
+	nextToken string,
+	maxResults int,
+) ([]Application, string) {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
@@ -128,13 +144,15 @@ func (b *InMemoryBackend) ListApplications(nextToken string, maxResults int) ([]
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token
 }
 
 // UpdateApplication updates an application's name and description.
-func (b *InMemoryBackend) UpdateApplication(applicationID, name, description string) (*Application, error) {
+func (b *InMemoryBackend) UpdateApplication(
+	applicationID, name, description string,
+) (*Application, error) {
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
@@ -171,7 +189,10 @@ func (b *InMemoryBackend) DeleteApplication(applicationID string) error {
 	}
 
 	for profileID := range b.configProfiles[applicationID] {
-		delete(b.tags, b.appconfigARN("application/"+applicationID+"/configurationprofile/"+profileID))
+		delete(
+			b.tags,
+			b.appconfigARN("application/"+applicationID+"/configurationprofile/"+profileID),
+		)
 	}
 
 	delete(b.applications, applicationID)
@@ -186,9 +207,16 @@ func (b *InMemoryBackend) DeleteApplication(applicationID string) error {
 }
 
 // CreateEnvironment creates a new environment within an application.
-func (b *InMemoryBackend) CreateEnvironment(applicationID, name, description string) (*Environment, error) {
+func (b *InMemoryBackend) CreateEnvironment(
+	applicationID, name, description string,
+	monitors []Monitor,
+) (*Environment, error) {
 	b.mu.Lock("CreateEnvironment")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
+	}
 
 	if _, ok := b.applications[applicationID]; !ok {
 		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
@@ -198,6 +226,17 @@ func (b *InMemoryBackend) CreateEnvironment(applicationID, name, description str
 		b.environments[applicationID] = make(map[string]*Environment)
 	}
 
+	for _, e := range b.environments[applicationID] {
+		if e.Name == name {
+			return nil, fmt.Errorf(
+				"%w: environment with name %q already exists in application %s",
+				ErrConflict,
+				name,
+				applicationID,
+			)
+		}
+	}
+
 	now := time.Now()
 	env := &Environment{
 		ID:            newResourceID(),
@@ -205,6 +244,7 @@ func (b *InMemoryBackend) CreateEnvironment(applicationID, name, description str
 		Name:          name,
 		Description:   description,
 		State:         "ReadyForDeployment",
+		Monitors:      monitors,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -215,7 +255,9 @@ func (b *InMemoryBackend) CreateEnvironment(applicationID, name, description str
 }
 
 // GetEnvironment retrieves an environment by application and environment ID.
-func (b *InMemoryBackend) GetEnvironment(applicationID, environmentID string) (*Environment, error) {
+func (b *InMemoryBackend) GetEnvironment(
+	applicationID, environmentID string,
+) (*Environment, error) {
 	b.mu.RLock("GetEnvironment")
 	defer b.mu.RUnlock()
 
@@ -255,7 +297,7 @@ func (b *InMemoryBackend) ListEnvironments(
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
 }
@@ -310,10 +352,19 @@ func (b *InMemoryBackend) DeleteEnvironment(applicationID, environmentID string)
 
 // CreateConfigurationProfile creates a new configuration profile.
 func (b *InMemoryBackend) CreateConfigurationProfile(
-	applicationID, name, description, locationURI, profileType string,
+	applicationID, name, description, locationURI, profileType, retrievalRoleArn string,
+	validators []Validator,
 ) (*ConfigurationProfile, error) {
 	b.mu.Lock("CreateConfigurationProfile")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
+	}
+
+	if locationURI == "" {
+		return nil, fmt.Errorf("%w: LocationUri is required", ErrBadRequest)
+	}
 
 	if _, ok := b.applications[applicationID]; !ok {
 		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
@@ -323,13 +374,26 @@ func (b *InMemoryBackend) CreateConfigurationProfile(
 		b.configProfiles[applicationID] = make(map[string]*ConfigurationProfile)
 	}
 
+	for _, p := range b.configProfiles[applicationID] {
+		if p.Name == name {
+			return nil, fmt.Errorf(
+				"%w: configuration profile with name %q already exists in application %s",
+				ErrConflict,
+				name,
+				applicationID,
+			)
+		}
+	}
+
 	profile := &ConfigurationProfile{
-		ID:            newResourceID(),
-		ApplicationID: applicationID,
-		Name:          name,
-		Description:   description,
-		LocationURI:   locationURI,
-		Type:          profileType,
+		ID:               newResourceID(),
+		ApplicationID:    applicationID,
+		Name:             name,
+		Description:      description,
+		LocationURI:      locationURI,
+		Type:             profileType,
+		RetrievalRoleArn: retrievalRoleArn,
+		Validators:       validators,
 	}
 	b.configProfiles[applicationID][profile.ID] = profile
 	cp := *profile
@@ -338,18 +402,28 @@ func (b *InMemoryBackend) CreateConfigurationProfile(
 }
 
 // GetConfigurationProfile retrieves a configuration profile.
-func (b *InMemoryBackend) GetConfigurationProfile(applicationID, profileID string) (*ConfigurationProfile, error) {
+func (b *InMemoryBackend) GetConfigurationProfile(
+	applicationID, profileID string,
+) (*ConfigurationProfile, error) {
 	b.mu.RLock("GetConfigurationProfile")
 	defer b.mu.RUnlock()
 
 	profiles, ok := b.configProfiles[applicationID]
 	if !ok {
-		return nil, fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+		return nil, fmt.Errorf(
+			"%w: configuration profile %s",
+			ErrConfigurationProfileNotFound,
+			profileID,
+		)
 	}
 
 	profile, ok := profiles[profileID]
 	if !ok {
-		return nil, fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+		return nil, fmt.Errorf(
+			"%w: configuration profile %s",
+			ErrConfigurationProfileNotFound,
+			profileID,
+		)
 	}
 
 	cp := *profile
@@ -378,7 +452,7 @@ func (b *InMemoryBackend) ListConfigurationProfiles(
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
 }
@@ -392,12 +466,20 @@ func (b *InMemoryBackend) UpdateConfigurationProfile(
 
 	profiles, ok := b.configProfiles[applicationID]
 	if !ok {
-		return nil, fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+		return nil, fmt.Errorf(
+			"%w: configuration profile %s",
+			ErrConfigurationProfileNotFound,
+			profileID,
+		)
 	}
 
 	profile, ok := profiles[profileID]
 	if !ok {
-		return nil, fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+		return nil, fmt.Errorf(
+			"%w: configuration profile %s",
+			ErrConfigurationProfileNotFound,
+			profileID,
+		)
 	}
 
 	if name != "" {
@@ -417,11 +499,19 @@ func (b *InMemoryBackend) DeleteConfigurationProfile(applicationID, profileID st
 
 	profiles, ok := b.configProfiles[applicationID]
 	if !ok {
-		return fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+		return fmt.Errorf(
+			"%w: configuration profile %s",
+			ErrConfigurationProfileNotFound,
+			profileID,
+		)
 	}
 
 	if _, exists := profiles[profileID]; !exists {
-		return fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+		return fmt.Errorf(
+			"%w: configuration profile %s",
+			ErrConfigurationProfileNotFound,
+			profileID,
+		)
 	}
 
 	delete(profiles, profileID)
@@ -430,13 +520,23 @@ func (b *InMemoryBackend) DeleteConfigurationProfile(applicationID, profileID st
 	return nil
 }
 
+const maxHostedConfigSizeBytes = 1024 * 1024 // 1 MiB, matching AWS limit
+
 // CreateHostedConfigurationVersion creates a hosted configuration version.
 func (b *InMemoryBackend) CreateHostedConfigurationVersion(
-	applicationID, profileID, contentType string,
+	applicationID, profileID, contentType, description, versionLabel string,
 	content []byte,
 ) (*HostedConfigurationVersion, error) {
 	b.mu.Lock("CreateHostedConfigurationVersion")
 	defer b.mu.Unlock()
+
+	if len(content) > maxHostedConfigSizeBytes {
+		return nil, fmt.Errorf(
+			"%w: content exceeds maximum size of %d bytes",
+			ErrPayloadTooLarge,
+			maxHostedConfigSizeBytes,
+		)
+	}
 
 	if _, ok := b.applications[applicationID]; !ok {
 		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
@@ -444,19 +544,41 @@ func (b *InMemoryBackend) CreateHostedConfigurationVersion(
 
 	profiles, ok := b.configProfiles[applicationID]
 	if !ok || profiles[profileID] == nil {
-		return nil, fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+		return nil, fmt.Errorf(
+			"%w: configuration profile %s",
+			ErrConfigurationProfileNotFound,
+			profileID,
+		)
 	}
 
 	if b.hostedConfigVersions[applicationID] == nil {
-		b.hostedConfigVersions[applicationID] = make(map[string]map[int32]*HostedConfigurationVersion)
+		b.hostedConfigVersions[applicationID] = make(
+			map[string]map[int32]*HostedConfigurationVersion,
+		)
 	}
 
 	if b.hostedConfigVersions[applicationID][profileID] == nil {
-		b.hostedConfigVersions[applicationID][profileID] = make(map[int32]*HostedConfigurationVersion)
+		b.hostedConfigVersions[applicationID][profileID] = make(
+			map[int32]*HostedConfigurationVersion,
+		)
 	}
 
 	if b.versionCounters[applicationID] == nil {
 		b.versionCounters[applicationID] = make(map[string]int32)
+	}
+
+	// VersionLabel must be unique across versions for this profile.
+	if versionLabel != "" {
+		for _, v := range b.hostedConfigVersions[applicationID][profileID] {
+			if v.VersionLabel == versionLabel {
+				return nil, fmt.Errorf(
+					"%w: version label %q already exists for profile %s",
+					ErrConflict,
+					versionLabel,
+					profileID,
+				)
+			}
+		}
 	}
 
 	b.versionCounters[applicationID][profileID]++
@@ -466,6 +588,8 @@ func (b *InMemoryBackend) CreateHostedConfigurationVersion(
 		ApplicationID:          applicationID,
 		ConfigurationProfileID: profileID,
 		ContentType:            contentType,
+		Description:            description,
+		VersionLabel:           versionLabel,
 		Content:                content,
 		VersionNumber:          versionNumber,
 		CreatedAt:              time.Now(),
@@ -504,9 +628,9 @@ func (b *InMemoryBackend) GetHostedConfigurationVersion(
 	return &cp, nil
 }
 
-// ListHostedConfigurationVersions returns paginated versions for a profile.
+// ListHostedConfigurationVersions returns paginated versions for a profile, optionally filtered by versionLabel.
 func (b *InMemoryBackend) ListHostedConfigurationVersions(
-	applicationID, profileID, nextToken string, maxResults int,
+	applicationID, profileID, nextToken, versionLabel string, maxResults int,
 ) ([]HostedConfigurationVersion, string, error) {
 	b.mu.RLock("ListHostedConfigurationVersions")
 	defer b.mu.RUnlock()
@@ -516,25 +640,36 @@ func (b *InMemoryBackend) ListHostedConfigurationVersions(
 	}
 
 	if _, ok := b.configProfiles[applicationID][profileID]; !ok {
-		return nil, "", fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+		return nil, "", fmt.Errorf(
+			"%w: configuration profile %s",
+			ErrConfigurationProfileNotFound,
+			profileID,
+		)
 	}
 
 	profileVersions := b.hostedConfigVersions[applicationID][profileID]
 
 	out := make([]HostedConfigurationVersion, 0, len(profileVersions))
 	for _, v := range profileVersions {
+		if versionLabel != "" && v.VersionLabel != versionLabel {
+			continue
+		}
+
 		out = append(out, *v)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].VersionNumber < out[j].VersionNumber })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
 }
 
 // DeleteHostedConfigurationVersion deletes a hosted configuration version.
-func (b *InMemoryBackend) DeleteHostedConfigurationVersion(applicationID, profileID string, versionNumber int32) error {
+func (b *InMemoryBackend) DeleteHostedConfigurationVersion(
+	applicationID, profileID string,
+	versionNumber int32,
+) error {
 	b.mu.Lock("DeleteHostedConfigurationVersion")
 	defer b.mu.Unlock()
 
@@ -567,6 +702,20 @@ func (b *InMemoryBackend) CreateDeploymentStrategy(
 	b.mu.Lock("CreateDeploymentStrategy")
 	defer b.mu.Unlock()
 
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
+	}
+
+	for _, s := range b.deploymentStrategies {
+		if s.Name == name {
+			return nil, fmt.Errorf(
+				"%w: deployment strategy with name %q already exists",
+				ErrConflict,
+				name,
+			)
+		}
+	}
+
 	now := time.Now()
 	strategy := &DeploymentStrategy{
 		ID:                          newResourceID(),
@@ -593,7 +742,11 @@ func (b *InMemoryBackend) GetDeploymentStrategy(strategyID string) (*DeploymentS
 
 	strategy, ok := b.deploymentStrategies[strategyID]
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment strategy %s", ErrDeploymentStrategyNotFound, strategyID)
+		return nil, fmt.Errorf(
+			"%w: deployment strategy %s",
+			ErrDeploymentStrategyNotFound,
+			strategyID,
+		)
 	}
 
 	cp := *strategy
@@ -602,7 +755,10 @@ func (b *InMemoryBackend) GetDeploymentStrategy(strategyID string) (*DeploymentS
 }
 
 // ListDeploymentStrategies returns paginated deployment strategies.
-func (b *InMemoryBackend) ListDeploymentStrategies(nextToken string, maxResults int) ([]DeploymentStrategy, string) {
+func (b *InMemoryBackend) ListDeploymentStrategies(
+	nextToken string,
+	maxResults int,
+) ([]DeploymentStrategy, string) {
 	b.mu.RLock("ListDeploymentStrategies")
 	defer b.mu.RUnlock()
 
@@ -613,7 +769,7 @@ func (b *InMemoryBackend) ListDeploymentStrategies(nextToken string, maxResults 
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token
 }
@@ -629,7 +785,11 @@ func (b *InMemoryBackend) UpdateDeploymentStrategy(
 
 	strategy, ok := b.deploymentStrategies[strategyID]
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment strategy %s", ErrDeploymentStrategyNotFound, strategyID)
+		return nil, fmt.Errorf(
+			"%w: deployment strategy %s",
+			ErrDeploymentStrategyNotFound,
+			strategyID,
+		)
 	}
 
 	if name != "" {
@@ -663,13 +823,34 @@ func (b *InMemoryBackend) DeleteDeploymentStrategy(strategyID string) error {
 
 // StartDeployment starts a deployment.
 func (b *InMemoryBackend) StartDeployment(
-	applicationID, environmentID, configProfileID, strategyID, configVersion string,
+	applicationID, environmentID, configProfileID, strategyID, configVersion, description string,
 ) (*Deployment, error) {
 	b.mu.Lock("StartDeployment")
 	defer b.mu.Unlock()
 
 	if _, ok := b.applications[applicationID]; !ok {
 		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
+	}
+
+	if _, ok := b.environments[applicationID][environmentID]; !ok {
+		return nil, fmt.Errorf("%w: environment %s", ErrEnvironmentNotFound, environmentID)
+	}
+
+	if profiles := b.configProfiles[applicationID]; profiles == nil ||
+		profiles[configProfileID] == nil {
+		return nil, fmt.Errorf(
+			"%w: configuration profile %s",
+			ErrConfigurationProfileNotFound,
+			configProfileID,
+		)
+	}
+
+	if _, ok := b.deploymentStrategies[strategyID]; !ok {
+		return nil, fmt.Errorf(
+			"%w: deployment strategy %s",
+			ErrDeploymentStrategyNotFound,
+			strategyID,
+		)
 	}
 
 	if b.deployments[applicationID] == nil {
@@ -694,7 +875,10 @@ func (b *InMemoryBackend) StartDeployment(
 		ConfigurationProfileID: configProfileID,
 		DeploymentStrategyID:   strategyID,
 		ConfigurationVersion:   configVersion,
+		Description:            description,
 		State:                  "COMPLETE",
+		TriggeredBy:            "USER",
+		PercentageComplete:     100.0, //nolint:mnd // 100% complete
 		DeploymentNumber:       deploymentNumber,
 		StartedAt:              now,
 		CompletedAt:            now,
@@ -757,15 +941,28 @@ func (b *InMemoryBackend) ListDeployments(
 		out = append(out, *d)
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].DeploymentNumber < out[j].DeploymentNumber })
+	sort.Slice(
+		out,
+		func(i, j int) bool { return out[i].DeploymentNumber < out[j].DeploymentNumber },
+	)
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
 }
 
+// stoppableDeploymentStates are the states from which a deployment can be stopped.
+var stoppableDeploymentStates = map[string]bool{ //nolint:gochecknoglobals // compile-time constant map
+	"BAKING":     true,
+	"DEPLOYING":  true,
+	"VALIDATING": true,
+}
+
 // StopDeployment stops an in-progress deployment.
-func (b *InMemoryBackend) StopDeployment(applicationID, environmentID string, deploymentNumber int32) error {
+func (b *InMemoryBackend) StopDeployment(
+	applicationID, environmentID string,
+	deploymentNumber int32,
+) error {
 	b.mu.Lock("StopDeployment")
 	defer b.mu.Unlock()
 
@@ -784,7 +981,13 @@ func (b *InMemoryBackend) StopDeployment(applicationID, environmentID string, de
 		return fmt.Errorf("%w: deployment %d", ErrDeploymentNotFound, deploymentNumber)
 	}
 
-	d.State = "ROLLEDBACK"
+	// Allow stopping from any non-terminal state to keep in-memory stub pragmatic.
+	// (Real deployments complete instantly here so we still accept the request.)
+	if d.State != "COMPLETE" && d.State != "ROLLED_BACK" && !stoppableDeploymentStates[d.State] {
+		return fmt.Errorf("%w: cannot stop deployment in state %s", ErrBadRequest, d.State)
+	}
+
+	d.State = "ROLLED_BACK"
 	d.CompletedAt = time.Now()
 
 	return nil
@@ -849,7 +1052,11 @@ func (b *InMemoryBackend) CreateExtension(
 	// Enforce name uniqueness.
 	for _, ext := range b.extensions {
 		if ext.Name == name {
-			return nil, fmt.Errorf("%w: extension with name %s already exists", ErrExtensionAlreadyExists, name)
+			return nil, fmt.Errorf(
+				"%w: extension with name %s already exists",
+				ErrExtensionAlreadyExists,
+				name,
+			)
 		}
 	}
 
@@ -899,8 +1106,13 @@ func (b *InMemoryBackend) GetExtension(extensionIdentifier string) (*Extension, 
 	return &cp, nil
 }
 
-// ListExtensions returns paginated extensions, optionally filtered by name.
-func (b *InMemoryBackend) ListExtensions(nextToken string, maxResults int, nameFilter string) ([]Extension, string) {
+// ListExtensions returns paginated extensions, optionally filtered by name and/or version number.
+func (b *InMemoryBackend) ListExtensions(
+	nextToken string,
+	maxResults int,
+	nameFilter string,
+	versionNumber int32,
+) ([]Extension, string) {
 	b.mu.RLock("ListExtensions")
 	defer b.mu.RUnlock()
 
@@ -911,12 +1123,16 @@ func (b *InMemoryBackend) ListExtensions(nextToken string, maxResults int, nameF
 			continue
 		}
 
+		if versionNumber > 0 && ext.VersionNumber != versionNumber {
+			continue
+		}
+
 		out = append(out, *ext)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token
 }
@@ -1010,13 +1226,19 @@ func (b *InMemoryBackend) CreateExtensionAssociation(
 }
 
 // GetExtensionAssociation retrieves an extension association by ID.
-func (b *InMemoryBackend) GetExtensionAssociation(extensionAssociationID string) (*ExtensionAssociation, error) {
+func (b *InMemoryBackend) GetExtensionAssociation(
+	extensionAssociationID string,
+) (*ExtensionAssociation, error) {
 	b.mu.RLock("GetExtensionAssociation")
 	defer b.mu.RUnlock()
 
 	assoc, ok := b.extensionAssociations[extensionAssociationID]
 	if !ok {
-		return nil, fmt.Errorf("%w: extension association %s", ErrExtensionAssociationNotFound, extensionAssociationID)
+		return nil, fmt.Errorf(
+			"%w: extension association %s",
+			ErrExtensionAssociationNotFound,
+			extensionAssociationID,
+		)
 	}
 
 	cp := *assoc
@@ -1024,19 +1246,31 @@ func (b *InMemoryBackend) GetExtensionAssociation(extensionAssociationID string)
 	return &cp, nil
 }
 
-// ListExtensionAssociations returns paginated extension associations.
-func (b *InMemoryBackend) ListExtensionAssociations(nextToken string, maxResults int) ([]ExtensionAssociation, string) {
+// ListExtensionAssociations returns paginated extension associations,
+// optionally filtered by extensionIdentifier (ARN prefix) and/or resourceIdentifier (ARN prefix).
+func (b *InMemoryBackend) ListExtensionAssociations(
+	nextToken, extensionIdentifier, resourceIdentifier string,
+	maxResults int,
+) ([]ExtensionAssociation, string) {
 	b.mu.RLock("ListExtensionAssociations")
 	defer b.mu.RUnlock()
 
 	out := make([]ExtensionAssociation, 0, len(b.extensionAssociations))
 	for _, a := range b.extensionAssociations {
+		if extensionIdentifier != "" && a.ExtensionArn != extensionIdentifier {
+			continue
+		}
+
+		if resourceIdentifier != "" && a.ResourceArn != resourceIdentifier {
+			continue
+		}
+
 		out = append(out, *a)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token
 }
@@ -1048,7 +1282,11 @@ func (b *InMemoryBackend) DeleteExtensionAssociation(extensionAssociationID stri
 
 	assoc, ok := b.extensionAssociations[extensionAssociationID]
 	if !ok {
-		return fmt.Errorf("%w: extension association %s", ErrExtensionAssociationNotFound, extensionAssociationID)
+		return fmt.Errorf(
+			"%w: extension association %s",
+			ErrExtensionAssociationNotFound,
+			extensionAssociationID,
+		)
 	}
 
 	delete(b.extensionAssociations, extensionAssociationID)
@@ -1093,7 +1331,11 @@ func (b *InMemoryBackend) UpdateExtensionAssociation(
 
 	assoc, ok := b.extensionAssociations[extensionAssociationID]
 	if !ok {
-		return nil, fmt.Errorf("%w: extension association %s", ErrExtensionAssociationNotFound, extensionAssociationID)
+		return nil, fmt.Errorf(
+			"%w: extension association %s",
+			ErrExtensionAssociationNotFound,
+			extensionAssociationID,
+		)
 	}
 
 	if parameters != nil {
@@ -1118,7 +1360,11 @@ func (b *InMemoryBackend) ValidateConfiguration(applicationID, profileID, _ stri
 
 	profiles, ok := b.configProfiles[applicationID]
 	if !ok || profiles[profileID] == nil {
-		return fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+		return fmt.Errorf(
+			"%w: configuration profile %s",
+			ErrConfigurationProfileNotFound,
+			profileID,
+		)
 	}
 
 	return nil
@@ -1179,7 +1425,11 @@ func (b *InMemoryBackend) resolveProfileID(appID, identifier string) (string, er
 		}
 	}
 
-	return "", fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, identifier)
+	return "", fmt.Errorf(
+		"%w: configuration profile %s",
+		ErrConfigurationProfileNotFound,
+		identifier,
+	)
 }
 
 // latestConfigVersion returns the latest hosted configuration version for a profile. Must be called under lock.
@@ -1206,34 +1456,11 @@ func (b *InMemoryBackend) latestConfigVersion(appID, profileID string) *HostedCo
 	return latest
 }
 
-// appConfigPaginate applies token-based pagination to a sorted slice.
-func appConfigPaginate[T any](all []T, nextToken string, maxResults int) ([]T, string) {
+// appConfigPaginate applies HMAC-signed token-based pagination to a sorted slice.
+func appConfigPaginate[T any](all []T, nextToken, secret string, maxResults int) ([]T, string) {
 	const defaultLimit = 50
 
-	startIdx := 0
-	if nextToken != "" {
-		if idx, err := strconv.Atoi(nextToken); err == nil && idx >= 0 {
-			startIdx = idx
-		}
-	}
+	p := page.NewHMAC(all, nextToken, secret, maxResults, defaultLimit)
 
-	if startIdx >= len(all) {
-		return []T{}, ""
-	}
-
-	limit := defaultLimit
-	if maxResults > 0 {
-		limit = maxResults
-	}
-
-	end := startIdx + limit
-
-	var outToken string
-	if end < len(all) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return all[startIdx:end], outToken
+	return p.Data, p.Next
 }
