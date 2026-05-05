@@ -254,9 +254,9 @@ type JobRun struct {
 type JobBookmark struct {
 	JobName   string `json:"JobName"`
 	Run       string `json:"Run,omitempty"`
+	ActiveRun string `json:"ActiveRun,omitempty"`
 	Version   int    `json:"Version"`
 	Attempt   int    `json:"Attempt,omitempty"`
-	ActiveRun string `json:"ActiveRun,omitempty"`
 }
 
 // BatchStopJobRunError holds error info for a single stop attempt.
@@ -399,6 +399,22 @@ func cloneConnection(c *Connection) *Connection {
 	cp := *c
 	cp.ConnectionProperties = maps.Clone(c.ConnectionProperties)
 	cp.Tags = maps.Clone(c.Tags)
+
+	return &cp
+}
+
+// cloneTable returns a deep copy of a Table, including nested slices.
+func cloneTable(t *Table) *Table {
+	cp := *t
+	if len(t.StorageDescriptor.Columns) > 0 {
+		cp.StorageDescriptor.Columns = make([]Column, len(t.StorageDescriptor.Columns))
+		copy(cp.StorageDescriptor.Columns, t.StorageDescriptor.Columns)
+	}
+
+	if len(t.PartitionKeys) > 0 {
+		cp.PartitionKeys = make([]Column, len(t.PartitionKeys))
+		copy(cp.PartitionKeys, t.PartitionKeys)
+	}
 
 	return &cp
 }
@@ -608,9 +624,7 @@ func (b *InMemoryBackend) GetTable(dbName, tableName string) (*Table, error) {
 		return nil, ErrNotFound
 	}
 
-	cp := *t
-
-	return &cp, nil
+	return cloneTable(t), nil
 }
 
 // GetTables returns all tables in a database sorted by name.
@@ -948,6 +962,15 @@ func (b *InMemoryBackend) tagResource(resourceARN string, tags map[string]string
 		return nil
 	}
 
+	if conn := b.findConnectionByARN(resourceARN); conn != nil {
+		if conn.Tags == nil {
+			conn.Tags = make(map[string]string)
+		}
+		maps.Copy(conn.Tags, tags)
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -988,6 +1011,14 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		return nil
 	}
 
+	if conn := b.findConnectionByARN(resourceARN); conn != nil {
+		for _, k := range tagKeys {
+			delete(conn.Tags, k)
+		}
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -1010,6 +1041,10 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 
 	if r := b.findDataQualityRulesetByARN(resourceARN); r != nil {
 		return maps.Clone(r.Tags), nil
+	}
+
+	if conn := b.findConnectionByARN(resourceARN); conn != nil {
+		return maps.Clone(conn.Tags), nil
 	}
 
 	return nil, ErrNotFound
@@ -1069,6 +1104,20 @@ func (b *InMemoryBackend) findDataQualityRulesetByARN(resourceARN string) *DataQ
 	}
 
 	return r
+}
+
+func (b *InMemoryBackend) findConnectionByARN(resourceARN string) *Connection {
+	name := glueResourceName(resourceARN, "connection")
+	if name == "" {
+		return nil
+	}
+
+	c, ok := b.connections[name]
+	if !ok {
+		return nil
+	}
+
+	return c
 }
 
 // --- Batch operations ---

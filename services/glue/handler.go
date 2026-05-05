@@ -149,9 +149,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req struct {
-		Name         string `json:"Name"`
-		DatabaseName string `json:"DatabaseName"`
-		ResourceArn  string `json:"ResourceArn"`
+		Name           string `json:"Name"`
+		DatabaseName   string `json:"DatabaseName"`
+		ResourceArn    string `json:"ResourceArn"`
+		CrawlerName    string `json:"CrawlerName"`
+		JobName        string `json:"JobName"`
+		ConnectionName string `json:"ConnectionName"`
 	}
 
 	_ = json.Unmarshal(body, &req)
@@ -161,6 +164,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return req.ResourceArn
 	case req.Name != "":
 		return req.Name
+	case req.CrawlerName != "":
+		return req.CrawlerName
+	case req.JobName != "":
+		return req.JobName
+	case req.ConnectionName != "":
+		return req.ConnectionName
 	case req.DatabaseName != "":
 		return req.DatabaseName
 	}

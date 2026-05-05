@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { getGlueClient } from '$lib/aws-client';
 	import {
 		GetDatabasesCommand,
@@ -241,6 +242,7 @@
 	}
 
 	async function deleteJob(name: string) {
+		if (!await confirmDestructive({ title: 'Delete Job', message: `Delete job "${name}"? This cannot be undone.` })) return;
 		try {
 			await glue.send(new DeleteJobCommand({ JobName: name }));
 			toast.success(`Job "${name}" deleted`);
@@ -252,6 +254,7 @@
 	}
 
 	async function deleteCrawler(name: string) {
+		if (!await confirmDestructive({ title: 'Delete Crawler', message: `Delete crawler "${name}"? This cannot be undone.` })) return;
 		try {
 			await glue.send(new DeleteCrawlerCommand({ Name: name }));
 			toast.success(`Crawler "${name}" deleted`);
@@ -262,6 +265,7 @@
 	}
 
 	async function deleteConnection(name: string) {
+		if (!await confirmDestructive({ title: 'Delete Connection', message: `Delete connection "${name}"? This cannot be undone.` })) return;
 		try {
 			await glue.send(new DeleteConnectionCommand({ ConnectionName: name }));
 			toast.success(`Connection "${name}" deleted`);
