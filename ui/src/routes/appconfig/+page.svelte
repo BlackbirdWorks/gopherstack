@@ -405,8 +405,10 @@
 				DeploymentDurationInMinutes: newStratDuration,
 				FinalBakeTimeInMinutes: newStratBake,
 				GrowthFactor: newStratGrowth,
-				GrowthType: newStratGrowthType as string,
-				ReplicateTo: newStratReplicateTo as string,
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				GrowthType: newStratGrowthType as any,
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				ReplicateTo: newStratReplicateTo as any,
 			}));
 			toast.success(`Strategy "${newStratName}" created`);
 			showCreateStratModal = false;
@@ -617,7 +619,7 @@
 							<button onclick={() => showDeployModal = true} class="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all" title="Start Deployment">
 								<Play class="w-3.5 h-3.5" /> Deploy
 							</button>
-							<button onclick={() => deleteApplication(selectedApp?.Id)} class="p-2 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all border border-rose-500/20">
+							<button title="Delete Application" onclick={() => deleteApplication(selectedApp?.Id)} class="p-2 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all border border-rose-500/20">
 								<Trash2 class="w-4 h-4" />
 							</button>
 						</div>

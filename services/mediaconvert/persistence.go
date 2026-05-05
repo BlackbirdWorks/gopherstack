@@ -95,6 +95,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.queries = make(map[string]*jobsQuery)
 	b.queues = snap.Queues
 	b.jobTemplates = snap.JobTemplates
 	b.jobs = snap.Jobs

@@ -3,6 +3,7 @@ package mediaconvert
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -15,6 +16,10 @@ import (
 
 const (
 	opUnknown = "Unknown"
+)
+
+const (
+	orderDescending = "DESCENDING"
 )
 
 const (
@@ -48,6 +53,10 @@ const (
 	opUpdateJobTemplate       = "UpdateJobTemplate"
 	opUpdatePreset            = "UpdatePreset"
 	opUpdateQueue             = "UpdateQueue"
+	opListVersions            = "ListVersions"
+	opProbe                   = "Probe"
+	opSearchJobs              = "SearchJobs"
+	opStartJobsQuery          = "StartJobsQuery"
 )
 
 const (
@@ -63,6 +72,9 @@ const (
 	certificatesPath   = "/2017-08-29/certificates"
 	jobsQueriesPath    = "/2017-08-29/jobsQueries"
 	resourceSharesPath = "/2017-08-29/resourceShares"
+	versionsPath       = "/2017-08-29/versions"
+	probePath          = "/2017-08-29/probe"
+	searchPath         = "/2017-08-29/search"
 )
 
 // Handler is the Echo HTTP handler for Amazon MediaConvert operations.
@@ -116,6 +128,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateJobTemplate,
 		opUpdatePreset,
 		opUpdateQueue,
+		opListVersions,
+		opProbe,
+		opSearchJobs,
+		opStartJobsQuery,
 	}
 }
 
@@ -233,6 +249,10 @@ func (h *Handler) dispatchReadOnlyNewOps(c *echo.Context, route mcRoute) (bool, 
 		return true, h.handleDisassociateCertificate(c, route.resource)
 	case opGetJobsQueryResults:
 		return true, h.handleGetJobsQueryResults(c, route.resource)
+	case opListVersions:
+		return true, h.handleListVersions(c)
+	case opSearchJobs:
+		return true, h.handleSearchJobs(c)
 	}
 
 	return false, nil
@@ -268,6 +288,10 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mcRoute, readBody func
 		return h.handleAssociateCertificate(c, body)
 	case opCreateResourceShare:
 		return h.handleCreateResourceShare(c, body)
+	case opProbe:
+		return h.handleProbe(c, body)
+	case opStartJobsQuery:
+		return h.handleStartJobsQuery(c, body)
 	}
 
 	return c.JSON(
@@ -299,13 +323,33 @@ func parseRoute(method, path string) mcRoute {
 		return parseTagRoute(method, strings.TrimPrefix(path, tagsPath))
 	case strings.HasPrefix(path, certificatesPath):
 		return parseCertificateRoute(method, strings.TrimPrefix(path, certificatesPath))
-	case path == policyPath:
+	}
+
+	return parseStaticPathRoute(method, path)
+}
+
+// parseStaticPathRoute handles non-prefix (exact-match) path routes.
+func parseStaticPathRoute(method, path string) mcRoute {
+	switch path {
+	case policyPath:
 		return parsePolicyRoute(method)
-	case path == endpointsPath:
+	case endpointsPath:
 		return mcRoute{operation: opDescribeEndpoints}
-	case path == resourceSharesPath:
+	case resourceSharesPath:
 		if method == http.MethodPost {
 			return mcRoute{operation: opCreateResourceShare}
+		}
+	case versionsPath:
+		if method == http.MethodGet {
+			return mcRoute{operation: opListVersions}
+		}
+	case probePath:
+		if method == http.MethodPost {
+			return mcRoute{operation: opProbe}
+		}
+	case searchPath:
+		if method == http.MethodGet {
+			return mcRoute{operation: opSearchJobs}
 		}
 	}
 
@@ -459,6 +503,10 @@ func parseJobsQueriesRoute(method, suffix string) mcRoute {
 		return mcRoute{operation: opGetJobsQueryResults, resource: id}
 	}
 
+	if id == "" && method == http.MethodPost {
+		return mcRoute{operation: opStartJobsQuery}
+	}
+
 	return mcRoute{operation: opUnknown}
 }
 
@@ -513,7 +561,13 @@ func (h *Handler) handleListQueues(c *echo.Context) error {
 		queues = []*Queue{}
 	}
 
-	return c.JSON(http.StatusOK, queuesListOutput{Queues: queues})
+	q := c.Request().URL.Query()
+
+	if q.Get("order") == orderDescending {
+		reverseSlice(queues)
+	}
+
+	return c.JSON(http.StatusOK, queuesListOutput{Queues: limitSlice(queues, parseMaxResults(q.Get("maxResults")))})
 }
 
 type updateQueueInput struct {
@@ -604,7 +658,28 @@ func (h *Handler) handleListJobTemplates(c *echo.Context) error {
 		templates = []*JobTemplate{}
 	}
 
-	return c.JSON(http.StatusOK, jobTemplatesListOutput{JobTemplates: templates})
+	q := c.Request().URL.Query()
+	category := q.Get("category")
+
+	if category != "" {
+		filtered := templates[:0:0]
+
+		for _, t := range templates {
+			if t.Category == category {
+				filtered = append(filtered, t)
+			}
+		}
+
+		templates = filtered
+	}
+
+	if q.Get("order") == orderDescending {
+		reverseSlice(templates)
+	}
+
+	out := jobTemplatesListOutput{JobTemplates: limitSlice(templates, parseMaxResults(q.Get("maxResults")))}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 type updateJobTemplateInput struct {
@@ -698,6 +773,41 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 	jobs := h.Backend.ListJobs()
 	if jobs == nil {
 		jobs = []*Job{}
+	}
+
+	q := c.Request().URL.Query()
+	statusFilter := q.Get("status")
+	queueFilter := q.Get("queue")
+	order := q.Get("order")
+	maxResults := parseMaxResults(q.Get("maxResults"))
+
+	if statusFilter != "" || queueFilter != "" {
+		filtered := jobs[:0:0]
+
+		for _, j := range jobs {
+			if statusFilter != "" && j.Status != statusFilter {
+				continue
+			}
+
+			if queueFilter != "" && j.Queue != queueFilter && j.QueueArn != queueFilter {
+				continue
+			}
+
+			filtered = append(filtered, j)
+		}
+
+		jobs = filtered
+	}
+
+	// Backend returns newest-first by default; ASCENDING reverses that order.
+	if order == orderAscending {
+		for i, j := 0, len(jobs)-1; i < j; i, j = i+1, j-1 {
+			jobs[i], jobs[j] = jobs[j], jobs[i]
+		}
+	}
+
+	if maxResults > 0 && len(jobs) > maxResults {
+		jobs = jobs[:maxResults]
 	}
 
 	return c.JSON(http.StatusOK, jobsListOutput{Jobs: jobs, TotalCount: len(jobs)})
@@ -835,7 +945,26 @@ func (h *Handler) handleListPresets(c *echo.Context) error {
 		presets = []*Preset{}
 	}
 
-	return c.JSON(http.StatusOK, presetsListOutput{Presets: presets})
+	q := c.Request().URL.Query()
+	category := q.Get("category")
+
+	if category != "" {
+		filtered := presets[:0:0]
+
+		for _, p := range presets {
+			if p.Category == category {
+				filtered = append(filtered, p)
+			}
+		}
+
+		presets = filtered
+	}
+
+	if q.Get("order") == orderDescending {
+		reverseSlice(presets)
+	}
+
+	return c.JSON(http.StatusOK, presetsListOutput{Presets: limitSlice(presets, parseMaxResults(q.Get("maxResults")))})
 }
 
 func (h *Handler) handleDeletePreset(c *echo.Context, name string) error {
@@ -981,6 +1110,168 @@ func (h *Handler) handleCreateResourceShare(c *echo.Context, body []byte) error 
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// --- ListVersions handler ---
+
+type listVersionsOutput struct {
+	NextToken string             `json:"nextToken,omitempty"`
+	Versions  []jobEngineVersion `json:"versions"`
+}
+
+// jobEngineVersion mirrors the AWS MediaConvert JobEngineVersion type.
+type jobEngineVersion struct {
+	ExpirationDate *float64 `json:"expirationDate,omitempty"`
+	Version        string   `json:"version"`
+}
+
+func (h *Handler) handleListVersions(c *echo.Context) error {
+	out := listVersionsOutput{
+		Versions: []jobEngineVersion{
+			{Version: "2017-08-29"},
+		},
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+// --- Probe handler ---
+
+type probeInput struct {
+	InputFiles []map[string]any `json:"inputFiles,omitempty"`
+}
+
+type probeOutput struct {
+	ProbeResults []map[string]any `json:"probeResults"`
+}
+
+func (h *Handler) handleProbe(c *echo.Context, body []byte) error {
+	var in probeInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	results := make([]map[string]any, 0, len(in.InputFiles))
+	for _, f := range in.InputFiles {
+		result := map[string]any{
+			"probeResult": map[string]any{
+				"container": map[string]any{"format": "mp4"},
+				"inputFile": f,
+			},
+		}
+		results = append(results, result)
+	}
+
+	return c.JSON(http.StatusOK, probeOutput{ProbeResults: results})
+}
+
+// --- SearchJobs handler ---
+
+type searchJobsOutput struct {
+	NextToken string `json:"nextToken,omitempty"`
+	Jobs      []*Job `json:"jobs"`
+}
+
+func (h *Handler) handleSearchJobs(c *echo.Context) error {
+	q := c.Request().URL.Query()
+	statusFilter := q.Get("status")
+	queueFilter := q.Get("queue")
+	order := q.Get("order")
+	maxResults := parseMaxResults(q.Get("maxResults"))
+
+	jobs := h.Backend.ListJobs()
+	if jobs == nil {
+		jobs = []*Job{}
+	}
+
+	filtered := jobs[:0:0]
+	for _, j := range jobs {
+		if statusFilter != "" && j.Status != statusFilter {
+			continue
+		}
+
+		if queueFilter != "" && j.Queue != queueFilter && j.QueueArn != queueFilter {
+			continue
+		}
+
+		filtered = append(filtered, j)
+	}
+
+	// Backend returns newest-first by default; ASCENDING reverses that order.
+	if order == orderAscending {
+		for i, j := 0, len(filtered)-1; i < j; i, j = i+1, j-1 {
+			filtered[i], filtered[j] = filtered[j], filtered[i]
+		}
+	}
+
+	if maxResults > 0 && len(filtered) > maxResults {
+		filtered = filtered[:maxResults]
+	}
+
+	return c.JSON(http.StatusOK, searchJobsOutput{Jobs: filtered})
+}
+
+// --- StartJobsQuery handler ---
+
+type startJobsQueryInput struct {
+	Order      string           `json:"order,omitempty"`
+	MaxResults *int             `json:"maxResults,omitempty"`
+	FilterList []map[string]any `json:"filterList,omitempty"`
+}
+
+type startJobsQueryOutput struct {
+	QueryID string `json:"queryId"`
+}
+
+func (h *Handler) handleStartJobsQuery(c *echo.Context, body []byte) error {
+	var in startJobsQueryInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	maxResults := 0
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
+
+	queryID, err := h.Backend.StartJobsQuery(in.FilterList, maxResults, in.Order)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, startJobsQueryOutput{QueryID: queryID})
+}
+
+// reverseSlice reverses items in-place.
+func reverseSlice[T any](items []T) {
+	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+		items[i], items[j] = items[j], items[i]
+	}
+}
+
+// limitSlice returns at most maxResults items; 0 means no limit.
+func limitSlice[T any](items []T, maxResults int) []T {
+	if maxResults > 0 && len(items) > maxResults {
+		return items[:maxResults]
+	}
+
+	return items
+}
+
+// parseMaxResults converts a query-parameter string to a non-negative int,
+// returning 0 (no limit) when the string is empty or unparseable.
+func parseMaxResults(s string) int {
+	if s == "" {
+		return 0
+	}
+
+	var n int
+
+	if _, err := fmt.Sscanf(s, "%d", &n); err != nil || n < 0 {
+		return 0
+	}
+
+	return n
 }
 
 // --- Error handling ---
