@@ -1,12 +1,16 @@
 package glacier
 
 import (
+	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -55,6 +59,10 @@ const (
 	lockIDLength = 32
 	// resourceSplitParts is the max parts when splitting a resource string.
 	resourceSplitParts = 2
+	// sha256HexLen is the expected byte length of a hex-encoded SHA-256 tree hash.
+	sha256HexLen = 64
+	// defaultInventoryFormat is the inventory output format used when none is specified.
+	defaultInventoryFormat = "JSON"
 )
 
 const (
@@ -80,13 +88,18 @@ const (
 // Handler is the HTTP handler for the Glacier REST API.
 type Handler struct {
 	Backend       StorageBackend
+	archiveData   map[string][]byte
 	AccountID     string
 	DefaultRegion string
+	archiveMu     sync.RWMutex
 }
 
 // NewHandler creates a new Glacier handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{
+		Backend:     backend,
+		archiveData: make(map[string][]byte),
+	}
 }
 
 // Name returns the service name.
@@ -299,7 +312,11 @@ func parseProvisionedCapacityPath(method, accountID string) (string, string) {
 // parseVaultSubPath handles paths beyond /{accountId}/vaults/{vaultName}/.
 //
 
-func parseVaultSubPath(method string, segs []string, vaultName, subPath, query string) (string, string) {
+func parseVaultSubPath(
+	method string,
+	segs []string,
+	vaultName, subPath, query string,
+) (string, string) {
 	switch subPath {
 	case "archives":
 		return parseArchivesPath(method, segs, vaultName)
@@ -502,7 +519,11 @@ func (h *Handler) dispatchVaultOps(c *echo.Context, op, resource string) (bool, 
 }
 
 // dispatchArchiveAndJobOps routes archive and job operations.
-func (h *Handler) dispatchArchiveAndJobOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+func (h *Handler) dispatchArchiveAndJobOps(
+	c *echo.Context,
+	op, resource string,
+	body []byte,
+) (bool, error) {
 	switch op {
 	case opUploadArchive:
 		return true, h.handleUploadArchive(c, resource, body)
@@ -522,7 +543,11 @@ func (h *Handler) dispatchArchiveAndJobOps(c *echo.Context, op, resource string,
 }
 
 // dispatchTagsAndPoliciesOps routes tag, notification, and access-policy operations.
-func (h *Handler) dispatchTagsAndPoliciesOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+func (h *Handler) dispatchTagsAndPoliciesOps(
+	c *echo.Context,
+	op, resource string,
+	body []byte,
+) (bool, error) {
 	switch op {
 	case opSetVaultNotifications:
 		return true, h.handleSetVaultNotifications(c, resource, body)
@@ -548,16 +573,34 @@ func (h *Handler) dispatchTagsAndPoliciesOps(c *echo.Context, op, resource strin
 }
 
 // dispatchMultipartAndCapacityOps routes multipart upload and provisioned capacity operations.
-func (h *Handler) dispatchMultipartAndCapacityOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+func (h *Handler) dispatchMultipartAndCapacityOps(
+	c *echo.Context,
+	op, resource string,
+	body []byte,
+) (bool, error) {
 	switch op {
 	case opInitiateMultipartUpload:
 		return true, h.handleInitiateMultipartUpload(c, resource, body)
 	case opUploadMultipartPart:
-		return true, h.handleUploadMultipartPart(c, extractVaultName(resource), extractSubID(resource), body)
+		return true, h.handleUploadMultipartPart(
+			c,
+			extractVaultName(resource),
+			extractSubID(resource),
+			body,
+		)
 	case opCompleteMultipartUpload:
-		return true, h.handleCompleteMultipartUpload(c, extractVaultName(resource), extractSubID(resource), body)
+		return true, h.handleCompleteMultipartUpload(
+			c,
+			extractVaultName(resource),
+			extractSubID(resource),
+			body,
+		)
 	case opAbortMultipartUpload:
-		return true, h.handleAbortMultipartUpload(c, extractVaultName(resource), extractSubID(resource))
+		return true, h.handleAbortMultipartUpload(
+			c,
+			extractVaultName(resource),
+			extractSubID(resource),
+		)
 	case opListMultipartUploads:
 		return true, h.handleListMultipartUploads(c, resource)
 	case opListParts:
@@ -596,7 +639,12 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) er
 		return err
 	}
 
-	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "unknown operation: "+op)
+	return h.writeError(
+		c,
+		http.StatusNotFound,
+		"ResourceNotFoundException",
+		"unknown operation: "+op,
+	)
 }
 
 // ----------------------------------------
@@ -699,15 +747,40 @@ func (h *Handler) handleUploadArchive(c *echo.Context, vaultName string, body []
 	description := c.Request().Header.Get("X-Amz-Archive-Description")
 	checksum := c.Request().Header.Get("X-Amz-Sha256-Tree-Hash")
 
-	if checksum == "" {
+	// Validate checksum format: must be a 64-character lowercase hex string if provided.
+	if checksum != "" {
+		if len(checksum) != sha256HexLen {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"X-Amz-Sha256-Tree-Hash must be a 64-character hex string")
+		}
+
+		if _, hexErr := hex.DecodeString(checksum); hexErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"X-Amz-Sha256-Tree-Hash contains invalid hex characters")
+		}
+	} else {
 		checksum = "0000000000000000000000000000000000000000000000000000000000000000"
 	}
 
 	size := int64(len(body))
 
-	a, err := h.Backend.UploadArchive(h.AccountID, h.DefaultRegion, vaultName, description, checksum, size)
+	a, err := h.Backend.UploadArchive(
+		h.AccountID,
+		h.DefaultRegion,
+		vaultName,
+		description,
+		checksum,
+		size,
+	)
 	if err != nil {
 		return h.writeBackendError(c, err)
+	}
+
+	// Store archive bytes so ArchiveRetrieval job output can return them.
+	if len(body) > 0 {
+		h.archiveMu.Lock()
+		h.archiveData[a.ArchiveID] = body
+		h.archiveMu.Unlock()
 	}
 
 	location := "/" + h.AccountID + "/vaults/" + vaultName + "/archives/" + a.ArchiveID
@@ -727,6 +800,11 @@ func (h *Handler) handleDeleteArchive(c *echo.Context, vaultName, archiveID stri
 	if err := h.Backend.DeleteArchive(h.AccountID, h.DefaultRegion, vaultName, archiveID); err != nil {
 		return h.writeBackendError(c, err)
 	}
+
+	// Remove stored bytes so they don't accumulate in memory.
+	h.archiveMu.Lock()
+	delete(h.archiveData, archiveID)
+	h.archiveMu.Unlock()
 
 	return c.NoContent(http.StatusNoContent)
 }
@@ -813,47 +891,185 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 		c.Response().Header().Set("X-Amz-Sha256-Tree-Hash", j.SHA256TreeHash)
 	}
 
-	// Return a minimal inventory JSON for InventoryRetrieval jobs, empty body for ArchiveRetrieval.
+	c.Response().Header().Set("Accept-Ranges", "bytes")
+
 	if j.Action == jobTypeInventoryRetrieval {
-		inventoryJSON := `{"VaultARN":"` + j.VaultARN + `","InventoryDate":"` + j.CompletionDate + `","ArchiveList":[]}`
-		c.Response().Header().Set("Content-Type", "application/json")
-
-		if j.InventorySizeInBytes > 0 {
-			c.Response().Header().Set(
-				"Content-Range",
-				fmt.Sprintf("bytes 0-%d/%d", j.InventorySizeInBytes-1, j.InventorySizeInBytes),
-			)
-		}
-
-		return c.String(http.StatusOK, inventoryJSON)
+		return h.handleInventoryJobOutput(c, j, vaultName)
 	}
 
-	// ArchiveRetrieval: set Content-Range if we know the archive size.
-	c.Response().Header().Set("Content-Type", "application/octet-stream")
+	return h.handleArchiveJobOutput(c, j)
+}
 
-	if j.ArchiveSizeInBytes > 0 {
-		c.Response().Header().Set(
-			"Content-Range",
-			fmt.Sprintf("bytes 0-%d/%d", j.ArchiveSizeInBytes-1, j.ArchiveSizeInBytes),
+// handleInventoryJobOutput returns the vault inventory as JSON or CSV.
+func (h *Handler) handleInventoryJobOutput(c *echo.Context, j *Job, vaultName string) error {
+	archives, listErr := h.Backend.ListArchives(h.AccountID, h.DefaultRegion, vaultName)
+	if listErr != nil {
+		archives = []*Archive{} // degrade gracefully
+	}
+
+	if j.InventoryFormat != "" && j.InventoryFormat != defaultInventoryFormat {
+		return h.writeInventoryCSV(c, j, archives)
+	}
+
+	return h.writeInventoryJSON(c, j, archives)
+}
+
+type inventoryArchiveItem struct {
+	ArchiveID          string `json:"ArchiveId"`
+	ArchiveDescription string `json:"ArchiveDescription"`
+	CreationDate       string `json:"CreationDate"`
+	SHA256TreeHash     string `json:"SHA256TreeHash"`
+	Size               int64  `json:"Size"`
+}
+
+func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, archives []*Archive) error {
+	items := make([]inventoryArchiveItem, 0, len(archives))
+
+	for _, a := range archives {
+		items = append(items, inventoryArchiveItem{
+			ArchiveID:          a.ArchiveID,
+			ArchiveDescription: a.Description,
+			CreationDate:       a.CreationDate,
+			Size:               a.Size,
+			SHA256TreeHash:     a.SHA256TreeHash,
+		})
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"VaultARN":      j.VaultARN,
+		"InventoryDate": j.CompletionDate,
+		"ArchiveList":   items,
+	})
+	if err != nil {
+		return h.writeError(
+			c,
+			http.StatusInternalServerError,
+			"ServiceUnavailableException",
+			"failed to encode inventory",
 		)
 	}
 
-	return c.String(http.StatusOK, "")
+	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().
+		Header().
+		Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(payload)-1, len(payload)))
+
+	return h.serveWithRange(c, payload)
+}
+
+func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive) error {
+	var buf bytes.Buffer
+
+	buf.WriteString("ArchiveId,ArchiveDescription,CreationDate,Size,SHA256TreeHash\n")
+
+	for _, a := range archives {
+		fmt.Fprintf(&buf, "%s,%q,%s,%d,%s\n",
+			a.ArchiveID, a.Description, a.CreationDate, a.Size, a.SHA256TreeHash)
+	}
+
+	payload := buf.Bytes()
+
+	c.Response().Header().Set("Content-Type", "text/csv")
+	c.Response().
+		Header().
+		Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(payload)-1, len(payload)))
+
+	_ = j // suppress unused warning
+
+	return h.serveWithRange(c, payload)
+}
+
+// handleArchiveJobOutput streams stored archive bytes with Range support.
+func (h *Handler) handleArchiveJobOutput(c *echo.Context, j *Job) error {
+	c.Response().Header().Set("Content-Type", "application/octet-stream")
+
+	h.archiveMu.RLock()
+	data, hasData := h.archiveData[j.ArchiveID]
+	h.archiveMu.RUnlock()
+
+	if !hasData {
+		// Archive data not stored (uploaded before handler restart). Return empty stub.
+		if j.ArchiveSizeInBytes > 0 {
+			c.Response().Header().Set(
+				"Content-Range",
+				fmt.Sprintf("bytes 0-%d/%d", j.ArchiveSizeInBytes-1, j.ArchiveSizeInBytes),
+			)
+		}
+
+		return c.NoContent(http.StatusOK)
+	}
+
+	c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(data)-1, len(data)))
+
+	return h.serveWithRange(c, data)
+}
+
+// serveWithRange serves payload with optional HTTP Range support.
+func (h *Handler) serveWithRange(c *echo.Context, payload []byte) error {
+	rangeHeader := c.Request().Header.Get("Range")
+
+	if rangeHeader == "" {
+		c.Response().WriteHeader(http.StatusOK)
+		_, err := io.Copy(c.Response(), bytes.NewReader(payload))
+
+		return err
+	}
+
+	// Parse "bytes=start-end" range header.
+	const rangePrefix = "bytes="
+	if !strings.HasPrefix(rangeHeader, rangePrefix) {
+		return h.writeError(
+			c,
+			http.StatusRequestedRangeNotSatisfiable,
+			"InvalidRange",
+			"invalid Range header",
+		)
+	}
+
+	const rangeParts = 2 // start and end
+	parts := strings.SplitN(rangeHeader[len(rangePrefix):], "-", rangeParts)
+	if len(parts) != rangeParts {
+		return h.writeError(
+			c,
+			http.StatusRequestedRangeNotSatisfiable,
+			"InvalidRange",
+			"invalid Range header",
+		)
+	}
+
+	start, err1 := strconv.ParseInt(parts[0], 10, 64)
+	end, err2 := strconv.ParseInt(parts[1], 10, 64)
+
+	total := int64(len(payload))
+
+	if err1 != nil || err2 != nil || start < 0 || end < start || end >= total {
+		return h.writeError(c, http.StatusRequestedRangeNotSatisfiable, "InvalidRange",
+			fmt.Sprintf("Range %s not satisfiable for %d-byte resource", rangeHeader, total))
+	}
+
+	chunk := payload[start : end+1]
+	c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
+	c.Response().WriteHeader(http.StatusPartialContent)
+
+	_, err := io.Copy(c.Response(), bytes.NewReader(chunk))
+
+	return err
 }
 
 // toDescribeJobResponse converts a job to a describe job response.
 func toDescribeJobResponse(j *Job) describeJobResponse {
 	resp := describeJobResponse{
-		JobID:          j.JobID,
-		JobDescription: j.JobDescription,
-		Action:         j.Action,
-		ArchiveID:      j.ArchiveID,
-		VaultARN:       j.VaultARN,
-		CreationDate:   j.CreationDate,
-		Completed:      j.Completed,
-		StatusCode:     j.StatusCode,
-		StatusMessage:  j.StatusMessage,
-		Tier:           j.Tier,
+		JobID:           j.JobID,
+		JobDescription:  j.JobDescription,
+		Action:          j.Action,
+		ArchiveID:       j.ArchiveID,
+		InventoryFormat: j.InventoryFormat,
+		VaultARN:        j.VaultARN,
+		CreationDate:    j.CreationDate,
+		Completed:       j.Completed,
+		StatusCode:      j.StatusCode,
+		StatusMessage:   j.StatusMessage,
+		Tier:            j.Tier,
 	}
 
 	if j.ArchiveSizeInBytes > 0 {
@@ -881,7 +1097,11 @@ func toDescribeJobResponse(j *Job) describeJobResponse {
 // Notification handlers
 // ----------------------------------------
 
-func (h *Handler) handleSetVaultNotifications(c *echo.Context, vaultName string, body []byte) error {
+func (h *Handler) handleSetVaultNotifications(
+	c *echo.Context,
+	vaultName string,
+	body []byte,
+) error {
 	var req vaultNotificationConfig
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(
@@ -906,7 +1126,11 @@ func (h *Handler) handleSetVaultNotifications(c *echo.Context, vaultName string,
 }
 
 func (h *Handler) handleGetVaultNotifications(c *echo.Context, vaultName string) error {
-	snsTopic, events, err := h.Backend.GetVaultNotifications(h.AccountID, h.DefaultRegion, vaultName)
+	snsTopic, events, err := h.Backend.GetVaultNotifications(
+		h.AccountID,
+		h.DefaultRegion,
+		vaultName,
+	)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -963,7 +1187,12 @@ func (h *Handler) handleGetVaultAccessPolicy(c *echo.Context, vaultName string) 
 	}
 
 	if policy == "" {
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "vault access policy not found")
+		return h.writeError(
+			c,
+			http.StatusNotFound,
+			"ResourceNotFoundException",
+			"vault access policy not found",
+		)
 	}
 
 	return c.JSON(http.StatusOK, vaultAccessPolicy{Policy: policy})
@@ -1131,7 +1360,13 @@ func (h *Handler) handleInitiateMultipartUpload(c *echo.Context, vaultName strin
 		partSize = n
 	}
 
-	up, err := h.Backend.InitiateMultipartUpload(h.AccountID, h.DefaultRegion, vaultName, description, partSize)
+	up, err := h.Backend.InitiateMultipartUpload(
+		h.AccountID,
+		h.DefaultRegion,
+		vaultName,
+		description,
+		partSize,
+	)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1151,7 +1386,11 @@ func (h *Handler) handleInitiateMultipartUpload(c *echo.Context, vaultName strin
 	})
 }
 
-func (h *Handler) handleUploadMultipartPart(c *echo.Context, vaultName, uploadID string, _ []byte) error {
+func (h *Handler) handleUploadMultipartPart(
+	c *echo.Context,
+	vaultName, uploadID string,
+	_ []byte,
+) error {
 	rangeHeader := c.Request().Header.Get("Content-Range")
 	checksum := c.Request().Header.Get("X-Amz-Sha256-Tree-Hash")
 
@@ -1310,10 +1549,19 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
-	return h.writeError(c, http.StatusInternalServerError, "ServiceUnavailableException", err.Error())
+	return h.writeError(
+		c,
+		http.StatusInternalServerError,
+		"ServiceUnavailableException",
+		err.Error(),
+	)
 }
 
-// Reset clears all backend state.
+// Reset clears all backend state and the handler-level archive data store.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+
+	h.archiveMu.Lock()
+	h.archiveData = make(map[string][]byte)
+	h.archiveMu.Unlock()
 }
