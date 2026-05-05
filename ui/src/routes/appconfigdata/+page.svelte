@@ -94,7 +94,7 @@
 	const sessionTTLHours = $derived(() => {
 		if (!stats?.sessionTtl) return 24;
 		const match = stats.sessionTtl.match(/(\d+)h/);
-		return match ? parseInt(match[1]) : 24;
+		return match ? parseInt(match[1], 10) : 24;
 	});
 
 	const filteredSessions = $derived(
@@ -109,7 +109,7 @@
 					s.token.toLowerCase().includes(q)
 				);
 			})
-			.sort((a, b) => {
+			.toSorted((a, b) => {
 				let av = a[sessionSortKey];
 				let bv = b[sessionSortKey];
 				if (typeof av === 'string') av = new Date(av).getTime();
