@@ -32,6 +32,8 @@ const (
 	keyDescription = "Description"
 	keyStatus      = "Status"
 	keyWorkflowID  = "WorkflowId"
+	keyConnectorID = "ConnectorId"
+	keyURL         = "Url"
 	keyTransferID  = "TransferId"
 )
 
@@ -1278,9 +1280,9 @@ func (h *Handler) handleDescribeConnector(
 
 	return &describeConnectorOutput{
 		Connector: map[string]any{
-			"ConnectorId": c.ConnectorID,
-			"Url":         c.URL,
-			"AccessRole":  c.AccessRole,
+			keyConnectorID: c.ConnectorID,
+			keyURL:         c.URL,
+			"AccessRole":   c.AccessRole,
 		},
 	}, nil
 }
@@ -1305,8 +1307,8 @@ func (h *Handler) handleListConnectors(
 
 	for i, c := range page {
 		out[i] = map[string]any{
-			"ConnectorId": c.ConnectorID,
-			"Url":         c.URL,
+			keyConnectorID: c.ConnectorID,
+			keyURL:         c.URL,
 		}
 	}
 
@@ -2143,7 +2145,7 @@ func (h *Handler) handleListExecutions(
 
 	for i, e := range pageItems {
 		out[i] = map[string]any{
-			"ExecutionId":  e.ExecutionID,
+			"ExecutionId": e.ExecutionID,
 			keyWorkflowID: e.WorkflowID,
 			keyStatus:     e.Status,
 		}
@@ -2176,7 +2178,7 @@ func (h *Handler) handleDescribeExecution(
 
 	return &map[string]any{
 		"Execution": map[string]any{
-			"ExecutionId":  e.ExecutionID,
+			"ExecutionId": e.ExecutionID,
 			keyWorkflowID: e.WorkflowID,
 			keyStatus:     e.Status,
 		},
@@ -2274,9 +2276,9 @@ func (h *Handler) handleSendWorkflowStepState(
 
 type startDirectoryListingInput struct {
 	ConnectorID          string   `json:"ConnectorId"`
+	OutputDirectoryPath  string   `json:"OutputDirectoryPath,omitempty"`
 	RemoteDirectoryPaths []string `json:"RemoteDirectoryPaths"`
 	MaxItems             int      `json:"MaxItems,omitempty"`
-	OutputDirectoryPath  string   `json:"OutputDirectoryPath,omitempty"`
 }
 
 func (h *Handler) handleStartDirectoryListing(
@@ -2292,10 +2294,10 @@ func (h *Handler) handleStartDirectoryListing(
 
 type startFileTransferInput struct {
 	ConnectorID         string   `json:"ConnectorId"`
-	SendFilePaths       []string `json:"SendFilePaths,omitempty"`
-	RetrieveFilePaths   []string `json:"RetrieveFilePaths,omitempty"`
 	LocalDirectoryPath  string   `json:"LocalDirectoryPath,omitempty"`
 	RemoteDirectoryPath string   `json:"RemoteDirectoryPath,omitempty"`
+	SendFilePaths       []string `json:"SendFilePaths,omitempty"`
+	RetrieveFilePaths   []string `json:"RetrieveFilePaths,omitempty"`
 }
 
 func (h *Handler) handleStartFileTransfer(
@@ -2334,7 +2336,7 @@ func (h *Handler) handleTestConnection(
 	}
 
 	return &map[string]any{
-		"ConnectorId":   in.ConnectorID,
+		keyConnectorID:  in.ConnectorID,
 		keyStatus:       "OK",
 		"StatusMessage": "Connection to remote server is successful",
 	}, nil
@@ -2364,7 +2366,7 @@ func (h *Handler) handleTestIdentityProvider(
 		"StatusCode": http.StatusOK,
 		"Message":    "",
 		"Response":   `{"Role":"arn:aws:iam::000000000000:role/transfer-test-role","HomeDirectory":"/"}`,
-		"Url":        "",
+		keyURL:       "",
 	}, nil
 }
 
