@@ -1,7 +1,6 @@
 package mediaconvert
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -49,23 +48,35 @@ func epochSeconds(t time.Time) float64 {
 	return float64(t.Unix())
 }
 
-// deepCopySettings returns a deep copy of a settings map, or nil if input is nil.
-func deepCopySettings(s map[string]any) map[string]any {
-	if s == nil {
+// deepCloneMap returns a deep copy of a settings map, or nil if input is nil.
+func deepCloneMap(m map[string]any) map[string]any {
+	if m == nil {
 		return nil
 	}
 
-	data, err := json.Marshal(s)
-	if err != nil {
-		return nil
-	}
-
-	var cp map[string]any
-	if unmarshalErr := json.Unmarshal(data, &cp); unmarshalErr != nil {
-		return nil
+	cp := make(map[string]any, len(m))
+	for k, v := range m {
+		cp[k] = deepCloneValue(v)
 	}
 
 	return cp
+}
+
+// deepCloneValue recursively clones a value, handling nested maps and slices.
+func deepCloneValue(v any) any {
+	switch vt := v.(type) {
+	case map[string]any:
+		return deepCloneMap(vt)
+	case []any:
+		cp := make([]any, len(vt))
+		for i, item := range vt {
+			cp[i] = deepCloneValue(item)
+		}
+
+		return cp
+	default:
+		return v
+	}
 }
 
 // nonNilTagsCopy returns a copy of the given tags map; never returns nil.
@@ -406,7 +417,7 @@ func (b *InMemoryBackend) CreateJobTemplate(
 		Category:    category,
 		Queue:       queue,
 		Priority:    priority,
-		Settings:    deepCopySettings(settings),
+		Settings:    deepCloneMap(settings),
 		Tags:        nonNilTagsCopy(tags),
 		Type:        presetCustom,
 		CreatedAt:   now,
@@ -480,7 +491,7 @@ func (b *InMemoryBackend) UpdateJobTemplate(
 	}
 
 	if settings != nil {
-		jt.Settings = deepCopySettings(settings)
+		jt.Settings = deepCloneMap(settings)
 	}
 
 	jt.LastUpdated = epochSeconds(time.Now())
@@ -539,7 +550,7 @@ func (b *InMemoryBackend) CreateJob(
 		QueueArn:           queueArn,
 		JobTemplate:        jobTemplate,
 		Status:             jobStatusSubmitted,
-		Settings:           deepCopySettings(settings),
+		Settings:           deepCloneMap(settings),
 		Tags:               nonNilTagsCopy(tags),
 		UserMetadata:       nonNilTagsCopy(userMetadata),
 		BillingTagsSource:  billingTagsSource,
@@ -686,7 +697,7 @@ func (b *InMemoryBackend) CreatePreset(
 		Name:        name,
 		Description: description,
 		Category:    category,
-		Settings:    deepCopySettings(settings),
+		Settings:    deepCloneMap(settings),
 		Tags:        nonNilTagsCopy(tags),
 		Type:        presetCustom,
 		CreatedAt:   now,
@@ -748,7 +759,7 @@ func (b *InMemoryBackend) UpdatePreset(name, description, category string, setti
 	}
 
 	if settings != nil {
-		p.Settings = deepCopySettings(settings)
+		p.Settings = deepCloneMap(settings)
 	}
 
 	p.LastUpdated = epochSeconds(time.Now())
@@ -854,8 +865,14 @@ func (b *InMemoryBackend) DisassociateCertificate(certARN string) error {
 	return nil
 }
 
-// GetJobsQueryResults returns an empty jobs query result set for the given query ID.
-// Because StartJobsQuery is not implemented, all query IDs return an empty result.
+// StartJobsQuery creates an asynchronous job query and returns a query ID.
+// The results can be retrieved via GetJobsQueryResults using the returned ID.
+func (b *InMemoryBackend) StartJobsQuery() (string, error) {
+	return uuid.NewString(), nil
+}
+
+// GetJobsQueryResults returns the result set for a query started by StartJobsQuery.
+// This mock returns an empty set; real results would be fetched from async storage.
 func (b *InMemoryBackend) GetJobsQueryResults(_ string) []*Job {
 	b.mu.RLock("GetJobsQueryResults")
 	defer b.mu.RUnlock()
@@ -891,7 +908,7 @@ func cloneQueue(q *Queue) *Queue {
 
 func cloneJobTemplate(jt *JobTemplate) *JobTemplate {
 	cp := *jt
-	cp.Settings = deepCopySettings(jt.Settings)
+	cp.Settings = deepCloneMap(jt.Settings)
 	cp.Tags = nonNilTagsCopy(jt.Tags)
 
 	return &cp
@@ -899,7 +916,7 @@ func cloneJobTemplate(jt *JobTemplate) *JobTemplate {
 
 func cloneJob(j *Job) *Job {
 	cp := *j
-	cp.Settings = deepCopySettings(j.Settings)
+	cp.Settings = deepCloneMap(j.Settings)
 	cp.Tags = nonNilTagsCopy(j.Tags)
 	cp.UserMetadata = nonNilTagsCopy(j.UserMetadata)
 
@@ -913,7 +930,7 @@ func cloneJob(j *Job) *Job {
 
 func clonePreset(p *Preset) *Preset {
 	cp := *p
-	cp.Settings = deepCopySettings(p.Settings)
+	cp.Settings = deepCloneMap(p.Settings)
 	cp.Tags = nonNilTagsCopy(p.Tags)
 
 	return &cp

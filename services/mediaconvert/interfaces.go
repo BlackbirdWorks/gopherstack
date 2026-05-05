@@ -56,6 +56,7 @@ type StorageBackend interface {
 
 	// Jobs query / resource share operations
 	GetJobsQueryResults(queryID string) []*Job
+	StartJobsQuery() (string, error)
 	CreateResourceShare(jobID string) (string, error)
 
 	// Tag operations

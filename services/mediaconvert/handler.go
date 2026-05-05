@@ -48,6 +48,10 @@ const (
 	opUpdateJobTemplate       = "UpdateJobTemplate"
 	opUpdatePreset            = "UpdatePreset"
 	opUpdateQueue             = "UpdateQueue"
+	opListVersions            = "ListVersions"
+	opProbe                   = "Probe"
+	opSearchJobs              = "SearchJobs"
+	opStartJobsQuery          = "StartJobsQuery"
 )
 
 const (
@@ -63,6 +67,9 @@ const (
 	certificatesPath   = "/2017-08-29/certificates"
 	jobsQueriesPath    = "/2017-08-29/jobsQueries"
 	resourceSharesPath = "/2017-08-29/resourceShares"
+	versionsPath       = "/2017-08-29/versions"
+	probePath          = "/2017-08-29/probe"
+	searchPath         = "/2017-08-29/search"
 )
 
 // Handler is the Echo HTTP handler for Amazon MediaConvert operations.
@@ -116,6 +123,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateJobTemplate,
 		opUpdatePreset,
 		opUpdateQueue,
+		opListVersions,
+		opProbe,
+		opSearchJobs,
+		opStartJobsQuery,
 	}
 }
 
@@ -233,6 +244,10 @@ func (h *Handler) dispatchReadOnlyNewOps(c *echo.Context, route mcRoute) (bool, 
 		return true, h.handleDisassociateCertificate(c, route.resource)
 	case opGetJobsQueryResults:
 		return true, h.handleGetJobsQueryResults(c, route.resource)
+	case opListVersions:
+		return true, h.handleListVersions(c)
+	case opSearchJobs:
+		return true, h.handleSearchJobs(c)
 	}
 
 	return false, nil
@@ -268,6 +283,10 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mcRoute, readBody func
 		return h.handleAssociateCertificate(c, body)
 	case opCreateResourceShare:
 		return h.handleCreateResourceShare(c, body)
+	case opProbe:
+		return h.handleProbe(c, body)
+	case opStartJobsQuery:
+		return h.handleStartJobsQuery(c, body)
 	}
 
 	return c.JSON(
@@ -299,13 +318,33 @@ func parseRoute(method, path string) mcRoute {
 		return parseTagRoute(method, strings.TrimPrefix(path, tagsPath))
 	case strings.HasPrefix(path, certificatesPath):
 		return parseCertificateRoute(method, strings.TrimPrefix(path, certificatesPath))
-	case path == policyPath:
+	}
+
+	return parseStaticPathRoute(method, path)
+}
+
+// parseStaticPathRoute handles non-prefix (exact-match) path routes.
+func parseStaticPathRoute(method, path string) mcRoute {
+	switch path {
+	case policyPath:
 		return parsePolicyRoute(method)
-	case path == endpointsPath:
+	case endpointsPath:
 		return mcRoute{operation: opDescribeEndpoints}
-	case path == resourceSharesPath:
+	case resourceSharesPath:
 		if method == http.MethodPost {
 			return mcRoute{operation: opCreateResourceShare}
+		}
+	case versionsPath:
+		if method == http.MethodGet {
+			return mcRoute{operation: opListVersions}
+		}
+	case probePath:
+		if method == http.MethodPost {
+			return mcRoute{operation: opProbe}
+		}
+	case searchPath:
+		if method == http.MethodGet {
+			return mcRoute{operation: opSearchJobs}
 		}
 	}
 
@@ -457,6 +496,10 @@ func parseJobsQueriesRoute(method, suffix string) mcRoute {
 
 	if id != "" && method == http.MethodGet {
 		return mcRoute{operation: opGetJobsQueryResults, resource: id}
+	}
+
+	if id == "" && method == http.MethodPost {
+		return mcRoute{operation: opStartJobsQuery}
 	}
 
 	return mcRoute{operation: opUnknown}
@@ -981,6 +1024,111 @@ func (h *Handler) handleCreateResourceShare(c *echo.Context, body []byte) error 
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// --- ListVersions handler ---
+
+type listVersionsOutput struct {
+	NextToken string         `json:"nextToken,omitempty"`
+	Versions  []versionEntry `json:"versions"`
+}
+
+type versionEntry struct {
+	Version string `json:"version"`
+}
+
+func (h *Handler) handleListVersions(c *echo.Context) error {
+	out := listVersionsOutput{
+		Versions: []versionEntry{{Version: "2017-08-29"}},
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+// --- Probe handler ---
+
+type probeInput struct {
+	InputFiles []map[string]any `json:"inputFiles,omitempty"`
+}
+
+type probeOutput struct {
+	ProbeResults []map[string]any `json:"probeResults"`
+}
+
+func (h *Handler) handleProbe(c *echo.Context, body []byte) error {
+	var in probeInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	results := make([]map[string]any, 0, len(in.InputFiles))
+	for _, f := range in.InputFiles {
+		result := map[string]any{
+			"probeResult": map[string]any{
+				"container": map[string]any{"format": "mp4"},
+				"inputFile": f,
+			},
+		}
+		results = append(results, result)
+	}
+
+	return c.JSON(http.StatusOK, probeOutput{ProbeResults: results})
+}
+
+// --- SearchJobs handler ---
+
+type searchJobsOutput struct {
+	NextToken string `json:"nextToken,omitempty"`
+	Jobs      []*Job `json:"jobs"`
+}
+
+func (h *Handler) handleSearchJobs(c *echo.Context) error {
+	q := c.Request().URL.Query()
+	statusFilter := q.Get("status")
+	queueFilter := q.Get("queue")
+
+	jobs := h.Backend.ListJobs()
+	if jobs == nil {
+		jobs = []*Job{}
+	}
+
+	filtered := jobs[:0:0]
+	for _, j := range jobs {
+		if statusFilter != "" && j.Status != statusFilter {
+			continue
+		}
+		if queueFilter != "" && j.Queue != queueFilter {
+			continue
+		}
+		filtered = append(filtered, j)
+	}
+
+	return c.JSON(http.StatusOK, searchJobsOutput{Jobs: filtered})
+}
+
+// --- StartJobsQuery handler ---
+
+type startJobsQueryInput struct {
+	MaxResults *int             `json:"maxResults,omitempty"`
+	FilterList []map[string]any `json:"filterList,omitempty"`
+}
+
+type startJobsQueryOutput struct {
+	QueryID string `json:"queryId"`
+}
+
+func (h *Handler) handleStartJobsQuery(c *echo.Context, body []byte) error {
+	var in startJobsQueryInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	queryID, err := h.Backend.StartJobsQuery()
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, startJobsQueryOutput{QueryID: queryID})
 }
 
 // --- Error handling ---
