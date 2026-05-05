@@ -39,6 +39,10 @@ const (
 	keyError            = "error"
 	keyMessage          = "message"
 	errMethodNotAllowed = "method not allowed"
+	opUnknown           = "Unknown"
+
+	// shadowPathParts is the number of parts when splitting a shadow URL on "/shadow".
+	shadowPathParts = 2
 )
 
 // Handler is the Echo HTTP handler for IoT Data Plane operations.
@@ -110,8 +114,8 @@ func isShadowPath(path string) bool {
 	}
 
 	// Must end with exactly /shadow or /shadow?... (no further segments).
-	parts := strings.SplitN(after, "/shadow", 2)
-	if len(parts) != 2 {
+	parts := strings.SplitN(after, "/shadow", shadowPathParts)
+	if len(parts) != shadowPathParts {
 		return false
 	}
 
@@ -122,6 +126,40 @@ func isShadowPath(path string) bool {
 
 // MatchPriority returns the routing priority for the IoT Data Plane handler.
 func (h *Handler) MatchPriority() int { return iotDPMatchPriority }
+
+// extractConnectionOperation returns the operation name for /connections paths.
+func extractConnectionOperation(path, method string) string {
+	if path == connectionsPath {
+		if method == http.MethodGet {
+			return "ListConnections"
+		}
+
+		return opUnknown
+	}
+
+	switch method {
+	case http.MethodDelete:
+		return "DeleteConnection"
+	case http.MethodPost:
+		return "RegisterConnection"
+	}
+
+	return opUnknown
+}
+
+// extractShadowOperation returns the operation name for /things/{name}/shadow paths.
+func extractShadowOperation(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "GetThingShadow"
+	case http.MethodPost:
+		return "UpdateThingShadow"
+	case http.MethodDelete:
+		return "DeleteThingShadow"
+	}
+
+	return opUnknown
+}
 
 // ExtractOperation returns the operation name.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
@@ -134,28 +172,17 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "ListNamedShadowsForThing"
 	case path == listThingsWithShadowsPath:
 		return "ListThingsWithShadows"
-	case path == connectionsPath && method == http.MethodGet:
-		return "ListConnections"
-	case strings.HasPrefix(path, connectionsPathSlash) && method == http.MethodDelete:
-		return "DeleteConnection"
-	case strings.HasPrefix(path, connectionsPathSlash) && method == http.MethodPost:
-		return "RegisterConnection"
+	case path == connectionsPath || strings.HasPrefix(path, connectionsPathSlash):
+		return extractConnectionOperation(path, method)
 	case path == retainedMessagePath && method == http.MethodGet:
 		return "ListRetainedMessages"
 	case strings.HasPrefix(path, retainedMessagePathSlash) && method == http.MethodGet:
 		return "GetRetainedMessage"
 	case isShadowPath(path):
-		switch method {
-		case http.MethodGet:
-			return "GetThingShadow"
-		case http.MethodPost:
-			return "UpdateThingShadow"
-		case http.MethodDelete:
-			return "DeleteThingShadow"
-		}
+		return extractShadowOperation(method)
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 // ExtractResource extracts the topic or thing name from the URL path.
@@ -198,7 +225,6 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // parseShadowPath extracts thingName from a /things/{thingName}/shadow path.
 func parseShadowPath(path string) string {
 	trimmed := strings.TrimPrefix(path, "/things/")
-	const shadowPathParts = 2
 	parts := strings.SplitN(trimmed, "/shadow", shadowPathParts)
 
 	return parts[0]
@@ -542,6 +568,7 @@ func (h *Handler) handleListThingsWithShadows(c *echo.Context) error {
 		for i, name := range things {
 			if name == nextTokenIn {
 				startIdx = i
+
 				break
 			}
 		}
@@ -555,8 +582,8 @@ func (h *Handler) handleListThingsWithShadows(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"things":    page,
-		"timestamp": time.Now().Unix(),
+		"things":     page,
+		keyTimestamp: time.Now().Unix(),
 	}
 
 	if end < len(things) {
@@ -680,8 +707,8 @@ func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"results":   page,
-		"timestamp": time.Now().Unix(),
+		"results":    page,
+		keyTimestamp: time.Now().Unix(),
 	}
 
 	if end < len(names) {

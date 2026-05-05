@@ -165,7 +165,7 @@ func TestRefinement2_ShadowDocumentValidation_BackendSizeCheck(t *testing.T) {
 	// The backend-level size check catches documents that exceed MaxShadowDocumentBytes
 	// (used when the backend is invoked directly, bypassing HTTP body limits).
 	value := strings.Repeat("v", iotdataplane.MaxShadowDocumentBytes+1)
-	oversize := []byte(fmt.Sprintf(`{"k":%q}`, value))
+	oversize := fmt.Appendf(nil, `{"k":%q}`, value)
 
 	_, err := b.UpdateThingShadow("thing1", "", oversize)
 	require.ErrorIs(t, err, iotdataplane.ErrValidation)
@@ -191,9 +191,9 @@ func TestRefinement2_ShadowVersion_OverflowProtection(t *testing.T) {
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp, &result))
 
-	version, ok := result["version"].(float64)
+	versionFloat, ok := result["version"].(float64)
 	require.True(t, ok, "version must be a number")
-	assert.Equal(t, float64(1), version, "version must reset to 1 after overflow")
+	assert.Equal(t, 1, int(versionFloat), "version must reset to 1 after overflow")
 }
 
 // --- Connection management ---

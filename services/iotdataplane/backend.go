@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -52,6 +53,10 @@ const maxShadowNameLength = 64
 // maxShadowVersion is the maximum shadow version before it resets to 1.
 // This prevents integer overflow for long-lived things.
 const maxShadowVersion = 1<<31 - 1
+
+// keyTimestamp is the JSON key for shadow response timestamp fields.
+// Defined as a constant to satisfy goconst (3+ occurrences across the package).
+const keyTimestamp = "timestamp"
 
 // shadowNameRe validates shadow names per AWS IoT rules: alphanumeric, colon, underscore, hyphen.
 var shadowNameRe = regexp.MustCompile(`^[a-zA-Z0-9:_-]+$`)
@@ -122,10 +127,8 @@ func validateTopic(topic string) error {
 	}
 
 	// Reject empty topic levels (consecutive slashes or leading/trailing slash after split).
-	for _, segment := range strings.Split(topic, "/") {
-		if segment == "" {
-			return fmt.Errorf("%w: topic must not contain empty levels", ErrValidation)
-		}
+	if slices.Contains(strings.Split(topic, "/"), "") {
+		return fmt.Errorf("%w: topic must not contain empty levels", ErrValidation)
 	}
 
 	return nil
@@ -212,9 +215,9 @@ func buildShadowResponse(doc []byte, version int, updatedAt time.Time) ([]byte, 
 		// doc is not a JSON object (or is JSON null); encode it as a plain string so
 		// json.Marshal never fails on raw bytes that are not valid JSON.
 		return json.Marshal(map[string]any{
-			"payload":   string(doc),
-			"version":   version,
-			"timestamp": updatedAt.Unix(),
+			"payload":    string(doc),
+			"version":    version,
+			keyTimestamp: updatedAt.Unix(),
 		})
 	}
 
@@ -222,7 +225,7 @@ func buildShadowResponse(doc []byte, version int, updatedAt time.Time) ([]byte, 
 	verBytes, _ := json.Marshal(version)
 	tsBytes, _ := json.Marshal(updatedAt.Unix())
 	m["version"] = verBytes
-	m["timestamp"] = tsBytes
+	m[keyTimestamp] = tsBytes
 
 	return json.Marshal(m)
 }
