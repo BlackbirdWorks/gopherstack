@@ -200,7 +200,8 @@ describe("DynamoDB Page", () => {
       KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
       AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
       StreamSpecification: { StreamEnabled: true, StreamViewType: "NEW_AND_OLD_IMAGES" },
-      LatestStreamArn: "arn:aws:dynamodb:us-east-1:000000000000:table/StreamsTable/stream/2024-01-01",
+      LatestStreamArn:
+        "arn:aws:dynamodb:us-east-1:000000000000:table/StreamsTable/stream/2024-01-01",
     };
 
     it("shows 'not enabled' banner when streams are disabled", async () => {
@@ -211,15 +212,22 @@ describe("DynamoDB Page", () => {
 
       render(DynamoDBPage);
 
-      await waitFor(() => expect(screen.getByText("StreamsTable")).toBeInTheDocument(), { timeout: 3000 });
+      await waitFor(() => expect(screen.getByText("StreamsTable")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
       await fireEvent.click(screen.getByText("StreamsTable"));
 
       // Wait for table detail to open (Overview tab is default)
-      await waitFor(() => expect(screen.getByText("Stream Events")).toBeInTheDocument(), { timeout: 3000 });
+      await waitFor(() => expect(screen.getByText("Stream Events")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
       await fireEvent.click(screen.getByText("Stream Events"));
 
       await waitFor(
-        () => expect(screen.getByText("DynamoDB Streams are not enabled for this table.")).toBeInTheDocument(),
+        () =>
+          expect(
+            screen.getByText("DynamoDB Streams are not enabled for this table."),
+          ).toBeInTheDocument(),
         { timeout: 3000 },
       );
     });
@@ -260,25 +268,26 @@ describe("DynamoDB Page", () => {
 
       render(DynamoDBPage);
 
-      await waitFor(() => expect(screen.getByText("StreamsTable")).toBeInTheDocument(), { timeout: 3000 });
+      await waitFor(() => expect(screen.getByText("StreamsTable")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
       await fireEvent.click(screen.getByText("StreamsTable"));
 
-      await waitFor(() => expect(screen.getByText("Stream Events")).toBeInTheDocument(), { timeout: 3000 });
+      await waitFor(() => expect(screen.getByText("Stream Events")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
       await fireEvent.click(screen.getByText("Stream Events"));
 
       // Stats cards should appear (streamsEnabled=true triggers fetch)
-      await waitFor(
-        () => expect(screen.getByText("Buffered Events")).toBeInTheDocument(),
-        { timeout: 3000 },
-      );
-      await waitFor(
-        () => expect(screen.getByText("Active Shards")).toBeInTheDocument(),
-        { timeout: 3000 },
-      );
-      await waitFor(
-        () => expect(screen.getByText("Shard Breakdown")).toBeInTheDocument(),
-        { timeout: 3000 },
-      );
+      await waitFor(() => expect(screen.getByText("Buffered Events")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
+      await waitFor(() => expect(screen.getByText("Active Shards")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
+      await waitFor(() => expect(screen.getByText("Shard Breakdown")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
 
       // Filter buttons should be present
       expect(screen.getByRole("button", { name: "ALL" })).toBeInTheDocument();
