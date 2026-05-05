@@ -47,20 +47,20 @@ type Application struct {
 
 // Monitor represents an Amazon CloudWatch alarm used to monitor an AppConfig environment.
 type Monitor struct {
-	AlarmArn      string `json:"AlarmArn"`
-	AlarmRoleArn  string `json:"AlarmRoleArn,omitempty"`
+	AlarmArn     string `json:"AlarmArn"`
+	AlarmRoleArn string `json:"AlarmRoleArn,omitempty"`
 }
 
 // Environment represents an AppConfig environment.
 type Environment struct {
-	CreatedAt     time.Time  `json:"CreatedAt,omitzero"`
-	UpdatedAt     time.Time  `json:"UpdatedAt,omitzero"`
-	ApplicationID string     `json:"ApplicationId"`
-	ID            string     `json:"Id"`
-	Name          string     `json:"Name"`
-	Description   string     `json:"Description,omitempty"`
-	State         string     `json:"State"`
-	Monitors      []Monitor  `json:"Monitors,omitempty"`
+	CreatedAt     time.Time `json:"CreatedAt,omitzero"`
+	UpdatedAt     time.Time `json:"UpdatedAt,omitzero"`
+	ApplicationID string    `json:"ApplicationId"`
+	ID            string    `json:"Id"`
+	Name          string    `json:"Name"`
+	Description   string    `json:"Description,omitempty"`
+	State         string    `json:"State"`
+	Monitors      []Monitor `json:"Monitors,omitempty"`
 }
 
 // Validator represents a validator for a configuration profile.

@@ -129,10 +129,30 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		path   string
 		want   string
 	}{
-		{name: "list applications", method: http.MethodGet, path: "/applications", want: "ListApplications"},
-		{name: "create application", method: http.MethodPost, path: "/applications", want: "CreateApplication"},
-		{name: "get application", method: http.MethodGet, path: "/applications/app-1", want: "GetApplication"},
-		{name: "delete application", method: http.MethodDelete, path: "/applications/app-1", want: "DeleteApplication"},
+		{
+			name:   "list applications",
+			method: http.MethodGet,
+			path:   "/applications",
+			want:   "ListApplications",
+		},
+		{
+			name:   "create application",
+			method: http.MethodPost,
+			path:   "/applications",
+			want:   "CreateApplication",
+		},
+		{
+			name:   "get application",
+			method: http.MethodGet,
+			path:   "/applications/app-1",
+			want:   "GetApplication",
+		},
+		{
+			name:   "delete application",
+			method: http.MethodDelete,
+			path:   "/applications/app-1",
+			want:   "DeleteApplication",
+		},
 		{
 			name:   "list strategies",
 			method: http.MethodGet,
@@ -274,7 +294,13 @@ func TestHandler_Environment_CRUD(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
 
 	// Create env.
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments", []byte(`{"name":"production"}`))
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/"+app.ID+"/environments",
+		[]byte(`{"name":"production"}`),
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
@@ -308,7 +334,13 @@ func TestHandler_ConfigurationProfile_CRUD(t *testing.T) {
 
 	// Create profile.
 	profileBody := []byte(`{"name":"my-config","locationUri":"hosted","type":"AWS.Freeform"}`)
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles", profileBody)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/"+app.ID+"/configurationprofiles",
+		profileBody,
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
@@ -316,11 +348,23 @@ func TestHandler_ConfigurationProfile_CRUD(t *testing.T) {
 	assert.Equal(t, "my-config", profile.Name)
 
 	// Get profile.
-	rec = doRequest(t, h, http.MethodGet, "/applications/"+app.ID+"/configurationprofiles/"+profile.ID, nil)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID,
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Delete profile.
-	rec = doRequest(t, h, http.MethodDelete, "/applications/"+app.ID+"/configurationprofiles/"+profile.ID, nil)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodDelete,
+		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID,
+		nil,
+	)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
@@ -347,7 +391,13 @@ func TestHandler_DeploymentStrategy_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Update.
-	rec = doRequest(t, h, http.MethodPatch, "/deploymentstrategies/"+strategy.ID, []byte(`{"name":"updated-strategy"}`))
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/deploymentstrategies/"+strategy.ID,
+		[]byte(`{"name":"updated-strategy"}`),
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Delete.
@@ -376,7 +426,13 @@ func TestHandler_HostedConfigurationVersion_CRUD(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
 
 	profileBody := []byte(`{"name":"hcv-profile","locationUri":"hosted","type":"AWS.Freeform"}`)
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles", profileBody)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/"+app.ID+"/configurationprofiles",
+		profileBody,
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
@@ -398,12 +454,18 @@ func TestHandler_HostedConfigurationVersion_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, recHcv.Code)
 
 	// List versions.
-	rec = doRequest(t, h, http.MethodGet,
-		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID+"/hostedconfigurationversions", nil)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID+"/hostedconfigurationversions",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Get version 1.
-	req2 := httptest.NewRequest(http.MethodGet,
+	req2 := httptest.NewRequest(
+		http.MethodGet,
 		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID+"/hostedconfigurationversions/1",
 		nil,
 	)
@@ -416,8 +478,13 @@ func TestHandler_HostedConfigurationVersion_CRUD(t *testing.T) {
 	assert.Equal(t, content, rec2.Body.Bytes())
 
 	// Delete version 1.
-	rec = doRequest(t, h, http.MethodDelete,
-		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID+"/hostedconfigurationversions/1", nil)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodDelete,
+		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID+"/hostedconfigurationversions/1",
+		nil,
+	)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
@@ -434,7 +501,13 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
 
 	// Create env.
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments", []byte(`{"name":"staging"}`))
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/"+app.ID+"/environments",
+		[]byte(`{"name":"staging"}`),
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
@@ -442,7 +515,13 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 
 	// Create configuration profile (required by StartDeployment validation).
 	profBody := []byte(`{"name":"my-profile","locationUri":"hosted"}`)
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles", profBody)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/"+app.ID+"/configurationprofiles",
+		profBody,
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var prof appconfig.ConfigurationProfile
@@ -457,8 +536,15 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strat))
 
 	// Start deployment.
-	depBodyStr := `{"configurationProfileId":"` + prof.ID + `","deploymentStrategyId":"` + strat.ID + `","configurationVersion":"1"}`
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments/"+env.ID+"/deployments", []byte(depBodyStr))
+	depBodyStr := `{"configurationProfileId":"` + prof.ID +
+		`","deploymentStrategyId":"` + strat.ID + `","configurationVersion":"1"}`
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments",
+		[]byte(depBodyStr),
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var dep appconfig.Deployment
@@ -467,15 +553,33 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	assert.Equal(t, "COMPLETE", dep.State)
 
 	// Get deployment.
-	rec = doRequest(t, h, http.MethodGet, "/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1", nil)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// List deployments.
-	rec = doRequest(t, h, http.MethodGet, "/applications/"+app.ID+"/environments/"+env.ID+"/deployments", nil)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Stop deployment (COMPLETE deployments can be rolled back in stub).
-	rec = doRequest(t, h, http.MethodDelete, "/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1", nil)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodDelete,
+		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1",
+		nil,
+	)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
@@ -590,7 +694,14 @@ func TestBackend_HostedConfigVersion_ProfileNotFound(t *testing.T) {
 	app, err := b.CreateApplication("app", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateHostedConfigurationVersion(app.ID, "nonexistent-profile", "application/json", "", "", []byte("{}"))
+	_, err = b.CreateHostedConfigurationVersion(
+		app.ID,
+		"nonexistent-profile",
+		"application/json",
+		"",
+		"",
+		[]byte("{}"),
+	)
 	require.Error(t, err)
 }
 
@@ -710,7 +821,13 @@ func TestHandler_UpdateEnvironment_HTTP(t *testing.T) {
 	var app appconfig.Application
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
 
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments", []byte(`{"name":"staging"}`))
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/"+app.ID+"/environments",
+		[]byte(`{"name":"staging"}`),
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
@@ -745,7 +862,13 @@ func TestHandler_ListConfigurationProfiles_HTTP(t *testing.T) {
 	// Create two profiles.
 	for _, name := range []string{"prof-1", "prof-2"} {
 		body := []byte(`{"name":"` + name + `","locationUri":"hosted","type":"AWS.Freeform"}`)
-		rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles", body)
+		rec = doRequest(
+			t,
+			h,
+			http.MethodPost,
+			"/applications/"+app.ID+"/configurationprofiles",
+			body,
+		)
 		require.Equal(t, http.StatusCreated, rec.Code)
 	}
 
@@ -766,7 +889,13 @@ func TestHandler_UpdateConfigurationProfile_HTTP(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
 
 	profileBody := []byte(`{"name":"old-name","locationUri":"hosted","type":"AWS.Freeform"}`)
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles", profileBody)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/"+app.ID+"/configurationprofiles",
+		profileBody,
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
@@ -982,7 +1111,10 @@ func TestHandler_HostedConfigVersion_HTTP_ListEmpty(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &profOut))
 
-	listRec := doRequest(t, h, http.MethodGet,
+	listRec := doRequest(
+		t,
+		h,
+		http.MethodGet,
 		"/applications/"+appOut.ID+"/configurationprofiles/"+profOut.ID+"/hostedconfigurationversions",
 		nil,
 	)
@@ -1001,8 +1133,16 @@ func TestHandler_StartDeployment_NotFound_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	body := []byte(`{"configurationProfileId":"prof-1","deploymentStrategyId":"strat-1","configurationVersion":"1"}`)
-	rec := doRequest(t, h, http.MethodPost, "/applications/nonexistent/environments/env-1/deployments", body)
+	body := []byte(
+		`{"configurationProfileId":"prof-1","deploymentStrategyId":"strat-1","configurationVersion":"1"}`,
+	)
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/nonexistent/environments/env-1/deployments",
+		body,
+	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
@@ -1067,7 +1207,13 @@ func TestHandler_ListDeployments_HTTP(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Pre-create app and environment so listing returns 200 with empty list.
-	appRec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"list-deploy-app"}`))
+	appRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications",
+		[]byte(`{"Name":"list-deploy-app"}`),
+	)
 	require.Equal(t, http.StatusCreated, appRec.Code)
 
 	var appOut struct {
@@ -1151,7 +1297,13 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
 		require.NotEmpty(t, first.NextToken)
 
-		rec2 := doRequest(t, h, http.MethodGet, "/applications?max_results=2&next_token="+first.NextToken, nil)
+		rec2 := doRequest(
+			t,
+			h,
+			http.MethodGet,
+			"/applications?max_results=2&next_token="+first.NextToken,
+			nil,
+		)
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var resp struct {
 			NextToken string `json:"NextToken"`
@@ -1171,7 +1323,13 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 		}
 		beyondToken := page.EncodeHMACToken(100, backend.PaginationSecret())
-		rec := doRequest(t, h2, http.MethodGet, "/applications?max_results=2&next_token="+beyondToken, nil)
+		rec := doRequest(
+			t,
+			h2,
+			http.MethodGet,
+			"/applications?max_results=2&next_token="+beyondToken,
+			nil,
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp struct {
 			NextToken string `json:"NextToken"`
@@ -1497,7 +1655,13 @@ func TestHandler_GetConfiguration(t *testing.T) {
 	var app appconfig.Application
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
 
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments", []byte(`{"name":"conf-env"}`))
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/"+app.ID+"/environments",
+		[]byte(`{"name":"conf-env"}`),
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
@@ -1559,7 +1723,13 @@ func TestHandler_GetConfiguration_WithContent(t *testing.T) {
 	var app appconfig.Application
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
 
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments", []byte(`{"name":"content-env"}`))
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/applications/"+app.ID+"/environments",
+		[]byte(`{"name":"content-env"}`),
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
@@ -1696,7 +1866,13 @@ func TestHandler_UpdateExtension(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create extension.
-	rec := doRequest(t, h, http.MethodPost, "/extensions", []byte(`{"Name":"update-ext","Description":"original"}`))
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/extensions",
+		[]byte(`{"Name":"update-ext","Description":"original"}`),
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var ext appconfig.Extension
@@ -1736,7 +1912,9 @@ func TestHandler_UpdateExtensionAssociation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
 
 	resourceID := "arn:aws:appconfig:us-east-1:123456789012:application/abc"
-	assocBody := []byte(`{"ExtensionIdentifier":"` + ext.ID + `","ResourceIdentifier":"` + resourceID + `"}`)
+	assocBody := []byte(
+		`{"ExtensionIdentifier":"` + ext.ID + `","ResourceIdentifier":"` + resourceID + `"}`,
+	)
 	rec = doRequest(t, h, http.MethodPost, "/extensionassociations", assocBody)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -1873,7 +2051,13 @@ func TestHandler_CreateExtension_Validation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusConflict {
 				// Pre-create extension to force duplicate.
-				rec := doRequest(t, h, http.MethodPost, "/extensions", []byte(`{"Name":"duplicate-ext"}`))
+				rec := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/extensions",
+					[]byte(`{"Name":"duplicate-ext"}`),
+				)
 				require.Equal(t, http.StatusCreated, rec.Code)
 			}
 
@@ -1892,8 +2076,10 @@ func TestHandler_CreateExtensionAssociation_Validation(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "missing extension identifier returns 400",
-			body:       []byte(`{"ResourceIdentifier":"arn:aws:appconfig:us-east-1:123456789012:application/abc"}`),
+			name: "missing extension identifier returns 400",
+			body: []byte(
+				`{"ResourceIdentifier":"arn:aws:appconfig:us-east-1:123456789012:application/abc"}`,
+			),
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -1981,15 +2167,30 @@ func TestHandler_ExtractOperation_NewPaths(t *testing.T) {
 		path   string
 		want   string
 	}{
-		{name: "update extension", method: http.MethodPatch, path: "/extensions/ext-1", want: "UpdateExtension"},
+		{
+			name:   "update extension",
+			method: http.MethodPatch,
+			path:   "/extensions/ext-1",
+			want:   "UpdateExtension",
+		},
 		{
 			name:   "update extension association",
 			method: http.MethodPatch,
 			path:   "/extensionassociations/assoc-1",
 			want:   "UpdateExtensionAssociation",
 		},
-		{name: "get account settings", method: http.MethodGet, path: "/settings", want: "GetAccountSettings"},
-		{name: "update account settings", method: http.MethodPatch, path: "/settings", want: "UpdateAccountSettings"},
+		{
+			name:   "get account settings",
+			method: http.MethodGet,
+			path:   "/settings",
+			want:   "GetAccountSettings",
+		},
+		{
+			name:   "update account settings",
+			method: http.MethodPatch,
+			path:   "/settings",
+			want:   "UpdateAccountSettings",
+		},
 		{
 			name:   "validate configuration",
 			method: http.MethodPost,

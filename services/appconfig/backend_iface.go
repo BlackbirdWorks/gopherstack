@@ -17,7 +17,10 @@ type StorageBackend interface {
 	DeleteApplication(applicationID string) error
 
 	// CreateEnvironment creates a new environment within an application.
-	CreateEnvironment(applicationID, name, description string, monitors []Monitor) (*Environment, error)
+	CreateEnvironment(
+		applicationID, name, description string,
+		monitors []Monitor,
+	) (*Environment, error)
 	// GetEnvironment retrieves an environment by application and environment ID.
 	GetEnvironment(applicationID, environmentID string) (*Environment, error)
 	// ListEnvironments returns paginated environments for an application.
@@ -35,9 +38,14 @@ type StorageBackend interface {
 	// GetConfigurationProfile retrieves a configuration profile.
 	GetConfigurationProfile(applicationID, profileID string) (*ConfigurationProfile, error)
 	// ListConfigurationProfiles returns paginated profiles for an application.
-	ListConfigurationProfiles(applicationID, nextToken string, maxResults int) ([]ConfigurationProfile, string, error)
+	ListConfigurationProfiles(
+		applicationID, nextToken string,
+		maxResults int,
+	) ([]ConfigurationProfile, string, error)
 	// UpdateConfigurationProfile updates a configuration profile.
-	UpdateConfigurationProfile(applicationID, profileID, name, description string) (*ConfigurationProfile, error)
+	UpdateConfigurationProfile(
+		applicationID, profileID, name, description string,
+	) (*ConfigurationProfile, error)
 	// DeleteConfigurationProfile deletes a configuration profile.
 	DeleteConfigurationProfile(applicationID, profileID string) error
 
@@ -86,7 +94,10 @@ type StorageBackend interface {
 	// GetDeployment retrieves a deployment by application, environment, and deployment number.
 	GetDeployment(applicationID, environmentID string, deploymentNumber int32) (*Deployment, error)
 	// ListDeployments returns paginated deployments for an environment.
-	ListDeployments(applicationID, environmentID, nextToken string, maxResults int) ([]Deployment, string, error)
+	ListDeployments(
+		applicationID, environmentID, nextToken string,
+		maxResults int,
+	) ([]Deployment, string, error)
 	// StopDeployment stops an in-progress deployment.
 	StopDeployment(applicationID, environmentID string, deploymentNumber int32) error
 
@@ -106,7 +117,12 @@ type StorageBackend interface {
 	// GetExtension retrieves an extension by identifier (ID or name).
 	GetExtension(extensionIdentifier string) (*Extension, error)
 	// ListExtensions returns paginated extensions, optionally filtered by name and/or version.
-	ListExtensions(nextToken string, maxResults int, nameFilter string, versionNumber int32) ([]Extension, string)
+	ListExtensions(
+		nextToken string,
+		maxResults int,
+		nameFilter string,
+		versionNumber int32,
+	) ([]Extension, string)
 	// UpdateExtension updates an extension's description, actions, and parameters.
 	UpdateExtension(
 		extensionIdentifier, description string,
@@ -125,7 +141,10 @@ type StorageBackend interface {
 	// GetExtensionAssociation retrieves an extension association by ID.
 	GetExtensionAssociation(extensionAssociationID string) (*ExtensionAssociation, error)
 	// ListExtensionAssociations returns paginated extension associations.
-	ListExtensionAssociations(nextToken, extensionIdentifier, resourceIdentifier string, maxResults int) ([]ExtensionAssociation, string)
+	ListExtensionAssociations(
+		nextToken, extensionIdentifier, resourceIdentifier string,
+		maxResults int,
+	) ([]ExtensionAssociation, string)
 	// UpdateExtensionAssociation updates an extension association's parameters.
 	UpdateExtensionAssociation(
 		extensionAssociationID string,
@@ -140,7 +159,9 @@ type StorageBackend interface {
 	UpdateAccountSettings(deletionProtection *DeletionProtectionSettings) (*AccountSettings, error)
 
 	// GetConfiguration retrieves the latest deployed configuration (deprecated API).
-	GetConfiguration(application, environment, configuration string) (*HostedConfigurationVersion, error)
+	GetConfiguration(
+		application, environment, configuration string,
+	) (*HostedConfigurationVersion, error)
 	// ValidateConfiguration validates a configuration version against its validators.
 	ValidateConfiguration(applicationID, profileID, configurationVersion string) error
 }
