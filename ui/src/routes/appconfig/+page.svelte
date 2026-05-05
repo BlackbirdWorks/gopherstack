@@ -405,8 +405,10 @@
 				DeploymentDurationInMinutes: newStratDuration,
 				FinalBakeTimeInMinutes: newStratBake,
 				GrowthFactor: newStratGrowth,
-				GrowthType: newStratGrowthType as string,
-				ReplicateTo: newStratReplicateTo as string,
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				GrowthType: newStratGrowthType as any,
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				ReplicateTo: newStratReplicateTo as any,
 			}));
 			toast.success(`Strategy "${newStratName}" created`);
 			showCreateStratModal = false;
