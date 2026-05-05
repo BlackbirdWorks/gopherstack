@@ -20,6 +20,10 @@ var (
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrAlreadyExists)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrCrawlerRunning is returned when an operation requires the crawler to not be running.
+	ErrCrawlerRunning = awserr.New("CrawlerRunningException", awserr.ErrInvalidParameter)
+	// ErrCrawlerNotRunning is returned when an operation requires the crawler to be running.
+	ErrCrawlerNotRunning = awserr.New("CrawlerNotRunningException", awserr.ErrInvalidParameter)
 )
 
 // glueARNParts is the number of colon-separated parts in a Glue ARN.
@@ -43,6 +47,7 @@ type Database struct {
 	Description string            `json:"Description,omitempty"`
 	CatalogID   string            `json:"CatalogId"`
 	ARN         string            `json:"Arn,omitempty"`
+	CreateTime  float64           `json:"CreateTime,omitempty"`
 }
 
 // Column represents a column in a Glue table.
@@ -76,6 +81,8 @@ type Table struct {
 	Description       string            `json:"Description,omitempty"`
 	TableType         string            `json:"TableType,omitempty"`
 	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
+	CreateTime        float64           `json:"CreateTime,omitempty"`
+	UpdateTime        float64           `json:"UpdateTime,omitempty"`
 }
 
 // CrawlerTarget specifies S3 targets for a crawler.
@@ -98,6 +105,8 @@ type Crawler struct {
 	State        string            `json:"State"`
 	ARN          string            `json:"Arn,omitempty"`
 	Targets      CrawlerTarget     `json:"Targets,omitzero"`
+	CreationTime float64           `json:"CreationTime,omitempty"`
+	LastUpdated  float64           `json:"LastUpdated,omitempty"`
 }
 
 // ConnectionsList holds connections for a Glue job.
@@ -133,6 +142,8 @@ type Job struct {
 	MaxRetries        int               `json:"MaxRetries,omitempty"`
 	Timeout           int               `json:"Timeout,omitempty"`
 	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
+	CreatedOn         float64           `json:"CreatedOn,omitempty"`
+	LastModifiedOn    float64           `json:"LastModifiedOn,omitempty"`
 }
 
 // ErrorDetail holds an error code and message for batch operation failures.
@@ -187,7 +198,13 @@ type TableVersionError struct {
 
 // Connection represents a Glue connection.
 type Connection struct {
-	Name string `json:"Name"`
+	ConnectionProperties map[string]string `json:"ConnectionProperties,omitempty"`
+	Tags                 map[string]string `json:"-"`
+	Name                 string            `json:"Name"`
+	ConnectionType       string            `json:"ConnectionType,omitempty"`
+	ARN                  string            `json:"Arn,omitempty"`
+	CreationTime         float64           `json:"CreationTime,omitempty"`
+	LastUpdatedTime      float64           `json:"LastUpdatedTime,omitempty"`
 }
 
 // Blueprint represents a Glue blueprint.
@@ -235,10 +252,11 @@ type JobRun struct {
 
 // JobBookmark holds the bookmark state for a job run.
 type JobBookmark struct {
-	JobName string `json:"JobName"`
-	Run     string `json:"Run,omitempty"`
-	Version int    `json:"Version"`
-	Attempt int    `json:"Attempt,omitempty"`
+	JobName   string `json:"JobName"`
+	Run       string `json:"Run,omitempty"`
+	Version   int    `json:"Version"`
+	Attempt   int    `json:"Attempt,omitempty"`
+	ActiveRun string `json:"ActiveRun,omitempty"`
 }
 
 // BatchStopJobRunError holds error info for a single stop attempt.
@@ -250,11 +268,13 @@ type BatchStopJobRunError struct {
 
 // DataQualityRuleset represents a Glue data quality ruleset.
 type DataQualityRuleset struct {
-	Tags      map[string]string `json:"-"`
-	Name      string            `json:"Name"`
-	Ruleset   string            `json:"Ruleset,omitempty"`
-	ARN       string            `json:"Arn,omitempty"`
-	CreatedOn float64           `json:"CreatedOn,omitempty"`
+	Tags           map[string]string `json:"-"`
+	Name           string            `json:"Name"`
+	Ruleset        string            `json:"Ruleset,omitempty"`
+	Description    string            `json:"Description,omitempty"`
+	ARN            string            `json:"Arn,omitempty"`
+	CreatedOn      float64           `json:"CreatedOn,omitempty"`
+	LastModifiedOn float64           `json:"LastModifiedOn,omitempty"`
 }
 
 // DataQualityEvaluationRun represents a data quality ruleset evaluation run.
@@ -374,6 +394,15 @@ func cloneJob(j *Job) *Job {
 	return &cp
 }
 
+// cloneConnection returns a deep copy of a Connection.
+func cloneConnection(c *Connection) *Connection {
+	cp := *c
+	cp.ConnectionProperties = maps.Clone(c.ConnectionProperties)
+	cp.Tags = maps.Clone(c.Tags)
+
+	return &cp
+}
+
 // databaseARN returns the ARN for a Glue database.
 func (b *InMemoryBackend) databaseARN(name string) string {
 	return arn.Build("glue", b.region, b.accountID, "database/"+name)
@@ -441,6 +470,10 @@ func (b *InMemoryBackend) CreateDatabase(input DatabaseInput, tags map[string]st
 	b.mu.Lock("CreateDatabase")
 	defer b.mu.Unlock()
 
+	if input.Name == "" {
+		return nil, ErrValidation
+	}
+
 	if _, ok := b.databases[input.Name]; ok {
 		return nil, ErrAlreadyExists
 	}
@@ -451,6 +484,7 @@ func (b *InMemoryBackend) CreateDatabase(input DatabaseInput, tags map[string]st
 		CatalogID:   b.accountID,
 		ARN:         b.databaseARN(input.Name),
 		Tags:        maps.Clone(tags),
+		CreateTime:  float64(time.Now().Unix()),
 	}
 	b.databases[input.Name] = db
 
@@ -547,6 +581,7 @@ func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, 
 		return nil, ErrAlreadyExists
 	}
 
+	now := float64(time.Now().Unix())
 	t := &Table{
 		Name:              input.Name,
 		DatabaseName:      dbName,
@@ -555,6 +590,8 @@ func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, 
 		StorageDescriptor: input.StorageDescriptor,
 		PartitionKeys:     input.PartitionKeys,
 		TableType:         input.TableType,
+		CreateTime:        now,
+		UpdateTime:        now,
 	}
 	b.tables[key] = t
 
@@ -571,7 +608,9 @@ func (b *InMemoryBackend) GetTable(dbName, tableName string) (*Table, error) {
 		return nil, ErrNotFound
 	}
 
-	return t, nil
+	cp := *t
+
+	return &cp, nil
 }
 
 // GetTables returns all tables in a database sorted by name.
@@ -611,6 +650,7 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 	t.StorageDescriptor = input.StorageDescriptor
 	t.PartitionKeys = input.PartitionKeys
 	t.TableType = input.TableType
+	t.UpdateTime = float64(time.Now().Unix())
 
 	return nil
 }
@@ -659,6 +699,10 @@ func (b *InMemoryBackend) CreateCrawler(
 	b.mu.Lock("CreateCrawler")
 	defer b.mu.Unlock()
 
+	if name == "" || role == "" {
+		return nil, ErrValidation
+	}
+
 	if _, ok := b.databases[dbName]; !ok {
 		return nil, ErrNotFound
 	}
@@ -667,6 +711,7 @@ func (b *InMemoryBackend) CreateCrawler(
 		return nil, ErrAlreadyExists
 	}
 
+	now := float64(time.Now().Unix())
 	c := &Crawler{
 		Name:         name,
 		Role:         role,
@@ -675,6 +720,8 @@ func (b *InMemoryBackend) CreateCrawler(
 		State:        "READY",
 		ARN:          b.crawlerARN(name),
 		Tags:         maps.Clone(tags),
+		CreationTime: now,
+		LastUpdated:  now,
 	}
 	b.crawlers[name] = c
 
@@ -707,6 +754,14 @@ func (b *InMemoryBackend) GetCrawlers() []*Crawler {
 	return out
 }
 
+// ListCrawlers returns crawler names sorted alphabetically.
+func (b *InMemoryBackend) ListCrawlers() []string {
+	b.mu.RLock("ListCrawlers")
+	defer b.mu.RUnlock()
+
+	return sortedKeys(b.crawlers)
+}
+
 // UpdateCrawler updates an existing Glue crawler.
 func (b *InMemoryBackend) UpdateCrawler(name, role, dbName string, targets CrawlerTarget) error {
 	b.mu.Lock("UpdateCrawler")
@@ -720,6 +775,7 @@ func (b *InMemoryBackend) UpdateCrawler(name, role, dbName string, targets Crawl
 	c.Role = role
 	c.DatabaseName = dbName
 	c.Targets = targets
+	c.LastUpdated = float64(time.Now().Unix())
 
 	return nil
 }
@@ -745,10 +801,15 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
 
+	if input.Name == "" || input.Role == "" {
+		return nil, ErrValidation
+	}
+
 	if _, ok := b.jobs[input.Name]; ok {
 		return nil, ErrAlreadyExists
 	}
 
+	now := float64(time.Now().Unix())
 	j := &Job{
 		Name:              input.Name,
 		Description:       input.Description,
@@ -764,6 +825,8 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 		Tags:              maps.Clone(input.Tags),
 		ExecutionProperty: input.ExecutionProperty,
 		Connections:       input.Connections,
+		CreatedOn:         now,
+		LastModifiedOn:    now,
 	}
 	b.jobs[input.Name] = j
 
@@ -817,11 +880,12 @@ func (b *InMemoryBackend) UpdateJob(name string, input Job) error {
 	j.Timeout = input.Timeout
 	j.ExecutionProperty = input.ExecutionProperty
 	j.Connections = input.Connections
+	j.LastModifiedOn = float64(time.Now().Unix())
 
 	return nil
 }
 
-// DeleteJob deletes a Glue job by name.
+// DeleteJob deletes a Glue job by name, also removing all job runs and bookmarks.
 func (b *InMemoryBackend) DeleteJob(name string) error {
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
@@ -831,6 +895,8 @@ func (b *InMemoryBackend) DeleteJob(name string) error {
 	}
 
 	delete(b.jobs, name)
+	delete(b.jobRuns, name)
+	delete(b.jobBookmarks, name)
 
 	return nil
 }
@@ -873,6 +939,15 @@ func (b *InMemoryBackend) tagResource(resourceARN string, tags map[string]string
 		return nil
 	}
 
+	if r := b.findDataQualityRulesetByARN(resourceARN); r != nil {
+		if r.Tags == nil {
+			r.Tags = make(map[string]string)
+		}
+		maps.Copy(r.Tags, tags)
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -905,6 +980,14 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		return nil
 	}
 
+	if r := b.findDataQualityRulesetByARN(resourceARN); r != nil {
+		for _, k := range tagKeys {
+			delete(r.Tags, k)
+		}
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -923,6 +1006,10 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 
 	if j := b.findJobByARN(resourceARN); j != nil {
 		return maps.Clone(j.Tags), nil
+	}
+
+	if r := b.findDataQualityRulesetByARN(resourceARN); r != nil {
+		return maps.Clone(r.Tags), nil
 	}
 
 	return nil, ErrNotFound
@@ -968,6 +1055,20 @@ func (b *InMemoryBackend) findJobByARN(resourceARN string) *Job {
 	}
 
 	return j
+}
+
+func (b *InMemoryBackend) findDataQualityRulesetByARN(resourceARN string) *DataQualityRuleset {
+	name := glueResourceName(resourceARN, "dataQualityRuleset")
+	if name == "" {
+		return nil
+	}
+
+	r, ok := b.dataQualityRulesets[name]
+	if !ok {
+		return nil
+	}
+
+	return r
 }
 
 // --- Batch operations ---
@@ -1234,8 +1335,80 @@ func (b *InMemoryBackend) AddConnectionInternal(conn *Connection) {
 	b.mu.Lock("AddConnectionInternal")
 	defer b.mu.Unlock()
 
-	cp := *conn
-	b.connections[conn.Name] = &cp
+	b.connections[conn.Name] = cloneConnection(conn)
+}
+
+// connectionARN returns the ARN for a Glue connection.
+func (b *InMemoryBackend) connectionARN(name string) string {
+	return arn.Build("glue", b.region, b.accountID, "connection/"+name)
+}
+
+// CreateConnection creates a new Glue connection.
+func (b *InMemoryBackend) CreateConnection(name, connType string, props map[string]string, tags map[string]string) (*Connection, error) {
+	b.mu.Lock("CreateConnection")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, ErrValidation
+	}
+
+	if _, ok := b.connections[name]; ok {
+		return nil, ErrAlreadyExists
+	}
+
+	now := float64(time.Now().Unix())
+	c := &Connection{
+		Name:                 name,
+		ConnectionType:       connType,
+		ConnectionProperties: maps.Clone(props),
+		Tags:                 maps.Clone(tags),
+		ARN:                  b.connectionARN(name),
+		CreationTime:         now,
+		LastUpdatedTime:      now,
+	}
+	b.connections[name] = c
+
+	return cloneConnection(c), nil
+}
+
+// GetConnection retrieves a single Glue connection by name.
+func (b *InMemoryBackend) GetConnection(name string) (*Connection, error) {
+	b.mu.RLock("GetConnection")
+	defer b.mu.RUnlock()
+
+	c, ok := b.connections[name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return cloneConnection(c), nil
+}
+
+// GetConnections returns all Glue connections sorted by name.
+func (b *InMemoryBackend) GetConnections() []*Connection {
+	b.mu.RLock("GetConnections")
+	defer b.mu.RUnlock()
+
+	out := make([]*Connection, 0, len(b.connections))
+	for _, k := range sortedKeys(b.connections) {
+		out = append(out, cloneConnection(b.connections[k]))
+	}
+
+	return out
+}
+
+// DeleteConnection deletes a single Glue connection by name.
+func (b *InMemoryBackend) DeleteConnection(name string) error {
+	b.mu.Lock("DeleteConnection")
+	defer b.mu.Unlock()
+
+	if _, ok := b.connections[name]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.connections, name)
+
+	return nil
 }
 
 // AddBlueprintInternal adds a blueprint directly to the backend without validation.
@@ -1301,8 +1474,21 @@ func (b *InMemoryBackend) StartJobRun(jobName string, arguments map[string]strin
 	b.mu.Lock("StartJobRun")
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobs[jobName]; !ok {
+	j, ok := b.jobs[jobName]
+	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if max := j.ExecutionProperty.MaxConcurrentRuns; max > 0 {
+		active := 0
+		for _, r := range b.jobRuns[jobName] {
+			if r.JobRunState == "RUNNING" || r.JobRunState == "STARTING" {
+				active++
+			}
+		}
+		if active >= max {
+			return nil, ErrValidation
+		}
 	}
 
 	run := &JobRun{
@@ -1317,6 +1503,14 @@ func (b *InMemoryBackend) StartJobRun(jobName string, arguments map[string]strin
 		Arguments:   maps.Clone(arguments),
 	}
 	b.jobRuns[jobName] = append(b.jobRuns[jobName], run)
+
+	bm := b.jobBookmarks[jobName]
+	if bm == nil {
+		bm = &JobBookmark{JobName: jobName}
+		b.jobBookmarks[jobName] = bm
+	}
+	bm.ActiveRun = run.ID
+	bm.Attempt++
 
 	return run, nil
 }
@@ -1359,6 +1553,7 @@ func (b *InMemoryBackend) GetJobRuns(jobName string) ([]*JobRun, error) {
 }
 
 // BatchStopJobRun stops multiple job runs by setting their state to STOPPING.
+// Only RUNNING or STARTING runs can be stopped.
 func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []BatchStopJobRunError {
 	b.mu.Lock("BatchStopJobRun")
 	defer b.mu.Unlock()
@@ -1368,19 +1563,31 @@ func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []Bat
 	for _, id := range runIDs {
 		found := false
 		for _, run := range b.jobRuns[jobName] {
-			if run.ID == id {
-				run.JobRunState = "STOPPING"
-				found = true
-
-				break
+			if run.ID != id {
+				continue
 			}
+			found = true
+			if run.JobRunState != "RUNNING" && run.JobRunState != "STARTING" {
+				errs = append(errs, BatchStopJobRunError{
+					JobName:  jobName,
+					JobRunID: id,
+					ErrorDetail: ErrorDetail{
+						ErrorCode:    "IllegalStateException",
+						ErrorMessage: "job run " + id + " is not in a stoppable state: " + run.JobRunState,
+					},
+				})
+			} else {
+				run.JobRunState = "STOPPING"
+			}
+
+			break
 		}
 		if !found {
 			errs = append(errs, BatchStopJobRunError{
 				JobName:  jobName,
 				JobRunID: id,
 				ErrorDetail: ErrorDetail{
-					ErrorCode:    errEntityNotFoundCode,
+					ErrorCode:    "EntityNotFoundException",
 					ErrorMessage: "job run not found: " + id,
 				},
 			})
@@ -1395,6 +1602,10 @@ func (b *InMemoryBackend) GetJobBookmark(jobName string) (*JobBookmark, error) {
 	b.mu.RLock("GetJobBookmark")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.jobs[jobName]; !ok {
+		return nil, ErrNotFound
+	}
+
 	bm, ok := b.jobBookmarks[jobName]
 	if !ok {
 		return &JobBookmark{JobName: jobName}, nil
@@ -1405,14 +1616,32 @@ func (b *InMemoryBackend) GetJobBookmark(jobName string) (*JobBookmark, error) {
 	return &cp, nil
 }
 
-// ResetJobBookmark clears the bookmark for a job.
+// ResetJobBookmark clears the bookmark for a job and returns the post-reset bookmark.
 func (b *InMemoryBackend) ResetJobBookmark(jobName string) error {
 	b.mu.Lock("ResetJobBookmark")
 	defer b.mu.Unlock()
 
+	if _, ok := b.jobs[jobName]; !ok {
+		return ErrNotFound
+	}
+
 	delete(b.jobBookmarks, jobName)
 
 	return nil
+}
+
+// ResetJobBookmarkWithResult atomically clears the bookmark for a job and returns the post-reset bookmark.
+func (b *InMemoryBackend) ResetJobBookmarkWithResult(jobName string) (*JobBookmark, error) {
+	b.mu.Lock("ResetJobBookmarkWithResult")
+	defer b.mu.Unlock()
+
+	if _, ok := b.jobs[jobName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	delete(b.jobBookmarks, jobName)
+
+	return &JobBookmark{JobName: jobName}, nil
 }
 
 // --- Crawler scheduling operations ---
@@ -1426,10 +1655,11 @@ func (b *InMemoryBackend) StartCrawler(name string) error {
 	if !ok {
 		return ErrNotFound
 	}
-	if c.State != "READY" {
-		return ErrValidation
+	if c.State == stateRunning || c.State == "STOPPING" {
+		return ErrCrawlerRunning
 	}
 	c.State = stateRunning
+	c.LastUpdated = float64(time.Now().Unix())
 
 	return nil
 }
@@ -1444,9 +1674,10 @@ func (b *InMemoryBackend) StopCrawler(name string) error {
 		return ErrNotFound
 	}
 	if c.State != stateRunning {
-		return ErrValidation
+		return ErrCrawlerNotRunning
 	}
 	c.State = "STOPPING"
+	c.LastUpdated = float64(time.Now().Unix())
 
 	return nil
 }
@@ -1473,6 +1704,9 @@ func (b *InMemoryBackend) StartCrawlerSchedule(name string) error {
 	c, ok := b.crawlers[name]
 	if !ok {
 		return ErrNotFound
+	}
+	if c.Schedule.ScheduleExpression == "" {
+		return ErrValidation
 	}
 	if c.Schedule.State == "SCHEDULED" {
 		return ErrValidation
@@ -1511,16 +1745,22 @@ func (b *InMemoryBackend) CreateDataQualityRuleset(
 	b.mu.Lock("CreateDataQualityRuleset")
 	defer b.mu.Unlock()
 
+	if name == "" || ruleset == "" {
+		return nil, ErrValidation
+	}
+
 	if _, ok := b.dataQualityRulesets[name]; ok {
 		return nil, ErrAlreadyExists
 	}
 
+	now := float64(time.Now().Unix())
 	r := &DataQualityRuleset{
-		Name:      name,
-		Ruleset:   ruleset,
-		Tags:      maps.Clone(tags),
-		ARN:       b.dataQualityRulesetARN(name),
-		CreatedOn: float64(time.Now().Unix()),
+		Name:           name,
+		Ruleset:        ruleset,
+		Tags:           maps.Clone(tags),
+		ARN:            b.dataQualityRulesetARN(name),
+		CreatedOn:      now,
+		LastModifiedOn: now,
 	}
 	b.dataQualityRulesets[name] = r
 
@@ -1566,6 +1806,7 @@ func (b *InMemoryBackend) UpdateDataQualityRuleset(name, ruleset string) error {
 		return ErrNotFound
 	}
 	r.Ruleset = ruleset
+	r.LastModifiedOn = float64(time.Now().Unix())
 
 	return nil
 }
