@@ -315,3 +315,47 @@ func TestInMemoryBackend_Tags(t *testing.T) {
 		})
 	}
 }
+
+// TestInMemoryBackend_DatasetContentCap verifies that when maxDatasetContents is exceeded,
+// the oldest content version is evicted and the newest is retained.
+func TestInMemoryBackend_DatasetContentCap(t *testing.T) {
+	t.Parallel()
+
+	const maxContents = 100
+
+	b := iotanalytics.NewInMemoryBackend()
+
+	_, err := b.CreateDataset("capped-ds", nil)
+	require.NoError(t, err)
+
+	// Fill to exactly the cap.
+	var firstVersionID string
+	for i := range maxContents {
+		c, cerr := b.CreateDatasetContent("capped-ds")
+		require.NoError(t, cerr)
+		if i == 0 {
+			firstVersionID = c.VersionID
+		}
+	}
+
+	contents, err := b.ListDatasetContents("capped-ds")
+	require.NoError(t, err)
+	assert.Len(t, contents, maxContents, "should have exactly cap versions before exceeding")
+
+	// Add one more — oldest should be evicted.
+	newest, err := b.CreateDatasetContent("capped-ds")
+	require.NoError(t, err)
+
+	contents, err = b.ListDatasetContents("capped-ds")
+	require.NoError(t, err)
+	assert.Len(t, contents, maxContents, "count must not exceed cap after overflow")
+
+	// The first version must be gone.
+	for _, c := range contents {
+		assert.NotEqual(t, firstVersionID, c.VersionID, "oldest version must be evicted")
+	}
+
+	// The newest version must be present.
+	_, err = b.GetDatasetContent("capped-ds", newest.VersionID)
+	assert.NoError(t, err, "newest version must be retained")
+}
