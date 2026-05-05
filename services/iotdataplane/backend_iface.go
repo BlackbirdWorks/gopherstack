@@ -13,7 +13,10 @@ type StorageBackend interface {
 	UpdateThingShadow(thingName, shadowName string, document []byte) ([]byte, error)
 	DeleteThingShadow(thingName, shadowName string) ([]byte, error)
 	ListNamedShadowsForThing(thingName string) ([]string, error)
+	ListThingsWithShadows() []string
+	RegisterConnection(clientID, sourceIP string) error
 	DeleteConnection(clientID string) error
+	ListConnections() []*Connection
 	StoreRetainedMessage(topic string, payload []byte, qos int32) error
 	GetRetainedMessage(topic string) (*RetainedMessage, error)
 	ListRetainedMessages() ([]*RetainedMessage, error)

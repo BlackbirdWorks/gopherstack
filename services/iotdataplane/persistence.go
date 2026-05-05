@@ -16,6 +16,12 @@ type shadowEntrySnap struct {
 	Version   int       `json:"version"`
 }
 
+// connectionEntrySnap is the serialisable form of a connectionEntry.
+type connectionEntrySnap struct {
+	ConnectedAt time.Time `json:"connectedAt"`
+	SourceIP    string    `json:"sourceIp,omitempty"`
+}
+
 // retainedMessageSnap is the serialisable form of a RetainedMessage.
 type retainedMessageSnap struct {
 	Topic            string `json:"topic"`
@@ -27,13 +33,13 @@ type retainedMessageSnap struct {
 // backendSnapshot holds a serialisable snapshot of InMemoryBackend state.
 type backendSnapshot struct {
 	Shadows          map[string]map[string]*shadowEntrySnap `json:"shadows"`
-	Connections      map[string]struct{}                    `json:"connections"`
+	Connections      map[string]*connectionEntrySnap        `json:"connections"`
 	RetainedMessages map[string]*retainedMessageSnap        `json:"retainedMessages"`
 }
 
 // Snapshot serialises backend state to JSON.
 func (b *InMemoryBackend) Snapshot() []byte {
-	b.mu.RLock()
+	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	// Build serialisable shadows map.
@@ -53,6 +59,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		shadows[thingName] = snapShadows
 	}
 
+	// Build serialisable connections map.
+	connections := make(map[string]*connectionEntrySnap, len(b.connections))
+	for clientID, entry := range b.connections {
+		connections[clientID] = &connectionEntrySnap{
+			ConnectedAt: entry.connectedAt,
+			SourceIP:    entry.sourceIP,
+		}
+	}
+
 	// Build serialisable retained messages map.
 	retained := make(map[string]*retainedMessageSnap, len(b.retainedMessages))
 	for topic, msg := range b.retainedMessages {
@@ -68,7 +83,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	snap := backendSnapshot{
 		Shadows:          shadows,
-		Connections:      b.connections,
+		Connections:      connections,
 		RetainedMessages: retained,
 	}
 
@@ -88,7 +103,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	if snap.Shadows == nil {
@@ -96,7 +111,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	if snap.Connections == nil {
-		snap.Connections = make(map[string]struct{})
+		snap.Connections = make(map[string]*connectionEntrySnap)
 	}
 
 	if snap.RetainedMessages == nil {
@@ -121,7 +136,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	// Restore connections.
-	b.connections = snap.Connections
+	b.connections = make(map[string]*connectionEntry, len(snap.Connections))
+	for clientID, entry := range snap.Connections {
+		b.connections[clientID] = &connectionEntry{
+			connectedAt: entry.ConnectedAt,
+			sourceIP:    entry.SourceIP,
+		}
+	}
 
 	// Restore retained messages.
 	b.retainedMessages = make(map[string]*RetainedMessage, len(snap.RetainedMessages))

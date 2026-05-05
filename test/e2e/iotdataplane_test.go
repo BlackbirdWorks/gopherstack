@@ -45,7 +45,7 @@ func TestIoTDataPlaneDashboard(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, content, "IoT Data Plane")
 	assert.Contains(t, content, "Publish")
-	assert.Contains(t, content, "Supported Operations")
+	assert.Contains(t, content, "Thing Shadows")
 }
 
 // TestIoTDataPlaneDashboard_Snippet verifies the IoT Data Plane dashboard snippet data renders.
@@ -79,5 +79,5 @@ func TestIoTDataPlaneDashboard_Snippet(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "iot-data")
+	assert.Contains(t, content, "Retained Messages")
 }

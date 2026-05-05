@@ -27,10 +27,22 @@ const (
 	retainedMessagePath = "/retainedMessage"
 	// retainedMessagePathSlash is the prefix used to match individual topic paths.
 	retainedMessagePathSlash = retainedMessagePath + "/"
+	// listThingsWithShadowsPath is the admin path for listing things that have shadows.
+	listThingsWithShadowsPath = "/api/things/shadow/ListThingsWithShadows"
+	// listNamedShadowsPrefix is the prefix for ListNamedShadowsForThing.
+	listNamedShadowsPrefix = "/api/things/shadow/ListNamedShadowsForThing/"
+	// connectionsPath is the URL path for managing connections.
+	connectionsPath = "/connections"
+	// connectionsPathSlash is the prefix for individual connection operations.
+	connectionsPathSlash = connectionsPath + "/"
 
 	keyError            = "error"
 	keyMessage          = "message"
 	errMethodNotAllowed = "method not allowed"
+	opUnknown           = "Unknown"
+
+	// shadowPathParts is the number of parts when splitting a shadow URL on "/shadow".
+	shadowPathParts = 2
 )
 
 // Handler is the Echo HTTP handler for IoT Data Plane operations.
@@ -58,9 +70,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteThingShadow",
 		"GetRetainedMessage",
 		"GetThingShadow",
+		"ListConnections",
 		"ListNamedShadowsForThing",
 		"ListRetainedMessages",
+		"ListThingsWithShadows",
 		"Publish",
+		"RegisterConnection",
 		"UpdateThingShadow",
 	}
 }
@@ -80,16 +95,71 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		return strings.HasPrefix(path, "/topics/") ||
-			strings.HasPrefix(path, "/things/") ||
-			strings.HasPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/") ||
-			strings.HasPrefix(path, "/connections/") ||
+			isShadowPath(path) ||
+			strings.HasPrefix(path, listNamedShadowsPrefix) ||
+			path == listThingsWithShadowsPath ||
+			path == connectionsPath ||
+			strings.HasPrefix(path, connectionsPathSlash) ||
 			path == retainedMessagePath ||
 			strings.HasPrefix(path, retainedMessagePathSlash)
 	}
 }
 
+// isShadowPath returns true for paths of the form /things/{thingName}/shadow
+// with no additional path segments after "shadow".
+func isShadowPath(path string) bool {
+	after, ok := strings.CutPrefix(path, "/things/")
+	if !ok {
+		return false
+	}
+
+	// Must end with exactly /shadow or /shadow?... (no further segments).
+	parts := strings.SplitN(after, "/shadow", shadowPathParts)
+	if len(parts) != shadowPathParts {
+		return false
+	}
+
+	tail := parts[1]
+
+	return tail == "" || strings.HasPrefix(tail, "?")
+}
+
 // MatchPriority returns the routing priority for the IoT Data Plane handler.
 func (h *Handler) MatchPriority() int { return iotDPMatchPriority }
+
+// extractConnectionOperation returns the operation name for /connections paths.
+func extractConnectionOperation(path, method string) string {
+	if path == connectionsPath {
+		if method == http.MethodGet {
+			return "ListConnections"
+		}
+
+		return opUnknown
+	}
+
+	switch method {
+	case http.MethodDelete:
+		return "DeleteConnection"
+	case http.MethodPost:
+		return "RegisterConnection"
+	}
+
+	return opUnknown
+}
+
+// extractShadowOperation returns the operation name for /things/{name}/shadow paths.
+func extractShadowOperation(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "GetThingShadow"
+	case http.MethodPost:
+		return "UpdateThingShadow"
+	case http.MethodDelete:
+		return "DeleteThingShadow"
+	}
+
+	return opUnknown
+}
 
 // ExtractOperation returns the operation name.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
@@ -98,26 +168,21 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	switch {
 	case strings.HasPrefix(path, "/topics/"):
 		return "Publish"
-	case strings.HasPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/"):
+	case strings.HasPrefix(path, listNamedShadowsPrefix):
 		return "ListNamedShadowsForThing"
-	case strings.HasPrefix(path, "/connections/") && method == http.MethodDelete:
-		return "DeleteConnection"
+	case path == listThingsWithShadowsPath:
+		return "ListThingsWithShadows"
+	case path == connectionsPath || strings.HasPrefix(path, connectionsPathSlash):
+		return extractConnectionOperation(path, method)
 	case path == retainedMessagePath && method == http.MethodGet:
 		return "ListRetainedMessages"
 	case strings.HasPrefix(path, retainedMessagePathSlash) && method == http.MethodGet:
 		return "GetRetainedMessage"
-	case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
-		switch method {
-		case http.MethodGet:
-			return "GetThingShadow"
-		case http.MethodPost:
-			return "UpdateThingShadow"
-		case http.MethodDelete:
-			return "DeleteThingShadow"
-		}
+	case isShadowPath(path):
+		return extractShadowOperation(method)
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 // ExtractResource extracts the topic or thing name from the URL path.
@@ -127,11 +192,19 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return after
 	}
 
-	if after, ok := strings.CutPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/"); ok {
+	if after, ok := strings.CutPrefix(path, listNamedShadowsPrefix); ok {
 		return after
 	}
 
-	if after, ok := strings.CutPrefix(path, "/connections/"); ok {
+	if path == listThingsWithShadowsPath {
+		return ""
+	}
+
+	if path == connectionsPath {
+		return ""
+	}
+
+	if after, ok := strings.CutPrefix(path, connectionsPathSlash); ok {
 		return after
 	}
 
@@ -152,7 +225,6 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // parseShadowPath extracts thingName from a /things/{thingName}/shadow path.
 func parseShadowPath(path string) string {
 	trimmed := strings.TrimPrefix(path, "/things/")
-	const shadowPathParts = 2
 	parts := strings.SplitN(trimmed, "/shadow", shadowPathParts)
 
 	return parts[0]
@@ -176,6 +248,11 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 			keyError:   "InvalidRequestException",
 			keyMessage: err.Error(),
 		})
+	case errors.Is(err, ErrConnectionExists):
+		return c.JSON(http.StatusConflict, map[string]string{
+			keyError:   "ResourceAlreadyExistsException",
+			keyMessage: err.Error(),
+		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
 	}
@@ -188,15 +265,19 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		switch {
 		case strings.HasPrefix(path, "/topics/"):
 			return h.handlePublish(c)
-		case strings.HasPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/"):
+		case strings.HasPrefix(path, listNamedShadowsPrefix):
 			return h.handleListNamedShadows(c)
-		case strings.HasPrefix(path, "/connections/"):
-			return h.handleDeleteConnection(c)
+		case path == listThingsWithShadowsPath:
+			return h.handleListThingsWithShadows(c)
+		case path == connectionsPath:
+			return h.handleConnections(c)
+		case strings.HasPrefix(path, connectionsPathSlash):
+			return h.handleConnectionByID(c)
 		case path == retainedMessagePath:
 			return h.handleListRetainedMessages(c)
 		case strings.HasPrefix(path, retainedMessagePathSlash):
 			return h.handleGetRetainedMessage(c)
-		case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
+		case isShadowPath(path):
 			return h.handleShadow(c)
 		default:
 			return c.JSON(http.StatusNotFound, map[string]string{keyError: "not found"})
@@ -251,6 +332,10 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "topic is required"})
 	}
 
+	if err := validateTopic(topic); err != nil {
+		return h.handleError(c, err)
+	}
+
 	qos, qosErr := parsePublishQoS(c.Request().URL.Query().Get("qos"))
 	if qosErr != nil {
 		return h.handleError(c, qosErr)
@@ -298,14 +383,69 @@ func (h *Handler) handleRetain(c *echo.Context, topic string, payload []byte, qo
 	return c.JSON(http.StatusOK, map[string]string{})
 }
 
-// handleDeleteConnection processes DELETE /connections/{clientId} requests.
-// Query params: cleanSession (bool), preventWillMessage (bool) – accepted but not enforced.
-func (h *Handler) handleDeleteConnection(c *echo.Context) error {
-	if c.Request().Method != http.MethodDelete {
+// handleConnections dispatches GET /connections requests.
+func (h *Handler) handleConnections(c *echo.Context) error {
+	if c.Request().Method != http.MethodGet {
 		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
 	}
 
-	clientID := strings.TrimPrefix(c.Request().URL.Path, "/connections/")
+	return h.handleListConnections(c)
+}
+
+// handleConnectionByID dispatches requests for /connections/{clientId}.
+func (h *Handler) handleConnectionByID(c *echo.Context) error {
+	switch c.Request().Method {
+	case http.MethodDelete:
+		return h.handleDeleteConnection(c)
+	case http.MethodPost:
+		return h.handleRegisterConnection(c)
+	default:
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+	}
+}
+
+// handleListConnections processes GET /connections requests.
+func (h *Handler) handleListConnections(c *echo.Context) error {
+	conns := h.Backend.ListConnections()
+
+	type connResp struct {
+		ClientID    string `json:"clientId"`
+		SourceIP    string `json:"sourceIp,omitempty"`
+		ConnectedAt int64  `json:"connectedAt"`
+	}
+
+	out := make([]connResp, 0, len(conns))
+	for _, conn := range conns {
+		out = append(out, connResp{
+			ClientID:    conn.ClientID,
+			SourceIP:    conn.SourceIP,
+			ConnectedAt: conn.ConnectedAt.Unix(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"connections": out})
+}
+
+// handleRegisterConnection processes POST /connections/{clientId} requests.
+func (h *Handler) handleRegisterConnection(c *echo.Context) error {
+	clientID := strings.TrimPrefix(c.Request().URL.Path, connectionsPathSlash)
+	if clientID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "clientId is required"})
+	}
+
+	sourceIP := c.RealIP()
+
+	if err := h.Backend.RegisterConnection(clientID, sourceIP); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]string{"clientId": clientID})
+}
+
+// handleDeleteConnection processes DELETE /connections/{clientId} requests.
+// Query params: cleanSession (bool), preventWillMessage (bool) – accepted but not enforced.
+func (h *Handler) handleDeleteConnection(c *echo.Context) error {
+	clientID := strings.TrimPrefix(c.Request().URL.Path, connectionsPathSlash)
 	if clientID == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "clientId is required"})
 	}
@@ -404,6 +544,55 @@ func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
+// handleListThingsWithShadows processes GET /api/things/shadow/ListThingsWithShadows.
+func (h *Handler) handleListThingsWithShadows(c *echo.Context) error {
+	if c.Request().Method != http.MethodGet {
+		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+	}
+
+	things := h.Backend.ListThingsWithShadows()
+
+	// Apply simple nextToken pagination.
+	nextTokenIn := c.Request().URL.Query().Get("nextToken")
+	maxResultsStr := c.Request().URL.Query().Get("maxResults")
+
+	maxResults := len(things)
+	if maxResultsStr != "" {
+		if v, parseErr := strconv.Atoi(maxResultsStr); parseErr == nil && v > 0 {
+			maxResults = v
+		}
+	}
+
+	startIdx := 0
+	if nextTokenIn != "" {
+		for i, name := range things {
+			if name == nextTokenIn {
+				startIdx = i
+
+				break
+			}
+		}
+	}
+
+	end := min(startIdx+maxResults, len(things))
+	page := things[startIdx:end]
+
+	if page == nil {
+		page = []string{}
+	}
+
+	resp := map[string]any{
+		"things":     page,
+		keyTimestamp: time.Now().Unix(),
+	}
+
+	if end < len(things) {
+		resp["nextToken"] = things[end]
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
 // handleShadow dispatches GET/POST/DELETE /things/{thingName}/shadow requests.
 func (h *Handler) handleShadow(c *echo.Context) error {
 	thingName := parseShadowPath(c.Request().URL.Path)
@@ -413,6 +602,10 @@ func (h *Handler) handleShadow(c *echo.Context) error {
 
 	// Named shadow support via ?name= query parameter.
 	shadowName := c.Request().URL.Query().Get("name")
+
+	if err := validateShadowName(shadowName); err != nil {
+		return h.handleError(c, err)
+	}
 
 	switch c.Request().Method {
 	case http.MethodGet:
@@ -471,7 +664,7 @@ func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
 	}
 
-	thingName := strings.TrimPrefix(c.Request().URL.Path, "/api/things/shadow/ListNamedShadowsForThing/")
+	thingName := strings.TrimPrefix(c.Request().URL.Path, listNamedShadowsPrefix)
 	if thingName == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "thingName is required"})
 	}
@@ -514,8 +707,8 @@ func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 	}
 
 	resp := map[string]any{
-		"results":   page,
-		"timestamp": time.Now().Unix(),
+		"results":    page,
+		keyTimestamp: time.Now().Unix(),
 	}
 
 	if end < len(names) {
