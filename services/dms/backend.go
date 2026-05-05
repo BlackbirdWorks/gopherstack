@@ -14,8 +14,10 @@ import (
 )
 
 const (
-	statusActive = "active"
-	statusReady  = "ready"
+	statusActive  = "active"
+	statusReady   = "ready"
+	statusRunning = "running"
+	statusStopped = "stopped"
 )
 
 var (
@@ -170,6 +172,46 @@ type ReplicationTask struct {
 	Region                    string     `json:"region"`
 }
 
+// Certificate represents a DMS certificate.
+type Certificate struct {
+	CertificateIdentifier string
+	CertificateArn        string
+	CertificatePem        string
+	AccountID             string
+	Region                string
+}
+
+// ReplicationSubnetGroup represents a DMS replication subnet group.
+type ReplicationSubnetGroup struct {
+	ReplicationSubnetGroupIdentifier  string
+	ReplicationSubnetGroupArn         string
+	ReplicationSubnetGroupDescription string
+	VpcID                             string
+	AccountID                         string
+	Region                            string
+}
+
+// MigrationProject represents a DMS migration project.
+type MigrationProject struct {
+	MigrationProjectName       string
+	MigrationProjectArn        string
+	MigrationProjectIdentifier string
+	Description                string
+	AccountID                  string
+	Region                     string
+}
+
+// ReplicationConfig represents a DMS replication config.
+type ReplicationConfig struct {
+	ReplicationConfigIdentifier string
+	ReplicationConfigArn        string
+	ReplicationType             string
+	SourceEndpointArn           string
+	TargetEndpointArn           string
+	AccountID                   string
+	Region                      string
+}
+
 // InMemoryBackend is the in-memory store for AWS DMS resources.
 type InMemoryBackend struct {
 	replicationInstances      map[string]*ReplicationInstance
@@ -186,9 +228,14 @@ type InMemoryBackend struct {
 	dataMigrationsByARN       map[string]*DataMigration
 	dataProvidersByARN        map[string]*DataProvider
 	instanceProfilesByARN     map[string]*InstanceProfile
+	certificates              map[string]*Certificate
+	replicationSubnetGroups   map[string]*ReplicationSubnetGroup
+	migrationProjects         map[string]*MigrationProject
+	replicationConfigs        map[string]*ReplicationConfig
 	mu                        *lockmetrics.RWMutex
 	accountID                 string
 	region                    string
+	paginationSecret          string
 }
 
 // NewInMemoryBackend creates a new in-memory DMS backend.
@@ -208,8 +255,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		dataMigrationsByARN:       make(map[string]*DataMigration),
 		dataProvidersByARN:        make(map[string]*DataProvider),
 		instanceProfilesByARN:     make(map[string]*InstanceProfile),
+		certificates:              make(map[string]*Certificate),
+		replicationSubnetGroups:   make(map[string]*ReplicationSubnetGroup),
+		migrationProjects:         make(map[string]*MigrationProject),
+		replicationConfigs:        make(map[string]*ReplicationConfig),
 		accountID:                 accountID,
 		region:                    region,
+		paginationSecret:          uuid.NewString(),
 		mu:                        lockmetrics.New("dms"),
 	}
 }
@@ -228,7 +280,11 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 	defer b.mu.Unlock()
 
 	if _, ok := b.replicationInstances[identifier]; ok {
-		return nil, fmt.Errorf("%w: replication instance %s already exists", ErrAlreadyExists, identifier)
+		return nil, fmt.Errorf(
+			"%w: replication instance %s already exists",
+			ErrAlreadyExists,
+			identifier,
+		)
 	}
 
 	instanceARN := arn.Build("dms", b.region, b.accountID, "rep:"+identifier)
@@ -269,7 +325,9 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 }
 
 // DescribeReplicationInstances returns replication instances, optionally filtered by identifier or ARN.
-func (b *InMemoryBackend) DescribeReplicationInstances(identifierOrArn string) ([]*ReplicationInstance, error) {
+func (b *InMemoryBackend) DescribeReplicationInstances(
+	identifierOrArn string,
+) ([]*ReplicationInstance, error) {
 	b.mu.RLock("DescribeReplicationInstances")
 	defer b.mu.RUnlock()
 
@@ -442,7 +500,11 @@ func (b *InMemoryBackend) CreateReplicationTask(
 	defer b.mu.Unlock()
 
 	if _, ok := b.replicationTasks[identifier]; ok {
-		return nil, fmt.Errorf("%w: replication task %s already exists", ErrAlreadyExists, identifier)
+		return nil, fmt.Errorf(
+			"%w: replication task %s already exists",
+			ErrAlreadyExists,
+			identifier,
+		)
 	}
 
 	taskARN := arn.Build("dms", b.region, b.accountID, "task:"+uuid.NewString())
@@ -516,11 +578,15 @@ func (b *InMemoryBackend) StartReplicationTask(arnOrID string) (*ReplicationTask
 		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, arnOrID)
 	}
 
-	if rt.Status == "running" {
-		return nil, fmt.Errorf("%w: replication task %s is already running", ErrInvalidState, arnOrID)
+	if rt.Status == statusRunning {
+		return nil, fmt.Errorf(
+			"%w: replication task %s is already running",
+			ErrInvalidState,
+			arnOrID,
+		)
 	}
 
-	rt.Status = "running"
+	rt.Status = statusRunning
 	cp := *rt
 
 	return &cp, nil
@@ -536,7 +602,7 @@ func (b *InMemoryBackend) StopReplicationTask(arnOrID string) (*ReplicationTask,
 		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, arnOrID)
 	}
 
-	rt.Status = "stopped"
+	rt.Status = statusStopped
 	cp := *rt
 
 	return &cp, nil
@@ -590,38 +656,14 @@ func (b *InMemoryBackend) AddTagsToResource(resourceArn string, kv map[string]st
 	b.mu.Lock("AddTagsToResource")
 	defer b.mu.Unlock()
 
-	if ri, ok := b.replicationInstancesByARN[resourceArn]; ok {
-		ri.Tags.Merge(kv)
-
-		return nil
-	}
-	if ep, ok := b.endpointsByARN[resourceArn]; ok {
-		ep.Tags.Merge(kv)
-
-		return nil
-	}
-	if rt, ok := b.replicationTasksByARN[resourceArn]; ok {
-		rt.Tags.Merge(kv)
-
-		return nil
-	}
-	if dm, ok := b.dataMigrationsByARN[resourceArn]; ok {
-		dm.Tags.Merge(kv)
-
-		return nil
-	}
-	if dp, ok := b.dataProvidersByARN[resourceArn]; ok {
-		dp.Tags.Merge(kv)
-
-		return nil
-	}
-	if ip, ok := b.instanceProfilesByARN[resourceArn]; ok {
-		ip.Tags.Merge(kv)
-
-		return nil
+	t := b.findResourceTags(resourceArn)
+	if t == nil {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
+	t.Merge(kv)
+
+	return nil
 }
 
 // ListTagsForResource returns tags for a DMS resource by ARN.
@@ -629,26 +671,12 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if ri, ok := b.replicationInstancesByARN[resourceArn]; ok {
-		return ri.Tags.Clone(), nil
-	}
-	if ep, ok := b.endpointsByARN[resourceArn]; ok {
-		return ep.Tags.Clone(), nil
-	}
-	if rt, ok := b.replicationTasksByARN[resourceArn]; ok {
-		return rt.Tags.Clone(), nil
-	}
-	if dm, ok := b.dataMigrationsByARN[resourceArn]; ok {
-		return dm.Tags.Clone(), nil
-	}
-	if dp, ok := b.dataProvidersByARN[resourceArn]; ok {
-		return dp.Tags.Clone(), nil
-	}
-	if ip, ok := b.instanceProfilesByARN[resourceArn]; ok {
-		return ip.Tags.Clone(), nil
+	t := b.findResourceTags(resourceArn)
+	if t == nil {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
+	return t.Clone(), nil
 }
 
 // ApplyPendingMaintenanceAction applies a pending maintenance action to a replication instance.
@@ -670,7 +698,11 @@ func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
 		}
 	}
 
-	return nil, fmt.Errorf("%w: replication instance %s not found", ErrNotFound, replicationInstanceArn)
+	return nil, fmt.Errorf(
+		"%w: replication instance %s not found",
+		ErrNotFound,
+		replicationInstanceArn,
+	)
 }
 
 // BatchStartRecommendations starts the analysis to generate recommendations.
@@ -718,7 +750,11 @@ func (b *InMemoryBackend) CancelReplicationTaskAssessmentRun(
 	}
 
 	// In-memory: there are no real assessment runs to cancel; return not-found.
-	return fmt.Errorf("%w: assessment run %s not found", ErrNotFound, replicationTaskAssessmentRunArn)
+	return fmt.Errorf(
+		"%w: assessment run %s not found",
+		ErrNotFound,
+		replicationTaskAssessmentRunArn,
+	)
 }
 
 func isValidMigrationType(s string) bool {
@@ -834,7 +870,11 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	defer b.mu.Unlock()
 
 	if _, ok := b.eventSubscriptions[subscriptionName]; ok {
-		return nil, fmt.Errorf("%w: event subscription %s already exists", ErrAlreadyExists, subscriptionName)
+		return nil, fmt.Errorf(
+			"%w: event subscription %s already exists",
+			ErrAlreadyExists,
+			subscriptionName,
+		)
 	}
 
 	t := tags.New("dms.event-subscription." + subscriptionName + ".tags")
@@ -874,7 +914,11 @@ func (b *InMemoryBackend) CreateFleetAdvisorCollector(
 	defer b.mu.Unlock()
 
 	if _, ok := b.fleetAdvisorCollectors[collectorName]; ok {
-		return nil, fmt.Errorf("%w: Fleet Advisor collector %s already exists", ErrAlreadyExists, collectorName)
+		return nil, fmt.Errorf(
+			"%w: Fleet Advisor collector %s already exists",
+			ErrAlreadyExists,
+			collectorName,
+		)
 	}
 
 	collectorID := uuid.NewString()
@@ -921,7 +965,11 @@ func (b *InMemoryBackend) CreateInstanceProfile(
 	}
 
 	if !isValidNetworkType(networkType) {
-		return nil, fmt.Errorf("%w: invalid NetworkType %q; valid: IPV4, IPV6, DUAL", ErrValidation, networkType)
+		return nil, fmt.Errorf(
+			"%w: invalid NetworkType %q; valid: IPV4, IPV6, DUAL",
+			ErrValidation,
+			networkType,
+		)
 	}
 
 	profileARN := arn.Build("dms", b.region, b.accountID, "instance-profile:"+uuid.NewString())
@@ -999,6 +1047,10 @@ func (b *InMemoryBackend) Reset() {
 	b.fleetAdvisorCollectors = make(map[string]*FleetAdvisorCollector)
 	b.instanceProfiles = make(map[string]*InstanceProfile)
 	b.instanceProfilesByARN = make(map[string]*InstanceProfile)
+	b.certificates = make(map[string]*Certificate)
+	b.replicationSubnetGroups = make(map[string]*ReplicationSubnetGroup)
+	b.migrationProjects = make(map[string]*MigrationProject)
+	b.replicationConfigs = make(map[string]*ReplicationConfig)
 }
 
 // AddReplicationInstanceInternal seeds a replication instance directly without HTTP.
@@ -1046,7 +1098,9 @@ func (b *InMemoryBackend) AddEndpointInternal(identifier, endpointType, engineNa
 }
 
 // AddReplicationTaskInternal seeds a replication task directly without HTTP.
-func (b *InMemoryBackend) AddReplicationTaskInternal(identifier, srcARN, tgtARN, instARN, migrationType string) {
+func (b *InMemoryBackend) AddReplicationTaskInternal(
+	identifier, srcARN, tgtARN, instARN, migrationType string,
+) {
 	b.mu.Lock("AddReplicationTaskInternal")
 	defer b.mu.Unlock()
 	taskARN := arn.Build("dms", b.region, b.accountID, "task:"+uuid.NewString())
@@ -1166,4 +1220,910 @@ func (b *InMemoryBackend) AddInstanceProfileInternal(name string) {
 	}
 	b.instanceProfiles[name] = ip
 	b.instanceProfilesByARN[profileARN] = ip
+}
+
+// PaginationSecret returns the HMAC secret for pagination tokens.
+func (b *InMemoryBackend) PaginationSecret() string { return b.paginationSecret }
+
+// ModifyEndpoint updates endpoint settings.
+func (b *InMemoryBackend) ModifyEndpoint(
+	arnOrID, serverName, databaseName, username string,
+	port int32,
+) (*Endpoint, error) {
+	b.mu.Lock("ModifyEndpoint")
+	defer b.mu.Unlock()
+
+	ep := b.findEndpoint(arnOrID)
+	if ep == nil {
+		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, arnOrID)
+	}
+
+	if serverName != "" {
+		ep.ServerName = serverName
+	}
+
+	if databaseName != "" {
+		ep.DatabaseName = databaseName
+	}
+
+	if username != "" {
+		ep.Username = username
+	}
+
+	if port != 0 {
+		ep.Port = port
+	}
+
+	cp := *ep
+
+	return &cp, nil
+}
+
+// findEndpoint locates an endpoint by identifier or ARN (must hold a lock).
+func (b *InMemoryBackend) findEndpoint(arnOrID string) *Endpoint {
+	if ep, ok := b.endpoints[arnOrID]; ok {
+		return ep
+	}
+
+	for _, ep := range b.endpoints {
+		if ep.EndpointArn == arnOrID {
+			return ep
+		}
+	}
+
+	return nil
+}
+
+// ModifyReplicationInstance updates a replication instance's class and engineVersion.
+func (b *InMemoryBackend) ModifyReplicationInstance(
+	arnOrID, class, engineVersion string,
+	multiAZ, autoMinorVersionUpgrade *bool,
+	allocatedStorage *int32,
+) (*ReplicationInstance, error) {
+	b.mu.Lock("ModifyReplicationInstance")
+	defer b.mu.Unlock()
+
+	ri := b.findReplicationInstance(arnOrID)
+	if ri == nil {
+		return nil, fmt.Errorf("%w: replication instance %s not found", ErrNotFound, arnOrID)
+	}
+
+	if class != "" {
+		ri.ReplicationInstanceClass = class
+	}
+
+	if engineVersion != "" {
+		ri.EngineVersion = engineVersion
+	}
+
+	if multiAZ != nil {
+		ri.MultiAZ = *multiAZ
+	}
+
+	if autoMinorVersionUpgrade != nil {
+		ri.AutoMinorVersionUpgrade = *autoMinorVersionUpgrade
+	}
+
+	if allocatedStorage != nil {
+		ri.AllocatedStorage = *allocatedStorage
+	}
+
+	cp := *ri
+
+	return &cp, nil
+}
+
+// findReplicationInstance locates a replication instance by identifier or ARN (must hold a lock).
+func (b *InMemoryBackend) findReplicationInstance(arnOrID string) *ReplicationInstance {
+	if ri, ok := b.replicationInstances[arnOrID]; ok {
+		return ri
+	}
+
+	for _, ri := range b.replicationInstances {
+		if ri.ReplicationInstanceArn == arnOrID {
+			return ri
+		}
+	}
+
+	return nil
+}
+
+// ModifyReplicationTask updates task settings.
+func (b *InMemoryBackend) ModifyReplicationTask(
+	arnOrID, migrationType, tableMappings, replicationTaskSettings string,
+) (*ReplicationTask, error) {
+	b.mu.Lock("ModifyReplicationTask")
+	defer b.mu.Unlock()
+
+	rt := b.findTask(arnOrID)
+	if rt == nil {
+		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, arnOrID)
+	}
+
+	if migrationType != "" {
+		rt.MigrationType = migrationType
+	}
+
+	if tableMappings != "" {
+		rt.TableMappings = tableMappings
+	}
+
+	if replicationTaskSettings != "" {
+		rt.ReplicationTaskSettings = replicationTaskSettings
+	}
+
+	cp := *rt
+
+	return &cp, nil
+}
+
+// DeleteDataMigration deletes a data migration by name or ARN.
+func (b *InMemoryBackend) DeleteDataMigration(nameOrArn string) (*DataMigration, error) {
+	b.mu.Lock("DeleteDataMigration")
+	defer b.mu.Unlock()
+
+	if dm, ok := b.dataMigrations[nameOrArn]; ok {
+		cp := *dm
+		dm.Tags.Close()
+		delete(b.dataMigrationsByARN, dm.DataMigrationArn)
+		delete(b.dataMigrations, nameOrArn)
+
+		return &cp, nil
+	}
+
+	for id, dm := range b.dataMigrations {
+		if dm.DataMigrationArn == nameOrArn {
+			cp := *dm
+			dm.Tags.Close()
+			delete(b.dataMigrationsByARN, nameOrArn)
+			delete(b.dataMigrations, id)
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, nameOrArn)
+}
+
+// DeleteDataProvider deletes a data provider by name or ARN.
+func (b *InMemoryBackend) DeleteDataProvider(nameOrArn string) (*DataProvider, error) {
+	b.mu.Lock("DeleteDataProvider")
+	defer b.mu.Unlock()
+
+	if dp, ok := b.dataProviders[nameOrArn]; ok {
+		cp := *dp
+		dp.Tags.Close()
+		delete(b.dataProvidersByARN, dp.DataProviderArn)
+		delete(b.dataProviders, nameOrArn)
+
+		return &cp, nil
+	}
+
+	for id, dp := range b.dataProviders {
+		if dp.DataProviderArn == nameOrArn {
+			cp := *dp
+			dp.Tags.Close()
+			delete(b.dataProvidersByARN, nameOrArn)
+			delete(b.dataProviders, id)
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: data provider %s not found", ErrNotFound, nameOrArn)
+}
+
+// DeleteEventSubscription deletes an event subscription by name.
+func (b *InMemoryBackend) DeleteEventSubscription(name string) (*EventSubscription, error) {
+	b.mu.Lock("DeleteEventSubscription")
+	defer b.mu.Unlock()
+
+	es, ok := b.eventSubscriptions[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: event subscription %s not found", ErrNotFound, name)
+	}
+
+	cp := *es
+	cp.SourceIDsList = copyStringsOrEmpty(es.SourceIDsList)
+	cp.EventCategories = copyStringsOrEmpty(es.EventCategories)
+	es.Tags.Close()
+	delete(b.eventSubscriptions, name)
+
+	return &cp, nil
+}
+
+// DeleteFleetAdvisorCollector deletes a fleet advisor collector by name or ID.
+func (b *InMemoryBackend) DeleteFleetAdvisorCollector(nameOrID string) error {
+	b.mu.Lock("DeleteFleetAdvisorCollector")
+	defer b.mu.Unlock()
+
+	if col, ok := b.fleetAdvisorCollectors[nameOrID]; ok {
+		col.Tags.Close()
+		delete(b.fleetAdvisorCollectors, nameOrID)
+
+		return nil
+	}
+
+	for name, col := range b.fleetAdvisorCollectors {
+		if col.CollectorReferencedID == nameOrID {
+			col.Tags.Close()
+			delete(b.fleetAdvisorCollectors, name)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: fleet advisor collector %s not found", ErrNotFound, nameOrID)
+}
+
+// DeleteInstanceProfile deletes an instance profile by name or ARN.
+func (b *InMemoryBackend) DeleteInstanceProfile(nameOrArn string) error {
+	b.mu.Lock("DeleteInstanceProfile")
+	defer b.mu.Unlock()
+
+	if ip, ok := b.instanceProfiles[nameOrArn]; ok {
+		ip.Tags.Close()
+		delete(b.instanceProfilesByARN, ip.InstanceProfileArn)
+		delete(b.instanceProfiles, nameOrArn)
+
+		return nil
+	}
+
+	for name, ip := range b.instanceProfiles {
+		if ip.InstanceProfileArn == nameOrArn {
+			ip.Tags.Close()
+			delete(b.instanceProfilesByARN, nameOrArn)
+			delete(b.instanceProfiles, name)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: instance profile %s not found", ErrNotFound, nameOrArn)
+}
+
+// findResourceTags returns the Tags for a resource ARN (must hold a lock).
+// Returns nil if not found.
+func (b *InMemoryBackend) findResourceTags(resourceArn string) *tags.Tags {
+	if ri, ok := b.replicationInstancesByARN[resourceArn]; ok {
+		return ri.Tags
+	}
+
+	if ep, ok := b.endpointsByARN[resourceArn]; ok {
+		return ep.Tags
+	}
+
+	if rt, ok := b.replicationTasksByARN[resourceArn]; ok {
+		return rt.Tags
+	}
+
+	if dm, ok := b.dataMigrationsByARN[resourceArn]; ok {
+		return dm.Tags
+	}
+
+	if dp, ok := b.dataProvidersByARN[resourceArn]; ok {
+		return dp.Tags
+	}
+
+	if ip, ok := b.instanceProfilesByARN[resourceArn]; ok {
+		return ip.Tags
+	}
+
+	return nil
+}
+
+// RemoveTagsFromResource removes tags from a DMS resource by ARN.
+func (b *InMemoryBackend) RemoveTagsFromResource(resourceArn string, tagKeys []string) error {
+	b.mu.Lock("RemoveTagsFromResource")
+	defer b.mu.Unlock()
+
+	t := b.findResourceTags(resourceArn)
+	if t == nil {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceArn)
+	}
+
+	t.DeleteKeys(tagKeys)
+
+	return nil
+}
+
+// ModifyDataMigration updates a data migration.
+func (b *InMemoryBackend) ModifyDataMigration(
+	nameOrArn, migrationType, serviceAccessRoleArn string,
+	numberOfJobs *int32,
+) (*DataMigration, error) {
+	b.mu.Lock("ModifyDataMigration")
+	defer b.mu.Unlock()
+
+	dm := b.findDataMigration(nameOrArn)
+	if dm == nil {
+		return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, nameOrArn)
+	}
+
+	if migrationType != "" {
+		dm.DataMigrationType = migrationType
+	}
+
+	if serviceAccessRoleArn != "" {
+		dm.ServiceAccessRoleArn = serviceAccessRoleArn
+	}
+
+	if numberOfJobs != nil {
+		dm.NumberOfJobs = *numberOfJobs
+	}
+
+	cp := *dm
+
+	return &cp, nil
+}
+
+// findDataMigration locates a data migration by name or ARN (must hold a lock).
+func (b *InMemoryBackend) findDataMigration(nameOrArn string) *DataMigration {
+	if dm, ok := b.dataMigrations[nameOrArn]; ok {
+		return dm
+	}
+
+	for _, dm := range b.dataMigrations {
+		if dm.DataMigrationArn == nameOrArn {
+			return dm
+		}
+	}
+
+	return nil
+}
+
+// ModifyDataProvider updates a data provider.
+func (b *InMemoryBackend) ModifyDataProvider(
+	nameOrArn, engine, description string,
+) (*DataProvider, error) {
+	b.mu.Lock("ModifyDataProvider")
+	defer b.mu.Unlock()
+
+	dp := b.findDataProvider(nameOrArn)
+	if dp == nil {
+		return nil, fmt.Errorf("%w: data provider %s not found", ErrNotFound, nameOrArn)
+	}
+
+	if engine != "" {
+		dp.Engine = engine
+	}
+
+	if description != "" {
+		dp.Description = description
+	}
+
+	cp := *dp
+
+	return &cp, nil
+}
+
+// findDataProvider locates a data provider by name or ARN (must hold a lock).
+func (b *InMemoryBackend) findDataProvider(nameOrArn string) *DataProvider {
+	if dp, ok := b.dataProviders[nameOrArn]; ok {
+		return dp
+	}
+
+	for _, dp := range b.dataProviders {
+		if dp.DataProviderArn == nameOrArn {
+			return dp
+		}
+	}
+
+	return nil
+}
+
+// ModifyEventSubscription updates an event subscription.
+func (b *InMemoryBackend) ModifyEventSubscription(
+	name string,
+	enabled *bool,
+) (*EventSubscription, error) {
+	b.mu.Lock("ModifyEventSubscription")
+	defer b.mu.Unlock()
+
+	es, ok := b.eventSubscriptions[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: event subscription %s not found", ErrNotFound, name)
+	}
+
+	if enabled != nil {
+		es.Enabled = *enabled
+	}
+
+	cp := *es
+	cp.SourceIDsList = copyStringsOrEmpty(es.SourceIDsList)
+	cp.EventCategories = copyStringsOrEmpty(es.EventCategories)
+
+	return &cp, nil
+}
+
+// ModifyInstanceProfile updates an instance profile.
+func (b *InMemoryBackend) ModifyInstanceProfile(
+	nameOrArn, availabilityZone, description, networkType string,
+) (*InstanceProfile, error) {
+	b.mu.Lock("ModifyInstanceProfile")
+	defer b.mu.Unlock()
+
+	ip := b.findInstanceProfile(nameOrArn)
+	if ip == nil {
+		return nil, fmt.Errorf("%w: instance profile %s not found", ErrNotFound, nameOrArn)
+	}
+
+	if availabilityZone != "" {
+		ip.AvailabilityZone = availabilityZone
+	}
+
+	if description != "" {
+		ip.Description = description
+	}
+
+	if networkType != "" {
+		ip.NetworkType = networkType
+	}
+
+	cp := *ip
+
+	return &cp, nil
+}
+
+// findInstanceProfile locates an instance profile by name or ARN (must hold a lock).
+func (b *InMemoryBackend) findInstanceProfile(nameOrArn string) *InstanceProfile {
+	if ip, ok := b.instanceProfiles[nameOrArn]; ok {
+		return ip
+	}
+
+	for _, ip := range b.instanceProfiles {
+		if ip.InstanceProfileArn == nameOrArn {
+			return ip
+		}
+	}
+
+	return nil
+}
+
+// StartDataMigration transitions a data migration to running status.
+func (b *InMemoryBackend) StartDataMigration(nameOrArn string) (*DataMigration, error) {
+	b.mu.Lock("StartDataMigration")
+	defer b.mu.Unlock()
+
+	dm := b.findDataMigration(nameOrArn)
+	if dm == nil {
+		return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, nameOrArn)
+	}
+
+	dm.DataMigrationStatus = statusRunning
+	cp := *dm
+
+	return &cp, nil
+}
+
+// StopDataMigration transitions a data migration to stopped status.
+func (b *InMemoryBackend) StopDataMigration(nameOrArn string) (*DataMigration, error) {
+	b.mu.Lock("StopDataMigration")
+	defer b.mu.Unlock()
+
+	dm := b.findDataMigration(nameOrArn)
+	if dm == nil {
+		return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, nameOrArn)
+	}
+
+	dm.DataMigrationStatus = statusStopped
+	cp := *dm
+
+	return &cp, nil
+}
+
+// RebootReplicationInstance reboots a replication instance (no-op in memory).
+func (b *InMemoryBackend) RebootReplicationInstance(arnOrID string) (*ReplicationInstance, error) {
+	b.mu.RLock("RebootReplicationInstance")
+	defer b.mu.RUnlock()
+
+	ri := b.findReplicationInstance(arnOrID)
+	if ri == nil {
+		return nil, fmt.Errorf("%w: replication instance %s not found", ErrNotFound, arnOrID)
+	}
+
+	cp := *ri
+
+	return &cp, nil
+}
+
+// MoveReplicationTask moves a replication task to a different instance.
+func (b *InMemoryBackend) MoveReplicationTask(
+	taskArnOrID, targetInstanceArn string,
+) (*ReplicationTask, error) {
+	b.mu.Lock("MoveReplicationTask")
+	defer b.mu.Unlock()
+
+	rt := b.findTask(taskArnOrID)
+	if rt == nil {
+		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, taskArnOrID)
+	}
+
+	rt.ReplicationInstanceArn = targetInstanceArn
+	cp := *rt
+
+	return &cp, nil
+}
+
+// TestConnection tests a DMS connection (always succeeds in memory).
+func (b *InMemoryBackend) TestConnection(replicationInstanceArn, endpointArn string) error {
+	b.mu.RLock("TestConnection")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.replicationInstancesByARN[replicationInstanceArn]; !ok {
+		return fmt.Errorf(
+			"%w: replication instance %s not found",
+			ErrNotFound,
+			replicationInstanceArn,
+		)
+	}
+
+	if _, ok := b.endpointsByARN[endpointArn]; !ok {
+		return fmt.Errorf("%w: endpoint %s not found", ErrNotFound, endpointArn)
+	}
+
+	return nil
+}
+
+// ImportCertificate creates a certificate record.
+func (b *InMemoryBackend) ImportCertificate(identifier, certPem string) (*Certificate, error) {
+	b.mu.Lock("ImportCertificate")
+	defer b.mu.Unlock()
+
+	if _, ok := b.certificates[identifier]; ok {
+		return nil, fmt.Errorf("%w: certificate %s already exists", ErrAlreadyExists, identifier)
+	}
+
+	certARN := arn.Build("dms", b.region, b.accountID, "certificate:"+identifier)
+	cert := &Certificate{
+		CertificateIdentifier: identifier,
+		CertificateArn:        certARN,
+		CertificatePem:        certPem,
+		AccountID:             b.accountID,
+		Region:                b.region,
+	}
+	b.certificates[identifier] = cert
+	cp := *cert
+
+	return &cp, nil
+}
+
+// DeleteCertificate deletes a certificate by identifier or ARN.
+func (b *InMemoryBackend) DeleteCertificate(identifierOrArn string) (*Certificate, error) {
+	b.mu.Lock("DeleteCertificate")
+	defer b.mu.Unlock()
+
+	if cert, ok := b.certificates[identifierOrArn]; ok {
+		cp := *cert
+		delete(b.certificates, identifierOrArn)
+
+		return &cp, nil
+	}
+
+	for id, cert := range b.certificates {
+		if cert.CertificateArn == identifierOrArn {
+			cp := *cert
+			delete(b.certificates, id)
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: certificate %s not found", ErrNotFound, identifierOrArn)
+}
+
+// CreateMigrationProject creates a migration project.
+func (b *InMemoryBackend) CreateMigrationProject(
+	name, description string,
+) (*MigrationProject, error) {
+	b.mu.Lock("CreateMigrationProject")
+	defer b.mu.Unlock()
+
+	if _, ok := b.migrationProjects[name]; ok {
+		return nil, fmt.Errorf("%w: migration project %s already exists", ErrAlreadyExists, name)
+	}
+
+	projectARN := arn.Build("dms", b.region, b.accountID, "migration-project:"+uuid.NewString())
+	mp := &MigrationProject{
+		MigrationProjectName:       name,
+		MigrationProjectArn:        projectARN,
+		MigrationProjectIdentifier: name,
+		Description:                description,
+		AccountID:                  b.accountID,
+		Region:                     b.region,
+	}
+	b.migrationProjects[name] = mp
+	cp := *mp
+
+	return &cp, nil
+}
+
+// DeleteMigrationProject deletes a migration project by name or ARN.
+func (b *InMemoryBackend) DeleteMigrationProject(nameOrArn string) error {
+	b.mu.Lock("DeleteMigrationProject")
+	defer b.mu.Unlock()
+
+	if _, ok := b.migrationProjects[nameOrArn]; ok {
+		delete(b.migrationProjects, nameOrArn)
+
+		return nil
+	}
+
+	for name, mp := range b.migrationProjects {
+		if mp.MigrationProjectArn == nameOrArn {
+			delete(b.migrationProjects, name)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: migration project %s not found", ErrNotFound, nameOrArn)
+}
+
+// CreateReplicationSubnetGroup creates a subnet group.
+func (b *InMemoryBackend) CreateReplicationSubnetGroup(
+	identifier, description, vpcID string,
+) (*ReplicationSubnetGroup, error) {
+	b.mu.Lock("CreateReplicationSubnetGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.replicationSubnetGroups[identifier]; ok {
+		return nil, fmt.Errorf(
+			"%w: replication subnet group %s already exists",
+			ErrAlreadyExists,
+			identifier,
+		)
+	}
+
+	sgARN := arn.Build("dms", b.region, b.accountID, "subgrp:"+identifier)
+	sg := &ReplicationSubnetGroup{
+		ReplicationSubnetGroupIdentifier:  identifier,
+		ReplicationSubnetGroupArn:         sgARN,
+		ReplicationSubnetGroupDescription: description,
+		VpcID:                             vpcID,
+		AccountID:                         b.accountID,
+		Region:                            b.region,
+	}
+	b.replicationSubnetGroups[identifier] = sg
+	cp := *sg
+
+	return &cp, nil
+}
+
+// DeleteReplicationSubnetGroup deletes a subnet group by identifier or ARN.
+func (b *InMemoryBackend) DeleteReplicationSubnetGroup(identifierOrArn string) error {
+	b.mu.Lock("DeleteReplicationSubnetGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.replicationSubnetGroups[identifierOrArn]; ok {
+		delete(b.replicationSubnetGroups, identifierOrArn)
+
+		return nil
+	}
+
+	for id, sg := range b.replicationSubnetGroups {
+		if sg.ReplicationSubnetGroupArn == identifierOrArn {
+			delete(b.replicationSubnetGroups, id)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: replication subnet group %s not found", ErrNotFound, identifierOrArn)
+}
+
+// CreateReplicationConfig creates a replication config.
+func (b *InMemoryBackend) CreateReplicationConfig(
+	identifier, replicationType, sourceEndpointArn, targetEndpointArn string,
+) (*ReplicationConfig, error) {
+	b.mu.Lock("CreateReplicationConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.replicationConfigs[identifier]; ok {
+		return nil, fmt.Errorf(
+			"%w: replication config %s already exists",
+			ErrAlreadyExists,
+			identifier,
+		)
+	}
+
+	configARN := arn.Build("dms", b.region, b.accountID, "replication-config:"+uuid.NewString())
+	rc := &ReplicationConfig{
+		ReplicationConfigIdentifier: identifier,
+		ReplicationConfigArn:        configARN,
+		ReplicationType:             replicationType,
+		SourceEndpointArn:           sourceEndpointArn,
+		TargetEndpointArn:           targetEndpointArn,
+		AccountID:                   b.accountID,
+		Region:                      b.region,
+	}
+	b.replicationConfigs[identifier] = rc
+	cp := *rc
+
+	return &cp, nil
+}
+
+// DeleteReplicationConfig deletes a replication config by identifier or ARN.
+func (b *InMemoryBackend) DeleteReplicationConfig(identifierOrArn string) error {
+	b.mu.Lock("DeleteReplicationConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.replicationConfigs[identifierOrArn]; ok {
+		delete(b.replicationConfigs, identifierOrArn)
+
+		return nil
+	}
+
+	for id, rc := range b.replicationConfigs {
+		if rc.ReplicationConfigArn == identifierOrArn {
+			delete(b.replicationConfigs, id)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: replication config %s not found", ErrNotFound, identifierOrArn)
+}
+
+// DescribeDataMigrations returns all data migrations (optionally filtered by name/arn).
+func (b *InMemoryBackend) DescribeDataMigrations(nameOrArn string) ([]*DataMigration, error) {
+	b.mu.RLock("DescribeDataMigrations")
+	defer b.mu.RUnlock()
+
+	if nameOrArn != "" {
+		dm := b.findDataMigration(nameOrArn)
+		if dm == nil {
+			return []*DataMigration{}, nil
+		}
+
+		cp := *dm
+
+		return []*DataMigration{&cp}, nil
+	}
+
+	list := make([]*DataMigration, 0, len(b.dataMigrations))
+	for _, dm := range b.dataMigrations {
+		cp := *dm
+		list = append(list, &cp)
+	}
+
+	return list, nil
+}
+
+// DescribeDataProviders returns all data providers (optionally filtered by name/arn).
+func (b *InMemoryBackend) DescribeDataProviders(nameOrArn string) ([]*DataProvider, error) {
+	b.mu.RLock("DescribeDataProviders")
+	defer b.mu.RUnlock()
+
+	if nameOrArn != "" {
+		dp := b.findDataProvider(nameOrArn)
+		if dp == nil {
+			return []*DataProvider{}, nil
+		}
+
+		cp := *dp
+
+		return []*DataProvider{&cp}, nil
+	}
+
+	list := make([]*DataProvider, 0, len(b.dataProviders))
+	for _, dp := range b.dataProviders {
+		cp := *dp
+		list = append(list, &cp)
+	}
+
+	return list, nil
+}
+
+// DescribeEventSubscriptions returns all event subscriptions (optionally filtered by name).
+func (b *InMemoryBackend) DescribeEventSubscriptions(name string) ([]*EventSubscription, error) {
+	b.mu.RLock("DescribeEventSubscriptions")
+	defer b.mu.RUnlock()
+
+	if name != "" {
+		es, ok := b.eventSubscriptions[name]
+		if !ok {
+			return []*EventSubscription{}, nil
+		}
+
+		cp := *es
+		cp.SourceIDsList = copyStringsOrEmpty(es.SourceIDsList)
+		cp.EventCategories = copyStringsOrEmpty(es.EventCategories)
+
+		return []*EventSubscription{&cp}, nil
+	}
+
+	list := make([]*EventSubscription, 0, len(b.eventSubscriptions))
+	for _, es := range b.eventSubscriptions {
+		cp := *es
+		cp.SourceIDsList = copyStringsOrEmpty(es.SourceIDsList)
+		cp.EventCategories = copyStringsOrEmpty(es.EventCategories)
+		list = append(list, &cp)
+	}
+
+	return list, nil
+}
+
+// DescribeFleetAdvisorCollectors returns all fleet advisor collectors.
+func (b *InMemoryBackend) DescribeFleetAdvisorCollectors() ([]*FleetAdvisorCollector, error) {
+	b.mu.RLock("DescribeFleetAdvisorCollectors")
+	defer b.mu.RUnlock()
+
+	list := make([]*FleetAdvisorCollector, 0, len(b.fleetAdvisorCollectors))
+	for _, col := range b.fleetAdvisorCollectors {
+		cp := *col
+		list = append(list, &cp)
+	}
+
+	return list, nil
+}
+
+// DescribeInstanceProfiles returns all instance profiles.
+func (b *InMemoryBackend) DescribeInstanceProfiles() ([]*InstanceProfile, error) {
+	b.mu.RLock("DescribeInstanceProfiles")
+	defer b.mu.RUnlock()
+
+	list := make([]*InstanceProfile, 0, len(b.instanceProfiles))
+	for _, ip := range b.instanceProfiles {
+		cp := *ip
+		list = append(list, &cp)
+	}
+
+	return list, nil
+}
+
+// DescribeMigrationProjects returns all migration projects.
+func (b *InMemoryBackend) DescribeMigrationProjects() ([]*MigrationProject, error) {
+	b.mu.RLock("DescribeMigrationProjects")
+	defer b.mu.RUnlock()
+
+	list := make([]*MigrationProject, 0, len(b.migrationProjects))
+	for _, mp := range b.migrationProjects {
+		cp := *mp
+		list = append(list, &cp)
+	}
+
+	return list, nil
+}
+
+// DescribeReplicationSubnetGroups returns all subnet groups.
+func (b *InMemoryBackend) DescribeReplicationSubnetGroups() ([]*ReplicationSubnetGroup, error) {
+	b.mu.RLock("DescribeReplicationSubnetGroups")
+	defer b.mu.RUnlock()
+
+	list := make([]*ReplicationSubnetGroup, 0, len(b.replicationSubnetGroups))
+	for _, sg := range b.replicationSubnetGroups {
+		cp := *sg
+		list = append(list, &cp)
+	}
+
+	return list, nil
+}
+
+// DescribeReplicationConfigs returns all replication configs.
+func (b *InMemoryBackend) DescribeReplicationConfigs() ([]*ReplicationConfig, error) {
+	b.mu.RLock("DescribeReplicationConfigs")
+	defer b.mu.RUnlock()
+
+	list := make([]*ReplicationConfig, 0, len(b.replicationConfigs))
+	for _, rc := range b.replicationConfigs {
+		cp := *rc
+		list = append(list, &cp)
+	}
+
+	return list, nil
+}
+
+// DescribeCertificates returns all certificates.
+func (b *InMemoryBackend) DescribeCertificates() ([]*Certificate, error) {
+	b.mu.RLock("DescribeCertificates")
+	defer b.mu.RUnlock()
+
+	list := make([]*Certificate, 0, len(b.certificates))
+	for _, cert := range b.certificates {
+		cp := *cert
+		list = append(list, &cp)
+	}
+
+	return list, nil
 }
