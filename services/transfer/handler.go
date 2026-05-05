@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -806,10 +807,56 @@ func (h *Handler) handleDeleteAgreement(
 
 // --- Connector operations ---
 
+type connectorSftpConfigInput struct {
+	UserSecretID    string   `json:"UserSecretId,omitempty"`
+	TrustedHostKeys []string `json:"TrustedHostKeys,omitempty"`
+}
+
+type connectorAs2ConfigInput struct {
+	LocalProfileID      string `json:"LocalProfileId,omitempty"`
+	PartnerProfileID    string `json:"PartnerProfileId,omitempty"`
+	SigningAlgorithm    string `json:"SigningAlgorithm,omitempty"`
+	EncryptionAlgorithm string `json:"EncryptionAlgorithm,omitempty"`
+	MdnSigningAlgorithm string `json:"MdnSigningAlgorithm,omitempty"`
+	MdnResponse         string `json:"MdnResponse,omitempty"`
+	MessageSubject      string `json:"MessageSubject,omitempty"`
+	Compression         string `json:"Compression,omitempty"`
+}
+
+func toConnectorSftpConfig(in *connectorSftpConfigInput) *ConnectorSftpConfig {
+	if in == nil {
+		return nil
+	}
+
+	return &ConnectorSftpConfig{
+		TrustedHostKeys: in.TrustedHostKeys,
+		UserSecretID:    in.UserSecretID,
+	}
+}
+
+func toConnectorAs2Config(in *connectorAs2ConfigInput) *ConnectorAs2Config {
+	if in == nil {
+		return nil
+	}
+
+	return &ConnectorAs2Config{
+		LocalProfileID:      in.LocalProfileID,
+		PartnerProfileID:    in.PartnerProfileID,
+		SigningAlgorithm:    in.SigningAlgorithm,
+		EncryptionAlgorithm: in.EncryptionAlgorithm,
+		MdnSigningAlgorithm: in.MdnSigningAlgorithm,
+		MdnResponse:         in.MdnResponse,
+		MessageSubject:      in.MessageSubject,
+		Compression:         in.Compression,
+	}
+}
+
 type createConnectorInput struct {
-	URL        string              `json:"Url"`
-	AccessRole string              `json:"AccessRole"`
-	Tags       []map[string]string `json:"Tags"`
+	SftpConfig *connectorSftpConfigInput `json:"SftpConfig,omitempty"`
+	As2Config  *connectorAs2ConfigInput  `json:"As2Config,omitempty"`
+	URL        string                    `json:"Url"`
+	AccessRole string                    `json:"AccessRole"`
+	Tags       []map[string]string       `json:"Tags"`
 }
 
 type createConnectorOutput struct {
@@ -826,7 +873,13 @@ func (h *Handler) handleCreateConnector(
 
 	tags := tagsFromList(in.Tags)
 
-	c, err := h.Backend.CreateConnector(in.URL, in.AccessRole, tags)
+	c, err := h.Backend.CreateConnector(
+		in.URL,
+		in.AccessRole,
+		toConnectorSftpConfig(in.SftpConfig),
+		toConnectorAs2Config(in.As2Config),
+		tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -909,13 +962,33 @@ func (h *Handler) handleCreateWebApp(
 
 // --- Workflow operations ---
 
+type workflowStepInput struct {
+	StepDetails map[string]any `json:"CopyStepDetails,omitempty"`
+	Type        string         `json:"Type"`
+}
+
 type createWorkflowInput struct {
-	Description string              `json:"Description"`
-	Tags        []map[string]string `json:"Tags"`
+	Description      string              `json:"Description"`
+	Steps            []workflowStepInput `json:"Steps,omitempty"`
+	OnExceptionSteps []workflowStepInput `json:"OnExceptionSteps,omitempty"`
+	Tags             []map[string]string `json:"Tags"`
 }
 
 type createWorkflowOutput struct {
 	WorkflowID string `json:"WorkflowId"`
+}
+
+func toWorkflowSteps(inputs []workflowStepInput) []WorkflowStep {
+	if inputs == nil {
+		return nil
+	}
+
+	out := make([]WorkflowStep, len(inputs))
+	for i, s := range inputs {
+		out[i] = WorkflowStep(s)
+	}
+
+	return out
 }
 
 func (h *Handler) handleCreateWorkflow(
@@ -924,7 +997,12 @@ func (h *Handler) handleCreateWorkflow(
 ) (*createWorkflowOutput, error) {
 	tags := tagsFromList(in.Tags)
 
-	wf, err := h.Backend.CreateWorkflow(in.Description, tags)
+	wf, err := h.Backend.CreateWorkflow(
+		in.Description,
+		toWorkflowSteps(in.Steps),
+		toWorkflowSteps(in.OnExceptionSteps),
+		tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1236,9 +1314,11 @@ func (h *Handler) handleListConnectors(
 }
 
 type updateConnectorInput struct {
-	ConnectorID string `json:"ConnectorId"`
-	URL         string `json:"Url"`
-	AccessRole  string `json:"AccessRole"`
+	SftpConfig  *connectorSftpConfigInput `json:"SftpConfig,omitempty"`
+	As2Config   *connectorAs2ConfigInput  `json:"As2Config,omitempty"`
+	ConnectorID string                    `json:"ConnectorId"`
+	URL         string                    `json:"Url"`
+	AccessRole  string                    `json:"AccessRole"`
 }
 
 type updateConnectorOutput struct {
@@ -1253,7 +1333,13 @@ func (h *Handler) handleUpdateConnector(
 		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
 
-	c, err := h.Backend.UpdateConnector(in.ConnectorID, in.URL, in.AccessRole)
+	c, err := h.Backend.UpdateConnector(
+		in.ConnectorID,
+		in.URL,
+		in.AccessRole,
+		toConnectorSftpConfig(in.SftpConfig),
+		toConnectorAs2Config(in.As2Config),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1451,8 +1537,18 @@ func (h *Handler) handleListWebApps(
 	return &listWebAppsOutput{WebApps: out, NextToken: next}, nil
 }
 
+type webAppIdentityProviderDetailsInput struct {
+	IdentityProviderType string `json:"IdentityProviderType,omitempty"`
+	InstanceArn          string `json:"InstanceArn,omitempty"`
+	Role                 string `json:"Role,omitempty"`
+	URL                  string `json:"Url,omitempty"`
+	Directory            string `json:"Directory,omitempty"`
+	Function             string `json:"Function,omitempty"`
+}
+
 type updateWebAppInput struct {
-	WebAppID string `json:"WebAppId"`
+	IdentityProviderDetails *webAppIdentityProviderDetailsInput `json:"IdentityProviderDetails,omitempty"`
+	WebAppID                string                              `json:"WebAppId"`
 }
 
 type updateWebAppOutput struct {
@@ -1467,7 +1563,19 @@ func (h *Handler) handleUpdateWebApp(
 		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.UpdateWebApp(in.WebAppID)
+	var ipd *WebAppIdentityProviderDetails
+	if in.IdentityProviderDetails != nil {
+		ipd = &WebAppIdentityProviderDetails{
+			IdentityProviderType: in.IdentityProviderDetails.IdentityProviderType,
+			InstanceArn:          in.IdentityProviderDetails.InstanceArn,
+			Role:                 in.IdentityProviderDetails.Role,
+			URL:                  in.IdentityProviderDetails.URL,
+			Directory:            in.IdentityProviderDetails.Directory,
+			Function:             in.IdentityProviderDetails.Function,
+		}
+	}
+
+	w, err := h.Backend.UpdateWebApp(in.WebAppID, ipd)
 	if err != nil {
 		return nil, err
 	}
@@ -1579,10 +1687,12 @@ func (h *Handler) handleListWorkflows(
 // --- Extended Certificate operations ---
 
 type importCertificateInput struct {
-	Usage       string              `json:"Usage"`
-	Body        string              `json:"Certificate"`
-	Description string              `json:"Description"`
-	Tags        []map[string]string `json:"Tags"`
+	Usage         string              `json:"Usage"`
+	Body          string              `json:"Certificate"`
+	Description   string              `json:"Description,omitempty"`
+	NotBeforeDate string              `json:"NotBeforeDate,omitempty"` // RFC3339
+	NotAfterDate  string              `json:"NotAfterDate,omitempty"`  // RFC3339
+	Tags          []map[string]string `json:"Tags"`
 }
 
 type importCertificateOutput struct {
@@ -1595,7 +1705,28 @@ func (h *Handler) handleImportCertificate(
 ) (*importCertificateOutput, error) {
 	tags := tagsFromList(in.Tags)
 
-	c, err := h.Backend.ImportCertificate(in.Usage, in.Body, in.Description, tags)
+	var notBefore, notAfter time.Time
+
+	if in.NotBeforeDate != "" {
+		if t, err := time.Parse(time.RFC3339, in.NotBeforeDate); err == nil {
+			notBefore = t
+		}
+	}
+
+	if in.NotAfterDate != "" {
+		if t, err := time.Parse(time.RFC3339, in.NotAfterDate); err == nil {
+			notAfter = t
+		}
+	}
+
+	c, err := h.Backend.ImportCertificate(
+		in.Usage,
+		in.Body,
+		in.Description,
+		notBefore,
+		notAfter,
+		tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2069,7 +2200,10 @@ func (h *Handler) handleTestIdentityProvider(
 	_ context.Context,
 	_ *struct{},
 ) (*map[string]any, error) {
-	return &map[string]any{"StatusCode": http.StatusOK, "Message": "Identity provider test successful"}, nil
+	return &map[string]any{
+		"StatusCode": http.StatusOK,
+		"Message":    "Identity provider test successful",
+	}, nil
 }
 
 // tagsToList converts a map of tags to the AWS list format sorted by key.

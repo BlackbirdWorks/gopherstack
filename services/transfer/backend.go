@@ -1,9 +1,12 @@
 package transfer
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -71,6 +74,7 @@ const (
 // Agreement status constants.
 const (
 	agreementStatusActive = "ACTIVE"
+	defaultHostKeyType    = "ssh-rsa"
 )
 
 // Server represents an AWS Transfer Family server.
@@ -402,6 +406,7 @@ type InMemoryBackend struct {
 	certificates  map[string]*Certificate
 	hostKeys      map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
 	sshPublicKeys map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
+	executions    map[string]map[string]*Execution               // workflowID -> executionID -> Execution
 	tagsStore     map[string]map[string]string                   // arn -> tags
 	mu            *lockmetrics.RWMutex
 	accountID     string
@@ -422,6 +427,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		certificates:  make(map[string]*Certificate),
 		hostKeys:      make(map[string]map[string]*HostKey),
 		sshPublicKeys: make(map[string]map[string]map[string]*SSHPublicKey),
+		executions:    make(map[string]map[string]*Execution),
 		tagsStore:     make(map[string]map[string]string),
 		accountID:     accountID,
 		region:        region,
@@ -722,6 +728,7 @@ func (b *InMemoryBackend) Reset() {
 	b.certificates = make(map[string]*Certificate)
 	b.hostKeys = make(map[string]map[string]*HostKey)
 	b.sshPublicKeys = make(map[string]map[string]map[string]*SSHPublicKey)
+	b.executions = make(map[string]map[string]*Execution)
 	b.tagsStore = make(map[string]map[string]string)
 }
 
@@ -868,6 +875,8 @@ func (b *InMemoryBackend) DeleteAgreement(serverID, agreementID string) error {
 // CreateConnector creates a Transfer connector. URL is required.
 func (b *InMemoryBackend) CreateConnector(
 	url, accessRole string,
+	sftpConfig *ConnectorSftpConfig,
+	as2Config *ConnectorAs2Config,
 	tags map[string]string,
 ) (*Connector, error) {
 	if url == "" {
@@ -886,6 +895,8 @@ func (b *InMemoryBackend) CreateConnector(
 		ConnectorID: connectorID,
 		URL:         url,
 		AccessRole:  accessRole,
+		SftpConfig:  sftpConfig,
+		As2Config:   as2Config,
 		CreatedAt:   time.Now(),
 		Tags:        merged,
 		AccountID:   b.accountID,
@@ -973,6 +984,8 @@ func (b *InMemoryBackend) CreateWebApp(tags map[string]string) (*WebApp, error) 
 // CreateWorkflow creates a Transfer workflow.
 func (b *InMemoryBackend) CreateWorkflow(
 	description string,
+	steps []WorkflowStep,
+	onExceptionSteps []WorkflowStep,
 	tags map[string]string,
 ) (*Workflow, error) {
 	b.mu.Lock("CreateWorkflow")
@@ -984,12 +997,14 @@ func (b *InMemoryBackend) CreateWorkflow(
 	maps.Copy(merged, tags)
 
 	wf := &Workflow{
-		WorkflowID:  workflowID,
-		Description: description,
-		CreatedAt:   time.Now(),
-		Tags:        merged,
-		AccountID:   b.accountID,
-		Region:      b.region,
+		WorkflowID:       workflowID,
+		Description:      description,
+		Steps:            cloneWorkflowSteps(steps),
+		OnExceptionSteps: cloneWorkflowSteps(onExceptionSteps),
+		CreatedAt:        time.Now(),
+		Tags:             merged,
+		AccountID:        b.accountID,
+		Region:           b.region,
 	}
 	b.workflows[workflowID] = wf
 
@@ -1182,6 +1197,17 @@ func (b *InMemoryBackend) UpdateAgreement(
 	}
 
 	if status != "" {
+		switch status {
+		case "ACTIVE", "INACTIVE":
+			// valid
+		default:
+			return nil, fmt.Errorf(
+				"%w: Status must be ACTIVE or INACTIVE, got %q",
+				ErrValidation,
+				status,
+			)
+		}
+
 		ag.Status = status
 	}
 
@@ -1220,7 +1246,11 @@ func (b *InMemoryBackend) ListConnectors() []*Connector {
 }
 
 // UpdateConnector updates mutable fields on a connector.
-func (b *InMemoryBackend) UpdateConnector(connectorID, url, accessRole string) (*Connector, error) {
+func (b *InMemoryBackend) UpdateConnector(
+	connectorID, url, accessRole string,
+	sftpConfig *ConnectorSftpConfig,
+	as2Config *ConnectorAs2Config,
+) (*Connector, error) {
 	b.mu.Lock("UpdateConnector")
 	defer b.mu.Unlock()
 
@@ -1235,6 +1265,14 @@ func (b *InMemoryBackend) UpdateConnector(connectorID, url, accessRole string) (
 
 	if accessRole != "" {
 		c.AccessRole = accessRole
+	}
+
+	if sftpConfig != nil {
+		c.SftpConfig = sftpConfig
+	}
+
+	if as2Config != nil {
+		c.As2Config = as2Config
 	}
 
 	return cloneConnector(c), nil
@@ -1347,14 +1385,21 @@ func (b *InMemoryBackend) ListWebApps() []*WebApp {
 	return out
 }
 
-// UpdateWebApp updates mutable fields on a web app (currently a no-op placeholder).
-func (b *InMemoryBackend) UpdateWebApp(webAppID string) (*WebApp, error) {
+// UpdateWebApp updates mutable fields on a web app.
+func (b *InMemoryBackend) UpdateWebApp(
+	webAppID string,
+	identityProviderDetails *WebAppIdentityProviderDetails,
+) (*WebApp, error) {
 	b.mu.Lock("UpdateWebApp")
 	defer b.mu.Unlock()
 
 	w, ok := b.webApps[webAppID]
 	if !ok {
 		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+	}
+
+	if identityProviderDetails != nil {
+		w.IdentityProviderDetails = identityProviderDetails
 	}
 
 	return cloneWebApp(w), nil
@@ -1406,14 +1451,25 @@ func (b *InMemoryBackend) ListWorkflows() []*Workflow {
 }
 
 // ImportCertificate imports a certificate.
+// notBefore and notAfter are optional; zero values use defaults (now and +1 year).
 func (b *InMemoryBackend) ImportCertificate(
 	usage, body, description string,
+	notBefore, notAfter time.Time,
 	tags map[string]string,
 ) (*Certificate, error) {
 	b.mu.Lock("ImportCertificate")
 	defer b.mu.Unlock()
 
 	certID := "cert-" + uuid.NewString()[:20]
+
+	now := time.Now()
+	if notBefore.IsZero() {
+		notBefore = now
+	}
+
+	if notAfter.IsZero() {
+		notAfter = now.AddDate(1, 0, 0)
+	}
 
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)
@@ -1424,24 +1480,20 @@ func (b *InMemoryBackend) ImportCertificate(
 		Body:          body,
 		Description:   description,
 		Status:        "ACTIVE",
-		CreatedAt:     time.Now(),
+		NotBeforeDate: notBefore,
+		NotAfterDate:  notAfter,
+		CreatedAt:     now,
 		Tags:          merged,
 		AccountID:     b.accountID,
 		Region:        b.region,
 	}
 	b.certificates[certID] = c
 
-	return &Certificate{
-		CertificateID: c.CertificateID,
-		Usage:         c.Usage,
-		Body:          c.Body,
-		Description:   c.Description,
-		Status:        c.Status,
-		CreatedAt:     c.CreatedAt,
-		Tags:          merged,
-		AccountID:     c.AccountID,
-		Region:        c.Region,
-	}, nil
+	cp := *c
+	cp.Tags = make(map[string]string, len(merged))
+	maps.Copy(cp.Tags, merged)
+
+	return &cp, nil
 }
 
 // DescribeCertificate returns a certificate by ID.
@@ -1539,7 +1591,7 @@ func (b *InMemoryBackend) ImportHostKey(
 		ServerID:    serverID,
 		Description: description,
 		Value:       hostKeyBody,
-		Type:        "ssh-rsa",
+		Type:        detectHostKeyType(hostKeyBody),
 		CreatedAt:   time.Now(),
 		Tags:        merged,
 		AccountID:   b.accountID,
@@ -1559,7 +1611,7 @@ func (b *InMemoryBackend) DeleteHostKey(serverID, hostKeyID string) error {
 	if !ok {
 		return fmt.Errorf(
 			"%w: host key %s not found on server %s",
-			ErrServerNotFound,
+			ErrHostKeyNotFound,
 			hostKeyID,
 			serverID,
 		)
@@ -1568,7 +1620,7 @@ func (b *InMemoryBackend) DeleteHostKey(serverID, hostKeyID string) error {
 	if _, exists := serverKeys[hostKeyID]; !exists {
 		return fmt.Errorf(
 			"%w: host key %s not found on server %s",
-			ErrServerNotFound,
+			ErrHostKeyNotFound,
 			hostKeyID,
 			serverID,
 		)
@@ -1588,7 +1640,7 @@ func (b *InMemoryBackend) DescribeHostKey(serverID, hostKeyID string) (*HostKey,
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: host key %s not found on server %s",
-			ErrServerNotFound,
+			ErrHostKeyNotFound,
 			hostKeyID,
 			serverID,
 		)
@@ -1598,7 +1650,7 @@ func (b *InMemoryBackend) DescribeHostKey(serverID, hostKeyID string) (*HostKey,
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: host key %s not found on server %s",
-			ErrServerNotFound,
+			ErrHostKeyNotFound,
 			hostKeyID,
 			serverID,
 		)
@@ -1639,7 +1691,7 @@ func (b *InMemoryBackend) UpdateHostKey(serverID, hostKeyID, description string)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: host key %s not found on server %s",
-			ErrServerNotFound,
+			ErrHostKeyNotFound,
 			hostKeyID,
 			serverID,
 		)
@@ -1649,7 +1701,7 @@ func (b *InMemoryBackend) UpdateHostKey(serverID, hostKeyID, description string)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: host key %s not found on server %s",
-			ErrServerNotFound,
+			ErrHostKeyNotFound,
 			hostKeyID,
 			serverID,
 		)
@@ -1682,10 +1734,12 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 	}
 
 	keyID := "key-" + uuid.NewString()[:8]
+	fingerprint := computeSSHKeyFingerprint(sshPublicKeyBody)
 
 	k := &SSHPublicKey{
 		SSHPublicKeyID:   keyID,
 		SSHPublicKeyBody: sshPublicKeyBody,
+		Fingerprint:      fingerprint,
 		UserName:         userName,
 		ServerID:         serverID,
 		DateImported:     time.Now(),
@@ -1695,6 +1749,7 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 	return &SSHPublicKey{
 		SSHPublicKeyID:   k.SSHPublicKeyID,
 		SSHPublicKeyBody: k.SSHPublicKeyBody,
+		Fingerprint:      k.Fingerprint,
 		UserName:         k.UserName,
 		ServerID:         k.ServerID,
 		DateImported:     k.DateImported,
@@ -1708,16 +1763,16 @@ func (b *InMemoryBackend) DeleteSSHPublicKey(serverID, userName, sshPublicKeyID 
 
 	serverKeys, ok := b.sshPublicKeys[serverID]
 	if !ok {
-		return fmt.Errorf("%w: SSH key %s not found", ErrUserNotFound, sshPublicKeyID)
+		return fmt.Errorf("%w: SSH key %s not found", ErrSSHPublicKeyNotFound, sshPublicKeyID)
 	}
 
 	userKeys, ok := serverKeys[userName]
 	if !ok {
-		return fmt.Errorf("%w: SSH key %s not found", ErrUserNotFound, sshPublicKeyID)
+		return fmt.Errorf("%w: SSH key %s not found", ErrSSHPublicKeyNotFound, sshPublicKeyID)
 	}
 
 	if _, exists := userKeys[sshPublicKeyID]; !exists {
-		return fmt.Errorf("%w: SSH key %s not found", ErrUserNotFound, sshPublicKeyID)
+		return fmt.Errorf("%w: SSH key %s not found", ErrSSHPublicKeyNotFound, sshPublicKeyID)
 	}
 
 	delete(userKeys, sshPublicKeyID)
@@ -1857,5 +1912,125 @@ func (b *InMemoryBackend) AddWorkflowInternal(workflowID string) {
 		Tags:       make(map[string]string),
 		AccountID:  b.accountID,
 		Region:     b.region,
+	}
+}
+
+// CreateExecution creates a new execution for a workflow.
+func (b *InMemoryBackend) CreateExecution(workflowID string) (*Execution, error) {
+	b.mu.Lock("CreateExecution")
+	defer b.mu.Unlock()
+
+	if _, ok := b.workflows[workflowID]; !ok {
+		return nil, fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
+	}
+
+	if _, ok := b.executions[workflowID]; !ok {
+		b.executions[workflowID] = make(map[string]*Execution)
+	}
+
+	executionID := "exec-" + uuid.NewString()[:8]
+
+	e := &Execution{
+		ExecutionID: executionID,
+		WorkflowID:  workflowID,
+		Status:      "IN_PROGRESS",
+		CreatedAt:   time.Now(),
+	}
+	b.executions[workflowID][executionID] = e
+
+	cp := *e
+
+	return &cp, nil
+}
+
+// DescribeExecution returns an execution for a workflow.
+func (b *InMemoryBackend) DescribeExecution(workflowID, executionID string) (*Execution, error) {
+	b.mu.RLock("DescribeExecution")
+	defer b.mu.RUnlock()
+
+	workflowExecs, ok := b.executions[workflowID]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: execution %s not found for workflow %s",
+			ErrWorkflowNotFound,
+			executionID,
+			workflowID,
+		)
+	}
+
+	e, ok := workflowExecs[executionID]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: execution %s not found for workflow %s",
+			ErrWorkflowNotFound,
+			executionID,
+			workflowID,
+		)
+	}
+
+	cp := *e
+
+	return &cp, nil
+}
+
+// ListExecutions returns all executions for a workflow sorted by executionID.
+func (b *InMemoryBackend) ListExecutions(workflowID string) ([]*Execution, error) {
+	b.mu.RLock("ListExecutions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.workflows[workflowID]; !ok {
+		return nil, fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
+	}
+
+	workflowExecs := b.executions[workflowID]
+	out := make([]*Execution, 0, len(workflowExecs))
+
+	for _, e := range workflowExecs {
+		cp := *e
+		out = append(out, &cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ExecutionID < out[j].ExecutionID
+	})
+
+	return out, nil
+}
+
+// computeSSHKeyFingerprint computes the SHA256 fingerprint of an SSH public key body.
+// Returns empty string if the key is malformed.
+func computeSSHKeyFingerprint(keyBody string) string {
+	parts := strings.Fields(keyBody)
+	const minSSHKeyParts = 2 // type + base64-encoded key
+	if len(parts) < minSSHKeyParts {
+		return ""
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+
+	sum := sha256.Sum256(decoded)
+
+	return "SHA256:" + base64.StdEncoding.EncodeToString(sum[:])
+}
+
+// detectHostKeyType returns the host key type string from the key body prefix.
+func detectHostKeyType(hostKeyBody string) string {
+	prefix := strings.Fields(hostKeyBody)
+	if len(prefix) == 0 {
+		return defaultHostKeyType
+	}
+
+	switch prefix[0] {
+	case defaultHostKeyType:
+		return defaultHostKeyType
+	case "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521":
+		return prefix[0]
+	case "ssh-ed25519":
+		return "ssh-ed25519"
+	default:
+		return defaultHostKeyType
 	}
 }
