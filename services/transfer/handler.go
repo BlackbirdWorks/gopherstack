@@ -69,16 +69,65 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteAgreement",
 		"DeleteCertificate",
 		"DeleteConnector",
+		"DeleteHostKey",
+		"DeleteProfile",
 		"DeleteServer",
+		"DeleteSshPublicKey",
 		"DeleteUser",
+		"DeleteWebApp",
+		"DeleteWebAppCustomization",
+		"DeleteWorkflow",
+		"DescribeAccess",
+		"DescribeAgreement",
+		"DescribeCertificate",
+		"DescribeConnector",
+		"DescribeExecution",
+		"DescribeHostKey",
+		"DescribeProfile",
+		"DescribeSecurityPolicy",
 		"DescribeServer",
 		"DescribeUser",
+		"DescribeWebApp",
+		"DescribeWebAppCustomization",
+		"DescribeWorkflow",
+		"ImportCertificate",
+		"ImportHostKey",
+		"ImportSshPublicKey",
+		"ListAccesses",
+		"ListAgreements",
+		"ListCertificates",
+		"ListConnectors",
+		"ListExecutions",
+		"ListFileTransferResults",
+		"ListHostKeys",
+		"ListProfiles",
+		"ListSecurityPolicies",
 		"ListServers",
+		"ListTagsForResource",
 		"ListUsers",
+		"ListWebApps",
+		"ListWorkflows",
+		"SendWorkflowStepState",
+		"StartDirectoryListing",
+		"StartFileTransfer",
+		"StartRemoteDelete",
+		"StartRemoteMove",
 		"StartServer",
 		"StopServer",
+		"TagResource",
+		"TestConnection",
+		"TestIdentityProvider",
+		"UntagResource",
+		"UpdateAccess",
+		"UpdateAgreement",
+		"UpdateCertificate",
+		"UpdateConnector",
+		"UpdateHostKey",
+		"UpdateProfile",
 		"UpdateServer",
 		"UpdateUser",
+		"UpdateWebApp",
+		"UpdateWebAppCustomization",
 	}
 }
 
@@ -148,28 +197,77 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateServer":      service.WrapOp(h.handleCreateServer),
-		"DescribeServer":    service.WrapOp(h.handleDescribeServer),
-		"ListServers":       service.WrapOp(h.handleListServers),
-		"StartServer":       service.WrapOp(h.handleStartServer),
-		"StopServer":        service.WrapOp(h.handleStopServer),
-		"DeleteServer":      service.WrapOp(h.handleDeleteServer),
-		"UpdateServer":      service.WrapOp(h.handleUpdateServer),
-		"CreateUser":        service.WrapOp(h.handleCreateUser),
-		"DescribeUser":      service.WrapOp(h.handleDescribeUser),
-		"ListUsers":         service.WrapOp(h.handleListUsers),
-		"DeleteUser":        service.WrapOp(h.handleDeleteUser),
-		"UpdateUser":        service.WrapOp(h.handleUpdateUser),
-		"CreateAccess":      service.WrapOp(h.handleCreateAccess),
-		"DeleteAccess":      service.WrapOp(h.handleDeleteAccess),
-		"CreateAgreement":   service.WrapOp(h.handleCreateAgreement),
-		"DeleteAgreement":   service.WrapOp(h.handleDeleteAgreement),
-		"CreateConnector":   service.WrapOp(h.handleCreateConnector),
-		"DeleteConnector":   service.WrapOp(h.handleDeleteConnector),
-		"CreateProfile":     service.WrapOp(h.handleCreateProfile),
-		"CreateWebApp":      service.WrapOp(h.handleCreateWebApp),
-		"CreateWorkflow":    service.WrapOp(h.handleCreateWorkflow),
-		"DeleteCertificate": service.WrapOp(h.handleDeleteCertificate),
+		"CreateServer":            service.WrapOp(h.handleCreateServer),
+		"DescribeServer":          service.WrapOp(h.handleDescribeServer),
+		"ListServers":             service.WrapOp(h.handleListServers),
+		"StartServer":             service.WrapOp(h.handleStartServer),
+		"StopServer":              service.WrapOp(h.handleStopServer),
+		"DeleteServer":            service.WrapOp(h.handleDeleteServer),
+		"UpdateServer":            service.WrapOp(h.handleUpdateServer),
+		"CreateUser":              service.WrapOp(h.handleCreateUser),
+		"DescribeUser":            service.WrapOp(h.handleDescribeUser),
+		"ListUsers":               service.WrapOp(h.handleListUsers),
+		"DeleteUser":              service.WrapOp(h.handleDeleteUser),
+		"UpdateUser":              service.WrapOp(h.handleUpdateUser),
+		"CreateAccess":            service.WrapOp(h.handleCreateAccess),
+		"DeleteAccess":            service.WrapOp(h.handleDeleteAccess),
+		"DescribeAccess":          service.WrapOp(h.handleDescribeAccess),
+		"ListAccesses":            service.WrapOp(h.handleListAccesses),
+		"UpdateAccess":            service.WrapOp(h.handleUpdateAccess),
+		"CreateAgreement":         service.WrapOp(h.handleCreateAgreement),
+		"DeleteAgreement":         service.WrapOp(h.handleDeleteAgreement),
+		"DescribeAgreement":       service.WrapOp(h.handleDescribeAgreement),
+		"ListAgreements":          service.WrapOp(h.handleListAgreements),
+		"UpdateAgreement":         service.WrapOp(h.handleUpdateAgreement),
+		"CreateConnector":         service.WrapOp(h.handleCreateConnector),
+		"DeleteConnector":         service.WrapOp(h.handleDeleteConnector),
+		"DescribeConnector":       service.WrapOp(h.handleDescribeConnector),
+		"ListConnectors":          service.WrapOp(h.handleListConnectors),
+		"UpdateConnector":         service.WrapOp(h.handleUpdateConnector),
+		"CreateProfile":           service.WrapOp(h.handleCreateProfile),
+		"DeleteProfile":           service.WrapOp(h.handleDeleteProfile),
+		"DescribeProfile":         service.WrapOp(h.handleDescribeProfile),
+		"ListProfiles":            service.WrapOp(h.handleListProfiles),
+		"UpdateProfile":           service.WrapOp(h.handleUpdateProfile),
+		"CreateWebApp":            service.WrapOp(h.handleCreateWebApp),
+		"DeleteWebApp":            service.WrapOp(h.handleDeleteWebApp),
+		"DescribeWebApp":          service.WrapOp(h.handleDescribeWebApp),
+		"ListWebApps":             service.WrapOp(h.handleListWebApps),
+		"UpdateWebApp":            service.WrapOp(h.handleUpdateWebApp),
+		"DeleteWebAppCustomization":  service.WrapOp(h.handleDeleteWebAppCustomization),
+		"DescribeWebAppCustomization": service.WrapOp(h.handleDescribeWebAppCustomization),
+		"UpdateWebAppCustomization":  service.WrapOp(h.handleUpdateWebAppCustomization),
+		"CreateWorkflow":          service.WrapOp(h.handleCreateWorkflow),
+		"DeleteWorkflow":          service.WrapOp(h.handleDeleteWorkflow),
+		"DescribeWorkflow":        service.WrapOp(h.handleDescribeWorkflow),
+		"ListWorkflows":           service.WrapOp(h.handleListWorkflows),
+		"DeleteCertificate":       service.WrapOp(h.handleDeleteCertificate),
+		"ImportCertificate":       service.WrapOp(h.handleImportCertificate),
+		"DescribeCertificate":     service.WrapOp(h.handleDescribeCertificate),
+		"ListCertificates":        service.WrapOp(h.handleListCertificates),
+		"UpdateCertificate":       service.WrapOp(h.handleUpdateCertificate),
+		"ImportHostKey":           service.WrapOp(h.handleImportHostKey),
+		"DeleteHostKey":           service.WrapOp(h.handleDeleteHostKey),
+		"DescribeHostKey":         service.WrapOp(h.handleDescribeHostKey),
+		"ListHostKeys":            service.WrapOp(h.handleListHostKeys),
+		"UpdateHostKey":           service.WrapOp(h.handleUpdateHostKey),
+		"ImportSshPublicKey":      service.WrapOp(h.handleImportSshPublicKey),
+		"DeleteSshPublicKey":      service.WrapOp(h.handleDeleteSshPublicKey),
+		"TagResource":             service.WrapOp(h.handleTagResource),
+		"UntagResource":           service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource":     service.WrapOp(h.handleListTagsForResource),
+		"DescribeExecution":       service.WrapOp(h.handleDescribeExecution),
+		"ListExecutions":          service.WrapOp(h.handleListExecutions),
+		"ListFileTransferResults": service.WrapOp(h.handleListFileTransferResults),
+		"DescribeSecurityPolicy":  service.WrapOp(h.handleDescribeSecurityPolicy),
+		"ListSecurityPolicies":    service.WrapOp(h.handleListSecurityPolicies),
+		"SendWorkflowStepState":   service.WrapOp(h.handleSendWorkflowStepState),
+		"StartDirectoryListing":   service.WrapOp(h.handleStartDirectoryListing),
+		"StartFileTransfer":       service.WrapOp(h.handleStartFileTransfer),
+		"StartRemoteDelete":       service.WrapOp(h.handleStartRemoteDelete),
+		"StartRemoteMove":         service.WrapOp(h.handleStartRemoteMove),
+		"TestConnection":          service.WrapOp(h.handleTestConnection),
+		"TestIdentityProvider":    service.WrapOp(h.handleTestIdentityProvider),
 	}
 }
 
@@ -795,6 +893,1005 @@ func (h *Handler) handleDeleteCertificate(_ context.Context, in *deleteCertifica
 	}
 
 	return &struct{}{}, nil
+}
+
+// --- Extended Access operations ---
+
+type describeAccessInput struct {
+	ServerID   string `json:"ServerId"`
+	ExternalID string `json:"ExternalId"`
+}
+
+type describeAccessOutput struct {
+	Access   map[string]any `json:"Access"`
+	ServerID string         `json:"ServerId"`
+}
+
+func (h *Handler) handleDescribeAccess(_ context.Context, in *describeAccessInput) (*describeAccessOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.ExternalID == "" {
+		return nil, fmt.Errorf("%w: ExternalId is required", errInvalidRequest)
+	}
+
+	a, err := h.Backend.DescribeAccess(in.ServerID, in.ExternalID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeAccessOutput{
+		ServerID: a.ServerID,
+		Access: map[string]any{
+			"ExternalId":    a.ExternalID,
+			"ServerId":      a.ServerID,
+			"Role":          a.Role,
+			"HomeDirectory": a.HomeDir,
+		},
+	}, nil
+}
+
+type listAccessesInput struct {
+	ServerID   string `json:"ServerId"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type listAccessesOutput struct {
+	Accesses  []map[string]any `json:"Accesses"`
+	NextToken string           `json:"NextToken,omitempty"`
+	ServerId  string           `json:"ServerId"`
+}
+
+func (h *Handler) handleListAccesses(_ context.Context, in *listAccessesInput) (*listAccessesOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	items, err := h.Backend.ListAccesses(in.ServerID)
+	if err != nil {
+		return nil, err
+	}
+
+	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+	out := make([]map[string]any, len(page))
+
+	for i, a := range page {
+		out[i] = map[string]any{
+			"ExternalId":    a.ExternalID,
+			"HomeDirectory": a.HomeDir,
+			"Role":          a.Role,
+		}
+	}
+
+	return &listAccessesOutput{Accesses: out, NextToken: next, ServerId: in.ServerID}, nil
+}
+
+type updateAccessInput struct {
+	ServerID   string `json:"ServerId"`
+	ExternalID string `json:"ExternalId"`
+	Role       string `json:"Role"`
+	HomeDir    string `json:"HomeDirectory"`
+}
+
+type updateAccessOutput struct {
+	ServerID   string `json:"ServerId"`
+	ExternalID string `json:"ExternalId"`
+}
+
+func (h *Handler) handleUpdateAccess(_ context.Context, in *updateAccessInput) (*updateAccessOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.ExternalID == "" {
+		return nil, fmt.Errorf("%w: ExternalId is required", errInvalidRequest)
+	}
+
+	a, err := h.Backend.UpdateAccess(in.ServerID, in.ExternalID, in.Role, in.HomeDir)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateAccessOutput{ServerID: a.ServerID, ExternalID: a.ExternalID}, nil
+}
+
+// --- Extended Agreement operations ---
+
+type describeAgreementInput struct {
+	ServerID    string `json:"ServerId"`
+	AgreementID string `json:"AgreementId"`
+}
+
+type describeAgreementOutput struct {
+	Agreement map[string]any `json:"Agreement"`
+}
+
+func (h *Handler) handleDescribeAgreement(_ context.Context, in *describeAgreementInput) (*describeAgreementOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.AgreementID == "" {
+		return nil, fmt.Errorf("%w: AgreementId is required", errInvalidRequest)
+	}
+
+	ag, err := h.Backend.DescribeAgreement(in.ServerID, in.AgreementID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeAgreementOutput{
+		Agreement: map[string]any{
+			"AgreementId":      ag.AgreementID,
+			"ServerId":         ag.ServerID,
+			"Description":      ag.Description,
+			"Status":           ag.Status,
+			"LocalProfileId":   ag.LocalProfileID,
+			"PartnerProfileId": ag.PartnerProfileID,
+			"BaseDirectory":    ag.BaseDirectory,
+			"AccessRole":       ag.AccessRole,
+		},
+	}, nil
+}
+
+type listAgreementsInput struct {
+	ServerID   string `json:"ServerId"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type listAgreementsOutput struct {
+	Agreements []map[string]any `json:"Agreements"`
+	NextToken  string           `json:"NextToken,omitempty"`
+}
+
+func (h *Handler) handleListAgreements(_ context.Context, in *listAgreementsInput) (*listAgreementsOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	items, err := h.Backend.ListAgreements(in.ServerID)
+	if err != nil {
+		return nil, err
+	}
+
+	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+	out := make([]map[string]any, len(page))
+
+	for i, ag := range page {
+		out[i] = map[string]any{
+			"AgreementId": ag.AgreementID,
+			"Description": ag.Description,
+			"Status":      ag.Status,
+		}
+	}
+
+	return &listAgreementsOutput{Agreements: out, NextToken: next}, nil
+}
+
+type updateAgreementInput struct {
+	ServerID    string `json:"ServerId"`
+	AgreementID string `json:"AgreementId"`
+	Description string `json:"Description"`
+	Status      string `json:"Status"`
+}
+
+type updateAgreementOutput struct {
+	AgreementID string `json:"AgreementId"`
+}
+
+func (h *Handler) handleUpdateAgreement(_ context.Context, in *updateAgreementInput) (*updateAgreementOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.AgreementID == "" {
+		return nil, fmt.Errorf("%w: AgreementId is required", errInvalidRequest)
+	}
+
+	ag, err := h.Backend.UpdateAgreement(in.ServerID, in.AgreementID, in.Description, in.Status)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateAgreementOutput{AgreementID: ag.AgreementID}, nil
+}
+
+// --- Extended Connector operations ---
+
+type describeConnectorInput struct {
+	ConnectorID string `json:"ConnectorId"`
+}
+
+type describeConnectorOutput struct {
+	Connector map[string]any `json:"Connector"`
+}
+
+func (h *Handler) handleDescribeConnector(_ context.Context, in *describeConnectorInput) (*describeConnectorOutput, error) {
+	if in.ConnectorID == "" {
+		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
+	}
+
+	c, err := h.Backend.DescribeConnector(in.ConnectorID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeConnectorOutput{
+		Connector: map[string]any{
+			"ConnectorId": c.ConnectorID,
+			"Url":         c.URL,
+			"AccessRole":  c.AccessRole,
+		},
+	}, nil
+}
+
+type listConnectorsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type listConnectorsOutput struct {
+	Connectors []map[string]any `json:"Connectors"`
+	NextToken  string           `json:"NextToken,omitempty"`
+}
+
+func (h *Handler) handleListConnectors(_ context.Context, in *listConnectorsInput) (*listConnectorsOutput, error) {
+	items := h.Backend.ListConnectors()
+	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+	out := make([]map[string]any, len(page))
+
+	for i, c := range page {
+		out[i] = map[string]any{
+			"ConnectorId": c.ConnectorID,
+			"Url":         c.URL,
+		}
+	}
+
+	return &listConnectorsOutput{Connectors: out, NextToken: next}, nil
+}
+
+type updateConnectorInput struct {
+	ConnectorID string `json:"ConnectorId"`
+	URL         string `json:"Url"`
+	AccessRole  string `json:"AccessRole"`
+}
+
+type updateConnectorOutput struct {
+	ConnectorID string `json:"ConnectorId"`
+}
+
+func (h *Handler) handleUpdateConnector(_ context.Context, in *updateConnectorInput) (*updateConnectorOutput, error) {
+	if in.ConnectorID == "" {
+		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
+	}
+
+	c, err := h.Backend.UpdateConnector(in.ConnectorID, in.URL, in.AccessRole)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateConnectorOutput{ConnectorID: c.ConnectorID}, nil
+}
+
+// --- Extended Profile operations ---
+
+type deleteProfileInput struct {
+	ProfileID string `json:"ProfileId"`
+}
+
+func (h *Handler) handleDeleteProfile(_ context.Context, in *deleteProfileInput) (*struct{}, error) {
+	if in.ProfileID == "" {
+		return nil, fmt.Errorf("%w: ProfileId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteProfile(in.ProfileID); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+type describeProfileInput struct {
+	ProfileID string `json:"ProfileId"`
+}
+
+type describeProfileOutput struct {
+	Profile map[string]any `json:"Profile"`
+}
+
+func (h *Handler) handleDescribeProfile(_ context.Context, in *describeProfileInput) (*describeProfileOutput, error) {
+	if in.ProfileID == "" {
+		return nil, fmt.Errorf("%w: ProfileId is required", errInvalidRequest)
+	}
+
+	p, err := h.Backend.DescribeProfile(in.ProfileID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeProfileOutput{
+		Profile: map[string]any{
+			"ProfileId":   p.ProfileID,
+			"ProfileType": p.ProfileType,
+			"As2Id":       p.As2ID,
+		},
+	}, nil
+}
+
+type listProfilesInput struct {
+	NextToken   string `json:"NextToken"`
+	MaxResults  int    `json:"MaxResults"`
+	ProfileType string `json:"ProfileType"`
+}
+
+type listProfilesOutput struct {
+	Profiles  []map[string]any `json:"Profiles"`
+	NextToken string           `json:"NextToken,omitempty"`
+}
+
+func (h *Handler) handleListProfiles(_ context.Context, in *listProfilesInput) (*listProfilesOutput, error) {
+	items := h.Backend.ListProfiles()
+
+	if in.ProfileType != "" {
+		filtered := items[:0]
+		for _, p := range items {
+			if p.ProfileType == in.ProfileType {
+				filtered = append(filtered, p)
+			}
+		}
+		items = filtered
+	}
+
+	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+	out := make([]map[string]any, len(page))
+
+	for i, p := range page {
+		out[i] = map[string]any{
+			"ProfileId":   p.ProfileID,
+			"ProfileType": p.ProfileType,
+			"As2Id":       p.As2ID,
+		}
+	}
+
+	return &listProfilesOutput{Profiles: out, NextToken: next}, nil
+}
+
+type updateProfileInput struct {
+	ProfileID string `json:"ProfileId"`
+	As2ID     string `json:"As2Id"`
+}
+
+type updateProfileOutput struct {
+	ProfileID string `json:"ProfileId"`
+}
+
+func (h *Handler) handleUpdateProfile(_ context.Context, in *updateProfileInput) (*updateProfileOutput, error) {
+	if in.ProfileID == "" {
+		return nil, fmt.Errorf("%w: ProfileId is required", errInvalidRequest)
+	}
+
+	p, err := h.Backend.UpdateProfile(in.ProfileID, in.As2ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateProfileOutput{ProfileID: p.ProfileID}, nil
+}
+
+// --- Extended WebApp operations ---
+
+type deleteWebAppInput struct {
+	WebAppID string `json:"WebAppId"`
+}
+
+func (h *Handler) handleDeleteWebApp(_ context.Context, in *deleteWebAppInput) (*struct{}, error) {
+	if in.WebAppID == "" {
+		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteWebApp(in.WebAppID); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+type describeWebAppInput struct {
+	WebAppID string `json:"WebAppId"`
+}
+
+type describeWebAppOutput struct {
+	WebApp map[string]any `json:"WebApp"`
+}
+
+func (h *Handler) handleDescribeWebApp(_ context.Context, in *describeWebAppInput) (*describeWebAppOutput, error) {
+	if in.WebAppID == "" {
+		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
+	}
+
+	w, err := h.Backend.DescribeWebApp(in.WebAppID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeWebAppOutput{
+		WebApp: map[string]any{
+			"WebAppId": w.WebAppID,
+		},
+	}, nil
+}
+
+type listWebAppsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type listWebAppsOutput struct {
+	WebApps   []map[string]any `json:"WebApps"`
+	NextToken string           `json:"NextToken,omitempty"`
+}
+
+func (h *Handler) handleListWebApps(_ context.Context, in *listWebAppsInput) (*listWebAppsOutput, error) {
+	items := h.Backend.ListWebApps()
+	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+	out := make([]map[string]any, len(page))
+
+	for i, w := range page {
+		out[i] = map[string]any{
+			"WebAppId": w.WebAppID,
+		}
+	}
+
+	return &listWebAppsOutput{WebApps: out, NextToken: next}, nil
+}
+
+type updateWebAppInput struct {
+	WebAppID string `json:"WebAppId"`
+}
+
+type updateWebAppOutput struct {
+	WebAppID string `json:"WebAppId"`
+}
+
+func (h *Handler) handleUpdateWebApp(_ context.Context, in *updateWebAppInput) (*updateWebAppOutput, error) {
+	if in.WebAppID == "" {
+		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
+	}
+
+	w, err := h.Backend.UpdateWebApp(in.WebAppID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateWebAppOutput{WebAppID: w.WebAppID}, nil
+}
+
+// --- WebApp Customization stubs ---
+
+func (h *Handler) handleDeleteWebAppCustomization(_ context.Context, _ *struct{}) (*struct{}, error) {
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleDescribeWebAppCustomization(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{"WebAppCustomization": map[string]any{}}, nil
+}
+
+func (h *Handler) handleUpdateWebAppCustomization(_ context.Context, _ *struct{}) (*struct{}, error) {
+	return &struct{}{}, nil
+}
+
+// --- Extended Workflow operations ---
+
+type deleteWorkflowInput struct {
+	WorkflowID string `json:"WorkflowId"`
+}
+
+func (h *Handler) handleDeleteWorkflow(_ context.Context, in *deleteWorkflowInput) (*struct{}, error) {
+	if in.WorkflowID == "" {
+		return nil, fmt.Errorf("%w: WorkflowId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteWorkflow(in.WorkflowID); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+type describeWorkflowInput struct {
+	WorkflowID string `json:"WorkflowId"`
+}
+
+type describeWorkflowOutput struct {
+	Workflow map[string]any `json:"Workflow"`
+}
+
+func (h *Handler) handleDescribeWorkflow(_ context.Context, in *describeWorkflowInput) (*describeWorkflowOutput, error) {
+	if in.WorkflowID == "" {
+		return nil, fmt.Errorf("%w: WorkflowId is required", errInvalidRequest)
+	}
+
+	wf, err := h.Backend.DescribeWorkflow(in.WorkflowID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeWorkflowOutput{
+		Workflow: map[string]any{
+			"WorkflowId":  wf.WorkflowID,
+			"Description": wf.Description,
+		},
+	}, nil
+}
+
+type listWorkflowsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type listWorkflowsOutput struct {
+	Workflows []map[string]any `json:"Workflows"`
+	NextToken string           `json:"NextToken,omitempty"`
+}
+
+func (h *Handler) handleListWorkflows(_ context.Context, in *listWorkflowsInput) (*listWorkflowsOutput, error) {
+	items := h.Backend.ListWorkflows()
+	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+	out := make([]map[string]any, len(page))
+
+	for i, wf := range page {
+		out[i] = map[string]any{
+			"WorkflowId":  wf.WorkflowID,
+			"Description": wf.Description,
+		}
+	}
+
+	return &listWorkflowsOutput{Workflows: out, NextToken: next}, nil
+}
+
+// --- Extended Certificate operations ---
+
+type importCertificateInput struct {
+	Usage       string              `json:"Usage"`
+	Body        string              `json:"Certificate"`
+	Description string              `json:"Description"`
+	Tags        []map[string]string `json:"Tags"`
+}
+
+type importCertificateOutput struct {
+	CertificateID string `json:"CertificateId"`
+}
+
+func (h *Handler) handleImportCertificate(_ context.Context, in *importCertificateInput) (*importCertificateOutput, error) {
+	tags := tagsFromList(in.Tags)
+
+	c, err := h.Backend.ImportCertificate(in.Usage, in.Body, in.Description, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &importCertificateOutput{CertificateID: c.CertificateID}, nil
+}
+
+type describeCertificateInput struct {
+	CertificateID string `json:"CertificateId"`
+}
+
+type describeCertificateOutput struct {
+	Certificate map[string]any `json:"Certificate"`
+}
+
+func (h *Handler) handleDescribeCertificate(_ context.Context, in *describeCertificateInput) (*describeCertificateOutput, error) {
+	if in.CertificateID == "" {
+		return nil, fmt.Errorf("%w: CertificateId is required", errInvalidRequest)
+	}
+
+	c, err := h.Backend.DescribeCertificate(in.CertificateID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeCertificateOutput{
+		Certificate: map[string]any{
+			"CertificateId": c.CertificateID,
+			"Usage":         c.Usage,
+			"Description":   c.Description,
+			"Status":        c.Status,
+		},
+	}, nil
+}
+
+type listCertificatesInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type listCertificatesOutput struct {
+	Certificates []map[string]any `json:"Certificates"`
+	NextToken    string           `json:"NextToken,omitempty"`
+}
+
+func (h *Handler) handleListCertificates(_ context.Context, in *listCertificatesInput) (*listCertificatesOutput, error) {
+	items := h.Backend.ListCertificates()
+	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+	out := make([]map[string]any, len(page))
+
+	for i, c := range page {
+		out[i] = map[string]any{
+			"CertificateId": c.CertificateID,
+			"Usage":         c.Usage,
+			"Status":        c.Status,
+		}
+	}
+
+	return &listCertificatesOutput{Certificates: out, NextToken: next}, nil
+}
+
+type updateCertificateInput struct {
+	CertificateID string `json:"CertificateId"`
+	Description   string `json:"Description"`
+}
+
+type updateCertificateOutput struct {
+	CertificateID string `json:"CertificateId"`
+}
+
+func (h *Handler) handleUpdateCertificate(_ context.Context, in *updateCertificateInput) (*updateCertificateOutput, error) {
+	if in.CertificateID == "" {
+		return nil, fmt.Errorf("%w: CertificateId is required", errInvalidRequest)
+	}
+
+	c, err := h.Backend.UpdateCertificate(in.CertificateID, in.Description)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateCertificateOutput{CertificateID: c.CertificateID}, nil
+}
+
+// --- HostKey operations ---
+
+type importHostKeyInput struct {
+	ServerID    string              `json:"ServerId"`
+	HostKeyBody string              `json:"HostKeyBody"`
+	Description string              `json:"Description"`
+	Tags        []map[string]string `json:"Tags"`
+}
+
+type importHostKeyOutput struct {
+	ServerID  string `json:"ServerId"`
+	HostKeyID string `json:"HostKeyId"`
+}
+
+func (h *Handler) handleImportHostKey(_ context.Context, in *importHostKeyInput) (*importHostKeyOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	tags := tagsFromList(in.Tags)
+
+	hk, err := h.Backend.ImportHostKey(in.ServerID, in.HostKeyBody, in.Description, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &importHostKeyOutput{ServerID: hk.ServerID, HostKeyID: hk.HostKeyID}, nil
+}
+
+type deleteHostKeyInput struct {
+	ServerID  string `json:"ServerId"`
+	HostKeyID string `json:"HostKeyId"`
+}
+
+func (h *Handler) handleDeleteHostKey(_ context.Context, in *deleteHostKeyInput) (*struct{}, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.HostKeyID == "" {
+		return nil, fmt.Errorf("%w: HostKeyId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteHostKey(in.ServerID, in.HostKeyID); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+type describeHostKeyInput struct {
+	ServerID  string `json:"ServerId"`
+	HostKeyID string `json:"HostKeyId"`
+}
+
+type describeHostKeyOutput struct {
+	HostKey  map[string]any `json:"HostKey"`
+	ServerID string         `json:"ServerId"`
+}
+
+func (h *Handler) handleDescribeHostKey(_ context.Context, in *describeHostKeyInput) (*describeHostKeyOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.HostKeyID == "" {
+		return nil, fmt.Errorf("%w: HostKeyId is required", errInvalidRequest)
+	}
+
+	hk, err := h.Backend.DescribeHostKey(in.ServerID, in.HostKeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeHostKeyOutput{
+		ServerID: hk.ServerID,
+		HostKey: map[string]any{
+			"HostKeyId":   hk.HostKeyID,
+			"Description": hk.Description,
+			"Type":        hk.Type,
+		},
+	}, nil
+}
+
+type listHostKeysInput struct {
+	ServerID   string `json:"ServerId"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type listHostKeysOutput struct {
+	HostKeys  []map[string]any `json:"HostKeys"`
+	NextToken string           `json:"NextToken,omitempty"`
+	ServerId  string           `json:"ServerId"`
+}
+
+func (h *Handler) handleListHostKeys(_ context.Context, in *listHostKeysInput) (*listHostKeysOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	items, err := h.Backend.ListHostKeys(in.ServerID)
+	if err != nil {
+		return nil, err
+	}
+
+	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+	out := make([]map[string]any, len(page))
+
+	for i, hk := range page {
+		out[i] = map[string]any{
+			"HostKeyId":   hk.HostKeyID,
+			"Description": hk.Description,
+			"Type":        hk.Type,
+		}
+	}
+
+	return &listHostKeysOutput{HostKeys: out, NextToken: next, ServerId: in.ServerID}, nil
+}
+
+type updateHostKeyInput struct {
+	ServerID    string `json:"ServerId"`
+	HostKeyID   string `json:"HostKeyId"`
+	Description string `json:"Description"`
+}
+
+type updateHostKeyOutput struct {
+	ServerID  string `json:"ServerId"`
+	HostKeyID string `json:"HostKeyId"`
+}
+
+func (h *Handler) handleUpdateHostKey(_ context.Context, in *updateHostKeyInput) (*updateHostKeyOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.HostKeyID == "" {
+		return nil, fmt.Errorf("%w: HostKeyId is required", errInvalidRequest)
+	}
+
+	hk, err := h.Backend.UpdateHostKey(in.ServerID, in.HostKeyID, in.Description)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateHostKeyOutput{ServerID: hk.ServerID, HostKeyID: hk.HostKeyID}, nil
+}
+
+// --- SSH public key operations ---
+
+type importSshPublicKeyInput struct {
+	ServerID         string `json:"ServerId"`
+	UserName         string `json:"UserName"`
+	SshPublicKeyBody string `json:"SshPublicKeyBody"`
+}
+
+type importSshPublicKeyOutput struct {
+	ServerID       string `json:"ServerId"`
+	SshPublicKeyID string `json:"SshPublicKeyId"`
+	UserName       string `json:"UserName"`
+}
+
+func (h *Handler) handleImportSshPublicKey(_ context.Context, in *importSshPublicKeyInput) (*importSshPublicKeyOutput, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.UserName == "" {
+		return nil, fmt.Errorf("%w: UserName is required", errInvalidRequest)
+	}
+
+	k, err := h.Backend.ImportSshPublicKey(in.ServerID, in.UserName, in.SshPublicKeyBody)
+	if err != nil {
+		return nil, err
+	}
+
+	return &importSshPublicKeyOutput{
+		ServerID:       k.ServerID,
+		SshPublicKeyID: k.SshPublicKeyID,
+		UserName:       k.UserName,
+	}, nil
+}
+
+type deleteSshPublicKeyInput struct {
+	ServerID       string `json:"ServerId"`
+	UserName       string `json:"UserName"`
+	SshPublicKeyID string `json:"SshPublicKeyId"`
+}
+
+func (h *Handler) handleDeleteSshPublicKey(_ context.Context, in *deleteSshPublicKeyInput) (*struct{}, error) {
+	if in.ServerID == "" {
+		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
+	}
+
+	if in.UserName == "" {
+		return nil, fmt.Errorf("%w: UserName is required", errInvalidRequest)
+	}
+
+	if in.SshPublicKeyID == "" {
+		return nil, fmt.Errorf("%w: SshPublicKeyId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteSshPublicKey(in.ServerID, in.UserName, in.SshPublicKeyID); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- Tag operations ---
+
+type tagResourceInput struct {
+	Arn  string              `json:"Arn"`
+	Tags []map[string]string `json:"Tags"`
+}
+
+func (h *Handler) handleTagResource(_ context.Context, in *tagResourceInput) (*struct{}, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	tags := tagsFromList(in.Tags)
+	if err := h.Backend.TagResource(in.Arn, tags); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+type untagResourceInput struct {
+	Arn     string   `json:"Arn"`
+	TagKeys []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput) (*struct{}, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UntagResource(in.Arn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+type listTagsForResourceInput struct {
+	Arn        string `json:"Arn"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type listTagsForResourceOutput struct {
+	Arn       string              `json:"Arn"`
+	Tags      []map[string]string `json:"Tags"`
+	NextToken string              `json:"NextToken,omitempty"`
+}
+
+func (h *Handler) handleListTagsForResource(_ context.Context, in *listTagsForResourceInput) (*listTagsForResourceOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	tags := h.Backend.ListTagsForResource(in.Arn)
+
+	return &listTagsForResourceOutput{
+		Arn:  in.Arn,
+		Tags: tagsToList(tags),
+	}, nil
+}
+
+// --- Stub operations ---
+
+func (h *Handler) handleDescribeExecution(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{"Execution": map[string]any{}}, nil
+}
+
+func (h *Handler) handleListExecutions(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{"Executions": []any{}, "WorkflowId": ""}, nil
+}
+
+func (h *Handler) handleListFileTransferResults(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{"FileTransferResults": []any{}}, nil
+}
+
+type describeSecurityPolicyInput struct {
+	SecurityPolicyName string `json:"SecurityPolicyName"`
+}
+
+func (h *Handler) handleDescribeSecurityPolicy(_ context.Context, in *describeSecurityPolicyInput) (*map[string]any, error) {
+	name := in.SecurityPolicyName
+	if name == "" {
+		name = "TransferSecurityPolicy-2024-01"
+	}
+
+	return &map[string]any{
+		"SecurityPolicy": map[string]any{
+			"SecurityPolicyName": name,
+			"Protocols":          []string{"SFTP"},
+		},
+	}, nil
+}
+
+func (h *Handler) handleListSecurityPolicies(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{
+		"SecurityPolicyNames": []string{
+			"TransferSecurityPolicy-2024-01",
+			"TransferSecurityPolicy-2023-05",
+			"TransferSecurityPolicy-2022-03",
+			"TransferSecurityPolicy-FIPS-2024-01",
+		},
+	}, nil
+}
+
+func (h *Handler) handleSendWorkflowStepState(_ context.Context, _ *struct{}) (*struct{}, error) {
+	return &struct{}{}, nil
+}
+
+func (h *Handler) handleStartDirectoryListing(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{"DirectoryListingId": "listing-" + strings.Repeat("0", 8)}, nil
+}
+
+func (h *Handler) handleStartFileTransfer(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{"TransferId": "transfer-" + strings.Repeat("0", 8)}, nil
+}
+
+func (h *Handler) handleStartRemoteDelete(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{"TransferId": "transfer-" + strings.Repeat("0", 8)}, nil
+}
+
+func (h *Handler) handleStartRemoteMove(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{"TransferId": "transfer-" + strings.Repeat("0", 8)}, nil
+}
+
+func (h *Handler) handleTestConnection(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{"Status": "OK", "StatusMessage": "Connection successful"}, nil
+}
+
+func (h *Handler) handleTestIdentityProvider(_ context.Context, _ *struct{}) (*map[string]any, error) {
+	return &map[string]any{"StatusCode": 200, "Message": "Identity provider test successful"}, nil
 }
 
 // tagsToList converts a map of tags to the AWS list format sorted by key.

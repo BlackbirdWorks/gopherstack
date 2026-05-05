@@ -47,7 +47,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 22)
+	assert.Len(t, h.GetSupportedOperations(), 71)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
@@ -72,7 +72,7 @@ func TestRefinement1_HandlerOpsLenExport(t *testing.T) {
 
 	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
-	assert.Equal(t, 22, transfer.HandlerOpsLen(h))
+	assert.Equal(t, 71, transfer.HandlerOpsLen(h))
 }
 
 // TestRefinement1_AccountIDRegion verifies AccountID and Region methods.
@@ -116,7 +116,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 
 	assert.Equal(t, 0, transfer.ServerCount(b))
 	// ops should still work after reset
-	assert.Equal(t, 22, transfer.HandlerOpsLen(h))
+	assert.Equal(t, 71, transfer.HandlerOpsLen(h))
 }
 
 // TestRefinement1_ServerCountExport verifies ServerCount export.

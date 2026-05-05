@@ -250,41 +250,82 @@ type Certificate struct {
 	CreatedAt     time.Time         `json:"created_at"`
 	Tags          map[string]string `json:"tags"`
 	CertificateID string            `json:"certificate_id"`
+	Description   string            `json:"description"`
+	Usage         string            `json:"usage"`
+	Body          string            `json:"body"`
+	Status        string            `json:"status"`
 	AccountID     string            `json:"account_id"`
 	Region        string            `json:"region"`
 }
 
+// HostKey represents an SSH host key associated with a Transfer server.
+type HostKey struct {
+	CreatedAt   time.Time         `json:"created_at"`
+	Tags        map[string]string `json:"tags"`
+	HostKeyID   string            `json:"host_key_id"`
+	ServerID    string            `json:"server_id"`
+	Description string            `json:"description"`
+	Type        string            `json:"type"`
+	Value       string            `json:"value"`
+	AccountID   string            `json:"account_id"`
+	Region      string            `json:"region"`
+}
+
+// cloneHostKey returns a deep copy of a HostKey.
+func cloneHostKey(h *HostKey) *HostKey {
+	cp := *h
+	cp.Tags = make(map[string]string, len(h.Tags))
+	maps.Copy(cp.Tags, h.Tags)
+
+	return &cp
+}
+
+// SshPublicKey represents an SSH public key attached to a Transfer user.
+type SshPublicKey struct {
+	DateImported     time.Time `json:"date_imported"`
+	SshPublicKeyID   string    `json:"ssh_public_key_id"`
+	SshPublicKeyBody string    `json:"ssh_public_key_body"`
+	UserName         string    `json:"user_name"`
+	ServerID         string    `json:"server_id"`
+}
+
 // InMemoryBackend is the in-memory store for Transfer resources.
 type InMemoryBackend struct {
-	servers      map[string]*Server
-	users        map[string]map[string]*User      // serverID -> userName -> User
-	accesses     map[string]map[string]*Access    // serverID -> externalID -> Access
-	agreements   map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
-	connectors   map[string]*Connector
-	profiles     map[string]*Profile
-	webApps      map[string]*WebApp
-	workflows    map[string]*Workflow
-	certificates map[string]*Certificate
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	servers       map[string]*Server
+	users         map[string]map[string]*User                          // serverID -> userName -> User
+	accesses      map[string]map[string]*Access                        // serverID -> externalID -> Access
+	agreements    map[string]map[string]*Agreement                     // serverID -> agreementID -> Agreement
+	connectors    map[string]*Connector
+	profiles      map[string]*Profile
+	webApps       map[string]*WebApp
+	workflows     map[string]*Workflow
+	certificates  map[string]*Certificate
+	hostKeys      map[string]map[string]*HostKey                       // serverID -> hostKeyID -> HostKey
+	sshPublicKeys map[string]map[string]map[string]*SshPublicKey       // serverID -> userName -> keyID -> SshPublicKey
+	tagsStore     map[string]map[string]string                         // arn -> tags
+	mu            *lockmetrics.RWMutex
+	accountID     string
+	region        string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		servers:      make(map[string]*Server),
-		users:        make(map[string]map[string]*User),
-		accesses:     make(map[string]map[string]*Access),
-		agreements:   make(map[string]map[string]*Agreement),
-		connectors:   make(map[string]*Connector),
-		profiles:     make(map[string]*Profile),
-		webApps:      make(map[string]*WebApp),
-		workflows:    make(map[string]*Workflow),
-		certificates: make(map[string]*Certificate),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("transfer"),
+		servers:       make(map[string]*Server),
+		users:         make(map[string]map[string]*User),
+		accesses:      make(map[string]map[string]*Access),
+		agreements:    make(map[string]map[string]*Agreement),
+		connectors:    make(map[string]*Connector),
+		profiles:      make(map[string]*Profile),
+		webApps:       make(map[string]*WebApp),
+		workflows:     make(map[string]*Workflow),
+		certificates:  make(map[string]*Certificate),
+		hostKeys:      make(map[string]map[string]*HostKey),
+		sshPublicKeys: make(map[string]map[string]map[string]*SshPublicKey),
+		tagsStore:     make(map[string]map[string]string),
+		accountID:     accountID,
+		region:        region,
+		mu:            lockmetrics.New("transfer"),
 	}
 }
 
@@ -558,6 +599,9 @@ func (b *InMemoryBackend) Reset() {
 	b.webApps = make(map[string]*WebApp)
 	b.workflows = make(map[string]*Workflow)
 	b.certificates = make(map[string]*Certificate)
+	b.hostKeys = make(map[string]map[string]*HostKey)
+	b.sshPublicKeys = make(map[string]map[string]map[string]*SshPublicKey)
+	b.tagsStore = make(map[string]map[string]string)
 }
 
 // CreateAccess creates an access policy entry on an existing server.
@@ -810,6 +854,673 @@ func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
 	delete(b.certificates, certificateID)
 
 	return nil
+}
+
+// DescribeAccess returns an access entry from a server.
+func (b *InMemoryBackend) DescribeAccess(serverID, externalID string) (*Access, error) {
+	b.mu.RLock("DescribeAccess")
+	defer b.mu.RUnlock()
+
+	serverAccesses, ok := b.accesses[serverID]
+	if !ok {
+		return nil, fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+	}
+
+	a, ok := serverAccesses[externalID]
+	if !ok {
+		return nil, fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+	}
+
+	return cloneAccess(a), nil
+}
+
+// ListAccesses returns all accesses on a server sorted by externalID.
+func (b *InMemoryBackend) ListAccesses(serverID string) ([]*Access, error) {
+	b.mu.RLock("ListAccesses")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.servers[serverID]; !ok {
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	serverAccesses := b.accesses[serverID]
+	out := make([]*Access, 0, len(serverAccesses))
+
+	for _, a := range serverAccesses {
+		out = append(out, cloneAccess(a))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ExternalID < out[j].ExternalID
+	})
+
+	return out, nil
+}
+
+// UpdateAccess updates mutable fields on an access entry.
+func (b *InMemoryBackend) UpdateAccess(serverID, externalID, role, homeDir string) (*Access, error) {
+	b.mu.Lock("UpdateAccess")
+	defer b.mu.Unlock()
+
+	serverAccesses, ok := b.accesses[serverID]
+	if !ok {
+		return nil, fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+	}
+
+	a, ok := serverAccesses[externalID]
+	if !ok {
+		return nil, fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+	}
+
+	if role != "" {
+		a.Role = role
+	}
+
+	if homeDir != "" {
+		a.HomeDir = homeDir
+	}
+
+	return cloneAccess(a), nil
+}
+
+// DescribeAgreement returns an agreement from a server.
+func (b *InMemoryBackend) DescribeAgreement(serverID, agreementID string) (*Agreement, error) {
+	b.mu.RLock("DescribeAgreement")
+	defer b.mu.RUnlock()
+
+	serverAgreements, ok := b.agreements[serverID]
+	if !ok {
+		return nil, fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+	}
+
+	ag, ok := serverAgreements[agreementID]
+	if !ok {
+		return nil, fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+	}
+
+	return cloneAgreement(ag), nil
+}
+
+// ListAgreements returns all agreements on a server sorted by agreementID.
+func (b *InMemoryBackend) ListAgreements(serverID string) ([]*Agreement, error) {
+	b.mu.RLock("ListAgreements")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.servers[serverID]; !ok {
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	serverAgreements := b.agreements[serverID]
+	out := make([]*Agreement, 0, len(serverAgreements))
+
+	for _, ag := range serverAgreements {
+		out = append(out, cloneAgreement(ag))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].AgreementID < out[j].AgreementID
+	})
+
+	return out, nil
+}
+
+// UpdateAgreement updates mutable fields on an agreement.
+func (b *InMemoryBackend) UpdateAgreement(serverID, agreementID, description, status string) (*Agreement, error) {
+	b.mu.Lock("UpdateAgreement")
+	defer b.mu.Unlock()
+
+	serverAgreements, ok := b.agreements[serverID]
+	if !ok {
+		return nil, fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+	}
+
+	ag, ok := serverAgreements[agreementID]
+	if !ok {
+		return nil, fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+	}
+
+	if description != "" {
+		ag.Description = description
+	}
+
+	if status != "" {
+		ag.Status = status
+	}
+
+	return cloneAgreement(ag), nil
+}
+
+// DescribeConnector returns a connector by ID.
+func (b *InMemoryBackend) DescribeConnector(connectorID string) (*Connector, error) {
+	b.mu.RLock("DescribeConnector")
+	defer b.mu.RUnlock()
+
+	c, ok := b.connectors[connectorID]
+	if !ok {
+		return nil, fmt.Errorf("%w: connector %s not found", ErrConnectorNotFound, connectorID)
+	}
+
+	return cloneConnector(c), nil
+}
+
+// ListConnectors returns all connectors sorted by connectorID.
+func (b *InMemoryBackend) ListConnectors() []*Connector {
+	b.mu.RLock("ListConnectors")
+	defer b.mu.RUnlock()
+
+	out := make([]*Connector, 0, len(b.connectors))
+
+	for _, c := range b.connectors {
+		out = append(out, cloneConnector(c))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ConnectorID < out[j].ConnectorID
+	})
+
+	return out
+}
+
+// UpdateConnector updates mutable fields on a connector.
+func (b *InMemoryBackend) UpdateConnector(connectorID, url, accessRole string) (*Connector, error) {
+	b.mu.Lock("UpdateConnector")
+	defer b.mu.Unlock()
+
+	c, ok := b.connectors[connectorID]
+	if !ok {
+		return nil, fmt.Errorf("%w: connector %s not found", ErrConnectorNotFound, connectorID)
+	}
+
+	if url != "" {
+		c.URL = url
+	}
+
+	if accessRole != "" {
+		c.AccessRole = accessRole
+	}
+
+	return cloneConnector(c), nil
+}
+
+// DeleteProfile removes a profile by ID.
+func (b *InMemoryBackend) DeleteProfile(profileID string) error {
+	b.mu.Lock("DeleteProfile")
+	defer b.mu.Unlock()
+
+	if _, ok := b.profiles[profileID]; !ok {
+		return fmt.Errorf("%w: profile %s not found", ErrProfileNotFound, profileID)
+	}
+
+	delete(b.profiles, profileID)
+
+	return nil
+}
+
+// DescribeProfile returns a profile by ID.
+func (b *InMemoryBackend) DescribeProfile(profileID string) (*Profile, error) {
+	b.mu.RLock("DescribeProfile")
+	defer b.mu.RUnlock()
+
+	p, ok := b.profiles[profileID]
+	if !ok {
+		return nil, fmt.Errorf("%w: profile %s not found", ErrProfileNotFound, profileID)
+	}
+
+	return cloneProfile(p), nil
+}
+
+// ListProfiles returns all profiles sorted by profileID.
+func (b *InMemoryBackend) ListProfiles() []*Profile {
+	b.mu.RLock("ListProfiles")
+	defer b.mu.RUnlock()
+
+	out := make([]*Profile, 0, len(b.profiles))
+
+	for _, p := range b.profiles {
+		out = append(out, cloneProfile(p))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ProfileID < out[j].ProfileID
+	})
+
+	return out
+}
+
+// UpdateProfile updates mutable fields on a profile.
+func (b *InMemoryBackend) UpdateProfile(profileID, as2ID string) (*Profile, error) {
+	b.mu.Lock("UpdateProfile")
+	defer b.mu.Unlock()
+
+	p, ok := b.profiles[profileID]
+	if !ok {
+		return nil, fmt.Errorf("%w: profile %s not found", ErrProfileNotFound, profileID)
+	}
+
+	if as2ID != "" {
+		p.As2ID = as2ID
+	}
+
+	return cloneProfile(p), nil
+}
+
+// DeleteWebApp removes a web app by ID.
+func (b *InMemoryBackend) DeleteWebApp(webAppID string) error {
+	b.mu.Lock("DeleteWebApp")
+	defer b.mu.Unlock()
+
+	if _, ok := b.webApps[webAppID]; !ok {
+		return fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+	}
+
+	delete(b.webApps, webAppID)
+
+	return nil
+}
+
+// DescribeWebApp returns a web app by ID.
+func (b *InMemoryBackend) DescribeWebApp(webAppID string) (*WebApp, error) {
+	b.mu.RLock("DescribeWebApp")
+	defer b.mu.RUnlock()
+
+	w, ok := b.webApps[webAppID]
+	if !ok {
+		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+	}
+
+	return cloneWebApp(w), nil
+}
+
+// ListWebApps returns all web apps sorted by webAppID.
+func (b *InMemoryBackend) ListWebApps() []*WebApp {
+	b.mu.RLock("ListWebApps")
+	defer b.mu.RUnlock()
+
+	out := make([]*WebApp, 0, len(b.webApps))
+
+	for _, w := range b.webApps {
+		out = append(out, cloneWebApp(w))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].WebAppID < out[j].WebAppID
+	})
+
+	return out
+}
+
+// UpdateWebApp updates mutable fields on a web app (currently a no-op placeholder).
+func (b *InMemoryBackend) UpdateWebApp(webAppID string) (*WebApp, error) {
+	b.mu.Lock("UpdateWebApp")
+	defer b.mu.Unlock()
+
+	w, ok := b.webApps[webAppID]
+	if !ok {
+		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+	}
+
+	return cloneWebApp(w), nil
+}
+
+// DeleteWorkflow removes a workflow by ID.
+func (b *InMemoryBackend) DeleteWorkflow(workflowID string) error {
+	b.mu.Lock("DeleteWorkflow")
+	defer b.mu.Unlock()
+
+	if _, ok := b.workflows[workflowID]; !ok {
+		return fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
+	}
+
+	delete(b.workflows, workflowID)
+
+	return nil
+}
+
+// DescribeWorkflow returns a workflow by ID.
+func (b *InMemoryBackend) DescribeWorkflow(workflowID string) (*Workflow, error) {
+	b.mu.RLock("DescribeWorkflow")
+	defer b.mu.RUnlock()
+
+	wf, ok := b.workflows[workflowID]
+	if !ok {
+		return nil, fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
+	}
+
+	return cloneWorkflow(wf), nil
+}
+
+// ListWorkflows returns all workflows sorted by workflowID.
+func (b *InMemoryBackend) ListWorkflows() []*Workflow {
+	b.mu.RLock("ListWorkflows")
+	defer b.mu.RUnlock()
+
+	out := make([]*Workflow, 0, len(b.workflows))
+
+	for _, wf := range b.workflows {
+		out = append(out, cloneWorkflow(wf))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].WorkflowID < out[j].WorkflowID
+	})
+
+	return out
+}
+
+// ImportCertificate imports a certificate.
+func (b *InMemoryBackend) ImportCertificate(usage, body, description string, tags map[string]string) (*Certificate, error) {
+	b.mu.Lock("ImportCertificate")
+	defer b.mu.Unlock()
+
+	certID := "cert-" + uuid.NewString()[:20]
+
+	merged := make(map[string]string, len(tags))
+	maps.Copy(merged, tags)
+
+	c := &Certificate{
+		CertificateID: certID,
+		Usage:         usage,
+		Body:          body,
+		Description:   description,
+		Status:        "ACTIVE",
+		CreatedAt:     time.Now(),
+		Tags:          merged,
+		AccountID:     b.accountID,
+		Region:        b.region,
+	}
+	b.certificates[certID] = c
+
+	return &Certificate{
+		CertificateID: c.CertificateID,
+		Usage:         c.Usage,
+		Body:          c.Body,
+		Description:   c.Description,
+		Status:        c.Status,
+		CreatedAt:     c.CreatedAt,
+		Tags:          merged,
+		AccountID:     c.AccountID,
+		Region:        c.Region,
+	}, nil
+}
+
+// DescribeCertificate returns a certificate by ID.
+func (b *InMemoryBackend) DescribeCertificate(certificateID string) (*Certificate, error) {
+	b.mu.RLock("DescribeCertificate")
+	defer b.mu.RUnlock()
+
+	c, ok := b.certificates[certificateID]
+	if !ok {
+		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertificateNotFound, certificateID)
+	}
+
+	cp := *c
+	cp.Tags = make(map[string]string, len(c.Tags))
+	maps.Copy(cp.Tags, c.Tags)
+
+	return &cp, nil
+}
+
+// ListCertificates returns all certificates sorted by certificateID.
+func (b *InMemoryBackend) ListCertificates() []*Certificate {
+	b.mu.RLock("ListCertificates")
+	defer b.mu.RUnlock()
+
+	out := make([]*Certificate, 0, len(b.certificates))
+
+	for _, c := range b.certificates {
+		cp := *c
+		cp.Tags = make(map[string]string, len(c.Tags))
+		maps.Copy(cp.Tags, c.Tags)
+		out = append(out, &cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CertificateID < out[j].CertificateID
+	})
+
+	return out
+}
+
+// UpdateCertificate updates mutable fields on a certificate.
+func (b *InMemoryBackend) UpdateCertificate(certificateID, description string) (*Certificate, error) {
+	b.mu.Lock("UpdateCertificate")
+	defer b.mu.Unlock()
+
+	c, ok := b.certificates[certificateID]
+	if !ok {
+		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertificateNotFound, certificateID)
+	}
+
+	if description != "" {
+		c.Description = description
+	}
+
+	cp := *c
+	cp.Tags = make(map[string]string, len(c.Tags))
+	maps.Copy(cp.Tags, c.Tags)
+
+	return &cp, nil
+}
+
+// ImportHostKey imports a host key onto a server.
+func (b *InMemoryBackend) ImportHostKey(serverID, hostKeyBody, description string, tags map[string]string) (*HostKey, error) {
+	b.mu.Lock("ImportHostKey")
+	defer b.mu.Unlock()
+
+	if _, ok := b.servers[serverID]; !ok {
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	if _, ok := b.hostKeys[serverID]; !ok {
+		b.hostKeys[serverID] = make(map[string]*HostKey)
+	}
+
+	hostKeyID := "hostkey-" + uuid.NewString()[:8]
+
+	merged := make(map[string]string, len(tags))
+	maps.Copy(merged, tags)
+
+	hk := &HostKey{
+		HostKeyID:   hostKeyID,
+		ServerID:    serverID,
+		Description: description,
+		Value:       hostKeyBody,
+		Type:        "ssh-rsa",
+		CreatedAt:   time.Now(),
+		Tags:        merged,
+		AccountID:   b.accountID,
+		Region:      b.region,
+	}
+	b.hostKeys[serverID][hostKeyID] = hk
+
+	return cloneHostKey(hk), nil
+}
+
+// DeleteHostKey removes a host key from a server.
+func (b *InMemoryBackend) DeleteHostKey(serverID, hostKeyID string) error {
+	b.mu.Lock("DeleteHostKey")
+	defer b.mu.Unlock()
+
+	serverKeys, ok := b.hostKeys[serverID]
+	if !ok {
+		return fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+	}
+
+	if _, exists := serverKeys[hostKeyID]; !exists {
+		return fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+	}
+
+	delete(serverKeys, hostKeyID)
+
+	return nil
+}
+
+// DescribeHostKey returns a host key from a server.
+func (b *InMemoryBackend) DescribeHostKey(serverID, hostKeyID string) (*HostKey, error) {
+	b.mu.RLock("DescribeHostKey")
+	defer b.mu.RUnlock()
+
+	serverKeys, ok := b.hostKeys[serverID]
+	if !ok {
+		return nil, fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+	}
+
+	hk, ok := serverKeys[hostKeyID]
+	if !ok {
+		return nil, fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+	}
+
+	return cloneHostKey(hk), nil
+}
+
+// ListHostKeys returns all host keys on a server sorted by hostKeyID.
+func (b *InMemoryBackend) ListHostKeys(serverID string) ([]*HostKey, error) {
+	b.mu.RLock("ListHostKeys")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.servers[serverID]; !ok {
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	serverKeys := b.hostKeys[serverID]
+	out := make([]*HostKey, 0, len(serverKeys))
+
+	for _, hk := range serverKeys {
+		out = append(out, cloneHostKey(hk))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].HostKeyID < out[j].HostKeyID
+	})
+
+	return out, nil
+}
+
+// UpdateHostKey updates mutable fields on a host key.
+func (b *InMemoryBackend) UpdateHostKey(serverID, hostKeyID, description string) (*HostKey, error) {
+	b.mu.Lock("UpdateHostKey")
+	defer b.mu.Unlock()
+
+	serverKeys, ok := b.hostKeys[serverID]
+	if !ok {
+		return nil, fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+	}
+
+	hk, ok := serverKeys[hostKeyID]
+	if !ok {
+		return nil, fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+	}
+
+	if description != "" {
+		hk.Description = description
+	}
+
+	return cloneHostKey(hk), nil
+}
+
+// ImportSshPublicKey imports an SSH public key for a user on a server.
+func (b *InMemoryBackend) ImportSshPublicKey(serverID, userName, sshPublicKeyBody string) (*SshPublicKey, error) {
+	b.mu.Lock("ImportSshPublicKey")
+	defer b.mu.Unlock()
+
+	if _, ok := b.servers[serverID]; !ok {
+		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	if _, ok := b.sshPublicKeys[serverID]; !ok {
+		b.sshPublicKeys[serverID] = make(map[string]map[string]*SshPublicKey)
+	}
+
+	if _, ok := b.sshPublicKeys[serverID][userName]; !ok {
+		b.sshPublicKeys[serverID][userName] = make(map[string]*SshPublicKey)
+	}
+
+	keyID := "key-" + uuid.NewString()[:8]
+
+	k := &SshPublicKey{
+		SshPublicKeyID:   keyID,
+		SshPublicKeyBody: sshPublicKeyBody,
+		UserName:         userName,
+		ServerID:         serverID,
+		DateImported:     time.Now(),
+	}
+	b.sshPublicKeys[serverID][userName][keyID] = k
+
+	return &SshPublicKey{
+		SshPublicKeyID:   k.SshPublicKeyID,
+		SshPublicKeyBody: k.SshPublicKeyBody,
+		UserName:         k.UserName,
+		ServerID:         k.ServerID,
+		DateImported:     k.DateImported,
+	}, nil
+}
+
+// DeleteSshPublicKey removes an SSH public key from a user on a server.
+func (b *InMemoryBackend) DeleteSshPublicKey(serverID, userName, sshPublicKeyID string) error {
+	b.mu.Lock("DeleteSshPublicKey")
+	defer b.mu.Unlock()
+
+	serverKeys, ok := b.sshPublicKeys[serverID]
+	if !ok {
+		return fmt.Errorf("%w: SSH key %s not found", ErrUserNotFound, sshPublicKeyID)
+	}
+
+	userKeys, ok := serverKeys[userName]
+	if !ok {
+		return fmt.Errorf("%w: SSH key %s not found", ErrUserNotFound, sshPublicKeyID)
+	}
+
+	if _, exists := userKeys[sshPublicKeyID]; !exists {
+		return fmt.Errorf("%w: SSH key %s not found", ErrUserNotFound, sshPublicKeyID)
+	}
+
+	delete(userKeys, sshPublicKeyID)
+
+	return nil
+}
+
+// TagResource applies tags to a resource identified by its ARN.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	if _, ok := b.tagsStore[resourceARN]; !ok {
+		b.tagsStore[resourceARN] = make(map[string]string)
+	}
+
+	maps.Copy(b.tagsStore[resourceARN], tags)
+
+	return nil
+}
+
+// UntagResource removes tag keys from a resource identified by its ARN.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	if existing, ok := b.tagsStore[resourceARN]; ok {
+		for _, k := range tagKeys {
+			delete(existing, k)
+		}
+	}
+
+	return nil
+}
+
+// ListTagsForResource returns tags for a resource identified by its ARN.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) map[string]string {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	existing, ok := b.tagsStore[resourceARN]
+	if !ok {
+		return make(map[string]string)
+	}
+
+	out := make(map[string]string, len(existing))
+	maps.Copy(out, existing)
+
+	return out
 }
 
 // AddCertificateInternal seeds a certificate for testing purposes.

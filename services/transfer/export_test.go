@@ -96,6 +96,36 @@ func CertificateCount(b *InMemoryBackend) int {
 	return len(b.certificates)
 }
 
+// HostKeyCount returns the total number of host keys stored across all servers.
+// This is exported for use in tests only.
+func HostKeyCount(b *InMemoryBackend) int {
+	b.mu.RLock("HostKeyCount")
+	defer b.mu.RUnlock()
+
+	n := 0
+	for _, m := range b.hostKeys {
+		n += len(m)
+	}
+
+	return n
+}
+
+// SshPublicKeyCount returns the total number of SSH public keys stored across all users and servers.
+// This is exported for use in tests only.
+func SshPublicKeyCount(b *InMemoryBackend) int {
+	b.mu.RLock("SshPublicKeyCount")
+	defer b.mu.RUnlock()
+
+	n := 0
+	for _, userMap := range b.sshPublicKeys {
+		for _, keyMap := range userMap {
+			n += len(keyMap)
+		}
+	}
+
+	return n
+}
+
 // HandlerOpsLen returns the number of operations pre-built in the handler dispatch map.
 // This is exported for use in tests only.
 func HandlerOpsLen(h *Handler) int {
