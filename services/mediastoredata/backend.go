@@ -21,6 +21,7 @@ var (
 type Object struct {
 	LastModified  time.Time
 	ETag          string
+	SHA256        string // cached hex-encoded SHA-256 of Body
 	ContentType   string
 	CacheControl  string
 	StorageClass  string
@@ -54,16 +55,10 @@ func contentSHA256(body []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// contentETag returns a quoted ETag derived from the SHA-256 hash of the body,
-// matching the convention used by real AWS services.
-func contentETag(body []byte) string {
-	return fmt.Sprintf(`"%s"`, contentSHA256(body))
-}
-
-// cloneObject returns a deep copy of obj with the Body slice cloned.
+// cloneObject returns a shallow copy of obj. Body is shared (CoW: objects are
+// immutable after storage, so callers only read the body, never mutate it).
 func cloneObject(obj *Object) *Object {
 	cp := *obj
-	cp.Body = append([]byte(nil), obj.Body...)
 
 	return &cp
 }
@@ -80,9 +75,11 @@ func (b *InMemoryBackend) PutObject(path string, body []byte, contentType, cache
 
 	// Clone the input body to prevent callers mutating the stored slice.
 	stored := append([]byte(nil), body...)
+	sha := contentSHA256(stored)
 	obj := &Object{
 		Body:          stored,
-		ETag:          contentETag(stored),
+		SHA256:        sha,
+		ETag:          fmt.Sprintf(`"%s"`, sha),
 		ContentType:   contentType,
 		CacheControl:  cacheControl,
 		StorageClass:  storageClass,
@@ -130,7 +127,10 @@ type Item struct {
 	Name          string
 	Type          string
 	ETag          string
+	SHA256        string
 	ContentType   string
+	CacheControl  string
+	StorageClass  string
 	ContentLength int64
 }
 
@@ -195,7 +195,10 @@ func (b *InMemoryBackend) ListAllObjects() []*Item {
 			Name:          key,
 			Type:          "OBJECT",
 			ETag:          obj.ETag,
+			SHA256:        obj.SHA256,
 			ContentType:   obj.ContentType,
+			CacheControl:  obj.CacheControl,
+			StorageClass:  obj.StorageClass,
 			ContentLength: obj.ContentLength,
 			LastModified:  obj.LastModified,
 		})

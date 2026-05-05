@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -1373,22 +1374,152 @@ func (h *DashboardHandler) setupSubRouter() {
 		return c.JSON(http.StatusOK, stats)
 	})
 
-	h.SubRouter.GET("/dashboard/api/mediastoredata/objects", func(c *echo.Context) error {
-		if h.config.MediaStoreDataOps == nil || h.config.MediaStoreDataOps.Backend == nil {
-			return c.JSON(http.StatusOK, map[string]any{"objects": []string{}})
+	const (
+		msdErrBackendUnavailable = "MediaStore Data backend not available"
+		msdErrPathRequired       = "path is required"
+		msdUploadMaxBytes        = 32 << 20 // 32 MiB
+	)
+
+	type msdObjectEntry struct {
+		Path          string `json:"path"`
+		ContentType   string `json:"contentType"`
+		CacheControl  string `json:"cacheControl"`
+		StorageClass  string `json:"storageClass"`
+		ETag          string `json:"etag"`
+		SHA256        string `json:"sha256"`
+		ContentLength int64  `json:"contentLength"`
+		LastModified  int64  `json:"lastModified"`
+	}
+
+	msdBackend := func() *mediastoredatabackend.InMemoryBackend {
+		if h.config.MediaStoreDataOps == nil {
+			return nil
 		}
 
-		items := h.config.MediaStoreDataOps.Backend.ListAllObjects()
-		objectPaths := make([]string, 0, len(items))
+		return h.config.MediaStoreDataOps.Backend
+	}
+
+	h.SubRouter.GET("/dashboard/api/mediastoredata/objects", func(c *echo.Context) error {
+		backend := msdBackend()
+		if backend == nil {
+			return c.JSON(http.StatusOK, map[string]any{"objects": []msdObjectEntry{}})
+		}
+
+		items := backend.ListAllObjects()
+		entries := make([]msdObjectEntry, 0, len(items))
 		for _, item := range items {
 			if item == nil || item.Name == "" {
 				continue
 			}
 
-			objectPaths = append(objectPaths, strings.TrimPrefix(item.Name, "/"))
+			entries = append(entries, msdObjectEntry{
+				Path:          item.Name,
+				ContentType:   item.ContentType,
+				CacheControl:  item.CacheControl,
+				StorageClass:  item.StorageClass,
+				ETag:          item.ETag,
+				SHA256:        item.SHA256,
+				ContentLength: item.ContentLength,
+				LastModified:  item.LastModified.Unix(),
+			})
 		}
 
-		return c.JSON(http.StatusOK, map[string]any{"objects": objectPaths})
+		return c.JSON(http.StatusOK, map[string]any{"objects": entries})
+	})
+
+	h.SubRouter.POST("/dashboard/api/mediastoredata/upload", func(c *echo.Context) error {
+		backend := msdBackend()
+		if backend == nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: msdErrBackendUnavailable})
+		}
+
+		r := c.Request()
+		if err := r.ParseMultipartForm(msdUploadMaxBytes); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: "invalid multipart form"})
+		}
+
+		objPath := strings.TrimSpace(r.FormValue("path"))
+		if objPath == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: msdErrPathRequired})
+		}
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: "file is required"})
+		}
+		defer file.Close()
+
+		body, err := io.ReadAll(file)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{keyError: "failed to read file"})
+		}
+
+		contentType := r.FormValue("content_type")
+		if contentType == "" {
+			contentType = header.Header.Get("Content-Type")
+		}
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+
+		cacheControl := r.FormValue("cache_control")
+		storageClass := r.FormValue("storage_class")
+
+		obj := backend.PutObject("/"+strings.TrimPrefix(objPath, "/"), body, contentType, cacheControl, storageClass)
+
+		return c.JSON(http.StatusOK, map[string]string{
+			"etag":   obj.ETag,
+			"sha256": obj.SHA256,
+		})
+	})
+
+	h.SubRouter.GET("/dashboard/api/mediastoredata/download", func(c *echo.Context) error {
+		backend := msdBackend()
+		if backend == nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: msdErrBackendUnavailable})
+		}
+
+		objPath := strings.TrimSpace(c.QueryParam("path"))
+		if objPath == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: msdErrPathRequired})
+		}
+
+		obj, err := backend.GetObject("/" + strings.TrimPrefix(objPath, "/"))
+		if err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{keyError: "object not found"})
+		}
+
+		w := c.Response()
+		ct := obj.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("Content-Length", strconv.FormatInt(obj.ContentLength, 10))
+		w.Header().Set("ETag", obj.ETag)
+		w.Header().Set("Content-Disposition", `attachment; filename="`+path.Base(objPath)+`"`)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(obj.Body)
+
+		return nil
+	})
+
+	h.SubRouter.DELETE("/dashboard/api/mediastoredata/objects", func(c *echo.Context) error {
+		backend := msdBackend()
+		if backend == nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: msdErrBackendUnavailable})
+		}
+
+		objPath := strings.TrimSpace(c.QueryParam("path"))
+		if objPath == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: msdErrPathRequired})
+		}
+
+		if err := backend.DeleteObject("/" + strings.TrimPrefix(objPath, "/")); err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{keyError: "object not found"})
+		}
+
+		return c.NoContent(http.StatusOK)
 	})
 
 	h.SubRouter.GET("/dashboard/dynamodb/table/:name/stream-info", func(c *echo.Context) error {

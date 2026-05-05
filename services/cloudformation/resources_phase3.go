@@ -14,6 +14,7 @@ import (
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
+	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
 // eksNodegroupDefaultDesiredSize is the default desired node count for an EKS nodegroup.
@@ -1200,7 +1201,13 @@ func (rc *ResourceCreator) createPipesPipe(
 	target := strProp(props, "Target", params, physicalIDs)
 	description := strProp(props, "Description", params, physicalIDs)
 
-	pipe, err := rc.backends.Pipes.Backend.CreatePipe(name, roleARN, source, target, description, "", nil)
+	pipe, err := rc.backends.Pipes.Backend.CreatePipe(pipes.CreatePipeInput{
+		Name:        name,
+		RoleARN:     roleARN,
+		Source:      source,
+		Target:      target,
+		Description: description,
+	})
 	if err != nil {
 		return "", fmt.Errorf("create Pipes pipe %s: %w", name, err)
 	}

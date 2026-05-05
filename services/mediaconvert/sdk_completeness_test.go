@@ -17,10 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := mediaconvert.NewInMemoryBackend("000000000000", "us-east-1")
 	h := mediaconvert.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &mediaconvertsdk.Client{}, h.GetSupportedOperations(), []string{
-		"ListVersions",
-		"Probe",
-		"SearchJobs",
-		"StartJobsQuery",
-	})
+	sdkcheck.CheckCompleteness(t, &mediaconvertsdk.Client{}, h.GetSupportedOperations(), nil)
 }

@@ -111,8 +111,8 @@ describe("MediaConvert Page", () => {
     await waitFor(
       () => {
         expect(screen.getAllByText("Queue")[0]).toBeInTheDocument();
-        expect(screen.getAllByText("Role ARN")[0]).toBeInTheDocument();
-        expect(screen.getAllByText("Output Groups")[0]).toBeInTheDocument();
+        expect(screen.getAllByText("Role")[0]).toBeInTheDocument();
+        expect(screen.getAllByText("Priority")[0]).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
@@ -156,7 +156,7 @@ describe("MediaConvert Page", () => {
     await fireEvent.click(screen.getByText("Default"));
     await waitFor(
       () => {
-        expect(screen.getAllByText("Queue ARN")[0]).toBeInTheDocument();
+        expect(screen.getAllByText("Type")[0]).toBeInTheDocument();
         expect(screen.getAllByText("Pricing Plan")[0]).toBeInTheDocument();
       },
       { timeout: 3000 },
