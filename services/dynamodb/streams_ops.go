@@ -159,7 +159,7 @@ func (db *InMemoryDB) DescribeStream(
 			StreamViewType:          streamstypes.StreamViewType(viewType),
 			TableName:               aws.String(tableName),
 			KeySchema:               sdkKeySchema,
-			CreationRequestDateTime: &creationTime,
+			CreationRequestDateTime: nil,
 			LastEvaluatedShardId:    nil,
 			Shards: []streamstypes.Shard{
 				{
