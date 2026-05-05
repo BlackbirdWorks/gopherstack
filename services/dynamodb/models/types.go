@@ -280,6 +280,7 @@ type DeleteItemOutput struct{}
 type StreamRecord struct {
 	OldImage                    map[string]any `json:"oldImage,omitempty"`
 	NewImage                    map[string]any `json:"newImage,omitempty"`
+	Keys                        map[string]any `json:"keys,omitempty"`
 	EventID                     string         `json:"eventID"`
 	EventName                   string         `json:"eventName"`
 	SequenceNumber              string         `json:"sequenceNumber"`

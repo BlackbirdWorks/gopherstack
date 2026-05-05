@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"html"
 	"io/fs"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1175,10 +1177,16 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.GET("/dashboard/dynamodb/table/:name/stream-info", func(c *echo.Context) error {
 		name := c.Param("name")
 
+		type eventTypeCounts struct {
+			Insert int `json:"insert"`
+			Modify int `json:"modify"`
+			Remove int `json:"remove"`
+		}
 		type streamInfoResponse struct {
 			OldestSeq       string            `json:"oldestSeq"`
 			LatestSeq       string            `json:"latestSeq"`
 			Shards          []streamShardInfo `json:"shards"`
+			EventTypes      eventTypeCounts   `json:"eventTypes"`
 			LatestEventUnix int64             `json:"latestEventUnix"`
 			LagSeconds      int64             `json:"lagSeconds"`
 			EventCount      int               `json:"eventCount"`
@@ -1191,9 +1199,20 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		ctx := c.Request().Context()
 
-		// Get events for count, sequence range, and lag
+		// Get events for count, sequence range, lag, and type breakdown
 		events := h.config.DynamoDBStreamsOps.Streams.GetRecentEvents(name)
 		info := streamInfoResponse{Available: true, EventCount: len(events)}
+
+		for _, e := range events {
+			switch e.EventName {
+			case "INSERT":
+				info.EventTypes.Insert++
+			case "MODIFY":
+				info.EventTypes.Modify++
+			case "REMOVE":
+				info.EventTypes.Remove++
+			}
+		}
 
 		if len(events) > 0 {
 			info.OldestSeq = events[0].SequenceNumber
@@ -1224,8 +1243,10 @@ func (h *DashboardHandler) setupSubRouter() {
 		sb.WriteString(
 			"<thead><tr class='border-b border-slate-200 dark:border-slate-700'>" +
 				"<th class='text-left pb-1 pr-3 text-slate-500 font-medium'>Event</th>" +
+				"<th class='text-left pb-1 pr-3 text-slate-500 font-medium'>Keys</th>" +
 				"<th class='text-left pb-1 pr-3 text-slate-500 font-medium'>Sequence</th>" +
-				"<th class='text-left pb-1 text-slate-500 font-medium'>Time</th>" +
+				"<th class='text-left pb-1 pr-3 text-slate-500 font-medium'>Time</th>" +
+				"<th class='text-left pb-1 text-slate-500 font-medium'>Attrs</th>" +
 				"</tr></thead>",
 		)
 		const seqSuffixLen = 12
@@ -1242,22 +1263,47 @@ func (h *DashboardHandler) setupSubRouter() {
 			default:
 				eventClass = "text-blue-700 dark:text-blue-400"
 			}
-			ts := time.Unix(e.ApproximateCreationDateTime, 0).Format("15:04:05")
+			ts := time.Unix(e.ApproximateCreationDateTime, 0).Format("2006-01-02 15:04:05")
 			seq := e.SequenceNumber
 			if len(seq) > seqSuffixLen {
-				seq = seq[len(seq)-seqSuffixLen:]
+				seq = "…" + seq[len(seq)-seqSuffixLen:]
 			}
+
+			// Summarise key values for display (first key attr only, truncated).
+			keySummary := streamEventKeySummary(e.Keys)
+
+			// Count changed attributes: new or old image attribute count.
+			attrCount := len(e.NewImage)
+			if attrCount == 0 {
+				attrCount = len(e.OldImage)
+			}
+			attrStr := ""
+			if attrCount > 0 {
+				attrStr = strconv.Itoa(attrCount)
+			}
+
 			sb.WriteString(
-				"<tr class='border-b border-slate-100 dark:border-slate-700 " +
+				"<tr data-event='" + html.EscapeString(e.EventName) + "' " +
+					"class='border-b border-slate-100 dark:border-slate-700 " +
 					"hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors'>",
 			)
 			sb.WriteString(
 				"<td class='py-1 pr-3 font-semibold " + eventClass + "'>" + html.EscapeString(e.EventName) + "</td>",
 			)
 			sb.WriteString(
-				"<td class='py-1 pr-3 text-slate-500 dark:text-slate-400'>…" + html.EscapeString(seq) + "</td>",
+				"<td class='py-1 pr-3 text-slate-600 dark:text-slate-300 max-w-[120px] truncate' title='" +
+					html.EscapeString(keySummary) + "'>" + html.EscapeString(keySummary) + "</td>",
 			)
-			sb.WriteString("<td class='py-1 text-slate-500 dark:text-slate-400'>" + html.EscapeString(ts) + "</td>")
+			sb.WriteString(
+				"<td class='py-1 pr-3 text-slate-500 dark:text-slate-400'>" + html.EscapeString(seq) + "</td>",
+			)
+			sb.WriteString(
+				"<td class='py-1 pr-3 text-slate-500 dark:text-slate-400 whitespace-nowrap'>" +
+					html.EscapeString(ts) + "</td>",
+			)
+			sb.WriteString(
+				"<td class='py-1 text-slate-400 dark:text-slate-500'>" + html.EscapeString(attrStr) + "</td>",
+			)
 			sb.WriteString("</tr>")
 		}
 		sb.WriteString("</tbody></table>")
@@ -1270,6 +1316,59 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.Any("/dashboard", func(c *echo.Context) error {
 		return c.Redirect(http.StatusMovedPermanently, "/dashboard/")
 	})
+}
+
+// streamEventKeySummary returns a short human-readable representation of the
+// keys map for display in the stream events table (e.g. "id=123, sk=abc").
+func streamEventKeySummary(keys map[string]any) string {
+	if len(keys) == 0 {
+		return ""
+	}
+
+	const maxLen = 40
+	var parts []string
+
+	for k, v := range keys {
+		val := extractScalarValue(v)
+		parts = append(parts, k+"="+val)
+	}
+
+	sort.Strings(parts)
+	result := strings.Join(parts, ", ")
+
+	if len(result) > maxLen {
+		return result[:maxLen-1] + "…"
+	}
+
+	return result
+}
+
+// extractScalarValue returns the scalar value from a DynamoDB wire-format attribute
+// map (e.g. {"S":"hello"} → "hello", {"N":"42"} → "42").
+func extractScalarValue(v any) string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return fmt.Sprintf("%v", v)
+	}
+
+	for typ, val := range m {
+		switch typ {
+		case "S", "N", "BOOL":
+			return fmt.Sprintf("%v", val)
+		case "NULL":
+			return "null"
+		case "L":
+			return "[list]"
+		case "M":
+			return "{map}"
+		case "SS", "NS", "BS":
+			return "[set]"
+		case "B":
+			return "[binary]"
+		}
+	}
+
+	return ""
 }
 
 type streamShardInfo struct {

@@ -99,6 +99,7 @@
 
 	// Stream Info State
 	type ShardInfo = { shardId: string; startSeq: string; endSeq: string };
+	type EventTypeCounts = { insert: number; modify: number; remove: number };
 	type StreamInfo = {
 		available: boolean;
 		eventCount: number;
@@ -107,9 +108,11 @@
 		latestSeq: string;
 		lagSeconds: number;
 		shards: ShardInfo[];
+		eventTypes: EventTypeCounts;
 	};
 	let streamInfo = $state<StreamInfo | null>(null);
 	let streamInfoLoading = $state(false);
+	let streamEventFilter = $state<string>('ALL');
 
 	// Overview Config State
 	let ttlAttribute = $state('');
@@ -531,6 +534,7 @@
 			streamBackendUnavailable = false;
 			streamEventsHtml = '';
 			streamInfo = null;
+			streamEventFilter = 'ALL';
 			loadStreamInfo();
 			loadStreamEvents();
 			streamPollTimer = setInterval(() => { loadStreamEvents(); loadStreamInfo(); }, 3000);
@@ -733,6 +737,18 @@
 		}
 
 		tablePage = Math.max(0, totalTablePages - 1);
+	});
+
+	// Apply client-side event-type filter to the rendered HTML events table.
+	$effect(() => {
+		const filter = streamEventFilter;
+		const container = document.querySelector('.stream-events-filter');
+		if (!container) return;
+		const rows = container.querySelectorAll('tbody tr[data-event]');
+		rows.forEach((row) => {
+			const el = row as HTMLElement;
+			el.style.display = (filter === 'ALL' || el.dataset.event === filter) ? '' : 'none';
+		});
 	});
 </script>
 {#snippet resultsTable(items: Record<string, unknown>[])}
@@ -1286,6 +1302,30 @@
 							</div>
 						</div>
 
+						<!-- Event Type Breakdown -->
+						{#if streamInfo.eventCount > 0 && streamInfo.eventTypes}
+							<div class="flex flex-wrap gap-3 text-xs">
+								<div class="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg">
+									<span class="font-semibold text-green-700 dark:text-green-400">INSERT</span>
+									<span class="text-green-600 dark:text-green-300 font-mono">{streamInfo.eventTypes.insert}</span>
+								</div>
+								<div class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+									<span class="font-semibold text-blue-700 dark:text-blue-400">MODIFY</span>
+									<span class="text-blue-600 dark:text-blue-300 font-mono">{streamInfo.eventTypes.modify}</span>
+								</div>
+								<div class="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg">
+									<span class="font-semibold text-red-700 dark:text-red-400">REMOVE</span>
+									<span class="text-red-600 dark:text-red-300 font-mono">{streamInfo.eventTypes.remove}</span>
+								</div>
+								{#if streamInfo.latestEventUnix > 0}
+									<div class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg ml-auto">
+										<span class="text-slate-500 dark:text-slate-400">Last event:</span>
+										<span class="text-slate-700 dark:text-slate-300 font-mono">{new Date(streamInfo.latestEventUnix * 1000).toLocaleTimeString()}</span>
+									</div>
+								{/if}
+							</div>
+						{/if}
+
 						<!-- Shards Table -->
 						{#if streamInfo.shards && streamInfo.shards.length > 0}
 							<div class="p-4 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600">
@@ -1329,13 +1369,25 @@
 
 					<!-- Recent Events -->
 					<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800">
-						<h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Recent Events</h4>
+						<div class="flex items-center justify-between mb-3">
+							<h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300">Recent Events</h4>
+							<div class="flex items-center gap-2">
+								{#each ['ALL', 'INSERT', 'MODIFY', 'REMOVE'] as filter}
+									<button
+										onclick={() => { streamEventFilter = filter; }}
+										class="text-xs px-2 py-0.5 rounded font-medium transition-colors {streamEventFilter === filter
+											? 'bg-blue-600 text-white'
+											: 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-500'}"
+									>{filter}</button>
+								{/each}
+							</div>
+						</div>
 						{#if streamEventsLoading && !streamEventsHtml}
 							<div class="flex items-center justify-center p-8">
 								<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /><path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" /></svg>
 							</div>
 						{:else if streamEventsHtml}
-							<div class="overflow-auto max-h-96">{@html streamEventsHtml}</div>
+							<div class="overflow-auto max-h-96 stream-events-filter" data-filter={streamEventFilter}>{@html streamEventsHtml}</div>
 						{:else}
 							<div class="p-6 text-center text-slate-500 dark:text-slate-400">
 								<p class="text-sm">No recent stream events. Events will appear here as you write to the table.</p>
