@@ -108,7 +108,10 @@ describe("Pipes Page", () => {
 
   it("creates a pipe via the modal form", async () => {
     mockSend.mockResolvedValueOnce({ Pipes: [] });
-    mockSend.mockResolvedValueOnce({ Name: "new-pipe", Arn: "arn:aws:pipes:us-east-1:000000000000:pipe/new-pipe" });
+    mockSend.mockResolvedValueOnce({
+      Name: "new-pipe",
+      Arn: "arn:aws:pipes:us-east-1:000000000000:pipe/new-pipe",
+    });
     mockSend.mockResolvedValueOnce({ Pipes: [{ Name: "new-pipe", CurrentState: "RUNNING" }] });
 
     render(PipesPage);
