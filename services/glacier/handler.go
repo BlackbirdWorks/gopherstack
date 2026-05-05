@@ -815,7 +815,6 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 
 	// Return a minimal inventory JSON for InventoryRetrieval jobs, empty body for ArchiveRetrieval.
 	if j.Action == jobTypeInventoryRetrieval {
-		inventoryJSON := `{"VaultARN":"` + j.VaultARN + `","InventoryDate":"` + j.CompletionDate + `","ArchiveList":[]}`
 		c.Response().Header().Set("Content-Type", "application/json")
 
 		if j.InventorySizeInBytes > 0 {
@@ -825,7 +824,13 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 			)
 		}
 
-		return c.String(http.StatusOK, inventoryJSON)
+		c.Response().WriteHeader(http.StatusOK)
+
+		return json.NewEncoder(c.Response()).Encode(map[string]any{
+			"VaultARN":      j.VaultARN,
+			"InventoryDate": j.CompletionDate,
+			"ArchiveList":   []any{},
+		})
 	}
 
 	// ArchiveRetrieval: set Content-Range if we know the archive size.

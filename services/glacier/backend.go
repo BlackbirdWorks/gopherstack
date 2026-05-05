@@ -4,8 +4,8 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
-	"math/big"
 	"sort"
 	"sync"
 	"time"
@@ -189,22 +189,37 @@ func cloneArchive(a *Archive) *Archive {
 	return &cp
 }
 
-// generateID creates a random ID of the given length.
+// generateID creates a random ID of the given length using a single batch read
+// from crypto/rand rather than one syscall per character.
 func generateID(length int) string {
-	b := make([]byte, length)
+	const nChars = len(idChars)
+	// Bytes in [0, nChars*(256/nChars)) have no modulo bias.
+	const maxByte = byte(nChars * (256 / nChars))
 
-	for i := range b {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(idChars))))
-		if err != nil {
-			b[i] = idChars[0]
+	result := make([]byte, 0, length)
+	buf := make([]byte, length+length/2+8) // extra headroom for rejections
 
-			continue
+	for len(result) < length {
+		if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+			// Unreachable in practice; degrade to index 0 for remaining chars.
+			for len(result) < length {
+				result = append(result, idChars[0])
+			}
+
+			break
 		}
 
-		b[i] = idChars[n.Int64()]
+		for _, b := range buf {
+			if b < maxByte {
+				result = append(result, idChars[int(b)%nChars])
+				if len(result) == length {
+					break
+				}
+			}
+		}
 	}
 
-	return string(b)
+	return string(result)
 }
 
 // vaultARN returns the ARN for a Glacier vault.
