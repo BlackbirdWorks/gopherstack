@@ -66,8 +66,12 @@ type StorageBackend interface {
 // Compile-time assertion that InMemoryBackend implements StorageBackend.
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
-// maxChannelMessages caps the number of messages stored per channel to prevent unbounded memory growth.
-const maxChannelMessages = 1000
+const (
+	// maxChannelMessages caps the number of messages stored per channel to prevent unbounded memory growth.
+	maxChannelMessages = 1000
+	// maxDatasetContents caps the number of content versions stored per dataset.
+	maxDatasetContents = 100
+)
 
 // InMemoryBackend is the in-memory backend for IoT Analytics.
 type InMemoryBackend struct {
@@ -759,7 +763,12 @@ func (b *InMemoryBackend) CreateDatasetContent(datasetName string) (*DatasetCont
 		CompletionTime: now,
 	}
 
-	b.datasetContents[datasetName] = append(b.datasetContents[datasetName], content)
+	contents := b.datasetContents[datasetName]
+	if len(contents) >= maxDatasetContents {
+		contents = contents[1:]
+	}
+
+	b.datasetContents[datasetName] = append(contents, content)
 
 	return content, nil
 }
