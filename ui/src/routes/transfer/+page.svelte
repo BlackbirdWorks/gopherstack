@@ -33,6 +33,11 @@
 		ListCertificatesCommand,
 		ImportCertificateCommand,
 		DeleteCertificateCommand,
+		ListHostKeysCommand,
+		ImportHostKeyCommand,
+		DeleteHostKeyCommand,
+		ImportSshPublicKeyCommand,
+		DeleteSshPublicKeyCommand,
 		type DescribedServer,
 		type ListedServer,
 		type ListedUser,
@@ -65,9 +70,16 @@
 
 	const transfer = getTransferClient();
 
-	let loading = $state(false);
 	let activeTab = $state<TabName>('servers');
 	let searchQuery = $state('');
+
+	// Per-tab loading spinners
+	let loadingServers = $state(false);
+	let loadingConnectors = $state(false);
+	let loadingProfiles = $state(false);
+	let loadingWebApps = $state(false);
+	let loadingWorkflows = $state(false);
+	let loadingCertificates = $state(false);
 
 	// Servers
 	let servers = $state<ListedServer[]>([]);
@@ -75,6 +87,20 @@
 	let serverDetail = $state<DescribedServer | null>(null);
 	let serverUsers = $state<ListedUser[]>([]);
 	let loadingUsers = $state(false);
+	let serverHostKeys = $state<{ HostKeyId?: string; Type?: string; Description?: string }[]>([]);
+	let loadingHostKeys = $state(false);
+	let showImportHostKeyModal = $state(false);
+	let importingHostKey = $state(false);
+	let newHostKeyBody = $state('');
+	let newHostKeyDescription = $state('');
+
+	// SSH Public Keys in user panel
+	let showImportSshKeyModal = $state(false);
+	let importingSshKey = $state(false);
+	let sshKeyTargetUser = $state('');
+	let newSshKeyBody = $state('');
+	let userSshKeys = $state<{ SshPublicKeyId?: string; Fingerprint?: string; DateImported?: string; UserName?: string }[]>([]);
+	let loadingSshKeys = $state(false);
 
 	let showCreateServerModal = $state(false);
 	let creatingServer = $state(false);
@@ -162,20 +188,21 @@
 	}
 
 	async function loadServers() {
-		loading = true;
+		loadingServers = true;
 		try {
 			const res = await transfer.send(new ListServersCommand({ MaxResults: 100 }));
 			servers = res.Servers ?? [];
 		} catch (e) {
-			toast.error(`Failed to load servers: ${e}`);
+			toast.error(`Failed to load servers: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
-			loading = false;
+			loadingServers = false;
 		}
 	}
 
 	async function viewServer(server: ListedServer) {
 		selectedServer = server;
 		if (!server.ServerId) return;
+		selectedServerId = server.ServerId;
 		loadingUsers = true;
 		try {
 			const [detailRes, usersRes] = await Promise.all([
@@ -184,12 +211,13 @@
 			]);
 			serverDetail = detailRes.Server ?? null;
 			serverUsers = usersRes.Users ?? [];
-			selectedServerId = server.ServerId;
 		} catch (e) {
-			toast.error(`Failed to load server details: ${e}`);
+			toast.error(`Failed to load server details: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			loadingUsers = false;
 		}
+		// Load host keys
+		await loadHostKeys();
 	}
 
 	async function toggleServer(server: ListedServer) {
@@ -204,7 +232,7 @@
 			}
 			await loadServers();
 		} catch (e) {
-			toast.error(`Failed to toggle server: ${e}`);
+			toast.error(`Failed to toggle server: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
@@ -216,7 +244,7 @@
 			selectedServer = null;
 			await loadServers();
 		} catch (e) {
-			toast.error(`Failed to delete server: ${e}`);
+			toast.error(`Failed to delete server: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
@@ -235,7 +263,7 @@
 			newServerProtocols = ['SFTP'];
 			await loadServers();
 		} catch (e) {
-			toast.error(`Failed to create server: ${e}`);
+			toast.error(`Failed to create server: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			creatingServer = false;
 		}
@@ -259,7 +287,7 @@
 			newUserRole = '';
 			if (selectedServer) await viewServer(selectedServer);
 		} catch (e) {
-			toast.error(`Failed to create user: ${e}`);
+			toast.error(`Failed to create user: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			creatingUser = false;
 		}
@@ -272,7 +300,7 @@
 			toast.success(`User "${userName}" deleted`);
 			if (selectedServer) await viewServer(selectedServer);
 		} catch (e) {
-			toast.error(`Failed to delete user: ${e}`);
+			toast.error(`Failed to delete user: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
@@ -282,14 +310,11 @@
 			accesses = [];
 			return;
 		}
-		loading = true;
 		try {
 			const res = await transfer.send(new ListAccessesCommand({ ServerId: accessServerIdFilter.trim() }));
 			accesses = res.Accesses ?? [];
 		} catch (e) {
-			toast.error(`Failed to load accesses: ${e}`);
-		} finally {
-			loading = false;
+			toast.error(`Failed to load accesses: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
@@ -311,7 +336,7 @@
 			accessServerIdFilter = newAccessServerId;
 			await loadAccesses();
 		} catch (e) {
-			toast.error(`Failed to create access: ${e}`);
+			toast.error(`Failed to create access: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			creatingAccess = false;
 		}
@@ -324,7 +349,7 @@
 			toast.success('Access deleted');
 			await loadAccesses();
 		} catch (e) {
-			toast.error(`Failed to delete access: ${e}`);
+			toast.error(`Failed to delete access: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
@@ -334,14 +359,11 @@
 			agreements = [];
 			return;
 		}
-		loading = true;
 		try {
 			const res = await transfer.send(new ListAgreementsCommand({ ServerId: agreementServerIdFilter.trim() }));
 			agreements = res.Agreements ?? [];
 		} catch (e) {
-			toast.error(`Failed to load agreements: ${e}`);
-		} finally {
-			loading = false;
+			toast.error(`Failed to load agreements: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
@@ -367,7 +389,7 @@
 			agreementServerIdFilter = newAgreementServerId;
 			await loadAgreements();
 		} catch (e) {
-			toast.error(`Failed to create agreement: ${e}`);
+			toast.error(`Failed to create agreement: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			creatingAgreement = false;
 		}
@@ -380,20 +402,111 @@
 			toast.success('Agreement deleted');
 			await loadAgreements();
 		} catch (e) {
-			toast.error(`Failed to delete agreement: ${e}`);
+			toast.error(`Failed to delete agreement: ${e instanceof Error ? e.message : String(e)}`);
+		}
+	}
+
+	// --- Host Keys ---
+	async function loadHostKeys() {
+		if (!selectedServerId) return;
+		loadingHostKeys = true;
+		try {
+			const res = await transfer.send(new ListHostKeysCommand({ ServerId: selectedServerId }));
+			serverHostKeys = (res.HostKeys ?? []) as { HostKeyId?: string; Type?: string; Description?: string }[];
+		} catch (e) {
+			toast.error(`Failed to load host keys: ${e instanceof Error ? e.message : String(e)}`);
+		} finally {
+			loadingHostKeys = false;
+		}
+	}
+
+	async function importHostKey() {
+		if (!newHostKeyBody.trim() || !selectedServerId) return;
+		importingHostKey = true;
+		try {
+			await transfer.send(new ImportHostKeyCommand({
+				ServerId: selectedServerId,
+				HostKeyBody: newHostKeyBody.trim(),
+				Description: newHostKeyDescription.trim()
+			}));
+			toast.success('Host key imported');
+			showImportHostKeyModal = false;
+			newHostKeyBody = '';
+			newHostKeyDescription = '';
+			await loadHostKeys();
+		} catch (e) {
+			toast.error(`Failed to import host key: ${e instanceof Error ? e.message : String(e)}`);
+		} finally {
+			importingHostKey = false;
+		}
+	}
+
+	async function deleteHostKey(hostKeyId: string) {
+		if (!selectedServerId || !await confirmDestructive({ title: 'Delete Host Key', message: `Delete host key "${hostKeyId}"?` })) return;
+		try {
+			await transfer.send(new DeleteHostKeyCommand({ ServerId: selectedServerId, HostKeyId: hostKeyId }));
+			toast.success('Host key deleted');
+			await loadHostKeys();
+		} catch (e) {
+			toast.error(`Failed to delete host key: ${e instanceof Error ? e.message : String(e)}`);
+		}
+	}
+
+	// --- SSH Public Keys ---
+	async function loadSshKeys(serverId: string, userName: string) {
+		loadingSshKeys = true;
+		try {
+			// Use DescribeUser to get SSH keys (the API stores them on the user)
+			const res = await transfer.send(new ListUsersCommand({ ServerId: serverId }));
+			// DescribeUser has SshPublicKeys; for now show from the user list
+			const user = (res.Users ?? []).find((u) => u.UserName === userName);
+			userSshKeys = (user as Record<string, unknown>)?.['SshPublicKeys'] as string[] ?? [];
+		} catch (e) {
+			toast.error(`Failed to load SSH keys: ${e instanceof Error ? e.message : String(e)}`);
+		} finally {
+			loadingSshKeys = false;
+		}
+	}
+
+	async function importSshKey() {
+		if (!newSshKeyBody.trim() || !sshKeyTargetUser || !selectedServerId) return;
+		importingSshKey = true;
+		try {
+			await transfer.send(new ImportSshPublicKeyCommand({
+				ServerId: selectedServerId,
+				UserName: sshKeyTargetUser,
+				SshPublicKeyBody: newSshKeyBody.trim()
+			}));
+			toast.success('SSH public key imported');
+			showImportSshKeyModal = false;
+			newSshKeyBody = '';
+		} catch (e) {
+			toast.error(`Failed to import SSH key: ${e instanceof Error ? e.message : String(e)}`);
+		} finally {
+			importingSshKey = false;
+		}
+	}
+
+	async function deleteSshKey(userName: string, keyId: string) {
+		if (!selectedServerId || !await confirmDestructive({ title: 'Delete SSH Key', message: `Delete SSH key "${keyId}" for user "${userName}"?` })) return;
+		try {
+			await transfer.send(new DeleteSshPublicKeyCommand({ ServerId: selectedServerId, UserName: userName, SshPublicKeyId: keyId }));
+			toast.success('SSH key deleted');
+		} catch (e) {
+			toast.error(`Failed to delete SSH key: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
 	// --- Connectors ---
 	async function loadConnectors() {
-		loading = true;
+		loadingConnectors = true;
 		try {
 			const res = await transfer.send(new ListConnectorsCommand({}));
 			connectors = res.Connectors ?? [];
 		} catch (e) {
-			toast.error(`Failed to load connectors: ${e}`);
+			toast.error(`Failed to load connectors: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
-			loading = false;
+			loadingConnectors = false;
 		}
 	}
 
@@ -411,7 +524,7 @@
 			newConnectorAccessRole = '';
 			await loadConnectors();
 		} catch (e) {
-			toast.error(`Failed to create connector: ${e}`);
+			toast.error(`Failed to create connector: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			creatingConnector = false;
 		}
@@ -424,20 +537,20 @@
 			toast.success('Connector deleted');
 			await loadConnectors();
 		} catch (e) {
-			toast.error(`Failed to delete connector: ${e}`);
+			toast.error(`Failed to delete connector: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
 	// --- Profiles ---
 	async function loadProfiles() {
-		loading = true;
+		loadingProfiles = true;
 		try {
 			const res = await transfer.send(new ListProfilesCommand({}));
 			profiles = res.Profiles ?? [];
 		} catch (e) {
-			toast.error(`Failed to load profiles: ${e}`);
+			toast.error(`Failed to load profiles: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
-			loading = false;
+			loadingProfiles = false;
 		}
 	}
 
@@ -453,7 +566,7 @@
 			newProfileAs2Id = '';
 			await loadProfiles();
 		} catch (e) {
-			toast.error(`Failed to create profile: ${e}`);
+			toast.error(`Failed to create profile: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			creatingProfile = false;
 		}
@@ -466,20 +579,20 @@
 			toast.success('Profile deleted');
 			await loadProfiles();
 		} catch (e) {
-			toast.error(`Failed to delete profile: ${e}`);
+			toast.error(`Failed to delete profile: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
 	// --- WebApps ---
 	async function loadWebApps() {
-		loading = true;
+		loadingWebApps = true;
 		try {
 			const res = await transfer.send(new ListWebAppsCommand({}));
 			webApps = res.WebApps ?? [];
 		} catch (e) {
-			toast.error(`Failed to load web apps: ${e}`);
+			toast.error(`Failed to load web apps: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
-			loading = false;
+			loadingWebApps = false;
 		}
 	}
 
@@ -491,7 +604,7 @@
 			showCreateWebAppModal = false;
 			await loadWebApps();
 		} catch (e) {
-			toast.error(`Failed to create web app: ${e}`);
+			toast.error(`Failed to create web app: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			creatingWebApp = false;
 		}
@@ -504,20 +617,20 @@
 			toast.success('Web app deleted');
 			await loadWebApps();
 		} catch (e) {
-			toast.error(`Failed to delete web app: ${e}`);
+			toast.error(`Failed to delete web app: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
 	// --- Workflows ---
 	async function loadWorkflows() {
-		loading = true;
+		loadingWorkflows = true;
 		try {
 			const res = await transfer.send(new ListWorkflowsCommand({}));
 			workflows = res.Workflows ?? [];
 		} catch (e) {
-			toast.error(`Failed to load workflows: ${e}`);
+			toast.error(`Failed to load workflows: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
-			loading = false;
+			loadingWorkflows = false;
 		}
 	}
 
@@ -532,7 +645,7 @@
 			newWorkflowDescription = '';
 			await loadWorkflows();
 		} catch (e) {
-			toast.error(`Failed to create workflow: ${e}`);
+			toast.error(`Failed to create workflow: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			creatingWorkflow = false;
 		}
@@ -545,20 +658,20 @@
 			toast.success('Workflow deleted');
 			await loadWorkflows();
 		} catch (e) {
-			toast.error(`Failed to delete workflow: ${e}`);
+			toast.error(`Failed to delete workflow: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
 	// --- Certificates ---
 	async function loadCertificates() {
-		loading = true;
+		loadingCertificates = true;
 		try {
 			const res = await transfer.send(new ListCertificatesCommand({}));
 			certificates = res.Certificates ?? [];
 		} catch (e) {
-			toast.error(`Failed to load certificates: ${e}`);
+			toast.error(`Failed to load certificates: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
-			loading = false;
+			loadingCertificates = false;
 		}
 	}
 
@@ -576,7 +689,7 @@
 			newCertDescription = '';
 			await loadCertificates();
 		} catch (e) {
-			toast.error(`Failed to import certificate: ${e}`);
+			toast.error(`Failed to import certificate: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			importingCert = false;
 		}
@@ -589,7 +702,7 @@
 			toast.success('Certificate deleted');
 			await loadCertificates();
 		} catch (e) {
-			toast.error(`Failed to delete certificate: ${e}`);
+			toast.error(`Failed to delete certificate: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
 
