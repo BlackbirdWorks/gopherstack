@@ -661,16 +661,16 @@
 			<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Evaluation Run Config</h3>
 			<div class="flex flex-wrap gap-3">
 				<div class="flex-1 min-w-32">
-					<label class="block text-xs text-gray-500 mb-1">Database</label>
-					<input bind:value={evalRunDatabase} type="text" placeholder="default" class="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
+					<label for="eval-db" class="block text-xs text-gray-500 mb-1">Database</label>
+					<input id="eval-db" bind:value={evalRunDatabase} type="text" placeholder="default" class="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
 				</div>
 				<div class="flex-1 min-w-32">
-					<label class="block text-xs text-gray-500 mb-1">Table</label>
-					<input bind:value={evalRunTable} type="text" placeholder="default" class="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
+					<label for="eval-tbl" class="block text-xs text-gray-500 mb-1">Table</label>
+					<input id="eval-tbl" bind:value={evalRunTable} type="text" placeholder="default" class="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
 				</div>
 				<div class="flex-1 min-w-48">
-					<label class="block text-xs text-gray-500 mb-1">IAM Role ARN</label>
-					<input bind:value={evalRunRole} type="text" placeholder="arn:aws:iam::..." class="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-mono" />
+					<label for="eval-role" class="block text-xs text-gray-500 mb-1">IAM Role ARN</label>
+					<input id="eval-role" bind:value={evalRunRole} type="text" placeholder="arn:aws:iam::..." class="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-mono" />
 				</div>
 			</div>
 		</div>
