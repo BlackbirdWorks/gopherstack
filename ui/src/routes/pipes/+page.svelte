@@ -315,8 +315,8 @@
 		try {
 			await pipesClient.send(
 				new TagResourceCommand({
-					ResourceArn: selectedPipe.Arn,
-					Tags: { [newTagKey.trim()]: newTagValue.trim() }
+					resourceArn: selectedPipe.Arn,
+					tags: { [newTagKey.trim()]: newTagValue.trim() }
 				})
 			);
 			toast.success('Tag added');
@@ -335,8 +335,8 @@
 		try {
 			await pipesClient.send(
 				new UntagResourceCommand({
-					ResourceArn: selectedPipe.Arn,
-					TagKeys: [key]
+					resourceArn: selectedPipe.Arn,
+					tagKeys: [key]
 				})
 			);
 			toast.success('Tag removed');
@@ -863,7 +863,7 @@
 				</div>
 				<div>
 					<label class="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5" for="pipe-template">Input Template (optional)</label>
-					<input id="pipe-template" type="text" bind:value={newPipeInputTemplate} placeholder='{"id": "<$.messageId>"}'
+					<input id="pipe-template" type="text" bind:value={newPipeInputTemplate} placeholder='eg. input template JSON'
 						class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono focus:ring-2 focus:ring-rose-500 outline-none transition-all" />
 				</div>
 				<div class="grid grid-cols-2 gap-3">
