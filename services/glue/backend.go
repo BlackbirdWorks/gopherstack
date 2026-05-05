@@ -1309,8 +1309,8 @@ func (b *InMemoryBackend) StartJobRun(jobName string, arguments map[string]strin
 		ID: fmt.Sprintf(
 			"jr_%d_%04d",
 			time.Now().UnixNano(),
-			mrand.IntN(10000),
-		), //nolint:gosec // non-security mock run ID
+			mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
+		),
 		JobName:     jobName,
 		JobRunState: "STARTING",
 		StartedOn:   float64(time.Now().Unix()),
@@ -1603,8 +1603,8 @@ func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRun(
 		RunID: fmt.Sprintf(
 			"dqer_%d_%04d",
 			time.Now().UnixNano(),
-			mrand.IntN(10000),
-		), //nolint:gosec // non-security mock run ID
+			mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
+		),
 		RulesetNames: append([]string(nil), rulesetNames...),
 		Status:       stateRunning,
 		StartedOn:    float64(time.Now().Unix()),

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -59,7 +60,31 @@ func isLakeFormationPath(path string) bool {
 		"/ListLakeFormationOptIns",
 		"/DeleteDataCellsFilter",
 		"/DeleteLFTagExpression",
-		"/GetDataLakePrincipal":
+		"/GetDataLakePrincipal",
+		"/DeleteLakeFormationIdentityCenterConfiguration",
+		"/DeleteObjectsOnCancel",
+		"/DescribeLakeFormationIdentityCenterConfiguration",
+		"/ExtendTransaction",
+		"/GetDataCellsFilter",
+		"/GetEffectivePermissionsForPath",
+		"/GetLFTagExpression",
+		"/GetQueryState",
+		"/GetQueryStatistics",
+		"/GetTableObjects",
+		"/GetTemporaryDataLocationCredentials",
+		"/GetTemporaryGluePartitionCredentials",
+		"/GetTemporaryGlueTableCredentials",
+		"/GetWorkUnitResults",
+		"/GetWorkUnits",
+		"/ListTableStorageOptimizers",
+		"/SearchDatabasesByLFTags",
+		"/SearchTablesByLFTags",
+		"/StartQueryPlanning",
+		"/UpdateDataCellsFilter",
+		"/UpdateLFTagExpression",
+		"/UpdateLakeFormationIdentityCenterConfiguration",
+		"/UpdateTableObjects",
+		"/UpdateTableStorageOptimizer":
 		return true
 	}
 
@@ -107,14 +132,29 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteDataCellsFilter",
 		"DeleteLFTag",
 		"DeleteLFTagExpression",
+		"DeleteLakeFormationIdentityCenterConfiguration",
 		"DeleteLakeFormationOptIn",
+		"DeleteObjectsOnCancel",
 		"DeregisterResource",
+		"DescribeLakeFormationIdentityCenterConfiguration",
 		"DescribeResource",
 		"DescribeTransaction",
+		"ExtendTransaction",
+		"GetDataCellsFilter",
 		"GetDataLakePrincipal",
 		"GetDataLakeSettings",
+		"GetEffectivePermissionsForPath",
 		"GetLFTag",
+		"GetLFTagExpression",
+		"GetQueryState",
+		"GetQueryStatistics",
 		"GetResourceLFTags",
+		"GetTableObjects",
+		"GetTemporaryDataLocationCredentials",
+		"GetTemporaryGluePartitionCredentials",
+		"GetTemporaryGlueTableCredentials",
+		"GetWorkUnitResults",
+		"GetWorkUnits",
 		"GrantPermissions",
 		"ListDataCellsFilter",
 		"ListLFTagExpressions",
@@ -122,14 +162,23 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListLakeFormationOptIns",
 		"ListPermissions",
 		"ListResources",
+		"ListTableStorageOptimizers",
 		"ListTransactions",
 		"PutDataLakeSettings",
 		"RegisterResource",
 		"RemoveLFTagsFromResource",
 		"RevokePermissions",
+		"SearchDatabasesByLFTags",
+		"SearchTablesByLFTags",
+		"StartQueryPlanning",
 		"StartTransaction",
+		"UpdateDataCellsFilter",
 		"UpdateLFTag",
+		"UpdateLFTagExpression",
+		"UpdateLakeFormationIdentityCenterConfiguration",
 		"UpdateResource",
+		"UpdateTableObjects",
+		"UpdateTableStorageOptimizer",
 	}
 }
 
@@ -243,6 +292,31 @@ func (h *Handler) buildOps() map[string]func(context.Context, *echo.Context, []b
 		"DeleteLFTagExpression": h.handleDeleteLFTagExpression,
 
 		"GetDataLakePrincipal": h.handleGetDataLakePrincipal,
+
+		"DeleteLakeFormationIdentityCenterConfiguration":   h.handleDeleteLakeFormationIdentityCenterConfiguration,
+		"DeleteObjectsOnCancel":                            h.handleDeleteObjectsOnCancel,
+		"DescribeLakeFormationIdentityCenterConfiguration": h.handleDescribeLakeFormationIdentityCenterConfiguration,
+		"ExtendTransaction":                                h.handleExtendTransaction,
+		"GetDataCellsFilter":                               h.handleGetDataCellsFilter,
+		"GetEffectivePermissionsForPath":                   h.handleGetEffectivePermissionsForPath,
+		"GetLFTagExpression":                               h.handleGetLFTagExpression,
+		"GetQueryState":                                    h.handleGetQueryState,
+		"GetQueryStatistics":                               h.handleGetQueryStatistics,
+		"GetTableObjects":                                  h.handleGetTableObjects,
+		"GetTemporaryDataLocationCredentials":              h.handleGetTemporaryDataLocationCredentials,
+		"GetTemporaryGluePartitionCredentials":             h.handleGetTemporaryGluePartitionCredentials,
+		"GetTemporaryGlueTableCredentials":                 h.handleGetTemporaryGlueTableCredentials,
+		"GetWorkUnitResults":                               h.handleGetWorkUnitResults,
+		"GetWorkUnits":                                     h.handleGetWorkUnits,
+		"ListTableStorageOptimizers":                       h.handleListTableStorageOptimizers,
+		"SearchDatabasesByLFTags":                          h.handleSearchDatabasesByLFTags,
+		"SearchTablesByLFTags":                             h.handleSearchTablesByLFTags,
+		"StartQueryPlanning":                               h.handleStartQueryPlanning,
+		"UpdateDataCellsFilter":                            h.handleUpdateDataCellsFilter,
+		"UpdateLFTagExpression":                            h.handleUpdateLFTagExpression,
+		"UpdateLakeFormationIdentityCenterConfiguration":   h.handleUpdateLakeFormationIdentityCenterConfiguration,
+		"UpdateTableObjects":                               h.handleUpdateTableObjects,
+		"UpdateTableStorageOptimizer":                      h.handleUpdateTableStorageOptimizer,
 	}
 }
 
@@ -767,7 +841,7 @@ func (h *Handler) handleListTransactions(_ context.Context, c *echo.Context, bod
 		}
 	}
 
-	txns, nextToken := h.Backend.ListTransactions(in.MaxResults, in.NextToken)
+	txns, nextToken := h.Backend.ListTransactions(in.StatusFilter, in.MaxResults, in.NextToken)
 
 	return c.JSON(http.StatusOK, listTransactionsOutput{
 		Transactions: txns,
@@ -836,6 +910,7 @@ func (h *Handler) handleListDataCellsFilter(_ context.Context, c *echo.Context, 
 
 	var tableCatalogID, databaseName, tableName string
 	if in.Table != nil {
+		tableCatalogID = in.Table.CatalogID
 		databaseName = in.Table.DatabaseName
 		tableName = in.Table.Name
 	}
@@ -916,4 +991,367 @@ func (h *Handler) handleGetDataLakePrincipal(_ context.Context, c *echo.Context,
 	principal := h.Backend.GetDataLakePrincipal()
 
 	return c.JSON(http.StatusOK, getDataLakePrincipalOutput{Identity: principal.DataLakePrincipalIdentifier})
+}
+
+func (h *Handler) handleDeleteLakeFormationIdentityCenterConfiguration(
+	_ context.Context, c *echo.Context, body []byte,
+) error {
+	var in deleteLakeFormationIdentityCenterConfigurationInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+	catalogID := in.CatalogID
+	if catalogID == "" {
+		catalogID = h.AccountID
+	}
+	if err := h.Backend.DeleteLakeFormationIdentityCenterConfiguration(catalogID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteLakeFormationIdentityCenterConfigurationOutput{})
+}
+
+func (h *Handler) handleDeleteObjectsOnCancel(_ context.Context, c *echo.Context, body []byte) error {
+	var in deleteObjectsOnCancelInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	if err := h.Backend.DeleteObjectsOnCancel(in.TransactionID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteObjectsOnCancelOutput{})
+}
+
+func (h *Handler) handleDescribeLakeFormationIdentityCenterConfiguration(
+	_ context.Context, c *echo.Context, body []byte,
+) error {
+	var in describeLakeFormationIdentityCenterConfigurationInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+	catalogID := in.CatalogID
+	if catalogID == "" {
+		catalogID = h.AccountID
+	}
+	cfg, err := h.Backend.DescribeLakeFormationIdentityCenterConfiguration(catalogID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeLakeFormationIdentityCenterConfigurationOutput{
+		CatalogID:         cfg.CatalogID,
+		InstanceArn:       cfg.InstanceArn,
+		ApplicationArn:    cfg.ApplicationArn,
+		ExternalFiltering: cfg.ExternalFiltering,
+	})
+}
+
+func (h *Handler) handleExtendTransaction(_ context.Context, c *echo.Context, body []byte) error {
+	var in extendTransactionInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+	if err := h.Backend.ExtendTransaction(in.TransactionID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, extendTransactionOutput{})
+}
+
+func (h *Handler) handleGetDataCellsFilter(_ context.Context, c *echo.Context, body []byte) error {
+	var in getDataCellsFilterInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	f, err := h.Backend.GetDataCellsFilter(in.TableCatalogID, in.DatabaseName, in.TableName, in.Name)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getDataCellsFilterOutput{DataCellsFilter: f})
+}
+
+func (h *Handler) handleGetEffectivePermissionsForPath(_ context.Context, c *echo.Context, body []byte) error {
+	var in getEffectivePermissionsForPathInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+	entries, nextToken := h.Backend.GetEffectivePermissionsForPath(in.ResourceArn, in.MaxResults, in.NextToken)
+
+	return c.JSON(http.StatusOK, getEffectivePermissionsForPathOutput{
+		PrincipalResourcePermissions: entries,
+		NextToken:                    nextToken,
+	})
+}
+
+func (h *Handler) handleGetLFTagExpression(_ context.Context, c *echo.Context, body []byte) error {
+	var in getLFTagExpressionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	expr, err := h.Backend.GetLFTagExpression(in.Name, in.CatalogID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getLFTagExpressionOutput{
+		Name:        expr.Name,
+		Description: expr.Description,
+		CatalogID:   expr.CatalogID,
+		Expression:  expr.Expression,
+	})
+}
+
+func (h *Handler) handleGetQueryState(_ context.Context, c *echo.Context, body []byte) error {
+	var in getQueryStateInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	state, err := h.Backend.GetQueryState(in.QueryID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getQueryStateOutput{State: state})
+}
+
+func (h *Handler) handleGetQueryStatistics(_ context.Context, c *echo.Context, body []byte) error {
+	var in getQueryStatisticsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	exec, plan, err := h.Backend.GetQueryStatistics(in.QueryID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getQueryStatisticsOutput{ExecutionStatistics: exec, PlanningStatistics: plan})
+}
+
+func (h *Handler) handleGetTableObjects(_ context.Context, c *echo.Context, body []byte) error {
+	var in getTableObjectsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+	objects, nextToken := h.Backend.GetTableObjects(in.MaxResults, in.NextToken)
+
+	return c.JSON(http.StatusOK, getTableObjectsOutput{Objects: objects, NextToken: nextToken})
+}
+
+// credentialsExpiry computes the expiration time based on optional DurationSeconds (default 1 hour).
+func credentialsExpiry(durationSeconds *int32) string {
+	d := time.Hour
+	if durationSeconds != nil && *durationSeconds > 0 {
+		d = time.Duration(*durationSeconds) * time.Second
+	}
+
+	return time.Now().Add(d).UTC().Format(time.RFC3339)
+}
+
+func (h *Handler) handleGetTemporaryDataLocationCredentials(_ context.Context, c *echo.Context, body []byte) error {
+	var in getTemporaryDataLocationCredentialsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	if strings.TrimSpace(in.ResourceArn) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "ResourceArn is required")
+	}
+	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
+	expiry := credentialsExpiry(in.DurationSeconds)
+
+	return c.JSON(http.StatusOK, getTemporaryDataLocationCredentialsOutput{Credentials: creds, Expiration: &expiry})
+}
+
+func (h *Handler) handleGetTemporaryGluePartitionCredentials(_ context.Context, c *echo.Context, body []byte) error {
+	var in getTemporaryGluePartitionCredentialsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	if strings.TrimSpace(in.TableArn) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TableArn is required")
+	}
+	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
+	expiry := credentialsExpiry(in.DurationSeconds)
+
+	return c.JSON(http.StatusOK, getTemporaryGluePartitionCredentialsOutput{Credentials: creds, Expiration: &expiry})
+}
+
+func (h *Handler) handleGetTemporaryGlueTableCredentials(_ context.Context, c *echo.Context, body []byte) error {
+	var in getTemporaryGlueTableCredentialsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	if strings.TrimSpace(in.TableArn) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TableArn is required")
+	}
+	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
+	expiry := credentialsExpiry(in.DurationSeconds)
+
+	return c.JSON(http.StatusOK, getTemporaryGlueTableCredentialsOutput{Credentials: creds, Expiration: &expiry})
+}
+
+func (h *Handler) handleGetWorkUnitResults(_ context.Context, c *echo.Context, body []byte) error {
+	var in getWorkUnitResultsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	if err := h.Backend.GetWorkUnitResults(in.QueryID, in.WorkUnitToken); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getWorkUnitResultsOutput{})
+}
+
+func (h *Handler) handleGetWorkUnits(_ context.Context, c *echo.Context, body []byte) error {
+	var in getWorkUnitsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	ranges, nextToken, err := h.Backend.GetWorkUnits(in.QueryID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getWorkUnitsOutput{QueryID: in.QueryID, WorkUnitRanges: ranges, NextToken: nextToken})
+}
+
+func (h *Handler) handleListTableStorageOptimizers(_ context.Context, c *echo.Context, body []byte) error {
+	var in listTableStorageOptimizersInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	opts := h.Backend.ListTableStorageOptimizers(in.CatalogID, in.DatabaseName, in.TableName, in.StorageOptimizerType)
+
+	return c.JSON(http.StatusOK, listTableStorageOptimizersOutput{StorageOptimizerList: opts})
+}
+
+func (h *Handler) handleSearchDatabasesByLFTags(_ context.Context, c *echo.Context, body []byte) error {
+	var in searchDatabasesByLFTagsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+	dbs, nextToken := h.Backend.SearchDatabasesByLFTags(in.Expression, in.CatalogID, 0, in.NextToken)
+
+	return c.JSON(http.StatusOK, searchDatabasesByLFTagsOutput{DatabaseList: dbs, NextToken: nextToken})
+}
+
+func (h *Handler) handleSearchTablesByLFTags(_ context.Context, c *echo.Context, body []byte) error {
+	var in searchTablesByLFTagsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+	tables, nextToken := h.Backend.SearchTablesByLFTags(in.Expression, in.CatalogID, 0, in.NextToken)
+
+	return c.JSON(http.StatusOK, searchTablesByLFTagsOutput{TableList: tables, NextToken: nextToken})
+}
+
+func (h *Handler) handleStartQueryPlanning(_ context.Context, c *echo.Context, body []byte) error {
+	var in startQueryPlanningInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	if strings.TrimSpace(in.QueryString) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "QueryString is required")
+	}
+	if strings.TrimSpace(in.QueryPlanningContext.DatabaseName) == "" {
+		return h.writeError(
+			c, http.StatusBadRequest, "InvalidInputException", "QueryPlanningContext.DatabaseName is required",
+		)
+	}
+	queryID := h.Backend.StartQueryPlanning(in.QueryString)
+
+	return c.JSON(http.StatusOK, startQueryPlanningOutput{QueryID: queryID})
+}
+
+func (h *Handler) handleUpdateDataCellsFilter(_ context.Context, c *echo.Context, body []byte) error {
+	var in updateDataCellsFilterInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	if in.TableData == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TableData is required")
+	}
+	if err := h.Backend.UpdateDataCellsFilter(in.TableData); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, updateDataCellsFilterOutput{})
+}
+
+func (h *Handler) handleUpdateLFTagExpression(_ context.Context, c *echo.Context, body []byte) error {
+	var in updateLFTagExpressionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	if strings.TrimSpace(in.Name) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Name is required")
+	}
+	if err := h.Backend.UpdateLFTagExpression(in.Name, in.CatalogID, in.Description, in.Expression); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, updateLFTagExpressionOutput{})
+}
+
+func (h *Handler) handleUpdateLakeFormationIdentityCenterConfiguration(
+	_ context.Context, c *echo.Context, body []byte,
+) error {
+	var in updateLakeFormationIdentityCenterConfigurationInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+	catalogID := in.CatalogID
+	if catalogID == "" {
+		catalogID = h.AccountID
+	}
+	if err := h.Backend.UpdateLakeFormationIdentityCenterConfiguration(
+		catalogID, in.ExternalFiltering, in.ApplicationStatus,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, updateLakeFormationIdentityCenterConfigurationOutput{})
+}
+
+func (h *Handler) handleUpdateTableObjects(_ context.Context, c *echo.Context, body []byte) error {
+	var in updateTableObjectsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+	if err := h.Backend.UpdateTableObjects(in.TransactionID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, updateTableObjectsOutput{})
+}
+
+func (h *Handler) handleUpdateTableStorageOptimizer(_ context.Context, c *echo.Context, body []byte) error {
+	var in updateTableStorageOptimizerInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+	result := h.Backend.UpdateTableStorageOptimizer(
+		in.CatalogID, in.DatabaseName, in.TableName, in.StorageOptimizerConfig,
+	)
+
+	return c.JSON(http.StatusOK, updateTableStorageOptimizerOutput{Result: result})
 }

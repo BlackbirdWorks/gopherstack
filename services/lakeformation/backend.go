@@ -63,7 +63,7 @@ type StorageBackend interface {
 	CancelTransaction(transactionID string) error
 	CommitTransaction(transactionID string) (string, error)
 	DescribeTransaction(transactionID string) (*Transaction, error)
-	ListTransactions(maxResults int, nextToken string) ([]*Transaction, string)
+	ListTransactions(statusFilter string, maxResults int, nextToken string) ([]*Transaction, string)
 
 	CreateDataCellsFilter(filter *DataCellsFilter) error
 	DeleteDataCellsFilter(tableCatalogID, databaseName, tableName, name string) error
@@ -78,12 +78,51 @@ type StorageBackend interface {
 	ListLFTagExpressions(catalogID string, maxResults int, nextToken string) ([]*LFTagExpression, string)
 
 	CreateLakeFormationIdentityCenterConfiguration(catalogID, instanceArn string) string
+	DeleteLakeFormationIdentityCenterConfiguration(catalogID string) error
+	DescribeLakeFormationIdentityCenterConfiguration(catalogID string) (*IdentityCenterConfiguration, error)
+	UpdateLakeFormationIdentityCenterConfiguration(
+		catalogID string,
+		externalFiltering *ExternalFilteringConfiguration,
+		appStatus string,
+	) error
 
 	CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
 	DeleteLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
 	ListLakeFormationOptIns(principalIdentifier string, maxResults int, nextToken string) ([]*LFOptIn, string)
 
 	GetDataLakePrincipal() *DataLakePrincipal
+
+	ExtendTransaction(transactionID string) error
+	DeleteObjectsOnCancel(transactionID string) error
+
+	GetDataCellsFilter(tableCatalogID, databaseName, tableName, name string) (*DataCellsFilter, error)
+	UpdateDataCellsFilter(filter *DataCellsFilter) error
+
+	GetLFTagExpression(name, catalogID string) (*LFTagExpression, error)
+	UpdateLFTagExpression(name, catalogID, description string, expression []LFTag) error
+
+	GetEffectivePermissionsForPath(resourceArn string, maxResults int, nextToken string) ([]*PermissionEntry, string)
+
+	GetTemporaryCredentials(durationSeconds *int32) *TemporaryCredentials
+
+	GetTableObjects(maxResults int, nextToken string) ([]PartitionedTableObjectsList, string)
+	UpdateTableObjects(transactionID string) error
+
+	StartQueryPlanning(queryString string) string
+	GetQueryState(queryID string) (string, error)
+	GetQueryStatistics(queryID string) (*ExecutionStatistics, *PlanningStatistics, error)
+	GetWorkUnits(queryID string) ([]WorkUnitRange, string, error)
+	GetWorkUnitResults(queryID, workUnitToken string) error
+
+	ListTableStorageOptimizers(catalogID, databaseName, tableName, storageOptimizerType string) []StorageOptimizer
+	UpdateTableStorageOptimizer(catalogID, databaseName, tableName string, config map[string]map[string]string) string
+
+	SearchDatabasesByLFTags(
+		expression []LFTag, catalogID string, maxResults int, nextToken string,
+	) ([]TaggedDatabase, string)
+	SearchTablesByLFTags(
+		expression []LFTag, catalogID string, maxResults int, nextToken string,
+	) ([]TaggedTable, string)
 }
 
 // lfTagKey uniquely identifies a LF tag by catalog and key.
@@ -108,17 +147,19 @@ type lfTagExpressionKey struct {
 
 // InMemoryBackend is the in-memory backend for Lake Formation.
 type InMemoryBackend struct {
-	dataLakeSettings      *DataLakeSettings
-	resources             map[string]*ResourceInfo
-	lfTags                map[lfTagKey]*LFTag
-	transactions          map[string]string
-	dataCellsFilters      map[dataCellsFilterKey]*DataCellsFilter
-	lfTagExpressions      map[lfTagExpressionKey]*LFTagExpression
-	identityCenterConfigs map[string]*IdentityCenterConfiguration
-	lakeFormationOptIns   []*LFOptIn
-	resourceLFTags        map[string][]LFTagPair
-	mu                    *lockmetrics.RWMutex
-	permissions           []*PermissionEntry
+	identityCenterConfigs  map[string]*IdentityCenterConfiguration
+	resources              map[string]*ResourceInfo
+	lfTags                 map[lfTagKey]*LFTag
+	transactions           map[string]string
+	dataCellsFilters       map[dataCellsFilterKey]*DataCellsFilter
+	lfTagExpressions       map[lfTagExpressionKey]*LFTagExpression
+	dataLakeSettings       *DataLakeSettings
+	resourceLFTags         map[string][]LFTagPair
+	mu                     *lockmetrics.RWMutex
+	queries                map[string]string
+	tableStorageOptimizers map[string][]StorageOptimizer
+	lakeFormationOptIns    []*LFOptIn
+	permissions            []*PermissionEntry
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -126,17 +167,19 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 // NewInMemoryBackend creates a new in-memory Lake Formation backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		dataLakeSettings:      &DataLakeSettings{},
-		resources:             make(map[string]*ResourceInfo),
-		permissions:           make([]*PermissionEntry, 0),
-		lfTags:                make(map[lfTagKey]*LFTag),
-		transactions:          make(map[string]string),
-		dataCellsFilters:      make(map[dataCellsFilterKey]*DataCellsFilter),
-		lfTagExpressions:      make(map[lfTagExpressionKey]*LFTagExpression),
-		identityCenterConfigs: make(map[string]*IdentityCenterConfiguration),
-		lakeFormationOptIns:   make([]*LFOptIn, 0),
-		resourceLFTags:        make(map[string][]LFTagPair),
-		mu:                    lockmetrics.New("lakeformation"),
+		dataLakeSettings:       &DataLakeSettings{},
+		resources:              make(map[string]*ResourceInfo),
+		permissions:            make([]*PermissionEntry, 0),
+		lfTags:                 make(map[lfTagKey]*LFTag),
+		transactions:           make(map[string]string),
+		dataCellsFilters:       make(map[dataCellsFilterKey]*DataCellsFilter),
+		lfTagExpressions:       make(map[lfTagExpressionKey]*LFTagExpression),
+		identityCenterConfigs:  make(map[string]*IdentityCenterConfiguration),
+		lakeFormationOptIns:    make([]*LFOptIn, 0),
+		resourceLFTags:         make(map[string][]LFTagPair),
+		queries:                make(map[string]string),
+		tableStorageOptimizers: make(map[string][]StorageOptimizer),
+		mu:                     lockmetrics.New("lakeformation"),
 	}
 }
 
@@ -155,6 +198,8 @@ func (b *InMemoryBackend) Reset() {
 	b.identityCenterConfigs = make(map[string]*IdentityCenterConfiguration)
 	b.lakeFormationOptIns = make([]*LFOptIn, 0)
 	b.resourceLFTags = make(map[string][]LFTagPair)
+	b.queries = make(map[string]string)
+	b.tableStorageOptimizers = make(map[string][]StorageOptimizer)
 }
 
 // AddLFTagInternal seeds an LF-tag directly for testing.
@@ -662,6 +707,8 @@ func resourceEqual(a, b *Resource) bool {
 }
 
 // permissionMatchesARN returns true if the permission entry's resource matches the given ARN.
+// For DataLocation resources the ARN is compared directly; for database/table resources an
+// ARN suffix match is used (arn:…:database/name or arn:…:table/db/name).
 func permissionMatchesARN(p *PermissionEntry, arn string) bool {
 	if p.Resource == nil {
 		return false
@@ -669,6 +716,16 @@ func permissionMatchesARN(p *PermissionEntry, arn string) bool {
 
 	if p.Resource.DataLocation != nil {
 		return p.Resource.DataLocation.ResourceArn == arn
+	}
+
+	if p.Resource.Database != nil {
+		return strings.HasSuffix(arn, "/"+p.Resource.Database.Name) ||
+			strings.HasSuffix(arn, ":database/"+p.Resource.Database.Name)
+	}
+
+	if p.Resource.Table != nil {
+		return strings.HasSuffix(arn, "/"+p.Resource.Table.DatabaseName+"/"+p.Resource.Table.Name) ||
+			strings.HasSuffix(arn, ":table/"+p.Resource.Table.DatabaseName+"/"+p.Resource.Table.Name)
 	}
 
 	return false
@@ -1232,14 +1289,20 @@ func (b *InMemoryBackend) DescribeTransaction(transactionID string) (*Transactio
 	return &Transaction{TransactionID: transactionID, TransactionStatus: status}, nil
 }
 
-// ListTransactions returns a paginated list of all known transactions.
-func (b *InMemoryBackend) ListTransactions(maxResults int, nextToken string) ([]*Transaction, string) {
+// ListTransactions returns a paginated list of transactions, optionally filtered by status.
+func (b *InMemoryBackend) ListTransactions(
+	statusFilter string, maxResults int, nextToken string,
+) ([]*Transaction, string) {
 	b.mu.RLock("ListTransactions")
 	defer b.mu.RUnlock()
 
 	all := make([]*Transaction, 0, len(b.transactions))
 
 	for id, status := range b.transactions {
+		if statusFilter != "" && status != statusFilter {
+			continue
+		}
+
 		all = append(all, &Transaction{TransactionID: id, TransactionStatus: status})
 	}
 
@@ -1481,4 +1544,347 @@ func (b *InMemoryBackend) ListLakeFormationOptIns(
 	})
 
 	return paginate(all, maxResults, nextToken, defaultMaxResults)
+}
+
+// DeleteLakeFormationIdentityCenterConfiguration removes the identity center config for a catalog.
+func (b *InMemoryBackend) DeleteLakeFormationIdentityCenterConfiguration(catalogID string) error {
+	b.mu.Lock("DeleteLakeFormationIdentityCenterConfiguration")
+	defer b.mu.Unlock()
+	if _, ok := b.identityCenterConfigs[catalogID]; !ok {
+		return awserr.New("identity center configuration not found for catalog: "+catalogID, awserr.ErrNotFound)
+	}
+	delete(b.identityCenterConfigs, catalogID)
+
+	return nil
+}
+
+// DescribeLakeFormationIdentityCenterConfiguration returns the identity center config for a catalog.
+func (b *InMemoryBackend) DescribeLakeFormationIdentityCenterConfiguration(
+	catalogID string,
+) (*IdentityCenterConfiguration, error) {
+	b.mu.RLock("DescribeLakeFormationIdentityCenterConfiguration")
+	defer b.mu.RUnlock()
+	cfg, ok := b.identityCenterConfigs[catalogID]
+	if !ok {
+		return nil, awserr.New("identity center configuration not found for catalog: "+catalogID, awserr.ErrNotFound)
+	}
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// UpdateLakeFormationIdentityCenterConfiguration updates or creates the identity center config.
+func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(
+	catalogID string, externalFiltering *ExternalFilteringConfiguration, _ string,
+) error {
+	b.mu.Lock("UpdateLakeFormationIdentityCenterConfiguration")
+	defer b.mu.Unlock()
+	cfg, ok := b.identityCenterConfigs[catalogID]
+	if !ok {
+		b.identityCenterConfigs[catalogID] = &IdentityCenterConfiguration{
+			CatalogID:         catalogID,
+			ExternalFiltering: externalFiltering,
+		}
+
+		return nil
+	}
+	if externalFiltering != nil {
+		cfg.ExternalFiltering = externalFiltering
+	}
+
+	return nil
+}
+
+// ExtendTransaction validates that a transaction is active (no-op extension in-memory).
+func (b *InMemoryBackend) ExtendTransaction(transactionID string) error {
+	if strings.TrimSpace(transactionID) == "" {
+		return fmt.Errorf("TransactionId is required: %w", ErrValidation)
+	}
+	b.mu.RLock("ExtendTransaction")
+	defer b.mu.RUnlock()
+	status, ok := b.transactions[transactionID]
+	if !ok {
+		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
+	}
+	if status != transactionStatusActive {
+		return awserr.New(fmt.Sprintf("transaction %s is not active", transactionID), awserr.ErrConflict)
+	}
+
+	return nil
+}
+
+// DeleteObjectsOnCancel removes governed table objects written during a cancelled transaction.
+// AWS requires the transaction to be in ABORTED state before objects can be deleted.
+func (b *InMemoryBackend) DeleteObjectsOnCancel(transactionID string) error {
+	if strings.TrimSpace(transactionID) == "" {
+		return fmt.Errorf("TransactionId is required: %w", ErrValidation)
+	}
+	b.mu.RLock("DeleteObjectsOnCancel")
+	defer b.mu.RUnlock()
+	status, ok := b.transactions[transactionID]
+	if !ok {
+		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
+	}
+	if status != transactionStatusAborted {
+		return awserr.New(
+			fmt.Sprintf("transaction %s must be in ABORTED state (current: %s)", transactionID, status),
+			awserr.ErrConflict,
+		)
+	}
+
+	return nil
+}
+
+// GetDataCellsFilter returns the named data cells filter.
+func (b *InMemoryBackend) GetDataCellsFilter(
+	tableCatalogID, databaseName, tableName, name string,
+) (*DataCellsFilter, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, fmt.Errorf("Name is required: %w", ErrValidation)
+	}
+	b.mu.RLock("GetDataCellsFilter")
+	defer b.mu.RUnlock()
+	k := dataCellsFilterKey{
+		TableCatalogID: tableCatalogID, DatabaseName: databaseName, TableName: tableName, Name: name,
+	}
+	f, ok := b.dataCellsFilters[k]
+	if !ok {
+		return nil, awserr.New("data cells filter not found: "+name, awserr.ErrNotFound)
+	}
+	cp := *f
+
+	return &cp, nil
+}
+
+// UpdateDataCellsFilter replaces an existing data cells filter.
+func (b *InMemoryBackend) UpdateDataCellsFilter(filter *DataCellsFilter) error {
+	if filter == nil {
+		return fmt.Errorf("filter is required: %w", ErrValidation)
+	}
+	if strings.TrimSpace(filter.TableCatalogID) == "" {
+		return fmt.Errorf("TableCatalogId is required: %w", ErrValidation)
+	}
+	if strings.TrimSpace(filter.DatabaseName) == "" {
+		return fmt.Errorf("DatabaseName is required: %w", ErrValidation)
+	}
+	if strings.TrimSpace(filter.TableName) == "" {
+		return fmt.Errorf("TableName is required: %w", ErrValidation)
+	}
+	if strings.TrimSpace(filter.Name) == "" {
+		return fmt.Errorf("Name is required: %w", ErrValidation)
+	}
+	b.mu.Lock("UpdateDataCellsFilter")
+	defer b.mu.Unlock()
+	k := dataCellsFilterKey{
+		TableCatalogID: filter.TableCatalogID,
+		DatabaseName:   filter.DatabaseName,
+		TableName:      filter.TableName,
+		Name:           filter.Name,
+	}
+	if _, ok := b.dataCellsFilters[k]; !ok {
+		return awserr.New("data cells filter not found: "+filter.Name, awserr.ErrNotFound)
+	}
+	cp := *filter
+	b.dataCellsFilters[k] = &cp
+
+	return nil
+}
+
+// GetLFTagExpression returns the named LF-tag expression.
+func (b *InMemoryBackend) GetLFTagExpression(name, catalogID string) (*LFTagExpression, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, fmt.Errorf("Name is required: %w", ErrValidation)
+	}
+	b.mu.RLock("GetLFTagExpression")
+	defer b.mu.RUnlock()
+	k := lfTagExpressionKey{CatalogID: catalogID, Name: name}
+	expr, ok := b.lfTagExpressions[k]
+	if !ok {
+		return nil, awserr.New("LF-tag expression not found: "+name, awserr.ErrNotFound)
+	}
+	cp := *expr
+	if expr.Expression != nil {
+		cp.Expression = make([]LFTag, len(expr.Expression))
+		copy(cp.Expression, expr.Expression)
+	}
+
+	return &cp, nil
+}
+
+// UpdateLFTagExpression updates the description and expression of an existing LF-tag expression.
+func (b *InMemoryBackend) UpdateLFTagExpression(name, catalogID, description string, expression []LFTag) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("Name is required: %w", ErrValidation)
+	}
+	b.mu.Lock("UpdateLFTagExpression")
+	defer b.mu.Unlock()
+	k := lfTagExpressionKey{CatalogID: catalogID, Name: name}
+	expr, ok := b.lfTagExpressions[k]
+	if !ok {
+		return awserr.New("LF-tag expression not found: "+name, awserr.ErrNotFound)
+	}
+	expr.Description = description
+	if expression != nil {
+		cp := make([]LFTag, len(expression))
+		copy(cp, expression)
+		expr.Expression = cp
+	}
+
+	return nil
+}
+
+// GetEffectivePermissionsForPath returns effective permissions for a resource path.
+func (b *InMemoryBackend) GetEffectivePermissionsForPath(
+	resourceArn string, maxResults int, nextToken string,
+) ([]*PermissionEntry, string) {
+	return b.ListPermissions(resourceArn, maxResults, nextToken)
+}
+
+// GetTemporaryCredentials returns synthetic temporary AWS credentials.
+func (b *InMemoryBackend) GetTemporaryCredentials(_ *int32) *TemporaryCredentials {
+	return &TemporaryCredentials{
+		AccessKeyID:     "ASIALAKEFORMATION0002",
+		SecretAccessKey: "syntheticSecretKey00000000000000000000001",
+		SessionToken:    "syntheticSessionToken002",
+	}
+}
+
+// GetTableObjects returns an empty list of governed table objects.
+func (b *InMemoryBackend) GetTableObjects(_ int, _ string) ([]PartitionedTableObjectsList, string) {
+	return []PartitionedTableObjectsList{}, ""
+}
+
+// UpdateTableObjects validates the transaction and records the write operations.
+func (b *InMemoryBackend) UpdateTableObjects(transactionID string) error {
+	if strings.TrimSpace(transactionID) == "" {
+		return nil
+	}
+	b.mu.RLock("UpdateTableObjects")
+	defer b.mu.RUnlock()
+	if _, ok := b.transactions[transactionID]; !ok {
+		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
+	}
+
+	return nil
+}
+
+// StartQueryPlanning registers a new query and returns its ID.
+func (b *InMemoryBackend) StartQueryPlanning(queryString string) string {
+	id := newTransactionID()
+	b.mu.Lock("StartQueryPlanning")
+	defer b.mu.Unlock()
+	b.queries[id] = "WORKUNITS_AVAILABLE"
+	_ = queryString
+
+	return id
+}
+
+// GetQueryState returns the current state of a query.
+func (b *InMemoryBackend) GetQueryState(queryID string) (string, error) {
+	if strings.TrimSpace(queryID) == "" {
+		return "", fmt.Errorf("QueryId is required: %w", ErrValidation)
+	}
+	b.mu.RLock("GetQueryState")
+	defer b.mu.RUnlock()
+	state, ok := b.queries[queryID]
+	if !ok {
+		return "", awserr.New("query not found: "+queryID, awserr.ErrNotFound)
+	}
+
+	return state, nil
+}
+
+// GetQueryStatistics returns synthetic statistics for a query.
+func (b *InMemoryBackend) GetQueryStatistics(queryID string) (*ExecutionStatistics, *PlanningStatistics, error) {
+	if strings.TrimSpace(queryID) == "" {
+		return nil, nil, fmt.Errorf("QueryId is required: %w", ErrValidation)
+	}
+	b.mu.RLock("GetQueryStatistics")
+	defer b.mu.RUnlock()
+	if _, ok := b.queries[queryID]; !ok {
+		return nil, nil, awserr.New("query not found: "+queryID, awserr.ErrNotFound)
+	}
+	zero := int64(0)
+	exec := &ExecutionStatistics{WorkUnitsExecutedCount: &zero}
+	plan := &PlanningStatistics{WorkUnitsGeneratedCount: &zero}
+
+	return exec, plan, nil
+}
+
+// GetWorkUnits returns the work unit ranges for a completed query plan.
+func (b *InMemoryBackend) GetWorkUnits(queryID string) ([]WorkUnitRange, string, error) {
+	if strings.TrimSpace(queryID) == "" {
+		return nil, "", fmt.Errorf("QueryId is required: %w", ErrValidation)
+	}
+	b.mu.RLock("GetWorkUnits")
+	defer b.mu.RUnlock()
+	if _, ok := b.queries[queryID]; !ok {
+		return nil, "", awserr.New("query not found: "+queryID, awserr.ErrNotFound)
+	}
+
+	return []WorkUnitRange{}, "", nil
+}
+
+// GetWorkUnitResults validates that the query exists and returns successfully.
+func (b *InMemoryBackend) GetWorkUnitResults(queryID, _ string) error {
+	if strings.TrimSpace(queryID) == "" {
+		return fmt.Errorf("QueryId is required: %w", ErrValidation)
+	}
+	b.mu.RLock("GetWorkUnitResults")
+	defer b.mu.RUnlock()
+	if _, ok := b.queries[queryID]; !ok {
+		return awserr.New("query not found: "+queryID, awserr.ErrNotFound)
+	}
+
+	return nil
+}
+
+// tableStorageKey returns a composite key for table storage optimizer lookups.
+func tableStorageKey(catalogID, databaseName, tableName string) string {
+	return catalogID + "|" + databaseName + "|" + tableName
+}
+
+// ListTableStorageOptimizers returns the storage optimizers for a table, filtered by type if specified.
+func (b *InMemoryBackend) ListTableStorageOptimizers(
+	catalogID, databaseName, tableName, storageOptimizerType string,
+) []StorageOptimizer {
+	b.mu.RLock("ListTableStorageOptimizers")
+	defer b.mu.RUnlock()
+	key := tableStorageKey(catalogID, databaseName, tableName)
+	opts := b.tableStorageOptimizers[key]
+	result := make([]StorageOptimizer, 0, len(opts))
+
+	for _, o := range opts {
+		if storageOptimizerType == "" || o.StorageOptimizerType == storageOptimizerType {
+			result = append(result, o)
+		}
+	}
+
+	return result
+}
+
+// UpdateTableStorageOptimizer replaces the storage optimizer config for a table.
+func (b *InMemoryBackend) UpdateTableStorageOptimizer(
+	catalogID, databaseName, tableName string, config map[string]map[string]string,
+) string {
+	b.mu.Lock("UpdateTableStorageOptimizer")
+	defer b.mu.Unlock()
+	key := tableStorageKey(catalogID, databaseName, tableName)
+	opts := make([]StorageOptimizer, 0, len(config))
+	for optimizerType, cfg := range config {
+		opts = append(opts, StorageOptimizer{StorageOptimizerType: optimizerType, Config: cfg})
+	}
+	b.tableStorageOptimizers[key] = opts
+
+	return "Optimizer updated successfully"
+}
+
+// SearchDatabasesByLFTags returns an empty list (in-memory stub).
+func (b *InMemoryBackend) SearchDatabasesByLFTags(_ []LFTag, _ string, _ int, _ string) ([]TaggedDatabase, string) {
+	return []TaggedDatabase{}, ""
+}
+
+// SearchTablesByLFTags returns an empty list (in-memory stub).
+func (b *InMemoryBackend) SearchTablesByLFTags(_ []LFTag, _ string, _ int, _ string) ([]TaggedTable, string) {
+	return []TaggedTable{}, ""
 }
