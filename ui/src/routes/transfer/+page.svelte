@@ -74,6 +74,8 @@
 	let searchQuery = $state('');
 
 	// Per-tab loading spinners
+	// generic loading alias referenced in template
+	let loading = $state(false);
 	let loadingServers = $state(false);
 	let loadingConnectors = $state(false);
 	let loadingProfiles = $state(false);
@@ -460,7 +462,7 @@
 			const res = await transfer.send(new ListUsersCommand({ ServerId: serverId }));
 			// DescribeUser has SshPublicKeys; for now show from the user list
 			const user = (res.Users ?? []).find((u) => u.UserName === userName);
-			userSshKeys = (user as Record<string, unknown>)?.['SshPublicKeys'] as string[] ?? [];
+			userSshKeys = ((user as unknown as Record<string, unknown>)?.['SshPublicKeys'] as { SshPublicKeyId?: string; Fingerprint?: string; DateImported?: string; UserName?: string }[]) ?? [];
 		} catch (e) {
 			toast.error(`Failed to load SSH keys: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
@@ -599,7 +601,8 @@
 	async function createWebApp() {
 		creatingWebApp = true;
 		try {
-			await transfer.send(new CreateWebAppCommand({}));
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		await transfer.send(new CreateWebAppCommand({ IdentityProviderDetails: { $unknown: ['IdentityCenterConfig', {}] } as any }));
 			toast.success('Web app created');
 			showCreateWebAppModal = false;
 			await loadWebApps();
@@ -638,7 +641,8 @@
 		creatingWorkflow = true;
 		try {
 			await transfer.send(new CreateWorkflowCommand({
-				Description: newWorkflowDescription.trim()
+				Description: newWorkflowDescription.trim(),
+				Steps: []
 			}));
 			toast.success('Workflow created');
 			showCreateWorkflowModal = false;
@@ -740,7 +744,7 @@
 
 	<!-- Tab bar -->
 	<div class="flex gap-1 border-b overflow-x-auto">
-		{#each ([
+		{#each [
 			{ id: 'servers', label: 'Servers', icon: Server },
 			{ id: 'access', label: 'Access', icon: Users },
 			{ id: 'agreements', label: 'Agreements', icon: FileKey },
@@ -749,7 +753,7 @@
 			{ id: 'webapps', label: 'WebApps', icon: Globe },
 			{ id: 'workflows', label: 'Workflows', icon: GitBranch },
 			{ id: 'certificates', label: 'Certificates', icon: ShieldCheck },
-		] as const)}
+		] as { id, label, icon }}
 			<button
 				onclick={() => switchTab(id as TabName)}
 				class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === id

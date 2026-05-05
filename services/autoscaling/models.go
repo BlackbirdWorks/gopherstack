@@ -2,11 +2,129 @@ package autoscaling
 
 import "time"
 
+// ScalingPolicy represents a scaling policy for an Auto Scaling group.
+type ScalingPolicy struct {
+	PolicyName           string  `json:"PolicyName"`
+	PolicyARN            string  `json:"PolicyARN"`
+	AutoScalingGroupName string  `json:"AutoScalingGroupName"`
+	PolicyType           string  `json:"PolicyType,omitempty"`
+	AdjustmentType       string  `json:"AdjustmentType,omitempty"`
+	MetricType           string  `json:"MetricType,omitempty"` // predefined metric type
+	CustomMetricSpec     string  `json:"CustomMetricSpec,omitempty"`
+	TargetValue          float64 `json:"TargetValue,omitempty"`
+	ScalingAdjustment    int32   `json:"ScalingAdjustment,omitempty"`
+	MinAdjustmentStep    int32   `json:"MinAdjustmentStep,omitempty"`
+	Cooldown             int32   `json:"Cooldown,omitempty"`
+	EstimatedWarmup      int32   `json:"EstimatedWarmup,omitempty"`
+	DisableScaleIn       bool    `json:"DisableScaleIn,omitempty"`
+}
+
+// ScalingPolicyInput holds the input for PutScalingPolicy.
+type ScalingPolicyInput struct {
+	PolicyName           string
+	AutoScalingGroupName string
+	PolicyType           string
+	AdjustmentType       string
+	MetricType           string
+	TargetValue          float64
+	ScalingAdjustment    int32
+	MinAdjustmentStep    int32
+	Cooldown             int32
+	EstimatedWarmup      int32
+	DisableScaleIn       bool
+}
+
+// NotificationConfiguration represents a notification configuration for an Auto Scaling group.
+type NotificationConfiguration struct {
+	AutoScalingGroupName string `json:"AutoScalingGroupName"`
+	TopicARN             string `json:"TopicARN"`
+	NotificationType     string `json:"NotificationType"`
+}
+
+// WarmPool represents a warm pool configuration for an Auto Scaling group.
+type WarmPool struct {
+	AutoScalingGroupName     string `json:"AutoScalingGroupName"`
+	PoolState                string `json:"PoolState,omitempty"`
+	Status                   string `json:"Status,omitempty"`
+	MinSize                  int32  `json:"MinSize,omitempty"`
+	MaxGroupPreparedCapacity int32  `json:"MaxGroupPreparedCapacity,omitempty"`
+}
+
+// WarmPoolInput holds the input for PutWarmPool.
+type WarmPoolInput struct {
+	AutoScalingGroupName     string
+	PoolState                string
+	MinSize                  int32
+	MaxGroupPreparedCapacity int32
+}
+
+// AccountLimits represents AWS Auto Scaling account limits.
+type AccountLimits struct {
+	MaxNumberOfAutoScalingGroups    int32 `json:"MaxNumberOfAutoScalingGroups"`
+	MaxNumberOfLaunchConfigurations int32 `json:"MaxNumberOfLaunchConfigurations"`
+	NumberOfAutoScalingGroups       int32 `json:"NumberOfAutoScalingGroups"`
+	NumberOfLaunchConfigurations    int32 `json:"NumberOfLaunchConfigurations"`
+}
+
+// MetricCollectionType represents a type of metric that can be collected.
+type MetricCollectionType struct {
+	Metric      string `json:"Metric"`
+	Granularity string `json:"Granularity,omitempty"`
+}
+
+// LoadBalancerState represents the state of a load balancer attached to an ASG.
+type LoadBalancerState struct {
+	LoadBalancerName string `json:"LoadBalancerName"`
+	State            string `json:"State"`
+}
+
+// LoadBalancerTargetGroupState represents the state of a target group attached to an ASG.
+type LoadBalancerTargetGroupState struct {
+	LoadBalancerTargetGroupARN string `json:"LoadBalancerTargetGroupARN"`
+	State                      string `json:"State"`
+}
+
+// TrafficSourceState represents the state of a traffic source attached to an ASG.
+type TrafficSourceState struct {
+	Identifier string `json:"Identifier"`
+	Type       string `json:"Type"`
+	State      string `json:"State"`
+}
+
+// ExecutePolicyInput holds the input for ExecutePolicy.
+type ExecutePolicyInput struct {
+	AutoScalingGroupName string
+	PolicyName           string
+	HonorCooldown        bool
+}
+
+// RecordLifecycleActionHeartbeatInput holds the input for RecordLifecycleActionHeartbeat.
+type RecordLifecycleActionHeartbeatInput struct {
+	AutoScalingGroupName string
+	LifecycleHookName    string
+	LifecycleActionToken string
+	InstanceID           string
+}
+
+// pendingHookAction tracks an in-flight lifecycle action with its timer.
+//
+//nolint:govet // fieldalignment: logical grouping prioritized over size optimization
+type pendingHookAction struct {
+	Token         string
+	GroupName     string
+	HookName      string
+	InstanceID    string
+	DefaultResult string
+	timeout       time.Duration
+	timer         *time.Timer
+}
+
 // AutoScalingGroup represents an EC2 Auto Scaling group.
 //
 //nolint:revive // AutoScalingGroup is the canonical AWS type name; renaming to Group would break convention.
 type AutoScalingGroup struct {
 	CreatedTime             time.Time       `json:"CreatedTime"`
+	LastScalingActivity     time.Time       `json:"LastScalingActivity,omitzero"`
 	AutoScalingGroupName    string          `json:"AutoScalingGroupName"`
 	Status                  string          `json:"Status,omitempty"`
 	HealthCheckType         string          `json:"HealthCheckType"`
@@ -18,6 +136,8 @@ type AutoScalingGroup struct {
 	AvailabilityZones       []string        `json:"AvailabilityZones,omitempty"`
 	Instances               []Instance      `json:"Instances,omitempty"`
 	Tags                    []Tag           `json:"Tags,omitempty"`
+	SuspendedProcesses      []string        `json:"SuspendedProcesses,omitempty"`
+	EnabledMetrics          []string        `json:"EnabledMetrics,omitempty"`
 	MinSize                 int32           `json:"MinSize"`
 	MaxSize                 int32           `json:"MaxSize"`
 	DesiredCapacity         int32           `json:"DesiredCapacity"`
@@ -55,6 +175,7 @@ type Instance struct {
 	HealthStatus            string `json:"HealthStatus"`
 	LaunchConfigurationName string `json:"LaunchConfigurationName,omitempty"`
 	InstanceType            string `json:"InstanceType,omitempty"`
+	ProtectedFromScaleIn    bool   `json:"ProtectedFromScaleIn,omitempty"`
 }
 
 // Tag is a key/value pair attached to a resource.
@@ -117,6 +238,10 @@ type InstanceRefresh struct {
 	InstanceRefreshID    string    `json:"InstanceRefreshId"`
 	AutoScalingGroupName string    `json:"AutoScalingGroupName"`
 	Status               string    `json:"Status"`
+	// Strategy is the instance refresh strategy; defaults to "Rolling".
+	Strategy string `json:"Strategy,omitempty"`
+	// MinHealthyPercentage is the minimum healthy percentage during refresh; defaults to 90.
+	MinHealthyPercentage int32 `json:"MinHealthyPercentage,omitempty"`
 }
 
 // LifecycleHook represents a lifecycle hook attached to an Auto Scaling group.
