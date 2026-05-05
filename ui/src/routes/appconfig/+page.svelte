@@ -189,7 +189,7 @@
 		loadingSettings = true;
 		try {
 			const res = await appconfig.send(new GetAccountSettingsCommand({}));
-			accountSettings = res as any;
+			accountSettings = res as typeof accountSettings;
 		} catch (err: unknown) {
 			toast.error(`Failed to load account settings: ${(err as Error).message}`);
 		} finally {
@@ -405,8 +405,8 @@
 				DeploymentDurationInMinutes: newStratDuration,
 				FinalBakeTimeInMinutes: newStratBake,
 				GrowthFactor: newStratGrowth,
-				GrowthType: newStratGrowthType as any,
-				ReplicateTo: newStratReplicateTo as any,
+				GrowthType: newStratGrowthType as string,
+				ReplicateTo: newStratReplicateTo as string,
 			}));
 			toast.success(`Strategy "${newStratName}" created`);
 			showCreateStratModal = false;
