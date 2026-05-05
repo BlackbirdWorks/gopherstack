@@ -37,7 +37,12 @@ type SQSReader interface {
 
 // PipeLambdaInvoker invokes a Lambda function with a payload.
 type PipeLambdaInvoker interface {
-	InvokeFunction(ctx context.Context, name string, invocationType string, payload []byte) ([]byte, int, error)
+	InvokeFunction(
+		ctx context.Context,
+		name string,
+		invocationType string,
+		payload []byte,
+	) ([]byte, int, error)
 }
 
 // PipeStepFunctionsStarter starts a StepFunctions state machine execution.
@@ -47,12 +52,12 @@ type PipeStepFunctionsStarter interface {
 
 // Runner polls pipe sources and forwards records to pipe targets for RUNNING pipes.
 type Runner struct {
-	backend   *InMemoryBackend
 	sqsReader SQSReader
 	lambda    PipeLambdaInvoker
 	sfn       PipeStepFunctionsStarter
-	wg        sync.WaitGroup
+	backend   *InMemoryBackend
 	sem       chan struct{}
+	wg        sync.WaitGroup
 }
 
 func NewRunner(backend *InMemoryBackend) *Runner {
@@ -62,17 +67,14 @@ func NewRunner(backend *InMemoryBackend) *Runner {
 	}
 }
 
-func (r *Runner) SetSQSReader(s SQSReader)               { r.sqsReader = s }
-func (r *Runner) SetLambdaInvoker(l PipeLambdaInvoker)   { r.lambda = l }
+func (r *Runner) SetSQSReader(s SQSReader)                           { r.sqsReader = s }
+func (r *Runner) SetLambdaInvoker(l PipeLambdaInvoker)               { r.lambda = l }
 func (r *Runner) SetStepFunctionsStarter(s PipeStepFunctionsStarter) { r.sfn = s }
 
 func (r *Runner) Start(ctx context.Context) {
-	r.wg.Add(1)
-
-	go func() {
-		defer r.wg.Done()
+	r.wg.Go(func() {
 		r.run(ctx)
-	}()
+	})
 }
 
 // Wait blocks until all runner goroutines have exited, or ctx expires.
@@ -108,22 +110,17 @@ func (r *Runner) pollAllPipes(ctx context.Context) {
 	res := r.backend.ListPipes(ListPipesFilter{CurrentState: stateRunning})
 
 	for _, p := range res.Pipes {
-		p := p
-
 		select {
 		case r.sem <- struct{}{}:
 		default:
 			continue
 		}
 
-		r.wg.Add(1)
-
-		go func() {
-			defer r.wg.Done()
+		r.wg.Go(func() {
 			defer func() { <-r.sem }()
 
 			r.pollPipe(ctx, p)
-		}()
+		})
 	}
 }
 

@@ -70,8 +70,8 @@ type LambdaFunctionParameters struct {
 
 // TargetParameters holds target-specific configuration.
 type TargetParameters struct {
-	InputTemplate            string                    `json:"InputTemplate,omitempty"`
 	LambdaFunctionParameters *LambdaFunctionParameters `json:"LambdaFunctionParameters,omitempty"`
+	InputTemplate            string                    `json:"InputTemplate,omitempty"`
 }
 
 // DeadLetterConfig identifies the DLQ for failed pipe events.
@@ -91,9 +91,9 @@ type LogDestination struct {
 
 // LogConfiguration controls pipe execution logging.
 type LogConfiguration struct {
+	Level                string           `json:"Level,omitempty"`
 	Destinations         []LogDestination `json:"Destinations,omitempty"`
 	IncludeExecutionData []string         `json:"IncludeExecutionData,omitempty"`
-	Level                string           `json:"Level,omitempty"`
 }
 
 // Pipe represents an EventBridge Pipe.
@@ -125,6 +125,7 @@ func (p *Pipe) effectiveBatchSize() int {
 		p.SourceParameters.SqsQueueParameters.BatchSize > 0 {
 		return p.SourceParameters.SqsQueueParameters.BatchSize
 	}
+
 	return pipeDefaultBatchSize
 }
 
@@ -162,6 +163,7 @@ func clonePipe(p *Pipe) *Pipe {
 		lc.IncludeExecutionData = append([]string(nil), p.LogConfiguration.IncludeExecutionData...)
 		cp.LogConfiguration = &lc
 	}
+
 	return &cp
 }
 
@@ -203,22 +205,38 @@ type CreatePipeInput struct {
 }
 
 func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
-	if err := validatePipeName(in.Name); err != nil { return nil, err }
-	if err := validateDesiredState(in.DesiredState); err != nil { return nil, err }
-	if in.Source == "" { return nil, fmt.Errorf("%w: Source is required", ErrValidation) }
-	if in.Target == "" { return nil, fmt.Errorf("%w: Target is required", ErrValidation) }
-	if err := validateTags(in.Tags); err != nil { return nil, err }
+	if err := validatePipeName(in.Name); err != nil {
+		return nil, err
+	}
+	if err := validateDesiredState(in.DesiredState); err != nil {
+		return nil, err
+	}
+	if in.Source == "" {
+		return nil, fmt.Errorf("%w: Source is required", ErrValidation)
+	}
+	if in.Target == "" {
+		return nil, fmt.Errorf("%w: Target is required", ErrValidation)
+	}
+	if err := validateTags(in.Tags); err != nil {
+		return nil, err
+	}
 
 	b.mu.Lock("CreatePipe")
 	defer b.mu.Unlock()
 
 	if len(b.pipes) >= maxPipesPerAcct {
-		return nil, fmt.Errorf("%w: account has reached the maximum number of pipes (%d)", ErrValidation, maxPipesPerAcct)
+		return nil, fmt.Errorf(
+			"%w: account has reached the maximum number of pipes (%d)",
+			ErrValidation,
+			maxPipesPerAcct,
+		)
 	}
 	if _, ok := b.pipes[in.Name]; ok {
 		return nil, fmt.Errorf("%w: pipe %s already exists", ErrAlreadyExists, in.Name)
 	}
-	if in.DesiredState == "" { in.DesiredState = stateRunning }
+	if in.DesiredState == "" {
+		in.DesiredState = stateRunning
+	}
 
 	now := time.Now()
 	pipeARN := arn.Build("pipes", b.region, b.accountID, "pipe/"+in.Name)
@@ -228,12 +246,13 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 		Enrichment: in.Enrichment, DesiredState: in.DesiredState, CurrentState: in.DesiredState,
 		AccountID: b.accountID, Region: b.region,
 		CreationTime: now, LastModifiedTime: now,
-		Tags: mergeTags(nil, in.Tags),
+		Tags:             mergeTags(nil, in.Tags),
 		SourceParameters: in.SourceParameters, TargetParameters: in.TargetParameters,
 		DeadLetterConfig: in.DeadLetterConfig, LogConfiguration: in.LogConfiguration,
 	}
 	b.pipes[in.Name] = p
 	b.pipeARNIndex[pipeARN] = in.Name
+
 	return clonePipe(p), nil
 }
 
@@ -241,7 +260,10 @@ func (b *InMemoryBackend) GetPipe(name string) (*Pipe, error) {
 	b.mu.RLock("GetPipe")
 	defer b.mu.RUnlock()
 	p, ok := b.pipes[name]
-	if !ok { return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name) }
+	if !ok {
+		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
+	}
+
 	return clonePipe(p), nil
 }
 
@@ -258,8 +280,8 @@ type ListPipesFilter struct {
 
 // ListPipesResult holds the paginated result of a ListPipes call.
 type ListPipesResult struct {
-	Pipes     []*Pipe
 	NextToken string
+	Pipes     []*Pipe
 }
 
 func (b *InMemoryBackend) ListPipes(f ListPipesFilter) ListPipesResult {
@@ -267,55 +289,107 @@ func (b *InMemoryBackend) ListPipes(f ListPipesFilter) ListPipesResult {
 	defer b.mu.RUnlock()
 
 	limit := f.Limit
-	if limit <= 0 || limit > 1000 { limit = 1000 }
-
-	names := make([]string, 0, len(b.pipes))
-	for name := range b.pipes { names = append(names, name) }
-	for i := 0; i < len(names); i++ {
-		for j := i + 1; j < len(names); j++ {
-			if names[j] < names[i] { names[i], names[j] = names[j], names[i] }
-		}
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
 	}
 
-	startIdx := 0
-	if f.NextToken != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(f.NextToken); err == nil {
-			cursor := strings.TrimSuffix(string(decoded), nextTokenSep)
-			for i, n := range names {
-				if n > cursor { startIdx = i; break }
-				startIdx = len(names)
+	names := b.sortedPipeNames()
+	startIdx := b.resolveStartIndex(names, f.NextToken)
+	result, lastIncluded := b.collectMatchingPipes(names, startIdx, limit, f)
+	nextToken := b.buildNextToken(names, startIdx, len(result), limit, lastIncluded, f)
+
+	return ListPipesResult{Pipes: result, NextToken: nextToken}
+}
+
+func (b *InMemoryBackend) sortedPipeNames() []string {
+	names := make([]string, 0, len(b.pipes))
+	for name := range b.pipes {
+		names = append(names, name)
+	}
+	for i := 0; i < len(names); i++ {
+		for j := i + 1; j < len(names); j++ {
+			if names[j] < names[i] {
+				names[i], names[j] = names[j], names[i]
 			}
 		}
 	}
 
+	return names
+}
+
+func (b *InMemoryBackend) resolveStartIndex(names []string, nextToken string) int {
+	if nextToken == "" {
+		return 0
+	}
+	decoded, err := base64.StdEncoding.DecodeString(nextToken)
+	if err != nil {
+		return 0
+	}
+	cursor := strings.TrimSuffix(string(decoded), nextTokenSep)
+	startIdx := len(names)
+	for i, n := range names {
+		if n > cursor {
+			startIdx = i
+
+			break
+		}
+	}
+
+	return startIdx
+}
+
+func (b *InMemoryBackend) collectMatchingPipes(
+	names []string, startIdx, limit int, f ListPipesFilter,
+) ([]*Pipe, string) {
 	var result []*Pipe
 	var lastIncluded string
 	for i := startIdx; i < len(names); i++ {
-		if len(result) >= limit { break }
+		if len(result) >= limit {
+			break
+		}
 		p := b.pipes[names[i]]
-		if !matchesFilter(p, f) { continue }
+		if !matchesFilter(p, f) {
+			continue
+		}
 		result = append(result, clonePipe(p))
 		lastIncluded = p.Name
 	}
 
-	var nextToken string
-	if len(result) == limit && lastIncluded != "" {
-		for i := startIdx + len(result); i < len(names); i++ {
-			if matchesFilter(b.pipes[names[i]], f) {
-				nextToken = base64.StdEncoding.EncodeToString([]byte(lastIncluded + nextTokenSep))
-				break
-			}
+	return result, lastIncluded
+}
+
+func (b *InMemoryBackend) buildNextToken(
+	names []string, startIdx, resultLen, limit int, lastIncluded string, f ListPipesFilter,
+) string {
+	if resultLen < limit || lastIncluded == "" {
+		return ""
+	}
+	for i := startIdx + resultLen; i < len(names); i++ {
+		if matchesFilter(b.pipes[names[i]], f) {
+			return base64.StdEncoding.EncodeToString([]byte(lastIncluded + nextTokenSep))
 		}
 	}
-	return ListPipesResult{Pipes: result, NextToken: nextToken}
+
+	return ""
 }
 
 func matchesFilter(p *Pipe, f ListPipesFilter) bool {
-	if f.NamePrefix != "" && !strings.HasPrefix(p.Name, f.NamePrefix) { return false }
-	if f.DesiredState != "" && p.DesiredState != f.DesiredState { return false }
-	if f.CurrentState != "" && p.CurrentState != f.CurrentState { return false }
-	if f.SourcePrefix != "" && !strings.HasPrefix(p.Source, f.SourcePrefix) { return false }
-	if f.TargetPrefix != "" && !strings.HasPrefix(p.Target, f.TargetPrefix) { return false }
+	if f.NamePrefix != "" && !strings.HasPrefix(p.Name, f.NamePrefix) {
+		return false
+	}
+	if f.DesiredState != "" && p.DesiredState != f.DesiredState {
+		return false
+	}
+	if f.CurrentState != "" && p.CurrentState != f.CurrentState {
+		return false
+	}
+	if f.SourcePrefix != "" && !strings.HasPrefix(p.Source, f.SourcePrefix) {
+		return false
+	}
+	if f.TargetPrefix != "" && !strings.HasPrefix(p.Target, f.TargetPrefix) {
+		return false
+	}
+
 	return true
 }
 
@@ -333,21 +407,42 @@ type UpdatePipeInput struct {
 }
 
 func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, error) {
-	if err := validateDesiredState(in.DesiredState); err != nil { return nil, err }
+	if err := validateDesiredState(in.DesiredState); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("UpdatePipe")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]
-	if !ok { return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name) }
-	if in.RoleARN != "" { p.RoleARN = in.RoleARN }
-	if in.Target != "" { p.Target = in.Target }
-	if in.DesiredState != "" { p.DesiredState = in.DesiredState }
-	if in.Enrichment != "" { p.Enrichment = in.Enrichment }
+	if !ok {
+		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
+	}
+	if in.RoleARN != "" {
+		p.RoleARN = in.RoleARN
+	}
+	if in.Target != "" {
+		p.Target = in.Target
+	}
+	if in.DesiredState != "" {
+		p.DesiredState = in.DesiredState
+	}
+	if in.Enrichment != "" {
+		p.Enrichment = in.Enrichment
+	}
 	p.Description = in.Description
-	if in.SourceParameters != nil { p.SourceParameters = in.SourceParameters }
-	if in.TargetParameters != nil { p.TargetParameters = in.TargetParameters }
-	if in.DeadLetterConfig != nil { p.DeadLetterConfig = in.DeadLetterConfig }
-	if in.LogConfiguration != nil { p.LogConfiguration = in.LogConfiguration }
+	if in.SourceParameters != nil {
+		p.SourceParameters = in.SourceParameters
+	}
+	if in.TargetParameters != nil {
+		p.TargetParameters = in.TargetParameters
+	}
+	if in.DeadLetterConfig != nil {
+		p.DeadLetterConfig = in.DeadLetterConfig
+	}
+	if in.LogConfiguration != nil {
+		p.LogConfiguration = in.LogConfiguration
+	}
 	p.LastModifiedTime = time.Now()
+
 	return clonePipe(p), nil
 }
 
@@ -355,9 +450,12 @@ func (b *InMemoryBackend) DeletePipe(name string) error {
 	b.mu.Lock("DeletePipe")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]
-	if !ok { return fmt.Errorf("%w: pipe %s not found", ErrNotFound, name) }
+	if !ok {
+		return fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
+	}
 	delete(b.pipeARNIndex, p.ARN)
 	delete(b.pipes, name)
+
 	return nil
 }
 
@@ -365,12 +463,17 @@ func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
 	b.mu.Lock("StartPipe")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]
-	if !ok { return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name) }
+	if !ok {
+		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
+	}
 	if p.DesiredState == stateRunning && p.CurrentState == stateRunning {
 		return nil, fmt.Errorf("%w: pipe %s is already in RUNNING state", ErrValidation, name)
 	}
-	p.DesiredState = stateRunning; p.CurrentState = stateRunning; p.StateReason = ""
+	p.DesiredState = stateRunning
+	p.CurrentState = stateRunning
+	p.StateReason = ""
 	p.LastModifiedTime = time.Now()
+
 	return clonePipe(p), nil
 }
 
@@ -378,12 +481,17 @@ func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
 	b.mu.Lock("StopPipe")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]
-	if !ok { return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name) }
+	if !ok {
+		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
+	}
 	if p.DesiredState == stateStopped && p.CurrentState == stateStopped {
 		return nil, fmt.Errorf("%w: pipe %s is already in STOPPED state", ErrValidation, name)
 	}
-	p.DesiredState = stateStopped; p.CurrentState = stateStopped; p.StateReason = ""
+	p.DesiredState = stateStopped
+	p.CurrentState = stateStopped
+	p.StateReason = ""
 	p.LastModifiedTime = time.Now()
+
 	return clonePipe(p), nil
 }
 
@@ -392,22 +500,31 @@ func (b *InMemoryBackend) MarkPipeFailed(name, state, reason string) {
 	b.mu.Lock("MarkPipeFailed")
 	defer b.mu.Unlock()
 	p, ok := b.pipes[name]
-	if !ok { return }
-	p.CurrentState = state; p.StateReason = reason; p.LastModifiedTime = time.Now()
+	if !ok {
+		return
+	}
+	p.CurrentState = state
+	p.StateReason = reason
+	p.LastModifiedTime = time.Now()
 }
 
 func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
-	if err := validateTags(kv); err != nil { return err }
+	if err := validateTags(kv); err != nil {
+		return err
+	}
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 	name, ok := b.pipeARNIndex[resourceARN]
-	if !ok { return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN) }
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	}
 	p := b.pipes[name]
 	merged := mergeTags(p.Tags, kv)
 	if len(merged) > maxTagsPerPipe {
 		return fmt.Errorf("%w: pipe would exceed %d tags limit", ErrValidation, maxTagsPerPipe)
 	}
 	p.Tags = merged
+
 	return nil
 }
 
@@ -415,9 +532,14 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 	name, ok := b.pipeARNIndex[resourceARN]
-	if !ok { return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN) }
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	}
 	p := b.pipes[name]
-	for _, k := range keys { delete(p.Tags, k) }
+	for _, k := range keys {
+		delete(p.Tags, k)
+	}
+
 	return nil
 }
 
@@ -425,10 +547,13 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 	name, ok := b.pipeARNIndex[resourceARN]
-	if !ok { return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN) }
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	}
 	p := b.pipes[name]
 	result := make(map[string]string, len(p.Tags))
 	maps.Copy(result, p.Tags)
+
 	return result, nil
 }
 
@@ -436,6 +561,7 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 	result := make(map[string]string, len(existing)+len(incoming))
 	maps.Copy(result, existing)
 	maps.Copy(result, incoming)
+
 	return result
 }
 
@@ -447,31 +573,58 @@ func (b *InMemoryBackend) Reset() {
 }
 
 func validatePipeName(name string) error {
-	if name == "" { return fmt.Errorf("%w: pipe name must not be empty", ErrValidation) }
+	if name == "" {
+		return fmt.Errorf("%w: pipe name must not be empty", ErrValidation)
+	}
 	if len(name) > maxPipeNameLen {
-		return fmt.Errorf("%w: pipe name exceeds maximum length of %d characters", ErrValidation, maxPipeNameLen)
+		return fmt.Errorf(
+			"%w: pipe name exceeds maximum length of %d characters",
+			ErrValidation,
+			maxPipeNameLen,
+		)
 	}
 	if !pipeNameRE.MatchString(name) {
-		return fmt.Errorf("%w: pipe name %q contains invalid characters (allowed: a-z, A-Z, 0-9, -, _)", ErrValidation, name)
+		return fmt.Errorf(
+			"%w: pipe name %q contains invalid characters (allowed: a-z, A-Z, 0-9, -, _)",
+			ErrValidation,
+			name,
+		)
 	}
+
 	return nil
 }
 
 func validateDesiredState(state string) error {
-	if state == "" || state == stateRunning || state == stateStopped { return nil }
+	if state == "" || state == stateRunning || state == stateStopped {
+		return nil
+	}
+
 	return fmt.Errorf("%w: DesiredState must be RUNNING or STOPPED, got %q", ErrValidation, state)
 }
 
 func validateTags(tags map[string]string) error {
 	for k, v := range tags {
-		if len(k) == 0 { return fmt.Errorf("%w: tag key must not be empty", ErrValidation) }
+		if len(k) == 0 {
+			return fmt.Errorf("%w: tag key must not be empty", ErrValidation)
+		}
 		if len(k) > maxTagKeyLen {
-			return fmt.Errorf("%w: tag key %q exceeds maximum length of %d", ErrValidation, k, maxTagKeyLen)
+			return fmt.Errorf(
+				"%w: tag key %q exceeds maximum length of %d",
+				ErrValidation,
+				k,
+				maxTagKeyLen,
+			)
 		}
 		if len(v) > maxTagValueLen {
-			return fmt.Errorf("%w: tag value for key %q exceeds maximum length of %d", ErrValidation, k, maxTagValueLen)
+			return fmt.Errorf(
+				"%w: tag value for key %q exceeds maximum length of %d",
+				ErrValidation,
+				k,
+				maxTagValueLen,
+			)
 		}
 	}
+
 	return nil
 }
 
@@ -485,7 +638,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 	s := snap{Pipes: b.pipes, AccountID: b.accountID, Region: b.region}
 	data, err := json.Marshal(s)
-	if err != nil { return nil }
+	if err != nil {
+		return nil
+	}
+
 	return data
 }
 
@@ -496,14 +652,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		Region    string           `json:"region"`
 	}
 	var s snap
-	if err := json.Unmarshal(data, &s); err != nil { return err }
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-	if s.Pipes == nil { s.Pipes = make(map[string]*Pipe) }
+	if s.Pipes == nil {
+		s.Pipes = make(map[string]*Pipe)
+	}
 	b.pipes = s.Pipes
 	b.accountID = s.AccountID
 	b.region = s.Region
 	b.pipeARNIndex = make(map[string]string, len(b.pipes))
-	for name, p := range b.pipes { b.pipeARNIndex[p.ARN] = name }
+	for name, p := range b.pipes {
+		b.pipeARNIndex[p.ARN] = name
+	}
+
 	return nil
 }

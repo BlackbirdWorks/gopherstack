@@ -20,6 +20,7 @@ import (
 
 const (
 	keyMessageField = "message"
+	keyTypeField    = "__type"
 )
 
 const (
@@ -36,11 +37,11 @@ const (
 )
 
 const (
-	pipesService    = "pipes"
-	pipesMatchPriority = 87
-	pipesPathPrefix    = "/v1/pipes"
-	pipesTagsPrefix    = "/tags/"
-	pipeNameSegment    = "pipes"
+	pipesService        = "pipes"
+	pipesMatchPriority  = 87
+	pipesPathPrefix     = "/v1/pipes"
+	pipesTagsPrefix     = "/tags/"
+	pipeNameSegment     = "pipes"
 	pipePathMinSegments = 3
 )
 
@@ -138,7 +139,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 func (h *Handler) MatchPriority() int { return pipesMatchPriority }
 
-//nolint:cyclop
+//nolint:cyclop // function routes HTTP requests by method and path segments
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	method := c.Request().Method
 	path := c.Request().URL.Path
@@ -187,7 +188,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	path := c.Request().URL.Path
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
 
-	if len(segments) >= pipePathMinSegments && segments[0] == "v1" && segments[1] == pipeNameSegment {
+	if len(segments) >= pipePathMinSegments && segments[0] == "v1" &&
+		segments[1] == pipeNameSegment {
 		return segments[2]
 	}
 
@@ -224,7 +226,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, op, path string, query url.Values, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(
+	ctx context.Context,
+	op, path string,
+	query url.Values,
+	body []byte,
+) ([]byte, error) {
 	switch op {
 	case opCreatePipe:
 		return h.handleCreatePipe(ctx, path, body)
@@ -258,21 +265,21 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":        "NotFoundException",
+			keyTypeField:    "NotFoundException",
 			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, ErrAlreadyExists):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":        "ConflictException",
+			keyTypeField:    "ConflictException",
 			keyMessageField: err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(map[string]string{
-			"__type":        "ValidationException",
+			keyTypeField:    "ValidationException",
 			keyMessageField: err.Error(),
 		})
 
@@ -281,7 +288,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 }
 
@@ -562,7 +572,11 @@ func (h *Handler) handleTagResource(_ context.Context, path string, body []byte)
 	return nil, nil
 }
 
-func (h *Handler) handleUntagResource(_ context.Context, path string, query url.Values) ([]byte, error) {
+func (h *Handler) handleUntagResource(
+	_ context.Context,
+	path string,
+	query url.Values,
+) ([]byte, error) {
 	resourceARN, err := extractTagsARN(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
