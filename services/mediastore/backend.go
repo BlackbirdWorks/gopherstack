@@ -5,25 +5,35 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 var (
 	// ErrContainerNotFound is returned when a container does not exist.
-	ErrContainerNotFound = awserr.New("ResourceNotFoundException: container not found", awserr.ErrNotFound)
+	ErrContainerNotFound = awserr.New(
+		"ResourceNotFoundException: container not found",
+		awserr.ErrNotFound,
+	)
 	// ErrContainerAlreadyExists is returned when a container already exists.
 	ErrContainerAlreadyExists = awserr.New(
 		"ContainerInUseException: container already exists",
 		awserr.ErrAlreadyExists,
 	)
 	// ErrPolicyNotFound is returned when no container policy has been set.
-	ErrPolicyNotFound = awserr.New("PolicyNotFoundException: no policy found for container", awserr.ErrNotFound)
+	ErrPolicyNotFound = awserr.New(
+		"PolicyNotFoundException: no policy found for container",
+		awserr.ErrNotFound,
+	)
 	// ErrCorsPolicyNotFound is returned when no CORS policy has been set.
 	ErrCorsPolicyNotFound = awserr.New(
 		"CorsPolicyNotFoundException: no CORS policy found for container",
@@ -41,6 +51,30 @@ var (
 	)
 	// ErrMissingContainerName is returned when the container name is missing.
 	ErrMissingContainerName = errors.New("ContainerName is required")
+	// ErrInvalidContainerName is returned when the container name is invalid.
+	ErrInvalidContainerName = errors.New(
+		"ValidationException: container name must be 1-255 characters" +
+			" and contain only letters, numbers, hyphens, and underscores",
+	)
+	// ErrInvalidPolicy is returned when a policy string is not valid JSON.
+	ErrInvalidPolicy = errors.New("ValidationException: policy must be valid JSON")
+	// ErrCorsRuleInvalid is returned when a CORS rule is missing required fields.
+	ErrCorsRuleInvalid = errors.New(
+		"ValidationException: each CORS rule must have at least one AllowedOrigin and one AllowedHeader",
+	)
+	// ErrInvalidMetricPolicy is returned when ContainerLevelMetrics has an invalid value.
+	ErrInvalidMetricPolicy = errors.New(
+		"ValidationException: ContainerLevelMetrics must be ENABLED or DISABLED",
+	)
+	// ErrTooManyMetricRules is returned when more than 5 metric policy rules are provided.
+	ErrTooManyMetricRules = errors.New(
+		"ValidationException: metric policy may have at most 5 rules",
+	)
+	// ErrEmptyTagKey is returned when a tag with an empty key is provided.
+	ErrEmptyTagKey = errors.New("ValidationException: tag key must not be empty")
+
+	// containerNameRE is the allowed character set for container names.
+	containerNameRE = regexp.MustCompile(`^[a-zA-Z0-9\-_]+$`)
 )
 
 const (
@@ -48,6 +82,12 @@ const (
 	containerStatusActive = "ACTIVE"
 	// defaultEndpointFormat is the format for the container endpoint.
 	defaultEndpointFormat = "https://%s.data.mediastore.%s.amazonaws.com"
+	// maxContainerNameLen is the maximum allowed length of a container name.
+	maxContainerNameLen = 255
+	// maxMetricPolicyRules is the maximum number of metric policy rules.
+	maxMetricPolicyRules = 5
+	// defaultListLimit is the default page size for ListContainers.
+	defaultListLimit = 100
 )
 
 // StorageBackend is the interface for the MediaStore in-memory backend.
@@ -55,7 +95,7 @@ type StorageBackend interface {
 	CreateContainer(region, accountID, name string, tags map[string]string) (*Container, error)
 	DeleteContainer(name string) error
 	DescribeContainer(name string) (*Container, error)
-	ListContainers() ([]*Container, error)
+	ListContainers(nextToken string, maxResults int) ([]*Container, string, error)
 	PutContainerPolicy(name, policy string) error
 	GetContainerPolicy(name string) (string, error)
 	DeleteContainerPolicy(name string) error
@@ -77,16 +117,27 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	containers map[string]*Container
-	mu         *lockmetrics.RWMutex
+	containers       map[string]*Container
+	mu               *lockmetrics.RWMutex
+	paginationSecret string
 }
 
 // NewInMemoryBackend creates a new in-memory MediaStore backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		containers: make(map[string]*Container),
-		mu:         lockmetrics.New("mediastore"),
+		containers:       make(map[string]*Container),
+		paginationSecret: uuid.NewString(),
+		mu:               lockmetrics.New("mediastore"),
 	}
+}
+
+// validateContainerName returns an error if the container name is invalid.
+func validateContainerName(name string) error {
+	if name == "" || len(name) > maxContainerNameLen || !containerNameRE.MatchString(name) {
+		return ErrInvalidContainerName
+	}
+
+	return nil
 }
 
 // containerNameFromARN extracts the container name from a MediaStore ARN.
@@ -111,7 +162,14 @@ func containerEndpoint(name, region string) string {
 }
 
 // CreateContainer creates a new MediaStore container.
-func (b *InMemoryBackend) CreateContainer(region, accountID, name string, tags map[string]string) (*Container, error) {
+func (b *InMemoryBackend) CreateContainer(
+	region, accountID, name string,
+	tags map[string]string,
+) (*Container, error) {
+	if err := validateContainerName(name); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateContainer")
 	defer b.mu.Unlock()
 
@@ -165,8 +223,11 @@ func (b *InMemoryBackend) DescribeContainer(name string) (*Container, error) {
 	return copyContainer(c), nil
 }
 
-// ListContainers returns all containers sorted by name.
-func (b *InMemoryBackend) ListContainers() ([]*Container, error) {
+// ListContainers returns paginated containers sorted by name.
+func (b *InMemoryBackend) ListContainers(
+	nextToken string,
+	maxResults int,
+) ([]*Container, string, error) {
 	b.mu.RLock("ListContainers")
 	defer b.mu.RUnlock()
 
@@ -180,11 +241,17 @@ func (b *InMemoryBackend) ListContainers() ([]*Container, error) {
 		return all[i].Name < all[j].Name
 	})
 
-	return all, nil
+	p := page.NewHMAC(all, nextToken, b.paginationSecret, maxResults, defaultListLimit)
+
+	return p.Data, p.Next, nil
 }
 
 // PutContainerPolicy stores a container access policy.
 func (b *InMemoryBackend) PutContainerPolicy(name, policy string) error {
+	if !json.Valid([]byte(policy)) {
+		return ErrInvalidPolicy
+	}
+
 	b.mu.Lock("PutContainerPolicy")
 	defer b.mu.Unlock()
 
@@ -232,6 +299,12 @@ func (b *InMemoryBackend) DeleteContainerPolicy(name string) error {
 
 // PutCorsPolicy stores a CORS policy for a container.
 func (b *InMemoryBackend) PutCorsPolicy(name string, rules []CorsRule) error {
+	for _, r := range rules {
+		if len(r.AllowedOrigins) == 0 || len(r.AllowedHeaders) == 0 {
+			return ErrCorsRuleInvalid
+		}
+	}
+
 	b.mu.Lock("PutCorsPolicy")
 	defer b.mu.Unlock()
 
@@ -290,6 +363,10 @@ func (b *InMemoryBackend) DeleteCorsPolicy(name string) error {
 
 // PutLifecyclePolicy stores a lifecycle policy for a container.
 func (b *InMemoryBackend) PutLifecyclePolicy(name, policy string) error {
+	if !json.Valid([]byte(policy)) {
+		return ErrInvalidPolicy
+	}
+
 	b.mu.Lock("PutLifecyclePolicy")
 	defer b.mu.Unlock()
 
@@ -337,6 +414,14 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(name string) error {
 
 // PutMetricPolicy stores a metric policy for a container.
 func (b *InMemoryBackend) PutMetricPolicy(name string, policy MetricPolicy) error {
+	if policy.ContainerLevelMetrics != "ENABLED" && policy.ContainerLevelMetrics != "DISABLED" {
+		return ErrInvalidMetricPolicy
+	}
+
+	if len(policy.MetricPolicyRules) > maxMetricPolicyRules {
+		return ErrTooManyMetricRules
+	}
+
 	b.mu.Lock("PutMetricPolicy")
 	defer b.mu.Unlock()
 
@@ -345,12 +430,8 @@ func (b *InMemoryBackend) PutMetricPolicy(name string, policy MetricPolicy) erro
 		return ErrContainerNotFound
 	}
 
-	data, err := json.Marshal(policy)
-	if err != nil {
-		return fmt.Errorf("marshal metric policy: %w", err)
-	}
-
-	c.MetricPolicy = string(data)
+	p := policy
+	c.MetricPolicy = &p
 
 	return nil
 }
@@ -365,16 +446,11 @@ func (b *InMemoryBackend) GetMetricPolicy(name string) (MetricPolicy, error) {
 		return MetricPolicy{}, ErrContainerNotFound
 	}
 
-	if c.MetricPolicy == "" {
+	if c.MetricPolicy == nil {
 		return MetricPolicy{}, ErrMetricPolicyNotFound
 	}
 
-	var policy MetricPolicy
-	if err := json.Unmarshal([]byte(c.MetricPolicy), &policy); err != nil {
-		return MetricPolicy{}, fmt.Errorf("unmarshal metric policy: %w", err)
-	}
-
-	return policy, nil
+	return *c.MetricPolicy, nil
 }
 
 // DeleteMetricPolicy removes the metric policy from a container.
@@ -387,7 +463,7 @@ func (b *InMemoryBackend) DeleteMetricPolicy(name string) error {
 		return ErrContainerNotFound
 	}
 
-	c.MetricPolicy = ""
+	c.MetricPolicy = nil
 
 	return nil
 }
@@ -424,6 +500,12 @@ func (b *InMemoryBackend) StopAccessLogging(name string) error {
 
 // TagResource adds or updates tags on a container identified by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	for k := range tags {
+		if k == "" {
+			return ErrEmptyTagKey
+		}
+	}
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
@@ -477,8 +559,9 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return result, nil
 }
 
-// copyContainer returns a copy of the Container, copying Tags, CreationTime, and CorsPolicy.
-// CorsPolicy is a shallow pointer-slice copy: each *CorsRule is shared (rules are immutable after storage).
+// copyContainer returns a copy of the Container, copying Tags, CreationTime, CorsPolicy, and MetricPolicy.
+// CorsPolicy uses a shallow pointer-slice copy; MetricPolicy is copied by value.
+// Rules are immutable after storage so pointer sharing is safe.
 func copyContainer(c *Container) *Container {
 	if c == nil {
 		return nil
@@ -499,6 +582,16 @@ func copyContainer(c *Container) *Container {
 	if c.CorsPolicy != nil {
 		cp.CorsPolicy = make([]*CorsRule, len(c.CorsPolicy))
 		copy(cp.CorsPolicy, c.CorsPolicy)
+	}
+
+	if c.MetricPolicy != nil {
+		p := *c.MetricPolicy
+		if c.MetricPolicy.MetricPolicyRules != nil {
+			p.MetricPolicyRules = make([]MetricPolicyRule, len(c.MetricPolicy.MetricPolicyRules))
+			copy(p.MetricPolicyRules, c.MetricPolicy.MetricPolicyRules)
+		}
+
+		cp.MetricPolicy = &p
 	}
 
 	return &cp
