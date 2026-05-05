@@ -88,7 +88,7 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	// 8a. Verify stats cards render (Buffered Events, Active Shards, Iterator Expiry labels present)
 	require.NoError(t, page.GetByText("Buffered Events").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}))
 	require.NoError(t, page.GetByText("Active Shards").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}))
-	require.NoError(t, page.GetByText("Iterator Expiry").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}))
+	require.NoError(t, page.GetByText("Iterator Expiry").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}))
 
 	// 8b. Verify Buffered Events count is at least 1 (use xpath sibling to get value)
 	bufferedCount := page.GetByText("Buffered Events").Locator("xpath=following-sibling::div[1]")
