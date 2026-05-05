@@ -32,7 +32,7 @@ describe("AppConfig Page", () => {
     render(AppConfigPage);
 
     expect(screen.getByText("AppConfig Orchestration")).toBeInTheDocument();
-    expect(screen.getByText("Assemble Application")).toBeInTheDocument();
+    expect(screen.getByText("New Application")).toBeInTheDocument();
   });
 
   it("displays loaded applications", async () => {
@@ -72,7 +72,7 @@ describe("AppConfig Page", () => {
       { timeout: 3000 },
     );
 
-    const searchInput = screen.getByPlaceholderText("Search applications...");
+    const searchInput = screen.getByPlaceholderText("Search apps...");
     await fireEvent.input(searchInput, { target: { value: "beta" } });
 
     await waitFor(() => {
@@ -87,12 +87,12 @@ describe("AppConfig Page", () => {
 
     render(AppConfigPage);
 
-    const createBtn = screen.getByText("Assemble Application");
+    const createBtn = screen.getByText("New Application");
     await fireEvent.click(createBtn);
 
-    expect(screen.getByText("Assemble Application", { selector: "h3" })).toBeInTheDocument();
+    expect(screen.getByText("New Application", { selector: "h3" })).toBeInTheDocument();
     expect(
-      screen.getByPlaceholderText("e.g. gopherstack-microservices-config"),
+      screen.getByPlaceholderText("my-app-config"),
     ).toBeInTheDocument();
   });
 
@@ -101,17 +101,17 @@ describe("AppConfig Page", () => {
 
     render(AppConfigPage);
 
-    await fireEvent.click(screen.getByText("Assemble Application"));
+    await fireEvent.click(screen.getByText("New Application"));
 
     expect(
-      screen.getByPlaceholderText("e.g. gopherstack-microservices-config"),
+      screen.getByPlaceholderText("my-app-config"),
     ).toBeInTheDocument();
 
-    await fireEvent.click(screen.getByText("Abort"));
+    await fireEvent.click(screen.getByText("Cancel"));
 
     await waitFor(() => {
       expect(
-        screen.queryByPlaceholderText("e.g. gopherstack-microservices-config"),
+        screen.queryByPlaceholderText("my-app-config"),
       ).not.toBeInTheDocument();
     });
   });
@@ -123,9 +123,9 @@ describe("AppConfig Page", () => {
 
     render(AppConfigPage);
 
-    await fireEvent.click(screen.getByText("Assemble Application"));
+    await fireEvent.click(screen.getByText("New Application"));
 
-    const nameInput = screen.getByPlaceholderText("e.g. gopherstack-microservices-config");
+    const nameInput = screen.getByPlaceholderText("my-app-config");
     await fireEvent.input(nameInput, { target: { value: "new-config" } });
 
     const form = nameInput.closest("form")!;
@@ -170,6 +170,15 @@ describe("AppConfig Page", () => {
     await waitFor(
       () => {
         expect(screen.getByText("production")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+
+    // Switch to Profiles tab to see configuration profiles
+    await fireEvent.click(screen.getByText("Profiles"));
+
+    await waitFor(
+      () => {
         expect(screen.getByText("feature-flags")).toBeInTheDocument();
       },
       { timeout: 3000 },
@@ -197,7 +206,7 @@ describe("AppConfig Page", () => {
 
     await waitFor(
       () => {
-        expect(screen.getByText("No applications detected.")).toBeInTheDocument();
+        expect(screen.getByText("No applications.")).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
@@ -231,12 +240,12 @@ describe("AppConfig Page", () => {
 
     await waitFor(
       () => {
-        expect(screen.getByTitle("Purge Application")).toBeInTheDocument();
+        expect(screen.getByTitle("Delete Application")).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
 
-    await fireEvent.click(screen.getByTitle("Purge Application"));
+    await fireEvent.click(screen.getByTitle("Delete Application"));
 
     await waitFor(
       () => {
