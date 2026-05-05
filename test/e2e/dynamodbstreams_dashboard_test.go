@@ -62,7 +62,7 @@ func TestDynamoDBStreamsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Locator("button:has-text('streams-dashboard-e2e')").First().Click()
+	err = page.Locator("#table-streams-dashboard-e2e").Click()
 	require.NoError(t, err)
 
 	err = page.Locator("text=DynamoDB Streams Configuration").WaitFor(playwright.LocatorWaitForOptions{
