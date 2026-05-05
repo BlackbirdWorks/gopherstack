@@ -266,7 +266,7 @@
 		if (!name) return;
 		const archiveCount = selectedVault?.NumberOfArchives ?? 0;
 		const archiveWarning = archiveCount > 0
-			? ` It contains ${archiveCount} archive${archiveCount !== 1 ? 's' : ''} that must be removed first.`
+			? ` It contains ${archiveCount} archive${archiveCount === 1 ? '' : 's'} that must be removed first.`
 			: '';
 		if (!(await confirmDestructive({
 			title: 'Delete Vault',
