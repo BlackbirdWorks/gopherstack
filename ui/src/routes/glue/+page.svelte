@@ -12,19 +12,22 @@
 		StartCrawlerCommand,
 		StopCrawlerCommand,
 		GetConnectionsCommand,
+		ListDataQualityRulesetsCommand,
+		StartDataQualityRulesetEvaluationRunCommand,
 		type Database,
 		type Table,
 		type Job,
 		type JobRun,
 		type Crawler,
-		type Connection
+		type Connection,
+		type DataQualityRulesetListDetails
 	} from '@aws-sdk/client-glue';
 	import { toast } from 'svelte-sonner';
 	import { Database as DBIcon, Search, RefreshCw, Play, XCircle, ChevronRight, Table as TableIcon, Settings, Globe } from 'lucide-svelte';
 
 	const glue = getGlueClient();
 
-	let activeTab = $state<'catalog' | 'jobs' | 'crawlers' | 'connections'>('catalog');
+	let activeTab = $state<'catalog' | 'jobs' | 'crawlers' | 'connections' | 'dataquality'>('catalog');
 	let searchQuery = $state('');
 	let loading = $state(false);
 
@@ -48,6 +51,10 @@
 	// Connections
 	let connections = $state<Connection[]>([]);
 	let loadingConnections = $state(false);
+
+	// Data Quality
+	let dataQualityRulesets = $state<DataQualityRulesetListDetails[]>([]);
+	let loadingRulesets = $state(false);
 
 	const filteredDatabases = $derived(
 		databases.filter((d) => !searchQuery || (d.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
@@ -194,7 +201,32 @@
 		}
 	}
 
-	async function handleTabChange(tab: 'catalog' | 'jobs' | 'crawlers' | 'connections') {
+	async function loadDataQualityRulesets() {
+		loadingRulesets = true;
+		try {
+			const resp = await glue.send(new ListDataQualityRulesetsCommand({ MaxResults: 50 }));
+			dataQualityRulesets = resp.Rulesets ?? [];
+		} catch (e) {
+			toast.error('Failed to load data quality rulesets: ' + String(e));
+		} finally {
+			loadingRulesets = false;
+		}
+	}
+
+	async function startEvaluationRun(rulesetName: string) {
+		try {
+			const resp = await glue.send(new StartDataQualityRulesetEvaluationRunCommand({
+				RulesetNames: [rulesetName],
+				Role: 'arn:aws:iam::000000000000:role/GlueRole',
+				DataSource: { GlueTable: { DatabaseName: 'default', TableName: 'default' } }
+			}));
+			toast.success(`Evaluation run started: ${resp.RunId}`);
+		} catch (e) {
+			toast.error('Failed to start evaluation run: ' + String(e));
+		}
+	}
+
+	async function handleTabChange(tab: 'catalog' | 'jobs' | 'crawlers' | 'connections' | 'dataquality') {
 		activeTab = tab;
 		searchQuery = '';
 		selectedDatabase = null;
@@ -202,6 +234,7 @@
 		if (tab === 'jobs' && jobs.length === 0) await loadJobs();
 		if (tab === 'crawlers' && crawlers.length === 0) await loadCrawlers();
 		if (tab === 'connections' && connections.length === 0) await loadConnections();
+		if (tab === 'dataquality' && dataQualityRulesets.length === 0) await loadDataQualityRulesets();
 	}
 
 	function formatDate(d: Date | undefined): string {
@@ -234,6 +267,7 @@
 				if (activeTab === 'catalog') loadDatabases();
 				else if (activeTab === 'jobs') loadJobs();
 				else if (activeTab === 'crawlers') loadCrawlers();
+				else if (activeTab === 'dataquality') loadDataQualityRulesets();
 				else loadConnections();
 			}}
 			class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
@@ -244,9 +278,9 @@
 
 	<!-- Tabs -->
 	<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-		{#each [['catalog', 'Data Catalog'], ['jobs', 'ETL Jobs'], ['crawlers', 'Crawlers'], ['connections', 'Connections']] as [tab, label]}
+		{#each [['catalog', 'Data Catalog'], ['jobs', 'ETL Jobs'], ['crawlers', 'Crawlers'], ['connections', 'Connections'], ['dataquality', 'Data Quality']] as [tab, label]}
 			<button
-				onclick={() => handleTabChange(tab as 'catalog' | 'jobs' | 'crawlers' | 'connections')}
+				onclick={() => handleTabChange(tab as 'catalog' | 'jobs' | 'crawlers' | 'connections' | 'dataquality')}
 				class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-sky-500 text-sky-600 dark:text-sky-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
 			>
 				{label}
@@ -465,6 +499,7 @@
 							<th class="px-4 py-3 text-left">Crawler Name</th>
 							<th class="px-4 py-3 text-left">State</th>
 							<th class="px-4 py-3 text-left">Database</th>
+							<th class="px-4 py-3 text-left">Schedule</th>
 							<th class="px-4 py-3 text-left">Last Run</th>
 							<th class="px-4 py-3 text-left">Actions</th>
 						</tr>
@@ -475,6 +510,7 @@
 								<td class="px-4 py-3 font-medium">{crawler.Name}</td>
 								<td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium bg-${crawlerStatus(crawler.State)}-100 text-${crawlerStatus(crawler.State)}-700`}>{crawler.State}</span></td>
 								<td class="px-4 py-3 text-xs text-gray-500">{crawler.DatabaseName ?? '-'}</td>
+								<td class="px-4 py-3 text-xs text-gray-500 font-mono">{crawler.Schedule?.ScheduleExpression ?? '-'}</td>
 								<td class="px-4 py-3 text-xs text-gray-500">{formatDate(crawler.LastUpdated)}</td>
 								<td class="px-4 py-3 flex gap-1">
 									{#if crawler.State === 'READY'}
@@ -516,6 +552,46 @@
 								<td class="px-4 py-3 font-medium">{conn.Name}</td>
 								<td class="px-4 py-3 text-xs text-gray-500">{conn.ConnectionType ?? '-'}</td>
 								<td class="px-4 py-3 text-xs text-gray-500">{formatDate(conn.CreationTime)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- DATA QUALITY TAB -->
+	{#if activeTab === 'dataquality'}
+		{#if loadingRulesets}
+			<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-sky-600 border-t-transparent rounded-full"></div></div>
+		{:else if dataQualityRulesets.length === 0}
+			<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+				<Settings class="w-12 h-12 mx-auto mb-3 opacity-40" />
+				<p class="font-medium">No data quality rulesets found</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+						<tr>
+							<th class="px-4 py-3 text-left">Ruleset Name</th>
+							<th class="px-4 py-3 text-left">Description</th>
+							<th class="px-4 py-3 text-left">Created On</th>
+							<th class="px-4 py-3 text-left">Actions</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+						{#each dataQualityRulesets as rs}
+							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+								<td class="px-4 py-3 font-medium">{rs.Name}</td>
+								<td class="px-4 py-3 text-xs text-gray-500">{rs.Description ?? '-'}</td>
+								<td class="px-4 py-3 text-xs text-gray-500">{formatDate(rs.CreatedOn)}</td>
+								<td class="px-4 py-3">
+									<button
+										onclick={() => startEvaluationRun(rs.Name!)}
+										class="px-2 py-1 text-xs rounded bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900 dark:text-sky-300"
+									>Run Eval</button>
+								</td>
 							</tr>
 						{/each}
 					</tbody>

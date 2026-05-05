@@ -3,8 +3,10 @@ package glue
 import (
 	"fmt"
 	"maps"
+	mrand "math/rand/v2"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -25,6 +27,7 @@ var (
 const (
 	glueARNParts          = 6
 	errEntityNotFoundCode = "EntityNotFoundException"
+	stateRunning          = "RUNNING"
 )
 
 // DatabaseInput is the input for creating or updating a Glue database.
@@ -88,6 +91,7 @@ type S3Target struct {
 // Crawler represents a Glue crawler.
 type Crawler struct {
 	Tags         map[string]string `json:"-"`
+	Schedule     CrawlerSchedule   `json:"Schedule,omitzero"`
 	Name         string            `json:"Name"`
 	Role         string            `json:"Role"`
 	DatabaseName string            `json:"DatabaseName"`
@@ -211,41 +215,101 @@ type DevEndpoint struct {
 	Status       string `json:"Status,omitempty"`
 }
 
+// CrawlerSchedule represents the schedule configuration for a crawler.
+type CrawlerSchedule struct {
+	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
+	State              string `json:"State,omitempty"`
+}
+
+// JobRun represents a single execution of a Glue job.
+type JobRun struct {
+	Arguments     map[string]string `json:"Arguments,omitempty"`
+	ID            string            `json:"Id"`
+	JobName       string            `json:"JobName"`
+	JobRunState   string            `json:"JobRunState"`
+	ErrorMessage  string            `json:"ErrorMessage,omitempty"`
+	StartedOn     float64           `json:"StartedOn,omitempty"`
+	CompletedOn   float64           `json:"CompletedOn,omitempty"`
+	ExecutionTime int               `json:"ExecutionTime,omitempty"`
+}
+
+// JobBookmark holds the bookmark state for a job run.
+type JobBookmark struct {
+	JobName string `json:"JobName"`
+	Run     string `json:"Run,omitempty"`
+	Version int    `json:"Version"`
+	Attempt int    `json:"Attempt,omitempty"`
+}
+
+// BatchStopJobRunError holds error info for a single stop attempt.
+type BatchStopJobRunError struct {
+	ErrorDetail ErrorDetail `json:"ErrorDetail"`
+	JobRunID    string      `json:"JobRunId"`
+	JobName     string      `json:"JobName"`
+}
+
+// DataQualityRuleset represents a Glue data quality ruleset.
+type DataQualityRuleset struct {
+	Tags      map[string]string `json:"-"`
+	Name      string            `json:"Name"`
+	Ruleset   string            `json:"Ruleset,omitempty"`
+	ARN       string            `json:"Arn,omitempty"`
+	CreatedOn float64           `json:"CreatedOn,omitempty"`
+}
+
+// DataQualityEvaluationRun represents a data quality ruleset evaluation run.
+type DataQualityEvaluationRun struct {
+	RunID        string   `json:"RunId"`
+	Status       string   `json:"Status"`
+	ErrorString  string   `json:"ErrorString,omitempty"`
+	RulesetNames []string `json:"RulesetNames,omitempty"`
+	StartedOn    float64  `json:"StartedOn,omitempty"`
+	CompletedOn  float64  `json:"CompletedOn,omitempty"`
+}
+
 // InMemoryBackend stores Glue state in memory.
 type InMemoryBackend struct {
-	databases         map[string]*Database          // key: databaseName
-	tables            map[string]*Table             // key: "databaseName|tableName"
-	crawlers          map[string]*Crawler           // key: crawlerName
-	jobs              map[string]*Job               // key: jobName
-	partitions        map[string]*Partition         // key: partitionKey(db, table, values)
-	tableVersions     map[string]*TableVersion      // key: tableVersionKey(db, table, versionID)
-	connections       map[string]*Connection        // key: connectionName
-	blueprints        map[string]*Blueprint         // key: blueprintName
-	customEntityTypes map[string]*CustomEntityType  // key: name
-	dataQualityResult map[string]*DataQualityResult // key: resultID
-	devEndpoints      map[string]*DevEndpoint       // key: endpointName
-	mu                *lockmetrics.RWMutex
-	accountID         string
-	region            string
+	databases           map[string]*Database                 // key: databaseName
+	tables              map[string]*Table                    // key: "databaseName|tableName"
+	crawlers            map[string]*Crawler                  // key: crawlerName
+	jobs                map[string]*Job                      // key: jobName
+	partitions          map[string]*Partition                // key: partitionKey(db, table, values)
+	tableVersions       map[string]*TableVersion             // key: tableVersionKey(db, table, versionID)
+	connections         map[string]*Connection               // key: connectionName
+	blueprints          map[string]*Blueprint                // key: blueprintName
+	customEntityTypes   map[string]*CustomEntityType         // key: name
+	dataQualityResult   map[string]*DataQualityResult        // key: resultID
+	devEndpoints        map[string]*DevEndpoint              // key: endpointName
+	jobRuns             map[string][]*JobRun                 // key: jobName
+	jobBookmarks        map[string]*JobBookmark              // key: jobName
+	dataQualityRulesets map[string]*DataQualityRuleset       // key: name
+	dataQualityEvalRuns map[string]*DataQualityEvaluationRun // key: runId
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
 }
 
 // NewInMemoryBackend creates a new in-memory Glue backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		databases:         make(map[string]*Database),
-		tables:            make(map[string]*Table),
-		crawlers:          make(map[string]*Crawler),
-		jobs:              make(map[string]*Job),
-		partitions:        make(map[string]*Partition),
-		tableVersions:     make(map[string]*TableVersion),
-		connections:       make(map[string]*Connection),
-		blueprints:        make(map[string]*Blueprint),
-		customEntityTypes: make(map[string]*CustomEntityType),
-		dataQualityResult: make(map[string]*DataQualityResult),
-		devEndpoints:      make(map[string]*DevEndpoint),
-		mu:                lockmetrics.New("glue"),
-		accountID:         accountID,
-		region:            region,
+		databases:           make(map[string]*Database),
+		tables:              make(map[string]*Table),
+		crawlers:            make(map[string]*Crawler),
+		jobs:                make(map[string]*Job),
+		partitions:          make(map[string]*Partition),
+		tableVersions:       make(map[string]*TableVersion),
+		connections:         make(map[string]*Connection),
+		blueprints:          make(map[string]*Blueprint),
+		customEntityTypes:   make(map[string]*CustomEntityType),
+		dataQualityResult:   make(map[string]*DataQualityResult),
+		devEndpoints:        make(map[string]*DevEndpoint),
+		jobRuns:             make(map[string][]*JobRun),
+		jobBookmarks:        make(map[string]*JobBookmark),
+		dataQualityRulesets: make(map[string]*DataQualityRuleset),
+		dataQualityEvalRuns: make(map[string]*DataQualityEvaluationRun),
+		mu:                  lockmetrics.New("glue"),
+		accountID:           accountID,
+		region:              region,
 	}
 }
 
@@ -265,6 +329,10 @@ func (b *InMemoryBackend) Reset() {
 	b.customEntityTypes = make(map[string]*CustomEntityType)
 	b.dataQualityResult = make(map[string]*DataQualityResult)
 	b.devEndpoints = make(map[string]*DevEndpoint)
+	b.jobRuns = make(map[string][]*JobRun)
+	b.jobBookmarks = make(map[string]*JobBookmark)
+	b.dataQualityRulesets = make(map[string]*DataQualityRuleset)
+	b.dataQualityEvalRuns = make(map[string]*DataQualityEvaluationRun)
 }
 
 // Region returns the backend region.
@@ -1224,4 +1292,387 @@ func (b *InMemoryBackend) AddPartitionInternal(dbName, tableName string, p *Part
 	cp := *p
 	cp.Values = append([]string(nil), p.Values...)
 	b.partitions[partitionKey(dbName, tableName, p.Values)] = &cp
+}
+
+// --- Job run operations ---
+
+// StartJobRun creates a new job run record for the named job.
+func (b *InMemoryBackend) StartJobRun(jobName string, arguments map[string]string) (*JobRun, error) {
+	b.mu.Lock("StartJobRun")
+	defer b.mu.Unlock()
+
+	if _, ok := b.jobs[jobName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	run := &JobRun{
+		ID: fmt.Sprintf(
+			"jr_%d_%04d",
+			time.Now().UnixNano(),
+			mrand.IntN(10000),
+		), //nolint:gosec // non-security mock run ID
+		JobName:     jobName,
+		JobRunState: "STARTING",
+		StartedOn:   float64(time.Now().Unix()),
+		Arguments:   maps.Clone(arguments),
+	}
+	b.jobRuns[jobName] = append(b.jobRuns[jobName], run)
+
+	return run, nil
+}
+
+// GetJobRun retrieves a specific job run by job name and run ID.
+func (b *InMemoryBackend) GetJobRun(jobName, runID string) (*JobRun, error) {
+	b.mu.RLock("GetJobRun")
+	defer b.mu.RUnlock()
+
+	for _, run := range b.jobRuns[jobName] {
+		if run.ID == runID {
+			cp := *run
+			cp.Arguments = maps.Clone(run.Arguments)
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+// GetJobRuns returns all runs for a job.
+func (b *InMemoryBackend) GetJobRuns(jobName string) ([]*JobRun, error) {
+	b.mu.RLock("GetJobRuns")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.jobs[jobName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	src := b.jobRuns[jobName]
+	out := make([]*JobRun, 0, len(src))
+	for _, run := range src {
+		cp := *run
+		cp.Arguments = maps.Clone(run.Arguments)
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// BatchStopJobRun stops multiple job runs by setting their state to STOPPING.
+func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []BatchStopJobRunError {
+	b.mu.Lock("BatchStopJobRun")
+	defer b.mu.Unlock()
+
+	errs := make([]BatchStopJobRunError, 0)
+
+	for _, id := range runIDs {
+		found := false
+		for _, run := range b.jobRuns[jobName] {
+			if run.ID == id {
+				run.JobRunState = "STOPPING"
+				found = true
+
+				break
+			}
+		}
+		if !found {
+			errs = append(errs, BatchStopJobRunError{
+				JobName:  jobName,
+				JobRunID: id,
+				ErrorDetail: ErrorDetail{
+					ErrorCode:    errEntityNotFoundCode,
+					ErrorMessage: "job run not found: " + id,
+				},
+			})
+		}
+	}
+
+	return errs
+}
+
+// GetJobBookmark returns the bookmark for a job.
+func (b *InMemoryBackend) GetJobBookmark(jobName string) (*JobBookmark, error) {
+	b.mu.RLock("GetJobBookmark")
+	defer b.mu.RUnlock()
+
+	bm, ok := b.jobBookmarks[jobName]
+	if !ok {
+		return &JobBookmark{JobName: jobName}, nil
+	}
+
+	cp := *bm
+
+	return &cp, nil
+}
+
+// ResetJobBookmark clears the bookmark for a job.
+func (b *InMemoryBackend) ResetJobBookmark(jobName string) error {
+	b.mu.Lock("ResetJobBookmark")
+	defer b.mu.Unlock()
+
+	delete(b.jobBookmarks, jobName)
+
+	return nil
+}
+
+// --- Crawler scheduling operations ---
+
+// StartCrawler sets a crawler's state to RUNNING (requires READY state).
+func (b *InMemoryBackend) StartCrawler(name string) error {
+	b.mu.Lock("StartCrawler")
+	defer b.mu.Unlock()
+
+	c, ok := b.crawlers[name]
+	if !ok {
+		return ErrNotFound
+	}
+	if c.State != "READY" {
+		return ErrValidation
+	}
+	c.State = stateRunning
+
+	return nil
+}
+
+// StopCrawler sets a crawler's state to STOPPING (requires RUNNING state).
+func (b *InMemoryBackend) StopCrawler(name string) error {
+	b.mu.Lock("StopCrawler")
+	defer b.mu.Unlock()
+
+	c, ok := b.crawlers[name]
+	if !ok {
+		return ErrNotFound
+	}
+	if c.State != stateRunning {
+		return ErrValidation
+	}
+	c.State = "STOPPING"
+
+	return nil
+}
+
+// UpdateCrawlerSchedule updates the schedule expression on a crawler.
+func (b *InMemoryBackend) UpdateCrawlerSchedule(name, scheduleExpression string) error {
+	b.mu.Lock("UpdateCrawlerSchedule")
+	defer b.mu.Unlock()
+
+	c, ok := b.crawlers[name]
+	if !ok {
+		return ErrNotFound
+	}
+	c.Schedule.ScheduleExpression = scheduleExpression
+
+	return nil
+}
+
+// StartCrawlerSchedule enables the crawler's schedule.
+func (b *InMemoryBackend) StartCrawlerSchedule(name string) error {
+	b.mu.Lock("StartCrawlerSchedule")
+	defer b.mu.Unlock()
+
+	c, ok := b.crawlers[name]
+	if !ok {
+		return ErrNotFound
+	}
+	if c.Schedule.State == "SCHEDULED" {
+		return ErrValidation
+	}
+	c.Schedule.State = "SCHEDULED"
+
+	return nil
+}
+
+// StopCrawlerSchedule disables the crawler's schedule.
+func (b *InMemoryBackend) StopCrawlerSchedule(name string) error {
+	b.mu.Lock("StopCrawlerSchedule")
+	defer b.mu.Unlock()
+
+	c, ok := b.crawlers[name]
+	if !ok {
+		return ErrNotFound
+	}
+	c.Schedule.State = "NOT_SCHEDULED"
+
+	return nil
+}
+
+// --- Data quality ruleset operations ---
+
+// dataQualityRulesetARN returns the ARN for a data quality ruleset.
+func (b *InMemoryBackend) dataQualityRulesetARN(name string) string {
+	return arn.Build("glue", b.region, b.accountID, "dataQualityRuleset/"+name)
+}
+
+// CreateDataQualityRuleset creates a new data quality ruleset.
+func (b *InMemoryBackend) CreateDataQualityRuleset(
+	name, ruleset string,
+	tags map[string]string,
+) (*DataQualityRuleset, error) {
+	b.mu.Lock("CreateDataQualityRuleset")
+	defer b.mu.Unlock()
+
+	if _, ok := b.dataQualityRulesets[name]; ok {
+		return nil, ErrAlreadyExists
+	}
+
+	r := &DataQualityRuleset{
+		Name:      name,
+		Ruleset:   ruleset,
+		Tags:      maps.Clone(tags),
+		ARN:       b.dataQualityRulesetARN(name),
+		CreatedOn: float64(time.Now().Unix()),
+	}
+	b.dataQualityRulesets[name] = r
+
+	return r, nil
+}
+
+// GetDataQualityRuleset retrieves a data quality ruleset by name.
+func (b *InMemoryBackend) GetDataQualityRuleset(name string) (*DataQualityRuleset, error) {
+	b.mu.RLock("GetDataQualityRuleset")
+	defer b.mu.RUnlock()
+
+	r, ok := b.dataQualityRulesets[name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	cp := *r
+	cp.Tags = maps.Clone(r.Tags)
+
+	return &cp, nil
+}
+
+// DeleteDataQualityRuleset removes a data quality ruleset by name.
+func (b *InMemoryBackend) DeleteDataQualityRuleset(name string) error {
+	b.mu.Lock("DeleteDataQualityRuleset")
+	defer b.mu.Unlock()
+
+	if _, ok := b.dataQualityRulesets[name]; !ok {
+		return ErrNotFound
+	}
+	delete(b.dataQualityRulesets, name)
+
+	return nil
+}
+
+// UpdateDataQualityRuleset updates the ruleset expression for a named ruleset.
+func (b *InMemoryBackend) UpdateDataQualityRuleset(name, ruleset string) error {
+	b.mu.Lock("UpdateDataQualityRuleset")
+	defer b.mu.Unlock()
+
+	r, ok := b.dataQualityRulesets[name]
+	if !ok {
+		return ErrNotFound
+	}
+	r.Ruleset = ruleset
+
+	return nil
+}
+
+// ListDataQualityRulesets returns all rulesets sorted by name.
+func (b *InMemoryBackend) ListDataQualityRulesets() []*DataQualityRuleset {
+	b.mu.RLock("ListDataQualityRulesets")
+	defer b.mu.RUnlock()
+
+	out := make([]*DataQualityRuleset, 0, len(b.dataQualityRulesets))
+	for _, k := range sortedKeys(b.dataQualityRulesets) {
+		r := b.dataQualityRulesets[k]
+		cp := *r
+		cp.Tags = maps.Clone(r.Tags)
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// StartDataQualityRulesetEvaluationRun validates the rulesets exist and creates a run.
+func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRun(
+	rulesetNames []string,
+) (*DataQualityEvaluationRun, error) {
+	b.mu.Lock("StartDataQualityRulesetEvaluationRun")
+	defer b.mu.Unlock()
+
+	for _, name := range rulesetNames {
+		if _, ok := b.dataQualityRulesets[name]; !ok {
+			return nil, ErrNotFound
+		}
+	}
+
+	run := &DataQualityEvaluationRun{
+		RunID: fmt.Sprintf(
+			"dqer_%d_%04d",
+			time.Now().UnixNano(),
+			mrand.IntN(10000),
+		), //nolint:gosec // non-security mock run ID
+		RulesetNames: append([]string(nil), rulesetNames...),
+		Status:       stateRunning,
+		StartedOn:    float64(time.Now().Unix()),
+	}
+	b.dataQualityEvalRuns[run.RunID] = run
+
+	return run, nil
+}
+
+// GetDataQualityRulesetEvaluationRun retrieves an evaluation run by ID.
+func (b *InMemoryBackend) GetDataQualityRulesetEvaluationRun(runID string) (*DataQualityEvaluationRun, error) {
+	b.mu.RLock("GetDataQualityRulesetEvaluationRun")
+	defer b.mu.RUnlock()
+
+	run, ok := b.dataQualityEvalRuns[runID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	cp := *run
+	cp.RulesetNames = append([]string(nil), run.RulesetNames...)
+
+	return &cp, nil
+}
+
+// CancelDataQualityRulesetEvaluationRun cancels an active evaluation run.
+func (b *InMemoryBackend) CancelDataQualityRulesetEvaluationRun(runID string) error {
+	b.mu.Lock("CancelDataQualityRulesetEvaluationRun")
+	defer b.mu.Unlock()
+
+	run, ok := b.dataQualityEvalRuns[runID]
+	if !ok {
+		return ErrNotFound
+	}
+	if run.Status != stateRunning {
+		return ErrValidation
+	}
+	run.Status = "CANCELLED"
+
+	return nil
+}
+
+// AddJobRunInternal adds a job run directly to the backend without validation.
+func (b *InMemoryBackend) AddJobRunInternal(run *JobRun) {
+	b.mu.Lock("AddJobRunInternal")
+	defer b.mu.Unlock()
+
+	cp := *run
+	cp.Arguments = maps.Clone(run.Arguments)
+	b.jobRuns[run.JobName] = append(b.jobRuns[run.JobName], &cp)
+}
+
+// AddDataQualityRulesetInternal adds a data quality ruleset without validation.
+func (b *InMemoryBackend) AddDataQualityRulesetInternal(r *DataQualityRuleset) {
+	b.mu.Lock("AddDataQualityRulesetInternal")
+	defer b.mu.Unlock()
+
+	cp := *r
+	cp.Tags = maps.Clone(r.Tags)
+	b.dataQualityRulesets[r.Name] = &cp
+}
+
+// AddDataQualityEvalRunInternal adds an evaluation run directly without validation.
+func (b *InMemoryBackend) AddDataQualityEvalRunInternal(run *DataQualityEvaluationRun) {
+	b.mu.Lock("AddDataQualityEvalRunInternal")
+	defer b.mu.Unlock()
+
+	cp := *run
+	cp.RulesetNames = append([]string(nil), run.RulesetNames...)
+	b.dataQualityEvalRuns[run.RunID] = &cp
 }

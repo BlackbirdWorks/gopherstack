@@ -58,29 +58,48 @@ func (h *Handler) GetSupportedOperations() []string {
 		"BatchGetCustomEntityTypes",
 		"BatchGetDataQualityResult",
 		"BatchGetDevEndpoints",
-		"CreateDatabase",
-		"GetDatabase",
-		"GetDatabases",
-		"UpdateDatabase",
-		"DeleteDatabase",
-		"CreateTable",
-		"GetTable",
-		"GetTables",
-		"UpdateTable",
-		"DeleteTable",
+		"BatchStopJobRun",
+		"CancelDataQualityRulesetEvaluationRun",
 		"CreateCrawler",
+		"CreateDatabase",
+		"CreateDataQualityRuleset",
+		"CreateJob",
+		"CreateTable",
+		"DeleteCrawler",
+		"DeleteDatabase",
+		"DeleteDataQualityRuleset",
+		"DeleteJob",
+		"DeleteTable",
 		"GetCrawler",
 		"GetCrawlers",
-		"UpdateCrawler",
-		"DeleteCrawler",
-		"CreateJob",
+		"GetDatabase",
+		"GetDatabases",
+		"GetDataQualityRuleset",
+		"GetDataQualityRulesetEvaluationRun",
 		"GetJob",
+		"GetJobBookmark",
+		"GetJobRun",
+		"GetJobRuns",
 		"GetJobs",
-		"UpdateJob",
-		"DeleteJob",
+		"GetTable",
+		"GetTables",
+		"GetTags",
+		"ListDataQualityRulesets",
+		"ResetJobBookmark",
+		"StartCrawler",
+		"StartCrawlerSchedule",
+		"StartDataQualityRulesetEvaluationRun",
+		"StartJobRun",
+		"StopCrawler",
+		"StopCrawlerSchedule",
 		"TagResource",
 		"UntagResource",
-		"GetTags",
+		"UpdateCrawler",
+		"UpdateCrawlerSchedule",
+		"UpdateDatabase",
+		"UpdateDataQualityRuleset",
+		"UpdateJob",
+		"UpdateTable",
 	}
 }
 
@@ -159,39 +178,58 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"BatchCreatePartition":      service.WrapOp(h.handleBatchCreatePartition),
-		"BatchDeleteConnection":     service.WrapOp(h.handleBatchDeleteConnection),
-		"BatchDeletePartition":      service.WrapOp(h.handleBatchDeletePartition),
-		"BatchDeleteTable":          service.WrapOp(h.handleBatchDeleteTable),
-		"BatchDeleteTableVersion":   service.WrapOp(h.handleBatchDeleteTableVersion),
-		"BatchGetBlueprints":        service.WrapOp(h.handleBatchGetBlueprints),
-		"BatchGetCrawlers":          service.WrapOp(h.handleBatchGetCrawlers),
-		"BatchGetCustomEntityTypes": service.WrapOp(h.handleBatchGetCustomEntityTypes),
-		"BatchGetDataQualityResult": service.WrapOp(h.handleBatchGetDataQualityResult),
-		"BatchGetDevEndpoints":      service.WrapOp(h.handleBatchGetDevEndpoints),
-		"CreateDatabase":            service.WrapOp(h.handleCreateDatabase),
-		"GetDatabase":               service.WrapOp(h.handleGetDatabase),
-		"GetDatabases":              service.WrapOp(h.handleGetDatabases),
-		"UpdateDatabase":            service.WrapOp(h.handleUpdateDatabase),
-		"DeleteDatabase":            service.WrapOp(h.handleDeleteDatabase),
-		"CreateTable":               service.WrapOp(h.handleCreateTable),
-		"GetTable":                  service.WrapOp(h.handleGetTable),
-		"GetTables":                 service.WrapOp(h.handleGetTables),
-		"UpdateTable":               service.WrapOp(h.handleUpdateTable),
-		"DeleteTable":               service.WrapOp(h.handleDeleteTable),
-		"CreateCrawler":             service.WrapOp(h.handleCreateCrawler),
-		"GetCrawler":                service.WrapOp(h.handleGetCrawler),
-		"GetCrawlers":               service.WrapOp(h.handleGetCrawlers),
-		"UpdateCrawler":             service.WrapOp(h.handleUpdateCrawler),
-		"DeleteCrawler":             service.WrapOp(h.handleDeleteCrawler),
-		"CreateJob":                 service.WrapOp(h.handleCreateJob),
-		"GetJob":                    service.WrapOp(h.handleGetJob),
-		"GetJobs":                   service.WrapOp(h.handleGetJobs),
-		"UpdateJob":                 service.WrapOp(h.handleUpdateJob),
-		"DeleteJob":                 service.WrapOp(h.handleDeleteJob),
-		"TagResource":               service.WrapOp(h.handleTagResource),
-		"UntagResource":             service.WrapOp(h.handleUntagResource),
-		"GetTags":                   service.WrapOp(h.handleGetTags),
+		"BatchCreatePartition":                  service.WrapOp(h.handleBatchCreatePartition),
+		"BatchDeleteConnection":                 service.WrapOp(h.handleBatchDeleteConnection),
+		"BatchDeletePartition":                  service.WrapOp(h.handleBatchDeletePartition),
+		"BatchDeleteTable":                      service.WrapOp(h.handleBatchDeleteTable),
+		"BatchDeleteTableVersion":               service.WrapOp(h.handleBatchDeleteTableVersion),
+		"BatchGetBlueprints":                    service.WrapOp(h.handleBatchGetBlueprints),
+		"BatchGetCrawlers":                      service.WrapOp(h.handleBatchGetCrawlers),
+		"BatchGetCustomEntityTypes":             service.WrapOp(h.handleBatchGetCustomEntityTypes),
+		"BatchGetDataQualityResult":             service.WrapOp(h.handleBatchGetDataQualityResult),
+		"BatchGetDevEndpoints":                  service.WrapOp(h.handleBatchGetDevEndpoints),
+		"BatchStopJobRun":                       service.WrapOp(h.handleBatchStopJobRun),
+		"CancelDataQualityRulesetEvaluationRun": service.WrapOp(h.handleCancelDataQualityRulesetEvaluationRun),
+		"CreateCrawler":                         service.WrapOp(h.handleCreateCrawler),
+		"CreateDatabase":                        service.WrapOp(h.handleCreateDatabase),
+		"CreateDataQualityRuleset":              service.WrapOp(h.handleCreateDataQualityRuleset),
+		"CreateJob":                             service.WrapOp(h.handleCreateJob),
+		"CreateTable":                           service.WrapOp(h.handleCreateTable),
+		"DeleteCrawler":                         service.WrapOp(h.handleDeleteCrawler),
+		"DeleteDatabase":                        service.WrapOp(h.handleDeleteDatabase),
+		"DeleteDataQualityRuleset":              service.WrapOp(h.handleDeleteDataQualityRuleset),
+		"DeleteJob":                             service.WrapOp(h.handleDeleteJob),
+		"DeleteTable":                           service.WrapOp(h.handleDeleteTable),
+		"GetCrawler":                            service.WrapOp(h.handleGetCrawler),
+		"GetCrawlers":                           service.WrapOp(h.handleGetCrawlers),
+		"GetDatabase":                           service.WrapOp(h.handleGetDatabase),
+		"GetDatabases":                          service.WrapOp(h.handleGetDatabases),
+		"GetDataQualityRuleset":                 service.WrapOp(h.handleGetDataQualityRuleset),
+		"GetDataQualityRulesetEvaluationRun":    service.WrapOp(h.handleGetDataQualityRulesetEvaluationRun),
+		"GetJob":                                service.WrapOp(h.handleGetJob),
+		"GetJobBookmark":                        service.WrapOp(h.handleGetJobBookmark),
+		"GetJobRun":                             service.WrapOp(h.handleGetJobRun),
+		"GetJobRuns":                            service.WrapOp(h.handleGetJobRuns),
+		"GetJobs":                               service.WrapOp(h.handleGetJobs),
+		"GetTable":                              service.WrapOp(h.handleGetTable),
+		"GetTables":                             service.WrapOp(h.handleGetTables),
+		"GetTags":                               service.WrapOp(h.handleGetTags),
+		"ListDataQualityRulesets":               service.WrapOp(h.handleListDataQualityRulesets),
+		"ResetJobBookmark":                      service.WrapOp(h.handleResetJobBookmark),
+		"StartCrawler":                          service.WrapOp(h.handleStartCrawler),
+		"StartCrawlerSchedule":                  service.WrapOp(h.handleStartCrawlerSchedule),
+		"StartDataQualityRulesetEvaluationRun":  service.WrapOp(h.handleStartDataQualityRulesetEvaluationRun),
+		"StartJobRun":                           service.WrapOp(h.handleStartJobRun),
+		"StopCrawler":                           service.WrapOp(h.handleStopCrawler),
+		"StopCrawlerSchedule":                   service.WrapOp(h.handleStopCrawlerSchedule),
+		"TagResource":                           service.WrapOp(h.handleTagResource),
+		"UntagResource":                         service.WrapOp(h.handleUntagResource),
+		"UpdateCrawler":                         service.WrapOp(h.handleUpdateCrawler),
+		"UpdateCrawlerSchedule":                 service.WrapOp(h.handleUpdateCrawlerSchedule),
+		"UpdateDatabase":                        service.WrapOp(h.handleUpdateDatabase),
+		"UpdateDataQualityRuleset":              service.WrapOp(h.handleUpdateDataQualityRuleset),
+		"UpdateJob":                             service.WrapOp(h.handleUpdateJob),
+		"UpdateTable":                           service.WrapOp(h.handleUpdateTable),
 	}
 }
 
@@ -830,4 +868,324 @@ func (h *Handler) handleBatchGetDevEndpoints(
 	found, missing := h.Backend.BatchGetDevEndpoints(in.DevEndpointNames)
 
 	return &batchGetDevEndpointsOutput{DevEndpoints: found, DevEndpointsNotFound: missing}, nil
+}
+
+// --- Job run handlers ---
+
+type startJobRunInput struct {
+	Arguments map[string]string `json:"Arguments,omitempty"`
+	JobName   string            `json:"JobName"`
+}
+
+type startJobRunOutput struct {
+	JobRunID string `json:"JobRunId"`
+}
+
+func (h *Handler) handleStartJobRun(_ context.Context, in *startJobRunInput) (*startJobRunOutput, error) {
+	run, err := h.Backend.StartJobRun(in.JobName, in.Arguments)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startJobRunOutput{JobRunID: run.ID}, nil
+}
+
+type getJobRunInput struct {
+	JobName string `json:"JobName"`
+	RunID   string `json:"RunId"`
+}
+
+type getJobRunOutput struct {
+	JobRun *JobRun `json:"JobRun"`
+}
+
+func (h *Handler) handleGetJobRun(_ context.Context, in *getJobRunInput) (*getJobRunOutput, error) {
+	run, err := h.Backend.GetJobRun(in.JobName, in.RunID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getJobRunOutput{JobRun: run}, nil
+}
+
+type getJobRunsInput struct {
+	JobName string `json:"JobName"`
+}
+
+type getJobRunsOutput struct {
+	JobRuns []*JobRun `json:"JobRuns"`
+}
+
+func (h *Handler) handleGetJobRuns(_ context.Context, in *getJobRunsInput) (*getJobRunsOutput, error) {
+	runs, err := h.Backend.GetJobRuns(in.JobName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getJobRunsOutput{JobRuns: runs}, nil
+}
+
+type batchStopJobRunInput struct {
+	JobName   string   `json:"JobName"`
+	JobRunIDs []string `json:"JobRunIds"`
+}
+
+type batchStopJobRunOutput struct {
+	Errors []BatchStopJobRunError `json:"Errors"`
+}
+
+func (h *Handler) handleBatchStopJobRun(_ context.Context, in *batchStopJobRunInput) (*batchStopJobRunOutput, error) {
+	errs := h.Backend.BatchStopJobRun(in.JobName, in.JobRunIDs)
+
+	return &batchStopJobRunOutput{Errors: errs}, nil
+}
+
+type getJobBookmarkInput struct {
+	JobName string `json:"JobName"`
+}
+
+type getJobBookmarkOutput struct {
+	JobBookmarkEntry *JobBookmark `json:"JobBookmarkEntry"`
+}
+
+func (h *Handler) handleGetJobBookmark(_ context.Context, in *getJobBookmarkInput) (*getJobBookmarkOutput, error) {
+	bm, err := h.Backend.GetJobBookmark(in.JobName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getJobBookmarkOutput{JobBookmarkEntry: bm}, nil
+}
+
+type resetJobBookmarkInput struct {
+	JobName string `json:"JobName"`
+}
+
+type resetJobBookmarkOutput struct {
+	JobBookmarkEntry *JobBookmark `json:"JobBookmarkEntry"`
+}
+
+func (h *Handler) handleResetJobBookmark(
+	_ context.Context,
+	in *resetJobBookmarkInput,
+) (*resetJobBookmarkOutput, error) {
+	bm, err := h.Backend.GetJobBookmark(in.JobName)
+	if err != nil {
+		return nil, err
+	}
+
+	if resetErr := h.Backend.ResetJobBookmark(in.JobName); resetErr != nil {
+		return nil, resetErr
+	}
+
+	return &resetJobBookmarkOutput{JobBookmarkEntry: bm}, nil
+}
+
+// --- Crawler scheduling handlers ---
+
+type startCrawlerInput struct {
+	Name string `json:"Name"`
+}
+
+func (h *Handler) handleStartCrawler(_ context.Context, in *startCrawlerInput) (*emptyOutput, error) {
+	if err := h.Backend.StartCrawler(in.Name); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+type stopCrawlerInput struct {
+	Name string `json:"Name"`
+}
+
+func (h *Handler) handleStopCrawler(_ context.Context, in *stopCrawlerInput) (*emptyOutput, error) {
+	if err := h.Backend.StopCrawler(in.Name); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+type updateCrawlerScheduleInput struct {
+	Name     string `json:"Name"`
+	Schedule string `json:"Schedule"`
+}
+
+func (h *Handler) handleUpdateCrawlerSchedule(_ context.Context, in *updateCrawlerScheduleInput) (*emptyOutput, error) {
+	if err := h.Backend.UpdateCrawlerSchedule(in.Name, in.Schedule); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+type startCrawlerScheduleInput struct {
+	CrawlerName string `json:"CrawlerName"`
+}
+
+func (h *Handler) handleStartCrawlerSchedule(_ context.Context, in *startCrawlerScheduleInput) (*emptyOutput, error) {
+	if err := h.Backend.StartCrawlerSchedule(in.CrawlerName); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+type stopCrawlerScheduleInput struct {
+	CrawlerName string `json:"CrawlerName"`
+}
+
+func (h *Handler) handleStopCrawlerSchedule(_ context.Context, in *stopCrawlerScheduleInput) (*emptyOutput, error) {
+	if err := h.Backend.StopCrawlerSchedule(in.CrawlerName); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+// --- Data quality ruleset handlers ---
+
+type createDataQualityRulesetInput struct {
+	Tags    map[string]string `json:"Tags,omitempty"`
+	Name    string            `json:"Name"`
+	Ruleset string            `json:"Ruleset,omitempty"`
+}
+
+type createDataQualityRulesetOutput struct {
+	Name string `json:"Name"`
+}
+
+func (h *Handler) handleCreateDataQualityRuleset(
+	_ context.Context,
+	in *createDataQualityRulesetInput,
+) (*createDataQualityRulesetOutput, error) {
+	r, err := h.Backend.CreateDataQualityRuleset(in.Name, in.Ruleset, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createDataQualityRulesetOutput{Name: r.Name}, nil
+}
+
+type getDataQualityRulesetInput struct {
+	Name string `json:"Name"`
+}
+
+type getDataQualityRulesetOutput struct {
+	Name    string `json:"Name"`
+	Ruleset string `json:"Ruleset,omitempty"`
+}
+
+func (h *Handler) handleGetDataQualityRuleset(
+	_ context.Context,
+	in *getDataQualityRulesetInput,
+) (*getDataQualityRulesetOutput, error) {
+	r, err := h.Backend.GetDataQualityRuleset(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getDataQualityRulesetOutput{Name: r.Name, Ruleset: r.Ruleset}, nil
+}
+
+type deleteDataQualityRulesetInput struct {
+	Name string `json:"Name"`
+}
+
+func (h *Handler) handleDeleteDataQualityRuleset(
+	_ context.Context,
+	in *deleteDataQualityRulesetInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteDataQualityRuleset(in.Name); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+type updateDataQualityRulesetInput struct {
+	Name    string `json:"Name"`
+	Ruleset string `json:"Ruleset,omitempty"`
+}
+
+func (h *Handler) handleUpdateDataQualityRuleset(
+	_ context.Context,
+	in *updateDataQualityRulesetInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.UpdateDataQualityRuleset(in.Name, in.Ruleset); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+type listDataQualityRulesetsInput struct{}
+
+type listDataQualityRulesetsOutput struct {
+	DataQualityRulesets []*DataQualityRuleset `json:"DataQualityRulesets"`
+}
+
+func (h *Handler) handleListDataQualityRulesets(
+	_ context.Context,
+	_ *listDataQualityRulesetsInput,
+) (*listDataQualityRulesetsOutput, error) {
+	rulesets := h.Backend.ListDataQualityRulesets()
+
+	return &listDataQualityRulesetsOutput{DataQualityRulesets: rulesets}, nil
+}
+
+type startDataQualityRulesetEvaluationRunInput struct {
+	RulesetNames []string `json:"RulesetNames"`
+}
+
+type startDataQualityRulesetEvaluationRunOutput struct {
+	RunID string `json:"RunId"`
+}
+
+func (h *Handler) handleStartDataQualityRulesetEvaluationRun(
+	_ context.Context,
+	in *startDataQualityRulesetEvaluationRunInput,
+) (*startDataQualityRulesetEvaluationRunOutput, error) {
+	run, err := h.Backend.StartDataQualityRulesetEvaluationRun(in.RulesetNames)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startDataQualityRulesetEvaluationRunOutput{RunID: run.RunID}, nil
+}
+
+type getDataQualityRulesetEvaluationRunInput struct {
+	RunID string `json:"RunId"`
+}
+
+type getDataQualityRulesetEvaluationRunOutput struct {
+	DataQualityEvaluationRun *DataQualityEvaluationRun `json:"DataQualityEvaluationRun"`
+}
+
+func (h *Handler) handleGetDataQualityRulesetEvaluationRun(
+	_ context.Context,
+	in *getDataQualityRulesetEvaluationRunInput,
+) (*getDataQualityRulesetEvaluationRunOutput, error) {
+	run, err := h.Backend.GetDataQualityRulesetEvaluationRun(in.RunID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getDataQualityRulesetEvaluationRunOutput{DataQualityEvaluationRun: run}, nil
+}
+
+type cancelDataQualityRulesetEvaluationRunInput struct {
+	RunID string `json:"RunId"`
+}
+
+func (h *Handler) handleCancelDataQualityRulesetEvaluationRun(
+	_ context.Context,
+	in *cancelDataQualityRulesetEvaluationRunInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.CancelDataQualityRulesetEvaluationRun(in.RunID); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
 }

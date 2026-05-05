@@ -6,17 +6,21 @@ import (
 )
 
 type backendSnapshot struct {
-	Databases         map[string]*Database          `json:"databases"`
-	Tables            map[string]*Table             `json:"tables"`
-	Crawlers          map[string]*Crawler           `json:"crawlers"`
-	Jobs              map[string]*Job               `json:"jobs"`
-	Partitions        map[string]*Partition         `json:"partitions"`
-	TableVersions     map[string]*TableVersion      `json:"tableVersions"`
-	Connections       map[string]*Connection        `json:"connections"`
-	Blueprints        map[string]*Blueprint         `json:"blueprints"`
-	CustomEntityTypes map[string]*CustomEntityType  `json:"customEntityTypes"`
-	DataQualityResult map[string]*DataQualityResult `json:"dataQualityResult"`
-	DevEndpoints      map[string]*DevEndpoint       `json:"devEndpoints"`
+	Databases           map[string]*Database                 `json:"databases"`
+	Tables              map[string]*Table                    `json:"tables"`
+	Crawlers            map[string]*Crawler                  `json:"crawlers"`
+	Jobs                map[string]*Job                      `json:"jobs"`
+	Partitions          map[string]*Partition                `json:"partitions"`
+	TableVersions       map[string]*TableVersion             `json:"tableVersions"`
+	Connections         map[string]*Connection               `json:"connections"`
+	Blueprints          map[string]*Blueprint                `json:"blueprints"`
+	CustomEntityTypes   map[string]*CustomEntityType         `json:"customEntityTypes"`
+	DataQualityResult   map[string]*DataQualityResult        `json:"dataQualityResult"`
+	DevEndpoints        map[string]*DevEndpoint              `json:"devEndpoints"`
+	JobRuns             map[string][]*JobRun                 `json:"jobRuns"`
+	JobBookmarks        map[string]*JobBookmark              `json:"jobBookmarks"`
+	DataQualityRulesets map[string]*DataQualityRuleset       `json:"dataQualityRulesets"`
+	DataQualityEvalRuns map[string]*DataQualityEvaluationRun `json:"dataQualityEvalRuns"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -54,6 +58,23 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		}),
 		DataQualityResult: maps.Clone(b.dataQualityResult),
 		DevEndpoints:      maps.Clone(b.devEndpoints),
+		JobRuns:           copyJobRunsMap(b.jobRuns),
+		JobBookmarks:      maps.Clone(b.jobBookmarks),
+		DataQualityRulesets: copyMap(b.dataQualityRulesets, func(r *DataQualityRuleset) *DataQualityRuleset {
+			cp := *r
+			cp.Tags = maps.Clone(r.Tags)
+
+			return &cp
+		}),
+		DataQualityEvalRuns: copyMap(
+			b.dataQualityEvalRuns,
+			func(run *DataQualityEvaluationRun) *DataQualityEvaluationRun {
+				cp := *run
+				cp.RulesetNames = append([]string(nil), run.RulesetNames...)
+
+				return &cp
+			},
+		),
 	}
 
 	data, err := json.Marshal(snap)
@@ -76,50 +97,73 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	initSnapshotDefaults(&snap)
+	b.restoreFromSnapshot(snap)
+
+	return nil
+}
+
+// initSnapshotDefaults ensures all snapshot maps are non-nil.
+func initSnapshotDefaults(snap *backendSnapshot) {
+	initSnapshotCoreDefaults(snap)
+	initSnapshotExtDefaults(snap)
+}
+
+// initSnapshotCoreDefaults initializes core maps to non-nil.
+func initSnapshotCoreDefaults(snap *backendSnapshot) {
 	if snap.Databases == nil {
 		snap.Databases = make(map[string]*Database)
 	}
-
 	if snap.Tables == nil {
 		snap.Tables = make(map[string]*Table)
 	}
-
 	if snap.Crawlers == nil {
 		snap.Crawlers = make(map[string]*Crawler)
 	}
-
 	if snap.Jobs == nil {
 		snap.Jobs = make(map[string]*Job)
 	}
-
 	if snap.Partitions == nil {
 		snap.Partitions = make(map[string]*Partition)
 	}
-
 	if snap.TableVersions == nil {
 		snap.TableVersions = make(map[string]*TableVersion)
 	}
-
 	if snap.Connections == nil {
 		snap.Connections = make(map[string]*Connection)
 	}
-
 	if snap.Blueprints == nil {
 		snap.Blueprints = make(map[string]*Blueprint)
 	}
+}
 
+// initSnapshotExtDefaults initializes extended maps to non-nil.
+func initSnapshotExtDefaults(snap *backendSnapshot) {
 	if snap.CustomEntityTypes == nil {
 		snap.CustomEntityTypes = make(map[string]*CustomEntityType)
 	}
-
 	if snap.DataQualityResult == nil {
 		snap.DataQualityResult = make(map[string]*DataQualityResult)
 	}
-
 	if snap.DevEndpoints == nil {
 		snap.DevEndpoints = make(map[string]*DevEndpoint)
 	}
+	if snap.JobRuns == nil {
+		snap.JobRuns = make(map[string][]*JobRun)
+	}
+	if snap.JobBookmarks == nil {
+		snap.JobBookmarks = make(map[string]*JobBookmark)
+	}
+	if snap.DataQualityRulesets == nil {
+		snap.DataQualityRulesets = make(map[string]*DataQualityRuleset)
+	}
+	if snap.DataQualityEvalRuns == nil {
+		snap.DataQualityEvalRuns = make(map[string]*DataQualityEvaluationRun)
+	}
+}
 
+// restoreFromSnapshot copies snapshot data into the backend (caller holds lock).
+func (b *InMemoryBackend) restoreFromSnapshot(snap backendSnapshot) {
 	b.databases = copyMap(snap.Databases, cloneDatabase)
 	b.tables = copyMap(snap.Tables, func(t *Table) *Table {
 		cp := *t
@@ -149,8 +193,23 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	})
 	b.dataQualityResult = maps.Clone(snap.DataQualityResult)
 	b.devEndpoints = maps.Clone(snap.DevEndpoints)
+	b.jobRuns = copyJobRunsMap(snap.JobRuns)
+	b.jobBookmarks = maps.Clone(snap.JobBookmarks)
+	b.dataQualityRulesets = copyMap(snap.DataQualityRulesets, func(r *DataQualityRuleset) *DataQualityRuleset {
+		cp := *r
+		cp.Tags = maps.Clone(r.Tags)
 
-	return nil
+		return &cp
+	})
+	b.dataQualityEvalRuns = copyMap(
+		snap.DataQualityEvalRuns,
+		func(run *DataQualityEvaluationRun) *DataQualityEvaluationRun {
+			cp := *run
+			cp.RulesetNames = append([]string(nil), run.RulesetNames...)
+
+			return &cp
+		},
+	)
 }
 
 // copyMap creates a deep copy of a map using the provided clone function.
@@ -181,4 +240,20 @@ func (h *Handler) Restore(data []byte) error {
 	}
 
 	return nil
+}
+
+// copyJobRunsMap deep-copies the jobRuns map (map[string][]*JobRun).
+func copyJobRunsMap(src map[string][]*JobRun) map[string][]*JobRun {
+	dst := make(map[string][]*JobRun, len(src))
+	for k, runs := range src {
+		cp := make([]*JobRun, len(runs))
+		for i, r := range runs {
+			rc := *r
+			rc.Arguments = maps.Clone(r.Arguments)
+			cp[i] = &rc
+		}
+		dst[k] = cp
+	}
+
+	return dst
 }

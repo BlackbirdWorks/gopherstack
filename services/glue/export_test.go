@@ -97,3 +97,32 @@ func DevEndpointCount(b *InMemoryBackend) int {
 func (h *Handler) HandlerOpsLen() int {
 	return len(h.ops)
 }
+
+// JobRunCount returns the total number of job runs across all jobs in the backend. Used only in tests.
+func JobRunCount(b *InMemoryBackend) int {
+	b.mu.RLock("JobRunCount")
+	defer b.mu.RUnlock()
+
+	total := 0
+	for _, runs := range b.jobRuns {
+		total += len(runs)
+	}
+
+	return total
+}
+
+// DataQualityRulesetCount returns the number of data quality rulesets in the backend. Used only in tests.
+func DataQualityRulesetCount(b *InMemoryBackend) int {
+	b.mu.RLock("DataQualityRulesetCount")
+	defer b.mu.RUnlock()
+
+	return len(b.dataQualityRulesets)
+}
+
+// DataQualityEvalRunCount returns the number of data quality evaluation runs in the backend. Used only in tests.
+func DataQualityEvalRunCount(b *InMemoryBackend) int {
+	b.mu.RLock("DataQualityEvalRunCount")
+	defer b.mu.RUnlock()
+
+	return len(b.dataQualityEvalRuns)
+}

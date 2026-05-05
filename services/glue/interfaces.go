@@ -78,6 +78,36 @@ type StorageBackend interface {
 	AddDevEndpointInternal(dep *DevEndpoint)
 	AddTableVersionInternal(dbName, tableName string, tv *TableVersion)
 	AddPartitionInternal(dbName, tableName string, p *Partition)
+
+	// Job run operations.
+	StartJobRun(jobName string, arguments map[string]string) (*JobRun, error)
+	GetJobRun(jobName, runID string) (*JobRun, error)
+	GetJobRuns(jobName string) ([]*JobRun, error)
+	BatchStopJobRun(jobName string, runIDs []string) []BatchStopJobRunError
+	GetJobBookmark(jobName string) (*JobBookmark, error)
+	ResetJobBookmark(jobName string) error
+
+	// Crawler scheduling operations.
+	StartCrawler(name string) error
+	StopCrawler(name string) error
+	UpdateCrawlerSchedule(name, scheduleExpression string) error
+	StartCrawlerSchedule(name string) error
+	StopCrawlerSchedule(name string) error
+
+	// Data quality ruleset operations.
+	CreateDataQualityRuleset(name, ruleset string, tags map[string]string) (*DataQualityRuleset, error)
+	GetDataQualityRuleset(name string) (*DataQualityRuleset, error)
+	DeleteDataQualityRuleset(name string) error
+	UpdateDataQualityRuleset(name, ruleset string) error
+	ListDataQualityRulesets() []*DataQualityRuleset
+	StartDataQualityRulesetEvaluationRun(rulesetNames []string) (*DataQualityEvaluationRun, error)
+	GetDataQualityRulesetEvaluationRun(runID string) (*DataQualityEvaluationRun, error)
+	CancelDataQualityRulesetEvaluationRun(runID string) error
+
+	// Seed helpers for new types.
+	AddJobRunInternal(run *JobRun)
+	AddDataQualityRulesetInternal(r *DataQualityRuleset)
+	AddDataQualityEvalRunInternal(run *DataQualityEvaluationRun)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement
