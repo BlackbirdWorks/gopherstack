@@ -297,9 +297,10 @@ type Transaction struct {
 
 // IdentityCenterConfiguration holds the IAM Identity Center integration configuration.
 type IdentityCenterConfiguration struct {
-	CatalogID      string `json:"CatalogId,omitempty"`
-	InstanceArn    string `json:"InstanceArn,omitempty"`
-	ApplicationArn string `json:"ApplicationArn,omitempty"`
+	CatalogID         string                          `json:"CatalogId,omitempty"`
+	InstanceArn       string                          `json:"InstanceArn,omitempty"`
+	ApplicationArn    string                          `json:"ApplicationArn,omitempty"`
+	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
 }
 
 // LFOptIn associates a principal and resource for opt-in enforcement.
@@ -534,4 +535,337 @@ type listLakeFormationOptInsOutput struct {
 // getDataLakePrincipalOutput is the response body for GetDataLakePrincipal.
 type getDataLakePrincipalOutput struct {
 	Identity string `json:"Identity,omitempty"`
+}
+
+// --- New types for 24 additional operations ---
+
+// ExternalFilteringConfiguration holds external filtering config.
+type ExternalFilteringConfiguration struct {
+	Status            string   `json:"Status,omitempty"`
+	AuthorizedTargets []string `json:"AuthorizedTargets,omitempty"`
+}
+
+// VirtualObject is a reference to an S3 object.
+type VirtualObject struct {
+	Uri  string `json:"Uri"`
+	ETag string `json:"ETag,omitempty"`
+}
+
+// TableObject represents an object in a governed table.
+type TableObject struct {
+	Uri  string `json:"Uri"`
+	ETag string `json:"ETag,omitempty"`
+	Size *int64 `json:"Size,omitempty"`
+}
+
+// PartitionedTableObjectsList holds objects for a partition.
+type PartitionedTableObjectsList struct {
+	PartitionValues []string      `json:"PartitionValues,omitempty"`
+	Objects         []TableObject `json:"Objects,omitempty"`
+}
+
+// WriteOperation represents a single governed table write.
+type WriteOperation struct {
+	AddObject    *TableObject   `json:"AddObject,omitempty"`
+	DeleteObject *VirtualObject `json:"DeleteObject,omitempty"`
+}
+
+// TemporaryCredentials holds temporary AWS credentials.
+type TemporaryCredentials struct {
+	AccessKeyId     string `json:"AccessKeyId,omitempty"`
+	SecretAccessKey string `json:"SecretAccessKey,omitempty"`
+	SessionToken    string `json:"SessionToken,omitempty"`
+}
+
+// AuditContext carries audit information.
+type AuditContext struct {
+	AdditionalAuditContext string `json:"AdditionalAuditContext,omitempty"`
+}
+
+// Partition represents a Glue partition.
+type Partition struct {
+	Values []string `json:"Values,omitempty"`
+}
+
+// ExecutionStatistics holds statistics for a query execution.
+type ExecutionStatistics struct {
+	AverageExecutionTimeMillis *int64 `json:"AverageExecutionTimeMillis,omitempty"`
+	DataScannedBytes           *int64 `json:"DataScannedBytes,omitempty"`
+	WorkUnitsExecutedCount     *int64 `json:"WorkUnitsExecutedCount,omitempty"`
+}
+
+// PlanningStatistics holds query planning statistics.
+type PlanningStatistics struct {
+	EstimatedDataToScanBytes *int64 `json:"EstimatedDataToScanBytes,omitempty"`
+	PlanningTimeMillis       *int64 `json:"PlanningTimeMillis,omitempty"`
+	QueueTimeMillis          *int64 `json:"QueueTimeMillis,omitempty"`
+	WorkUnitsGeneratedCount  *int64 `json:"WorkUnitsGeneratedCount,omitempty"`
+}
+
+// WorkUnitRange represents a range of work units.
+type WorkUnitRange struct {
+	WorkUnitIdMax int64  `json:"WorkUnitIdMax"`
+	WorkUnitIdMin int64  `json:"WorkUnitIdMin"`
+	WorkUnitToken string `json:"WorkUnitToken"`
+}
+
+// QueryPlanningContext provides context for query planning.
+type QueryPlanningContext struct {
+	CatalogID       string            `json:"CatalogId,omitempty"`
+	DatabaseName    string            `json:"DatabaseName"`
+	QueryAsOfTime   *string           `json:"QueryAsOfTime,omitempty"`
+	QueryParameters map[string]string `json:"QueryParameters,omitempty"`
+	TransactionID   string            `json:"TransactionId,omitempty"`
+}
+
+// StorageOptimizer holds storage optimizer info.
+type StorageOptimizer struct {
+	StorageOptimizerType string            `json:"StorageOptimizerType,omitempty"`
+	Config               map[string]string `json:"Config,omitempty"`
+	ErrorMessage         string            `json:"ErrorMessage,omitempty"`
+}
+
+// TaggedDatabase holds a database with its LF-tags.
+type TaggedDatabase struct {
+	Database *DatabaseResource `json:"Database,omitempty"`
+	LFTags   []LFTagPair       `json:"LFTags,omitempty"`
+}
+
+// ColumnLFTag holds LF-tags for a column.
+type ColumnLFTag struct {
+	Name   string      `json:"Name,omitempty"`
+	LFTags []LFTagPair `json:"LFTags,omitempty"`
+}
+
+// TaggedTable holds a table with its LF-tags.
+type TaggedTable struct {
+	Table           *TableResource `json:"Table,omitempty"`
+	LFTagOnDatabase []LFTagPair    `json:"LFTagOnDatabase,omitempty"`
+	LFTagsOnTable   []LFTagPair    `json:"LFTagsOnTable,omitempty"`
+	LFTagsOnColumns []ColumnLFTag  `json:"LFTagsOnColumns,omitempty"`
+}
+
+// --- New request/response types ---
+
+type deleteLakeFormationIdentityCenterConfigurationInput struct {
+	CatalogID string `json:"CatalogId,omitempty"`
+}
+type deleteLakeFormationIdentityCenterConfigurationOutput struct{}
+
+type deleteObjectsOnCancelInput struct {
+	CatalogID     string          `json:"CatalogId,omitempty"`
+	DatabaseName  string          `json:"DatabaseName,omitempty"`
+	TableName     string          `json:"TableName,omitempty"`
+	TransactionID string          `json:"TransactionId"`
+	Objects       []VirtualObject `json:"Objects,omitempty"`
+}
+type deleteObjectsOnCancelOutput struct{}
+
+type describeLakeFormationIdentityCenterConfigurationInput struct {
+	CatalogID string `json:"CatalogId,omitempty"`
+}
+type describeLakeFormationIdentityCenterConfigurationOutput struct {
+	CatalogID         string                          `json:"CatalogId,omitempty"`
+	InstanceArn       string                          `json:"InstanceArn,omitempty"`
+	ApplicationArn    string                          `json:"ApplicationArn,omitempty"`
+	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
+}
+
+type extendTransactionInput struct {
+	TransactionID string `json:"TransactionId,omitempty"`
+}
+type extendTransactionOutput struct{}
+
+type getDataCellsFilterInput struct {
+	TableCatalogID string `json:"TableCatalogId,omitempty"`
+	DatabaseName   string `json:"DatabaseName"`
+	TableName      string `json:"TableName"`
+	Name           string `json:"Name"`
+}
+type getDataCellsFilterOutput struct {
+	DataCellsFilter *DataCellsFilter `json:"DataCellsFilter,omitempty"`
+}
+
+type getEffectivePermissionsForPathInput struct {
+	ResourceArn string `json:"ResourceArn,omitempty"`
+	NextToken   string `json:"NextToken,omitempty"`
+	MaxResults  int    `json:"MaxResults,omitempty"`
+}
+type getEffectivePermissionsForPathOutput struct {
+	NextToken                    string             `json:"NextToken,omitempty"`
+	PrincipalResourcePermissions []*PermissionEntry `json:"PrincipalResourcePermissions"`
+}
+
+type getLFTagExpressionInput struct {
+	Name      string `json:"Name"`
+	CatalogID string `json:"CatalogId,omitempty"`
+}
+type getLFTagExpressionOutput struct {
+	Name        string  `json:"Name,omitempty"`
+	Description string  `json:"Description,omitempty"`
+	CatalogID   string  `json:"CatalogId,omitempty"`
+	Expression  []LFTag `json:"Expression,omitempty"`
+}
+
+type getQueryStateInput struct {
+	QueryID string `json:"QueryId"`
+}
+type getQueryStateOutput struct {
+	Error string `json:"Error,omitempty"`
+	State string `json:"State"`
+}
+
+type getQueryStatisticsInput struct {
+	QueryID string `json:"QueryId"`
+}
+type getQueryStatisticsOutput struct {
+	ExecutionStatistics *ExecutionStatistics `json:"ExecutionStatistics,omitempty"`
+	PlanningStatistics  *PlanningStatistics  `json:"PlanningStatistics,omitempty"`
+	QuerySubmissionTime *string              `json:"QuerySubmissionTime,omitempty"`
+}
+
+type getTableObjectsInput struct {
+	CatalogID     string `json:"CatalogId,omitempty"`
+	DatabaseName  string `json:"DatabaseName,omitempty"`
+	TableName     string `json:"TableName,omitempty"`
+	TransactionID string `json:"TransactionId,omitempty"`
+	NextToken     string `json:"NextToken,omitempty"`
+	MaxResults    int    `json:"MaxResults,omitempty"`
+}
+type getTableObjectsOutput struct {
+	Objects   []PartitionedTableObjectsList `json:"Objects,omitempty"`
+	NextToken string                        `json:"NextToken,omitempty"`
+}
+
+type getTemporaryDataLocationCredentialsInput struct {
+	ResourceArn              string        `json:"ResourceArn"`
+	Permissions              []string      `json:"Permissions,omitempty"`
+	DurationSeconds          *int32        `json:"DurationSeconds,omitempty"`
+	AuditContext             *AuditContext `json:"AuditContext,omitempty"`
+	SupportedPermissionTypes []string      `json:"SupportedPermissionTypes,omitempty"`
+}
+type getTemporaryDataLocationCredentialsOutput struct {
+	Credentials *TemporaryCredentials `json:"Credentials,omitempty"`
+	Expiration  *string               `json:"Expiration,omitempty"`
+}
+
+type getTemporaryGluePartitionCredentialsInput struct {
+	TableArn                 string        `json:"TableArn"`
+	Partition                *Partition    `json:"Partition,omitempty"`
+	Permissions              []string      `json:"Permissions,omitempty"`
+	DurationSeconds          *int32        `json:"DurationSeconds,omitempty"`
+	AuditContext             *AuditContext `json:"AuditContext,omitempty"`
+	SupportedPermissionTypes []string      `json:"SupportedPermissionTypes,omitempty"`
+}
+type getTemporaryGluePartitionCredentialsOutput struct {
+	Credentials *TemporaryCredentials `json:"Credentials,omitempty"`
+	Expiration  *string               `json:"Expiration,omitempty"`
+}
+
+type getTemporaryGlueTableCredentialsInput struct {
+	TableArn                 string        `json:"TableArn"`
+	Permissions              []string      `json:"Permissions,omitempty"`
+	DurationSeconds          *int32        `json:"DurationSeconds,omitempty"`
+	AuditContext             *AuditContext `json:"AuditContext,omitempty"`
+	SupportedPermissionTypes []string      `json:"SupportedPermissionTypes,omitempty"`
+}
+type getTemporaryGlueTableCredentialsOutput struct {
+	Credentials *TemporaryCredentials `json:"Credentials,omitempty"`
+	Expiration  *string               `json:"Expiration,omitempty"`
+}
+
+type getWorkUnitResultsInput struct {
+	QueryID       string `json:"QueryId"`
+	WorkUnitToken string `json:"WorkUnitToken"`
+}
+type getWorkUnitResultsOutput struct{}
+
+type getWorkUnitsInput struct {
+	NextToken string `json:"NextToken,omitempty"`
+	PageSize  *int32 `json:"PageSize,omitempty"`
+	QueryID   string `json:"QueryId"`
+}
+type getWorkUnitsOutput struct {
+	NextToken      string          `json:"NextToken,omitempty"`
+	QueryID        string          `json:"QueryId,omitempty"`
+	WorkUnitRanges []WorkUnitRange `json:"WorkUnitRanges"`
+}
+
+type listTableStorageOptimizersInput struct {
+	CatalogID            string `json:"CatalogId,omitempty"`
+	DatabaseName         string `json:"DatabaseName"`
+	TableName            string `json:"TableName"`
+	StorageOptimizerType string `json:"StorageOptimizerType,omitempty"`
+	NextToken            string `json:"NextToken,omitempty"`
+}
+type listTableStorageOptimizersOutput struct {
+	StorageOptimizerList []StorageOptimizer `json:"StorageOptimizerList"`
+	NextToken            string             `json:"NextToken,omitempty"`
+}
+
+type searchDatabasesByLFTagsInput struct {
+	Expression []LFTag `json:"Expression"`
+	CatalogID  string  `json:"CatalogId,omitempty"`
+	NextToken  string  `json:"NextToken,omitempty"`
+}
+type searchDatabasesByLFTagsOutput struct {
+	DatabaseList []TaggedDatabase `json:"DatabaseList"`
+	NextToken    string           `json:"NextToken,omitempty"`
+}
+
+type searchTablesByLFTagsInput struct {
+	Expression []LFTag `json:"Expression"`
+	CatalogID  string  `json:"CatalogId,omitempty"`
+	NextToken  string  `json:"NextToken,omitempty"`
+}
+type searchTablesByLFTagsOutput struct {
+	TableList []TaggedTable `json:"TableList"`
+	NextToken string        `json:"NextToken,omitempty"`
+}
+
+type startQueryPlanningInput struct {
+	QueryPlanningContext QueryPlanningContext `json:"QueryPlanningContext"`
+	QueryString          string              `json:"QueryString"`
+}
+type startQueryPlanningOutput struct {
+	QueryID string `json:"QueryId"`
+}
+
+type updateDataCellsFilterInput struct {
+	TableData *DataCellsFilter `json:"TableData"`
+}
+type updateDataCellsFilterOutput struct{}
+
+type updateLFTagExpressionInput struct {
+	Name        string  `json:"Name"`
+	CatalogID   string  `json:"CatalogId,omitempty"`
+	Description string  `json:"Description,omitempty"`
+	Expression  []LFTag `json:"Expression,omitempty"`
+}
+type updateLFTagExpressionOutput struct{}
+
+type updateLakeFormationIdentityCenterConfigurationInput struct {
+	CatalogID         string                          `json:"CatalogId,omitempty"`
+	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
+	ApplicationStatus string                          `json:"ApplicationStatus,omitempty"`
+}
+type updateLakeFormationIdentityCenterConfigurationOutput struct{}
+
+type updateTableObjectsInput struct {
+	CatalogID       string           `json:"CatalogId,omitempty"`
+	DatabaseName    string           `json:"DatabaseName,omitempty"`
+	TableName       string           `json:"TableName,omitempty"`
+	TransactionID   string           `json:"TransactionId,omitempty"`
+	WriteOperations []WriteOperation `json:"WriteOperations,omitempty"`
+}
+type updateTableObjectsOutput struct{}
+
+type updateTableStorageOptimizerInput struct {
+	CatalogID              string                       `json:"CatalogId,omitempty"`
+	DatabaseName           string                       `json:"DatabaseName"`
+	TableName              string                       `json:"TableName"`
+	StorageOptimizerConfig map[string]map[string]string `json:"StorageOptimizerConfig,omitempty"`
+}
+type updateTableStorageOptimizerOutput struct {
+	Result string `json:"Result,omitempty"`
 }

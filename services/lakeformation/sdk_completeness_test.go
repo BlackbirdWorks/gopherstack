@@ -17,30 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := lakeformation.NewInMemoryBackend()
 	h := lakeformation.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &lakeformationsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteLakeFormationIdentityCenterConfiguration",
-		"DeleteObjectsOnCancel",
-		"DescribeLakeFormationIdentityCenterConfiguration",
-		"ExtendTransaction",
-		"GetDataCellsFilter",
-		"GetEffectivePermissionsForPath",
-		"GetLFTagExpression",
-		"GetQueryState",
-		"GetQueryStatistics",
-		"GetTableObjects",
-		"GetTemporaryDataLocationCredentials",
-		"GetTemporaryGluePartitionCredentials",
-		"GetTemporaryGlueTableCredentials",
-		"GetWorkUnitResults",
-		"GetWorkUnits",
-		"ListTableStorageOptimizers",
-		"SearchDatabasesByLFTags",
-		"SearchTablesByLFTags",
-		"StartQueryPlanning",
-		"UpdateDataCellsFilter",
-		"UpdateLFTagExpression",
-		"UpdateLakeFormationIdentityCenterConfiguration",
-		"UpdateTableObjects",
-		"UpdateTableStorageOptimizer",
-	})
+	sdkcheck.CheckCompleteness(t, &lakeformationsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

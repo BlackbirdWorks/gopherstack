@@ -5,14 +5,31 @@
 		ListResourcesCommand,
 		RegisterResourceCommand,
 		DeregisterResourceCommand,
-		type ResourceInfo
+		ListLFTagsCommand,
+		CreateLFTagCommand,
+		DeleteLFTagCommand,
+		ListPermissionsCommand,
+		GrantPermissionsCommand,
+		RevokePermissionsCommand,
+		ListTransactionsCommand,
+		StartTransactionCommand,
+		CommitTransactionCommand,
+		CancelTransactionCommand,
+		type ResourceInfo,
+		type LFTagPair,
+		type PrincipalResourcePermissions,
+		type TransactionDescription,
 	} from '@aws-sdk/client-lakeformation';
 	import { toast } from 'svelte-sonner';
-	import { Database, RefreshCw, Plus, Trash2 } from 'lucide-svelte';
+	import { Database, RefreshCw, Plus, Trash2, Tag, Shield, ArrowLeftRight } from 'lucide-svelte';
 
 	const lf = getLakeFormationClient();
 
-	let loading = $state(false);
+	type Tab = 'resources' | 'lftags' | 'permissions' | 'transactions';
+	let activeTab = $state<Tab>('resources');
+
+	// --- Resources ---
+	let loadingResources = $state(false);
 	let resources = $state<ResourceInfo[]>([]);
 	let showRegisterModal = $state(false);
 	let registering = $state(false);
@@ -20,14 +37,14 @@
 	let newRoleArn = $state('');
 
 	async function loadResources() {
-		loading = true;
+		loadingResources = true;
 		try {
 			const res = await lf.send(new ListResourcesCommand({}));
 			resources = res.ResourceInfoList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load resources: ${(err as Error).message}`);
 		} finally {
-			loading = false;
+			loadingResources = false;
 		}
 	}
 
@@ -61,10 +78,180 @@
 		}
 	}
 
+	// --- LF Tags ---
+	let loadingTags = $state(false);
+	let lfTags = $state<LFTagPair[]>([]);
+	let showCreateTagModal = $state(false);
+	let creatingTag = $state(false);
+	let newTagKey = $state('');
+	let newTagValues = $state('');
+
+	async function loadLFTags() {
+		loadingTags = true;
+		try {
+			const res = await lf.send(new ListLFTagsCommand({}));
+			lfTags = (res.LFTags ?? []) as LFTagPair[];
+		} catch (err: unknown) {
+			toast.error(`Failed to load LF tags: ${(err as Error).message}`);
+		} finally {
+			loadingTags = false;
+		}
+	}
+
+	async function createLFTag() {
+		if (!newTagKey.trim() || !newTagValues.trim()) return;
+		creatingTag = true;
+		try {
+			const values = newTagValues.split(',').map(v => v.trim()).filter(Boolean);
+			await lf.send(new CreateLFTagCommand({
+				TagKey: newTagKey.trim(),
+				TagValues: values,
+			}));
+			toast.success('LF tag created');
+			showCreateTagModal = false;
+			newTagKey = '';
+			newTagValues = '';
+			await loadLFTags();
+		} catch (err: unknown) {
+			toast.error(`Failed to create tag: ${(err as Error).message}`);
+		} finally {
+			creatingTag = false;
+		}
+	}
+
+	async function deleteLFTag(tagKey: string) {
+		try {
+			await lf.send(new DeleteLFTagCommand({ TagKey: tagKey }));
+			toast.success('LF tag deleted');
+			await loadLFTags();
+		} catch (err: unknown) {
+			toast.error(`Failed to delete tag: ${(err as Error).message}`);
+		}
+	}
+
+	// --- Permissions ---
+	let loadingPerms = $state(false);
+	let permissions = $state<PrincipalResourcePermissions[]>([]);
+	let showGrantModal = $state(false);
+	let granting = $state(false);
+	let grantPrincipal = $state('');
+	let grantResourceDb = $state('');
+	let grantPermissions = $state('SELECT');
+
+	async function loadPermissions() {
+		loadingPerms = true;
+		try {
+			const res = await lf.send(new ListPermissionsCommand({}));
+			permissions = res.PrincipalResourcePermissions ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load permissions: ${(err as Error).message}`);
+		} finally {
+			loadingPerms = false;
+		}
+	}
+
+	async function grantPermission() {
+		if (!grantPrincipal.trim() || !grantResourceDb.trim()) return;
+		granting = true;
+		try {
+			await lf.send(new GrantPermissionsCommand({
+				Principal: { DataLakePrincipalIdentifier: grantPrincipal.trim() },
+				Resource: { Database: { Name: grantResourceDb.trim() } },
+				Permissions: grantPermissions.split(',').map(p => p.trim()).filter(Boolean) as any,
+			}));
+			toast.success('Permission granted');
+			showGrantModal = false;
+			grantPrincipal = '';
+			grantResourceDb = '';
+			grantPermissions = 'SELECT';
+			await loadPermissions();
+		} catch (err: unknown) {
+			toast.error(`Failed to grant permission: ${(err as Error).message}`);
+		} finally {
+			granting = false;
+		}
+	}
+
+	async function revokePermission(entry: PrincipalResourcePermissions) {
+		try {
+			await lf.send(new RevokePermissionsCommand({
+				Principal: entry.Principal,
+				Resource: entry.Resource,
+				Permissions: entry.Permissions,
+			}));
+			toast.success('Permission revoked');
+			await loadPermissions();
+		} catch (err: unknown) {
+			toast.error(`Failed to revoke permission: ${(err as Error).message}`);
+		}
+	}
+
+	// --- Transactions ---
+	let loadingTxns = $state(false);
+	let transactions = $state<TransactionDescription[]>([]);
+
+	async function loadTransactions() {
+		loadingTxns = true;
+		try {
+			const res = await lf.send(new ListTransactionsCommand({}));
+			transactions = res.Transactions ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load transactions: ${(err as Error).message}`);
+		} finally {
+			loadingTxns = false;
+		}
+	}
+
+	async function startTransaction() {
+		try {
+			const res = await lf.send(new StartTransactionCommand({}));
+			toast.success(`Transaction started: ${res.TransactionId}`);
+			await loadTransactions();
+		} catch (err: unknown) {
+			toast.error(`Failed to start transaction: ${(err as Error).message}`);
+		}
+	}
+
+	async function commitTransaction(id: string) {
+		try {
+			await lf.send(new CommitTransactionCommand({ TransactionId: id }));
+			toast.success('Transaction committed');
+			await loadTransactions();
+		} catch (err: unknown) {
+			toast.error(`Failed to commit: ${(err as Error).message}`);
+		}
+	}
+
+	async function cancelTransaction(id: string) {
+		try {
+			await lf.send(new CancelTransactionCommand({ TransactionId: id }));
+			toast.success('Transaction cancelled');
+			await loadTransactions();
+		} catch (err: unknown) {
+			toast.error(`Failed to cancel: ${(err as Error).message}`);
+		}
+	}
+
+	function switchTab(tab: Tab) {
+		activeTab = tab;
+		if (tab === 'resources' && resources.length === 0) loadResources();
+		if (tab === 'lftags' && lfTags.length === 0) loadLFTags();
+		if (tab === 'permissions' && permissions.length === 0) loadPermissions();
+		if (tab === 'transactions' && transactions.length === 0) loadTransactions();
+	}
+
+	function refreshCurrent() {
+		if (activeTab === 'resources') loadResources();
+		if (activeTab === 'lftags') loadLFTags();
+		if (activeTab === 'permissions') loadPermissions();
+		if (activeTab === 'transactions') loadTransactions();
+	}
+
 	onMount(() => { loadResources(); });
 </script>
 
 <div class="space-y-6">
+	<!-- Header -->
 	<div class="flex items-center justify-between">
 		<div class="flex items-center gap-3">
 			<div class="p-2 bg-teal-100 dark:bg-teal-900/30 rounded-lg">
@@ -76,66 +263,299 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
-			<button
-				onclick={() => { showRegisterModal = true; }}
-				class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors"
-			>
-				<Plus class="w-4 h-4" />
-				Register Resource
-			</button>
-			<button onclick={() => loadResources()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
-				<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
+			{#if activeTab === 'resources'}
+				<button
+					onclick={() => { showRegisterModal = true; }}
+					class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors"
+				>
+					<Plus class="w-4 h-4" />
+					Register Resource
+				</button>
+			{:else if activeTab === 'lftags'}
+				<button
+					onclick={() => { showCreateTagModal = true; }}
+					class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors"
+				>
+					<Plus class="w-4 h-4" />
+					Create Tag
+				</button>
+			{:else if activeTab === 'permissions'}
+				<button
+					onclick={() => { showGrantModal = true; }}
+					class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors"
+				>
+					<Plus class="w-4 h-4" />
+					Grant Permission
+				</button>
+			{:else if activeTab === 'transactions'}
+				<button
+					onclick={() => startTransaction()}
+					class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors"
+				>
+					<Plus class="w-4 h-4" />
+					Start Transaction
+				</button>
+			{/if}
+			<button onclick={() => refreshCurrent()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
+				<RefreshCw class="w-5 h-5 {loadingResources || loadingTags || loadingPerms || loadingTxns ? 'animate-spin' : ''}" />
 			</button>
 		</div>
 	</div>
 
-	{#if loading}
-		<div class="flex items-center justify-center p-8">
-			<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-teal-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /></svg>
-		</div>
-	{:else if resources.length === 0}
-		<div class="text-center py-12 text-slate-500">
-			<Database class="w-16 h-16 mx-auto mb-4 text-slate-300 dark:text-slate-600" />
-			<p class="text-lg font-medium">No resources registered</p>
-			<p class="text-sm mt-1">Register an S3 location to get started</p>
-		</div>
-	{:else}
-		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-			<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
-				<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
-					<tr>
-						<th class="px-6 py-3">Resource ARN</th>
-						<th class="px-6 py-3">Role ARN</th>
-						<th class="px-6 py-3">Last Modified</th>
-						<th class="px-6 py-3 text-right">Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each resources as resource}
-						<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
-							<td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono text-xs truncate max-w-xs" title={resource.ResourceArn}>{resource.ResourceArn}</td>
-							<td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title={resource.RoleArn}>{resource.RoleArn ?? '—'}</td>
-							<td class="px-6 py-4">{resource.LastModified ? new Date(resource.LastModified).toLocaleDateString() : '—'}</td>
-							<td class="px-6 py-4 text-right">
-								<button onclick={() => deregisterResource(resource.ResourceArn ?? '')} class="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" title="Deregister">
-									<Trash2 class="w-4 h-4" />
-								</button>
-							</td>
+	<!-- Tab Navigation -->
+	<div class="border-b border-slate-200 dark:border-slate-700">
+		<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
+			<li class="mr-2">
+				<button
+					onclick={() => switchTab('resources')}
+					class="inline-flex items-center gap-2 p-4 border-b-2 rounded-t-lg transition-colors {activeTab === 'resources' ? 'text-teal-600 border-teal-600 dark:text-teal-400 dark:border-teal-400' : 'border-transparent text-slate-500 hover:text-slate-600 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300'}"
+				>
+					<Database class="w-4 h-4" />
+					Resources
+				</button>
+			</li>
+			<li class="mr-2">
+				<button
+					onclick={() => switchTab('lftags')}
+					class="inline-flex items-center gap-2 p-4 border-b-2 rounded-t-lg transition-colors {activeTab === 'lftags' ? 'text-teal-600 border-teal-600 dark:text-teal-400 dark:border-teal-400' : 'border-transparent text-slate-500 hover:text-slate-600 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300'}"
+				>
+					<Tag class="w-4 h-4" />
+					LF Tags
+				</button>
+			</li>
+			<li class="mr-2">
+				<button
+					onclick={() => switchTab('permissions')}
+					class="inline-flex items-center gap-2 p-4 border-b-2 rounded-t-lg transition-colors {activeTab === 'permissions' ? 'text-teal-600 border-teal-600 dark:text-teal-400 dark:border-teal-400' : 'border-transparent text-slate-500 hover:text-slate-600 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300'}"
+				>
+					<Shield class="w-4 h-4" />
+					Permissions
+				</button>
+			</li>
+			<li class="mr-2">
+				<button
+					onclick={() => switchTab('transactions')}
+					class="inline-flex items-center gap-2 p-4 border-b-2 rounded-t-lg transition-colors {activeTab === 'transactions' ? 'text-teal-600 border-teal-600 dark:text-teal-400 dark:border-teal-400' : 'border-transparent text-slate-500 hover:text-slate-600 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300'}"
+				>
+					<ArrowLeftRight class="w-4 h-4" />
+					Transactions
+				</button>
+			</li>
+		</ul>
+	</div>
+
+	<!-- Resources Tab -->
+	{#if activeTab === 'resources'}
+		{#if loadingResources}
+			<div class="flex items-center justify-center p-8">
+				<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-teal-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /></svg>
+			</div>
+		{:else if resources.length === 0}
+			<div class="text-center py-12 text-slate-500">
+				<Database class="w-16 h-16 mx-auto mb-4 text-slate-300 dark:text-slate-600" />
+				<p class="text-lg font-medium">No resources registered</p>
+				<p class="text-sm mt-1">Register an S3 location to get started</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+					<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+						<tr>
+							<th class="px-6 py-3">Resource ARN</th>
+							<th class="px-6 py-3">Role ARN</th>
+							<th class="px-6 py-3">Last Modified</th>
+							<th class="px-6 py-3 text-right">Actions</th>
 						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
+					</thead>
+					<tbody>
+						{#each resources as resource}
+							<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
+								<td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono text-xs truncate max-w-xs" title={resource.ResourceArn}>{resource.ResourceArn}</td>
+								<td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title={resource.RoleArn}>{resource.RoleArn ?? '—'}</td>
+								<td class="px-6 py-4">{resource.LastModified ? new Date(resource.LastModified).toLocaleDateString() : '—'}</td>
+								<td class="px-6 py-4 text-right">
+									<button onclick={() => deregisterResource(resource.ResourceArn ?? '')} class="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" title="Deregister">
+										<Trash2 class="w-4 h-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- LF Tags Tab -->
+	{#if activeTab === 'lftags'}
+		{#if loadingTags}
+			<div class="flex items-center justify-center p-8">
+				<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-teal-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /></svg>
+			</div>
+		{:else if lfTags.length === 0}
+			<div class="text-center py-12 text-slate-500">
+				<Tag class="w-16 h-16 mx-auto mb-4 text-slate-300 dark:text-slate-600" />
+				<p class="text-lg font-medium">No LF tags defined</p>
+				<p class="text-sm mt-1">Create LF tags to govern access to your data lake resources</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+					<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+						<tr>
+							<th class="px-6 py-3">Tag Key</th>
+							<th class="px-6 py-3">Catalog ID</th>
+							<th class="px-6 py-3">Allowed Values</th>
+							<th class="px-6 py-3 text-right">Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each lfTags as tag}
+							<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
+								<td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono">{tag.TagKey}</td>
+								<td class="px-6 py-4 font-mono text-xs">{tag.CatalogId ?? '—'}</td>
+								<td class="px-6 py-4">
+									<div class="flex flex-wrap gap-1">
+										{#each tag.TagValues ?? [] as val}
+											<span class="px-2 py-0.5 text-xs bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 rounded">{val}</span>
+										{/each}
+									</div>
+								</td>
+								<td class="px-6 py-4 text-right">
+									<button onclick={() => deleteLFTag(tag.TagKey ?? '')} class="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" title="Delete tag">
+										<Trash2 class="w-4 h-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Permissions Tab -->
+	{#if activeTab === 'permissions'}
+		{#if loadingPerms}
+			<div class="flex items-center justify-center p-8">
+				<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-teal-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /></svg>
+			</div>
+		{:else if permissions.length === 0}
+			<div class="text-center py-12 text-slate-500">
+				<Shield class="w-16 h-16 mx-auto mb-4 text-slate-300 dark:text-slate-600" />
+				<p class="text-lg font-medium">No permissions granted</p>
+				<p class="text-sm mt-1">Grant permissions to allow principals to access data lake resources</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+					<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+						<tr>
+							<th class="px-6 py-3">Principal</th>
+							<th class="px-6 py-3">Resource</th>
+							<th class="px-6 py-3">Permissions</th>
+							<th class="px-6 py-3 text-right">Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each permissions as perm}
+							<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
+								<td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title={perm.Principal?.DataLakePrincipalIdentifier}>{perm.Principal?.DataLakePrincipalIdentifier ?? '—'}</td>
+								<td class="px-6 py-4 text-xs">
+									{#if perm.Resource?.Database}
+										<span class="text-slate-700 dark:text-slate-300">DB: {perm.Resource.Database.Name}</span>
+									{:else if perm.Resource?.Table}
+										<span class="text-slate-700 dark:text-slate-300">Table: {perm.Resource.Table.DatabaseName}.{perm.Resource.Table.Name}</span>
+									{:else if perm.Resource?.DataLocation}
+										<span class="text-slate-700 dark:text-slate-300 font-mono">{perm.Resource.DataLocation.ResourceArn}</span>
+									{:else if perm.Resource?.Catalog !== undefined}
+										<span class="text-slate-700 dark:text-slate-300">Catalog</span>
+									{:else}
+										—
+									{/if}
+								</td>
+								<td class="px-6 py-4">
+									<div class="flex flex-wrap gap-1">
+										{#each perm.Permissions ?? [] as p}
+											<span class="px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">{p}</span>
+										{/each}
+									</div>
+								</td>
+								<td class="px-6 py-4 text-right">
+									<button onclick={() => revokePermission(perm)} class="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" title="Revoke">
+										<Trash2 class="w-4 h-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Transactions Tab -->
+	{#if activeTab === 'transactions'}
+		{#if loadingTxns}
+			<div class="flex items-center justify-center p-8">
+				<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-teal-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /></svg>
+			</div>
+		{:else if transactions.length === 0}
+			<div class="text-center py-12 text-slate-500">
+				<ArrowLeftRight class="w-16 h-16 mx-auto mb-4 text-slate-300 dark:text-slate-600" />
+				<p class="text-lg font-medium">No transactions</p>
+				<p class="text-sm mt-1">Start a transaction to govern governed table writes</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+					<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+						<tr>
+							<th class="px-6 py-3">Transaction ID</th>
+							<th class="px-6 py-3">Status</th>
+							<th class="px-6 py-3 text-right">Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each transactions as tx}
+							<tr class="bg-white border-b dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
+								<td class="px-6 py-4 font-mono text-xs text-slate-900 dark:text-white">{tx.TransactionId}</td>
+								<td class="px-6 py-4">
+									<span class="px-2 py-0.5 text-xs rounded font-medium
+										{tx.TransactionStatus === 'ACTIVE' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' :
+										 tx.TransactionStatus === 'COMMITTED' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' :
+										 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'}"
+									>{tx.TransactionStatus}</span>
+								</td>
+								<td class="px-6 py-4 text-right flex justify-end gap-2">
+									{#if tx.TransactionStatus === 'ACTIVE'}
+										<button
+											onclick={() => commitTransaction(tx.TransactionId ?? '')}
+											class="px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
+										>Commit</button>
+										<button
+											onclick={() => cancelTransaction(tx.TransactionId ?? '')}
+											class="px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded"
+										>Cancel</button>
+									{/if}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
 	{/if}
 </div>
 
+<!-- Register Resource Modal -->
 {#if showRegisterModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showRegisterModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showRegisterModal = false)} role="dialog" aria-modal="true">
 		<div class="relative p-4 w-full max-w-md" role="document">
 			<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
 				<div class="flex items-center justify-between p-4 border-b dark:border-slate-600">
 					<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Register Resource</h3>
-								<button aria-label="Close" onclick={() => { showRegisterModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
+					<button aria-label="Close" onclick={() => { showRegisterModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
 				</div>
 				<div class="p-4">
 					<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); registerResource(); }}>
@@ -151,6 +571,74 @@
 							<button type="button" onclick={() => { showRegisterModal = false; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600">Cancel</button>
 							<button type="submit" disabled={registering} class="text-white bg-teal-600 hover:bg-teal-700 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">
 								{registering ? 'Registering...' : 'Register'}
+							</button>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create LF Tag Modal -->
+{#if showCreateTagModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreateTagModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showCreateTagModal = false)} role="dialog" aria-modal="true">
+		<div class="relative p-4 w-full max-w-md" role="document">
+			<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+				<div class="flex items-center justify-between p-4 border-b dark:border-slate-600">
+					<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create LF Tag</h3>
+					<button aria-label="Close" onclick={() => { showCreateTagModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
+				</div>
+				<div class="p-4">
+					<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); createLFTag(); }}>
+						<div>
+							<label for="tag-key" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Tag Key</label>
+							<input type="text" id="tag-key" bind:value={newTagKey} placeholder="e.g. environment" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
+						</div>
+						<div>
+							<label for="tag-values" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Allowed Values <span class="text-slate-400 font-normal">(comma-separated)</span></label>
+							<input type="text" id="tag-values" bind:value={newTagValues} placeholder="e.g. dev,staging,prod" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
+						</div>
+						<div class="flex gap-3 justify-end pt-2">
+							<button type="button" onclick={() => { showCreateTagModal = false; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600">Cancel</button>
+							<button type="submit" disabled={creatingTag} class="text-white bg-teal-600 hover:bg-teal-700 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">
+								{creatingTag ? 'Creating...' : 'Create'}
+							</button>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Grant Permission Modal -->
+{#if showGrantModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showGrantModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showGrantModal = false)} role="dialog" aria-modal="true">
+		<div class="relative p-4 w-full max-w-md" role="document">
+			<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+				<div class="flex items-center justify-between p-4 border-b dark:border-slate-600">
+					<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Grant Permission</h3>
+					<button aria-label="Close" onclick={() => { showGrantModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
+				</div>
+				<div class="p-4">
+					<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); grantPermission(); }}>
+						<div>
+							<label for="grant-principal" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Principal ARN</label>
+							<input type="text" id="grant-principal" bind:value={grantPrincipal} placeholder="arn:aws:iam::000000000000:user/alice" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
+						</div>
+						<div>
+							<label for="grant-resource-db" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Database Name</label>
+							<input type="text" id="grant-resource-db" bind:value={grantResourceDb} placeholder="my_database" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
+						</div>
+						<div>
+							<label for="grant-permissions" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Permissions <span class="text-slate-400 font-normal">(comma-separated)</span></label>
+							<input type="text" id="grant-permissions" bind:value={grantPermissions} placeholder="e.g. SELECT,DESCRIBE" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
+						</div>
+						<div class="flex gap-3 justify-end pt-2">
+							<button type="button" onclick={() => { showGrantModal = false; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600">Cancel</button>
+							<button type="submit" disabled={granting} class="text-white bg-teal-600 hover:bg-teal-700 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">
+								{granting ? 'Granting...' : 'Grant'}
 							</button>
 						</div>
 					</form>

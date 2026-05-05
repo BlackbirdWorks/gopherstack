@@ -126,7 +126,7 @@ func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
 	b := lakeformation.NewInMemoryBackend()
 	h := lakeformation.NewHandler(b)
 	ops := h.GetSupportedOperations()
-	assert.Len(t, ops, 37)
+	assert.Len(t, ops, 61)
 
 	expected := []string{
 		"AddLFTagsToResource",
@@ -143,14 +143,29 @@ func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
 		"DeleteDataCellsFilter",
 		"DeleteLFTag",
 		"DeleteLFTagExpression",
+		"DeleteLakeFormationIdentityCenterConfiguration",
 		"DeleteLakeFormationOptIn",
+		"DeleteObjectsOnCancel",
 		"DeregisterResource",
+		"DescribeLakeFormationIdentityCenterConfiguration",
 		"DescribeResource",
 		"DescribeTransaction",
+		"ExtendTransaction",
+		"GetDataCellsFilter",
 		"GetDataLakePrincipal",
 		"GetDataLakeSettings",
+		"GetEffectivePermissionsForPath",
 		"GetLFTag",
+		"GetLFTagExpression",
+		"GetQueryState",
+		"GetQueryStatistics",
 		"GetResourceLFTags",
+		"GetTableObjects",
+		"GetTemporaryDataLocationCredentials",
+		"GetTemporaryGluePartitionCredentials",
+		"GetTemporaryGlueTableCredentials",
+		"GetWorkUnitResults",
+		"GetWorkUnits",
 		"GrantPermissions",
 		"ListDataCellsFilter",
 		"ListLFTagExpressions",
@@ -158,14 +173,23 @@ func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
 		"ListLakeFormationOptIns",
 		"ListPermissions",
 		"ListResources",
+		"ListTableStorageOptimizers",
 		"ListTransactions",
 		"PutDataLakeSettings",
 		"RegisterResource",
 		"RemoveLFTagsFromResource",
 		"RevokePermissions",
+		"SearchDatabasesByLFTags",
+		"SearchTablesByLFTags",
+		"StartQueryPlanning",
 		"StartTransaction",
+		"UpdateDataCellsFilter",
 		"UpdateLFTag",
+		"UpdateLFTagExpression",
+		"UpdateLakeFormationIdentityCenterConfiguration",
 		"UpdateResource",
+		"UpdateTableObjects",
+		"UpdateTableStorageOptimizer",
 	}
 
 	assert.Equal(t, expected, ops)
