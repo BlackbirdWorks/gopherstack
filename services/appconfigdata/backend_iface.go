@@ -11,8 +11,11 @@ type StorageBackend interface {
 	SetConfiguration(app, env, profile, content, contentType string) error
 	// StartSession creates a new retrieval session and returns the initial token.
 	StartSession(app, env, profile string, pollIntervalInSeconds int) (string, error)
-	// GetLatestConfiguration retrieves configuration data for the given token and returns content, contentType, nextToken, contentHash.
-	GetLatestConfiguration(token string) (content []byte, contentType string, nextToken string, contentHash string, err error)
+	// GetLatestConfiguration retrieves configuration for the token.
+	// Returns content, contentType, nextToken, contentHash.
+	GetLatestConfiguration(
+		token string,
+	) (content []byte, contentType string, nextToken string, contentHash string, err error)
 	// LookupSession returns the session for the given token, or nil if not found.
 	LookupSession(token string) *Session
 	// ListProfiles returns all stored configuration profiles.

@@ -17,9 +17,9 @@ import (
 
 // InMemoryBackend implements StorageBackend for AppConfigData.
 type InMemoryBackend struct {
-	profiles   map[string]*ConfigurationProfile
-	sessions   map[string]*Session
-	mu         *lockmetrics.RWMutex
+	profiles    map[string]*ConfigurationProfile
+	sessions    map[string]*Session
+	mu          *lockmetrics.RWMutex
 	lastSweepAt atomic.Int64 // unix nanoseconds; accessed without the lock
 }
 
@@ -38,6 +38,7 @@ func profileKey(app, env, profile string) string {
 
 func contentHash(content string) string {
 	sum := sha256.Sum256([]byte(content))
+
 	return hex.EncodeToString(sum[:])
 }
 
@@ -88,7 +89,10 @@ func (b *InMemoryBackend) SetConfiguration(app, env, profile, content, contentTy
 
 // StartSession creates a new retrieval session and returns the initial token.
 // pollIntervalInSeconds must be 0 (use default) or >= minPollIntervalSeconds.
-func (b *InMemoryBackend) StartSession(app, env, profile string, pollIntervalInSeconds int) (string, error) {
+func (b *InMemoryBackend) StartSession(
+	app, env, profile string,
+	pollIntervalInSeconds int,
+) (string, error) {
 	if pollIntervalInSeconds != 0 && pollIntervalInSeconds < minPollIntervalSeconds {
 		return "", ErrInvalidPollInterval
 	}
@@ -118,7 +122,9 @@ func (b *InMemoryBackend) StartSession(app, env, profile string, pollIntervalInS
 }
 
 // GetLatestConfiguration retrieves configuration data for the given token and returns a new token.
-func (b *InMemoryBackend) GetLatestConfiguration(token string) ([]byte, string, string, string, error) {
+func (b *InMemoryBackend) GetLatestConfiguration(
+	token string,
+) ([]byte, string, string, string, error) {
 	b.mu.Lock("GetLatestConfiguration")
 	defer b.mu.Unlock()
 
@@ -127,7 +133,11 @@ func (b *InMemoryBackend) GetLatestConfiguration(token string) ([]byte, string, 
 		return nil, "", "", "", ErrSessionNotFound
 	}
 
-	key := profileKey(sess.ApplicationIdentifier, sess.EnvironmentIdentifier, sess.ConfigurationProfileIdentifier)
+	key := profileKey(
+		sess.ApplicationIdentifier,
+		sess.EnvironmentIdentifier,
+		sess.ConfigurationProfileIdentifier,
+	)
 	profile := b.profiles[key]
 
 	var content []byte
@@ -275,7 +285,8 @@ func (b *InMemoryBackend) SweepExpiredSessions(ctx context.Context, ttl time.Dur
 	diff := beforeCount - afterCount
 	if diff > 0 {
 		telemetry.RecordWorkerItems("appconfigdata", "SessionSweeper", diff)
-		logger.Load(ctx).InfoContext(ctx, "AppConfig Data janitor: expired sessions purged", "count", diff)
+		logger.Load(ctx).
+			InfoContext(ctx, "AppConfig Data janitor: expired sessions purged", "count", diff)
 	}
 
 	telemetry.RecordWorkerTask("appconfigdata", "SessionSweeper", "success")

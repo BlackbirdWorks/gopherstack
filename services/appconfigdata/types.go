@@ -27,7 +27,9 @@ var (
 	// ErrContentTooLarge is returned when configuration content exceeds the size limit.
 	ErrContentTooLarge = errors.New("bad request: content exceeds maximum size of 1 MiB")
 	// ErrInvalidPollInterval is returned when RequiredMinimumPollIntervalInSeconds is out of range.
-	ErrInvalidPollInterval = errors.New("bad request: RequiredMinimumPollIntervalInSeconds must be 0 or >= 15")
+	ErrInvalidPollInterval = errors.New(
+		"bad request: RequiredMinimumPollIntervalInSeconds must be 0 or >= 15",
+	)
 )
 
 // ConfigVersion records a historical snapshot of configuration content.
@@ -64,11 +66,11 @@ type Session struct {
 
 // ServiceStats holds aggregate metrics for the AppConfigData service.
 type ServiceStats struct {
-	SessionCount  int       `json:"sessionCount"`
-	ProfileCount  int       `json:"profileCount"`
 	LastSweepAt   time.Time `json:"lastSweepAt"`
 	SessionTTL    string    `json:"sessionTtl"`
 	JanitorPeriod string    `json:"janitorPeriod"`
+	SessionCount  int       `json:"sessionCount"`
+	ProfileCount  int       `json:"profileCount"`
 }
 
 // startSessionRequest is the JSON body for StartConfigurationSession.

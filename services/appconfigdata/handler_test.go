@@ -72,7 +72,11 @@ func TestHandler_ChaosInterface(t *testing.T) {
 	h := newTestHandler(t)
 
 	assert.Equal(t, "appconfigdata", h.ChaosServiceName())
-	assert.Equal(t, []string{"StartConfigurationSession", "GetLatestConfiguration"}, h.ChaosOperations())
+	assert.Equal(
+		t,
+		[]string{"StartConfigurationSession", "GetLatestConfiguration"},
+		h.ChaosOperations(),
+	)
 	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
 	assert.Equal(t, 86, h.MatchPriority())
 }
@@ -127,7 +131,12 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			path:   "/configuration?configuration_token=abc123",
 			want:   "GetLatestConfiguration",
 		},
-		{name: "unknown", method: http.MethodDelete, path: "/configurationsessions", want: "Unknown"},
+		{
+			name:   "unknown",
+			method: http.MethodDelete,
+			path:   "/configurationsessions",
+			want:   "Unknown",
+		},
 	}
 
 	for _, tt := range tests {
@@ -165,7 +174,16 @@ func TestHandler_ExtractResource(t *testing.T) {
 			name:   "get_latest_with_known_token_returns_profile",
 			method: http.MethodGet,
 			setup: func(h *appconfigdata.Handler) string {
-				require.NoError(t, h.Backend.SetConfiguration("my-app", "prod", "my-profile", `{}`, "application/json"))
+				require.NoError(
+					t,
+					h.Backend.SetConfiguration(
+						"my-app",
+						"prod",
+						"my-profile",
+						`{}`,
+						"application/json",
+					),
+				)
 				token, _ := h.Backend.StartSession("my-app", "prod", "my-profile", 0)
 
 				return "/configuration?configuration_token=" + token
@@ -219,13 +237,17 @@ func TestHandler_StartConfigurationSession(t *testing.T) {
 			wantToken:  true,
 		},
 		{
-			name:       "missing_application",
-			body:       []byte(`{"EnvironmentIdentifier":"prod","ConfigurationProfileIdentifier":"my-profile"}`),
+			name: "missing_application",
+			body: []byte(
+				`{"EnvironmentIdentifier":"prod","ConfigurationProfileIdentifier":"my-profile"}`,
+			),
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "missing_environment",
-			body:       []byte(`{"ApplicationIdentifier":"my-app","ConfigurationProfileIdentifier":"my-profile"}`),
+			name: "missing_environment",
+			body: []byte(
+				`{"ApplicationIdentifier":"my-app","ConfigurationProfileIdentifier":"my-profile"}`,
+			),
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -294,14 +316,29 @@ func TestHandler_GetLatestConfiguration(t *testing.T) {
 			h := newTestHandler(t)
 
 			if tt.name == "invalid_token" {
-				rec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token=bad-token", nil)
+				rec := doRequest(
+					t,
+					h,
+					http.MethodGet,
+					"/configuration?configuration_token=bad-token",
+					nil,
+				)
 				assert.Equal(t, tt.wantStatus, rec.Code)
 
 				return
 			}
 
 			if tt.hasProfile {
-				require.NoError(t, h.Backend.SetConfiguration("my-app", "prod", "my-profile", tt.content, tt.contentType))
+				require.NoError(
+					t,
+					h.Backend.SetConfiguration(
+						"my-app",
+						"prod",
+						"my-profile",
+						tt.content,
+						tt.contentType,
+					),
+				)
 			}
 
 			// Start a session to get an initial token.
@@ -337,7 +374,10 @@ func TestHandler_TokenRotation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	require.NoError(t, h.Backend.SetConfiguration("app", "env", "profile", `{"v":1}`, "application/json"))
+	require.NoError(
+		t,
+		h.Backend.SetConfiguration("app", "env", "profile", `{"v":1}`, "application/json"),
+	)
 
 	// Start session.
 	sessionBody := []byte(
@@ -477,7 +517,10 @@ func TestBackend_SetConfiguration_ContentHash(t *testing.T) {
 	t.Parallel()
 
 	b := appconfigdata.NewInMemoryBackend()
-	require.NoError(t, b.SetConfiguration("app", "env", "profile", `{"key":"value"}`, "application/json"))
+	require.NoError(
+		t,
+		b.SetConfiguration("app", "env", "profile", `{"key":"value"}`, "application/json"),
+	)
 
 	profiles := b.ListProfiles()
 	require.Len(t, profiles, 1)
@@ -529,9 +572,8 @@ func TestHandler_PollIntervalValidation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	body := []byte(
-		`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env","ConfigurationProfileIdentifier":"profile","RequiredMinimumPollIntervalInSeconds":5}`,
-	)
+	body := []byte(`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env",` +
+		`"ConfigurationProfileIdentifier":"profile","RequiredMinimumPollIntervalInSeconds":5}`)
 	rec := doRequest(t, h, http.MethodPost, "/configurationsessions", body)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -540,7 +582,10 @@ func TestHandler_PollIntervalDefault(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	require.NoError(t, h.Backend.SetConfiguration("app", "env", "profile", `{}`, "application/json"))
+	require.NoError(
+		t,
+		h.Backend.SetConfiguration("app", "env", "profile", `{}`, "application/json"),
+	)
 
 	sessionBody := []byte(
 		`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env","ConfigurationProfileIdentifier":"profile"}`,
@@ -563,11 +608,13 @@ func TestHandler_PollIntervalHonored(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	require.NoError(t, h.Backend.SetConfiguration("app", "env", "profile", `{}`, "application/json"))
-
-	sessionBody := []byte(
-		`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env","ConfigurationProfileIdentifier":"profile","RequiredMinimumPollIntervalInSeconds":60}`,
+	require.NoError(
+		t,
+		h.Backend.SetConfiguration("app", "env", "profile", `{}`, "application/json"),
 	)
+
+	sessionBody := []byte(`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env",` +
+		`"ConfigurationProfileIdentifier":"profile","RequiredMinimumPollIntervalInSeconds":60}`)
 	sessionRec := doRequest(t, h, http.MethodPost, "/configurationsessions", sessionBody)
 	require.Equal(t, http.StatusCreated, sessionRec.Code)
 
@@ -590,7 +637,8 @@ func TestBackend_PollCount(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := range 3 {
-		_, _, nextToken, _, err := b.GetLatestConfiguration(token)
+		var nextToken string
+		_, _, nextToken, _, err = b.GetLatestConfiguration(token)
 		require.NoError(t, err)
 		token = nextToken
 
