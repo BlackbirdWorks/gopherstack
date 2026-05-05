@@ -24,6 +24,7 @@ const (
 	autoscalingXMLNS             = "http://autoscaling.amazonaws.com/doc/2011-01-01/"
 	errValidationError           = "ValidationError"
 	resourceTypeAutoScalingGroup = "auto-scaling-group"
+	formValueTrue                = "true"
 )
 
 // Handler is the Echo HTTP handler for Autoscaling operations.
@@ -68,6 +69,47 @@ func (h *Handler) buildDispatchTable() map[string]func(url.Values) (any, error) 
 		"DeleteTags":                          h.handleDeleteTags,
 		"DescribeTags":                        h.handleDescribeTags,
 		"DescribeAutoScalingInstances":        h.handleDescribeAutoScalingInstances,
+		// New operations
+		"DeleteNotificationConfiguration":      h.handleDeleteNotificationConfiguration,
+		"DeletePolicy":                         h.handleDeletePolicy,
+		"DeleteScheduledAction":                h.handleDeleteScheduledAction,
+		"DeleteWarmPool":                       h.handleDeleteWarmPool,
+		"DescribeAccountLimits":                h.handleDescribeAccountLimits,
+		"DescribeAdjustmentTypes":              h.handleDescribeAdjustmentTypes,
+		"DescribeAutoScalingNotificationTypes": h.handleDescribeAutoScalingNotificationTypes,
+		"DescribeInstanceRefreshes":            h.handleDescribeInstanceRefreshes,
+		"DescribeLifecycleHookTypes":           h.handleDescribeLifecycleHookTypes,
+		"DescribeLoadBalancerTargetGroups":     h.handleDescribeLoadBalancerTargetGroups,
+		"DescribeLoadBalancers":                h.handleDescribeLoadBalancers,
+		"DescribeMetricCollectionTypes":        h.handleDescribeMetricCollectionTypes,
+		"DescribeNotificationConfigurations":   h.handleDescribeNotificationConfigurations,
+		"DescribePolicies":                     h.handleDescribePolicies,
+		"DescribeScalingProcessTypes":          h.handleDescribeScalingProcessTypes,
+		"DescribeTerminationPolicyTypes":       h.handleDescribeTerminationPolicyTypes,
+		"DescribeTrafficSources":               h.handleDescribeTrafficSources,
+		"DescribeWarmPool":                     h.handleDescribeWarmPool,
+		"DetachInstances":                      h.handleDetachInstances,
+		"DetachLoadBalancerTargetGroups":       h.handleDetachLoadBalancerTargetGroups,
+		"DetachLoadBalancers":                  h.handleDetachLoadBalancers,
+		"DetachTrafficSources":                 h.handleDetachTrafficSources,
+		"DisableMetricsCollection":             h.handleDisableMetricsCollection,
+		"EnableMetricsCollection":              h.handleEnableMetricsCollection,
+		"EnterStandby":                         h.handleEnterStandby,
+		"ExecutePolicy":                        h.handleExecutePolicy,
+		"ExitStandby":                          h.handleExitStandby,
+		"GetPredictiveScalingForecast":         h.handleGetPredictiveScalingForecast,
+		"LaunchInstances":                      h.handleLaunchInstances,
+		"PutNotificationConfiguration":         h.handlePutNotificationConfiguration,
+		"PutScalingPolicy":                     h.handlePutScalingPolicy,
+		"PutScheduledUpdateGroupAction":        h.handlePutScheduledUpdateGroupAction,
+		"PutWarmPool":                          h.handlePutWarmPool,
+		"RecordLifecycleActionHeartbeat":       h.handleRecordLifecycleActionHeartbeat,
+		"ResumeProcesses":                      h.handleResumeProcesses,
+		"RollbackInstanceRefresh":              h.handleRollbackInstanceRefresh,
+		"SetInstanceHealth":                    h.handleSetInstanceHealth,
+		"SetInstanceProtection":                h.handleSetInstanceProtection,
+		"StartInstanceRefresh":                 h.handleStartInstanceRefresh,
+		"SuspendProcesses":                     h.handleSuspendProcesses,
 	}
 }
 
@@ -103,6 +145,47 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteTags",
 		"DescribeTags",
 		"DescribeAutoScalingInstances",
+		// New operations
+		"DeleteNotificationConfiguration",
+		"DeletePolicy",
+		"DeleteScheduledAction",
+		"DeleteWarmPool",
+		"DescribeAccountLimits",
+		"DescribeAdjustmentTypes",
+		"DescribeAutoScalingNotificationTypes",
+		"DescribeInstanceRefreshes",
+		"DescribeLifecycleHookTypes",
+		"DescribeLoadBalancerTargetGroups",
+		"DescribeLoadBalancers",
+		"DescribeMetricCollectionTypes",
+		"DescribeNotificationConfigurations",
+		"DescribePolicies",
+		"DescribeScalingProcessTypes",
+		"DescribeTerminationPolicyTypes",
+		"DescribeTrafficSources",
+		"DescribeWarmPool",
+		"DetachInstances",
+		"DetachLoadBalancerTargetGroups",
+		"DetachLoadBalancers",
+		"DetachTrafficSources",
+		"DisableMetricsCollection",
+		"EnableMetricsCollection",
+		"EnterStandby",
+		"ExecutePolicy",
+		"ExitStandby",
+		"GetPredictiveScalingForecast",
+		"LaunchInstances",
+		"PutNotificationConfiguration",
+		"PutScalingPolicy",
+		"PutScheduledUpdateGroupAction",
+		"PutWarmPool",
+		"RecordLifecycleActionHeartbeat",
+		"ResumeProcesses",
+		"RollbackInstanceRefresh",
+		"SetInstanceHealth",
+		"SetInstanceProtection",
+		"StartInstanceRefresh",
+		"SuspendProcesses",
 	}
 }
 
@@ -377,7 +460,7 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 
 func (h *Handler) handleDeleteAutoScalingGroup(vals url.Values) (any, error) {
 	name := vals.Get("AutoScalingGroupName")
-	forceDelete := vals.Get("ForceDelete") == "true"
+	forceDelete := vals.Get("ForceDelete") == formValueTrue
 
 	if err := h.Backend.DeleteAutoScalingGroup(name, forceDelete); err != nil {
 		return nil, err
@@ -665,7 +748,7 @@ func (h *Handler) handleSetDesiredCapacity(vals url.Values) (any, error) {
 
 func (h *Handler) handleTerminateInstanceInAutoScalingGroup(vals url.Values) (any, error) {
 	instanceID := vals.Get("InstanceId")
-	decrement := vals.Get("ShouldDecrementDesiredCapacity") == "true"
+	decrement := vals.Get("ShouldDecrementDesiredCapacity") == formValueTrue
 
 	activity, err := h.Backend.TerminateInstanceInAutoScalingGroup(instanceID, decrement)
 	if err != nil {
@@ -866,6 +949,8 @@ func autoscalingErrorCode(opErr error) string {
 		{ErrLifecycleHookNotFound, errValidationError},
 		{ErrScalingActivityInProgress, "ScalingActivityInProgress"},
 		{ErrInstanceNotFound, errValidationError},
+		{ErrWarmPoolNotFound, errValidationError},
+		{ErrPolicyNotFound, errValidationError},
 	}
 
 	for _, m := range mappings {
@@ -1554,4 +1639,1265 @@ func (h *Handler) Purge(ctx context.Context, cutoff time.Time) {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Purge(ctx, cutoff)
 	}
+}
+
+// --- New handler implementations ---
+
+func (h *Handler) handleDescribeAccountLimits(_ url.Values) (any, error) {
+	limits, err := h.Backend.DescribeAccountLimits()
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeAccountLimitsResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeAccountLimitsResult{
+			MaxNumberOfAutoScalingGroups:    limits.MaxNumberOfAutoScalingGroups,
+			MaxNumberOfLaunchConfigurations: limits.MaxNumberOfLaunchConfigurations,
+			NumberOfAutoScalingGroups:       limits.NumberOfAutoScalingGroups,
+			NumberOfLaunchConfigurations:    limits.NumberOfLaunchConfigurations,
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-account-limits"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeAdjustmentTypes(_ url.Values) (any, error) {
+	types, err := h.Backend.DescribeAdjustmentTypes()
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlAdjustmentType, 0, len(types))
+	for _, t := range types {
+		members = append(members, xmlAdjustmentType{AdjustmentType: t})
+	}
+
+	return &describeAdjustmentTypesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeAdjustmentTypesResult{
+			AdjustmentTypes: xmlAdjustmentTypeList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-adjustment-types"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeAutoScalingNotificationTypes(_ url.Values) (any, error) {
+	types, err := h.Backend.DescribeAutoScalingNotificationTypes()
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlStringValue, 0, len(types))
+	for _, t := range types {
+		members = append(members, xmlStringValue{Value: t})
+	}
+
+	return &describeAutoScalingNotificationTypesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeAutoScalingNotificationTypesResult{
+			AutoScalingNotificationTypes: xmlStringValueList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-notification-types"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeLifecycleHookTypes(_ url.Values) (any, error) {
+	types, err := h.Backend.DescribeLifecycleHookTypes()
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlStringValue, 0, len(types))
+	for _, t := range types {
+		members = append(members, xmlStringValue{Value: t})
+	}
+
+	return &describeLifecycleHookTypesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeLifecycleHookTypesResult{
+			LifecycleHookTypes: xmlStringValueList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-lifecycle-hook-types"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeMetricCollectionTypes(_ url.Values) (any, error) {
+	metrics, err := h.Backend.DescribeMetricCollectionTypes()
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlMetricCollectionType, 0, len(metrics))
+	for _, m := range metrics {
+		members = append(members, xmlMetricCollectionType(m))
+	}
+
+	return &describeMetricCollectionTypesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeMetricCollectionTypesResult{
+			Metrics: xmlMetricCollectionTypeList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-metric-collection-types"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeScalingProcessTypes(_ url.Values) (any, error) {
+	types, err := h.Backend.DescribeScalingProcessTypes()
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlProcessType, 0, len(types))
+	for _, t := range types {
+		members = append(members, xmlProcessType{ProcessName: t})
+	}
+
+	return &describeScalingProcessTypesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeScalingProcessTypesResult{
+			Processes: xmlProcessTypeList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-scaling-process-types"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeTerminationPolicyTypes(_ url.Values) (any, error) {
+	types, err := h.Backend.DescribeTerminationPolicyTypes()
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlStringValue, 0, len(types))
+	for _, t := range types {
+		members = append(members, xmlStringValue{Value: t})
+	}
+
+	return &describeTerminationPolicyTypesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeTerminationPolicyTypesResult{
+			TerminationPolicyTypes: xmlStringValueList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-termination-policy-types"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeInstanceRefreshes(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	refreshIDs := parseMembers(vals, "InstanceRefreshIds.member")
+
+	refreshes, err := h.Backend.DescribeInstanceRefreshes(groupName, refreshIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlInstanceRefresh, 0, len(refreshes))
+	for _, r := range refreshes {
+		members = append(members, xmlInstanceRefresh{
+			InstanceRefreshID:    r.InstanceRefreshID,
+			AutoScalingGroupName: r.AutoScalingGroupName,
+			Status:               r.Status,
+			StartTime:            r.StartTime.UTC().Format(time.RFC3339),
+		})
+	}
+
+	return &describeInstanceRefreshesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeInstanceRefreshesResult{
+			InstanceRefreshes: xmlInstanceRefreshList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-instance-refreshes"},
+	}, nil
+}
+
+func (h *Handler) handleStartInstanceRefresh(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	refresh, err := h.Backend.StartInstanceRefresh(groupName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startInstanceRefreshResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: startInstanceRefreshResult{
+			InstanceRefreshID: refresh.InstanceRefreshID,
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-start-instance-refresh"},
+	}, nil
+}
+
+func (h *Handler) handleRollbackInstanceRefresh(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	refreshID, err := h.Backend.RollbackInstanceRefresh(groupName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rollbackInstanceRefreshResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: rollbackInstanceRefreshResult{
+			InstanceRefreshID: refreshID,
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-rollback-instance-refresh"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	lbs, err := h.Backend.DescribeLoadBalancers(groupName)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlLoadBalancerState, 0, len(lbs))
+	for _, lb := range lbs {
+		members = append(members, xmlLoadBalancerState(lb))
+	}
+
+	return &describeLoadBalancersResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeLoadBalancersResult{
+			LoadBalancers: xmlLoadBalancerStateList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-load-balancers"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeLoadBalancerTargetGroups(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	tgs, err := h.Backend.DescribeLoadBalancerTargetGroups(groupName)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlLoadBalancerTargetGroupState, 0, len(tgs))
+	for _, tg := range tgs {
+		members = append(members, xmlLoadBalancerTargetGroupState(tg))
+	}
+
+	return &describeLoadBalancerTargetGroupsResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeLoadBalancerTargetGroupsResult{
+			LoadBalancerTargetGroups: xmlLoadBalancerTargetGroupStateList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-lb-target-groups"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeTrafficSources(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	sources, err := h.Backend.DescribeTrafficSources(groupName)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlTrafficSourceState, 0, len(sources))
+	for _, s := range sources {
+		members = append(members, xmlTrafficSourceState(s))
+	}
+
+	return &describeTrafficSourcesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeTrafficSourcesResult{
+			TrafficSources: xmlTrafficSourceStateList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-traffic-sources"},
+	}, nil
+}
+
+func (h *Handler) handleDetachInstances(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	instanceIDs := parseMembers(vals, "InstanceIds.member")
+	decrement := vals.Get("ShouldDecrementDesiredCapacity") == formValueTrue
+
+	activities, err := h.Backend.DetachInstances(groupName, instanceIDs, decrement)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlScalingActivity, 0, len(activities))
+	for i := range activities {
+		members = append(members, toXMLScalingActivity(&activities[i]))
+	}
+
+	return &detachInstancesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: detachInstancesResult{
+			Activities: xmlScalingActivityList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-detach-instances"},
+	}, nil
+}
+
+func (h *Handler) handleDetachLoadBalancerTargetGroups(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	targetGroupARNs := parseMembers(vals, "TargetGroupARNs.member")
+
+	if err := h.Backend.DetachLoadBalancerTargetGroups(groupName, targetGroupARNs); err != nil {
+		return nil, err
+	}
+
+	return &detachLoadBalancerTargetGroupsResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-detach-lb-target-groups"},
+	}, nil
+}
+
+func (h *Handler) handleDetachLoadBalancers(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	lbNames := parseMembers(vals, "LoadBalancerNames.member")
+
+	if err := h.Backend.DetachLoadBalancers(groupName, lbNames); err != nil {
+		return nil, err
+	}
+
+	return &detachLoadBalancersResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-detach-load-balancers"},
+	}, nil
+}
+
+func (h *Handler) handleDetachTrafficSources(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	tss := parseTrafficSources(vals)
+
+	if err := h.Backend.DetachTrafficSources(groupName, tss); err != nil {
+		return nil, err
+	}
+
+	return &detachTrafficSourcesResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-detach-traffic-sources"},
+	}, nil
+}
+
+func (h *Handler) handleEnableMetricsCollection(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	metrics := parseMembers(vals, "Metrics.member")
+	granularity := vals.Get("Granularity")
+
+	if err := h.Backend.EnableMetricsCollection(groupName, metrics, granularity); err != nil {
+		return nil, err
+	}
+
+	return &enableMetricsCollectionResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-enable-metrics-collection"},
+	}, nil
+}
+
+func (h *Handler) handleDisableMetricsCollection(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	metrics := parseMembers(vals, "Metrics.member")
+
+	if err := h.Backend.DisableMetricsCollection(groupName, metrics); err != nil {
+		return nil, err
+	}
+
+	return &disableMetricsCollectionResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-disable-metrics-collection"},
+	}, nil
+}
+
+func (h *Handler) handleSuspendProcesses(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	processes := parseMembers(vals, "ScalingProcesses.member")
+
+	if err := h.Backend.SuspendProcesses(groupName, processes); err != nil {
+		return nil, err
+	}
+
+	return &suspendProcessesResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-suspend-processes"},
+	}, nil
+}
+
+func (h *Handler) handleResumeProcesses(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	processes := parseMembers(vals, "ScalingProcesses.member")
+
+	if err := h.Backend.ResumeProcesses(groupName, processes); err != nil {
+		return nil, err
+	}
+
+	return &resumeProcessesResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-resume-processes"},
+	}, nil
+}
+
+func (h *Handler) handleEnterStandby(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	instanceIDs := parseMembers(vals, "InstanceIds.member")
+	decrement := vals.Get("ShouldDecrementDesiredCapacity") == formValueTrue
+
+	activities, err := h.Backend.EnterStandby(groupName, instanceIDs, decrement)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlScalingActivity, 0, len(activities))
+	for i := range activities {
+		members = append(members, toXMLScalingActivity(&activities[i]))
+	}
+
+	return &enterStandbyResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: enterStandbyResult{
+			Activities: xmlScalingActivityList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-enter-standby"},
+	}, nil
+}
+
+func (h *Handler) handleExitStandby(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	instanceIDs := parseMembers(vals, "InstanceIds.member")
+
+	activities, err := h.Backend.ExitStandby(groupName, instanceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlScalingActivity, 0, len(activities))
+	for i := range activities {
+		members = append(members, toXMLScalingActivity(&activities[i]))
+	}
+
+	return &exitStandbyResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: exitStandbyResult{
+			Activities: xmlScalingActivityList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-exit-standby"},
+	}, nil
+}
+
+func (h *Handler) handleSetInstanceHealth(vals url.Values) (any, error) {
+	instanceID := vals.Get("InstanceId")
+	healthStatus := vals.Get("HealthStatus")
+	respectGracePeriod := vals.Get("ShouldRespectGracePeriod") != "false"
+
+	if err := h.Backend.SetInstanceHealth(instanceID, healthStatus, respectGracePeriod); err != nil {
+		return nil, err
+	}
+
+	return &setInstanceHealthResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-set-instance-health"},
+	}, nil
+}
+
+func (h *Handler) handleSetInstanceProtection(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	instanceIDs := parseMembers(vals, "InstanceIds.member")
+	protected := vals.Get("ProtectedFromScaleIn") == formValueTrue
+
+	if err := h.Backend.SetInstanceProtection(groupName, instanceIDs, protected); err != nil {
+		return nil, err
+	}
+
+	return &setInstanceProtectionResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-set-instance-protection"},
+	}, nil
+}
+
+func (h *Handler) handleRecordLifecycleActionHeartbeat(vals url.Values) (any, error) {
+	input := RecordLifecycleActionHeartbeatInput{
+		AutoScalingGroupName: vals.Get("AutoScalingGroupName"),
+		LifecycleHookName:    vals.Get("LifecycleHookName"),
+		LifecycleActionToken: vals.Get("LifecycleActionToken"),
+		InstanceID:           vals.Get("InstanceId"),
+	}
+
+	if err := h.Backend.RecordLifecycleActionHeartbeat(input); err != nil {
+		return nil, err
+	}
+
+	return &recordLifecycleActionHeartbeatResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-record-lifecycle-heartbeat"},
+	}, nil
+}
+
+func (h *Handler) handleExecutePolicy(vals url.Values) (any, error) {
+	input := ExecutePolicyInput{
+		AutoScalingGroupName: vals.Get("AutoScalingGroupName"),
+		PolicyName:           vals.Get("PolicyName"),
+		HonorCooldown:        vals.Get("HonorCooldown") == formValueTrue,
+	}
+
+	if err := h.Backend.ExecutePolicy(input); err != nil {
+		return nil, err
+	}
+
+	return &executePolicyResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-execute-policy"},
+	}, nil
+}
+
+func (h *Handler) handleLaunchInstances(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	desiredCapacity, err := parseIntVal(vals.Get("DesiredCapacity"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid DesiredCapacity", ErrInvalidParameter)
+	}
+
+	count := int32(1)
+	if desiredCapacity > 0 {
+		count = desiredCapacity
+	}
+
+	instances, launchErr := h.Backend.LaunchInstances(groupName, count)
+	if launchErr != nil {
+		return nil, launchErr
+	}
+
+	members := make([]xmlInstance, 0, len(instances))
+	for _, inst := range instances {
+		members = append(members, xmlInstance{
+			InstanceID:              inst.InstanceID,
+			AvailabilityZone:        inst.AvailabilityZone,
+			LifecycleState:          inst.LifecycleState,
+			HealthStatus:            inst.HealthStatus,
+			LaunchConfigurationName: inst.LaunchConfigurationName,
+		})
+	}
+
+	return &launchInstancesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: launchInstancesResult{
+			Instances: xmlInstanceList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-launch-instances"},
+	}, nil
+}
+
+func (h *Handler) handleGetPredictiveScalingForecast(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	if err := h.Backend.GetPredictiveScalingForecast(groupName); err != nil {
+		return nil, err
+	}
+
+	return &getPredictiveScalingForecastResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: getPredictiveScalingForecastResult{
+			CapacityForecast: xmlCapacityForecast{},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-get-predictive-scaling-forecast"},
+	}, nil
+}
+
+func (h *Handler) handlePutNotificationConfiguration(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	topicARN := vals.Get("TopicARN")
+	types := parseMembers(vals, "NotificationTypes.member")
+
+	if err := h.Backend.PutNotificationConfiguration(groupName, topicARN, types); err != nil {
+		return nil, err
+	}
+
+	return &putNotificationConfigurationResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-put-notification-configuration"},
+	}, nil
+}
+
+func (h *Handler) handleDeleteNotificationConfiguration(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	topicARN := vals.Get("TopicARN")
+
+	if err := h.Backend.DeleteNotificationConfiguration(groupName, topicARN); err != nil {
+		return nil, err
+	}
+
+	return &deleteNotificationConfigurationResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-delete-notification-configuration"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeNotificationConfigurations(vals url.Values) (any, error) {
+	groupNames := parseMembers(vals, "AutoScalingGroupNames.member")
+
+	configs, err := h.Backend.DescribeNotificationConfigurations(groupNames)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlNotificationConfiguration, 0, len(configs))
+	for _, c := range configs {
+		members = append(members, xmlNotificationConfiguration(c))
+	}
+
+	return &describeNotificationConfigurationsResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeNotificationConfigurationsResult{
+			NotificationConfigurations: xmlNotificationConfigurationList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-notification-configurations"},
+	}, nil
+}
+
+func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
+	scalingAdjustment, err := parseIntVal(vals.Get("ScalingAdjustment"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid ScalingAdjustment", ErrInvalidParameter)
+	}
+
+	minAdjustmentStep, err := parseIntVal(vals.Get("MinAdjustmentStep"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid MinAdjustmentStep", ErrInvalidParameter)
+	}
+
+	cooldown, err := parseIntVal(vals.Get("Cooldown"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Cooldown", ErrInvalidParameter)
+	}
+
+	input := ScalingPolicyInput{
+		AutoScalingGroupName: vals.Get("AutoScalingGroupName"),
+		PolicyName:           vals.Get("PolicyName"),
+		PolicyType:           vals.Get("PolicyType"),
+		AdjustmentType:       vals.Get("AdjustmentType"),
+		ScalingAdjustment:    scalingAdjustment,
+		MinAdjustmentStep:    minAdjustmentStep,
+		Cooldown:             cooldown,
+	}
+
+	policy, putErr := h.Backend.PutScalingPolicy(input)
+	if putErr != nil {
+		return nil, putErr
+	}
+
+	return &putScalingPolicyResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: putScalingPolicyResult{
+			PolicyARN: policy.PolicyARN,
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-put-scaling-policy"},
+	}, nil
+}
+
+func (h *Handler) handleDeletePolicy(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	policyName := vals.Get("PolicyName")
+
+	if err := h.Backend.DeletePolicy(groupName, policyName); err != nil {
+		return nil, err
+	}
+
+	return &deletePolicyResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-delete-policy"},
+	}, nil
+}
+
+func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	policyNames := parseMembers(vals, "PolicyNames.member")
+
+	policies, err := h.Backend.DescribePolicies(groupName, policyNames)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlScalingPolicy, 0, len(policies))
+	for _, p := range policies {
+		members = append(members, xmlScalingPolicy{
+			PolicyName:           p.PolicyName,
+			PolicyARN:            p.PolicyARN,
+			AutoScalingGroupName: p.AutoScalingGroupName,
+			PolicyType:           p.PolicyType,
+			AdjustmentType:       p.AdjustmentType,
+			ScalingAdjustment:    p.ScalingAdjustment,
+			Cooldown:             p.Cooldown,
+		})
+	}
+
+	return &describePoliciesResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describePoliciesResult{
+			ScalingPolicies: xmlScalingPolicyList{Members: members},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-policies"},
+	}, nil
+}
+
+func (h *Handler) handlePutScheduledUpdateGroupAction(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	action := ScheduledUpdateGroupAction{
+		ScheduledActionName: vals.Get("ScheduledActionName"),
+		Recurrence:          vals.Get("Recurrence"),
+		TimeZone:            vals.Get("TimeZone"),
+	}
+
+	if v := vals.Get("DesiredCapacity"); v != "" {
+		if n, err := parseIntVal(v); err == nil {
+			action.DesiredCapacity = &n
+		}
+	}
+
+	if v := vals.Get("MinSize"); v != "" {
+		if n, err := parseIntVal(v); err == nil {
+			action.MinSize = &n
+		}
+	}
+
+	if v := vals.Get("MaxSize"); v != "" {
+		if n, err := parseIntVal(v); err == nil {
+			action.MaxSize = &n
+		}
+	}
+
+	if err := h.Backend.PutScheduledUpdateGroupAction(groupName, action); err != nil {
+		return nil, err
+	}
+
+	return &putScheduledUpdateGroupActionResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-put-scheduled-action"},
+	}, nil
+}
+
+func (h *Handler) handleDeleteScheduledAction(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+	actionName := vals.Get("ScheduledActionName")
+
+	if err := h.Backend.DeleteScheduledAction(groupName, actionName); err != nil {
+		return nil, err
+	}
+
+	return &deleteScheduledActionResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-delete-scheduled-action"},
+	}, nil
+}
+
+func (h *Handler) handlePutWarmPool(vals url.Values) (any, error) {
+	minSize, err := parseIntVal(vals.Get("MinSize"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid MinSize", ErrInvalidParameter)
+	}
+
+	maxGroupPreparedCapacity, err := parseIntVal(vals.Get("MaxGroupPreparedCapacity"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid MaxGroupPreparedCapacity", ErrInvalidParameter)
+	}
+
+	input := WarmPoolInput{
+		AutoScalingGroupName:     vals.Get("AutoScalingGroupName"),
+		PoolState:                vals.Get("PoolState"),
+		MinSize:                  minSize,
+		MaxGroupPreparedCapacity: maxGroupPreparedCapacity,
+	}
+
+	if putErr := h.Backend.PutWarmPool(input); putErr != nil {
+		return nil, putErr
+	}
+
+	return &putWarmPoolResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-put-warm-pool"},
+	}, nil
+}
+
+func (h *Handler) handleDeleteWarmPool(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	if err := h.Backend.DeleteWarmPool(groupName); err != nil {
+		return nil, err
+	}
+
+	return &deleteWarmPoolResponse{
+		Xmlns:            autoscalingXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-delete-warm-pool"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeWarmPool(vals url.Values) (any, error) {
+	groupName := vals.Get("AutoScalingGroupName")
+
+	wp, err := h.Backend.DescribeWarmPool(groupName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeWarmPoolResponse{
+		Xmlns: autoscalingXMLNS,
+		Result: describeWarmPoolResult{
+			WarmPoolConfiguration: xmlWarmPoolConfiguration{
+				MinSize:   wp.MinSize,
+				PoolState: wp.PoolState,
+				Status:    wp.Status,
+			},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-warm-pool"},
+	}, nil
+}
+
+// --- New XML response types ---
+
+type describeAccountLimitsResult struct {
+	MaxNumberOfAutoScalingGroups    int32 `xml:"MaxNumberOfAutoScalingGroups"`
+	MaxNumberOfLaunchConfigurations int32 `xml:"MaxNumberOfLaunchConfigurations"`
+	NumberOfAutoScalingGroups       int32 `xml:"NumberOfAutoScalingGroups"`
+	NumberOfLaunchConfigurations    int32 `xml:"NumberOfLaunchConfigurations"`
+}
+
+type describeAccountLimitsResponse struct {
+	XMLName          xml.Name                    `xml:"DescribeAccountLimitsResponse"`
+	Xmlns            string                      `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata         `xml:"ResponseMetadata"`
+	Result           describeAccountLimitsResult `xml:"DescribeAccountLimitsResult"`
+}
+
+type xmlAdjustmentType struct {
+	AdjustmentType string `xml:"AdjustmentType"`
+}
+
+type xmlAdjustmentTypeList struct {
+	Members []xmlAdjustmentType `xml:"member"`
+}
+
+type describeAdjustmentTypesResult struct {
+	AdjustmentTypes xmlAdjustmentTypeList `xml:"AdjustmentTypes"`
+}
+
+type describeAdjustmentTypesResponse struct {
+	XMLName          xml.Name                      `xml:"DescribeAdjustmentTypesResponse"`
+	Xmlns            string                        `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata           `xml:"ResponseMetadata"`
+	Result           describeAdjustmentTypesResult `xml:"DescribeAdjustmentTypesResult"`
+}
+
+type describeAutoScalingNotificationTypesResult struct {
+	AutoScalingNotificationTypes xmlStringValueList `xml:"AutoScalingNotificationTypes"`
+}
+
+type describeAutoScalingNotificationTypesResponse struct {
+	XMLName          xml.Name                                   `xml:"DescribeAutoScalingNotificationTypesResponse"`
+	Xmlns            string                                     `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                        `xml:"ResponseMetadata"`
+	Result           describeAutoScalingNotificationTypesResult `xml:"DescribeAutoScalingNotificationTypesResult"`
+}
+
+type describeLifecycleHookTypesResult struct {
+	LifecycleHookTypes xmlStringValueList `xml:"LifecycleHookTypes"`
+}
+
+type describeLifecycleHookTypesResponse struct {
+	XMLName          xml.Name                         `xml:"DescribeLifecycleHookTypesResponse"`
+	Xmlns            string                           `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata              `xml:"ResponseMetadata"`
+	Result           describeLifecycleHookTypesResult `xml:"DescribeLifecycleHookTypesResult"`
+}
+
+type xmlMetricCollectionType struct {
+	Metric      string `xml:"Metric"`
+	Granularity string `xml:"Granularity,omitempty"`
+}
+
+type xmlMetricCollectionTypeList struct {
+	Members []xmlMetricCollectionType `xml:"member"`
+}
+
+type describeMetricCollectionTypesResult struct {
+	Metrics xmlMetricCollectionTypeList `xml:"Metrics"`
+}
+
+type describeMetricCollectionTypesResponse struct {
+	XMLName          xml.Name                            `xml:"DescribeMetricCollectionTypesResponse"`
+	Xmlns            string                              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                 `xml:"ResponseMetadata"`
+	Result           describeMetricCollectionTypesResult `xml:"DescribeMetricCollectionTypesResult"`
+}
+
+type xmlProcessType struct {
+	ProcessName string `xml:"ProcessName"`
+}
+
+type xmlProcessTypeList struct {
+	Members []xmlProcessType `xml:"member"`
+}
+
+type describeScalingProcessTypesResult struct {
+	Processes xmlProcessTypeList `xml:"Processes"`
+}
+
+type describeScalingProcessTypesResponse struct {
+	XMLName          xml.Name                          `xml:"DescribeScalingProcessTypesResponse"`
+	Xmlns            string                            `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata               `xml:"ResponseMetadata"`
+	Result           describeScalingProcessTypesResult `xml:"DescribeScalingProcessTypesResult"`
+}
+
+type describeTerminationPolicyTypesResult struct {
+	TerminationPolicyTypes xmlStringValueList `xml:"TerminationPolicyTypes"`
+}
+
+type describeTerminationPolicyTypesResponse struct {
+	XMLName          xml.Name                             `xml:"DescribeTerminationPolicyTypesResponse"`
+	Xmlns            string                               `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                  `xml:"ResponseMetadata"`
+	Result           describeTerminationPolicyTypesResult `xml:"DescribeTerminationPolicyTypesResult"`
+}
+
+type xmlInstanceRefresh struct {
+	InstanceRefreshID    string `xml:"InstanceRefreshId"`
+	AutoScalingGroupName string `xml:"AutoScalingGroupName"`
+	Status               string `xml:"Status"`
+	StartTime            string `xml:"StartTime"`
+}
+
+type xmlInstanceRefreshList struct {
+	Members []xmlInstanceRefresh `xml:"member"`
+}
+
+type describeInstanceRefreshesResult struct {
+	InstanceRefreshes xmlInstanceRefreshList `xml:"InstanceRefreshes"`
+}
+
+type describeInstanceRefreshesResponse struct {
+	XMLName          xml.Name                        `xml:"DescribeInstanceRefreshesResponse"`
+	Xmlns            string                          `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata             `xml:"ResponseMetadata"`
+	Result           describeInstanceRefreshesResult `xml:"DescribeInstanceRefreshesResult"`
+}
+
+type startInstanceRefreshResult struct {
+	InstanceRefreshID string `xml:"InstanceRefreshId"`
+}
+
+type startInstanceRefreshResponse struct {
+	XMLName          xml.Name                   `xml:"StartInstanceRefreshResponse"`
+	Xmlns            string                     `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata        `xml:"ResponseMetadata"`
+	Result           startInstanceRefreshResult `xml:"StartInstanceRefreshResult"`
+}
+
+type rollbackInstanceRefreshResult struct {
+	InstanceRefreshID string `xml:"InstanceRefreshId"`
+}
+
+type rollbackInstanceRefreshResponse struct {
+	XMLName          xml.Name                      `xml:"RollbackInstanceRefreshResponse"`
+	Xmlns            string                        `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata           `xml:"ResponseMetadata"`
+	Result           rollbackInstanceRefreshResult `xml:"RollbackInstanceRefreshResult"`
+}
+
+type xmlLoadBalancerState struct {
+	LoadBalancerName string `xml:"LoadBalancerName"`
+	State            string `xml:"State"`
+}
+
+type xmlLoadBalancerStateList struct {
+	Members []xmlLoadBalancerState `xml:"member"`
+}
+
+type describeLoadBalancersResult struct {
+	LoadBalancers xmlLoadBalancerStateList `xml:"LoadBalancers"`
+}
+
+type describeLoadBalancersResponse struct {
+	XMLName          xml.Name                    `xml:"DescribeLoadBalancersResponse"`
+	Xmlns            string                      `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata         `xml:"ResponseMetadata"`
+	Result           describeLoadBalancersResult `xml:"DescribeLoadBalancersResult"`
+}
+
+type xmlLoadBalancerTargetGroupState struct {
+	LoadBalancerTargetGroupARN string `xml:"LoadBalancerTargetGroupARN"`
+	State                      string `xml:"State"`
+}
+
+type xmlLoadBalancerTargetGroupStateList struct {
+	Members []xmlLoadBalancerTargetGroupState `xml:"member"`
+}
+
+type describeLoadBalancerTargetGroupsResult struct {
+	LoadBalancerTargetGroups xmlLoadBalancerTargetGroupStateList `xml:"LoadBalancerTargetGroups"`
+}
+
+type describeLoadBalancerTargetGroupsResponse struct {
+	XMLName          xml.Name                               `xml:"DescribeLoadBalancerTargetGroupsResponse"`
+	Xmlns            string                                 `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                    `xml:"ResponseMetadata"`
+	Result           describeLoadBalancerTargetGroupsResult `xml:"DescribeLoadBalancerTargetGroupsResult"`
+}
+
+type xmlTrafficSourceState struct {
+	Identifier string `xml:"Identifier"`
+	Type       string `xml:"Type"`
+	State      string `xml:"State"`
+}
+
+type xmlTrafficSourceStateList struct {
+	Members []xmlTrafficSourceState `xml:"member"`
+}
+
+type describeTrafficSourcesResult struct {
+	TrafficSources xmlTrafficSourceStateList `xml:"TrafficSources"`
+}
+
+type describeTrafficSourcesResponse struct {
+	XMLName          xml.Name                     `xml:"DescribeTrafficSourcesResponse"`
+	Xmlns            string                       `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata          `xml:"ResponseMetadata"`
+	Result           describeTrafficSourcesResult `xml:"DescribeTrafficSourcesResult"`
+}
+
+type detachInstancesResult struct {
+	Activities xmlScalingActivityList `xml:"Activities"`
+}
+
+type detachInstancesResponse struct {
+	XMLName          xml.Name              `xml:"DetachInstancesResponse"`
+	Xmlns            string                `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata   `xml:"ResponseMetadata"`
+	Result           detachInstancesResult `xml:"DetachInstancesResult"`
+}
+
+type detachLoadBalancerTargetGroupsResponse struct {
+	XMLName          xml.Name            `xml:"DetachLoadBalancerTargetGroupsResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type detachLoadBalancersResponse struct {
+	XMLName          xml.Name            `xml:"DetachLoadBalancersResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type detachTrafficSourcesResponse struct {
+	XMLName          xml.Name            `xml:"DetachTrafficSourcesResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type enableMetricsCollectionResponse struct {
+	XMLName          xml.Name            `xml:"EnableMetricsCollectionResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type disableMetricsCollectionResponse struct {
+	XMLName          xml.Name            `xml:"DisableMetricsCollectionResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type suspendProcessesResponse struct {
+	XMLName          xml.Name            `xml:"SuspendProcessesResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type resumeProcessesResponse struct {
+	XMLName          xml.Name            `xml:"ResumeProcessesResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type enterStandbyResult struct {
+	Activities xmlScalingActivityList `xml:"Activities"`
+}
+
+type enterStandbyResponse struct {
+	XMLName          xml.Name            `xml:"EnterStandbyResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	Result           enterStandbyResult  `xml:"EnterStandbyResult"`
+}
+
+type exitStandbyResult struct {
+	Activities xmlScalingActivityList `xml:"Activities"`
+}
+
+type exitStandbyResponse struct {
+	XMLName          xml.Name            `xml:"ExitStandbyResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	Result           exitStandbyResult   `xml:"ExitStandbyResult"`
+}
+
+type setInstanceHealthResponse struct {
+	XMLName          xml.Name            `xml:"SetInstanceHealthResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type setInstanceProtectionResponse struct {
+	XMLName          xml.Name            `xml:"SetInstanceProtectionResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type recordLifecycleActionHeartbeatResponse struct {
+	XMLName          xml.Name            `xml:"RecordLifecycleActionHeartbeatResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type executePolicyResponse struct {
+	XMLName          xml.Name            `xml:"ExecutePolicyResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type launchInstancesResult struct {
+	Instances xmlInstanceList `xml:"Instances"`
+}
+
+type launchInstancesResponse struct {
+	XMLName          xml.Name              `xml:"LaunchInstancesResponse"`
+	Xmlns            string                `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata   `xml:"ResponseMetadata"`
+	Result           launchInstancesResult `xml:"LaunchInstancesResult"`
+}
+
+type xmlCapacityForecast struct {
+	Timestamps xmlStringValueList `xml:"Timestamps"`
+	Values     xmlStringValueList `xml:"Values"`
+}
+
+type getPredictiveScalingForecastResult struct {
+	LoadForecast     []string            `xml:"LoadForecast"`
+	CapacityForecast xmlCapacityForecast `xml:"CapacityForecast"`
+}
+
+type getPredictiveScalingForecastResponse struct {
+	XMLName          xml.Name                           `xml:"GetPredictiveScalingForecastResponse"`
+	Xmlns            string                             `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                `xml:"ResponseMetadata"`
+	Result           getPredictiveScalingForecastResult `xml:"GetPredictiveScalingForecastResult"`
+}
+
+type putNotificationConfigurationResponse struct {
+	XMLName          xml.Name            `xml:"PutNotificationConfigurationResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type deleteNotificationConfigurationResponse struct {
+	XMLName          xml.Name            `xml:"DeleteNotificationConfigurationResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type xmlNotificationConfiguration struct {
+	AutoScalingGroupName string `xml:"AutoScalingGroupName"`
+	TopicARN             string `xml:"TopicARN"`
+	NotificationType     string `xml:"NotificationType"`
+}
+
+type xmlNotificationConfigurationList struct {
+	Members []xmlNotificationConfiguration `xml:"member"`
+}
+
+type describeNotificationConfigurationsResult struct {
+	NotificationConfigurations xmlNotificationConfigurationList `xml:"NotificationConfigurations"`
+}
+
+type describeNotificationConfigurationsResponse struct {
+	XMLName          xml.Name                                 `xml:"DescribeNotificationConfigurationsResponse"`
+	Xmlns            string                                   `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                      `xml:"ResponseMetadata"`
+	Result           describeNotificationConfigurationsResult `xml:"DescribeNotificationConfigurationsResult"`
+}
+
+type putScalingPolicyResult struct {
+	PolicyARN string `xml:"PolicyARN"`
+}
+
+type putScalingPolicyResponse struct {
+	XMLName          xml.Name               `xml:"PutScalingPolicyResponse"`
+	Xmlns            string                 `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata    `xml:"ResponseMetadata"`
+	Result           putScalingPolicyResult `xml:"PutScalingPolicyResult"`
+}
+
+type deletePolicyResponse struct {
+	XMLName          xml.Name            `xml:"DeletePolicyResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type xmlScalingPolicy struct {
+	PolicyName           string `xml:"PolicyName"`
+	PolicyARN            string `xml:"PolicyARN"`
+	AutoScalingGroupName string `xml:"AutoScalingGroupName"`
+	PolicyType           string `xml:"PolicyType,omitempty"`
+	AdjustmentType       string `xml:"AdjustmentType,omitempty"`
+	ScalingAdjustment    int32  `xml:"ScalingAdjustment,omitempty"`
+	Cooldown             int32  `xml:"Cooldown,omitempty"`
+}
+
+type xmlScalingPolicyList struct {
+	Members []xmlScalingPolicy `xml:"member"`
+}
+
+type describePoliciesResult struct {
+	ScalingPolicies xmlScalingPolicyList `xml:"ScalingPolicies"`
+}
+
+type describePoliciesResponse struct {
+	XMLName          xml.Name               `xml:"DescribePoliciesResponse"`
+	Xmlns            string                 `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata    `xml:"ResponseMetadata"`
+	Result           describePoliciesResult `xml:"DescribePoliciesResult"`
+}
+
+type putScheduledUpdateGroupActionResponse struct {
+	XMLName          xml.Name            `xml:"PutScheduledUpdateGroupActionResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type deleteScheduledActionResponse struct {
+	XMLName          xml.Name            `xml:"DeleteScheduledActionResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type putWarmPoolResponse struct {
+	XMLName          xml.Name            `xml:"PutWarmPoolResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type deleteWarmPoolResponse struct {
+	XMLName          xml.Name            `xml:"DeleteWarmPoolResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+type xmlWarmPoolConfiguration struct {
+	PoolState string `xml:"PoolState"`
+	Status    string `xml:"Status"`
+	MinSize   int32  `xml:"MinSize"`
+}
+
+type describeWarmPoolResult struct {
+	WarmPoolConfiguration xmlWarmPoolConfiguration `xml:"WarmPoolConfiguration"`
+}
+
+type describeWarmPoolResponse struct {
+	XMLName          xml.Name               `xml:"DescribeWarmPoolResponse"`
+	Xmlns            string                 `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata    `xml:"ResponseMetadata"`
+	Result           describeWarmPoolResult `xml:"DescribeWarmPoolResult"`
 }
