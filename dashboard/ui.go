@@ -152,6 +152,7 @@ import (
 
 const (
 	keyError                 = "error"
+	keyMessage               = "message"
 	errCognitoIdpUnavailable = "cognito idp backend unavailable"
 	usersResource            = "users"
 )
@@ -676,15 +677,21 @@ func (h *DashboardHandler) setupSubRouter() {
 	})
 
 	// Legacy REST endpoints for test compatibility (Terraform)
-	h.SubRouter.POST("/dashboard/apigatewaymanagementapi/connection/create", h.apiGatewayManagementAPICreateConnection)
+	h.SubRouter.POST(
+		"/dashboard/apigatewaymanagementapi/connection/create",
+		h.apiGatewayManagementAPICreateConnection,
+	)
 	h.SubRouter.POST("/dashboard/appconfigdata/configuration/set", h.appConfigDataSetConfiguration)
 
 	// Connect-RPC server
-	connectPath, connectHandler := dashboardv1connect.NewDashboardServiceHandler(NewConnectDashboardServer())
+	connectPath, connectHandler := dashboardv1connect.NewDashboardServiceHandler(
+		NewConnectDashboardServer(),
+	)
 	h.SubRouter.Any(connectPath+"*", echo.WrapHandler(connectHandler))
 
 	h.SubRouter.GET("/dashboard/api/codestarconnections/connections", func(c *echo.Context) error {
-		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
+		if h.config.CodeStarConnectionsOps == nil ||
+			h.config.CodeStarConnectionsOps.Backend == nil {
 			return c.JSON(http.StatusOK, map[string]any{"connections": []any{}})
 		}
 
@@ -760,7 +767,8 @@ func (h *DashboardHandler) setupSubRouter() {
 	})
 
 	h.SubRouter.POST("/dashboard/api/codestarconnections/connections", func(c *echo.Context) error {
-		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
+		if h.config.CodeStarConnectionsOps == nil ||
+			h.config.CodeStarConnectionsOps.Backend == nil {
 			return c.JSON(
 				http.StatusServiceUnavailable,
 				map[string]string{keyError: "codestar connections backend unavailable"},
@@ -790,7 +798,8 @@ func (h *DashboardHandler) setupSubRouter() {
 	})
 
 	h.SubRouter.GET("/dashboard/api/codestarconnections/hosts", func(c *echo.Context) error {
-		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
+		if h.config.CodeStarConnectionsOps == nil ||
+			h.config.CodeStarConnectionsOps.Backend == nil {
 			return c.JSON(http.StatusOK, map[string]any{"hosts": []any{}})
 		}
 
@@ -800,7 +809,8 @@ func (h *DashboardHandler) setupSubRouter() {
 	})
 
 	h.SubRouter.POST("/dashboard/api/codestarconnections/hosts", func(c *echo.Context) error {
-		if h.config.CodeStarConnectionsOps == nil || h.config.CodeStarConnectionsOps.Backend == nil {
+		if h.config.CodeStarConnectionsOps == nil ||
+			h.config.CodeStarConnectionsOps.Backend == nil {
 			return c.JSON(
 				http.StatusServiceUnavailable,
 				map[string]string{keyError: "codestar connections backend unavailable"},
@@ -841,7 +851,10 @@ func (h *DashboardHandler) setupSubRouter() {
 
 	h.SubRouter.POST("/dashboard/api/cognitoidp/user-pools", func(c *echo.Context) error {
 		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
+			return c.JSON(
+				http.StatusServiceUnavailable,
+				map[string]string{keyError: errCognitoIdpUnavailable},
+			)
 		}
 
 		var req struct {
@@ -861,7 +874,10 @@ func (h *DashboardHandler) setupSubRouter() {
 
 	h.SubRouter.DELETE("/dashboard/api/cognitoidp/user-pools/:id", func(c *echo.Context) error {
 		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
+			return c.JSON(
+				http.StatusServiceUnavailable,
+				map[string]string{keyError: errCognitoIdpUnavailable},
+			)
 		}
 
 		if err := h.config.CognitoIDPOps.Backend.DeleteUserPool(c.Param("id")); err != nil {
@@ -872,50 +888,70 @@ func (h *DashboardHandler) setupSubRouter() {
 	})
 
 	// Clients
-	h.SubRouter.GET("/dashboard/api/cognitoidp/user-pools/:id/clients", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusOK, map[string]any{"clients": []any{}})
-		}
+	h.SubRouter.GET(
+		"/dashboard/api/cognitoidp/user-pools/:id/clients",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(http.StatusOK, map[string]any{"clients": []any{}})
+			}
 
-		clients, err := h.config.CognitoIDPOps.Backend.ListUserPoolClients(c.Param("id"))
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			clients, err := h.config.CognitoIDPOps.Backend.ListUserPoolClients(c.Param("id"))
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		return c.JSON(http.StatusOK, map[string]any{"clients": clients})
-	})
+			return c.JSON(http.StatusOK, map[string]any{"clients": clients})
+		},
+	)
 
-	h.SubRouter.POST("/dashboard/api/cognitoidp/user-pools/:id/clients", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
-		}
+	h.SubRouter.POST(
+		"/dashboard/api/cognitoidp/user-pools/:id/clients",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(
+					http.StatusServiceUnavailable,
+					map[string]string{keyError: errCognitoIdpUnavailable},
+				)
+			}
 
-		var req struct {
-			ClientName string `json:"clientName"`
-		}
-		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			var req struct {
+				ClientName string `json:"clientName"`
+			}
+			if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		client, err := h.config.CognitoIDPOps.Backend.CreateUserPoolClient(c.Param("id"), req.ClientName)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			client, err := h.config.CognitoIDPOps.Backend.CreateUserPoolClient(
+				c.Param("id"),
+				req.ClientName,
+			)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		return c.JSON(http.StatusCreated, client)
-	})
+			return c.JSON(http.StatusCreated, client)
+		},
+	)
 
-	h.SubRouter.DELETE("/dashboard/api/cognitoidp/user-pools/:id/clients/:clientId", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
-		}
+	h.SubRouter.DELETE(
+		"/dashboard/api/cognitoidp/user-pools/:id/clients/:clientId",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(
+					http.StatusServiceUnavailable,
+					map[string]string{keyError: errCognitoIdpUnavailable},
+				)
+			}
 
-		if err := h.config.CognitoIDPOps.Backend.DeleteUserPoolClient(c.Param("id"), c.Param("clientId")); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			if err := h.config.CognitoIDPOps.Backend.DeleteUserPoolClient(
+				c.Param("id"), c.Param("clientId"),
+			); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		return c.NoContent(http.StatusNoContent)
-	})
+			return c.NoContent(http.StatusNoContent)
+		},
+	)
 
 	// Users
 	h.SubRouter.GET("/dashboard/api/cognitoidp/user-pools/:id/users", func(c *echo.Context) error {
@@ -933,7 +969,10 @@ func (h *DashboardHandler) setupSubRouter() {
 
 	h.SubRouter.POST("/dashboard/api/cognitoidp/user-pools/:id/users", func(c *echo.Context) error {
 		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
+			return c.JSON(
+				http.StatusServiceUnavailable,
+				map[string]string{keyError: errCognitoIdpUnavailable},
+			)
 		}
 
 		var req struct {
@@ -944,7 +983,12 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 		}
 
-		user, err := h.config.CognitoIDPOps.Backend.AdminCreateUser(c.Param("id"), req.Username, req.TempPassword, nil)
+		user, err := h.config.CognitoIDPOps.Backend.AdminCreateUser(
+			c.Param("id"),
+			req.Username,
+			req.TempPassword,
+			nil,
+		)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 		}
@@ -952,42 +996,57 @@ func (h *DashboardHandler) setupSubRouter() {
 		return c.JSON(http.StatusCreated, user)
 	})
 
-	h.SubRouter.DELETE("/dashboard/api/cognitoidp/user-pools/:id/users/:username", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
-		}
+	h.SubRouter.DELETE(
+		"/dashboard/api/cognitoidp/user-pools/:id/users/:username",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(
+					http.StatusServiceUnavailable,
+					map[string]string{keyError: errCognitoIdpUnavailable},
+				)
+			}
 
-		if err := h.config.CognitoIDPOps.Backend.AdminDeleteUser(c.Param("id"), c.Param("username")); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			if err := h.config.CognitoIDPOps.Backend.AdminDeleteUser(c.Param("id"), c.Param("username")); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		return c.NoContent(http.StatusNoContent)
-	})
+			return c.NoContent(http.StatusNoContent)
+		},
+	)
 
-	h.SubRouter.PATCH("/dashboard/api/cognitoidp/user-pools/:id/users/:username", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
-		}
+	h.SubRouter.PATCH(
+		"/dashboard/api/cognitoidp/user-pools/:id/users/:username",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(
+					http.StatusServiceUnavailable,
+					map[string]string{keyError: errCognitoIdpUnavailable},
+				)
+			}
 
-		var req struct {
-			Enabled bool `json:"enabled"`
-		}
-		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			var req struct {
+				Enabled bool `json:"enabled"`
+			}
+			if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		var opErr error
-		if req.Enabled {
-			opErr = h.config.CognitoIDPOps.Backend.AdminEnableUser(c.Param("id"), c.Param("username"))
-		} else {
-			opErr = h.config.CognitoIDPOps.Backend.AdminDisableUser(c.Param("id"), c.Param("username"))
-		}
-		if opErr != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: opErr.Error()})
-		}
+			var opErr error
+			if req.Enabled {
+				opErr = h.config.CognitoIDPOps.Backend.AdminEnableUser(
+					c.Param("id"),
+					c.Param("username"),
+				)
+			} else {
+				opErr = h.config.CognitoIDPOps.Backend.AdminDisableUser(c.Param("id"), c.Param("username"))
+			}
+			if opErr != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: opErr.Error()})
+			}
 
-		return c.NoContent(http.StatusNoContent)
-	})
+			return c.NoContent(http.StatusNoContent)
+		},
+	)
 
 	// Groups
 	h.SubRouter.GET("/dashboard/api/cognitoidp/user-pools/:id/groups", func(c *echo.Context) error {
@@ -1003,43 +1062,63 @@ func (h *DashboardHandler) setupSubRouter() {
 		return c.JSON(http.StatusOK, map[string]any{"groups": groups})
 	})
 
-	h.SubRouter.POST("/dashboard/api/cognitoidp/user-pools/:id/groups", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
-		}
+	h.SubRouter.POST(
+		"/dashboard/api/cognitoidp/user-pools/:id/groups",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(
+					http.StatusServiceUnavailable,
+					map[string]string{keyError: errCognitoIdpUnavailable},
+				)
+			}
 
-		var req struct {
-			GroupName   string `json:"groupName"`
-			Description string `json:"description"`
-		}
-		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			var req struct {
+				GroupName   string `json:"groupName"`
+				Description string `json:"description"`
+			}
+			if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		group, err := h.config.CognitoIDPOps.Backend.CreateGroup(c.Param("id"), req.GroupName, req.Description, 0)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			group, err := h.config.CognitoIDPOps.Backend.CreateGroup(
+				c.Param("id"),
+				req.GroupName,
+				req.Description,
+				0,
+			)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		return c.JSON(http.StatusCreated, group)
-	})
+			return c.JSON(http.StatusCreated, group)
+		},
+	)
 
-	h.SubRouter.DELETE("/dashboard/api/cognitoidp/user-pools/:id/groups/:groupName", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
-		}
+	h.SubRouter.DELETE(
+		"/dashboard/api/cognitoidp/user-pools/:id/groups/:groupName",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(
+					http.StatusServiceUnavailable,
+					map[string]string{keyError: errCognitoIdpUnavailable},
+				)
+			}
 
-		if err := h.config.CognitoIDPOps.Backend.DeleteGroup(c.Param("id"), c.Param("groupName")); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			if err := h.config.CognitoIDPOps.Backend.DeleteGroup(c.Param("id"), c.Param("groupName")); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		return c.NoContent(http.StatusNoContent)
-	})
+			return c.NoContent(http.StatusNoContent)
+		},
+	)
 
 	// Pool update (MFA config)
 	h.SubRouter.PATCH("/dashboard/api/cognitoidp/user-pools/:id", func(c *echo.Context) error {
 		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
+			return c.JSON(
+				http.StatusServiceUnavailable,
+				map[string]string{keyError: errCognitoIdpUnavailable},
+			)
 		}
 
 		var req struct {
@@ -1057,32 +1136,41 @@ func (h *DashboardHandler) setupSubRouter() {
 	})
 
 	// Pool metrics
-	h.SubRouter.GET("/dashboard/api/cognitoidp/user-pools/:id/metrics", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusOK, map[string]any{})
-		}
+	h.SubRouter.GET(
+		"/dashboard/api/cognitoidp/user-pools/:id/metrics",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(http.StatusOK, map[string]any{})
+			}
 
-		metrics, err := h.config.CognitoIDPOps.Backend.GetPoolMetrics(c.Param("id"))
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			metrics, err := h.config.CognitoIDPOps.Backend.GetPoolMetrics(c.Param("id"))
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		return c.JSON(http.StatusOK, metrics)
-	})
+			return c.JSON(http.StatusOK, metrics)
+		},
+	)
 
 	// Group members: list, add, remove
-	h.SubRouter.GET("/dashboard/api/cognitoidp/user-pools/:id/groups/:groupName/members", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusOK, map[string]any{usersResource: []any{}})
-		}
+	h.SubRouter.GET(
+		"/dashboard/api/cognitoidp/user-pools/:id/groups/:groupName/members",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(http.StatusOK, map[string]any{usersResource: []any{}})
+			}
 
-		users, err := h.config.CognitoIDPOps.Backend.ListUsersInGroup(c.Param("id"), c.Param("groupName"))
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
-		}
+			users, err := h.config.CognitoIDPOps.Backend.ListUsersInGroup(
+				c.Param("id"),
+				c.Param("groupName"),
+			)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
 
-		return c.JSON(http.StatusOK, map[string]any{usersResource: users})
-	})
+			return c.JSON(http.StatusOK, map[string]any{usersResource: users})
+		},
+	)
 
 	h.SubRouter.PUT(
 		"/dashboard/api/cognitoidp/user-pools/:id/groups/:groupName/members/:username",
@@ -1125,35 +1213,164 @@ func (h *DashboardHandler) setupSubRouter() {
 	)
 
 	// User admin reset password
-	h.SubRouter.POST("/dashboard/api/cognitoidp/user-pools/:id/users/:username/reset", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
+	h.SubRouter.POST(
+		"/dashboard/api/cognitoidp/user-pools/:id/users/:username/reset",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(
+					http.StatusServiceUnavailable,
+					map[string]string{keyError: errCognitoIdpUnavailable},
+				)
+			}
+
+			if err := h.config.CognitoIDPOps.Backend.AdminResetUserPassword(
+				c.Param("id"),
+				c.Param("username"),
+			); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
+
+			return c.NoContent(http.StatusNoContent)
+		},
+	)
+
+	// User admin global sign-out
+	h.SubRouter.POST(
+		"/dashboard/api/cognitoidp/user-pools/:id/users/:username/sign-out",
+		func(c *echo.Context) error {
+			if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
+				return c.JSON(
+					http.StatusServiceUnavailable,
+					map[string]string{keyError: errCognitoIdpUnavailable},
+				)
+			}
+
+			if err := h.config.CognitoIDPOps.Backend.AdminUserGlobalSignOut(
+				c.Param("id"),
+				c.Param("username"),
+			); err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			}
+
+			return c.NoContent(http.StatusNoContent)
+		},
+	)
+
+	h.SubRouter.GET("/dashboard/api/appconfigdata/sessions", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.JSON(http.StatusOK, map[string]any{"sessions": []any{}})
 		}
 
-		if err := h.config.CognitoIDPOps.Backend.AdminResetUserPassword(
-			c.Param("id"),
-			c.Param("username"),
-		); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		return c.JSON(
+			http.StatusOK,
+			map[string]any{"sessions": h.config.AppConfigDataOps.Backend.ListSessions()},
+		)
+	})
+
+	h.SubRouter.DELETE("/dashboard/api/appconfigdata/sessions/:token", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.NoContent(http.StatusServiceUnavailable)
+		}
+
+		token := c.Param("token")
+		if !h.config.AppConfigDataOps.Backend.EndSession(token) {
+			return c.JSON(http.StatusNotFound, map[string]string{keyMessage: "session not found"})
 		}
 
 		return c.NoContent(http.StatusNoContent)
 	})
 
-	// User admin global sign-out
-	h.SubRouter.POST("/dashboard/api/cognitoidp/user-pools/:id/users/:username/sign-out", func(c *echo.Context) error {
-		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errCognitoIdpUnavailable})
+	h.SubRouter.GET("/dashboard/api/appconfigdata/profiles", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.JSON(http.StatusOK, map[string]any{"profiles": []any{}})
 		}
 
-		if err := h.config.CognitoIDPOps.Backend.AdminUserGlobalSignOut(
-			c.Param("id"),
-			c.Param("username"),
+		return c.JSON(
+			http.StatusOK,
+			map[string]any{"profiles": h.config.AppConfigDataOps.Backend.ListProfiles()},
+		)
+	})
+
+	h.SubRouter.POST("/dashboard/api/appconfigdata/profiles", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.NoContent(http.StatusServiceUnavailable)
+		}
+
+		type setProfileRequest struct {
+			ApplicationIdentifier          string `json:"applicationIdentifier"`
+			EnvironmentIdentifier          string `json:"environmentIdentifier"`
+			ConfigurationProfileIdentifier string `json:"configurationProfileIdentifier"`
+			Content                        string `json:"content"`
+			ContentType                    string `json:"contentType"`
+		}
+
+		var req setProfileRequest
+		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				map[string]string{keyMessage: "invalid request body"},
+			)
+		}
+
+		if req.ApplicationIdentifier == "" || req.EnvironmentIdentifier == "" ||
+			req.ConfigurationProfileIdentifier == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				keyMessage: "applicationIdentifier, environmentIdentifier, and configurationProfileIdentifier are required",
+			})
+		}
+
+		if req.ContentType == "" {
+			req.ContentType = "application/json"
+		}
+
+		if err := h.config.AppConfigDataOps.Backend.SetConfiguration(
+			req.ApplicationIdentifier,
+			req.EnvironmentIdentifier,
+			req.ConfigurationProfileIdentifier,
+			req.Content,
+			req.ContentType,
 		); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+			return c.JSON(http.StatusBadRequest, map[string]string{keyMessage: err.Error()})
 		}
 
 		return c.NoContent(http.StatusNoContent)
+	})
+
+	h.SubRouter.DELETE("/dashboard/api/appconfigdata/profiles", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.NoContent(http.StatusServiceUnavailable)
+		}
+
+		app := c.QueryParam("applicationIdentifier")
+		env := c.QueryParam("environmentIdentifier")
+		profile := c.QueryParam("configurationProfileIdentifier")
+
+		if app == "" || env == "" || profile == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				keyMessage: "applicationIdentifier, environmentIdentifier, and configurationProfileIdentifier are required",
+			})
+		}
+
+		if !h.config.AppConfigDataOps.Backend.DeleteProfile(app, env, profile) {
+			return c.JSON(http.StatusNotFound, map[string]string{keyMessage: "profile not found"})
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	})
+
+	h.SubRouter.GET("/dashboard/api/appconfigdata/stats", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.JSON(http.StatusOK, appconfigdatabackend.ServiceStats{
+				SessionTTL:    appconfigdatabackend.DefaultSessionTTL.String(),
+				JanitorPeriod: appconfigdatabackend.DefaultJanitorInterval.String(),
+			})
+		}
+
+		stats := h.config.AppConfigDataOps.Backend.GetStats()
+		stats.SessionTTL = appconfigdatabackend.DefaultSessionTTL.String()
+		stats.JanitorPeriod = appconfigdatabackend.DefaultJanitorInterval.String()
+
+		return c.JSON(http.StatusOK, stats)
 	})
 
 	h.SubRouter.GET("/dashboard/api/mediastoredata/objects", func(c *echo.Context) error {
@@ -1235,7 +1452,10 @@ func (h *DashboardHandler) setupSubRouter() {
 		// Use the backend to get recent stream events and format as minimal HTML
 		events := h.config.DynamoDBStreamsOps.Streams.GetRecentEvents(name)
 		if len(events) == 0 {
-			return c.HTML(http.StatusOK, "<p class='text-slate-400 text-xs italic'>No recent stream events.</p>")
+			return c.HTML(
+				http.StatusOK,
+				"<p class='text-slate-400 text-xs italic'>No recent stream events.</p>",
+			)
 		}
 
 		var sb strings.Builder
@@ -1288,21 +1508,31 @@ func (h *DashboardHandler) setupSubRouter() {
 					"hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors'>",
 			)
 			sb.WriteString(
-				"<td class='py-1 pr-3 font-semibold " + eventClass + "'>" + html.EscapeString(e.EventName) + "</td>",
+				"<td class='py-1 pr-3 font-semibold " + eventClass + "'>" + html.EscapeString(
+					e.EventName,
+				) + "</td>",
 			)
 			sb.WriteString(
 				"<td class='py-1 pr-3 text-slate-600 dark:text-slate-300 max-w-[120px] truncate' title='" +
-					html.EscapeString(keySummary) + "'>" + html.EscapeString(keySummary) + "</td>",
+					html.EscapeString(
+						keySummary,
+					) + "'>" + html.EscapeString(
+					keySummary,
+				) + "</td>",
 			)
 			sb.WriteString(
-				"<td class='py-1 pr-3 text-slate-500 dark:text-slate-400'>" + html.EscapeString(seq) + "</td>",
+				"<td class='py-1 pr-3 text-slate-500 dark:text-slate-400'>" + html.EscapeString(
+					seq,
+				) + "</td>",
 			)
 			sb.WriteString(
 				"<td class='py-1 pr-3 text-slate-500 dark:text-slate-400 whitespace-nowrap'>" +
 					html.EscapeString(ts) + "</td>",
 			)
 			sb.WriteString(
-				"<td class='py-1 text-slate-400 dark:text-slate-500'>" + html.EscapeString(attrStr) + "</td>",
+				"<td class='py-1 text-slate-400 dark:text-slate-500'>" + html.EscapeString(
+					attrStr,
+				) + "</td>",
 			)
 			sb.WriteString("</tr>")
 		}
@@ -1378,7 +1608,10 @@ type streamShardInfo struct {
 }
 
 // describeStreamShards fetches shard info for the named table's active stream.
-func (h *DashboardHandler) describeStreamShards(ctx context.Context, tableName string) []streamShardInfo {
+func (h *DashboardHandler) describeStreamShards(
+	ctx context.Context,
+	tableName string,
+) []streamShardInfo {
 	if h.config.DynamoDBStreamsOps == nil || h.config.DynamoDBStreamsOps.Streams == nil {
 		return nil
 	}
@@ -1434,7 +1667,8 @@ func (h *DashboardHandler) spaFallbackHandler() echo.HandlerFunc {
 		reqPath := c.Request().URL.Path
 
 		// Let Connect-RPC and static routes pass through if they reached here
-		if strings.HasPrefix(reqPath, "/dashboard/static/") || strings.HasPrefix(reqPath, "/dashboard/api/") {
+		if strings.HasPrefix(reqPath, "/dashboard/static/") ||
+			strings.HasPrefix(reqPath, "/dashboard/api/") {
 			return echo.ErrNotFound
 		}
 
@@ -1571,7 +1805,9 @@ func (h *DashboardHandler) appConfigDataSetConfiguration(c *echo.Context) error 
 		contentType = "application/json"
 	}
 
-	h.config.AppConfigDataOps.Backend.SetConfiguration(app, env, profile, content, contentType)
+	if err := h.config.AppConfigDataOps.Backend.SetConfiguration(app, env, profile, content, contentType); err != nil {
+		return c.String(http.StatusBadRequest, err.Error())
+	}
 
 	return c.Redirect(http.StatusFound, "/dashboard/appconfigdata")
 }

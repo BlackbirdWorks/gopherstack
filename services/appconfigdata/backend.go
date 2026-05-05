@@ -3,9 +3,11 @@ package appconfigdata
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -15,9 +17,10 @@ import (
 
 // InMemoryBackend implements StorageBackend for AppConfigData.
 type InMemoryBackend struct {
-	profiles map[string]*ConfigurationProfile
-	sessions map[string]*Session
-	mu       *lockmetrics.RWMutex
+	profiles    map[string]*ConfigurationProfile
+	sessions    map[string]*Session
+	mu          *lockmetrics.RWMutex
+	lastSweepAt atomic.Int64 // unix nanoseconds; accessed without the lock
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -33,23 +36,67 @@ func profileKey(app, env, profile string) string {
 	return fmt.Sprintf("%s|%s|%s", app, env, profile)
 }
 
+func contentHash(content string) string {
+	sum := sha256.Sum256([]byte(content))
+
+	return hex.EncodeToString(sum[:])
+}
+
 // SetConfiguration stores or updates configuration content for a profile.
-func (b *InMemoryBackend) SetConfiguration(app, env, profile, content, contentType string) {
+// Returns ErrContentTooLarge if content exceeds maxContentBytes.
+func (b *InMemoryBackend) SetConfiguration(app, env, profile, content, contentType string) error {
+	if len(content) > maxContentBytes {
+		return ErrContentTooLarge
+	}
+
 	b.mu.Lock("SetConfiguration")
 	defer b.mu.Unlock()
 
 	key := profileKey(app, env, profile)
+	now := time.Now().UTC()
+	hash := contentHash(content)
+
+	existing := b.profiles[key]
+	var history []ConfigVersion
+	if existing != nil && !existing.UpdatedAt.IsZero() {
+		// Prepend so history[0] is the most recent previous version.
+		entry := ConfigVersion{
+			Content:     existing.Content,
+			ContentType: existing.ContentType,
+			ContentHash: existing.ContentHash,
+			UpdatedAt:   existing.UpdatedAt,
+		}
+		history = append(history, entry)
+		history = append(history, existing.History...)
+		if len(history) > maxHistoryEntries {
+			history = history[:maxHistoryEntries]
+		}
+	}
+
 	b.profiles[key] = &ConfigurationProfile{
 		ApplicationIdentifier:          app,
 		EnvironmentIdentifier:          env,
 		ConfigurationProfileIdentifier: profile,
 		Content:                        content,
 		ContentType:                    contentType,
+		ContentHash:                    hash,
+		UpdatedAt:                      now,
+		History:                        history,
 	}
+
+	return nil
 }
 
 // StartSession creates a new retrieval session and returns the initial token.
-func (b *InMemoryBackend) StartSession(app, env, profile string) (string, error) {
+// pollIntervalInSeconds must be 0 (use default) or >= minPollIntervalSeconds.
+func (b *InMemoryBackend) StartSession(
+	app, env, profile string,
+	pollIntervalInSeconds int,
+) (string, error) {
+	if pollIntervalInSeconds != 0 && pollIntervalInSeconds < minPollIntervalSeconds {
+		return "", ErrInvalidPollInterval
+	}
+
 	b.mu.Lock("StartSession")
 	defer b.mu.Unlock()
 
@@ -66,49 +113,61 @@ func (b *InMemoryBackend) StartSession(app, env, profile string) (string, error)
 		ConfigurationProfileIdentifier: profile,
 		CreatedAt:                      now,
 		LastAccessedAt:                 now,
+		PollIntervalInSeconds:          pollIntervalInSeconds,
 	}
+
+	telemetry.RecordWorkerItems("appconfigdata", "Sessions", 1)
 
 	return token, nil
 }
 
 // GetLatestConfiguration retrieves configuration data for the given token and returns a new token.
-func (b *InMemoryBackend) GetLatestConfiguration(token string) ([]byte, string, string, error) {
+func (b *InMemoryBackend) GetLatestConfiguration(
+	token string,
+) ([]byte, string, string, string, error) {
 	b.mu.Lock("GetLatestConfiguration")
 	defer b.mu.Unlock()
 
 	sess, ok := b.sessions[token]
 	if !ok {
-		return nil, "", "", ErrSessionNotFound
+		return nil, "", "", "", ErrSessionNotFound
 	}
 
-	key := profileKey(sess.ApplicationIdentifier, sess.EnvironmentIdentifier, sess.ConfigurationProfileIdentifier)
+	key := profileKey(
+		sess.ApplicationIdentifier,
+		sess.EnvironmentIdentifier,
+		sess.ConfigurationProfileIdentifier,
+	)
 	profile := b.profiles[key]
 
 	var content []byte
 	contentType := "application/octet-stream"
+	hash := ""
 
 	if profile != nil {
 		content = []byte(profile.Content)
+		hash = profile.ContentHash
 		if profile.ContentType != "" {
 			contentType = profile.ContentType
 		}
 	}
 
-	// Generate a new token for the next poll and rotate the session.
+	// Generate a new token for the next poll and rotate the session atomically.
 	nextToken, err := generateToken()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("generating next token: %w", err)
+		return nil, "", "", "", fmt.Errorf("generating next token: %w", err)
 	}
-
-	delete(b.sessions, token)
 
 	now := time.Now().UTC()
 	newSess := *sess
 	newSess.Token = nextToken
 	newSess.LastAccessedAt = now
+	newSess.PollCount = sess.PollCount + 1
+
+	delete(b.sessions, token)
 	b.sessions[nextToken] = &newSess
 
-	return content, contentType, nextToken, nil
+	return content, contentType, nextToken, hash, nil
 }
 
 // ListProfiles returns all stored configuration profiles.
@@ -153,6 +212,20 @@ func (b *InMemoryBackend) ListSessions() []Session {
 	return out
 }
 
+// EndSession terminates the session with the given token. Returns false if not found.
+func (b *InMemoryBackend) EndSession(token string) bool {
+	b.mu.Lock("EndSession")
+	defer b.mu.Unlock()
+
+	if _, ok := b.sessions[token]; !ok {
+		return false
+	}
+
+	delete(b.sessions, token)
+
+	return true
+}
+
 // DeleteProfile removes a configuration profile and its associated sessions.
 func (b *InMemoryBackend) DeleteProfile(app, env, profile string) bool {
 	b.mu.Lock("DeleteProfile")
@@ -175,24 +248,47 @@ func (b *InMemoryBackend) DeleteProfile(app, env, profile string) bool {
 	return true
 }
 
-// SweepExpiredSessions removes sessions that have not been accessed for more than 24 hours.
-func (b *InMemoryBackend) SweepExpiredSessions(ctx context.Context) {
-	const sessionExpiry = 24 * time.Hour
+// GetStats returns aggregate service statistics.
+func (b *InMemoryBackend) GetStats() ServiceStats {
+	b.mu.RLock("GetStats")
+	sc := len(b.sessions)
+	pc := len(b.profiles)
+	b.mu.RUnlock()
+
+	ns := b.lastSweepAt.Load()
+	var lastSweep time.Time
+	if ns != 0 {
+		lastSweep = time.Unix(0, ns).UTC()
+	}
+
+	return ServiceStats{
+		SessionCount: sc,
+		ProfileCount: pc,
+		LastSweepAt:  lastSweep,
+	}
+}
+
+// SweepExpiredSessions removes sessions that have been idle longer than ttl.
+func (b *InMemoryBackend) SweepExpiredSessions(ctx context.Context, ttl time.Duration) {
 	now := time.Now().UTC()
 
 	b.mu.Lock("SweepExpiredSessions")
 	beforeCount := len(b.sessions)
 	maps.DeleteFunc(b.sessions, func(_ string, s *Session) bool {
-		return now.Sub(s.LastAccessedAt) > sessionExpiry
+		return now.Sub(s.LastAccessedAt) > ttl
 	})
 	afterCount := len(b.sessions)
 	b.mu.Unlock()
 
+	b.lastSweepAt.Store(now.UnixNano())
+
 	diff := beforeCount - afterCount
 	if diff > 0 {
 		telemetry.RecordWorkerItems("appconfigdata", "SessionSweeper", diff)
-		logger.Load(ctx).InfoContext(ctx, "AppConfig Data janitor: expired sessions purged", "count", diff)
+		logger.Load(ctx).
+			InfoContext(ctx, "AppConfig Data janitor: expired sessions purged", "count", diff)
 	}
+
 	telemetry.RecordWorkerTask("appconfigdata", "SessionSweeper", "success")
 }
 

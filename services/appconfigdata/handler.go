@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -26,6 +28,7 @@ const (
 	defaultPollIntervalInSeconds = 30
 	nextPollTokenHeader          = "Next-Poll-Configuration-Token" //nolint:gosec // G101: header name, not credentials
 	nextPollIntervalHeader       = "Next-Poll-Interval-In-Seconds"
+	etagHeader                   = "ETag"
 )
 
 // Handler is the Echo HTTP handler for AppConfigData operations.
@@ -132,12 +135,30 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
 		log.Error("appconfigdata: failed to decode StartConfigurationSession request", "error", err)
 
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: "invalid request body"})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: "invalid request body"},
+		)
 	}
 
-	if req.ApplicationIdentifier == "" || req.EnvironmentIdentifier == "" || req.ConfigurationProfileIdentifier == "" {
+	req.ApplicationIdentifier = strings.TrimSpace(req.ApplicationIdentifier)
+	req.EnvironmentIdentifier = strings.TrimSpace(req.EnvironmentIdentifier)
+	req.ConfigurationProfileIdentifier = strings.TrimSpace(req.ConfigurationProfileIdentifier)
+
+	if req.ApplicationIdentifier == "" || req.EnvironmentIdentifier == "" ||
+		req.ConfigurationProfileIdentifier == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyMessageField: "ApplicationIdentifier, EnvironmentIdentifier, and ConfigurationProfileIdentifier are required",
+		})
+	}
+
+	if req.RequiredMinimumPollIntervalInSeconds != 0 &&
+		req.RequiredMinimumPollIntervalInSeconds < minPollIntervalSeconds {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyMessageField: fmt.Sprintf(
+				"RequiredMinimumPollIntervalInSeconds must be 0 or >= %d",
+				minPollIntervalSeconds,
+			),
 		})
 	}
 
@@ -145,11 +166,19 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 		req.ApplicationIdentifier,
 		req.EnvironmentIdentifier,
 		req.ConfigurationProfileIdentifier,
+		req.RequiredMinimumPollIntervalInSeconds,
 	)
 	if err != nil {
 		log.Error("appconfigdata: StartConfigurationSession failed", "error", err)
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		if errors.Is(err, ErrInvalidPollInterval) {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		}
+
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 
 	return c.JSON(http.StatusCreated, startSessionResponse{InitialConfigurationToken: token})
@@ -159,32 +188,56 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 	log := logger.Load(c.Request().Context())
 
 	if token == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: "configuration token is required"})
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{keyMessageField: "configuration token is required"},
+		)
 	}
 
-	content, contentType, nextToken, err := h.Backend.GetLatestConfiguration(token)
+	content, contentType, nextToken, hash, err := h.Backend.GetLatestConfiguration(token)
 	if err != nil {
 		const redactLen = 8
 		redacted := token
 		if len(token) > redactLen {
 			redacted = token[:redactLen] + "..."
 		}
-		log.Error("appconfigdata: GetLatestConfiguration failed", "token_prefix", redacted, "error", err)
+		log.Error(
+			"appconfigdata: GetLatestConfiguration failed",
+			"token_prefix",
+			redacted,
+			"error",
+			err,
+		)
 
 		if errors.Is(err, ErrSessionNotFound) {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
+	}
+
+	// Honor the client's requested minimum poll interval; use the larger of the two.
+	pollInterval := defaultPollIntervalInSeconds
+	if sess := h.Backend.LookupSession(nextToken); sess != nil &&
+		sess.PollIntervalInSeconds > pollInterval {
+		pollInterval = sess.PollIntervalInSeconds
 	}
 
 	c.Response().Header().Set(nextPollTokenHeader, nextToken)
-	c.Response().Header().Set(nextPollIntervalHeader, strconv.Itoa(defaultPollIntervalInSeconds))
+	c.Response().Header().Set(nextPollIntervalHeader, strconv.Itoa(pollInterval))
 	c.Response().Header().Set("Content-Type", contentType)
+	if hash != "" {
+		c.Response().Header().Set(etagHeader, fmt.Sprintf(`"%s"`, hash))
+	}
 
 	if len(content) == 0 {
 		return c.NoContent(http.StatusNoContent)
 	}
+
+	c.Response().Header().Set("Content-Length", strconv.Itoa(len(content)))
 
 	return c.Blob(http.StatusOK, contentType, content)
 }
