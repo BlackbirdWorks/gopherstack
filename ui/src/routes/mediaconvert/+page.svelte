@@ -289,6 +289,7 @@
 				await mediaConvert.send(new CreateQueueCommand({
 					Name: queueName.trim(),
 					Description: queueDescription.trim() || undefined,
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
 					PricingPlan: queuePricingPlan as any
 				}));
 				toast.success('Queue created');
@@ -296,6 +297,7 @@
 				await mediaConvert.send(new UpdateQueueCommand({
 					Name: selectedQueue?.Name ?? queueName,
 					Description: queueDescription.trim() || undefined,
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
 					Status: selectedQueue?.Status as any
 				}));
 				toast.success('Queue updated');
@@ -313,6 +315,7 @@
 	async function toggleQueueStatus(queue: Queue) {
 		const newStatus = queue.Status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
 		try {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			await mediaConvert.send(new UpdateQueueCommand({ Name: queue.Name, Status: newStatus as any }));
 			toast.success(`Queue ${newStatus === 'ACTIVE' ? 'resumed' : 'paused'}`);
 			queues = [];
