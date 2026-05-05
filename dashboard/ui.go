@@ -1164,12 +1164,103 @@ func (h *DashboardHandler) setupSubRouter() {
 		return c.JSON(http.StatusOK, map[string]any{"sessions": h.config.AppConfigDataOps.Backend.ListSessions()})
 	})
 
+	h.SubRouter.DELETE("/dashboard/api/appconfigdata/sessions/:token", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.NoContent(http.StatusServiceUnavailable)
+		}
+
+		token := c.Param("token")
+		if !h.config.AppConfigDataOps.Backend.EndSession(token) {
+			return c.JSON(http.StatusNotFound, map[string]string{"message": "session not found"})
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	})
+
 	h.SubRouter.GET("/dashboard/api/appconfigdata/profiles", func(c *echo.Context) error {
 		if h.config.AppConfigDataOps == nil {
 			return c.JSON(http.StatusOK, map[string]any{"profiles": []any{}})
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{"profiles": h.config.AppConfigDataOps.Backend.ListProfiles()})
+	})
+
+	h.SubRouter.POST("/dashboard/api/appconfigdata/profiles", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.NoContent(http.StatusServiceUnavailable)
+		}
+
+		type setProfileRequest struct {
+			ApplicationIdentifier          string `json:"applicationIdentifier"`
+			EnvironmentIdentifier          string `json:"environmentIdentifier"`
+			ConfigurationProfileIdentifier string `json:"configurationProfileIdentifier"`
+			Content                        string `json:"content"`
+			ContentType                    string `json:"contentType"`
+		}
+
+		var req setProfileRequest
+		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+		}
+
+		if req.ApplicationIdentifier == "" || req.EnvironmentIdentifier == "" || req.ConfigurationProfileIdentifier == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"message": "applicationIdentifier, environmentIdentifier, and configurationProfileIdentifier are required",
+			})
+		}
+
+		if req.ContentType == "" {
+			req.ContentType = "application/json"
+		}
+
+		if err := h.config.AppConfigDataOps.Backend.SetConfiguration(
+			req.ApplicationIdentifier,
+			req.EnvironmentIdentifier,
+			req.ConfigurationProfileIdentifier,
+			req.Content,
+			req.ContentType,
+		); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	})
+
+	h.SubRouter.DELETE("/dashboard/api/appconfigdata/profiles", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.NoContent(http.StatusServiceUnavailable)
+		}
+
+		app := c.QueryParam("applicationIdentifier")
+		env := c.QueryParam("environmentIdentifier")
+		profile := c.QueryParam("configurationProfileIdentifier")
+
+		if app == "" || env == "" || profile == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"message": "applicationIdentifier, environmentIdentifier, and configurationProfileIdentifier are required",
+			})
+		}
+
+		if !h.config.AppConfigDataOps.Backend.DeleteProfile(app, env, profile) {
+			return c.JSON(http.StatusNotFound, map[string]string{"message": "profile not found"})
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	})
+
+	h.SubRouter.GET("/dashboard/api/appconfigdata/stats", func(c *echo.Context) error {
+		if h.config.AppConfigDataOps == nil {
+			return c.JSON(http.StatusOK, appconfigdatabackend.ServiceStats{
+				SessionTTL:    appconfigdatabackend.DefaultSessionTTL.String(),
+				JanitorPeriod: appconfigdatabackend.DefaultJanitorInterval.String(),
+			})
+		}
+
+		stats := h.config.AppConfigDataOps.Backend.GetStats()
+		stats.SessionTTL = appconfigdatabackend.DefaultSessionTTL.String()
+		stats.JanitorPeriod = appconfigdatabackend.DefaultJanitorInterval.String()
+
+		return c.JSON(http.StatusOK, stats)
 	})
 
 	h.SubRouter.GET("/dashboard/api/mediastoredata/objects", func(c *echo.Context) error {
@@ -1587,7 +1678,9 @@ func (h *DashboardHandler) appConfigDataSetConfiguration(c *echo.Context) error 
 		contentType = "application/json"
 	}
 
-	h.config.AppConfigDataOps.Backend.SetConfiguration(app, env, profile, content, contentType)
+	if err := h.config.AppConfigDataOps.Backend.SetConfiguration(app, env, profile, content, contentType); err != nil {
+		return c.String(http.StatusBadRequest, err.Error())
+	}
 
 	return c.Redirect(http.StatusFound, "/dashboard/appconfigdata")
 }

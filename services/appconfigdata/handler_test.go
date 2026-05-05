@@ -165,7 +165,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 			name:   "get_latest_with_known_token_returns_profile",
 			method: http.MethodGet,
 			setup: func(h *appconfigdata.Handler) string {
-				h.Backend.SetConfiguration("my-app", "prod", "my-profile", `{}`, "application/json")
+				require.NoError(t, h.Backend.SetConfiguration("my-app", "prod", "my-profile", `{}`, "application/json"))
 				token, _ := h.Backend.StartSession("my-app", "prod", "my-profile", 0)
 
 				return "/configuration?configuration_token=" + token
@@ -301,7 +301,7 @@ func TestHandler_GetLatestConfiguration(t *testing.T) {
 			}
 
 			if tt.hasProfile {
-				h.Backend.SetConfiguration("my-app", "prod", "my-profile", tt.content, tt.contentType)
+				require.NoError(t, h.Backend.SetConfiguration("my-app", "prod", "my-profile", tt.content, tt.contentType))
 			}
 
 			// Start a session to get an initial token.
@@ -337,7 +337,7 @@ func TestHandler_TokenRotation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	h.Backend.SetConfiguration("app", "env", "profile", `{"v":1}`, "application/json")
+	require.NoError(t, h.Backend.SetConfiguration("app", "env", "profile", `{"v":1}`, "application/json"))
 
 	// Start session.
 	sessionBody := []byte(
@@ -395,8 +395,8 @@ func TestBackend_ListProfiles(t *testing.T) {
 	b := appconfigdata.NewInMemoryBackend()
 	assert.Empty(t, b.ListProfiles())
 
-	b.SetConfiguration("app1", "env1", "profile1", "data1", "text/plain")
-	b.SetConfiguration("app2", "env2", "profile2", "data2", "application/json")
+	require.NoError(t, b.SetConfiguration("app1", "env1", "profile1", "data1", "text/plain"))
+	require.NoError(t, b.SetConfiguration("app2", "env2", "profile2", "data2", "application/json"))
 
 	profiles := b.ListProfiles()
 	assert.Len(t, profiles, 2)
@@ -406,7 +406,7 @@ func TestBackend_ListSessions(t *testing.T) {
 	t.Parallel()
 
 	b := appconfigdata.NewInMemoryBackend()
-	b.SetConfiguration("app", "env", "profile", "data", "text/plain")
+	require.NoError(t, b.SetConfiguration("app", "env", "profile", "data", "text/plain"))
 
 	assert.Empty(t, b.ListSessions())
 
@@ -424,7 +424,7 @@ func TestBackend_DeleteProfile(t *testing.T) {
 	t.Parallel()
 
 	b := appconfigdata.NewInMemoryBackend()
-	b.SetConfiguration("app", "env", "profile", "data", "text/plain")
+	require.NoError(t, b.SetConfiguration("app", "env", "profile", "data", "text/plain"))
 
 	_, err := b.StartSession("app", "env", "profile", 0)
 	require.NoError(t, err)
@@ -445,4 +445,157 @@ func TestProvider_NameAndInit(t *testing.T) {
 	h, err := p.Init(nil)
 	require.NoError(t, err)
 	assert.NotNil(t, h)
+}
+
+func TestBackend_SetConfiguration_ContentTooLarge(t *testing.T) {
+	t.Parallel()
+
+	b := appconfigdata.NewInMemoryBackend()
+	huge := make([]byte, 1*1024*1024+1)
+	err := b.SetConfiguration("app", "env", "profile", string(huge), "text/plain")
+	assert.ErrorIs(t, err, appconfigdata.ErrContentTooLarge)
+}
+
+func TestBackend_SetConfiguration_History(t *testing.T) {
+	t.Parallel()
+
+	b := appconfigdata.NewInMemoryBackend()
+	require.NoError(t, b.SetConfiguration("app", "env", "profile", "v1", "text/plain"))
+	require.NoError(t, b.SetConfiguration("app", "env", "profile", "v2", "text/plain"))
+	require.NoError(t, b.SetConfiguration("app", "env", "profile", "v3", "text/plain"))
+
+	profiles := b.ListProfiles()
+	require.Len(t, profiles, 1)
+	p := profiles[0]
+	assert.Equal(t, "v3", p.Content)
+	require.Len(t, p.History, 2)
+	assert.Equal(t, "v2", p.History[0].Content)
+	assert.Equal(t, "v1", p.History[1].Content)
+}
+
+func TestBackend_SetConfiguration_ContentHash(t *testing.T) {
+	t.Parallel()
+
+	b := appconfigdata.NewInMemoryBackend()
+	require.NoError(t, b.SetConfiguration("app", "env", "profile", `{"key":"value"}`, "application/json"))
+
+	profiles := b.ListProfiles()
+	require.Len(t, profiles, 1)
+	assert.NotEmpty(t, profiles[0].ContentHash)
+}
+
+func TestBackend_EndSession(t *testing.T) {
+	t.Parallel()
+
+	b := appconfigdata.NewInMemoryBackend()
+	token, err := b.StartSession("app", "env", "profile", 0)
+	require.NoError(t, err)
+
+	assert.True(t, b.EndSession(token))
+	assert.False(t, b.EndSession(token))
+	assert.Empty(t, b.ListSessions())
+}
+
+func TestBackend_GetStats(t *testing.T) {
+	t.Parallel()
+
+	b := appconfigdata.NewInMemoryBackend()
+	stats := b.GetStats()
+	assert.Equal(t, 0, stats.SessionCount)
+	assert.Equal(t, 0, stats.ProfileCount)
+
+	require.NoError(t, b.SetConfiguration("app", "env", "profile", "data", "text/plain"))
+	_, err := b.StartSession("app", "env", "profile", 0)
+	require.NoError(t, err)
+
+	stats = b.GetStats()
+	assert.Equal(t, 1, stats.SessionCount)
+	assert.Equal(t, 1, stats.ProfileCount)
+}
+
+func TestBackend_SweepExpiredSessions(t *testing.T) {
+	t.Parallel()
+
+	b := appconfigdata.NewInMemoryBackend()
+	_, err := b.StartSession("app", "env", "profile", 0)
+	require.NoError(t, err)
+
+	// Sweep with zero TTL — all sessions expire immediately.
+	b.SweepExpiredSessions(t.Context(), 0)
+	assert.Empty(t, b.ListSessions())
+}
+
+func TestHandler_PollIntervalValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := []byte(
+		`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env","ConfigurationProfileIdentifier":"profile","RequiredMinimumPollIntervalInSeconds":5}`,
+	)
+	rec := doRequest(t, h, http.MethodPost, "/configurationsessions", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_PollIntervalDefault(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	require.NoError(t, h.Backend.SetConfiguration("app", "env", "profile", `{}`, "application/json"))
+
+	sessionBody := []byte(
+		`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env","ConfigurationProfileIdentifier":"profile"}`,
+	)
+	sessionRec := doRequest(t, h, http.MethodPost, "/configurationsessions", sessionBody)
+	require.Equal(t, http.StatusCreated, sessionRec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(sessionRec.Body.Bytes(), &resp))
+	token := resp["InitialConfigurationToken"]
+
+	cfgRec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
+	require.Equal(t, http.StatusOK, cfgRec.Code)
+	assert.Equal(t, "30", cfgRec.Header().Get("Next-Poll-Interval-In-Seconds"))
+	assert.NotEmpty(t, cfgRec.Header().Get("ETag"))
+	assert.NotEmpty(t, cfgRec.Header().Get("Content-Length"))
+}
+
+func TestHandler_PollIntervalHonored(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	require.NoError(t, h.Backend.SetConfiguration("app", "env", "profile", `{}`, "application/json"))
+
+	sessionBody := []byte(
+		`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env","ConfigurationProfileIdentifier":"profile","RequiredMinimumPollIntervalInSeconds":60}`,
+	)
+	sessionRec := doRequest(t, h, http.MethodPost, "/configurationsessions", sessionBody)
+	require.Equal(t, http.StatusCreated, sessionRec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(sessionRec.Body.Bytes(), &resp))
+	token := resp["InitialConfigurationToken"]
+
+	cfgRec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
+	require.Equal(t, http.StatusOK, cfgRec.Code)
+	assert.Equal(t, "60", cfgRec.Header().Get("Next-Poll-Interval-In-Seconds"))
+}
+
+func TestBackend_PollCount(t *testing.T) {
+	t.Parallel()
+
+	b := appconfigdata.NewInMemoryBackend()
+	require.NoError(t, b.SetConfiguration("app", "env", "profile", "data", "text/plain"))
+
+	token, err := b.StartSession("app", "env", "profile", 0)
+	require.NoError(t, err)
+
+	for i := range 3 {
+		_, _, nextToken, _, err := b.GetLatestConfiguration(token)
+		require.NoError(t, err)
+		token = nextToken
+
+		sess := b.LookupSession(token)
+		require.NotNil(t, sess)
+		assert.Equal(t, i+1, sess.PollCount)
+	}
 }
