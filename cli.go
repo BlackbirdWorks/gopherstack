@@ -4461,7 +4461,9 @@ func seedAppConfigDataDemoProfiles(ctx context.Context, h service.Registerable, 
 	}
 
 	for _, p := range profiles {
-		acdHandler.Backend.SetConfiguration(p.app, p.env, p.profile, p.content, p.contentType)
+		if err := acdHandler.Backend.SetConfiguration(p.app, p.env, p.profile, p.content, p.contentType); err != nil {
+			log.WarnContext(ctx, "Failed to seed AppConfigData profile", "error", err)
+		}
 	}
 
 	log.InfoContext(ctx, "Seeded AppConfigData demo profiles", "count", len(profiles))
