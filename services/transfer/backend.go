@@ -283,11 +283,11 @@ func cloneHostKey(h *HostKey) *HostKey {
 	return &cp
 }
 
-// SshPublicKey represents an SSH public key attached to a Transfer user.
-type SshPublicKey struct {
+// SSHPublicKey represents an SSH public key attached to a Transfer user.
+type SSHPublicKey struct {
 	DateImported     time.Time `json:"date_imported"`
-	SshPublicKeyID   string    `json:"ssh_public_key_id"`
-	SshPublicKeyBody string    `json:"ssh_public_key_body"`
+	SSHPublicKeyID   string    `json:"ssh_public_key_id"`
+	SSHPublicKeyBody string    `json:"ssh_public_key_body"`
 	UserName         string    `json:"user_name"`
 	ServerID         string    `json:"server_id"`
 }
@@ -304,7 +304,7 @@ type InMemoryBackend struct {
 	workflows     map[string]*Workflow
 	certificates  map[string]*Certificate
 	hostKeys      map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
-	sshPublicKeys map[string]map[string]map[string]*SshPublicKey // serverID -> userName -> keyID -> SshPublicKey
+	sshPublicKeys map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
 	tagsStore     map[string]map[string]string                   // arn -> tags
 	mu            *lockmetrics.RWMutex
 	accountID     string
@@ -324,7 +324,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		workflows:     make(map[string]*Workflow),
 		certificates:  make(map[string]*Certificate),
 		hostKeys:      make(map[string]map[string]*HostKey),
-		sshPublicKeys: make(map[string]map[string]map[string]*SshPublicKey),
+		sshPublicKeys: make(map[string]map[string]map[string]*SSHPublicKey),
 		tagsStore:     make(map[string]map[string]string),
 		accountID:     accountID,
 		region:        region,
@@ -624,7 +624,7 @@ func (b *InMemoryBackend) Reset() {
 	b.workflows = make(map[string]*Workflow)
 	b.certificates = make(map[string]*Certificate)
 	b.hostKeys = make(map[string]map[string]*HostKey)
-	b.sshPublicKeys = make(map[string]map[string]map[string]*SshPublicKey)
+	b.sshPublicKeys = make(map[string]map[string]map[string]*SSHPublicKey)
 	b.tagsStore = make(map[string]map[string]string)
 }
 
@@ -1565,10 +1565,10 @@ func (b *InMemoryBackend) UpdateHostKey(serverID, hostKeyID, description string)
 	return cloneHostKey(hk), nil
 }
 
-// ImportSshPublicKey imports an SSH public key for a user on a server.
-func (b *InMemoryBackend) ImportSshPublicKey(
+// ImportSSHPublicKey imports an SSH public key for a user on a server.
+func (b *InMemoryBackend) ImportSSHPublicKey(
 	serverID, userName, sshPublicKeyBody string,
-) (*SshPublicKey, error) {
+) (*SSHPublicKey, error) {
 	b.mu.Lock("ImportSshPublicKey")
 	defer b.mu.Unlock()
 
@@ -1577,35 +1577,35 @@ func (b *InMemoryBackend) ImportSshPublicKey(
 	}
 
 	if _, ok := b.sshPublicKeys[serverID]; !ok {
-		b.sshPublicKeys[serverID] = make(map[string]map[string]*SshPublicKey)
+		b.sshPublicKeys[serverID] = make(map[string]map[string]*SSHPublicKey)
 	}
 
 	if _, ok := b.sshPublicKeys[serverID][userName]; !ok {
-		b.sshPublicKeys[serverID][userName] = make(map[string]*SshPublicKey)
+		b.sshPublicKeys[serverID][userName] = make(map[string]*SSHPublicKey)
 	}
 
 	keyID := "key-" + uuid.NewString()[:8]
 
-	k := &SshPublicKey{
-		SshPublicKeyID:   keyID,
-		SshPublicKeyBody: sshPublicKeyBody,
+	k := &SSHPublicKey{
+		SSHPublicKeyID:   keyID,
+		SSHPublicKeyBody: sshPublicKeyBody,
 		UserName:         userName,
 		ServerID:         serverID,
 		DateImported:     time.Now(),
 	}
 	b.sshPublicKeys[serverID][userName][keyID] = k
 
-	return &SshPublicKey{
-		SshPublicKeyID:   k.SshPublicKeyID,
-		SshPublicKeyBody: k.SshPublicKeyBody,
+	return &SSHPublicKey{
+		SSHPublicKeyID:   k.SSHPublicKeyID,
+		SSHPublicKeyBody: k.SSHPublicKeyBody,
 		UserName:         k.UserName,
 		ServerID:         k.ServerID,
 		DateImported:     k.DateImported,
 	}, nil
 }
 
-// DeleteSshPublicKey removes an SSH public key from a user on a server.
-func (b *InMemoryBackend) DeleteSshPublicKey(serverID, userName, sshPublicKeyID string) error {
+// DeleteSSHPublicKey removes an SSH public key from a user on a server.
+func (b *InMemoryBackend) DeleteSSHPublicKey(serverID, userName, sshPublicKeyID string) error {
 	b.mu.Lock("DeleteSshPublicKey")
 	defer b.mu.Unlock()
 

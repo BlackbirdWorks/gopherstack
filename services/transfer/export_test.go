@@ -110,10 +110,10 @@ func HostKeyCount(b *InMemoryBackend) int {
 	return n
 }
 
-// SshPublicKeyCount returns the total number of SSH public keys stored across all users and servers.
+// SSHPublicKeyCount returns the total number of SSH public keys stored across all users and servers.
 // This is exported for use in tests only.
-func SshPublicKeyCount(b *InMemoryBackend) int {
-	b.mu.RLock("SshPublicKeyCount")
+func SSHPublicKeyCount(b *InMemoryBackend) int {
+	b.mu.RLock("SSHPublicKeyCount")
 	defer b.mu.RUnlock()
 
 	n := 0

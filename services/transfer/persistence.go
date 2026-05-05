@@ -18,12 +18,14 @@ type backendSnapshot struct {
 	Workflows     map[string]*Workflow                           `json:"workflows"`
 	Certificates  map[string]*Certificate                        `json:"certificates"`
 	HostKeys      map[string]map[string]*HostKey                 `json:"host_keys"`
-	SshPublicKeys map[string]map[string]map[string]*SshPublicKey `json:"ssh_public_keys"`
+	SSHPublicKeys map[string]map[string]map[string]*SSHPublicKey `json:"ssh_public_keys"`
 	TagsStore     map[string]map[string]string                   `json:"tags_store"`
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
+//
+//nolint:gocognit,cyclop,funlen // function copies independent map collections
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
@@ -39,7 +41,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Workflows:     make(map[string]*Workflow, len(b.workflows)),
 		Certificates:  make(map[string]*Certificate, len(b.certificates)),
 		HostKeys:      make(map[string]map[string]*HostKey, len(b.hostKeys)),
-		SshPublicKeys: make(map[string]map[string]map[string]*SshPublicKey, len(b.sshPublicKeys)),
+		SSHPublicKeys: make(map[string]map[string]map[string]*SSHPublicKey, len(b.sshPublicKeys)),
 		TagsStore:     make(map[string]map[string]string, len(b.tagsStore)),
 	}
 
@@ -103,16 +105,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	for sid, userMap := range b.sshPublicKeys {
-		um := make(map[string]map[string]*SshPublicKey, len(userMap))
+		um := make(map[string]map[string]*SSHPublicKey, len(userMap))
 		for userName, keyMap := range userMap {
-			km := make(map[string]*SshPublicKey, len(keyMap))
+			km := make(map[string]*SSHPublicKey, len(keyMap))
 			for k, v := range keyMap {
 				cp := *v
 				km[k] = &cp
 			}
 			um[userName] = km
 		}
-		snap.SshPublicKeys[sid] = um
+		snap.SSHPublicKeys[sid] = um
 	}
 
 	for arn, tagMap := range b.tagsStore {
@@ -155,7 +157,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.workflows = snap.Workflows
 	b.certificates = snap.Certificates
 	b.hostKeys = snap.HostKeys
-	b.sshPublicKeys = snap.SshPublicKeys
+	b.sshPublicKeys = snap.SSHPublicKeys
 	b.tagsStore = snap.TagsStore
 
 	return nil
@@ -204,8 +206,8 @@ func ensureNonNilMaps(s *backendSnapshot) {
 		s.HostKeys = make(map[string]map[string]*HostKey)
 	}
 
-	if s.SshPublicKeys == nil {
-		s.SshPublicKeys = make(map[string]map[string]map[string]*SshPublicKey)
+	if s.SSHPublicKeys == nil {
+		s.SSHPublicKeys = make(map[string]map[string]map[string]*SSHPublicKey)
 	}
 
 	if s.TagsStore == nil {

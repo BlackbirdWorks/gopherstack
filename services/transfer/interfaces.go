@@ -60,8 +60,8 @@ type StorageBackend interface {
 	DescribeHostKey(serverID, hostKeyID string) (*HostKey, error)
 	ListHostKeys(serverID string) ([]*HostKey, error)
 	UpdateHostKey(serverID, hostKeyID, description string) (*HostKey, error)
-	ImportSshPublicKey(serverID, userName, sshPublicKeyBody string) (*SshPublicKey, error)
-	DeleteSshPublicKey(serverID, userName, sshPublicKeyID string) error
+	ImportSSHPublicKey(serverID, userName, sshPublicKeyBody string) (*SSHPublicKey, error)
+	DeleteSSHPublicKey(serverID, userName, sshPublicKeyID string) error
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
 	ListTagsForResource(resourceARN string) map[string]string

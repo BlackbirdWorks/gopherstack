@@ -25,6 +25,7 @@ const (
 )
 
 const transferTargetPrefix = "TransferService."
+const idSuffixLen = 8 // length of zero-padded ID suffix
 
 const (
 	keyDescription = "Description"
@@ -258,8 +259,8 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"DescribeHostKey":             service.WrapOp(h.handleDescribeHostKey),
 		"ListHostKeys":                service.WrapOp(h.handleListHostKeys),
 		"UpdateHostKey":               service.WrapOp(h.handleUpdateHostKey),
-		"ImportSshPublicKey":          service.WrapOp(h.handleImportSshPublicKey),
-		"DeleteSshPublicKey":          service.WrapOp(h.handleDeleteSshPublicKey),
+		"ImportSshPublicKey":          service.WrapOp(h.handleImportSSHPublicKey),
+		"DeleteSshPublicKey":          service.WrapOp(h.handleDeleteSSHPublicKey),
 		"TagResource":                 service.WrapOp(h.handleTagResource),
 		"UntagResource":               service.WrapOp(h.handleUntagResource),
 		"ListTagsForResource":         service.WrapOp(h.handleListTagsForResource),
@@ -1000,7 +1001,7 @@ type listAccessesInput struct {
 
 type listAccessesOutput struct {
 	NextToken string           `json:"NextToken,omitempty"`
-	ServerId  string           `json:"ServerId"`
+	ServerID  string           `json:"ServerId"`
 	Accesses  []map[string]any `json:"Accesses"`
 }
 
@@ -1028,7 +1029,7 @@ func (h *Handler) handleListAccesses(
 		}
 	}
 
-	return &listAccessesOutput{Accesses: out, NextToken: next, ServerId: in.ServerID}, nil
+	return &listAccessesOutput{Accesses: out, NextToken: next, ServerID: in.ServerID}, nil
 }
 
 type updateAccessInput struct {
@@ -1788,7 +1789,7 @@ type listHostKeysInput struct {
 
 type listHostKeysOutput struct {
 	NextToken string           `json:"NextToken,omitempty"`
-	ServerId  string           `json:"ServerId"`
+	ServerID  string           `json:"ServerId"`
 	HostKeys  []map[string]any `json:"HostKeys"`
 }
 
@@ -1816,7 +1817,7 @@ func (h *Handler) handleListHostKeys(
 		}
 	}
 
-	return &listHostKeysOutput{HostKeys: out, NextToken: next, ServerId: in.ServerID}, nil
+	return &listHostKeysOutput{HostKeys: out, NextToken: next, ServerID: in.ServerID}, nil
 }
 
 type updateHostKeyInput struct {
@@ -1852,22 +1853,22 @@ func (h *Handler) handleUpdateHostKey(
 
 // --- SSH public key operations ---
 
-type importSshPublicKeyInput struct {
+type importSSHPublicKeyInput struct {
 	ServerID         string `json:"ServerId"`
 	UserName         string `json:"UserName"`
-	SshPublicKeyBody string `json:"SshPublicKeyBody"`
+	SSHPublicKeyBody string `json:"SshPublicKeyBody"`
 }
 
-type importSshPublicKeyOutput struct {
+type importSSHPublicKeyOutput struct {
 	ServerID       string `json:"ServerId"`
-	SshPublicKeyID string `json:"SshPublicKeyId"`
+	SSHPublicKeyID string `json:"SshPublicKeyId"`
 	UserName       string `json:"UserName"`
 }
 
-func (h *Handler) handleImportSshPublicKey(
+func (h *Handler) handleImportSSHPublicKey(
 	_ context.Context,
-	in *importSshPublicKeyInput,
-) (*importSshPublicKeyOutput, error) {
+	in *importSSHPublicKeyInput,
+) (*importSSHPublicKeyOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1876,27 +1877,27 @@ func (h *Handler) handleImportSshPublicKey(
 		return nil, fmt.Errorf("%w: UserName is required", errInvalidRequest)
 	}
 
-	k, err := h.Backend.ImportSshPublicKey(in.ServerID, in.UserName, in.SshPublicKeyBody)
+	k, err := h.Backend.ImportSSHPublicKey(in.ServerID, in.UserName, in.SSHPublicKeyBody)
 	if err != nil {
 		return nil, err
 	}
 
-	return &importSshPublicKeyOutput{
+	return &importSSHPublicKeyOutput{
 		ServerID:       k.ServerID,
-		SshPublicKeyID: k.SshPublicKeyID,
+		SSHPublicKeyID: k.SSHPublicKeyID,
 		UserName:       k.UserName,
 	}, nil
 }
 
-type deleteSshPublicKeyInput struct {
+type deleteSSHPublicKeyInput struct {
 	ServerID       string `json:"ServerId"`
 	UserName       string `json:"UserName"`
-	SshPublicKeyID string `json:"SshPublicKeyId"`
+	SSHPublicKeyID string `json:"SshPublicKeyId"`
 }
 
-func (h *Handler) handleDeleteSshPublicKey(
+func (h *Handler) handleDeleteSSHPublicKey(
 	_ context.Context,
-	in *deleteSshPublicKeyInput,
+	in *deleteSSHPublicKeyInput,
 ) (*struct{}, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
@@ -1906,11 +1907,11 @@ func (h *Handler) handleDeleteSshPublicKey(
 		return nil, fmt.Errorf("%w: UserName is required", errInvalidRequest)
 	}
 
-	if in.SshPublicKeyID == "" {
-		return nil, fmt.Errorf("%w: SshPublicKeyId is required", errInvalidRequest)
+	if in.SSHPublicKeyID == "" {
+		return nil, fmt.Errorf("%w: SSHPublicKeyID is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteSshPublicKey(in.ServerID, in.UserName, in.SshPublicKeyID); err != nil {
+	if err := h.Backend.DeleteSSHPublicKey(in.ServerID, in.UserName, in.SSHPublicKeyID); err != nil {
 		return nil, err
 	}
 
@@ -2068,7 +2069,7 @@ func (h *Handler) handleTestIdentityProvider(
 	_ context.Context,
 	_ *struct{},
 ) (*map[string]any, error) {
-	return &map[string]any{"StatusCode": 200, "Message": "Identity provider test successful"}, nil
+	return &map[string]any{"StatusCode": http.StatusOK, "Message": "Identity provider test successful"}, nil
 }
 
 // tagsToList converts a map of tags to the AWS list format sorted by key.
