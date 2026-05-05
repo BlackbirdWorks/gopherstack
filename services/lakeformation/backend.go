@@ -63,7 +63,7 @@ type StorageBackend interface {
 	CancelTransaction(transactionID string) error
 	CommitTransaction(transactionID string) (string, error)
 	DescribeTransaction(transactionID string) (*Transaction, error)
-	ListTransactions(maxResults int, nextToken string) ([]*Transaction, string)
+	ListTransactions(statusFilter string, maxResults int, nextToken string) ([]*Transaction, string)
 
 	CreateDataCellsFilter(filter *DataCellsFilter) error
 	DeleteDataCellsFilter(tableCatalogID, databaseName, tableName, name string) error
@@ -110,7 +110,7 @@ type StorageBackend interface {
 	GetWorkUnits(queryID string) ([]WorkUnitRange, string, error)
 	GetWorkUnitResults(queryID, workUnitToken string) error
 
-	ListTableStorageOptimizers(catalogID, databaseName, tableName string) []StorageOptimizer
+	ListTableStorageOptimizers(catalogID, databaseName, tableName, storageOptimizerType string) []StorageOptimizer
 	UpdateTableStorageOptimizer(catalogID, databaseName, tableName string, config map[string]map[string]string) string
 
 	SearchDatabasesByLFTags(expression []LFTag, catalogID string, maxResults int, nextToken string) ([]TaggedDatabase, string)
@@ -699,6 +699,8 @@ func resourceEqual(a, b *Resource) bool {
 }
 
 // permissionMatchesARN returns true if the permission entry's resource matches the given ARN.
+// For DataLocation resources the ARN is compared directly; for database/table resources an
+// ARN suffix match is used (arn:…:database/name or arn:…:table/db/name).
 func permissionMatchesARN(p *PermissionEntry, arn string) bool {
 	if p.Resource == nil {
 		return false
@@ -706,6 +708,16 @@ func permissionMatchesARN(p *PermissionEntry, arn string) bool {
 
 	if p.Resource.DataLocation != nil {
 		return p.Resource.DataLocation.ResourceArn == arn
+	}
+
+	if p.Resource.Database != nil {
+		return strings.HasSuffix(arn, "/"+p.Resource.Database.Name) ||
+			strings.HasSuffix(arn, ":database/"+p.Resource.Database.Name)
+	}
+
+	if p.Resource.Table != nil {
+		return strings.HasSuffix(arn, "/"+p.Resource.Table.DatabaseName+"/"+p.Resource.Table.Name) ||
+			strings.HasSuffix(arn, ":table/"+p.Resource.Table.DatabaseName+"/"+p.Resource.Table.Name)
 	}
 
 	return false
@@ -1269,14 +1281,18 @@ func (b *InMemoryBackend) DescribeTransaction(transactionID string) (*Transactio
 	return &Transaction{TransactionID: transactionID, TransactionStatus: status}, nil
 }
 
-// ListTransactions returns a paginated list of all known transactions.
-func (b *InMemoryBackend) ListTransactions(maxResults int, nextToken string) ([]*Transaction, string) {
+// ListTransactions returns a paginated list of transactions, optionally filtered by status.
+func (b *InMemoryBackend) ListTransactions(statusFilter string, maxResults int, nextToken string) ([]*Transaction, string) {
 	b.mu.RLock("ListTransactions")
 	defer b.mu.RUnlock()
 
 	all := make([]*Transaction, 0, len(b.transactions))
 
 	for id, status := range b.transactions {
+		if statusFilter != "" && status != statusFilter {
+			continue
+		}
+
 		all = append(all, &Transaction{TransactionID: id, TransactionStatus: status})
 	}
 
@@ -1578,15 +1594,23 @@ func (b *InMemoryBackend) ExtendTransaction(transactionID string) error {
 	return nil
 }
 
-// DeleteObjectsOnCancel validates the transaction exists before registering delete-on-cancel.
+// DeleteObjectsOnCancel removes governed table objects written during a cancelled transaction.
+// AWS requires the transaction to be in ABORTED state before objects can be deleted.
 func (b *InMemoryBackend) DeleteObjectsOnCancel(transactionID string) error {
 	if strings.TrimSpace(transactionID) == "" {
 		return fmt.Errorf("TransactionId is required: %w", ErrValidation)
 	}
 	b.mu.RLock("DeleteObjectsOnCancel")
 	defer b.mu.RUnlock()
-	if _, ok := b.transactions[transactionID]; !ok {
+	status, ok := b.transactions[transactionID]
+	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
+	}
+	if status != transactionStatusAborted {
+		return awserr.New(
+			fmt.Sprintf("transaction %s must be in ABORTED state (current: %s)", transactionID, status),
+			awserr.ErrConflict,
+		)
 	}
 	return nil
 }
@@ -1611,6 +1635,15 @@ func (b *InMemoryBackend) GetDataCellsFilter(tableCatalogID, databaseName, table
 func (b *InMemoryBackend) UpdateDataCellsFilter(filter *DataCellsFilter) error {
 	if filter == nil {
 		return fmt.Errorf("filter is required: %w", ErrValidation)
+	}
+	if strings.TrimSpace(filter.TableCatalogID) == "" {
+		return fmt.Errorf("TableCatalogId is required: %w", ErrValidation)
+	}
+	if strings.TrimSpace(filter.DatabaseName) == "" {
+		return fmt.Errorf("DatabaseName is required: %w", ErrValidation)
+	}
+	if strings.TrimSpace(filter.TableName) == "" {
+		return fmt.Errorf("TableName is required: %w", ErrValidation)
 	}
 	if strings.TrimSpace(filter.Name) == "" {
 		return fmt.Errorf("Name is required: %w", ErrValidation)
@@ -1739,7 +1772,7 @@ func (b *InMemoryBackend) GetQueryStatistics(queryID string) (*ExecutionStatisti
 	return exec, plan, nil
 }
 
-// GetWorkUnits returns the work unit ranges for a query.
+// GetWorkUnits returns the work unit ranges for a completed query plan.
 func (b *InMemoryBackend) GetWorkUnits(queryID string) ([]WorkUnitRange, string, error) {
 	if strings.TrimSpace(queryID) == "" {
 		return nil, "", fmt.Errorf("QueryId is required: %w", ErrValidation)
@@ -1749,7 +1782,7 @@ func (b *InMemoryBackend) GetWorkUnits(queryID string) ([]WorkUnitRange, string,
 	if _, ok := b.queries[queryID]; !ok {
 		return nil, "", awserr.New("query not found: "+queryID, awserr.ErrNotFound)
 	}
-	return []WorkUnitRange{}, queryID, nil
+	return []WorkUnitRange{}, "", nil
 }
 
 // GetWorkUnitResults validates that the query exists and returns successfully.
@@ -1770,14 +1803,20 @@ func tableStorageKey(catalogID, databaseName, tableName string) string {
 	return catalogID + "|" + databaseName + "|" + tableName
 }
 
-// ListTableStorageOptimizers returns the storage optimizers configured for a table.
-func (b *InMemoryBackend) ListTableStorageOptimizers(catalogID, databaseName, tableName string) []StorageOptimizer {
+// ListTableStorageOptimizers returns the storage optimizers for a table, filtered by type if specified.
+func (b *InMemoryBackend) ListTableStorageOptimizers(catalogID, databaseName, tableName, storageOptimizerType string) []StorageOptimizer {
 	b.mu.RLock("ListTableStorageOptimizers")
 	defer b.mu.RUnlock()
 	key := tableStorageKey(catalogID, databaseName, tableName)
 	opts := b.tableStorageOptimizers[key]
-	result := make([]StorageOptimizer, len(opts))
-	copy(result, opts)
+	result := make([]StorageOptimizer, 0, len(opts))
+
+	for _, o := range opts {
+		if storageOptimizerType == "" || o.StorageOptimizerType == storageOptimizerType {
+			result = append(result, o)
+		}
+	}
+
 	return result
 }
 

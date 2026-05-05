@@ -841,7 +841,7 @@ func (h *Handler) handleListTransactions(_ context.Context, c *echo.Context, bod
 		}
 	}
 
-	txns, nextToken := h.Backend.ListTransactions(in.MaxResults, in.NextToken)
+	txns, nextToken := h.Backend.ListTransactions(in.StatusFilter, in.MaxResults, in.NextToken)
 
 	return c.JSON(http.StatusOK, listTransactionsOutput{
 		Transactions: txns,
@@ -910,6 +910,7 @@ func (h *Handler) handleListDataCellsFilter(_ context.Context, c *echo.Context, 
 
 	var tableCatalogID, databaseName, tableName string
 	if in.Table != nil {
+		tableCatalogID = in.Table.CatalogID
 		databaseName = in.Table.DatabaseName
 		tableName = in.Table.Name
 	}
@@ -1138,6 +1139,16 @@ func (h *Handler) handleGetTableObjects(_ context.Context, c *echo.Context, body
 	return c.JSON(http.StatusOK, getTableObjectsOutput{Objects: objects, NextToken: nextToken})
 }
 
+// credentialsExpiry computes the expiration time based on optional DurationSeconds (default 1 hour).
+func credentialsExpiry(durationSeconds *int32) string {
+	d := time.Hour
+	if durationSeconds != nil && *durationSeconds > 0 {
+		d = time.Duration(*durationSeconds) * time.Second
+	}
+
+	return time.Now().Add(d).UTC().Format(time.RFC3339)
+}
+
 func (h *Handler) handleGetTemporaryDataLocationCredentials(_ context.Context, c *echo.Context, body []byte) error {
 	var in getTemporaryDataLocationCredentialsInput
 	if err := json.Unmarshal(body, &in); err != nil {
@@ -1147,7 +1158,7 @@ func (h *Handler) handleGetTemporaryDataLocationCredentials(_ context.Context, c
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "ResourceArn is required")
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
-	expiry := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	expiry := credentialsExpiry(in.DurationSeconds)
 	return c.JSON(http.StatusOK, getTemporaryDataLocationCredentialsOutput{Credentials: creds, Expiration: &expiry})
 }
 
@@ -1160,7 +1171,7 @@ func (h *Handler) handleGetTemporaryGluePartitionCredentials(_ context.Context, 
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TableArn is required")
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
-	expiry := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	expiry := credentialsExpiry(in.DurationSeconds)
 	return c.JSON(http.StatusOK, getTemporaryGluePartitionCredentialsOutput{Credentials: creds, Expiration: &expiry})
 }
 
@@ -1173,7 +1184,7 @@ func (h *Handler) handleGetTemporaryGlueTableCredentials(_ context.Context, c *e
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TableArn is required")
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
-	expiry := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	expiry := credentialsExpiry(in.DurationSeconds)
 	return c.JSON(http.StatusOK, getTemporaryGlueTableCredentialsOutput{Credentials: creds, Expiration: &expiry})
 }
 
@@ -1193,11 +1204,11 @@ func (h *Handler) handleGetWorkUnits(_ context.Context, c *echo.Context, body []
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
-	ranges, queryID, err := h.Backend.GetWorkUnits(in.QueryID)
+	ranges, nextToken, err := h.Backend.GetWorkUnits(in.QueryID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
-	return c.JSON(http.StatusOK, getWorkUnitsOutput{QueryID: queryID, WorkUnitRanges: ranges})
+	return c.JSON(http.StatusOK, getWorkUnitsOutput{QueryID: in.QueryID, WorkUnitRanges: ranges, NextToken: nextToken})
 }
 
 func (h *Handler) handleListTableStorageOptimizers(_ context.Context, c *echo.Context, body []byte) error {
@@ -1205,7 +1216,7 @@ func (h *Handler) handleListTableStorageOptimizers(_ context.Context, c *echo.Co
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
-	opts := h.Backend.ListTableStorageOptimizers(in.CatalogID, in.DatabaseName, in.TableName)
+	opts := h.Backend.ListTableStorageOptimizers(in.CatalogID, in.DatabaseName, in.TableName, in.StorageOptimizerType)
 	return c.JSON(http.StatusOK, listTableStorageOptimizersOutput{StorageOptimizerList: opts})
 }
 
@@ -1238,6 +1249,9 @@ func (h *Handler) handleStartQueryPlanning(_ context.Context, c *echo.Context, b
 	}
 	if strings.TrimSpace(in.QueryString) == "" {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "QueryString is required")
+	}
+	if strings.TrimSpace(in.QueryPlanningContext.DatabaseName) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "QueryPlanningContext.DatabaseName is required")
 	}
 	queryID := h.Backend.StartQueryPlanning(in.QueryString)
 	return c.JSON(http.StatusOK, startQueryPlanningOutput{QueryID: queryID})

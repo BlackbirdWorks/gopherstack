@@ -53,6 +53,7 @@ type DatabaseResource struct {
 
 // TableResource represents a table resource.
 type TableResource struct {
+	CatalogID    string `json:"CatalogId,omitempty"`
 	DatabaseName string `json:"DatabaseName"`
 	Name         string `json:"Name"`
 }
