@@ -470,14 +470,11 @@ func TestHandler_ShadowResponseContainsVersionAndTimestamp(t *testing.T) {
 	assert.Contains(t, getResp, "timestamp")
 }
 
-func TestBackend_ShadowUpdate_StateIsStoredBeforeResponse(t *testing.T) {
+func TestBackend_ShadowUpdate_NonObjectDocumentRejected(t *testing.T) {
 	t.Parallel()
 
-	// Even when a non-JSON-object payload (e.g. a plain string) is stored,
-	// UpdateThingShadow must succeed and the response must be valid JSON with
-	// version + timestamp.  This exercises the fallback path in buildShadowResponse
-	// and verifies that the response is constructed before state mutation so that
-	// a potential marshal error cannot leave a partial update.
+	// AWS IoT requires shadow documents to be JSON objects. Arrays, primitives,
+	// and plain strings must be rejected with ErrValidation.
 	b := iotdataplane.NewInMemoryBackend()
 
 	tests := []struct {
@@ -487,22 +484,33 @@ func TestBackend_ShadowUpdate_StateIsStoredBeforeResponse(t *testing.T) {
 		{name: "json_array", payload: []byte(`["a","b","c"]`)},
 		{name: "plain_string", payload: []byte(`"just a string"`)},
 		{name: "number", payload: []byte(`42`)},
+		{name: "empty", payload: []byte{}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			resp, err := b.UpdateThingShadow("thing-"+tt.name, "", tt.payload)
-			require.NoError(t, err)
-
-			var result map[string]any
-			require.NoError(t, json.Unmarshal(resp, &result), "response must be valid JSON")
-			assert.Contains(t, result, "version", "response must contain version")
-			assert.Contains(t, result, "timestamp", "response must contain timestamp")
-			assert.Contains(t, result, "payload", "non-object doc must be wrapped under payload key")
+			_, err := b.UpdateThingShadow("thing-"+tt.name, "", tt.payload)
+			require.ErrorIs(t, err, iotdataplane.ErrValidation, "non-object document must be rejected")
 		})
 	}
+}
+
+func TestBackend_ShadowUpdate_ObjectDocumentSucceeds(t *testing.T) {
+	t.Parallel()
+
+	// Valid JSON object documents must be accepted and the response must include
+	// version + timestamp (verifies the response is built before state mutation).
+	b := iotdataplane.NewInMemoryBackend()
+
+	resp, err := b.UpdateThingShadow("thing1", "", []byte(`{"state":{"desired":{"key":"value"}}}`))
+	require.NoError(t, err)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp, &result), "response must be valid JSON")
+	assert.Contains(t, result, "version", "response must contain version")
+	assert.Contains(t, result, "timestamp", "response must contain timestamp")
 }
 
 // mockMQTTPublisher implements MQTTPublisher for testing.
