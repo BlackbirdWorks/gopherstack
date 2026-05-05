@@ -32,6 +32,8 @@ const (
 	glueARNParts          = 6
 	errEntityNotFoundCode = "EntityNotFoundException"
 	stateRunning          = "RUNNING"
+	stateStarting         = "STARTING"
+	stateStopping         = "STOPPING"
 )
 
 // DatabaseInput is the input for creating or updating a Glue database.
@@ -1245,7 +1247,7 @@ func (b *InMemoryBackend) BatchDeleteConnection(names []string) ([]string, []Err
 	for _, name := range names {
 		if _, ok := b.connections[name]; !ok {
 			errs = append(errs, ErrorDetail{
-				ErrorCode:    "EntityNotFoundException",
+				ErrorCode:    errEntityNotFoundCode,
 				ErrorMessage: "connection not found: " + name,
 			})
 
@@ -1530,14 +1532,14 @@ func (b *InMemoryBackend) StartJobRun(jobName string, arguments map[string]strin
 		return nil, ErrNotFound
 	}
 
-	if max := j.ExecutionProperty.MaxConcurrentRuns; max > 0 {
+	if maxConcurrent := j.ExecutionProperty.MaxConcurrentRuns; maxConcurrent > 0 {
 		active := 0
 		for _, r := range b.jobRuns[jobName] {
-			if r.JobRunState == "RUNNING" || r.JobRunState == "STARTING" {
+			if r.JobRunState == stateRunning || r.JobRunState == stateStarting {
 				active++
 			}
 		}
-		if active >= max {
+		if active >= maxConcurrent {
 			return nil, ErrValidation
 		}
 	}
@@ -1549,7 +1551,7 @@ func (b *InMemoryBackend) StartJobRun(jobName string, arguments map[string]strin
 			mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
 		),
 		JobName:     jobName,
-		JobRunState: "STARTING",
+		JobRunState: stateStarting,
 		StartedOn:   float64(time.Now().Unix()),
 		Arguments:   maps.Clone(arguments),
 	}
@@ -1618,7 +1620,7 @@ func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []Bat
 				continue
 			}
 			found = true
-			if run.JobRunState != "RUNNING" && run.JobRunState != "STARTING" {
+			if run.JobRunState != stateRunning && run.JobRunState != stateStarting {
 				errs = append(errs, BatchStopJobRunError{
 					JobName:  jobName,
 					JobRunID: id,
@@ -1628,7 +1630,7 @@ func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []Bat
 					},
 				})
 			} else {
-				run.JobRunState = "STOPPING"
+				run.JobRunState = stateStopping
 			}
 
 			break
@@ -1706,7 +1708,7 @@ func (b *InMemoryBackend) StartCrawler(name string) error {
 	if !ok {
 		return ErrNotFound
 	}
-	if c.State == stateRunning || c.State == "STOPPING" {
+	if c.State == stateRunning || c.State == stateStopping {
 		return ErrCrawlerRunning
 	}
 	c.State = stateRunning
@@ -1727,7 +1729,7 @@ func (b *InMemoryBackend) StopCrawler(name string) error {
 	if c.State != stateRunning {
 		return ErrCrawlerNotRunning
 	}
-	c.State = "STOPPING"
+	c.State = stateStopping
 	c.LastUpdated = float64(time.Now().Unix())
 
 	return nil
