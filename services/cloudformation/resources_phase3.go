@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
-	"github.com/blackbirdworks/gopherstack/services/pipes"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
@@ -15,6 +14,7 @@ import (
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
+	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
 // eksNodegroupDefaultDesiredSize is the default desired node count for an EKS nodegroup.
