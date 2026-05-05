@@ -782,8 +782,8 @@ func (h *Handler) handleBatchDeleteConnection(
 // --- Single connection handlers ---
 
 type createConnectionInput struct {
-	Tags             map[string]string `json:"Tags,omitempty"`
-	ConnectionInput  connectionInput   `json:"ConnectionInput"`
+	Tags            map[string]string `json:"Tags,omitempty"`
+	ConnectionInput connectionInput   `json:"ConnectionInput"`
 }
 
 type connectionInput struct {

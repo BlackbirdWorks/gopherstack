@@ -333,7 +333,7 @@
 				class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${activeTab === tab ? 'border-sky-500 text-sky-600 dark:text-sky-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
 			>
 				{label}
-				{#if count > 0}
+				{#if (count as number) > 0}
 					<span class="text-xs px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{count}</span>
 				{/if}
 			</button>

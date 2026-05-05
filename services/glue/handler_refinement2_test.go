@@ -329,8 +329,8 @@ func TestRefinement2_MaxConcurrentRuns(t *testing.T) {
 
 	h := newTestHandler(t)
 	doGlueRequest(t, h, "CreateJob", map[string]any{
-		"Name": "limited-job",
-		"Role": "r",
+		"Name":              "limited-job",
+		"Role":              "r",
 		"ExecutionProperty": map[string]any{"MaxConcurrentRuns": 2},
 	})
 

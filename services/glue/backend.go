@@ -1344,7 +1344,9 @@ func (b *InMemoryBackend) connectionARN(name string) string {
 }
 
 // CreateConnection creates a new Glue connection.
-func (b *InMemoryBackend) CreateConnection(name, connType string, props map[string]string, tags map[string]string) (*Connection, error) {
+func (b *InMemoryBackend) CreateConnection(
+	name, connType string, props map[string]string, tags map[string]string,
+) (*Connection, error) {
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
 
