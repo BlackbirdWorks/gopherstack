@@ -26,6 +26,13 @@ const (
 
 const transferTargetPrefix = "TransferService."
 
+const (
+	keyDescription = "Description"
+	keyStatus      = "Status"
+	keyWorkflowID  = "WorkflowId"
+	keyTransferID  = "TransferId"
+)
+
 var (
 	errUnknownAction  = errors.New("unknown action")
 	errInvalidRequest = errors.New("invalid request")
@@ -197,77 +204,77 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateServer":            service.WrapOp(h.handleCreateServer),
-		"DescribeServer":          service.WrapOp(h.handleDescribeServer),
-		"ListServers":             service.WrapOp(h.handleListServers),
-		"StartServer":             service.WrapOp(h.handleStartServer),
-		"StopServer":              service.WrapOp(h.handleStopServer),
-		"DeleteServer":            service.WrapOp(h.handleDeleteServer),
-		"UpdateServer":            service.WrapOp(h.handleUpdateServer),
-		"CreateUser":              service.WrapOp(h.handleCreateUser),
-		"DescribeUser":            service.WrapOp(h.handleDescribeUser),
-		"ListUsers":               service.WrapOp(h.handleListUsers),
-		"DeleteUser":              service.WrapOp(h.handleDeleteUser),
-		"UpdateUser":              service.WrapOp(h.handleUpdateUser),
-		"CreateAccess":            service.WrapOp(h.handleCreateAccess),
-		"DeleteAccess":            service.WrapOp(h.handleDeleteAccess),
-		"DescribeAccess":          service.WrapOp(h.handleDescribeAccess),
-		"ListAccesses":            service.WrapOp(h.handleListAccesses),
-		"UpdateAccess":            service.WrapOp(h.handleUpdateAccess),
-		"CreateAgreement":         service.WrapOp(h.handleCreateAgreement),
-		"DeleteAgreement":         service.WrapOp(h.handleDeleteAgreement),
-		"DescribeAgreement":       service.WrapOp(h.handleDescribeAgreement),
-		"ListAgreements":          service.WrapOp(h.handleListAgreements),
-		"UpdateAgreement":         service.WrapOp(h.handleUpdateAgreement),
-		"CreateConnector":         service.WrapOp(h.handleCreateConnector),
-		"DeleteConnector":         service.WrapOp(h.handleDeleteConnector),
-		"DescribeConnector":       service.WrapOp(h.handleDescribeConnector),
-		"ListConnectors":          service.WrapOp(h.handleListConnectors),
-		"UpdateConnector":         service.WrapOp(h.handleUpdateConnector),
-		"CreateProfile":           service.WrapOp(h.handleCreateProfile),
-		"DeleteProfile":           service.WrapOp(h.handleDeleteProfile),
-		"DescribeProfile":         service.WrapOp(h.handleDescribeProfile),
-		"ListProfiles":            service.WrapOp(h.handleListProfiles),
-		"UpdateProfile":           service.WrapOp(h.handleUpdateProfile),
-		"CreateWebApp":            service.WrapOp(h.handleCreateWebApp),
-		"DeleteWebApp":            service.WrapOp(h.handleDeleteWebApp),
-		"DescribeWebApp":          service.WrapOp(h.handleDescribeWebApp),
-		"ListWebApps":             service.WrapOp(h.handleListWebApps),
-		"UpdateWebApp":            service.WrapOp(h.handleUpdateWebApp),
-		"DeleteWebAppCustomization":  service.WrapOp(h.handleDeleteWebAppCustomization),
+		"CreateServer":                service.WrapOp(h.handleCreateServer),
+		"DescribeServer":              service.WrapOp(h.handleDescribeServer),
+		"ListServers":                 service.WrapOp(h.handleListServers),
+		"StartServer":                 service.WrapOp(h.handleStartServer),
+		"StopServer":                  service.WrapOp(h.handleStopServer),
+		"DeleteServer":                service.WrapOp(h.handleDeleteServer),
+		"UpdateServer":                service.WrapOp(h.handleUpdateServer),
+		"CreateUser":                  service.WrapOp(h.handleCreateUser),
+		"DescribeUser":                service.WrapOp(h.handleDescribeUser),
+		"ListUsers":                   service.WrapOp(h.handleListUsers),
+		"DeleteUser":                  service.WrapOp(h.handleDeleteUser),
+		"UpdateUser":                  service.WrapOp(h.handleUpdateUser),
+		"CreateAccess":                service.WrapOp(h.handleCreateAccess),
+		"DeleteAccess":                service.WrapOp(h.handleDeleteAccess),
+		"DescribeAccess":              service.WrapOp(h.handleDescribeAccess),
+		"ListAccesses":                service.WrapOp(h.handleListAccesses),
+		"UpdateAccess":                service.WrapOp(h.handleUpdateAccess),
+		"CreateAgreement":             service.WrapOp(h.handleCreateAgreement),
+		"DeleteAgreement":             service.WrapOp(h.handleDeleteAgreement),
+		"DescribeAgreement":           service.WrapOp(h.handleDescribeAgreement),
+		"ListAgreements":              service.WrapOp(h.handleListAgreements),
+		"UpdateAgreement":             service.WrapOp(h.handleUpdateAgreement),
+		"CreateConnector":             service.WrapOp(h.handleCreateConnector),
+		"DeleteConnector":             service.WrapOp(h.handleDeleteConnector),
+		"DescribeConnector":           service.WrapOp(h.handleDescribeConnector),
+		"ListConnectors":              service.WrapOp(h.handleListConnectors),
+		"UpdateConnector":             service.WrapOp(h.handleUpdateConnector),
+		"CreateProfile":               service.WrapOp(h.handleCreateProfile),
+		"DeleteProfile":               service.WrapOp(h.handleDeleteProfile),
+		"DescribeProfile":             service.WrapOp(h.handleDescribeProfile),
+		"ListProfiles":                service.WrapOp(h.handleListProfiles),
+		"UpdateProfile":               service.WrapOp(h.handleUpdateProfile),
+		"CreateWebApp":                service.WrapOp(h.handleCreateWebApp),
+		"DeleteWebApp":                service.WrapOp(h.handleDeleteWebApp),
+		"DescribeWebApp":              service.WrapOp(h.handleDescribeWebApp),
+		"ListWebApps":                 service.WrapOp(h.handleListWebApps),
+		"UpdateWebApp":                service.WrapOp(h.handleUpdateWebApp),
+		"DeleteWebAppCustomization":   service.WrapOp(h.handleDeleteWebAppCustomization),
 		"DescribeWebAppCustomization": service.WrapOp(h.handleDescribeWebAppCustomization),
-		"UpdateWebAppCustomization":  service.WrapOp(h.handleUpdateWebAppCustomization),
-		"CreateWorkflow":          service.WrapOp(h.handleCreateWorkflow),
-		"DeleteWorkflow":          service.WrapOp(h.handleDeleteWorkflow),
-		"DescribeWorkflow":        service.WrapOp(h.handleDescribeWorkflow),
-		"ListWorkflows":           service.WrapOp(h.handleListWorkflows),
-		"DeleteCertificate":       service.WrapOp(h.handleDeleteCertificate),
-		"ImportCertificate":       service.WrapOp(h.handleImportCertificate),
-		"DescribeCertificate":     service.WrapOp(h.handleDescribeCertificate),
-		"ListCertificates":        service.WrapOp(h.handleListCertificates),
-		"UpdateCertificate":       service.WrapOp(h.handleUpdateCertificate),
-		"ImportHostKey":           service.WrapOp(h.handleImportHostKey),
-		"DeleteHostKey":           service.WrapOp(h.handleDeleteHostKey),
-		"DescribeHostKey":         service.WrapOp(h.handleDescribeHostKey),
-		"ListHostKeys":            service.WrapOp(h.handleListHostKeys),
-		"UpdateHostKey":           service.WrapOp(h.handleUpdateHostKey),
-		"ImportSshPublicKey":      service.WrapOp(h.handleImportSshPublicKey),
-		"DeleteSshPublicKey":      service.WrapOp(h.handleDeleteSshPublicKey),
-		"TagResource":             service.WrapOp(h.handleTagResource),
-		"UntagResource":           service.WrapOp(h.handleUntagResource),
-		"ListTagsForResource":     service.WrapOp(h.handleListTagsForResource),
-		"DescribeExecution":       service.WrapOp(h.handleDescribeExecution),
-		"ListExecutions":          service.WrapOp(h.handleListExecutions),
-		"ListFileTransferResults": service.WrapOp(h.handleListFileTransferResults),
-		"DescribeSecurityPolicy":  service.WrapOp(h.handleDescribeSecurityPolicy),
-		"ListSecurityPolicies":    service.WrapOp(h.handleListSecurityPolicies),
-		"SendWorkflowStepState":   service.WrapOp(h.handleSendWorkflowStepState),
-		"StartDirectoryListing":   service.WrapOp(h.handleStartDirectoryListing),
-		"StartFileTransfer":       service.WrapOp(h.handleStartFileTransfer),
-		"StartRemoteDelete":       service.WrapOp(h.handleStartRemoteDelete),
-		"StartRemoteMove":         service.WrapOp(h.handleStartRemoteMove),
-		"TestConnection":          service.WrapOp(h.handleTestConnection),
-		"TestIdentityProvider":    service.WrapOp(h.handleTestIdentityProvider),
+		"UpdateWebAppCustomization":   service.WrapOp(h.handleUpdateWebAppCustomization),
+		"CreateWorkflow":              service.WrapOp(h.handleCreateWorkflow),
+		"DeleteWorkflow":              service.WrapOp(h.handleDeleteWorkflow),
+		"DescribeWorkflow":            service.WrapOp(h.handleDescribeWorkflow),
+		"ListWorkflows":               service.WrapOp(h.handleListWorkflows),
+		"DeleteCertificate":           service.WrapOp(h.handleDeleteCertificate),
+		"ImportCertificate":           service.WrapOp(h.handleImportCertificate),
+		"DescribeCertificate":         service.WrapOp(h.handleDescribeCertificate),
+		"ListCertificates":            service.WrapOp(h.handleListCertificates),
+		"UpdateCertificate":           service.WrapOp(h.handleUpdateCertificate),
+		"ImportHostKey":               service.WrapOp(h.handleImportHostKey),
+		"DeleteHostKey":               service.WrapOp(h.handleDeleteHostKey),
+		"DescribeHostKey":             service.WrapOp(h.handleDescribeHostKey),
+		"ListHostKeys":                service.WrapOp(h.handleListHostKeys),
+		"UpdateHostKey":               service.WrapOp(h.handleUpdateHostKey),
+		"ImportSshPublicKey":          service.WrapOp(h.handleImportSshPublicKey),
+		"DeleteSshPublicKey":          service.WrapOp(h.handleDeleteSshPublicKey),
+		"TagResource":                 service.WrapOp(h.handleTagResource),
+		"UntagResource":               service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource":         service.WrapOp(h.handleListTagsForResource),
+		"DescribeExecution":           service.WrapOp(h.handleDescribeExecution),
+		"ListExecutions":              service.WrapOp(h.handleListExecutions),
+		"ListFileTransferResults":     service.WrapOp(h.handleListFileTransferResults),
+		"DescribeSecurityPolicy":      service.WrapOp(h.handleDescribeSecurityPolicy),
+		"ListSecurityPolicies":        service.WrapOp(h.handleListSecurityPolicies),
+		"SendWorkflowStepState":       service.WrapOp(h.handleSendWorkflowStepState),
+		"StartDirectoryListing":       service.WrapOp(h.handleStartDirectoryListing),
+		"StartFileTransfer":           service.WrapOp(h.handleStartFileTransfer),
+		"StartRemoteDelete":           service.WrapOp(h.handleStartRemoteDelete),
+		"StartRemoteMove":             service.WrapOp(h.handleStartRemoteMove),
+		"TestConnection":              service.WrapOp(h.handleTestConnection),
+		"TestIdentityProvider":        service.WrapOp(h.handleTestIdentityProvider),
 	}
 }
 
@@ -328,7 +335,10 @@ type createServerOutput struct {
 	ServerID string `json:"ServerId"`
 }
 
-func (h *Handler) handleCreateServer(_ context.Context, in *createServerInput) (*createServerOutput, error) {
+func (h *Handler) handleCreateServer(
+	_ context.Context,
+	in *createServerInput,
+) (*createServerOutput, error) {
 	tags := tagsFromList(in.Tags)
 
 	s, err := h.Backend.CreateServer(in.Protocols, tags)
@@ -356,7 +366,10 @@ type describeServerOutput struct {
 	Server serverView `json:"Server"`
 }
 
-func (h *Handler) handleDescribeServer(_ context.Context, in *serverIDInput) (*describeServerOutput, error) {
+func (h *Handler) handleDescribeServer(
+	_ context.Context,
+	in *serverIDInput,
+) (*describeServerOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -366,7 +379,9 @@ func (h *Handler) handleDescribeServer(_ context.Context, in *serverIDInput) (*d
 		return nil, err
 	}
 
-	return &describeServerOutput{Server: toServerView(s, serverARN(s.AccountID, s.Region, s.ServerID))}, nil
+	return &describeServerOutput{
+		Server: toServerView(s, serverARN(s.AccountID, s.Region, s.ServerID)),
+	}, nil
 }
 
 type listServersOutput struct {
@@ -386,7 +401,10 @@ type serverListItem struct {
 	Domain   string `json:"Domain"`
 }
 
-func (h *Handler) handleListServers(_ context.Context, in *listServersInput) (*listServersOutput, error) {
+func (h *Handler) handleListServers(
+	_ context.Context,
+	in *listServersInput,
+) (*listServersOutput, error) {
 	servers := h.Backend.ListServers()
 	items := make([]serverListItem, 0, len(servers))
 
@@ -450,7 +468,10 @@ type updateServerOutput struct {
 	ServerID string `json:"ServerId"`
 }
 
-func (h *Handler) handleUpdateServer(_ context.Context, in *updateServerInput) (*updateServerOutput, error) {
+func (h *Handler) handleUpdateServer(
+	_ context.Context,
+	in *updateServerInput,
+) (*updateServerOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -478,7 +499,10 @@ type createUserOutput struct {
 	UserName string `json:"UserName"`
 }
 
-func (h *Handler) handleCreateUser(_ context.Context, in *createUserInput) (*createUserOutput, error) {
+func (h *Handler) handleCreateUser(
+	_ context.Context,
+	in *createUserInput,
+) (*createUserOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -515,7 +539,10 @@ type describeUserOutput struct {
 	User     userView `json:"User"`
 }
 
-func (h *Handler) handleDescribeUser(_ context.Context, in *describeUserInput) (*describeUserOutput, error) {
+func (h *Handler) handleDescribeUser(
+	_ context.Context,
+	in *describeUserInput,
+) (*describeUserOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -609,7 +636,10 @@ type updateUserOutput struct {
 	UserName string `json:"UserName"`
 }
 
-func (h *Handler) handleUpdateUser(_ context.Context, in *updateUserInput) (*updateUserOutput, error) {
+func (h *Handler) handleUpdateUser(
+	_ context.Context,
+	in *updateUserInput,
+) (*updateUserOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -664,7 +694,10 @@ type createAccessOutput struct {
 	ExternalID string `json:"ExternalId"`
 }
 
-func (h *Handler) handleCreateAccess(_ context.Context, in *createAccessInput) (*createAccessOutput, error) {
+func (h *Handler) handleCreateAccess(
+	_ context.Context,
+	in *createAccessInput,
+) (*createAccessOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -720,7 +753,10 @@ type createAgreementOutput struct {
 	AgreementID string `json:"AgreementId"`
 }
 
-func (h *Handler) handleCreateAgreement(_ context.Context, in *createAgreementInput) (*createAgreementOutput, error) {
+func (h *Handler) handleCreateAgreement(
+	_ context.Context,
+	in *createAgreementInput,
+) (*createAgreementOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -748,7 +784,10 @@ type deleteAgreementInput struct {
 	AgreementID string `json:"AgreementId"`
 }
 
-func (h *Handler) handleDeleteAgreement(_ context.Context, in *deleteAgreementInput) (*struct{}, error) {
+func (h *Handler) handleDeleteAgreement(
+	_ context.Context,
+	in *deleteAgreementInput,
+) (*struct{}, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -776,7 +815,10 @@ type createConnectorOutput struct {
 	ConnectorID string `json:"ConnectorId"`
 }
 
-func (h *Handler) handleCreateConnector(_ context.Context, in *createConnectorInput) (*createConnectorOutput, error) {
+func (h *Handler) handleCreateConnector(
+	_ context.Context,
+	in *createConnectorInput,
+) (*createConnectorOutput, error) {
 	if in.URL == "" {
 		return nil, fmt.Errorf("%w: Url is required", errInvalidRequest)
 	}
@@ -795,7 +837,10 @@ type deleteConnectorInput struct {
 	ConnectorID string `json:"ConnectorId"`
 }
 
-func (h *Handler) handleDeleteConnector(_ context.Context, in *deleteConnectorInput) (*struct{}, error) {
+func (h *Handler) handleDeleteConnector(
+	_ context.Context,
+	in *deleteConnectorInput,
+) (*struct{}, error) {
 	if in.ConnectorID == "" {
 		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
@@ -819,7 +864,10 @@ type createProfileOutput struct {
 	ProfileID string `json:"ProfileId"`
 }
 
-func (h *Handler) handleCreateProfile(_ context.Context, in *createProfileInput) (*createProfileOutput, error) {
+func (h *Handler) handleCreateProfile(
+	_ context.Context,
+	in *createProfileInput,
+) (*createProfileOutput, error) {
 	if in.ProfileType == "" {
 		return nil, fmt.Errorf("%w: ProfileType is required", errInvalidRequest)
 	}
@@ -844,7 +892,10 @@ type createWebAppOutput struct {
 	WebAppID string `json:"WebAppId"`
 }
 
-func (h *Handler) handleCreateWebApp(_ context.Context, in *createWebAppInput) (*createWebAppOutput, error) {
+func (h *Handler) handleCreateWebApp(
+	_ context.Context,
+	in *createWebAppInput,
+) (*createWebAppOutput, error) {
 	tags := tagsFromList(in.Tags)
 
 	w, err := h.Backend.CreateWebApp(tags)
@@ -866,7 +917,10 @@ type createWorkflowOutput struct {
 	WorkflowID string `json:"WorkflowId"`
 }
 
-func (h *Handler) handleCreateWorkflow(_ context.Context, in *createWorkflowInput) (*createWorkflowOutput, error) {
+func (h *Handler) handleCreateWorkflow(
+	_ context.Context,
+	in *createWorkflowInput,
+) (*createWorkflowOutput, error) {
 	tags := tagsFromList(in.Tags)
 
 	wf, err := h.Backend.CreateWorkflow(in.Description, tags)
@@ -883,7 +937,10 @@ type deleteCertificateInput struct {
 	CertificateID string `json:"CertificateId"`
 }
 
-func (h *Handler) handleDeleteCertificate(_ context.Context, in *deleteCertificateInput) (*struct{}, error) {
+func (h *Handler) handleDeleteCertificate(
+	_ context.Context,
+	in *deleteCertificateInput,
+) (*struct{}, error) {
 	if in.CertificateID == "" {
 		return nil, fmt.Errorf("%w: CertificateId is required", errInvalidRequest)
 	}
@@ -907,7 +964,10 @@ type describeAccessOutput struct {
 	ServerID string         `json:"ServerId"`
 }
 
-func (h *Handler) handleDescribeAccess(_ context.Context, in *describeAccessInput) (*describeAccessOutput, error) {
+func (h *Handler) handleDescribeAccess(
+	_ context.Context,
+	in *describeAccessInput,
+) (*describeAccessOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -939,12 +999,15 @@ type listAccessesInput struct {
 }
 
 type listAccessesOutput struct {
-	Accesses  []map[string]any `json:"Accesses"`
 	NextToken string           `json:"NextToken,omitempty"`
 	ServerId  string           `json:"ServerId"`
+	Accesses  []map[string]any `json:"Accesses"`
 }
 
-func (h *Handler) handleListAccesses(_ context.Context, in *listAccessesInput) (*listAccessesOutput, error) {
+func (h *Handler) handleListAccesses(
+	_ context.Context,
+	in *listAccessesInput,
+) (*listAccessesOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -980,7 +1043,10 @@ type updateAccessOutput struct {
 	ExternalID string `json:"ExternalId"`
 }
 
-func (h *Handler) handleUpdateAccess(_ context.Context, in *updateAccessInput) (*updateAccessOutput, error) {
+func (h *Handler) handleUpdateAccess(
+	_ context.Context,
+	in *updateAccessInput,
+) (*updateAccessOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1008,7 +1074,10 @@ type describeAgreementOutput struct {
 	Agreement map[string]any `json:"Agreement"`
 }
 
-func (h *Handler) handleDescribeAgreement(_ context.Context, in *describeAgreementInput) (*describeAgreementOutput, error) {
+func (h *Handler) handleDescribeAgreement(
+	_ context.Context,
+	in *describeAgreementInput,
+) (*describeAgreementOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1026,8 +1095,8 @@ func (h *Handler) handleDescribeAgreement(_ context.Context, in *describeAgreeme
 		Agreement: map[string]any{
 			"AgreementId":      ag.AgreementID,
 			"ServerId":         ag.ServerID,
-			"Description":      ag.Description,
-			"Status":           ag.Status,
+			keyDescription:      ag.Description,
+			keyStatus:           ag.Status,
 			"LocalProfileId":   ag.LocalProfileID,
 			"PartnerProfileId": ag.PartnerProfileID,
 			"BaseDirectory":    ag.BaseDirectory,
@@ -1043,11 +1112,14 @@ type listAgreementsInput struct {
 }
 
 type listAgreementsOutput struct {
-	Agreements []map[string]any `json:"Agreements"`
 	NextToken  string           `json:"NextToken,omitempty"`
+	Agreements []map[string]any `json:"Agreements"`
 }
 
-func (h *Handler) handleListAgreements(_ context.Context, in *listAgreementsInput) (*listAgreementsOutput, error) {
+func (h *Handler) handleListAgreements(
+	_ context.Context,
+	in *listAgreementsInput,
+) (*listAgreementsOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1063,8 +1135,8 @@ func (h *Handler) handleListAgreements(_ context.Context, in *listAgreementsInpu
 	for i, ag := range page {
 		out[i] = map[string]any{
 			"AgreementId": ag.AgreementID,
-			"Description": ag.Description,
-			"Status":      ag.Status,
+			keyDescription: ag.Description,
+			keyStatus:      ag.Status,
 		}
 	}
 
@@ -1082,7 +1154,10 @@ type updateAgreementOutput struct {
 	AgreementID string `json:"AgreementId"`
 }
 
-func (h *Handler) handleUpdateAgreement(_ context.Context, in *updateAgreementInput) (*updateAgreementOutput, error) {
+func (h *Handler) handleUpdateAgreement(
+	_ context.Context,
+	in *updateAgreementInput,
+) (*updateAgreementOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1109,7 +1184,10 @@ type describeConnectorOutput struct {
 	Connector map[string]any `json:"Connector"`
 }
 
-func (h *Handler) handleDescribeConnector(_ context.Context, in *describeConnectorInput) (*describeConnectorOutput, error) {
+func (h *Handler) handleDescribeConnector(
+	_ context.Context,
+	in *describeConnectorInput,
+) (*describeConnectorOutput, error) {
 	if in.ConnectorID == "" {
 		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
@@ -1134,11 +1212,14 @@ type listConnectorsInput struct {
 }
 
 type listConnectorsOutput struct {
-	Connectors []map[string]any `json:"Connectors"`
 	NextToken  string           `json:"NextToken,omitempty"`
+	Connectors []map[string]any `json:"Connectors"`
 }
 
-func (h *Handler) handleListConnectors(_ context.Context, in *listConnectorsInput) (*listConnectorsOutput, error) {
+func (h *Handler) handleListConnectors(
+	_ context.Context,
+	in *listConnectorsInput,
+) (*listConnectorsOutput, error) {
 	items := h.Backend.ListConnectors()
 	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
 	out := make([]map[string]any, len(page))
@@ -1163,7 +1244,10 @@ type updateConnectorOutput struct {
 	ConnectorID string `json:"ConnectorId"`
 }
 
-func (h *Handler) handleUpdateConnector(_ context.Context, in *updateConnectorInput) (*updateConnectorOutput, error) {
+func (h *Handler) handleUpdateConnector(
+	_ context.Context,
+	in *updateConnectorInput,
+) (*updateConnectorOutput, error) {
 	if in.ConnectorID == "" {
 		return nil, fmt.Errorf("%w: ConnectorId is required", errInvalidRequest)
 	}
@@ -1182,7 +1266,10 @@ type deleteProfileInput struct {
 	ProfileID string `json:"ProfileId"`
 }
 
-func (h *Handler) handleDeleteProfile(_ context.Context, in *deleteProfileInput) (*struct{}, error) {
+func (h *Handler) handleDeleteProfile(
+	_ context.Context,
+	in *deleteProfileInput,
+) (*struct{}, error) {
 	if in.ProfileID == "" {
 		return nil, fmt.Errorf("%w: ProfileId is required", errInvalidRequest)
 	}
@@ -1202,7 +1289,10 @@ type describeProfileOutput struct {
 	Profile map[string]any `json:"Profile"`
 }
 
-func (h *Handler) handleDescribeProfile(_ context.Context, in *describeProfileInput) (*describeProfileOutput, error) {
+func (h *Handler) handleDescribeProfile(
+	_ context.Context,
+	in *describeProfileInput,
+) (*describeProfileOutput, error) {
 	if in.ProfileID == "" {
 		return nil, fmt.Errorf("%w: ProfileId is required", errInvalidRequest)
 	}
@@ -1223,16 +1313,19 @@ func (h *Handler) handleDescribeProfile(_ context.Context, in *describeProfileIn
 
 type listProfilesInput struct {
 	NextToken   string `json:"NextToken"`
-	MaxResults  int    `json:"MaxResults"`
 	ProfileType string `json:"ProfileType"`
+	MaxResults  int    `json:"MaxResults"`
 }
 
 type listProfilesOutput struct {
-	Profiles  []map[string]any `json:"Profiles"`
 	NextToken string           `json:"NextToken,omitempty"`
+	Profiles  []map[string]any `json:"Profiles"`
 }
 
-func (h *Handler) handleListProfiles(_ context.Context, in *listProfilesInput) (*listProfilesOutput, error) {
+func (h *Handler) handleListProfiles(
+	_ context.Context,
+	in *listProfilesInput,
+) (*listProfilesOutput, error) {
 	items := h.Backend.ListProfiles()
 
 	if in.ProfileType != "" {
@@ -1268,7 +1361,10 @@ type updateProfileOutput struct {
 	ProfileID string `json:"ProfileId"`
 }
 
-func (h *Handler) handleUpdateProfile(_ context.Context, in *updateProfileInput) (*updateProfileOutput, error) {
+func (h *Handler) handleUpdateProfile(
+	_ context.Context,
+	in *updateProfileInput,
+) (*updateProfileOutput, error) {
 	if in.ProfileID == "" {
 		return nil, fmt.Errorf("%w: ProfileId is required", errInvalidRequest)
 	}
@@ -1307,7 +1403,10 @@ type describeWebAppOutput struct {
 	WebApp map[string]any `json:"WebApp"`
 }
 
-func (h *Handler) handleDescribeWebApp(_ context.Context, in *describeWebAppInput) (*describeWebAppOutput, error) {
+func (h *Handler) handleDescribeWebApp(
+	_ context.Context,
+	in *describeWebAppInput,
+) (*describeWebAppOutput, error) {
 	if in.WebAppID == "" {
 		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
 	}
@@ -1330,11 +1429,14 @@ type listWebAppsInput struct {
 }
 
 type listWebAppsOutput struct {
-	WebApps   []map[string]any `json:"WebApps"`
 	NextToken string           `json:"NextToken,omitempty"`
+	WebApps   []map[string]any `json:"WebApps"`
 }
 
-func (h *Handler) handleListWebApps(_ context.Context, in *listWebAppsInput) (*listWebAppsOutput, error) {
+func (h *Handler) handleListWebApps(
+	_ context.Context,
+	in *listWebAppsInput,
+) (*listWebAppsOutput, error) {
 	items := h.Backend.ListWebApps()
 	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
 	out := make([]map[string]any, len(page))
@@ -1356,7 +1458,10 @@ type updateWebAppOutput struct {
 	WebAppID string `json:"WebAppId"`
 }
 
-func (h *Handler) handleUpdateWebApp(_ context.Context, in *updateWebAppInput) (*updateWebAppOutput, error) {
+func (h *Handler) handleUpdateWebApp(
+	_ context.Context,
+	in *updateWebAppInput,
+) (*updateWebAppOutput, error) {
 	if in.WebAppID == "" {
 		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
 	}
@@ -1371,15 +1476,24 @@ func (h *Handler) handleUpdateWebApp(_ context.Context, in *updateWebAppInput) (
 
 // --- WebApp Customization stubs ---
 
-func (h *Handler) handleDeleteWebAppCustomization(_ context.Context, _ *struct{}) (*struct{}, error) {
+func (h *Handler) handleDeleteWebAppCustomization(
+	_ context.Context,
+	_ *struct{},
+) (*struct{}, error) {
 	return &struct{}{}, nil
 }
 
-func (h *Handler) handleDescribeWebAppCustomization(_ context.Context, _ *struct{}) (*map[string]any, error) {
+func (h *Handler) handleDescribeWebAppCustomization(
+	_ context.Context,
+	_ *struct{},
+) (*map[string]any, error) {
 	return &map[string]any{"WebAppCustomization": map[string]any{}}, nil
 }
 
-func (h *Handler) handleUpdateWebAppCustomization(_ context.Context, _ *struct{}) (*struct{}, error) {
+func (h *Handler) handleUpdateWebAppCustomization(
+	_ context.Context,
+	_ *struct{},
+) (*struct{}, error) {
 	return &struct{}{}, nil
 }
 
@@ -1389,7 +1503,10 @@ type deleteWorkflowInput struct {
 	WorkflowID string `json:"WorkflowId"`
 }
 
-func (h *Handler) handleDeleteWorkflow(_ context.Context, in *deleteWorkflowInput) (*struct{}, error) {
+func (h *Handler) handleDeleteWorkflow(
+	_ context.Context,
+	in *deleteWorkflowInput,
+) (*struct{}, error) {
 	if in.WorkflowID == "" {
 		return nil, fmt.Errorf("%w: WorkflowId is required", errInvalidRequest)
 	}
@@ -1409,7 +1526,10 @@ type describeWorkflowOutput struct {
 	Workflow map[string]any `json:"Workflow"`
 }
 
-func (h *Handler) handleDescribeWorkflow(_ context.Context, in *describeWorkflowInput) (*describeWorkflowOutput, error) {
+func (h *Handler) handleDescribeWorkflow(
+	_ context.Context,
+	in *describeWorkflowInput,
+) (*describeWorkflowOutput, error) {
 	if in.WorkflowID == "" {
 		return nil, fmt.Errorf("%w: WorkflowId is required", errInvalidRequest)
 	}
@@ -1421,8 +1541,8 @@ func (h *Handler) handleDescribeWorkflow(_ context.Context, in *describeWorkflow
 
 	return &describeWorkflowOutput{
 		Workflow: map[string]any{
-			"WorkflowId":  wf.WorkflowID,
-			"Description": wf.Description,
+			keyWorkflowID:  wf.WorkflowID,
+			keyDescription: wf.Description,
 		},
 	}, nil
 }
@@ -1433,19 +1553,22 @@ type listWorkflowsInput struct {
 }
 
 type listWorkflowsOutput struct {
-	Workflows []map[string]any `json:"Workflows"`
 	NextToken string           `json:"NextToken,omitempty"`
+	Workflows []map[string]any `json:"Workflows"`
 }
 
-func (h *Handler) handleListWorkflows(_ context.Context, in *listWorkflowsInput) (*listWorkflowsOutput, error) {
+func (h *Handler) handleListWorkflows(
+	_ context.Context,
+	in *listWorkflowsInput,
+) (*listWorkflowsOutput, error) {
 	items := h.Backend.ListWorkflows()
 	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
 	out := make([]map[string]any, len(page))
 
 	for i, wf := range page {
 		out[i] = map[string]any{
-			"WorkflowId":  wf.WorkflowID,
-			"Description": wf.Description,
+			keyWorkflowID:  wf.WorkflowID,
+			keyDescription: wf.Description,
 		}
 	}
 
@@ -1465,7 +1588,10 @@ type importCertificateOutput struct {
 	CertificateID string `json:"CertificateId"`
 }
 
-func (h *Handler) handleImportCertificate(_ context.Context, in *importCertificateInput) (*importCertificateOutput, error) {
+func (h *Handler) handleImportCertificate(
+	_ context.Context,
+	in *importCertificateInput,
+) (*importCertificateOutput, error) {
 	tags := tagsFromList(in.Tags)
 
 	c, err := h.Backend.ImportCertificate(in.Usage, in.Body, in.Description, tags)
@@ -1484,7 +1610,10 @@ type describeCertificateOutput struct {
 	Certificate map[string]any `json:"Certificate"`
 }
 
-func (h *Handler) handleDescribeCertificate(_ context.Context, in *describeCertificateInput) (*describeCertificateOutput, error) {
+func (h *Handler) handleDescribeCertificate(
+	_ context.Context,
+	in *describeCertificateInput,
+) (*describeCertificateOutput, error) {
 	if in.CertificateID == "" {
 		return nil, fmt.Errorf("%w: CertificateId is required", errInvalidRequest)
 	}
@@ -1498,8 +1627,8 @@ func (h *Handler) handleDescribeCertificate(_ context.Context, in *describeCerti
 		Certificate: map[string]any{
 			"CertificateId": c.CertificateID,
 			"Usage":         c.Usage,
-			"Description":   c.Description,
-			"Status":        c.Status,
+			keyDescription:   c.Description,
+			keyStatus:        c.Status,
 		},
 	}, nil
 }
@@ -1510,11 +1639,14 @@ type listCertificatesInput struct {
 }
 
 type listCertificatesOutput struct {
-	Certificates []map[string]any `json:"Certificates"`
 	NextToken    string           `json:"NextToken,omitempty"`
+	Certificates []map[string]any `json:"Certificates"`
 }
 
-func (h *Handler) handleListCertificates(_ context.Context, in *listCertificatesInput) (*listCertificatesOutput, error) {
+func (h *Handler) handleListCertificates(
+	_ context.Context,
+	in *listCertificatesInput,
+) (*listCertificatesOutput, error) {
 	items := h.Backend.ListCertificates()
 	page, next := applyNextTokenItems(items, in.NextToken, in.MaxResults)
 	out := make([]map[string]any, len(page))
@@ -1523,7 +1655,7 @@ func (h *Handler) handleListCertificates(_ context.Context, in *listCertificates
 		out[i] = map[string]any{
 			"CertificateId": c.CertificateID,
 			"Usage":         c.Usage,
-			"Status":        c.Status,
+			keyStatus:        c.Status,
 		}
 	}
 
@@ -1539,7 +1671,10 @@ type updateCertificateOutput struct {
 	CertificateID string `json:"CertificateId"`
 }
 
-func (h *Handler) handleUpdateCertificate(_ context.Context, in *updateCertificateInput) (*updateCertificateOutput, error) {
+func (h *Handler) handleUpdateCertificate(
+	_ context.Context,
+	in *updateCertificateInput,
+) (*updateCertificateOutput, error) {
 	if in.CertificateID == "" {
 		return nil, fmt.Errorf("%w: CertificateId is required", errInvalidRequest)
 	}
@@ -1566,7 +1701,10 @@ type importHostKeyOutput struct {
 	HostKeyID string `json:"HostKeyId"`
 }
 
-func (h *Handler) handleImportHostKey(_ context.Context, in *importHostKeyInput) (*importHostKeyOutput, error) {
+func (h *Handler) handleImportHostKey(
+	_ context.Context,
+	in *importHostKeyInput,
+) (*importHostKeyOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1586,7 +1724,10 @@ type deleteHostKeyInput struct {
 	HostKeyID string `json:"HostKeyId"`
 }
 
-func (h *Handler) handleDeleteHostKey(_ context.Context, in *deleteHostKeyInput) (*struct{}, error) {
+func (h *Handler) handleDeleteHostKey(
+	_ context.Context,
+	in *deleteHostKeyInput,
+) (*struct{}, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1612,7 +1753,10 @@ type describeHostKeyOutput struct {
 	ServerID string         `json:"ServerId"`
 }
 
-func (h *Handler) handleDescribeHostKey(_ context.Context, in *describeHostKeyInput) (*describeHostKeyOutput, error) {
+func (h *Handler) handleDescribeHostKey(
+	_ context.Context,
+	in *describeHostKeyInput,
+) (*describeHostKeyOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1630,7 +1774,7 @@ func (h *Handler) handleDescribeHostKey(_ context.Context, in *describeHostKeyIn
 		ServerID: hk.ServerID,
 		HostKey: map[string]any{
 			"HostKeyId":   hk.HostKeyID,
-			"Description": hk.Description,
+			keyDescription: hk.Description,
 			"Type":        hk.Type,
 		},
 	}, nil
@@ -1643,12 +1787,15 @@ type listHostKeysInput struct {
 }
 
 type listHostKeysOutput struct {
-	HostKeys  []map[string]any `json:"HostKeys"`
 	NextToken string           `json:"NextToken,omitempty"`
 	ServerId  string           `json:"ServerId"`
+	HostKeys  []map[string]any `json:"HostKeys"`
 }
 
-func (h *Handler) handleListHostKeys(_ context.Context, in *listHostKeysInput) (*listHostKeysOutput, error) {
+func (h *Handler) handleListHostKeys(
+	_ context.Context,
+	in *listHostKeysInput,
+) (*listHostKeysOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1664,7 +1811,7 @@ func (h *Handler) handleListHostKeys(_ context.Context, in *listHostKeysInput) (
 	for i, hk := range page {
 		out[i] = map[string]any{
 			"HostKeyId":   hk.HostKeyID,
-			"Description": hk.Description,
+			keyDescription: hk.Description,
 			"Type":        hk.Type,
 		}
 	}
@@ -1683,7 +1830,10 @@ type updateHostKeyOutput struct {
 	HostKeyID string `json:"HostKeyId"`
 }
 
-func (h *Handler) handleUpdateHostKey(_ context.Context, in *updateHostKeyInput) (*updateHostKeyOutput, error) {
+func (h *Handler) handleUpdateHostKey(
+	_ context.Context,
+	in *updateHostKeyInput,
+) (*updateHostKeyOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1714,7 +1864,10 @@ type importSshPublicKeyOutput struct {
 	UserName       string `json:"UserName"`
 }
 
-func (h *Handler) handleImportSshPublicKey(_ context.Context, in *importSshPublicKeyInput) (*importSshPublicKeyOutput, error) {
+func (h *Handler) handleImportSshPublicKey(
+	_ context.Context,
+	in *importSshPublicKeyInput,
+) (*importSshPublicKeyOutput, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1741,7 +1894,10 @@ type deleteSshPublicKeyInput struct {
 	SshPublicKeyID string `json:"SshPublicKeyId"`
 }
 
-func (h *Handler) handleDeleteSshPublicKey(_ context.Context, in *deleteSshPublicKeyInput) (*struct{}, error) {
+func (h *Handler) handleDeleteSshPublicKey(
+	_ context.Context,
+	in *deleteSshPublicKeyInput,
+) (*struct{}, error) {
 	if in.ServerID == "" {
 		return nil, fmt.Errorf("%w: ServerId is required", errInvalidRequest)
 	}
@@ -1786,7 +1942,10 @@ type untagResourceInput struct {
 	TagKeys []string `json:"TagKeys"`
 }
 
-func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput) (*struct{}, error) {
+func (h *Handler) handleUntagResource(
+	_ context.Context,
+	in *untagResourceInput,
+) (*struct{}, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
 	}
@@ -1806,11 +1965,14 @@ type listTagsForResourceInput struct {
 
 type listTagsForResourceOutput struct {
 	Arn       string              `json:"Arn"`
-	Tags      []map[string]string `json:"Tags"`
 	NextToken string              `json:"NextToken,omitempty"`
+	Tags      []map[string]string `json:"Tags"`
 }
 
-func (h *Handler) handleListTagsForResource(_ context.Context, in *listTagsForResourceInput) (*listTagsForResourceOutput, error) {
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *listTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
 	}
@@ -1830,10 +1992,13 @@ func (h *Handler) handleDescribeExecution(_ context.Context, _ *struct{}) (*map[
 }
 
 func (h *Handler) handleListExecutions(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{"Executions": []any{}, "WorkflowId": ""}, nil
+	return &map[string]any{"Executions": []any{}, keyWorkflowID: ""}, nil
 }
 
-func (h *Handler) handleListFileTransferResults(_ context.Context, _ *struct{}) (*map[string]any, error) {
+func (h *Handler) handleListFileTransferResults(
+	_ context.Context,
+	_ *struct{},
+) (*map[string]any, error) {
 	return &map[string]any{"FileTransferResults": []any{}}, nil
 }
 
@@ -1841,7 +2006,10 @@ type describeSecurityPolicyInput struct {
 	SecurityPolicyName string `json:"SecurityPolicyName"`
 }
 
-func (h *Handler) handleDescribeSecurityPolicy(_ context.Context, in *describeSecurityPolicyInput) (*map[string]any, error) {
+func (h *Handler) handleDescribeSecurityPolicy(
+	_ context.Context,
+	in *describeSecurityPolicyInput,
+) (*map[string]any, error) {
 	name := in.SecurityPolicyName
 	if name == "" {
 		name = "TransferSecurityPolicy-2024-01"
@@ -1855,7 +2023,10 @@ func (h *Handler) handleDescribeSecurityPolicy(_ context.Context, in *describeSe
 	}, nil
 }
 
-func (h *Handler) handleListSecurityPolicies(_ context.Context, _ *struct{}) (*map[string]any, error) {
+func (h *Handler) handleListSecurityPolicies(
+	_ context.Context,
+	_ *struct{},
+) (*map[string]any, error) {
 	return &map[string]any{
 		"SecurityPolicyNames": []string{
 			"TransferSecurityPolicy-2024-01",
@@ -1870,27 +2041,33 @@ func (h *Handler) handleSendWorkflowStepState(_ context.Context, _ *struct{}) (*
 	return &struct{}{}, nil
 }
 
-func (h *Handler) handleStartDirectoryListing(_ context.Context, _ *struct{}) (*map[string]any, error) {
+func (h *Handler) handleStartDirectoryListing(
+	_ context.Context,
+	_ *struct{},
+) (*map[string]any, error) {
 	return &map[string]any{"DirectoryListingId": "listing-" + strings.Repeat("0", 8)}, nil
 }
 
 func (h *Handler) handleStartFileTransfer(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{"TransferId": "transfer-" + strings.Repeat("0", 8)}, nil
+	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", 8)}, nil
 }
 
 func (h *Handler) handleStartRemoteDelete(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{"TransferId": "transfer-" + strings.Repeat("0", 8)}, nil
+	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", 8)}, nil
 }
 
 func (h *Handler) handleStartRemoteMove(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{"TransferId": "transfer-" + strings.Repeat("0", 8)}, nil
+	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", 8)}, nil
 }
 
 func (h *Handler) handleTestConnection(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{"Status": "OK", "StatusMessage": "Connection successful"}, nil
+	return &map[string]any{keyStatus: "OK", "StatusMessage": "Connection successful"}, nil
 }
 
-func (h *Handler) handleTestIdentityProvider(_ context.Context, _ *struct{}) (*map[string]any, error) {
+func (h *Handler) handleTestIdentityProvider(
+	_ context.Context,
+	_ *struct{},
+) (*map[string]any, error) {
 	return &map[string]any{"StatusCode": 200, "Message": "Identity provider test successful"}, nil
 }
 

@@ -25,7 +25,10 @@ var (
 	// ErrUserAlreadyExists is returned when a Transfer user already exists.
 	ErrUserAlreadyExists = awserr.New("ResourceExistsException", awserr.ErrConflict)
 	// ErrInvalidProtocol is returned when an unsupported protocol is specified.
-	ErrInvalidProtocol = awserr.New("InvalidRequestException: unsupported protocol", awserr.ErrInvalidParameter)
+	ErrInvalidProtocol = awserr.New(
+		"InvalidRequestException: unsupported protocol",
+		awserr.ErrInvalidParameter,
+	)
 	// ErrServerStateConflict is returned when a state transition is invalid.
 	ErrServerStateConflict = awserr.New(
 		"ConflictException: server is already in the requested state",
@@ -292,17 +295,17 @@ type SshPublicKey struct {
 // InMemoryBackend is the in-memory store for Transfer resources.
 type InMemoryBackend struct {
 	servers       map[string]*Server
-	users         map[string]map[string]*User                          // serverID -> userName -> User
-	accesses      map[string]map[string]*Access                        // serverID -> externalID -> Access
-	agreements    map[string]map[string]*Agreement                     // serverID -> agreementID -> Agreement
+	users         map[string]map[string]*User      // serverID -> userName -> User
+	accesses      map[string]map[string]*Access    // serverID -> externalID -> Access
+	agreements    map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
 	connectors    map[string]*Connector
 	profiles      map[string]*Profile
 	webApps       map[string]*WebApp
 	workflows     map[string]*Workflow
 	certificates  map[string]*Certificate
-	hostKeys      map[string]map[string]*HostKey                       // serverID -> hostKeyID -> HostKey
-	sshPublicKeys map[string]map[string]map[string]*SshPublicKey       // serverID -> userName -> keyID -> SshPublicKey
-	tagsStore     map[string]map[string]string                         // arn -> tags
+	hostKeys      map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
+	sshPublicKeys map[string]map[string]map[string]*SshPublicKey // serverID -> userName -> keyID -> SshPublicKey
+	tagsStore     map[string]map[string]string                   // arn -> tags
 	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
@@ -330,7 +333,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 // CreateServer creates a new Transfer Family server.
-func (b *InMemoryBackend) CreateServer(protocols []string, tags map[string]string) (*Server, error) {
+func (b *InMemoryBackend) CreateServer(
+	protocols []string,
+	tags map[string]string,
+) (*Server, error) {
 	b.mu.Lock("CreateServer")
 	defer b.mu.Unlock()
 
@@ -464,7 +470,10 @@ func (b *InMemoryBackend) UpdateServer(serverID string, protocols []string) (*Se
 }
 
 // CreateUser creates a user on the given server.
-func (b *InMemoryBackend) CreateUser(serverID, userName, homeDir, role string, tags map[string]string) (*User, error) {
+func (b *InMemoryBackend) CreateUser(
+	serverID, userName, homeDir, role string,
+	tags map[string]string,
+) (*User, error) {
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
@@ -473,7 +482,12 @@ func (b *InMemoryBackend) CreateUser(serverID, userName, homeDir, role string, t
 	}
 
 	if _, ok := b.users[serverID][userName]; ok {
-		return nil, fmt.Errorf("%w: user %s already exists on server %s", ErrUserAlreadyExists, userName, serverID)
+		return nil, fmt.Errorf(
+			"%w: user %s already exists on server %s",
+			ErrUserAlreadyExists,
+			userName,
+			serverID,
+		)
 	}
 
 	merged := make(map[string]string, len(tags))
@@ -506,7 +520,12 @@ func (b *InMemoryBackend) DescribeUser(serverID, userName string) (*User, error)
 
 	u, ok := users[userName]
 	if !ok {
-		return nil, fmt.Errorf("%w: user %s not found on server %s", ErrUserNotFound, userName, serverID)
+		return nil, fmt.Errorf(
+			"%w: user %s not found on server %s",
+			ErrUserNotFound,
+			userName,
+			serverID,
+		)
 	}
 
 	return cloneUser(u), nil
@@ -565,7 +584,12 @@ func (b *InMemoryBackend) UpdateUser(serverID, userName, homeDir, role string) (
 
 	u, ok := users[userName]
 	if !ok {
-		return nil, fmt.Errorf("%w: user %s not found on server %s", ErrUserNotFound, userName, serverID)
+		return nil, fmt.Errorf(
+			"%w: user %s not found on server %s",
+			ErrUserNotFound,
+			userName,
+			serverID,
+		)
 	}
 
 	if homeDir != "" {
@@ -649,11 +673,21 @@ func (b *InMemoryBackend) DeleteAccess(serverID, externalID string) error {
 
 	serverAccesses, ok := b.accesses[serverID]
 	if !ok {
-		return fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+		return fmt.Errorf(
+			"%w: access %s not found on server %s",
+			ErrAccessNotFound,
+			externalID,
+			serverID,
+		)
 	}
 
 	if _, exists := serverAccesses[externalID]; !exists {
-		return fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+		return fmt.Errorf(
+			"%w: access %s not found on server %s",
+			ErrAccessNotFound,
+			externalID,
+			serverID,
+		)
 	}
 
 	delete(serverAccesses, externalID)
@@ -712,11 +746,21 @@ func (b *InMemoryBackend) DeleteAgreement(serverID, agreementID string) error {
 
 	serverAgreements, ok := b.agreements[serverID]
 	if !ok {
-		return fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+		return fmt.Errorf(
+			"%w: agreement %s not found on server %s",
+			ErrAgreementNotFound,
+			agreementID,
+			serverID,
+		)
 	}
 
 	if _, exists := serverAgreements[agreementID]; !exists {
-		return fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+		return fmt.Errorf(
+			"%w: agreement %s not found on server %s",
+			ErrAgreementNotFound,
+			agreementID,
+			serverID,
+		)
 	}
 
 	delete(serverAgreements, agreementID)
@@ -725,7 +769,10 @@ func (b *InMemoryBackend) DeleteAgreement(serverID, agreementID string) error {
 }
 
 // CreateConnector creates a Transfer connector. URL is required.
-func (b *InMemoryBackend) CreateConnector(url, accessRole string, tags map[string]string) (*Connector, error) {
+func (b *InMemoryBackend) CreateConnector(
+	url, accessRole string,
+	tags map[string]string,
+) (*Connector, error) {
 	if url == "" {
 		return nil, fmt.Errorf("%w: Url is required", ErrValidation)
 	}
@@ -767,12 +814,19 @@ func (b *InMemoryBackend) DeleteConnector(connectorID string) error {
 }
 
 // CreateProfile creates an AS2 profile. ProfileType must be LOCAL or PARTNER.
-func (b *InMemoryBackend) CreateProfile(profileType, as2ID string, tags map[string]string) (*Profile, error) {
+func (b *InMemoryBackend) CreateProfile(
+	profileType, as2ID string,
+	tags map[string]string,
+) (*Profile, error) {
 	switch profileType {
 	case profileTypeLocal, profileTypePartner:
 		// valid
 	default:
-		return nil, fmt.Errorf("%w: ProfileType must be LOCAL or PARTNER, got %q", ErrValidation, profileType)
+		return nil, fmt.Errorf(
+			"%w: ProfileType must be LOCAL or PARTNER, got %q",
+			ErrValidation,
+			profileType,
+		)
 	}
 
 	b.mu.Lock("CreateProfile")
@@ -820,7 +874,10 @@ func (b *InMemoryBackend) CreateWebApp(tags map[string]string) (*WebApp, error) 
 }
 
 // CreateWorkflow creates a Transfer workflow.
-func (b *InMemoryBackend) CreateWorkflow(description string, tags map[string]string) (*Workflow, error) {
+func (b *InMemoryBackend) CreateWorkflow(
+	description string,
+	tags map[string]string,
+) (*Workflow, error) {
 	b.mu.Lock("CreateWorkflow")
 	defer b.mu.Unlock()
 
@@ -863,12 +920,22 @@ func (b *InMemoryBackend) DescribeAccess(serverID, externalID string) (*Access, 
 
 	serverAccesses, ok := b.accesses[serverID]
 	if !ok {
-		return nil, fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+		return nil, fmt.Errorf(
+			"%w: access %s not found on server %s",
+			ErrAccessNotFound,
+			externalID,
+			serverID,
+		)
 	}
 
 	a, ok := serverAccesses[externalID]
 	if !ok {
-		return nil, fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+		return nil, fmt.Errorf(
+			"%w: access %s not found on server %s",
+			ErrAccessNotFound,
+			externalID,
+			serverID,
+		)
 	}
 
 	return cloneAccess(a), nil
@@ -898,18 +965,30 @@ func (b *InMemoryBackend) ListAccesses(serverID string) ([]*Access, error) {
 }
 
 // UpdateAccess updates mutable fields on an access entry.
-func (b *InMemoryBackend) UpdateAccess(serverID, externalID, role, homeDir string) (*Access, error) {
+func (b *InMemoryBackend) UpdateAccess(
+	serverID, externalID, role, homeDir string,
+) (*Access, error) {
 	b.mu.Lock("UpdateAccess")
 	defer b.mu.Unlock()
 
 	serverAccesses, ok := b.accesses[serverID]
 	if !ok {
-		return nil, fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+		return nil, fmt.Errorf(
+			"%w: access %s not found on server %s",
+			ErrAccessNotFound,
+			externalID,
+			serverID,
+		)
 	}
 
 	a, ok := serverAccesses[externalID]
 	if !ok {
-		return nil, fmt.Errorf("%w: access %s not found on server %s", ErrAccessNotFound, externalID, serverID)
+		return nil, fmt.Errorf(
+			"%w: access %s not found on server %s",
+			ErrAccessNotFound,
+			externalID,
+			serverID,
+		)
 	}
 
 	if role != "" {
@@ -930,12 +1009,22 @@ func (b *InMemoryBackend) DescribeAgreement(serverID, agreementID string) (*Agre
 
 	serverAgreements, ok := b.agreements[serverID]
 	if !ok {
-		return nil, fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+		return nil, fmt.Errorf(
+			"%w: agreement %s not found on server %s",
+			ErrAgreementNotFound,
+			agreementID,
+			serverID,
+		)
 	}
 
 	ag, ok := serverAgreements[agreementID]
 	if !ok {
-		return nil, fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+		return nil, fmt.Errorf(
+			"%w: agreement %s not found on server %s",
+			ErrAgreementNotFound,
+			agreementID,
+			serverID,
+		)
 	}
 
 	return cloneAgreement(ag), nil
@@ -965,18 +1054,30 @@ func (b *InMemoryBackend) ListAgreements(serverID string) ([]*Agreement, error) 
 }
 
 // UpdateAgreement updates mutable fields on an agreement.
-func (b *InMemoryBackend) UpdateAgreement(serverID, agreementID, description, status string) (*Agreement, error) {
+func (b *InMemoryBackend) UpdateAgreement(
+	serverID, agreementID, description, status string,
+) (*Agreement, error) {
 	b.mu.Lock("UpdateAgreement")
 	defer b.mu.Unlock()
 
 	serverAgreements, ok := b.agreements[serverID]
 	if !ok {
-		return nil, fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+		return nil, fmt.Errorf(
+			"%w: agreement %s not found on server %s",
+			ErrAgreementNotFound,
+			agreementID,
+			serverID,
+		)
 	}
 
 	ag, ok := serverAgreements[agreementID]
 	if !ok {
-		return nil, fmt.Errorf("%w: agreement %s not found on server %s", ErrAgreementNotFound, agreementID, serverID)
+		return nil, fmt.Errorf(
+			"%w: agreement %s not found on server %s",
+			ErrAgreementNotFound,
+			agreementID,
+			serverID,
+		)
 	}
 
 	if description != "" {
@@ -1208,7 +1309,10 @@ func (b *InMemoryBackend) ListWorkflows() []*Workflow {
 }
 
 // ImportCertificate imports a certificate.
-func (b *InMemoryBackend) ImportCertificate(usage, body, description string, tags map[string]string) (*Certificate, error) {
+func (b *InMemoryBackend) ImportCertificate(
+	usage, body, description string,
+	tags map[string]string,
+) (*Certificate, error) {
 	b.mu.Lock("ImportCertificate")
 	defer b.mu.Unlock()
 
@@ -1250,7 +1354,11 @@ func (b *InMemoryBackend) DescribeCertificate(certificateID string) (*Certificat
 
 	c, ok := b.certificates[certificateID]
 	if !ok {
-		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertificateNotFound, certificateID)
+		return nil, fmt.Errorf(
+			"%w: certificate %s not found",
+			ErrCertificateNotFound,
+			certificateID,
+		)
 	}
 
 	cp := *c
@@ -1282,13 +1390,19 @@ func (b *InMemoryBackend) ListCertificates() []*Certificate {
 }
 
 // UpdateCertificate updates mutable fields on a certificate.
-func (b *InMemoryBackend) UpdateCertificate(certificateID, description string) (*Certificate, error) {
+func (b *InMemoryBackend) UpdateCertificate(
+	certificateID, description string,
+) (*Certificate, error) {
 	b.mu.Lock("UpdateCertificate")
 	defer b.mu.Unlock()
 
 	c, ok := b.certificates[certificateID]
 	if !ok {
-		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertificateNotFound, certificateID)
+		return nil, fmt.Errorf(
+			"%w: certificate %s not found",
+			ErrCertificateNotFound,
+			certificateID,
+		)
 	}
 
 	if description != "" {
@@ -1303,7 +1417,10 @@ func (b *InMemoryBackend) UpdateCertificate(certificateID, description string) (
 }
 
 // ImportHostKey imports a host key onto a server.
-func (b *InMemoryBackend) ImportHostKey(serverID, hostKeyBody, description string, tags map[string]string) (*HostKey, error) {
+func (b *InMemoryBackend) ImportHostKey(
+	serverID, hostKeyBody, description string,
+	tags map[string]string,
+) (*HostKey, error) {
 	b.mu.Lock("ImportHostKey")
 	defer b.mu.Unlock()
 
@@ -1343,11 +1460,21 @@ func (b *InMemoryBackend) DeleteHostKey(serverID, hostKeyID string) error {
 
 	serverKeys, ok := b.hostKeys[serverID]
 	if !ok {
-		return fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+		return fmt.Errorf(
+			"%w: host key %s not found on server %s",
+			ErrServerNotFound,
+			hostKeyID,
+			serverID,
+		)
 	}
 
 	if _, exists := serverKeys[hostKeyID]; !exists {
-		return fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+		return fmt.Errorf(
+			"%w: host key %s not found on server %s",
+			ErrServerNotFound,
+			hostKeyID,
+			serverID,
+		)
 	}
 
 	delete(serverKeys, hostKeyID)
@@ -1362,12 +1489,22 @@ func (b *InMemoryBackend) DescribeHostKey(serverID, hostKeyID string) (*HostKey,
 
 	serverKeys, ok := b.hostKeys[serverID]
 	if !ok {
-		return nil, fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+		return nil, fmt.Errorf(
+			"%w: host key %s not found on server %s",
+			ErrServerNotFound,
+			hostKeyID,
+			serverID,
+		)
 	}
 
 	hk, ok := serverKeys[hostKeyID]
 	if !ok {
-		return nil, fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+		return nil, fmt.Errorf(
+			"%w: host key %s not found on server %s",
+			ErrServerNotFound,
+			hostKeyID,
+			serverID,
+		)
 	}
 
 	return cloneHostKey(hk), nil
@@ -1403,12 +1540,22 @@ func (b *InMemoryBackend) UpdateHostKey(serverID, hostKeyID, description string)
 
 	serverKeys, ok := b.hostKeys[serverID]
 	if !ok {
-		return nil, fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+		return nil, fmt.Errorf(
+			"%w: host key %s not found on server %s",
+			ErrServerNotFound,
+			hostKeyID,
+			serverID,
+		)
 	}
 
 	hk, ok := serverKeys[hostKeyID]
 	if !ok {
-		return nil, fmt.Errorf("%w: host key %s not found on server %s", ErrServerNotFound, hostKeyID, serverID)
+		return nil, fmt.Errorf(
+			"%w: host key %s not found on server %s",
+			ErrServerNotFound,
+			hostKeyID,
+			serverID,
+		)
 	}
 
 	if description != "" {
@@ -1419,7 +1566,9 @@ func (b *InMemoryBackend) UpdateHostKey(serverID, hostKeyID, description string)
 }
 
 // ImportSshPublicKey imports an SSH public key for a user on a server.
-func (b *InMemoryBackend) ImportSshPublicKey(serverID, userName, sshPublicKeyBody string) (*SshPublicKey, error) {
+func (b *InMemoryBackend) ImportSshPublicKey(
+	serverID, userName, sshPublicKeyBody string,
+) (*SshPublicKey, error) {
 	b.mu.Lock("ImportSshPublicKey")
 	defer b.mu.Unlock()
 

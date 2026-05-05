@@ -8,7 +8,7 @@ import (
 
 // backendSnapshot is the serialisable representation of InMemoryBackend state.
 type backendSnapshot struct {
-	Servers       map[string]*Server                              `json:"servers"`
+	Servers       map[string]*Server                             `json:"servers"`
 	Users         map[string]map[string]*User                    `json:"users"`
 	Accesses      map[string]map[string]*Access                  `json:"accesses"`
 	Agreements    map[string]map[string]*Agreement               `json:"agreements"`
