@@ -77,6 +77,7 @@ type StorageBackend interface {
 
 	UploadArchive(accountID, region, vaultName, description, checksum string, size int64) (*Archive, error)
 	DeleteArchive(accountID, region, vaultName, archiveID string) error
+	ListArchives(accountID, region, vaultName string) ([]*Archive, error)
 
 	InitiateJob(accountID, region, vaultName string, req *initiateJobRequest) (*Job, error)
 	DescribeJob(accountID, region, vaultName, jobID string) (*Job, error)
@@ -403,6 +404,29 @@ func (b *InMemoryBackend) DeleteArchive(accountID, region, vaultName, archiveID 
 	return nil
 }
 
+// ListArchives returns all archives for the given vault.
+func (b *InMemoryBackend) ListArchives(accountID, region, vaultName string) ([]*Archive, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if _, ok := b.vaults[key]; !ok {
+		return nil, ErrVaultNotFound
+	}
+
+	archives := b.archives[key]
+	result := make([]*Archive, 0, len(archives))
+
+	for _, a := range archives {
+		result = append(result, cloneArchive(a))
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ArchiveID < result[j].ArchiveID })
+
+	return result, nil
+}
+
 // InitiateJob creates a new retrieval or inventory job.
 func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *initiateJobRequest) (*Job, error) {
 	b.mu.Lock()
@@ -439,19 +463,25 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 		tier = "Standard"
 	}
 
+	inventoryFormat := req.InventoryFormat
+	if inventoryFormat == "" {
+		inventoryFormat = "JSON"
+	}
+
 	j := &Job{
-		JobID:          jobID,
-		VaultARN:       v.VaultARN,
-		VaultName:      vaultName,
-		Action:         action,
-		ArchiveID:      req.ArchiveID,
-		JobDescription: req.Description,
-		StatusCode:     "Succeeded",
-		StatusMessage:  "Succeeded",
-		CreationDate:   formatDate(time.Now()),
-		CompletionDate: formatDate(time.Now()),
-		Completed:      true,
-		Tier:           tier,
+		JobID:           jobID,
+		VaultARN:        v.VaultARN,
+		VaultName:       vaultName,
+		Action:          action,
+		ArchiveID:       req.ArchiveID,
+		InventoryFormat: inventoryFormat,
+		JobDescription:  req.Description,
+		StatusCode:      "Succeeded",
+		StatusMessage:   "Succeeded",
+		CreationDate:    formatDate(time.Now()),
+		CompletionDate:  formatDate(time.Now()),
+		Completed:       true,
+		Tier:            tier,
 	}
 
 	if action == jobTypeArchiveRetrieval {

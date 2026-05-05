@@ -33,6 +33,7 @@ type Job struct {
 	JobDescription       string `json:"jobDescription,omitempty"`
 	Action               string `json:"action"`
 	ArchiveID            string `json:"archiveID,omitempty"`
+	InventoryFormat      string `json:"inventoryFormat,omitempty"`
 	StatusCode           string `json:"statusCode"`
 	StatusMessage        string `json:"statusMessage,omitempty"`
 	CreationDate         string `json:"creationDate"`
@@ -90,11 +91,12 @@ type uploadArchiveResponse struct {
 
 // initiateJobRequest is the request body for InitiateJob.
 type initiateJobRequest struct {
-	Type        string `json:"Type"`
-	ArchiveID   string `json:"ArchiveId,omitempty"`
-	Description string `json:"Description,omitempty"`
-	Tier        string `json:"Tier,omitempty"`
-	SNSTopic    string `json:"SNSTopic,omitempty"`
+	Type            string `json:"Type"`
+	ArchiveID       string `json:"ArchiveId,omitempty"`
+	Description     string `json:"Description,omitempty"`
+	Tier            string `json:"Tier,omitempty"`
+	SNSTopic        string `json:"SNSTopic,omitempty"`
+	InventoryFormat string `json:"Format,omitempty"`
 }
 
 // initiateJobResponse is the response for InitiateJob.
@@ -116,6 +118,7 @@ type describeJobResponse struct {
 	JobID                string `json:"JobId"`
 	Action               string `json:"Action"`
 	JobDescription       string `json:"JobDescription,omitempty"`
+	InventoryFormat      string `json:"Format,omitempty"`
 	Tier                 string `json:"Tier,omitempty"`
 	SHA256TreeHash       string `json:"SHA256TreeHash,omitempty"`
 	Completed            bool   `json:"Completed"`

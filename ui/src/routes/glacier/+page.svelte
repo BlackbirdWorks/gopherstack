@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { getGlacierClient } from '$lib/aws-client';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import {
@@ -11,7 +11,6 @@
 		DeleteArchiveCommand,
 		InitiateJobCommand,
 		ListJobsCommand,
-		DescribeJobCommand,
 		GetJobOutputCommand,
 		AddTagsToVaultCommand,
 		ListTagsForVaultCommand,
@@ -28,10 +27,13 @@
 		CompleteVaultLockCommand,
 		ListMultipartUploadsCommand,
 		AbortMultipartUploadCommand,
+		GetDataRetrievalPolicyCommand,
+		SetDataRetrievalPolicyCommand,
 		type DescribeVaultOutput,
 		type GlacierJobDescription,
 		type UploadListElement,
 		type JobParameters,
+		type DataRetrievalPolicy,
 	} from '@aws-sdk/client-glacier';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -51,9 +53,19 @@
 		FileText,
 		ChevronRight,
 		X,
+		Copy,
+		Check,
+		Settings,
+		Filter,
 	} from 'lucide-svelte';
 
 	const glacier = getGlacierClient();
+
+	// Known Glacier SNS event types
+	const KNOWN_SNS_EVENTS = [
+		'ArchiveRetrievalCompleted',
+		'InventoryRetrievalCompleted',
+	];
 
 	// --- State ---
 	let loading = $state(false);
@@ -72,6 +84,12 @@
 	let uploadDescription = $state('');
 	let uploadFile = $state<globalThis.File | null>(null);
 	let uploading = $state(false);
+	let lastUploadedArchiveId = $state('');
+
+	// Archive delete
+	let showDeleteArchiveModal = $state(false);
+	let deleteArchiveId = $state('');
+	let deletingArchive = $state(false);
 
 	// Jobs
 	let jobs = $state<GlacierJobDescription[]>([]);
@@ -81,10 +99,14 @@
 	let jobArchiveId = $state('');
 	let jobTier = $state('Standard');
 	let jobDescription = $state('');
+	let inventoryFormat = $state<'JSON' | 'CSV'>('JSON');
 	let initiatingJob = $state(false);
 	let selectedJob = $state<GlacierJobDescription | null>(null);
 	let jobOutput = $state('');
 	let loadingJobOutput = $state(false);
+	let jobStatusFilter = $state<'all' | 'completed' | 'in-progress'>('all');
+	let autoRefreshJobs = $state(false);
+	let autoRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
 	// Tags
 	let tags = $state<Record<string, string>>({});
@@ -93,11 +115,12 @@
 	let newTagValue = $state('');
 	let taggingInFlight = $state(false);
 
-	// Policy
+	// Policy (vault access policy)
 	let accessPolicy = $state('');
 	let loadingPolicy = $state(false);
 	let editingPolicy = $state(false);
 	let policyDraft = $state('');
+	let policyError = $state('');
 	let savingPolicy = $state(false);
 
 	// Notifications
@@ -106,7 +129,7 @@
 	let loadingNotifications = $state(false);
 	let editingNotifications = $state(false);
 	let snsTopicDraft = $state('');
-	let snsEventsDraft = $state('');
+	let snsEventsDraft = $state<string[]>([]);
 	let savingNotifications = $state(false);
 
 	// Vault lock
@@ -114,11 +137,22 @@
 	let loadingLock = $state(false);
 	let lockPolicyDraft = $state('');
 	let lockIdInput = $state('');
+	let lastLockId = $state('');
 	let lockActionInFlight = $state(false);
 
 	// Multipart uploads
 	let multipartUploads = $state<UploadListElement[]>([]);
 	let loadingMultipart = $state(false);
+
+	// Data retrieval policy (account-level)
+	let dataRetrievalPolicy = $state<DataRetrievalPolicy | null>(null);
+	let loadingDataPolicy = $state(false);
+	let editingDataPolicy = $state(false);
+	let dataPolicyDraft = $state('');
+	let savingDataPolicy = $state(false);
+
+	// Clipboard copy indicator
+	let copiedId = $state('');
 
 	const storageClasses = [
 		{ name: 'S3 Glacier Instant Retrieval', retrieval: 'Milliseconds', minStorage: '90 days', cost: 'Low', useCase: 'Rarely accessed data requiring immediate retrieval' },
@@ -132,6 +166,73 @@
 		)
 	);
 
+	const filteredJobs = $derived(
+		jobs.filter(j => {
+			if (jobStatusFilter === 'completed') return j.Completed;
+			if (jobStatusFilter === 'in-progress') return !j.Completed;
+			return true;
+		})
+	);
+
+	// --- Helpers ---
+	function fmtBytes(b: number | undefined): string {
+		if (!b) return '0 B';
+		if (b < 1024) return `${b} B`;
+		if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`;
+		if (b < 1073741824) return `${(b / 1048576).toFixed(1)} MB`;
+		return `${(b / 1073741824).toFixed(2)} GB`;
+	}
+
+	function fmtDate(d: string | Date | undefined): string {
+		if (!d) return '—';
+		const dt = typeof d === 'string' ? new Date(d) : d;
+		return dt.toLocaleString();
+	}
+
+	function extractErrorMessage(err: unknown): string {
+		const e = err as { message?: string; name?: string };
+		if (e?.name && e?.message) return `${e.name}: ${e.message}`;
+		return e?.message ?? String(err);
+	}
+
+	async function copyToClipboard(text: string, id: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+			copiedId = id;
+			setTimeout(() => { copiedId = ''; }, 2000);
+		} catch {
+			toast.error('Failed to copy to clipboard');
+		}
+	}
+
+	function validateJSON(s: string): string {
+		if (!s.trim()) return '';
+		try {
+			JSON.parse(s);
+			return '';
+		} catch (e) {
+			return (e as Error).message;
+		}
+	}
+
+	function formatJSON(s: string): string {
+		try {
+			return JSON.stringify(JSON.parse(s), null, 2);
+		} catch {
+			return s;
+		}
+	}
+
+	// Escape key closes modals
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			showCreateModal = false;
+			showUploadModal = false;
+			showInitiateJobModal = false;
+			showDeleteArchiveModal = false;
+		}
+	}
+
 	// --- Vault list ---
 	async function loadVaults() {
 		loading = true;
@@ -139,7 +240,7 @@
 			const res = await glacier.send(new ListVaultsCommand({ accountId: '-' }));
 			vaults = res.VaultList ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load vaults: ${(err as Error).message}`);
+			toast.error(`Failed to load vaults: ${extractErrorMessage(err)}`);
 		} finally {
 			loading = false;
 		}
@@ -155,7 +256,7 @@
 			showCreateModal = false;
 			await loadVaults();
 		} catch (err: unknown) {
-			toast.error(`Failed to create vault: ${(err as Error).message}`);
+			toast.error(`Failed to create vault: ${extractErrorMessage(err)}`);
 		} finally {
 			creating = false;
 		}
@@ -163,14 +264,33 @@
 
 	async function deleteVault(name: string | undefined) {
 		if (!name) return;
-		if (!(await confirmDestructive({ title: 'Delete Vault', message: `Delete vault "${name}"? All archives must be removed first.` }))) return;
+		const archiveCount = selectedVault?.NumberOfArchives ?? 0;
+		const archiveWarning = archiveCount > 0
+			? ` It contains ${archiveCount} archive${archiveCount !== 1 ? 's' : ''} that must be removed first.`
+			: '';
+		if (!(await confirmDestructive({
+			title: 'Delete Vault',
+			message: `Delete vault "${name}"?${archiveWarning} This cannot be undone.`
+		}))) return;
 		try {
 			await glacier.send(new DeleteVaultCommand({ accountId: '-', vaultName: name }));
 			toast.success(`Vault "${name}" deleted`);
 			if (selectedVault?.VaultName === name) selectedVault = null;
 			await loadVaults();
 		} catch (err: unknown) {
-			toast.error(`Delete failed: ${(err as Error).message}`);
+			toast.error(`Delete failed: ${extractErrorMessage(err)}`);
+		}
+	}
+
+	async function refreshVaultDetails() {
+		if (!selectedVault?.VaultName) return;
+		try {
+			const res = await glacier.send(new DescribeVaultCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
+			selectedVault = res;
+			// Also update the vault in the list
+			vaults = vaults.map(v => v.VaultName === res.VaultName ? res : v);
+		} catch (err: unknown) {
+			toast.error(`Failed to refresh vault: ${extractErrorMessage(err)}`);
 		}
 	}
 
@@ -189,6 +309,8 @@
 		snsEvents = [];
 		vaultLock = null;
 		multipartUploads = [];
+		lastUploadedArchiveId = '';
+		stopAutoRefresh();
 	}
 
 	async function switchTab(tab: typeof activeTab) {
@@ -197,6 +319,7 @@
 		editingNotifications = false;
 		selectedJob = null;
 		jobOutput = '';
+		stopAutoRefresh();
 
 		if (!selectedVault?.VaultName) return;
 		const name = selectedVault.VaultName;
@@ -221,17 +344,37 @@
 				body,
 				archiveDescription: uploadDescription.trim() || undefined,
 			}));
-			toast.success(`Archive uploaded: ${res.archiveId}`);
+			lastUploadedArchiveId = res.archiveId ?? '';
+			toast.success(`Archive uploaded — ID: ${res.archiveId}`);
 			uploadFile = null;
 			uploadDescription = '';
 			showUploadModal = false;
-			// Refresh vault to update size/count
-			const fresh = await glacier.send(new DescribeVaultCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
-			selectedVault = fresh;
+			await refreshVaultDetails();
 		} catch (err: unknown) {
-			toast.error(`Upload failed: ${(err as Error).message}`);
+			toast.error(`Upload failed: ${extractErrorMessage(err)}`);
 		} finally {
 			uploading = false;
+		}
+	}
+
+	async function deleteArchive() {
+		if (!deleteArchiveId.trim() || !selectedVault?.VaultName) return;
+		deletingArchive = true;
+		try {
+			await glacier.send(new DeleteArchiveCommand({
+				accountId: '-',
+				vaultName: selectedVault.VaultName,
+				archiveId: deleteArchiveId.trim(),
+			}));
+			toast.success('Archive deleted');
+			if (lastUploadedArchiveId === deleteArchiveId.trim()) lastUploadedArchiveId = '';
+			deleteArchiveId = '';
+			showDeleteArchiveModal = false;
+			await refreshVaultDetails();
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${extractErrorMessage(err)}`);
+		} finally {
+			deletingArchive = false;
 		}
 	}
 
@@ -242,9 +385,36 @@
 			const res = await glacier.send(new ListJobsCommand({ accountId: '-', vaultName: name }));
 			jobs = res.JobList ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load jobs: ${(err as Error).message}`);
+			toast.error(`Failed to load jobs: ${extractErrorMessage(err)}`);
 		} finally {
 			loadingJobs = false;
+		}
+	}
+
+	function startAutoRefresh() {
+		if (autoRefreshInterval) return;
+		autoRefreshInterval = setInterval(() => {
+			if (selectedVault?.VaultName && activeTab === 'jobs') {
+				loadJobs(selectedVault.VaultName);
+			}
+		}, 15000);
+	}
+
+	function stopAutoRefresh() {
+		if (autoRefreshInterval) {
+			clearInterval(autoRefreshInterval);
+			autoRefreshInterval = null;
+		}
+		autoRefreshJobs = false;
+	}
+
+	function toggleAutoRefresh() {
+		autoRefreshJobs = !autoRefreshJobs;
+		if (autoRefreshJobs) {
+			startAutoRefresh();
+			toast.success('Auto-refresh enabled (15s)');
+		} else {
+			stopAutoRefresh();
 		}
 	}
 
@@ -252,9 +422,9 @@
 		if (!selectedVault?.VaultName) return;
 		initiatingJob = true;
 		try {
-			const params: JobParameters = { Type: jobType };
+			const params: JobParameters = { Type: jobType, Tier: jobTier };
 			if (jobType === 'archive-retrieval') params.ArchiveId = jobArchiveId.trim();
-			if (jobTier) params.Tier = jobTier;
+			if (jobType === 'inventory-retrieval') params.Format = inventoryFormat;
 			if (jobDescription.trim()) params.Description = jobDescription.trim();
 
 			await glacier.send(new InitiateJobCommand({
@@ -268,7 +438,7 @@
 			jobDescription = '';
 			await loadJobs(selectedVault.VaultName);
 		} catch (err: unknown) {
-			toast.error(`Failed to initiate job: ${(err as Error).message}`);
+			toast.error(`Failed to initiate job: ${extractErrorMessage(err)}`);
 		} finally {
 			initiatingJob = false;
 		}
@@ -294,10 +464,18 @@
 				}
 			}
 		} catch (err: unknown) {
-			toast.error(`Failed to get job output: ${(err as Error).message}`);
+			toast.error(`Failed to get job output: ${extractErrorMessage(err)}`);
 		} finally {
 			loadingJobOutput = false;
 		}
+	}
+
+	function initiateArchiveRetrievalForLastUpload() {
+		if (!lastUploadedArchiveId) return;
+		jobType = 'archive-retrieval';
+		jobArchiveId = lastUploadedArchiveId;
+		showInitiateJobModal = true;
+		switchTab('jobs');
 	}
 
 	// --- Tags ---
@@ -307,7 +485,7 @@
 			const res = await glacier.send(new ListTagsForVaultCommand({ accountId: '-', vaultName: name }));
 			tags = res.Tags ?? {};
 		} catch (err: unknown) {
-			toast.error(`Failed to load tags: ${(err as Error).message}`);
+			toast.error(`Failed to load tags: ${extractErrorMessage(err)}`);
 		} finally {
 			loadingTags = false;
 		}
@@ -315,6 +493,8 @@
 
 	async function addTag() {
 		if (!newTagKey.trim() || !selectedVault?.VaultName) return;
+		if (newTagKey.length > 128) { toast.error('Tag key must be ≤ 128 characters'); return; }
+		if (newTagValue.length > 256) { toast.error('Tag value must be ≤ 256 characters'); return; }
 		taggingInFlight = true;
 		try {
 			await glacier.send(new AddTagsToVaultCommand({
@@ -327,7 +507,7 @@
 			await loadTags(selectedVault.VaultName);
 			toast.success('Tag added');
 		} catch (err: unknown) {
-			toast.error(`Failed to add tag: ${(err as Error).message}`);
+			toast.error(`Failed to add tag: ${extractErrorMessage(err)}`);
 		} finally {
 			taggingInFlight = false;
 		}
@@ -345,7 +525,7 @@
 			await loadTags(selectedVault.VaultName);
 			toast.success('Tag removed');
 		} catch (err: unknown) {
-			toast.error(`Failed to remove tag: ${(err as Error).message}`);
+			toast.error(`Failed to remove tag: ${extractErrorMessage(err)}`);
 		} finally {
 			taggingInFlight = false;
 		}
@@ -358,7 +538,7 @@
 			const res = await glacier.send(new GetVaultAccessPolicyCommand({ accountId: '-', vaultName: name }));
 			accessPolicy = res.policy?.Policy ?? '';
 		} catch (err: unknown) {
-			const msg = (err as Error).message;
+			const msg = extractErrorMessage(err);
 			if (msg.includes('ResourceNotFoundException') || msg.includes('not found')) {
 				accessPolicy = '';
 			} else {
@@ -371,6 +551,9 @@
 
 	async function savePolicy() {
 		if (!selectedVault?.VaultName) return;
+		const validationError = validateJSON(policyDraft);
+		if (validationError) { policyError = `Invalid JSON: ${validationError}`; return; }
+		policyError = '';
 		savingPolicy = true;
 		try {
 			await glacier.send(new SetVaultAccessPolicyCommand({
@@ -382,7 +565,7 @@
 			editingPolicy = false;
 			toast.success('Policy saved');
 		} catch (err: unknown) {
-			toast.error(`Failed to save policy: ${(err as Error).message}`);
+			toast.error(`Failed to save policy: ${extractErrorMessage(err)}`);
 		} finally {
 			savingPolicy = false;
 		}
@@ -397,7 +580,7 @@
 			editingPolicy = false;
 			toast.success('Policy deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete policy: ${(err as Error).message}`);
+			toast.error(`Failed to delete policy: ${extractErrorMessage(err)}`);
 		}
 	}
 
@@ -409,7 +592,7 @@
 			snsTopic = res.vaultNotificationConfig?.SNSTopic ?? '';
 			snsEvents = res.vaultNotificationConfig?.Events ?? [];
 		} catch (err: unknown) {
-			const msg = (err as Error).message;
+			const msg = extractErrorMessage(err);
 			if (msg.includes('ResourceNotFoundException') || msg.includes('not found')) {
 				snsTopic = '';
 				snsEvents = [];
@@ -421,22 +604,29 @@
 		}
 	}
 
+	function toggleSnsEvent(ev: string) {
+		if (snsEventsDraft.includes(ev)) {
+			snsEventsDraft = snsEventsDraft.filter(e => e !== ev);
+		} else {
+			snsEventsDraft = [...snsEventsDraft, ev];
+		}
+	}
+
 	async function saveNotifications() {
 		if (!selectedVault?.VaultName) return;
 		savingNotifications = true;
 		try {
-			const events = snsEventsDraft.split(',').map(e => e.trim()).filter(Boolean);
 			await glacier.send(new SetVaultNotificationsCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
-				vaultNotificationConfig: { SNSTopic: snsTopicDraft.trim(), Events: events },
+				vaultNotificationConfig: { SNSTopic: snsTopicDraft.trim(), Events: snsEventsDraft },
 			}));
 			snsTopic = snsTopicDraft.trim();
-			snsEvents = events;
+			snsEvents = [...snsEventsDraft];
 			editingNotifications = false;
 			toast.success('Notifications saved');
 		} catch (err: unknown) {
-			toast.error(`Failed to save notifications: ${(err as Error).message}`);
+			toast.error(`Failed to save notifications: ${extractErrorMessage(err)}`);
 		} finally {
 			savingNotifications = false;
 		}
@@ -451,7 +641,7 @@
 			snsEvents = [];
 			toast.success('Notifications removed');
 		} catch (err: unknown) {
-			toast.error(`Failed to remove notifications: ${(err as Error).message}`);
+			toast.error(`Failed to remove notifications: ${extractErrorMessage(err)}`);
 		}
 	}
 
@@ -467,7 +657,7 @@
 				ExpirationDate: res.ExpirationDate,
 			};
 		} catch (err: unknown) {
-			const msg = (err as Error).message;
+			const msg = extractErrorMessage(err);
 			if (msg.includes('ResourceNotFoundException') || msg.includes('not found')) {
 				vaultLock = null;
 			} else {
@@ -487,12 +677,13 @@
 				vaultName: selectedVault.VaultName,
 				policy: lockPolicyDraft.trim() ? { Policy: lockPolicyDraft.trim() } : undefined,
 			}));
-			toast.success(`Lock initiated. Lock ID: ${res.lockId}`);
-			lockIdInput = res.lockId ?? '';
+			lastLockId = res.lockId ?? '';
+			lockIdInput = lastLockId;
+			toast.success(`Lock initiated. Lock ID: ${res.lockId} — save this to complete the lock.`);
 			lockPolicyDraft = '';
 			await loadVaultLock(selectedVault.VaultName);
 		} catch (err: unknown) {
-			toast.error(`Failed to initiate lock: ${(err as Error).message}`);
+			toast.error(`Failed to initiate lock: ${extractErrorMessage(err)}`);
 		} finally {
 			lockActionInFlight = false;
 		}
@@ -507,11 +698,12 @@
 				vaultName: selectedVault.VaultName,
 				lockId: lockIdInput.trim(),
 			}));
-			toast.success('Vault lock completed');
+			toast.success('Vault lock completed — vault is now locked');
+			lastLockId = '';
 			lockIdInput = '';
 			await loadVaultLock(selectedVault.VaultName);
 		} catch (err: unknown) {
-			toast.error(`Failed to complete lock: ${(err as Error).message}`);
+			toast.error(`Failed to complete lock: ${extractErrorMessage(err)}`);
 		} finally {
 			lockActionInFlight = false;
 		}
@@ -519,14 +711,15 @@
 
 	async function abortLock() {
 		if (!selectedVault?.VaultName) return;
-		if (!(await confirmDestructive({ title: 'Abort Vault Lock', message: 'Abort the in-progress vault lock?' }))) return;
+		if (!(await confirmDestructive({ title: 'Abort Vault Lock', message: 'Abort the in-progress vault lock? The lock ID will be invalidated.' }))) return;
 		lockActionInFlight = true;
 		try {
 			await glacier.send(new AbortVaultLockCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
 			toast.success('Vault lock aborted');
+			lastLockId = '';
 			await loadVaultLock(selectedVault.VaultName);
 		} catch (err: unknown) {
-			toast.error(`Failed to abort lock: ${(err as Error).message}`);
+			toast.error(`Failed to abort lock: ${extractErrorMessage(err)}`);
 		} finally {
 			lockActionInFlight = false;
 		}
@@ -539,7 +732,7 @@
 			const res = await glacier.send(new ListMultipartUploadsCommand({ accountId: '-', vaultName: name }));
 			multipartUploads = res.UploadsList ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load multipart uploads: ${(err as Error).message}`);
+			toast.error(`Failed to load multipart uploads: ${extractErrorMessage(err)}`);
 		} finally {
 			loadingMultipart = false;
 		}
@@ -547,7 +740,7 @@
 
 	async function abortMultipartUpload(uploadId: string | undefined) {
 		if (!uploadId || !selectedVault?.VaultName) return;
-		if (!(await confirmDestructive({ title: 'Abort Upload', message: `Abort multipart upload ${uploadId}?` }))) return;
+		if (!(await confirmDestructive({ title: 'Abort Upload', message: `Abort multipart upload ${uploadId.slice(0, 16)}…? All uploaded parts will be discarded.` }))) return;
 		try {
 			await glacier.send(new AbortMultipartUploadCommand({
 				accountId: '-',
@@ -557,20 +750,51 @@
 			toast.success('Multipart upload aborted');
 			await loadMultipartUploads(selectedVault.VaultName);
 		} catch (err: unknown) {
-			toast.error(`Failed to abort upload: ${(err as Error).message}`);
+			toast.error(`Failed to abort upload: ${extractErrorMessage(err)}`);
 		}
 	}
 
-	function fmtBytes(b: number | undefined): string {
-		if (!b) return '0 B';
-		if (b < 1024) return `${b} B`;
-		if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`;
-		if (b < 1073741824) return `${(b / 1048576).toFixed(1)} MB`;
-		return `${(b / 1073741824).toFixed(2)} GB`;
+	// --- Data Retrieval Policy (account-level) ---
+	async function loadDataRetrievalPolicy() {
+		loadingDataPolicy = true;
+		try {
+			const res = await glacier.send(new GetDataRetrievalPolicyCommand({ accountId: '-' }));
+			dataRetrievalPolicy = res.Policy ?? null;
+		} catch (err: unknown) {
+			toast.error(`Failed to load data retrieval policy: ${extractErrorMessage(err)}`);
+		} finally {
+			loadingDataPolicy = false;
+		}
 	}
 
-	onMount(loadVaults);
+	async function saveDataRetrievalPolicy() {
+		const validationError = validateJSON(dataPolicyDraft);
+		if (validationError) { toast.error(`Invalid JSON: ${validationError}`); return; }
+		savingDataPolicy = true;
+		try {
+			await glacier.send(new SetDataRetrievalPolicyCommand({
+				accountId: '-',
+				Policy: JSON.parse(dataPolicyDraft) as DataRetrievalPolicy,
+			}));
+			toast.success('Data retrieval policy saved');
+			editingDataPolicy = false;
+			await loadDataRetrievalPolicy();
+		} catch (err: unknown) {
+			toast.error(`Failed to save policy: ${extractErrorMessage(err)}`);
+		} finally {
+			savingDataPolicy = false;
+		}
+	}
+
+	onMount(async () => {
+		await loadVaults();
+		await loadDataRetrievalPolicy();
+	});
+
+	onDestroy(stopAutoRefresh);
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="p-6 space-y-6">
 	<!-- Header -->
@@ -613,9 +837,15 @@
 			</div>
 			<div class="divide-y divide-slate-100 dark:divide-slate-700 max-h-96 overflow-y-auto">
 				{#if loading}
-					<div class="p-4 text-center text-sm text-gray-500 dark:text-gray-400">Loading…</div>
+					<div class="p-4 text-center text-sm text-gray-500 dark:text-gray-400 flex items-center justify-center gap-2">
+						<RefreshCw class="w-4 h-4 animate-spin" /> Loading…
+					</div>
 				{:else if filteredVaults.length === 0}
-					<div class="p-4 text-center text-sm text-gray-500 dark:text-gray-400">No vaults</div>
+					<div class="p-6 text-center">
+						<Database class="w-8 h-8 text-gray-300 mx-auto mb-2" />
+						<p class="text-sm text-gray-500 dark:text-gray-400">No vaults found</p>
+						<button onclick={() => { showCreateModal = true; newVaultName = ''; }} class="text-xs text-blue-600 hover:underline mt-1">Create your first vault</button>
+					</div>
 				{:else}
 					{#each filteredVaults as vault}
 						<button
@@ -639,16 +869,25 @@
 			<div class="flex-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
 				<!-- Vault header -->
 				<div class="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-					<div>
+					<div class="flex-1 min-w-0">
 						<h2 class="text-lg font-semibold text-gray-900 dark:text-white">{selectedVault.VaultName}</h2>
-						<p class="text-xs text-gray-500 dark:text-gray-400 font-mono">{selectedVault.VaultARN}</p>
+						<p class="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">{selectedVault.VaultARN}</p>
 					</div>
-					<button
-						onclick={() => deleteVault(selectedVault?.VaultName)}
-						class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800"
-					>
-						<Trash2 class="w-4 h-4" /> Delete
-					</button>
+					<div class="flex items-center gap-2 shrink-0 ml-2">
+						<button
+							onclick={refreshVaultDetails}
+							title="Refresh vault details"
+							class="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-slate-700"
+						>
+							<RefreshCw class="w-4 h-4" />
+						</button>
+						<button
+							onclick={() => deleteVault(selectedVault?.VaultName)}
+							class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800"
+						>
+							<Trash2 class="w-4 h-4" /> Delete
+						</button>
+					</div>
 				</div>
 
 				<!-- Tabs -->
@@ -681,42 +920,95 @@
 				<div class="p-4">
 					<!-- Overview -->
 					{#if activeTab === 'overview'}
-						<div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
-							{#each [
-								{ label: 'Archives', value: String(selectedVault.NumberOfArchives ?? 0) },
-								{ label: 'Total Size', value: fmtBytes(selectedVault.SizeInBytes ?? 0) },
-								{ label: 'Created', value: selectedVault.CreationDate ? new Date(selectedVault.CreationDate).toLocaleDateString() : '—' },
-								{ label: 'Last Inventory', value: selectedVault.LastInventoryDate ? new Date(selectedVault.LastInventoryDate).toLocaleDateString() : 'Never' },
-							] as stat}
-								<div class="p-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
-									<p class="text-xs text-gray-500 dark:text-gray-400">{stat.label}</p>
-									<p class="text-lg font-semibold text-gray-900 dark:text-white mt-0.5">{stat.value}</p>
+						<div class="space-y-4">
+							<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+								{#each [
+									{ label: 'Archives', value: String(selectedVault.NumberOfArchives ?? 0) },
+									{ label: 'Total Size', value: fmtBytes(selectedVault.SizeInBytes ?? 0) },
+									{ label: 'Created', value: selectedVault.CreationDate ? new Date(selectedVault.CreationDate).toLocaleDateString() : '—' },
+									{ label: 'Last Inventory', value: selectedVault.LastInventoryDate ? new Date(selectedVault.LastInventoryDate).toLocaleDateString() : 'Never' },
+								] as stat}
+									<div class="p-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
+										<p class="text-xs text-gray-500 dark:text-gray-400">{stat.label}</p>
+										<p class="text-lg font-semibold text-gray-900 dark:text-white mt-0.5">{stat.value}</p>
+									</div>
+								{/each}
+							</div>
+
+							<!-- Last uploaded archive quick actions -->
+							{#if lastUploadedArchiveId}
+								<div class="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700">
+									<p class="text-xs font-medium text-green-800 dark:text-green-300 mb-1">Last uploaded archive</p>
+									<div class="flex items-center gap-2">
+										<code class="text-xs font-mono text-green-700 dark:text-green-400 flex-1 truncate">{lastUploadedArchiveId}</code>
+										<button onclick={() => copyToClipboard(lastUploadedArchiveId, 'last-upload')} class="text-green-600 hover:text-green-800 shrink-0">
+											{#if copiedId === 'last-upload'}
+												<Check class="w-4 h-4" />
+											{:else}
+												<Copy class="w-4 h-4" />
+											{/if}
+										</button>
+										<button onclick={initiateArchiveRetrievalForLastUpload} class="text-xs px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white">
+											Retrieve
+										</button>
+									</div>
 								</div>
-							{/each}
+							{/if}
 						</div>
 
 					<!-- Archives -->
 					{:else if activeTab === 'archives'}
 						<div class="space-y-4">
 							<div class="flex items-center justify-between">
-								<p class="text-sm text-gray-600 dark:text-gray-400">Upload an archive to this vault. To retrieve archives, initiate an inventory retrieval job from the Jobs tab.</p>
-								<button onclick={() => { showUploadModal = true; uploadDescription = ''; uploadFile = null; }} class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-blue-600 hover:bg-blue-700 text-white">
-									<Upload class="w-4 h-4" /> Upload Archive
-								</button>
+								<p class="text-sm text-gray-600 dark:text-gray-400">Upload an archive or delete one by ID.</p>
+								<div class="flex gap-2">
+									<button onclick={() => { showDeleteArchiveModal = true; deleteArchiveId = ''; }} class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-red-200 dark:border-red-800 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
+										<Trash2 class="w-4 h-4" /> Delete Archive
+									</button>
+									<button onclick={() => { showUploadModal = true; uploadDescription = ''; uploadFile = null; }} class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-blue-600 hover:bg-blue-700 text-white">
+										<Upload class="w-4 h-4" /> Upload Archive
+									</button>
+								</div>
 							</div>
-							<div class="bg-gray-50 dark:bg-slate-700/50 rounded-lg p-4 text-sm text-gray-600 dark:text-gray-400">
-								<p class="font-medium text-gray-800 dark:text-gray-200 mb-1">About Glacier Archives</p>
-								<p>Archives in Glacier cannot be directly listed — their IDs are returned when uploaded. To retrieve a list of archives in this vault, initiate an <strong>Inventory Retrieval</strong> job from the Jobs tab.</p>
-								<p class="mt-2">Vault has <span class="font-semibold text-gray-900 dark:text-white">{selectedVault.NumberOfArchives ?? 0}</span> archives totalling <span class="font-semibold text-gray-900 dark:text-white">{fmtBytes(selectedVault.SizeInBytes ?? 0)}</span>.</p>
+							<div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-4 text-sm">
+								<p class="font-medium text-amber-800 dark:text-amber-300 mb-1">About Glacier Archives</p>
+								<p class="text-amber-700 dark:text-amber-400">Archive IDs are returned at upload time. To list all archives in this vault, initiate an <button onclick={() => switchTab('jobs')} class="underline">Inventory Retrieval job</button>. Vault currently has <strong>{selectedVault.NumberOfArchives ?? 0}</strong> archive{(selectedVault.NumberOfArchives ?? 0) !== 1 ? 's' : ''} totalling <strong>{fmtBytes(selectedVault.SizeInBytes ?? 0)}</strong>.</p>
 							</div>
+							{#if lastUploadedArchiveId}
+								<div class="p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50 border border-gray-200 dark:border-gray-600">
+									<p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Last uploaded archive ID</p>
+									<div class="flex items-center gap-2">
+										<code class="text-xs font-mono text-gray-800 dark:text-gray-200 flex-1 break-all">{lastUploadedArchiveId}</code>
+										<button onclick={() => copyToClipboard(lastUploadedArchiveId, 'archive-tab')} class="text-gray-500 hover:text-gray-700 shrink-0">
+											{#if copiedId === 'archive-tab'}<Check class="w-4 h-4 text-green-500" />{:else}<Copy class="w-4 h-4" />{/if}
+										</button>
+									</div>
+								</div>
+							{/if}
 						</div>
 
 					<!-- Jobs -->
 					{:else if activeTab === 'jobs'}
 						<div class="space-y-3">
-							<div class="flex items-center justify-between">
-								<p class="text-sm text-gray-600 dark:text-gray-400">{jobs.length} job{jobs.length !== 1 ? 's' : ''}</p>
-								<div class="flex gap-2">
+							<div class="flex items-center justify-between flex-wrap gap-2">
+								<div class="flex items-center gap-2">
+									<select bind:value={jobStatusFilter} class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-300">
+										<option value="all">All jobs ({jobs.length})</option>
+										<option value="completed">Completed ({jobs.filter(j => j.Completed).length})</option>
+										<option value="in-progress">In Progress ({jobs.filter(j => !j.Completed).length})</option>
+									</select>
+								</div>
+								<div class="flex items-center gap-2">
+									<button
+										onclick={toggleAutoRefresh}
+										class="flex items-center gap-1 px-2 py-1.5 text-xs rounded border transition-colors
+											{autoRefreshJobs
+												? 'border-green-400 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+												: 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700'}"
+									>
+										<RefreshCw class="w-3.5 h-3.5 {autoRefreshJobs ? 'animate-spin' : ''}" />
+										{autoRefreshJobs ? 'Auto (15s)' : 'Auto-refresh'}
+									</button>
 									<button onclick={() => selectedVault?.VaultName && loadJobs(selectedVault.VaultName)} class="flex items-center gap-1 px-2 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700">
 										<RefreshCw class="w-3.5 h-3.5 {loadingJobs ? 'animate-spin' : ''}" />
 									</button>
@@ -726,20 +1018,53 @@
 								</div>
 							</div>
 							{#if loadingJobs}
-								<div class="text-center py-6 text-sm text-gray-500">Loading jobs…</div>
-							{:else if jobs.length === 0}
-								<div class="text-center py-6 text-sm text-gray-500 dark:text-gray-400">No jobs</div>
+								<div class="text-center py-8">
+									<RefreshCw class="w-6 h-6 animate-spin text-gray-400 mx-auto mb-2" />
+									<p class="text-sm text-gray-500">Loading jobs…</p>
+								</div>
+							{:else if filteredJobs.length === 0}
+								<div class="text-center py-8">
+									<Play class="w-8 h-8 text-gray-300 mx-auto mb-2" />
+									<p class="text-sm text-gray-500 dark:text-gray-400">
+										{jobs.length === 0 ? 'No jobs for this vault' : 'No jobs match the filter'}
+									</p>
+									{#if jobs.length === 0}
+										<button onclick={() => { showInitiateJobModal = true; }} class="text-xs text-blue-600 hover:underline mt-1">Initiate your first job</button>
+									{/if}
+								</div>
 							{:else}
 								<div class="space-y-2">
-									{#each jobs as job}
+									{#each filteredJobs as job}
 										<div class="p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-slate-700/50">
 											<div class="flex items-start justify-between gap-2">
-												<div class="flex-1 min-w-0">
-													<p class="text-sm font-medium text-gray-900 dark:text-white">{job.Action}</p>
+												<div class="flex-1 min-w-0 space-y-0.5">
+													<div class="flex items-center gap-2">
+														<span class="text-sm font-medium text-gray-900 dark:text-white">{job.Action}</span>
+														{#if job.InventoryRetrievalParameters?.Format || (job.Action === 'InventoryRetrieval')}
+															<span class="text-xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-slate-600 text-gray-600 dark:text-gray-300">
+																{job.InventoryRetrievalParameters?.Format ?? 'JSON'}
+															</span>
+														{/if}
+														{#if job.Tier}
+															<span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{job.Tier}</span>
+														{/if}
+													</div>
 													<p class="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">{job.JobId}</p>
-													{#if job.JobDescription}
-														<p class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{job.JobDescription}</p>
+													{#if job.ArchiveId}
+														<div class="flex items-center gap-1">
+															<p class="text-xs text-gray-600 dark:text-gray-400 font-mono truncate">Archive: {job.ArchiveId}</p>
+															<button onclick={() => copyToClipboard(job.ArchiveId!, `job-archive-${job.JobId}`)} class="text-gray-400 hover:text-gray-600 shrink-0">
+																{#if copiedId === `job-archive-${job.JobId}`}<Check class="w-3 h-3 text-green-500" />{:else}<Copy class="w-3 h-3" />{/if}
+															</button>
+														</div>
 													{/if}
+													{#if job.JobDescription}
+														<p class="text-xs text-gray-600 dark:text-gray-400">{job.JobDescription}</p>
+													{/if}
+													<p class="text-xs text-gray-500 dark:text-gray-400">
+														Created: {fmtDate(job.CreationDate)}
+														{#if job.ArchiveSizeInBytes}· {fmtBytes(job.ArchiveSizeInBytes)}{/if}
+													</p>
 												</div>
 												<div class="flex items-center gap-2 shrink-0">
 													<span class="text-xs px-1.5 py-0.5 rounded-full {job.Completed ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}">
@@ -756,17 +1081,32 @@
 									{/each}
 								</div>
 							{/if}
+
 							<!-- Job output viewer -->
 							{#if selectedJob}
 								<div class="mt-3 p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-800">
 									<div class="flex items-center justify-between mb-2">
-										<p class="text-sm font-medium text-gray-900 dark:text-white">Job Output: {selectedJob.Action}</p>
-										<button onclick={() => { selectedJob = null; jobOutput = ''; }} class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
+										<p class="text-sm font-medium text-gray-900 dark:text-white">
+											Job Output: {selectedJob.Action}
+											{#if selectedJob.JobId}
+												<span class="text-xs text-gray-500 ml-1 font-normal font-mono">{selectedJob.JobId?.slice(0, 16)}…</span>
+											{/if}
+										</p>
+										<div class="flex items-center gap-1">
+											{#if jobOutput}
+												<button onclick={() => copyToClipboard(jobOutput, 'job-output')} class="text-gray-400 hover:text-gray-600">
+													{#if copiedId === 'job-output'}<Check class="w-4 h-4 text-green-500" />{:else}<Copy class="w-4 h-4" />{/if}
+												</button>
+											{/if}
+											<button onclick={() => { selectedJob = null; jobOutput = ''; }} class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
+										</div>
 									</div>
 									{#if loadingJobOutput}
-										<p class="text-sm text-gray-500">Loading output…</p>
+										<div class="flex items-center gap-2 text-sm text-gray-500 py-2">
+											<RefreshCw class="w-4 h-4 animate-spin" /> Loading output…
+										</div>
 									{:else}
-										<pre class="text-xs bg-gray-50 dark:bg-slate-900 rounded p-2 overflow-auto max-h-64 text-gray-800 dark:text-gray-200">{jobOutput || '(empty)'}</pre>
+										<pre class="text-xs bg-gray-50 dark:bg-slate-900 rounded p-2 overflow-auto max-h-64 text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{jobOutput || '(empty — archive data may not be stored)'}</pre>
 									{/if}
 								</div>
 							{/if}
@@ -776,30 +1116,40 @@
 					{:else if activeTab === 'tags'}
 						<div class="space-y-3">
 							{#if loadingTags}
-								<div class="text-sm text-gray-500 py-4 text-center">Loading tags…</div>
+								<div class="flex items-center gap-2 text-sm text-gray-500 py-4 justify-center">
+									<RefreshCw class="w-4 h-4 animate-spin" /> Loading tags…
+								</div>
 							{:else}
 								<div class="space-y-1.5">
 									{#each Object.entries(tags) as [k, v]}
 										<div class="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-slate-700/50 border border-gray-200 dark:border-gray-600">
-											<span class="text-xs font-mono text-blue-600 dark:text-blue-400">{k}</span>
-											<span class="text-gray-400">=</span>
-											<span class="text-xs text-gray-700 dark:text-gray-300 flex-1">{v}</span>
-											<button onclick={() => removeTag(k)} disabled={taggingInFlight} class="text-red-400 hover:text-red-600">
+											<span class="text-xs font-mono text-blue-600 dark:text-blue-400 truncate max-w-[120px]" title={k}>{k}</span>
+											<span class="text-gray-400 shrink-0">=</span>
+											<span class="text-xs text-gray-700 dark:text-gray-300 flex-1 truncate" title={v}>{v}</span>
+											<button onclick={() => removeTag(k)} disabled={taggingInFlight} class="text-red-400 hover:text-red-600 shrink-0">
 												<X class="w-3.5 h-3.5" />
 											</button>
 										</div>
 									{/each}
 									{#if Object.keys(tags).length === 0}
-										<p class="text-sm text-gray-500 dark:text-gray-400 py-2">No tags</p>
+										<div class="py-4 text-center">
+											<Tag class="w-6 h-6 text-gray-300 mx-auto mb-1" />
+											<p class="text-sm text-gray-500 dark:text-gray-400">No tags — add key-value metadata below</p>
+										</div>
 									{/if}
 								</div>
 								<div class="flex gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
-									<input bind:value={newTagKey} placeholder="Key" class="flex-1 px-2 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-									<input bind:value={newTagValue} placeholder="Value" class="flex-1 px-2 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-									<button onclick={addTag} disabled={taggingInFlight || !newTagKey.trim()} class="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50">
+									<div class="flex-1 space-y-1">
+										<input bind:value={newTagKey} placeholder="Key (max 128)" maxlength={128} class="w-full px-2 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+									</div>
+									<div class="flex-1 space-y-1">
+										<input bind:value={newTagValue} placeholder="Value (max 256)" maxlength={256} class="w-full px-2 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+									</div>
+									<button onclick={addTag} disabled={taggingInFlight || !newTagKey.trim()} class="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 shrink-0">
 										Add
 									</button>
 								</div>
+								<p class="text-xs text-gray-400">Maximum 10 tags per vault. Keys ≤ 128 chars, values ≤ 256 chars.</p>
 							{/if}
 						</div>
 
@@ -807,21 +1157,29 @@
 					{:else if activeTab === 'policy'}
 						<div class="space-y-3">
 							{#if loadingPolicy}
-								<div class="text-sm text-gray-500 py-4 text-center">Loading policy…</div>
+								<div class="flex items-center gap-2 text-sm text-gray-500 py-4 justify-center">
+									<RefreshCw class="w-4 h-4 animate-spin" /> Loading policy…
+								</div>
 							{:else if editingPolicy}
-								<textarea bind:value={policyDraft} rows={10} class="w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-y"></textarea>
+								{#if policyError}
+									<p class="text-xs text-red-600 dark:text-red-400">{policyError}</p>
+								{/if}
+								<div class="flex gap-2 mb-1">
+									<button onclick={() => { policyDraft = formatJSON(policyDraft); policyError = ''; }} class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">Format JSON</button>
+								</div>
+								<textarea bind:value={policyDraft} rows={12} class="w-full px-3 py-2 text-sm font-mono rounded-lg border {policyError ? 'border-red-400' : 'border-gray-200 dark:border-gray-600'} bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-y"></textarea>
 								<div class="flex gap-2">
 									<button onclick={savePolicy} disabled={savingPolicy} class="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50">
-										{savingPolicy ? 'Saving…' : 'Save'}
+										{savingPolicy ? 'Saving…' : 'Save Policy'}
 									</button>
-									<button onclick={() => { editingPolicy = false; }} class="px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+									<button onclick={() => { editingPolicy = false; policyError = ''; }} class="px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
 										Cancel
 									</button>
 								</div>
 							{:else if accessPolicy}
-								<pre class="text-xs bg-gray-50 dark:bg-slate-900 rounded p-3 overflow-auto max-h-64 text-gray-800 dark:text-gray-200">{JSON.stringify(JSON.parse(accessPolicy || '{}'), null, 2)}</pre>
+								<pre class="text-xs bg-gray-50 dark:bg-slate-900 rounded p-3 overflow-auto max-h-64 text-gray-800 dark:text-gray-200">{formatJSON(accessPolicy)}</pre>
 								<div class="flex gap-2">
-									<button onclick={() => { policyDraft = accessPolicy; editingPolicy = true; }} class="px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+									<button onclick={() => { policyDraft = formatJSON(accessPolicy); policyError = ''; editingPolicy = true; }} class="px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
 										Edit
 									</button>
 									<button onclick={deletePolicy} class="px-3 py-1.5 text-sm rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800">
@@ -829,10 +1187,11 @@
 									</button>
 								</div>
 							{:else}
-								<p class="text-sm text-gray-500 dark:text-gray-400">No access policy configured</p>
-								<button onclick={() => { policyDraft = '{\n  "Version": "2012-10-17",\n  "Statement": []\n}'; editingPolicy = true; }} class="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white">
-									Set Policy
-								</button>
+								<div class="py-6 text-center">
+									<Shield class="w-8 h-8 text-gray-300 mx-auto mb-2" />
+									<p class="text-sm text-gray-500 dark:text-gray-400">No access policy configured</p>
+									<button onclick={() => { policyDraft = formatJSON('{"Version":"2012-10-17","Statement":[]}'); policyError = ''; editingPolicy = true; }} class="text-xs text-blue-600 hover:underline mt-1">Add a policy</button>
+								</div>
 							{/if}
 						</div>
 
@@ -840,16 +1199,25 @@
 					{:else if activeTab === 'notifications'}
 						<div class="space-y-3">
 							{#if loadingNotifications}
-								<div class="text-sm text-gray-500 py-4 text-center">Loading notifications…</div>
+								<div class="flex items-center gap-2 text-sm text-gray-500 py-4 justify-center">
+									<RefreshCw class="w-4 h-4 animate-spin" /> Loading notifications…
+								</div>
 							{:else if editingNotifications}
-								<div class="space-y-2">
+								<div class="space-y-3">
 									<div>
 										<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">SNS Topic ARN</p>
-										<input bind:value={snsTopicDraft} placeholder="arn:aws:sns:us-east-1:…" class="w-full px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+										<input bind:value={snsTopicDraft} placeholder="arn:aws:sns:us-east-1:123456789012:my-topic" class="w-full px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 									</div>
 									<div>
-										<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Events (comma-separated)</p>
-										<input bind:value={snsEventsDraft} placeholder="ArchiveRetrievalCompleted, InventoryRetrievalCompleted" class="w-full px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+										<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Events</p>
+										<div class="space-y-1.5">
+											{#each KNOWN_SNS_EVENTS as ev}
+												<label class="flex items-center gap-2 cursor-pointer">
+													<input type="checkbox" checked={snsEventsDraft.includes(ev)} onchange={() => toggleSnsEvent(ev)} class="rounded border-gray-300" />
+													<span class="text-sm text-gray-700 dark:text-gray-300">{ev}</span>
+												</label>
+											{/each}
+										</div>
 									</div>
 								</div>
 								<div class="flex gap-2">
@@ -864,7 +1232,7 @@
 								<div class="space-y-2">
 									<div class="p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50 border border-gray-200 dark:border-gray-600">
 										<p class="text-xs text-gray-500 dark:text-gray-400">SNS Topic</p>
-										<p class="text-sm font-mono text-gray-900 dark:text-white mt-0.5">{snsTopic}</p>
+										<p class="text-sm font-mono text-gray-900 dark:text-white mt-0.5 break-all">{snsTopic}</p>
 									</div>
 									{#if snsEvents.length > 0}
 										<div class="flex flex-wrap gap-1">
@@ -875,7 +1243,7 @@
 									{/if}
 								</div>
 								<div class="flex gap-2">
-									<button onclick={() => { snsTopicDraft = snsTopic; snsEventsDraft = snsEvents.join(', '); editingNotifications = true; }} class="px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+									<button onclick={() => { snsTopicDraft = snsTopic; snsEventsDraft = [...snsEvents]; editingNotifications = true; }} class="px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
 										Edit
 									</button>
 									<button onclick={deleteNotifications} class="px-3 py-1.5 text-sm rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800">
@@ -883,10 +1251,11 @@
 									</button>
 								</div>
 							{:else}
-								<p class="text-sm text-gray-500 dark:text-gray-400">No notification configuration</p>
-								<button onclick={() => { snsTopicDraft = ''; snsEventsDraft = ''; editingNotifications = true; }} class="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white">
-									Configure
-								</button>
+								<div class="py-6 text-center">
+									<Bell class="w-8 h-8 text-gray-300 mx-auto mb-2" />
+									<p class="text-sm text-gray-500 dark:text-gray-400">No notification configuration</p>
+									<button onclick={() => { snsTopicDraft = ''; snsEventsDraft = []; editingNotifications = true; }} class="text-xs text-blue-600 hover:underline mt-1">Configure notifications</button>
+								</div>
 							{/if}
 						</div>
 
@@ -894,23 +1263,34 @@
 					{:else if activeTab === 'lock'}
 						<div class="space-y-4">
 							{#if loadingLock}
-								<div class="text-sm text-gray-500 py-4 text-center">Loading lock status…</div>
+								<div class="flex items-center gap-2 text-sm text-gray-500 py-4 justify-center">
+									<RefreshCw class="w-4 h-4 animate-spin" /> Loading lock status…
+								</div>
 							{:else if vaultLock}
 								<div class="p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-slate-700/50 space-y-2">
 									<div class="flex items-center gap-2">
+										<Lock class="w-4 h-4 {vaultLock.State === 'Locked' ? 'text-red-500' : 'text-yellow-500'}" />
 										<span class="text-xs px-2 py-0.5 rounded-full font-medium
 											{vaultLock.State === 'Locked' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}">
 											{vaultLock.State}
 										</span>
 									</div>
-									{#if vaultLock.CreationDate}<p class="text-xs text-gray-500 dark:text-gray-400">Created: {vaultLock.CreationDate}</p>{/if}
-									{#if vaultLock.ExpirationDate}<p class="text-xs text-gray-500 dark:text-gray-400">Expires: {vaultLock.ExpirationDate}</p>{/if}
+									{#if vaultLock.CreationDate}<p class="text-xs text-gray-500 dark:text-gray-400">Created: {fmtDate(vaultLock.CreationDate)}</p>{/if}
+									{#if vaultLock.ExpirationDate}<p class="text-xs text-gray-500 dark:text-gray-400">Expires: {fmtDate(vaultLock.ExpirationDate)}</p>{/if}
 									{#if vaultLock.Policy}
 										<pre class="text-xs bg-white dark:bg-slate-900 rounded p-2 overflow-auto max-h-40 text-gray-800 dark:text-gray-200">{vaultLock.Policy}</pre>
 									{/if}
 								</div>
 								{#if vaultLock.State === 'InProgress'}
 									<div class="space-y-2">
+										{#if lastLockId}
+											<div class="p-2 rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 flex items-center gap-2">
+												<p class="text-xs text-yellow-800 dark:text-yellow-300 flex-1">Lock ID: <code class="font-mono">{lastLockId}</code></p>
+												<button onclick={() => copyToClipboard(lastLockId, 'lock-id')} class="text-yellow-600 shrink-0">
+													{#if copiedId === 'lock-id'}<Check class="w-4 h-4 text-green-500" />{:else}<Copy class="w-4 h-4" />{/if}
+												</button>
+											</div>
+										{/if}
 										<div>
 											<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Lock ID (to complete)</p>
 											<input bind:value={lockIdInput} placeholder="Lock ID from initiate response" class="w-full px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
@@ -926,7 +1306,10 @@
 									</div>
 								{/if}
 							{:else}
-								<p class="text-sm text-gray-500 dark:text-gray-400">No vault lock policy</p>
+								<div class="py-4 text-center">
+									<Lock class="w-8 h-8 text-gray-300 mx-auto mb-2" />
+									<p class="text-sm text-gray-500 dark:text-gray-400">No vault lock policy</p>
+								</div>
 								<div class="space-y-2">
 									<div>
 										<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Lock Policy (optional JSON)</p>
@@ -949,17 +1332,27 @@
 								</button>
 							</div>
 							{#if loadingMultipart}
-								<div class="text-sm text-gray-500 py-4 text-center">Loading…</div>
+								<div class="flex items-center gap-2 text-sm text-gray-500 py-4 justify-center">
+									<RefreshCw class="w-4 h-4 animate-spin" /> Loading…
+								</div>
 							{:else if multipartUploads.length === 0}
-								<div class="text-sm text-gray-500 dark:text-gray-400 py-4 text-center">No in-progress multipart uploads</div>
+								<div class="py-6 text-center">
+									<FileText class="w-8 h-8 text-gray-300 mx-auto mb-2" />
+									<p class="text-sm text-gray-500 dark:text-gray-400">No in-progress multipart uploads</p>
+								</div>
 							{:else}
 								<div class="space-y-2">
 									{#each multipartUploads as up}
 										<div class="p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-slate-700/50 flex items-start justify-between gap-2">
-											<div class="flex-1 min-w-0">
-												<p class="text-xs font-mono text-gray-600 dark:text-gray-400 truncate">{up.MultipartUploadId}</p>
-												{#if up.ArchiveDescription}<p class="text-sm text-gray-900 dark:text-white mt-0.5">{up.ArchiveDescription}</p>{/if}
-												<p class="text-xs text-gray-500 mt-0.5">Part size: {fmtBytes(up.PartSizeInBytes ?? 0)} · Created: {up.CreationDate}</p>
+											<div class="flex-1 min-w-0 space-y-0.5">
+												<div class="flex items-center gap-1">
+													<p class="text-xs font-mono text-gray-600 dark:text-gray-400 truncate">{up.MultipartUploadId}</p>
+													<button onclick={() => copyToClipboard(up.MultipartUploadId!, `mpu-${up.MultipartUploadId}`)} class="text-gray-400 hover:text-gray-600 shrink-0">
+														{#if copiedId === `mpu-${up.MultipartUploadId}`}<Check class="w-3 h-3 text-green-500" />{:else}<Copy class="w-3 h-3" />{/if}
+													</button>
+												</div>
+												{#if up.ArchiveDescription}<p class="text-sm text-gray-900 dark:text-white">{up.ArchiveDescription}</p>{/if}
+												<p class="text-xs text-gray-500">Part size: {fmtBytes(up.PartSizeInBytes ?? 0)} · Created: {fmtDate(up.CreationDate)}</p>
 											</div>
 											<button onclick={() => abortMultipartUpload(up.MultipartUploadId)} class="text-red-500 hover:text-red-700 shrink-0">
 												<Trash2 class="w-4 h-4" />
@@ -974,13 +1367,58 @@
 			</div>
 		{:else}
 			<!-- No vault selected placeholder -->
-			<div class="flex-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-center py-16">
+			<div class="flex-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-center py-20">
 				<div class="text-center text-gray-400">
-					<Archive class="w-10 h-10 mx-auto mb-3 opacity-40" />
-					<p class="text-sm">Select a vault to view details</p>
+					<Archive class="w-12 h-12 mx-auto mb-3 opacity-30" />
+					<p class="text-sm font-medium">Select a vault to view details</p>
+					<p class="text-xs mt-1 opacity-70">or create a new vault to get started</p>
 				</div>
 			</div>
 		{/if}
+	</div>
+
+	<!-- Data Retrieval Policy (account-level) -->
+	<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+		<div class="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+			<div class="flex items-center gap-2">
+				<Settings class="w-4 h-4 text-gray-500" />
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Data Retrieval Policy</h2>
+			</div>
+			<div class="flex gap-2">
+				{#if !editingDataPolicy}
+					<button onclick={() => { dataPolicyDraft = formatJSON(JSON.stringify(dataRetrievalPolicy ?? { Rules: [{ Strategy: 'FreeTier' }] })); editingDataPolicy = true; }} class="px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+						Edit
+					</button>
+				{/if}
+				<button onclick={loadDataRetrievalPolicy} class="p-1.5 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700">
+					<RefreshCw class="w-4 h-4 {loadingDataPolicy ? 'animate-spin' : ''}" />
+				</button>
+			</div>
+		</div>
+		<div class="p-4">
+			{#if loadingDataPolicy}
+				<div class="flex items-center gap-2 text-sm text-gray-500 py-2">
+					<RefreshCw class="w-4 h-4 animate-spin" /> Loading policy…
+				</div>
+			{:else if editingDataPolicy}
+				<div class="space-y-3">
+					<p class="text-xs text-gray-500 dark:text-gray-400">Set the account-level data retrieval policy. Use strategy <code class="bg-gray-100 dark:bg-slate-700 px-1 rounded">FreeTier</code>, <code class="bg-gray-100 dark:bg-slate-700 px-1 rounded">MaxRetrievalRate</code>, or <code class="bg-gray-100 dark:bg-slate-700 px-1 rounded">None</code>.</p>
+					<textarea bind:value={dataPolicyDraft} rows={8} class="w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white resize-y"></textarea>
+					<div class="flex gap-2">
+						<button onclick={saveDataRetrievalPolicy} disabled={savingDataPolicy} class="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50">
+							{savingDataPolicy ? 'Saving…' : 'Save Policy'}
+						</button>
+						<button onclick={() => { editingDataPolicy = false; }} class="px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+							Cancel
+						</button>
+					</div>
+				</div>
+			{:else if dataRetrievalPolicy}
+				<pre class="text-xs bg-gray-50 dark:bg-slate-900 rounded p-3 overflow-auto text-gray-800 dark:text-gray-200">{formatJSON(JSON.stringify(dataRetrievalPolicy))}</pre>
+			{:else}
+				<p class="text-sm text-gray-500 dark:text-gray-400">No data retrieval policy set (FreeTier applies).</p>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Storage Classes -->
@@ -1018,13 +1456,14 @@
 
 <!-- Create Vault Modal -->
 {#if showCreateModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
 			<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Create Vault</h3>
 			<div class="space-y-3">
 				<div>
 					<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Vault Name</p>
 					<input bind:value={newVaultName} placeholder="my-archive-vault" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+					<p class="text-xs text-gray-400 mt-1">Letters, numbers, hyphens, underscores (1-255 chars)</p>
 				</div>
 			</div>
 			<div class="flex gap-2 mt-4">
@@ -1041,18 +1480,22 @@
 
 <!-- Upload Archive Modal -->
 {#if showUploadModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
 			<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Upload Archive</h3>
 			<div class="space-y-3">
 				<div>
 					<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">File</p>
 					<input type="file" onchange={(e) => { uploadFile = (e.currentTarget as HTMLInputElement).files?.[0] ?? null; }} class="w-full text-sm text-gray-700 dark:text-gray-300" />
+					{#if uploadFile}
+						<p class="text-xs text-gray-500 mt-1">{uploadFile.name} · {fmtBytes(uploadFile.size)}</p>
+					{/if}
 				</div>
 				<div>
 					<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description (optional)</p>
-					<input bind:value={uploadDescription} placeholder="Archive description" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+					<input bind:value={uploadDescription} placeholder="Archive description" maxlength={1024} class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 				</div>
+				<p class="text-xs text-gray-400">The archive ID will be shown after upload. Save it — it cannot be retrieved later without an inventory job.</p>
 			</div>
 			<div class="flex gap-2 mt-4">
 				<button onclick={uploadArchive} disabled={uploading || !uploadFile} class="flex-1 px-3 py-2 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-50">
@@ -1066,31 +1509,63 @@
 	</div>
 {/if}
 
+<!-- Delete Archive Modal -->
+{#if showDeleteArchiveModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
+			<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Delete Archive</h3>
+			<div class="space-y-3">
+				<div>
+					<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Archive ID</p>
+					<input bind:value={deleteArchiveId} placeholder="Archive ID" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-mono" />
+				</div>
+				<p class="text-xs text-red-600 dark:text-red-400">This action cannot be undone.</p>
+			</div>
+			<div class="flex gap-2 mt-4">
+				<button onclick={deleteArchive} disabled={deletingArchive || !deleteArchiveId.trim()} class="flex-1 px-3 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium disabled:opacity-50">
+					{deletingArchive ? 'Deleting…' : 'Delete Archive'}
+				</button>
+				<button onclick={() => { showDeleteArchiveModal = false; }} class="px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+					Cancel
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <!-- Initiate Job Modal -->
 {#if showInitiateJobModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
 			<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Initiate Job</h3>
 			<div class="space-y-3">
 				<div>
 					<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Job Type</p>
 					<select bind:value={jobType} class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white">
-						<option value="inventory-retrieval">Inventory Retrieval</option>
-						<option value="archive-retrieval">Archive Retrieval</option>
+						<option value="inventory-retrieval">Inventory Retrieval — list all archives</option>
+						<option value="archive-retrieval">Archive Retrieval — retrieve specific archive</option>
 					</select>
 				</div>
 				{#if jobType === 'archive-retrieval'}
 					<div>
 						<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Archive ID</p>
-						<input bind:value={jobArchiveId} placeholder="Archive ID" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+						<input bind:value={jobArchiveId} placeholder="Archive ID (required)" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white font-mono" />
+					</div>
+				{:else}
+					<div>
+						<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Output Format</p>
+						<select bind:value={inventoryFormat} class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white">
+							<option value="JSON">JSON</option>
+							<option value="CSV">CSV</option>
+						</select>
 					</div>
 				{/if}
 				<div>
 					<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Retrieval Tier</p>
 					<select bind:value={jobTier} class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white">
 						<option value="Standard">Standard (3-5 hours)</option>
-						<option value="Bulk">Bulk (5-12 hours)</option>
-						<option value="Expedited">Expedited (&lt;5 min)</option>
+						<option value="Bulk">Bulk (5-12 hours, lowest cost)</option>
+						<option value="Expedited">Expedited (&lt;5 minutes, highest cost)</option>
 					</select>
 				</div>
 				<div>
