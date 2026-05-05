@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	"github.com/blackbirdworks/gopherstack/services/pipes"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
@@ -1200,7 +1201,13 @@ func (rc *ResourceCreator) createPipesPipe(
 	target := strProp(props, "Target", params, physicalIDs)
 	description := strProp(props, "Description", params, physicalIDs)
 
-	pipe, err := rc.backends.Pipes.Backend.CreatePipe(name, roleARN, source, target, description, "", nil)
+	pipe, err := rc.backends.Pipes.Backend.CreatePipe(pipes.CreatePipeInput{
+		Name:        name,
+		RoleARN:     roleARN,
+		Source:      source,
+		Target:      target,
+		Description: description,
+	})
 	if err != nil {
 		return "", fmt.Errorf("create Pipes pipe %s: %w", name, err)
 	}

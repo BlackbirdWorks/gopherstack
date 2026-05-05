@@ -16,17 +16,19 @@ import (
 // --- mock implementations ---
 
 type mockSQSReader struct {
-	receiveErr   error
-	deleteErr    error
-	messages     []*pipes.SQSMessage
-	deletedIDs   []string
-	receiveCalls int
-	mu           sync.Mutex
+	receiveErr      error
+	deleteErr       error
+	messages        []*pipes.SQSMessage
+	deletedIDs      []string
+	receiveCalls    int
+	lastMaxMessages int
+	mu              sync.Mutex
 }
 
-func (m *mockSQSReader) ReceivePipeMessages(_ string, _ int) ([]*pipes.SQSMessage, error) {
+func (m *mockSQSReader) ReceivePipeMessages(_ string, maxMessages int) ([]*pipes.SQSMessage, error) {
 	m.mu.Lock()
 	m.receiveCalls++
+	m.lastMaxMessages = maxMessages
 	msgs := m.messages
 	m.messages = nil // clear after read
 	m.mu.Unlock()
@@ -44,6 +46,18 @@ func (m *mockSQSReader) DeletePipeMessages(_ string, receiptHandles []string) er
 	m.mu.Unlock()
 
 	return m.deleteErr
+}
+
+func (m *mockSQSReader) getDeleted() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.deletedIDs...)
+}
+
+func (m *mockSQSReader) getLastMaxMessages() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastMaxMessages
 }
 
 type mockPipeLambdaInvoker struct {
@@ -73,7 +87,7 @@ func newTestPipeBackend(t *testing.T) *pipes.InMemoryBackend {
 func createTestPipe(t *testing.T, backend *pipes.InMemoryBackend, name, source, target, state string) {
 	t.Helper()
 
-	_, err := backend.CreatePipe(name, "arn:aws:iam::000000000000:role/r", source, target, "", state, nil)
+	_, err := backend.CreatePipeSimple(name, "arn:aws:iam::000000000000:role/r", source, target, "", state, nil)
 	require.NoError(t, err)
 }
 
@@ -245,4 +259,118 @@ func TestPipesHandler_StartWorkerAndShutdown(t *testing.T) {
 	require.NoError(t, h.StartWorker(ctx))
 	<-ctx.Done()
 	h.Shutdown(t.Context())
+}
+
+// TestPipesRunner_FilterCriteria tests that message filtering is applied before target invocation.
+func TestPipesRunner_FilterCriteria(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestPipeBackend(t)
+	sqsARN := "arn:aws:sqs:us-east-1:000000000000:filter-queue"
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+
+	_, err := backend.CreatePipe(pipes.CreatePipeInput{
+		Name:         "filter-pipe",
+		RoleARN:      "arn:aws:iam::000000000000:role/r",
+		Source:       sqsARN,
+		Target:       lambdaARN,
+		DesiredState: "RUNNING",
+		SourceParameters: &pipes.SourceParameters{
+			FilterCriteria: &pipes.FilterCriteria{
+				Filters: []pipes.Filter{{Pattern: "order"}},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	sqsReader := &mockSQSReader{
+		messages: []*pipes.SQSMessage{
+			{MessageID: "m1", ReceiptHandle: "rh1", Body: `{"type":"order","id":1}`},
+			{MessageID: "m2", ReceiptHandle: "rh2", Body: `{"type":"inventory","id":2}`},
+		},
+	}
+	lambdaInvoker := &mockPipeLambdaInvoker{}
+
+	runner := pipes.NewRunner(backend)
+	runner.SetSQSReader(sqsReader)
+	runner.SetLambdaInvoker(lambdaInvoker)
+
+	pipes.PollAllPipesOnce(t.Context(), runner)
+
+	lambdaInvoker.mu.Lock()
+	calls := lambdaInvoker.calls
+	payloads := lambdaInvoker.payloads
+	lambdaInvoker.mu.Unlock()
+
+	require.Len(t, calls, 1)
+
+	var event map[string]interface{}
+	require.NoError(t, json.Unmarshal(payloads[0], &event))
+	require.Len(t, event, 1)
+	// payload is forwarded - just check Lambda was called once
+
+	deleted := sqsReader.getDeleted()
+	assert.Equal(t, []string{"rh1"}, deleted)
+}
+
+// TestPipesRunner_ConfigurableBatchSize tests that SourceParameters.BatchSize is used.
+func TestPipesRunner_ConfigurableBatchSize(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestPipeBackend(t)
+	_, err := backend.CreatePipe(pipes.CreatePipeInput{
+		Name:         "batch-pipe",
+		RoleARN:      "arn:aws:iam::000000000000:role/r",
+		Source:       "arn:aws:sqs:us-east-1:000000000000:batch-queue",
+		Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
+		DesiredState: "RUNNING",
+		SourceParameters: &pipes.SourceParameters{
+			SqsQueueParameters: &pipes.SQSSourceParameters{BatchSize: 3},
+		},
+	})
+	require.NoError(t, err)
+
+	sqsReader := &mockSQSReader{}
+	runner := pipes.NewRunner(backend)
+	runner.SetSQSReader(sqsReader)
+
+	pipes.PollAllPipesOnce(t.Context(), runner)
+
+	assert.Equal(t, 3, sqsReader.getLastMaxMessages(), "runner should request batch size from source parameters")
+}
+
+// TestPipesRunner_InputTemplate tests that TargetParameters.InputTemplate overrides default payload.
+func TestPipesRunner_InputTemplate(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestPipeBackend(t)
+	_, err := backend.CreatePipe(pipes.CreatePipeInput{
+		Name:         "template-pipe",
+		RoleARN:      "arn:aws:iam::000000000000:role/r",
+		Source:       "arn:aws:sqs:us-east-1:000000000000:tmpl-queue",
+		Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
+		DesiredState: "RUNNING",
+		TargetParameters: &pipes.TargetParameters{
+			InputTemplate: `{"fixed":"value"}`,
+		},
+	})
+	require.NoError(t, err)
+
+	sqsReader := &mockSQSReader{
+		messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "hello"}},
+	}
+	lambdaInvoker := &mockPipeLambdaInvoker{}
+
+	runner := pipes.NewRunner(backend)
+	runner.SetSQSReader(sqsReader)
+	runner.SetLambdaInvoker(lambdaInvoker)
+
+	pipes.PollAllPipesOnce(t.Context(), runner)
+
+	lambdaInvoker.mu.Lock()
+	payloads := lambdaInvoker.payloads
+	lambdaInvoker.mu.Unlock()
+
+	require.Len(t, payloads, 1)
+	assert.Equal(t, `{"fixed":"value"}`, string(payloads[0]))
 }

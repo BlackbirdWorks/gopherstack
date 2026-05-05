@@ -62,6 +62,7 @@ import { WAFV2Client } from "@aws-sdk/client-wafv2";
 import { SFNClient } from "@aws-sdk/client-sfn";
 import { WorkSpacesClient } from "@aws-sdk/client-workspaces";
 import { ApplicationAutoScalingClient } from "@aws-sdk/client-application-auto-scaling";
+import { PipesClient } from "@aws-sdk/client-pipes";
 
 const defaultRegion = "us-east-1";
 
@@ -646,4 +647,8 @@ export function getApplicationAutoScalingClient(region?: string): ApplicationAut
 
 export function getManagedBlockchainClient(region?: string): ManagedBlockchainClient {
   return new ManagedBlockchainClient(clientConfig(region));
+}
+
+export function getPipesClient(region?: string): PipesClient {
+  return new PipesClient(clientConfig(region));
 }

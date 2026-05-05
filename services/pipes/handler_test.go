@@ -291,7 +291,7 @@ func TestBackend_TagResource(t *testing.T) {
 
 	b := pipes.NewInMemoryBackend("000000000000", "us-east-1")
 
-	p, err := b.CreatePipe("tag-pipe", "arn:aws:iam::000000000000:role/r",
+	p, err := b.CreatePipeSimple("tag-pipe", "arn:aws:iam::000000000000:role/r",
 		"arn:aws:sqs:us-east-1:000000000000:src",
 		"arn:aws:lambda:us-east-1:000000000000:function:fn",
 		"", "RUNNING", nil)
@@ -310,13 +310,13 @@ func TestBackend_DuplicatePipe(t *testing.T) {
 
 	b := pipes.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreatePipe("dupe", "arn:aws:iam::000000000000:role/r",
+	_, err := b.CreatePipeSimple("dupe", "arn:aws:iam::000000000000:role/r",
 		"arn:aws:sqs:us-east-1:000000000000:src",
 		"arn:aws:lambda:us-east-1:000000000000:function:fn",
 		"", "RUNNING", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreatePipe("dupe", "arn:aws:iam::000000000000:role/r",
+	_, err = b.CreatePipeSimple("dupe", "arn:aws:iam::000000000000:role/r",
 		"arn:aws:sqs:us-east-1:000000000000:src",
 		"arn:aws:lambda:us-east-1:000000000000:function:fn",
 		"", "RUNNING", nil)
@@ -528,4 +528,193 @@ func TestPipes_Handler_Reset(t *testing.T) {
 			assert.Len(t, out.Pipes, tt.wantAfter)
 		})
 	}
+}
+
+func TestBackend_Validation(t *testing.T) {
+	t.Parallel()
+
+	b := pipes.NewInMemoryBackend("000000000000", "us-east-1")
+
+	t.Run("empty_name", func(t *testing.T) {
+		t.Parallel()
+		_, err := b.CreatePipeSimple("", "arn:r", "arn:s", "arn:t", "", "RUNNING", nil)
+		require.Error(t, err)
+		require.ErrorIs(t, err, pipes.ErrValidation)
+	})
+
+	t.Run("name_too_long", func(t *testing.T) {
+		t.Parallel()
+		long := ""
+		for range 65 { long += "a" }
+		_, err := b.CreatePipeSimple(long, "arn:r", "arn:s", "arn:t", "", "RUNNING", nil)
+		require.Error(t, err)
+		require.ErrorIs(t, err, pipes.ErrValidation)
+	})
+
+	t.Run("invalid_desired_state", func(t *testing.T) {
+		t.Parallel()
+		_, err := b.CreatePipeSimple("valid-name", "arn:r", "arn:s", "arn:t", "", "INVALID", nil)
+		require.Error(t, err)
+		require.ErrorIs(t, err, pipes.ErrValidation)
+	})
+
+	t.Run("missing_source", func(t *testing.T) {
+		t.Parallel()
+		_, err := b.CreatePipeSimple("valid-name", "arn:r", "", "arn:t", "", "RUNNING", nil)
+		require.Error(t, err)
+		require.ErrorIs(t, err, pipes.ErrValidation)
+	})
+}
+
+func TestHandler_ValidationHTTP(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid_desired_state_returns_400", func(t *testing.T) {
+		t.Parallel()
+		h2 := newTestHandler(t)
+		rec := doPipesRequest(t, h2, http.MethodPost, "/v1/pipes/valid-pipe", map[string]any{
+			"Source":       "arn:aws:sqs:us-east-1:000000000000:src",
+			"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
+			"DesiredState": "INVALID_STATE",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "ValidationException")
+	})
+
+	t.Run("start_running_pipe_returns_400", func(t *testing.T) {
+		t.Parallel()
+		h2 := newTestHandler(t)
+		doPipesRequest(t, h2, http.MethodPost, "/v1/pipes/running-pipe", map[string]any{
+			"Source":       "arn:aws:sqs:us-east-1:000000000000:src",
+			"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
+			"DesiredState": "RUNNING",
+		})
+		rec := doPipesRequest(t, h2, http.MethodPost, "/v1/pipes/running-pipe/start", nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "ValidationException")
+	})
+}
+
+func TestHandler_ListPipesFiltering(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"sqs-alpha", "sqs-beta", "kinesis-gamma"} {
+		state := "RUNNING"
+		if name == "sqs-beta" { state = "STOPPED" }
+		rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/"+name, map[string]any{
+			"Source":       "arn:aws:sqs:us-east-1:000000000000:" + name,
+			"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
+			"DesiredState": state,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	t.Run("filter_by_name_prefix", func(t *testing.T) {
+		t.Parallel()
+		rec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes?NamePrefix=sqs", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		var out struct{ Pipes []struct{ Name string } }
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		assert.Len(t, out.Pipes, 2)
+	})
+
+	t.Run("filter_by_desired_state", func(t *testing.T) {
+		t.Parallel()
+		rec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes?DesiredState=STOPPED", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		var out struct{ Pipes []struct{ Name string } }
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		assert.Len(t, out.Pipes, 1)
+		assert.Equal(t, "sqs-beta", out.Pipes[0].Name)
+	})
+
+	t.Run("invalid_limit_returns_400", func(t *testing.T) {
+		t.Parallel()
+		h2 := newTestHandler(t)
+		rec := doPipesRequest(t, h2, http.MethodGet, "/v1/pipes?Limit=notanumber", nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
+func TestHandler_SourceAndTargetParameters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/param-pipe", map[string]any{
+		"Source":  "arn:aws:sqs:us-east-1:000000000000:src",
+		"Target":  "arn:aws:lambda:us-east-1:000000000000:function:fn",
+		"RoleArn": "arn:aws:iam::000000000000:role/r",
+		"SourceParameters": map[string]any{
+			"SqsQueueParameters": map[string]any{"BatchSize": 5},
+		},
+		"TargetParameters": map[string]any{
+			"InputTemplate": `{"fixed":"value"}`,
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created struct {
+		SourceParameters struct {
+			SqsQueueParameters struct{ BatchSize int } `json:"SqsQueueParameters"`
+		} `json:"SourceParameters"`
+		TargetParameters struct {
+			InputTemplate string `json:"InputTemplate"`
+		} `json:"TargetParameters"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	assert.Equal(t, 5, created.SourceParameters.SqsQueueParameters.BatchSize)
+	assert.Equal(t, `{"fixed":"value"}`, created.TargetParameters.InputTemplate)
+}
+
+func TestHandler_ListPipesIncludesSourceTarget(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doPipesRequest(t, h, http.MethodPost, "/v1/pipes/info-pipe", map[string]any{
+		"Source":      "arn:aws:sqs:us-east-1:000000000000:my-queue",
+		"Target":      "arn:aws:lambda:us-east-1:000000000000:function:my-fn",
+		"Description": "test pipe",
+	})
+
+	rec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Pipes []struct {
+			Name        string `json:"Name"`
+			Source      string `json:"Source"`
+			Target      string `json:"Target"`
+			Description string `json:"Description"`
+		}
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.Pipes, 1)
+	assert.Equal(t, "arn:aws:sqs:us-east-1:000000000000:my-queue", out.Pipes[0].Source)
+	assert.Equal(t, "arn:aws:lambda:us-east-1:000000000000:function:my-fn", out.Pipes[0].Target)
+	assert.Equal(t, "test pipe", out.Pipes[0].Description)
+}
+
+func TestHandler_UpdatePipeDesiredState(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doPipesRequest(t, h, http.MethodPost, "/v1/pipes/update-state-pipe", map[string]any{
+		"Source":       "arn:aws:sqs:us-east-1:000000000000:src",
+		"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
+		"DesiredState": "RUNNING",
+	})
+
+	rec := doPipesRequest(t, h, http.MethodPut, "/v1/pipes/update-state-pipe", map[string]any{
+		"DesiredState": "STOPPED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct{ DesiredState string }
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "STOPPED", out.DesiredState)
 }
