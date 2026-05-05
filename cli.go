@@ -3912,8 +3912,14 @@ func startServer(ctx context.Context, port string, e *echo.Echo) error {
 		Handler:           h2c.NewHandler(e, h2s),
 		ReadTimeout:       defaultTimeout,
 		ReadHeaderTimeout: defaultReadHeaderTimeout, // Security best practice
-		WriteTimeout:      defaultTimeout,
-		IdleTimeout:       defaultTimeout,
+		// WriteTimeout intentionally 0: long-lived ConnectRPC streams
+		// (StreamConsole, StreamMetrics) must outlive the per-request budget.
+		// The default 30s WriteTimeout cut the metrics stream mid-frame after
+		// ~30s, surfacing as ERR_INCOMPLETE_CHUNK in the browser. Slow-write
+		// attacks are mitigated by ReadHeaderTimeout above; for an in-memory
+		// dev simulator this is an acceptable trade-off.
+		WriteTimeout: 0,
+		IdleTimeout:  defaultTimeout,
 	}
 
 	errChan := make(chan error, 1)

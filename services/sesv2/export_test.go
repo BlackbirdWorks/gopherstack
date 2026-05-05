@@ -60,3 +60,17 @@ func ExportJobCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// EmailCount returns the number of retained sent emails.
+func EmailCount(b *InMemoryBackend) int {
+	b.mu.RLock("EmailCount")
+	defer b.mu.RUnlock()
+
+	return len(b.emails)
+}
+
+// MaxRetainedEmails exposes the email retention cap for tests.
+const MaxRetainedEmails = maxRetainedEmails
+
+// EmailCompactionHighWater exposes the compaction trigger for tests.
+const EmailCompactionHighWater = emailCompactionHighWater

@@ -768,3 +768,36 @@ func TestTimestreamQueryHandler_DeleteAndExecute_NotFound(t *testing.T) {
 		})
 	}
 }
+
+func TestTimestreamQueryBackend_QueryCap(t *testing.T) {
+	t.Parallel()
+
+	b := timestreamquery.NewInMemoryBackend("123456789012", "us-east-1")
+
+	for range timestreamquery.MaxRetainedQueries + 100 {
+		_ = b.Query("SELECT 1")
+	}
+
+	assert.LessOrEqual(t, timestreamquery.QueryCount(b),
+		timestreamquery.MaxRetainedQueries,
+		"queries map must stay at or below the cap")
+}
+
+func TestTimestreamQueryBackend_CancelEvictedIsNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := timestreamquery.NewInMemoryBackend("123456789012", "us-east-1")
+
+	first := b.Query("SELECT 1")
+	for range timestreamquery.MaxRetainedQueries + 1 {
+		_ = b.Query("SELECT 1")
+	}
+
+	// `first` may or may not have been evicted (random map iter); if it
+	// was, CancelQuery must report ErrNotFound rather than silently succeed
+	// or panic.
+	err := b.CancelQuery(first.QueryID)
+	if err != nil {
+		require.ErrorIs(t, err, timestreamquery.ErrNotFound)
+	}
+}
