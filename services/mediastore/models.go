@@ -12,12 +12,12 @@ type Container struct {
 	Tags                 map[string]string
 	ARN                  string
 	ContainerPolicy      string
-	CorsPolicy           string
 	LifecyclePolicy      string
 	MetricPolicy         string
 	Endpoint             string
 	Name                 string
 	Status               string
+	CorsPolicy           []*CorsRule
 	AccessLoggingEnabled bool
 }
 

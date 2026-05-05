@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -76,18 +77,27 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	containers    map[string]*Container
-	containerARNs map[string]string // container ARN → container name
-	mu            *lockmetrics.RWMutex
+	containers map[string]*Container
+	mu         *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory MediaStore backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		containers:    make(map[string]*Container),
-		containerARNs: make(map[string]string),
-		mu:            lockmetrics.New("mediastore"),
+		containers: make(map[string]*Container),
+		mu:         lockmetrics.New("mediastore"),
 	}
+}
+
+// containerNameFromARN extracts the container name from a MediaStore ARN.
+// ARN format: arn:aws:mediastore:region:account:container/name.
+func containerNameFromARN(resourceARN string) string {
+	_, after, ok := strings.Cut(resourceARN, ":container/")
+	if !ok {
+		return ""
+	}
+
+	return after
 }
 
 // containerARN builds the ARN for a MediaStore container.
@@ -124,7 +134,6 @@ func (b *InMemoryBackend) CreateContainer(region, accountID, name string, tags m
 	}
 
 	b.containers[name] = c
-	b.containerARNs[c.ARN] = name
 
 	return copyContainer(c), nil
 }
@@ -134,12 +143,10 @@ func (b *InMemoryBackend) DeleteContainer(name string) error {
 	b.mu.Lock("DeleteContainer")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[name]
-	if !exists {
+	if _, exists := b.containers[name]; !exists {
 		return ErrContainerNotFound
 	}
 
-	delete(b.containerARNs, c.ARN)
 	delete(b.containers, name)
 
 	return nil
@@ -233,12 +240,13 @@ func (b *InMemoryBackend) PutCorsPolicy(name string, rules []CorsRule) error {
 		return ErrContainerNotFound
 	}
 
-	data, err := json.Marshal(rules)
-	if err != nil {
-		return fmt.Errorf("marshal cors rules: %w", err)
+	ptrs := make([]*CorsRule, len(rules))
+	for i := range rules {
+		r := rules[i]
+		ptrs[i] = &r
 	}
 
-	c.CorsPolicy = string(data)
+	c.CorsPolicy = ptrs
 
 	return nil
 }
@@ -253,13 +261,13 @@ func (b *InMemoryBackend) GetCorsPolicy(name string) ([]CorsRule, error) {
 		return nil, ErrContainerNotFound
 	}
 
-	if c.CorsPolicy == "" {
+	if c.CorsPolicy == nil {
 		return nil, ErrCorsPolicyNotFound
 	}
 
-	var rules []CorsRule
-	if err := json.Unmarshal([]byte(c.CorsPolicy), &rules); err != nil {
-		return nil, fmt.Errorf("unmarshal cors rules: %w", err)
+	rules := make([]CorsRule, len(c.CorsPolicy))
+	for i, p := range c.CorsPolicy {
+		rules[i] = *p
 	}
 
 	return rules, nil
@@ -275,7 +283,7 @@ func (b *InMemoryBackend) DeleteCorsPolicy(name string) error {
 		return ErrContainerNotFound
 	}
 
-	c.CorsPolicy = ""
+	c.CorsPolicy = nil
 
 	return nil
 }
@@ -419,12 +427,12 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	name, ok := b.containerARNs[resourceARN]
+	name := containerNameFromARN(resourceARN)
+	c, ok := b.containers[name]
 	if !ok {
 		return ErrContainerNotFound
 	}
 
-	c := b.containers[name]
 	if c.Tags == nil {
 		c.Tags = make(map[string]string)
 	}
@@ -439,12 +447,12 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	name, ok := b.containerARNs[resourceARN]
+	name := containerNameFromARN(resourceARN)
+	c, ok := b.containers[name]
 	if !ok {
 		return ErrContainerNotFound
 	}
 
-	c := b.containers[name]
 	for _, k := range tagKeys {
 		delete(c.Tags, k)
 	}
@@ -457,19 +465,20 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	name, ok := b.containerARNs[resourceARN]
+	name := containerNameFromARN(resourceARN)
+	c, ok := b.containers[name]
 	if !ok {
 		return nil, ErrContainerNotFound
 	}
 
-	c := b.containers[name]
 	result := make(map[string]string, len(c.Tags))
 	maps.Copy(result, c.Tags)
 
 	return result, nil
 }
 
-// copyContainer returns a deep copy of the Container, copying Tags and CreationTime.
+// copyContainer returns a copy of the Container, copying Tags, CreationTime, and CorsPolicy.
+// CorsPolicy is a shallow pointer-slice copy: each *CorsRule is shared (rules are immutable after storage).
 func copyContainer(c *Container) *Container {
 	if c == nil {
 		return nil
@@ -485,6 +494,11 @@ func copyContainer(c *Container) *Container {
 	if c.Tags != nil {
 		cp.Tags = make(map[string]string, len(c.Tags))
 		maps.Copy(cp.Tags, c.Tags)
+	}
+
+	if c.CorsPolicy != nil {
+		cp.CorsPolicy = make([]*CorsRule, len(c.CorsPolicy))
+		copy(cp.CorsPolicy, c.CorsPolicy)
 	}
 
 	return &cp
