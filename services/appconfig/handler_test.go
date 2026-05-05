@@ -1162,7 +1162,7 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 			Items     []any  `json:"Items"`
 		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Len(t, resp.Items, 0)
+		assert.Empty(t, resp.Items)
 		assert.Empty(t, resp.NextToken)
 	})
 }
