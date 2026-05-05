@@ -313,7 +313,7 @@
 		if (resource.Catalog !== undefined) return 'Catalog';
 		if (resource.Database) return `DB: ${resource.Database.Name}`;
 		if (resource.Table) return `Table: ${resource.Table.DatabaseName}.${resource.Table.Name}`;
-		if (resource.DataLocation) return resource.DataLocation.ResourceArn;
+		if (resource.DataLocation) return resource.DataLocation.ResourceArn ?? '—';
 		return '—';
 	}
 
@@ -575,12 +575,13 @@
 				{ id: 'datafilters', label: 'Data Filters', icon: Filter },
 				{ id: 'expressions', label: 'Expressions', icon: BookOpen },
 			] as t}
+				{@const TabIcon = t.icon}
 				<li class="mr-2">
 					<button
 						onclick={() => switchTab(t.id as Tab)}
 						class="inline-flex items-center gap-2 p-4 border-b-2 rounded-t-lg transition-colors {activeTab === t.id ? 'text-teal-600 border-teal-600 dark:text-teal-400 dark:border-teal-400' : 'border-transparent text-slate-500 hover:text-slate-600 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300'}"
 					>
-						<svelte:component this={t.icon} class="w-4 h-4" />
+						<TabIcon class="w-4 h-4" />
 						{t.label}
 					</button>
 				</li>
@@ -1053,7 +1054,7 @@
 							<input type="text" id="grant-principal" bind:value={grantPrincipal} placeholder="arn:aws:iam::000000000000:user/alice" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
 						</div>
 						<div>
-							<label class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Resource Type</label>
+							<p class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Resource Type</p>
 							<div class="flex gap-2 flex-wrap">
 								{#each ['catalog', 'database', 'table', 'datalocation'] as rt}
 									<button
@@ -1112,15 +1113,22 @@
 				</div>
 				<div class="p-4">
 					<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); createDataFilter(); }}>
-						{#each [['filter-catalog', 'Catalog ID', filterCatalogId, (v: string) => filterCatalogId = v, '123456789012'],
-								 ['filter-db', 'Database Name', filterDbName, (v: string) => filterDbName = v, 'my_database'],
-								 ['filter-table', 'Table Name', filterTableName, (v: string) => filterTableName = v, 'my_table'],
-								 ['filter-name', 'Filter Name', filterName, (v: string) => filterName = v, 'my_row_filter']] as [id, label, val, setter, ph]}
-							<div>
-								<label for={id} class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">{label}</label>
-								<input type="text" id={id} value={val} oninput={(e) => setter((e.target as HTMLInputElement).value)} placeholder={ph} required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
-							</div>
-						{/each}
+						<div>
+							<label for="filter-catalog" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Catalog ID</label>
+							<input type="text" id="filter-catalog" bind:value={filterCatalogId} placeholder="123456789012" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
+						</div>
+						<div>
+							<label for="filter-db" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Database Name</label>
+							<input type="text" id="filter-db" bind:value={filterDbName} placeholder="my_database" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
+						</div>
+						<div>
+							<label for="filter-table" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Table Name</label>
+							<input type="text" id="filter-table" bind:value={filterTableName} placeholder="my_table" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
+						</div>
+						<div>
+							<label for="filter-name" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Filter Name</label>
+							<input type="text" id="filter-name" bind:value={filterName} placeholder="my_row_filter" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
+						</div>
 						<div class="flex gap-3 justify-end pt-2">
 							<button type="button" onclick={() => { showCreateFilterModal = false; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600">Cancel</button>
 							<button type="submit" disabled={creatingFilter} class="text-white bg-teal-600 hover:bg-teal-700 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">{creatingFilter ? 'Creating…' : 'Create'}</button>
