@@ -426,7 +426,12 @@ export const sidebarCategories: DashboardCategory[] = [
         common: true,
       },
       { id: "appconfig", href: "/dashboard/appconfig", label: "AppConfig", icon: "appconfig" },
-      { id: "appconfigdata", href: "/dashboard/appconfigdata", label: "AppConfig Data", icon: "appconfig" },
+      {
+        id: "appconfigdata",
+        href: "/dashboard/appconfigdata",
+        label: "AppConfig Data",
+        icon: "appconfig",
+      },
       { id: "swf", href: "/dashboard/swf", label: "SWF", icon: "swf" },
     ],
   },
