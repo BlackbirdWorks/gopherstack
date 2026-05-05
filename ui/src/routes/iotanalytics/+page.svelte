@@ -365,7 +365,7 @@
 		}
 	}
 
-	async function expandPipeline(name: string) {
+	function expandPipeline(name: string) {
 		if (expandedPipeline === name) { expandedPipeline = null; return; }
 		expandedPipeline = name;
 		const p = pipelines.find((pl) => pl.pipelineName === name);
