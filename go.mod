@@ -8,7 +8,6 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.14
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.14
-	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.20.37
 	github.com/aws/aws-sdk-go-v2/service/acm v1.37.21
 	github.com/aws/aws-sdk-go-v2/service/acmpca v1.46.10
 	github.com/aws/aws-sdk-go-v2/service/amplify v1.38.14
@@ -61,7 +60,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/support v1.31.19
 	github.com/aws/aws-sdk-go-v2/service/swf v1.33.14
 	github.com/aws/smithy-go v1.24.3
-	github.com/distribution/distribution/v3 v3.1.0
+	github.com/distribution/distribution/v3 v3.1.1
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
