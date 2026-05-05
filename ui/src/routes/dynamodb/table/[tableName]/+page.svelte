@@ -195,6 +195,21 @@
 	// ── Streams tab ────────────────────────────────────────────────────────────
 	let streamEventsHtml = $state('');
 	let streamPollInterval: ReturnType<typeof setInterval> | null = null;
+	let streamEventFilter = $state('ALL');
+
+	type ShardInfo = { shardId: string; startSeq: string; endSeq: string };
+	type EventTypeCounts = { insert: number; modify: number; remove: number };
+	type StreamInfo = {
+		available: boolean;
+		eventCount: number;
+		latestEventUnix: number;
+		oldestSeq: string;
+		latestSeq: string;
+		lagSeconds: number;
+		shards: ShardInfo[];
+		eventTypes: EventTypeCounts;
+	};
+	let streamInfo = $state<StreamInfo | null>(null);
 
 	async function loadStreamEvents(): Promise<void> {
 		if (!tableName) return;
@@ -206,9 +221,25 @@
 		}
 	}
 
+	async function loadStreamInfo(): Promise<void> {
+		if (!tableName) return;
+		try {
+			const resp = await fetch(`/dashboard/dynamodb/table/${tableName}/stream-info`);
+			if (resp.ok) streamInfo = await resp.json();
+		} catch {
+			// ignore
+		}
+	}
+
 	function startStreamPolling(): void {
+		streamInfo = null;
+		streamEventFilter = 'ALL';
 		void loadStreamEvents();
-		streamPollInterval = setInterval(() => { void loadStreamEvents(); }, 3000);
+		void loadStreamInfo();
+		streamPollInterval = setInterval(() => {
+			void loadStreamEvents();
+			void loadStreamInfo();
+		}, 3000);
 	}
 
 	function stopStreamPolling(): void {
@@ -389,6 +420,17 @@
 		};
 	});
 	onDestroy(() => { stopStreamPolling(); });
+
+	$effect(() => {
+		const filter = streamEventFilter;
+		const container = document.querySelector('.stream-events-filter');
+		if (!container) return;
+		const rows = container.querySelectorAll('tbody tr[data-event]');
+		rows.forEach((row) => {
+			const el = row as HTMLElement;
+			el.style.display = (filter === 'ALL' || el.dataset.event === filter) ? '' : 'none';
+		});
+	});
 </script>
 
 <div class="space-y-4">
@@ -819,23 +861,142 @@
 
 	<!-- ── Stream Events tab ───────────────────────────────────────────────── -->
 	{#if activeTab === 'streams'}
-		<section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm space-y-3">
-			<div class="flex items-center justify-between">
-				<h3 class="text-sm font-semibold text-slate-900 dark:text-white">Recent Stream Events</h3>
-				<span class="text-xs text-slate-400 dark:text-slate-500">Auto-refreshes every 3s</span>
-			</div>
+		<div class="space-y-4">
+			<!-- Header -->
+			<section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm">
+				<div class="flex items-center justify-between mb-1">
+					<div class="flex items-center gap-3">
+						<h3 class="text-sm font-semibold text-slate-900 dark:text-white">DynamoDB Streams</h3>
+						{#if streamsEnabled}
+							<span class="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded font-medium">ENABLED</span>
+							<span class="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 px-2 py-0.5 rounded font-medium">{streamViewType}</span>
+							<span class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+								<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>Auto-refresh 3s
+							</span>
+						{:else}
+							<span class="text-xs bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400 px-2 py-0.5 rounded font-medium">DISABLED</span>
+						{/if}
+					</div>
+				</div>
+				{#if tableDesc?.LatestStreamArn}
+					<p class="text-xs font-mono text-slate-400 dark:text-slate-500 break-all">{tableDesc.LatestStreamArn}</p>
+				{/if}
+			</section>
+
 			{#if !streamsEnabled}
-				<div class="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+				<div class="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
 					Streams are not enabled for this table. Enable them in the Overview tab to see events.
 				</div>
+			{:else}
+				<!-- Stats Cards -->
+				{#if streamInfo}
+					<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+						<div class="p-4 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+							<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Buffered Events</div>
+							<div class="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{streamInfo.eventCount}</div>
+						</div>
+						<div class="p-4 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+							<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Active Shards</div>
+							<div class="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">{streamInfo.shards?.length ?? 0}</div>
+						</div>
+						<div class="p-4 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+							<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Consumption Lag</div>
+							{#if streamInfo.eventCount === 0}
+								<div class="text-2xl font-bold text-slate-400 dark:text-slate-500 mt-1">—</div>
+							{:else if streamInfo.lagSeconds < 5}
+								<div class="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">&lt;5s</div>
+							{:else}
+								<div class="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">{streamInfo.lagSeconds}s</div>
+							{/if}
+						</div>
+						<div class="p-4 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+							<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Iterator Expiry</div>
+							<div class="text-lg font-bold text-slate-700 dark:text-slate-300 mt-1">15 min</div>
+							<div class="text-xs text-slate-400 dark:text-slate-500">from creation</div>
+						</div>
+					</div>
+
+					<!-- Event Type Breakdown -->
+					{#if streamInfo.eventCount > 0 && streamInfo.eventTypes}
+						<div class="flex flex-wrap gap-3 text-xs">
+							<div class="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg">
+								<span class="font-semibold text-green-700 dark:text-green-400">INSERT</span>
+								<span class="text-green-600 dark:text-green-300 font-mono">{streamInfo.eventTypes.insert}</span>
+							</div>
+							<div class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+								<span class="font-semibold text-blue-700 dark:text-blue-400">MODIFY</span>
+								<span class="text-blue-600 dark:text-blue-300 font-mono">{streamInfo.eventTypes.modify}</span>
+							</div>
+							<div class="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg">
+								<span class="font-semibold text-red-700 dark:text-red-400">REMOVE</span>
+								<span class="text-red-600 dark:text-red-300 font-mono">{streamInfo.eventTypes.remove}</span>
+							</div>
+							{#if streamInfo.latestEventUnix > 0}
+								<div class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg ml-auto">
+									<span class="text-slate-500 dark:text-slate-400">Last event:</span>
+									<span class="text-slate-700 dark:text-slate-300 font-mono">{new Date(streamInfo.latestEventUnix * 1000).toLocaleTimeString()}</span>
+								</div>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- Shards Table -->
+					{#if streamInfo.shards && streamInfo.shards.length > 0}
+						<section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm">
+							<h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Shard Breakdown</h4>
+							<div class="overflow-x-auto">
+								<table class="w-full text-xs font-mono">
+									<thead>
+										<tr class="border-b border-slate-200 dark:border-slate-600">
+											<th class="text-left pb-2 pr-4 text-slate-500 dark:text-slate-400 font-medium">Shard ID</th>
+											<th class="text-left pb-2 pr-4 text-slate-500 dark:text-slate-400 font-medium">Start Sequence</th>
+											<th class="text-left pb-2 pr-4 text-slate-500 dark:text-slate-400 font-medium">End Sequence</th>
+											<th class="text-left pb-2 text-slate-500 dark:text-slate-400 font-medium">Iterator Expiry</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each streamInfo.shards as shard}
+											<tr class="border-b border-slate-100 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors">
+												<td class="py-2 pr-4 text-slate-700 dark:text-slate-300 truncate max-w-[200px]" title={shard.shardId}>{shard.shardId}</td>
+												<td class="py-2 pr-4 text-slate-500 dark:text-slate-400">{shard.startSeq || '—'}</td>
+												<td class="py-2 pr-4 text-slate-500 dark:text-slate-400">{shard.endSeq || '(open)'}</td>
+												<td class="py-2 text-amber-600 dark:text-amber-400">15 min from creation</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+							{#if streamInfo.latestSeq}
+								<div class="mt-3 flex gap-4 text-xs text-slate-500 dark:text-slate-400">
+									<span>Oldest seq: <span class="font-mono">{streamInfo.oldestSeq || '—'}</span></span>
+									<span>Latest seq: <span class="font-mono">{streamInfo.latestSeq || '—'}</span></span>
+								</div>
+							{/if}
+						</section>
+					{/if}
+				{/if}
+
+				<!-- Recent Events -->
+				<section class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm">
+					<div class="flex items-center justify-between mb-3">
+						<h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300">Recent Events</h4>
+						<div class="flex items-center gap-2">
+							{#each ['ALL', 'INSERT', 'MODIFY', 'REMOVE'] as filter}
+								<button
+									onclick={() => { streamEventFilter = filter; }}
+									class="text-xs px-2 py-0.5 rounded font-medium transition-colors {streamEventFilter === filter
+										? 'bg-blue-600 text-white'
+										: 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-500'}"
+								>{filter}</button>
+							{/each}
+						</div>
+					</div>
+					<div class="min-h-[80px] text-xs text-slate-700 dark:text-slate-300 stream-events-filter" data-filter={streamEventFilter}>
+						{@html streamEventsHtml || '<span class="text-slate-400 dark:text-slate-500">No recent stream events. Events appear here as you write to the table.</span>'}
+					</div>
+				</section>
 			{/if}
-			{#if tableDesc?.LatestStreamArn}
-				<div class="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">Stream ARN: {tableDesc.LatestStreamArn}</div>
-			{/if}
-			<div class="min-h-[80px] text-xs text-slate-700 dark:text-slate-300">
-				{@html streamEventsHtml || '<span class="text-slate-400">Loading…</span>'}
-			</div>
-		</section>
+		</div>
 	{/if}
 
 	<!-- ── PartiQL tab ─────────────────────────────────────────────────────── -->

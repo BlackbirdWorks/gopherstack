@@ -223,7 +223,8 @@ type wireStreamRecord struct {
 }
 
 type wireStreamRecordData struct {
-	ApproximateCreationDateTime *string                     `json:"ApproximateCreationDateTime,omitempty"`
+	// ApproximateCreationDateTime is Unix epoch seconds (float64) per DynamoDB Streams JSON 1.0 protocol.
+	ApproximateCreationDateTime *float64                    `json:"ApproximateCreationDateTime,omitempty"`
 	Keys                        map[string]any              `json:"Keys,omitempty"`
 	NewImage                    map[string]any              `json:"NewImage,omitempty"`
 	OldImage                    map[string]any              `json:"OldImage,omitempty"`
@@ -308,9 +309,9 @@ func toWireStreamRecordData(record *streamstypes.StreamRecord) (*wireStreamRecor
 	}
 
 	if record.ApproximateCreationDateTime != nil {
-		wireData.ApproximateCreationDateTime = aws.String(
-			record.ApproximateCreationDateTime.Format("2006-01-02T15:04:05Z"),
-		)
+		// DynamoDB Streams JSON 1.0 protocol encodes timestamps as float64 epoch seconds.
+		epochSecs := float64(record.ApproximateCreationDateTime.Unix())
+		wireData.ApproximateCreationDateTime = &epochSecs
 	}
 
 	return wireData, nil

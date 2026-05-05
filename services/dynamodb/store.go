@@ -177,6 +177,23 @@ func (db *InMemoryDB) SetEnforceThroughput(enabled bool) {
 	db.throttler = NewThrottler(enabled)
 }
 
+// extractStreamKeys returns a map containing only the key attributes from item,
+// using the table's KeySchema as the filter. Returns nil if item is nil.
+// Must be called with table.mu held (at least read lock).
+func (t *Table) extractStreamKeys(item map[string]any) map[string]any {
+	if item == nil || len(t.KeySchema) == 0 {
+		return nil
+	}
+	keys := make(map[string]any, len(t.KeySchema))
+	for _, ks := range t.KeySchema {
+		if v, ok := item[ks.AttributeName]; ok {
+			keys[ks.AttributeName] = v
+		}
+	}
+
+	return keys
+}
+
 // appendStreamRecord adds a new record to the table's stream ring buffer.
 // Must be called with table.mu held (write lock).
 func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[string]any) {
@@ -187,11 +204,19 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 	t.streamSeq++
 	seq := fmt.Sprintf("%020d", t.streamSeq)
 
+	// Keys are always included in stream records regardless of view type.
+	// Prefer the new image for key extraction; fall back to old image on REMOVE.
+	keySource := newImage
+	if keySource == nil {
+		keySource = oldItem
+	}
+
 	record := models.StreamRecord{
 		EventID:                     fmt.Sprintf("%s-%s", t.Name, seq),
 		EventName:                   eventName,
 		SequenceNumber:              seq,
 		ApproximateCreationDateTime: time.Now().Unix(),
+		Keys:                        t.extractStreamKeys(keySource),
 	}
 
 	switch t.StreamViewType {
@@ -203,7 +228,7 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 	case streamViewTypeOldImage:
 		record.OldImage = oldItem
 	case streamViewTypeKeysOnly:
-		// keys only — captured below from key schema
+		// Keys only — no image data included.
 	default:
 		record.OldImage = oldItem
 		record.NewImage = newImage

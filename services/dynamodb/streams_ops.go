@@ -133,6 +133,7 @@ func (db *InMemoryDB) DescribeStream(
 	found.mu.RLock("DescribeStream")
 	tableName := found.Name
 	viewType := found.StreamViewType
+	keySchema := found.KeySchema
 	seqFirst := ""
 	seqLast := ""
 
@@ -141,6 +142,14 @@ func (db *InMemoryDB) DescribeStream(
 	}
 	found.mu.RUnlock()
 
+	sdkKeySchema := make([]streamstypes.KeySchemaElement, 0, len(keySchema))
+	for _, ks := range keySchema {
+		sdkKeySchema = append(sdkKeySchema, streamstypes.KeySchemaElement{
+			AttributeName: aws.String(ks.AttributeName),
+			KeyType:       streamstypes.KeyType(ks.KeyType),
+		})
+	}
+
 	return &dynamodbstreams.DescribeStreamOutput{
 		StreamDescription: &streamstypes.StreamDescription{
 			StreamArn:               aws.String(streamARN),
@@ -148,7 +157,7 @@ func (db *InMemoryDB) DescribeStream(
 			StreamStatus:            streamstypes.StreamStatusEnabled,
 			StreamViewType:          streamstypes.StreamViewType(viewType),
 			TableName:               aws.String(tableName),
-			KeySchema:               nil, // optional detail, omitting for simplicity
+			KeySchema:               sdkKeySchema,
 			CreationRequestDateTime: nil,
 			LastEvaluatedShardId:    nil,
 			Shards: []streamstypes.Shard{
@@ -194,8 +203,13 @@ func (db *InMemoryDB) GetShardIterator(
 		found.mu.RUnlock()
 	case streamstypes.ShardIteratorTypeAtSequenceNumber,
 		streamstypes.ShardIteratorTypeAfterSequenceNumber:
-		if seq, err := strconv.ParseInt(strings.TrimLeft(
-			aws.ToString(input.SequenceNumber), "0"), 10, 64); err == nil {
+		seqStr := aws.ToString(input.SequenceNumber)
+		if seqStr == "" {
+			return nil, NewValidationException(
+				"SequenceNumber is required for AT_SEQUENCE_NUMBER and AFTER_SEQUENCE_NUMBER iterator types",
+			)
+		}
+		if seq, err := strconv.ParseInt(strings.TrimLeft(seqStr, "0"), 10, 64); err == nil {
 			if input.ShardIteratorType == streamstypes.ShardIteratorTypeAfterSequenceNumber {
 				startSeq = seq + 1
 			} else {
@@ -259,7 +273,7 @@ func (db *InMemoryDB) GetRecords(
 	defer table.mu.RUnlock()
 
 	tail, head := table.streamRecordsInOrder()
-	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, table.streamSeq)
+	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, table.streamSeq, db.defaultRegion)
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
 
@@ -278,27 +292,42 @@ func (db *InMemoryDB) ListStreams(
 ) (*dynamodbstreams.ListStreamsOutput, error) {
 	filterTable := aws.ToString(input.TableName)
 
+	// Snapshot the streamARNIndex under db.mu (read lock). This avoids holding
+	// db.mu while also acquiring table.mu, which would invert the lock order
+	// (EnableStream/DisableStream take table.mu first, then db.mu).
+	type arnEntry struct {
+		table *Table
+		arn   string
+	}
+
 	db.mu.RLock("ListStreams")
-	defer db.mu.RUnlock()
+	entries := make([]arnEntry, 0, len(db.streamARNIndex))
+	for arn, t := range db.streamARNIndex {
+		entries = append(entries, arnEntry{table: t, arn: arn})
+	}
+	db.mu.RUnlock()
 
 	var streams []streamstypes.Stream
 
-	for _, regionTables := range db.Tables {
-		for _, t := range regionTables {
-			if !t.StreamsEnabled {
-				continue
-			}
+	for _, e := range entries {
+		e.table.mu.RLock("ListStreams.table")
+		name := e.table.Name
+		enabled := e.table.StreamsEnabled
+		e.table.mu.RUnlock()
 
-			if filterTable != "" && t.Name != filterTable {
-				continue
-			}
-
-			streams = append(streams, streamstypes.Stream{
-				TableName:   aws.String(t.Name),
-				StreamArn:   aws.String(t.StreamARN),
-				StreamLabel: aws.String("latest"),
-			})
+		if !enabled {
+			continue
 		}
+
+		if filterTable != "" && name != filterTable {
+			continue
+		}
+
+		streams = append(streams, streamstypes.Stream{
+			TableName:   aws.String(name),
+			StreamArn:   aws.String(e.arn),
+			StreamLabel: aws.String("latest"),
+		})
 	}
 
 	return &dynamodbstreams.ListStreamsOutput{
@@ -329,14 +358,26 @@ func (db *InMemoryDB) buildStreamARN(tableName string) string {
 }
 
 // buildSDKRecord converts an internal StreamRecord to the AWS SDK type.
-func buildSDKRecord(r models.StreamRecord) streamstypes.Record {
+// region is the backend's default region, included in the EventSource metadata.
+func buildSDKRecord(r models.StreamRecord, region string) streamstypes.Record {
+	createdAt := time.Unix(r.ApproximateCreationDateTime, 0)
 	rec := streamstypes.Record{
-		EventID:   aws.String(r.EventID),
-		EventName: streamstypes.OperationType(r.EventName),
+		EventID:      aws.String(r.EventID),
+		EventName:    streamstypes.OperationType(r.EventName),
+		EventVersion: aws.String("1.0"),
+		EventSource:  aws.String("aws:dynamodb"),
+		AwsRegion:    aws.String(region),
 		Dynamodb: &streamstypes.StreamRecord{
 			SequenceNumber:              aws.String(r.SequenceNumber),
-			ApproximateCreationDateTime: nil, // optional; omit to keep things simple
+			ApproximateCreationDateTime: &createdAt,
 		},
+	}
+
+	if r.Keys != nil {
+		keys, err := buildSDKStreamItem(r.Keys)
+		if err == nil {
+			rec.Dynamodb.Keys = keys
+		}
 	}
 
 	if r.NewImage != nil {
@@ -574,12 +615,13 @@ func (db *InMemoryDB) findTableByStreamARN(streamARN string) *Table {
 func collectStreamRecords(
 	tail, head []models.StreamRecord,
 	startSeq, limit, initialNextSeq int64,
+	region string,
 ) ([]streamstypes.Record, int64) {
 	records := make([]streamstypes.Record, 0)
 	nextSeq := initialNextSeq
 
-	records, nextSeq = appendMatchingRecords(records, tail, startSeq, limit, nextSeq)
-	records, nextSeq = appendMatchingRecords(records, head, startSeq, limit, nextSeq)
+	records, nextSeq = appendMatchingRecords(records, tail, startSeq, limit, nextSeq, region)
+	records, nextSeq = appendMatchingRecords(records, head, startSeq, limit, nextSeq, region)
 
 	return records, nextSeq
 }
@@ -590,6 +632,7 @@ func appendMatchingRecords(
 	records []streamstypes.Record,
 	src []models.StreamRecord,
 	startSeq, limit, nextSeq int64,
+	region string,
 ) ([]streamstypes.Record, int64) {
 	for _, r := range src {
 		if int64(len(records)) >= limit {
@@ -605,7 +648,7 @@ func appendMatchingRecords(
 			continue
 		}
 
-		records = append(records, buildSDKRecord(r))
+		records = append(records, buildSDKRecord(r, region))
 		nextSeq = seq + 1
 	}
 
