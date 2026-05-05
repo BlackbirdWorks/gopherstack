@@ -148,7 +148,7 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 	obj := h.Backend.PutObject(path, body, contentType, cacheControl, storageClass)
 
 	return c.JSON(http.StatusOK, map[string]string{
-		"ContentSHA256": contentSHA256(body),
+		"ContentSHA256": obj.SHA256,
 		"ETag":          obj.ETag,
 		"StorageClass":  obj.StorageClass,
 	})
