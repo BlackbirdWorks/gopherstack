@@ -137,6 +137,14 @@ const (
 	traceRetrievalStatusComplete = "COMPLETE"
 	// samplingTargetInterval is the recommended polling interval for sampling targets.
 	samplingTargetInterval = 10
+	// maxSegmentsPerTrace caps the number of raw segment payloads stored for a
+	// single trace so one runaway producer cannot consume unbounded memory
+	// before the janitor's TTL sweep removes the trace.
+	maxSegmentsPerTrace = 5000
+	// segmentCompactionHighWater is the slice length that triggers
+	// compaction. Compacting only when the slice has grown to twice the cap
+	// keeps the per-call cost amortized O(1).
+	segmentCompactionHighWater = maxSegmentsPerTrace + maxSegmentsPerTrace
 )
 
 // InMemoryBackend is the in-memory store for X-Ray resources.
@@ -416,6 +424,19 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 				Segments:  []string{},
 			}
 			b.traces[hdr.TraceID] = t
+		}
+
+		// Cap per-trace segment count so a single misbehaving trace cannot
+		// consume unbounded memory before the janitor's TTL sweep evicts it.
+		// Compact only when the slice has grown to twice the cap so the per-call
+		// cost is amortized O(1) rather than O(cap) on every insert past the cap.
+		// Reslice into a fresh backing array so the dropped prefix and any
+		// over-allocated tail are released for GC immediately rather than
+		// pinned for the lifetime of the trace.
+		if len(t.Segments) >= segmentCompactionHighWater {
+			trimmed := make([]string, maxSegmentsPerTrace, segmentCompactionHighWater)
+			copy(trimmed, t.Segments[len(t.Segments)-maxSegmentsPerTrace:])
+			t.Segments = trimmed
 		}
 
 		t.Segments = append(t.Segments, seg)

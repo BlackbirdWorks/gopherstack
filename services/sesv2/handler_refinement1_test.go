@@ -1061,3 +1061,25 @@ func TestRefinement1_HTTPCreateEmailTemplateDuplicate(t *testing.T) {
 	rec := doReq(t, h, http.MethodPost, "/v2/email/templates", body)
 	assert.Equal(t, http.StatusConflict, rec.Code)
 }
+
+func TestSESv2Backend_SendEmailCap(t *testing.T) {
+	t.Parallel()
+
+	b := sesv2.NewInMemoryBackend()
+
+	// Send beyond 2x the cap so the amortized compaction path runs at least
+	// once. After compaction the slice length must stay between
+	// maxRetainedEmails and 2*maxRetainedEmails.
+	total := sesv2.EmailCompactionHighWater + 5
+	for i := range total {
+		_, err := b.SendEmail("a@example.com", []string{"b@example.com"},
+			"s", "h", "t")
+		require.NoError(t, err, "iteration %d", i)
+	}
+
+	got := sesv2.EmailCount(b)
+	assert.GreaterOrEqual(t, got, sesv2.MaxRetainedEmails,
+		"retain at least the cap")
+	assert.LessOrEqual(t, got, sesv2.EmailCompactionHighWater,
+		"never exceed the compaction high-water mark")
+}

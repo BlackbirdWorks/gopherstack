@@ -74,6 +74,12 @@ type PrepareQueryResult struct {
 	Parameters  []map[string]any
 }
 
+// maxRetainedQueries bounds the queries map so a long-running instance cannot
+// leak memory through repeated Query calls. The map only stores queries that
+// were not explicitly cancelled; in real Timestream, Query results are
+// transient anyway.
+const maxRetainedQueries = 10000
+
 // InMemoryBackend is the in-memory backend for the Timestream Query service.
 type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
@@ -259,6 +265,21 @@ func (b *InMemoryBackend) Query(queryString string) *QueryResult {
 		QueryStatus: "SUCCEEDED",
 		Rows:        []map[string]any{},
 		Columns:     []map[string]any{},
+	}
+
+	// Evict arbitrary entries when over the cap so a long-running instance
+	// cannot leak memory through repeated Query calls. Map iteration order
+	// is random in Go; for the simulator this is acceptable since only
+	// CancelQuery interacts with stored results.
+	// Evict before inserting so the new query is never randomly chosen for
+	// eviction — callers that immediately CancelQuery on the returned ID
+	// must not see a spurious ErrNotFound.
+	for len(b.queries) >= maxRetainedQueries {
+		for id := range b.queries {
+			delete(b.queries, id)
+
+			break
+		}
 	}
 
 	b.queries[queryID] = result

@@ -37,6 +37,16 @@ const (
 	exportJobStatusCancelled           = "CANCELLED"
 )
 
+// maxRetainedEmails is the maximum number of sent emails retained in memory.
+// When the cap is exceeded the oldest entries are dropped FIFO so a long-running
+// instance cannot leak memory through repeated SendEmail calls.
+const maxRetainedEmails = 10000
+
+// emailCompactionHighWater is the slice length that triggers compaction.
+// Compacting only when the slice has grown to twice the cap keeps
+// trimming amortized O(1) per SendEmail.
+const emailCompactionHighWater = maxRetainedEmails + maxRetainedEmails
+
 // EmailIdentity represents a verified email address or domain identity.
 type EmailIdentity struct {
 	Identity           string `json:"identity"`
@@ -401,6 +411,18 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 
 	b.mu.Lock("SendEmail")
 	b.emails = append(b.emails, email)
+	// Compact only when the slice has grown to twice the cap so trimming is
+	// amortized O(1) per send rather than O(maxRetainedEmails) on every send
+	// past the cap. The dropped prefix becomes unreachable once the slice
+	// header advances and is collected on the next reslice/grow.
+	if len(b.emails) >= emailCompactionHighWater {
+		// Reslice into a fresh backing array so the dropped tail can be GC'd
+		// immediately rather than held by the original (now larger) backing
+		// array.
+		trimmed := make([]Email, maxRetainedEmails, emailCompactionHighWater)
+		copy(trimmed, b.emails[len(b.emails)-maxRetainedEmails:])
+		b.emails = trimmed
+	}
 	b.mu.Unlock()
 
 	return msgID, nil
