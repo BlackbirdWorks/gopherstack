@@ -293,30 +293,30 @@ func (h *Handler) buildOps() map[string]func(context.Context, *echo.Context, []b
 
 		"GetDataLakePrincipal": h.handleGetDataLakePrincipal,
 
-		"DeleteLakeFormationIdentityCenterConfiguration": h.handleDeleteLakeFormationIdentityCenterConfiguration,
-		"DeleteObjectsOnCancel":                          h.handleDeleteObjectsOnCancel,
+		"DeleteLakeFormationIdentityCenterConfiguration":   h.handleDeleteLakeFormationIdentityCenterConfiguration,
+		"DeleteObjectsOnCancel":                            h.handleDeleteObjectsOnCancel,
 		"DescribeLakeFormationIdentityCenterConfiguration": h.handleDescribeLakeFormationIdentityCenterConfiguration,
-		"ExtendTransaction":                              h.handleExtendTransaction,
-		"GetDataCellsFilter":                             h.handleGetDataCellsFilter,
-		"GetEffectivePermissionsForPath":                 h.handleGetEffectivePermissionsForPath,
-		"GetLFTagExpression":                             h.handleGetLFTagExpression,
-		"GetQueryState":                                  h.handleGetQueryState,
-		"GetQueryStatistics":                             h.handleGetQueryStatistics,
-		"GetTableObjects":                                h.handleGetTableObjects,
-		"GetTemporaryDataLocationCredentials":            h.handleGetTemporaryDataLocationCredentials,
-		"GetTemporaryGluePartitionCredentials":           h.handleGetTemporaryGluePartitionCredentials,
-		"GetTemporaryGlueTableCredentials":               h.handleGetTemporaryGlueTableCredentials,
-		"GetWorkUnitResults":                             h.handleGetWorkUnitResults,
-		"GetWorkUnits":                                   h.handleGetWorkUnits,
-		"ListTableStorageOptimizers":                     h.handleListTableStorageOptimizers,
-		"SearchDatabasesByLFTags":                        h.handleSearchDatabasesByLFTags,
-		"SearchTablesByLFTags":                           h.handleSearchTablesByLFTags,
-		"StartQueryPlanning":                             h.handleStartQueryPlanning,
-		"UpdateDataCellsFilter":                          h.handleUpdateDataCellsFilter,
-		"UpdateLFTagExpression":                          h.handleUpdateLFTagExpression,
-		"UpdateLakeFormationIdentityCenterConfiguration": h.handleUpdateLakeFormationIdentityCenterConfiguration,
-		"UpdateTableObjects":                             h.handleUpdateTableObjects,
-		"UpdateTableStorageOptimizer":                    h.handleUpdateTableStorageOptimizer,
+		"ExtendTransaction":                                h.handleExtendTransaction,
+		"GetDataCellsFilter":                               h.handleGetDataCellsFilter,
+		"GetEffectivePermissionsForPath":                   h.handleGetEffectivePermissionsForPath,
+		"GetLFTagExpression":                               h.handleGetLFTagExpression,
+		"GetQueryState":                                    h.handleGetQueryState,
+		"GetQueryStatistics":                               h.handleGetQueryStatistics,
+		"GetTableObjects":                                  h.handleGetTableObjects,
+		"GetTemporaryDataLocationCredentials":              h.handleGetTemporaryDataLocationCredentials,
+		"GetTemporaryGluePartitionCredentials":             h.handleGetTemporaryGluePartitionCredentials,
+		"GetTemporaryGlueTableCredentials":                 h.handleGetTemporaryGlueTableCredentials,
+		"GetWorkUnitResults":                               h.handleGetWorkUnitResults,
+		"GetWorkUnits":                                     h.handleGetWorkUnits,
+		"ListTableStorageOptimizers":                       h.handleListTableStorageOptimizers,
+		"SearchDatabasesByLFTags":                          h.handleSearchDatabasesByLFTags,
+		"SearchTablesByLFTags":                             h.handleSearchTablesByLFTags,
+		"StartQueryPlanning":                               h.handleStartQueryPlanning,
+		"UpdateDataCellsFilter":                            h.handleUpdateDataCellsFilter,
+		"UpdateLFTagExpression":                            h.handleUpdateLFTagExpression,
+		"UpdateLakeFormationIdentityCenterConfiguration":   h.handleUpdateLakeFormationIdentityCenterConfiguration,
+		"UpdateTableObjects":                               h.handleUpdateTableObjects,
+		"UpdateTableStorageOptimizer":                      h.handleUpdateTableStorageOptimizer,
 	}
 }
 
@@ -1009,6 +1009,7 @@ func (h *Handler) handleDeleteLakeFormationIdentityCenterConfiguration(
 	if err := h.Backend.DeleteLakeFormationIdentityCenterConfiguration(catalogID); err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, deleteLakeFormationIdentityCenterConfigurationOutput{})
 }
 
@@ -1020,6 +1021,7 @@ func (h *Handler) handleDeleteObjectsOnCancel(_ context.Context, c *echo.Context
 	if err := h.Backend.DeleteObjectsOnCancel(in.TransactionID); err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, deleteObjectsOnCancelOutput{})
 }
 
@@ -1040,6 +1042,7 @@ func (h *Handler) handleDescribeLakeFormationIdentityCenterConfiguration(
 	if err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, describeLakeFormationIdentityCenterConfigurationOutput{
 		CatalogID:         cfg.CatalogID,
 		InstanceArn:       cfg.InstanceArn,
@@ -1058,6 +1061,7 @@ func (h *Handler) handleExtendTransaction(_ context.Context, c *echo.Context, bo
 	if err := h.Backend.ExtendTransaction(in.TransactionID); err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, extendTransactionOutput{})
 }
 
@@ -1070,6 +1074,7 @@ func (h *Handler) handleGetDataCellsFilter(_ context.Context, c *echo.Context, b
 	if err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, getDataCellsFilterOutput{DataCellsFilter: f})
 }
 
@@ -1081,6 +1086,7 @@ func (h *Handler) handleGetEffectivePermissionsForPath(_ context.Context, c *ech
 		}
 	}
 	entries, nextToken := h.Backend.GetEffectivePermissionsForPath(in.ResourceArn, in.MaxResults, in.NextToken)
+
 	return c.JSON(http.StatusOK, getEffectivePermissionsForPathOutput{
 		PrincipalResourcePermissions: entries,
 		NextToken:                    nextToken,
@@ -1096,6 +1102,7 @@ func (h *Handler) handleGetLFTagExpression(_ context.Context, c *echo.Context, b
 	if err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, getLFTagExpressionOutput{
 		Name:        expr.Name,
 		Description: expr.Description,
@@ -1113,6 +1120,7 @@ func (h *Handler) handleGetQueryState(_ context.Context, c *echo.Context, body [
 	if err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, getQueryStateOutput{State: state})
 }
 
@@ -1125,6 +1133,7 @@ func (h *Handler) handleGetQueryStatistics(_ context.Context, c *echo.Context, b
 	if err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, getQueryStatisticsOutput{ExecutionStatistics: exec, PlanningStatistics: plan})
 }
 
@@ -1136,6 +1145,7 @@ func (h *Handler) handleGetTableObjects(_ context.Context, c *echo.Context, body
 		}
 	}
 	objects, nextToken := h.Backend.GetTableObjects(in.MaxResults, in.NextToken)
+
 	return c.JSON(http.StatusOK, getTableObjectsOutput{Objects: objects, NextToken: nextToken})
 }
 
@@ -1159,6 +1169,7 @@ func (h *Handler) handleGetTemporaryDataLocationCredentials(_ context.Context, c
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
 	expiry := credentialsExpiry(in.DurationSeconds)
+
 	return c.JSON(http.StatusOK, getTemporaryDataLocationCredentialsOutput{Credentials: creds, Expiration: &expiry})
 }
 
@@ -1172,6 +1183,7 @@ func (h *Handler) handleGetTemporaryGluePartitionCredentials(_ context.Context, 
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
 	expiry := credentialsExpiry(in.DurationSeconds)
+
 	return c.JSON(http.StatusOK, getTemporaryGluePartitionCredentialsOutput{Credentials: creds, Expiration: &expiry})
 }
 
@@ -1185,6 +1197,7 @@ func (h *Handler) handleGetTemporaryGlueTableCredentials(_ context.Context, c *e
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
 	expiry := credentialsExpiry(in.DurationSeconds)
+
 	return c.JSON(http.StatusOK, getTemporaryGlueTableCredentialsOutput{Credentials: creds, Expiration: &expiry})
 }
 
@@ -1196,6 +1209,7 @@ func (h *Handler) handleGetWorkUnitResults(_ context.Context, c *echo.Context, b
 	if err := h.Backend.GetWorkUnitResults(in.QueryID, in.WorkUnitToken); err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, getWorkUnitResultsOutput{})
 }
 
@@ -1208,6 +1222,7 @@ func (h *Handler) handleGetWorkUnits(_ context.Context, c *echo.Context, body []
 	if err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, getWorkUnitsOutput{QueryID: in.QueryID, WorkUnitRanges: ranges, NextToken: nextToken})
 }
 
@@ -1217,6 +1232,7 @@ func (h *Handler) handleListTableStorageOptimizers(_ context.Context, c *echo.Co
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	opts := h.Backend.ListTableStorageOptimizers(in.CatalogID, in.DatabaseName, in.TableName, in.StorageOptimizerType)
+
 	return c.JSON(http.StatusOK, listTableStorageOptimizersOutput{StorageOptimizerList: opts})
 }
 
@@ -1228,6 +1244,7 @@ func (h *Handler) handleSearchDatabasesByLFTags(_ context.Context, c *echo.Conte
 		}
 	}
 	dbs, nextToken := h.Backend.SearchDatabasesByLFTags(in.Expression, in.CatalogID, 0, in.NextToken)
+
 	return c.JSON(http.StatusOK, searchDatabasesByLFTagsOutput{DatabaseList: dbs, NextToken: nextToken})
 }
 
@@ -1239,6 +1256,7 @@ func (h *Handler) handleSearchTablesByLFTags(_ context.Context, c *echo.Context,
 		}
 	}
 	tables, nextToken := h.Backend.SearchTablesByLFTags(in.Expression, in.CatalogID, 0, in.NextToken)
+
 	return c.JSON(http.StatusOK, searchTablesByLFTagsOutput{TableList: tables, NextToken: nextToken})
 }
 
@@ -1251,9 +1269,12 @@ func (h *Handler) handleStartQueryPlanning(_ context.Context, c *echo.Context, b
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "QueryString is required")
 	}
 	if strings.TrimSpace(in.QueryPlanningContext.DatabaseName) == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "QueryPlanningContext.DatabaseName is required")
+		return h.writeError(
+			c, http.StatusBadRequest, "InvalidInputException", "QueryPlanningContext.DatabaseName is required",
+		)
 	}
 	queryID := h.Backend.StartQueryPlanning(in.QueryString)
+
 	return c.JSON(http.StatusOK, startQueryPlanningOutput{QueryID: queryID})
 }
 
@@ -1268,6 +1289,7 @@ func (h *Handler) handleUpdateDataCellsFilter(_ context.Context, c *echo.Context
 	if err := h.Backend.UpdateDataCellsFilter(in.TableData); err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, updateDataCellsFilterOutput{})
 }
 
@@ -1282,6 +1304,7 @@ func (h *Handler) handleUpdateLFTagExpression(_ context.Context, c *echo.Context
 	if err := h.Backend.UpdateLFTagExpression(in.Name, in.CatalogID, in.Description, in.Expression); err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, updateLFTagExpressionOutput{})
 }
 
@@ -1298,9 +1321,12 @@ func (h *Handler) handleUpdateLakeFormationIdentityCenterConfiguration(
 	if catalogID == "" {
 		catalogID = h.AccountID
 	}
-	if err := h.Backend.UpdateLakeFormationIdentityCenterConfiguration(catalogID, in.ExternalFiltering, in.ApplicationStatus); err != nil {
+	if err := h.Backend.UpdateLakeFormationIdentityCenterConfiguration(
+		catalogID, in.ExternalFiltering, in.ApplicationStatus,
+	); err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, updateLakeFormationIdentityCenterConfigurationOutput{})
 }
 
@@ -1314,6 +1340,7 @@ func (h *Handler) handleUpdateTableObjects(_ context.Context, c *echo.Context, b
 	if err := h.Backend.UpdateTableObjects(in.TransactionID); err != nil {
 		return h.handleError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, updateTableObjectsOutput{})
 }
 
@@ -1322,6 +1349,9 @@ func (h *Handler) handleUpdateTableStorageOptimizer(_ context.Context, c *echo.C
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
-	result := h.Backend.UpdateTableStorageOptimizer(in.CatalogID, in.DatabaseName, in.TableName, in.StorageOptimizerConfig)
+	result := h.Backend.UpdateTableStorageOptimizer(
+		in.CatalogID, in.DatabaseName, in.TableName, in.StorageOptimizerConfig,
+	)
+
 	return c.JSON(http.StatusOK, updateTableStorageOptimizerOutput{Result: result})
 }

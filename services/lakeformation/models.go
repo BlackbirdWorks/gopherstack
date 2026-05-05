@@ -298,10 +298,10 @@ type Transaction struct {
 
 // IdentityCenterConfiguration holds the IAM Identity Center integration configuration.
 type IdentityCenterConfiguration struct {
+	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
 	CatalogID         string                          `json:"CatalogId,omitempty"`
 	InstanceArn       string                          `json:"InstanceArn,omitempty"`
 	ApplicationArn    string                          `json:"ApplicationArn,omitempty"`
-	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
 }
 
 // LFOptIn associates a principal and resource for opt-in enforcement.
@@ -548,15 +548,15 @@ type ExternalFilteringConfiguration struct {
 
 // VirtualObject is a reference to an S3 object.
 type VirtualObject struct {
-	Uri  string `json:"Uri"`
+	URI  string `json:"Uri"`
 	ETag string `json:"ETag,omitempty"`
 }
 
 // TableObject represents an object in a governed table.
 type TableObject struct {
-	Uri  string `json:"Uri"`
-	ETag string `json:"ETag,omitempty"`
 	Size *int64 `json:"Size,omitempty"`
+	URI  string `json:"Uri"`
+	ETag string `json:"ETag,omitempty"`
 }
 
 // PartitionedTableObjectsList holds objects for a partition.
@@ -573,7 +573,7 @@ type WriteOperation struct {
 
 // TemporaryCredentials holds temporary AWS credentials.
 type TemporaryCredentials struct {
-	AccessKeyId     string `json:"AccessKeyId,omitempty"`
+	AccessKeyID     string `json:"AccessKeyId,omitempty"`
 	SecretAccessKey string `json:"SecretAccessKey,omitempty"`
 	SessionToken    string `json:"SessionToken,omitempty"`
 }
@@ -605,9 +605,9 @@ type PlanningStatistics struct {
 
 // WorkUnitRange represents a range of work units.
 type WorkUnitRange struct {
-	WorkUnitIdMax int64  `json:"WorkUnitIdMax"`
-	WorkUnitIdMin int64  `json:"WorkUnitIdMin"`
 	WorkUnitToken string `json:"WorkUnitToken"`
+	WorkUnitIDMax int64  `json:"WorkUnitIdMax"`
+	WorkUnitIDMin int64  `json:"WorkUnitIdMin"`
 }
 
 // QueryPlanningContext provides context for query planning.
@@ -666,10 +666,10 @@ type describeLakeFormationIdentityCenterConfigurationInput struct {
 	CatalogID string `json:"CatalogId,omitempty"`
 }
 type describeLakeFormationIdentityCenterConfigurationOutput struct {
+	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
 	CatalogID         string                          `json:"CatalogId,omitempty"`
 	InstanceArn       string                          `json:"InstanceArn,omitempty"`
 	ApplicationArn    string                          `json:"ApplicationArn,omitempty"`
-	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
 }
 
 type extendTransactionInput struct {
@@ -734,8 +734,8 @@ type getTableObjectsInput struct {
 	MaxResults    int    `json:"MaxResults,omitempty"`
 }
 type getTableObjectsOutput struct {
-	Objects   []PartitionedTableObjectsList `json:"Objects,omitempty"`
 	NextToken string                        `json:"NextToken,omitempty"`
+	Objects   []PartitionedTableObjectsList `json:"Objects,omitempty"`
 }
 
 type getTemporaryDataLocationCredentialsInput struct {
@@ -800,33 +800,33 @@ type listTableStorageOptimizersInput struct {
 	NextToken            string `json:"NextToken,omitempty"`
 }
 type listTableStorageOptimizersOutput struct {
-	StorageOptimizerList []StorageOptimizer `json:"StorageOptimizerList"`
 	NextToken            string             `json:"NextToken,omitempty"`
+	StorageOptimizerList []StorageOptimizer `json:"StorageOptimizerList"`
 }
 
 type searchDatabasesByLFTagsInput struct {
-	Expression []LFTag `json:"Expression"`
 	CatalogID  string  `json:"CatalogId,omitempty"`
 	NextToken  string  `json:"NextToken,omitempty"`
+	Expression []LFTag `json:"Expression"`
 }
 type searchDatabasesByLFTagsOutput struct {
-	DatabaseList []TaggedDatabase `json:"DatabaseList"`
 	NextToken    string           `json:"NextToken,omitempty"`
+	DatabaseList []TaggedDatabase `json:"DatabaseList"`
 }
 
 type searchTablesByLFTagsInput struct {
-	Expression []LFTag `json:"Expression"`
 	CatalogID  string  `json:"CatalogId,omitempty"`
 	NextToken  string  `json:"NextToken,omitempty"`
+	Expression []LFTag `json:"Expression"`
 }
 type searchTablesByLFTagsOutput struct {
-	TableList []TaggedTable `json:"TableList"`
 	NextToken string        `json:"NextToken,omitempty"`
+	TableList []TaggedTable `json:"TableList"`
 }
 
 type startQueryPlanningInput struct {
 	QueryPlanningContext QueryPlanningContext `json:"QueryPlanningContext"`
-	QueryString          string              `json:"QueryString"`
+	QueryString          string               `json:"QueryString"`
 }
 type startQueryPlanningOutput struct {
 	QueryID string `json:"QueryId"`
@@ -862,10 +862,10 @@ type updateTableObjectsInput struct {
 type updateTableObjectsOutput struct{}
 
 type updateTableStorageOptimizerInput struct {
+	StorageOptimizerConfig map[string]map[string]string `json:"StorageOptimizerConfig,omitempty"`
 	CatalogID              string                       `json:"CatalogId,omitempty"`
 	DatabaseName           string                       `json:"DatabaseName"`
 	TableName              string                       `json:"TableName"`
-	StorageOptimizerConfig map[string]map[string]string `json:"StorageOptimizerConfig,omitempty"`
 }
 type updateTableStorageOptimizerOutput struct {
 	Result string `json:"Result,omitempty"`

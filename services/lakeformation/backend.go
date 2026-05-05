@@ -80,7 +80,11 @@ type StorageBackend interface {
 	CreateLakeFormationIdentityCenterConfiguration(catalogID, instanceArn string) string
 	DeleteLakeFormationIdentityCenterConfiguration(catalogID string) error
 	DescribeLakeFormationIdentityCenterConfiguration(catalogID string) (*IdentityCenterConfiguration, error)
-	UpdateLakeFormationIdentityCenterConfiguration(catalogID string, externalFiltering *ExternalFilteringConfiguration, appStatus string) error
+	UpdateLakeFormationIdentityCenterConfiguration(
+		catalogID string,
+		externalFiltering *ExternalFilteringConfiguration,
+		appStatus string,
+	) error
 
 	CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
 	DeleteLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource) error
@@ -113,8 +117,12 @@ type StorageBackend interface {
 	ListTableStorageOptimizers(catalogID, databaseName, tableName, storageOptimizerType string) []StorageOptimizer
 	UpdateTableStorageOptimizer(catalogID, databaseName, tableName string, config map[string]map[string]string) string
 
-	SearchDatabasesByLFTags(expression []LFTag, catalogID string, maxResults int, nextToken string) ([]TaggedDatabase, string)
-	SearchTablesByLFTags(expression []LFTag, catalogID string, maxResults int, nextToken string) ([]TaggedTable, string)
+	SearchDatabasesByLFTags(
+		expression []LFTag, catalogID string, maxResults int, nextToken string,
+	) ([]TaggedDatabase, string)
+	SearchTablesByLFTags(
+		expression []LFTag, catalogID string, maxResults int, nextToken string,
+	) ([]TaggedTable, string)
 }
 
 // lfTagKey uniquely identifies a LF tag by catalog and key.
@@ -139,19 +147,19 @@ type lfTagExpressionKey struct {
 
 // InMemoryBackend is the in-memory backend for Lake Formation.
 type InMemoryBackend struct {
-	dataLakeSettings      *DataLakeSettings
-	resources             map[string]*ResourceInfo
-	lfTags                map[lfTagKey]*LFTag
-	transactions          map[string]string
-	dataCellsFilters      map[dataCellsFilterKey]*DataCellsFilter
-	lfTagExpressions      map[lfTagExpressionKey]*LFTagExpression
-	identityCenterConfigs map[string]*IdentityCenterConfiguration
-	lakeFormationOptIns   []*LFOptIn
-	resourceLFTags        map[string][]LFTagPair
-	mu                    *lockmetrics.RWMutex
-	permissions           []*PermissionEntry
-	queries               map[string]string
+	identityCenterConfigs  map[string]*IdentityCenterConfiguration
+	resources              map[string]*ResourceInfo
+	lfTags                 map[lfTagKey]*LFTag
+	transactions           map[string]string
+	dataCellsFilters       map[dataCellsFilterKey]*DataCellsFilter
+	lfTagExpressions       map[lfTagExpressionKey]*LFTagExpression
+	dataLakeSettings       *DataLakeSettings
+	resourceLFTags         map[string][]LFTagPair
+	mu                     *lockmetrics.RWMutex
+	queries                map[string]string
 	tableStorageOptimizers map[string][]StorageOptimizer
+	lakeFormationOptIns    []*LFOptIn
+	permissions            []*PermissionEntry
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -1282,7 +1290,9 @@ func (b *InMemoryBackend) DescribeTransaction(transactionID string) (*Transactio
 }
 
 // ListTransactions returns a paginated list of transactions, optionally filtered by status.
-func (b *InMemoryBackend) ListTransactions(statusFilter string, maxResults int, nextToken string) ([]*Transaction, string) {
+func (b *InMemoryBackend) ListTransactions(
+	statusFilter string, maxResults int, nextToken string,
+) ([]*Transaction, string) {
 	b.mu.RLock("ListTransactions")
 	defer b.mu.RUnlock()
 
@@ -1544,11 +1554,14 @@ func (b *InMemoryBackend) DeleteLakeFormationIdentityCenterConfiguration(catalog
 		return awserr.New("identity center configuration not found for catalog: "+catalogID, awserr.ErrNotFound)
 	}
 	delete(b.identityCenterConfigs, catalogID)
+
 	return nil
 }
 
 // DescribeLakeFormationIdentityCenterConfiguration returns the identity center config for a catalog.
-func (b *InMemoryBackend) DescribeLakeFormationIdentityCenterConfiguration(catalogID string) (*IdentityCenterConfiguration, error) {
+func (b *InMemoryBackend) DescribeLakeFormationIdentityCenterConfiguration(
+	catalogID string,
+) (*IdentityCenterConfiguration, error) {
 	b.mu.RLock("DescribeLakeFormationIdentityCenterConfiguration")
 	defer b.mu.RUnlock()
 	cfg, ok := b.identityCenterConfigs[catalogID]
@@ -1556,11 +1569,14 @@ func (b *InMemoryBackend) DescribeLakeFormationIdentityCenterConfiguration(catal
 		return nil, awserr.New("identity center configuration not found for catalog: "+catalogID, awserr.ErrNotFound)
 	}
 	cp := *cfg
+
 	return &cp, nil
 }
 
 // UpdateLakeFormationIdentityCenterConfiguration updates or creates the identity center config.
-func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(catalogID string, externalFiltering *ExternalFilteringConfiguration, _ string) error {
+func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(
+	catalogID string, externalFiltering *ExternalFilteringConfiguration, _ string,
+) error {
 	b.mu.Lock("UpdateLakeFormationIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 	cfg, ok := b.identityCenterConfigs[catalogID]
@@ -1569,11 +1585,13 @@ func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(catalog
 			CatalogID:         catalogID,
 			ExternalFiltering: externalFiltering,
 		}
+
 		return nil
 	}
 	if externalFiltering != nil {
 		cfg.ExternalFiltering = externalFiltering
 	}
+
 	return nil
 }
 
@@ -1591,6 +1609,7 @@ func (b *InMemoryBackend) ExtendTransaction(transactionID string) error {
 	if status != transactionStatusActive {
 		return awserr.New(fmt.Sprintf("transaction %s is not active", transactionID), awserr.ErrConflict)
 	}
+
 	return nil
 }
 
@@ -1612,22 +1631,28 @@ func (b *InMemoryBackend) DeleteObjectsOnCancel(transactionID string) error {
 			awserr.ErrConflict,
 		)
 	}
+
 	return nil
 }
 
 // GetDataCellsFilter returns the named data cells filter.
-func (b *InMemoryBackend) GetDataCellsFilter(tableCatalogID, databaseName, tableName, name string) (*DataCellsFilter, error) {
+func (b *InMemoryBackend) GetDataCellsFilter(
+	tableCatalogID, databaseName, tableName, name string,
+) (*DataCellsFilter, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("Name is required: %w", ErrValidation)
 	}
 	b.mu.RLock("GetDataCellsFilter")
 	defer b.mu.RUnlock()
-	k := dataCellsFilterKey{TableCatalogID: tableCatalogID, DatabaseName: databaseName, TableName: tableName, Name: name}
+	k := dataCellsFilterKey{
+		TableCatalogID: tableCatalogID, DatabaseName: databaseName, TableName: tableName, Name: name,
+	}
 	f, ok := b.dataCellsFilters[k]
 	if !ok {
 		return nil, awserr.New("data cells filter not found: "+name, awserr.ErrNotFound)
 	}
 	cp := *f
+
 	return &cp, nil
 }
 
@@ -1650,12 +1675,18 @@ func (b *InMemoryBackend) UpdateDataCellsFilter(filter *DataCellsFilter) error {
 	}
 	b.mu.Lock("UpdateDataCellsFilter")
 	defer b.mu.Unlock()
-	k := dataCellsFilterKey{TableCatalogID: filter.TableCatalogID, DatabaseName: filter.DatabaseName, TableName: filter.TableName, Name: filter.Name}
+	k := dataCellsFilterKey{
+		TableCatalogID: filter.TableCatalogID,
+		DatabaseName:   filter.DatabaseName,
+		TableName:      filter.TableName,
+		Name:           filter.Name,
+	}
 	if _, ok := b.dataCellsFilters[k]; !ok {
 		return awserr.New("data cells filter not found: "+filter.Name, awserr.ErrNotFound)
 	}
 	cp := *filter
 	b.dataCellsFilters[k] = &cp
+
 	return nil
 }
 
@@ -1676,6 +1707,7 @@ func (b *InMemoryBackend) GetLFTagExpression(name, catalogID string) (*LFTagExpr
 		cp.Expression = make([]LFTag, len(expr.Expression))
 		copy(cp.Expression, expr.Expression)
 	}
+
 	return &cp, nil
 }
 
@@ -1697,18 +1729,21 @@ func (b *InMemoryBackend) UpdateLFTagExpression(name, catalogID, description str
 		copy(cp, expression)
 		expr.Expression = cp
 	}
+
 	return nil
 }
 
 // GetEffectivePermissionsForPath returns effective permissions for a resource path.
-func (b *InMemoryBackend) GetEffectivePermissionsForPath(resourceArn string, maxResults int, nextToken string) ([]*PermissionEntry, string) {
+func (b *InMemoryBackend) GetEffectivePermissionsForPath(
+	resourceArn string, maxResults int, nextToken string,
+) ([]*PermissionEntry, string) {
 	return b.ListPermissions(resourceArn, maxResults, nextToken)
 }
 
 // GetTemporaryCredentials returns synthetic temporary AWS credentials.
 func (b *InMemoryBackend) GetTemporaryCredentials(_ *int32) *TemporaryCredentials {
 	return &TemporaryCredentials{
-		AccessKeyId:     "ASIALAKEFORMATION0002",
+		AccessKeyID:     "ASIALAKEFORMATION0002",
 		SecretAccessKey: "syntheticSecretKey00000000000000000000001",
 		SessionToken:    "syntheticSessionToken002",
 	}
@@ -1729,6 +1764,7 @@ func (b *InMemoryBackend) UpdateTableObjects(transactionID string) error {
 	if _, ok := b.transactions[transactionID]; !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
 	}
+
 	return nil
 }
 
@@ -1739,6 +1775,7 @@ func (b *InMemoryBackend) StartQueryPlanning(queryString string) string {
 	defer b.mu.Unlock()
 	b.queries[id] = "WORKUNITS_AVAILABLE"
 	_ = queryString
+
 	return id
 }
 
@@ -1753,6 +1790,7 @@ func (b *InMemoryBackend) GetQueryState(queryID string) (string, error) {
 	if !ok {
 		return "", awserr.New("query not found: "+queryID, awserr.ErrNotFound)
 	}
+
 	return state, nil
 }
 
@@ -1769,6 +1807,7 @@ func (b *InMemoryBackend) GetQueryStatistics(queryID string) (*ExecutionStatisti
 	zero := int64(0)
 	exec := &ExecutionStatistics{WorkUnitsExecutedCount: &zero}
 	plan := &PlanningStatistics{WorkUnitsGeneratedCount: &zero}
+
 	return exec, plan, nil
 }
 
@@ -1782,6 +1821,7 @@ func (b *InMemoryBackend) GetWorkUnits(queryID string) ([]WorkUnitRange, string,
 	if _, ok := b.queries[queryID]; !ok {
 		return nil, "", awserr.New("query not found: "+queryID, awserr.ErrNotFound)
 	}
+
 	return []WorkUnitRange{}, "", nil
 }
 
@@ -1795,6 +1835,7 @@ func (b *InMemoryBackend) GetWorkUnitResults(queryID, _ string) error {
 	if _, ok := b.queries[queryID]; !ok {
 		return awserr.New("query not found: "+queryID, awserr.ErrNotFound)
 	}
+
 	return nil
 }
 
@@ -1804,7 +1845,9 @@ func tableStorageKey(catalogID, databaseName, tableName string) string {
 }
 
 // ListTableStorageOptimizers returns the storage optimizers for a table, filtered by type if specified.
-func (b *InMemoryBackend) ListTableStorageOptimizers(catalogID, databaseName, tableName, storageOptimizerType string) []StorageOptimizer {
+func (b *InMemoryBackend) ListTableStorageOptimizers(
+	catalogID, databaseName, tableName, storageOptimizerType string,
+) []StorageOptimizer {
 	b.mu.RLock("ListTableStorageOptimizers")
 	defer b.mu.RUnlock()
 	key := tableStorageKey(catalogID, databaseName, tableName)
@@ -1821,7 +1864,9 @@ func (b *InMemoryBackend) ListTableStorageOptimizers(catalogID, databaseName, ta
 }
 
 // UpdateTableStorageOptimizer replaces the storage optimizer config for a table.
-func (b *InMemoryBackend) UpdateTableStorageOptimizer(catalogID, databaseName, tableName string, config map[string]map[string]string) string {
+func (b *InMemoryBackend) UpdateTableStorageOptimizer(
+	catalogID, databaseName, tableName string, config map[string]map[string]string,
+) string {
 	b.mu.Lock("UpdateTableStorageOptimizer")
 	defer b.mu.Unlock()
 	key := tableStorageKey(catalogID, databaseName, tableName)
@@ -1830,6 +1875,7 @@ func (b *InMemoryBackend) UpdateTableStorageOptimizer(catalogID, databaseName, t
 		opts = append(opts, StorageOptimizer{StorageOptimizerType: optimizerType, Config: cfg})
 	}
 	b.tableStorageOptimizers[key] = opts
+
 	return "Optimizer updated successfully"
 }
 

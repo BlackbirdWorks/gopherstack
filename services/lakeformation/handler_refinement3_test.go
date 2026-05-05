@@ -133,23 +133,27 @@ func TestRefinement3_UpdateDataCellsFilter_RequiresAllFields(t *testing.T) {
 	})
 
 	tests := []struct {
-		name   string
 		body   map[string]any
+		name   string
 		status int
 	}{
 		{
-			name: "missing_catalog",
-			body: map[string]any{"TableData": map[string]any{"DatabaseName": "db", "TableName": "tbl", "Name": "f"}},
+			name:   "missing_catalog",
+			body:   map[string]any{"TableData": map[string]any{"DatabaseName": "db", "TableName": "tbl", "Name": "f"}},
 			status: http.StatusBadRequest,
 		},
 		{
 			name: "missing_database",
-			body: map[string]any{"TableData": map[string]any{"TableCatalogId": "123", "TableName": "tbl", "Name": "f"}},
+			body: map[string]any{
+				"TableData": map[string]any{"TableCatalogId": "123", "TableName": "tbl", "Name": "f"},
+			},
 			status: http.StatusBadRequest,
 		},
 		{
 			name: "missing_table",
-			body: map[string]any{"TableData": map[string]any{"TableCatalogId": "123", "DatabaseName": "db", "Name": "f"}},
+			body: map[string]any{
+				"TableData": map[string]any{"TableCatalogId": "123", "DatabaseName": "db", "Name": "f"},
+			},
 			status: http.StatusBadRequest,
 		},
 		{
