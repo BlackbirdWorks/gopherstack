@@ -130,6 +130,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "rdsdata",
   "iotdataplane",
   "iotanalytics",
+  "lakeformation",
 ]);
 
 // The 25 most commonly used AWS services shown in the sidebar.
