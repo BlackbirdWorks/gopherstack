@@ -29,6 +29,10 @@ var (
 	ErrExtensionAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	// ErrBadRequest is returned when a required field is missing or invalid.
 	ErrBadRequest = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
+	// ErrConflict is returned when a resource with the same name already exists.
+	ErrConflict = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	// ErrPayloadTooLarge is returned when a hosted configuration version exceeds the maximum size.
+	ErrPayloadTooLarge = awserr.New("PayloadTooLargeException", awserr.ErrInvalidParameter)
 )
 
 // Application represents an AppConfig application.
@@ -41,25 +45,40 @@ type Application struct {
 	Description string    `json:"Description,omitempty"`
 }
 
+// Monitor represents an Amazon CloudWatch alarm used to monitor an AppConfig environment.
+type Monitor struct {
+	AlarmArn      string `json:"AlarmArn"`
+	AlarmRoleArn  string `json:"AlarmRoleArn,omitempty"`
+}
+
 // Environment represents an AppConfig environment.
 type Environment struct {
-	CreatedAt     time.Time `json:"CreatedAt,omitzero"`
-	UpdatedAt     time.Time `json:"UpdatedAt,omitzero"`
-	ApplicationID string    `json:"ApplicationId"`
-	ID            string    `json:"Id"`
-	Name          string    `json:"Name"`
-	Description   string    `json:"Description,omitempty"`
-	State         string    `json:"State"`
+	CreatedAt     time.Time  `json:"CreatedAt,omitzero"`
+	UpdatedAt     time.Time  `json:"UpdatedAt,omitzero"`
+	ApplicationID string     `json:"ApplicationId"`
+	ID            string     `json:"Id"`
+	Name          string     `json:"Name"`
+	Description   string     `json:"Description,omitempty"`
+	State         string     `json:"State"`
+	Monitors      []Monitor  `json:"Monitors,omitempty"`
+}
+
+// Validator represents a validator for a configuration profile.
+type Validator struct {
+	Type    string `json:"Type"`    // JSON_SCHEMA or LAMBDA
+	Content string `json:"Content"` // JSON schema doc or Lambda ARN
 }
 
 // ConfigurationProfile represents an AppConfig configuration profile.
 type ConfigurationProfile struct {
-	ApplicationID string `json:"ApplicationId"`
-	ID            string `json:"Id"`
-	Name          string `json:"Name"`
-	Description   string `json:"Description,omitempty"`
-	LocationURI   string `json:"LocationUri"`
-	Type          string `json:"Type,omitempty"`
+	ApplicationID    string      `json:"ApplicationId"`
+	ID               string      `json:"Id"`
+	Name             string      `json:"Name"`
+	Description      string      `json:"Description,omitempty"`
+	LocationURI      string      `json:"LocationUri"`
+	Type             string      `json:"Type,omitempty"`
+	RetrievalRoleArn string      `json:"RetrievalRoleArn,omitempty"`
+	Validators       []Validator `json:"Validators,omitempty"`
 }
 
 // HostedConfigurationVersion represents a hosted configuration version.
@@ -68,6 +87,8 @@ type HostedConfigurationVersion struct {
 	ApplicationID          string    `json:"ApplicationId"`
 	ConfigurationProfileID string    `json:"ConfigurationProfileId"`
 	ContentType            string    `json:"ContentType"`
+	Description            string    `json:"Description,omitempty"`
+	VersionLabel           string    `json:"VersionLabel,omitempty"`
 	Content                []byte    `json:"-"`
 	VersionNumber          int32     `json:"VersionNumber"`
 }
@@ -96,6 +117,9 @@ type Deployment struct {
 	DeploymentStrategyID   string    `json:"DeploymentStrategyId"`
 	ConfigurationVersion   string    `json:"ConfigurationVersion"`
 	State                  string    `json:"State"`
+	TriggeredBy            string    `json:"TriggeredBy,omitempty"`
+	Description            string    `json:"Description,omitempty"`
+	PercentageComplete     float32   `json:"PercentageComplete,omitempty"`
 	DeploymentNumber       int32     `json:"DeploymentNumber"`
 }
 

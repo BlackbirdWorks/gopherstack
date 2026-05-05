@@ -17,7 +17,7 @@ type StorageBackend interface {
 	DeleteApplication(applicationID string) error
 
 	// CreateEnvironment creates a new environment within an application.
-	CreateEnvironment(applicationID, name, description string) (*Environment, error)
+	CreateEnvironment(applicationID, name, description string, monitors []Monitor) (*Environment, error)
 	// GetEnvironment retrieves an environment by application and environment ID.
 	GetEnvironment(applicationID, environmentID string) (*Environment, error)
 	// ListEnvironments returns paginated environments for an application.
@@ -29,7 +29,8 @@ type StorageBackend interface {
 
 	// CreateConfigurationProfile creates a new configuration profile.
 	CreateConfigurationProfile(
-		applicationID, name, description, locationURI, profileType string,
+		applicationID, name, description, locationURI, profileType, retrievalRoleArn string,
+		validators []Validator,
 	) (*ConfigurationProfile, error)
 	// GetConfigurationProfile retrieves a configuration profile.
 	GetConfigurationProfile(applicationID, profileID string) (*ConfigurationProfile, error)
@@ -42,7 +43,7 @@ type StorageBackend interface {
 
 	// CreateHostedConfigurationVersion creates a hosted configuration version.
 	CreateHostedConfigurationVersion(
-		applicationID, profileID, contentType string,
+		applicationID, profileID, contentType, description, versionLabel string,
 		content []byte,
 	) (*HostedConfigurationVersion, error)
 	// GetHostedConfigurationVersion retrieves a hosted configuration version.
@@ -52,7 +53,7 @@ type StorageBackend interface {
 	) (*HostedConfigurationVersion, error)
 	// ListHostedConfigurationVersions returns paginated versions for a profile.
 	ListHostedConfigurationVersions(
-		applicationID, profileID, nextToken string,
+		applicationID, profileID, nextToken, versionLabel string,
 		maxResults int,
 	) ([]HostedConfigurationVersion, string, error)
 	// DeleteHostedConfigurationVersion deletes a hosted configuration version.
@@ -80,7 +81,7 @@ type StorageBackend interface {
 
 	// StartDeployment starts a deployment.
 	StartDeployment(
-		applicationID, environmentID, configProfileID, strategyID, configVersion string,
+		applicationID, environmentID, configProfileID, strategyID, configVersion, description string,
 	) (*Deployment, error)
 	// GetDeployment retrieves a deployment by application, environment, and deployment number.
 	GetDeployment(applicationID, environmentID string, deploymentNumber int32) (*Deployment, error)
@@ -104,8 +105,8 @@ type StorageBackend interface {
 	) (*Extension, error)
 	// GetExtension retrieves an extension by identifier (ID or name).
 	GetExtension(extensionIdentifier string) (*Extension, error)
-	// ListExtensions returns paginated extensions, optionally filtered by name.
-	ListExtensions(nextToken string, maxResults int, nameFilter string) ([]Extension, string)
+	// ListExtensions returns paginated extensions, optionally filtered by name and/or version.
+	ListExtensions(nextToken string, maxResults int, nameFilter string, versionNumber int32) ([]Extension, string)
 	// UpdateExtension updates an extension's description, actions, and parameters.
 	UpdateExtension(
 		extensionIdentifier, description string,
@@ -124,7 +125,7 @@ type StorageBackend interface {
 	// GetExtensionAssociation retrieves an extension association by ID.
 	GetExtensionAssociation(extensionAssociationID string) (*ExtensionAssociation, error)
 	// ListExtensionAssociations returns paginated extension associations.
-	ListExtensionAssociations(nextToken string, maxResults int) ([]ExtensionAssociation, string)
+	ListExtensionAssociations(nextToken, extensionIdentifier, resourceIdentifier string, maxResults int) ([]ExtensionAssociation, string)
 	// UpdateExtensionAssociation updates an extension association's parameters.
 	UpdateExtensionAssociation(
 		extensionAssociationID string,

@@ -709,6 +709,10 @@ func (h *Handler) handleCreateApplication(c *echo.Context) error {
 			return badRequestResponse(c, err)
 		}
 
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
+		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 	}
 
@@ -775,17 +779,26 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, applicationID string)
 
 func (h *Handler) handleCreateEnvironment(c *echo.Context, applicationID string) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
+		Monitors    []Monitor `json:"Monitors"`
+		Name        string    `json:"Name"`
+		Description string    `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
 	}
 
-	env, err := h.Backend.CreateEnvironment(applicationID, req.Name, req.Description)
+	env, err := h.Backend.CreateEnvironment(applicationID, req.Name, req.Description, req.Monitors)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
@@ -862,10 +875,12 @@ func (h *Handler) handleDeleteEnvironment(c *echo.Context, applicationID, enviro
 
 func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationID string) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
-		LocationURI string `json:"LocationUri"`
-		Type        string `json:"Type"`
+		Validators       []Validator `json:"Validators"`
+		Name             string      `json:"Name"`
+		Description      string      `json:"Description"`
+		LocationURI      string      `json:"LocationUri"`
+		Type             string      `json:"Type"`
+		RetrievalRoleArn string      `json:"RetrievalRoleArn"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
@@ -877,10 +892,20 @@ func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationI
 		req.Description,
 		req.LocationURI,
 		req.Type,
+		req.RetrievalRoleArn,
+		req.Validators,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
@@ -961,15 +986,27 @@ func (h *Handler) handleCreateHostedConfigurationVersion(c *echo.Context, applic
 		contentType = "application/octet-stream"
 	}
 
+	// AWS AppConfig accepts description and version label via custom request headers.
+	description := c.Request().Header.Get("Description")
+	versionLabel := c.Request().Header.Get("VersionLabel")
+
 	content, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: "failed to read request body"})
 	}
 
-	v, err := h.Backend.CreateHostedConfigurationVersion(applicationID, profileID, contentType, content)
+	v, err := h.Backend.CreateHostedConfigurationVersion(applicationID, profileID, contentType, description, versionLabel, content)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrAlreadyExists) {
+			return conflictResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
@@ -1002,10 +1039,12 @@ func (h *Handler) handleGetHostedConfigurationVersion(
 
 func (h *Handler) handleListHostedConfigurationVersions(c *echo.Context, applicationID, profileID string) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
+	versionLabel := c.Request().URL.Query().Get("version_label")
 	versions, outToken, err := h.Backend.ListHostedConfigurationVersions(
 		applicationID,
 		profileID,
 		nextToken,
+		versionLabel,
 		maxResults,
 	)
 
@@ -1162,6 +1201,7 @@ func (h *Handler) handleStartDeployment(c *echo.Context, applicationID, environm
 		ConfigurationProfileID string `json:"ConfigurationProfileId"`
 		DeploymentStrategyID   string `json:"DeploymentStrategyId"`
 		ConfigurationVersion   string `json:"ConfigurationVersion"`
+		Description            string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: errInvalidRequestBody})
@@ -1170,11 +1210,15 @@ func (h *Handler) handleStartDeployment(c *echo.Context, applicationID, environm
 	deployment, err := h.Backend.StartDeployment(
 		applicationID, environmentID,
 		req.ConfigurationProfileID, req.DeploymentStrategyID,
-		req.ConfigurationVersion,
+		req.ConfigurationVersion, req.Description,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
@@ -1312,8 +1356,15 @@ func (h *Handler) handleGetExtension(c *echo.Context, extensionID string) error 
 
 func (h *Handler) handleListExtensions(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
-	nameFilter := c.Request().URL.Query().Get("name")
-	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter)
+	q := c.Request().URL.Query()
+	nameFilter := q.Get("name")
+	var versionNumber int32
+	if s := q.Get("extension_version_number"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			versionNumber = int32(n)
+		}
+	}
+	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter, versionNumber)
 
 	resp := map[string]any{keyItems: exts}
 	if outToken != "" {
@@ -1404,7 +1455,10 @@ func (h *Handler) handleGetExtensionAssociation(c *echo.Context, extensionAssoci
 
 func (h *Handler) handleListExtensionAssociations(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
-	assocs, outToken := h.Backend.ListExtensionAssociations(nextToken, maxResults)
+	q := c.Request().URL.Query()
+	extIdentifier := q.Get("extension_identifier")
+	resourceIdentifier := q.Get("resource_identifier")
+	assocs, outToken := h.Backend.ListExtensionAssociations(nextToken, extIdentifier, resourceIdentifier, maxResults)
 
 	resp := map[string]any{keyItems: assocs}
 	if outToken != "" {

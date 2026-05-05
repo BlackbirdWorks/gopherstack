@@ -440,9 +440,25 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	var env appconfig.Environment
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
 
+	// Create configuration profile (required by StartDeployment validation).
+	profBody := []byte(`{"name":"my-profile","locationUri":"hosted"}`)
+	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles", profBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var prof appconfig.ConfigurationProfile
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &prof))
+
+	// Create deployment strategy (required by StartDeployment validation).
+	stratBody := []byte(`{"name":"my-strategy","deploymentDurationInMinutes":10,"growthFactor":20}`)
+	rec = doRequest(t, h, http.MethodPost, "/deploymentstrategies", stratBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var strat appconfig.DeploymentStrategy
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strat))
+
 	// Start deployment.
-	depBody := []byte(`{"configurationProfileId":"prof-1","deploymentStrategyId":"strat-1","configurationVersion":"1"}`)
-	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments/"+env.ID+"/deployments", depBody)
+	depBodyStr := `{"configurationProfileId":"` + prof.ID + `","deploymentStrategyId":"` + strat.ID + `","configurationVersion":"1"}`
+	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments/"+env.ID+"/deployments", []byte(depBodyStr))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var dep appconfig.Deployment
@@ -458,7 +474,7 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/applications/"+app.ID+"/environments/"+env.ID+"/deployments", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Stop deployment.
+	// Stop deployment (COMPLETE deployments can be rolled back in stub).
 	rec = doRequest(t, h, http.MethodDelete, "/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1", nil)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
@@ -510,7 +526,7 @@ func TestBackend_CreateEnvironment_AppNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateEnvironment("nonexistent", "env", "")
+	_, err := b.CreateEnvironment("nonexistent", "env", "", nil)
 	require.Error(t, err)
 }
 
@@ -574,7 +590,7 @@ func TestBackend_HostedConfigVersion_ProfileNotFound(t *testing.T) {
 	app, err := b.CreateApplication("app", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateHostedConfigurationVersion(app.ID, "nonexistent-profile", "application/json", []byte("{}"))
+	_, err = b.CreateHostedConfigurationVersion(app.ID, "nonexistent-profile", "application/json", "", "", []byte("{}"))
 	require.Error(t, err)
 }
 

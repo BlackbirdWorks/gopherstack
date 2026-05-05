@@ -94,6 +94,12 @@ func (b *InMemoryBackend) CreateApplication(name, description string) (*Applicat
 		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
 	}
 
+	for _, a := range b.applications {
+		if a.Name == name {
+			return nil, fmt.Errorf("%w: application with name %q already exists", ErrConflict, name)
+		}
+	}
+
 	now := time.Now()
 	app := &Application{
 		ID:          newResourceID(),
@@ -193,9 +199,13 @@ func (b *InMemoryBackend) DeleteApplication(applicationID string) error {
 }
 
 // CreateEnvironment creates a new environment within an application.
-func (b *InMemoryBackend) CreateEnvironment(applicationID, name, description string) (*Environment, error) {
+func (b *InMemoryBackend) CreateEnvironment(applicationID, name, description string, monitors []Monitor) (*Environment, error) {
 	b.mu.Lock("CreateEnvironment")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
+	}
 
 	if _, ok := b.applications[applicationID]; !ok {
 		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
@@ -205,6 +215,12 @@ func (b *InMemoryBackend) CreateEnvironment(applicationID, name, description str
 		b.environments[applicationID] = make(map[string]*Environment)
 	}
 
+	for _, e := range b.environments[applicationID] {
+		if e.Name == name {
+			return nil, fmt.Errorf("%w: environment with name %q already exists in application %s", ErrConflict, name, applicationID)
+		}
+	}
+
 	now := time.Now()
 	env := &Environment{
 		ID:            newResourceID(),
@@ -212,6 +228,7 @@ func (b *InMemoryBackend) CreateEnvironment(applicationID, name, description str
 		Name:          name,
 		Description:   description,
 		State:         "ReadyForDeployment",
+		Monitors:      monitors,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -317,10 +334,19 @@ func (b *InMemoryBackend) DeleteEnvironment(applicationID, environmentID string)
 
 // CreateConfigurationProfile creates a new configuration profile.
 func (b *InMemoryBackend) CreateConfigurationProfile(
-	applicationID, name, description, locationURI, profileType string,
+	applicationID, name, description, locationURI, profileType, retrievalRoleArn string,
+	validators []Validator,
 ) (*ConfigurationProfile, error) {
 	b.mu.Lock("CreateConfigurationProfile")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
+	}
+
+	if locationURI == "" {
+		return nil, fmt.Errorf("%w: LocationUri is required", ErrBadRequest)
+	}
 
 	if _, ok := b.applications[applicationID]; !ok {
 		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
@@ -330,13 +356,21 @@ func (b *InMemoryBackend) CreateConfigurationProfile(
 		b.configProfiles[applicationID] = make(map[string]*ConfigurationProfile)
 	}
 
+	for _, p := range b.configProfiles[applicationID] {
+		if p.Name == name {
+			return nil, fmt.Errorf("%w: configuration profile with name %q already exists in application %s", ErrConflict, name, applicationID)
+		}
+	}
+
 	profile := &ConfigurationProfile{
-		ID:            newResourceID(),
-		ApplicationID: applicationID,
-		Name:          name,
-		Description:   description,
-		LocationURI:   locationURI,
-		Type:          profileType,
+		ID:               newResourceID(),
+		ApplicationID:    applicationID,
+		Name:             name,
+		Description:      description,
+		LocationURI:      locationURI,
+		Type:             profileType,
+		RetrievalRoleArn: retrievalRoleArn,
+		Validators:       validators,
 	}
 	b.configProfiles[applicationID][profile.ID] = profile
 	cp := *profile
@@ -437,13 +471,19 @@ func (b *InMemoryBackend) DeleteConfigurationProfile(applicationID, profileID st
 	return nil
 }
 
+const maxHostedConfigSizeBytes = 1024 * 1024 // 1 MiB, matching AWS limit
+
 // CreateHostedConfigurationVersion creates a hosted configuration version.
 func (b *InMemoryBackend) CreateHostedConfigurationVersion(
-	applicationID, profileID, contentType string,
+	applicationID, profileID, contentType, description, versionLabel string,
 	content []byte,
 ) (*HostedConfigurationVersion, error) {
 	b.mu.Lock("CreateHostedConfigurationVersion")
 	defer b.mu.Unlock()
+
+	if len(content) > maxHostedConfigSizeBytes {
+		return nil, fmt.Errorf("%w: content exceeds maximum size of %d bytes", ErrPayloadTooLarge, maxHostedConfigSizeBytes)
+	}
 
 	if _, ok := b.applications[applicationID]; !ok {
 		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
@@ -466,6 +506,15 @@ func (b *InMemoryBackend) CreateHostedConfigurationVersion(
 		b.versionCounters[applicationID] = make(map[string]int32)
 	}
 
+	// VersionLabel must be unique across versions for this profile.
+	if versionLabel != "" {
+		for _, v := range b.hostedConfigVersions[applicationID][profileID] {
+			if v.VersionLabel == versionLabel {
+				return nil, fmt.Errorf("%w: version label %q already exists for profile %s", ErrConflict, versionLabel, profileID)
+			}
+		}
+	}
+
 	b.versionCounters[applicationID][profileID]++
 	versionNumber := b.versionCounters[applicationID][profileID]
 
@@ -473,6 +522,8 @@ func (b *InMemoryBackend) CreateHostedConfigurationVersion(
 		ApplicationID:          applicationID,
 		ConfigurationProfileID: profileID,
 		ContentType:            contentType,
+		Description:            description,
+		VersionLabel:           versionLabel,
 		Content:                content,
 		VersionNumber:          versionNumber,
 		CreatedAt:              time.Now(),
@@ -511,9 +562,9 @@ func (b *InMemoryBackend) GetHostedConfigurationVersion(
 	return &cp, nil
 }
 
-// ListHostedConfigurationVersions returns paginated versions for a profile.
+// ListHostedConfigurationVersions returns paginated versions for a profile, optionally filtered by versionLabel.
 func (b *InMemoryBackend) ListHostedConfigurationVersions(
-	applicationID, profileID, nextToken string, maxResults int,
+	applicationID, profileID, nextToken, versionLabel string, maxResults int,
 ) ([]HostedConfigurationVersion, string, error) {
 	b.mu.RLock("ListHostedConfigurationVersions")
 	defer b.mu.RUnlock()
@@ -530,6 +581,10 @@ func (b *InMemoryBackend) ListHostedConfigurationVersions(
 
 	out := make([]HostedConfigurationVersion, 0, len(profileVersions))
 	for _, v := range profileVersions {
+		if versionLabel != "" && v.VersionLabel != versionLabel {
+			continue
+		}
+
 		out = append(out, *v)
 	}
 
@@ -573,6 +628,16 @@ func (b *InMemoryBackend) CreateDeploymentStrategy(
 ) (*DeploymentStrategy, error) {
 	b.mu.Lock("CreateDeploymentStrategy")
 	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
+	}
+
+	for _, s := range b.deploymentStrategies {
+		if s.Name == name {
+			return nil, fmt.Errorf("%w: deployment strategy with name %q already exists", ErrConflict, name)
+		}
+	}
 
 	now := time.Now()
 	strategy := &DeploymentStrategy{
@@ -670,13 +735,25 @@ func (b *InMemoryBackend) DeleteDeploymentStrategy(strategyID string) error {
 
 // StartDeployment starts a deployment.
 func (b *InMemoryBackend) StartDeployment(
-	applicationID, environmentID, configProfileID, strategyID, configVersion string,
+	applicationID, environmentID, configProfileID, strategyID, configVersion, description string,
 ) (*Deployment, error) {
 	b.mu.Lock("StartDeployment")
 	defer b.mu.Unlock()
 
 	if _, ok := b.applications[applicationID]; !ok {
 		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
+	}
+
+	if _, ok := b.environments[applicationID][environmentID]; !ok {
+		return nil, fmt.Errorf("%w: environment %s", ErrEnvironmentNotFound, environmentID)
+	}
+
+	if profiles := b.configProfiles[applicationID]; profiles == nil || profiles[configProfileID] == nil {
+		return nil, fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, configProfileID)
+	}
+
+	if _, ok := b.deploymentStrategies[strategyID]; !ok {
+		return nil, fmt.Errorf("%w: deployment strategy %s", ErrDeploymentStrategyNotFound, strategyID)
 	}
 
 	if b.deployments[applicationID] == nil {
@@ -701,7 +778,10 @@ func (b *InMemoryBackend) StartDeployment(
 		ConfigurationProfileID: configProfileID,
 		DeploymentStrategyID:   strategyID,
 		ConfigurationVersion:   configVersion,
+		Description:            description,
 		State:                  "COMPLETE",
+		TriggeredBy:            "USER",
+		PercentageComplete:     100.0,
 		DeploymentNumber:       deploymentNumber,
 		StartedAt:              now,
 		CompletedAt:            now,
@@ -771,6 +851,13 @@ func (b *InMemoryBackend) ListDeployments(
 	return page, token, nil
 }
 
+// stoppableDeploymentStates are the states from which a deployment can be stopped.
+var stoppableDeploymentStates = map[string]bool{
+	"BAKING":      true,
+	"DEPLOYING":   true,
+	"VALIDATING":  true,
+}
+
 // StopDeployment stops an in-progress deployment.
 func (b *InMemoryBackend) StopDeployment(applicationID, environmentID string, deploymentNumber int32) error {
 	b.mu.Lock("StopDeployment")
@@ -791,7 +878,13 @@ func (b *InMemoryBackend) StopDeployment(applicationID, environmentID string, de
 		return fmt.Errorf("%w: deployment %d", ErrDeploymentNotFound, deploymentNumber)
 	}
 
-	d.State = "ROLLEDBACK"
+	// Allow stopping from any non-terminal state to keep in-memory stub pragmatic.
+	// (Real deployments complete instantly here so we still accept the request.)
+	if d.State != "COMPLETE" && d.State != "ROLLED_BACK" && !stoppableDeploymentStates[d.State] {
+		return fmt.Errorf("%w: cannot stop deployment in state %s", ErrBadRequest, d.State)
+	}
+
+	d.State = "ROLLED_BACK"
 	d.CompletedAt = time.Now()
 
 	return nil
@@ -906,8 +999,8 @@ func (b *InMemoryBackend) GetExtension(extensionIdentifier string) (*Extension, 
 	return &cp, nil
 }
 
-// ListExtensions returns paginated extensions, optionally filtered by name.
-func (b *InMemoryBackend) ListExtensions(nextToken string, maxResults int, nameFilter string) ([]Extension, string) {
+// ListExtensions returns paginated extensions, optionally filtered by name and/or version number.
+func (b *InMemoryBackend) ListExtensions(nextToken string, maxResults int, nameFilter string, versionNumber int32) ([]Extension, string) {
 	b.mu.RLock("ListExtensions")
 	defer b.mu.RUnlock()
 
@@ -915,6 +1008,10 @@ func (b *InMemoryBackend) ListExtensions(nextToken string, maxResults int, nameF
 
 	for _, ext := range b.extensions {
 		if nameFilter != "" && ext.Name != nameFilter {
+			continue
+		}
+
+		if versionNumber > 0 && ext.VersionNumber != versionNumber {
 			continue
 		}
 
@@ -1031,13 +1128,22 @@ func (b *InMemoryBackend) GetExtensionAssociation(extensionAssociationID string)
 	return &cp, nil
 }
 
-// ListExtensionAssociations returns paginated extension associations.
-func (b *InMemoryBackend) ListExtensionAssociations(nextToken string, maxResults int) ([]ExtensionAssociation, string) {
+// ListExtensionAssociations returns paginated extension associations,
+// optionally filtered by extensionIdentifier (ARN prefix) and/or resourceIdentifier (ARN prefix).
+func (b *InMemoryBackend) ListExtensionAssociations(nextToken, extensionIdentifier, resourceIdentifier string, maxResults int) ([]ExtensionAssociation, string) {
 	b.mu.RLock("ListExtensionAssociations")
 	defer b.mu.RUnlock()
 
 	out := make([]ExtensionAssociation, 0, len(b.extensionAssociations))
 	for _, a := range b.extensionAssociations {
+		if extensionIdentifier != "" && a.ExtensionArn != extensionIdentifier {
+			continue
+		}
+
+		if resourceIdentifier != "" && a.ResourceArn != resourceIdentifier {
+			continue
+		}
+
 		out = append(out, *a)
 	}
 
