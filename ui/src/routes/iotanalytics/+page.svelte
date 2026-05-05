@@ -494,14 +494,14 @@
 						</button>
 						<button onclick={() => (showCreateChannel = true)}
 							class="flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700">
-							<Plus class="h-4 w-4" /> Create
+							+ Create Channel
 						</button>
 					</div>
 				</div>
 				{#if channels.length === 0}
 					<div class="flex flex-col items-center py-8 text-muted-foreground">
 						<Radio class="h-10 w-10 mb-2 opacity-20" />
-						<p class="text-sm">No channels</p>
+						<p class="text-sm">No channels found</p>
 					</div>
 				{:else}
 					<div class="rounded-lg border overflow-hidden">
@@ -516,7 +516,7 @@
 							<tbody class="divide-y">
 								{#each channels as ch}
 									<tr class="hover:bg-muted/30">
-										<td class="px-4 py-3 font-mono text-xs">{ch.channelName}</td>
+										<td class="px-4 py-3 font-medium font-mono text-xs">{ch.channelName}</td>
 										<td class="px-4 py-3">
 											<span class="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700 dark:bg-green-900 dark:text-green-300">
 												{ch.status ?? 'ACTIVE'}
@@ -534,11 +534,11 @@
 												</button>
 												<button onclick={() => deleteChannel(ch.channelName ?? '')}
 													disabled={deletingChannel === ch.channelName}
-													class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
+													class="rounded border px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
 													{#if deletingChannel === ch.channelName}
-														<RefreshCw class="h-4 w-4 animate-spin" />
+														<RefreshCw class="h-3 w-3 animate-spin inline" />
 													{:else}
-														<Trash2 class="h-4 w-4" />
+														Delete
 													{/if}
 												</button>
 											</div>
@@ -958,7 +958,7 @@
 		<div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-800">
 			<h3 class="mb-4 text-lg font-semibold">Create Channel</h3>
 			<form onsubmit={(e) => { e.preventDefault(); createChannel(); }} class="space-y-4">
-				<input use:focusOnMount bind:value={newChannelName} placeholder="Channel name"
+				<input id="channel-name" use:focusOnMount bind:value={newChannelName} placeholder="Channel name"
 					class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 				<p class="text-xs text-muted-foreground">Letters, digits, underscores, hyphens. 1-128 chars.</p>
 				<div class="flex justify-end gap-3">
