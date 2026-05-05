@@ -4,14 +4,19 @@ import "time"
 
 // ScalingPolicy represents a scaling policy for an Auto Scaling group.
 type ScalingPolicy struct {
-	PolicyName           string `json:"PolicyName"`
-	PolicyARN            string `json:"PolicyARN"`
-	AutoScalingGroupName string `json:"AutoScalingGroupName"`
-	PolicyType           string `json:"PolicyType,omitempty"`
-	AdjustmentType       string `json:"AdjustmentType,omitempty"`
-	ScalingAdjustment    int32  `json:"ScalingAdjustment,omitempty"`
-	MinAdjustmentStep    int32  `json:"MinAdjustmentStep,omitempty"`
-	Cooldown             int32  `json:"Cooldown,omitempty"`
+	PolicyName           string  `json:"PolicyName"`
+	PolicyARN            string  `json:"PolicyARN"`
+	AutoScalingGroupName string  `json:"AutoScalingGroupName"`
+	PolicyType           string  `json:"PolicyType,omitempty"`
+	AdjustmentType       string  `json:"AdjustmentType,omitempty"`
+	MetricType           string  `json:"MetricType,omitempty"` // predefined metric type
+	CustomMetricSpec     string  `json:"CustomMetricSpec,omitempty"`
+	TargetValue          float64 `json:"TargetValue,omitempty"`
+	ScalingAdjustment    int32   `json:"ScalingAdjustment,omitempty"`
+	MinAdjustmentStep    int32   `json:"MinAdjustmentStep,omitempty"`
+	Cooldown             int32   `json:"Cooldown,omitempty"`
+	EstimatedWarmup      int32   `json:"EstimatedWarmup,omitempty"`
+	DisableScaleIn       bool    `json:"DisableScaleIn,omitempty"`
 }
 
 // ScalingPolicyInput holds the input for PutScalingPolicy.
@@ -20,9 +25,13 @@ type ScalingPolicyInput struct {
 	AutoScalingGroupName string
 	PolicyType           string
 	AdjustmentType       string
+	MetricType           string
+	TargetValue          float64
 	ScalingAdjustment    int32
 	MinAdjustmentStep    int32
 	Cooldown             int32
+	EstimatedWarmup      int32
+	DisableScaleIn       bool
 }
 
 // NotificationConfiguration represents a notification configuration for an Auto Scaling group.
@@ -115,6 +124,7 @@ type pendingHookAction struct {
 //nolint:revive // AutoScalingGroup is the canonical AWS type name; renaming to Group would break convention.
 type AutoScalingGroup struct {
 	CreatedTime             time.Time       `json:"CreatedTime"`
+	LastScalingActivity     time.Time       `json:"LastScalingActivity,omitzero"`
 	AutoScalingGroupName    string          `json:"AutoScalingGroupName"`
 	Status                  string          `json:"Status,omitempty"`
 	HealthCheckType         string          `json:"HealthCheckType"`
@@ -228,6 +238,10 @@ type InstanceRefresh struct {
 	InstanceRefreshID    string    `json:"InstanceRefreshId"`
 	AutoScalingGroupName string    `json:"AutoScalingGroupName"`
 	Status               string    `json:"Status"`
+	// Strategy is the instance refresh strategy; defaults to "Rolling".
+	Strategy string `json:"Strategy,omitempty"`
+	// MinHealthyPercentage is the minimum healthy percentage during refresh; defaults to 90.
+	MinHealthyPercentage int32 `json:"MinHealthyPercentage,omitempty"`
 }
 
 // LifecycleHook represents a lifecycle hook attached to an Auto Scaling group.

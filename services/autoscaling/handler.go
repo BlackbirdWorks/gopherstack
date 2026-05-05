@@ -2,6 +2,7 @@ package autoscaling
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -370,12 +371,52 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 	}, nil
 }
 
+const (
+	// defaultMaxRecords is the default max records for paginated responses.
+	defaultMaxRecords = int32(100)
+	// maxMaxRecords is the maximum max records allowed.
+	maxMaxRecords = int32(100)
+)
+
 func (h *Handler) handleDescribeAutoScalingGroups(vals url.Values) (any, error) {
 	names := parseMembers(vals, "AutoScalingGroupNames.member")
 
 	groups, err := h.Backend.DescribeAutoScalingGroups(names)
 	if err != nil {
 		return nil, err
+	}
+
+	// Parse MaxRecords (default 100, max 100)
+	maxRecords := defaultMaxRecords
+	if v := vals.Get("MaxRecords"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil && n > 0 {
+			maxRecords = min(n, maxMaxRecords)
+		}
+	}
+
+	// Apply NextToken cursor (base64-encoded last group name)
+	nextToken := vals.Get("NextToken")
+	if nextToken != "" {
+		if decoded, decErr := base64.StdEncoding.DecodeString(nextToken); decErr == nil {
+			lastName := string(decoded)
+			// Skip groups up to and including lastName
+			for i, g := range groups {
+				if g.AutoScalingGroupName == lastName {
+					groups = groups[i+1:]
+
+					break
+				}
+			}
+		}
+	}
+
+	// Paginate
+	var returnedNextToken string
+	if int32(len(groups)) > maxRecords { //nolint:gosec // bounded by maxMaxRecords
+		returnedNextToken = base64.StdEncoding.EncodeToString(
+			[]byte(groups[maxRecords-1].AutoScalingGroupName),
+		)
+		groups = groups[:maxRecords]
 	}
 
 	members := make([]xmlAutoScalingGroup, 0, len(groups))
@@ -386,6 +427,7 @@ func (h *Handler) handleDescribeAutoScalingGroups(vals url.Values) (any, error) 
 	return &describeAutoScalingGroupsResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: describeAutoScalingGroupsResult{
+			NextToken:         returnedNextToken,
 			AutoScalingGroups: xmlAutoScalingGroupList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-describe-groups"},
@@ -547,6 +589,14 @@ func (h *Handler) handleDescribeScalingActivities(vals url.Values) (any, error) 
 	activities, err := h.Backend.DescribeScalingActivities(groupName)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply MaxRecords if provided
+	if maxStr := vals.Get("MaxRecords"); maxStr != "" {
+		maxRecords, parseErr := parseIntVal(maxStr)
+		if parseErr == nil && maxRecords > 0 && int(maxRecords) < len(activities) {
+			activities = activities[:maxRecords]
+		}
 	}
 
 	members := make([]xmlScalingActivity, 0, len(activities))
@@ -1069,7 +1119,13 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
 			LifecycleState:          inst.LifecycleState,
 			HealthStatus:            inst.HealthStatus,
 			LaunchConfigurationName: inst.LaunchConfigurationName,
+			ProtectedFromScaleIn:    inst.ProtectedFromScaleIn,
 		})
+	}
+
+	suspendedProcesses := make([]xmlSuspendedProcess, 0, len(g.SuspendedProcesses))
+	for _, p := range g.SuspendedProcesses {
+		suspendedProcesses = append(suspendedProcesses, xmlSuspendedProcess{ProcessName: p})
 	}
 
 	return xmlAutoScalingGroup{
@@ -1089,6 +1145,7 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
 		TargetGroupARNs:         xmlStringValueList{Members: tgARNs},
 		Tags:                    xmlTagList{Members: tags},
 		Instances:               xmlInstanceList{Members: instances},
+		SuspendedProcesses:      xmlSuspendedProcessList{Members: suspendedProcesses},
 	}
 }
 
@@ -1190,29 +1247,40 @@ type xmlInstance struct {
 	LifecycleState          string `xml:"LifecycleState"`
 	HealthStatus            string `xml:"HealthStatus"`
 	LaunchConfigurationName string `xml:"LaunchConfigurationName,omitempty"`
+	ProtectedFromScaleIn    bool   `xml:"ProtectedFromScaleIn,omitempty"`
 }
 
 type xmlInstanceList struct {
 	Members []xmlInstance `xml:"member"`
 }
 
+type xmlSuspendedProcess struct {
+	ProcessName      string `xml:"ProcessName"`
+	SuspensionReason string `xml:"SuspensionReason,omitempty"`
+}
+
+type xmlSuspendedProcessList struct {
+	Members []xmlSuspendedProcess `xml:"member"`
+}
+
 type xmlAutoScalingGroup struct {
-	AutoScalingGroupARN     string             `xml:"AutoScalingGroupARN"`
-	Status                  string             `xml:"Status,omitempty"`
-	CreatedTime             string             `xml:"CreatedTime"`
-	HealthCheckType         string             `xml:"HealthCheckType"`
-	LaunchConfigurationName string             `xml:"LaunchConfigurationName,omitempty"`
-	AutoScalingGroupName    string             `xml:"AutoScalingGroupName"`
-	Instances               xmlInstanceList    `xml:"Instances"`
-	AvailabilityZones       xmlStringValueList `xml:"AvailabilityZones"`
-	Tags                    xmlTagList         `xml:"Tags"`
-	TargetGroupARNs         xmlStringValueList `xml:"TargetGroupARNs"`
-	LoadBalancerNames       xmlStringValueList `xml:"LoadBalancerNames"`
-	MinSize                 int32              `xml:"MinSize"`
-	MaxSize                 int32              `xml:"MaxSize"`
-	DesiredCapacity         int32              `xml:"DesiredCapacity"`
-	DefaultCooldown         int32              `xml:"DefaultCooldown"`
-	HealthCheckGracePeriod  int32              `xml:"HealthCheckGracePeriod"`
+	AutoScalingGroupARN     string                  `xml:"AutoScalingGroupARN"`
+	Status                  string                  `xml:"Status,omitempty"`
+	CreatedTime             string                  `xml:"CreatedTime"`
+	HealthCheckType         string                  `xml:"HealthCheckType"`
+	LaunchConfigurationName string                  `xml:"LaunchConfigurationName,omitempty"`
+	AutoScalingGroupName    string                  `xml:"AutoScalingGroupName"`
+	Instances               xmlInstanceList         `xml:"Instances"`
+	AvailabilityZones       xmlStringValueList      `xml:"AvailabilityZones"`
+	Tags                    xmlTagList              `xml:"Tags"`
+	TargetGroupARNs         xmlStringValueList      `xml:"TargetGroupARNs"`
+	LoadBalancerNames       xmlStringValueList      `xml:"LoadBalancerNames"`
+	SuspendedProcesses      xmlSuspendedProcessList `xml:"SuspendedProcesses"`
+	MinSize                 int32                   `xml:"MinSize"`
+	MaxSize                 int32                   `xml:"MaxSize"`
+	DesiredCapacity         int32                   `xml:"DesiredCapacity"`
+	DefaultCooldown         int32                   `xml:"DefaultCooldown"`
+	HealthCheckGracePeriod  int32                   `xml:"HealthCheckGracePeriod"`
 }
 
 type xmlAutoScalingGroupList struct {
@@ -1797,6 +1865,8 @@ func (h *Handler) handleDescribeInstanceRefreshes(vals url.Values) (any, error) 
 			AutoScalingGroupName: r.AutoScalingGroupName,
 			Status:               r.Status,
 			StartTime:            r.StartTime.UTC().Format(time.RFC3339),
+			Strategy:             r.Strategy,
+			MinHealthyPercentage: r.MinHealthyPercentage,
 		})
 	}
 
@@ -1811,8 +1881,18 @@ func (h *Handler) handleDescribeInstanceRefreshes(vals url.Values) (any, error) 
 
 func (h *Handler) handleStartInstanceRefresh(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
+	strategy := vals.Get("Strategy")
 
-	refresh, err := h.Backend.StartInstanceRefresh(groupName)
+	minHealthy, err := parseIntVal(vals.Get("Preferences.MinHealthyPercentage"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Preferences.MinHealthyPercentage", ErrInvalidParameter)
+	}
+
+	refresh, err := h.Backend.StartInstanceRefreshWithInput(StartInstanceRefreshInput{
+		AutoScalingGroupName: groupName,
+		Strategy:             strategy,
+		MinHealthyPercentage: minHealthy,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2265,6 +2345,25 @@ func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid Cooldown", ErrInvalidParameter)
 	}
 
+	estimatedWarmup, err := parseIntVal(vals.Get("TargetTrackingConfiguration.EstimatedInstanceWarmup"))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid EstimatedInstanceWarmup", ErrInvalidParameter)
+	}
+
+	// Parse TargetTrackingConfiguration fields
+	var targetValue float64
+	if v := vals.Get("TargetTrackingConfiguration.TargetValue"); v != "" {
+		tv, parseErr := strconv.ParseFloat(v, 64)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: invalid TargetTrackingConfiguration.TargetValue", ErrInvalidParameter)
+		}
+
+		targetValue = tv
+	}
+
+	metricType := vals.Get("TargetTrackingConfiguration.PredefinedMetricSpecification.PredefinedMetricType")
+	disableScaleIn := vals.Get("TargetTrackingConfiguration.DisableScaleIn") == formValueTrue
+
 	input := ScalingPolicyInput{
 		AutoScalingGroupName: vals.Get("AutoScalingGroupName"),
 		PolicyName:           vals.Get("PolicyName"),
@@ -2273,6 +2372,10 @@ func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 		ScalingAdjustment:    scalingAdjustment,
 		MinAdjustmentStep:    minAdjustmentStep,
 		Cooldown:             cooldown,
+		TargetValue:          targetValue,
+		MetricType:           metricType,
+		DisableScaleIn:       disableScaleIn,
+		EstimatedWarmup:      estimatedWarmup,
 	}
 
 	policy, putErr := h.Backend.PutScalingPolicy(input)
@@ -2314,7 +2417,7 @@ func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 
 	members := make([]xmlScalingPolicy, 0, len(policies))
 	for _, p := range policies {
-		members = append(members, xmlScalingPolicy{
+		xmlPolicy := xmlScalingPolicy{
 			PolicyName:           p.PolicyName,
 			PolicyARN:            p.PolicyARN,
 			AutoScalingGroupName: p.AutoScalingGroupName,
@@ -2322,7 +2425,25 @@ func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 			AdjustmentType:       p.AdjustmentType,
 			ScalingAdjustment:    p.ScalingAdjustment,
 			Cooldown:             p.Cooldown,
-		})
+		}
+
+		if p.PolicyType == "TargetTrackingScaling" {
+			ttc := &xmlTargetTrackingConfiguration{
+				TargetValue:             p.TargetValue,
+				DisableScaleIn:          p.DisableScaleIn,
+				EstimatedInstanceWarmup: p.EstimatedWarmup,
+			}
+
+			if p.MetricType != "" {
+				ttc.PredefinedMetricSpecification = &xmlPredefinedMetricSpecification{
+					PredefinedMetricType: p.MetricType,
+				}
+			}
+
+			xmlPolicy.TargetTrackingConfiguration = ttc
+		}
+
+		members = append(members, xmlPolicy)
 	}
 
 	return &describePoliciesResponse{
@@ -2559,6 +2680,8 @@ type xmlInstanceRefresh struct {
 	AutoScalingGroupName string `xml:"AutoScalingGroupName"`
 	Status               string `xml:"Status"`
 	StartTime            string `xml:"StartTime"`
+	Strategy             string `xml:"Strategy,omitempty"`
+	MinHealthyPercentage int32  `xml:"Preferences>MinHealthyPercentage,omitempty"`
 }
 
 type xmlInstanceRefreshList struct {
@@ -2836,14 +2959,29 @@ type deletePolicyResponse struct {
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
+type xmlPredefinedMetricSpecification struct {
+	PredefinedMetricType string `xml:"PredefinedMetricType"`
+}
+
+type xmlTargetTrackingConfiguration struct {
+	PredefinedMetricSpecification *xmlPredefinedMetricSpecification `xml:"PredefinedMetricSpecification,omitempty"`
+	TargetValue                   float64                           `xml:"TargetValue"`
+	DisableScaleIn                bool                              `xml:"DisableScaleIn,omitempty"`
+	EstimatedInstanceWarmup       int32                             `xml:"EstimatedInstanceWarmup,omitempty"`
+}
+
+// xmlScalingPolicy is the XML type for a scaling policy.
+//
+//nolint:govet // fieldalignment: logical grouping prioritized over size optimization
 type xmlScalingPolicy struct {
-	PolicyName           string `xml:"PolicyName"`
-	PolicyARN            string `xml:"PolicyARN"`
-	AutoScalingGroupName string `xml:"AutoScalingGroupName"`
-	PolicyType           string `xml:"PolicyType,omitempty"`
-	AdjustmentType       string `xml:"AdjustmentType,omitempty"`
-	ScalingAdjustment    int32  `xml:"ScalingAdjustment,omitempty"`
-	Cooldown             int32  `xml:"Cooldown,omitempty"`
+	PolicyName                  string                          `xml:"PolicyName"`
+	PolicyARN                   string                          `xml:"PolicyARN"`
+	AutoScalingGroupName        string                          `xml:"AutoScalingGroupName"`
+	PolicyType                  string                          `xml:"PolicyType,omitempty"`
+	AdjustmentType              string                          `xml:"AdjustmentType,omitempty"`
+	TargetTrackingConfiguration *xmlTargetTrackingConfiguration `xml:"TargetTrackingConfiguration,omitempty"`
+	ScalingAdjustment           int32                           `xml:"ScalingAdjustment,omitempty"`
+	Cooldown                    int32                           `xml:"Cooldown,omitempty"`
 }
 
 type xmlScalingPolicyList struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,8 @@ const completedProgress = int32(100)
 const maxDesiredCapacity = 100
 
 const (
+	// healthStatusHealthy is the health status for a healthy instance.
+	healthStatusHealthy = "Healthy"
 	// lifecycleStateInService is the lifecycle state for a running, healthy instance.
 	lifecycleStateInService = "InService"
 	// statusCodeSuccessful is the status code for a successfully completed scaling activity.
@@ -123,6 +126,7 @@ type StorageBackend interface {
 
 	// Instance refresh
 	StartInstanceRefresh(groupName string) (*InstanceRefresh, error)
+	StartInstanceRefreshWithInput(input StartInstanceRefreshInput) (*InstanceRefresh, error)
 	RollbackInstanceRefresh(groupName string) (string, error)
 	DescribeInstanceRefreshes(groupName string, refreshIDs []string) ([]InstanceRefresh, error)
 
@@ -288,7 +292,7 @@ func makeInstances(count int32, azs []string, launchConfigName string) []Instanc
 			InstanceID:              id,
 			AvailabilityZone:        az,
 			LifecycleState:          lifecycleStateInService,
-			HealthStatus:            "Healthy",
+			HealthStatus:            healthStatusHealthy,
 			LaunchConfigurationName: launchConfigName,
 			InstanceType:            "t2.micro",
 		})
@@ -478,8 +482,7 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 	g.MaxSize = newMax
 
 	if g.DesiredCapacity != newDesired {
-		g.DesiredCapacity = newDesired
-		g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
+		b.applyDesiredCapacityChange(g, newDesired)
 	}
 
 	if input.DefaultCooldown != nil {
@@ -722,7 +725,7 @@ func (b *InMemoryBackend) AttachInstances(groupName string, instanceIDs []string
 			InstanceID:              id,
 			AvailabilityZone:        az,
 			LifecycleState:          lifecycleStateInService,
-			HealthStatus:            "Healthy",
+			HealthStatus:            healthStatusHealthy,
 			LaunchConfigurationName: g.LaunchConfigurationName,
 			InstanceType:            "t2.micro",
 		})
@@ -924,6 +927,13 @@ func (b *InMemoryBackend) CompleteLifecycleAction(input CompleteLifecycleActionI
 		return fmt.Errorf("%w: LifecycleActionResult is required", ErrInvalidParameter)
 	}
 
+	// Validate LifecycleActionResult is CONTINUE or ABANDON (case-insensitive)
+	upper := strings.ToUpper(input.LifecycleActionResult)
+	if upper != "CONTINUE" && upper != "ABANDON" {
+		return fmt.Errorf("%w: LifecycleActionResult must be CONTINUE or ABANDON, got %q",
+			ErrInvalidParameter, input.LifecycleActionResult)
+	}
+
 	// Cancel timer if token is present
 	if input.LifecycleActionToken != "" {
 		if action, ok := b.pendingHookTokens[input.LifecycleActionToken]; ok {
@@ -1032,6 +1042,62 @@ func (b *InMemoryBackend) AddInstanceRefresh(refresh InstanceRefresh) error {
 	return nil
 }
 
+// applyDesiredCapacityChange updates the group's desired capacity and adjusts instances,
+// respecting suspended processes (Launch/Terminate) and scale-in protection.
+// Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) applyDesiredCapacityChange(g *AutoScalingGroup, newDesired int32) {
+	suspendedSet := make(map[string]bool, len(g.SuspendedProcesses))
+	for _, p := range g.SuspendedProcesses {
+		suspendedSet[p] = true
+	}
+
+	current := int32(len(g.Instances)) //nolint:gosec // bounded by maxDesiredCapacity
+	g.DesiredCapacity = newDesired
+
+	switch {
+	case newDesired < current:
+		if !suspendedSet["Terminate"] {
+			g.Instances = removeUnprotectedInstances(g.Instances, int(newDesired))
+		}
+	case newDesired > current:
+		if !suspendedSet["Launch"] {
+			g.Instances = adjustInstances(
+				g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName,
+			)
+		}
+	}
+
+	g.LastScalingActivity = time.Now()
+}
+
+// removeUnprotectedInstances removes instances from the end, skipping protected ones,
+// until the slice reaches targetCount. If all remaining instances are protected,
+// it stops short of the target.
+func removeUnprotectedInstances(instances []Instance, targetCount int) []Instance {
+	result := make([]Instance, len(instances))
+	copy(result, instances)
+
+	for len(result) > targetCount {
+		// Find last unprotected instance and remove it
+		removed := false
+
+		for i, inst := range slices.Backward(result) {
+			if !inst.ProtectedFromScaleIn {
+				result = append(result[:i], result[i+1:]...)
+				removed = true
+
+				break
+			}
+		}
+
+		if !removed {
+			break // all remaining are protected, can't remove more
+		}
+	}
+
+	return result
+}
+
 // SetDesiredCapacity adjusts the DesiredCapacity of an Auto Scaling group immediately.
 func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity int32) error {
 	b.mu.Lock("SetDesiredCapacity")
@@ -1052,8 +1118,7 @@ func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity i
 		return fmt.Errorf("%w: DesiredCapacity %d exceeds MaxSize %d", ErrInvalidParameter, desired, g.MaxSize)
 	}
 
-	g.DesiredCapacity = desired
-	g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
+	b.applyDesiredCapacityChange(g, desired)
 
 	return nil
 }
@@ -1135,6 +1200,9 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 	return &activity, nil
 }
 
+// defaultHeartbeatTimeout is the default HeartbeatTimeout for lifecycle hooks (1 hour), matching AWS.
+const defaultHeartbeatTimeout = int32(3600)
+
 // PutLifecycleHook creates or updates a lifecycle hook on an Auto Scaling group.
 func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 	b.mu.Lock("PutLifecycleHook")
@@ -1146,6 +1214,21 @@ func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 
 	if _, ok := b.groups[hook.AutoScalingGroupName]; !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, hook.AutoScalingGroupName)
+	}
+
+	// Validate LifecycleTransition if provided
+	if hook.LifecycleTransition != "" &&
+		hook.LifecycleTransition != "autoscaling:EC2_INSTANCE_LAUNCHING" &&
+		hook.LifecycleTransition != "autoscaling:EC2_INSTANCE_TERMINATING" {
+		return fmt.Errorf(
+			"%w: LifecycleTransition must be autoscaling:EC2_INSTANCE_LAUNCHING or autoscaling:EC2_INSTANCE_TERMINATING",
+			ErrInvalidParameter,
+		)
+	}
+
+	// Default HeartbeatTimeout to 3600 if not provided (matching AWS behavior)
+	if hook.HeartbeatTimeout == 0 {
+		hook.HeartbeatTimeout = defaultHeartbeatTimeout
 	}
 
 	if b.lifecycleHooks[hook.AutoScalingGroupName] == nil {
@@ -1487,23 +1570,47 @@ func (b *InMemoryBackend) DescribeTerminationPolicyTypes() ([]string, error) {
 	}, nil
 }
 
+// StartInstanceRefreshInput holds the input for StartInstanceRefresh.
+type StartInstanceRefreshInput struct {
+	AutoScalingGroupName string
+	Strategy             string
+	MinHealthyPercentage int32
+}
+
 // StartInstanceRefresh creates a new instance refresh for the group.
 func (b *InMemoryBackend) StartInstanceRefresh(groupName string) (*InstanceRefresh, error) {
+	return b.StartInstanceRefreshWithInput(StartInstanceRefreshInput{AutoScalingGroupName: groupName})
+}
+
+// StartInstanceRefreshWithInput creates a new instance refresh for the group with full input.
+func (b *InMemoryBackend) StartInstanceRefreshWithInput(input StartInstanceRefreshInput) (*InstanceRefresh, error) {
 	b.mu.Lock("StartInstanceRefresh")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
-		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	if _, ok := b.groups[input.AutoScalingGroupName]; !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
+	}
+
+	strategy := input.Strategy
+	if strategy == "" {
+		strategy = "Rolling"
+	}
+
+	minHealthy := input.MinHealthyPercentage
+	if minHealthy == 0 {
+		minHealthy = 90
 	}
 
 	refresh := &InstanceRefresh{
 		InstanceRefreshID:    uuid.NewString(),
-		AutoScalingGroupName: groupName,
+		AutoScalingGroupName: input.AutoScalingGroupName,
 		Status:               statusInProgress,
 		StartTime:            time.Now(),
+		Strategy:             strategy,
+		MinHealthyPercentage: minHealthy,
 	}
 
-	b.instanceRefreshes[groupName] = append(b.instanceRefreshes[groupName], refresh)
+	b.instanceRefreshes[input.AutoScalingGroupName] = append(b.instanceRefreshes[input.AutoScalingGroupName], refresh)
 
 	cp := *refresh
 
@@ -1756,6 +1863,17 @@ func (b *InMemoryBackend) DetachTrafficSources(groupName string, trafficSources 
 	return nil
 }
 
+// isKnownMetric reports whether metric is a valid Auto Scaling metric name.
+func isKnownMetric(metric string) bool {
+	switch metric {
+	case "GroupMinSize", "GroupMaxSize", "GroupDesiredCapacity",
+		"GroupInServiceInstances", "GroupPendingInstances", "GroupTerminatingInstances":
+		return true
+	}
+
+	return false
+}
+
 // EnableMetricsCollection adds metrics to the ASG's enabled metrics list.
 func (b *InMemoryBackend) EnableMetricsCollection(groupName string, metrics []string, _ string) error {
 	b.mu.Lock("EnableMetricsCollection")
@@ -1764,6 +1882,15 @@ func (b *InMemoryBackend) EnableMetricsCollection(groupName string, metrics []st
 	g, ok := b.groups[groupName]
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	// Validate provided metrics against known metrics
+	if len(metrics) > 0 {
+		for _, m := range metrics {
+			if !isKnownMetric(m) {
+				return fmt.Errorf("%w: unknown metric %q", ErrInvalidParameter, m)
+			}
+		}
 	}
 
 	existing := make(map[string]bool, len(g.EnabledMetrics))
@@ -1968,6 +2095,11 @@ func (b *InMemoryBackend) SetInstanceHealth(instanceID string, healthStatus stri
 	b.mu.Lock("SetInstanceHealth")
 	defer b.mu.Unlock()
 
+	if healthStatus != healthStatusHealthy && healthStatus != "Unhealthy" {
+		return fmt.Errorf("%w: HealthStatus must be Healthy or Unhealthy, got %q",
+			ErrInvalidParameter, healthStatus)
+	}
+
 	for _, g := range b.groups {
 		for i := range g.Instances {
 			if g.Instances[i].InstanceID == instanceID {
@@ -2063,6 +2195,14 @@ func (b *InMemoryBackend) ExecutePolicy(input ExecutePolicyInput) error {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, input.PolicyName)
 	}
 
+	// Check cooldown if HonorCooldown is requested
+	if input.HonorCooldown && policy.Cooldown > 0 && !g.LastScalingActivity.IsZero() {
+		cooldownDur := time.Duration(policy.Cooldown) * time.Second
+		if time.Since(g.LastScalingActivity) < cooldownDur {
+			return fmt.Errorf("%w: scaling activity in progress (cooldown)", ErrScalingActivityInProgress)
+		}
+	}
+
 	var newDesired int32
 
 	switch policy.AdjustmentType {
@@ -2082,6 +2222,7 @@ func (b *InMemoryBackend) ExecutePolicy(input ExecutePolicyInput) error {
 	if g.DesiredCapacity != newDesired {
 		g.DesiredCapacity = newDesired
 		g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
+		g.LastScalingActivity = time.Now()
 	}
 
 	return nil
@@ -2123,6 +2264,14 @@ func (b *InMemoryBackend) PutNotificationConfiguration(groupName, topicARN strin
 
 	if _, ok := b.groups[groupName]; !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	// Validate SNS ARN format
+	if topicARN != "" &&
+		!strings.HasPrefix(topicARN, "arn:aws:sns:") &&
+		!strings.HasPrefix(topicARN, "arn:aws-cn:sns:") &&
+		!strings.HasPrefix(topicARN, "arn:aws-us-gov:sns:") {
+		return fmt.Errorf("%w: TopicARN must be a valid SNS ARN", ErrInvalidParameter)
 	}
 
 	// Remove existing configs for this group+topic
@@ -2226,6 +2375,10 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 		ScalingAdjustment:    input.ScalingAdjustment,
 		MinAdjustmentStep:    input.MinAdjustmentStep,
 		Cooldown:             input.Cooldown,
+		TargetValue:          input.TargetValue,
+		MetricType:           input.MetricType,
+		DisableScaleIn:       input.DisableScaleIn,
+		EstimatedWarmup:      input.EstimatedWarmup,
 	}
 
 	b.scalingPolicies[input.AutoScalingGroupName][input.PolicyName] = policy
@@ -2369,6 +2522,9 @@ func (b *InMemoryBackend) PutWarmPool(input WarmPoolInput) error {
 	poolState := input.PoolState
 	if poolState == "" {
 		poolState = "Stopped"
+	} else if poolState != "Stopped" && poolState != "Running" && poolState != "Hibernated" {
+		return fmt.Errorf("%w: PoolState must be one of Stopped, Running, Hibernated; got %q",
+			ErrInvalidParameter, poolState)
 	}
 
 	b.warmPools[input.AutoScalingGroupName] = &WarmPool{
