@@ -167,7 +167,7 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	case "DescribeContainer":
 		return h.handleDescribeContainer(c, body)
 	case "ListContainers":
-		return h.handleListContainers(c)
+		return h.handleListContainers(c, body)
 	case "PutContainerPolicy":
 		return h.handlePutContainerPolicy(c, body)
 	case "GetContainerPolicy":
@@ -269,8 +269,14 @@ func (h *Handler) handleDescribeContainer(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleListContainers(c *echo.Context) error {
-	containers, err := h.Backend.ListContainers()
+func (h *Handler) handleListContainers(c *echo.Context, body []byte) error {
+	var req listContainersRequest
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	containers, nextToken, err := h.Backend.ListContainers(req.NextToken, req.MaxResults)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -281,7 +287,12 @@ func (h *Handler) handleListContainers(c *echo.Context) error {
 		objs = append(objs, toContainerObject(ct))
 	}
 
-	return c.JSON(http.StatusOK, listContainersResponse{Containers: objs})
+	resp := listContainersResponse{Containers: objs}
+	if nextToken != "" {
+		resp.NextToken = &nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handlePutContainerPolicy(c *echo.Context, body []byte) error {
@@ -604,6 +615,13 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return writeError(c, http.StatusConflict, "ContainerInUseException", err.Error())
+	case errors.Is(err, ErrInvalidContainerName),
+		errors.Is(err, ErrInvalidPolicy),
+		errors.Is(err, ErrCorsRuleInvalid),
+		errors.Is(err, ErrInvalidMetricPolicy),
+		errors.Is(err, ErrTooManyMetricRules),
+		errors.Is(err, ErrEmptyTagKey):
+		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	default:
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}

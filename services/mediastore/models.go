@@ -10,14 +10,14 @@ import (
 type Container struct {
 	CreationTime         *time.Time
 	Tags                 map[string]string
+	MetricPolicy         *MetricPolicy // cached parsed policy; nil means not set
 	ARN                  string
 	ContainerPolicy      string
-	CorsPolicy           string
 	LifecyclePolicy      string
-	MetricPolicy         string
 	Endpoint             string
 	Name                 string
 	Status               string
+	CorsPolicy           []*CorsRule // cached parsed rules; nil means not set
 	AccessLoggingEnabled bool
 }
 
@@ -155,6 +155,12 @@ type untagResourceRequest struct {
 // listTagsForResourceRequest is the request body for ListTagsForResource.
 type listTagsForResourceRequest struct {
 	Resource string `json:"Resource"`
+}
+
+// listContainersRequest is the request body for ListContainers.
+type listContainersRequest struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 // containerObject is the JSON representation of a container.

@@ -205,7 +205,7 @@ func TestInMemoryBackend_ListContainers(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			containers, err := b.ListContainers()
+			containers, _, err := b.ListContainers("", 0)
 			require.NoError(t, err)
 			assert.Len(t, containers, tt.wantCount)
 		})
@@ -431,7 +431,7 @@ func TestInMemoryBackend_ListContainers_ReturnsCopies(t *testing.T) {
 			_, err := b.CreateContainer(testRegion, testAccountID, "list-copy-a", map[string]string{"key": "val"})
 			require.NoError(t, err)
 
-			all, err := b.ListContainers()
+			all, _, err := b.ListContainers("", 0)
 			require.NoError(t, err)
 			require.Len(t, all, 1)
 
@@ -439,7 +439,7 @@ func TestInMemoryBackend_ListContainers_ReturnsCopies(t *testing.T) {
 			all[0].Tags["injected"] = "evil"
 
 			// Backend state must be unchanged.
-			all2, err := b.ListContainers()
+			all2, _, err := b.ListContainers("", 0)
 			require.NoError(t, err)
 			require.Len(t, all2, 1)
 			_, hasInjected := all2[0].Tags["injected"]
