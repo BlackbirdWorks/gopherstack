@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -992,7 +993,15 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 // ----------------------------------------
 
 func (h *Handler) handleSampleChannelData(c *echo.Context, channelName string) error {
-	payloads, err := h.Backend.SampleChannelData(channelName)
+	maxMessages := 0
+
+	if s := c.Request().URL.Query().Get("maxMessages"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxMessages = n
+		}
+	}
+
+	payloads, err := h.Backend.SampleChannelData(channelName, maxMessages)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1008,6 +1017,24 @@ func (h *Handler) handleBatchPutMessage(c *echo.Context, body []byte) error {
 	var req batchPutMessageRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+	}
+
+	if req.ChannelName == "" {
+		return h.writeError(c, http.StatusBadRequest, "channelName is required")
+	}
+
+	if len(req.Messages) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "messages must not be empty")
+	}
+
+	for i, msg := range req.Messages {
+		if msg.MessageID == "" {
+			return h.writeError(c, http.StatusBadRequest, "messageId is required for message at index "+strconv.Itoa(i))
+		}
+
+		if len(msg.Payload) == 0 {
+			return h.writeError(c, http.StatusBadRequest, "payload must not be empty for message "+msg.MessageID)
+		}
 	}
 
 	errs, err := h.Backend.BatchPutMessage(req.ChannelName, req.Messages)

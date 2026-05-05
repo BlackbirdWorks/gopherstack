@@ -2,10 +2,12 @@ package iotanalytics
 
 import (
 	"cmp"
+	"fmt"
 	"maps"
 	"slices"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -45,7 +47,7 @@ type StorageBackend interface {
 	UntagResource(resourceARN string, tagKeys []string) error
 
 	BatchPutMessage(channelName string, messages []messageInput) ([]BatchPutMessageErrorEntry, error)
-	SampleChannelData(channelName string) ([][]byte, error)
+	SampleChannelData(channelName string, maxMessages int) ([][]byte, error)
 
 	StartPipelineReprocessing(pipelineName string) (string, error)
 	CancelPipelineReprocessing(pipelineName, reprocessingID string) error
@@ -71,7 +73,28 @@ const (
 	maxChannelMessages = 1000
 	// maxDatasetContents caps the number of content versions stored per dataset.
 	maxDatasetContents = 100
+	// maxPipelineReprocessings caps reprocessing jobs stored per pipeline.
+	maxPipelineReprocessings = 100
+	// maxTagsPerResource caps the number of tags per resource, matching AWS limits.
+	maxTagsPerResource = 50
+	// maxResourceNameLen is the maximum allowed length for resource names.
+	maxResourceNameLen = 128
 )
+
+// validateResourceName checks that name is 1-128 characters of letters, digits, underscores, or hyphens.
+func validateResourceName(name string) error {
+	if len(name) == 0 || len(name) > maxResourceNameLen {
+		return fmt.Errorf("%w: name must be 1-%d characters", ErrValidation, maxResourceNameLen)
+	}
+
+	for _, r := range name {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '-' {
+			return fmt.Errorf("%w: name must contain only letters, digits, underscores, or hyphens", ErrValidation)
+		}
+	}
+
+	return nil
+}
 
 // InMemoryBackend is the in-memory backend for IoT Analytics.
 type InMemoryBackend struct {
@@ -217,6 +240,10 @@ func clonePipeline(p *Pipeline) *Pipeline {
 
 // CreateChannel creates a new IoT Analytics channel.
 func (b *InMemoryBackend) CreateChannel(name string, tags map[string]string) (*Channel, error) {
+	if err := validateResourceName(name); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -270,7 +297,7 @@ func (b *InMemoryBackend) UpdateChannel(name string) error {
 	return nil
 }
 
-// DeleteChannel deletes a channel.
+// DeleteChannel deletes a channel and its associated messages.
 func (b *InMemoryBackend) DeleteChannel(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -282,6 +309,7 @@ func (b *InMemoryBackend) DeleteChannel(name string) error {
 
 	delete(b.tags, c.ARN)
 	delete(b.channels, name)
+	delete(b.channelMessages, name)
 
 	return nil
 }
@@ -310,6 +338,10 @@ func (b *InMemoryBackend) AddChannelInternal(name string) *Channel {
 
 // CreateDatastore creates a new IoT Analytics datastore.
 func (b *InMemoryBackend) CreateDatastore(name string, tags map[string]string) (*Datastore, error) {
+	if err := validateResourceName(name); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -403,6 +435,10 @@ func (b *InMemoryBackend) AddDatastoreInternal(name string) *Datastore {
 
 // CreateDataset creates a new IoT Analytics dataset.
 func (b *InMemoryBackend) CreateDataset(name string, tags map[string]string) (*Dataset, error) {
+	if err := validateResourceName(name); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -456,7 +492,7 @@ func (b *InMemoryBackend) UpdateDataset(name string) error {
 	return nil
 }
 
-// DeleteDataset deletes a dataset.
+// DeleteDataset deletes a dataset and its associated content versions.
 func (b *InMemoryBackend) DeleteDataset(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -468,6 +504,7 @@ func (b *InMemoryBackend) DeleteDataset(name string) error {
 
 	delete(b.tags, d.ARN)
 	delete(b.datasets, name)
+	delete(b.datasetContents, name)
 
 	return nil
 }
@@ -496,6 +533,10 @@ func (b *InMemoryBackend) AddDatasetInternal(name string) *Dataset {
 
 // CreatePipeline creates a new IoT Analytics pipeline.
 func (b *InMemoryBackend) CreatePipeline(name string, tags map[string]string) (*Pipeline, error) {
+	if err := validateResourceName(name); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -601,7 +642,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]TagDTO, err
 	return mapToTagsSorted(m), nil
 }
 
-// TagResource adds or updates tags on a resource.
+// TagResource adds or updates tags on a resource, enforcing the per-resource tag limit.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags []TagDTO) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -612,6 +653,10 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []TagDTO) error {
 	}
 
 	for _, t := range tags {
+		if _, exists := m[t.Key]; !exists && len(m) >= maxTagsPerResource {
+			return fmt.Errorf("%w: resource may not have more than %d tags", ErrValidation, maxTagsPerResource)
+		}
+
 		m[t.Key] = t.Value
 	}
 
@@ -666,14 +711,31 @@ func (b *InMemoryBackend) BatchPutMessage(
 		current := b.channelMessages[channelName]
 		if len(current) < maxChannelMessages {
 			b.channelMessages[channelName] = append(current, msg.Payload)
+		} else {
+			errs = append(errs, BatchPutMessageErrorEntry{
+				ChannelName:  channelName,
+				ErrorCode:    "InternalFailureException",
+				ErrorMessage: "channel message capacity exceeded",
+				MessageID:    msg.MessageID,
+			})
 		}
 	}
 
-	return []BatchPutMessageErrorEntry{}, nil
+	if errs == nil {
+		errs = []BatchPutMessageErrorEntry{}
+	}
+
+	return errs, nil
 }
 
-// SampleChannelData returns up to 10 sample messages from a channel.
-func (b *InMemoryBackend) SampleChannelData(channelName string) ([][]byte, error) {
+const (
+	defaultSampleMessages = 10
+	maxSampleMessages     = 10
+)
+
+// SampleChannelData returns up to maxMessages sample messages from a channel.
+// If maxMessages is 0 or negative, defaults to defaultSampleMessages.
+func (b *InMemoryBackend) SampleChannelData(channelName string, maxMessages int) ([][]byte, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -681,14 +743,16 @@ func (b *InMemoryBackend) SampleChannelData(channelName string) ([][]byte, error
 		return nil, ErrChannelNotFound
 	}
 
+	if maxMessages <= 0 || maxMessages > maxSampleMessages {
+		maxMessages = defaultSampleMessages
+	}
+
 	msgs := b.channelMessages[channelName]
 	if len(msgs) == 0 {
 		return [][]byte{}, nil
 	}
 
-	const maxSamples = 10
-
-	end := min(len(msgs), maxSamples)
+	end := min(len(msgs), maxMessages)
 
 	result := make([][]byte, end)
 	copy(result, msgs[:end])
@@ -704,6 +768,10 @@ func (b *InMemoryBackend) StartPipelineReprocessing(pipelineName string) (string
 	p, ok := b.pipelines[pipelineName]
 	if !ok {
 		return "", ErrPipelineNotFound
+	}
+
+	if len(p.Reprocessings) >= maxPipelineReprocessings {
+		return "", fmt.Errorf("%w: pipeline reprocessing limit (%d) exceeded", ErrValidation, maxPipelineReprocessings)
 	}
 
 	id := uuid.NewString()
@@ -738,6 +806,10 @@ func (b *InMemoryBackend) CancelPipelineReprocessing(pipelineName, reprocessingI
 	rp, ok := p.Reprocessings[reprocessingID]
 	if !ok {
 		return ErrReprocessingNotFound
+	}
+
+	if rp.Status == "CANCELLED" {
+		return fmt.Errorf("%w: reprocessing job is already cancelled", ErrValidation)
 	}
 
 	rp.Status = "CANCELLED"
