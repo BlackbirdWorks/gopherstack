@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
 
@@ -1081,70 +1082,96 @@ func TestHandler_ListDeployments_HTTP(t *testing.T) {
 func TestHandler_ListApplicationsPagination(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name          string
-		queryString   string
-		wantCount     int
-		wantNextToken bool
-	}{
-		{
-			name:        "no_pagination_returns_all",
-			queryString: "",
-			wantCount:   4,
-		},
-		{
-			name:          "first_page",
-			queryString:   "?max_results=2",
-			wantCount:     2,
-			wantNextToken: true,
-		},
-		{
-			name:        "second_page",
-			queryString: "?max_results=2&next_token=2",
-			wantCount:   2,
-		},
-		{
-			name:        "token_beyond_end",
-			queryString: "?max_results=2&next_token=100",
-			wantCount:   0,
-		},
-	}
+	t.Run("no_pagination_returns_all", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		for _, name := range []string{"app1", "app2", "app3", "app4"} {
+			rec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"name":"`+name+`"}`))
+			require.Equal(t, http.StatusCreated, rec.Code)
+		}
+		rec := doRequest(t, h, http.MethodGet, "/applications", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		var resp struct {
+			NextToken string `json:"NextToken"`
+			Items     []any  `json:"Items"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Len(t, resp.Items, 4)
+		assert.Empty(t, resp.NextToken)
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("first_page", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		for _, name := range []string{"app1", "app2", "app3", "app4"} {
+			rec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"name":"`+name+`"}`))
+			require.Equal(t, http.StatusCreated, rec.Code)
+		}
+		rec := doRequest(t, h, http.MethodGet, "/applications?max_results=2", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		var resp struct {
+			NextToken string `json:"NextToken"`
+			Items     []any  `json:"Items"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Len(t, resp.Items, 2)
+		assert.NotEmpty(t, resp.NextToken)
+	})
 
-			h := newTestHandler(t)
+	t.Run("second_page", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		for _, name := range []string{"app1", "app2", "app3", "app4"} {
+			rec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"name":"`+name+`"}`))
+			require.Equal(t, http.StatusCreated, rec.Code)
+		}
+		// Get the first page to obtain a valid HMAC token.
+		rec := doRequest(t, h, http.MethodGet, "/applications?max_results=2", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		var first struct {
+			NextToken string `json:"NextToken"`
+			Items     []any  `json:"Items"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+		require.NotEmpty(t, first.NextToken)
 
-			for _, name := range []string{"app1", "app2", "app3", "app4"} {
-				rec := doRequest(t, h, http.MethodPost, "/applications",
-					[]byte(`{"name":"`+name+`"}`))
-				require.Equal(t, http.StatusCreated, rec.Code)
-			}
+		rec2 := doRequest(t, h, http.MethodGet, "/applications?max_results=2&next_token="+first.NextToken, nil)
+		require.Equal(t, http.StatusOK, rec2.Code)
+		var resp struct {
+			NextToken string `json:"NextToken"`
+			Items     []any  `json:"Items"`
+		}
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+		assert.Len(t, resp.Items, 2)
+		assert.Empty(t, resp.NextToken)
+	})
 
-			rec := doRequest(t, h, http.MethodGet, "/applications"+tt.queryString, nil)
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var resp struct {
-				NextToken string `json:"NextToken"`
-				Items     []any  `json:"Items"`
-			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Len(t, resp.Items, tt.wantCount)
-
-			if tt.wantNextToken {
-				assert.NotEmpty(t, resp.NextToken)
-			} else {
-				assert.Empty(t, resp.NextToken)
-			}
-		})
-	}
+	t.Run("token_beyond_end", func(t *testing.T) {
+		t.Parallel()
+		backend := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
+		h2 := appconfig.NewHandler(backend)
+		for _, name := range []string{"app1", "app2", "app3", "app4"} {
+			rec := doRequest(t, h2, http.MethodPost, "/applications", []byte(`{"name":"`+name+`"}`))
+			require.Equal(t, http.StatusCreated, rec.Code)
+		}
+		beyondToken := page.EncodeHMACToken(100, backend.PaginationSecret())
+		rec := doRequest(t, h2, http.MethodGet, "/applications?max_results=2&next_token="+beyondToken, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		var resp struct {
+			NextToken string `json:"NextToken"`
+			Items     []any  `json:"Items"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Len(t, resp.Items, 0)
+		assert.Empty(t, resp.NextToken)
+	})
 }
 
 func TestBackend_appConfigPaginate_EdgeCases(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
+	secret := b.PaginationSecret()
 
 	// Create 4 apps.
 	for _, name := range []string{"a", "b", "c", "d"} {
@@ -1173,13 +1200,13 @@ func TestBackend_appConfigPaginate_EdgeCases(t *testing.T) {
 		{
 			name:       "second_page",
 			maxResults: 2,
-			nextToken:  "2",
+			nextToken:  page.EncodeHMACToken(2, secret),
 			wantCount:  2,
 		},
 		{
 			name:       "token_beyond_end",
 			maxResults: 2,
-			nextToken:  "50",
+			nextToken:  page.EncodeHMACToken(50, secret),
 			wantCount:  0,
 		},
 		{

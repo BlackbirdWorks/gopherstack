@@ -7,25 +7,38 @@
 		ListEnvironmentsCommand,
 		ListConfigurationProfilesCommand,
 		ListDeploymentsCommand,
+		ListExtensionsCommand,
+		ListExtensionAssociationsCommand,
 		DeleteApplicationCommand,
+		DeleteExtensionCommand,
+		DeleteExtensionAssociationCommand,
 		CreateApplicationCommand,
+		CreateExtensionCommand,
+		CreateExtensionAssociationCommand,
 		type Application,
 		type Environment,
 		type ConfigurationProfile,
-		type DeploymentSummary
+		type DeploymentSummary,
+		type Extension,
+		type ExtensionAssociationSummary
 	} from '@aws-sdk/client-appconfig';
 	import { toast } from 'svelte-sonner';
-	import { 
-		Settings, Search, RefreshCw, Plus, Trash2, 
+	import {
+		Settings, Search, RefreshCw, Plus, Trash2,
 		Activity, Info, Box, Clock, ShieldCheck,
-		ChevronRight, ListFilter, Globe, 
+		ChevronRight, ListFilter, Globe,
 		Layers, Zap, Terminal, Workflow,
 		FileCode, Sliders, Play, CheckCircle2, Code2,
 		XCircle, AlertCircle, Timer, Server,
 		Database, Share2, ArrowRight, Gauge,
-		Settings2, Layout, Boxes, Shield, ExternalLink
+		Settings2, Layout, Boxes, Shield, ExternalLink,
+		Puzzle, Link
 	} from 'lucide-svelte';
 	const appconfig = getAppConfigClient();
+
+	// Tabs
+	type Tab = 'applications' | 'extensions' | 'associations';
+	let activeTab = $state<Tab>('applications');
 
 	// State
 	let loading = $state(false);
@@ -37,14 +50,38 @@
 	let deployments = $state<DeploymentSummary[]>([]);
 	let loadingDetails = $state(false);
 
+	// Extensions state
+	let extensions = $state<Extension[]>([]);
+	let loadingExtensions = $state(false);
+	let extensionSearch = $state('');
+
+	// Extension Associations state
+	let associations = $state<ExtensionAssociationSummary[]>([]);
+	let loadingAssociations = $state(false);
+
 	// Modal State
 	let showCreateModal = $state(false);
 	let newAppName = $state('');
 	let creating = $state(false);
 
+	// Extension Create Modal
+	let showCreateExtModal = $state(false);
+	let newExtName = $state('');
+	let newExtDesc = $state('');
+	let creatingExt = $state(false);
+
+	// Extension Association Create Modal
+	let showCreateAssocModal = $state(false);
+	let newAssocExtId = $state('');
+	let newAssocResource = $state('');
+	let creatingAssoc = $state(false);
+
 	// Derived
 	const filteredApps = $derived(
 		applications.filter(a => a.Name?.toLowerCase().includes(searchQuery.toLowerCase()))
+	);
+	const filteredExtensions = $derived(
+		extensions.filter(e => e.Name?.toLowerCase().includes(extensionSearch.toLowerCase()))
 	);
 
 	// Actions
@@ -57,6 +94,30 @@
 			toast.error(`Failed to load AppConfig: ${(err as Error).message}`);
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadExtensions() {
+		loadingExtensions = true;
+		try {
+			const res = await appconfig.send(new ListExtensionsCommand({}));
+			extensions = res.Items ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load extensions: ${(err as Error).message}`);
+		} finally {
+			loadingExtensions = false;
+		}
+	}
+
+	async function loadAssociations() {
+		loadingAssociations = true;
+		try {
+			const res = await appconfig.send(new ListExtensionAssociationsCommand({}));
+			associations = res.Items ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load associations: ${(err as Error).message}`);
+		} finally {
+			loadingAssociations = false;
 		}
 	}
 
@@ -74,9 +135,9 @@
 			profiles = profRes.Items ?? [];
 
 			if (environments.length > 0) {
-				const depRes = await appconfig.send(new ListDeploymentsCommand({ 
-					ApplicationId: app.Id, 
-					EnvironmentId: environments[0].Id 
+				const depRes = await appconfig.send(new ListDeploymentsCommand({
+					ApplicationId: app.Id,
+					EnvironmentId: environments[0].Id
 				}));
 				deployments = depRes.Items ?? [];
 			}
@@ -115,6 +176,75 @@
 		}
 	}
 
+	async function createExtension() {
+		if (!newExtName.trim()) return;
+		creatingExt = true;
+		try {
+			await appconfig.send(new CreateExtensionCommand({
+				Name: newExtName.trim(),
+				Description: newExtDesc.trim() || undefined,
+				Actions: {}
+			}));
+			toast.success(`Extension "${newExtName}" created`);
+			showCreateExtModal = false;
+			newExtName = '';
+			newExtDesc = '';
+			await loadExtensions();
+		} catch (err: unknown) {
+			toast.error(`Extension creation failed: ${(err as Error).message}`);
+		} finally {
+			creatingExt = false;
+		}
+	}
+
+	async function deleteExtension(id: string | undefined, name: string | undefined) {
+		if (!id || !await confirmDestructive({ title: 'Delete Extension', message: `Delete extension "${name}"? This cannot be undone.` })) return;
+		try {
+			await appconfig.send(new DeleteExtensionCommand({ ExtensionIdentifier: id }));
+			toast.success(`Extension deleted`);
+			await loadExtensions();
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function createAssociation() {
+		if (!newAssocExtId.trim() || !newAssocResource.trim()) return;
+		creatingAssoc = true;
+		try {
+			await appconfig.send(new CreateExtensionAssociationCommand({
+				ExtensionIdentifier: newAssocExtId.trim(),
+				ResourceIdentifier: newAssocResource.trim()
+			}));
+			toast.success('Extension association created');
+			showCreateAssocModal = false;
+			newAssocExtId = '';
+			newAssocResource = '';
+			await loadAssociations();
+		} catch (err: unknown) {
+			toast.error(`Association creation failed: ${(err as Error).message}`);
+		} finally {
+			creatingAssoc = false;
+		}
+	}
+
+	async function deleteAssociation(id: string | undefined) {
+		if (!id || !await confirmDestructive({ title: 'Delete Association', message: 'Delete this extension association?' })) return;
+		try {
+			await appconfig.send(new DeleteExtensionAssociationCommand({ ExtensionAssociationId: id }));
+			toast.success('Association deleted');
+			await loadAssociations();
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	function handleTabChange(tab: Tab) {
+		activeTab = tab;
+		if (tab === 'extensions' && extensions.length === 0 && !loadingExtensions) loadExtensions();
+		if (tab === 'associations' && associations.length === 0 && !loadingAssociations) loadAssociations();
+	}
+
 	function getDeploymentStatusIcon(status: string | undefined) {
 		if (status === 'COMPLETE') return CheckCircle2;
 		if (status === 'ROLLING_BACK') return XCircle;
@@ -147,23 +277,68 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-3">
-			<button 
-				onclick={loadApps}
+			<button
+				onclick={() => { if (activeTab === 'applications') loadApps(); else if (activeTab === 'extensions') loadExtensions(); else loadAssociations(); }}
 				class="p-2.5 rounded-xl bg-white/50 dark:bg-slate-700/50 hover:bg-white dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 transition-all active:scale-95 shadow-sm"
 				title="Refresh data"
 			>
-				<RefreshCw class="w-5 h-5 text-slate-600 dark:text-slate-300 {loading ? 'animate-spin' : ''}" />
+				<RefreshCw class="w-5 h-5 text-slate-600 dark:text-slate-300 {(loading || loadingExtensions || loadingAssociations) ? 'animate-spin' : ''}" />
 			</button>
-			<button 
+			{#if activeTab === 'applications'}
+			<button
 				onclick={() => showCreateModal = true}
 				class="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black shadow-lg shadow-blue-600/20 transition-all active:scale-95 uppercase text-xs tracking-widest"
 			>
 				<Plus class="w-5 h-5" />
 				Assemble Application
 			</button>
+			{:else if activeTab === 'extensions'}
+			<button
+				onclick={() => showCreateExtModal = true}
+				class="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black shadow-lg shadow-indigo-600/20 transition-all active:scale-95 uppercase text-xs tracking-widest"
+			>
+				<Plus class="w-5 h-5" />
+				New Extension
+			</button>
+			{:else}
+			<button
+				onclick={() => showCreateAssocModal = true}
+				class="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-black shadow-lg shadow-violet-600/20 transition-all active:scale-95 uppercase text-xs tracking-widest"
+			>
+				<Plus class="w-5 h-5" />
+				New Association
+			</button>
+			{/if}
 		</div>
 	</div>
 
+	<!-- Tabs -->
+	<div class="flex gap-2 p-1 bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-2xl shadow-xl w-fit">
+		<button
+			onclick={() => handleTabChange('applications')}
+			class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {activeTab === 'applications' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}"
+		>
+			<Layout class="w-4 h-4" />
+			Applications
+		</button>
+		<button
+			onclick={() => handleTabChange('extensions')}
+			class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {activeTab === 'extensions' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}"
+		>
+			<Puzzle class="w-4 h-4" />
+			Extensions
+		</button>
+		<button
+			onclick={() => handleTabChange('associations')}
+			class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all {activeTab === 'associations' ? 'bg-violet-600 text-white shadow-lg shadow-violet-600/20' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}"
+		>
+			<Link class="w-4 h-4" />
+			Associations
+		</button>
+	</div>
+
+	<!-- Applications Tab -->
+	{#if activeTab === 'applications'}
 	<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 		<!-- App List -->
 		<div class="lg:col-span-3 space-y-4">
@@ -171,8 +346,8 @@
 				<div class="p-4 bg-white/20 dark:bg-slate-900/10 border-b border-slate-200 dark:border-slate-700/50">
 					<div class="relative w-full">
 						<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-						<input 
-							type="text" 
+						<input
+							type="text"
 							bind:value={searchQuery}
 							placeholder="Search applications..."
 							class="w-full pl-10 pr-4 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all italic font-bold"
@@ -187,7 +362,7 @@
 						{/each}
 					{:else}
 						{#each filteredApps as app}
-							<div 
+							<div
 								role="button"
 								tabindex="0"
 								onclick={() => selectApp(app)}
@@ -232,7 +407,7 @@
 										</div>
 									</div>
 								</div>
-								<button 
+								<button
 									onclick={() => deleteApplication(selectedApp?.Id)}
 									class="p-2.5 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-2xl transition-all border border-rose-500/20 shadow-xl"
 									title="Purge Application"
@@ -379,22 +554,152 @@
 			{/if}
 		</div>
 	</div>
+	{/if}
+
+	<!-- Extensions Tab -->
+	{#if activeTab === 'extensions'}
+	<div class="space-y-4">
+		<div class="bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-2xl shadow-xl overflow-hidden">
+			<div class="p-4 bg-white/20 dark:bg-slate-900/10 border-b border-slate-200 dark:border-slate-700/50 flex items-center gap-3">
+				<div class="relative flex-1">
+					<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+					<input
+						type="text"
+						bind:value={extensionSearch}
+						placeholder="Search extensions..."
+						class="w-full pl-10 pr-4 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all italic font-bold"
+					/>
+				</div>
+				<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">{extensions.length} TOTAL</span>
+			</div>
+
+			{#if loadingExtensions}
+				<div class="p-12 flex flex-col items-center gap-4 opacity-30">
+					<RefreshCw class="w-8 h-8 text-indigo-500 animate-spin" />
+					<span class="text-[10px] uppercase font-black text-slate-500 tracking-[0.2em]">Loading Extensions...</span>
+				</div>
+			{:else if filteredExtensions.length === 0}
+				<div class="p-16 text-center flex flex-col items-center gap-4">
+					<Puzzle class="w-12 h-12 text-slate-200 dark:text-slate-700" />
+					<p class="text-sm font-black text-slate-400 italic uppercase tracking-widest">No extensions registered.</p>
+				</div>
+			{:else}
+				<div class="divide-y divide-slate-100 dark:divide-slate-700/50">
+					{#each filteredExtensions as ext}
+						<div class="p-6 flex items-center justify-between hover:bg-indigo-500/5 transition-all group">
+							<div class="flex items-center gap-4">
+								<div class="p-2.5 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
+									<Puzzle class="w-5 h-5 text-indigo-600" />
+								</div>
+								<div>
+									<div class="font-black text-slate-900 dark:text-white uppercase tracking-tighter italic text-sm">{ext.Name}</div>
+									<div class="flex items-center gap-3 mt-1">
+										<span class="text-[8px] text-slate-400 font-mono tracking-tighter opacity-60 italic">{ext.Id}</span>
+										<span class="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 text-[8px] font-black uppercase border border-indigo-500/20">v{ext.VersionNumber}</span>
+									</div>
+									{#if ext.Description}
+										<p class="text-[10px] text-slate-500 mt-1 italic">{ext.Description}</p>
+									{/if}
+								</div>
+							</div>
+							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+								{#if ext.Actions && Object.keys(ext.Actions).length > 0}
+									<div class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 text-[9px] font-black text-slate-500 uppercase">
+										{Object.keys(ext.Actions).length} HOOKS
+									</div>
+								{/if}
+								<button
+									onclick={() => deleteExtension(ext.Id, ext.Name)}
+									class="p-2 rounded-xl text-rose-500 hover:bg-rose-500/10 transition-all border border-transparent hover:border-rose-500/20"
+									title="Delete extension"
+								>
+									<Trash2 class="w-4 h-4" />
+								</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	</div>
+	{/if}
+
+	<!-- Associations Tab -->
+	{#if activeTab === 'associations'}
+	<div class="space-y-4">
+		<div class="bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-2xl shadow-xl overflow-hidden">
+			<div class="p-4 bg-white/20 dark:bg-slate-900/10 border-b border-slate-200 dark:border-slate-700/50 flex items-center justify-between">
+				<div class="flex items-center gap-2">
+					<Link class="w-4 h-4 text-violet-500" />
+					<span class="text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-widest italic">Extension Associations</span>
+				</div>
+				<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">{associations.length} TOTAL</span>
+			</div>
+
+			{#if loadingAssociations}
+				<div class="p-12 flex flex-col items-center gap-4 opacity-30">
+					<RefreshCw class="w-8 h-8 text-violet-500 animate-spin" />
+					<span class="text-[10px] uppercase font-black text-slate-500 tracking-[0.2em]">Loading Associations...</span>
+				</div>
+			{:else if associations.length === 0}
+				<div class="p-16 text-center flex flex-col items-center gap-4">
+					<Link class="w-12 h-12 text-slate-200 dark:text-slate-700" />
+					<p class="text-sm font-black text-slate-400 italic uppercase tracking-widest">No extension associations.</p>
+				</div>
+			{:else}
+				<div class="divide-y divide-slate-100 dark:divide-slate-700/50">
+					{#each associations as assoc}
+						<div class="p-6 flex items-center justify-between hover:bg-violet-500/5 transition-all group">
+							<div class="flex items-center gap-4">
+								<div class="p-2.5 bg-violet-500/10 rounded-xl border border-violet-500/20">
+									<Link class="w-5 h-5 text-violet-600" />
+								</div>
+								<div>
+									<div class="font-black text-slate-900 dark:text-white uppercase tracking-tighter italic text-sm font-mono">{assoc.Id}</div>
+									<div class="flex flex-col gap-1 mt-1">
+										<div class="flex items-center gap-2">
+											<Puzzle class="w-3 h-3 text-indigo-500" />
+											<span class="text-[9px] text-slate-500 font-mono truncate max-w-[300px]">{assoc.ExtensionArn}</span>
+										</div>
+										<div class="flex items-center gap-2">
+											<Database class="w-3 h-3 text-slate-400" />
+											<span class="text-[9px] text-slate-500 font-mono truncate max-w-[300px]">{assoc.ResourceArn}</span>
+										</div>
+									</div>
+								</div>
+							</div>
+							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+								<button
+									onclick={() => deleteAssociation(assoc.Id)}
+									class="p-2 rounded-xl text-rose-500 hover:bg-rose-500/10 transition-all border border-transparent hover:border-rose-500/20"
+									title="Delete association"
+								>
+									<Trash2 class="w-4 h-4" />
+								</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	</div>
+	{/if}
 </div>
 
-<!-- Create Modal -->
+<!-- Create Application Modal -->
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
 		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showCreateModal = false} onkeydown={(e) => { if (e.key === 'Escape') showCreateModal = false; }} role="presentation"></div>
 		<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl border border-blue-500/20 overflow-hidden animate-in zoom-in-95">
 			<div class="p-8">
 				<h3 class="text-2xl font-black text-slate-900 dark:text-white mb-6 uppercase tracking-tighter italic leading-none">Assemble Application</h3>
-				
+
 				<form onsubmit={(e) => { e.preventDefault(); createApplication(); }} class="space-y-6">
 					<div>
 						<label for="appName" class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-1 italic leading-none">Application Identifier</label>
-						<input 
+						<input
 							id="appName"
-							type="text" 
+							type="text"
 							bind:value={newAppName}
 							placeholder="e.g. gopherstack-microservices-config"
 							class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[1.5rem] outline-none focus:ring-2 focus:ring-blue-500 transition-all font-mono text-xs italic"
@@ -416,6 +721,93 @@
 						<button type="button" onclick={() => showCreateModal = false} class="flex-1 px-4 py-4 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">Abort</button>
 						<button type="submit" disabled={creating} class="flex-1 px-4 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 disabled:opacity-50 transition-all">
 							{creating ? 'Assembling...' : 'Provision Blueprint'}
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Extension Modal -->
+{#if showCreateExtModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showCreateExtModal = false} onkeydown={(e) => { if (e.key === 'Escape') showCreateExtModal = false; }} role="presentation"></div>
+		<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl border border-indigo-500/20 overflow-hidden animate-in zoom-in-95">
+			<div class="p-8">
+				<h3 class="text-2xl font-black text-slate-900 dark:text-white mb-6 uppercase tracking-tighter italic leading-none">Register Extension</h3>
+
+				<form onsubmit={(e) => { e.preventDefault(); createExtension(); }} class="space-y-4">
+					<div>
+						<label for="extName" class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-1 italic leading-none">Extension Name</label>
+						<input
+							id="extName"
+							type="text"
+							bind:value={newExtName}
+							placeholder="e.g. MyLambdaExtension"
+							class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[1.5rem] outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-mono text-xs italic"
+							required
+						/>
+					</div>
+					<div>
+						<label for="extDesc" class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-1 italic leading-none">Description (optional)</label>
+						<input
+							id="extDesc"
+							type="text"
+							bind:value={newExtDesc}
+							placeholder="What does this extension do?"
+							class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[1.5rem] outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-mono text-xs italic"
+						/>
+					</div>
+
+					<div class="flex gap-4 pt-4">
+						<button type="button" onclick={() => showCreateExtModal = false} class="flex-1 px-4 py-4 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">Cancel</button>
+						<button type="submit" disabled={creatingExt} class="flex-1 px-4 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 disabled:opacity-50 transition-all">
+							{creatingExt ? 'Registering...' : 'Register'}
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Association Modal -->
+{#if showCreateAssocModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => showCreateAssocModal = false} onkeydown={(e) => { if (e.key === 'Escape') showCreateAssocModal = false; }} role="presentation"></div>
+		<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl border border-violet-500/20 overflow-hidden animate-in zoom-in-95">
+			<div class="p-8">
+				<h3 class="text-2xl font-black text-slate-900 dark:text-white mb-6 uppercase tracking-tighter italic leading-none">Associate Extension</h3>
+
+				<form onsubmit={(e) => { e.preventDefault(); createAssociation(); }} class="space-y-4">
+					<div>
+						<label for="assocExtId" class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-1 italic leading-none">Extension ID or Name</label>
+						<input
+							id="assocExtId"
+							type="text"
+							bind:value={newAssocExtId}
+							placeholder="Extension ID or name"
+							class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[1.5rem] outline-none focus:ring-2 focus:ring-violet-500 transition-all font-mono text-xs italic"
+							required
+						/>
+					</div>
+					<div>
+						<label for="assocResource" class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-1 italic leading-none">Resource ARN or Identifier</label>
+						<input
+							id="assocResource"
+							type="text"
+							bind:value={newAssocResource}
+							placeholder="arn:aws:appconfig:..."
+							class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-[1.5rem] outline-none focus:ring-2 focus:ring-violet-500 transition-all font-mono text-xs italic"
+							required
+						/>
+					</div>
+
+					<div class="flex gap-4 pt-4">
+						<button type="button" onclick={() => showCreateAssocModal = false} class="flex-1 px-4 py-4 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">Cancel</button>
+						<button type="submit" disabled={creatingAssoc} class="flex-1 px-4 py-4 bg-violet-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 disabled:opacity-50 transition-all">
+							{creatingAssoc ? 'Associating...' : 'Associate'}
 						</button>
 					</div>
 				</form>

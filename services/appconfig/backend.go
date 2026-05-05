@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -49,6 +51,7 @@ type InMemoryBackend struct {
 	versionCounters       map[string]map[string]int32
 	deploymentCounters    map[string]map[string]int32
 	mu                    *lockmetrics.RWMutex
+	paginationSecret      string
 	accountID             string
 	region                string
 }
@@ -68,10 +71,14 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		versionCounters:       make(map[string]map[string]int32),
 		deploymentCounters:    make(map[string]map[string]int32),
 		mu:                    lockmetrics.New("appconfig"),
+		paginationSecret:      uuid.NewString(),
 		accountID:             accountID,
 		region:                region,
 	}
 }
+
+// PaginationSecret returns the HMAC secret for pagination tokens.
+func (b *InMemoryBackend) PaginationSecret() string { return b.paginationSecret }
 
 // appconfigARN builds an AppConfig resource ARN for tag lookup/cleanup.
 func (b *InMemoryBackend) appconfigARN(resourcePath string) string {
@@ -128,7 +135,7 @@ func (b *InMemoryBackend) ListApplications(nextToken string, maxResults int) ([]
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token
 }
@@ -255,7 +262,7 @@ func (b *InMemoryBackend) ListEnvironments(
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
 }
@@ -378,7 +385,7 @@ func (b *InMemoryBackend) ListConfigurationProfiles(
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
 }
@@ -528,7 +535,7 @@ func (b *InMemoryBackend) ListHostedConfigurationVersions(
 
 	sort.Slice(out, func(i, j int) bool { return out[i].VersionNumber < out[j].VersionNumber })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
 }
@@ -613,7 +620,7 @@ func (b *InMemoryBackend) ListDeploymentStrategies(nextToken string, maxResults 
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token
 }
@@ -759,7 +766,7 @@ func (b *InMemoryBackend) ListDeployments(
 
 	sort.Slice(out, func(i, j int) bool { return out[i].DeploymentNumber < out[j].DeploymentNumber })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
 }
@@ -916,7 +923,7 @@ func (b *InMemoryBackend) ListExtensions(nextToken string, maxResults int, nameF
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token
 }
@@ -1036,7 +1043,7 @@ func (b *InMemoryBackend) ListExtensionAssociations(nextToken string, maxResults
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
-	page, token := appConfigPaginate(out, nextToken, maxResults)
+	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token
 }
@@ -1206,34 +1213,11 @@ func (b *InMemoryBackend) latestConfigVersion(appID, profileID string) *HostedCo
 	return latest
 }
 
-// appConfigPaginate applies token-based pagination to a sorted slice.
-func appConfigPaginate[T any](all []T, nextToken string, maxResults int) ([]T, string) {
+// appConfigPaginate applies HMAC-signed token-based pagination to a sorted slice.
+func appConfigPaginate[T any](all []T, nextToken, secret string, maxResults int) ([]T, string) {
 	const defaultLimit = 50
 
-	startIdx := 0
-	if nextToken != "" {
-		if idx, err := strconv.Atoi(nextToken); err == nil && idx >= 0 {
-			startIdx = idx
-		}
-	}
+	p := page.NewHMAC(all, nextToken, secret, maxResults, defaultLimit)
 
-	if startIdx >= len(all) {
-		return []T{}, ""
-	}
-
-	limit := defaultLimit
-	if maxResults > 0 {
-		limit = maxResults
-	}
-
-	end := startIdx + limit
-
-	var outToken string
-	if end < len(all) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return all[startIdx:end], outToken
+	return p.Data, p.Next
 }

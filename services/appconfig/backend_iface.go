@@ -2,6 +2,9 @@ package appconfig
 
 // StorageBackend defines the operations supported by the AppConfig in-memory backend.
 type StorageBackend interface {
+	// PaginationSecret returns the HMAC secret used to sign pagination tokens.
+	PaginationSecret() string
+
 	// CreateApplication creates a new AppConfig application.
 	CreateApplication(name, description string) (*Application, error)
 	// GetApplication retrieves an application by ID.
