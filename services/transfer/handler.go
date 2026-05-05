@@ -1095,8 +1095,8 @@ func (h *Handler) handleDescribeAgreement(
 		Agreement: map[string]any{
 			"AgreementId":      ag.AgreementID,
 			"ServerId":         ag.ServerID,
-			keyDescription:      ag.Description,
-			keyStatus:           ag.Status,
+			keyDescription:     ag.Description,
+			keyStatus:          ag.Status,
 			"LocalProfileId":   ag.LocalProfileID,
 			"PartnerProfileId": ag.PartnerProfileID,
 			"BaseDirectory":    ag.BaseDirectory,
@@ -1134,7 +1134,7 @@ func (h *Handler) handleListAgreements(
 
 	for i, ag := range page {
 		out[i] = map[string]any{
-			"AgreementId": ag.AgreementID,
+			"AgreementId":  ag.AgreementID,
 			keyDescription: ag.Description,
 			keyStatus:      ag.Status,
 		}
@@ -1627,8 +1627,8 @@ func (h *Handler) handleDescribeCertificate(
 		Certificate: map[string]any{
 			"CertificateId": c.CertificateID,
 			"Usage":         c.Usage,
-			keyDescription:   c.Description,
-			keyStatus:        c.Status,
+			keyDescription:  c.Description,
+			keyStatus:       c.Status,
 		},
 	}, nil
 }
@@ -1655,7 +1655,7 @@ func (h *Handler) handleListCertificates(
 		out[i] = map[string]any{
 			"CertificateId": c.CertificateID,
 			"Usage":         c.Usage,
-			keyStatus:        c.Status,
+			keyStatus:       c.Status,
 		}
 	}
 
@@ -1773,9 +1773,9 @@ func (h *Handler) handleDescribeHostKey(
 	return &describeHostKeyOutput{
 		ServerID: hk.ServerID,
 		HostKey: map[string]any{
-			"HostKeyId":   hk.HostKeyID,
+			"HostKeyId":    hk.HostKeyID,
 			keyDescription: hk.Description,
-			"Type":        hk.Type,
+			"Type":         hk.Type,
 		},
 	}, nil
 }
@@ -1810,9 +1810,9 @@ func (h *Handler) handleListHostKeys(
 
 	for i, hk := range page {
 		out[i] = map[string]any{
-			"HostKeyId":   hk.HostKeyID,
+			"HostKeyId":    hk.HostKeyID,
 			keyDescription: hk.Description,
-			"Type":        hk.Type,
+			"Type":         hk.Type,
 		}
 	}
 
@@ -2045,19 +2045,19 @@ func (h *Handler) handleStartDirectoryListing(
 	_ context.Context,
 	_ *struct{},
 ) (*map[string]any, error) {
-	return &map[string]any{"DirectoryListingId": "listing-" + strings.Repeat("0", 8)}, nil
+	return &map[string]any{"DirectoryListingId": "listing-" + strings.Repeat("0", idSuffixLen)}, nil
 }
 
 func (h *Handler) handleStartFileTransfer(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", 8)}, nil
+	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", idSuffixLen)}, nil
 }
 
 func (h *Handler) handleStartRemoteDelete(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", 8)}, nil
+	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", idSuffixLen)}, nil
 }
 
 func (h *Handler) handleStartRemoteMove(_ context.Context, _ *struct{}) (*map[string]any, error) {
-	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", 8)}, nil
+	return &map[string]any{keyTransferID: "transfer-" + strings.Repeat("0", idSuffixLen)}, nil
 }
 
 func (h *Handler) handleTestConnection(_ context.Context, _ *struct{}) (*map[string]any, error) {
