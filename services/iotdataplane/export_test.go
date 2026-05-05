@@ -2,7 +2,7 @@ package iotdataplane
 
 // ShadowCount returns the total number of shadow entries across all things (for white-box testing).
 func ShadowCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ShadowCount")
 	defer b.mu.RUnlock()
 
 	total := 0
@@ -15,7 +15,7 @@ func ShadowCount(b *InMemoryBackend) int {
 
 // ThingCount returns the number of distinct things with at least one shadow (for white-box testing).
 func ThingCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ThingCount")
 	defer b.mu.RUnlock()
 
 	return len(b.shadows)
@@ -23,7 +23,7 @@ func ThingCount(b *InMemoryBackend) int {
 
 // RetainedMessageCount returns the number of retained messages (for white-box testing).
 func RetainedMessageCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("RetainedMessageCount")
 	defer b.mu.RUnlock()
 
 	return len(b.retainedMessages)
@@ -31,7 +31,7 @@ func RetainedMessageCount(b *InMemoryBackend) int {
 
 // ConnectionCount returns the number of tracked connections (for white-box testing).
 func ConnectionCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ConnectionCount")
 	defer b.mu.RUnlock()
 
 	return len(b.connections)
@@ -39,3 +39,26 @@ func ConnectionCount(b *InMemoryBackend) int {
 
 // MaxShadowsPerThing exposes the cap constant for white-box testing.
 const MaxShadowsPerThing = maxShadowsPerThing
+
+// MaxShadowDocumentBytes exposes the shadow document size cap for white-box testing.
+const MaxShadowDocumentBytes = maxShadowDocumentBytes
+
+// MaxShadowVersion exposes the version rollover cap for white-box testing.
+const MaxShadowVersion = maxShadowVersion
+
+// ForceSetShadowVersion directly sets the version on a shadow entry for testing version overflow.
+func ForceSetShadowVersion(b *InMemoryBackend, thingName, shadowName string, version int) {
+	b.mu.Lock("ForceSetShadowVersion")
+	defer b.mu.Unlock()
+
+	if b.shadows[thingName] == nil {
+		return
+	}
+
+	entry, ok := b.shadows[thingName][shadowName]
+	if !ok {
+		return
+	}
+
+	entry.version = version
+}
