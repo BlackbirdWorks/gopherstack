@@ -28,6 +28,9 @@
 		type TransactionDescription,
 		type DataCellsFilter,
 		type LFTagExpression,
+		type Resource,
+		Permission,
+		TransactionStatusFilter,
 	} from '@aws-sdk/client-lakeformation';
 	import { toast } from 'svelte-sonner';
 	import { Database, RefreshCw, Plus, Trash2, Tag, Shield, ArrowLeftRight, Copy, Filter, BookOpen, Layers } from 'lucide-svelte';
@@ -185,8 +188,8 @@
 			const toRemove = editTagRemoveValues.split(',').map(v => v.trim()).filter(Boolean);
 			await lf.send(new UpdateLFTagCommand({
 				TagKey: editTagKey,
-				TagValuesToAdd: toAdd.length ? toAdd : undefined,
-				TagValuesToDelete: toRemove.length ? toRemove : undefined,
+				TagValuesToAdd: toAdd.length > 0 ? toAdd : undefined,
+				TagValuesToDelete: toRemove.length > 0 ? toRemove : undefined,
 			}));
 			toast.success('LF tag updated');
 			showEditTagModal = false;
@@ -246,7 +249,7 @@
 		if (!grantPrincipal.trim()) return;
 		granting = true;
 		try {
-			let resource: any;
+			let resource: Resource;
 			switch (grantResourceType) {
 				case 'catalog':
 					resource = { Catalog: {} };
@@ -264,13 +267,13 @@
 					resource = { DataLocation: { ResourceArn: grantResourceArn.trim() } };
 					break;
 			}
-			const perms = grantPermList.split(',').map(p => p.trim()).filter(Boolean);
-			const withOption = grantWithOption.split(',').map(p => p.trim()).filter(Boolean);
+			const perms = grantPermList.split(',').map(p => p.trim()).filter(Boolean) as Permission[];
+			const withOption = grantWithOption.split(',').map(p => p.trim()).filter(Boolean) as Permission[];
 			await lf.send(new GrantPermissionsCommand({
 				Principal: { DataLakePrincipalIdentifier: grantPrincipal.trim() },
 				Resource: resource,
-				Permissions: perms as any,
-				PermissionsWithGrantOption: withOption.length ? (withOption as any) : undefined,
+				Permissions: perms,
+				PermissionsWithGrantOption: withOption.length > 0 ? withOption : undefined,
 			}));
 			toast.success('Permission granted');
 			showGrantModal = false;
@@ -305,7 +308,7 @@
 		});
 	}
 
-	function describeResource(resource: any): string {
+	function describeResource(resource: Resource | undefined): string {
 		if (!resource) return '—';
 		if (resource.Catalog !== undefined) return 'Catalog';
 		if (resource.Database) return `DB: ${resource.Database.Name}`;
@@ -328,7 +331,7 @@
 	async function loadTransactions() {
 		loadingTxns = true;
 		try {
-			const res = await lf.send(new ListTransactionsCommand({ StatusFilter: (txnStatusFilter || undefined) as any }));
+			const res = await lf.send(new ListTransactionsCommand({ StatusFilter: (txnStatusFilter || undefined) as TransactionStatusFilter | undefined }));
 			transactions = res.Transactions ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load transactions: ${(err as Error).message}`);
