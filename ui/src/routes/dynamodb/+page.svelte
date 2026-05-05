@@ -97,6 +97,20 @@
 	let streamBackendUnavailable = $state(false);
 	let streamPollTimer: ReturnType<typeof setInterval> | undefined;
 
+	// Stream Info State
+	type ShardInfo = { shardId: string; startSeq: string; endSeq: string };
+	type StreamInfo = {
+		available: boolean;
+		eventCount: number;
+		latestEventUnix: number;
+		oldestSeq: string;
+		latestSeq: string;
+		lagSeconds: number;
+		shards: ShardInfo[];
+	};
+	let streamInfo = $state<StreamInfo | null>(null);
+	let streamInfoLoading = $state(false);
+
 	// Overview Config State
 	let ttlAttribute = $state('');
 	let ttlEnabled = $state(false);
@@ -270,7 +284,7 @@
 		activeTab = 'overview';
 		queryResults = []; scanResults = []; partiqlResults = []; itemsResults = []; backups = [];
 		itemsLastKey = null; itemsSelectedKeys = new Set();
-		streamEventsHtml = '';
+		streamEventsHtml = ''; streamInfo = null;
 		partiqlStatement = `SELECT * FROM "${name}"`;
 		try {
 			const desc = await ddb.send(new DescribeTableCommand({ TableName: name }));
@@ -500,12 +514,26 @@
 		streamEventsLoading = false;
 	}
 
+	async function loadStreamInfo() {
+		if (!selectedTable) return;
+		streamInfoLoading = true;
+		try {
+			const res = await fetch(`/dashboard/dynamodb/table/${selectedTable}/stream-info`);
+			if (res.ok) streamInfo = await res.json();
+		} catch {
+			// ignore
+		}
+		streamInfoLoading = false;
+	}
+
 	$effect(() => {
 		if (activeTab === 'streams' && selectedTable) {
 			streamBackendUnavailable = false;
 			streamEventsHtml = '';
+			streamInfo = null;
+			loadStreamInfo();
 			loadStreamEvents();
-			streamPollTimer = setInterval(loadStreamEvents, 3000);
+			streamPollTimer = setInterval(() => { loadStreamEvents(); loadStreamInfo(); }, 3000);
 			return () => { if (streamPollTimer) clearInterval(streamPollTimer); };
 		}
 	});
@@ -1183,26 +1211,36 @@
 				{/if}
 			</div>
 		{:else if activeTab === 'streams'}
-			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800">
-				<div class="flex items-center justify-between mb-4">
-					<div class="flex items-center gap-3">
-						<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Stream Events</h3>
-						{#if streamsEnabled}
-							<span class="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 px-2 py-0.5 rounded font-medium">{streamsViewType}</span>
-							{#if !streamBackendUnavailable}
-								<span class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-									<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>Auto-refresh 3s
-								</span>
+			<div class="space-y-4">
+				<!-- Stream Header -->
+				<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800">
+					<div class="flex items-center justify-between mb-1">
+						<div class="flex items-center gap-3">
+							<h3 class="text-lg font-semibold text-slate-900 dark:text-white">DynamoDB Streams</h3>
+							{#if streamsEnabled}
+								<span class="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded font-medium">ENABLED</span>
+								<span class="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 px-2 py-0.5 rounded font-medium">{streamsViewType}</span>
+								{#if !streamBackendUnavailable}
+									<span class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+										<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>Auto-refresh 3s
+									</span>
+								{/if}
+							{:else}
+								<span class="text-xs bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400 px-2 py-0.5 rounded font-medium">DISABLED</span>
 							{/if}
+						</div>
+						{#if streamARN}
+							<button onclick={() => copyToClipboard(streamARN)} class="flex items-center gap-1.5 text-xs text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400">
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+								Copy ARN
+							</button>
 						{/if}
 					</div>
 					{#if streamARN}
-						<button onclick={() => copyToClipboard(streamARN)} class="flex items-center gap-1.5 text-xs text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400">
-							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-							Copy ARN
-						</button>
+						<p class="text-xs font-mono text-slate-400 dark:text-slate-500 break-all">{streamARN}</p>
 					{/if}
 				</div>
+
 				{#if !streamsEnabled}
 					<div class="p-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl">
 						<p class="text-sm text-blue-800 dark:text-blue-300 mb-3">DynamoDB Streams are not enabled for this table.</p>
@@ -1219,15 +1257,90 @@
 							</div>
 						</div>
 					</div>
-				{:else if streamEventsLoading}
-					<div class="flex items-center justify-center p-8">
-						<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /><path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" /></svg>
-					</div>
-				{:else if streamEventsHtml}
-					<div class="overflow-auto max-h-96">{@html streamEventsHtml}</div>
 				{:else}
-					<div class="p-6 text-center text-slate-500 dark:text-slate-400">
-						<p class="text-sm">No recent stream events. Events will appear here as you write to the table.</p>
+					<!-- Stats Cards -->
+					{#if streamInfo}
+						<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+							<div class="p-4 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+								<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Buffered Events</div>
+								<div class="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{streamInfo.eventCount}</div>
+							</div>
+							<div class="p-4 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+								<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Active Shards</div>
+								<div class="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">{streamInfo.shards?.length ?? 0}</div>
+							</div>
+							<div class="p-4 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+								<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Consumption Lag</div>
+								{#if streamInfo.eventCount === 0}
+									<div class="text-2xl font-bold text-slate-400 dark:text-slate-500 mt-1">—</div>
+								{:else if streamInfo.lagSeconds < 5}
+									<div class="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">&lt;5s</div>
+								{:else}
+									<div class="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">{streamInfo.lagSeconds}s</div>
+								{/if}
+							</div>
+							<div class="p-4 bg-white dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm">
+								<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Iterator Expiry</div>
+								<div class="text-lg font-bold text-slate-700 dark:text-slate-300 mt-1">15 min</div>
+								<div class="text-xs text-slate-400 dark:text-slate-500">from creation</div>
+							</div>
+						</div>
+
+						<!-- Shards Table -->
+						{#if streamInfo.shards && streamInfo.shards.length > 0}
+							<div class="p-4 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600">
+								<h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Shard Breakdown</h4>
+								<div class="overflow-x-auto">
+									<table class="w-full text-xs font-mono">
+										<thead>
+											<tr class="border-b border-slate-200 dark:border-slate-600">
+												<th class="text-left pb-2 pr-4 text-slate-500 dark:text-slate-400 font-medium">Shard ID</th>
+												<th class="text-left pb-2 pr-4 text-slate-500 dark:text-slate-400 font-medium">Start Sequence</th>
+												<th class="text-left pb-2 pr-4 text-slate-500 dark:text-slate-400 font-medium">End Sequence</th>
+												<th class="text-left pb-2 text-slate-500 dark:text-slate-400 font-medium">Iterator Expiry</th>
+											</tr>
+										</thead>
+										<tbody>
+											{#each streamInfo.shards as shard}
+												<tr class="border-b border-slate-100 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors">
+													<td class="py-2 pr-4 text-slate-700 dark:text-slate-300 truncate max-w-[200px]" title={shard.shardId}>{shard.shardId}</td>
+													<td class="py-2 pr-4 text-slate-500 dark:text-slate-400">{shard.startSeq || '—'}</td>
+													<td class="py-2 pr-4 text-slate-500 dark:text-slate-400">{shard.endSeq || '(open)'}</td>
+													<td class="py-2 text-amber-600 dark:text-amber-400">15 min from use</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								</div>
+								{#if streamInfo.latestSeq}
+									<div class="mt-3 flex gap-4 text-xs text-slate-500 dark:text-slate-400">
+										<span>Oldest seq: <span class="font-mono">{streamInfo.oldestSeq || '—'}</span></span>
+										<span>Latest seq: <span class="font-mono">{streamInfo.latestSeq || '—'}</span></span>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					{:else if streamInfoLoading}
+						<div class="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 px-1">
+							<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+							Loading stream info...
+						</div>
+					{/if}
+
+					<!-- Recent Events -->
+					<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800">
+						<h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Recent Events</h4>
+						{#if streamEventsLoading && !streamEventsHtml}
+							<div class="flex items-center justify-center p-8">
+								<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /><path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" /></svg>
+							</div>
+						{:else if streamEventsHtml}
+							<div class="overflow-auto max-h-96">{@html streamEventsHtml}</div>
+						{:else}
+							<div class="p-6 text-center text-slate-500 dark:text-slate-400">
+								<p class="text-sm">No recent stream events. Events will appear here as you write to the table.</p>
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</div>

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"html"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
@@ -1170,6 +1172,41 @@ func (h *DashboardHandler) setupSubRouter() {
 		return c.JSON(http.StatusOK, map[string]any{"objects": objectPaths})
 	})
 
+	h.SubRouter.GET("/dashboard/dynamodb/table/:name/stream-info", func(c *echo.Context) error {
+		name := c.Param("name")
+
+		type streamInfoResponse struct {
+			OldestSeq       string            `json:"oldestSeq"`
+			LatestSeq       string            `json:"latestSeq"`
+			Shards          []streamShardInfo `json:"shards"`
+			LatestEventUnix int64             `json:"latestEventUnix"`
+			LagSeconds      int64             `json:"lagSeconds"`
+			EventCount      int               `json:"eventCount"`
+			Available       bool              `json:"available"`
+		}
+
+		if h.config.DynamoDBStreamsOps == nil || h.config.DynamoDBStreamsOps.Streams == nil {
+			return c.JSON(http.StatusOK, streamInfoResponse{Available: false})
+		}
+
+		ctx := c.Request().Context()
+
+		// Get events for count, sequence range, and lag
+		events := h.config.DynamoDBStreamsOps.Streams.GetRecentEvents(name)
+		info := streamInfoResponse{Available: true, EventCount: len(events)}
+
+		if len(events) > 0 {
+			info.OldestSeq = events[0].SequenceNumber
+			info.LatestSeq = events[len(events)-1].SequenceNumber
+			info.LatestEventUnix = events[len(events)-1].ApproximateCreationDateTime
+			info.LagSeconds = max(time.Now().Unix()-info.LatestEventUnix, 0)
+		}
+
+		info.Shards = h.describeStreamShards(ctx, name)
+
+		return c.JSON(http.StatusOK, info)
+	})
+
 	h.SubRouter.GET("/dashboard/dynamodb/table/:name/stream-events", func(c *echo.Context) error {
 		name := c.Param("name")
 		if h.config.DynamoDBStreamsOps == nil || h.config.DynamoDBStreamsOps.Streams == nil {
@@ -1233,6 +1270,58 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.Any("/dashboard", func(c *echo.Context) error {
 		return c.Redirect(http.StatusMovedPermanently, "/dashboard/")
 	})
+}
+
+type streamShardInfo struct {
+	ShardID  string `json:"shardId"`
+	StartSeq string `json:"startSeq"`
+	EndSeq   string `json:"endSeq"`
+}
+
+// describeStreamShards fetches shard info for the named table's active stream.
+func (h *DashboardHandler) describeStreamShards(ctx context.Context, tableName string) []streamShardInfo {
+	if h.config.DynamoDBStreamsOps == nil || h.config.DynamoDBStreamsOps.Streams == nil {
+		return nil
+	}
+
+	listOut, err := h.config.DynamoDBStreamsOps.Streams.ListStreams(
+		ctx,
+		&dynamodbstreams.ListStreamsInput{TableName: &tableName},
+	)
+	if err != nil || listOut == nil || len(listOut.Streams) == 0 {
+		return nil
+	}
+
+	descOut, err := h.config.DynamoDBStreamsOps.Streams.DescribeStream(
+		ctx,
+		&dynamodbstreams.DescribeStreamInput{StreamArn: listOut.Streams[0].StreamArn},
+	)
+	if err != nil || descOut == nil || descOut.StreamDescription == nil {
+		return nil
+	}
+
+	shards := make([]streamShardInfo, 0, len(descOut.StreamDescription.Shards))
+
+	for _, s := range descOut.StreamDescription.Shards {
+		si := streamShardInfo{}
+		if s.ShardId != nil {
+			si.ShardID = *s.ShardId
+		}
+
+		if s.SequenceNumberRange != nil {
+			if s.SequenceNumberRange.StartingSequenceNumber != nil {
+				si.StartSeq = *s.SequenceNumberRange.StartingSequenceNumber
+			}
+
+			if s.SequenceNumberRange.EndingSequenceNumber != nil {
+				si.EndSeq = *s.SequenceNumberRange.EndingSequenceNumber
+			}
+		}
+
+		shards = append(shards, si)
+	}
+
+	return shards
 }
 
 // spaFallbackHandler serves the Svelte SPA.
