@@ -48,6 +48,10 @@ var (
 	ErrWorkflowNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrCertificateNotFound is returned when a Transfer certificate is not found.
 	ErrCertificateNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrHostKeyNotFound is returned when a Transfer host key is not found.
+	ErrHostKeyNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrSSHPublicKeyNotFound is returned when a Transfer SSH public key is not found.
+	ErrSSHPublicKeyNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrValidation is returned when a required parameter is missing or invalid.
 	ErrValidation = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 )
@@ -171,15 +175,35 @@ func cloneAgreement(a *Agreement) *Agreement {
 	return &cp
 }
 
+// ConnectorSftpConfig holds SFTP-specific connector configuration.
+type ConnectorSftpConfig struct {
+	UserSecretID    string   `json:"user_secret_id,omitempty"`
+	TrustedHostKeys []string `json:"trusted_host_keys,omitempty"`
+}
+
+// ConnectorAs2Config holds AS2-specific connector configuration.
+type ConnectorAs2Config struct {
+	LocalProfileID      string `json:"local_profile_id,omitempty"`
+	PartnerProfileID    string `json:"partner_profile_id,omitempty"`
+	SigningAlgorithm    string `json:"signing_algorithm,omitempty"`
+	EncryptionAlgorithm string `json:"encryption_algorithm,omitempty"`
+	MdnSigningAlgorithm string `json:"mdn_signing_algorithm,omitempty"`
+	MdnResponse         string `json:"mdn_response,omitempty"`
+	MessageSubject      string `json:"message_subject,omitempty"`
+	Compression         string `json:"compression,omitempty"`
+}
+
 // Connector represents an AWS Transfer connector used to initiate file transfers.
 type Connector struct {
-	CreatedAt   time.Time         `json:"created_at"`
-	Tags        map[string]string `json:"tags"`
-	ConnectorID string            `json:"connector_id"`
-	URL         string            `json:"url"`
-	AccessRole  string            `json:"access_role"`
-	AccountID   string            `json:"account_id"`
-	Region      string            `json:"region"`
+	SftpConfig  *ConnectorSftpConfig `json:"sftp_config,omitempty"`
+	As2Config   *ConnectorAs2Config  `json:"as2_config,omitempty"`
+	CreatedAt   time.Time            `json:"created_at"`
+	Tags        map[string]string    `json:"tags"`
+	ConnectorID string               `json:"connector_id"`
+	URL         string               `json:"url"`
+	AccessRole  string               `json:"access_role"`
+	AccountID   string               `json:"account_id"`
+	Region      string               `json:"region"`
 }
 
 // cloneConnector returns a deep copy of a Connector.
@@ -187,6 +211,20 @@ func cloneConnector(c *Connector) *Connector {
 	cp := *c
 	cp.Tags = make(map[string]string, len(c.Tags))
 	maps.Copy(cp.Tags, c.Tags)
+
+	if c.SftpConfig != nil {
+		sc := *c.SftpConfig
+		if c.SftpConfig.TrustedHostKeys != nil {
+			sc.TrustedHostKeys = make([]string, len(c.SftpConfig.TrustedHostKeys))
+			copy(sc.TrustedHostKeys, c.SftpConfig.TrustedHostKeys)
+		}
+		cp.SftpConfig = &sc
+	}
+
+	if c.As2Config != nil {
+		ac := *c.As2Config
+		cp.As2Config = &ac
+	}
 
 	return &cp
 }
@@ -211,13 +249,24 @@ func cloneProfile(p *Profile) *Profile {
 	return &cp
 }
 
+// WebAppIdentityProviderDetails holds identity provider configuration for a web app.
+type WebAppIdentityProviderDetails struct {
+	IdentityProviderType string `json:"identity_provider_type,omitempty"`
+	InstanceArn          string `json:"instance_arn,omitempty"`
+	Role                 string `json:"role,omitempty"`
+	URL                  string `json:"url,omitempty"`
+	Directory            string `json:"directory,omitempty"`
+	Function             string `json:"function,omitempty"`
+}
+
 // WebApp represents an AWS Transfer web application.
 type WebApp struct {
-	CreatedAt time.Time         `json:"created_at"`
-	Tags      map[string]string `json:"tags"`
-	WebAppID  string            `json:"web_app_id"`
-	AccountID string            `json:"account_id"`
-	Region    string            `json:"region"`
+	IdentityProviderDetails *WebAppIdentityProviderDetails `json:"identity_provider_details,omitempty"`
+	CreatedAt               time.Time                      `json:"created_at"`
+	Tags                    map[string]string              `json:"tags"`
+	WebAppID                string                         `json:"web_app_id"`
+	AccountID               string                         `json:"account_id"`
+	Region                  string                         `json:"region"`
 }
 
 // cloneWebApp returns a deep copy of a WebApp.
@@ -226,17 +275,48 @@ func cloneWebApp(w *WebApp) *WebApp {
 	cp.Tags = make(map[string]string, len(w.Tags))
 	maps.Copy(cp.Tags, w.Tags)
 
+	if w.IdentityProviderDetails != nil {
+		ipd := *w.IdentityProviderDetails
+		cp.IdentityProviderDetails = &ipd
+	}
+
 	return &cp
+}
+
+// WorkflowStep represents a single step in an AWS Transfer workflow.
+type WorkflowStep struct {
+	StepDetails map[string]any `json:"step_details,omitempty"`
+	Type        string         `json:"type"`
 }
 
 // Workflow represents an AWS Transfer workflow for file processing.
 type Workflow struct {
-	CreatedAt   time.Time         `json:"created_at"`
-	Tags        map[string]string `json:"tags"`
-	WorkflowID  string            `json:"workflow_id"`
-	Description string            `json:"description"`
-	AccountID   string            `json:"account_id"`
-	Region      string            `json:"region"`
+	CreatedAt        time.Time         `json:"created_at"`
+	Tags             map[string]string `json:"tags"`
+	WorkflowID       string            `json:"workflow_id"`
+	Description      string            `json:"description"`
+	AccountID        string            `json:"account_id"`
+	Region           string            `json:"region"`
+	Steps            []WorkflowStep    `json:"steps,omitempty"`
+	OnExceptionSteps []WorkflowStep    `json:"on_exception_steps,omitempty"`
+}
+
+// cloneWorkflowSteps returns a deep copy of a WorkflowStep slice.
+func cloneWorkflowSteps(steps []WorkflowStep) []WorkflowStep {
+	if steps == nil {
+		return nil
+	}
+
+	out := make([]WorkflowStep, len(steps))
+	for i, s := range steps {
+		out[i] = WorkflowStep{Type: s.Type}
+		if s.StepDetails != nil {
+			out[i].StepDetails = make(map[string]any, len(s.StepDetails))
+			maps.Copy(out[i].StepDetails, s.StepDetails)
+		}
+	}
+
+	return out
 }
 
 // cloneWorkflow returns a deep copy of a Workflow.
@@ -244,12 +324,18 @@ func cloneWorkflow(w *Workflow) *Workflow {
 	cp := *w
 	cp.Tags = make(map[string]string, len(w.Tags))
 	maps.Copy(cp.Tags, w.Tags)
+	cp.Steps = cloneWorkflowSteps(w.Steps)
+	cp.OnExceptionSteps = cloneWorkflowSteps(w.OnExceptionSteps)
 
 	return &cp
 }
 
 // Certificate represents an imported AWS Transfer certificate.
 type Certificate struct {
+	NotBeforeDate time.Time         `json:"not_before_date,omitzero"`
+	NotAfterDate  time.Time         `json:"not_after_date,omitzero"`
+	ActiveDate    time.Time         `json:"active_date,omitzero"`
+	InactiveDate  time.Time         `json:"inactive_date,omitzero"`
 	CreatedAt     time.Time         `json:"created_at"`
 	Tags          map[string]string `json:"tags"`
 	CertificateID string            `json:"certificate_id"`
@@ -288,8 +374,19 @@ type SSHPublicKey struct {
 	DateImported     time.Time `json:"date_imported"`
 	SSHPublicKeyID   string    `json:"ssh_public_key_id"`
 	SSHPublicKeyBody string    `json:"ssh_public_key_body"`
+	Fingerprint      string    `json:"fingerprint,omitempty"`
 	UserName         string    `json:"user_name"`
 	ServerID         string    `json:"server_id"`
+}
+
+// Execution represents the lifecycle of a workflow execution.
+type Execution struct {
+	InitialFileLocation map[string]any `json:"initial_file_location,omitempty"`
+	CurrentStep         *WorkflowStep  `json:"current_step,omitempty"`
+	CreatedAt           time.Time      `json:"created_at"`
+	ExecutionID         string         `json:"execution_id"`
+	WorkflowID          string         `json:"workflow_id"`
+	Status              string         `json:"status"` // "IN_PROGRESS", "COMPLETED", "EXCEPTION", "HANDLING_EXCEPTION"
 }
 
 // InMemoryBackend is the in-memory store for Transfer resources.
