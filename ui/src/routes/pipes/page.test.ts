@@ -173,7 +173,7 @@ describe("Pipes Page", () => {
 
     await waitFor(
       () => {
-        expect(screen.getByText("No pipes configured.")).toBeInTheDocument();
+        expect(screen.getByText("No pipes found.")).toBeInTheDocument();
       },
       { timeout: 3000 },
     );

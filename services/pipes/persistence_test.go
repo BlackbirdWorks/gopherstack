@@ -22,24 +22,46 @@ func TestPipes_PersistenceSnapshotRestore(t *testing.T) {
 			setup: func(_ *pipes.InMemoryBackend) {},
 			verify: func(t *testing.T, b *pipes.InMemoryBackend) {
 				t.Helper()
-
-				assert.Empty(t, b.ListPipes())
+				assert.Empty(t, b.ListPipesAll())
 			},
 		},
 		{
 			name: "pipe_preserved",
 			setup: func(b *pipes.InMemoryBackend) {
-				_, _ = b.CreatePipe("my-pipe", "arn:aws:iam::123:role/r", "arn:sqs", "arn:sns", "desc", "RUNNING", nil)
+				_, _ = b.CreatePipeSimple("my-pipe", "arn:aws:iam::123:role/r",
+					"arn:aws:sqs:us-east-1:123:src",
+					"arn:aws:lambda:us-east-1:123:function:fn",
+					"desc", "RUNNING", nil)
 			},
 			verify: func(t *testing.T, b *pipes.InMemoryBackend) {
 				t.Helper()
-
-				ps := b.ListPipes()
+				ps := b.ListPipesAll()
 				require.Len(t, ps, 1)
 				assert.Equal(t, "my-pipe", ps[0].Name)
-				// Verify ARN index is rebuilt (tag by ARN should work)
 				err := b.TagResource(ps[0].ARN, map[string]string{"env": "test"})
 				require.NoError(t, err)
+			},
+		},
+		{
+			name: "source_parameters_preserved",
+			setup: func(b *pipes.InMemoryBackend) {
+				_, _ = b.CreatePipe(pipes.CreatePipeInput{
+					Name:    "param-pipe",
+					RoleARN: "arn:aws:iam::123:role/r",
+					Source:  "arn:aws:sqs:us-east-1:123:src",
+					Target:  "arn:aws:lambda:us-east-1:123:function:fn",
+					SourceParameters: &pipes.SourceParameters{
+						SqsQueueParameters: &pipes.SQSSourceParameters{BatchSize: 5},
+					},
+				})
+			},
+			verify: func(t *testing.T, b *pipes.InMemoryBackend) {
+				t.Helper()
+				ps := b.ListPipesAll()
+				require.Len(t, ps, 1)
+				require.NotNil(t, ps[0].SourceParameters)
+				require.NotNil(t, ps[0].SourceParameters.SqsQueueParameters)
+				assert.Equal(t, 5, ps[0].SourceParameters.SqsQueueParameters.BatchSize)
 			},
 		},
 	}
