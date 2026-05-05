@@ -193,11 +193,13 @@ func cloneArchive(a *Archive) *Archive {
 // from crypto/rand rather than one syscall per character.
 func generateID(length int) string {
 	const nChars = len(idChars)
-	// Bytes in [0, nChars*(256/nChars)) have no modulo bias.
-	const maxByte = byte(nChars * (256 / nChars))
+	const byteRange = 256 // number of distinct byte values
+	// Bytes in [0, nChars*(byteRange/nChars)) have no modulo bias.
+	const maxByte = byte(nChars * (byteRange / nChars))
+	const bufHeadroom = 8 // extra headroom for rejected bytes
 
 	result := make([]byte, 0, length)
-	buf := make([]byte, length+length/2+8) // extra headroom for rejections
+	buf := make([]byte, length+length/2+bufHeadroom) // extra headroom for rejections
 
 	for len(result) < length {
 		if _, err := io.ReadFull(rand.Reader, buf); err != nil {
