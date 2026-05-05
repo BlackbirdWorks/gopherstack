@@ -51,12 +51,14 @@ func (m *mockSQSReader) DeletePipeMessages(_ string, receiptHandles []string) er
 func (m *mockSQSReader) getDeleted() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return append([]string(nil), m.deletedIDs...)
 }
 
 func (m *mockSQSReader) getLastMaxMessages() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return m.lastMaxMessages
 }
 
@@ -304,7 +306,7 @@ func TestPipesRunner_FilterCriteria(t *testing.T) {
 
 	require.Len(t, calls, 1)
 
-	var event map[string]interface{}
+	var event map[string]any
 	require.NoError(t, json.Unmarshal(payloads[0], &event))
 	require.Len(t, event, 1)
 	// payload is forwarded - just check Lambda was called once
@@ -372,5 +374,5 @@ func TestPipesRunner_InputTemplate(t *testing.T) {
 	lambdaInvoker.mu.Unlock()
 
 	require.Len(t, payloads, 1)
-	assert.Equal(t, `{"fixed":"value"}`, string(payloads[0]))
+	assert.JSONEq(t, `{"fixed":"value"}`, string(payloads[0]))
 }

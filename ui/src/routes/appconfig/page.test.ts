@@ -93,9 +93,7 @@ describe("AppConfig Page", () => {
     await fireEvent.click(createBtn);
 
     expect(screen.getByText("New Application", { selector: "h3" })).toBeInTheDocument();
-    expect(
-      screen.getByPlaceholderText("my-app-config"),
-    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("my-app-config")).toBeInTheDocument();
   });
 
   it("closes create modal on abort button click", async () => {
@@ -105,16 +103,12 @@ describe("AppConfig Page", () => {
 
     await fireEvent.click(screen.getByText("New Application"));
 
-    expect(
-      screen.getByPlaceholderText("my-app-config"),
-    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("my-app-config")).toBeInTheDocument();
 
     await fireEvent.click(screen.getByText("Cancel"));
 
     await waitFor(() => {
-      expect(
-        screen.queryByPlaceholderText("my-app-config"),
-      ).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("my-app-config")).not.toBeInTheDocument();
     });
   });
 

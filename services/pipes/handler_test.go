@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -544,8 +545,11 @@ func TestBackend_Validation(t *testing.T) {
 
 	t.Run("name_too_long", func(t *testing.T) {
 		t.Parallel()
-		long := ""
-		for range 65 { long += "a" }
+		var sb strings.Builder
+		for range 65 {
+			sb.WriteString("a")
+		}
+		long := sb.String()
 		_, err := b.CreatePipeSimple(long, "arn:r", "arn:s", "arn:t", "", "RUNNING", nil)
 		require.Error(t, err)
 		require.ErrorIs(t, err, pipes.ErrValidation)
@@ -602,7 +606,9 @@ func TestHandler_ListPipesFiltering(t *testing.T) {
 
 	for _, name := range []string{"sqs-alpha", "sqs-beta", "kinesis-gamma"} {
 		state := "RUNNING"
-		if name == "sqs-beta" { state = "STOPPED" }
+		if name == "sqs-beta" {
+			state = "STOPPED"
+		}
 		rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/"+name, map[string]any{
 			"Source":       "arn:aws:sqs:us-east-1:000000000000:" + name,
 			"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
@@ -615,7 +621,11 @@ func TestHandler_ListPipesFiltering(t *testing.T) {
 		t.Parallel()
 		rec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes?NamePrefix=sqs", nil)
 		require.Equal(t, http.StatusOK, rec.Code)
-		var out struct{ Pipes []struct{ Name string } }
+		var out struct {
+			Pipes []struct {
+				Name string `json:"Name"`
+			} `json:"Pipes"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Len(t, out.Pipes, 2)
 	})
@@ -624,7 +634,11 @@ func TestHandler_ListPipesFiltering(t *testing.T) {
 		t.Parallel()
 		rec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes?DesiredState=STOPPED", nil)
 		require.Equal(t, http.StatusOK, rec.Code)
-		var out struct{ Pipes []struct{ Name string } }
+		var out struct {
+			Pipes []struct {
+				Name string `json:"Name"`
+			} `json:"Pipes"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Len(t, out.Pipes, 1)
 		assert.Equal(t, "sqs-beta", out.Pipes[0].Name)
@@ -657,16 +671,18 @@ func TestHandler_SourceAndTargetParameters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created struct {
-		SourceParameters struct {
-			SqsQueueParameters struct{ BatchSize int } `json:"SqsQueueParameters"`
-		} `json:"SourceParameters"`
 		TargetParameters struct {
 			InputTemplate string `json:"InputTemplate"`
 		} `json:"TargetParameters"`
+		SourceParameters struct {
+			SqsQueueParameters struct {
+				BatchSize int `json:"BatchSize"`
+			} `json:"SqsQueueParameters"`
+		} `json:"SourceParameters"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 	assert.Equal(t, 5, created.SourceParameters.SqsQueueParameters.BatchSize)
-	assert.Equal(t, `{"fixed":"value"}`, created.TargetParameters.InputTemplate)
+	assert.JSONEq(t, `{"fixed":"value"}`, created.TargetParameters.InputTemplate)
 }
 
 func TestHandler_ListPipesIncludesSourceTarget(t *testing.T) {
@@ -689,7 +705,7 @@ func TestHandler_ListPipesIncludesSourceTarget(t *testing.T) {
 			Source      string `json:"Source"`
 			Target      string `json:"Target"`
 			Description string `json:"Description"`
-		}
+		} `json:"Pipes"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	require.Len(t, out.Pipes, 1)
@@ -714,7 +730,9 @@ func TestHandler_UpdatePipeDesiredState(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var out struct{ DesiredState string }
+	var out struct {
+		DesiredState string `json:"DesiredState"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, "STOPPED", out.DesiredState)
 }
