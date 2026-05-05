@@ -3,6 +3,7 @@ package mediaconvert
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -15,6 +16,10 @@ import (
 
 const (
 	opUnknown = "Unknown"
+)
+
+const (
+	orderDescending = "DESCENDING"
 )
 
 const (
@@ -556,7 +561,13 @@ func (h *Handler) handleListQueues(c *echo.Context) error {
 		queues = []*Queue{}
 	}
 
-	return c.JSON(http.StatusOK, queuesListOutput{Queues: queues})
+	q := c.Request().URL.Query()
+
+	if q.Get("order") == orderDescending {
+		reverseSlice(queues)
+	}
+
+	return c.JSON(http.StatusOK, queuesListOutput{Queues: limitSlice(queues, parseMaxResults(q.Get("maxResults")))})
 }
 
 type updateQueueInput struct {
@@ -647,7 +658,28 @@ func (h *Handler) handleListJobTemplates(c *echo.Context) error {
 		templates = []*JobTemplate{}
 	}
 
-	return c.JSON(http.StatusOK, jobTemplatesListOutput{JobTemplates: templates})
+	q := c.Request().URL.Query()
+	category := q.Get("category")
+
+	if category != "" {
+		filtered := templates[:0:0]
+
+		for _, t := range templates {
+			if t.Category == category {
+				filtered = append(filtered, t)
+			}
+		}
+
+		templates = filtered
+	}
+
+	if q.Get("order") == orderDescending {
+		reverseSlice(templates)
+	}
+
+	out := jobTemplatesListOutput{JobTemplates: limitSlice(templates, parseMaxResults(q.Get("maxResults")))}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 type updateJobTemplateInput struct {
@@ -741,6 +773,41 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 	jobs := h.Backend.ListJobs()
 	if jobs == nil {
 		jobs = []*Job{}
+	}
+
+	q := c.Request().URL.Query()
+	statusFilter := q.Get("status")
+	queueFilter := q.Get("queue")
+	order := q.Get("order")
+	maxResults := parseMaxResults(q.Get("maxResults"))
+
+	if statusFilter != "" || queueFilter != "" {
+		filtered := jobs[:0:0]
+
+		for _, j := range jobs {
+			if statusFilter != "" && j.Status != statusFilter {
+				continue
+			}
+
+			if queueFilter != "" && j.Queue != queueFilter && j.QueueArn != queueFilter {
+				continue
+			}
+
+			filtered = append(filtered, j)
+		}
+
+		jobs = filtered
+	}
+
+	// Backend returns newest-first by default; ASCENDING reverses that order.
+	if order == orderAscending {
+		for i, j := 0, len(jobs)-1; i < j; i, j = i+1, j-1 {
+			jobs[i], jobs[j] = jobs[j], jobs[i]
+		}
+	}
+
+	if maxResults > 0 && len(jobs) > maxResults {
+		jobs = jobs[:maxResults]
 	}
 
 	return c.JSON(http.StatusOK, jobsListOutput{Jobs: jobs, TotalCount: len(jobs)})
@@ -878,7 +945,26 @@ func (h *Handler) handleListPresets(c *echo.Context) error {
 		presets = []*Preset{}
 	}
 
-	return c.JSON(http.StatusOK, presetsListOutput{Presets: presets})
+	q := c.Request().URL.Query()
+	category := q.Get("category")
+
+	if category != "" {
+		filtered := presets[:0:0]
+
+		for _, p := range presets {
+			if p.Category == category {
+				filtered = append(filtered, p)
+			}
+		}
+
+		presets = filtered
+	}
+
+	if q.Get("order") == orderDescending {
+		reverseSlice(presets)
+	}
+
+	return c.JSON(http.StatusOK, presetsListOutput{Presets: limitSlice(presets, parseMaxResults(q.Get("maxResults")))})
 }
 
 func (h *Handler) handleDeletePreset(c *echo.Context, name string) error {
@@ -1029,17 +1115,21 @@ func (h *Handler) handleCreateResourceShare(c *echo.Context, body []byte) error 
 // --- ListVersions handler ---
 
 type listVersionsOutput struct {
-	NextToken string         `json:"nextToken,omitempty"`
-	Versions  []versionEntry `json:"versions"`
+	NextToken string             `json:"nextToken,omitempty"`
+	Versions  []jobEngineVersion `json:"versions"`
 }
 
-type versionEntry struct {
-	Version string `json:"version"`
+// jobEngineVersion mirrors the AWS MediaConvert JobEngineVersion type.
+type jobEngineVersion struct {
+	ExpirationDate *float64 `json:"expirationDate,omitempty"`
+	Version        string   `json:"version"`
 }
 
 func (h *Handler) handleListVersions(c *echo.Context) error {
 	out := listVersionsOutput{
-		Versions: []versionEntry{{Version: "2017-08-29"}},
+		Versions: []jobEngineVersion{
+			{Version: "2017-08-29"},
+		},
 	}
 
 	return c.JSON(http.StatusOK, out)
@@ -1086,6 +1176,8 @@ func (h *Handler) handleSearchJobs(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	statusFilter := q.Get("status")
 	queueFilter := q.Get("queue")
+	order := q.Get("order")
+	maxResults := parseMaxResults(q.Get("maxResults"))
 
 	jobs := h.Backend.ListJobs()
 	if jobs == nil {
@@ -1097,10 +1189,23 @@ func (h *Handler) handleSearchJobs(c *echo.Context) error {
 		if statusFilter != "" && j.Status != statusFilter {
 			continue
 		}
-		if queueFilter != "" && j.Queue != queueFilter {
+
+		if queueFilter != "" && j.Queue != queueFilter && j.QueueArn != queueFilter {
 			continue
 		}
+
 		filtered = append(filtered, j)
+	}
+
+	// Backend returns newest-first by default; ASCENDING reverses that order.
+	if order == orderAscending {
+		for i, j := 0, len(filtered)-1; i < j; i, j = i+1, j-1 {
+			filtered[i], filtered[j] = filtered[j], filtered[i]
+		}
+	}
+
+	if maxResults > 0 && len(filtered) > maxResults {
+		filtered = filtered[:maxResults]
 	}
 
 	return c.JSON(http.StatusOK, searchJobsOutput{Jobs: filtered})
@@ -1109,6 +1214,7 @@ func (h *Handler) handleSearchJobs(c *echo.Context) error {
 // --- StartJobsQuery handler ---
 
 type startJobsQueryInput struct {
+	Order      string           `json:"order,omitempty"`
 	MaxResults *int             `json:"maxResults,omitempty"`
 	FilterList []map[string]any `json:"filterList,omitempty"`
 }
@@ -1123,12 +1229,49 @@ func (h *Handler) handleStartJobsQuery(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	queryID, err := h.Backend.StartJobsQuery()
+	maxResults := 0
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
+
+	queryID, err := h.Backend.StartJobsQuery(in.FilterList, maxResults, in.Order)
 	if err != nil {
 		return h.writeError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, startJobsQueryOutput{QueryID: queryID})
+}
+
+// reverseSlice reverses items in-place.
+func reverseSlice[T any](items []T) {
+	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+		items[i], items[j] = items[j], items[i]
+	}
+}
+
+// limitSlice returns at most maxResults items; 0 means no limit.
+func limitSlice[T any](items []T, maxResults int) []T {
+	if maxResults > 0 && len(items) > maxResults {
+		return items[:maxResults]
+	}
+
+	return items
+}
+
+// parseMaxResults converts a query-parameter string to a non-negative int,
+// returning 0 (no limit) when the string is empty or unparseable.
+func parseMaxResults(s string) int {
+	if s == "" {
+		return 0
+	}
+
+	var n int
+
+	if _, err := fmt.Sscanf(s, "%d", &n); err != nil || n < 0 {
+		return 0
+	}
+
+	return n
 }
 
 // --- Error handling ---

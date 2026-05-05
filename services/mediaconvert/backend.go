@@ -40,6 +40,14 @@ const (
 	jobStatusCanceled = "CANCELED"
 	// pricingPlanOnDemand is the default pricing plan.
 	pricingPlanOnDemand = "ON_DEMAND"
+	// jobPhaseProbing is the initial processing phase of a submitted job.
+	jobPhaseProbing = "PROBING"
+	// priorityMin is the minimum allowed job/template priority.
+	priorityMin = -50
+	// priorityMax is the maximum allowed job/template priority.
+	priorityMax = 50
+	// orderAscending is the ascending list order value used by AWS MediaConvert.
+	orderAscending = "ASCENDING"
 )
 
 // epochSeconds converts a [time.Time] to a float64 Unix epoch seconds value,
@@ -127,22 +135,28 @@ type JobTiming struct {
 
 // Job represents a MediaConvert transcoding job.
 type Job struct {
-	Settings           map[string]any    `json:"settings,omitempty"`
-	Tags               map[string]string `json:"tags,omitempty"`
-	UserMetadata       map[string]string `json:"userMetadata,omitempty"`
-	Timing             *JobTiming        `json:"timing,omitempty"`
-	Arn                string            `json:"arn"`
-	ID                 string            `json:"id"`
-	Queue              string            `json:"queue,omitempty"`
-	QueueArn           string            `json:"queueArn,omitempty"`
-	Role               string            `json:"role"`
-	Status             string            `json:"status"`
-	JobTemplate        string            `json:"jobTemplate,omitempty"`
-	ErrorMessage       string            `json:"errorMessage,omitempty"`
-	BillingTagsSource  string            `json:"billingTagsSource,omitempty"`
-	AccelerationStatus string            `json:"accelerationStatus,omitempty"`
-	ErrorCode          int               `json:"errorCode,omitempty"`
-	CreatedAt          float64           `json:"createdAt"`
+	Settings              map[string]any    `json:"settings,omitempty"`
+	Tags                  map[string]string `json:"tags,omitempty"`
+	UserMetadata          map[string]string `json:"userMetadata,omitempty"`
+	Timing                *JobTiming        `json:"timing,omitempty"`
+	Arn                   string            `json:"arn"`
+	ID                    string            `json:"id"`
+	Queue                 string            `json:"queue,omitempty"`
+	QueueArn              string            `json:"queueArn,omitempty"`
+	Role                  string            `json:"role"`
+	Status                string            `json:"status"`
+	CurrentPhase          string            `json:"currentPhase,omitempty"`
+	JobTemplate           string            `json:"jobTemplate,omitempty"`
+	ErrorMessage          string            `json:"errorMessage,omitempty"`
+	BillingTagsSource     string            `json:"billingTagsSource,omitempty"`
+	AccelerationStatus    string            `json:"accelerationStatus,omitempty"`
+	StatusUpdateInterval  string            `json:"statusUpdateInterval,omitempty"`
+	SimulateReservedQueue string            `json:"simulateReservedQueue,omitempty"`
+	CreatedAt             float64           `json:"createdAt"`
+	ErrorCode             int               `json:"errorCode,omitempty"`
+	JobPercentComplete    int               `json:"jobPercentComplete"`
+	Priority              int               `json:"priority"`
+	RetryCount            int               `json:"retryCount"`
 }
 
 // Preset represents a MediaConvert output preset.
@@ -165,8 +179,16 @@ type Policy struct {
 	S3Inputs    string `json:"s3Inputs,omitempty"`
 }
 
+// jobsQuery stores the parameters of a StartJobsQuery call for deferred execution.
+type jobsQuery struct {
+	order      string
+	filterList []map[string]any
+	maxResults int
+}
+
 // InMemoryBackend is the in-memory store for MediaConvert resources.
 type InMemoryBackend struct {
+	queries      map[string]*jobsQuery
 	queues       map[string]*Queue
 	jobTemplates map[string]*JobTemplate
 	jobs         map[string]*Job
@@ -182,6 +204,7 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory MediaConvert backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
+		queries:      make(map[string]*jobsQuery),
 		queues:       make(map[string]*Queue),
 		jobTemplates: make(map[string]*JobTemplate),
 		jobs:         make(map[string]*Job),
@@ -205,6 +228,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.queries = make(map[string]*jobsQuery)
 	b.queues = make(map[string]*Queue)
 	b.jobTemplates = make(map[string]*JobTemplate)
 	b.jobs = make(map[string]*Job)
@@ -270,6 +294,10 @@ func (b *InMemoryBackend) CreateQueue(
 
 	if status == "" {
 		status = statusActive
+	}
+
+	if status != statusActive && status != statusPaused {
+		return nil, fmt.Errorf("%w: status must be ACTIVE or PAUSED", ErrValidation)
 	}
 
 	now := epochSeconds(time.Now())
@@ -391,6 +419,22 @@ func (b *InMemoryBackend) DeleteQueue(name string) error {
 	return nil
 }
 
+// resolveQueueLocked looks up a queue by name or ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) resolveQueueLocked(queue string) (*Queue, error) {
+	if strings.HasPrefix(queue, "arn:") {
+		for _, cq := range b.queues {
+			if cq.Arn == queue {
+				return cq, nil
+			}
+		}
+	} else if q, ok := b.queues[queue]; ok {
+		return q, nil
+	}
+
+	return nil, fmt.Errorf("%w: queue %s not found", ErrNotFound, queue)
+}
+
 // CreateJobTemplate creates a new MediaConvert job template.
 func (b *InMemoryBackend) CreateJobTemplate(
 	name, description, category, queue string,
@@ -407,6 +451,10 @@ func (b *InMemoryBackend) CreateJobTemplate(
 
 	if _, ok := b.jobTemplates[name]; ok {
 		return nil, fmt.Errorf("%w: job template %s already exists", ErrAlreadyExists, name)
+	}
+
+	if priority < priorityMin || priority > priorityMax {
+		return nil, fmt.Errorf("%w: priority must be between %d and %d", ErrValidation, priorityMin, priorityMax)
 	}
 
 	now := epochSeconds(time.Now())
@@ -487,6 +535,10 @@ func (b *InMemoryBackend) UpdateJobTemplate(
 	}
 
 	if priority != nil {
+		if *priority < priorityMin || *priority > priorityMax {
+			return nil, fmt.Errorf("%w: priority must be between %d and %d", ErrValidation, priorityMin, priorityMax)
+		}
+
 		jt.Priority = *priority
 	}
 
@@ -529,34 +581,37 @@ func (b *InMemoryBackend) CreateJob(
 		return nil, fmt.Errorf("%w: role is required", ErrValidation)
 	}
 
-	// Resolve queue ARN from queue name.
+	// Resolve queue ARN from queue name or ARN.
 	queueArn := ""
 	if queue != "" {
-		q, ok := b.queues[queue]
-		if !ok {
-			return nil, fmt.Errorf("%w: queue %s not found", ErrNotFound, queue)
+		resolved, err := b.resolveQueueLocked(queue)
+		if err != nil {
+			return nil, err
 		}
 
-		queueArn = q.Arn
+		queueArn = resolved.Arn
 	}
 
 	now := epochSeconds(time.Now())
 	id := generateJobID()
 	j := &Job{
-		Arn:                arn.Build("mediaconvert", b.region, b.accountID, "jobs/"+id),
-		ID:                 id,
-		Role:               role,
-		Queue:              queue,
-		QueueArn:           queueArn,
-		JobTemplate:        jobTemplate,
-		Status:             jobStatusSubmitted,
-		Settings:           deepCloneMap(settings),
-		Tags:               nonNilTagsCopy(tags),
-		UserMetadata:       nonNilTagsCopy(userMetadata),
-		BillingTagsSource:  billingTagsSource,
-		AccelerationStatus: "NOT_APPLICABLE",
-		Timing:             &JobTiming{SubmitTime: now},
-		CreatedAt:          now,
+		Arn:                   arn.Build("mediaconvert", b.region, b.accountID, "jobs/"+id),
+		ID:                    id,
+		Role:                  role,
+		Queue:                 queue,
+		QueueArn:              queueArn,
+		JobTemplate:           jobTemplate,
+		Status:                jobStatusSubmitted,
+		CurrentPhase:          jobPhaseProbing,
+		Settings:              deepCloneMap(settings),
+		Tags:                  nonNilTagsCopy(tags),
+		UserMetadata:          nonNilTagsCopy(userMetadata),
+		BillingTagsSource:     billingTagsSource,
+		AccelerationStatus:    "NOT_APPLICABLE",
+		SimulateReservedQueue: "DISABLED",
+		StatusUpdateInterval:  "SECONDS_60",
+		Timing:                &JobTiming{SubmitTime: now},
+		CreatedAt:             now,
 	}
 	b.jobs[id] = j
 
@@ -865,19 +920,92 @@ func (b *InMemoryBackend) DisassociateCertificate(certARN string) error {
 	return nil
 }
 
-// StartJobsQuery creates an asynchronous job query and returns a query ID.
-// The results can be retrieved via GetJobsQueryResults using the returned ID.
-func (b *InMemoryBackend) StartJobsQuery() (string, error) {
-	return uuid.NewString(), nil
+// StartJobsQuery stores a jobs query and returns a query ID for deferred retrieval.
+// Filters use key-value pairs where key is a field name (e.g. "queue", "status")
+// and values are the allowed values for that field.
+func (b *InMemoryBackend) StartJobsQuery(filterList []map[string]any, maxResults int, order string) (string, error) {
+	id := uuid.NewString()
+
+	b.mu.Lock("StartJobsQuery")
+	defer b.mu.Unlock()
+
+	b.queries[id] = &jobsQuery{
+		filterList: filterList,
+		maxResults: maxResults,
+		order:      order,
+	}
+
+	return id, nil
 }
 
-// GetJobsQueryResults returns the result set for a query started by StartJobsQuery.
-// This mock returns an empty set; real results would be fetched from async storage.
-func (b *InMemoryBackend) GetJobsQueryResults(_ string) []*Job {
+// GetJobsQueryResults returns jobs matching the stored query for the given ID.
+// If the queryID is unknown (not from a prior StartJobsQuery call), returns empty.
+func (b *InMemoryBackend) GetJobsQueryResults(queryID string) []*Job {
 	b.mu.RLock("GetJobsQueryResults")
 	defer b.mu.RUnlock()
 
-	return []*Job{}
+	q, ok := b.queries[queryID]
+	if !ok {
+		return []*Job{}
+	}
+
+	list := make([]*Job, 0, len(b.jobs))
+
+	for _, j := range b.jobs {
+		if !jobMatchesFilters(j, q.filterList) {
+			continue
+		}
+
+		list = append(list, cloneJob(j))
+	}
+
+	if q.order == orderAscending {
+		sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt < list[j].CreatedAt })
+	} else {
+		sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt > list[j].CreatedAt })
+	}
+
+	if q.maxResults > 0 && len(list) > q.maxResults {
+		list = list[:q.maxResults]
+	}
+
+	return list
+}
+
+// jobMatchesFilters returns true if the job satisfies all provided query filters.
+// Each filter map must have a "key" and a "values" field; any value match passes.
+func jobMatchesFilters(j *Job, filters []map[string]any) bool {
+	for _, f := range filters {
+		key, _ := f["key"].(string)
+		vals, _ := f["values"].([]any)
+
+		var jobVal string
+
+		switch key {
+		case "queue", "Queue":
+			jobVal = j.Queue
+		case "status", "Status":
+			jobVal = j.Status
+		default:
+			continue
+		}
+
+		matched := false
+
+		for _, v := range vals {
+			if vs, ok := v.(string); ok && vs == jobVal {
+				matched = true
+
+				break
+			}
+		}
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
 }
 
 // CreateResourceShare records a resource-share request for the given job ID.
