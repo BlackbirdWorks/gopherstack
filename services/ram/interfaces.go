@@ -35,7 +35,22 @@ type StorageBackend interface {
 
 	// Invitation operations
 	AcceptResourceShareInvitation(invitationARN string) (*ResourceShareInvitation, error)
+	RejectResourceShareInvitation(invitationARN string) (*ResourceShareInvitation, error)
 	GetResourceShareInvitations(invitationARNs, shareARNs []string) []*ResourceShareInvitation
+	ListPendingInvitationResources(invitationARN string) ([]*ResourceShareAssociation, error)
+
+	// Permission list/version/promotion operations
+	ListPermissions(resourceType string) []*Permission
+	ListPermissionVersions(permissionARN string) ([]*PermissionVersion, error)
+	ListPermissionAssociations(permissionARN string) []SharePermissionAssociation
+	SetDefaultPermissionVersion(permissionARN string, version int32) (*Permission, error)
+	PromotePermissionCreatedFromPolicy(permissionARN, name string) (*Permission, error)
+	PromoteResourceShareCreatedFromPolicy(shareARN string) (*ResourceShare, error)
+	ReplacePermissionAssociations(fromPermissionARN, toPermissionARN string) (string, error)
+
+	// Resource and principal list operations
+	ListResources(resourceOwner, shareARN, resourceType string) []*ResourceShareAssociation
+	ListPrincipals(resourceOwner, shareARN string) []*ResourceShareAssociation
 
 	// Resource policy operations
 	GetResourcePolicies(resourceARNs []string) []string
