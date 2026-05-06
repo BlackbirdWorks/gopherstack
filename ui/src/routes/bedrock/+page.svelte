@@ -5,8 +5,13 @@
 		ListFoundationModelsCommand,
 		ListCustomModelsCommand,
 		GetFoundationModelCommand,
+		CreateCustomModelCommand,
+		ListGuardrailsCommand,
+		CreateGuardrailCommand,
+		DeleteGuardrailCommand,
 		type FoundationModelSummary,
-		type CustomModelSummary
+		type CustomModelSummary,
+		type GuardrailSummary
 	} from '@aws-sdk/client-bedrock';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -18,13 +23,16 @@
 		Cpu,
 		CheckCircle,
 		XCircle,
-		Filter
+		Filter,
+		Shield,
+		Plus,
+		Trash2
 	} from 'lucide-svelte';
 
 	const bedrock = getBedrockClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'foundation' | 'custom'>('foundation');
+	let activeTab = $state<'foundation' | 'custom' | 'guardrails'>('foundation');
 	let searchQuery = $state('');
 	let modalityFilter = $state('all');
 	let providerFilter = $state('all');
@@ -32,11 +40,25 @@
 	// Foundation Models
 	let foundationModels = $state<FoundationModelSummary[]>([]);
 	let selectedModel = $state<FoundationModelSummary | null>(null);
-	let modelDetail = $state<object | null>(null);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let modelDetail = $state<any | null>(null);
 	let loadingDetail = $state(false);
 
 	// Custom Models
 	let customModels = $state<CustomModelSummary[]>([]);
+	let showCreateCustomModel = $state(false);
+	let newCustomModelName = $state('');
+	let newCustomModelBase = $state('');
+	let creatingCustomModel = $state(false);
+
+	// Guardrails
+	let guardrails = $state<GuardrailSummary[]>([]);
+	let showCreateGuardrail = $state(false);
+	let newGuardrailName = $state('');
+	let newGuardrailDesc = $state('');
+	let newGuardrailBlockedInput = $state('Sorry, I cannot assist with that request.');
+	let newGuardrailBlockedOutput = $state('The model response was blocked.');
+	let creatingGuardrail = $state(false);
 
 	const providers = $derived([...new Set(foundationModels.map((m) => m.providerName ?? 'Unknown'))].toSorted());
 	const modalities = $derived([...new Set(foundationModels.flatMap((m) => m.inputModalities ?? []))].toSorted());
@@ -49,7 +71,9 @@
 				(m.modelId ?? '').toLowerCase().includes(searchQuery.toLowerCase());
 			const providerMatch = providerFilter === 'all' || m.providerName === providerFilter;
 			const modalityMatch =
-				modalityFilter === 'all' || (m.inputModalities as string[] ?? []).includes(modalityFilter);
+				modalityFilter === 'all' ||
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				((m.inputModalities as any[]) ?? []).includes(modalityFilter);
 			return nameMatch && providerMatch && modalityMatch;
 		})
 	);
@@ -62,8 +86,16 @@
 		)
 	);
 
+	const filteredGuardrails = $derived(
+		guardrails.filter((g) =>
+			(g.name ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+		)
+	);
+
 	function statusBadge(status?: string) {
-		if (status === 'ACTIVE') return 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900';
+		if (status === 'ACTIVE' || status === 'READY') {
+			return 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900';
+		}
 		if (status === 'LEGACY') return 'text-yellow-700 bg-yellow-100 dark:text-yellow-300 dark:bg-yellow-900';
 		return 'text-muted-foreground bg-muted';
 	}
@@ -92,6 +124,18 @@
 		}
 	}
 
+	async function loadGuardrails() {
+		loading = true;
+		try {
+			const res = await bedrock.send(new ListGuardrailsCommand({}));
+			guardrails = (res.guardrails ?? []) as GuardrailSummary[];
+		} catch (e) {
+			toast.error(`Failed to load guardrails: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
 	async function viewModelDetail(model: FoundationModelSummary) {
 		selectedModel = model;
 		if (!model.modelArn) return;
@@ -109,12 +153,75 @@
 		}
 	}
 
+	async function createCustomModel() {
+		if (!newCustomModelName.trim()) {
+			toast.error('Model name is required');
+			return;
+		}
+		creatingCustomModel = true;
+		try {
+			await bedrock.send(
+				new CreateCustomModelCommand({
+					modelName: newCustomModelName.trim(),
+					baseModelIdentifier: newCustomModelBase.trim() || undefined
+				})
+			);
+			toast.success(`Custom model "${newCustomModelName}" created`);
+			newCustomModelName = '';
+			newCustomModelBase = '';
+			showCreateCustomModel = false;
+			await loadCustomModels();
+		} catch (e) {
+			toast.error(`Failed to create custom model: ${e}`);
+		} finally {
+			creatingCustomModel = false;
+		}
+	}
+
+	async function createGuardrail() {
+		if (!newGuardrailName.trim()) {
+			toast.error('Guardrail name is required');
+			return;
+		}
+		creatingGuardrail = true;
+		try {
+			await bedrock.send(
+				new CreateGuardrailCommand({
+					name: newGuardrailName.trim(),
+					description: newGuardrailDesc.trim() || undefined,
+					blockedInputMessaging: newGuardrailBlockedInput,
+					blockedOutputsMessaging: newGuardrailBlockedOutput
+				})
+			);
+			toast.success(`Guardrail "${newGuardrailName}" created`);
+			newGuardrailName = '';
+			newGuardrailDesc = '';
+			showCreateGuardrail = false;
+			await loadGuardrails();
+		} catch (e) {
+			toast.error(`Failed to create guardrail: ${e}`);
+		} finally {
+			creatingGuardrail = false;
+		}
+	}
+
+	async function deleteGuardrail(id: string, name: string) {
+		try {
+			await bedrock.send(new DeleteGuardrailCommand({ guardrailIdentifier: id }));
+			toast.success(`Guardrail "${name}" deleted`);
+			await loadGuardrails();
+		} catch (e) {
+			toast.error(`Failed to delete guardrail: ${e}`);
+		}
+	}
+
 	async function onTabChange(tab: typeof activeTab) {
 		activeTab = tab;
 		searchQuery = '';
 		selectedModel = null;
 		if (tab === 'foundation') await loadFoundationModels();
-		else await loadCustomModels();
+		else if (tab === 'custom') await loadCustomModels();
+		else await loadGuardrails();
 	}
 
 	onMount(() => loadFoundationModels());
@@ -141,8 +248,8 @@
 	</div>
 
 	<!-- Summary Cards -->
-	{#if foundationModels.length > 0}
-		<div class="grid gap-4 sm:grid-cols-3">
+	{#if foundationModels.length > 0 || customModels.length > 0}
+		<div class="grid gap-4 sm:grid-cols-4">
 			<div class="rounded-lg border p-4 text-center">
 				<div class="text-3xl font-bold text-violet-600">{foundationModels.length}</div>
 				<div class="text-sm text-muted-foreground mt-1">Foundation Models</div>
@@ -155,12 +262,20 @@
 				<div class="text-3xl font-bold text-violet-600">{customModels.length}</div>
 				<div class="text-sm text-muted-foreground mt-1">Custom Models</div>
 			</div>
+			<div class="rounded-lg border p-4 text-center">
+				<div class="text-3xl font-bold text-violet-600">{guardrails.length}</div>
+				<div class="text-sm text-muted-foreground mt-1">Guardrails</div>
+			</div>
 		</div>
 	{/if}
 
 	<!-- Tabs -->
 	<div class="flex border-b">
-		{#each [{ id: 'foundation', label: 'Foundation Models', icon: Sparkles }, { id: 'custom', label: 'Custom Models', icon: Cpu }] as tab}
+		{#each [
+			{ id: 'foundation', label: 'Foundation Models', icon: Sparkles },
+			{ id: 'custom', label: 'Custom Models', icon: Cpu },
+			{ id: 'guardrails', label: 'Guardrails', icon: Shield }
+		] as tab}
 			<button
 				onclick={() => onTabChange(tab.id as typeof activeTab)}
 				class="flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
@@ -322,15 +437,75 @@
 
 	<!-- Custom Models Tab -->
 	{#if activeTab === 'custom'}
-		<div class="relative">
-			<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-			<input
-				type="text"
-				placeholder="Search custom models..."
-				bind:value={searchQuery}
-				class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-			/>
+		<div class="flex items-center gap-3">
+			<div class="relative flex-1">
+				<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+				<input
+					type="text"
+					placeholder="Search custom models..."
+					bind:value={searchQuery}
+					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+			</div>
+			<button
+				onclick={() => (showCreateCustomModel = !showCreateCustomModel)}
+				class="flex items-center gap-2 rounded-md bg-primary text-primary-foreground px-3 py-2 text-sm hover:bg-primary/90"
+			>
+				<Plus class="h-4 w-4" />
+				Create Model
+			</button>
 		</div>
+
+		{#if showCreateCustomModel}
+			<div class="rounded-lg border p-5 space-y-4 bg-muted/20">
+				<h3 class="font-semibold flex items-center gap-2">
+					<Cpu class="h-4 w-4" />
+					Create Custom Model
+				</h3>
+				<div class="grid gap-3">
+					<div>
+						<label class="text-sm font-medium" for="custom-model-name">Model Name *</label>
+						<input
+							id="custom-model-name"
+							type="text"
+							placeholder="my-fine-tuned-model"
+							bind:value={newCustomModelName}
+							class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+					</div>
+					<div>
+						<label class="text-sm font-medium" for="custom-model-base">Base Model ID (optional)</label>
+						<input
+							id="custom-model-base"
+							type="text"
+							placeholder="anthropic.claude-v2"
+							bind:value={newCustomModelBase}
+							class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+					</div>
+				</div>
+				<div class="flex gap-2">
+					<button
+						onclick={createCustomModel}
+						disabled={creatingCustomModel}
+						class="flex items-center gap-2 rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm hover:bg-primary/90 disabled:opacity-50"
+					>
+						{#if creatingCustomModel}
+							<RefreshCw class="h-4 w-4 animate-spin" />
+						{:else}
+							<Plus class="h-4 w-4" />
+						{/if}
+						Create
+					</button>
+					<button
+						onclick={() => (showCreateCustomModel = false)}
+						class="rounded-md border px-4 py-2 text-sm hover:bg-accent"
+					>
+						Cancel
+					</button>
+				</div>
+			</div>
+		{/if}
 
 		{#if loading}
 			<div class="flex justify-center py-12">
@@ -359,6 +534,151 @@
 								<td class="px-4 py-3 text-muted-foreground text-xs font-mono">{model.baseModelArn}</td>
 								<td class="px-4 py-3 text-muted-foreground text-xs">
 									{model.creationTime ? new Date(model.creationTime).toLocaleDateString() : '—'}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Guardrails Tab -->
+	{#if activeTab === 'guardrails'}
+		<div class="flex items-center gap-3">
+			<div class="relative flex-1">
+				<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+				<input
+					type="text"
+					placeholder="Search guardrails..."
+					bind:value={searchQuery}
+					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+			</div>
+			<button
+				onclick={() => (showCreateGuardrail = !showCreateGuardrail)}
+				class="flex items-center gap-2 rounded-md bg-primary text-primary-foreground px-3 py-2 text-sm hover:bg-primary/90"
+			>
+				<Plus class="h-4 w-4" />
+				Create Guardrail
+			</button>
+		</div>
+
+		{#if showCreateGuardrail}
+			<div class="rounded-lg border p-5 space-y-4 bg-muted/20">
+				<h3 class="font-semibold flex items-center gap-2">
+					<Shield class="h-4 w-4" />
+					Create Guardrail
+				</h3>
+				<div class="grid gap-3">
+					<div>
+						<label class="text-sm font-medium" for="guardrail-name">Name *</label>
+						<input
+							id="guardrail-name"
+							type="text"
+							placeholder="my-guardrail"
+							bind:value={newGuardrailName}
+							class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+					</div>
+					<div>
+						<label class="text-sm font-medium" for="guardrail-desc">Description</label>
+						<input
+							id="guardrail-desc"
+							type="text"
+							placeholder="Optional description"
+							bind:value={newGuardrailDesc}
+							class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+					</div>
+					<div>
+						<label class="text-sm font-medium" for="guardrail-blocked-input">Blocked Input Message</label>
+						<input
+							id="guardrail-blocked-input"
+							type="text"
+							bind:value={newGuardrailBlockedInput}
+							class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+					</div>
+					<div>
+						<label class="text-sm font-medium" for="guardrail-blocked-output">Blocked Output Message</label>
+						<input
+							id="guardrail-blocked-output"
+							type="text"
+							bind:value={newGuardrailBlockedOutput}
+							class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+					</div>
+				</div>
+				<div class="flex gap-2">
+					<button
+						onclick={createGuardrail}
+						disabled={creatingGuardrail}
+						class="flex items-center gap-2 rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm hover:bg-primary/90 disabled:opacity-50"
+					>
+						{#if creatingGuardrail}
+							<RefreshCw class="h-4 w-4 animate-spin" />
+						{:else}
+							<Plus class="h-4 w-4" />
+						{/if}
+						Create
+					</button>
+					<button
+						onclick={() => (showCreateGuardrail = false)}
+						class="rounded-md border px-4 py-2 text-sm hover:bg-accent"
+					>
+						Cancel
+					</button>
+				</div>
+			</div>
+		{/if}
+
+		{#if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if filteredGuardrails.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Shield class="h-12 w-12 mb-3 opacity-30" />
+				<p>No guardrails found</p>
+				<p class="text-sm">Create a guardrail to control model inputs and outputs</p>
+			</div>
+		{:else}
+			<div class="rounded-lg border overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-muted/50">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">Name</th>
+							<th class="px-4 py-3 text-left font-medium">Status</th>
+							<th class="px-4 py-3 text-left font-medium">Version</th>
+							<th class="px-4 py-3 text-left font-medium">Updated</th>
+							<th class="px-4 py-3 text-right font-medium">Actions</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y">
+						{#each filteredGuardrails as g}
+							<tr class="hover:bg-muted/30">
+								<td class="px-4 py-3">
+									<div class="font-medium">{g.name}</div>
+									<div class="text-xs text-muted-foreground font-mono">{g.id ?? ''}</div>
+								</td>
+								<td class="px-4 py-3">
+									<span class="rounded-full px-2 py-0.5 text-xs font-medium {statusBadge(g.status)}">
+										{g.status ?? '—'}
+									</span>
+								</td>
+								<td class="px-4 py-3 text-muted-foreground">{g.version ?? '—'}</td>
+								<td class="px-4 py-3 text-muted-foreground text-xs">
+									{g.updatedAt ? new Date(g.updatedAt).toLocaleDateString() : '—'}
+								</td>
+								<td class="px-4 py-3 text-right">
+									<button
+										onclick={() => deleteGuardrail(g.id ?? '', g.name ?? '')}
+										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+										title="Delete guardrail"
+									>
+										<Trash2 class="h-4 w-4" />
+									</button>
 								</td>
 							</tr>
 						{/each}
