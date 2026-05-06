@@ -28,6 +28,9 @@ const (
 	keyVisibilityConfig = "VisibilityConfig"
 	keyNextLockToken    = "NextLockToken"
 	keyScope            = "Scope"
+	keyIPAddressVersion = "IPAddressVersion"
+	keyAddresses        = "Addresses"
+	keyRules            = "Rules"
 )
 
 const (
@@ -81,28 +84,45 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteLoggingConfiguration",
 		"DeletePermissionPolicy",
 		"DeleteRegexPatternSet",
+		"DeleteRuleGroup",
 		"DeleteWebACL",
+		"DescribeAllManagedProducts",
+		"DescribeManagedProductsByVendor",
+		"DescribeManagedRuleGroup",
 		"DisassociateWebACL",
+		"GenerateMobileSdkReleaseUrl",
 		"GetDecryptedAPIKey",
 		"GetIPSet",
 		"GetLoggingConfiguration",
+		"GetManagedRuleSet",
+		"GetMobileSdkRelease",
 		"GetPermissionPolicy",
+		"GetRateBasedStatementManagedKeys",
 		"GetRegexPatternSet",
 		"GetRuleGroup",
+		"GetSampledRequests",
+		"GetTopPathStatisticsByTraffic",
 		"GetWebACL",
 		"GetWebACLForResource",
 		"ListAPIKeys",
+		"ListAvailableManagedRuleGroupVersions",
+		"ListAvailableManagedRuleGroups",
 		"ListIPSets",
+		"ListLoggingConfigurations",
+		"ListManagedRuleSets",
+		"ListMobileSdkReleases",
 		"ListRegexPatternSets",
 		"ListResourcesForWebACL",
 		"ListRuleGroups",
 		"ListTagsForResource",
 		"ListWebACLs",
 		"PutLoggingConfiguration",
+		"PutManagedRuleSetVersions",
 		"PutPermissionPolicy",
 		"TagResource",
 		"UntagResource",
 		"UpdateIPSet",
+		"UpdateManagedRuleSetVersionExpiryDate",
 		"UpdateRegexPatternSet",
 		"UpdateRuleGroup",
 		"UpdateWebACL",
@@ -214,6 +234,41 @@ func (h *Handler) buildDispatchTable(ctx context.Context) map[string]func([]byte
 		"PutPermissionPolicy":     func(b []byte) ([]byte, error) { return h.handlePutPermissionPolicy(ctx, b) },
 		"GetPermissionPolicy":     h.handleGetPermissionPolicy,
 		"ListResourcesForWebACL":  h.handleListResourcesForWebACL,
+		"DeleteRuleGroup":         func(b []byte) ([]byte, error) { return h.handleDeleteRuleGroup(ctx, b) },
+		"DescribeAllManagedProducts": func(b []byte) ([]byte, error) {
+			return h.handleDescribeAllManagedProducts(b)
+		},
+		"DescribeManagedProductsByVendor": func(b []byte) ([]byte, error) {
+			return h.handleDescribeManagedProductsByVendor(b)
+		},
+		"DescribeManagedRuleGroup": h.handleDescribeManagedRuleGroup,
+		"GenerateMobileSdkReleaseUrl": func(b []byte) ([]byte, error) {
+			return h.handleGenerateMobileSdkReleaseURL(b)
+		},
+		"GetManagedRuleSet":   h.handleGetManagedRuleSet,
+		"GetMobileSdkRelease": h.handleGetMobileSdkRelease,
+		"GetRateBasedStatementManagedKeys": func(b []byte) ([]byte, error) {
+			return h.handleGetRateBasedStatementManagedKeys(b)
+		},
+		"GetSampledRequests": h.handleGetSampledRequests,
+		"GetTopPathStatisticsByTraffic": func(b []byte) ([]byte, error) {
+			return h.handleGetTopPathStatisticsByTraffic(b)
+		},
+		"ListAvailableManagedRuleGroupVersions": func(b []byte) ([]byte, error) {
+			return h.handleListAvailableManagedRuleGroupVersions(b)
+		},
+		"ListAvailableManagedRuleGroups": func(b []byte) ([]byte, error) {
+			return h.handleListAvailableManagedRuleGroups(b)
+		},
+		"ListLoggingConfigurations": h.handleListLoggingConfigurations,
+		"ListManagedRuleSets":       h.handleListManagedRuleSets,
+		"ListMobileSdkReleases":     h.handleListMobileSdkReleases,
+		"PutManagedRuleSetVersions": func(b []byte) ([]byte, error) {
+			return h.handlePutManagedRuleSetVersions(ctx, b)
+		},
+		"UpdateManagedRuleSetVersionExpiryDate": func(b []byte) ([]byte, error) {
+			return h.handleUpdateManagedRuleSetVersionExpiryDate(ctx, b)
+		},
 	}
 }
 
@@ -587,13 +642,13 @@ func (h *Handler) handleGetIPSet(body []byte) ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"IPSet": map[string]any{
-			"Id":               s.ID,
-			keyName:            s.Name,
-			keyARN:             arnStr,
-			keyLockToken:       s.LockToken,
-			keyDescription:     s.Description,
-			"IPAddressVersion": s.IPAddressVersion,
-			"Addresses":        s.Addresses,
+			"Id":                s.ID,
+			keyName:             s.Name,
+			keyARN:              arnStr,
+			keyLockToken:        s.LockToken,
+			keyDescription:      s.Description,
+			keyIPAddressVersion: s.IPAddressVersion,
+			keyAddresses:        s.Addresses,
 		},
 		keyLockToken: s.LockToken,
 	})
@@ -914,7 +969,7 @@ func (h *Handler) handleGetWebACLForResource(body []byte) ([]byte, error) {
 			keyDescription:      w.Description,
 			"DefaultAction":     defaultActionMap,
 			keyVisibilityConfig: visConfig,
-			"Rules":             []any{},
+			keyRules:            []any{},
 		},
 	})
 }
@@ -1351,7 +1406,7 @@ func (h *Handler) handleGetRuleGroup(body []byte) ([]byte, error) {
 			keyARN:              arnStr,
 			keyDescription:      rg.Description,
 			"Capacity":          rg.Capacity,
-			"Rules":             rg.Rules,
+			keyRules:            rg.Rules,
 			keyVisibilityConfig: visConfig,
 		},
 		keyLockToken: rg.LockToken,
@@ -1601,4 +1656,316 @@ func (h *Handler) handleListResourcesForWebACL(body []byte) ([]byte, error) {
 	}
 
 	return json.Marshal(map[string]any{"ResourceArns": resources})
+}
+
+// deleteRuleGroupRequest is the request body for DeleteRuleGroup.
+type deleteRuleGroupRequest struct {
+	ID        string `json:"Id"`
+	Name      string `json:"Name"`
+	Scope     string `json:"Scope"`
+	LockToken string `json:"LockToken"`
+}
+
+func (h *Handler) handleDeleteRuleGroup(ctx context.Context, body []byte) ([]byte, error) {
+	var req deleteRuleGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: deleted rule group", "id", req.ID)
+
+	return nil, nil
+}
+
+// handleDescribeAllManagedProducts returns an empty list of managed products.
+func (h *Handler) handleDescribeAllManagedProducts(_ []byte) ([]byte, error) {
+	return json.Marshal(map[string]any{"ManagedProducts": []any{}})
+}
+
+// describeManagedProductsByVendorRequest is the request body for DescribeManagedProductsByVendor.
+type describeManagedProductsByVendorRequest struct {
+	Scope      string `json:"Scope"`
+	VendorName string `json:"VendorName"`
+}
+
+// handleDescribeManagedProductsByVendor returns an empty list of managed products for a vendor.
+func (h *Handler) handleDescribeManagedProductsByVendor(body []byte) ([]byte, error) {
+	var req describeManagedProductsByVendorRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]any{"ManagedProducts": []any{}})
+}
+
+// describeManagedRuleGroupRequest is the request body for DescribeManagedRuleGroup.
+type describeManagedRuleGroupRequest struct {
+	Scope       string `json:"Scope"`
+	VendorName  string `json:"VendorName"`
+	Name        string `json:"Name"`
+	VersionName string `json:"VersionName"`
+}
+
+// handleDescribeManagedRuleGroup returns a stub managed rule group description.
+func (h *Handler) handleDescribeManagedRuleGroup(body []byte) ([]byte, error) {
+	var req describeManagedRuleGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	const defaultManagedRuleGroupCapacity = int64(100)
+
+	return json.Marshal(map[string]any{
+		"Capacity":        defaultManagedRuleGroupCapacity,
+		keyRules:          []any{},
+		"SnsTopicArn":     "",
+		"AvailableLabels": []any{},
+		"ConsumedLabels":  []any{},
+	})
+}
+
+// generateMobileSdkReleaseUrlRequest is the request body for GenerateMobileSdkReleaseUrl.
+type generateMobileSdkReleaseURLRequest struct {
+	Platform       string `json:"Platform"`
+	ReleaseVersion string `json:"ReleaseVersion"`
+}
+
+// handleGenerateMobileSdkReleaseURL returns a stub presigned URL.
+func (h *Handler) handleGenerateMobileSdkReleaseURL(body []byte) ([]byte, error) {
+	var req generateMobileSdkReleaseURLRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]any{
+		"Url": "https://example.com/mobile-sdk/" + req.Platform + "/" + req.ReleaseVersion,
+	})
+}
+
+// getManagedRuleSetRequest is the request body for GetManagedRuleSet.
+type getManagedRuleSetRequest struct {
+	ID    string `json:"Id"`
+	Name  string `json:"Name"`
+	Scope string `json:"Scope"`
+}
+
+// handleGetManagedRuleSet returns a stub managed rule set.
+func (h *Handler) handleGetManagedRuleSet(body []byte) ([]byte, error) {
+	var req getManagedRuleSetRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	return json.Marshal(map[string]any{
+		"ManagedRuleSet": map[string]any{
+			"Id":                req.ID,
+			keyName:             req.Name,
+			keyARN:              "",
+			keyLockToken:        "",
+			"PublishedVersions": map[string]any{},
+		},
+		keyLockToken: "",
+	})
+}
+
+// getMobileSdkReleaseRequest is the request body for GetMobileSdkRelease.
+type getMobileSdkReleaseRequest struct {
+	Platform       string `json:"Platform"`
+	ReleaseVersion string `json:"ReleaseVersion"`
+}
+
+// handleGetMobileSdkRelease returns a stub mobile SDK release.
+func (h *Handler) handleGetMobileSdkRelease(body []byte) ([]byte, error) {
+	var req getMobileSdkReleaseRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]any{
+		"MobileSdkRelease": map[string]any{
+			"ReleaseVersion": req.ReleaseVersion,
+			"Timestamp":      nil,
+			"ReleaseNotes":   "",
+			"Tags":           []any{},
+		},
+	})
+}
+
+// getRateBasedStatementManagedKeysRequest is the request body for GetRateBasedStatementManagedKeys.
+type getRateBasedStatementManagedKeysRequest struct {
+	Scope             string `json:"Scope"`
+	WebACLName        string `json:"WebACLName"`
+	WebACLId          string `json:"WebACLId"`
+	RuleGroupRuleName string `json:"RuleGroupRuleName"`
+	RuleName          string `json:"RuleName"`
+}
+
+// handleGetRateBasedStatementManagedKeys returns empty rate-based managed keys.
+func (h *Handler) handleGetRateBasedStatementManagedKeys(body []byte) ([]byte, error) {
+	var req getRateBasedStatementManagedKeysRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]any{
+		"ManagedKeysIPV4": map[string]any{keyIPAddressVersion: "IPV4", keyAddresses: []any{}},
+		"ManagedKeysIPV6": map[string]any{keyIPAddressVersion: "IPV6", keyAddresses: []any{}},
+	})
+}
+
+// getSampledRequestsRequest is the request body for GetSampledRequests.
+type getSampledRequestsRequest struct {
+	TimeWindow     map[string]any `json:"TimeWindow"`
+	WebACLArn      string         `json:"WebAclArn"`
+	RuleMetricName string         `json:"RuleMetricName"`
+	Scope          string         `json:"Scope"`
+	MaxItems       int64          `json:"MaxItems"`
+}
+
+// handleGetSampledRequests returns an empty sampled requests response.
+func (h *Handler) handleGetSampledRequests(body []byte) ([]byte, error) {
+	var req getSampledRequestsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]any{
+		"SampledRequests": []any{},
+		"PopulationSize":  int64(0),
+		"TimeWindow":      req.TimeWindow,
+	})
+}
+
+// getTopPathStatisticsByTrafficRequest is the request body for GetTopPathStatisticsByTraffic.
+type getTopPathStatisticsByTrafficRequest struct {
+	TimeWindow map[string]any `json:"TimeWindow"`
+	Scope      string         `json:"Scope"`
+	WebACLName string         `json:"WebACLName"`
+	WebACLId   string         `json:"WebACLId"`
+}
+
+// handleGetTopPathStatisticsByTraffic returns empty top path statistics.
+func (h *Handler) handleGetTopPathStatisticsByTraffic(body []byte) ([]byte, error) {
+	var req getTopPathStatisticsByTrafficRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]any{"UrlStatistics": []any{}})
+}
+
+// listAvailableManagedRuleGroupVersionsRequest is the request body for ListAvailableManagedRuleGroupVersions.
+type listAvailableManagedRuleGroupVersionsRequest struct {
+	Scope      string `json:"Scope"`
+	VendorName string `json:"VendorName"`
+	Name       string `json:"Name"`
+	NextMarker string `json:"NextMarker"`
+	Limit      int    `json:"Limit"`
+}
+
+// handleListAvailableManagedRuleGroupVersions returns an empty list of versions.
+func (h *Handler) handleListAvailableManagedRuleGroupVersions(body []byte) ([]byte, error) {
+	var req listAvailableManagedRuleGroupVersionsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]any{"Versions": []any{}, "CurrentDefaultVersion": ""})
+}
+
+// listAvailableManagedRuleGroupsRequest is the request body for ListAvailableManagedRuleGroups.
+type listAvailableManagedRuleGroupsRequest struct {
+	Scope      string `json:"Scope"`
+	NextMarker string `json:"NextMarker"`
+	Limit      int    `json:"Limit"`
+}
+
+// handleListAvailableManagedRuleGroups returns an empty list of managed rule groups.
+func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, error) {
+	var req listAvailableManagedRuleGroupsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(map[string]any{"ManagedRuleGroups": []any{}})
+}
+
+// handleListLoggingConfigurations lists all logging configurations.
+func (h *Handler) handleListLoggingConfigurations(_ []byte) ([]byte, error) {
+	return json.Marshal(map[string]any{"LoggingConfigurations": []any{}})
+}
+
+// handleListManagedRuleSets lists all managed rule sets.
+func (h *Handler) handleListManagedRuleSets(_ []byte) ([]byte, error) {
+	return json.Marshal(map[string]any{"ManagedRuleSets": []any{}})
+}
+
+// handleListMobileSdkReleases lists mobile SDK releases.
+func (h *Handler) handleListMobileSdkReleases(_ []byte) ([]byte, error) {
+	return json.Marshal(map[string]any{"ReleaseSummaries": []any{}})
+}
+
+// putManagedRuleSetVersionsRequest is the request body for PutManagedRuleSetVersions.
+type putManagedRuleSetVersionsRequest struct {
+	VersionsToPublish  map[string]any `json:"VersionsToPublish"`
+	ID                 string         `json:"Id"`
+	Name               string         `json:"Name"`
+	Scope              string         `json:"Scope"`
+	LockToken          string         `json:"LockToken"`
+	RecommendedVersion string         `json:"RecommendedVersion"`
+}
+
+func (h *Handler) handlePutManagedRuleSetVersions(ctx context.Context, body []byte) ([]byte, error) {
+	var req putManagedRuleSetVersionsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: put managed rule set versions", "id", req.ID)
+
+	return json.Marshal(map[string]string{keyNextLockToken: ""})
+}
+
+// updateManagedRuleSetVersionExpiryDateRequest is the request body for UpdateManagedRuleSetVersionExpiryDate.
+type updateManagedRuleSetVersionExpiryDateRequest struct {
+	ExpiryTimestamp *int64 `json:"ExpiryTimestamp"`
+	ID              string `json:"Id"`
+	Name            string `json:"Name"`
+	Scope           string `json:"Scope"`
+	LockToken       string `json:"LockToken"`
+	VersionToExpire string `json:"VersionToExpire"`
+}
+
+func (h *Handler) handleUpdateManagedRuleSetVersionExpiryDate(ctx context.Context, body []byte) ([]byte, error) {
+	var req updateManagedRuleSetVersionExpiryDateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "wafv2: updated managed rule set version expiry date", "id", req.ID)
+
+	return json.Marshal(map[string]any{
+		keyNextLockToken:  "",
+		"ExpiringVersion": req.VersionToExpire,
+		"ExpiryTimestamp": req.ExpiryTimestamp,
+	})
 }
