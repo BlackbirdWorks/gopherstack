@@ -31,3 +31,10 @@ ui/build/
 .gemini/
 .runtime/
 CLAUDE.md
+
+# Gas Town (added by gt)
+.claude/
+.logs/
+__pycache__/
+state.json
+CLAUDE.local.md
