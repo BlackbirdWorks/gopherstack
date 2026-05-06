@@ -17,6 +17,19 @@ const (
 	cloudtrailTargetPrefix  = "CloudTrail_20131101."
 	keyTrailARN             = "TrailARN"
 	keyName                 = "Name"
+	keyQueryID              = "QueryId"
+	keyQueryStatus          = "QueryStatus"
+	keyChannelArn           = "ChannelArn"
+	keySource               = "Source"
+	keyDestinations         = "Destinations"
+	keyDashboardArn         = "DashboardArn"
+	keyStatus               = "Status"
+	keyEDSArn               = "EventDataStoreArn"
+	keyImportID             = "ImportId"
+	keyImportStatus         = "ImportStatus"
+	keyResourceArn          = "ResourceArn"
+	statusEnabled           = "ENABLED"
+	statusDisabled          = "DISABLED"
 )
 
 var errInvalidRequest = errors.New("invalid request")
@@ -41,6 +54,7 @@ func (h *Handler) Name() string { return "CloudTrail" }
 // GetSupportedOperations returns the list of supported CloudTrail operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"AddTags",
 		"CancelQuery",
 		"CreateChannel",
 		"CreateDashboard",
@@ -54,17 +68,51 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeregisterOrganizationDelegatedAdmin",
 		"DescribeQuery",
 		"DescribeTrails",
+		"DisableFederation",
+		"EnableFederation",
+		"GenerateQuery",
+		"GetChannel",
+		"GetDashboard",
+		"GetEventConfiguration",
+		"GetEventDataStore",
 		"GetEventSelectors",
+		"GetImport",
+		"GetInsightSelectors",
+		"GetQueryResults",
+		"GetResourcePolicy",
 		"GetTrail",
 		"GetTrailStatus",
-		"AddTags",
+		"ListChannels",
+		"ListDashboards",
+		"ListEventDataStores",
+		"ListImportFailures",
+		"ListImports",
+		"ListInsightsData",
+		"ListInsightsMetricData",
+		"ListPublicKeys",
+		"ListQueries",
 		"ListTags",
 		"ListTrails",
 		"LookupEvents",
+		"PutEventConfiguration",
 		"PutEventSelectors",
+		"PutInsightSelectors",
+		"PutResourcePolicy",
+		"RegisterOrganizationDelegatedAdmin",
 		"RemoveTags",
+		"RestoreEventDataStore",
+		"SearchSampleQueries",
+		"StartDashboardRefresh",
+		"StartEventDataStoreIngestion",
+		"StartImport",
 		"StartLogging",
+		"StartQuery",
+		"StopEventDataStoreIngestion",
+		"StopImport",
 		"StopLogging",
+		"UpdateChannel",
+		"UpdateDashboard",
+		"UpdateEventDataStore",
 		"UpdateTrail",
 	}
 }
@@ -155,16 +203,51 @@ func (h *Handler) buildOps() map[string]func(*echo.Context, []byte) error {
 		"DeregisterOrganizationDelegatedAdmin": h.handleDeregisterOrganizationDelegatedAdmin,
 		"DescribeQuery":                        h.handleDescribeQuery,
 		"DescribeTrails":                       h.handleDescribeTrails,
+		"DisableFederation":                    h.handleDisableFederation,
+		"EnableFederation":                     h.handleEnableFederation,
+		"GenerateQuery":                        h.handleGenerateQuery,
+		"GetChannel":                           h.handleGetChannel,
+		"GetDashboard":                         h.handleGetDashboard,
+		"GetEventConfiguration":                h.handleGetEventConfiguration,
+		"GetEventDataStore":                    h.handleGetEventDataStore,
 		"GetEventSelectors":                    h.handleGetEventSelectors,
+		"GetImport":                            h.handleGetImport,
+		"GetInsightSelectors":                  h.handleGetInsightSelectors,
+		"GetQueryResults":                      h.handleGetQueryResults,
+		"GetResourcePolicy":                    h.handleGetResourcePolicy,
 		"GetTrail":                             h.handleGetTrail,
 		"GetTrailStatus":                       h.handleGetTrailStatus,
+		"ListChannels":                         h.handleListChannels,
+		"ListDashboards":                       h.handleListDashboards,
+		"ListEventDataStores":                  h.handleListEventDataStores,
+		"ListImportFailures":                   h.handleListImportFailures,
+		"ListImports":                          h.handleListImports,
+		"ListInsightsData":                     h.handleListInsightsData,
+		"ListInsightsMetricData":               h.handleListInsightsMetricData,
+		"ListPublicKeys":                       h.handleListPublicKeys,
+		"ListQueries":                          h.handleListQueries,
 		"ListTags":                             h.handleListTags,
 		"ListTrails":                           h.handleListTrails,
 		"LookupEvents":                         h.handleLookupEvents,
+		"PutEventConfiguration":                h.handlePutEventConfiguration,
 		"PutEventSelectors":                    h.handlePutEventSelectors,
+		"PutInsightSelectors":                  h.handlePutInsightSelectors,
+		"PutResourcePolicy":                    h.handlePutResourcePolicy,
+		"RegisterOrganizationDelegatedAdmin":   h.handleRegisterOrganizationDelegatedAdmin,
 		"RemoveTags":                           h.handleRemoveTags,
+		"RestoreEventDataStore":                h.handleRestoreEventDataStore,
+		"SearchSampleQueries":                  h.handleSearchSampleQueries,
+		"StartDashboardRefresh":                h.handleStartDashboardRefresh,
+		"StartEventDataStoreIngestion":         h.handleStartEventDataStoreIngestion,
+		"StartImport":                          h.handleStartImport,
 		"StartLogging":                         h.handleStartLogging,
+		"StartQuery":                           h.handleStartQuery,
+		"StopEventDataStoreIngestion":          h.handleStopEventDataStoreIngestion,
+		"StopImport":                           h.handleStopImport,
 		"StopLogging":                          h.handleStopLogging,
+		"UpdateChannel":                        h.handleUpdateChannel,
+		"UpdateDashboard":                      h.handleUpdateDashboard,
+		"UpdateEventDataStore":                 h.handleUpdateEventDataStore,
 		"UpdateTrail":                          h.handleUpdateTrail,
 	}
 }
@@ -577,6 +660,35 @@ func (h *Handler) handleListTrails(c *echo.Context, _ []byte) error {
 	return c.JSON(http.StatusOK, map[string]any{"Trails": items})
 }
 
+// --- StartQuery ---
+
+type startQueryBody struct {
+	QueryStatement string `json:"QueryStatement"`
+	EventDataStore string `json:"EventDataStore"`
+	DeliveryS3URI  string `json:"DeliveryS3Uri"`
+}
+
+func (h *Handler) handleStartQuery(c *echo.Context, body []byte) error {
+	var in startQueryBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if in.QueryStatement == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "QueryStatement is required"),
+		)
+	}
+
+	q, err := h.Backend.StartQuery(in.QueryStatement, in.EventDataStore, in.DeliveryS3URI)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyQueryID: q.QueryID})
+}
+
 // --- LookupEvents ---
 
 // handleLookupEvents returns an empty list of CloudTrail events (stub).
@@ -613,10 +725,10 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"ChannelArn":   ch.ChannelARN,
-		keyName:        ch.Name,
-		"Source":       ch.Source,
-		"Destinations": ch.Destinations,
+		keyChannelArn:   ch.ChannelARN,
+		keyName:         ch.Name,
+		keySource:       ch.Source,
+		keyDestinations: ch.Destinations,
 	})
 }
 
@@ -667,10 +779,10 @@ func (h *Handler) handleCreateDashboard(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"DashboardArn": d.DashboardARN,
-		keyName:        d.Name,
-		"Type":         d.Type,
-		"Status":       d.Status,
+		keyDashboardArn: d.DashboardARN,
+		keyName:         d.Name,
+		"Type":          d.Type,
+		keyStatus:       d.Status,
 	})
 }
 
@@ -731,9 +843,9 @@ func (h *Handler) handleCreateEventDataStore(c *echo.Context, body []byte) error
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"EventDataStoreArn":            eds.EventDataStoreARN,
+		keyEDSArn:                      eds.EventDataStoreARN,
 		keyName:                        eds.Name,
-		"Status":                       eds.Status,
+		keyStatus:                      eds.Status,
 		"MultiRegionEnabled":           eds.MultiRegionEnabled,
 		"OrganizationEnabled":          eds.OrganizationEnabled,
 		"TerminationProtectionEnabled": eds.TerminationProtected,
@@ -821,8 +933,8 @@ func (h *Handler) handleCancelQuery(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"QueryId":     q.QueryID,
-		"QueryStatus": q.QueryStatus,
+		keyQueryID:     q.QueryID,
+		keyQueryStatus: q.QueryStatus,
 	})
 }
 
@@ -849,9 +961,9 @@ func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
 	}
 
 	resp := map[string]any{
-		"QueryId":     q.QueryID,
-		"QueryString": q.QueryString,
-		"QueryStatus": q.QueryStatus,
+		keyQueryID:     q.QueryID,
+		"QueryString":  q.QueryString,
+		keyQueryStatus: q.QueryStatus,
 	}
 	if q.DeliveryS3URI != "" {
 		resp["DeliveryS3Uri"] = q.DeliveryS3URI
@@ -861,6 +973,704 @@ func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// --- GetEventDataStore ---
+
+type getEventDataStoreBody struct {
+	EventDataStore string `json:"EventDataStore"`
+}
+
+func (h *Handler) handleGetEventDataStore(c *echo.Context, body []byte) error {
+	var in getEventDataStoreBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	eds, err := h.Backend.GetEventDataStore(in.EventDataStore)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, edsToMap(eds))
+}
+
+// --- UpdateEventDataStore ---
+
+type updateEventDataStoreBody struct {
+	RetentionPeriod              *int32 `json:"RetentionPeriod"`
+	MultiRegionEnabled           *bool  `json:"MultiRegionEnabled"`
+	OrganizationEnabled          *bool  `json:"OrganizationEnabled"`
+	TerminationProtectionEnabled *bool  `json:"TerminationProtectionEnabled"`
+	EventDataStore               string `json:"EventDataStore"`
+	Name                         string `json:"Name"`
+}
+
+func (h *Handler) handleUpdateEventDataStore(c *echo.Context, body []byte) error {
+	var in updateEventDataStoreBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	eds, err := h.Backend.UpdateEventDataStore(
+		in.EventDataStore, in.Name,
+		in.MultiRegionEnabled, in.OrganizationEnabled, in.TerminationProtectionEnabled,
+		in.RetentionPeriod,
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, edsToMap(eds))
+}
+
+// --- ListEventDataStores ---
+
+func (h *Handler) handleListEventDataStores(c *echo.Context, _ []byte) error {
+	list := h.Backend.ListEventDataStores()
+	items := make([]map[string]any, 0, len(list))
+	for _, eds := range list {
+		items = append(items, edsToMap(eds))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"EventDataStores": items})
+}
+
+// --- RestoreEventDataStore ---
+
+type restoreEventDataStoreBody struct {
+	EventDataStore string `json:"EventDataStore"`
+}
+
+func (h *Handler) handleRestoreEventDataStore(c *echo.Context, body []byte) error {
+	var in restoreEventDataStoreBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	eds, err := h.Backend.RestoreEventDataStore(in.EventDataStore)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, edsToMap(eds))
+}
+
+// --- StartEventDataStoreIngestion ---
+
+type startEventDataStoreIngestionBody struct {
+	EventDataStore string `json:"EventDataStore"`
+}
+
+func (h *Handler) handleStartEventDataStoreIngestion(c *echo.Context, body []byte) error {
+	var in startEventDataStoreIngestionBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if err := h.Backend.StartEventDataStoreIngestion(in.EventDataStore); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- StopEventDataStoreIngestion ---
+
+type stopEventDataStoreIngestionBody struct {
+	EventDataStore string `json:"EventDataStore"`
+}
+
+func (h *Handler) handleStopEventDataStoreIngestion(c *echo.Context, body []byte) error {
+	var in stopEventDataStoreIngestionBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if err := h.Backend.StopEventDataStoreIngestion(in.EventDataStore); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- GetChannel ---
+
+type getChannelBody struct {
+	Channel string `json:"Channel"`
+}
+
+func (h *Handler) handleGetChannel(c *echo.Context, body []byte) error {
+	var in getChannelBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	ch, err := h.Backend.GetChannel(in.Channel)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyChannelArn:   ch.ChannelARN,
+		keyName:         ch.Name,
+		keySource:       ch.Source,
+		keyDestinations: ch.Destinations,
+	})
+}
+
+// --- UpdateChannel ---
+
+type updateChannelBody struct {
+	Channel      string        `json:"Channel"`
+	Destinations []Destination `json:"Destinations"`
+}
+
+func (h *Handler) handleUpdateChannel(c *echo.Context, body []byte) error {
+	var in updateChannelBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	ch, err := h.Backend.UpdateChannel(in.Channel, in.Destinations)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyChannelArn:   ch.ChannelARN,
+		keyName:         ch.Name,
+		keySource:       ch.Source,
+		keyDestinations: ch.Destinations,
+	})
+}
+
+// --- ListChannels ---
+
+func (h *Handler) handleListChannels(c *echo.Context, _ []byte) error {
+	list := h.Backend.ListChannels()
+	items := make([]map[string]any, 0, len(list))
+	for _, ch := range list {
+		items = append(items, map[string]any{
+			keyChannelArn: ch.ChannelARN,
+			keyName:       ch.Name,
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Channels": items})
+}
+
+// --- GetDashboard ---
+
+type getDashboardBody struct {
+	DashboardID string `json:"DashboardId"`
+}
+
+func (h *Handler) handleGetDashboard(c *echo.Context, body []byte) error {
+	var in getDashboardBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	d, err := h.Backend.GetDashboard(in.DashboardID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, dashToMap(d))
+}
+
+// --- UpdateDashboard ---
+
+type updateDashboardBody struct {
+	DashboardID string `json:"DashboardId"`
+	Name        string `json:"Name"`
+}
+
+func (h *Handler) handleUpdateDashboard(c *echo.Context, body []byte) error {
+	var in updateDashboardBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	d, err := h.Backend.UpdateDashboard(in.DashboardID, in.Name)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, dashToMap(d))
+}
+
+// --- ListDashboards ---
+
+func (h *Handler) handleListDashboards(c *echo.Context, _ []byte) error {
+	list := h.Backend.ListDashboards()
+	items := make([]map[string]any, 0, len(list))
+	for _, d := range list {
+		items = append(items, dashToMap(d))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Dashboards": items})
+}
+
+// --- StartDashboardRefresh ---
+
+type startDashboardRefreshBody struct {
+	DashboardID string `json:"DashboardId"`
+}
+
+func (h *Handler) handleStartDashboardRefresh(c *echo.Context, body []byte) error {
+	var in startDashboardRefreshBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	d, err := h.Backend.StartDashboardRefresh(in.DashboardID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyDashboardArn: d.DashboardARN,
+		keyStatus:       d.Status,
+	})
+}
+
+// --- GetQueryResults ---
+
+type getQueryResultsBody struct {
+	QueryID        string `json:"QueryId"`
+	EventDataStore string `json:"EventDataStore"`
+}
+
+func (h *Handler) handleGetQueryResults(c *echo.Context, body []byte) error {
+	var in getQueryResultsBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if in.QueryID == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "QueryId is required"))
+	}
+
+	q, err := h.Backend.GetQueryResults(in.QueryID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyQueryID:        q.QueryID,
+		keyQueryStatus:    q.QueryStatus,
+		"QueryResultRows": []any{},
+	})
+}
+
+// --- ListQueries ---
+
+func (h *Handler) handleListQueries(c *echo.Context, _ []byte) error {
+	list := h.Backend.ListQueries()
+	items := make([]map[string]any, 0, len(list))
+	for _, q := range list {
+		items = append(items, map[string]any{
+			keyQueryID:     q.QueryID,
+			keyQueryStatus: q.QueryStatus,
+			"CreationTime": q.CreationTime,
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Queries": items})
+}
+
+// --- StartImport ---
+
+type startImportBody struct {
+	ImportSource struct {
+		S3 *struct {
+			S3LocationURI string `json:"S3LocationUri"`
+		} `json:"S3"`
+	} `json:"ImportSource"`
+	Destinations []string `json:"Destinations"`
+}
+
+func (h *Handler) handleStartImport(c *echo.Context, body []byte) error {
+	var in startImportBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	var src string
+	if in.ImportSource.S3 != nil {
+		src = in.ImportSource.S3.S3LocationURI
+	}
+
+	imp, err := h.Backend.StartImport(in.Destinations, src)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyImportID:     imp.ImportID,
+		keyImportStatus: imp.ImportStatus,
+		keyDestinations: imp.Destinations,
+	})
+}
+
+// --- GetImport ---
+
+type getImportBody struct {
+	ImportID string `json:"ImportId"`
+}
+
+func (h *Handler) handleGetImport(c *echo.Context, body []byte) error {
+	var in getImportBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	imp, err := h.Backend.GetImport(in.ImportID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyImportID:     imp.ImportID,
+		keyImportStatus: imp.ImportStatus,
+		keyDestinations: imp.Destinations,
+	})
+}
+
+// --- ListImports ---
+
+func (h *Handler) handleListImports(c *echo.Context, _ []byte) error {
+	list := h.Backend.ListImports()
+	items := make([]map[string]any, 0, len(list))
+	for _, imp := range list {
+		items = append(items, map[string]any{
+			keyImportID:     imp.ImportID,
+			keyImportStatus: imp.ImportStatus,
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Imports": items})
+}
+
+// --- StopImport ---
+
+type stopImportBody struct {
+	ImportID string `json:"ImportId"`
+}
+
+func (h *Handler) handleStopImport(c *echo.Context, body []byte) error {
+	var in stopImportBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	imp, err := h.Backend.StopImport(in.ImportID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyImportID:     imp.ImportID,
+		keyImportStatus: imp.ImportStatus,
+	})
+}
+
+// --- ListImportFailures ---
+
+type listImportFailuresBody struct {
+	ImportID string `json:"ImportId"`
+}
+
+func (h *Handler) handleListImportFailures(c *echo.Context, body []byte) error {
+	var in listImportFailuresBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	failures := h.Backend.ListImportFailures(in.ImportID)
+
+	return c.JSON(http.StatusOK, map[string]any{"Failures": failures})
+}
+
+// --- PutInsightSelectors ---
+
+type putInsightSelectorsBody struct {
+	TrailName        string            `json:"TrailName"`
+	InsightSelectors []InsightSelector `json:"InsightSelectors"`
+}
+
+func (h *Handler) handlePutInsightSelectors(c *echo.Context, body []byte) error {
+	var in putInsightSelectorsBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if err := h.Backend.PutInsightSelectors(in.TrailName, in.InsightSelectors); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"TrailARN":         in.TrailName,
+		"InsightSelectors": in.InsightSelectors,
+	})
+}
+
+// --- GetInsightSelectors ---
+
+type getInsightSelectorsBody struct {
+	TrailName string `json:"TrailName"`
+}
+
+func (h *Handler) handleGetInsightSelectors(c *echo.Context, body []byte) error {
+	var in getInsightSelectorsBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	trailARN, selectors, err := h.Backend.GetInsightSelectors(in.TrailName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyTrailARN:        trailARN,
+		"InsightSelectors": selectors,
+	})
+}
+
+// --- GetResourcePolicy ---
+
+type getResourcePolicyBody struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) handleGetResourcePolicy(c *echo.Context, body []byte) error {
+	var in getResourcePolicyBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	rp, err := h.Backend.GetResourcePolicy(in.ResourceArn)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyResourceArn:   rp.ResourceARN,
+		"ResourcePolicy": rp.ResourcePolicy,
+	})
+}
+
+// --- PutResourcePolicy ---
+
+type putResourcePolicyBody struct {
+	ResourceArn    string `json:"ResourceArn"`
+	ResourcePolicy string `json:"ResourcePolicy"`
+}
+
+func (h *Handler) handlePutResourcePolicy(c *echo.Context, body []byte) error {
+	var in putResourcePolicyBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	rp := h.Backend.PutResourcePolicy(in.ResourceArn, in.ResourcePolicy)
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyResourceArn:   rp.ResourceARN,
+		"ResourcePolicy": rp.ResourcePolicy,
+	})
+}
+
+// --- RegisterOrganizationDelegatedAdmin ---
+
+type registerOrgDelegatedAdminBody struct {
+	MemberAccountID string `json:"MemberAccountId"`
+}
+
+func (h *Handler) handleRegisterOrganizationDelegatedAdmin(c *echo.Context, body []byte) error {
+	var in registerOrgDelegatedAdminBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if err := h.Backend.RegisterOrganizationDelegatedAdmin(in.MemberAccountID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- DisableFederation ---
+
+type disableFederationBody struct {
+	EventDataStore string `json:"EventDataStore"`
+}
+
+func (h *Handler) handleDisableFederation(c *echo.Context, body []byte) error {
+	var in disableFederationBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	eds, err := h.Backend.DisableFederation(in.EventDataStore)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyEDSArn:          eds.EventDataStoreARN,
+		"FederationStatus": statusDisabled,
+	})
+}
+
+// --- EnableFederation ---
+
+type enableFederationBody struct {
+	EventDataStore    string `json:"EventDataStore"`
+	FederationRoleArn string `json:"FederationRoleArn"`
+}
+
+func (h *Handler) handleEnableFederation(c *echo.Context, body []byte) error {
+	var in enableFederationBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	eds, err := h.Backend.EnableFederation(in.EventDataStore, in.FederationRoleArn)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyEDSArn:           eds.EventDataStoreARN,
+		"FederationStatus":  statusEnabled,
+		"FederationRoleArn": in.FederationRoleArn,
+	})
+}
+
+// --- GenerateQuery ---
+
+type generateQueryBody struct {
+	EventDataStores          []string `json:"EventDataStores"`
+	RequestedQueryMaxResults int32    `json:"RequestedQueryMaxResults"`
+}
+
+func (h *Handler) handleGenerateQuery(c *echo.Context, body []byte) error {
+	var in generateQueryBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	maxResults := in.RequestedQueryMaxResults
+	if maxResults == 0 {
+		maxResults = 1000
+	}
+
+	q, err := h.Backend.GenerateQuery(in.EventDataStores, maxResults)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyQueryID:    q.QueryID,
+		"QueryString": q.QueryString,
+	})
+}
+
+// --- GetEventConfiguration ---
+
+type getEventConfigurationBody struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) handleGetEventConfiguration(c *echo.Context, body []byte) error {
+	var in getEventConfigurationBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	result := h.Backend.GetEventConfiguration(in.ResourceArn)
+
+	return c.JSON(http.StatusOK, result)
+}
+
+// --- PutEventConfiguration ---
+
+type putEventConfigurationBody struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) handlePutEventConfiguration(c *echo.Context, body []byte) error {
+	var in putEventConfigurationBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+
+	if err := h.Backend.PutEventConfiguration(in.ResourceArn); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// --- SearchSampleQueries ---
+
+func (h *Handler) handleSearchSampleQueries(c *echo.Context, _ []byte) error {
+	results := h.Backend.SearchSampleQueries()
+
+	return c.JSON(http.StatusOK, map[string]any{"SampleQueries": results})
+}
+
+// --- ListPublicKeys ---
+
+func (h *Handler) handleListPublicKeys(c *echo.Context, _ []byte) error {
+	keys := h.Backend.ListPublicKeys()
+
+	return c.JSON(http.StatusOK, map[string]any{"PublicKeyList": keys})
+}
+
+// --- ListInsightsData ---
+
+func (h *Handler) handleListInsightsData(c *echo.Context, _ []byte) error {
+	data := h.Backend.ListInsightsData()
+
+	return c.JSON(http.StatusOK, map[string]any{"Insights": data})
+}
+
+// --- ListInsightsMetricData ---
+
+func (h *Handler) handleListInsightsMetricData(c *echo.Context, _ []byte) error {
+	data := h.Backend.ListInsightsMetricData()
+
+	return c.JSON(http.StatusOK, map[string]any{"Values": data})
+}
+
+// edsToMap converts an EventDataStore to the JSON map used in API responses.
+func edsToMap(eds *EventDataStore) map[string]any {
+	return map[string]any{
+		keyEDSArn:                      eds.EventDataStoreARN,
+		keyName:                        eds.Name,
+		keyStatus:                      eds.Status,
+		"MultiRegionEnabled":           eds.MultiRegionEnabled,
+		"OrganizationEnabled":          eds.OrganizationEnabled,
+		"TerminationProtectionEnabled": eds.TerminationProtected,
+		"RetentionPeriod":              eds.RetentionPeriod,
+		"CreatedTimestamp":             eds.CreatedTimestamp,
+		"UpdatedTimestamp":             eds.UpdatedTimestamp,
+	}
+}
+
+// dashToMap converts a Dashboard to the JSON map used in API responses.
+func dashToMap(d *Dashboard) map[string]any {
+	return map[string]any{
+		keyDashboardArn: d.DashboardARN,
+		keyName:         d.Name,
+		"Type":          d.Type,
+		keyStatus:       d.Status,
+	}
 }
 
 // trailToMap converts a Trail to the JSON map used in API responses.

@@ -17,41 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
 	h := cloudtrail.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &cloudtrailsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DisableFederation",
-		"EnableFederation",
-		"GenerateQuery",
-		"GetChannel",
-		"GetDashboard",
-		"GetEventConfiguration",
-		"GetEventDataStore",
-		"GetImport",
-		"GetInsightSelectors",
-		"GetQueryResults",
-		"GetResourcePolicy",
-		"ListChannels",
-		"ListDashboards",
-		"ListEventDataStores",
-		"ListImportFailures",
-		"ListImports",
-		"ListInsightsData",
-		"ListInsightsMetricData",
-		"ListPublicKeys",
-		"ListQueries",
-		"PutEventConfiguration",
-		"PutInsightSelectors",
-		"PutResourcePolicy",
-		"RegisterOrganizationDelegatedAdmin",
-		"RestoreEventDataStore",
-		"SearchSampleQueries",
-		"StartDashboardRefresh",
-		"StartEventDataStoreIngestion",
-		"StartImport",
-		"StartQuery",
-		"StopEventDataStoreIngestion",
-		"StopImport",
-		"UpdateChannel",
-		"UpdateDashboard",
-		"UpdateEventDataStore",
-	})
+	sdkcheck.CheckCompleteness(t, &cloudtrailsdk.Client{}, h.GetSupportedOperations(), []string{})
 }
