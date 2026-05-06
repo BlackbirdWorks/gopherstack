@@ -32,6 +32,7 @@ type StorageBackend interface {
 
 	// Resource grouping.
 	GroupResources(nameOrARN string, resourceARNs []string) ([]string, error)
+	UngroupResources(nameOrARN string, resourceARNs []string) ([]string, error)
 	ListGroupResources(nameOrARN string) ([]ResourceIdentifier, error)
 	ListGroupingStatuses(nameOrARN string) ([]GroupingStatusItem, error)
 	SearchResources(q *ResourceQuery) ([]ResourceIdentifier, error)
