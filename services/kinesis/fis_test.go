@@ -394,3 +394,156 @@ func TestKinesis_ScheduleThroughputFaultCleanup_MissingEntry_Continue(t *testing
 	// Should hit the !exists continue branch without panicking.
 	backend.ScheduleThroughputFaultCleanupForTest(ctx, []string{"never-added-stream"}, time.Millisecond)
 }
+
+func TestKinesis_FIS_MultiStream_CtxCancel_ClearsAll(t *testing.T) {
+	t.Parallel()
+
+	h := newFISKinesisHandler()
+
+	const (
+		streamA = "multi-a"
+		streamB = "multi-b"
+		streamC = "multi-c"
+	)
+
+	for _, name := range []string{streamA, streamB, streamC} {
+		require.NoError(t, h.Backend.CreateStream(&kinesis.CreateStreamInput{
+			StreamName: name,
+			ShardCount: 1,
+		}))
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Activate indefinite fault on all three streams in one call.
+	err := h.ExecuteFISAction(ctx, service.FISActionExecution{
+		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
+		Targets:  []string{streamA, streamB, streamC},
+		Duration: 0,
+	})
+	require.NoError(t, err)
+
+	// Verify all three streams are throttled.
+	for _, name := range []string{streamA, streamB, streamC} {
+		_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+			StreamName: name, PartitionKey: "k", Data: []byte("d"),
+		})
+		require.ErrorIs(t, putErr, kinesis.ErrProvisionedThroughputExceeded, "stream %s should be throttled", name)
+	}
+
+	// Cancel ctx (simulates StopExperiment / server Shutdown → StopAllExperiments).
+	cancel()
+
+	// All three faults should clear — the single goroutine handles all stream names.
+	for _, name := range []string{streamA, streamB, streamC} {
+		streamName := name
+		require.Eventually(t, func() bool {
+			_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+				StreamName: streamName, PartitionKey: "k", Data: []byte("d"),
+			})
+			return putErr == nil
+		}, 2*time.Second, 20*time.Millisecond, "fault should clear for stream %s after ctx cancel", name)
+	}
+}
+
+func TestKinesis_FIS_MultipleActions_AllClearedOnCtxCancel(t *testing.T) {
+	t.Parallel()
+
+	h := newFISKinesisHandler()
+
+	const (
+		streamX = "action-x"
+		streamY = "action-y"
+	)
+
+	for _, name := range []string{streamX, streamY} {
+		require.NoError(t, h.Backend.CreateStream(&kinesis.CreateStreamInput{
+			StreamName: name,
+			ShardCount: 1,
+		}))
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Simulate two separate ExecuteFISAction calls (e.g., two action steps in an experiment),
+	// each targeting a different stream. Each call spawns its own goroutine bound to ctx.
+	err := h.ExecuteFISAction(ctx, service.FISActionExecution{
+		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
+		Targets:  []string{streamX},
+		Duration: 0,
+	})
+	require.NoError(t, err)
+
+	err = h.ExecuteFISAction(ctx, service.FISActionExecution{
+		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
+		Targets:  []string{streamY},
+		Duration: 0,
+	})
+	require.NoError(t, err)
+
+	// Both streams should be throttled.
+	for _, name := range []string{streamX, streamY} {
+		_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+			StreamName: name, PartitionKey: "k", Data: []byte("d"),
+		})
+		require.ErrorIs(t, putErr, kinesis.ErrProvisionedThroughputExceeded, "stream %s should be throttled", name)
+	}
+
+	// Cancel ctx — both goroutines must terminate and clear their respective faults.
+	cancel()
+
+	for _, name := range []string{streamX, streamY} {
+		streamName := name
+		require.Eventually(t, func() bool {
+			_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+				StreamName: streamName, PartitionKey: "k", Data: []byte("d"),
+			})
+			return putErr == nil
+		}, 2*time.Second, 20*time.Millisecond, "fault should clear for stream %s after ctx cancel", name)
+	}
+}
+
+func TestKinesis_FIS_TimedFault_MultiStream_CtxCancelOverridesTimer(t *testing.T) {
+	t.Parallel()
+
+	h := newFISKinesisHandler()
+
+	const (
+		streamP = "timed-multi-p"
+		streamQ = "timed-multi-q"
+	)
+
+	for _, name := range []string{streamP, streamQ} {
+		require.NoError(t, h.Backend.CreateStream(&kinesis.CreateStreamInput{
+			StreamName: name,
+			ShardCount: 1,
+		}))
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Activate a long-lived timed fault (10s) on both streams.
+	err := h.ExecuteFISAction(ctx, service.FISActionExecution{
+		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
+		Targets:  []string{streamP, streamQ},
+		Duration: 10 * time.Second,
+	})
+	require.NoError(t, err)
+
+	// Cancel ctx before the timer would expire — simulates StopExperiment.
+	cancel()
+
+	// Both faults should clear promptly despite the timer not having expired.
+	for _, name := range []string{streamP, streamQ} {
+		streamName := name
+		require.Eventually(t, func() bool {
+			_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+				StreamName: streamName, PartitionKey: "k", Data: []byte("d"),
+			})
+			return putErr == nil
+		}, 2*time.Second, 20*time.Millisecond, "timed fault should clear early for stream %s on ctx cancel", name)
+	}
+}
