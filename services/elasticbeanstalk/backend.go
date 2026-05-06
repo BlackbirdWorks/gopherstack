@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -24,12 +25,24 @@ var (
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
+const (
+	// arnPrefixIAM is the prefix for IAM ARNs used in instance profile validation.
+	arnPrefixIAM = "arn:aws:iam::"
+	// envStatusReady is the status value for a ready environment.
+	envStatusReady = "Ready"
+	// envHealthGreen is the health value for a healthy environment.
+	envHealthGreen = "Green"
+	// managedActionFinishedTime is a placeholder timestamp for managed action history.
+	managedActionFinishedTime = "2026-01-01T00:00:00Z"
+)
+
 // Application represents an Elastic Beanstalk application.
 type Application struct {
-	Tags            map[string]string `json:"tags,omitempty"`
-	ApplicationName string            `json:"applicationName"`
-	ApplicationARN  string            `json:"applicationArn"`
-	Description     string            `json:"description,omitempty"`
+	Tags                         map[string]string `json:"tags,omitempty"`
+	ApplicationName              string            `json:"applicationName"`
+	ApplicationARN               string            `json:"applicationArn"`
+	Description                  string            `json:"description,omitempty"`
+	ResourceLifecycleServiceRole string            `json:"resourceLifecycleServiceRole,omitempty"`
 }
 
 // Environment represents an Elastic Beanstalk environment.
@@ -44,7 +57,21 @@ type Environment struct {
 	OperationsRole    string            `json:"operationsRole,omitempty"`
 	Status            string            `json:"status"`
 	Health            string            `json:"health"`
-	Tier              string            `json:"tier,omitempty"`
+	// Tier fields (improvement #1: environment tier configs)
+	Tier     string `json:"tier,omitempty"`
+	TierType string `json:"tierType,omitempty"`
+	TierName string `json:"tierName,omitempty"`
+	// CNAME (improvement #10: real CNAME swap support)
+	CNAME string `json:"cname,omitempty"`
+	// Load balancer type (improvement #14)
+	LoadBalancerType string `json:"loadBalancerType,omitempty"`
+	// VPC config (improvement #15)
+	VPCID   string `json:"vpcId,omitempty"`
+	Subnets string `json:"subnets,omitempty"`
+	// Instance profile (improvement #16)
+	InstanceProfile string `json:"instanceProfile,omitempty"`
+	// Custom AMI (improvement #5)
+	CustomAMI string `json:"customAMI,omitempty"`
 }
 
 // ApplicationVersion represents an Elastic Beanstalk application version.
@@ -55,6 +82,9 @@ type ApplicationVersion struct {
 	ApplicationVersionARN string            `json:"applicationVersionArn"`
 	Description           string            `json:"description,omitempty"`
 	Status                string            `json:"status"`
+	// S3 source bundle (improvement #8)
+	S3Bucket string `json:"s3Bucket,omitempty"`
+	S3Key    string `json:"s3Key,omitempty"`
 }
 
 // ConfigurationTemplate represents an Elastic Beanstalk configuration template.
@@ -75,21 +105,31 @@ type PlatformVersion struct {
 	PlatformStatus  string            `json:"platformStatus"`
 }
 
+// ManagedActionHistory represents a record of a managed action that was applied (improvement #4).
+type ManagedActionHistory struct {
+	ActionID          string `json:"actionId"`
+	ActionType        string `json:"actionType"`
+	ActionDescription string `json:"actionDescription"`
+	Status            string `json:"status"`
+	FinishedTime      string `json:"finishedTime"`
+}
+
 // InMemoryBackend stores AWS Elastic Beanstalk state in memory.
 type InMemoryBackend struct {
-	applications     map[string]*Application
-	environments     map[string]*Environment
-	appVersions      map[string]*ApplicationVersion
-	configTemplates  map[string]*ConfigurationTemplate // configTemplateKey → template
-	platformVersions map[string]*PlatformVersion       // platformARN → version
-	appARNIndex      map[string]string                 // ARN → app name
-	envARNIndex      map[string]string                 // ARN → envKey
-	verARNIndex      map[string]string                 // ARN → appVersionKey
-	mu               *lockmetrics.RWMutex
-	accountID        string
-	region           string
-	storageLocation  string
-	envCounter       int
+	applications         map[string]*Application
+	environments         map[string]*Environment
+	appVersions          map[string]*ApplicationVersion
+	configTemplates      map[string]*ConfigurationTemplate  // configTemplateKey → template
+	platformVersions     map[string]*PlatformVersion        // platformARN → version
+	managedActionHistory map[string][]*ManagedActionHistory // envName → history items
+	appARNIndex          map[string]string                  // ARN → app name
+	envARNIndex          map[string]string                  // ARN → envKey
+	verARNIndex          map[string]string                  // ARN → appVersionKey
+	mu                   *lockmetrics.RWMutex
+	accountID            string
+	region               string
+	storageLocation      string
+	envCounter           int
 }
 
 // copyTags creates a shallow copy of the given tags map.
@@ -148,18 +188,19 @@ func configTemplateKey(appName, templateName string) string {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		applications:     make(map[string]*Application),
-		environments:     make(map[string]*Environment),
-		appVersions:      make(map[string]*ApplicationVersion),
-		configTemplates:  make(map[string]*ConfigurationTemplate),
-		platformVersions: make(map[string]*PlatformVersion),
-		appARNIndex:      make(map[string]string),
-		envARNIndex:      make(map[string]string),
-		verARNIndex:      make(map[string]string),
-		accountID:        accountID,
-		region:           region,
-		storageLocation:  "elasticbeanstalk-" + region + "-" + accountID,
-		mu:               lockmetrics.New("elasticbeanstalk"),
+		applications:         make(map[string]*Application),
+		environments:         make(map[string]*Environment),
+		appVersions:          make(map[string]*ApplicationVersion),
+		configTemplates:      make(map[string]*ConfigurationTemplate),
+		platformVersions:     make(map[string]*PlatformVersion),
+		managedActionHistory: make(map[string][]*ManagedActionHistory),
+		appARNIndex:          make(map[string]string),
+		envARNIndex:          make(map[string]string),
+		verARNIndex:          make(map[string]string),
+		accountID:            accountID,
+		region:               region,
+		storageLocation:      "elasticbeanstalk-" + region + "-" + accountID,
+		mu:                   lockmetrics.New("elasticbeanstalk"),
 	}
 }
 
@@ -252,6 +293,21 @@ func (b *InMemoryBackend) UpdateApplication(name, description string) (*Applicat
 	return cloneApplication(app), nil
 }
 
+// UpdateApplicationResourceLifecycle stores the resource lifecycle service role on the application (improvement #7).
+func (b *InMemoryBackend) UpdateApplicationResourceLifecycle(appName, serviceRole string) (*Application, error) {
+	b.mu.Lock("UpdateApplicationResourceLifecycle")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[appName]
+	if !ok {
+		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+	}
+
+	app.ResourceLifecycleServiceRole = serviceRole
+
+	return cloneApplication(app), nil
+}
+
 // DeleteApplication removes an application and all associated environments and versions.
 func (b *InMemoryBackend) DeleteApplication(name string) error {
 	b.mu.Lock("DeleteApplication")
@@ -291,10 +347,39 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 	return nil
 }
 
+// CreateEnvironmentParams holds optional parameters for CreateEnvironment (improvements #1, #5, #14, #15, #16).
+type CreateEnvironmentParams struct {
+	TierType         string
+	TierName         string
+	LoadBalancerType string
+	VPCID            string
+	Subnets          string
+	InstanceProfile  string
+	CustomAMI        string
+}
+
+// ValidateInstanceProfileARN validates that an instance profile ARN has the correct format (improvement #16).
+func ValidateInstanceProfileARN(instanceProfile string) error {
+	if instanceProfile == "" {
+		return nil
+	}
+
+	if !strings.HasPrefix(instanceProfile, arnPrefixIAM) {
+		return fmt.Errorf(
+			"%w: InstanceProfile must be a valid IAM ARN starting with %s",
+			ErrInvalidParameter,
+			arnPrefixIAM,
+		)
+	}
+
+	return nil
+}
+
 // CreateEnvironment creates a new Elastic Beanstalk environment.
 func (b *InMemoryBackend) CreateEnvironment(
 	appName, envName, solutionStack, description string,
 	tags map[string]string,
+	params CreateEnvironmentParams,
 ) (*Environment, error) {
 	b.mu.Lock("CreateEnvironment")
 	defer b.mu.Unlock()
@@ -308,6 +393,19 @@ func (b *InMemoryBackend) CreateEnvironment(
 	envID := fmt.Sprintf("e-%08d", b.envCounter)
 	envARN := arn.Build("elasticbeanstalk", b.region, b.accountID, "environment/"+appName+"/"+envName)
 
+	// Resolve tier fields (improvement #1)
+	tierName := params.TierName
+	if tierName == "" {
+		tierName = "WebServer"
+	}
+
+	tierType := params.TierType
+	if tierType == "" {
+		tierType = "Standard"
+	}
+
+	cname := envName + "." + b.region + ".elasticbeanstalk.com"
+
 	env := &Environment{
 		ApplicationName:   appName,
 		EnvironmentName:   envName,
@@ -315,9 +413,17 @@ func (b *InMemoryBackend) CreateEnvironment(
 		EnvironmentARN:    envARN,
 		SolutionStackName: solutionStack,
 		Description:       description,
-		Status:            "Ready",
-		Health:            "Green",
-		Tier:              "WebServer",
+		Status:            envStatusReady,
+		Health:            envHealthGreen,
+		Tier:              tierName,
+		TierType:          tierType,
+		TierName:          tierName,
+		CNAME:             cname,
+		LoadBalancerType:  params.LoadBalancerType,
+		VPCID:             params.VPCID,
+		Subnets:           params.Subnets,
+		InstanceProfile:   params.InstanceProfile,
+		CustomAMI:         params.CustomAMI,
 		Tags:              copyTags(tags),
 	}
 	b.environments[key] = env
@@ -408,9 +514,58 @@ func (b *InMemoryBackend) TerminateEnvironment(appName, envName string) (*Enviro
 	return out, nil
 }
 
+// CloneEnvironment creates a new environment by copying an existing one (improvement #9).
+func (b *InMemoryBackend) CloneEnvironment(srcAppName, srcEnvName, newEnvName string) (*Environment, error) {
+	b.mu.Lock("CloneEnvironment")
+	defer b.mu.Unlock()
+
+	srcKey := envKey(srcAppName, srcEnvName)
+
+	src, ok := b.environments[srcKey]
+	if !ok {
+		return nil, fmt.Errorf("%w: source environment %s not found", ErrNotFound, srcEnvName)
+	}
+
+	destKey := envKey(srcAppName, newEnvName)
+	if _, exists := b.environments[destKey]; exists {
+		return nil, fmt.Errorf("%w: environment %s already exists", ErrAlreadyExists, newEnvName)
+	}
+
+	b.envCounter++
+	envID := fmt.Sprintf("e-%08d", b.envCounter)
+	envARN := arn.Build("elasticbeanstalk", b.region, b.accountID, "environment/"+srcAppName+"/"+newEnvName)
+	cname := newEnvName + "." + b.region + ".elasticbeanstalk.com"
+
+	env := &Environment{
+		ApplicationName:   srcAppName,
+		EnvironmentName:   newEnvName,
+		EnvironmentID:     envID,
+		EnvironmentARN:    envARN,
+		SolutionStackName: src.SolutionStackName,
+		Description:       src.Description,
+		Status:            envStatusReady,
+		Health:            envHealthGreen,
+		Tier:              src.Tier,
+		TierType:          src.TierType,
+		TierName:          src.TierName,
+		CNAME:             cname,
+		LoadBalancerType:  src.LoadBalancerType,
+		VPCID:             src.VPCID,
+		Subnets:           src.Subnets,
+		InstanceProfile:   src.InstanceProfile,
+		CustomAMI:         src.CustomAMI,
+		Tags:              copyTags(src.Tags),
+	}
+	b.environments[destKey] = env
+	b.envARNIndex[envARN] = destKey
+
+	return cloneEnvironment(env), nil
+}
+
 // CreateApplicationVersion creates a new application version.
 func (b *InMemoryBackend) CreateApplicationVersion(
 	appName, versionLabel, description string,
+	s3Bucket, s3Key string,
 	tags map[string]string,
 ) (*ApplicationVersion, error) {
 	b.mu.Lock("CreateApplicationVersion")
@@ -430,6 +585,8 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 		ApplicationVersionARN: vARN,
 		Description:           description,
 		Status:                "Processed",
+		S3Bucket:              s3Bucket,
+		S3Key:                 s3Key,
 		Tags:                  copyTags(tags),
 	}
 	b.appVersions[key] = ver
@@ -589,6 +746,7 @@ func (b *InMemoryBackend) Reset() {
 	b.appVersions = make(map[string]*ApplicationVersion)
 	b.configTemplates = make(map[string]*ConfigurationTemplate)
 	b.platformVersions = make(map[string]*PlatformVersion)
+	b.managedActionHistory = make(map[string][]*ManagedActionHistory)
 	b.appARNIndex = make(map[string]string)
 	b.envARNIndex = make(map[string]string)
 	b.verARNIndex = make(map[string]string)
@@ -605,9 +763,55 @@ func (b *InMemoryBackend) AbortEnvironmentUpdate(_ string) error {
 }
 
 // ApplyEnvironmentManagedAction applies a scheduled managed action immediately.
-// This is a no-op stub that succeeds unconditionally.
-func (b *InMemoryBackend) ApplyEnvironmentManagedAction(_, _ string) error {
+// Records the action in the managed action history (improvement #4).
+func (b *InMemoryBackend) ApplyEnvironmentManagedAction(envName, actionID string) error {
+	b.mu.Lock("ApplyEnvironmentManagedAction")
+	defer b.mu.Unlock()
+
+	item := &ManagedActionHistory{
+		ActionID:          actionID,
+		ActionType:        "InstanceRefresh",
+		ActionDescription: "Managed action applied",
+		Status:            "Succeeded",
+		FinishedTime:      managedActionFinishedTime,
+	}
+	b.managedActionHistory[envName] = append(b.managedActionHistory[envName], item)
+
 	return nil
+}
+
+// AddManagedActionHistory records a managed action history item for an environment (improvement #4).
+func (b *InMemoryBackend) AddManagedActionHistory(envName, actionID, actionType, actionDesc, status string) {
+	b.mu.Lock("AddManagedActionHistory")
+	defer b.mu.Unlock()
+
+	item := &ManagedActionHistory{
+		ActionID:          actionID,
+		ActionType:        actionType,
+		ActionDescription: actionDesc,
+		Status:            status,
+		FinishedTime:      managedActionFinishedTime,
+	}
+	b.managedActionHistory[envName] = append(b.managedActionHistory[envName], item)
+}
+
+// DescribeEnvironmentManagedActionHistory returns stored managed action history for an environment (improvement #4).
+func (b *InMemoryBackend) DescribeEnvironmentManagedActionHistory(envName string) []*ManagedActionHistory {
+	b.mu.RLock("DescribeEnvironmentManagedActionHistory")
+	defer b.mu.RUnlock()
+
+	items := b.managedActionHistory[envName]
+	if len(items) == 0 {
+		return []*ManagedActionHistory{}
+	}
+
+	out := make([]*ManagedActionHistory, len(items))
+	for i, item := range items {
+		cp := *item
+		out[i] = &cp
+	}
+
+	return out
 }
 
 // AssociateEnvironmentOperationsRole associates an operations IAM role with an environment.
@@ -635,7 +839,7 @@ func (b *InMemoryBackend) CheckDNSAvailability(cnamePrefix string) (bool, string
 	fqcname := cnamePrefix + "." + b.region + ".elasticbeanstalk.com"
 
 	for _, env := range b.environments {
-		if env.EnvironmentName == cnamePrefix {
+		if env.EnvironmentName == cnamePrefix || env.CNAME == fqcname {
 			return false, fqcname
 		}
 	}
@@ -691,6 +895,26 @@ func (b *InMemoryBackend) CreateConfigurationTemplate(
 	return cloneConfigurationTemplate(tmpl), nil
 }
 
+// DescribeConfigurationTemplates returns all configuration templates for an application (improvement #17).
+func (b *InMemoryBackend) DescribeConfigurationTemplates(appName string) []*ConfigurationTemplate {
+	b.mu.RLock("DescribeConfigurationTemplates")
+	defer b.mu.RUnlock()
+
+	list := make([]*ConfigurationTemplate, 0)
+
+	for _, tmpl := range b.configTemplates {
+		if appName == "" || tmpl.ApplicationName == appName {
+			list = append(list, cloneConfigurationTemplate(tmpl))
+		}
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].TemplateName < list[j].TemplateName
+	})
+
+	return list
+}
+
 // CreatePlatformVersion creates a new custom platform version.
 func (b *InMemoryBackend) CreatePlatformVersion(
 	platformName, platformVersion string,
@@ -714,7 +938,7 @@ func (b *InMemoryBackend) CreatePlatformVersion(
 		PlatformArn:     platformARN,
 		PlatformName:    platformName,
 		PlatformVersion: platformVersion,
-		PlatformStatus:  "Ready",
+		PlatformStatus:  envStatusReady,
 		Tags:            copyTags(tags),
 	}
 	b.platformVersions[platformARN] = pv
@@ -747,6 +971,150 @@ func (b *InMemoryBackend) DeleteConfigurationTemplate(appName, templateName stri
 // This is a no-op in the in-memory backend.
 func (b *InMemoryBackend) DeleteEnvironmentConfiguration(_, _ string) error {
 	return nil
+}
+
+// DeletePlatformVersion removes a platform version by ARN and returns the deleted version.
+func (b *InMemoryBackend) DeletePlatformVersion(platformARN string) (*PlatformVersion, error) {
+	b.mu.Lock("DeletePlatformVersion")
+	defer b.mu.Unlock()
+
+	pv, ok := b.platformVersions[platformARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: platform version %s not found", ErrNotFound, platformARN)
+	}
+
+	out := clonePlatformVersion(pv)
+	delete(b.platformVersions, platformARN)
+
+	return out, nil
+}
+
+// DescribePlatformVersion returns a platform version by ARN.
+func (b *InMemoryBackend) DescribePlatformVersion(platformARN string) (*PlatformVersion, error) {
+	b.mu.RLock("DescribePlatformVersion")
+	defer b.mu.RUnlock()
+
+	pv, ok := b.platformVersions[platformARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: platform version %s not found", ErrNotFound, platformARN)
+	}
+
+	return clonePlatformVersion(pv), nil
+}
+
+// DescribeEnvironmentHealth returns the health and status of an environment by name.
+func (b *InMemoryBackend) DescribeEnvironmentHealth(envName string) (string, string) {
+	b.mu.RLock("DescribeEnvironmentHealth")
+	defer b.mu.RUnlock()
+
+	for _, env := range b.environments {
+		if env.EnvironmentName == envName {
+			return env.Health, env.Status
+		}
+	}
+
+	return "Grey", "Terminated"
+}
+
+// DisassociateEnvironmentOperationsRole removes the operations role from an environment.
+func (b *InMemoryBackend) DisassociateEnvironmentOperationsRole(envName string) error {
+	b.mu.Lock("DisassociateEnvironmentOperationsRole")
+	defer b.mu.Unlock()
+
+	for _, env := range b.environments {
+		if env.EnvironmentName == envName {
+			env.OperationsRole = ""
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+}
+
+// ListPlatformVersions returns all stored platform versions sorted by ARN.
+func (b *InMemoryBackend) ListPlatformVersions() []*PlatformVersion {
+	b.mu.RLock("ListPlatformVersions")
+	defer b.mu.RUnlock()
+
+	list := make([]*PlatformVersion, 0, len(b.platformVersions))
+
+	for _, pv := range b.platformVersions {
+		list = append(list, clonePlatformVersion(pv))
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].PlatformArn < list[j].PlatformArn
+	})
+
+	return list
+}
+
+// SwapEnvironmentCNAMEs swaps the CNAME values between two environments (improvement #10).
+func (b *InMemoryBackend) SwapEnvironmentCNAMEs(sourceEnvName, destEnvName string) error {
+	b.mu.Lock("SwapEnvironmentCNAMEs")
+	defer b.mu.Unlock()
+
+	var srcEnv, dstEnv *Environment
+
+	for _, env := range b.environments {
+		switch env.EnvironmentName {
+		case sourceEnvName:
+			srcEnv = env
+		case destEnvName:
+			dstEnv = env
+		}
+	}
+
+	if srcEnv == nil {
+		return fmt.Errorf("%w: source environment %s not found", ErrNotFound, sourceEnvName)
+	}
+
+	if dstEnv == nil {
+		return fmt.Errorf("%w: destination environment %s not found", ErrNotFound, destEnvName)
+	}
+
+	srcEnv.CNAME, dstEnv.CNAME = dstEnv.CNAME, srcEnv.CNAME
+
+	return nil
+}
+
+// UpdateApplicationVersion updates an application version's description.
+func (b *InMemoryBackend) UpdateApplicationVersion(
+	appName, versionLabel, description string,
+) (*ApplicationVersion, error) {
+	b.mu.Lock("UpdateApplicationVersion")
+	defer b.mu.Unlock()
+
+	key := appVersionKey(appName, versionLabel)
+
+	ver, ok := b.appVersions[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: application version %s not found", ErrNotFound, versionLabel)
+	}
+
+	ver.Description = description
+
+	return cloneApplicationVersion(ver), nil
+}
+
+// UpdateConfigurationTemplate updates a configuration template's description.
+func (b *InMemoryBackend) UpdateConfigurationTemplate(
+	appName, templateName, description string,
+) (*ConfigurationTemplate, error) {
+	b.mu.Lock("UpdateConfigurationTemplate")
+	defer b.mu.Unlock()
+
+	key := configTemplateKey(appName, templateName)
+
+	tmpl, ok := b.configTemplates[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: configuration template %s not found", ErrNotFound, templateName)
+	}
+
+	tmpl.Description = description
+
+	return cloneConfigurationTemplate(tmpl), nil
 }
 
 // --- Seed helpers (used in tests via export_test.go) ---

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -20,6 +21,27 @@ const completedProgress = int32(100)
 // cap user-supplied values and prevent excessive slice allocations
 // (go/slice-memory-allocation-excessive-size).
 const maxDesiredCapacity = 100
+
+const (
+	// healthStatusHealthy is the health status for a healthy instance.
+	healthStatusHealthy = "Healthy"
+	// lifecycleStateInService is the lifecycle state for a running, healthy instance.
+	lifecycleStateInService = "InService"
+	// statusCodeSuccessful is the status code for a successfully completed scaling activity.
+	statusCodeSuccessful = "Successful"
+	// statusInProgress is the status for an in-progress instance refresh.
+	statusInProgress = "InProgress"
+	// granularity1Minute is the only supported CloudWatch metric granularity.
+	granularity1Minute = "1Minute"
+	// lbStateAdded is the state for a load balancer that has been attached to the ASG.
+	lbStateAdded = "Added"
+	// maxAccountASGs is the simulated account limit for Auto Scaling groups.
+	maxAccountASGs = int32(200)
+	// maxAccountLaunchConfigs is the simulated account limit for launch configurations.
+	maxAccountLaunchConfigs = int32(200)
+	// percentDivisor is used when computing PercentChangeInCapacity adjustments.
+	percentDivisor = 100.0
+)
 
 // defaultAvailabilityZone is the fallback AZ used when none is specified.
 const defaultAvailabilityZone = "us-east-1a"
@@ -46,6 +68,10 @@ var (
 	ErrScalingActivityInProgress = errors.New("ScalingActivityInProgress")
 	// ErrInstanceNotFound is returned when a specific instance ID is not found in an ASG.
 	ErrInstanceNotFound = errors.New("ValidationError")
+	// ErrWarmPoolNotFound is returned when no warm pool exists for the group.
+	ErrWarmPoolNotFound = errors.New("ValidationError")
+	// ErrPolicyNotFound is returned when the specified scaling policy does not exist.
+	ErrPolicyNotFound = errors.New("ValidationError")
 )
 
 // StorageBackend is the interface for the Autoscaling in-memory store.
@@ -88,6 +114,79 @@ type StorageBackend interface {
 	DeleteTags(tags []ResourceTag) error
 	DescribeTags(filters []TagFilter) ([]ResourceTag, error)
 	DescribeAutoScalingInstances(instanceIDs []string) ([]InstanceDetails, error)
+
+	// Static describe methods
+	DescribeAccountLimits() (*AccountLimits, error)
+	DescribeAdjustmentTypes() ([]string, error)
+	DescribeAutoScalingNotificationTypes() ([]string, error)
+	DescribeLifecycleHookTypes() ([]string, error)
+	DescribeMetricCollectionTypes() ([]MetricCollectionType, error)
+	DescribeScalingProcessTypes() ([]string, error)
+	DescribeTerminationPolicyTypes() ([]string, error)
+
+	// Instance refresh
+	StartInstanceRefresh(groupName string) (*InstanceRefresh, error)
+	StartInstanceRefreshWithInput(input StartInstanceRefreshInput) (*InstanceRefresh, error)
+	RollbackInstanceRefresh(groupName string) (string, error)
+	DescribeInstanceRefreshes(groupName string, refreshIDs []string) ([]InstanceRefresh, error)
+
+	// LB/TG/Traffic describe
+	DescribeLoadBalancers(groupName string) ([]LoadBalancerState, error)
+	DescribeLoadBalancerTargetGroups(groupName string) ([]LoadBalancerTargetGroupState, error)
+	DescribeTrafficSources(groupName string) ([]TrafficSourceState, error)
+
+	// Detach operations
+	DetachInstances(groupName string, instanceIDs []string, shouldDecrement bool) ([]ScalingActivity, error)
+	DetachLoadBalancerTargetGroups(groupName string, targetGroupARNs []string) error
+	DetachLoadBalancers(groupName string, lbNames []string) error
+	DetachTrafficSources(groupName string, trafficSources []TrafficSource) error
+
+	// Metrics
+	EnableMetricsCollection(groupName string, metrics []string, granularity string) error
+	DisableMetricsCollection(groupName string, metrics []string) error
+
+	// Process ops
+	SuspendProcesses(groupName string, processes []string) error
+	ResumeProcesses(groupName string, processes []string) error
+
+	// Standby
+	EnterStandby(groupName string, instanceIDs []string, decrementCapacity bool) ([]ScalingActivity, error)
+	ExitStandby(groupName string, instanceIDs []string) ([]ScalingActivity, error)
+
+	// Instance state
+	SetInstanceHealth(instanceID string, healthStatus string, shouldRespectGracePeriod bool) error
+	SetInstanceProtection(groupName string, instanceIDs []string, protectedFromScaleIn bool) error
+
+	// Lifecycle heartbeat
+	RecordLifecycleActionHeartbeat(input RecordLifecycleActionHeartbeatInput) error
+
+	// Execute policy
+	ExecutePolicy(input ExecutePolicyInput) error
+
+	// Launch instances
+	LaunchInstances(groupName string, count int32) ([]Instance, error)
+
+	// Predictive scaling
+	GetPredictiveScalingForecast(groupName string) error
+
+	// Notification configs
+	PutNotificationConfiguration(groupName, topicARN string, types []string) error
+	DeleteNotificationConfiguration(groupName, topicARN string) error
+	DescribeNotificationConfigurations(groupNames []string) ([]NotificationConfiguration, error)
+
+	// Scaling policies
+	PutScalingPolicy(input ScalingPolicyInput) (*ScalingPolicy, error)
+	DeletePolicy(groupName, policyNameOrARN string) error
+	DescribePolicies(groupName string, policyNames []string) ([]ScalingPolicy, error)
+
+	// Scheduled actions (single)
+	PutScheduledUpdateGroupAction(groupName string, action ScheduledUpdateGroupAction) error
+	DeleteScheduledAction(groupName, scheduledActionName string) error
+
+	// Warm pool
+	PutWarmPool(input WarmPoolInput) error
+	DeleteWarmPool(groupName string) error
+	DescribeWarmPool(groupName string) (*WarmPool, error)
 }
 
 // CreateAutoScalingGroupInput holds the input for CreateAutoScalingGroup.
@@ -141,6 +240,10 @@ type InMemoryBackend struct {
 	scheduledActions     map[string]map[string]*ScheduledAction
 	instanceRefreshes    map[string][]*InstanceRefresh
 	lifecycleHooks       map[string]map[string]*LifecycleHook
+	scalingPolicies      map[string]map[string]*ScalingPolicy
+	notificationConfigs  map[string][]*NotificationConfiguration
+	warmPools            map[string]*WarmPool
+	pendingHookTokens    map[string]*pendingHookAction
 	mu                   *lockmetrics.RWMutex
 }
 
@@ -153,6 +256,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 		scheduledActions:     make(map[string]map[string]*ScheduledAction),
 		instanceRefreshes:    make(map[string][]*InstanceRefresh),
 		lifecycleHooks:       make(map[string]map[string]*LifecycleHook),
+		scalingPolicies:      make(map[string]map[string]*ScalingPolicy),
+		notificationConfigs:  make(map[string][]*NotificationConfiguration),
+		warmPools:            make(map[string]*WarmPool),
+		pendingHookTokens:    make(map[string]*pendingHookAction),
 		mu:                   lockmetrics.New("autoscaling"),
 	}
 }
@@ -184,8 +291,8 @@ func makeInstances(count int32, azs []string, launchConfigName string) []Instanc
 		instances = append(instances, Instance{
 			InstanceID:              id,
 			AvailabilityZone:        az,
-			LifecycleState:          "InService",
-			HealthStatus:            "Healthy",
+			LifecycleState:          lifecycleStateInService,
+			HealthStatus:            healthStatusHealthy,
 			LaunchConfigurationName: launchConfigName,
 			InstanceType:            "t2.micro",
 		})
@@ -278,7 +385,7 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 			ActivityID:           uuid.NewString(),
 			AutoScalingGroupName: input.AutoScalingGroupName,
 			Description:          "Launching a new EC2 instance",
-			StatusCode:           "Successful",
+			StatusCode:           statusCodeSuccessful,
 			StatusMessage:        "",
 			Progress:             completedProgress,
 			StartTime:            time.Now(),
@@ -375,8 +482,7 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 	g.MaxSize = newMax
 
 	if g.DesiredCapacity != newDesired {
-		g.DesiredCapacity = newDesired
-		g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
+		b.applyDesiredCapacityChange(g, newDesired)
 	}
 
 	if input.DefaultCooldown != nil {
@@ -420,11 +526,16 @@ func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) 
 			ErrScalingActivityInProgress, name, len(g.Instances))
 	}
 
+	b.cleanupHookTimers(name, "")
+
 	delete(b.groups, name)
 	delete(b.activities, name)
 	delete(b.scheduledActions, name)
 	delete(b.instanceRefreshes, name)
 	delete(b.lifecycleHooks, name)
+	delete(b.scalingPolicies, name)
+	delete(b.notificationConfigs, name)
+	delete(b.warmPools, name)
 
 	return nil
 }
@@ -562,11 +673,15 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 			return
 		}
 		if g.CreatedTime.Before(cutoff) {
+			b.cleanupHookTimers(name, "")
 			delete(b.groups, name)
 			delete(b.activities, name)
 			delete(b.scheduledActions, name)
 			delete(b.instanceRefreshes, name)
 			delete(b.lifecycleHooks, name)
+			delete(b.scalingPolicies, name)
+			delete(b.notificationConfigs, name)
+			delete(b.warmPools, name)
 		}
 	}
 
@@ -609,8 +724,8 @@ func (b *InMemoryBackend) AttachInstances(groupName string, instanceIDs []string
 		g.Instances = append(g.Instances, Instance{
 			InstanceID:              id,
 			AvailabilityZone:        az,
-			LifecycleState:          "InService",
-			HealthStatus:            "Healthy",
+			LifecycleState:          lifecycleStateInService,
+			HealthStatus:            healthStatusHealthy,
 			LaunchConfigurationName: g.LaunchConfigurationName,
 			InstanceType:            "t2.micro",
 		})
@@ -784,7 +899,7 @@ func (b *InMemoryBackend) CancelInstanceRefresh(groupName string) (string, error
 	}
 
 	for _, r := range b.instanceRefreshes[groupName] {
-		if r.Status == "InProgress" || r.Status == "Pending" {
+		if r.Status == statusInProgress || r.Status == "Pending" {
 			r.Status = "Cancelling"
 
 			return r.InstanceRefreshID, nil
@@ -810,6 +925,21 @@ func (b *InMemoryBackend) CompleteLifecycleAction(input CompleteLifecycleActionI
 
 	if input.LifecycleActionResult == "" {
 		return fmt.Errorf("%w: LifecycleActionResult is required", ErrInvalidParameter)
+	}
+
+	// Validate LifecycleActionResult is CONTINUE or ABANDON (case-insensitive)
+	upper := strings.ToUpper(input.LifecycleActionResult)
+	if upper != "CONTINUE" && upper != "ABANDON" {
+		return fmt.Errorf("%w: LifecycleActionResult must be CONTINUE or ABANDON, got %q",
+			ErrInvalidParameter, input.LifecycleActionResult)
+	}
+
+	// Cancel timer if token is present
+	if input.LifecycleActionToken != "" {
+		if action, ok := b.pendingHookTokens[input.LifecycleActionToken]; ok {
+			action.timer.Stop()
+			delete(b.pendingHookTokens, input.LifecycleActionToken)
+		}
 	}
 
 	return nil
@@ -868,6 +998,7 @@ func (b *InMemoryBackend) DeleteLifecycleHook(groupName, hookName string) error 
 		return fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, hookName)
 	}
 
+	b.cleanupHookTimers(groupName, hookName)
 	delete(hooks, hookName)
 
 	return nil
@@ -911,6 +1042,62 @@ func (b *InMemoryBackend) AddInstanceRefresh(refresh InstanceRefresh) error {
 	return nil
 }
 
+// applyDesiredCapacityChange updates the group's desired capacity and adjusts instances,
+// respecting suspended processes (Launch/Terminate) and scale-in protection.
+// Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) applyDesiredCapacityChange(g *AutoScalingGroup, newDesired int32) {
+	suspendedSet := make(map[string]bool, len(g.SuspendedProcesses))
+	for _, p := range g.SuspendedProcesses {
+		suspendedSet[p] = true
+	}
+
+	current := int32(len(g.Instances)) //nolint:gosec // bounded by maxDesiredCapacity
+	g.DesiredCapacity = newDesired
+
+	switch {
+	case newDesired < current:
+		if !suspendedSet["Terminate"] {
+			g.Instances = removeUnprotectedInstances(g.Instances, int(newDesired))
+		}
+	case newDesired > current:
+		if !suspendedSet["Launch"] {
+			g.Instances = adjustInstances(
+				g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName,
+			)
+		}
+	}
+
+	g.LastScalingActivity = time.Now()
+}
+
+// removeUnprotectedInstances removes instances from the end, skipping protected ones,
+// until the slice reaches targetCount. If all remaining instances are protected,
+// it stops short of the target.
+func removeUnprotectedInstances(instances []Instance, targetCount int) []Instance {
+	result := make([]Instance, len(instances))
+	copy(result, instances)
+
+	for len(result) > targetCount {
+		// Find last unprotected instance and remove it
+		removed := false
+
+		for i, inst := range slices.Backward(result) {
+			if !inst.ProtectedFromScaleIn {
+				result = append(result[:i], result[i+1:]...)
+				removed = true
+
+				break
+			}
+		}
+
+		if !removed {
+			break // all remaining are protected, can't remove more
+		}
+	}
+
+	return result
+}
+
 // SetDesiredCapacity adjusts the DesiredCapacity of an Auto Scaling group immediately.
 func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity int32) error {
 	b.mu.Lock("SetDesiredCapacity")
@@ -931,8 +1118,7 @@ func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity i
 		return fmt.Errorf("%w: DesiredCapacity %d exceeds MaxSize %d", ErrInvalidParameter, desired, g.MaxSize)
 	}
 
-	g.DesiredCapacity = desired
-	g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
+	b.applyDesiredCapacityChange(g, desired)
 
 	return nil
 }
@@ -1000,7 +1186,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 		ActivityID:           uuid.NewString(),
 		AutoScalingGroupName: targetGroup.AutoScalingGroupName,
 		Description:          "Terminating EC2 instance: " + instanceID,
-		StatusCode:           "Successful",
+		StatusCode:           statusCodeSuccessful,
 		Progress:             completedProgress,
 		StartTime:            time.Now(),
 		EndTime:              time.Now(),
@@ -1014,6 +1200,9 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 	return &activity, nil
 }
 
+// defaultHeartbeatTimeout is the default HeartbeatTimeout for lifecycle hooks (1 hour), matching AWS.
+const defaultHeartbeatTimeout = int32(3600)
+
 // PutLifecycleHook creates or updates a lifecycle hook on an Auto Scaling group.
 func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 	b.mu.Lock("PutLifecycleHook")
@@ -1025,6 +1214,21 @@ func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 
 	if _, ok := b.groups[hook.AutoScalingGroupName]; !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, hook.AutoScalingGroupName)
+	}
+
+	// Validate LifecycleTransition if provided
+	if hook.LifecycleTransition != "" &&
+		hook.LifecycleTransition != "autoscaling:EC2_INSTANCE_LAUNCHING" &&
+		hook.LifecycleTransition != "autoscaling:EC2_INSTANCE_TERMINATING" {
+		return fmt.Errorf(
+			"%w: LifecycleTransition must be autoscaling:EC2_INSTANCE_LAUNCHING or autoscaling:EC2_INSTANCE_TERMINATING",
+			ErrInvalidParameter,
+		)
+	}
+
+	// Default HeartbeatTimeout to 3600 if not provided (matching AWS behavior)
+	if hook.HeartbeatTimeout == 0 {
+		hook.HeartbeatTimeout = defaultHeartbeatTimeout
 	}
 
 	if b.lifecycleHooks[hook.AutoScalingGroupName] == nil {
@@ -1255,6 +1459,7 @@ func (b *InMemoryBackend) DescribeAutoScalingInstances(instanceIDs []string) ([]
 				HealthStatus:            inst.HealthStatus,
 				LaunchConfigurationName: inst.LaunchConfigurationName,
 				InstanceType:            inst.InstanceType,
+				ProtectedFromScaleIn:    inst.ProtectedFromScaleIn,
 			})
 		}
 	}
@@ -1264,4 +1469,1104 @@ func (b *InMemoryBackend) DescribeAutoScalingInstances(instanceIDs []string) ([]
 	})
 
 	return result, nil
+}
+
+// cleanupHookTimers cancels and removes pending hook actions for a group/hook.
+// If hookName is empty, all pending actions for the group are cancelled.
+// Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) cleanupHookTimers(groupName, hookName string) {
+	for token, action := range b.pendingHookTokens {
+		if action.GroupName == groupName && (hookName == "" || action.HookName == hookName) {
+			action.timer.Stop()
+			delete(b.pendingHookTokens, token)
+		}
+	}
+}
+
+// expireHookAction removes a pending hook action by token (called from timer callback).
+func (b *InMemoryBackend) expireHookAction(token string) {
+	b.mu.Lock("expireHookAction")
+	defer b.mu.Unlock()
+	delete(b.pendingHookTokens, token)
+}
+
+// DescribeAccountLimits returns account limits for Auto Scaling.
+func (b *InMemoryBackend) DescribeAccountLimits() (*AccountLimits, error) {
+	b.mu.RLock("DescribeAccountLimits")
+	defer b.mu.RUnlock()
+
+	return &AccountLimits{
+		MaxNumberOfAutoScalingGroups:    maxAccountASGs,
+		MaxNumberOfLaunchConfigurations: maxAccountLaunchConfigs,
+		//nolint:gosec,G115 // bounded by maxAccountASGs
+		NumberOfAutoScalingGroups: int32(len(b.groups)),
+		//nolint:gosec,G115 // bounded by maxAccountLaunchConfigs
+		NumberOfLaunchConfigurations: int32(len(b.launchConfigurations)),
+	}, nil
+}
+
+// DescribeAdjustmentTypes returns the supported scaling adjustment types.
+func (b *InMemoryBackend) DescribeAdjustmentTypes() ([]string, error) {
+	return []string{"ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"}, nil
+}
+
+// DescribeAutoScalingNotificationTypes returns the supported notification types.
+func (b *InMemoryBackend) DescribeAutoScalingNotificationTypes() ([]string, error) {
+	return []string{
+		"autoscaling:EC2_INSTANCE_LAUNCH",
+		"autoscaling:EC2_INSTANCE_LAUNCH_ERROR",
+		"autoscaling:EC2_INSTANCE_TERMINATE",
+		"autoscaling:EC2_INSTANCE_TERMINATE_ERROR",
+		"autoscaling:TEST_NOTIFICATION",
+		"autoscaling:EC2_INSTANCE_IN_STANDBY",
+	}, nil
+}
+
+// DescribeLifecycleHookTypes returns the supported lifecycle hook transition types.
+func (b *InMemoryBackend) DescribeLifecycleHookTypes() ([]string, error) {
+	return []string{
+		"autoscaling:EC2_INSTANCE_LAUNCHING",
+		"autoscaling:EC2_INSTANCE_TERMINATING",
+	}, nil
+}
+
+// DescribeMetricCollectionTypes returns the supported metric collection types.
+func (b *InMemoryBackend) DescribeMetricCollectionTypes() ([]MetricCollectionType, error) {
+	return []MetricCollectionType{
+		{Metric: "GroupMinSize", Granularity: granularity1Minute},
+		{Metric: "GroupMaxSize", Granularity: granularity1Minute},
+		{Metric: "GroupDesiredCapacity", Granularity: granularity1Minute},
+		{Metric: "GroupInServiceInstances", Granularity: granularity1Minute},
+		{Metric: "GroupPendingInstances", Granularity: granularity1Minute},
+		{Metric: "GroupTerminatingInstances", Granularity: granularity1Minute},
+	}, nil
+}
+
+// DescribeScalingProcessTypes returns the supported scaling process types.
+func (b *InMemoryBackend) DescribeScalingProcessTypes() ([]string, error) {
+	return []string{
+		"Launch",
+		"Terminate",
+		"HealthCheck",
+		"ReplaceUnhealthy",
+		"AZRebalance",
+		"AlarmNotification",
+		"ScheduledActions",
+		"AddToLoadBalancer",
+		"InstanceRefresh",
+	}, nil
+}
+
+// DescribeTerminationPolicyTypes returns the supported termination policy types.
+func (b *InMemoryBackend) DescribeTerminationPolicyTypes() ([]string, error) {
+	return []string{
+		"Default",
+		"AllocationStrategy",
+		"ClosestToNextInstanceHourPrice",
+		"NewestInstance",
+		"OldestInstance",
+		"OldestLaunchConfiguration",
+		"OldestLaunchTemplate",
+	}, nil
+}
+
+// StartInstanceRefreshInput holds the input for StartInstanceRefresh.
+type StartInstanceRefreshInput struct {
+	AutoScalingGroupName string
+	Strategy             string
+	MinHealthyPercentage int32
+}
+
+// StartInstanceRefresh creates a new instance refresh for the group.
+func (b *InMemoryBackend) StartInstanceRefresh(groupName string) (*InstanceRefresh, error) {
+	return b.StartInstanceRefreshWithInput(StartInstanceRefreshInput{AutoScalingGroupName: groupName})
+}
+
+// StartInstanceRefreshWithInput creates a new instance refresh for the group with full input.
+func (b *InMemoryBackend) StartInstanceRefreshWithInput(input StartInstanceRefreshInput) (*InstanceRefresh, error) {
+	b.mu.Lock("StartInstanceRefresh")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[input.AutoScalingGroupName]; !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
+	}
+
+	strategy := input.Strategy
+	if strategy == "" {
+		strategy = "Rolling"
+	}
+
+	minHealthy := input.MinHealthyPercentage
+	if minHealthy == 0 {
+		minHealthy = 90
+	}
+
+	refresh := &InstanceRefresh{
+		InstanceRefreshID:    uuid.NewString(),
+		AutoScalingGroupName: input.AutoScalingGroupName,
+		Status:               statusInProgress,
+		StartTime:            time.Now(),
+		Strategy:             strategy,
+		MinHealthyPercentage: minHealthy,
+	}
+
+	b.instanceRefreshes[input.AutoScalingGroupName] = append(b.instanceRefreshes[input.AutoScalingGroupName], refresh)
+
+	cp := *refresh
+
+	return &cp, nil
+}
+
+// RollbackInstanceRefresh rolls back an in-progress instance refresh for the group.
+func (b *InMemoryBackend) RollbackInstanceRefresh(groupName string) (string, error) {
+	b.mu.Lock("RollbackInstanceRefresh")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[groupName]; !ok {
+		return "", fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	for _, r := range b.instanceRefreshes[groupName] {
+		if r.Status == statusInProgress || r.Status == "Pending" {
+			r.Status = "RollbackInProgress"
+
+			return r.InstanceRefreshID, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: no active instance refresh for group %q",
+		ErrActiveInstanceRefreshNotFound, groupName)
+}
+
+// DescribeInstanceRefreshes returns instance refreshes for the group, optionally filtered by ID.
+func (b *InMemoryBackend) DescribeInstanceRefreshes(groupName string, refreshIDs []string) ([]InstanceRefresh, error) {
+	b.mu.RLock("DescribeInstanceRefreshes")
+	defer b.mu.RUnlock()
+
+	if groupName != "" {
+		if _, ok := b.groups[groupName]; !ok {
+			return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+		}
+	}
+
+	idFilter := make(map[string]bool, len(refreshIDs))
+	for _, id := range refreshIDs {
+		idFilter[id] = true
+	}
+
+	var result []InstanceRefresh
+
+	groups := b.instanceRefreshes
+	if groupName != "" {
+		groups = map[string][]*InstanceRefresh{groupName: b.instanceRefreshes[groupName]}
+	}
+
+	for _, refreshes := range groups {
+		for _, r := range refreshes {
+			if len(idFilter) > 0 && !idFilter[r.InstanceRefreshID] {
+				continue
+			}
+			result = append(result, *r)
+		}
+	}
+
+	return result, nil
+}
+
+// DescribeLoadBalancers returns the load balancers attached to the group.
+func (b *InMemoryBackend) DescribeLoadBalancers(groupName string) ([]LoadBalancerState, error) {
+	b.mu.RLock("DescribeLoadBalancers")
+	defer b.mu.RUnlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	result := make([]LoadBalancerState, 0, len(g.LoadBalancerNames))
+	for _, lb := range g.LoadBalancerNames {
+		result = append(result, LoadBalancerState{LoadBalancerName: lb, State: lbStateAdded})
+	}
+
+	return result, nil
+}
+
+// DescribeLoadBalancerTargetGroups returns the target groups attached to the group.
+func (b *InMemoryBackend) DescribeLoadBalancerTargetGroups(groupName string) ([]LoadBalancerTargetGroupState, error) {
+	b.mu.RLock("DescribeLoadBalancerTargetGroups")
+	defer b.mu.RUnlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	result := make([]LoadBalancerTargetGroupState, 0, len(g.TargetGroupARNs))
+	for _, arn := range g.TargetGroupARNs {
+		result = append(result, LoadBalancerTargetGroupState{LoadBalancerTargetGroupARN: arn, State: lbStateAdded})
+	}
+
+	return result, nil
+}
+
+// DescribeTrafficSources returns the traffic sources attached to the group.
+func (b *InMemoryBackend) DescribeTrafficSources(groupName string) ([]TrafficSourceState, error) {
+	b.mu.RLock("DescribeTrafficSources")
+	defer b.mu.RUnlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	result := make([]TrafficSourceState, 0, len(g.TrafficSources))
+	for _, ts := range g.TrafficSources {
+		result = append(result, TrafficSourceState{Identifier: ts.Identifier, Type: ts.Type, State: lbStateAdded})
+	}
+
+	return result, nil
+}
+
+// DetachInstances removes instances from the ASG, optionally decrementing desired capacity.
+func (b *InMemoryBackend) DetachInstances(
+	groupName string, instanceIDs []string, shouldDecrement bool,
+) ([]ScalingActivity, error) {
+	b.mu.Lock("DetachInstances")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	idSet := make(map[string]bool, len(instanceIDs))
+	for _, id := range instanceIDs {
+		idSet[id] = true
+	}
+
+	newInstances := make([]Instance, 0, len(g.Instances))
+	for _, inst := range g.Instances {
+		if !idSet[inst.InstanceID] {
+			newInstances = append(newInstances, inst)
+		}
+	}
+
+	detached := len(g.Instances) - len(newInstances)
+	g.Instances = newInstances
+
+	if shouldDecrement && detached > 0 {
+		delta := int32(detached) //nolint:gosec // detached <= len(g.Instances), bounded by maxDesiredCapacity
+		if g.DesiredCapacity >= delta {
+			g.DesiredCapacity -= delta
+		} else {
+			g.DesiredCapacity = 0
+		}
+	}
+
+	activities := make([]ScalingActivity, 0, len(instanceIDs))
+	for _, id := range instanceIDs {
+		act := ScalingActivity{
+			ActivityID:           uuid.NewString(),
+			AutoScalingGroupName: groupName,
+			Description:          "Detaching EC2 instance: " + id,
+			StatusCode:           statusCodeSuccessful,
+			Progress:             completedProgress,
+			StartTime:            time.Now(),
+			EndTime:              time.Now(),
+		}
+		b.activities[groupName] = append(b.activities[groupName], act)
+		activities = append(activities, act)
+	}
+
+	return activities, nil
+}
+
+// DetachLoadBalancerTargetGroups removes target group ARNs from the ASG.
+func (b *InMemoryBackend) DetachLoadBalancerTargetGroups(groupName string, targetGroupARNs []string) error {
+	b.mu.Lock("DetachLoadBalancerTargetGroups")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	removeSet := make(map[string]bool, len(targetGroupARNs))
+	for _, arn := range targetGroupARNs {
+		removeSet[arn] = true
+	}
+
+	newARNs := make([]string, 0, len(g.TargetGroupARNs))
+	for _, arn := range g.TargetGroupARNs {
+		if !removeSet[arn] {
+			newARNs = append(newARNs, arn)
+		}
+	}
+
+	g.TargetGroupARNs = newARNs
+
+	return nil
+}
+
+// DetachLoadBalancers removes load balancer names from the ASG.
+func (b *InMemoryBackend) DetachLoadBalancers(groupName string, lbNames []string) error {
+	b.mu.Lock("DetachLoadBalancers")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	removeSet := make(map[string]bool, len(lbNames))
+	for _, lb := range lbNames {
+		removeSet[lb] = true
+	}
+
+	newLBs := make([]string, 0, len(g.LoadBalancerNames))
+	for _, lb := range g.LoadBalancerNames {
+		if !removeSet[lb] {
+			newLBs = append(newLBs, lb)
+		}
+	}
+
+	g.LoadBalancerNames = newLBs
+
+	return nil
+}
+
+// DetachTrafficSources removes traffic sources from the ASG.
+func (b *InMemoryBackend) DetachTrafficSources(groupName string, trafficSources []TrafficSource) error {
+	b.mu.Lock("DetachTrafficSources")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	type tsKey struct{ Identifier, Type string }
+	removeSet := make(map[tsKey]bool, len(trafficSources))
+	for _, ts := range trafficSources {
+		removeSet[tsKey(ts)] = true
+	}
+
+	newTS := make([]TrafficSource, 0, len(g.TrafficSources))
+	for _, ts := range g.TrafficSources {
+		if !removeSet[tsKey(ts)] {
+			newTS = append(newTS, ts)
+		}
+	}
+
+	g.TrafficSources = newTS
+
+	return nil
+}
+
+// isKnownMetric reports whether metric is a valid Auto Scaling metric name.
+func isKnownMetric(metric string) bool {
+	switch metric {
+	case "GroupMinSize", "GroupMaxSize", "GroupDesiredCapacity",
+		"GroupInServiceInstances", "GroupPendingInstances", "GroupTerminatingInstances":
+		return true
+	}
+
+	return false
+}
+
+// EnableMetricsCollection adds metrics to the ASG's enabled metrics list.
+func (b *InMemoryBackend) EnableMetricsCollection(groupName string, metrics []string, _ string) error {
+	b.mu.Lock("EnableMetricsCollection")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	// Validate provided metrics against known metrics
+	if len(metrics) > 0 {
+		for _, m := range metrics {
+			if !isKnownMetric(m) {
+				return fmt.Errorf("%w: unknown metric %q", ErrInvalidParameter, m)
+			}
+		}
+	}
+
+	existing := make(map[string]bool, len(g.EnabledMetrics))
+	for _, m := range g.EnabledMetrics {
+		existing[m] = true
+	}
+
+	for _, m := range metrics {
+		if !existing[m] {
+			g.EnabledMetrics = append(g.EnabledMetrics, m)
+		}
+	}
+
+	return nil
+}
+
+// DisableMetricsCollection removes metrics from the ASG's enabled metrics list.
+func (b *InMemoryBackend) DisableMetricsCollection(groupName string, metrics []string) error {
+	b.mu.Lock("DisableMetricsCollection")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	if len(metrics) == 0 {
+		g.EnabledMetrics = nil
+
+		return nil
+	}
+
+	removeSet := make(map[string]bool, len(metrics))
+	for _, m := range metrics {
+		removeSet[m] = true
+	}
+
+	newMetrics := make([]string, 0, len(g.EnabledMetrics))
+	for _, m := range g.EnabledMetrics {
+		if !removeSet[m] {
+			newMetrics = append(newMetrics, m)
+		}
+	}
+
+	g.EnabledMetrics = newMetrics
+
+	return nil
+}
+
+// SuspendProcesses adds processes to the ASG's suspended processes list.
+func (b *InMemoryBackend) SuspendProcesses(groupName string, processes []string) error {
+	b.mu.Lock("SuspendProcesses")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	existing := make(map[string]bool, len(g.SuspendedProcesses))
+	for _, p := range g.SuspendedProcesses {
+		existing[p] = true
+	}
+
+	for _, p := range processes {
+		if !existing[p] {
+			g.SuspendedProcesses = append(g.SuspendedProcesses, p)
+		}
+	}
+
+	return nil
+}
+
+// ResumeProcesses removes processes from the ASG's suspended processes list.
+func (b *InMemoryBackend) ResumeProcesses(groupName string, processes []string) error {
+	b.mu.Lock("ResumeProcesses")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	if len(processes) == 0 {
+		g.SuspendedProcesses = nil
+
+		return nil
+	}
+
+	removeSet := make(map[string]bool, len(processes))
+	for _, p := range processes {
+		removeSet[p] = true
+	}
+
+	newProcs := make([]string, 0, len(g.SuspendedProcesses))
+	for _, p := range g.SuspendedProcesses {
+		if !removeSet[p] {
+			newProcs = append(newProcs, p)
+		}
+	}
+
+	g.SuspendedProcesses = newProcs
+
+	return nil
+}
+
+// EnterStandby puts instances into standby mode.
+func (b *InMemoryBackend) EnterStandby(
+	groupName string,
+	instanceIDs []string,
+	decrementCapacity bool,
+) ([]ScalingActivity, error) {
+	b.mu.Lock("EnterStandby")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	idSet := make(map[string]bool, len(instanceIDs))
+	for _, id := range instanceIDs {
+		idSet[id] = true
+	}
+
+	count := 0
+	for i := range g.Instances {
+		if idSet[g.Instances[i].InstanceID] {
+			g.Instances[i].LifecycleState = "Standby"
+			count++
+		}
+	}
+
+	if decrementCapacity && count > 0 {
+		delta := int32(count)
+		if g.DesiredCapacity >= delta {
+			g.DesiredCapacity -= delta
+		} else {
+			g.DesiredCapacity = 0
+		}
+	}
+
+	activities := make([]ScalingActivity, 0, len(instanceIDs))
+	for _, id := range instanceIDs {
+		act := ScalingActivity{
+			ActivityID:           uuid.NewString(),
+			AutoScalingGroupName: groupName,
+			Description:          "Moving EC2 instance to Standby: " + id,
+			StatusCode:           statusCodeSuccessful,
+			Progress:             completedProgress,
+			StartTime:            time.Now(),
+			EndTime:              time.Now(),
+		}
+		b.activities[groupName] = append(b.activities[groupName], act)
+		activities = append(activities, act)
+	}
+
+	return activities, nil
+}
+
+// ExitStandby moves instances from standby back to InService.
+func (b *InMemoryBackend) ExitStandby(groupName string, instanceIDs []string) ([]ScalingActivity, error) {
+	b.mu.Lock("ExitStandby")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	idSet := make(map[string]bool, len(instanceIDs))
+	for _, id := range instanceIDs {
+		idSet[id] = true
+	}
+
+	for i := range g.Instances {
+		if idSet[g.Instances[i].InstanceID] {
+			g.Instances[i].LifecycleState = lifecycleStateInService
+		}
+	}
+
+	activities := make([]ScalingActivity, 0, len(instanceIDs))
+	for _, id := range instanceIDs {
+		act := ScalingActivity{
+			ActivityID:           uuid.NewString(),
+			AutoScalingGroupName: groupName,
+			Description:          "Moving EC2 instance out of Standby: " + id,
+			StatusCode:           statusCodeSuccessful,
+			Progress:             completedProgress,
+			StartTime:            time.Now(),
+			EndTime:              time.Now(),
+		}
+		b.activities[groupName] = append(b.activities[groupName], act)
+		activities = append(activities, act)
+	}
+
+	return activities, nil
+}
+
+// SetInstanceHealth sets the health status of an instance across all ASGs.
+func (b *InMemoryBackend) SetInstanceHealth(instanceID string, healthStatus string, _ bool) error {
+	b.mu.Lock("SetInstanceHealth")
+	defer b.mu.Unlock()
+
+	if healthStatus != healthStatusHealthy && healthStatus != "Unhealthy" {
+		return fmt.Errorf("%w: HealthStatus must be Healthy or Unhealthy, got %q",
+			ErrInvalidParameter, healthStatus)
+	}
+
+	for _, g := range b.groups {
+		for i := range g.Instances {
+			if g.Instances[i].InstanceID == instanceID {
+				g.Instances[i].HealthStatus = healthStatus
+
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("%w: instance %q not found in any auto scaling group", ErrInstanceNotFound, instanceID)
+}
+
+// SetInstanceProtection sets the protected-from-scale-in flag on instances.
+func (b *InMemoryBackend) SetInstanceProtection(
+	groupName string,
+	instanceIDs []string,
+	protectedFromScaleIn bool,
+) error {
+	b.mu.Lock("SetInstanceProtection")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	idSet := make(map[string]bool, len(instanceIDs))
+	for _, id := range instanceIDs {
+		idSet[id] = true
+	}
+
+	for i := range g.Instances {
+		if idSet[g.Instances[i].InstanceID] {
+			g.Instances[i].ProtectedFromScaleIn = protectedFromScaleIn
+		}
+	}
+
+	return nil
+}
+
+// RecordLifecycleActionHeartbeat resets or validates a lifecycle action heartbeat.
+func (b *InMemoryBackend) RecordLifecycleActionHeartbeat(input RecordLifecycleActionHeartbeatInput) error {
+	b.mu.Lock("RecordLifecycleActionHeartbeat")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[input.AutoScalingGroupName]; !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
+	}
+
+	if input.LifecycleActionToken != "" {
+		if action, ok := b.pendingHookTokens[input.LifecycleActionToken]; ok {
+			action.timer.Stop()
+			token := input.LifecycleActionToken
+			action.timer = time.AfterFunc(action.timeout, func() {
+				b.expireHookAction(token)
+			})
+
+			return nil
+		}
+	}
+
+	// Validate hook exists
+	hooks := b.lifecycleHooks[input.AutoScalingGroupName]
+	if hooks == nil {
+		return fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, input.LifecycleHookName)
+	}
+
+	if _, exists := hooks[input.LifecycleHookName]; !exists {
+		return fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, input.LifecycleHookName)
+	}
+
+	return nil
+}
+
+// ExecutePolicy executes a scaling policy on the ASG.
+func (b *InMemoryBackend) ExecutePolicy(input ExecutePolicyInput) error {
+	b.mu.Lock("ExecutePolicy")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[input.AutoScalingGroupName]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
+	}
+
+	policies := b.scalingPolicies[input.AutoScalingGroupName]
+	if policies == nil {
+		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, input.PolicyName)
+	}
+
+	policy, ok := policies[input.PolicyName]
+	if !ok {
+		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, input.PolicyName)
+	}
+
+	// Check cooldown if HonorCooldown is requested
+	if input.HonorCooldown && policy.Cooldown > 0 && !g.LastScalingActivity.IsZero() {
+		cooldownDur := time.Duration(policy.Cooldown) * time.Second
+		if time.Since(g.LastScalingActivity) < cooldownDur {
+			return fmt.Errorf("%w: scaling activity in progress (cooldown)", ErrScalingActivityInProgress)
+		}
+	}
+
+	var newDesired int32
+
+	switch policy.AdjustmentType {
+	case "ExactCapacity":
+		newDesired = policy.ScalingAdjustment
+	case "PercentChangeInCapacity":
+		pct := float64(g.DesiredCapacity) * float64(policy.ScalingAdjustment) / percentDivisor
+		delta := int32(pct)
+		newDesired = g.DesiredCapacity + delta
+	default: // ChangeInCapacity
+		newDesired = g.DesiredCapacity + policy.ScalingAdjustment
+	}
+
+	newDesired = max(g.MinSize, min(g.MaxSize, newDesired))
+	newDesired = min(newDesired, maxDesiredCapacity)
+
+	if g.DesiredCapacity != newDesired {
+		g.DesiredCapacity = newDesired
+		g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
+		g.LastScalingActivity = time.Now()
+	}
+
+	return nil
+}
+
+// LaunchInstances adds new instances to the ASG.
+func (b *InMemoryBackend) LaunchInstances(groupName string, count int32) ([]Instance, error) {
+	b.mu.Lock("LaunchInstances")
+	defer b.mu.Unlock()
+
+	g, ok := b.groups[groupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	newInstances := makeInstances(count, g.AvailabilityZones, g.LaunchConfigurationName)
+	g.Instances = append(g.Instances, newInstances...)
+	g.DesiredCapacity = int32(len(g.Instances)) //nolint:gosec // bounded by maxDesiredCapacity
+
+	return newInstances, nil
+}
+
+// GetPredictiveScalingForecast validates the group exists (stub implementation).
+func (b *InMemoryBackend) GetPredictiveScalingForecast(groupName string) error {
+	b.mu.RLock("GetPredictiveScalingForecast")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.groups[groupName]; !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	return nil
+}
+
+// PutNotificationConfiguration stores or updates a notification configuration.
+func (b *InMemoryBackend) PutNotificationConfiguration(groupName, topicARN string, types []string) error {
+	b.mu.Lock("PutNotificationConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[groupName]; !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	// Validate SNS ARN format
+	if topicARN != "" &&
+		!strings.HasPrefix(topicARN, "arn:aws:sns:") &&
+		!strings.HasPrefix(topicARN, "arn:aws-cn:sns:") &&
+		!strings.HasPrefix(topicARN, "arn:aws-us-gov:sns:") {
+		return fmt.Errorf("%w: TopicARN must be a valid SNS ARN", ErrInvalidParameter)
+	}
+
+	// Remove existing configs for this group+topic
+	existing := b.notificationConfigs[groupName]
+	newConfigs := make([]*NotificationConfiguration, 0, len(existing)+len(types))
+
+	for _, c := range existing {
+		if c.TopicARN != topicARN {
+			newConfigs = append(newConfigs, c)
+		}
+	}
+
+	for _, t := range types {
+		nc := &NotificationConfiguration{
+			AutoScalingGroupName: groupName,
+			TopicARN:             topicARN,
+			NotificationType:     t,
+		}
+		newConfigs = append(newConfigs, nc)
+	}
+
+	b.notificationConfigs[groupName] = newConfigs
+
+	return nil
+}
+
+// DeleteNotificationConfiguration removes notification configs for a group+topic.
+func (b *InMemoryBackend) DeleteNotificationConfiguration(groupName, topicARN string) error {
+	b.mu.Lock("DeleteNotificationConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[groupName]; !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	existing := b.notificationConfigs[groupName]
+	newConfigs := make([]*NotificationConfiguration, 0, len(existing))
+
+	for _, c := range existing {
+		if c.TopicARN != topicARN {
+			newConfigs = append(newConfigs, c)
+		}
+	}
+
+	b.notificationConfigs[groupName] = newConfigs
+
+	return nil
+}
+
+// DescribeNotificationConfigurations returns notification configs for the given groups.
+func (b *InMemoryBackend) DescribeNotificationConfigurations(groupNames []string) ([]NotificationConfiguration, error) {
+	b.mu.RLock("DescribeNotificationConfigurations")
+	defer b.mu.RUnlock()
+
+	var result []NotificationConfiguration
+
+	if len(groupNames) > 0 {
+		for _, name := range groupNames {
+			for _, c := range b.notificationConfigs[name] {
+				result = append(result, *c)
+			}
+		}
+	} else {
+		for _, configs := range b.notificationConfigs {
+			for _, c := range configs {
+				result = append(result, *c)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// PutScalingPolicy creates or updates a scaling policy.
+func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPolicy, error) {
+	b.mu.Lock("PutScalingPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[input.AutoScalingGroupName]; !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
+	}
+
+	if b.scalingPolicies[input.AutoScalingGroupName] == nil {
+		b.scalingPolicies[input.AutoScalingGroupName] = make(map[string]*ScalingPolicy)
+	}
+
+	arn := "arn:aws:autoscaling:us-east-1:000000000000:scalingPolicy:" +
+		uuid.NewString() + ":autoScalingGroupName/" + input.AutoScalingGroupName + ":policyName/" + input.PolicyName
+
+	// Preserve ARN if policy already exists
+	if existing, ok := b.scalingPolicies[input.AutoScalingGroupName][input.PolicyName]; ok {
+		arn = existing.PolicyARN
+	}
+
+	policy := &ScalingPolicy{
+		PolicyName:           input.PolicyName,
+		PolicyARN:            arn,
+		AutoScalingGroupName: input.AutoScalingGroupName,
+		PolicyType:           input.PolicyType,
+		AdjustmentType:       input.AdjustmentType,
+		ScalingAdjustment:    input.ScalingAdjustment,
+		MinAdjustmentStep:    input.MinAdjustmentStep,
+		Cooldown:             input.Cooldown,
+		TargetValue:          input.TargetValue,
+		MetricType:           input.MetricType,
+		DisableScaleIn:       input.DisableScaleIn,
+		EstimatedWarmup:      input.EstimatedWarmup,
+	}
+
+	b.scalingPolicies[input.AutoScalingGroupName][input.PolicyName] = policy
+
+	cp := *policy
+
+	return &cp, nil
+}
+
+// DeletePolicy removes a scaling policy from the ASG.
+func (b *InMemoryBackend) DeletePolicy(groupName, policyNameOrARN string) error {
+	b.mu.Lock("DeletePolicy")
+	defer b.mu.Unlock()
+
+	policies := b.scalingPolicies[groupName]
+	if policies != nil {
+		// Try by name first
+		if _, ok := policies[policyNameOrARN]; ok {
+			delete(policies, policyNameOrARN)
+
+			return nil
+		}
+
+		// Try by ARN
+		for name, p := range policies {
+			if p.PolicyARN == policyNameOrARN {
+				delete(policies, name)
+
+				return nil
+			}
+		}
+	}
+
+	// Check across all groups if groupName is empty
+	if groupName == "" {
+		for _, gpolicies := range b.scalingPolicies {
+			for name, p := range gpolicies {
+				if p.PolicyName == policyNameOrARN || p.PolicyARN == policyNameOrARN {
+					delete(gpolicies, name)
+
+					return nil
+				}
+			}
+		}
+	}
+
+	return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyNameOrARN)
+}
+
+// DescribePolicies returns scaling policies for the given group, optionally filtered by name.
+func (b *InMemoryBackend) DescribePolicies(groupName string, policyNames []string) ([]ScalingPolicy, error) {
+	b.mu.RLock("DescribePolicies")
+	defer b.mu.RUnlock()
+
+	nameFilter := make(map[string]bool, len(policyNames))
+	for _, n := range policyNames {
+		nameFilter[n] = true
+	}
+
+	var result []ScalingPolicy
+
+	if groupName != "" {
+		for _, p := range b.scalingPolicies[groupName] {
+			if len(nameFilter) == 0 || nameFilter[p.PolicyName] {
+				result = append(result, *p)
+			}
+		}
+	} else {
+		for _, policies := range b.scalingPolicies {
+			for _, p := range policies {
+				if len(nameFilter) == 0 || nameFilter[p.PolicyName] {
+					result = append(result, *p)
+				}
+			}
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].PolicyName < result[j].PolicyName
+	})
+
+	return result, nil
+}
+
+// PutScheduledUpdateGroupAction creates or updates a single scheduled action.
+func (b *InMemoryBackend) PutScheduledUpdateGroupAction(groupName string, action ScheduledUpdateGroupAction) error {
+	b.mu.Lock("PutScheduledUpdateGroupAction")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[groupName]; !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	if b.scheduledActions[groupName] == nil {
+		b.scheduledActions[groupName] = make(map[string]*ScheduledAction)
+	}
+
+	b.scheduledActions[groupName][action.ScheduledActionName] = &ScheduledAction{
+		ScheduledActionName:  action.ScheduledActionName,
+		AutoScalingGroupName: groupName,
+		Recurrence:           action.Recurrence,
+		TimeZone:             action.TimeZone,
+		StartTime:            action.StartTime,
+		EndTime:              action.EndTime,
+		DesiredCapacity:      action.DesiredCapacity,
+		MinSize:              action.MinSize,
+		MaxSize:              action.MaxSize,
+	}
+
+	return nil
+}
+
+// DeleteScheduledAction removes a single scheduled action from the ASG.
+func (b *InMemoryBackend) DeleteScheduledAction(groupName, scheduledActionName string) error {
+	b.mu.Lock("DeleteScheduledAction")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[groupName]; !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	actions := b.scheduledActions[groupName]
+	if actions == nil || actions[scheduledActionName] == nil {
+		return fmt.Errorf("%w: scheduled action %q not found", ErrInvalidParameter, scheduledActionName)
+	}
+
+	delete(actions, scheduledActionName)
+
+	return nil
+}
+
+// PutWarmPool creates or updates a warm pool configuration for the ASG.
+func (b *InMemoryBackend) PutWarmPool(input WarmPoolInput) error {
+	b.mu.Lock("PutWarmPool")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[input.AutoScalingGroupName]; !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
+	}
+
+	poolState := input.PoolState
+	if poolState == "" {
+		poolState = "Stopped"
+	} else if poolState != "Stopped" && poolState != "Running" && poolState != "Hibernated" {
+		return fmt.Errorf("%w: PoolState must be one of Stopped, Running, Hibernated; got %q",
+			ErrInvalidParameter, poolState)
+	}
+
+	b.warmPools[input.AutoScalingGroupName] = &WarmPool{
+		AutoScalingGroupName:     input.AutoScalingGroupName,
+		PoolState:                poolState,
+		Status:                   "Active",
+		MinSize:                  input.MinSize,
+		MaxGroupPreparedCapacity: input.MaxGroupPreparedCapacity,
+	}
+
+	return nil
+}
+
+// DeleteWarmPool removes the warm pool for the ASG.
+func (b *InMemoryBackend) DeleteWarmPool(groupName string) error {
+	b.mu.Lock("DeleteWarmPool")
+	defer b.mu.Unlock()
+
+	if _, ok := b.groups[groupName]; !ok {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	delete(b.warmPools, groupName)
+
+	return nil
+}
+
+// DescribeWarmPool returns the warm pool configuration for the ASG.
+func (b *InMemoryBackend) DescribeWarmPool(groupName string) (*WarmPool, error) {
+	b.mu.RLock("DescribeWarmPool")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.groups[groupName]; !ok {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	wp, ok := b.warmPools[groupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: no warm pool found for group %q", ErrWarmPoolNotFound, groupName)
+	}
+
+	cp := *wp
+
+	return &cp, nil
 }

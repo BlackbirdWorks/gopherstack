@@ -390,7 +390,7 @@ func TestHandler_DeleteConnector(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *transfer.Handler) string {
-				c, _ := h.Backend.CreateConnector("https://example.com", "", nil)
+				c, _ := h.Backend.CreateConnector("https://example.com", "", nil, nil, nil)
 
 				return c.ConnectorID
 			},
@@ -802,7 +802,7 @@ func TestBackend_CreateConnector(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	c, err := b.CreateConnector("https://example.com", "arn:role", map[string]string{"env": "test"})
+	c, err := b.CreateConnector("https://example.com", "arn:role", nil, nil, map[string]string{"env": "test"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, c.ConnectorID)
 	assert.Equal(t, "https://example.com", c.URL)
@@ -813,7 +813,7 @@ func TestBackend_DeleteConnector(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	c, err := b.CreateConnector("https://example.com", "", nil)
+	c, err := b.CreateConnector("https://example.com", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteConnector(c.ConnectorID))
@@ -848,7 +848,7 @@ func TestBackend_CreateWorkflow(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
-	wf, err := b.CreateWorkflow("my workflow", map[string]string{"team": "data"})
+	wf, err := b.CreateWorkflow("my workflow", nil, nil, map[string]string{"team": "data"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, wf.WorkflowID)
 	assert.Equal(t, "my workflow", wf.Description)

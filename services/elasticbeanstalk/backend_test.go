@@ -176,7 +176,7 @@ func TestBackend_Environment(t *testing.T) {
 			appName: "my-app",
 			envName: "dup-env",
 			setup: func(b *elasticbeanstalk.InMemoryBackend) {
-				_, _ = b.CreateEnvironment("my-app", "dup-env", "", "", nil)
+				_, _ = b.CreateEnvironment("my-app", "dup-env", "", "", nil, elasticbeanstalk.CreateEnvironmentParams{})
 			},
 			wantErr:   true,
 			wantErrIs: awserr.ErrAlreadyExists,
@@ -192,7 +192,14 @@ func TestBackend_Environment(t *testing.T) {
 				tt.setup(b)
 			}
 
-			env, err := b.CreateEnvironment(tt.appName, tt.envName, "64bit Amazon Linux", "test env", nil)
+			env, err := b.CreateEnvironment(
+				tt.appName,
+				tt.envName,
+				"64bit Amazon Linux",
+				"test env",
+				nil,
+				elasticbeanstalk.CreateEnvironmentParams{},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -248,9 +255,9 @@ func TestBackend_DescribeEnvironments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend()
-			_, _ = b.CreateEnvironment("app-a", "env-1", "", "", nil)
-			_, _ = b.CreateEnvironment("app-a", "env-2", "", "", nil)
-			_, _ = b.CreateEnvironment("app-b", "env-3", "", "", nil)
+			_, _ = b.CreateEnvironment("app-a", "env-1", "", "", nil, elasticbeanstalk.CreateEnvironmentParams{})
+			_, _ = b.CreateEnvironment("app-a", "env-2", "", "", nil, elasticbeanstalk.CreateEnvironmentParams{})
+			_, _ = b.CreateEnvironment("app-b", "env-3", "", "", nil, elasticbeanstalk.CreateEnvironmentParams{})
 
 			envs := b.DescribeEnvironments(tt.appFilter, tt.envFilter, tt.envIDs)
 			assert.Len(t, envs, tt.wantCount)
@@ -288,7 +295,7 @@ func TestBackend_TerminateEnvironment(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.envName == "my-env" {
-				_, _ = b.CreateEnvironment("my-app", "my-env", "", "", nil)
+				_, _ = b.CreateEnvironment("my-app", "my-env", "", "", nil, elasticbeanstalk.CreateEnvironmentParams{})
 			}
 
 			env, err := b.TerminateEnvironment(tt.appName, tt.envName)
@@ -332,7 +339,7 @@ func TestBackend_ApplicationVersion(t *testing.T) {
 			appName:      "my-app",
 			versionLabel: "v1",
 			setup: func(b *elasticbeanstalk.InMemoryBackend) {
-				_, _ = b.CreateApplicationVersion("my-app", "v1", "", nil)
+				_, _ = b.CreateApplicationVersion("my-app", "v1", "", "", "", nil)
 			},
 			wantErr:   true,
 			wantErrIs: awserr.ErrAlreadyExists,
@@ -348,7 +355,7 @@ func TestBackend_ApplicationVersion(t *testing.T) {
 				tt.setup(b)
 			}
 
-			ver, err := b.CreateApplicationVersion(tt.appName, tt.versionLabel, "version desc", nil)
+			ver, err := b.CreateApplicationVersion(tt.appName, tt.versionLabel, "version desc", "", "", nil)
 
 			if tt.wantErr {
 				require.Error(t, err)

@@ -54,6 +54,11 @@ const (
 	opDescribeFileSystemPolicy          = "DescribeFileSystemPolicy"
 	opDescribeMountTargetSecurityGroups = "DescribeMountTargetSecurityGroups"
 	opDescribeReplicationConfigurations = "DescribeReplicationConfigurations"
+	opDescribeTags                      = "DescribeTags"
+	opModifyMountTargetSecurityGroups   = "ModifyMountTargetSecurityGroups"
+	opPutAccountPreferences             = "PutAccountPreferences"
+	opUntagResource                     = "UntagResource"
+	opUpdateFileSystemProtection        = "UpdateFileSystemProtection"
 )
 
 const (
@@ -132,6 +137,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		opPutFileSystemPolicy,
 		opDescribeMountTargetSecurityGroups,
 		opDescribeReplicationConfigurations,
+		opDescribeTags,
+		opModifyMountTargetSecurityGroups,
+		opPutAccountPreferences,
+		opUntagResource,
+		opUpdateFileSystemProtection,
 	}
 }
 
@@ -250,6 +260,10 @@ func parseFileSystemSubRoute(method, id string) efsRoute {
 		if method == http.MethodPut {
 			return efsRoute{operation: opPutBackupPolicy, resource: fsID}
 		}
+	case "protection":
+		if method == http.MethodPut {
+			return efsRoute{operation: opUpdateFileSystemProtection, resource: fsID}
+		}
 	}
 
 	return efsRoute{operation: opUnknown}
@@ -311,8 +325,13 @@ func parseMountTargetRoute(method, suffix string) efsRoute {
 	default:
 		// Sub-resource paths: /{mountTargetId}/{subresource}
 		parts := strings.SplitN(id, "/", subresourcePathParts)
-		if len(parts) >= subresourcePathParts && parts[1] == "security-groups" && method == http.MethodGet {
-			return efsRoute{operation: opDescribeMountTargetSecurityGroups, resource: parts[0]}
+		if len(parts) >= subresourcePathParts && parts[1] == "security-groups" {
+			switch method {
+			case http.MethodGet:
+				return efsRoute{operation: opDescribeMountTargetSecurityGroups, resource: parts[0]}
+			case http.MethodPut:
+				return efsRoute{operation: opModifyMountTargetSecurityGroups, resource: parts[0]}
+			}
 		}
 	}
 
@@ -346,6 +365,8 @@ func parseTagsRoute(method, resourceID string) efsRoute {
 		return efsRoute{operation: opTagResource, resource: resourceID}
 	case http.MethodGet:
 		return efsRoute{operation: opListTagsForResource, resource: resourceID}
+	case http.MethodDelete:
+		return efsRoute{operation: opUntagResource, resource: resourceID}
 	}
 
 	return efsRoute{operation: opUnknown}
@@ -368,8 +389,11 @@ func parseDeleteTagsRoute(method, fileSystemID string) efsRoute {
 }
 
 func parseAccountPrefsRoute(method string) efsRoute {
-	if method == http.MethodGet {
+	switch method {
+	case http.MethodGet:
 		return efsRoute{operation: opDescribeAccountPreferences}
+	case http.MethodPut:
+		return efsRoute{operation: opPutAccountPreferences}
 	}
 
 	return efsRoute{operation: opUnknown}
@@ -471,6 +495,8 @@ func (h *Handler) dispatchMountTargetAndAccessPointOps(c *echo.Context, route ef
 		return true, h.handleDeleteMountTarget(c, route.resource)
 	case opDescribeMountTargetSecurityGroups:
 		return true, h.handleDescribeMountTargetSecurityGroups(c, route.resource)
+	case opModifyMountTargetSecurityGroups:
+		return true, h.handleModifyMountTargetSecurityGroups(c, route.resource, body)
 	case opCreateAccessPoint:
 		return true, h.handleCreateAccessPoint(c, body)
 	case opDescribeAccessPoints:
@@ -486,14 +512,20 @@ func (h *Handler) dispatchTagAndMiscOps(c *echo.Context, route efsRoute, body []
 	switch route.operation {
 	case opTagResource:
 		return true, h.handleTagResource(c, route.resource, body)
-	case opListTagsForResource:
+	case opListTagsForResource, opDescribeTags:
 		return true, h.handleListTagsForResource(c, route.resource)
+	case opUntagResource:
+		return true, h.handleUntagResource(c, route.resource)
 	case opCreateTags:
 		return true, h.handleCreateTags(c, route.resource, body)
 	case opDeleteTags:
 		return true, h.handleDeleteTags(c, route.resource, body)
 	case opDescribeAccountPreferences:
 		return true, h.handleDescribeAccountPreferences(c)
+	case opPutAccountPreferences:
+		return true, h.handlePutAccountPreferences(c, body)
+	case opUpdateFileSystemProtection:
+		return true, h.handleUpdateFileSystemProtection(c, route.resource, body)
 	}
 
 	return false, nil
@@ -1037,6 +1069,84 @@ func (h *Handler) handlePutFileSystemPolicy(c *echo.Context, fileSystemID string
 	return c.JSON(http.StatusOK, map[string]any{
 		keyFileSystemID: fileSystemID,
 		"Policy":        in.Policy,
+	})
+}
+
+// --- UntagResource handler ---
+
+func (h *Handler) handleUntagResource(c *echo.Context, resourceID string) error {
+	tagKeys := c.Request().URL.Query()["tagKeys"]
+	if err := h.Backend.UntagResource(resourceID, tagKeys); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- ModifyMountTargetSecurityGroups handler ---
+
+type modifyMountTargetSGBody struct {
+	SecurityGroups []string `json:"SecurityGroups"`
+}
+
+func (h *Handler) handleModifyMountTargetSecurityGroups(c *echo.Context, mountTargetID string, body []byte) error {
+	var in modifyMountTargetSGBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
+	}
+
+	if err := h.Backend.ModifyMountTargetSecurityGroups(mountTargetID, in.SecurityGroups); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- PutAccountPreferences handler ---
+
+type putAccountPreferencesBody struct {
+	ResourceIDPreference struct {
+		ResourceIDType string `json:"ResourceIdType"`
+	} `json:"ResourceIdPreference"`
+}
+
+func (h *Handler) handlePutAccountPreferences(c *echo.Context, body []byte) error {
+	var in putAccountPreferencesBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
+	}
+
+	prefs, err := h.Backend.PutAccountPreferences(in.ResourceIDPreference.ResourceIDType)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"ResourceIdPreference": map[string]any{
+			"ResourceIdType": prefs.ResourceIDType,
+			"Resources":      []string{"FILE_SYSTEM", "MOUNT_TARGET"},
+		},
+	})
+}
+
+// --- UpdateFileSystemProtection handler ---
+
+type updateFileSystemProtectionBody struct {
+	ReplicationOverwriteProtection string `json:"ReplicationOverwriteProtection"`
+}
+
+func (h *Handler) handleUpdateFileSystemProtection(c *echo.Context, fileSystemID string, body []byte) error {
+	var in updateFileSystemProtectionBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
+	}
+
+	if err := h.Backend.UpdateFileSystemProtection(fileSystemID, in.ReplicationOverwriteProtection); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"ReplicationOverwriteProtection": in.ReplicationOverwriteProtection,
 	})
 }
 

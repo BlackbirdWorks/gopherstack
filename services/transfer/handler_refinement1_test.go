@@ -47,7 +47,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 22)
+	assert.Len(t, h.GetSupportedOperations(), 71)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
@@ -72,7 +72,7 @@ func TestRefinement1_HandlerOpsLenExport(t *testing.T) {
 
 	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
-	assert.Equal(t, 22, transfer.HandlerOpsLen(h))
+	assert.Equal(t, 71, transfer.HandlerOpsLen(h))
 }
 
 // TestRefinement1_AccountIDRegion verifies AccountID and Region methods.
@@ -116,7 +116,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 
 	assert.Equal(t, 0, transfer.ServerCount(b))
 	// ops should still work after reset
-	assert.Equal(t, 22, transfer.HandlerOpsLen(h))
+	assert.Equal(t, 71, transfer.HandlerOpsLen(h))
 }
 
 // TestRefinement1_ServerCountExport verifies ServerCount export.
@@ -187,7 +187,7 @@ func TestRefinement1_ConnectorCountExport(t *testing.T) {
 	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
 	assert.Equal(t, 0, transfer.ConnectorCount(b))
 
-	_, err := b.CreateConnector("https://example.com", "", nil)
+	_, err := b.CreateConnector("https://example.com", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, transfer.ConnectorCount(b))
@@ -226,7 +226,7 @@ func TestRefinement1_WorkflowCountExport(t *testing.T) {
 	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
 	assert.Equal(t, 0, transfer.WorkflowCount(b))
 
-	_, err := b.CreateWorkflow("desc", nil)
+	_, err := b.CreateWorkflow("desc", nil, nil, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, transfer.WorkflowCount(b))
@@ -337,7 +337,7 @@ func TestRefinement1_ConnectorURLValidation(t *testing.T) {
 			t.Parallel()
 
 			b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
-			_, err := b.CreateConnector(tt.url, "", nil)
+			_, err := b.CreateConnector(tt.url, "", nil, nil, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -400,7 +400,7 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 	_, err = b.CreateUser(s.ServerID, "alice", "/alice", "arn:role", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateConnector("https://example.com", "arn:role", nil)
+	_, err = b.CreateConnector("https://example.com", "arn:role", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateProfile("LOCAL", "as2id", nil)

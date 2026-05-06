@@ -12,19 +12,36 @@
 		PutScalingPolicyCommand,
 		DeletePolicyCommand,
 		DescribeScalingActivitiesCommand,
+		DescribeLifecycleHooksCommand,
+		PutLifecycleHookCommand,
+		DeleteLifecycleHookCommand,
+		DescribeScheduledActionsCommand,
+		PutScheduledUpdateGroupActionCommand,
+		DeleteScheduledActionCommand,
+		DescribeInstanceRefreshesCommand,
+		StartInstanceRefreshCommand,
+		CancelInstanceRefreshCommand,
+		CreateOrUpdateTagsCommand,
+		DeleteTagsCommand,
+		SetInstanceProtectionCommand,
 		type AutoScalingGroup,
 		type ScalingPolicy,
-		type Activity
+		type Activity,
+		type LifecycleHook,
+		type ScheduledUpdateGroupAction,
+		type InstanceRefresh
 	} from '@aws-sdk/client-auto-scaling';
 	import { toast } from 'svelte-sonner';
-	import { ZoomIn, Search, RefreshCw, Plus, Trash2, ChevronRight, TrendingUp, Activity as ActivityIcon, Settings } from 'lucide-svelte';
+	import { ZoomIn, Search, RefreshCw, Plus, Trash2, ChevronRight, TrendingUp, Activity as ActivityIcon, Settings, Clock, Tag, RotateCcw, Shield } from 'lucide-svelte';
 
 	const asg = getAutoScalingClient();
+
+	type TabName = 'overview' | 'policies' | 'activity' | 'hooks' | 'scheduled' | 'refresh' | 'tags';
 
 	let loading = $state(false);
 	let groups = $state<AutoScalingGroup[]>([]);
 	let selectedGroup = $state<AutoScalingGroup | null>(null);
-	let activeTab = $state<'overview' | 'policies' | 'activity'>('overview');
+	let activeTab = $state<TabName>('overview');
 	let searchQuery = $state('');
 
 	// Policies & Activities
@@ -32,6 +49,37 @@
 	let loadingPolicies = $state(false);
 	let activities = $state<Activity[]>([]);
 	let loadingActivities = $state(false);
+
+	// Lifecycle Hooks
+	let hooks = $state<LifecycleHook[]>([]);
+	let loadingHooks = $state(false);
+	let showCreateHook = $state(false);
+	let creatingHook = $state(false);
+	let newHookName = $state('');
+	let newHookTransition = $state('autoscaling:EC2_INSTANCE_LAUNCHING');
+	let newHookDefaultResult = $state('CONTINUE');
+	let newHookHeartbeatTimeout = $state(3600);
+
+	// Scheduled Actions
+	let scheduledActions = $state<ScheduledUpdateGroupAction[]>([]);
+	let loadingScheduled = $state(false);
+	let showCreateScheduled = $state(false);
+	let creatingScheduled = $state(false);
+	let newScheduledName = $state('');
+	let newScheduledRecurrence = $state('');
+	let newScheduledDesired = $state(1);
+	let newScheduledMin = $state(1);
+	let newScheduledMax = $state(3);
+
+	// Instance Refreshes
+	let refreshes = $state<InstanceRefresh[]>([]);
+	let loadingRefreshes = $state(false);
+
+	// Tags
+	let showAddTag = $state(false);
+	let addingTag = $state(false);
+	let newTagKey = $state('');
+	let newTagValue = $state('');
 
 	// Create ASG
 	let showCreateGroup = $state(false);
@@ -85,14 +133,23 @@
 		selectedGroup = group;
 		activeTab = 'overview';
 		newDesired = group.DesiredCapacity ?? 1;
+		// Reset tab data
+		policies = [];
+		activities = [];
+		hooks = [];
+		scheduledActions = [];
+		refreshes = [];
 	}
 
-	async function handleTabChange(tab: 'overview' | 'policies' | 'activity') {
+	async function handleTabChange(tab: TabName) {
 		activeTab = tab;
 		if (!selectedGroup) return;
 		const name = selectedGroup.AutoScalingGroupName ?? '';
 		if (tab === 'policies' && policies.length === 0) await loadPolicies(name);
 		if (tab === 'activity' && activities.length === 0) await loadActivities(name);
+		if (tab === 'hooks' && hooks.length === 0) await loadHooks(name);
+		if (tab === 'scheduled' && scheduledActions.length === 0) await loadScheduledActions(name);
+		if (tab === 'refresh' && refreshes.length === 0) await loadRefreshes(name);
 	}
 
 	async function loadPolicies(groupName: string) {
@@ -116,6 +173,42 @@
 			toast.error('Failed to load activities: ' + String(e));
 		} finally {
 			loadingActivities = false;
+		}
+	}
+
+	async function loadHooks(groupName: string) {
+		loadingHooks = true;
+		try {
+			const resp = await asg.send(new DescribeLifecycleHooksCommand({ AutoScalingGroupName: groupName }));
+			hooks = resp.LifecycleHooks ?? [];
+		} catch (e) {
+			toast.error('Failed to load hooks: ' + String(e));
+		} finally {
+			loadingHooks = false;
+		}
+	}
+
+	async function loadScheduledActions(groupName: string) {
+		loadingScheduled = true;
+		try {
+			const resp = await asg.send(new DescribeScheduledActionsCommand({ AutoScalingGroupName: groupName }));
+			scheduledActions = (resp.ScheduledUpdateGroupActions ?? []) as ScheduledUpdateGroupAction[];
+		} catch (e) {
+			toast.error('Failed to load scheduled actions: ' + String(e));
+		} finally {
+			loadingScheduled = false;
+		}
+	}
+
+	async function loadRefreshes(groupName: string) {
+		loadingRefreshes = true;
+		try {
+			const resp = await asg.send(new DescribeInstanceRefreshesCommand({ AutoScalingGroupName: groupName }));
+			refreshes = resp.InstanceRefreshes ?? [];
+		} catch (e) {
+			toast.error('Failed to load refreshes: ' + String(e));
+		} finally {
+			loadingRefreshes = false;
 		}
 	}
 
@@ -175,7 +268,6 @@
 			toast.success(`Desired capacity set to ${newDesired}`);
 			showSetCapacity = false;
 			await loadGroups();
-			// Refresh selected group data
 			const updated = groups.find((g) => g.AutoScalingGroupName === selectedGroup?.AutoScalingGroupName);
 			if (updated) selectedGroup = updated;
 		} catch (e) {
@@ -220,10 +312,196 @@
 		}
 	}
 
+	async function createHook() {
+		if (!selectedGroup || !newHookName.trim()) return;
+		creatingHook = true;
+		try {
+			await asg.send(new PutLifecycleHookCommand({
+				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
+				LifecycleHookName: newHookName.trim(),
+				LifecycleTransition: newHookTransition,
+				DefaultResult: newHookDefaultResult,
+				HeartbeatTimeout: newHookHeartbeatTimeout
+			}));
+			toast.success(`Lifecycle hook "${newHookName}" created`);
+			showCreateHook = false;
+			newHookName = '';
+			hooks = [];
+			await loadHooks(selectedGroup.AutoScalingGroupName ?? '');
+		} catch (e) {
+			toast.error('Failed to create hook: ' + String(e));
+		} finally {
+			creatingHook = false;
+		}
+	}
+
+	async function deleteHook(hookName: string) {
+		if (!selectedGroup) return;
+		try {
+			await asg.send(new DeleteLifecycleHookCommand({
+				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
+				LifecycleHookName: hookName
+			}));
+			toast.success(`Hook "${hookName}" deleted`);
+			hooks = hooks.filter((h) => h.LifecycleHookName !== hookName);
+		} catch (e) {
+			toast.error('Failed to delete hook: ' + String(e));
+		}
+	}
+
+	async function createScheduledAction() {
+		if (!selectedGroup || !newScheduledName.trim()) return;
+		creatingScheduled = true;
+		try {
+			await asg.send(new PutScheduledUpdateGroupActionCommand({
+				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
+				ScheduledActionName: newScheduledName.trim(),
+				Recurrence: newScheduledRecurrence || undefined,
+				DesiredCapacity: newScheduledDesired,
+				MinSize: newScheduledMin,
+				MaxSize: newScheduledMax
+			}));
+			toast.success(`Scheduled action "${newScheduledName}" created`);
+			showCreateScheduled = false;
+			newScheduledName = '';
+			scheduledActions = [];
+			await loadScheduledActions(selectedGroup.AutoScalingGroupName ?? '');
+		} catch (e) {
+			toast.error('Failed to create scheduled action: ' + String(e));
+		} finally {
+			creatingScheduled = false;
+		}
+	}
+
+	async function deleteScheduledAction(actionName: string) {
+		if (!selectedGroup) return;
+		try {
+			await asg.send(new DeleteScheduledActionCommand({
+				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
+				ScheduledActionName: actionName
+			}));
+			toast.success(`Scheduled action "${actionName}" deleted`);
+			scheduledActions = scheduledActions.filter((a) => (a as { ScheduledActionName?: string }).ScheduledActionName !== actionName);
+		} catch (e) {
+			toast.error('Failed to delete scheduled action: ' + String(e));
+		}
+	}
+
+	async function startRefresh() {
+		if (!selectedGroup) return;
+		try {
+			await asg.send(new StartInstanceRefreshCommand({
+				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
+				Strategy: 'Rolling'
+			}));
+			toast.success('Instance refresh started');
+			refreshes = [];
+			await loadRefreshes(selectedGroup.AutoScalingGroupName ?? '');
+		} catch (e) {
+			toast.error('Failed to start refresh: ' + String(e));
+		}
+	}
+
+	async function cancelRefresh(groupName: string) {
+		try {
+			await asg.send(new CancelInstanceRefreshCommand({ AutoScalingGroupName: groupName }));
+			toast.success('Instance refresh cancelled');
+			refreshes = [];
+			await loadRefreshes(groupName);
+		} catch (e) {
+			toast.error('Failed to cancel refresh: ' + String(e));
+		}
+	}
+
+	async function addTag() {
+		if (!selectedGroup || !newTagKey.trim()) return;
+		addingTag = true;
+		try {
+			await asg.send(new CreateOrUpdateTagsCommand({
+				Tags: [{
+					ResourceId: selectedGroup.AutoScalingGroupName ?? '',
+					ResourceType: 'auto-scaling-group',
+					Key: newTagKey.trim(),
+					Value: newTagValue.trim(),
+					PropagateAtLaunch: false
+				}]
+			}));
+			toast.success(`Tag "${newTagKey}" added`);
+			showAddTag = false;
+			newTagKey = '';
+			newTagValue = '';
+			await loadGroups();
+			const updated = groups.find((g) => g.AutoScalingGroupName === selectedGroup?.AutoScalingGroupName);
+			if (updated) selectedGroup = updated;
+		} catch (e) {
+			toast.error('Failed to add tag: ' + String(e));
+		} finally {
+			addingTag = false;
+		}
+	}
+
+	async function deleteTag(key: string) {
+		if (!selectedGroup) return;
+		try {
+			await asg.send(new DeleteTagsCommand({
+				Tags: [{
+					ResourceId: selectedGroup.AutoScalingGroupName ?? '',
+					ResourceType: 'auto-scaling-group',
+					Key: key,
+					Value: '',
+					PropagateAtLaunch: false
+				}]
+			}));
+			toast.success(`Tag "${key}" deleted`);
+			await loadGroups();
+			const updated = groups.find((g) => g.AutoScalingGroupName === selectedGroup?.AutoScalingGroupName);
+			if (updated) selectedGroup = updated;
+		} catch (e) {
+			toast.error('Failed to delete tag: ' + String(e));
+		}
+	}
+
+	async function toggleProtection(instanceId: string, currentlyProtected: boolean) {
+		if (!selectedGroup) return;
+		try {
+			await asg.send(new SetInstanceProtectionCommand({
+				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
+				InstanceIds: [instanceId],
+				ProtectedFromScaleIn: !currentlyProtected
+			}));
+			toast.success(`Protection ${currentlyProtected ? 'disabled' : 'enabled'} for ${instanceId}`);
+			await loadGroups();
+			const updated = groups.find((g) => g.AutoScalingGroupName === selectedGroup?.AutoScalingGroupName);
+			if (updated) selectedGroup = updated;
+		} catch (e) {
+			toast.error('Failed to toggle protection: ' + String(e));
+		}
+	}
+
 	function formatDate(d: Date | undefined): string {
 		if (!d) return '-';
 		return d.toLocaleString();
 	}
+
+	// Tab count badges
+	const tabCounts = $derived({
+		policies: policies.length,
+		activity: activities.length,
+		hooks: hooks.length,
+		scheduled: scheduledActions.length,
+		refresh: refreshes.length,
+		tags: (selectedGroup?.Tags ?? []).length
+	});
+
+	const tabs: { id: TabName; label: string }[] = [
+		{ id: 'overview', label: 'Overview' },
+		{ id: 'policies', label: 'Policies' },
+		{ id: 'activity', label: 'Activity' },
+		{ id: 'hooks', label: 'Lifecycle Hooks' },
+		{ id: 'scheduled', label: 'Scheduled' },
+		{ id: 'refresh', label: 'Refresh' },
+		{ id: 'tags', label: 'Tags' }
+	];
 
 	onMount(loadGroups);
 </script>
@@ -251,7 +529,7 @@
 	{#if selectedGroup}
 		<!-- Group Detail -->
 		<div class="flex items-center gap-2 text-sm">
-			<button onclick={() => { selectedGroup = null; policies = []; activities = []; }} class="text-green-600 hover:underline">Auto Scaling Groups</button>
+			<button onclick={() => { selectedGroup = null; }} class="text-green-600 hover:underline">Auto Scaling Groups</button>
 			<ChevronRight class="w-4 h-4 text-gray-400" />
 			<span class="text-gray-600 dark:text-gray-300 font-medium">{selectedGroup.AutoScalingGroupName}</span>
 		</div>
@@ -272,16 +550,19 @@
 		</div>
 
 		<!-- Tabs -->
-		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-			{#each ['overview', 'policies', 'activity'] as tab}
+		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+			{#each tabs as tab}
 				<button
-					onclick={() => handleTabChange(tab as 'overview' | 'policies' | 'activity')}
-					class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-green-500 text-green-600 dark:text-green-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+					onclick={() => handleTabChange(tab.id)}
+					class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${activeTab === tab.id ? 'border-green-500 text-green-600 dark:text-green-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
 				>
-					{tab.charAt(0).toUpperCase() + tab.slice(1)}
+					{tab.label}
+					{#if tab.id !== 'overview' && tab.id in tabCounts && tabCounts[tab.id as keyof typeof tabCounts] > 0}
+						<span class="px-1.5 py-0.5 text-xs rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{tabCounts[tab.id as keyof typeof tabCounts]}</span>
+					{/if}
 				</button>
 			{/each}
-			<button onclick={() => { showSetCapacity = true; }} class="ml-auto px-4 py-2 text-sm text-green-600 hover:underline">Set Capacity</button>
+			<button onclick={() => { showSetCapacity = true; }} class="ml-auto px-4 py-2 text-sm text-green-600 hover:underline whitespace-nowrap">Set Capacity</button>
 			<button onclick={() => deleteGroup(selectedGroup?.AutoScalingGroupName ?? '')} class="px-4 py-2 text-sm text-red-500 hover:underline">Delete</button>
 		</div>
 
@@ -293,7 +574,8 @@
 					{ label: 'Availability Zones', value: (selectedGroup.AvailabilityZones ?? []).join(', ') },
 					{ label: 'Health Check Type', value: selectedGroup.HealthCheckType },
 					{ label: 'Default Cooldown', value: `${selectedGroup.DefaultCooldown}s` },
-					{ label: 'Created', value: formatDate(selectedGroup.CreatedTime) }
+					{ label: 'Created', value: formatDate(selectedGroup.CreatedTime) },
+					{ label: 'Suspended Processes', value: (selectedGroup.SuspendedProcesses ?? []).map((p: { ProcessName?: string }) => p.ProcessName ?? '').join(', ') || 'None' }
 				] as row}
 					<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
 						<div class="text-xs text-gray-500 font-medium">{row.label}</div>
@@ -313,6 +595,8 @@
 									<th class="px-4 py-3 text-left">AZ</th>
 									<th class="px-4 py-3 text-left">Lifecycle State</th>
 									<th class="px-4 py-3 text-left">Health</th>
+									<th class="px-4 py-3 text-left">Protected</th>
+									<th class="px-4 py-3 text-left">Actions</th>
 								</tr>
 							</thead>
 							<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
@@ -322,6 +606,16 @@
 										<td class="px-4 py-3 text-xs text-gray-500">{inst.AvailabilityZone}</td>
 										<td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(inst.LifecycleState)}-100 text-${statusColor(inst.LifecycleState)}-700`}>{inst.LifecycleState}</span></td>
 										<td class="px-4 py-3 text-xs">{inst.HealthStatus}</td>
+										<td class="px-4 py-3">
+											<span class={`px-2 py-0.5 rounded text-xs font-medium ${inst.ProtectedFromScaleIn ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+												{inst.ProtectedFromScaleIn ? 'Yes' : 'No'}
+											</span>
+										</td>
+										<td class="px-4 py-3">
+											<button onclick={() => toggleProtection(inst.InstanceId ?? '', inst.ProtectedFromScaleIn ?? false)} class="flex items-center gap-1 text-xs text-blue-600 hover:underline">
+												<Shield class="w-3 h-3" /> {inst.ProtectedFromScaleIn ? 'Unprotect' : 'Protect'}
+											</button>
+										</td>
 									</tr>
 								{/each}
 							</tbody>
@@ -381,6 +675,174 @@
 							<div class="text-xs text-gray-500 mt-1">{formatDate(act.StartTime)} • {act.Progress ?? 0}% complete</div>
 						</div>
 					{/each}
+				</div>
+			{/if}
+		{/if}
+
+		{#if activeTab === 'hooks'}
+			<div class="flex justify-end mb-2">
+				<button onclick={() => (showCreateHook = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-sm font-medium">
+					<Plus class="w-4 h-4" /> Add Hook
+				</button>
+			</div>
+			{#if loadingHooks}
+				<div class="flex justify-center py-8"><div class="animate-spin w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full"></div></div>
+			{:else if hooks.length === 0}
+				<div class="text-center py-12 text-gray-500"><Settings class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No lifecycle hooks</p></div>
+			{:else}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Hook Name</th>
+								<th class="px-4 py-3 text-left">Transition</th>
+								<th class="px-4 py-3 text-left">Default Result</th>
+								<th class="px-4 py-3 text-left">Heartbeat Timeout</th>
+								<th class="px-4 py-3 text-left">Actions</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each hooks as hook}
+								<tr>
+									<td class="px-4 py-3 font-medium">{hook.LifecycleHookName}</td>
+									<td class="px-4 py-3 text-xs text-gray-500">{hook.LifecycleTransition}</td>
+									<td class="px-4 py-3">
+										<span class={`px-2 py-0.5 rounded text-xs font-medium ${hook.DefaultResult === 'CONTINUE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+											{hook.DefaultResult}
+										</span>
+									</td>
+									<td class="px-4 py-3 text-xs">{hook.HeartbeatTimeout}s</td>
+									<td class="px-4 py-3">
+										<button onclick={() => deleteHook(hook.LifecycleHookName ?? '')} class="text-red-500 hover:text-red-700 p-1">
+											<Trash2 class="w-4 h-4" />
+										</button>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		{/if}
+
+		{#if activeTab === 'scheduled'}
+			<div class="flex justify-end mb-2">
+				<button onclick={() => (showCreateScheduled = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-sm font-medium">
+					<Plus class="w-4 h-4" /> Add Action
+				</button>
+			</div>
+			{#if loadingScheduled}
+				<div class="flex justify-center py-8"><div class="animate-spin w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full"></div></div>
+			{:else if scheduledActions.length === 0}
+				<div class="text-center py-12 text-gray-500"><Clock class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No scheduled actions</p></div>
+			{:else}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Action Name</th>
+								<th class="px-4 py-3 text-left">Recurrence</th>
+								<th class="px-4 py-3 text-left">Min / Desired / Max</th>
+								<th class="px-4 py-3 text-left">Actions</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each scheduledActions as action}
+								<tr>
+									<td class="px-4 py-3 font-medium">{(action as { ScheduledActionName?: string }).ScheduledActionName}</td>
+									<td class="px-4 py-3 text-xs font-mono text-gray-500">{action.Recurrence || '-'}</td>
+									<td class="px-4 py-3 text-xs font-mono">{action.MinSize ?? '-'} / {action.DesiredCapacity ?? '-'} / {action.MaxSize ?? '-'}</td>
+									<td class="px-4 py-3">
+										<button onclick={() => deleteScheduledAction((action as { ScheduledActionName?: string }).ScheduledActionName ?? '')} class="text-red-500 hover:text-red-700 p-1">
+											<Trash2 class="w-4 h-4" />
+										</button>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		{/if}
+
+		{#if activeTab === 'refresh'}
+			<div class="flex justify-end mb-2">
+				<button onclick={startRefresh} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-sm font-medium">
+					<RotateCcw class="w-4 h-4" /> Start Refresh
+				</button>
+			</div>
+			{#if loadingRefreshes}
+				<div class="flex justify-center py-8"><div class="animate-spin w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full"></div></div>
+			{:else if refreshes.length === 0}
+				<div class="text-center py-12 text-gray-500"><RotateCcw class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No instance refreshes</p></div>
+			{:else}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Refresh ID</th>
+								<th class="px-4 py-3 text-left">Status</th>
+								<th class="px-4 py-3 text-left">Strategy</th>
+								<th class="px-4 py-3 text-left">Start Time</th>
+								<th class="px-4 py-3 text-left">Actions</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each refreshes as r}
+								<tr>
+									<td class="px-4 py-3 font-mono text-xs">{r.InstanceRefreshId}</td>
+									<td class="px-4 py-3">
+										<span class={`px-2 py-0.5 rounded text-xs font-medium ${r.Status === 'InProgress' ? 'bg-blue-100 text-blue-700' : r.Status === 'Successful' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+											{r.Status}
+										</span>
+									</td>
+									<td class="px-4 py-3 text-xs">{r.Strategy ?? 'Rolling'}</td>
+									<td class="px-4 py-3 text-xs">{formatDate(r.StartTime)}</td>
+									<td class="px-4 py-3">
+										{#if r.Status === 'InProgress' || r.Status === 'Pending'}
+											<button onclick={() => cancelRefresh(selectedGroup?.AutoScalingGroupName ?? '')} class="text-red-500 hover:underline text-xs">Cancel</button>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		{/if}
+
+		{#if activeTab === 'tags'}
+			<div class="flex justify-end mb-2">
+				<button onclick={() => (showAddTag = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-sm font-medium">
+					<Plus class="w-4 h-4" /> Add Tag
+				</button>
+			</div>
+			{#if (selectedGroup.Tags ?? []).length === 0}
+				<div class="text-center py-12 text-gray-500"><Tag class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No tags</p></div>
+			{:else}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Key</th>
+								<th class="px-4 py-3 text-left">Value</th>
+								<th class="px-4 py-3 text-left">Actions</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each selectedGroup.Tags ?? [] as tag}
+								<tr>
+									<td class="px-4 py-3 font-mono text-xs font-medium">{tag.Key}</td>
+									<td class="px-4 py-3 font-mono text-xs text-gray-500">{tag.Value}</td>
+									<td class="px-4 py-3">
+										<button onclick={() => deleteTag(tag.Key ?? '')} class="text-red-500 hover:text-red-700 p-1">
+											<Trash2 class="w-4 h-4" />
+										</button>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
 				</div>
 			{/if}
 		{/if}
@@ -533,6 +995,103 @@
 				<button onclick={() => (showCreatePolicy = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
 				<button onclick={createPolicy} disabled={creatingPolicy || !newPolicyName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
 					{creatingPolicy ? 'Creating...' : 'Add Policy'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Lifecycle Hook Modal -->
+{#if showCreateHook && selectedGroup}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Add Lifecycle Hook</h2>
+			<div>
+				<label for="hook-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Hook Name</label>
+				<input id="hook-name" bind:value={newHookName} type="text" placeholder="my-launch-hook" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div>
+				<label for="hook-transition" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Transition</label>
+				<select id="hook-transition" bind:value={newHookTransition} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+					<option value="autoscaling:EC2_INSTANCE_LAUNCHING">Launching</option>
+					<option value="autoscaling:EC2_INSTANCE_TERMINATING">Terminating</option>
+				</select>
+			</div>
+			<div>
+				<label for="hook-default-result" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Default Result</label>
+				<select id="hook-default-result" bind:value={newHookDefaultResult} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+					<option value="CONTINUE">CONTINUE</option>
+					<option value="ABANDON">ABANDON</option>
+				</select>
+			</div>
+			<div>
+				<label for="hook-heartbeat" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Heartbeat Timeout (seconds)</label>
+				<input id="hook-heartbeat" bind:value={newHookHeartbeatTimeout} type="number" min="30" max="7200" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showCreateHook = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={createHook} disabled={creatingHook || !newHookName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+					{creatingHook ? 'Creating...' : 'Add Hook'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Scheduled Action Modal -->
+{#if showCreateScheduled && selectedGroup}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Add Scheduled Action</h2>
+			<div>
+				<label for="scheduled-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Action Name</label>
+				<input id="scheduled-name" bind:value={newScheduledName} type="text" placeholder="scale-up-morning" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div>
+				<label for="scheduled-recurrence" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Recurrence (cron)</label>
+				<input id="scheduled-recurrence" bind:value={newScheduledRecurrence} type="text" placeholder="0 8 * * *" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono" />
+			</div>
+			<div class="grid grid-cols-3 gap-3">
+				<div>
+					<label for="sched-min" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min</label>
+					<input id="sched-min" bind:value={newScheduledMin} type="number" min="0" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+				</div>
+				<div>
+					<label for="sched-desired" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Desired</label>
+					<input id="sched-desired" bind:value={newScheduledDesired} type="number" min="0" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+				</div>
+				<div>
+					<label for="sched-max" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max</label>
+					<input id="sched-max" bind:value={newScheduledMax} type="number" min="0" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+				</div>
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showCreateScheduled = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={createScheduledAction} disabled={creatingScheduled || !newScheduledName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+					{creatingScheduled ? 'Creating...' : 'Add Action'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Add Tag Modal -->
+{#if showAddTag && selectedGroup}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Add Tag</h2>
+			<div>
+				<label for="tag-key" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Key</label>
+				<input id="tag-key" bind:value={newTagKey} type="text" placeholder="Environment" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div>
+				<label for="tag-value" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Value</label>
+				<input id="tag-value" bind:value={newTagValue} type="text" placeholder="production" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showAddTag = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={addTag} disabled={addingTag || !newTagKey.trim()} class="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+					{addingTag ? 'Adding...' : 'Add Tag'}
 				</button>
 			</div>
 		</div>

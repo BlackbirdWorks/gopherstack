@@ -17,11 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := efs.NewInMemoryBackend("000000000000", "us-east-1")
 	h := efs.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &efssdk.Client{}, h.GetSupportedOperations(), []string{
-		"DescribeTags",
-		"ModifyMountTargetSecurityGroups",
-		"PutAccountPreferences",
-		"UntagResource",
-		"UpdateFileSystemProtection",
-	})
+	sdkcheck.CheckCompleteness(t, &efssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

@@ -26,9 +26,9 @@ func TestRefinement1_Reset(t *testing.T) {
 
 	_, err := b.CreateApplication("app1", "desc", nil)
 	require.NoError(t, err)
-	_, err = b.CreateEnvironment("app1", "env1", "64bit", "desc", nil)
+	_, err = b.CreateEnvironment("app1", "env1", "64bit", "desc", nil, elasticbeanstalk.CreateEnvironmentParams{})
 	require.NoError(t, err)
-	_, err = b.CreateApplicationVersion("app1", "v1", "desc", nil)
+	_, err = b.CreateApplicationVersion("app1", "v1", "desc", "", "", nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, b.ApplicationCount())

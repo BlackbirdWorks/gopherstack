@@ -4,8 +4,8 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
-	"math/big"
 	"sort"
 	"sync"
 	"time"
@@ -77,6 +77,7 @@ type StorageBackend interface {
 
 	UploadArchive(accountID, region, vaultName, description, checksum string, size int64) (*Archive, error)
 	DeleteArchive(accountID, region, vaultName, archiveID string) error
+	ListArchives(accountID, region, vaultName string) ([]*Archive, error)
 
 	InitiateJob(accountID, region, vaultName string, req *initiateJobRequest) (*Job, error)
 	DescribeJob(accountID, region, vaultName, jobID string) (*Job, error)
@@ -189,22 +190,39 @@ func cloneArchive(a *Archive) *Archive {
 	return &cp
 }
 
-// generateID creates a random ID of the given length.
+// generateID creates a random ID of the given length using a single batch read
+// from crypto/rand rather than one syscall per character.
 func generateID(length int) string {
-	b := make([]byte, length)
+	const nChars = len(idChars)
+	const byteRange = 256 // number of distinct byte values
+	// Bytes in [0, nChars*(byteRange/nChars)) have no modulo bias.
+	const maxByte = byte(nChars * (byteRange / nChars))
+	const bufHeadroom = 8 // extra headroom for rejected bytes
 
-	for i := range b {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(idChars))))
-		if err != nil {
-			b[i] = idChars[0]
+	result := make([]byte, 0, length)
+	buf := make([]byte, length+length/2+bufHeadroom) // extra headroom for rejections
 
-			continue
+	for len(result) < length {
+		if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+			// Unreachable in practice; degrade to index 0 for remaining chars.
+			for len(result) < length {
+				result = append(result, idChars[0])
+			}
+
+			break
 		}
 
-		b[i] = idChars[n.Int64()]
+		for _, b := range buf {
+			if b < maxByte {
+				result = append(result, idChars[int(b)%nChars])
+				if len(result) == length {
+					break
+				}
+			}
+		}
 	}
 
-	return string(b)
+	return string(result)
 }
 
 // vaultARN returns the ARN for a Glacier vault.
@@ -386,6 +404,29 @@ func (b *InMemoryBackend) DeleteArchive(accountID, region, vaultName, archiveID 
 	return nil
 }
 
+// ListArchives returns all archives for the given vault.
+func (b *InMemoryBackend) ListArchives(accountID, region, vaultName string) ([]*Archive, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if _, ok := b.vaults[key]; !ok {
+		return nil, ErrVaultNotFound
+	}
+
+	archives := b.archives[key]
+	result := make([]*Archive, 0, len(archives))
+
+	for _, a := range archives {
+		result = append(result, cloneArchive(a))
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ArchiveID < result[j].ArchiveID })
+
+	return result, nil
+}
+
 // InitiateJob creates a new retrieval or inventory job.
 func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *initiateJobRequest) (*Job, error) {
 	b.mu.Lock()
@@ -422,19 +463,25 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 		tier = "Standard"
 	}
 
+	inventoryFormat := req.InventoryFormat
+	if inventoryFormat == "" {
+		inventoryFormat = "JSON"
+	}
+
 	j := &Job{
-		JobID:          jobID,
-		VaultARN:       v.VaultARN,
-		VaultName:      vaultName,
-		Action:         action,
-		ArchiveID:      req.ArchiveID,
-		JobDescription: req.Description,
-		StatusCode:     "Succeeded",
-		StatusMessage:  "Succeeded",
-		CreationDate:   formatDate(time.Now()),
-		CompletionDate: formatDate(time.Now()),
-		Completed:      true,
-		Tier:           tier,
+		JobID:           jobID,
+		VaultARN:        v.VaultARN,
+		VaultName:       vaultName,
+		Action:          action,
+		ArchiveID:       req.ArchiveID,
+		InventoryFormat: inventoryFormat,
+		JobDescription:  req.Description,
+		StatusCode:      "Succeeded",
+		StatusMessage:   "Succeeded",
+		CreationDate:    formatDate(time.Now()),
+		CompletionDate:  formatDate(time.Now()),
+		Completed:       true,
+		Tier:            tier,
 	}
 
 	if action == jobTypeArchiveRetrieval {
