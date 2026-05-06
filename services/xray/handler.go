@@ -28,35 +28,47 @@ const (
 	keyGroup                   = "Group"
 	keyNextToken               = "NextToken"
 	keySamplingRuleRecord      = "SamplingRuleRecord"
+	keyServices                = "Services"
 )
 
 const pathEncryptionConfig = "/EncryptionConfig"
 const (
-	pathTraceSegments                 = "/TraceSegments"
-	pathTelemetryRecords              = "/TelemetryRecords"
-	pathTraceSummaries                = "/TraceSummaries"
-	pathTraces                        = "/Traces"
-	pathCreateGroup                   = "/CreateGroup"
-	pathGetGroup                      = "/GetGroup"
-	pathGroups                        = "/Groups"
-	pathUpdateGroup                   = "/UpdateGroup"
-	pathDeleteGroup                   = "/DeleteGroup"
-	pathCreateSamplingRule            = "/CreateSamplingRule"
-	pathGetSamplingRules              = "/GetSamplingRules"
-	pathUpdateSamplingRule            = "/UpdateSamplingRule"
-	pathDeleteSamplingRule            = "/DeleteSamplingRule"
-	pathCancelTraceRetrieval          = "/CancelTraceRetrieval"
-	pathDeleteResourcePolicy          = "/DeleteResourcePolicy"
-	pathListResourcePolicies          = "/ListResourcePolicies"
-	pathPutResourcePolicy             = "/PutResourcePolicy"
-	pathGetIndexingRules              = "/GetIndexingRules"
-	pathGetInsight                    = "/GetInsight"
-	pathGetInsightEvents              = "/GetInsightEvents"
-	pathGetInsightImpactGraph         = "/GetInsightImpactGraph"
-	pathGetInsightSummaries           = "/GetInsightSummaries"
-	pathGetRetrievedTracesGraph       = "/GetRetrievedTracesGraph"
-	pathGetSamplingStatisticSummaries = "/GetSamplingStatisticSummaries"
-	pathGetSamplingTargets            = "/GetSamplingTargets"
+	pathTraceSegments                  = "/TraceSegments"
+	pathTelemetryRecords               = "/TelemetryRecords"
+	pathTraceSummaries                 = "/TraceSummaries"
+	pathTraces                         = "/Traces"
+	pathCreateGroup                    = "/CreateGroup"
+	pathGetGroup                       = "/GetGroup"
+	pathGroups                         = "/Groups"
+	pathUpdateGroup                    = "/UpdateGroup"
+	pathDeleteGroup                    = "/DeleteGroup"
+	pathCreateSamplingRule             = "/CreateSamplingRule"
+	pathGetSamplingRules               = "/GetSamplingRules"
+	pathUpdateSamplingRule             = "/UpdateSamplingRule"
+	pathDeleteSamplingRule             = "/DeleteSamplingRule"
+	pathCancelTraceRetrieval           = "/CancelTraceRetrieval"
+	pathDeleteResourcePolicy           = "/DeleteResourcePolicy"
+	pathListResourcePolicies           = "/ListResourcePolicies"
+	pathPutResourcePolicy              = "/PutResourcePolicy"
+	pathGetIndexingRules               = "/GetIndexingRules"
+	pathGetInsight                     = "/GetInsight"
+	pathGetInsightEvents               = "/GetInsightEvents"
+	pathGetInsightImpactGraph          = "/GetInsightImpactGraph"
+	pathGetInsightSummaries            = "/GetInsightSummaries"
+	pathGetRetrievedTracesGraph        = "/GetRetrievedTracesGraph"
+	pathGetSamplingStatisticSummaries  = "/GetSamplingStatisticSummaries"
+	pathGetSamplingTargets             = "/GetSamplingTargets"
+	pathGetServiceGraph                = "/ServiceGraph"
+	pathGetTimeSeriesServiceStatistics = "/TimeSeriesServiceStatistics"
+	pathGetTraceGraph                  = "/TraceGraph"
+	pathGetTraceSegmentDestination     = "/GetTraceSegmentDestination"
+	pathListRetrievedTraces            = "/ListRetrievedTraces"
+	pathListTagsForResource            = "/ListTagsForResource"
+	pathStartTraceRetrieval            = "/StartTraceRetrieval"
+	pathTagResource                    = "/TagResource"
+	pathUntagResource                  = "/UntagResource"
+	pathUpdateIndexingRule             = "/UpdateIndexingRule"
+	pathUpdateTraceSegmentDestination  = "/UpdateTraceSegmentDestination"
 )
 
 var (
@@ -66,62 +78,84 @@ var (
 
 // xrayPaths is the set of supported X-Ray REST API paths.
 var xrayPaths = map[string]bool{ //nolint:gochecknoglobals // package-level routing table
-	pathTraceSegments:                 true,
-	pathTelemetryRecords:              true,
-	pathTraceSummaries:                true,
-	pathTraces:                        true,
-	pathCreateGroup:                   true,
-	pathGetGroup:                      true,
-	pathGroups:                        true,
-	pathUpdateGroup:                   true,
-	pathDeleteGroup:                   true,
-	pathCreateSamplingRule:            true,
-	pathGetSamplingRules:              true,
-	pathUpdateSamplingRule:            true,
-	pathDeleteSamplingRule:            true,
-	pathEncryptionConfig:              true,
-	pathCancelTraceRetrieval:          true,
-	pathDeleteResourcePolicy:          true,
-	pathListResourcePolicies:          true,
-	pathPutResourcePolicy:             true,
-	pathGetIndexingRules:              true,
-	pathGetInsight:                    true,
-	pathGetInsightEvents:              true,
-	pathGetInsightImpactGraph:         true,
-	pathGetInsightSummaries:           true,
-	pathGetRetrievedTracesGraph:       true,
-	pathGetSamplingStatisticSummaries: true,
-	pathGetSamplingTargets:            true,
+	pathTraceSegments:                  true,
+	pathTelemetryRecords:               true,
+	pathTraceSummaries:                 true,
+	pathTraces:                         true,
+	pathCreateGroup:                    true,
+	pathGetGroup:                       true,
+	pathGroups:                         true,
+	pathUpdateGroup:                    true,
+	pathDeleteGroup:                    true,
+	pathCreateSamplingRule:             true,
+	pathGetSamplingRules:               true,
+	pathUpdateSamplingRule:             true,
+	pathDeleteSamplingRule:             true,
+	pathEncryptionConfig:               true,
+	pathCancelTraceRetrieval:           true,
+	pathDeleteResourcePolicy:           true,
+	pathListResourcePolicies:           true,
+	pathPutResourcePolicy:              true,
+	pathGetIndexingRules:               true,
+	pathGetInsight:                     true,
+	pathGetInsightEvents:               true,
+	pathGetInsightImpactGraph:          true,
+	pathGetInsightSummaries:            true,
+	pathGetRetrievedTracesGraph:        true,
+	pathGetSamplingStatisticSummaries:  true,
+	pathGetSamplingTargets:             true,
+	pathGetServiceGraph:                true,
+	pathGetTimeSeriesServiceStatistics: true,
+	pathGetTraceGraph:                  true,
+	pathGetTraceSegmentDestination:     true,
+	pathListRetrievedTraces:            true,
+	pathListTagsForResource:            true,
+	pathStartTraceRetrieval:            true,
+	pathTagResource:                    true,
+	pathUntagResource:                  true,
+	pathUpdateIndexingRule:             true,
+	pathUpdateTraceSegmentDestination:  true,
 }
 
 // pathToOperation maps X-Ray REST API paths to operation names.
 var pathToOperation = map[string]string{ //nolint:gochecknoglobals // package-level routing table
-	pathTraceSegments:                 "PutTraceSegments",
-	pathTelemetryRecords:              "PutTelemetryRecords",
-	pathTraceSummaries:                "GetTraceSummaries",
-	pathTraces:                        "BatchGetTraces",
-	pathCreateGroup:                   "CreateGroup",
-	pathGetGroup:                      "GetGroup",
-	pathGroups:                        "GetGroups",
-	pathUpdateGroup:                   "UpdateGroup",
-	pathDeleteGroup:                   "DeleteGroup",
-	pathCreateSamplingRule:            "CreateSamplingRule",
-	pathGetSamplingRules:              "GetSamplingRules",
-	pathUpdateSamplingRule:            "UpdateSamplingRule",
-	pathDeleteSamplingRule:            "DeleteSamplingRule",
-	pathEncryptionConfig:              opGetEncryptionConfig, // default; overridden by method
-	pathCancelTraceRetrieval:          "CancelTraceRetrieval",
-	pathDeleteResourcePolicy:          "DeleteResourcePolicy",
-	pathListResourcePolicies:          "ListResourcePolicies",
-	pathPutResourcePolicy:             "PutResourcePolicy",
-	pathGetIndexingRules:              "GetIndexingRules",
-	pathGetInsight:                    "GetInsight",
-	pathGetInsightEvents:              "GetInsightEvents",
-	pathGetInsightImpactGraph:         "GetInsightImpactGraph",
-	pathGetInsightSummaries:           "GetInsightSummaries",
-	pathGetRetrievedTracesGraph:       "GetRetrievedTracesGraph",
-	pathGetSamplingStatisticSummaries: "GetSamplingStatisticSummaries",
-	pathGetSamplingTargets:            "GetSamplingTargets",
+	pathTraceSegments:                  "PutTraceSegments",
+	pathTelemetryRecords:               "PutTelemetryRecords",
+	pathTraceSummaries:                 "GetTraceSummaries",
+	pathTraces:                         "BatchGetTraces",
+	pathCreateGroup:                    "CreateGroup",
+	pathGetGroup:                       "GetGroup",
+	pathGroups:                         "GetGroups",
+	pathUpdateGroup:                    "UpdateGroup",
+	pathDeleteGroup:                    "DeleteGroup",
+	pathCreateSamplingRule:             "CreateSamplingRule",
+	pathGetSamplingRules:               "GetSamplingRules",
+	pathUpdateSamplingRule:             "UpdateSamplingRule",
+	pathDeleteSamplingRule:             "DeleteSamplingRule",
+	pathEncryptionConfig:               opGetEncryptionConfig, // default; overridden by method
+	pathCancelTraceRetrieval:           "CancelTraceRetrieval",
+	pathDeleteResourcePolicy:           "DeleteResourcePolicy",
+	pathListResourcePolicies:           "ListResourcePolicies",
+	pathPutResourcePolicy:              "PutResourcePolicy",
+	pathGetIndexingRules:               "GetIndexingRules",
+	pathGetInsight:                     "GetInsight",
+	pathGetInsightEvents:               "GetInsightEvents",
+	pathGetInsightImpactGraph:          "GetInsightImpactGraph",
+	pathGetInsightSummaries:            "GetInsightSummaries",
+	pathGetRetrievedTracesGraph:        "GetRetrievedTracesGraph",
+	pathGetSamplingStatisticSummaries:  "GetSamplingStatisticSummaries",
+	pathGetSamplingTargets:             "GetSamplingTargets",
+	pathGetServiceGraph:                "GetServiceGraph",
+	pathGetTimeSeriesServiceStatistics: "GetTimeSeriesServiceStatistics",
+	pathGetTraceGraph:                  "GetTraceGraph",
+	pathGetTraceSegmentDestination:     "GetTraceSegmentDestination",
+	pathListRetrievedTraces:            "ListRetrievedTraces",
+	pathListTagsForResource:            "ListTagsForResource",
+	pathStartTraceRetrieval:            "StartTraceRetrieval",
+	pathTagResource:                    "TagResource",
+	pathUntagResource:                  "UntagResource",
+	pathUpdateIndexingRule:             "UpdateIndexingRule",
+	pathUpdateTraceSegmentDestination:  "UpdateTraceSegmentDestination",
 }
 
 // Handler is the Echo HTTP handler for AWS X-Ray operations.
@@ -187,14 +221,25 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetSamplingRules",
 		"GetSamplingStatisticSummaries",
 		"GetSamplingTargets",
+		"GetServiceGraph",
+		"GetTimeSeriesServiceStatistics",
+		"GetTraceGraph",
+		"GetTraceSegmentDestination",
 		"GetTraceSummaries",
 		"ListResourcePolicies",
+		"ListRetrievedTraces",
+		"ListTagsForResource",
 		"PutEncryptionConfig",
 		"PutResourcePolicy",
 		"PutTelemetryRecords",
 		"PutTraceSegments",
+		"StartTraceRetrieval",
+		"TagResource",
+		"UntagResource",
 		"UpdateGroup",
+		"UpdateIndexingRule",
 		"UpdateSamplingRule",
+		"UpdateTraceSegmentDestination",
 	}
 }
 
@@ -315,32 +360,43 @@ type xrayHandlerFn func(*Handler, context.Context, []byte) ([]byte, error)
 // dispatchTable maps X-Ray paths to their handler functions (POST operations).
 // This table-driven approach keeps the dispatch cyclomatic complexity at O(1).
 var dispatchTable = map[string]xrayHandlerFn{ //nolint:gochecknoglobals // package-level dispatch table
-	pathTraceSegments:                 (*Handler).handlePutTraceSegments,
-	pathTelemetryRecords:              (*Handler).handlePutTelemetryRecords,
-	pathTraceSummaries:                (*Handler).handleGetTraceSummaries,
-	pathTraces:                        (*Handler).handleBatchGetTraces,
-	pathCreateGroup:                   (*Handler).handleCreateGroup,
-	pathGetGroup:                      (*Handler).handleGetGroup,
-	pathGroups:                        (*Handler).handleGetGroups,
-	pathUpdateGroup:                   (*Handler).handleUpdateGroup,
-	pathDeleteGroup:                   (*Handler).handleDeleteGroup,
-	pathCreateSamplingRule:            (*Handler).handleCreateSamplingRule,
-	pathGetSamplingRules:              (*Handler).handleGetSamplingRules,
-	pathUpdateSamplingRule:            (*Handler).handleUpdateSamplingRule,
-	pathDeleteSamplingRule:            (*Handler).handleDeleteSamplingRule,
-	pathEncryptionConfig:              (*Handler).handlePutEncryptionConfig,
-	pathCancelTraceRetrieval:          (*Handler).handleCancelTraceRetrieval,
-	pathDeleteResourcePolicy:          (*Handler).handleDeleteResourcePolicy,
-	pathListResourcePolicies:          (*Handler).handleListResourcePolicies,
-	pathPutResourcePolicy:             (*Handler).handlePutResourcePolicy,
-	pathGetIndexingRules:              (*Handler).handleGetIndexingRules,
-	pathGetInsight:                    (*Handler).handleGetInsight,
-	pathGetInsightEvents:              (*Handler).handleGetInsightEvents,
-	pathGetInsightImpactGraph:         (*Handler).handleGetInsightImpactGraph,
-	pathGetInsightSummaries:           (*Handler).handleGetInsightSummaries,
-	pathGetRetrievedTracesGraph:       (*Handler).handleGetRetrievedTracesGraph,
-	pathGetSamplingStatisticSummaries: (*Handler).handleGetSamplingStatisticSummaries,
-	pathGetSamplingTargets:            (*Handler).handleGetSamplingTargets,
+	pathTraceSegments:                  (*Handler).handlePutTraceSegments,
+	pathTelemetryRecords:               (*Handler).handlePutTelemetryRecords,
+	pathTraceSummaries:                 (*Handler).handleGetTraceSummaries,
+	pathTraces:                         (*Handler).handleBatchGetTraces,
+	pathCreateGroup:                    (*Handler).handleCreateGroup,
+	pathGetGroup:                       (*Handler).handleGetGroup,
+	pathGroups:                         (*Handler).handleGetGroups,
+	pathUpdateGroup:                    (*Handler).handleUpdateGroup,
+	pathDeleteGroup:                    (*Handler).handleDeleteGroup,
+	pathCreateSamplingRule:             (*Handler).handleCreateSamplingRule,
+	pathGetSamplingRules:               (*Handler).handleGetSamplingRules,
+	pathUpdateSamplingRule:             (*Handler).handleUpdateSamplingRule,
+	pathDeleteSamplingRule:             (*Handler).handleDeleteSamplingRule,
+	pathEncryptionConfig:               (*Handler).handlePutEncryptionConfig,
+	pathCancelTraceRetrieval:           (*Handler).handleCancelTraceRetrieval,
+	pathDeleteResourcePolicy:           (*Handler).handleDeleteResourcePolicy,
+	pathListResourcePolicies:           (*Handler).handleListResourcePolicies,
+	pathPutResourcePolicy:              (*Handler).handlePutResourcePolicy,
+	pathGetIndexingRules:               (*Handler).handleGetIndexingRules,
+	pathGetInsight:                     (*Handler).handleGetInsight,
+	pathGetInsightEvents:               (*Handler).handleGetInsightEvents,
+	pathGetInsightImpactGraph:          (*Handler).handleGetInsightImpactGraph,
+	pathGetInsightSummaries:            (*Handler).handleGetInsightSummaries,
+	pathGetRetrievedTracesGraph:        (*Handler).handleGetRetrievedTracesGraph,
+	pathGetSamplingStatisticSummaries:  (*Handler).handleGetSamplingStatisticSummaries,
+	pathGetSamplingTargets:             (*Handler).handleGetSamplingTargets,
+	pathGetServiceGraph:                (*Handler).handleGetServiceGraph,
+	pathGetTimeSeriesServiceStatistics: (*Handler).handleGetTimeSeriesServiceStatistics,
+	pathGetTraceGraph:                  (*Handler).handleGetTraceGraph,
+	pathGetTraceSegmentDestination:     (*Handler).handleGetTraceSegmentDestination,
+	pathListRetrievedTraces:            (*Handler).handleListRetrievedTraces,
+	pathListTagsForResource:            (*Handler).handleListTagsForResource,
+	pathStartTraceRetrieval:            (*Handler).handleStartTraceRetrieval,
+	pathTagResource:                    (*Handler).handleTagResource,
+	pathUntagResource:                  (*Handler).handleUntagResource,
+	pathUpdateIndexingRule:             (*Handler).handleUpdateIndexingRule,
+	pathUpdateTraceSegmentDestination:  (*Handler).handleUpdateTraceSegmentDestination,
 }
 
 func (h *Handler) dispatch(ctx context.Context, path string, body []byte) ([]byte, error) {
@@ -1097,7 +1153,7 @@ func (h *Handler) handleGetInsightImpactGraph(_ context.Context, body []byte) ([
 
 	return json.Marshal(map[string]any{
 		"InsightId":             in.InsightID,
-		"Services":              []any{},
+		keyServices:             []any{},
 		"StartTime":             in.StartTime,
 		"EndTime":               in.EndTime,
 		"ServiceGraphStartTime": in.StartTime,
@@ -1162,7 +1218,7 @@ func (h *Handler) handleGetRetrievedTracesGraph(_ context.Context, body []byte) 
 
 	return json.Marshal(map[string]any{
 		"RetrievalStatus": status,
-		"Services":        []any{},
+		keyServices:       []any{},
 		keyNextToken:      "",
 	})
 }

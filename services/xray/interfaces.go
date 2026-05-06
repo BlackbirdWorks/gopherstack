@@ -1,5 +1,7 @@
 package xray
 
+import "time"
+
 // StorageBackend defines the interface for X-Ray backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -32,6 +34,17 @@ type StorageBackend interface {
 	GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace)
 	GetSamplingStatisticSummaries() []SamplingStatisticSummary
 	GetSamplingTargets(ruleNames []string) ([]SamplingTargetResult, []string)
+	// New ops (gh-1185)
+	GetServiceGraph(startTime, endTime time.Time) []map[string]any
+	GetTraceGraph(traceIDs []string) []map[string]any
+	GetTraceSegmentDestination() string
+	ListRetrievedTraces(retrievalToken string) (string, []*Trace)
+	ListTagsForResource(resourceARN string) []map[string]string
+	StartTraceRetrieval(traceIDs []string) string
+	TagResource(resourceARN string, tags map[string]string)
+	UntagResource(resourceARN string, tagKeys []string)
+	UpdateIndexingRule(name string) (*IndexingRule, error)
+	UpdateTraceSegmentDestination(destination string) string
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.

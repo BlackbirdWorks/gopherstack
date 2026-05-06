@@ -1,0 +1,296 @@
+package xray
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+)
+
+// --- GetServiceGraph ---
+
+type getServiceGraphInput struct {
+	NextToken string  `json:"NextToken"`
+	StartTime float64 `json:"StartTime"`
+	EndTime   float64 `json:"EndTime"`
+}
+
+func (h *Handler) handleGetServiceGraph(_ context.Context, body []byte) ([]byte, error) {
+	var in getServiceGraphInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.StartTime == 0 || in.EndTime == 0 {
+		return nil, fmt.Errorf("%w: StartTime and EndTime are required", errInvalidRequest)
+	}
+
+	services := h.Backend.GetServiceGraph(time.Unix(int64(in.StartTime), 0), time.Unix(int64(in.EndTime), 0))
+
+	return json.Marshal(map[string]any{
+		keyServices:  services,
+		keyNextToken: "",
+	})
+}
+
+// --- GetTimeSeriesServiceStatistics ---
+
+type getTimeSeriesServiceStatisticsInput struct {
+	NextToken string  `json:"NextToken"`
+	StartTime float64 `json:"StartTime"`
+	EndTime   float64 `json:"EndTime"`
+}
+
+func (h *Handler) handleGetTimeSeriesServiceStatistics(_ context.Context, body []byte) ([]byte, error) {
+	var in getTimeSeriesServiceStatisticsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.StartTime == 0 || in.EndTime == 0 {
+		return nil, fmt.Errorf("%w: StartTime and EndTime are required", errInvalidRequest)
+	}
+
+	return json.Marshal(map[string]any{
+		"TimeSeriesServiceStatistics": []any{},
+		keyNextToken:                  "",
+	})
+}
+
+// --- GetTraceGraph ---
+
+type getTraceGraphInput struct {
+	NextToken string   `json:"NextToken"`
+	TraceIDs  []string `json:"TraceIds"`
+}
+
+func (h *Handler) handleGetTraceGraph(_ context.Context, body []byte) ([]byte, error) {
+	var in getTraceGraphInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(in.TraceIDs) == 0 {
+		return nil, fmt.Errorf("%w: TraceIds is required", errInvalidRequest)
+	}
+
+	services := h.Backend.GetTraceGraph(in.TraceIDs)
+
+	return json.Marshal(map[string]any{
+		keyServices:  services,
+		keyNextToken: "",
+	})
+}
+
+// --- GetTraceSegmentDestination ---
+
+func (h *Handler) handleGetTraceSegmentDestination(_ context.Context, _ []byte) ([]byte, error) {
+	dest := h.Backend.GetTraceSegmentDestination()
+
+	return json.Marshal(map[string]any{
+		"Destination": dest,
+		"Status":      "ACTIVE",
+	})
+}
+
+// --- ListRetrievedTraces ---
+
+type listRetrievedTracesInput struct {
+	RetrievalToken string `json:"RetrievalToken"`
+	NextToken      string `json:"NextToken"`
+}
+
+func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]byte, error) {
+	var in listRetrievedTracesInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.RetrievalToken == "" {
+		return nil, fmt.Errorf("%w: RetrievalToken is required", errInvalidRequest)
+	}
+
+	status, traces := h.Backend.ListRetrievedTraces(in.RetrievalToken)
+
+	traceViews := make([]map[string]any, 0, len(traces))
+	for _, t := range traces {
+		traceViews = append(traceViews, map[string]any{
+			"Id":       t.TraceID,
+			"Duration": 0,
+			"Segments": []any{},
+		})
+	}
+
+	return json.Marshal(map[string]any{
+		"RetrievalStatus": status,
+		"Traces":          traceViews,
+		keyNextToken:      "",
+	})
+}
+
+// --- ListTagsForResource ---
+
+type listTagsForResourceInput struct {
+	ResourceARN string `json:"ResourceARN"`
+	NextToken   string `json:"NextToken"`
+}
+
+func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]byte, error) {
+	var in listTagsForResourceInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.ResourceARN == "" {
+		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
+	}
+
+	tags := h.Backend.ListTagsForResource(in.ResourceARN)
+
+	return json.Marshal(map[string]any{
+		"Tags":       tags,
+		keyNextToken: "",
+	})
+}
+
+// --- StartTraceRetrieval ---
+
+type startTraceRetrievalInput struct {
+	TraceIDs  []string `json:"TraceIds"`
+	StartTime float64  `json:"StartTime"`
+	EndTime   float64  `json:"EndTime"`
+}
+
+func (h *Handler) handleStartTraceRetrieval(_ context.Context, body []byte) ([]byte, error) {
+	var in startTraceRetrievalInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(in.TraceIDs) == 0 {
+		return nil, fmt.Errorf("%w: TraceIds is required", errInvalidRequest)
+	}
+
+	token := h.Backend.StartTraceRetrieval(in.TraceIDs)
+
+	return json.Marshal(map[string]any{
+		"RetrievalToken": token,
+	})
+}
+
+// --- TagResource ---
+
+type tagResourceInput struct {
+	Tags        map[string]string `json:"Tags"`
+	ResourceARN string            `json:"ResourceARN"`
+}
+
+func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, error) {
+	var in tagResourceInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.ResourceARN == "" {
+		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
+	}
+
+	h.Backend.TagResource(in.ResourceARN, in.Tags)
+
+	return json.Marshal(map[string]any{})
+}
+
+// --- UntagResource ---
+
+type untagResourceInput struct {
+	ResourceARN string   `json:"ResourceARN"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleUntagResource(_ context.Context, body []byte) ([]byte, error) {
+	var in untagResourceInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.ResourceARN == "" {
+		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
+	}
+
+	h.Backend.UntagResource(in.ResourceARN, in.TagKeys)
+
+	return json.Marshal(map[string]any{})
+}
+
+// --- UpdateIndexingRule ---
+
+type updateIndexingRuleInput struct {
+	Name string `json:"Name"`
+}
+
+func (h *Handler) handleUpdateIndexingRule(_ context.Context, body []byte) ([]byte, error) {
+	var in updateIndexingRuleInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	rule, err := h.Backend.UpdateIndexingRule(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{
+		"IndexingRule": map[string]any{
+			"Name":       rule.Name,
+			"ModifiedAt": rule.ModifiedAt,
+		},
+	})
+}
+
+// --- UpdateTraceSegmentDestination ---
+
+type updateTraceSegmentDestinationInput struct {
+	Destination string `json:"Destination"`
+}
+
+func (h *Handler) handleUpdateTraceSegmentDestination(_ context.Context, body []byte) ([]byte, error) {
+	var in updateTraceSegmentDestinationInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.Destination == "" {
+		return nil, fmt.Errorf("%w: Destination is required", errInvalidRequest)
+	}
+
+	dest := h.Backend.UpdateTraceSegmentDestination(in.Destination)
+
+	return json.Marshal(map[string]any{
+		"Destination": dest,
+		"Status":      "ACTIVE",
+	})
+}
