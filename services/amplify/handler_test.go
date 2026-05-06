@@ -885,7 +885,7 @@ func TestHandler_MethodNotAllowed(t *testing.T) {
 		path   string
 	}{
 		{name: "apps_patch", method: http.MethodPatch, path: "/apps"},
-		{name: "app_id_post", method: http.MethodPost, path: "/apps/abc123"},
+		{name: "app_id_put", method: http.MethodPut, path: "/apps/abc123"},
 		{name: "branches_patch", method: http.MethodPatch, path: "/apps/abc123/branches"},
 		{name: "branch_patch", method: http.MethodPatch, path: "/apps/abc123/branches/main"},
 		{name: "tags_patch", method: http.MethodPatch, path: "/tags/somearn"},
