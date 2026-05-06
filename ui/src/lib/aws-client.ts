@@ -30,6 +30,7 @@ import { BatchClient } from "@aws-sdk/client-batch";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
 import { CloudWatchLogsClient } from "@aws-sdk/client-cloudwatch-logs";
 import { ElastiCacheClient } from "@aws-sdk/client-elasticache";
+import { ElasticsearchServiceClient } from "@aws-sdk/client-elasticsearch-service";
 import { FirehoseClient } from "@aws-sdk/client-firehose";
 import { GlueClient } from "@aws-sdk/client-glue";
 import { OpenSearchClient } from "@aws-sdk/client-opensearch";
@@ -199,6 +200,10 @@ export function getGlueClient(region?: string): GlueClient {
 
 export function getOpenSearchClient(region?: string): OpenSearchClient {
   return new OpenSearchClient(clientConfig(region));
+}
+
+export function getElasticsearchServiceClient(region?: string): ElasticsearchServiceClient {
+  return new ElasticsearchServiceClient(clientConfig(region));
 }
 
 export function getRedshiftClient(region?: string): RedshiftClient {

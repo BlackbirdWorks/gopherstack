@@ -708,7 +708,7 @@ func TestElasticsearchHandler_Metadata(t *testing.T) {
 	assert.Equal(t, "es", h.ChaosServiceName())
 	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
 	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
-	assert.Len(t, h.GetSupportedOperations(), 19)
+	assert.Len(t, h.GetSupportedOperations(), 51)
 
 	c := newEchoContext(http.MethodGet, "/2015-01-01/es/domain/my-domain")
 	assert.Equal(t, "my-domain", h.ExtractResource(c))
