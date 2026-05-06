@@ -90,7 +90,9 @@ func (h *Handler) Name() string { return "IoT" }
 
 // GetSupportedOperations returns the list of supported IoT control-plane operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
+	const coreOpCount = 29
+	core := make([]string, 0, coreOpCount)
+	core = append(core,
 		opAcceptCertificateTransfer,
 		opAddThingToBillingGroup,
 		opAddThingToThingGroup,
@@ -120,7 +122,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListTopicRules,
 		opReplaceTopicRule,
 		opUpdateThing,
-	}
+	)
+
+	return append(core, allStubOps()...)
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -357,6 +361,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		if handled, err := h.dispatchNewOp(c, op); handled {
+			return err
+		}
+
+		if handled, err := h.dispatchStubOp(c, op); handled {
 			return err
 		}
 
