@@ -62,6 +62,12 @@ type TagFilter struct {
 // Registered providers are called on every GetResources request.
 type ResourceProvider func() []TaggedResource
 
+// FilteredResourceProvider is a resource provider that accepts tag and resource-type
+// filters so that it can perform provider-side filter pushdown. When filters are
+// non-empty the provider is expected to return only resources that satisfy them;
+// when both slices are empty the provider must return all resources.
+type FilteredResourceProvider func(tagFilters []TagFilter, typeFilters []string) []TaggedResource
+
 // ARNTagger applies a set of tags to the resource identified by the given ARN.
 // It returns true when it handled the ARN (even on error) and false when the ARN
 // belongs to a different service and should be tried by the next registered tagger.
@@ -71,17 +77,28 @@ type ARNTagger func(arn string, tags map[string]string) (bool, error)
 // given ARN. Same handled/not-handled semantics as ARNTagger.
 type ARNUntagger func(arn string, keys []string) (bool, error)
 
+// resourceCache holds a cached snapshot of GetResources results.
+type resourceCache struct {
+	expiresAt time.Time
+	resources []TaggedResource
+}
+
+// resourceCacheTTL is the time-to-live for the GetResources result cache.
+const resourceCacheTTL = 30 * time.Second
+
 // InMemoryBackend is the in-memory store for the Resource Groups Tagging API.
 // It maintains a registry of service-specific resource providers and tagging adapters.
 type InMemoryBackend struct {
-	mu          *lockmetrics.RWMutex
-	reportState *reportCreationState
-	nowFunc     func() string
-	accountID   string
-	region      string
-	providers   []ResourceProvider
-	taggers     []ARNTagger
-	untaggers   []ARNUntagger
+	mu                *lockmetrics.RWMutex
+	reportState       *reportCreationState
+	nowFunc           func() string
+	cache             *resourceCache
+	accountID         string
+	region            string
+	providers         []ResourceProvider
+	filteredProviders []FilteredResourceProvider
+	taggers           []ARNTagger
+	untaggers         []ARNUntagger
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -117,6 +134,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.reportState = nil
+	b.cache = nil
 }
 
 // now returns the current time string using nowFunc.
@@ -131,6 +149,18 @@ func (b *InMemoryBackend) RegisterProvider(p ResourceProvider) {
 	defer b.mu.Unlock()
 
 	b.providers = append(b.providers, p)
+	b.cache = nil
+}
+
+// RegisterFilteredProvider adds a filter-aware resource provider to the registry.
+// The provider receives the tag and resource-type filters from GetResources so that
+// it can perform provider-side filter pushdown instead of returning all resources.
+func (b *InMemoryBackend) RegisterFilteredProvider(p FilteredResourceProvider) {
+	b.mu.Lock("RegisterFilteredProvider")
+	defer b.mu.Unlock()
+
+	b.filteredProviders = append(b.filteredProviders, p)
+	b.cache = nil
 }
 
 // RegisterARNTagger adds an ARN-based tagger to the registry.
@@ -152,15 +182,42 @@ func (b *InMemoryBackend) RegisterARNUntagger(u ARNUntagger) {
 	b.untaggers = append(b.untaggers, u)
 }
 
-// getResources collects all resources from all registered providers.
+// getResources collects all resources from registered providers.
+// Plain providers are called without filters; filtered providers receive the
+// supplied filters so they can perform provider-side pushdown.
+// When tagFilters and typeFilters are both empty the cache is consulted first.
 // Caller must hold at least a read lock.
-func (b *InMemoryBackend) getResources() []TaggedResource {
-	perProvider := make([][]TaggedResource, 0, len(b.providers))
+func (b *InMemoryBackend) getResources(tagFilters []TagFilter, typeFilters []string) []TaggedResource {
+	useCache := len(tagFilters) == 0 && len(typeFilters) == 0
+
+	if useCache && b.cache != nil && time.Now().Before(b.cache.expiresAt) {
+		return b.cache.resources
+	}
+
+	perProvider := make([][]TaggedResource, 0, len(b.providers)+len(b.filteredProviders))
 	for _, p := range b.providers {
 		perProvider = append(perProvider, p())
 	}
 
-	return slices.Concat(perProvider...)
+	for _, p := range b.filteredProviders {
+		perProvider = append(perProvider, p(tagFilters, typeFilters))
+	}
+
+	all := slices.Concat(perProvider...)
+
+	if useCache {
+		b.cache = &resourceCache{
+			resources: all,
+			expiresAt: time.Now().Add(resourceCacheTTL),
+		}
+	}
+
+	return all
+}
+
+// invalidateCache clears the resource cache. Caller must hold a write lock.
+func (b *InMemoryBackend) invalidateCache() {
+	b.cache = nil
 }
 
 // GetResourcesInput is the request payload for GetResources.
@@ -209,6 +266,9 @@ const (
 
 // GetResources queries resources across all registered providers. It applies
 // tag filters, resource-type filters, and cursor-based pagination.
+// When filtered providers are registered the filters are pushed down to them;
+// the returned results are still post-filtered to ensure correctness from
+// plain providers.
 func (b *InMemoryBackend) GetResources(input *GetResourcesInput) (*GetResourcesOutput, error) {
 	if len(input.TagFilters) > maxTagFilters {
 		return nil, fmt.Errorf("%w: TagFilters exceeds maximum of %d", ErrValidation, maxTagFilters)
@@ -217,7 +277,7 @@ func (b *InMemoryBackend) GetResources(input *GetResourcesInput) (*GetResourcesO
 	b.mu.RLock("GetResources")
 	defer b.mu.RUnlock()
 
-	all := b.getResources()
+	all := b.getResources(input.TagFilters, input.ResourceTypeFilters)
 	all = applyResourceTypeFilter(all, input.ResourceTypeFilters)
 	all = applyTagFilters(all, input.TagFilters)
 
@@ -411,7 +471,7 @@ func (b *InMemoryBackend) GetTagKeys(input *GetTagKeysInput) *GetTagKeysOutput {
 	b.mu.RLock("GetTagKeys")
 	defer b.mu.RUnlock()
 
-	all := b.getResources()
+	all := b.getResources(nil, nil)
 	keySet := make(map[string]struct{})
 
 	for _, r := range all {
@@ -456,7 +516,7 @@ func (b *InMemoryBackend) GetTagValues(input *GetTagValuesInput) *GetTagValuesOu
 		return &GetTagValuesOutput{TagValues: []string{}}
 	}
 
-	all := b.getResources()
+	all := b.getResources(nil, nil)
 	valSet := make(map[string]struct{})
 	key := *input.Key
 
@@ -553,9 +613,10 @@ func (b *InMemoryBackend) TagResources(input *TagResourcesInput) (*TagResourcesO
 		return nil, err
 	}
 
-	b.mu.RLock("TagResources")
+	b.mu.Lock("TagResources")
 	taggers := slices.Clone(b.taggers)
-	b.mu.RUnlock()
+	b.invalidateCache()
+	b.mu.Unlock()
 
 	// Deep-copy the tag map so that tagger callbacks cannot mutate the caller's map.
 	tagsCopy := maps.Clone(input.Tags)
@@ -626,9 +687,10 @@ func (b *InMemoryBackend) UntagResources(input *UntagResourcesInput) (*UntagReso
 		return nil, fmt.Errorf("%w: TagKeys must not be empty", ErrValidation)
 	}
 
-	b.mu.RLock("UntagResources")
+	b.mu.Lock("UntagResources")
 	untaggers := slices.Clone(b.untaggers)
-	b.mu.RUnlock()
+	b.invalidateCache()
+	b.mu.Unlock()
 
 	failed := make(map[string]FailureInfo)
 

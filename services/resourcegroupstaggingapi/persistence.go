@@ -53,8 +53,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.providers = nil
+	b.filteredProviders = nil
 	b.taggers = nil
 	b.untaggers = nil
+	b.cache = nil
 
 	return nil
 }

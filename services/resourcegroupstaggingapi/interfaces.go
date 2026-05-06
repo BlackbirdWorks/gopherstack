@@ -19,6 +19,7 @@ type StorageBackend interface {
 
 	// Provider registration
 	RegisterProvider(p ResourceProvider)
+	RegisterFilteredProvider(p FilteredResourceProvider)
 	RegisterARNTagger(t ARNTagger)
 	RegisterARNUntagger(u ARNUntagger)
 

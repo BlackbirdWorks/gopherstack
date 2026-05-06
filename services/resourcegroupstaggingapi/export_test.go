@@ -1,11 +1,27 @@
 package resourcegroupstaggingapi
 
-// ProviderCount returns the number of registered resource providers.
+// ProviderCount returns the number of registered resource providers (plain + filtered).
 func ProviderCount(b *InMemoryBackend) int {
 	b.mu.RLock("ProviderCount")
 	defer b.mu.RUnlock()
 
-	return len(b.providers)
+	return len(b.providers) + len(b.filteredProviders)
+}
+
+// FilteredProviderCount returns the number of registered filtered resource providers.
+func FilteredProviderCount(b *InMemoryBackend) int {
+	b.mu.RLock("FilteredProviderCount")
+	defer b.mu.RUnlock()
+
+	return len(b.filteredProviders)
+}
+
+// HasCache returns whether the backend has a non-expired resource cache.
+func HasCache(b *InMemoryBackend) bool {
+	b.mu.RLock("HasCache")
+	defer b.mu.RUnlock()
+
+	return b.cache != nil
 }
 
 // TaggerCount returns the number of registered ARN taggers.
