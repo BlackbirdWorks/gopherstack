@@ -340,4 +340,104 @@
 			</div>
 		{/if}
 	{/if}
+
+	<!-- Service Graph Tab -->
+	{#if activeTab === 'service-graph'}
+		<div class="flex flex-wrap gap-3 rounded-lg border p-3 bg-muted/20">
+			<div class="flex gap-2 items-center text-sm">
+				<label for="sg-start-time" class="font-medium">From:</label>
+				<input
+					id="sg-start-time"
+					type="datetime-local"
+					bind:value={serviceGraphStartTime}
+					class="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+			</div>
+			<div class="flex gap-2 items-center text-sm">
+				<label for="sg-end-time" class="font-medium">To:</label>
+				<input
+					id="sg-end-time"
+					type="datetime-local"
+					bind:value={serviceGraphEndTime}
+					class="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+			</div>
+			<button
+				onclick={loadServiceGraph}
+				disabled={loading}
+				class="flex items-center gap-2 rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+			>
+				<RefreshCw class="h-3.5 w-3.5 {loading ? 'animate-spin' : ''}" />
+				Refresh
+			</button>
+		</div>
+
+		{#if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if serviceGraphNodes.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Share2 class="h-12 w-12 mb-3 opacity-30" />
+				<p>No services found</p>
+				<p class="text-sm">Adjust the time range or send some traces first</p>
+			</div>
+		{:else}
+			<!-- Service node cards -->
+			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				{#each serviceGraphNodes as node}
+					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+						<div class="flex items-center gap-2 mb-3">
+							<div class="p-1.5 bg-indigo-100 dark:bg-indigo-900/30 rounded">
+								<Share2 class="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+							</div>
+							<span class="font-semibold text-slate-900 dark:text-white truncate">
+								{node.Name ?? '(unnamed)'}
+							</span>
+						</div>
+						{#if node.Type}
+							<p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Type: {node.Type}</p>
+						{/if}
+						{#if node.AccountId}
+							<p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Account: {node.AccountId}</p>
+						{/if}
+						{#if (node.Edges ?? []).length > 0}
+							<div class="mt-2 border-t pt-2">
+								<p class="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Downstream edges:</p>
+								<ul class="space-y-0.5">
+									{#each node.Edges ?? [] as edge}
+										<li class="text-xs text-slate-500 dark:text-slate-400">
+											→ {edge.ReferenceId ?? '?'}
+										</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+						{#if node.SummaryStatistics}
+							<div class="mt-2 border-t pt-2 grid grid-cols-3 gap-2 text-center">
+								<div>
+									<p class="text-sm font-bold text-slate-900 dark:text-white">
+										{node.SummaryStatistics.TotalCount ?? 0}
+									</p>
+									<p class="text-xs text-slate-500">Requests</p>
+								</div>
+								<div>
+									<p class="text-sm font-bold text-red-500">
+										{node.SummaryStatistics.ErrorStatistics?.TotalCount ?? 0}
+									</p>
+									<p class="text-xs text-slate-500">Errors</p>
+								</div>
+								<div>
+									<p class="text-sm font-bold text-orange-500">
+										{node.SummaryStatistics.FaultStatistics?.TotalCount ?? 0}
+									</p>
+									<p class="text-xs text-slate-500">Faults</p>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
+	{/if}
 </div>
