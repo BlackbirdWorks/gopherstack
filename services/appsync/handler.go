@@ -18,6 +18,7 @@ import (
 
 const (
 	keySourceAPIAssociations = "sourceApiAssociations"
+	keySourceAPIAssociation  = "sourceApiAssociation"
 	keyEnvironmentVariables  = "environmentVariables"
 	keyGraphqlAPI            = "graphqlApi"
 	keyDataSource            = "dataSource"
@@ -28,14 +29,18 @@ const (
 	keyDomainNameConfig      = "domainNameConfig"
 	keyAPI                   = "api"
 	keyChannelNamespace      = "channelNamespace"
+	keyStatus                = "status"
+	keyCode                  = "code"
 )
 
 const (
-	appsyncPathPrefix   = "/v1/apis"
-	appsyncV2PathPrefix = "/v2/apis"
-	appsyncDomainPrefix = "/v1/domainnames"
-	appsyncSourcePrefix = "/v1/sourceApis"
-	appsyncMergedPrefix = "/v1/mergedApis"
+	appsyncPathPrefix       = "/v1/apis"
+	appsyncV2PathPrefix     = "/v2/apis"
+	appsyncDomainPrefix     = "/v1/domainnames"
+	appsyncSourcePrefix     = "/v1/sourceApis"
+	appsyncMergedPrefix     = "/v1/mergedApis"
+	appsyncIntrospectPrefix = "/v1/dataSource-introspections"
+	appsyncEvalPrefix       = "/v1/dataplane-evaluations"
 
 	// Path segment names.
 	pathSegV1          = "v1"
@@ -160,6 +165,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"EvaluateCode",
+		"EvaluateMappingTemplate",
+		"GetDataSourceIntrospection",
+		"ListTypesByAssociation",
+		"StartDataSourceIntrospection",
+		"StartSchemaMerge",
+		"UpdateSourceApiAssociation",
 	}
 }
 
@@ -181,7 +193,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, appsyncV2PathPrefix) ||
 			strings.HasPrefix(path, appsyncDomainPrefix) ||
 			strings.HasPrefix(path, appsyncSourcePrefix) ||
-			strings.HasPrefix(path, appsyncMergedPrefix)
+			strings.HasPrefix(path, appsyncMergedPrefix) ||
+			strings.HasPrefix(path, appsyncIntrospectPrefix) ||
+			strings.HasPrefix(path, appsyncEvalPrefix)
 	}
 }
 
@@ -231,6 +245,10 @@ func parseOperation(method, path string) string {
 		return parseOperationSourceAPIs(method, segs)
 	case "mergedApis":
 		return parseOperationMergedAPIs(method, segs)
+	case "dataSource-introspections":
+		return parseOperationDataSourceIntrospections(method, segs)
+	case "dataplane-evaluations":
+		return parseOperationDataplaneEvaluations(segs)
 	case pathSegAPIs:
 		if version == pathSegV2 {
 			return parseOperationV2APIs(method, segs)
@@ -325,7 +343,47 @@ func parseOperationMergedAPIs(method string, segs []string) string {
 			return "GetSourceApiAssociation"
 		case http.MethodDelete:
 			return "DisassociateSourceGraphqlApi"
+		case http.MethodPut, http.MethodPatch:
+			return "UpdateSourceApiAssociation"
 		}
+	case pathSegsTypeResolvers:
+		// /v1/mergedApis/{id}/sourceApiAssociations/{assocId}/types
+		if segs[5] == pathSegTypes {
+			return "ListTypesByAssociation"
+		}
+	}
+
+	return opUnknown
+}
+
+func parseOperationDataSourceIntrospections(method string, segs []string) string {
+	switch len(segs) {
+	case pathSegsAPIs:
+		// /v1/dataSource-introspections
+		if method == http.MethodPost {
+			return "StartDataSourceIntrospection"
+		}
+	case pathSegsAPIID:
+		// /v1/dataSource-introspections/{introspectionId}
+		if method == http.MethodGet {
+			return "GetDataSourceIntrospection"
+		}
+	}
+
+	return opUnknown
+}
+
+func parseOperationDataplaneEvaluations(segs []string) string {
+	if len(segs) != pathSegsAPIID {
+		return opUnknown
+	}
+
+	// /v1/dataplane-evaluations/template or /v1/dataplane-evaluations/code
+	switch segs[2] {
+	case "template":
+		return "EvaluateMappingTemplate"
+	case keyCode:
+		return "EvaluateCode"
 	}
 
 	return opUnknown
@@ -474,6 +532,8 @@ func parseOperationSub(method, seg string) string {
 		return "GetGraphqlApiEnvironmentVariables"
 	case "graphql":
 		return "ExecuteGraphQL"
+	case "schemaMerge":
+		return "StartSchemaMerge"
 	case pathSegTags:
 		return parseOperationSubTags(method)
 	}
@@ -655,6 +715,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleSourceAPIs(ctx, c, segs)
 		case "mergedApis":
 			return h.handleMergedAPIs(ctx, c, segs)
+		case "dataSource-introspections":
+			return h.handleDataSourceIntrospections(ctx, c, segs)
+		case "dataplane-evaluations":
+			return h.handleDataplaneEvaluations(ctx, c, segs)
 		}
 
 		switch {
@@ -715,6 +779,8 @@ func (h *Handler) handleAPIResource(ctx context.Context, c *echo.Context, segs [
 		return h.handleTags(ctx, c, apiID)
 	case keyEnvironmentVariables:
 		return h.handleEnvironmentVariables(ctx, c, apiID)
+	case "schemaMerge":
+		return h.handleSchemaMerge(ctx, c, apiID)
 	default:
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
 	}
@@ -840,7 +906,7 @@ func (h *Handler) startSchemaCreation(ctx context.Context, c *echo.Context, apiI
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"status":  schema.Status,
+		keyStatus: schema.Status,
 		"details": schema.Details,
 	})
 }
@@ -853,7 +919,7 @@ func (h *Handler) getSchemaCreationStatus(ctx context.Context, c *echo.Context, 
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"status":  schema.Status,
+		keyStatus: schema.Status,
 		"details": schema.Details,
 	})
 }
@@ -1147,7 +1213,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, op string, e
 func errorResponse(code, message string) map[string]any {
 	return map[string]any{
 		"message": message,
-		"code":    code,
+		keyCode:   code,
 	}
 }
 
@@ -1524,7 +1590,7 @@ func (h *Handler) doSourceAPIAssociation(
 		return h.handleError(ctx, c, opName, createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"sourceApiAssociation": assoc})
+	return c.JSON(http.StatusCreated, map[string]any{keySourceAPIAssociation: assoc})
 }
 
 func (h *Handler) associateMergedGraphqlAPI(ctx context.Context, c *echo.Context, sourceAPIID string) error {
@@ -1574,9 +1640,18 @@ func (h *Handler) handleMergedAPIs(ctx context.Context, c *echo.Context, segs []
 			}
 
 			return c.NoContent(http.StatusNoContent)
+		case http.MethodPut, http.MethodPatch:
+			return h.updateSourceAPIAssociation(ctx, c, mergedAPIID, assocID)
 		default:
 			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 		}
+	}
+
+	// /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}/types
+	if len(segs) == pathSegsTypeResolvers && segs[5] == pathSegTypes {
+		assocID := segs[4]
+
+		return h.listTypesByAssociation(ctx, c, mergedAPIID, assocID)
 	}
 
 	return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
@@ -2240,7 +2315,7 @@ func (h *Handler) getSourceAPIAssociation(ctx context.Context, c *echo.Context, 
 		return h.handleError(ctx, c, "GetSourceApiAssociation", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"sourceApiAssociation": assoc})
+	return c.JSON(http.StatusOK, map[string]any{keySourceAPIAssociation: assoc})
 }
 
 // listSourceAPIAssociations handles GET /v1/mergedApis/{mergedApiId}/sourceApiAssociations.
@@ -2296,4 +2371,192 @@ func (h *Handler) handleEnvironmentVariables(ctx context.Context, c *echo.Contex
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 	}
+}
+
+// handleDataSourceIntrospections handles /v1/dataSource-introspections[/{introspectionId}].
+func (h *Handler) handleDataSourceIntrospections(ctx context.Context, c *echo.Context, segs []string) error {
+	switch len(segs) {
+	case pathSegsAPIs:
+		// POST /v1/dataSource-introspections → StartDataSourceIntrospection
+		if c.Request().Method != http.MethodPost {
+			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+		}
+
+		return h.startDataSourceIntrospection(ctx, c)
+	case pathSegsAPIID:
+		// GET /v1/dataSource-introspections/{introspectionId}
+		if c.Request().Method != http.MethodGet {
+			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+		}
+
+		return h.getDataSourceIntrospection(ctx, c, segs[2])
+	}
+
+	return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
+}
+
+// handleDataplaneEvaluations handles /v1/dataplane-evaluations/{template|code}.
+func (h *Handler) handleDataplaneEvaluations(ctx context.Context, c *echo.Context, segs []string) error {
+	if len(segs) != pathSegsAPIID {
+		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
+	}
+
+	if c.Request().Method != http.MethodPost {
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
+
+	switch segs[2] {
+	case "template":
+		return h.evaluateMappingTemplate(ctx, c)
+	case keyCode:
+		return h.evaluateCode(ctx, c)
+	}
+
+	return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
+}
+
+// startDataSourceIntrospection handles POST /v1/dataSource-introspections.
+func (h *Handler) startDataSourceIntrospection(ctx context.Context, c *echo.Context) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var input struct {
+		APIID          string `json:"apiId"`
+		DataSourceName string `json:"dataSourceName"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	id, startErr := h.Backend.StartDataSourceIntrospection(input.APIID, input.DataSourceName)
+	if startErr != nil {
+		return h.handleError(ctx, c, "StartDataSourceIntrospection", startErr)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]any{"introspectionId": id})
+}
+
+// getDataSourceIntrospection handles GET /v1/dataSource-introspections/{introspectionId}.
+func (h *Handler) getDataSourceIntrospection(ctx context.Context, c *echo.Context, introspectionID string) error {
+	result, err := h.Backend.GetDataSourceIntrospection(introspectionID)
+	if err != nil {
+		return h.handleError(ctx, c, "GetDataSourceIntrospection", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"introspectionResult": result})
+}
+
+// evaluateMappingTemplate handles POST /v1/dataplane-evaluations/template.
+func (h *Handler) evaluateMappingTemplate(ctx context.Context, c *echo.Context) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var input struct {
+		Template string `json:"template"`
+		Context  string `json:"context"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	out, evalErr := h.Backend.EvaluateMappingTemplate(input.Template, input.Context)
+	if evalErr != nil {
+		return h.handleError(ctx, c, "EvaluateMappingTemplate", evalErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out})
+}
+
+// evaluateCode handles POST /v1/dataplane-evaluations/code.
+func (h *Handler) evaluateCode(ctx context.Context, c *echo.Context) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var input struct {
+		Code     string `json:"code"`
+		Context  string `json:"context"`
+		Function string `json:"function"`
+		Runtime  struct {
+			Name string `json:"name"`
+		} `json:"runtime"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	out, evalErr := h.Backend.EvaluateCode(input.Code, input.Context, input.Function, input.Runtime.Name)
+	if evalErr != nil {
+		return h.handleError(ctx, c, "EvaluateCode", evalErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out, "logs": []string{}})
+}
+
+// updateSourceAPIAssociation handles PUT /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}.
+func (h *Handler) updateSourceAPIAssociation(
+	ctx context.Context,
+	c *echo.Context,
+	mergedAPIID, assocID string,
+) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+
+	var input struct {
+		Description string `json:"description"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	assoc, updateErr := h.Backend.UpdateSourceAPIAssociation(mergedAPIID, assocID, input.Description)
+	if updateErr != nil {
+		return h.handleError(ctx, c, "UpdateSourceApiAssociation", updateErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keySourceAPIAssociation: assoc})
+}
+
+// listTypesByAssociation handles GET /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}/types.
+func (h *Handler) listTypesByAssociation(
+	ctx context.Context,
+	c *echo.Context,
+	mergedAPIID, assocID string,
+) error {
+	format := c.Request().URL.Query().Get("format")
+	if format == "" {
+		format = string(TypeFormatSDL)
+	}
+
+	types, err := h.Backend.ListTypesByAssociation(mergedAPIID, assocID, format)
+	if err != nil {
+		return h.handleError(ctx, c, "ListTypesByAssociation", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{pathSegTypes: types})
+}
+
+// handleDataplaneEvalsSchemaMerge handles POST /v1/apis/{apiId}/schemaMerge.
+func (h *Handler) handleSchemaMerge(ctx context.Context, c *echo.Context, apiID string) error {
+	if c.Request().Method != http.MethodPost {
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
+
+	status, err := h.Backend.StartSchemaMerge(apiID)
+	if err != nil {
+		return h.handleError(ctx, c, "StartSchemaMerge", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"sourceApiSchemaMetadata": []any{}, keyStatus: status})
 }

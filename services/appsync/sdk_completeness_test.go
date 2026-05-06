@@ -17,13 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := appsync.NewInMemoryBackend("000000000000", "us-east-1", "")
 	h := appsync.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &appsyncsdk.Client{}, h.GetSupportedOperations(), []string{
-		"EvaluateCode",
-		"EvaluateMappingTemplate",
-		"GetDataSourceIntrospection",
-		"ListTypesByAssociation",
-		"StartDataSourceIntrospection",
-		"StartSchemaMerge",
-		"UpdateSourceApiAssociation",
-	})
+	sdkcheck.CheckCompleteness(t, &appsyncsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

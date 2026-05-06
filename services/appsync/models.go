@@ -225,6 +225,13 @@ type ChannelNamespace struct {
 	LastModified        int64             `json:"lastModified,omitempty"`
 }
 
+// DataSourceIntrospectionResult holds the result of a data source introspection job.
+type DataSourceIntrospectionResult struct {
+	IntrospectionID string `json:"introspectionId"`
+	Status          string `json:"status"`
+	Models          []any  `json:"models,omitempty"`
+}
+
 // SourceAPIAssociation represents an association between a source API and a merged API.
 type SourceAPIAssociation struct {
 	AssociationID     string `json:"associationId"`
