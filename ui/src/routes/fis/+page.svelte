@@ -68,8 +68,56 @@
 	const stats = $derived({
 		activeExperiments: experiments.filter(e => e.state?.status === 'running').length,
 		totalTemplates: templates.length,
-		chaosIntensity: 'SEVERE'
+		chaosIntensity: experiments.some(e => e.state?.status === 'running') ? 'SEVERE' : 'NOMINAL'
 	});
+
+	function getTargetCount(exp: Experiment | null): number {
+		if (!exp) return 0;
+		return Object.values(exp.actions ?? {}).reduce((sum, a) => sum + Object.keys(a.targets ?? {}).length, 0);
+	}
+
+	function getBlastRadius(exp: Experiment | null): string {
+		if (!exp) return 'UNKNOWN';
+		const actions = Object.values(exp.actions ?? {});
+		const kinesisAction = actions.find(a => a.actionId?.includes('kinesis'));
+		const pct = kinesisAction?.parameters?.['percentage'];
+		if (pct !== undefined) return `${pct}% THROTTLE`;
+		const targetCount = getTargetCount(exp);
+		return targetCount > 0 ? `${targetCount} TARGET${targetCount === 1 ? '' : 'S'}` : 'DEFINED';
+	}
+
+	function getTargetHealth(exp: Experiment | null): string {
+		if (!exp) return 'UNKNOWN';
+		const status = exp.state?.status;
+		if (status === 'running') return 'DEGRADED';
+		if (status === 'completed') return 'RESTORED';
+		if (status === 'stopped') return 'RESTORED';
+		if (status === 'failed') return 'FAILED';
+		return 'NOMINAL';
+	}
+
+	function getTargetHealthColor(exp: Experiment | null): string {
+		const health = getTargetHealth(exp);
+		if (health === 'DEGRADED') return 'text-rose-500';
+		if (health === 'RESTORED' || health === 'NOMINAL') return 'text-emerald-500';
+		return 'text-amber-500';
+	}
+
+	function getSafetyLeverStatus(exp: Experiment | null): string {
+		if (!exp) return 'UNKNOWN';
+		return exp.stopConditions && exp.stopConditions.length > 0 ? 'ARMED' : 'DISARMED';
+	}
+
+	function formatActionParam(key: string, value: string): string {
+		if (key === 'duration') return `DUR: ${value}`;
+		if (key === 'percentage') return `${value}% THROTTLE`;
+		return `${key.toUpperCase()}: ${value}`;
+	}
+
+	function getActionStatusLabel(status: string | undefined): string {
+		if (!status) return 'PENDING';
+		return status.toUpperCase();
+	}
 
 	// Actions
 	async function loadFIS() {
@@ -296,22 +344,22 @@
 									<Pulse class="w-3.5 h-3.5 text-rose-500" />
 									<span class="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">Blast Radius</span>
 								</div>
-								<div class="text-[14px] font-black text-rose-600 uppercase italic">10% (SECTOR_A)</div>
+								<div class="text-[14px] font-black text-rose-600 uppercase italic">{getBlastRadius(selectedExperiment)}</div>
 							</div>
 							<div class="p-6 bg-white/60 dark:bg-slate-900/60 rounded-[2rem] border border-slate-100 dark:border-slate-700/50 shadow-sm group/metric">
 								<div class="flex items-center gap-2 mb-2">
 									<Wifi class="w-3.5 h-3.5 text-rose-500" />
 									<span class="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">Target Health</span>
 								</div>
-								<div class="text-[14px] font-black text-rose-500 uppercase italic">DEGRADED</div>
+								<div class="text-[14px] font-black {getTargetHealthColor(selectedExperiment)} uppercase italic">{getTargetHealth(selectedExperiment)}</div>
 							</div>
 							<div class="p-6 bg-white/60 dark:bg-slate-900/60 rounded-[2rem] border border-slate-100 dark:border-slate-700/50 shadow-sm group/metric">
 								<div class="flex items-center gap-2 mb-2">
 									<ShieldAlert class="w-3.5 h-3.5 text-rose-500" />
 									<span class="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">Safety Lever</span>
-									<span class="text-[8px] text-emerald-500 uppercase ml-auto">ARMED</span>
+									<span class="text-[8px] {getSafetyLeverStatus(selectedExperiment) === 'ARMED' ? 'text-emerald-500' : 'text-slate-400'} uppercase ml-auto">{getSafetyLeverStatus(selectedExperiment)}</span>
 								</div>
-								<div class="text-[14px] font-black text-emerald-500 uppercase italic">TLS_ACTIVE</div>
+								<div class="text-[14px] font-black {getSafetyLeverStatus(selectedExperiment) === 'ARMED' ? 'text-emerald-500' : 'text-slate-400'} uppercase italic">{selectedExperiment.stopConditions?.[0]?.source?.toUpperCase() || 'NONE'}</div>
 							</div>
 						</div>
 
@@ -362,28 +410,42 @@
 									<ListTree class="w-4 h-4 text-rose-500" />
 									Fault Injection Ledger
 								</span>
-								<span class="text-[8px] opacity-60">SYNCING_CHAOS</span>
+								<span class="text-[8px] opacity-60">{Object.keys(selectedExperiment.actions || {}).length} ACTION{Object.keys(selectedExperiment.actions || {}).length === 1 ? '' : 'S'}</span>
 							</div>
-							
+
 							<div class="space-y-3">
 								{#each Object.entries(selectedExperiment.actions || {}) as [name, action]}
-									<div class="p-5 bg-slate-900 dark:bg-black rounded-3xl border border-slate-800 flex items-center justify-between transition-all hover:bg-slate-800">
-										<div class="flex items-center gap-4">
-											<div class="p-2.5 bg-white/5 rounded-xl">
-												<Binary class="w-4 h-4 text-white" />
+									<div class="p-5 bg-slate-900 dark:bg-black rounded-3xl border border-slate-800 transition-all hover:bg-slate-800">
+										<div class="flex items-center justify-between mb-3">
+											<div class="flex items-center gap-4">
+												<div class="p-2.5 bg-white/5 rounded-xl">
+													<Binary class="w-4 h-4 text-white" />
+												</div>
+												<div>
+													<div class="text-[10px] font-black text-white uppercase italic tracking-tighter leading-none mb-1 font-mono">{name}</div>
+													<div class="text-[8px] text-slate-500 uppercase font-bold tracking-widest italic font-mono">{action.actionId}</div>
+												</div>
 											</div>
-											<div>
-												<div class="text-[10px] font-black text-white uppercase italic tracking-tighter leading-none mb-1 font-mono">{name}</div>
-												<div class="text-[8px] text-slate-500 uppercase font-bold tracking-widest italic">{action.actionId} | TARGETS: {Object.keys(action.targets || {}).join(', ')}</div>
+											<div class="text-right">
+												<div class="flex items-center gap-2 justify-end mb-1">
+													<div class="w-1.5 h-1.5 rounded-full {getStatusColor(action.state?.status)}"></div>
+													<div class="text-[9px] font-black text-white italic uppercase tracking-tight font-black">{getActionStatusLabel(action.state?.status)}</div>
+												</div>
+												{#if action.startTime}
+													<div class="text-[8px] font-mono text-slate-500 italic uppercase tracking-widest">{action.startTime.toLocaleTimeString()}</div>
+												{/if}
 											</div>
 										</div>
-										<div class="text-right">
-											<div class="flex items-center gap-2 justify-end mb-1">
-												<div class="w-1.5 h-1.5 rounded-full {getStatusColor(action.state?.status)}"></div>
-												<div class="text-[9px] font-black text-white italic uppercase tracking-tight italic font-black">{action.state?.status}</div>
+										{#if Object.keys(action.parameters ?? {}).length > 0 || Object.keys(action.targets ?? {}).length > 0}
+											<div class="mt-2 pt-2 border-t border-slate-800 flex flex-wrap gap-2">
+												{#each Object.entries(action.parameters ?? {}) as [k, v]}
+													<span class="text-[8px] font-mono bg-rose-900/20 text-rose-400 px-2 py-0.5 rounded-lg uppercase italic">{formatActionParam(k, v)}</span>
+												{/each}
+												{#if Object.keys(action.targets ?? {}).length > 0}
+													<span class="text-[8px] font-mono bg-slate-800 text-slate-400 px-2 py-0.5 rounded-lg uppercase italic">TARGETS: {Object.keys(action.targets ?? {}).join(', ')}</span>
+												{/if}
 											</div>
-											<div class="text-[8px] font-mono text-rose-400 italic font-black uppercase tracking-widest">TRACE_ACTIVE</div>
-										</div>
+										{/if}
 									</div>
 								{:else}
 									<div class="h-32 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] flex items-center justify-center animate-pulse">
