@@ -19,7 +19,10 @@ var (
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
 	// ErrConcurrentModification is returned when the application version does not match.
-	ErrConcurrentModification = awserr.New("ConcurrentModificationException", awserr.ErrInvalidParameter)
+	ErrConcurrentModification = awserr.New(
+		"ConcurrentModificationException",
+		awserr.ErrInvalidParameter,
+	)
 	// ErrValidation is returned for invalid input parameters.
 	ErrValidation = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 )
@@ -122,6 +125,29 @@ const (
 	ApplicationStatusDeleting = "DELETING"
 )
 
+// ApplicationOperation represents a single KDA v2 application operation record.
+type ApplicationOperation struct {
+	StartTimestamp  time.Time `json:"-"`
+	EndTimestamp    time.Time `json:"-"`
+	OperationID     string    `json:"OperationId"`
+	ApplicationName string    `json:"ApplicationName"`
+	Operation       string    `json:"Operation"`
+	OperationStatus string    `json:"OperationStatus"`
+}
+
+// ApplicationVersionSummary is a compact view of an application version.
+type ApplicationVersionSummary struct {
+	ApplicationStatus    string `json:"ApplicationStatus"`
+	ApplicationVersionID int64  `json:"ApplicationVersionId"`
+}
+
+// DiscoveredSchema holds the inferred schema from DiscoverInputSchema.
+type DiscoveredSchema struct {
+	RecordFormat       string     `json:"RecordFormat"`
+	RecordEncoding     string     `json:"RecordEncoding,omitempty"`
+	ParsedInputRecords [][]string `json:"ParsedInputRecords,omitempty"`
+}
+
 // Tag represents a key-value tag pair.
 type Tag struct {
 	Key   string `json:"Key"`
@@ -138,6 +164,7 @@ type Application struct {
 	ServiceExecutionRole            string                           `json:"ServiceExecutionRole,omitempty"`
 	ApplicationDescription          string                           `json:"ApplicationDescription,omitempty"`
 	ApplicationMode                 string                           `json:"ApplicationMode,omitempty"`
+	MaintenanceWindowStartTime      string                           `json:"MaintenanceWindowStartTime,omitempty"`
 	Tags                            []Tag                            `json:"-"`
 	CloudWatchLoggingOptionDescs    []CloudWatchLoggingOptionDesc    `json:"-"`
 	InputDescriptions               []InputDescription               `json:"-"`
@@ -158,9 +185,11 @@ type Snapshot struct {
 
 // InMemoryBackend stores Kinesis Data Analytics v2 state in memory.
 type InMemoryBackend struct {
-	applications    map[string]*Application // key: applicationName
-	applicationARNs map[string]string       // application ARN → applicationName
-	snapshots       map[string][]*Snapshot  // key: applicationName → snapshots
+	applications    map[string]*Application            // key: applicationName
+	applicationARNs map[string]string                  // application ARN → applicationName
+	snapshots       map[string][]*Snapshot             // key: applicationName → snapshots
+	operations      map[string][]*ApplicationOperation // key: applicationName → operations
+	versions        map[string][]*Application          // key: applicationName → version history
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
@@ -173,6 +202,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		applications:    make(map[string]*Application),
 		applicationARNs: make(map[string]string),
 		snapshots:       make(map[string][]*Snapshot),
+		operations:      make(map[string][]*ApplicationOperation),
+		versions:        make(map[string][]*Application),
 		mu:              lockmetrics.New("kinesisanalyticsv2"),
 		accountID:       accountID,
 		region:          region,
@@ -222,6 +253,7 @@ func (b *InMemoryBackend) CreateApplication(
 	}
 	b.applications[name] = app
 	b.applicationARNs[appARN] = name
+	b.versions[name] = []*Application{appCopy(app)}
 
 	return app, nil
 }
@@ -268,7 +300,10 @@ func (b *InMemoryBackend) ListApplications(nextToken string) ([]*Application, st
 }
 
 // UpdateApplication updates an application's description and service role.
-func (b *InMemoryBackend) UpdateApplication(name string, serviceRole, description string) (*Application, error) {
+func (b *InMemoryBackend) UpdateApplication(
+	name string,
+	serviceRole, description string,
+) (*Application, error) {
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
@@ -338,7 +373,9 @@ func (b *InMemoryBackend) StopApplication(name string) error {
 }
 
 // CreateApplicationSnapshot creates a snapshot for an application.
-func (b *InMemoryBackend) CreateApplicationSnapshot(appName, snapshotName string) (*Snapshot, error) {
+func (b *InMemoryBackend) CreateApplicationSnapshot(
+	appName, snapshotName string,
+) (*Snapshot, error) {
 	b.mu.Lock("CreateApplicationSnapshot")
 	defer b.mu.Unlock()
 
@@ -367,7 +404,9 @@ func (b *InMemoryBackend) CreateApplicationSnapshot(appName, snapshotName string
 }
 
 // DescribeApplicationSnapshot retrieves a snapshot by application name and snapshot name.
-func (b *InMemoryBackend) DescribeApplicationSnapshot(appName, snapshotName string) (*Snapshot, error) {
+func (b *InMemoryBackend) DescribeApplicationSnapshot(
+	appName, snapshotName string,
+) (*Snapshot, error) {
 	b.mu.RLock("DescribeApplicationSnapshot")
 	defer b.mu.RUnlock()
 
@@ -385,7 +424,9 @@ func (b *InMemoryBackend) DescribeApplicationSnapshot(appName, snapshotName stri
 }
 
 // ListApplicationSnapshots returns snapshots for an application with optional pagination, sorted by creation time.
-func (b *InMemoryBackend) ListApplicationSnapshots(appName, nextToken string) ([]*Snapshot, string, error) {
+func (b *InMemoryBackend) ListApplicationSnapshots(
+	appName, nextToken string,
+) ([]*Snapshot, string, error) {
 	b.mu.RLock("ListApplicationSnapshots")
 	defer b.mu.RUnlock()
 
@@ -533,6 +574,8 @@ func (b *InMemoryBackend) Reset() {
 	b.applications = make(map[string]*Application)
 	b.applicationARNs = make(map[string]string)
 	b.snapshots = make(map[string][]*Snapshot)
+	b.operations = make(map[string][]*ApplicationOperation)
+	b.versions = make(map[string][]*Application)
 	b.nextID = 0
 }
 
@@ -582,11 +625,14 @@ func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 		return err
 	}
 
-	app.CloudWatchLoggingOptionDescs = append(app.CloudWatchLoggingOptionDescs, CloudWatchLoggingOptionDesc{
-		CloudWatchLoggingOptionID: b.newResourceID("cwl"),
-		LogStreamARN:              logStreamARN,
-		RoleARN:                   roleARN,
-	})
+	app.CloudWatchLoggingOptionDescs = append(
+		app.CloudWatchLoggingOptionDescs,
+		CloudWatchLoggingOptionDesc{
+			CloudWatchLoggingOptionID: b.newResourceID("cwl"),
+			LogStreamARN:              logStreamARN,
+			RoleARN:                   roleARN,
+		},
+	)
 
 	return nil
 }
@@ -979,6 +1025,259 @@ func toSnapshotDetail(s *Snapshot) snapshotDetail {
 		ApplicationVersion:        s.ApplicationVersion,
 		SnapshotCreationTimestamp: float64(s.SnapshotCreation.Unix()),
 	}
+}
+
+// DeleteApplicationReferenceDataSource removes a reference data source from an application.
+func (b *InMemoryBackend) DeleteApplicationReferenceDataSource(
+	name string, currentVersionID int64, referenceID string,
+) error {
+	b.mu.Lock("DeleteApplicationReferenceDataSource")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	idx := -1
+
+	for i, ref := range app.ReferenceDataSourceDescriptions {
+		if ref.ReferenceID == referenceID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	app.ReferenceDataSourceDescriptions = append(
+		app.ReferenceDataSourceDescriptions[:idx],
+		app.ReferenceDataSourceDescriptions[idx+1:]...,
+	)
+
+	return nil
+}
+
+// DeleteApplicationVpcConfiguration removes a VPC configuration from an application.
+func (b *InMemoryBackend) DeleteApplicationVpcConfiguration(
+	name string, currentVersionID int64, vpcConfigurationID string,
+) error {
+	b.mu.Lock("DeleteApplicationVpcConfiguration")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return ErrNotFound
+	}
+
+	idx := -1
+
+	for i, vpc := range app.VpcConfigurationDescriptions {
+		if vpc.VpcConfigurationID == vpcConfigurationID {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx < 0 {
+		return ErrNotFound
+	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return err
+	}
+
+	app.VpcConfigurationDescriptions = append(
+		app.VpcConfigurationDescriptions[:idx],
+		app.VpcConfigurationDescriptions[idx+1:]...,
+	)
+
+	return nil
+}
+
+// DescribeApplicationOperation returns a single operation by ID.
+func (b *InMemoryBackend) DescribeApplicationOperation(
+	name, operationID string,
+) (*ApplicationOperation, error) {
+	b.mu.RLock("DescribeApplicationOperation")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[name]; !ok {
+		return nil, ErrNotFound
+	}
+
+	for _, op := range b.operations[name] {
+		if op.OperationID == operationID {
+			cp := *op
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+// ListApplicationOperations returns operations for an application with optional pagination.
+func (b *InMemoryBackend) ListApplicationOperations(
+	name, nextToken string,
+) ([]*ApplicationOperation, string, error) {
+	b.mu.RLock("ListApplicationOperations")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[name]; !ok {
+		return nil, "", ErrNotFound
+	}
+
+	ops := b.operations[name]
+	out := make([]*ApplicationOperation, len(ops))
+	copy(out, ops)
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(out) {
+		return []*ApplicationOperation{}, "", nil
+	}
+	end := startIdx + kav2DefaultPageSize
+	var outToken string
+
+	if end < len(out) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(out)
+	}
+
+	return out[startIdx:end], outToken, nil
+}
+
+// DescribeApplicationVersion returns the application state at a specific version ID.
+func (b *InMemoryBackend) DescribeApplicationVersion(
+	name string,
+	versionID int64,
+) (*Application, error) {
+	b.mu.RLock("DescribeApplicationVersion")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[name]; !ok {
+		return nil, ErrNotFound
+	}
+
+	for _, v := range b.versions[name] {
+		if v.ApplicationVersionID == versionID {
+			return appCopy(v), nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+// ListApplicationVersions returns version summaries for an application.
+func (b *InMemoryBackend) ListApplicationVersions(
+	name, nextToken string,
+) ([]*ApplicationVersionSummary, string, error) {
+	b.mu.RLock("ListApplicationVersions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[name]; !ok {
+		return nil, "", ErrNotFound
+	}
+
+	vers := b.versions[name]
+	summaries := make([]*ApplicationVersionSummary, 0, len(vers))
+
+	for _, v := range vers {
+		summaries = append(summaries, &ApplicationVersionSummary{
+			ApplicationVersionID: v.ApplicationVersionID,
+			ApplicationStatus:    v.ApplicationStatus,
+		})
+	}
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(summaries) {
+		return []*ApplicationVersionSummary{}, "", nil
+	}
+	end := startIdx + kav2DefaultPageSize
+	var outToken string
+
+	if end < len(summaries) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(summaries)
+	}
+
+	return summaries[startIdx:end], outToken, nil
+}
+
+// RollbackApplication rolls back an application to its previous version.
+func (b *InMemoryBackend) RollbackApplication(
+	name string,
+	currentVersionID int64,
+) (*Application, error) {
+	b.mu.Lock("RollbackApplication")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if currentVersionID > 0 && app.ApplicationVersionID != currentVersionID {
+		return nil, ErrConcurrentModification
+	}
+
+	const minVersionsForRollback = 2
+	vers := b.versions[name]
+	if len(vers) < minVersionsForRollback {
+		return nil, ErrValidation
+	}
+
+	// Roll back to the second-to-last stored version.
+	prev := appCopy(vers[len(vers)-2])
+	prev.ApplicationVersionID = app.ApplicationVersionID + 1
+	b.applications[name] = prev
+	b.versions[name] = append(b.versions[name], appCopy(prev))
+
+	return appCopy(prev), nil
+}
+
+// UpdateApplicationMaintenanceConfiguration sets the maintenance window start time.
+func (b *InMemoryBackend) UpdateApplicationMaintenanceConfiguration(
+	name string, maintenanceWindowStartTime string,
+) (*Application, error) {
+	b.mu.Lock("UpdateApplicationMaintenanceConfiguration")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	app.MaintenanceWindowStartTime = maintenanceWindowStartTime
+
+	return appCopy(app), nil
+}
+
+// DiscoverInputSchema returns a synthetic discovered schema for a resource ARN.
+func (b *InMemoryBackend) DiscoverInputSchema(
+	resourceARN, _ /* roleARN */, _ /* inputStartingPosition */ string,
+) (*DiscoveredSchema, error) {
+	if resourceARN == "" {
+		return nil, ErrValidation
+	}
+
+	return &DiscoveredSchema{
+		RecordFormat:   "JSON",
+		RecordEncoding: "UTF-8",
+		ParsedInputRecords: [][]string{
+			{"column1", "column2", "column3"},
+		},
+	}, nil
 }
 
 // parseNextToken parses a pagination token (integer offset) into a slice index.

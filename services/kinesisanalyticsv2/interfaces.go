@@ -38,6 +38,16 @@ type StorageBackend interface {
 	DeleteApplicationCloudWatchLoggingOption(name string, currentVersionID int64, loggingOptionID string) error
 	DeleteApplicationInputProcessingConfiguration(name string, currentVersionID int64, inputID string) error
 	DeleteApplicationOutput(name string, currentVersionID int64, outputID string) error
+	DeleteApplicationReferenceDataSource(name string, currentVersionID int64, referenceID string) error
+	DeleteApplicationVpcConfiguration(name string, currentVersionID int64, vpcConfigurationID string) error
+
+	DescribeApplicationOperation(name, operationID string) (*ApplicationOperation, error)
+	ListApplicationOperations(name, nextToken string) ([]*ApplicationOperation, string, error)
+	DescribeApplicationVersion(name string, versionID int64) (*Application, error)
+	ListApplicationVersions(name, nextToken string) ([]*ApplicationVersionSummary, string, error)
+	RollbackApplication(name string, currentVersionID int64) (*Application, error)
+	UpdateApplicationMaintenanceConfiguration(name string, maintenanceWindowStartTime string) (*Application, error)
+	DiscoverInputSchema(resourceARN, roleARN, inputStartingPosition string) (*DiscoveredSchema, error)
 }
 
 // compile-time interface check.
