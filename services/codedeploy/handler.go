@@ -53,17 +53,31 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetApplication",
 		"ListApplications",
 		"DeleteApplication",
+		"UpdateApplication",
 		"CreateDeploymentGroup",
 		"GetDeploymentGroup",
 		"ListDeploymentGroups",
 		"DeleteDeploymentGroup",
+		"UpdateDeploymentGroup",
 		"CreateDeployment",
 		"GetDeployment",
 		"ListDeployments",
+		"StopDeployment",
+		"ContinueDeployment",
+		"SkipWaitTimeForInstanceTermination",
+		"CreateDeploymentConfig",
+		"GetDeploymentConfig",
+		"ListDeploymentConfigs",
+		"DeleteDeploymentConfig",
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
 		"AddTagsToOnPremisesInstances",
+		"RemoveTagsFromOnPremisesInstances",
+		"RegisterOnPremisesInstance",
+		"DeregisterOnPremisesInstance",
+		"GetOnPremisesInstance",
+		"ListOnPremisesInstances",
 		"BatchGetApplicationRevisions",
 		"BatchGetApplications",
 		"BatchGetDeploymentGroups",
@@ -71,8 +85,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		"BatchGetDeploymentTargets",
 		"BatchGetDeployments",
 		"BatchGetOnPremisesInstances",
-		"ContinueDeployment",
-		"CreateDeploymentConfig",
+		"RegisterApplicationRevision",
+		"GetApplicationRevision",
+		"ListApplicationRevisions",
+		"GetDeploymentInstance",
+		"GetDeploymentTarget",
+		"ListDeploymentInstances",
+		"ListDeploymentTargets",
+		"PutLifecycleEventHookExecutionStatus",
+		"DeleteGitHubAccountToken",
+		"ListGitHubAccountTokenNames",
+		"DeleteResourcesByExternalId",
 	}
 }
 
@@ -139,30 +162,53 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateApplication":            service.WrapOp(h.handleCreateApplication),
-		"GetApplication":               service.WrapOp(h.handleGetApplication),
-		"ListApplications":             service.WrapOp(h.handleListApplications),
-		"DeleteApplication":            service.WrapOp(h.handleDeleteApplication),
-		"CreateDeploymentGroup":        service.WrapOp(h.handleCreateDeploymentGroup),
-		"GetDeploymentGroup":           service.WrapOp(h.handleGetDeploymentGroup),
-		"ListDeploymentGroups":         service.WrapOp(h.handleListDeploymentGroups),
-		"DeleteDeploymentGroup":        service.WrapOp(h.handleDeleteDeploymentGroup),
-		"CreateDeployment":             service.WrapOp(h.handleCreateDeployment),
-		"GetDeployment":                service.WrapOp(h.handleGetDeployment),
-		"ListDeployments":              service.WrapOp(h.handleListDeployments),
-		"TagResource":                  service.WrapOp(h.handleTagResource),
-		"UntagResource":                service.WrapOp(h.handleUntagResource),
-		"ListTagsForResource":          service.WrapOp(h.handleListTagsForResource),
-		"AddTagsToOnPremisesInstances": service.WrapOp(h.handleAddTagsToOnPremisesInstances),
-		"BatchGetApplicationRevisions": service.WrapOp(h.handleBatchGetApplicationRevisions),
-		"BatchGetApplications":         service.WrapOp(h.handleBatchGetApplications),
-		"BatchGetDeploymentGroups":     service.WrapOp(h.handleBatchGetDeploymentGroups),
-		"BatchGetDeploymentInstances":  service.WrapOp(h.handleBatchGetDeploymentInstances),
-		"BatchGetDeploymentTargets":    service.WrapOp(h.handleBatchGetDeploymentTargets),
-		"BatchGetDeployments":          service.WrapOp(h.handleBatchGetDeployments),
-		"BatchGetOnPremisesInstances":  service.WrapOp(h.handleBatchGetOnPremisesInstances),
-		"ContinueDeployment":           service.WrapOp(h.handleContinueDeployment),
-		"CreateDeploymentConfig":       service.WrapOp(h.handleCreateDeploymentConfig),
+		"CreateApplication":                    service.WrapOp(h.handleCreateApplication),
+		"GetApplication":                       service.WrapOp(h.handleGetApplication),
+		"ListApplications":                     service.WrapOp(h.handleListApplications),
+		"DeleteApplication":                    service.WrapOp(h.handleDeleteApplication),
+		"UpdateApplication":                    service.WrapOp(h.handleUpdateApplication),
+		"CreateDeploymentGroup":                service.WrapOp(h.handleCreateDeploymentGroup),
+		"GetDeploymentGroup":                   service.WrapOp(h.handleGetDeploymentGroup),
+		"ListDeploymentGroups":                 service.WrapOp(h.handleListDeploymentGroups),
+		"DeleteDeploymentGroup":                service.WrapOp(h.handleDeleteDeploymentGroup),
+		"UpdateDeploymentGroup":                service.WrapOp(h.handleUpdateDeploymentGroup),
+		"CreateDeployment":                     service.WrapOp(h.handleCreateDeployment),
+		"GetDeployment":                        service.WrapOp(h.handleGetDeployment),
+		"ListDeployments":                      service.WrapOp(h.handleListDeployments),
+		"StopDeployment":                       service.WrapOp(h.handleStopDeployment),
+		"ContinueDeployment":                   service.WrapOp(h.handleContinueDeployment),
+		"SkipWaitTimeForInstanceTermination":   service.WrapOp(h.handleSkipWaitTimeForInstanceTermination),
+		"CreateDeploymentConfig":               service.WrapOp(h.handleCreateDeploymentConfig),
+		"GetDeploymentConfig":                  service.WrapOp(h.handleGetDeploymentConfig),
+		"ListDeploymentConfigs":                service.WrapOp(h.handleListDeploymentConfigs),
+		"DeleteDeploymentConfig":               service.WrapOp(h.handleDeleteDeploymentConfig),
+		"TagResource":                          service.WrapOp(h.handleTagResource),
+		"UntagResource":                        service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource":                  service.WrapOp(h.handleListTagsForResource),
+		"AddTagsToOnPremisesInstances":         service.WrapOp(h.handleAddTagsToOnPremisesInstances),
+		"RemoveTagsFromOnPremisesInstances":    service.WrapOp(h.handleRemoveTagsFromOnPremisesInstances),
+		"RegisterOnPremisesInstance":           service.WrapOp(h.handleRegisterOnPremisesInstance),
+		"DeregisterOnPremisesInstance":         service.WrapOp(h.handleDeregisterOnPremisesInstance),
+		"GetOnPremisesInstance":                service.WrapOp(h.handleGetOnPremisesInstance),
+		"ListOnPremisesInstances":              service.WrapOp(h.handleListOnPremisesInstances),
+		"BatchGetApplicationRevisions":         service.WrapOp(h.handleBatchGetApplicationRevisions),
+		"BatchGetApplications":                 service.WrapOp(h.handleBatchGetApplications),
+		"BatchGetDeploymentGroups":             service.WrapOp(h.handleBatchGetDeploymentGroups),
+		"BatchGetDeploymentInstances":          service.WrapOp(h.handleBatchGetDeploymentInstances),
+		"BatchGetDeploymentTargets":            service.WrapOp(h.handleBatchGetDeploymentTargets),
+		"BatchGetDeployments":                  service.WrapOp(h.handleBatchGetDeployments),
+		"BatchGetOnPremisesInstances":          service.WrapOp(h.handleBatchGetOnPremisesInstances),
+		"RegisterApplicationRevision":          service.WrapOp(h.handleRegisterApplicationRevision),
+		"GetApplicationRevision":               service.WrapOp(h.handleGetApplicationRevision),
+		"ListApplicationRevisions":             service.WrapOp(h.handleListApplicationRevisions),
+		"GetDeploymentInstance":                service.WrapOp(h.handleGetDeploymentInstance),
+		"GetDeploymentTarget":                  service.WrapOp(h.handleGetDeploymentTarget),
+		"ListDeploymentInstances":              service.WrapOp(h.handleListDeploymentInstances),
+		"ListDeploymentTargets":                service.WrapOp(h.handleListDeploymentTargets),
+		"PutLifecycleEventHookExecutionStatus": service.WrapOp(h.handlePutLifecycleEventHookExecutionStatus),
+		"DeleteGitHubAccountToken":             service.WrapOp(h.handleDeleteGitHubAccountToken),
+		"ListGitHubAccountTokenNames":          service.WrapOp(h.handleListGitHubAccountTokenNames),
+		"DeleteResourcesByExternalId":          service.WrapOp(h.handleDeleteResourcesByExternalID),
 	}
 }
 
@@ -977,4 +1023,536 @@ func (h *Handler) handleCreateDeploymentConfig(
 	}
 
 	return &createDeploymentConfigOutput{DeploymentConfigID: cfg.DeploymentConfigID}, nil
+}
+
+// --- Additional ops (stubs and full implementations) ---
+
+type updateApplicationInput struct {
+	ApplicationName    string `json:"applicationName"`
+	NewApplicationName string `json:"newApplicationName"`
+}
+
+type updateApplicationOutput struct{}
+
+func (h *Handler) handleUpdateApplication(
+	_ context.Context,
+	in *updateApplicationInput,
+) (*updateApplicationOutput, error) {
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UpdateApplication(in.ApplicationName, in.NewApplicationName); err != nil {
+		return nil, err
+	}
+
+	return &updateApplicationOutput{}, nil
+}
+
+type updateDeploymentGroupInput struct {
+	ApplicationName            string `json:"applicationName"`
+	CurrentDeploymentGroupName string `json:"currentDeploymentGroupName"`
+	NewDeploymentGroupName     string `json:"newDeploymentGroupName"`
+	ServiceRoleArn             string `json:"serviceRoleArn"`
+	DeploymentConfigName       string `json:"deploymentConfigName"`
+}
+
+type updateDeploymentGroupOutput struct{}
+
+func (h *Handler) handleUpdateDeploymentGroup(
+	_ context.Context,
+	in *updateDeploymentGroupInput,
+) (*updateDeploymentGroupOutput, error) {
+	if in.ApplicationName == "" || in.CurrentDeploymentGroupName == "" {
+		return nil, fmt.Errorf("%w: applicationName and currentDeploymentGroupName are required", errInvalidRequest)
+	}
+
+	return &updateDeploymentGroupOutput{}, nil
+}
+
+type stopDeploymentInput struct {
+	DeploymentID        string `json:"deploymentId"`
+	AutoRollbackEnabled bool   `json:"autoRollbackEnabled"`
+}
+
+type stopDeploymentOutput struct {
+	Status string `json:"status"`
+}
+
+func (h *Handler) handleStopDeployment(
+	_ context.Context,
+	in *stopDeploymentInput,
+) (*stopDeploymentOutput, error) {
+	if in.DeploymentID == "" {
+		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.StopDeployment(in.DeploymentID); err != nil {
+		return nil, err
+	}
+
+	return &stopDeploymentOutput{Status: "Stopped"}, nil
+}
+
+type skipWaitTimeInput struct {
+	DeploymentID string `json:"deploymentId"`
+}
+
+type skipWaitTimeOutput struct{}
+
+func (h *Handler) handleSkipWaitTimeForInstanceTermination(
+	_ context.Context,
+	in *skipWaitTimeInput,
+) (*skipWaitTimeOutput, error) {
+	if in.DeploymentID == "" {
+		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+	}
+
+	return &skipWaitTimeOutput{}, nil
+}
+
+type getDeploymentConfigInput struct {
+	DeploymentConfigName string `json:"deploymentConfigName"`
+}
+
+type deploymentConfigInfo struct {
+	DeploymentConfigID   string `json:"deploymentConfigId"`
+	DeploymentConfigName string `json:"deploymentConfigName"`
+	ComputePlatform      string `json:"computePlatform"`
+	CreateTime           int64  `json:"createTime"`
+}
+
+type getDeploymentConfigOutput struct {
+	DeploymentConfigInfo deploymentConfigInfo `json:"deploymentConfigInfo"`
+}
+
+func (h *Handler) handleGetDeploymentConfig(
+	_ context.Context,
+	in *getDeploymentConfigInput,
+) (*getDeploymentConfigOutput, error) {
+	if in.DeploymentConfigName == "" {
+		return nil, fmt.Errorf("%w: deploymentConfigName is required", errInvalidRequest)
+	}
+
+	cfg, err := h.Backend.GetDeploymentConfig(in.DeploymentConfigName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getDeploymentConfigOutput{
+		DeploymentConfigInfo: deploymentConfigInfo{
+			DeploymentConfigID:   cfg.DeploymentConfigID,
+			DeploymentConfigName: cfg.DeploymentConfigName,
+			ComputePlatform:      cfg.ComputePlatform,
+			CreateTime:           cfg.CreateTime.UnixMilli(),
+		},
+	}, nil
+}
+
+type listDeploymentConfigsInput struct{}
+
+type listDeploymentConfigsOutput struct {
+	DeploymentConfigsList []string `json:"deploymentConfigsList"`
+}
+
+func (h *Handler) handleListDeploymentConfigs(
+	_ context.Context,
+	_ *listDeploymentConfigsInput,
+) (*listDeploymentConfigsOutput, error) {
+	return &listDeploymentConfigsOutput{DeploymentConfigsList: h.Backend.ListDeploymentConfigs()}, nil
+}
+
+type deleteDeploymentConfigInput struct {
+	DeploymentConfigName string `json:"deploymentConfigName"`
+}
+
+type deleteDeploymentConfigOutput struct{}
+
+func (h *Handler) handleDeleteDeploymentConfig(
+	_ context.Context,
+	in *deleteDeploymentConfigInput,
+) (*deleteDeploymentConfigOutput, error) {
+	if in.DeploymentConfigName == "" {
+		return nil, fmt.Errorf("%w: deploymentConfigName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteDeploymentConfig(in.DeploymentConfigName); err != nil {
+		return nil, err
+	}
+
+	return &deleteDeploymentConfigOutput{}, nil
+}
+
+type removeTagsFromOnPremisesInstancesInput struct {
+	InstanceNames []string   `json:"instanceNames"`
+	Tags          []tagEntry `json:"tags"`
+}
+
+type removeTagsFromOnPremisesInstancesOutput struct{}
+
+func (h *Handler) handleRemoveTagsFromOnPremisesInstances(
+	_ context.Context,
+	in *removeTagsFromOnPremisesInstancesInput,
+) (*removeTagsFromOnPremisesInstancesOutput, error) {
+	if len(in.InstanceNames) == 0 {
+		return nil, fmt.Errorf("%w: instanceNames is required", errInvalidRequest)
+	}
+
+	keys := make([]string, 0, len(in.Tags))
+	for _, t := range in.Tags {
+		keys = append(keys, t.Key)
+	}
+
+	if err := h.Backend.RemoveTagsFromOnPremisesInstances(in.InstanceNames, keys); err != nil {
+		return nil, err
+	}
+
+	return &removeTagsFromOnPremisesInstancesOutput{}, nil
+}
+
+type registerOnPremisesInstanceInput struct {
+	InstanceName  string `json:"instanceName"`
+	IamSessionArn string `json:"iamSessionArn"`
+	IamUserArn    string `json:"iamUserArn"`
+}
+
+type registerOnPremisesInstanceOutput struct{}
+
+func (h *Handler) handleRegisterOnPremisesInstance(
+	_ context.Context,
+	in *registerOnPremisesInstanceInput,
+) (*registerOnPremisesInstanceOutput, error) {
+	if in.InstanceName == "" {
+		return nil, fmt.Errorf("%w: instanceName is required", errInvalidRequest)
+	}
+
+	h.Backend.RegisterOnPremisesInstance(in.InstanceName, in.IamSessionArn, in.IamUserArn)
+
+	return &registerOnPremisesInstanceOutput{}, nil
+}
+
+type deregisterOnPremisesInstanceInput struct {
+	InstanceName string `json:"instanceName"`
+}
+
+type deregisterOnPremisesInstanceOutput struct{}
+
+func (h *Handler) handleDeregisterOnPremisesInstance(
+	_ context.Context,
+	in *deregisterOnPremisesInstanceInput,
+) (*deregisterOnPremisesInstanceOutput, error) {
+	if in.InstanceName == "" {
+		return nil, fmt.Errorf("%w: instanceName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeregisterOnPremisesInstance(in.InstanceName); err != nil {
+		return nil, err
+	}
+
+	return &deregisterOnPremisesInstanceOutput{}, nil
+}
+
+type getOnPremisesInstanceInput struct {
+	InstanceName string `json:"instanceName"`
+}
+
+type getOnPremisesInstanceOutput struct {
+	InstanceInfo onPremisesInstanceInfo `json:"instanceInfo"`
+}
+
+func (h *Handler) handleGetOnPremisesInstance(
+	_ context.Context,
+	in *getOnPremisesInstanceInput,
+) (*getOnPremisesInstanceOutput, error) {
+	if in.InstanceName == "" {
+		return nil, fmt.Errorf("%w: instanceName is required", errInvalidRequest)
+	}
+
+	inst, err := h.Backend.GetOnPremisesInstance(in.InstanceName)
+	if err != nil {
+		return nil, err
+	}
+
+	info := onPremisesInstanceInfo{
+		InstanceName:  inst.InstanceName,
+		RegisterTime:  inst.RegisterTime.UnixMilli(),
+		IamSessionArn: inst.IamSessionArn,
+		IamUserArn:    inst.IamUserArn,
+	}
+
+	if inst.DeregisterTime != nil {
+		ms := inst.DeregisterTime.UnixMilli()
+		info.DeregisterTime = &ms
+	}
+
+	if inst.Tags != nil {
+		info.Tags = tagsToSortedSlice(inst.Tags.Clone())
+	} else {
+		info.Tags = []tagEntry{}
+	}
+
+	return &getOnPremisesInstanceOutput{InstanceInfo: info}, nil
+}
+
+type listOnPremisesInstancesInput struct {
+	RegistrationStatus string     `json:"registrationStatus"`
+	TagFilters         []tagEntry `json:"tagFilters"`
+}
+
+type listOnPremisesInstancesOutput struct {
+	InstanceNames []string `json:"instanceNames"`
+}
+
+func (h *Handler) handleListOnPremisesInstances(
+	_ context.Context,
+	in *listOnPremisesInstancesInput,
+) (*listOnPremisesInstancesOutput, error) {
+	return &listOnPremisesInstancesOutput{
+		InstanceNames: h.Backend.ListOnPremisesInstances(in.RegistrationStatus),
+	}, nil
+}
+
+type registerApplicationRevisionInput struct {
+	ApplicationName string                `json:"applicationName"`
+	Description     string                `json:"description"`
+	Revision        revisionLocationInput `json:"revision"`
+}
+
+type registerApplicationRevisionOutput struct{}
+
+func (h *Handler) handleRegisterApplicationRevision(
+	_ context.Context,
+	in *registerApplicationRevisionInput,
+) (*registerApplicationRevisionOutput, error) {
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.GetApplication(in.ApplicationName); err != nil {
+		return nil, err
+	}
+
+	return &registerApplicationRevisionOutput{}, nil
+}
+
+type getApplicationRevisionInput struct {
+	ApplicationName string                `json:"applicationName"`
+	Revision        revisionLocationInput `json:"revision"`
+}
+
+type getApplicationRevisionOutput struct {
+	ApplicationName string                `json:"applicationName"`
+	Revision        revisionLocationInput `json:"revision"`
+}
+
+func (h *Handler) handleGetApplicationRevision(
+	_ context.Context,
+	in *getApplicationRevisionInput,
+) (*getApplicationRevisionOutput, error) {
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.GetApplication(in.ApplicationName); err != nil {
+		return nil, err
+	}
+
+	return &getApplicationRevisionOutput{
+		ApplicationName: in.ApplicationName,
+		Revision:        in.Revision,
+	}, nil
+}
+
+type listApplicationRevisionsInput struct {
+	ApplicationName string `json:"applicationName"`
+}
+
+type listApplicationRevisionsOutput struct {
+	Revisions []revisionLocationInput `json:"revisions"`
+}
+
+func (h *Handler) handleListApplicationRevisions(
+	_ context.Context,
+	in *listApplicationRevisionsInput,
+) (*listApplicationRevisionsOutput, error) {
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.GetApplication(in.ApplicationName); err != nil {
+		return nil, err
+	}
+
+	return &listApplicationRevisionsOutput{Revisions: []revisionLocationInput{}}, nil
+}
+
+type getDeploymentInstanceInput struct {
+	DeploymentID string `json:"deploymentId"`
+	InstanceID   string `json:"instanceId"`
+}
+
+type getDeploymentInstanceOutput struct {
+	InstanceSummary InstanceSummaryItem `json:"instanceSummary"`
+}
+
+func (h *Handler) handleGetDeploymentInstance(
+	_ context.Context,
+	in *getDeploymentInstanceInput,
+) (*getDeploymentInstanceOutput, error) {
+	if in.DeploymentID == "" || in.InstanceID == "" {
+		return nil, fmt.Errorf("%w: deploymentId and instanceId are required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
+		return nil, err
+	}
+
+	return &getDeploymentInstanceOutput{
+		InstanceSummary: InstanceSummaryItem{
+			DeploymentID: in.DeploymentID,
+			InstanceID:   in.InstanceID,
+			Status:       statusSucceeded,
+		},
+	}, nil
+}
+
+type getDeploymentTargetInput struct {
+	DeploymentID string `json:"deploymentId"`
+	TargetID     string `json:"targetId"`
+}
+
+type getDeploymentTargetOutput struct {
+	DeploymentTarget DeploymentTargetItem `json:"deploymentTarget"`
+}
+
+func (h *Handler) handleGetDeploymentTarget(
+	_ context.Context,
+	in *getDeploymentTargetInput,
+) (*getDeploymentTargetOutput, error) {
+	if in.DeploymentID == "" || in.TargetID == "" {
+		return nil, fmt.Errorf("%w: deploymentId and targetId are required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
+		return nil, err
+	}
+
+	return &getDeploymentTargetOutput{
+		DeploymentTarget: DeploymentTargetItem{
+			DeploymentID: in.DeploymentID,
+			TargetID:     in.TargetID,
+			Status:       statusSucceeded,
+			TargetType:   "instanceTarget",
+		},
+	}, nil
+}
+
+type listDeploymentInstancesInput struct {
+	DeploymentID string `json:"deploymentId"`
+}
+
+type listDeploymentInstancesOutput struct {
+	InstancesList []string `json:"instancesList"`
+}
+
+func (h *Handler) handleListDeploymentInstances(
+	_ context.Context,
+	in *listDeploymentInstancesInput,
+) (*listDeploymentInstancesOutput, error) {
+	if in.DeploymentID == "" {
+		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
+		return nil, err
+	}
+
+	return &listDeploymentInstancesOutput{InstancesList: []string{}}, nil
+}
+
+type listDeploymentTargetsInput struct {
+	DeploymentID string `json:"deploymentId"`
+}
+
+type listDeploymentTargetsOutput struct {
+	TargetIDs []string `json:"targetIds"`
+}
+
+func (h *Handler) handleListDeploymentTargets(
+	_ context.Context,
+	in *listDeploymentTargetsInput,
+) (*listDeploymentTargetsOutput, error) {
+	if in.DeploymentID == "" {
+		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
+		return nil, err
+	}
+
+	return &listDeploymentTargetsOutput{TargetIDs: []string{}}, nil
+}
+
+type putLifecycleEventHookExecutionStatusInput struct {
+	DeploymentID                  string `json:"deploymentId"`
+	LifecycleEventHookExecutionID string `json:"lifecycleEventHookExecutionId"`
+	Status                        string `json:"status"`
+}
+
+type putLifecycleEventHookExecutionStatusOutput struct {
+	LifecycleEventHookExecutionID string `json:"lifecycleEventHookExecutionId"`
+}
+
+func (h *Handler) handlePutLifecycleEventHookExecutionStatus(
+	_ context.Context,
+	in *putLifecycleEventHookExecutionStatusInput,
+) (*putLifecycleEventHookExecutionStatusOutput, error) {
+	if in.DeploymentID == "" {
+		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+	}
+
+	return &putLifecycleEventHookExecutionStatusOutput{
+		LifecycleEventHookExecutionID: in.LifecycleEventHookExecutionID,
+	}, nil
+}
+
+type deleteGitHubAccountTokenInput struct {
+	TokenName string `json:"tokenName"`
+}
+
+type deleteGitHubAccountTokenOutput struct {
+	TokenName string `json:"tokenName"`
+}
+
+func (h *Handler) handleDeleteGitHubAccountToken(
+	_ context.Context,
+	in *deleteGitHubAccountTokenInput,
+) (*deleteGitHubAccountTokenOutput, error) {
+	return &deleteGitHubAccountTokenOutput{TokenName: in.TokenName}, nil
+}
+
+type listGitHubAccountTokenNamesInput struct{}
+
+type listGitHubAccountTokenNamesOutput struct {
+	TokenNameList []string `json:"tokenNameList"`
+}
+
+func (h *Handler) handleListGitHubAccountTokenNames(
+	_ context.Context,
+	_ *listGitHubAccountTokenNamesInput,
+) (*listGitHubAccountTokenNamesOutput, error) {
+	return &listGitHubAccountTokenNamesOutput{TokenNameList: []string{}}, nil
+}
+
+type deleteResourcesByExternalIDInput struct {
+	ExternalID string `json:"externalId"`
+}
+
+type deleteResourcesByExternalIDOutput struct{}
+
+func (h *Handler) handleDeleteResourcesByExternalID(
+	_ context.Context,
+	_ *deleteResourcesByExternalIDInput,
+) (*deleteResourcesByExternalIDOutput, error) {
+	return &deleteResourcesByExternalIDOutput{}, nil
 }

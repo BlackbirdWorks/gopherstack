@@ -320,24 +320,55 @@
 					<p>No destinations configured</p>
 				</div>
 			{:else}
-				<div class="space-y-3">
+				<div class="space-y-4">
 					{#each selectedStream.Destinations ?? [] as dest}
-						<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+						{@const retryDuration = getRetryDuration(dest)}
+						{@const maxRetry = 7200}
+						<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
 							<div class="flex items-start gap-3">
 								<Archive class="w-5 h-5 text-red-500 mt-0.5" />
 								<div class="flex-1">
 									<div class="font-medium text-sm">{dest.DestinationId}</div>
 									<div class="text-xs text-gray-500 mt-1">{getDestinationLabel(dest)}</div>
-									<div class="mt-2 grid grid-cols-2 gap-2 text-xs">
-										{#if dest.S3DestinationDescription}
-											<div class="text-gray-500">Buffer Size: {dest.S3DestinationDescription.BufferingHints?.SizeInMBs ?? '-'} MB</div>
-											<div class="text-gray-500">Buffer Interval: {dest.S3DestinationDescription.BufferingHints?.IntervalInSeconds ?? '-'}s</div>
-											<div class="text-gray-500">Compression: {dest.S3DestinationDescription.CompressionFormat ?? 'UNCOMPRESSED'}</div>
-										{/if}
-										{#if getRetryDuration(dest) !== undefined}
-											<div class="text-gray-500 font-medium">Retry Duration: {getRetryDuration(dest)}s</div>
-										{/if}
-									</div>
+
+									{#if dest.S3DestinationDescription}
+										<div class="mt-3 grid grid-cols-3 gap-3 text-xs">
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+												<div class="text-gray-400 mb-1">Buffer Size</div>
+												<div class="font-semibold text-gray-800 dark:text-gray-200">{dest.S3DestinationDescription.BufferingHints?.SizeInMBs ?? '-'} MB</div>
+											</div>
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+												<div class="text-gray-400 mb-1">Buffer Interval</div>
+												<div class="font-semibold text-gray-800 dark:text-gray-200">{dest.S3DestinationDescription.BufferingHints?.IntervalInSeconds ?? '-'}s</div>
+											</div>
+											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
+												<div class="text-gray-400 mb-1">Compression</div>
+												<div class="font-semibold text-gray-800 dark:text-gray-200">{dest.S3DestinationDescription.CompressionFormat ?? 'UNCOMPRESSED'}</div>
+											</div>
+										</div>
+									{/if}
+
+									{#if retryDuration !== undefined}
+										<div class="mt-3 border border-orange-200 dark:border-orange-800 rounded-lg p-3 bg-orange-50 dark:bg-orange-900/20">
+											<div class="flex items-center justify-between mb-2">
+												<span class="text-xs font-medium text-orange-700 dark:text-orange-400">Retry Policy</span>
+												<span class="text-xs font-bold text-orange-700 dark:text-orange-400">{retryDuration}s</span>
+											</div>
+											<div class="w-full bg-orange-100 dark:bg-orange-900/40 rounded-full h-2">
+												<div
+													class="bg-orange-500 dark:bg-orange-400 h-2 rounded-full transition-all"
+													style="width: {Math.min(100, Math.round((retryDuration / maxRetry) * 100))}%"
+												></div>
+											</div>
+											<div class="flex justify-between text-xs text-orange-500 mt-1">
+												<span>0s</span>
+												<span class="text-orange-600 dark:text-orange-400">
+													{retryDuration < 60 ? `${retryDuration}s` : retryDuration < 3600 ? `${Math.round(retryDuration/60)}m` : `${(retryDuration/3600).toFixed(1)}h`}
+												</span>
+												<span>{maxRetry / 3600}h max</span>
+											</div>
+										</div>
+									{/if}
 								</div>
 							</div>
 						</div>

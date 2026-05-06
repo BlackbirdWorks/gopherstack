@@ -17,29 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := codedeploy.NewInMemoryBackend("000000000000", "us-east-1")
 	h := codedeploy.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &codedeploysdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteDeploymentConfig",
-		"DeleteGitHubAccountToken",
-		"DeleteResourcesByExternalId",
-		"DeregisterOnPremisesInstance",
-		"GetApplicationRevision",
-		"GetDeploymentConfig",
-		"GetDeploymentInstance",
-		"GetDeploymentTarget",
-		"GetOnPremisesInstance",
-		"ListApplicationRevisions",
-		"ListDeploymentConfigs",
-		"ListDeploymentInstances",
-		"ListDeploymentTargets",
-		"ListGitHubAccountTokenNames",
-		"ListOnPremisesInstances",
-		"PutLifecycleEventHookExecutionStatus",
-		"RegisterApplicationRevision",
-		"RegisterOnPremisesInstance",
-		"RemoveTagsFromOnPremisesInstances",
-		"SkipWaitTimeForInstanceTermination",
-		"StopDeployment",
-		"UpdateApplication",
-		"UpdateDeploymentGroup",
-	})
+	sdkcheck.CheckCompleteness(t, &codedeploysdk.Client{}, h.GetSupportedOperations(), []string{})
 }

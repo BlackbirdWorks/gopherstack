@@ -9,11 +9,20 @@
 		GetDeploymentCommand,
 		CreateDeploymentCommand,
 		StopDeploymentCommand,
+		ListDeploymentConfigsCommand,
+		GetDeploymentConfigCommand,
+		CreateDeploymentConfigCommand,
+		ListOnPremisesInstancesCommand,
+		GetOnPremisesInstanceCommand,
+		RegisterOnPremisesInstanceCommand,
+		DeregisterOnPremisesInstanceCommand,
 		type ApplicationInfo,
-		type DeploymentInfo
+		type DeploymentInfo,
+		type DeploymentConfigInfo,
+		type InstanceInfo
 	} from '@aws-sdk/client-codedeploy';
 	import { toast } from 'svelte-sonner';
-	import { Package, Search, RefreshCw, Plus, XCircle, ChevronRight, Play, CheckCircle, AlertCircle } from 'lucide-svelte';
+	import { Package, Search, RefreshCw, Plus, XCircle, ChevronRight, Play, CheckCircle, AlertCircle, Server, Settings } from 'lucide-svelte';
 
 	const codedeploy = getCodeDeployClient();
 
@@ -42,6 +51,26 @@
 	let deployGitHubUser = $state('');
 	let deployGitHubRepo = $state('');
 	let deployGitHubCommit = $state('');
+
+	// Main view tabs
+	type MainView = 'applications' | 'configs' | 'onprem';
+	let mainView = $state<MainView>('applications');
+
+	// Deployment Configs
+	let deployConfigs = $state<DeploymentConfigInfo[]>([]);
+	let loadingConfigs = $state(false);
+	let showCreateConfig = $state(false);
+	let newConfigName = $state('');
+	let newConfigPlatform = $state('Server');
+	let creatingConfig = $state(false);
+
+	// On-prem Instances
+	let onPremInstances = $state<InstanceInfo[]>([]);
+	let loadingOnPrem = $state(false);
+	let showRegisterInstance = $state(false);
+	let newInstanceName = $state('');
+	let newInstanceIamArn = $state('');
+	let registeringInstance = $state(false);
 
 	const filteredApps = $derived(
 		appNames.filter((n) => !searchQuery || n.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -179,6 +208,99 @@
 		return d.toLocaleString();
 	}
 
+	async function loadConfigs() {
+		loadingConfigs = true;
+		try {
+			const listResp = await codedeploy.send(new ListDeploymentConfigsCommand({}));
+			const names = listResp.deploymentConfigsList ?? [];
+			const details = await Promise.allSettled(
+				names.map((n) => codedeploy.send(new GetDeploymentConfigCommand({ deploymentConfigName: n })).then((r) => r.deploymentConfigInfo))
+			);
+			deployConfigs = details
+				.filter((r) => r.status === 'fulfilled')
+				.map((r) => (r as PromiseFulfilledResult<DeploymentConfigInfo | undefined>).value!)
+				.filter(Boolean);
+		} catch (e) {
+			toast.error('Failed to load deployment configs: ' + String(e));
+		} finally {
+			loadingConfigs = false;
+		}
+	}
+
+	async function createConfig() {
+		if (!newConfigName.trim()) return;
+		creatingConfig = true;
+		try {
+			await codedeploy.send(new CreateDeploymentConfigCommand({
+				deploymentConfigName: newConfigName.trim(),
+				computePlatform: newConfigPlatform as 'Server' | 'Lambda' | 'ECS'
+			}));
+			toast.success(`Config "${newConfigName}" created`);
+			showCreateConfig = false;
+			newConfigName = '';
+			await loadConfigs();
+		} catch (e) {
+			toast.error('Failed to create config: ' + String(e));
+		} finally {
+			creatingConfig = false;
+		}
+	}
+
+	async function loadOnPremInstances() {
+		loadingOnPrem = true;
+		try {
+			const listResp = await codedeploy.send(new ListOnPremisesInstancesCommand({}));
+			const names = listResp.instanceNames ?? [];
+			const details = await Promise.allSettled(
+				names.map((n) => codedeploy.send(new GetOnPremisesInstanceCommand({ instanceName: n })).then((r) => r.instanceInfo))
+			);
+			onPremInstances = details
+				.filter((r) => r.status === 'fulfilled')
+				.map((r) => (r as PromiseFulfilledResult<InstanceInfo | undefined>).value!)
+				.filter(Boolean);
+		} catch (e) {
+			toast.error('Failed to load on-prem instances: ' + String(e));
+		} finally {
+			loadingOnPrem = false;
+		}
+	}
+
+	async function registerInstance() {
+		if (!newInstanceName.trim()) return;
+		registeringInstance = true;
+		try {
+			await codedeploy.send(new RegisterOnPremisesInstanceCommand({
+				instanceName: newInstanceName.trim(),
+				iamUserArn: newInstanceIamArn.trim() || undefined
+			}));
+			toast.success(`Instance "${newInstanceName}" registered`);
+			showRegisterInstance = false;
+			newInstanceName = '';
+			newInstanceIamArn = '';
+			await loadOnPremInstances();
+		} catch (e) {
+			toast.error('Failed to register instance: ' + String(e));
+		} finally {
+			registeringInstance = false;
+		}
+	}
+
+	async function deregisterInstance(name: string) {
+		try {
+			await codedeploy.send(new DeregisterOnPremisesInstanceCommand({ instanceName: name }));
+			toast.success(`Instance "${name}" deregistered`);
+			await loadOnPremInstances();
+		} catch (e) {
+			toast.error('Failed to deregister: ' + String(e));
+		}
+	}
+
+	function switchMainView(v: MainView) {
+		mainView = v;
+		if (v === 'configs' && deployConfigs.length === 0) loadConfigs();
+		if (v === 'onprem' && onPremInstances.length === 0) loadOnPremInstances();
+	}
+
 	onMount(loadApps);
 </script>
 
@@ -197,7 +319,121 @@
 		</button>
 	</div>
 
-	{#if selectedApp}
+	<!-- View tabs (only shown when not in app detail) -->
+	{#if !selectedApp}
+		<div class="flex gap-2">
+			{#each ([['applications', 'Applications', Package], ['configs', 'Deployment Configs', Settings], ['onprem', 'On-Prem Instances', Server]] as const) as [v, label, Icon]}
+				<button
+					onclick={() => switchMainView(v)}
+					class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all {mainView === v ? 'bg-green-600 text-white shadow' : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}"
+				>
+					<Icon class="w-4 h-4" />{label}
+				</button>
+			{/each}
+		</div>
+	{/if}
+
+	{#if mainView === 'configs' && !selectedApp}
+		<!-- Deployment Configs View -->
+		<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Deployment Configurations</h2>
+				<div class="flex gap-2">
+					<button onclick={loadConfigs} class="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50">
+						<RefreshCw class="w-3.5 h-3.5 {loadingConfigs ? 'animate-spin' : ''}" /> Refresh
+					</button>
+					<button onclick={() => (showCreateConfig = true)} class="flex items-center gap-2 text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">
+						<Plus class="w-3.5 h-3.5" /> New Config
+					</button>
+				</div>
+			</div>
+			{#if loadingConfigs}
+				<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full"></div></div>
+			{:else if deployConfigs.length === 0}
+				<div class="text-center py-12 text-gray-500">
+					<Settings class="w-10 h-10 mx-auto mb-2 opacity-40" />
+					<p>No deployment configurations found</p>
+				</div>
+			{:else}
+				<div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Config Name</th>
+								<th class="px-4 py-3 text-left">Platform</th>
+								<th class="px-4 py-3 text-left">Config ID</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each deployConfigs as cfg}
+								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+									<td class="px-4 py-3 font-medium text-green-600 dark:text-green-400">{cfg.deploymentConfigName}</td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{cfg.computePlatform ?? 'Server'}</td>
+									<td class="px-4 py-3 text-gray-500 font-mono text-xs">{cfg.deploymentConfigId}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{:else if mainView === 'onprem' && !selectedApp}
+		<!-- On-Prem Instances View -->
+		<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">On-Premises Instances</h2>
+				<div class="flex gap-2">
+					<button onclick={loadOnPremInstances} class="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50">
+						<RefreshCw class="w-3.5 h-3.5 {loadingOnPrem ? 'animate-spin' : ''}" /> Refresh
+					</button>
+					<button onclick={() => (showRegisterInstance = true)} class="flex items-center gap-2 text-sm bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700">
+						<Plus class="w-3.5 h-3.5" /> Register
+					</button>
+				</div>
+			</div>
+			{#if loadingOnPrem}
+				<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full"></div></div>
+			{:else if onPremInstances.length === 0}
+				<div class="text-center py-12 text-gray-500">
+					<Server class="w-10 h-10 mx-auto mb-2 opacity-40" />
+					<p>No on-premises instances registered</p>
+				</div>
+			{:else}
+				<div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Instance Name</th>
+								<th class="px-4 py-3 text-left">IAM ARN</th>
+								<th class="px-4 py-3 text-left">Registered</th>
+								<th class="px-4 py-3 text-left">Status</th>
+								<th class="px-4 py-3 text-left">Actions</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each onPremInstances as inst}
+								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+									<td class="px-4 py-3 font-medium text-gray-900 dark:text-white">{inst.instanceName}</td>
+									<td class="px-4 py-3 text-gray-500 text-xs font-mono truncate max-w-xs">{inst.iamUserArn ?? inst.iamSessionArn ?? '-'}</td>
+									<td class="px-4 py-3 text-gray-500 text-xs">{inst.registerTime ? new Date(inst.registerTime).toLocaleDateString() : '-'}</td>
+									<td class="px-4 py-3">
+										<span class="px-2 py-0.5 rounded text-xs {inst.deregisterTime ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-700'}">
+											{inst.deregisterTime ? 'Deregistered' : 'Registered'}
+										</span>
+									</td>
+									<td class="px-4 py-3">
+										{#if !inst.deregisterTime}
+											<button onclick={() => deregisterInstance(inst.instanceName ?? '')} class="text-xs text-red-500 hover:text-red-700">Deregister</button>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{:else if selectedApp}
 		<!-- App Detail -->
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-2 text-sm">
@@ -403,6 +639,56 @@
 				<button onclick={() => { showCreateDeployment = false; resetDeployForm(); }} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50">Cancel</button>
 				<button onclick={createDeployment} disabled={creatingDeployment || !deployGroup.trim()} class="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
 					{creatingDeployment ? 'Deploying...' : 'Deploy'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Config Modal -->
+{#if showCreateConfig}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Deployment Config</h2>
+			<div>
+				<label for="cfg-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Config Name</label>
+				<input id="cfg-name" bind:value={newConfigName} type="text" placeholder="MyDeploymentConfig" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div>
+				<label for="cfg-platform" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Compute Platform</label>
+				<select id="cfg-platform" bind:value={newConfigPlatform} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+					<option value="Server">Server</option>
+					<option value="Lambda">Lambda</option>
+					<option value="ECS">ECS</option>
+				</select>
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showCreateConfig = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50">Cancel</button>
+				<button onclick={createConfig} disabled={creatingConfig || !newConfigName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+					{creatingConfig ? 'Creating...' : 'Create'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Register Instance Modal -->
+{#if showRegisterInstance}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Register On-Premises Instance</h2>
+			<div>
+				<label for="inst-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Instance Name</label>
+				<input id="inst-name" bind:value={newInstanceName} type="text" placeholder="my-on-prem-server" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div>
+				<label for="inst-iam" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IAM User ARN (optional)</label>
+				<input id="inst-iam" bind:value={newInstanceIamArn} type="text" placeholder="arn:aws:iam::123456789012:user/codedeploy-agent" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showRegisterInstance = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50">Cancel</button>
+				<button onclick={registerInstance} disabled={registeringInstance || !newInstanceName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+					{registeringInstance ? 'Registering...' : 'Register'}
 				</button>
 			</div>
 		</div>

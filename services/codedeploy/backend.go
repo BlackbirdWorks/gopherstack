@@ -938,6 +938,183 @@ func (b *InMemoryBackend) AddOnPremisesInstanceInternal(inst *OnPremisesInstance
 	b.onPremisesInstances[inst.InstanceName] = inst
 }
 
+// UpdateApplication renames a CodeDeploy application.
+func (b *InMemoryBackend) UpdateApplication(name, newName string) error {
+	b.mu.Lock("UpdateApplication")
+	defer b.mu.Unlock()
+
+	app, ok := b.applications[name]
+	if !ok {
+		return fmt.Errorf("%w: application %s not found", ErrNotFound, name)
+	}
+
+	if newName == "" || newName == name {
+		return nil
+	}
+
+	if _, exists := b.applications[newName]; exists {
+		return fmt.Errorf("%w: application %s already exists", ErrAlreadyExists, newName)
+	}
+
+	app.ApplicationName = newName
+	b.applications[newName] = app
+	delete(b.applications, name)
+
+	if dgs, ok2 := b.deploymentGroups[name]; ok2 {
+		b.deploymentGroups[newName] = dgs
+		delete(b.deploymentGroups, name)
+	}
+
+	return nil
+}
+
+// StopDeployment marks a deployment as Stopped.
+func (b *InMemoryBackend) StopDeployment(deploymentID string) error {
+	b.mu.Lock("StopDeployment")
+	defer b.mu.Unlock()
+
+	d, ok := b.deployments[deploymentID]
+	if !ok {
+		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+	}
+
+	d.Status = "Stopped"
+
+	return nil
+}
+
+// GetDeploymentConfig returns a deployment configuration by name.
+func (b *InMemoryBackend) GetDeploymentConfig(name string) (*DeploymentConfig, error) {
+	b.mu.RLock("GetDeploymentConfig")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.deploymentConfigs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: deployment config %s not found", ErrDeploymentConfigNotFound, name)
+	}
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// ListDeploymentConfigs returns all deployment config names in sorted order.
+func (b *InMemoryBackend) ListDeploymentConfigs() []string {
+	b.mu.RLock("ListDeploymentConfigs")
+	defer b.mu.RUnlock()
+
+	names := make([]string, 0, len(b.deploymentConfigs))
+	for name := range b.deploymentConfigs {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+// DeleteDeploymentConfig deletes a deployment configuration by name.
+func (b *InMemoryBackend) DeleteDeploymentConfig(name string) error {
+	b.mu.Lock("DeleteDeploymentConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.deploymentConfigs[name]; !ok {
+		return fmt.Errorf("%w: deployment config %s not found", ErrDeploymentConfigNotFound, name)
+	}
+
+	delete(b.deploymentConfigs, name)
+
+	return nil
+}
+
+// RemoveTagsFromOnPremisesInstances removes tag keys from the given on-premises instances.
+func (b *InMemoryBackend) RemoveTagsFromOnPremisesInstances(instanceNames []string, keys []string) error {
+	b.mu.Lock("RemoveTagsFromOnPremisesInstances")
+	defer b.mu.Unlock()
+
+	for _, name := range instanceNames {
+		inst, ok := b.onPremisesInstances[name]
+		if !ok {
+			continue
+		}
+
+		inst.Tags.DeleteKeys(keys)
+	}
+
+	return nil
+}
+
+// RegisterOnPremisesInstance registers a new on-premises instance.
+func (b *InMemoryBackend) RegisterOnPremisesInstance(name, iamSessionArn, iamUserArn string) {
+	b.mu.Lock("RegisterOnPremisesInstance")
+	defer b.mu.Unlock()
+
+	if _, ok := b.onPremisesInstances[name]; ok {
+		return
+	}
+
+	t := tags.New("codedeploy.onprem." + name + ".tags")
+	b.onPremisesInstances[name] = &OnPremisesInstance{
+		InstanceName:  name,
+		IamSessionArn: iamSessionArn,
+		IamUserArn:    iamUserArn,
+		RegisterTime:  time.Now().UTC(),
+		Tags:          t,
+	}
+}
+
+// DeregisterOnPremisesInstance marks an on-premises instance as deregistered.
+func (b *InMemoryBackend) DeregisterOnPremisesInstance(name string) error {
+	b.mu.Lock("DeregisterOnPremisesInstance")
+	defer b.mu.Unlock()
+
+	inst, ok := b.onPremisesInstances[name]
+	if !ok {
+		return fmt.Errorf("%w: instance %s not found", ErrOnPremisesInstanceNotFound, name)
+	}
+
+	now := time.Now().UTC()
+	inst.DeregisterTime = &now
+
+	return nil
+}
+
+// GetOnPremisesInstance returns an on-premises instance by name.
+func (b *InMemoryBackend) GetOnPremisesInstance(name string) (*OnPremisesInstance, error) {
+	b.mu.RLock("GetOnPremisesInstance")
+	defer b.mu.RUnlock()
+
+	inst, ok := b.onPremisesInstances[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: instance %s not found", ErrOnPremisesInstanceNotFound, name)
+	}
+
+	cp := *inst
+
+	return &cp, nil
+}
+
+// ListOnPremisesInstances returns instance names, optionally filtered by registration status.
+func (b *InMemoryBackend) ListOnPremisesInstances(registrationStatus string) []string {
+	b.mu.RLock("ListOnPremisesInstances")
+	defer b.mu.RUnlock()
+
+	names := make([]string, 0, len(b.onPremisesInstances))
+	for name, inst := range b.onPremisesInstances {
+		if registrationStatus == "Deregistered" && inst.DeregisterTime == nil {
+			continue
+		}
+		if registrationStatus == "Registered" && inst.DeregisterTime != nil {
+			continue
+		}
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
 // AddDeploymentConfigInternal adds a deployment config directly to the backend without validation.
 // Used for test seeding only.
 func (b *InMemoryBackend) AddDeploymentConfigInternal(cfg *DeploymentConfig) {

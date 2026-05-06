@@ -9,8 +9,14 @@
 		BatchGetBuildsCommand,
 		CreateProjectCommand,
 		DeleteProjectCommand,
+		ListFleetsCommand,
+		BatchGetFleetsCommand,
+		ListReportGroupsCommand,
+		BatchGetReportGroupsCommand,
 		type Project,
 		type Build,
+		type Fleet,
+		type ReportGroup,
 		SourceType,
 		ArtifactsType,
 		EnvironmentType,
@@ -41,6 +47,14 @@
 	let showCreateModal = $state(false);
 	let newProjectName = $state('');
 	let creating = $state(false);
+
+	// Fleet + Report Group state
+	type MainView = 'projects' | 'fleets' | 'reportgroups';
+	let mainView = $state<MainView>('projects');
+	let fleets = $state<Fleet[]>([]);
+	let reportGroups = $state<ReportGroup[]>([]);
+	let loadingFleets = $state(false);
+	let loadingReportGroups = $state(false);
 
 	// Derived
 	const filteredProjects = $derived(
@@ -136,6 +150,48 @@
 		return 'text-slate-400';
 	}
 
+	async function loadFleets() {
+		loadingFleets = true;
+		try {
+			const listRes = await codebuild.send(new ListFleetsCommand({}));
+			const arns = listRes.fleets ?? [];
+			if (arns.length > 0) {
+				const batchRes = await codebuild.send(new BatchGetFleetsCommand({ names: arns }));
+				fleets = batchRes.fleets ?? [];
+			} else {
+				fleets = [];
+			}
+		} catch (err: unknown) {
+			toast.error(`Failed to load fleets: ${(err as Error).message}`);
+		} finally {
+			loadingFleets = false;
+		}
+	}
+
+	async function loadReportGroups() {
+		loadingReportGroups = true;
+		try {
+			const listRes = await codebuild.send(new ListReportGroupsCommand({}));
+			const arns = listRes.reportGroups ?? [];
+			if (arns.length > 0) {
+				const batchRes = await codebuild.send(new BatchGetReportGroupsCommand({ reportGroupArns: arns }));
+				reportGroups = batchRes.reportGroups ?? [];
+			} else {
+				reportGroups = [];
+			}
+		} catch (err: unknown) {
+			toast.error(`Failed to load report groups: ${(err as Error).message}`);
+		} finally {
+			loadingReportGroups = false;
+		}
+	}
+
+	function switchView(v: MainView) {
+		mainView = v;
+		if (v === 'fleets' && fleets.length === 0) loadFleets();
+		if (v === 'reportgroups' && reportGroups.length === 0) loadReportGroups();
+	}
+
 	onMount(() => {
 		loadProjects();
 	});
@@ -170,6 +226,103 @@
 			</button>
 		</div>
 	</div>
+
+	<!-- View switcher tabs -->
+	<div class="flex gap-2">
+		{#each ([['projects', 'Projects', Box], ['fleets', 'Fleets', Layers], ['reportgroups', 'Report Groups', BarChart3]] as const) as [v, label, Icon]}
+			<button
+				onclick={() => switchView(v)}
+				class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all {mainView === v ? 'bg-blue-600 text-white shadow-lg' : 'bg-white/40 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600'}"
+			>
+				<Icon class="w-4 h-4" />
+				{label}
+			</button>
+		{/each}
+	</div>
+
+	{#if mainView === 'fleets'}
+		<!-- Fleet Management -->
+		<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Compute Fleets</h2>
+				<button onclick={loadFleets} class="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700">
+					<RefreshCw class="w-4 h-4 {loadingFleets ? 'animate-spin' : ''}" /> Refresh
+				</button>
+			</div>
+			{#if loadingFleets}
+				<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div></div>
+			{:else if fleets.length === 0}
+				<div class="text-center py-12 text-gray-500">
+					<Layers class="w-10 h-10 mx-auto mb-2 opacity-40" />
+					<p>No compute fleets found</p>
+				</div>
+			{:else}
+				<div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Fleet Name</th>
+								<th class="px-4 py-3 text-left">Compute Type</th>
+								<th class="px-4 py-3 text-left">Environment</th>
+								<th class="px-4 py-3 text-left">Capacity</th>
+								<th class="px-4 py-3 text-left">Status</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each fleets as fleet}
+								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+									<td class="px-4 py-3 font-medium text-blue-600 dark:text-blue-400">{fleet.name}</td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{fleet.computeType ?? '-'}</td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{fleet.environmentType ?? '-'}</td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{fleet.currentCapacity ?? fleet.desiredCapacity ?? '-'}</td>
+									<td class="px-4 py-3">
+										<span class="px-2 py-0.5 rounded text-xs font-medium {fleet.statusMessage === 'ACTIVE' || (fleet.status?.statusCode ?? '') === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}">
+											{fleet.status?.statusCode ?? fleet.statusMessage ?? 'ACTIVE'}
+										</span>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{:else if mainView === 'reportgroups'}
+		<!-- Report Groups -->
+		<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Report Groups</h2>
+				<button onclick={loadReportGroups} class="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700">
+					<RefreshCw class="w-4 h-4 {loadingReportGroups ? 'animate-spin' : ''}" /> Refresh
+				</button>
+			</div>
+			{#if loadingReportGroups}
+				<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div></div>
+			{:else if reportGroups.length === 0}
+				<div class="text-center py-12 text-gray-500">
+					<BarChart3 class="w-10 h-10 mx-auto mb-2 opacity-40" />
+					<p>No report groups found</p>
+				</div>
+			{:else}
+				<div class="space-y-3">
+					{#each reportGroups as rg}
+						<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+							<div class="flex items-start justify-between">
+								<div>
+									<div class="font-medium text-sm text-gray-900 dark:text-white">{rg.name}</div>
+									<div class="text-xs text-gray-500 mt-1">Type: {rg.type ?? '-'}</div>
+									<div class="text-xs text-gray-500 font-mono break-all mt-1">{rg.arn}</div>
+								</div>
+								<span class="px-2 py-0.5 rounded text-xs font-medium {rg.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}">
+									{rg.status ?? 'ACTIVE'}
+								</span>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	{:else}
 
 	<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 		<!-- Project List -->
@@ -374,6 +527,7 @@
 			{/if}
 		</div>
 	</div>
+	{/if}
 </div>
 
 <!-- Create Modal -->

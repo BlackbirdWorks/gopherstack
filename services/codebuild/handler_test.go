@@ -965,7 +965,7 @@ func TestHandler_ChaosOperations(t *testing.T) {
 	}{
 		{
 			name:    "returns all supported operations",
-			wantLen: 24,
+			wantLen: 62,
 			wantOps: []string{
 				"CreateProject",
 				"BatchGetProjects",
