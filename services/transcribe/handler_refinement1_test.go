@@ -46,7 +46,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := transcribe.NewInMemoryBackend()
 	h := transcribe.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 14)
+	assert.Len(t, h.GetSupportedOperations(), 43)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
@@ -117,13 +117,13 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	assert.Equal(t, 0, transcribe.JobCount(b))
 }
 
-// TestRefinement1_HandlerOpsCount verifies the cached dispatch has 14 entries.
+// TestRefinement1_HandlerOpsCount verifies the cached dispatch has 43 entries.
 func TestRefinement1_HandlerOpsCount(t *testing.T) {
 	t.Parallel()
 
 	b := transcribe.NewInMemoryBackend()
 	h := transcribe.NewHandler(b)
-	assert.Equal(t, 14, transcribe.HandlerOpsLen(h))
+	assert.Equal(t, 43, transcribe.HandlerOpsLen(h))
 }
 
 // TestRefinement1_ConflictIs409 verifies that duplicate resources produce HTTP 409.

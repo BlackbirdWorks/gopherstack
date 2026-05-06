@@ -50,22 +50,7 @@ func (h *Handler) Name() string { return "Transcribe" }
 
 // GetSupportedOperations returns the list of supported Transcribe operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
-		"CreateCallAnalyticsCategory",
-		"CreateLanguageModel",
-		"CreateMedicalVocabulary",
-		"CreateVocabulary",
-		"CreateVocabularyFilter",
-		"DeleteCallAnalyticsCategory",
-		"DeleteCallAnalyticsJob",
-		"DeleteLanguageModel",
-		"DeleteMedicalScribeJob",
-		"DeleteMedicalTranscriptionJob",
-		"DeleteTranscriptionJob",
-		"GetTranscriptionJob",
-		"ListTranscriptionJobs",
-		"StartTranscriptionJob",
-	}
+	return allSupportedOps()
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -150,7 +135,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"Transcribe", "application/x-amz-json-1.1",
-			h.GetSupportedOperations(),
+			allSupportedOps(),
 			h.dispatch,
 			h.handleError,
 		)
@@ -159,20 +144,59 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"StartTranscriptionJob":         service.WrapOp(h.handleStartTranscriptionJob),
-		"GetTranscriptionJob":           service.WrapOp(h.handleGetTranscriptionJob),
-		"ListTranscriptionJobs":         service.WrapOp(h.handleListTranscriptionJobs),
-		"DeleteTranscriptionJob":        service.WrapOp(h.handleDeleteTranscriptionJob),
-		"CreateCallAnalyticsCategory":   service.WrapOp(h.handleCreateCallAnalyticsCategory),
-		"DeleteCallAnalyticsCategory":   service.WrapOp(h.handleDeleteCallAnalyticsCategory),
-		"CreateLanguageModel":           service.WrapOp(h.handleCreateLanguageModel),
-		"DeleteLanguageModel":           service.WrapOp(h.handleDeleteLanguageModel),
-		"CreateMedicalVocabulary":       service.WrapOp(h.handleCreateMedicalVocabulary),
-		"CreateVocabulary":              service.WrapOp(h.handleCreateVocabulary),
-		"CreateVocabularyFilter":        service.WrapOp(h.handleCreateVocabularyFilter),
-		"DeleteCallAnalyticsJob":        service.WrapOp(h.handleDeleteCallAnalyticsJob),
-		"DeleteMedicalScribeJob":        service.WrapOp(h.handleDeleteMedicalScribeJob),
+		// Transcription jobs
+		"StartTranscriptionJob":  service.WrapOp(h.handleStartTranscriptionJob),
+		"GetTranscriptionJob":    service.WrapOp(h.handleGetTranscriptionJob),
+		"ListTranscriptionJobs":  service.WrapOp(h.handleListTranscriptionJobs),
+		"DeleteTranscriptionJob": service.WrapOp(h.handleDeleteTranscriptionJob),
+		// Call Analytics categories
+		"CreateCallAnalyticsCategory": service.WrapOp(h.handleCreateCallAnalyticsCategory),
+		"DeleteCallAnalyticsCategory": service.WrapOp(h.handleDeleteCallAnalyticsCategory),
+		"GetCallAnalyticsCategory":    service.WrapOp(h.handleGetCallAnalyticsCategory),
+		"UpdateCallAnalyticsCategory": service.WrapOp(h.handleUpdateCallAnalyticsCategory),
+		"ListCallAnalyticsCategories": service.WrapOp(h.handleListCallAnalyticsCategories),
+		// Call Analytics jobs
+		"StartCallAnalyticsJob":  service.WrapOp(h.handleStartCallAnalyticsJob),
+		"GetCallAnalyticsJob":    service.WrapOp(h.handleGetCallAnalyticsJob),
+		"ListCallAnalyticsJobs":  service.WrapOp(h.handleListCallAnalyticsJobs),
+		"DeleteCallAnalyticsJob": service.WrapOp(h.handleDeleteCallAnalyticsJob),
+		// Language models
+		"CreateLanguageModel":   service.WrapOp(h.handleCreateLanguageModel),
+		"DeleteLanguageModel":   service.WrapOp(h.handleDeleteLanguageModel),
+		"DescribeLanguageModel": service.WrapOp(h.handleDescribeLanguageModel),
+		"ListLanguageModels":    service.WrapOp(h.handleListLanguageModels),
+		// Vocabularies
+		"CreateVocabulary": service.WrapOp(h.handleCreateVocabulary),
+		"GetVocabulary":    service.WrapOp(h.handleGetVocabulary),
+		"UpdateVocabulary": service.WrapOp(h.handleUpdateVocabulary),
+		"DeleteVocabulary": service.WrapOp(h.handleDeleteVocabulary),
+		"ListVocabularies": service.WrapOp(h.handleListVocabularies),
+		// Vocabulary filters
+		"CreateVocabularyFilter": service.WrapOp(h.handleCreateVocabularyFilter),
+		"GetVocabularyFilter":    service.WrapOp(h.handleGetVocabularyFilter),
+		"UpdateVocabularyFilter": service.WrapOp(h.handleUpdateVocabularyFilter),
+		"DeleteVocabularyFilter": service.WrapOp(h.handleDeleteVocabularyFilter),
+		"ListVocabularyFilters":  service.WrapOp(h.handleListVocabularyFilters),
+		// Medical vocabularies
+		"CreateMedicalVocabulary": service.WrapOp(h.handleCreateMedicalVocabulary),
+		"GetMedicalVocabulary":    service.WrapOp(h.handleGetMedicalVocabulary),
+		"UpdateMedicalVocabulary": service.WrapOp(h.handleUpdateMedicalVocabulary),
+		"DeleteMedicalVocabulary": service.WrapOp(h.handleDeleteMedicalVocabulary),
+		"ListMedicalVocabularies": service.WrapOp(h.handleListMedicalVocabularies),
+		// Medical Scribe jobs
+		"StartMedicalScribeJob":  service.WrapOp(h.handleStartMedicalScribeJob),
+		"GetMedicalScribeJob":    service.WrapOp(h.handleGetMedicalScribeJob),
+		"ListMedicalScribeJobs":  service.WrapOp(h.handleListMedicalScribeJobs),
+		"DeleteMedicalScribeJob": service.WrapOp(h.handleDeleteMedicalScribeJob),
+		// Medical Transcription jobs
+		"StartMedicalTranscriptionJob":  service.WrapOp(h.handleStartMedicalTranscriptionJob),
+		"GetMedicalTranscriptionJob":    service.WrapOp(h.handleGetMedicalTranscriptionJob),
+		"ListMedicalTranscriptionJobs":  service.WrapOp(h.handleListMedicalTranscriptionJobs),
 		"DeleteMedicalTranscriptionJob": service.WrapOp(h.handleDeleteMedicalTranscriptionJob),
+		// Tags
+		"TagResource":         service.WrapOp(h.handleTagResource),
+		"UntagResource":       service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
 	}
 }
 

@@ -22,10 +22,50 @@ type StorageBackend interface {
 	CreateVocabulary(vocabularyName, languageCode string) (*Vocabulary, error)
 	CreateVocabularyFilter(vocabularyFilterName, languageCode string) (*VocabularyFilter, error)
 
-	// Job cleanup
+	// Call Analytics jobs
+	StartCallAnalyticsJob(jobName, languageCode, mediaFileURI string) (*CallAnalyticsJob, error)
+	GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob, error)
+	ListCallAnalyticsJobs(statusFilter, nextToken string) ([]CallAnalyticsJob, string)
 	DeleteCallAnalyticsJob(jobName string) error
+
+	// Call Analytics categories (Get/Update/List)
+	GetCallAnalyticsCategory(categoryName string) (*CallAnalyticsCategory, error)
+	UpdateCallAnalyticsCategory(categoryName, inputType string) (*CallAnalyticsCategory, error)
+	ListCallAnalyticsCategories(nextToken string) ([]CallAnalyticsCategory, string)
+
+	// Vocabulary CRUD
+	GetVocabulary(vocabularyName string) (*Vocabulary, error)
+	UpdateVocabulary(vocabularyName, languageCode string) (*Vocabulary, error)
+	DeleteVocabulary(vocabularyName string) error
+	ListVocabularies(stateFilter, nextToken string) ([]Vocabulary, string)
+
+	// Vocabulary filter CRUD
+	GetVocabularyFilter(vocabularyFilterName string) (*VocabularyFilter, error)
+	UpdateVocabularyFilter(vocabularyFilterName, languageCode string) (*VocabularyFilter, error)
+	DeleteVocabularyFilter(vocabularyFilterName string) error
+	ListVocabularyFilters(nextToken string) ([]VocabularyFilter, string)
+
+	// Medical vocabulary CRUD
+	GetMedicalVocabulary(vocabularyName string) (*MedicalVocabulary, error)
+	UpdateMedicalVocabulary(vocabularyName, languageCode, vocabularyFileURI string) (*MedicalVocabulary, error)
+	DeleteMedicalVocabulary(vocabularyName string) error
+	ListMedicalVocabularies(stateFilter, nextToken string) ([]MedicalVocabulary, string)
+
+	// Medical Scribe jobs
+	StartMedicalScribeJob(jobName, mediaFileURI string) (*MedicalScribeJob, error)
+	GetMedicalScribeJob(jobName string) (*MedicalScribeJob, error)
+	ListMedicalScribeJobs(statusFilter, nextToken string) ([]MedicalScribeJob, string)
 	DeleteMedicalScribeJob(jobName string) error
+
+	// Medical Transcription jobs
+	StartMedicalTranscriptionJob(jobName, languageCode, mediaFileURI string) (*MedicalTranscriptionJob, error)
+	GetMedicalTranscriptionJob(jobName string) (*MedicalTranscriptionJob, error)
+	ListMedicalTranscriptionJobs(statusFilter, nextToken string) ([]MedicalTranscriptionJob, string)
 	DeleteMedicalTranscriptionJob(jobName string) error
+
+	// Language model CRUD
+	DescribeLanguageModel(modelName string) (*LanguageModel, error)
+	ListLanguageModels(statusFilter, nextToken string) ([]LanguageModel, string)
 
 	// Lifecycle
 	Snapshot() []byte
