@@ -17,15 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := kinesisanalyticsv2.NewInMemoryBackend("000000000000", "us-east-1")
 	h := kinesisanalyticsv2.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &kinesisanalyticsv2sdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteApplicationReferenceDataSource",
-		"DeleteApplicationVpcConfiguration",
-		"DescribeApplicationOperation",
-		"DescribeApplicationVersion",
-		"DiscoverInputSchema",
-		"ListApplicationOperations",
-		"ListApplicationVersions",
-		"RollbackApplication",
-		"UpdateApplicationMaintenanceConfiguration",
-	})
+	sdkcheck.CheckCompleteness(t, &kinesisanalyticsv2sdk.Client{}, h.GetSupportedOperations(), []string{})
 }

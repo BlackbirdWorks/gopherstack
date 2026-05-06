@@ -70,6 +70,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UntagResource",
 		"UpdateApplication",
 		"CreateApplicationSnapshot",
+		"DeleteApplicationReferenceDataSource",
+		"DeleteApplicationVpcConfiguration",
+		"DescribeApplicationOperation",
+		"DescribeApplicationVersion",
+		"DiscoverInputSchema",
+		"ListApplicationOperations",
+		"ListApplicationVersions",
+		"RollbackApplication",
+		"UpdateApplicationMaintenanceConfiguration",
 	}
 }
 
@@ -180,6 +189,16 @@ func (h *Handler) buildOps() map[string]func(*echo.Context, []byte) error {
 		"TagResource":                   h.handleTagResource,
 		"UntagResource":                 h.handleUntagResource,
 		"UpdateApplication":             h.handleUpdateApplication,
+		// New operations
+		"DeleteApplicationReferenceDataSource":      h.handleDeleteApplicationReferenceDataSource,
+		"DeleteApplicationVpcConfiguration":         h.handleDeleteApplicationVpcConfiguration,
+		"DescribeApplicationOperation":              h.handleDescribeApplicationOperation,
+		"DescribeApplicationVersion":                h.handleDescribeApplicationVersion,
+		"DiscoverInputSchema":                       h.handleDiscoverInputSchema,
+		"ListApplicationOperations":                 h.handleListApplicationOperations,
+		"ListApplicationVersions":                   h.handleListApplicationVersions,
+		"RollbackApplication":                       h.handleRollbackApplication,
+		"UpdateApplicationMaintenanceConfiguration": h.handleUpdateApplicationMaintenanceConfiguration,
 	}
 }
 
@@ -1051,6 +1070,319 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 	}
 
 	return c.JSON(http.StatusOK, listTagsOutput{Tags: tags})
+}
+
+// ----------------------------------------
+// New operation request/response types
+// ----------------------------------------
+
+type deleteApplicationRefDataSourceInput struct {
+	ApplicationName             string `json:"ApplicationName"`
+	ReferenceID                 string `json:"ReferenceId"`
+	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type deleteApplicationRefDataSourceOutput struct {
+	ApplicationARN       string `json:"ApplicationARN"`
+	ApplicationVersionID int64  `json:"ApplicationVersionId"`
+}
+
+type deleteApplicationVpcConfigInput struct {
+	ApplicationName             string `json:"ApplicationName"`
+	VpcConfigurationID          string `json:"VpcConfigurationId"`
+	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId,omitempty"`
+}
+
+type deleteApplicationVpcConfigOutput struct {
+	ApplicationARN       string `json:"ApplicationARN"`
+	ApplicationVersionID int64  `json:"ApplicationVersionId"`
+}
+
+type describeApplicationOperationInput struct {
+	ApplicationName string `json:"ApplicationName"`
+	OperationID     string `json:"OperationId"`
+}
+
+type applicationOperationOutput struct {
+	OperationID     string `json:"OperationId"`
+	Operation       string `json:"Operation"`
+	OperationStatus string `json:"OperationStatus"`
+}
+
+type describeApplicationOperationOutput struct {
+	ApplicationOperationInfoDetails applicationOperationOutput `json:"ApplicationOperationInfoDetails"`
+}
+
+type listApplicationOperationsInput struct {
+	ApplicationName string `json:"ApplicationName"`
+	NextToken       string `json:"NextToken,omitempty"`
+}
+
+type listApplicationOperationsOutput struct {
+	NextToken                    string                       `json:"NextToken,omitempty"`
+	ApplicationOperationInfoList []applicationOperationOutput `json:"ApplicationOperationInfoList"`
+}
+
+type describeApplicationVersionInput struct {
+	ApplicationName      string `json:"ApplicationName"`
+	ApplicationVersionID int64  `json:"ApplicationVersionId"`
+}
+
+type describeApplicationVersionOutput struct {
+	ApplicationVersionDetail applicationDetailOutput `json:"ApplicationVersionDetail"`
+}
+
+type listApplicationVersionsInput struct {
+	ApplicationName string `json:"ApplicationName"`
+	NextToken       string `json:"NextToken,omitempty"`
+}
+
+type applicationVersionSummaryOutput struct {
+	ApplicationStatus    string `json:"ApplicationStatus"`
+	ApplicationVersionID int64  `json:"ApplicationVersionId"`
+}
+
+type listApplicationVersionsOutput struct {
+	NextToken                   string                            `json:"NextToken,omitempty"`
+	ApplicationVersionSummaries []applicationVersionSummaryOutput `json:"ApplicationVersionSummaries"`
+}
+
+type rollbackApplicationInput struct {
+	ApplicationName             string `json:"ApplicationName"`
+	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId"`
+}
+
+type rollbackApplicationOutput struct {
+	ApplicationDetail applicationDetailOutput `json:"ApplicationDetail"`
+}
+
+type updateMaintenanceConfigInput struct {
+	ApplicationName                    string `json:"ApplicationName"`
+	ApplicationMaintenanceConfigUpdate struct {
+		ApplicationMaintenanceWindowStartTimeUpdate string `json:"ApplicationMaintenanceWindowStartTimeUpdate"`
+	} `json:"ApplicationMaintenanceConfigurationUpdate"`
+}
+
+type maintenanceConfigDescription struct {
+	ApplicationMaintenanceWindowStartTime string `json:"ApplicationMaintenanceWindowStartTime"`
+	ApplicationMaintenanceWindowEndTime   string `json:"ApplicationMaintenanceWindowEndTime,omitempty"`
+}
+
+type updateMaintenanceConfigOutput struct {
+	ApplicationARN                                 string                       `json:"ApplicationARN"`
+	ApplicationMaintenanceConfigurationDescription maintenanceConfigDescription `json:"ApplicationMaintenanceConfigurationDescription"` //nolint:lll // AWS API name
+}
+
+type discoverInputSchemaInput struct {
+	ResourceARN           string `json:"ResourceARN"`
+	RoleARN               string `json:"RoleARN,omitempty"`
+	InputStartingPosition string `json:"InputStartingPosition,omitempty"`
+}
+
+type discoverInputSchemaRecordFormat struct {
+	RecordFormatType string `json:"RecordFormatType"`
+}
+
+type discoverInputSchemaInner struct {
+	RecordEncoding string                          `json:"RecordEncoding,omitempty"`
+	RecordFormat   discoverInputSchemaRecordFormat `json:"RecordFormat"`
+}
+
+type discoverInputSchemaOutput struct {
+	InputSchema        discoverInputSchemaInner `json:"InputSchema"`
+	ParsedInputRecords [][]string               `json:"ParsedInputRecords,omitempty"`
+}
+
+// ----------------------------------------
+// New operation handlers
+// ----------------------------------------
+
+func (h *Handler) handleDeleteApplicationReferenceDataSource(c *echo.Context, body []byte) error {
+	var in deleteApplicationRefDataSourceInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if err := h.Backend.DeleteApplicationReferenceDataSource(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.ReferenceID,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteApplicationRefDataSourceOutput{
+		ApplicationARN:       app.ApplicationARN,
+		ApplicationVersionID: app.ApplicationVersionID,
+	})
+}
+
+func (h *Handler) handleDeleteApplicationVpcConfiguration(c *echo.Context, body []byte) error {
+	var in deleteApplicationVpcConfigInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	if err := h.Backend.DeleteApplicationVpcConfiguration(
+		in.ApplicationName, in.CurrentApplicationVersionID, in.VpcConfigurationID,
+	); err != nil {
+		return h.handleError(c, err)
+	}
+
+	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, deleteApplicationVpcConfigOutput{
+		ApplicationARN:       app.ApplicationARN,
+		ApplicationVersionID: app.ApplicationVersionID,
+	})
+}
+
+func (h *Handler) handleDescribeApplicationOperation(c *echo.Context, body []byte) error {
+	var in describeApplicationOperationInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	op, err := h.Backend.DescribeApplicationOperation(in.ApplicationName, in.OperationID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeApplicationOperationOutput{
+		ApplicationOperationInfoDetails: applicationOperationOutput{
+			OperationID:     op.OperationID,
+			Operation:       op.Operation,
+			OperationStatus: op.OperationStatus,
+		},
+	})
+}
+
+func (h *Handler) handleListApplicationOperations(c *echo.Context, body []byte) error {
+	var in listApplicationOperationsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	ops, outToken, err := h.Backend.ListApplicationOperations(in.ApplicationName, in.NextToken)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	items := make([]applicationOperationOutput, 0, len(ops))
+	for _, op := range ops {
+		items = append(items, applicationOperationOutput{
+			OperationID:     op.OperationID,
+			Operation:       op.Operation,
+			OperationStatus: op.OperationStatus,
+		})
+	}
+
+	return c.JSON(http.StatusOK, listApplicationOperationsOutput{
+		ApplicationOperationInfoList: items,
+		NextToken:                    outToken,
+	})
+}
+
+func (h *Handler) handleDescribeApplicationVersion(c *echo.Context, body []byte) error {
+	var in describeApplicationVersionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	app, err := h.Backend.DescribeApplicationVersion(in.ApplicationName, in.ApplicationVersionID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, describeApplicationVersionOutput{
+		ApplicationVersionDetail: toDetailOutput(app),
+	})
+}
+
+func (h *Handler) handleListApplicationVersions(c *echo.Context, body []byte) error {
+	var in listApplicationVersionsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	vers, outToken, err := h.Backend.ListApplicationVersions(in.ApplicationName, in.NextToken)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	summaries := make([]applicationVersionSummaryOutput, 0, len(vers))
+	for _, v := range vers {
+		summaries = append(summaries, applicationVersionSummaryOutput{
+			ApplicationVersionID: v.ApplicationVersionID,
+			ApplicationStatus:    v.ApplicationStatus,
+		})
+	}
+
+	return c.JSON(http.StatusOK, listApplicationVersionsOutput{
+		ApplicationVersionSummaries: summaries,
+		NextToken:                   outToken,
+	})
+}
+
+func (h *Handler) handleRollbackApplication(c *echo.Context, body []byte) error {
+	var in rollbackApplicationInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	app, err := h.Backend.RollbackApplication(in.ApplicationName, in.CurrentApplicationVersionID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, rollbackApplicationOutput{
+		ApplicationDetail: toDetailOutput(app),
+	})
+}
+
+func (h *Handler) handleUpdateApplicationMaintenanceConfiguration(c *echo.Context, body []byte) error {
+	var in updateMaintenanceConfigInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	startTime := in.ApplicationMaintenanceConfigUpdate.ApplicationMaintenanceWindowStartTimeUpdate
+	app, err := h.Backend.UpdateApplicationMaintenanceConfiguration(in.ApplicationName, startTime)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, updateMaintenanceConfigOutput{
+		ApplicationARN: app.ApplicationARN,
+		ApplicationMaintenanceConfigurationDescription: maintenanceConfigDescription{
+			ApplicationMaintenanceWindowStartTime: app.MaintenanceWindowStartTime,
+		},
+	})
+}
+
+func (h *Handler) handleDiscoverInputSchema(c *echo.Context, body []byte) error {
+	var in discoverInputSchemaInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	schema, err := h.Backend.DiscoverInputSchema(in.ResourceARN, in.RoleARN, in.InputStartingPosition)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	var out discoverInputSchemaOutput
+	out.InputSchema.RecordFormat.RecordFormatType = schema.RecordFormat
+	out.InputSchema.RecordEncoding = schema.RecordEncoding
+	out.ParsedInputRecords = schema.ParsedInputRecords
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // ----------------------------------------
