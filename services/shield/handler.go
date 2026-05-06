@@ -74,18 +74,22 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeProtection",
 		"DescribeProtectionGroup",
 		"DescribeSubscription",
+		"DisableApplicationLayerAutomaticResponse",
 		"DisableProactiveEngagement",
 		"DisassociateDRTLogBucket",
 		"DisassociateDRTRole",
 		"DisassociateHealthCheck",
+		"EnableApplicationLayerAutomaticResponse",
 		"EnableProactiveEngagement",
 		"GetSubscriptionState",
 		"ListAttacks",
 		"ListProtectionGroups",
 		"ListProtections",
+		"ListResourcesInProtectionGroup",
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"UpdateApplicationLayerAutomaticResponse",
 		"UpdateEmergencyContactSettings",
 		"UpdateProtectionGroup",
 		"UpdateSubscription",
@@ -285,6 +289,16 @@ func (h *Handler) dispatchProtectionGroupAndAttackOps(op string, body []byte) ([
 		return res, true, err
 	case "DescribeAttackStatistics":
 		res, err := h.handleDescribeAttackStatistics()
+
+		return res, true, err
+	case "EnableApplicationLayerAutomaticResponse":
+		return nil, true, h.handleEnableApplicationLayerAutomaticResponse(body)
+	case "DisableApplicationLayerAutomaticResponse":
+		return nil, true, h.handleDisableApplicationLayerAutomaticResponse(body)
+	case "UpdateApplicationLayerAutomaticResponse":
+		return nil, true, h.handleUpdateApplicationLayerAutomaticResponse(body)
+	case "ListResourcesInProtectionGroup":
+		res, err := h.handleListResourcesInProtectionGroup(body)
 
 		return res, true, err
 	}
@@ -1035,5 +1049,112 @@ func (h *Handler) handleDescribeAttackStatistics() ([]byte, error) {
 			},
 			"DataItems": stats.DataItems,
 		},
+	})
+}
+
+// alarAction is the nested action object in ALAR requests.
+type alarAction struct {
+	Block *struct{} `json:"Block"`
+	Count *struct{} `json:"Count"`
+}
+
+// alarRequest is the shared request body for ALAR enable/update operations.
+type alarRequest struct {
+	Action      alarAction `json:"Action"`
+	ResourceArn string     `json:"ResourceArn"`
+}
+
+// alarActionString extracts "BLOCK" or "COUNT" from an alarAction, or returns an error.
+func alarActionString(a alarAction) (string, error) {
+	switch {
+	case a.Block != nil:
+		return "BLOCK", nil
+	case a.Count != nil:
+		return "COUNT", nil
+	default:
+		return "", fmt.Errorf("%w: Action must specify Block or Count", errInvalidRequest)
+	}
+}
+
+func (h *Handler) handleEnableApplicationLayerAutomaticResponse(body []byte) error {
+	var req alarRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceArn == "" {
+		return fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	action, err := alarActionString(req.Action)
+	if err != nil {
+		return err
+	}
+
+	return h.Backend.EnableApplicationLayerAutomaticResponse(req.ResourceArn, action)
+}
+
+// disableALARRequest is the request body for DisableApplicationLayerAutomaticResponse.
+type disableALARRequest struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) handleDisableApplicationLayerAutomaticResponse(body []byte) error {
+	var req disableALARRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceArn == "" {
+		return fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	return h.Backend.DisableApplicationLayerAutomaticResponse(req.ResourceArn)
+}
+
+func (h *Handler) handleUpdateApplicationLayerAutomaticResponse(body []byte) error {
+	var req alarRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceArn == "" {
+		return fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	action, err := alarActionString(req.Action)
+	if err != nil {
+		return err
+	}
+
+	return h.Backend.UpdateApplicationLayerAutomaticResponse(req.ResourceArn, action)
+}
+
+// listResourcesInProtectionGroupRequest is the request body for ListResourcesInProtectionGroup.
+type listResourcesInProtectionGroupRequest struct {
+	ProtectionGroupID string `json:"ProtectionGroupId"`
+}
+
+func (h *Handler) handleListResourcesInProtectionGroup(body []byte) ([]byte, error) {
+	var req listResourcesInProtectionGroupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ProtectionGroupID == "" {
+		return nil, fmt.Errorf("%w: ProtectionGroupId is required", errInvalidRequest)
+	}
+
+	arns, err := h.Backend.ListResourcesInProtectionGroup(req.ProtectionGroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	if arns == nil {
+		arns = []string{}
+	}
+
+	return json.Marshal(map[string]any{
+		"ResourceArns": arns,
 	})
 }

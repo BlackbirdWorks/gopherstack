@@ -34,6 +34,10 @@ type StorageBackend interface {
 	ListAttacks(resourceARN string, startTime, endTime int64) []*Attack
 	DescribeAttack(attackID string) (*Attack, error)
 	DescribeAttackStatistics() *AttackStatistics
+	EnableApplicationLayerAutomaticResponse(resourceARN, action string) error
+	DisableApplicationLayerAutomaticResponse(resourceARN string) error
+	UpdateApplicationLayerAutomaticResponse(resourceARN, action string) error
+	ListResourcesInProtectionGroup(protectionGroupID string) ([]string, error)
 	AccountID() string
 	Region() string
 	Reset()
