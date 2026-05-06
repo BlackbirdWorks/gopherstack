@@ -63,6 +63,50 @@ type ListAsyncInvokesFilter struct {
 	StatusEquals string
 }
 
+// invocationRing is a fixed-szacity circular buffer for Invocation records.
+// Once full, new writes overwrite the oldest entry (FIFO eviction).
+type invocationRing struct {
+	buf   []*Invocation
+	head  int // index of the oldest entry
+	count int // number of valid entries (0 ≤ count ≤ sz)
+}
+
+// newInvocationRing allocates a ring with the given szacity.
+func newInvocationRing(sz int) invocationRing {
+	return invocationRing{buf: make([]*Invocation, sz)}
+}
+
+// push appends inv, evicting the oldest entry when the ring is full.
+func (r *invocationRing) push(inv *Invocation) {
+	sz := len(r.buf)
+	if r.count < sz {
+		r.buf[(r.head+r.count)%sz] = inv
+		r.count++
+	} else {
+		// Overwrite oldest slot and advance head.
+		r.buf[r.head] = inv
+		r.head = (r.head + 1) % sz
+	}
+}
+
+// snapshot returns all entries in insertion order (oldest first).
+func (r *invocationRing) snapshot() []*Invocation {
+	out := make([]*Invocation, r.count)
+	sz := len(r.buf)
+
+	for i := range r.count {
+		out[i] = r.buf[(r.head+i)%sz]
+	}
+
+	return out
+}
+
+// reset discards all entries without reallocating the buffer.
+func (r *invocationRing) reset() {
+	r.head = 0
+	r.count = 0
+}
+
 // InMemoryBackend stores Bedrock Runtime state in memory.
 type InMemoryBackend struct {
 	mu                 *lockmetrics.RWMutex
@@ -70,14 +114,14 @@ type InMemoryBackend struct {
 	tokenIndex         map[string]string // clientRequestToken → invocationArn (idempotency)
 	accountID          string
 	region             string
-	invocations        []*Invocation
+	invocations        invocationRing
 	asyncInvokeCounter int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		invocations:  make([]*Invocation, 0),
+		invocations:  newInvocationRing(maxInvocationHistory),
 		asyncInvokes: make(map[string]*AsyncInvoke),
 		tokenIndex:   make(map[string]string),
 		accountID:    accountID,
@@ -91,7 +135,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.invocations = make([]*Invocation, 0)
+	b.invocations.reset()
 	b.asyncInvokes = make(map[string]*AsyncInvoke)
 	b.tokenIndex = make(map[string]string)
 	b.asyncInvokeCounter = 0
@@ -112,27 +156,24 @@ func (b *InMemoryBackend) RecordInvocation(operation, modelID, input, output str
 		Output:    output,
 		CreatedAt: time.Now().UTC(),
 	}
-	b.invocations = append(b.invocations, inv)
-
-	if len(b.invocations) > maxInvocationHistory {
-		b.invocations = b.invocations[len(b.invocations)-maxInvocationHistory:]
-	}
+	b.invocations.push(inv)
 
 	cp := *inv
 
 	return &cp
 }
 
-// ListInvocations returns all recorded invocations.
+// ListInvocations returns all recorded invocations in insertion order (oldest first).
 func (b *InMemoryBackend) ListInvocations() []*Invocation {
 	b.mu.RLock("ListInvocations")
 	defer b.mu.RUnlock()
 
-	out := make([]*Invocation, 0, len(b.invocations))
+	raw := b.invocations.snapshot()
+	out := make([]*Invocation, len(raw))
 
-	for _, inv := range b.invocations {
+	for i, inv := range raw {
 		cp := *inv
-		out = append(out, &cp)
+		out[i] = &cp
 	}
 
 	return out
@@ -147,17 +188,17 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
-	n := 0
-	for _, inv := range b.invocations {
+	keep := b.invocations.snapshot()
+	b.invocations.reset()
+
+	for _, inv := range keep {
 		if ctx.Err() != nil {
 			return
 		}
 		if !inv.CreatedAt.Before(cutoff) {
-			b.invocations[n] = inv
-			n++
+			b.invocations.push(inv)
 		}
 	}
-	b.invocations = b.invocations[:n]
 }
 
 // StartAsyncInvoke creates a new asynchronous model invocation and returns it.
