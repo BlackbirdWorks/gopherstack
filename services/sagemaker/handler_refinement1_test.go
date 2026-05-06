@@ -353,8 +353,8 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 		wantLen int
 	}{
 		{
-			name:    "returns 21 operations",
-			wantLen: 21,
+			name:    "returns 46 operations",
+			wantLen: 46,
 		},
 	}
 

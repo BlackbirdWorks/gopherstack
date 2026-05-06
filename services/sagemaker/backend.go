@@ -264,6 +264,10 @@ func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 type InMemoryBackend struct {
 	models                     map[string]*Model
 	endpointConfigs            map[string]*EndpointConfig
+	endpoints                  map[string]*Endpoint                  // key: endpointName
+	trainingJobs               map[string]*TrainingJob               // key: jobName
+	notebooks                  map[string]*NotebookInstance          // key: instanceName
+	hpTuningJobs               map[string]*HyperParameterTuningJob   // key: jobName
 	associations               map[string]*Association               // key: sourceArn+"|"+destinationArn
 	trialComponentAssociations map[string]*TrialComponentAssociation // key: trialName+"|"+componentName
 	actions                    map[string]*Action                    // key: actionName
@@ -272,6 +276,10 @@ type InMemoryBackend struct {
 	modelPackages              map[string]*ModelPackage              // key: modelPackageArn
 	modelARNIndex              map[string]string                     // ARN → model name
 	endpointConfigARNIndex     map[string]string                     // ARN → endpoint config name
+	endpointARNIndex           map[string]string                     // ARN → endpoint name
+	trainingJobARNIndex        map[string]string                     // ARN → training job name
+	notebookARNIndex           map[string]string                     // ARN → notebook instance name
+	hpTuningJobARNIndex        map[string]string                     // ARN → HP tuning job name
 	actionARNIndex             map[string]string                     // ARN → action name
 	algorithmARNIndex          map[string]string                     // ARN → algorithm name
 	clusterARNIndex            map[string]string                     // ARN → cluster name
@@ -286,6 +294,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		models:                     make(map[string]*Model),
 		endpointConfigs:            make(map[string]*EndpointConfig),
+		endpoints:                  make(map[string]*Endpoint),
+		trainingJobs:               make(map[string]*TrainingJob),
+		notebooks:                  make(map[string]*NotebookInstance),
+		hpTuningJobs:               make(map[string]*HyperParameterTuningJob),
 		associations:               make(map[string]*Association),
 		trialComponentAssociations: make(map[string]*TrialComponentAssociation),
 		actions:                    make(map[string]*Action),
@@ -294,6 +306,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		modelPackages:              make(map[string]*ModelPackage),
 		modelARNIndex:              make(map[string]string),
 		endpointConfigARNIndex:     make(map[string]string),
+		endpointARNIndex:           make(map[string]string),
+		trainingJobARNIndex:        make(map[string]string),
+		notebookARNIndex:           make(map[string]string),
+		hpTuningJobARNIndex:        make(map[string]string),
 		actionARNIndex:             make(map[string]string),
 		algorithmARNIndex:          make(map[string]string),
 		clusterARNIndex:            make(map[string]string),
@@ -317,6 +333,10 @@ func (b *InMemoryBackend) Reset() {
 
 	b.models = make(map[string]*Model)
 	b.endpointConfigs = make(map[string]*EndpointConfig)
+	b.endpoints = make(map[string]*Endpoint)
+	b.trainingJobs = make(map[string]*TrainingJob)
+	b.notebooks = make(map[string]*NotebookInstance)
+	b.hpTuningJobs = make(map[string]*HyperParameterTuningJob)
 	b.associations = make(map[string]*Association)
 	b.trialComponentAssociations = make(map[string]*TrialComponentAssociation)
 	b.actions = make(map[string]*Action)
@@ -325,6 +345,10 @@ func (b *InMemoryBackend) Reset() {
 	b.modelPackages = make(map[string]*ModelPackage)
 	b.modelARNIndex = make(map[string]string)
 	b.endpointConfigARNIndex = make(map[string]string)
+	b.endpointARNIndex = make(map[string]string)
+	b.trainingJobARNIndex = make(map[string]string)
+	b.notebookARNIndex = make(map[string]string)
+	b.hpTuningJobARNIndex = make(map[string]string)
 	b.actionARNIndex = make(map[string]string)
 	b.algorithmARNIndex = make(map[string]string)
 	b.clusterARNIndex = make(map[string]string)
@@ -565,6 +589,34 @@ func (b *InMemoryBackend) AddTags(resourceARN string, tags map[string]string) er
 		return nil
 	}
 
+	if name, ok := b.endpointARNIndex[resourceARN]; ok {
+		ep := b.endpoints[name]
+		ep.Tags = mergeTags(ep.Tags, tags)
+
+		return nil
+	}
+
+	if name, ok := b.trainingJobARNIndex[resourceARN]; ok {
+		tj := b.trainingJobs[name]
+		tj.Tags = mergeTags(tj.Tags, tags)
+
+		return nil
+	}
+
+	if name, ok := b.notebookARNIndex[resourceARN]; ok {
+		nb := b.notebooks[name]
+		nb.Tags = mergeTags(nb.Tags, tags)
+
+		return nil
+	}
+
+	if name, ok := b.hpTuningJobARNIndex[resourceARN]; ok {
+		j := b.hpTuningJobs[name]
+		j.Tags = mergeTags(j.Tags, tags)
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
 }
 
@@ -613,7 +665,81 @@ func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error
 		return result, nil
 	}
 
+	if name, ok := b.endpointARNIndex[resourceARN]; ok {
+		ep := b.endpoints[name]
+		result := make(map[string]string, len(ep.Tags))
+		maps.Copy(result, ep.Tags)
+
+		return result, nil
+	}
+
+	if name, ok := b.trainingJobARNIndex[resourceARN]; ok {
+		tj := b.trainingJobs[name]
+		result := make(map[string]string, len(tj.Tags))
+		maps.Copy(result, tj.Tags)
+
+		return result, nil
+	}
+
+	if name, ok := b.notebookARNIndex[resourceARN]; ok {
+		nb := b.notebooks[name]
+		result := make(map[string]string, len(nb.Tags))
+		maps.Copy(result, nb.Tags)
+
+		return result, nil
+	}
+
+	if name, ok := b.hpTuningJobARNIndex[resourceARN]; ok {
+		j := b.hpTuningJobs[name]
+		result := make(map[string]string, len(j.Tags))
+		maps.Copy(result, j.Tags)
+
+		return result, nil
+	}
+
 	return nil, fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
+}
+
+// findTagMapLocked returns a pointer to the tags map for a resource identified by ARN.
+// Must be called with b.mu held. Returns nil if the resource is not found.
+func (b *InMemoryBackend) findTagMapLocked(resourceARN string) *map[string]string {
+	if name, ok := b.modelARNIndex[resourceARN]; ok {
+		return &b.models[name].Tags
+	}
+
+	if name, ok := b.endpointConfigARNIndex[resourceARN]; ok {
+		return &b.endpointConfigs[name].Tags
+	}
+
+	if name, ok := b.actionARNIndex[resourceARN]; ok {
+		return &b.actions[name].Tags
+	}
+
+	if name, ok := b.algorithmARNIndex[resourceARN]; ok {
+		return &b.algorithms[name].Tags
+	}
+
+	if _, ok := b.modelPackageARNIndex[resourceARN]; ok {
+		return &b.modelPackages[resourceARN].Tags
+	}
+
+	if name, ok := b.endpointARNIndex[resourceARN]; ok {
+		return &b.endpoints[name].Tags
+	}
+
+	if name, ok := b.trainingJobARNIndex[resourceARN]; ok {
+		return &b.trainingJobs[name].Tags
+	}
+
+	if name, ok := b.notebookARNIndex[resourceARN]; ok {
+		return &b.notebooks[name].Tags
+	}
+
+	if name, ok := b.hpTuningJobARNIndex[resourceARN]; ok {
+		return &b.hpTuningJobs[name].Tags
+	}
+
+	return nil
 }
 
 // DeleteTags removes tag keys from a resource identified by ARN.
@@ -621,57 +747,16 @@ func (b *InMemoryBackend) DeleteTags(resourceARN string, tagKeys []string) error
 	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
 
-	if name, ok := b.modelARNIndex[resourceARN]; ok {
-		m := b.models[name]
-
-		for _, k := range tagKeys {
-			delete(m.Tags, k)
-		}
-
-		return nil
+	tags := b.findTagMapLocked(resourceARN)
+	if tags == nil {
+		return fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
 	}
 
-	if name, ok := b.endpointConfigARNIndex[resourceARN]; ok {
-		ec := b.endpointConfigs[name]
-
-		for _, k := range tagKeys {
-			delete(ec.Tags, k)
-		}
-
-		return nil
+	for _, k := range tagKeys {
+		delete(*tags, k)
 	}
 
-	if name, ok := b.actionARNIndex[resourceARN]; ok {
-		a := b.actions[name]
-
-		for _, k := range tagKeys {
-			delete(a.Tags, k)
-		}
-
-		return nil
-	}
-
-	if name, ok := b.algorithmARNIndex[resourceARN]; ok {
-		al := b.algorithms[name]
-
-		for _, k := range tagKeys {
-			delete(al.Tags, k)
-		}
-
-		return nil
-	}
-
-	if _, ok := b.modelPackageARNIndex[resourceARN]; ok {
-		mp := b.modelPackages[resourceARN]
-
-		for _, k := range tagKeys {
-			delete(mp.Tags, k)
-		}
-
-		return nil
-	}
-
-	return fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
+	return nil
 }
 
 // mergeTags merges new tags into existing ones, returning a new map.

@@ -19,6 +19,10 @@ type persistedCluster struct {
 type backendSnapshot struct {
 	Models                     map[string]*Model                     `json:"models"`
 	EndpointConfigs            map[string]*EndpointConfig            `json:"endpointConfigs"`
+	Endpoints                  map[string]*Endpoint                  `json:"endpoints"`
+	TrainingJobs               map[string]*TrainingJob               `json:"trainingJobs"`
+	Notebooks                  map[string]*NotebookInstance          `json:"notebooks"`
+	HPTuningJobs               map[string]*HyperParameterTuningJob   `json:"hpTuningJobs"`
 	Associations               map[string]*Association               `json:"associations"`
 	TrialComponentAssociations map[string]*TrialComponentAssociation `json:"trialComponentAssociations"`
 	Actions                    map[string]*Action                    `json:"actions"`
@@ -56,6 +60,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	snap := backendSnapshot{
 		Models:                     b.models,
 		EndpointConfigs:            b.endpointConfigs,
+		Endpoints:                  b.endpoints,
+		TrainingJobs:               b.trainingJobs,
+		Notebooks:                  b.notebooks,
+		HPTuningJobs:               b.hpTuningJobs,
 		Associations:               b.associations,
 		TrialComponentAssociations: b.trialComponentAssociations,
 		Actions:                    b.actions,
@@ -90,8 +98,20 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.restoreFields(&snap)
+	b.rebuildARNIndexes()
+
+	return nil
+}
+
+// restoreFields assigns deserialized maps to backend fields (called with lock held).
+func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.models = snap.Models
 	b.endpointConfigs = snap.EndpointConfigs
+	b.endpoints = snap.Endpoints
+	b.trainingJobs = snap.TrainingJobs
+	b.notebooks = snap.Notebooks
+	b.hpTuningJobs = snap.HPTuningJobs
 	b.associations = snap.Associations
 	b.trialComponentAssociations = snap.TrialComponentAssociations
 	b.actions = snap.Actions
@@ -108,6 +128,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		if err != nil {
 			slog.Default().Warn("sagemaker: failed to parse cluster creation time", "cluster", k, "error", err)
 		}
+
 		c := &Cluster{
 			ClusterArn:    pc.ClusterArn,
 			ClusterName:   pc.ClusterName,
@@ -123,8 +144,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 		b.clusters[k] = c
 	}
+}
 
-	// Rebuild ARN indexes.
+// rebuildARNIndexes reconstructs all ARN-to-name indexes after a restore (called with lock held).
+func (b *InMemoryBackend) rebuildARNIndexes() {
 	b.modelARNIndex = make(map[string]string, len(b.models))
 
 	for name, m := range b.models {
@@ -161,7 +184,29 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.modelPackageARNIndex[arnStr] = arnStr
 	}
 
-	return nil
+	b.endpointARNIndex = make(map[string]string, len(b.endpoints))
+
+	for name, ep := range b.endpoints {
+		b.endpointARNIndex[ep.EndpointArn] = name
+	}
+
+	b.trainingJobARNIndex = make(map[string]string, len(b.trainingJobs))
+
+	for name, tj := range b.trainingJobs {
+		b.trainingJobARNIndex[tj.TrainingJobArn] = name
+	}
+
+	b.notebookARNIndex = make(map[string]string, len(b.notebooks))
+
+	for name, nb := range b.notebooks {
+		b.notebookARNIndex[nb.NotebookInstanceArn] = name
+	}
+
+	b.hpTuningJobARNIndex = make(map[string]string, len(b.hpTuningJobs))
+
+	for name, j := range b.hpTuningJobs {
+		b.hpTuningJobARNIndex[j.HyperParameterTuningJobArn] = name
+	}
 }
 
 func ensureNonNilMaps(snap *backendSnapshot) {
@@ -171,6 +216,22 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.EndpointConfigs == nil {
 		snap.EndpointConfigs = make(map[string]*EndpointConfig)
+	}
+
+	if snap.Endpoints == nil {
+		snap.Endpoints = make(map[string]*Endpoint)
+	}
+
+	if snap.TrainingJobs == nil {
+		snap.TrainingJobs = make(map[string]*TrainingJob)
+	}
+
+	if snap.Notebooks == nil {
+		snap.Notebooks = make(map[string]*NotebookInstance)
+	}
+
+	if snap.HPTuningJobs == nil {
+		snap.HPTuningJobs = make(map[string]*HyperParameterTuningJob)
 	}
 
 	if snap.Associations == nil {
@@ -199,6 +260,11 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 }
 
 func fixNilTagMaps(snap *backendSnapshot) {
+	fixNilTagMapsCoreResources(snap)
+	fixNilTagMapsNewResources(snap)
+}
+
+func fixNilTagMapsCoreResources(snap *backendSnapshot) {
 	for _, m := range snap.Models {
 		if m.Tags == nil {
 			m.Tags = make(map[string]string)
@@ -226,6 +292,32 @@ func fixNilTagMaps(snap *backendSnapshot) {
 	for _, mp := range snap.ModelPackages {
 		if mp.Tags == nil {
 			mp.Tags = make(map[string]string)
+		}
+	}
+}
+
+func fixNilTagMapsNewResources(snap *backendSnapshot) {
+	for _, ep := range snap.Endpoints {
+		if ep.Tags == nil {
+			ep.Tags = make(map[string]string)
+		}
+	}
+
+	for _, tj := range snap.TrainingJobs {
+		if tj.Tags == nil {
+			tj.Tags = make(map[string]string)
+		}
+	}
+
+	for _, nb := range snap.Notebooks {
+		if nb.Tags == nil {
+			nb.Tags = make(map[string]string)
+		}
+	}
+
+	for _, j := range snap.HPTuningJobs {
+		if j.Tags == nil {
+			j.Tags = make(map[string]string)
 		}
 	}
 }

@@ -1,0 +1,601 @@
+package sagemaker
+
+import (
+	"fmt"
+	"maps"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
+
+// ---------------------------------------------------------------------------
+// Endpoint
+// ---------------------------------------------------------------------------
+
+var (
+	// ErrEndpointNotFound is returned when an endpoint does not exist.
+	ErrEndpointNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrEndpointAlreadyExists is returned when an endpoint already exists.
+	ErrEndpointAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrTrainingJobNotFound is returned when a training job does not exist.
+	ErrTrainingJobNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrTrainingJobAlreadyExists is returned when a training job already exists.
+	ErrTrainingJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrNotebookNotFound is returned when a notebook instance does not exist.
+	ErrNotebookNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrNotebookAlreadyExists is returned when a notebook instance already exists.
+	ErrNotebookAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrHPTuningJobNotFound is returned when an HP tuning job does not exist.
+	ErrHPTuningJobNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
+	// ErrHPTuningJobAlreadyExists is returned when an HP tuning job already exists.
+	ErrHPTuningJobAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+)
+
+// Endpoint represents a SageMaker inference endpoint.
+type Endpoint struct {
+	CreationTime       time.Time         `json:"CreationTime"`
+	LastModifiedTime   time.Time         `json:"LastModifiedTime"`
+	Tags               map[string]string `json:"Tags,omitempty"`
+	EndpointName       string            `json:"EndpointName"`
+	EndpointArn        string            `json:"EndpointArn"`
+	EndpointConfigName string            `json:"EndpointConfigName"`
+	EndpointStatus     string            `json:"EndpointStatus"`
+	FailureReason      string            `json:"FailureReason,omitempty"`
+}
+
+// cloneEndpoint returns a deep copy of ep.
+func cloneEndpoint(ep *Endpoint) *Endpoint {
+	cp := *ep
+	cp.Tags = maps.Clone(ep.Tags)
+
+	return &cp
+}
+
+// TrainingJob represents a SageMaker training job.
+type TrainingJob struct {
+	CreationTime      time.Time         `json:"CreationTime"`
+	LastModifiedTime  time.Time         `json:"LastModifiedTime"`
+	TrainingEndTime   *time.Time        `json:"TrainingEndTime,omitempty"`
+	Tags              map[string]string `json:"Tags,omitempty"`
+	TrainingJobName   string            `json:"TrainingJobName"`
+	TrainingJobArn    string            `json:"TrainingJobArn"`
+	TrainingJobStatus string            `json:"TrainingJobStatus"`
+	AlgorithmSpec     map[string]string `json:"AlgorithmSpecification,omitempty"`
+	RoleArn           string            `json:"RoleArn,omitempty"`
+	FailureReason     string            `json:"FailureReason,omitempty"`
+}
+
+// cloneTrainingJob returns a deep copy of tj.
+func cloneTrainingJob(tj *TrainingJob) *TrainingJob {
+	cp := *tj
+	cp.Tags = maps.Clone(tj.Tags)
+	cp.AlgorithmSpec = maps.Clone(tj.AlgorithmSpec)
+
+	return &cp
+}
+
+// NotebookInstance represents a SageMaker notebook instance.
+type NotebookInstance struct {
+	CreationTime           time.Time         `json:"CreationTime"`
+	LastModifiedTime       time.Time         `json:"LastModifiedTime"`
+	Tags                   map[string]string `json:"Tags,omitempty"`
+	NotebookInstanceName   string            `json:"NotebookInstanceName"`
+	NotebookInstanceArn    string            `json:"NotebookInstanceArn"`
+	NotebookInstanceStatus string            `json:"NotebookInstanceStatus"`
+	InstanceType           string            `json:"InstanceType,omitempty"`
+	RoleArn                string            `json:"RoleArn,omitempty"`
+	URL                    string            `json:"Url,omitempty"`
+}
+
+// cloneNotebook returns a deep copy of nb.
+func cloneNotebook(nb *NotebookInstance) *NotebookInstance {
+	cp := *nb
+	cp.Tags = maps.Clone(nb.Tags)
+
+	return &cp
+}
+
+// HyperParameterTuningJob represents a SageMaker hyperparameter tuning job.
+type HyperParameterTuningJob struct {
+	CreationTime                  time.Time         `json:"CreationTime"`
+	LastModifiedTime              time.Time         `json:"LastModifiedTime"`
+	Tags                          map[string]string `json:"Tags,omitempty"`
+	HyperParameterTuningJobName   string            `json:"HyperParameterTuningJobName"`
+	HyperParameterTuningJobArn    string            `json:"HyperParameterTuningJobArn"`
+	HyperParameterTuningJobStatus string            `json:"HyperParameterTuningJobStatus"`
+	Strategy                      string            `json:"Strategy,omitempty"`
+}
+
+// cloneHPTuningJob returns a deep copy of j.
+func cloneHPTuningJob(j *HyperParameterTuningJob) *HyperParameterTuningJob {
+	cp := *j
+	cp.Tags = maps.Clone(j.Tags)
+
+	return &cp
+}
+
+// ---------------------------------------------------------------------------
+// Backend field additions via a separate map — we extend InMemoryBackend with
+// a parallel struct to avoid modifying the original large file.
+// ---------------------------------------------------------------------------
+
+// extendedState holds the new resource maps added in this file.
+// It is embedded into InMemoryBackend via the ext field initialised in
+// NewInMemoryBackendExtended (called from NewInMemoryBackend after init).
+// We keep it simple: InMemoryBackend itself is extended with four new fields.
+
+// CreateEndpoint creates a new SageMaker endpoint.
+func (b *InMemoryBackend) CreateEndpoint(
+	name, endpointConfigName string,
+	tags map[string]string,
+) (*Endpoint, error) {
+	b.mu.Lock("CreateEndpoint")
+	defer b.mu.Unlock()
+
+	if _, ok := b.endpoints[name]; ok {
+		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrEndpointAlreadyExists, name)
+	}
+
+	epARN := arn.Build("sagemaker", b.region, b.accountID, "endpoint/"+name)
+	now := time.Now()
+	ep := &Endpoint{
+		EndpointName:       name,
+		EndpointArn:        epARN,
+		EndpointConfigName: endpointConfigName,
+		EndpointStatus:     "Creating",
+		CreationTime:       now,
+		LastModifiedTime:   now,
+		Tags:               mergeTags(nil, tags),
+	}
+	b.endpoints[name] = ep
+	b.endpointARNIndex[epARN] = name
+
+	return cloneEndpoint(ep), nil
+}
+
+// DescribeEndpoint returns an endpoint by name.
+func (b *InMemoryBackend) DescribeEndpoint(name string) (*Endpoint, error) {
+	b.mu.RLock("DescribeEndpoint")
+	defer b.mu.RUnlock()
+
+	ep, ok := b.endpoints[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+	}
+
+	return cloneEndpoint(ep), nil
+}
+
+// ListEndpoints returns endpoints sorted by name with optional pagination.
+func (b *InMemoryBackend) ListEndpoints(nextToken string) ([]*Endpoint, string) {
+	b.mu.RLock("ListEndpoints")
+	defer b.mu.RUnlock()
+
+	list := make([]*Endpoint, 0, len(b.endpoints))
+	for _, ep := range b.endpoints {
+		list = append(list, ep)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].EndpointName < list[j].EndpointName
+	})
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*Endpoint{}, ""
+	}
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// DeleteEndpoint deletes an endpoint by name.
+func (b *InMemoryBackend) DeleteEndpoint(name string) error {
+	b.mu.Lock("DeleteEndpoint")
+	defer b.mu.Unlock()
+
+	ep, ok := b.endpoints[name]
+	if !ok {
+		return fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+	}
+
+	delete(b.endpointARNIndex, ep.EndpointArn)
+	delete(b.endpoints, name)
+
+	return nil
+}
+
+// UpdateEndpoint updates the endpoint config for an existing endpoint.
+func (b *InMemoryBackend) UpdateEndpoint(name, endpointConfigName string) (*Endpoint, error) {
+	b.mu.Lock("UpdateEndpoint")
+	defer b.mu.Unlock()
+
+	ep, ok := b.endpoints[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+	}
+
+	ep.EndpointConfigName = endpointConfigName
+	ep.EndpointStatus = "Updating"
+	ep.LastModifiedTime = time.Now()
+
+	return cloneEndpoint(ep), nil
+}
+
+// ---------------------------------------------------------------------------
+// TrainingJob
+// ---------------------------------------------------------------------------
+
+// CreateTrainingJob creates a new training job.
+func (b *InMemoryBackend) CreateTrainingJob(
+	name, roleArn string,
+	algorithmSpec map[string]string,
+	tags map[string]string,
+) (*TrainingJob, error) {
+	b.mu.Lock("CreateTrainingJob")
+	defer b.mu.Unlock()
+
+	if _, ok := b.trainingJobs[name]; ok {
+		return nil, fmt.Errorf("%w: training job %s already exists", ErrTrainingJobAlreadyExists, name)
+	}
+
+	jobARN := arn.Build("sagemaker", b.region, b.accountID, "training-job/"+name)
+	now := time.Now()
+	tj := &TrainingJob{
+		TrainingJobName:   name,
+		TrainingJobArn:    jobARN,
+		TrainingJobStatus: "InProgress",
+		RoleArn:           roleArn,
+		AlgorithmSpec:     maps.Clone(algorithmSpec),
+		CreationTime:      now,
+		LastModifiedTime:  now,
+		Tags:              mergeTags(nil, tags),
+	}
+	b.trainingJobs[name] = tj
+	b.trainingJobARNIndex[jobARN] = name
+
+	return cloneTrainingJob(tj), nil
+}
+
+// DescribeTrainingJob returns a training job by name.
+func (b *InMemoryBackend) DescribeTrainingJob(name string) (*TrainingJob, error) {
+	b.mu.RLock("DescribeTrainingJob")
+	defer b.mu.RUnlock()
+
+	tj, ok := b.trainingJobs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
+	}
+
+	return cloneTrainingJob(tj), nil
+}
+
+// ListTrainingJobs returns training jobs sorted by name with optional pagination.
+func (b *InMemoryBackend) ListTrainingJobs(nextToken string) ([]*TrainingJob, string) {
+	b.mu.RLock("ListTrainingJobs")
+	defer b.mu.RUnlock()
+
+	list := make([]*TrainingJob, 0, len(b.trainingJobs))
+	for _, tj := range b.trainingJobs {
+		list = append(list, tj)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].TrainingJobName < list[j].TrainingJobName
+	})
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*TrainingJob{}, ""
+	}
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// StopTrainingJob marks a training job as Stopping.
+func (b *InMemoryBackend) StopTrainingJob(name string) error {
+	b.mu.Lock("StopTrainingJob")
+	defer b.mu.Unlock()
+
+	tj, ok := b.trainingJobs[name]
+	if !ok {
+		return fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
+	}
+
+	tj.TrainingJobStatus = "Stopping"
+	tj.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// DeleteTrainingJob removes a training job from the backend.
+func (b *InMemoryBackend) DeleteTrainingJob(name string) error {
+	b.mu.Lock("DeleteTrainingJob")
+	defer b.mu.Unlock()
+
+	tj, ok := b.trainingJobs[name]
+	if !ok {
+		return fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
+	}
+
+	delete(b.trainingJobARNIndex, tj.TrainingJobArn)
+	delete(b.trainingJobs, name)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// NotebookInstance
+// ---------------------------------------------------------------------------
+
+// CreateNotebookInstance creates a new notebook instance.
+func (b *InMemoryBackend) CreateNotebookInstance(
+	name, instanceType, roleArn string,
+	tags map[string]string,
+) (*NotebookInstance, error) {
+	b.mu.Lock("CreateNotebookInstance")
+	defer b.mu.Unlock()
+
+	if _, ok := b.notebooks[name]; ok {
+		return nil, fmt.Errorf("%w: notebook instance %s already exists", ErrNotebookAlreadyExists, name)
+	}
+
+	nbARN := arn.Build("sagemaker", b.region, b.accountID, "notebook-instance/"+name)
+	now := time.Now()
+	nb := &NotebookInstance{
+		NotebookInstanceName:   name,
+		NotebookInstanceArn:    nbARN,
+		NotebookInstanceStatus: "Pending",
+		InstanceType:           instanceType,
+		RoleArn:                roleArn,
+		CreationTime:           now,
+		LastModifiedTime:       now,
+		Tags:                   mergeTags(nil, tags),
+	}
+	b.notebooks[name] = nb
+	b.notebookARNIndex[nbARN] = name
+
+	return cloneNotebook(nb), nil
+}
+
+// DescribeNotebookInstance returns a notebook instance by name.
+func (b *InMemoryBackend) DescribeNotebookInstance(name string) (*NotebookInstance, error) {
+	b.mu.RLock("DescribeNotebookInstance")
+	defer b.mu.RUnlock()
+
+	nb, ok := b.notebooks[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
+	}
+
+	return cloneNotebook(nb), nil
+}
+
+// ListNotebookInstances returns notebook instances sorted by name with optional pagination.
+func (b *InMemoryBackend) ListNotebookInstances(nextToken string) ([]*NotebookInstance, string) {
+	b.mu.RLock("ListNotebookInstances")
+	defer b.mu.RUnlock()
+
+	list := make([]*NotebookInstance, 0, len(b.notebooks))
+	for _, nb := range b.notebooks {
+		list = append(list, nb)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].NotebookInstanceName < list[j].NotebookInstanceName
+	})
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*NotebookInstance{}, ""
+	}
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// DeleteNotebookInstance removes a notebook instance from the backend.
+func (b *InMemoryBackend) DeleteNotebookInstance(name string) error {
+	b.mu.Lock("DeleteNotebookInstance")
+	defer b.mu.Unlock()
+
+	nb, ok := b.notebooks[name]
+	if !ok {
+		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
+	}
+
+	delete(b.notebookARNIndex, nb.NotebookInstanceArn)
+	delete(b.notebooks, name)
+
+	return nil
+}
+
+// StartNotebookInstance transitions a notebook instance to InService.
+func (b *InMemoryBackend) StartNotebookInstance(name string) error {
+	b.mu.Lock("StartNotebookInstance")
+	defer b.mu.Unlock()
+
+	nb, ok := b.notebooks[name]
+	if !ok {
+		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
+	}
+
+	nb.NotebookInstanceStatus = "InService"
+	nb.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// StopNotebookInstance transitions a notebook instance to Stopped.
+func (b *InMemoryBackend) StopNotebookInstance(name string) error {
+	b.mu.Lock("StopNotebookInstance")
+	defer b.mu.Unlock()
+
+	nb, ok := b.notebooks[name]
+	if !ok {
+		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
+	}
+
+	nb.NotebookInstanceStatus = "Stopped"
+	nb.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// UpdateNotebookInstance updates a notebook instance's instance type.
+func (b *InMemoryBackend) UpdateNotebookInstance(name, instanceType string) error {
+	b.mu.Lock("UpdateNotebookInstance")
+	defer b.mu.Unlock()
+
+	nb, ok := b.notebooks[name]
+	if !ok {
+		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
+	}
+
+	if instanceType != "" {
+		nb.InstanceType = instanceType
+	}
+	nb.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// CreatePresignedNotebookInstanceURL returns a presigned URL for a notebook instance.
+func (b *InMemoryBackend) CreatePresignedNotebookInstanceURL(name string) (string, error) {
+	b.mu.RLock("CreatePresignedNotebookInstanceURL")
+	defer b.mu.RUnlock()
+
+	nb, ok := b.notebooks[name]
+	if !ok {
+		return "", fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
+	}
+
+	url := "https://" + nb.NotebookInstanceArn + ".notebook.sagemaker.aws/lab"
+
+	return url, nil
+}
+
+// ---------------------------------------------------------------------------
+// HyperParameterTuningJob
+// ---------------------------------------------------------------------------
+
+// CreateHyperParameterTuningJob creates a new HPO job.
+func (b *InMemoryBackend) CreateHyperParameterTuningJob(
+	name, strategy string,
+	tags map[string]string,
+) (*HyperParameterTuningJob, error) {
+	b.mu.Lock("CreateHyperParameterTuningJob")
+	defer b.mu.Unlock()
+
+	if _, ok := b.hpTuningJobs[name]; ok {
+		return nil, fmt.Errorf("%w: HP tuning job %s already exists", ErrHPTuningJobAlreadyExists, name)
+	}
+
+	jobARN := arn.Build("sagemaker", b.region, b.accountID, "hyper-parameter-tuning-job/"+name)
+	now := time.Now()
+	j := &HyperParameterTuningJob{
+		HyperParameterTuningJobName:   name,
+		HyperParameterTuningJobArn:    jobARN,
+		HyperParameterTuningJobStatus: "InProgress",
+		Strategy:                      strategy,
+		CreationTime:                  now,
+		LastModifiedTime:              now,
+		Tags:                          mergeTags(nil, tags),
+	}
+	b.hpTuningJobs[name] = j
+	b.hpTuningJobARNIndex[jobARN] = name
+
+	return cloneHPTuningJob(j), nil
+}
+
+// DescribeHyperParameterTuningJob returns an HP tuning job by name.
+func (b *InMemoryBackend) DescribeHyperParameterTuningJob(name string) (*HyperParameterTuningJob, error) {
+	b.mu.RLock("DescribeHyperParameterTuningJob")
+	defer b.mu.RUnlock()
+
+	j, ok := b.hpTuningJobs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
+	}
+
+	return cloneHPTuningJob(j), nil
+}
+
+// ListHyperParameterTuningJobs returns HP tuning jobs sorted by name.
+func (b *InMemoryBackend) ListHyperParameterTuningJobs(nextToken string) ([]*HyperParameterTuningJob, string) {
+	b.mu.RLock("ListHyperParameterTuningJobs")
+	defer b.mu.RUnlock()
+
+	list := make([]*HyperParameterTuningJob, 0, len(b.hpTuningJobs))
+	for _, j := range b.hpTuningJobs {
+		list = append(list, j)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].HyperParameterTuningJobName < list[j].HyperParameterTuningJobName
+	})
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*HyperParameterTuningJob{}, ""
+	}
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// StopHyperParameterTuningJob marks an HP tuning job as Stopping.
+func (b *InMemoryBackend) StopHyperParameterTuningJob(name string) error {
+	b.mu.Lock("StopHyperParameterTuningJob")
+	defer b.mu.Unlock()
+
+	j, ok := b.hpTuningJobs[name]
+	if !ok {
+		return fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
+	}
+
+	j.HyperParameterTuningJobStatus = "Stopping"
+	j.LastModifiedTime = time.Now()
+
+	return nil
+}
+
+// DeleteHyperParameterTuningJob removes an HP tuning job from the backend.
+func (b *InMemoryBackend) DeleteHyperParameterTuningJob(name string) error {
+	b.mu.Lock("DeleteHyperParameterTuningJob")
+	defer b.mu.Unlock()
+
+	j, ok := b.hpTuningJobs[name]
+	if !ok {
+		return fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
+	}
+
+	delete(b.hpTuningJobARNIndex, j.HyperParameterTuningJobArn)
+	delete(b.hpTuningJobs, name)
+
+	return nil
+}
