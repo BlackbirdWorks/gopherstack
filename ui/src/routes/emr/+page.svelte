@@ -6,16 +6,28 @@
 		ListClustersCommand,
 		DescribeClusterCommand,
 		ListInstancesCommand,
+		ListInstanceFleetsCommand,
+		ListBootstrapActionsCommand,
+		ListNotebookExecutionsCommand,
+		ListStudiosCommand,
+		ModifyClusterCommand,
+		PutAutoScalingPolicyCommand,
+		PutManagedScalingPolicyCommand,
+		RemoveAutoScalingPolicyCommand,
+		RemoveManagedScalingPolicyCommand,
 		AddJobFlowStepsCommand,
 		ListStepsCommand,
 		TerminateJobFlowsCommand,
 		type ClusterSummary,
 		type Cluster,
 		type StepSummary,
-		type Instance
+		type Instance,
+		type InstanceFleet,
+		type StudioSummary,
+		type NotebookExecutionSummary
 	} from '@aws-sdk/client-emr';
 	import { toast } from 'svelte-sonner';
-	import { Database, Search, RefreshCw, Plus, XCircle, ChevronRight, Play, Server } from 'lucide-svelte';
+	import { Database, Search, RefreshCw, Plus, XCircle, ChevronRight, Play, Server, Settings, BookOpen, Layers } from 'lucide-svelte';
 
 	const emr = getEMRClient();
 
@@ -32,6 +44,32 @@
 	// Instances
 	let instances = $state<Instance[]>([]);
 	let loadingInstances = $state(false);
+
+	// Instance Fleets
+	let instanceFleets = $state<InstanceFleet[]>([]);
+	let loadingFleets = $state(false);
+
+	// Bootstrap Actions
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let bootstrapActions = $state<any[]>([]);
+	let loadingBootstrap = $state(false);
+
+	// Notebooks
+	let notebookExecutions = $state<NotebookExecutionSummary[]>([]);
+	let loadingNotebooks = $state(false);
+
+	// Studios
+	let studios = $state<StudioSummary[]>([]);
+	let loadingStudios = $state(false);
+
+	// Modify Cluster
+	let modifyStepConcurrency = $state(1);
+	let modifying = $state(false);
+
+	// Autoscaling
+	let autoScalingMaxCapacity = $state(10);
+	let autoScalingMinCapacity = $state(2);
+	let managedMaxOnDemand = $state(5);
 
 	// Add Step
 	let showAddStep = $state(false);
@@ -111,6 +149,127 @@
 			} finally {
 				loadingInstances = false;
 			}
+		}
+		if (tab === 'instance-fleets' && instanceFleets.length === 0) {
+			loadingFleets = true;
+			try {
+				const resp = await emr.send(new ListInstanceFleetsCommand({ ClusterId: selectedCluster.Id ?? '' }));
+				instanceFleets = resp.InstanceFleets ?? [];
+			} catch (e) {
+				toast.error('Failed to load instance fleets: ' + String(e));
+			} finally {
+				loadingFleets = false;
+			}
+		}
+		if (tab === 'bootstrap-actions' && bootstrapActions.length === 0) {
+			loadingBootstrap = true;
+			try {
+				const resp = await emr.send(new ListBootstrapActionsCommand({ ClusterId: selectedCluster.Id ?? '' }));
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				bootstrapActions = (resp as any).BootstrapActions ?? [];
+			} catch (e) {
+				toast.error('Failed to load bootstrap actions: ' + String(e));
+			} finally {
+				loadingBootstrap = false;
+			}
+		}
+		if (tab === 'notebooks' && notebookExecutions.length === 0) {
+			loadingNotebooks = true;
+			try {
+				const resp = await emr.send(new ListNotebookExecutionsCommand({}));
+				notebookExecutions = resp.NotebookExecutions ?? [];
+			} catch (e) {
+				toast.error('Failed to load notebook executions: ' + String(e));
+			} finally {
+				loadingNotebooks = false;
+			}
+		}
+		if (tab === 'studios' && studios.length === 0) {
+			loadingStudios = true;
+			try {
+				const resp = await emr.send(new ListStudiosCommand({}));
+				studios = resp.Studios ?? [];
+			} catch (e) {
+				toast.error('Failed to load studios: ' + String(e));
+			} finally {
+				loadingStudios = false;
+			}
+		}
+	}
+
+	async function modifyCluster() {
+		if (!selectedCluster) return;
+		modifying = true;
+		try {
+			await emr.send(new ModifyClusterCommand({
+				ClusterId: selectedCluster.Id ?? '',
+				StepConcurrencyLevel: modifyStepConcurrency
+			}));
+			toast.success('Cluster modified');
+		} catch (e) {
+			toast.error('Failed to modify cluster: ' + String(e));
+		} finally {
+			modifying = false;
+		}
+	}
+
+	async function putAutoScaling() {
+		if (!selectedCluster) return;
+		try {
+			await emr.send(new PutAutoScalingPolicyCommand({
+				ClusterId: selectedCluster.Id ?? '',
+				InstanceGroupId: 'ig-default',
+				AutoScalingPolicy: {
+					Constraints: { MinCapacity: autoScalingMinCapacity, MaxCapacity: autoScalingMaxCapacity },
+					Rules: []
+				}
+			}));
+			toast.success('Auto scaling policy applied');
+		} catch (e) {
+			toast.error('Failed to apply auto scaling policy: ' + String(e));
+		}
+	}
+
+	async function removeAutoScaling() {
+		if (!selectedCluster) return;
+		try {
+			await emr.send(new RemoveAutoScalingPolicyCommand({
+				ClusterId: selectedCluster.Id ?? '',
+				InstanceGroupId: 'ig-default'
+			}));
+			toast.success('Auto scaling policy removed');
+		} catch (e) {
+			toast.error('Failed to remove auto scaling policy: ' + String(e));
+		}
+	}
+
+	async function putManagedScaling() {
+		if (!selectedCluster) return;
+		try {
+			await emr.send(new PutManagedScalingPolicyCommand({
+				ClusterId: selectedCluster.Id ?? '',
+				ManagedScalingPolicy: {
+					ComputeLimits: {
+						UnitType: 'InstanceFleetUnits',
+						MinimumCapacityUnits: autoScalingMinCapacity,
+						MaximumCapacityUnits: autoScalingMaxCapacity,
+						MaximumOnDemandCapacityUnits: managedMaxOnDemand
+					}
+				}
+			}));
+			toast.success('Managed scaling policy applied');
+		} catch (e) {
+			toast.error('Failed to apply managed scaling: ' + String(e));
+		}
+	}
+
+	async function removeManagedScaling() {
+		if (!selectedCluster) return;
+		try {
+			await emr.send(new RemoveManagedScalingPolicyCommand({ ClusterId: selectedCluster.Id ?? '' }));
+			toast.success('Managed scaling policy removed');
+		} catch (e) {
+			toast.error('Failed to remove managed scaling: ' + String(e));
 		}
 	}
 
@@ -305,27 +464,197 @@
 		{/if}
 
 		{#if activeTab === 'modifications'}
-			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Cluster modification details not yet implemented</p></div>
+			<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 space-y-4 max-w-md">
+				<div class="flex items-center gap-2 mb-2">
+					<Settings class="w-5 h-5 text-orange-500" />
+					<h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Modify Cluster</h3>
+				</div>
+				<div>
+					<label for="step-concurrency" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Step Concurrency Level</label>
+					<input id="step-concurrency" type="number" min="1" max="256" bind:value={modifyStepConcurrency} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					<p class="text-xs text-gray-400 mt-1">Number of steps that can run concurrently (1–256)</p>
+				</div>
+				<button onclick={modifyCluster} disabled={modifying} class="px-4 py-2 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
+					{modifying ? 'Applying...' : 'Apply Changes'}
+				</button>
+			</div>
 		{/if}
 
 		{#if activeTab === 'autoscaling'}
-			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Autoscaling policies not yet implemented</p></div>
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+				<!-- Instance Group Auto Scaling -->
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 space-y-4">
+					<h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Instance Group Auto Scaling</h3>
+					<div>
+						<label for="as-min" class="block text-xs text-gray-500 mb-1">Min Capacity</label>
+						<input id="as-min" type="number" min="1" bind:value={autoScalingMinCapacity} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+					<div>
+						<label for="as-max" class="block text-xs text-gray-500 mb-1">Max Capacity</label>
+						<input id="as-max" type="number" min="1" bind:value={autoScalingMaxCapacity} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+					<div class="flex gap-2">
+						<button onclick={putAutoScaling} class="flex-1 px-4 py-2 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700">Apply Policy</button>
+						<button onclick={removeAutoScaling} class="px-4 py-2 rounded-lg border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/20">Remove</button>
+					</div>
+				</div>
+				<!-- Managed Scaling -->
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 space-y-4">
+					<h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Managed Scaling Policy</h3>
+					<div>
+						<label for="ms-min" class="block text-xs text-gray-500 mb-1">Min Capacity Units</label>
+						<input id="ms-min" type="number" min="1" bind:value={autoScalingMinCapacity} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+					<div>
+						<label for="ms-max" class="block text-xs text-gray-500 mb-1">Max Capacity Units</label>
+						<input id="ms-max" type="number" min="1" bind:value={autoScalingMaxCapacity} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+					<div>
+						<label for="ms-od" class="block text-xs text-gray-500 mb-1">Max On-Demand Units</label>
+						<input id="ms-od" type="number" min="0" bind:value={managedMaxOnDemand} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+					<div class="flex gap-2">
+						<button onclick={putManagedScaling} class="flex-1 px-4 py-2 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700">Apply</button>
+						<button onclick={removeManagedScaling} class="px-4 py-2 rounded-lg border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/20">Remove</button>
+					</div>
+				</div>
+			</div>
 		{/if}
 
 		{#if activeTab === 'notebooks'}
-			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Notebook executions not yet implemented</p></div>
+			{#if loadingNotebooks}
+				<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-orange-600 border-t-transparent rounded-full"></div></div>
+			{:else if notebookExecutions.length === 0}
+				<div class="text-center py-12 text-gray-500"><BookOpen class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No notebook executions found</p></div>
+			{:else}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Execution ID</th>
+								<th class="px-4 py-3 text-left">Notebook ID</th>
+								<th class="px-4 py-3 text-left">Status</th>
+								<th class="px-4 py-3 text-left">Start Time</th>
+								<th class="px-4 py-3 text-left">End Time</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each notebookExecutions as nb}
+								<tr>
+									<td class="px-4 py-3 font-mono text-xs">{nb.NotebookExecutionId ?? '-'}</td>
+									<td class="px-4 py-3 font-mono text-xs">{nb.EditorId ?? '-'}</td>
+									<td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">{nb.Status ?? '-'}</span></td>
+									<td class="px-4 py-3 text-xs text-gray-500">{formatDate(nb.StartTime)}</td>
+									<td class="px-4 py-3 text-xs text-gray-500">{formatDate(nb.EndTime)}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
 		{/if}
 
 		{#if activeTab === 'studios'}
-			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Studios not yet implemented</p></div>
+			{#if loadingStudios}
+				<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-orange-600 border-t-transparent rounded-full"></div></div>
+			{:else if studios.length === 0}
+				<div class="text-center py-12 text-gray-500"><Layers class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No studios found</p></div>
+			{:else}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Studio ID</th>
+								<th class="px-4 py-3 text-left">Name</th>
+								<th class="px-4 py-3 text-left">Auth Mode</th>
+								<th class="px-4 py-3 text-left">VPC ID</th>
+								<th class="px-4 py-3 text-left">URL</th>
+								<th class="px-4 py-3 text-left">Created</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each studios as studio}
+								<tr>
+									<td class="px-4 py-3 font-mono text-xs">{studio.StudioId ?? '-'}</td>
+									<td class="px-4 py-3 font-medium">{studio.Name ?? '-'}</td>
+									<td class="px-4 py-3 text-xs text-gray-500">{studio.AuthMode ?? '-'}</td>
+									<td class="px-4 py-3 font-mono text-xs">{studio.VpcId ?? '-'}</td>
+									<td class="px-4 py-3 text-xs"><a href={studio.Url ?? '#'} class="text-orange-600 hover:underline truncate block max-w-xs" target="_blank" rel="noopener noreferrer">{studio.Url ?? '-'}</a></td>
+									<td class="px-4 py-3 text-xs text-gray-500">{formatDate(studio.CreationTime)}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
 		{/if}
 
 		{#if activeTab === 'bootstrap-actions'}
-			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Bootstrap actions not yet implemented</p></div>
+			{#if loadingBootstrap}
+				<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-orange-600 border-t-transparent rounded-full"></div></div>
+			{:else if bootstrapActions.length === 0}
+				<div class="text-center py-12 text-gray-500"><Server class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No bootstrap actions found</p></div>
+			{:else}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Name</th>
+								<th class="px-4 py-3 text-left">Script Path</th>
+								<th class="px-4 py-3 text-left">Args</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each bootstrapActions as ba}
+								<tr>
+									<td class="px-4 py-3 font-medium">{ba.Name ?? '-'}</td>
+									<td class="px-4 py-3 font-mono text-xs">{ba.ScriptBootstrapAction?.Path ?? '-'}</td>
+									<td class="px-4 py-3 text-xs text-gray-500">{(ba.ScriptBootstrapAction?.Args ?? []).join(' ') || '-'}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
 		{/if}
 
 		{#if activeTab === 'instance-fleets'}
-			<div class="text-center py-12 text-gray-500"><Database class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>Instance fleets not yet implemented</p></div>
+			{#if loadingFleets}
+				<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-orange-600 border-t-transparent rounded-full"></div></div>
+			{:else if instanceFleets.length === 0}
+				<div class="text-center py-12 text-gray-500"><Layers class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No instance fleets found</p></div>
+			{:else}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Fleet ID</th>
+								<th class="px-4 py-3 text-left">Name</th>
+								<th class="px-4 py-3 text-left">Type</th>
+								<th class="px-4 py-3 text-left">Status</th>
+								<th class="px-4 py-3 text-left">Target On-Demand</th>
+								<th class="px-4 py-3 text-left">Target Spot</th>
+								<th class="px-4 py-3 text-left">Provisioned On-Demand</th>
+								<th class="px-4 py-3 text-left">Provisioned Spot</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each instanceFleets as fleet}
+								<tr>
+									<td class="px-4 py-3 font-mono text-xs">{fleet.Id ?? '-'}</td>
+									<td class="px-4 py-3 font-medium">{fleet.Name ?? '-'}</td>
+									<td class="px-4 py-3 text-xs text-gray-500">{fleet.InstanceFleetType ?? '-'}</td>
+									<td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">{fleet.Status?.State ?? '-'}</span></td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-400 text-center">{fleet.TargetOnDemandCapacity ?? 0}</td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-400 text-center">{fleet.TargetSpotCapacity ?? 0}</td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-400 text-center">{fleet.ProvisionedOnDemandCapacity ?? 0}</td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-400 text-center">{fleet.ProvisionedSpotCapacity ?? 0}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
 		{/if}
 
 	{:else}
