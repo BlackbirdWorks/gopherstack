@@ -17,23 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
 	h := wafv2.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &wafv2sdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteRuleGroup",
-		"DescribeAllManagedProducts",
-		"DescribeManagedProductsByVendor",
-		"DescribeManagedRuleGroup",
-		"GenerateMobileSdkReleaseUrl",
-		"GetManagedRuleSet",
-		"GetMobileSdkRelease",
-		"GetRateBasedStatementManagedKeys",
-		"GetSampledRequests",
-		"GetTopPathStatisticsByTraffic",
-		"ListAvailableManagedRuleGroupVersions",
-		"ListAvailableManagedRuleGroups",
-		"ListLoggingConfigurations",
-		"ListManagedRuleSets",
-		"ListMobileSdkReleases",
-		"PutManagedRuleSetVersions",
-		"UpdateManagedRuleSetVersionExpiryDate",
-	})
+	sdkcheck.CheckCompleteness(t, &wafv2sdk.Client{}, h.GetSupportedOperations(), []string{})
 }
