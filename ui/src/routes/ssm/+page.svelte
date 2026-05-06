@@ -8,10 +8,14 @@
 		PutParameterCommand,
 		DeleteParameterCommand,
 		GetParametersByPathCommand,
-		type ParameterMetadata
+		CreateMaintenanceWindowCommand,
+		DeleteMaintenanceWindowCommand,
+		DescribeMaintenanceWindowsCommand,
+		type ParameterMetadata,
+		type MaintenanceWindowIdentity
 	} from '@aws-sdk/client-ssm';
 	import { toast } from 'svelte-sonner';
-	import { Settings, Search, RefreshCw, Plus, Trash2, Eye, EyeOff, Edit2, Check, X } from 'lucide-svelte';
+	import { Settings, Search, RefreshCw, Plus, Trash2, Eye, EyeOff, Edit2, Check, X, Calendar } from 'lucide-svelte';
 
 	const ssm = getSSMClient();
 
@@ -154,7 +158,80 @@
 		return d ? new Date(d).toLocaleString() : 'N/A';
 	}
 
-	onMount(() => { loadParameters(); });
+	// Maintenance Windows
+	let activeTab = $state<'parameters' | 'maintenance-windows'>('parameters');
+	let mwLoading = $state(false);
+	let maintenanceWindows = $state<MaintenanceWindowIdentity[]>([]);
+
+	// Create maintenance window modal
+	let showMWModal = $state(false);
+	let mwSaving = $state(false);
+	let mwName = $state('');
+	let mwDescription = $state('');
+	let mwSchedule = $state('');
+	let mwDuration = $state(4);
+	let mwCutoff = $state(1);
+	let mwAllowUnassociated = $state(false);
+
+	async function loadMaintenanceWindows() {
+		mwLoading = true;
+		try {
+			const res = await ssm.send(new DescribeMaintenanceWindowsCommand({ MaxResults: 50 }));
+			maintenanceWindows = (res.WindowIdentities ?? []) as MaintenanceWindowIdentity[];
+		} catch (err: unknown) {
+			toast.error(`Failed to load maintenance windows: ${(err as Error).message}`);
+		} finally {
+			mwLoading = false;
+		}
+	}
+
+	function openCreateMW() {
+		mwName = '';
+		mwDescription = '';
+		mwSchedule = 'cron(0 2 ? * SUN *)';
+		mwDuration = 4;
+		mwCutoff = 1;
+		mwAllowUnassociated = false;
+		showMWModal = true;
+	}
+
+	async function saveMW() {
+		if (!mwName.trim() || !mwSchedule.trim()) return;
+		mwSaving = true;
+		try {
+			await ssm.send(new CreateMaintenanceWindowCommand({
+				Name: mwName.trim(),
+				Description: mwDescription || undefined,
+				Schedule: mwSchedule.trim(),
+				Duration: mwDuration,
+				Cutoff: mwCutoff,
+				AllowUnassociatedTargets: mwAllowUnassociated
+			}));
+			toast.success(`Maintenance window "${mwName.trim()}" created`);
+			showMWModal = false;
+			await loadMaintenanceWindows();
+		} catch (err: unknown) {
+			toast.error(`Failed to create maintenance window: ${(err as Error).message}`);
+		} finally {
+			mwSaving = false;
+		}
+	}
+
+	async function deleteMW(windowId: string, name: string) {
+		if (!await confirmDestructive({ title: 'Delete Maintenance Window', message: `Delete maintenance window "${name}"?` })) return;
+		try {
+			await ssm.send(new DeleteMaintenanceWindowCommand({ WindowId: windowId }));
+			toast.success(`Maintenance window "${name}" deleted`);
+			await loadMaintenanceWindows();
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
+		}
+	}
+
+	onMount(() => {
+		loadParameters();
+		loadMaintenanceWindows();
+	});
 </script>
 
 <div class="space-y-6">
@@ -165,21 +242,50 @@
 				<Settings class="w-6 h-6 text-teal-600 dark:text-teal-400" />
 			</div>
 			<div>
-				<h1 class="text-3xl font-bold text-slate-900 dark:text-white">SSM Parameter Store</h1>
-				<p class="text-slate-600 dark:text-slate-300">Secure configuration and secrets management</p>
+				<h1 class="text-3xl font-bold text-slate-900 dark:text-white">AWS Systems Manager</h1>
+				<p class="text-slate-600 dark:text-slate-300">Secure configuration, secrets, and maintenance management</p>
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
-			<button onclick={() => loadParameters()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
-				<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
-			</button>
-			<button onclick={openCreate} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
-				<Plus class="w-4 h-4" />
-				Create Parameter
-			</button>
+			{#if activeTab === 'parameters'}
+				<button onclick={() => loadParameters()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
+					<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
+				</button>
+				<button onclick={openCreate} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
+					<Plus class="w-4 h-4" />
+					Create Parameter
+				</button>
+			{:else}
+				<button onclick={() => loadMaintenanceWindows()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
+					<RefreshCw class="w-5 h-5 {mwLoading ? 'animate-spin' : ''}" />
+				</button>
+				<button onclick={openCreateMW} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
+					<Plus class="w-4 h-4" />
+					Create Window
+				</button>
+			{/if}
 		</div>
 	</div>
 
+	<!-- Tabs -->
+	<div class="border-b border-slate-200 dark:border-slate-700">
+		<nav class="flex gap-0" aria-label="SSM Tabs">
+			<button
+				onclick={() => { activeTab = 'parameters'; }}
+				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'parameters' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}"
+			>
+				<div class="flex items-center gap-2"><Settings class="w-4 h-4" />Parameter Store</div>
+			</button>
+			<button
+				onclick={() => { activeTab = 'maintenance-windows'; }}
+				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'maintenance-windows' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}"
+			>
+				<div class="flex items-center gap-2"><Calendar class="w-4 h-4" />Maintenance Windows</div>
+			</button>
+		</nav>
+	</div>
+
+	{#if activeTab === 'parameters'}
 	<!-- Search -->
 	<div class="flex gap-2">
 		<div class="relative flex-1">
@@ -298,6 +404,63 @@
 			{/if}
 		</div>
 	</div>
+	{:else}
+	<!-- Maintenance Windows tab -->
+	{#if mwLoading}
+		<div class="text-center py-12">
+			<div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mb-2"></div>
+			<p class="text-slate-500 dark:text-slate-400">Loading maintenance windows...</p>
+		</div>
+	{:else if maintenanceWindows.length === 0}
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+			<Calendar class="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+			<p class="text-slate-500 dark:text-slate-400 mb-4">No maintenance windows found</p>
+			<button onclick={openCreateMW} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 mx-auto">
+				<Plus class="w-4 h-4" />Create your first window
+			</button>
+		</div>
+	{:else}
+		<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+			{#each maintenanceWindows as mw}
+				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+					<div class="flex items-start justify-between">
+						<div class="min-w-0 flex-1">
+							<p class="font-semibold text-slate-900 dark:text-white truncate">{mw.Name}</p>
+							{#if mw.Description}
+								<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{mw.Description}</p>
+							{/if}
+						</div>
+						<span class="ml-2 flex-shrink-0 px-2 py-0.5 text-xs rounded-full {mw.Enabled ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}">
+							{mw.Enabled ? 'Enabled' : 'Disabled'}
+						</span>
+					</div>
+					<div class="grid grid-cols-2 gap-2 text-xs">
+						<div class="bg-slate-50 dark:bg-slate-700/50 rounded p-2">
+							<p class="text-slate-500 dark:text-slate-400">Duration</p>
+							<p class="font-medium text-slate-900 dark:text-white">{mw.Duration}h</p>
+						</div>
+						<div class="bg-slate-50 dark:bg-slate-700/50 rounded p-2">
+							<p class="text-slate-500 dark:text-slate-400">Cutoff</p>
+							<p class="font-medium text-slate-900 dark:text-white">{mw.Cutoff}h</p>
+						</div>
+					</div>
+					<div class="bg-slate-50 dark:bg-slate-700/50 rounded p-2 text-xs">
+						<p class="text-slate-500 dark:text-slate-400">Schedule</p>
+						<p class="font-mono text-slate-900 dark:text-white truncate">{mw.Schedule}</p>
+					</div>
+					<div class="flex justify-end">
+						<button
+							onclick={() => deleteMW(mw.WindowId ?? '', mw.Name ?? '')}
+							class="px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 flex items-center gap-1.5 text-sm"
+						>
+							<Trash2 class="w-4 h-4" />Delete
+						</button>
+					</div>
+				</div>
+			{/each}
+		</div>
+	{/if}
+	{/if}
 </div>
 
 <!-- Create/Edit Modal -->
@@ -357,6 +520,66 @@
 					<button type="submit" disabled={saving} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
 						<Check class="w-4 h-4" />
 						{saving ? 'Saving...' : (isEditing ? 'Update' : 'Create')}
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Maintenance Window Modal -->
+{#if showMWModal}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg">
+			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Maintenance Window</h2>
+			<form onsubmit={(e) => { e.preventDefault(); saveMW(); }} class="space-y-4">
+				<div>
+					<label for="mw-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Name</label>
+					<input
+						id="mw-name"
+						type="text"
+						bind:value={mwName}
+						placeholder="e.g. weekly-patching"
+						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+						required
+					/>
+				</div>
+				<div>
+					<label for="mw-desc" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description (optional)</label>
+					<input id="mw-desc" type="text" bind:value={mwDescription} placeholder="Window description..." class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+				</div>
+				<div>
+					<label for="mw-schedule" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Schedule (cron or rate expression)</label>
+					<input
+						id="mw-schedule"
+						type="text"
+						bind:value={mwSchedule}
+						placeholder="cron(0 2 ? * SUN *)"
+						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+						required
+					/>
+				</div>
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label for="mw-duration" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Duration (hours, 1–24)</label>
+						<input id="mw-duration" type="number" min="1" max="24" bind:value={mwDuration} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					</div>
+					<div>
+						<label for="mw-cutoff" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cutoff (hours before end)</label>
+						<input id="mw-cutoff" type="number" min="0" max="23" bind:value={mwCutoff} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+					</div>
+				</div>
+				<div class="flex items-center gap-2">
+					<input id="mw-unassociated" type="checkbox" bind:checked={mwAllowUnassociated} class="rounded" />
+					<label for="mw-unassociated" class="text-sm text-slate-700 dark:text-slate-300">Allow unassociated targets</label>
+				</div>
+				<div class="flex justify-end gap-3 pt-2">
+					<button type="button" onclick={() => { showMWModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5">
+						<X class="w-4 h-4" />Cancel
+					</button>
+					<button type="submit" disabled={mwSaving} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
+						<Check class="w-4 h-4" />
+						{mwSaving ? 'Creating...' : 'Create'}
 					</button>
 				</div>
 			</form>
