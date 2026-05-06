@@ -298,7 +298,7 @@ func TestRefinement1_GetSupportedOperationsIncludesListTagsRemoveTags(t *testing
 
 	assert.Contains(t, ops, "ListTags")
 	assert.Contains(t, ops, "RemoveTags")
-	assert.Len(t, ops, 19)
+	assert.Len(t, ops, 51)
 }
 
 // TestRefinement1_HandlerResetDelegatesToBackend verifies handler.Reset() clears backend state.

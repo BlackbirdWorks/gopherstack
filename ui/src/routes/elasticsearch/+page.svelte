@@ -13,7 +13,14 @@
 		type ElasticsearchDomainStatus
 	} from '@aws-sdk/client-elasticsearch-service';
 	import { toast } from 'svelte-sonner';
-	import { Search, RefreshCw, Plus, Trash2, ChevronRight, Database, Tag } from 'lucide-svelte';
+	import {
+		DescribePackagesCommand,
+		CreatePackageCommand,
+		DeletePackageCommand,
+		AssociatePackageCommand,
+		DissociatePackageCommand
+	} from '@aws-sdk/client-elasticsearch-service';
+	import { Search, RefreshCw, Plus, Trash2, ChevronRight, Database, Tag, Package } from 'lucide-svelte';
 
 	const elasticsearch = getElasticsearchServiceClient();
 
@@ -21,19 +28,23 @@
 	let domainNames = $state<{ DomainName: string }[]>([]);
 	let selectedDomain = $state<ElasticsearchDomainStatus | null>(null);
 	let loadingDetail = $state(false);
-	let activeTab = $state<'overview' | 'config' | 'tags'>('overview');
+	let activeTab = $state<'overview' | 'config' | 'tags' | 'packages'>('overview');
 	let searchQuery = $state('');
 
 	// Tags
 	let tags = $state<{ Key: string; Value: string }[]>([]);
 	let loadingTags = $state(false);
 
+	// Packages
+	let packages = $state<{ PackageID: string; PackageName: string; PackageType: string; PackageDescription: string; PackageStatus: string }[]>([]);
+	let loadingPackages = $state(false);
+
 	// Create Domain
 	let showCreateDomain = $state(false);
 	let creatingDomain = $state(false);
 	let newDomainName = $state('');
 	let newEsVersion = $state('7.10');
-	let newInstanceType = $state('t3.small.elasticsearch');
+	let newInstanceType = $state('t2.small.elasticsearch');
 	let newInstanceCount = $state(1);
 	let newStorageSize = $state(10);
 
@@ -47,6 +58,13 @@
 	let showAddTag = $state(false);
 	let newTagKey = $state('');
 	let newTagValue = $state('');
+
+	// Create Package
+	let showCreatePackage = $state(false);
+	let creatingPackage = $state(false);
+	let newPackageName = $state('');
+	let newPackageType = $state('TXT-DICTIONARY');
+	let newPackageDescription = $state('');
 
 	const filteredDomains = $derived(
 		domainNames.filter((d) => !searchQuery || d.DomainName.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -80,9 +98,83 @@
 		}
 	}
 
-	async function handleTabChange(tab: 'overview' | 'config' | 'tags') {
+	async function handleTabChange(tab: 'overview' | 'config' | 'tags' | 'packages') {
 		activeTab = tab;
 		if (tab === 'tags' && selectedDomain && tags.length === 0) await loadTags();
+		if (tab === 'packages' && packages.length === 0) await loadPackages();
+	}
+
+	async function loadPackages() {
+		loadingPackages = true;
+		try {
+			const resp = await elasticsearch.send(new DescribePackagesCommand({}));
+			packages = (resp.PackageDetailsList ?? []).map((p) => ({
+				PackageID: p.PackageID ?? '',
+				PackageName: p.PackageName ?? '',
+				PackageType: p.PackageType ?? '',
+				PackageDescription: p.PackageDescription ?? '',
+				PackageStatus: p.PackageStatus ?? ''
+			}));
+		} catch (e) {
+			toast.error('Failed to load packages: ' + String(e));
+		} finally {
+			loadingPackages = false;
+		}
+	}
+
+	async function createPackage() {
+		if (!newPackageName.trim()) return;
+		creatingPackage = true;
+		try {
+			await elasticsearch.send(new CreatePackageCommand({
+				PackageName: newPackageName.trim(),
+				PackageType: newPackageType as 'TXT-DICTIONARY',
+				PackageDescription: newPackageDescription.trim(),
+				PackageSource: { S3BucketName: 'gopherstack-packages', S3Key: `${newPackageName.trim()}.txt` }
+			}));
+			toast.success(`Package "${newPackageName}" created`);
+			showCreatePackage = false;
+			newPackageName = '';
+			newPackageDescription = '';
+			packages = [];
+			await loadPackages();
+		} catch (e) {
+			toast.error('Failed to create package: ' + String(e));
+		} finally {
+			creatingPackage = false;
+		}
+	}
+
+	async function deletePackage(packageID: string, packageName: string) {
+		if (!await confirmDestructive({ title: 'Delete Package', message: `Delete package "${packageName}"?` })) return;
+		try {
+			await elasticsearch.send(new DeletePackageCommand({ PackageID: packageID }));
+			toast.success(`Package "${packageName}" deleted`);
+			packages = [];
+			await loadPackages();
+		} catch (e) {
+			toast.error('Failed to delete package: ' + String(e));
+		}
+	}
+
+	async function associatePackage(packageID: string) {
+		if (!selectedDomain?.DomainName) return;
+		try {
+			await elasticsearch.send(new AssociatePackageCommand({ PackageID: packageID, DomainName: selectedDomain.DomainName }));
+			toast.success('Package associated with domain');
+		} catch (e) {
+			toast.error('Failed to associate package: ' + String(e));
+		}
+	}
+
+	async function dissociatePackage(packageID: string) {
+		if (!selectedDomain?.DomainName) return;
+		try {
+			await elasticsearch.send(new DissociatePackageCommand({ PackageID: packageID, DomainName: selectedDomain.DomainName }));
+			toast.success('Package dissociated from domain');
+		} catch (e) {
+			toast.error('Failed to dissociate package: ' + String(e));
+		}
 	}
 
 	async function loadTags() {
@@ -124,13 +216,13 @@
 				DomainName: newDomainName.trim(),
 				ElasticsearchVersion: newEsVersion,
 				ElasticsearchClusterConfig: {
-					InstanceType: newInstanceType as 't3.small.elasticsearch',
+					InstanceType: newInstanceType as any,
 					InstanceCount: newInstanceCount
 				},
 				EBSOptions: {
 					EBSEnabled: true,
 					VolumeSize: newStorageSize,
-					VolumeType: 'gp3'
+					VolumeType: 'gp2' as any
 				}
 			}));
 			toast.success(`Domain "${newDomainName}" creation initiated`);
@@ -159,7 +251,7 @@
 			await elasticsearch.send(new UpdateElasticsearchDomainConfigCommand({
 				DomainName: selectedDomain.DomainName ?? '',
 				ElasticsearchClusterConfig: {
-					InstanceType: updateInstanceType as 't3.small.elasticsearch',
+					InstanceType: updateInstanceType as any,
 					InstanceCount: updateInstanceCount
 				}
 			}));
@@ -186,10 +278,10 @@
 	}
 
 	const instanceTypes = [
-		't3.small.elasticsearch', 't3.medium.elasticsearch',
-		'm6g.large.elasticsearch', 'm6g.xlarge.elasticsearch', 'm6g.2xlarge.elasticsearch',
-		'r6g.large.elasticsearch', 'r6g.xlarge.elasticsearch', 'r6g.2xlarge.elasticsearch',
-		'c6g.large.elasticsearch', 'c6g.xlarge.elasticsearch'
+		't2.small.elasticsearch', 't2.medium.elasticsearch',
+		'm5.large.elasticsearch', 'm5.xlarge.elasticsearch', 'm5.2xlarge.elasticsearch',
+		'r5.large.elasticsearch', 'r5.xlarge.elasticsearch', 'r5.2xlarge.elasticsearch',
+		'c5.large.elasticsearch', 'c5.xlarge.elasticsearch'
 	];
 
 	onMount(loadDomains);
@@ -232,9 +324,9 @@
 
 		<!-- Tabs -->
 		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-			{#each [['overview', 'Overview'], ['config', 'Configuration'], ['tags', 'Tags']] as [tab, label]}
+			{#each [['overview', 'Overview'], ['config', 'Configuration'], ['tags', 'Tags'], ['packages', 'Packages']] as [tab, label]}
 				<button
-					onclick={() => handleTabChange(tab as 'overview' | 'config' | 'tags')}
+					onclick={() => handleTabChange(tab as 'overview' | 'config' | 'tags' | 'packages')}
 					class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-yellow-500 text-yellow-600 dark:text-yellow-400' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
 				>
 					{label}
@@ -311,6 +403,48 @@
 						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 							{#each tags as tag}
 								<tr><td class="px-4 py-3 font-medium">{tag.Key}</td><td class="px-4 py-3 text-gray-600 dark:text-gray-400">{tag.Value}</td></tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		{/if}
+
+		{#if activeTab === 'packages'}
+			<div class="flex justify-end mb-4">
+				<button onclick={() => (showCreatePackage = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-yellow-600 text-white hover:bg-yellow-700 text-sm font-medium">
+					<Package class="w-4 h-4" /> Create Package
+				</button>
+			</div>
+			{#if loadingPackages}
+				<div class="flex justify-center py-8"><div class="animate-spin w-8 h-8 border-4 border-yellow-600 border-t-transparent rounded-full"></div></div>
+			{:else if packages.length === 0}
+				<div class="text-center py-12 text-gray-500"><Package class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No packages</p></div>
+			{:else}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Name</th>
+								<th class="px-4 py-3 text-left">Type</th>
+								<th class="px-4 py-3 text-left">Status</th>
+								<th class="px-4 py-3 text-left">Actions</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each packages as pkg}
+								<tr>
+									<td class="px-4 py-3 font-medium">{pkg.PackageName}</td>
+									<td class="px-4 py-3 text-gray-500">{pkg.PackageType}</td>
+									<td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">{pkg.PackageStatus}</span></td>
+									<td class="px-4 py-3">
+										<div class="flex gap-2">
+											<button onclick={() => associatePackage(pkg.PackageID)} class="text-xs text-yellow-600 hover:underline">Associate</button>
+											<button onclick={() => dissociatePackage(pkg.PackageID)} class="text-xs text-gray-500 hover:underline">Dissociate</button>
+											<button onclick={() => deletePackage(pkg.PackageID, pkg.PackageName)} class="text-xs text-red-500 hover:underline">Delete</button>
+										</div>
+									</td>
+								</tr>
 							{/each}
 						</tbody>
 					</table>
@@ -421,6 +555,36 @@
 				<button onclick={() => (showUpdateConfig = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50">Cancel</button>
 				<button onclick={updateConfig} disabled={updatingConfig} class="flex-1 px-4 py-2 rounded-lg bg-yellow-600 text-white text-sm font-medium hover:bg-yellow-700 disabled:opacity-50">
 					{updatingConfig ? 'Updating...' : 'Update'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Package Modal -->
+{#if showCreatePackage}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Package</h2>
+			<div>
+				<label for="pkg-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Package Name</label>
+				<input id="pkg-name" bind:value={newPackageName} type="text" placeholder="my-dictionary" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div>
+				<label for="pkg-type" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Package Type</label>
+				<select id="pkg-type" bind:value={newPackageType} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+					<option value="TXT-DICTIONARY">TXT-DICTIONARY</option>
+					<option value="ZIP-PLUGIN">ZIP-PLUGIN</option>
+				</select>
+			</div>
+			<div>
+				<label for="pkg-desc" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+				<input id="pkg-desc" bind:value={newPackageDescription} type="text" placeholder="Custom dictionary for analysis" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => { showCreatePackage = false; }} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={createPackage} disabled={creatingPackage || !newPackageName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-yellow-600 text-white text-sm font-medium hover:bg-yellow-700 disabled:opacity-50">
+					{creatingPackage ? 'Creating...' : 'Create'}
 				</button>
 			</div>
 		</div>

@@ -17,38 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := elasticsearch.NewInMemoryBackend("000000000000", "us-east-1")
 	h := elasticsearch.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &elasticsearchsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteInboundCrossClusterSearchConnection",
-		"DeleteOutboundCrossClusterSearchConnection",
-		"DeletePackage",
-		"DeleteVpcEndpoint",
-		"DescribeDomainAutoTunes",
-		"DescribeDomainChangeProgress",
-		"DescribeElasticsearchInstanceTypeLimits",
-		"DescribeInboundCrossClusterSearchConnections",
-		"DescribeOutboundCrossClusterSearchConnections",
-		"DescribePackages",
-		"DescribeReservedElasticsearchInstanceOfferings",
-		"DescribeReservedElasticsearchInstances",
-		"DescribeVpcEndpoints",
-		"DissociatePackage",
-		"GetCompatibleElasticsearchVersions",
-		"GetPackageVersionHistory",
-		"GetUpgradeHistory",
-		"GetUpgradeStatus",
-		"ListDomainsForPackage",
-		"ListElasticsearchInstanceTypes",
-		"ListElasticsearchVersions",
-		"ListPackagesForDomain",
-		"ListVpcEndpointAccess",
-		"ListVpcEndpoints",
-		"ListVpcEndpointsForDomain",
-		"PurchaseReservedElasticsearchInstanceOffering",
-		"RejectInboundCrossClusterSearchConnection",
-		"RevokeVpcEndpointAccess",
-		"StartElasticsearchServiceSoftwareUpdate",
-		"UpdatePackage",
-		"UpdateVpcEndpoint",
-		"UpgradeElasticsearchDomain",
-	})
+	sdkcheck.CheckCompleteness(t, &elasticsearchsdk.Client{}, h.GetSupportedOperations(), []string{})
 }
