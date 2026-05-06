@@ -6,15 +6,16 @@ import (
 )
 
 type backendSnapshot struct {
-	Applications     map[string]*Application           `json:"applications"`
-	Environments     map[string]*Environment           `json:"environments"`
-	AppVersions      map[string]*ApplicationVersion    `json:"appVersions"`
-	ConfigTemplates  map[string]*ConfigurationTemplate `json:"configTemplates"`
-	PlatformVersions map[string]*PlatformVersion       `json:"platformVersions"`
-	AccountID        string                            `json:"accountID"`
-	Region           string                            `json:"region"`
-	StorageLocation  string                            `json:"storageLocation"`
-	EnvCounter       int                               `json:"envCounter"`
+	Applications         map[string]*Application            `json:"applications"`
+	Environments         map[string]*Environment            `json:"environments"`
+	AppVersions          map[string]*ApplicationVersion     `json:"appVersions"`
+	ConfigTemplates      map[string]*ConfigurationTemplate  `json:"configTemplates"`
+	PlatformVersions     map[string]*PlatformVersion        `json:"platformVersions"`
+	ManagedActionHistory map[string][]*ManagedActionHistory `json:"managedActionHistory,omitempty"`
+	AccountID            string                             `json:"accountID"`
+	Region               string                             `json:"region"`
+	StorageLocation      string                             `json:"storageLocation"`
+	EnvCounter           int                                `json:"envCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -23,15 +24,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Applications:     b.applications,
-		Environments:     b.environments,
-		AppVersions:      b.appVersions,
-		ConfigTemplates:  b.configTemplates,
-		PlatformVersions: b.platformVersions,
-		AccountID:        b.accountID,
-		Region:           b.region,
-		StorageLocation:  b.storageLocation,
-		EnvCounter:       b.envCounter,
+		Applications:         b.applications,
+		Environments:         b.environments,
+		AppVersions:          b.appVersions,
+		ConfigTemplates:      b.configTemplates,
+		PlatformVersions:     b.platformVersions,
+		ManagedActionHistory: b.managedActionHistory,
+		AccountID:            b.accountID,
+		Region:               b.region,
+		StorageLocation:      b.storageLocation,
+		EnvCounter:           b.envCounter,
 	}
 
 	data, err := json.Marshal(snap)
@@ -75,11 +77,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.PlatformVersions = make(map[string]*PlatformVersion)
 	}
 
+	if snap.ManagedActionHistory == nil {
+		snap.ManagedActionHistory = make(map[string][]*ManagedActionHistory)
+	}
+
 	b.applications = snap.Applications
 	b.environments = snap.Environments
 	b.appVersions = snap.AppVersions
 	b.configTemplates = snap.ConfigTemplates
 	b.platformVersions = snap.PlatformVersions
+	b.managedActionHistory = snap.ManagedActionHistory
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.storageLocation = snap.StorageLocation

@@ -25,21 +25,27 @@ var (
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
-// arnPrefixIAM is the prefix for IAM ARNs used in instance profile validation.
-const arnPrefixIAM = "arn:aws:iam::"
+const (
+	// arnPrefixIAM is the prefix for IAM ARNs used in instance profile validation.
+	arnPrefixIAM = "arn:aws:iam::"
+	// envStatusReady is the status value for a ready environment.
+	envStatusReady = "Ready"
+	// envHealthGreen is the health value for a healthy environment.
+	envHealthGreen = "Green"
+	// managedActionFinishedTime is a placeholder timestamp for managed action history.
+	managedActionFinishedTime = "2026-01-01T00:00:00Z"
+)
 
 // Application represents an Elastic Beanstalk application.
 type Application struct {
-	Tags                           map[string]string `json:"tags,omitempty"`
-	ApplicationName                string            `json:"applicationName"`
-	ApplicationARN                 string            `json:"applicationArn"`
-	Description                    string            `json:"description,omitempty"`
-	ResourceLifecycleServiceRole   string            `json:"resourceLifecycleServiceRole,omitempty"`
+	Tags                         map[string]string `json:"tags,omitempty"`
+	ApplicationName              string            `json:"applicationName"`
+	ApplicationARN               string            `json:"applicationArn"`
+	Description                  string            `json:"description,omitempty"`
+	ResourceLifecycleServiceRole string            `json:"resourceLifecycleServiceRole,omitempty"`
 }
 
 // Environment represents an Elastic Beanstalk environment.
-//
-//nolint:govet // field alignment sacrificed for readability; struct is not hot-path allocated
 type Environment struct {
 	Tags              map[string]string `json:"tags,omitempty"`
 	ApplicationName   string            `json:"applicationName"`
@@ -110,20 +116,20 @@ type ManagedActionHistory struct {
 
 // InMemoryBackend stores AWS Elastic Beanstalk state in memory.
 type InMemoryBackend struct {
-	applications          map[string]*Application
-	environments          map[string]*Environment
-	appVersions           map[string]*ApplicationVersion
-	configTemplates       map[string]*ConfigurationTemplate // configTemplateKey → template
-	platformVersions      map[string]*PlatformVersion       // platformARN → version
-	managedActionHistory  map[string][]*ManagedActionHistory // envName → history items
-	appARNIndex           map[string]string                 // ARN → app name
-	envARNIndex           map[string]string                 // ARN → envKey
-	verARNIndex           map[string]string                 // ARN → appVersionKey
-	mu                    *lockmetrics.RWMutex
-	accountID             string
-	region                string
-	storageLocation       string
-	envCounter            int
+	applications         map[string]*Application
+	environments         map[string]*Environment
+	appVersions          map[string]*ApplicationVersion
+	configTemplates      map[string]*ConfigurationTemplate  // configTemplateKey → template
+	platformVersions     map[string]*PlatformVersion        // platformARN → version
+	managedActionHistory map[string][]*ManagedActionHistory // envName → history items
+	appARNIndex          map[string]string                  // ARN → app name
+	envARNIndex          map[string]string                  // ARN → envKey
+	verARNIndex          map[string]string                  // ARN → appVersionKey
+	mu                   *lockmetrics.RWMutex
+	accountID            string
+	region               string
+	storageLocation      string
+	envCounter           int
 }
 
 // copyTags creates a shallow copy of the given tags map.
@@ -209,11 +215,6 @@ func envKey(appName, envName string) string {
 // appVersionKey returns the map key for an application version.
 func appVersionKey(appName, versionLabel string) string {
 	return appName + ":" + versionLabel
-}
-
-// defaultCNAME generates the default CNAME for an environment.
-func (b *InMemoryBackend) defaultCNAME(envName string) string {
-	return envName + "." + b.region + ".elasticbeanstalk.com"
 }
 
 // CreateApplication creates a new Elastic Beanstalk application.
@@ -412,8 +413,8 @@ func (b *InMemoryBackend) CreateEnvironment(
 		EnvironmentARN:    envARN,
 		SolutionStackName: solutionStack,
 		Description:       description,
-		Status:            "Ready",
-		Health:            "Green",
+		Status:            envStatusReady,
+		Health:            envHealthGreen,
 		Tier:              tierName,
 		TierType:          tierType,
 		TierName:          tierName,
@@ -526,7 +527,7 @@ func (b *InMemoryBackend) CloneEnvironment(srcAppName, srcEnvName, newEnvName st
 	}
 
 	destKey := envKey(srcAppName, newEnvName)
-	if _, ok := b.environments[destKey]; ok {
+	if _, exists := b.environments[destKey]; exists {
 		return nil, fmt.Errorf("%w: environment %s already exists", ErrAlreadyExists, newEnvName)
 	}
 
@@ -542,8 +543,8 @@ func (b *InMemoryBackend) CloneEnvironment(srcAppName, srcEnvName, newEnvName st
 		EnvironmentARN:    envARN,
 		SolutionStackName: src.SolutionStackName,
 		Description:       src.Description,
-		Status:            "Ready",
-		Health:            "Green",
+		Status:            envStatusReady,
+		Health:            envHealthGreen,
 		Tier:              src.Tier,
 		TierType:          src.TierType,
 		TierName:          src.TierName,
@@ -772,7 +773,7 @@ func (b *InMemoryBackend) ApplyEnvironmentManagedAction(envName, actionID string
 		ActionType:        "InstanceRefresh",
 		ActionDescription: "Managed action applied",
 		Status:            "Succeeded",
-		FinishedTime:      "2026-01-01T00:00:00Z",
+		FinishedTime:      managedActionFinishedTime,
 	}
 	b.managedActionHistory[envName] = append(b.managedActionHistory[envName], item)
 
@@ -789,7 +790,7 @@ func (b *InMemoryBackend) AddManagedActionHistory(envName, actionID, actionType,
 		ActionType:        actionType,
 		ActionDescription: actionDesc,
 		Status:            status,
-		FinishedTime:      "2026-01-01T00:00:00Z",
+		FinishedTime:      managedActionFinishedTime,
 	}
 	b.managedActionHistory[envName] = append(b.managedActionHistory[envName], item)
 }
@@ -937,7 +938,7 @@ func (b *InMemoryBackend) CreatePlatformVersion(
 		PlatformArn:     platformARN,
 		PlatformName:    platformName,
 		PlatformVersion: platformVersion,
-		PlatformStatus:  "Ready",
+		PlatformStatus:  envStatusReady,
 		Tags:            copyTags(tags),
 	}
 	b.platformVersions[platformARN] = pv

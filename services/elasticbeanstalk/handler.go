@@ -24,6 +24,8 @@ const (
 const (
 	ebXMLNS = "https://elasticbeanstalk.amazonaws.com/docs/2010-12-01/"
 
+	nsAutoScalingASG = "aws:autoscaling:asg"
+
 	optionValueTypeScalar      = "Scalar"
 	platformLifecycleSupported = "Supported"
 
@@ -32,6 +34,11 @@ const (
 	quotaConfigTemplates     = 2000
 	quotaCustomPlatforms     = 25
 	quotaEnvironments        = 200
+
+	// healthColorGreen is the color label for a healthy environment.
+	healthColorGreen = "Green"
+	// healthRefreshedAt is a placeholder refresh timestamp for environment health responses.
+	healthRefreshedAt = "2026-01-01T00:00:00Z"
 )
 
 // formOpFunc is the function type for a dispatched form-encoded operation.
@@ -1683,12 +1690,12 @@ func (h *Handler) handleDescribeConfigurationOptions(_ url.Values) (any, error) 
 		DescribeConfigurationOptionsResult: describeConfigurationOptionsResult{
 			Options: []configurationOptionDescription{
 				{
-					Namespace: "aws:autoscaling:asg",
+					Namespace: nsAutoScalingASG,
 					Name:      "MinSize",
 					ValueType: optionValueTypeScalar,
 				},
 				{
-					Namespace: "aws:autoscaling:asg",
+					Namespace: nsAutoScalingASG,
 					Name:      "MaxSize",
 					ValueType: optionValueTypeScalar,
 				},
@@ -1733,8 +1740,8 @@ func (h *Handler) handleDescribeEnvironmentHealth(vals url.Values) (any, error) 
 			EnvironmentName: envName,
 			HealthStatus:    health,
 			Status:          status,
-			Color:           "Green",
-			RefreshedAt:     "2026-01-01T00:00:00Z",
+			Color:           healthColorGreen,
+			RefreshedAt:     healthRefreshedAt,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-describe-env-health"},
 	}, nil
@@ -1950,37 +1957,91 @@ type listPlatformBranchesResponse struct {
 	ListPlatformBranchesResult listPlatformBranchesResult `xml:"ListPlatformBranchesResult"`
 }
 
-func (h *Handler) handleListPlatformBranches(_ url.Values) (any, error) {
+// allPlatformBranches is the full list of platform branches returned by ListPlatformBranches.
+//
+//nolint:gochecknoglobals // package-level constant slice
+var allPlatformBranches = []platformBranchSummary{
+	{
+		PlatformName:   "Python",
+		BranchName:     "Python 3.11 running on 64bit Amazon Linux 2023",
+		LifecycleState: platformLifecycleSupported,
+	},
+	{
+		PlatformName:   "Node.js",
+		BranchName:     "Node.js 20 running on 64bit Amazon Linux 2023",
+		LifecycleState: platformLifecycleSupported,
+	},
+	{
+		PlatformName:   "Go",
+		BranchName:     "Go 1 running on 64bit Amazon Linux 2023",
+		LifecycleState: platformLifecycleSupported,
+	},
+	{
+		PlatformName:   "PHP",
+		BranchName:     "PHP 8.3 running on 64bit Amazon Linux 2023",
+		LifecycleState: platformLifecycleSupported,
+	},
+	{
+		PlatformName:   "Docker",
+		BranchName:     "Docker running on 64bit Amazon Linux 2023",
+		LifecycleState: platformLifecycleSupported,
+	},
+	{
+		PlatformName:   "Ruby",
+		BranchName:     "Ruby 3.3 running on 64bit Amazon Linux 2023",
+		LifecycleState: platformLifecycleSupported,
+	},
+	{
+		PlatformName:   "Java",
+		BranchName:     "Corretto 21 running on 64bit Amazon Linux 2023",
+		LifecycleState: platformLifecycleSupported,
+	},
+}
+
+// handleListPlatformBranches lists platform branches with optional filtering (improvement #3).
+func (h *Handler) handleListPlatformBranches(vals url.Values) (any, error) {
+	// Collect filters: Filters.member.N.Attribute / Value
+	type filterEntry struct{ attribute, value string }
+
+	filters := make([]filterEntry, 0)
+
+	for i := 1; ; i++ {
+		attr := vals.Get(fmt.Sprintf("Filters.member.%d.Attribute", i))
+		if attr == "" {
+			break
+		}
+
+		value := vals.Get(fmt.Sprintf("Filters.member.%d.Values.member.1", i))
+		filters = append(filters, filterEntry{attribute: attr, value: value})
+	}
+
+	branches := make([]platformBranchSummary, 0, len(allPlatformBranches))
+
+	for _, b := range allPlatformBranches {
+		match := true
+
+		for _, f := range filters {
+			switch f.attribute {
+			case "PlatformName":
+				if !strings.EqualFold(b.PlatformName, f.value) {
+					match = false
+				}
+			case "LifecycleState":
+				if !strings.EqualFold(b.LifecycleState, f.value) {
+					match = false
+				}
+			}
+		}
+
+		if match {
+			branches = append(branches, b)
+		}
+	}
+
 	return &listPlatformBranchesResponse{
 		Xmlns: ebXMLNS,
 		ListPlatformBranchesResult: listPlatformBranchesResult{
-			PlatformBranchSummaryList: []platformBranchSummary{
-				{
-					PlatformName:   "Python",
-					BranchName:     "Python 3.11 running on 64bit Amazon Linux 2023",
-					LifecycleState: platformLifecycleSupported,
-				},
-				{
-					PlatformName:   "Node.js",
-					BranchName:     "Node.js 20 running on 64bit Amazon Linux 2023",
-					LifecycleState: platformLifecycleSupported,
-				},
-				{
-					PlatformName:   "Go",
-					BranchName:     "Go 1 running on 64bit Amazon Linux 2023",
-					LifecycleState: platformLifecycleSupported,
-				},
-				{
-					PlatformName:   "PHP",
-					BranchName:     "PHP 8.3 running on 64bit Amazon Linux 2023",
-					LifecycleState: platformLifecycleSupported,
-				},
-				{
-					PlatformName:   "Docker",
-					BranchName:     "Docker running on 64bit Amazon Linux 2023",
-					LifecycleState: platformLifecycleSupported,
-				},
-			},
+			PlatformBranchSummaryList: branches,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-list-platform-branches"},
 	}, nil
@@ -2254,22 +2315,22 @@ type validateConfigurationSettingsResponse struct {
 //
 //nolint:gochecknoglobals // package-level constant set
 var knownNamespaces = map[string]bool{
-	"aws:autoscaling:asg":                       true,
-	"aws:autoscaling:launchconfiguration":        true,
-	"aws:autoscaling:trigger":                    true,
-	"aws:ec2:vpc":                                true,
-	"aws:elasticbeanstalk:application":           true,
-	"aws:elasticbeanstalk:cloudwatch:logs":       true,
-	"aws:elasticbeanstalk:environment":           true,
-	"aws:elasticbeanstalk:environment:proxy":     true,
+	nsAutoScalingASG:                              true,
+	"aws:autoscaling:launchconfiguration":         true,
+	"aws:autoscaling:trigger":                     true,
+	"aws:ec2:vpc":                                 true,
+	"aws:elasticbeanstalk:application":            true,
+	"aws:elasticbeanstalk:cloudwatch:logs":        true,
+	"aws:elasticbeanstalk:environment":            true,
+	"aws:elasticbeanstalk:environment:proxy":      true,
 	"aws:elasticbeanstalk:healthreporting:system": true,
-	"aws:elasticbeanstalk:managedactions":        true,
-	"aws:elasticbeanstalk:monitoring":            true,
-	"aws:elasticbeanstalk:sns:topics":            true,
-	"aws:elasticbeanstalk:xray":                  true,
-	"aws:elb:loadbalancer":                       true,
-	"aws:elbv2:loadbalancer":                     true,
-	"aws:rds:dbinstance":                         true,
+	"aws:elasticbeanstalk:managedactions":         true,
+	"aws:elasticbeanstalk:monitoring":             true,
+	"aws:elasticbeanstalk:sns:topics":             true,
+	"aws:elasticbeanstalk:xray":                   true,
+	"aws:elb:loadbalancer":                        true,
+	"aws:elbv2:loadbalancer":                      true,
+	"aws:rds:dbinstance":                          true,
 }
 
 func (h *Handler) handleValidateConfigurationSettings(vals url.Values) (any, error) {
