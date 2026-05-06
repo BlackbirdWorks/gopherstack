@@ -763,6 +763,125 @@ func (b *InMemoryBackend) CreatePullRequest(
 	return &cp, nil
 }
 
+// GetBranch returns a branch by repository and branch name.
+func (b *InMemoryBackend) GetBranch(repositoryName, branchName string) (*Branch, error) {
+	b.mu.RLock("GetBranch")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repositories[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	br, ok := b.branches[repositoryName][branchName]
+	if !ok {
+		return nil, fmt.Errorf("%w: branch %s not found", ErrBranchNotFound, branchName)
+	}
+
+	cp := *br
+
+	return &cp, nil
+}
+
+// DeleteBranch deletes a branch from a repository.
+func (b *InMemoryBackend) DeleteBranch(repositoryName, branchName string) (*Branch, error) {
+	b.mu.Lock("DeleteBranch")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repositories[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	br, ok := b.branches[repositoryName][branchName]
+	if !ok {
+		return nil, fmt.Errorf("%w: branch %s not found", ErrBranchNotFound, branchName)
+	}
+
+	cp := *br
+	delete(b.branches[repositoryName], branchName)
+
+	return &cp, nil
+}
+
+// GetCommit returns a commit by repository and commit ID.
+func (b *InMemoryBackend) GetCommit(repositoryName, commitID string) (*Commit, error) {
+	b.mu.RLock("GetCommit")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repositories[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	c, ok := b.commits[repositoryName][commitID]
+	if !ok {
+		return nil, fmt.Errorf("%w: commit %s not found", ErrCommitNotFound, commitID)
+	}
+
+	cp := *c
+
+	return &cp, nil
+}
+
+// ListBranches returns all branch names for a repository in sorted order.
+func (b *InMemoryBackend) ListBranches(repositoryName string) ([]string, error) {
+	b.mu.RLock("ListBranches")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repositories[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	branches := b.branches[repositoryName]
+	names := make([]string, 0, len(branches))
+	for name := range branches {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names, nil
+}
+
+// GetPullRequest returns a pull request by ID.
+func (b *InMemoryBackend) GetPullRequest(prID string) (*PullRequest, error) {
+	b.mu.RLock("GetPullRequest")
+	defer b.mu.RUnlock()
+
+	pr, ok := b.pullRequests[prID]
+	if !ok {
+		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
+	}
+
+	cp := *pr
+
+	return &cp, nil
+}
+
+// ListPullRequests returns all pull request IDs for a repository in sorted order.
+func (b *InMemoryBackend) ListPullRequests(repositoryName string) ([]string, error) {
+	b.mu.RLock("ListPullRequests")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repositories[repositoryName]; !ok {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+	}
+
+	ids := make([]string, 0)
+
+	for id, pr := range b.pullRequests {
+		for _, t := range pr.PullRequestTargets {
+			if t.RepositoryName == repositoryName {
+				ids = append(ids, id)
+
+				break
+			}
+		}
+	}
+
+	sort.Strings(ids)
+
+	return ids, nil
+}
+
 // --- Seed helpers (for testing) ---
 
 // AddRepositoryInternal seeds a Repository directly into the backend without

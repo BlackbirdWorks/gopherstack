@@ -14,6 +14,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	// buildStatusSucceeded is the terminal succeeded status for builds/batches.
+	buildStatusSucceeded = "SUCCEEDED"
+)
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -444,7 +449,7 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 		return nil, ErrNotFound
 	}
 
-	build.BuildStatus = "SUCCEEDED"
+	build.BuildStatus = buildStatusSucceeded
 	build.EndTime = float64(time.Now().Unix())
 	build.CurrentPhase = "COMPLETED"
 
@@ -952,6 +957,135 @@ func (b *InMemoryBackend) BatchGetSandboxes(ids []string) ([]*Sandbox, []string)
 	}
 
 	return found, notFound
+}
+
+// ListBuildBatches returns all build batch IDs in sorted order.
+func (b *InMemoryBackend) ListBuildBatches() []string {
+	b.mu.RLock("ListBuildBatches")
+	defer b.mu.RUnlock()
+
+	ids := make([]string, 0, len(b.buildBatches))
+	for id := range b.buildBatches {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	return ids
+}
+
+// ListFleets returns all fleet ARNs in sorted order.
+func (b *InMemoryBackend) ListFleets() []string {
+	b.mu.RLock("ListFleets")
+	defer b.mu.RUnlock()
+
+	arns := make([]string, 0, len(b.fleets))
+	for _, f := range b.fleets {
+		arns = append(arns, f.Arn)
+	}
+
+	sort.Strings(arns)
+
+	return arns
+}
+
+// ListReportGroups returns all report group ARNs in sorted order.
+func (b *InMemoryBackend) ListReportGroups() []string {
+	b.mu.RLock("ListReportGroups")
+	defer b.mu.RUnlock()
+
+	arns := make([]string, 0, len(b.reportGroups))
+	for _, rg := range b.reportGroups {
+		arns = append(arns, rg.Arn)
+	}
+
+	sort.Strings(arns)
+
+	return arns
+}
+
+// ListSandboxes returns all sandbox IDs in sorted order.
+func (b *InMemoryBackend) ListSandboxes() []string {
+	b.mu.RLock("ListSandboxes")
+	defer b.mu.RUnlock()
+
+	ids := make([]string, 0, len(b.sandboxes))
+	for id := range b.sandboxes {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	return ids
+}
+
+// StartBuildBatch creates a new build batch for a project.
+func (b *InMemoryBackend) StartBuildBatch(projectName string) (*BuildBatch, error) {
+	b.mu.Lock("StartBuildBatch")
+	defer b.mu.Unlock()
+
+	if _, ok := b.projects[projectName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	id := projectName + ":" + uuid.NewString()
+	bb := &BuildBatch{
+		ID:               id,
+		ProjectName:      projectName,
+		BuildBatchStatus: buildStatusSucceeded,
+	}
+	b.buildBatches[id] = bb
+
+	out := *bb
+
+	return &out, nil
+}
+
+// StartCommandExecution creates a new command execution in a sandbox.
+func (b *InMemoryBackend) StartCommandExecution(sandboxID, command, execType string) (*CommandExecution, error) {
+	b.mu.Lock("StartCommandExecution")
+	defer b.mu.Unlock()
+
+	if _, ok := b.sandboxes[sandboxID]; !ok {
+		return nil, ErrNotFound
+	}
+
+	id := uuid.NewString()
+	ce := &CommandExecution{
+		ID:        id,
+		SandboxID: sandboxID,
+		Command:   command,
+		Status:    buildStatusSucceeded,
+	}
+
+	_ = execType
+	b.commandExecutions[id] = ce
+
+	out := *ce
+
+	return &out, nil
+}
+
+// StartSandbox creates a new sandbox for a project.
+func (b *InMemoryBackend) StartSandbox(projectName string) (*Sandbox, error) {
+	b.mu.Lock("StartSandbox")
+	defer b.mu.Unlock()
+
+	if _, ok := b.projects[projectName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	id := uuid.NewString()
+	sb := &Sandbox{
+		ID:          id,
+		ProjectName: projectName,
+		Status:      "READY",
+	}
+	b.sandboxes[id] = sb
+
+	out := *sb
+
+	return &out, nil
 }
 
 // --- Webhook operations ---

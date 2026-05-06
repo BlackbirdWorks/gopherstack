@@ -20,6 +20,9 @@ const (
 	keyRepositoryName = "repositoryName"
 	keyCreationDate   = "creationDate"
 	keyErrors         = "errors"
+	keyMessage        = "message"
+	keyCommitID       = "commitId"
+	keyTreeID         = "treeId"
 )
 
 const codecommitTargetPrefix = "CodeCommit_20150413."
@@ -70,6 +73,69 @@ func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
 		"TagResource":                h.handleTagResource,
 		"UntagResource":              h.handleUntagResource,
 		"ListTagsForResource":        h.handleListTagsForResource,
+		// Stub ops for SDK completeness
+		"CreatePullRequestApprovalRule":                    h.handleStub,
+		"CreateUnreferencedMergeCommit":                    h.handleStub,
+		"DeleteApprovalRuleTemplate":                       h.handleStub,
+		"DeleteBranch":                                     h.handleDeleteBranch,
+		"DeleteCommentContent":                             h.handleStub,
+		"DeleteFile":                                       h.handleStub,
+		"DeletePullRequestApprovalRule":                    h.handleStub,
+		"DescribeMergeConflicts":                           h.handleStub,
+		"DescribePullRequestEvents":                        h.handleStub,
+		"DisassociateApprovalRuleTemplateFromRepository":   h.handleStub,
+		"EvaluatePullRequestApprovalRules":                 h.handleStub,
+		"GetApprovalRuleTemplate":                          h.handleStub,
+		"GetBlob":                                          h.handleStub,
+		"GetBranch":                                        h.handleGetBranch,
+		"GetComment":                                       h.handleStub,
+		"GetCommentReactions":                              h.handleStub,
+		"GetCommentsForComparedCommit":                     h.handleStub,
+		"GetCommentsForPullRequest":                        h.handleStub,
+		"GetCommit":                                        h.handleGetCommit,
+		"GetDifferences":                                   h.handleStub,
+		"GetFile":                                          h.handleStub,
+		"GetFolder":                                        h.handleStub,
+		"GetMergeCommit":                                   h.handleStub,
+		"GetMergeConflicts":                                h.handleStub,
+		"GetMergeOptions":                                  h.handleStub,
+		"GetPullRequest":                                   h.handleGetPullRequest,
+		"GetPullRequestApprovalStates":                     h.handleStub,
+		"GetPullRequestOverrideState":                      h.handleStub,
+		"GetRepositoryTriggers":                            h.handleStub,
+		"ListApprovalRuleTemplates":                        h.handleStub,
+		"ListAssociatedApprovalRuleTemplatesForRepository": h.handleStub,
+		"ListBranches":                                     h.handleListBranches,
+		"ListFileCommitHistory":                            h.handleStub,
+		"ListPullRequests":                                 h.handleListPullRequests,
+		"ListRepositoriesForApprovalRuleTemplate":          h.handleStub,
+		"MergeBranchesByFastForward":                       h.handleStub,
+		"MergeBranchesBySquash":                            h.handleStub,
+		"MergeBranchesByThreeWay":                          h.handleStub,
+		"MergePullRequestByFastForward":                    h.handleStub,
+		"MergePullRequestBySquash":                         h.handleStub,
+		"MergePullRequestByThreeWay":                       h.handleStub,
+		"OverridePullRequestApprovalRules":                 h.handleStub,
+		"PostCommentForComparedCommit":                     h.handleStub,
+		"PostCommentForPullRequest":                        h.handleStub,
+		"PostCommentReply":                                 h.handleStub,
+		"PutCommentReaction":                               h.handleStub,
+		"PutFile":                                          h.handleStub,
+		"PutRepositoryTriggers":                            h.handleStub,
+		"TestRepositoryTriggers":                           h.handleStub,
+		"UpdateApprovalRuleTemplateContent":                h.handleStub,
+		"UpdateApprovalRuleTemplateDescription":            h.handleStub,
+		"UpdateApprovalRuleTemplateName":                   h.handleStub,
+		"UpdateComment":                                    h.handleStub,
+		"UpdateDefaultBranch":                              h.handleStub,
+		"UpdatePullRequestApprovalRuleContent":             h.handleStub,
+		"UpdatePullRequestApprovalState":                   h.handleStub,
+		"UpdatePullRequestDescription":                     h.handleStub,
+		"UpdatePullRequestStatus":                          h.handleStub,
+		"UpdatePullRequestTitle":                           h.handleStub,
+		"UpdateRepositoryDescription":                      h.handleStub,
+		"UpdateRepositoryEncryptionKey":                    h.handleStub,
+		"UpdateRepositoryName":                             h.handleStub,
 	}
 }
 
@@ -89,13 +155,75 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateBranch",
 		"CreateCommit",
 		"CreatePullRequest",
+		"CreatePullRequestApprovalRule",
 		"CreateRepository",
-		"GetRepository",
+		"CreateUnreferencedMergeCommit",
+		"DeleteApprovalRuleTemplate",
+		"DeleteBranch",
+		"DeleteCommentContent",
+		"DeleteFile",
+		"DeletePullRequestApprovalRule",
 		"DeleteRepository",
+		"DescribeMergeConflicts",
+		"DescribePullRequestEvents",
+		"DisassociateApprovalRuleTemplateFromRepository",
+		"EvaluatePullRequestApprovalRules",
+		"GetApprovalRuleTemplate",
+		"GetBlob",
+		"GetBranch",
+		"GetComment",
+		"GetCommentReactions",
+		"GetCommentsForComparedCommit",
+		"GetCommentsForPullRequest",
+		"GetCommit",
+		"GetDifferences",
+		"GetFile",
+		"GetFolder",
+		"GetMergeCommit",
+		"GetMergeConflicts",
+		"GetMergeOptions",
+		"GetPullRequest",
+		"GetPullRequestApprovalStates",
+		"GetPullRequestOverrideState",
+		"GetRepository",
+		"GetRepositoryTriggers",
+		"ListApprovalRuleTemplates",
+		"ListAssociatedApprovalRuleTemplatesForRepository",
+		"ListBranches",
+		"ListFileCommitHistory",
+		"ListPullRequests",
 		"ListRepositories",
-		"TagResource",
-		"UntagResource",
+		"ListRepositoriesForApprovalRuleTemplate",
 		"ListTagsForResource",
+		"MergeBranchesByFastForward",
+		"MergeBranchesBySquash",
+		"MergeBranchesByThreeWay",
+		"MergePullRequestByFastForward",
+		"MergePullRequestBySquash",
+		"MergePullRequestByThreeWay",
+		"OverridePullRequestApprovalRules",
+		"PostCommentForComparedCommit",
+		"PostCommentForPullRequest",
+		"PostCommentReply",
+		"PutCommentReaction",
+		"PutFile",
+		"PutRepositoryTriggers",
+		"TagResource",
+		"TestRepositoryTriggers",
+		"UntagResource",
+		"UpdateApprovalRuleTemplateContent",
+		"UpdateApprovalRuleTemplateDescription",
+		"UpdateApprovalRuleTemplateName",
+		"UpdateComment",
+		"UpdateDefaultBranch",
+		"UpdatePullRequestApprovalRuleContent",
+		"UpdatePullRequestApprovalState",
+		"UpdatePullRequestDescription",
+		"UpdatePullRequestStatus",
+		"UpdatePullRequestTitle",
+		"UpdateRepositoryDescription",
+		"UpdateRepositoryEncryptionKey",
+		"UpdateRepositoryName",
 	}
 }
 
@@ -213,8 +341,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 
 	return c.JSON(code, map[string]string{
-		"__type":  errType,
-		"message": err.Error(),
+		"__type":   errType,
+		keyMessage: err.Error(),
 	})
 }
 
@@ -690,10 +818,10 @@ func commitToMap(c *Commit) map[string]any {
 	}
 
 	return map[string]any{
-		"commitId": c.CommitID,
-		"treeId":   c.TreeID,
-		"message":  c.Message,
-		"parents":  parents,
+		keyCommitID: c.CommitID,
+		keyTreeID:   c.TreeID,
+		keyMessage:  c.Message,
+		"parents":   parents,
 		"author": map[string]any{
 			"name":  c.AuthorName,
 			"email": c.AuthorEmail,
@@ -776,8 +904,8 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"commitId":     commit.CommitID,
-		"treeId":       commit.TreeID,
+		keyCommitID:    commit.CommitID,
+		keyTreeID:      commit.TreeID,
 		"filesAdded":   []any{},
 		"filesUpdated": []any{},
 		"filesDeleted": []any{},
@@ -849,5 +977,144 @@ func (h *Handler) handleCreatePullRequest(body []byte) (any, error) {
 
 	return map[string]any{
 		"pullRequest": pullRequestToMap(pr),
+	}, nil
+}
+
+// handleStub returns an empty JSON object for unimplemented operations.
+func (h *Handler) handleStub(_ []byte) (any, error) {
+	return map[string]any{}, nil
+}
+
+func (h *Handler) handleDeleteBranch(body []byte) (any, error) {
+	var in struct {
+		RepositoryName string `json:"repositoryName"`
+		BranchName     string `json:"branchName"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.RepositoryName == "" || in.BranchName == "" {
+		return nil, fmt.Errorf("%w: repositoryName and branchName are required", errInvalidRequest)
+	}
+
+	br, err := h.Backend.DeleteBranch(in.RepositoryName, in.BranchName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"deletedBranch": map[string]any{
+			"branchName": br.BranchName,
+			keyCommitID:  br.CommitID,
+		},
+	}, nil
+}
+
+func (h *Handler) handleGetBranch(body []byte) (any, error) {
+	var in struct {
+		RepositoryName string `json:"repositoryName"`
+		BranchName     string `json:"branchName"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	br, err := h.Backend.GetBranch(in.RepositoryName, in.BranchName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"branch": map[string]any{
+			"branchName": br.BranchName,
+			keyCommitID:  br.CommitID,
+		},
+	}, nil
+}
+
+func (h *Handler) handleGetCommit(body []byte) (any, error) {
+	var in struct {
+		RepositoryName string `json:"repositoryName"`
+		CommitID       string `json:"commitId"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	c, err := h.Backend.GetCommit(in.RepositoryName, in.CommitID)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"commit": map[string]any{
+			keyCommitID: c.CommitID,
+			keyTreeID:   c.TreeID,
+			keyMessage:  c.Message,
+			"parents":   c.Parents,
+		},
+	}, nil
+}
+
+func (h *Handler) handleListBranches(body []byte) (any, error) {
+	var in struct {
+		RepositoryName string `json:"repositoryName"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	branches, err := h.Backend.ListBranches(in.RepositoryName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"branches": branches,
+	}, nil
+}
+
+func (h *Handler) handleGetPullRequest(body []byte) (any, error) {
+	var in struct {
+		PullRequestID string `json:"pullRequestId"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.PullRequestID == "" {
+		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
+	}
+
+	pr, err := h.Backend.GetPullRequest(in.PullRequestID)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"pullRequest": pullRequestToMap(pr),
+	}, nil
+}
+
+func (h *Handler) handleListPullRequests(body []byte) (any, error) {
+	var in struct {
+		RepositoryName string `json:"repositoryName"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	if in.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
+	}
+
+	ids, err := h.Backend.ListPullRequests(in.RepositoryName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"pullRequestIds": ids,
 	}, nil
 }

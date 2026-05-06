@@ -83,17 +83,55 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateProject",
 		"CreateReportGroup",
 		"CreateWebhook",
+		"DeleteBuildBatch",
+		"DeleteFleet",
 		"DeleteProject",
+		"DeleteReport",
+		"DeleteReportGroup",
+		"DeleteResourcePolicy",
+		"DeleteSourceCredentials",
+		"DeleteWebhook",
+		"DescribeCodeCoverages",
+		"DescribeTestCases",
+		"GetReportGroupTrend",
+		"GetResourcePolicy",
+		"ImportSourceCredentials",
+		"InvalidateProjectCache",
+		"ListBuildBatches",
+		"ListBuildBatchesForProject",
 		"ListBuilds",
 		"ListBuildsForProject",
+		"ListCommandExecutionsForSandbox",
+		"ListCuratedEnvironmentImages",
+		"ListFleets",
 		"ListProjects",
+		"ListReportGroups",
+		"ListReports",
+		"ListReportsForReportGroup",
+		"ListSandboxes",
+		"ListSandboxesForProject",
+		"ListSharedProjects",
+		"ListSharedReportGroups",
+		"ListSourceCredentials",
 		"ListTagsForResource",
+		"PutResourcePolicy",
 		"RetryBuild",
+		"RetryBuildBatch",
 		"StartBuild",
+		"StartBuildBatch",
+		"StartCommandExecution",
+		"StartSandbox",
+		"StartSandboxConnection",
 		"StopBuild",
+		"StopBuildBatch",
+		"StopSandbox",
 		"TagResource",
 		"UntagResource",
+		"UpdateFleet",
 		"UpdateProject",
+		"UpdateProjectVisibility",
+		"UpdateReportGroup",
+		"UpdateWebhook",
 	}
 }
 
@@ -143,30 +181,68 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"BatchDeleteBuilds":         service.WrapOp(h.handleBatchDeleteBuilds),
-		"BatchGetBuildBatches":      service.WrapOp(h.handleBatchGetBuildBatches),
-		"BatchGetBuilds":            service.WrapOp(h.handleBatchGetBuilds),
-		"BatchGetCommandExecutions": service.WrapOp(h.handleBatchGetCommandExecutions),
-		"BatchGetFleets":            service.WrapOp(h.handleBatchGetFleets),
-		"BatchGetProjects":          service.WrapOp(h.handleBatchGetProjects),
-		"BatchGetReportGroups":      service.WrapOp(h.handleBatchGetReportGroups),
-		"BatchGetReports":           service.WrapOp(h.handleBatchGetReports),
-		"BatchGetSandboxes":         service.WrapOp(h.handleBatchGetSandboxes),
-		"CreateFleet":               service.WrapOp(h.handleCreateFleet),
-		"CreateProject":             service.WrapOp(h.handleCreateProject),
-		"CreateReportGroup":         service.WrapOp(h.handleCreateReportGroup),
-		"CreateWebhook":             service.WrapOp(h.handleCreateWebhook),
-		"DeleteProject":             service.WrapOp(h.handleDeleteProject),
-		"ListBuilds":                service.WrapOp(h.handleListBuilds),
-		"ListBuildsForProject":      service.WrapOp(h.handleListBuildsForProject),
-		"ListProjects":              service.WrapOp(h.handleListProjects),
-		"ListTagsForResource":       service.WrapOp(h.handleListTagsForResource),
-		"RetryBuild":                service.WrapOp(h.handleRetryBuild),
-		"StartBuild":                service.WrapOp(h.handleStartBuild),
-		"StopBuild":                 service.WrapOp(h.handleStopBuild),
-		"TagResource":               service.WrapOp(h.handleTagResource),
-		"UntagResource":             service.WrapOp(h.handleUntagResource),
-		"UpdateProject":             service.WrapOp(h.handleUpdateProject),
+		"BatchDeleteBuilds":               service.WrapOp(h.handleBatchDeleteBuilds),
+		"BatchGetBuildBatches":            service.WrapOp(h.handleBatchGetBuildBatches),
+		"BatchGetBuilds":                  service.WrapOp(h.handleBatchGetBuilds),
+		"BatchGetCommandExecutions":       service.WrapOp(h.handleBatchGetCommandExecutions),
+		"BatchGetFleets":                  service.WrapOp(h.handleBatchGetFleets),
+		"BatchGetProjects":                service.WrapOp(h.handleBatchGetProjects),
+		"BatchGetReportGroups":            service.WrapOp(h.handleBatchGetReportGroups),
+		"BatchGetReports":                 service.WrapOp(h.handleBatchGetReports),
+		"BatchGetSandboxes":               service.WrapOp(h.handleBatchGetSandboxes),
+		"CreateFleet":                     service.WrapOp(h.handleCreateFleet),
+		"CreateProject":                   service.WrapOp(h.handleCreateProject),
+		"CreateReportGroup":               service.WrapOp(h.handleCreateReportGroup),
+		"CreateWebhook":                   service.WrapOp(h.handleCreateWebhook),
+		"DeleteBuildBatch":                service.WrapOp(h.handleDeleteBuildBatch),
+		"DeleteFleet":                     service.WrapOp(h.handleDeleteFleet),
+		"DeleteProject":                   service.WrapOp(h.handleDeleteProject),
+		"DeleteReport":                    service.WrapOp(h.handleDeleteReport),
+		"DeleteReportGroup":               service.WrapOp(h.handleDeleteReportGroup),
+		"DeleteResourcePolicy":            service.WrapOp(h.handleDeleteResourcePolicy),
+		"DeleteSourceCredentials":         service.WrapOp(h.handleDeleteSourceCredentials),
+		"DeleteWebhook":                   service.WrapOp(h.handleDeleteWebhook),
+		"DescribeCodeCoverages":           service.WrapOp(h.handleDescribeCodeCoverages),
+		"DescribeTestCases":               service.WrapOp(h.handleDescribeTestCases),
+		"GetReportGroupTrend":             service.WrapOp(h.handleGetReportGroupTrend),
+		"GetResourcePolicy":               service.WrapOp(h.handleGetResourcePolicy),
+		"ImportSourceCredentials":         service.WrapOp(h.handleImportSourceCredentials),
+		"InvalidateProjectCache":          service.WrapOp(h.handleInvalidateProjectCache),
+		"ListBuildBatches":                service.WrapOp(h.handleListBuildBatches),
+		"ListBuildBatchesForProject":      service.WrapOp(h.handleListBuildBatchesForProject),
+		"ListBuilds":                      service.WrapOp(h.handleListBuilds),
+		"ListBuildsForProject":            service.WrapOp(h.handleListBuildsForProject),
+		"ListCommandExecutionsForSandbox": service.WrapOp(h.handleListCommandExecutionsForSandbox),
+		"ListCuratedEnvironmentImages":    service.WrapOp(h.handleListCuratedEnvironmentImages),
+		"ListFleets":                      service.WrapOp(h.handleListFleets),
+		"ListProjects":                    service.WrapOp(h.handleListProjects),
+		"ListReportGroups":                service.WrapOp(h.handleListReportGroups),
+		"ListReports":                     service.WrapOp(h.handleListReports),
+		"ListReportsForReportGroup":       service.WrapOp(h.handleListReportsForReportGroup),
+		"ListSandboxes":                   service.WrapOp(h.handleListSandboxes),
+		"ListSandboxesForProject":         service.WrapOp(h.handleListSandboxesForProject),
+		"ListSharedProjects":              service.WrapOp(h.handleListSharedProjects),
+		"ListSharedReportGroups":          service.WrapOp(h.handleListSharedReportGroups),
+		"ListSourceCredentials":           service.WrapOp(h.handleListSourceCredentials),
+		"ListTagsForResource":             service.WrapOp(h.handleListTagsForResource),
+		"PutResourcePolicy":               service.WrapOp(h.handlePutResourcePolicy),
+		"RetryBuild":                      service.WrapOp(h.handleRetryBuild),
+		"RetryBuildBatch":                 service.WrapOp(h.handleRetryBuildBatch),
+		"StartBuild":                      service.WrapOp(h.handleStartBuild),
+		"StartBuildBatch":                 service.WrapOp(h.handleStartBuildBatch),
+		"StartCommandExecution":           service.WrapOp(h.handleStartCommandExecution),
+		"StartSandbox":                    service.WrapOp(h.handleStartSandbox),
+		"StartSandboxConnection":          service.WrapOp(h.handleStartSandboxConnection),
+		"StopBuild":                       service.WrapOp(h.handleStopBuild),
+		"StopBuildBatch":                  service.WrapOp(h.handleStopBuildBatch),
+		"StopSandbox":                     service.WrapOp(h.handleStopSandbox),
+		"TagResource":                     service.WrapOp(h.handleTagResource),
+		"UntagResource":                   service.WrapOp(h.handleUntagResource),
+		"UpdateFleet":                     service.WrapOp(h.handleUpdateFleet),
+		"UpdateProject":                   service.WrapOp(h.handleUpdateProject),
+		"UpdateProjectVisibility":         service.WrapOp(h.handleUpdateProjectVisibility),
+		"UpdateReportGroup":               service.WrapOp(h.handleUpdateReportGroup),
+		"UpdateWebhook":                   service.WrapOp(h.handleUpdateWebhook),
 	}
 }
 
@@ -785,4 +861,633 @@ func (h *Handler) handleCreateWebhook(
 	}
 
 	return &createWebhookOutput{Webhook: w}, nil
+}
+
+// --- Stub ops for SDK completeness ---
+
+type deleteBuildBatchInput struct {
+	ID string `json:"id"`
+}
+
+type deleteBuildBatchOutput struct {
+	StatusCode string `json:"statusCode"`
+}
+
+func (h *Handler) handleDeleteBuildBatch(
+	_ context.Context,
+	in *deleteBuildBatchInput,
+) (*deleteBuildBatchOutput, error) {
+	if in.ID == "" {
+		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
+	}
+
+	return &deleteBuildBatchOutput{StatusCode: buildStatusSucceeded}, nil
+}
+
+type deleteFleetInput struct {
+	Arn string `json:"arn"`
+}
+
+type deleteFleetOutput struct{}
+
+func (h *Handler) handleDeleteFleet(_ context.Context, in *deleteFleetInput) (*deleteFleetOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
+	}
+
+	return &deleteFleetOutput{}, nil
+}
+
+type deleteReportInput struct {
+	Arn string `json:"arn"`
+}
+
+type deleteReportOutput struct{}
+
+func (h *Handler) handleDeleteReport(_ context.Context, in *deleteReportInput) (*deleteReportOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
+	}
+
+	return &deleteReportOutput{}, nil
+}
+
+type deleteReportGroupInput struct {
+	Arn           string `json:"arn"`
+	DeleteReports bool   `json:"deleteReports"`
+}
+
+type deleteReportGroupOutput struct{}
+
+func (h *Handler) handleDeleteReportGroup(
+	_ context.Context,
+	in *deleteReportGroupInput,
+) (*deleteReportGroupOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
+	}
+
+	return &deleteReportGroupOutput{}, nil
+}
+
+type deleteResourcePolicyInput struct {
+	ResourceArn string `json:"resourceArn"`
+}
+
+type deleteResourcePolicyOutput struct{}
+
+func (h *Handler) handleDeleteResourcePolicy(
+	_ context.Context,
+	in *deleteResourcePolicyInput,
+) (*deleteResourcePolicyOutput, error) {
+	if in.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
+	}
+
+	return &deleteResourcePolicyOutput{}, nil
+}
+
+type deleteSourceCredentialsInput struct {
+	Arn string `json:"arn"`
+}
+
+type deleteSourceCredentialsOutput struct {
+	Arn string `json:"arn"`
+}
+
+func (h *Handler) handleDeleteSourceCredentials(
+	_ context.Context,
+	in *deleteSourceCredentialsInput,
+) (*deleteSourceCredentialsOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
+	}
+
+	return &deleteSourceCredentialsOutput{Arn: in.Arn}, nil
+}
+
+type deleteWebhookInput struct {
+	ProjectName string `json:"projectName"`
+}
+
+type deleteWebhookOutput struct{}
+
+func (h *Handler) handleDeleteWebhook(_ context.Context, in *deleteWebhookInput) (*deleteWebhookOutput, error) {
+	if in.ProjectName == "" {
+		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
+	}
+
+	return &deleteWebhookOutput{}, nil
+}
+
+type describeCodeCoveragesInput struct {
+	ReportArn string `json:"reportArn"`
+}
+
+type describeCodeCoveragesOutput struct {
+	CodeCoverages []map[string]any `json:"codeCoverages"`
+}
+
+func (h *Handler) handleDescribeCodeCoverages(
+	_ context.Context,
+	_ *describeCodeCoveragesInput,
+) (*describeCodeCoveragesOutput, error) {
+	return &describeCodeCoveragesOutput{CodeCoverages: []map[string]any{}}, nil
+}
+
+type describeTestCasesInput struct {
+	ReportArn string `json:"reportArn"`
+}
+
+type describeTestCasesOutput struct {
+	TestCases []map[string]any `json:"testCases"`
+}
+
+func (h *Handler) handleDescribeTestCases(
+	_ context.Context,
+	_ *describeTestCasesInput,
+) (*describeTestCasesOutput, error) {
+	return &describeTestCasesOutput{TestCases: []map[string]any{}}, nil
+}
+
+type getReportGroupTrendInput struct {
+	ReportGroupArn string `json:"reportGroupArn"`
+	TrendField     string `json:"trendField"`
+}
+
+type getReportGroupTrendOutput struct {
+	Stats map[string]any `json:"stats"`
+}
+
+func (h *Handler) handleGetReportGroupTrend(
+	_ context.Context,
+	_ *getReportGroupTrendInput,
+) (*getReportGroupTrendOutput, error) {
+	return &getReportGroupTrendOutput{Stats: map[string]any{}}, nil
+}
+
+type getResourcePolicyInput struct {
+	ResourceArn string `json:"resourceArn"`
+}
+
+type getResourcePolicyOutput struct {
+	Policy string `json:"policy"`
+}
+
+func (h *Handler) handleGetResourcePolicy(
+	_ context.Context,
+	in *getResourcePolicyInput,
+) (*getResourcePolicyOutput, error) {
+	if in.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
+	}
+
+	return &getResourcePolicyOutput{Policy: "{}"}, nil
+}
+
+type importSourceCredentialsInput struct {
+	AuthType   string `json:"authType"`
+	ServerType string `json:"serverType"`
+	Token      string `json:"token"`
+	Username   string `json:"username"`
+}
+
+type importSourceCredentialsOutput struct {
+	Arn string `json:"arn"`
+}
+
+func (h *Handler) handleImportSourceCredentials(
+	_ context.Context,
+	in *importSourceCredentialsInput,
+) (*importSourceCredentialsOutput, error) {
+	if in.Token == "" {
+		return nil, fmt.Errorf("%w: token is required", errInvalidRequest)
+	}
+
+	return &importSourceCredentialsOutput{Arn: "arn:aws:codebuild:us-east-1:000000000000:token/" + in.ServerType}, nil
+}
+
+type invalidateProjectCacheInput struct {
+	ProjectName string `json:"projectName"`
+}
+
+type invalidateProjectCacheOutput struct{}
+
+func (h *Handler) handleInvalidateProjectCache(
+	_ context.Context,
+	in *invalidateProjectCacheInput,
+) (*invalidateProjectCacheOutput, error) {
+	if in.ProjectName == "" {
+		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
+	}
+
+	return &invalidateProjectCacheOutput{}, nil
+}
+
+type listBuildBatchesInput struct{}
+
+type listBuildBatchesOutput struct {
+	IDs []string `json:"ids"`
+}
+
+func (h *Handler) handleListBuildBatches(_ context.Context, _ *listBuildBatchesInput) (*listBuildBatchesOutput, error) {
+	return &listBuildBatchesOutput{IDs: h.Backend.ListBuildBatches()}, nil
+}
+
+type listBuildBatchesForProjectInput struct {
+	ProjectName string `json:"projectName"`
+}
+
+type listBuildBatchesForProjectOutput struct {
+	IDs []string `json:"ids"`
+}
+
+func (h *Handler) handleListBuildBatchesForProject(
+	_ context.Context,
+	in *listBuildBatchesForProjectInput,
+) (*listBuildBatchesForProjectOutput, error) {
+	if in.ProjectName == "" {
+		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
+	}
+
+	return &listBuildBatchesForProjectOutput{IDs: []string{}}, nil
+}
+
+type listCommandExecutionsForSandboxInput struct {
+	SandboxID string `json:"sandboxId"`
+}
+
+type listCommandExecutionsForSandboxOutput struct {
+	CommandExecutions []string `json:"commandExecutions"`
+}
+
+func (h *Handler) handleListCommandExecutionsForSandbox(
+	_ context.Context,
+	in *listCommandExecutionsForSandboxInput,
+) (*listCommandExecutionsForSandboxOutput, error) {
+	if in.SandboxID == "" {
+		return nil, fmt.Errorf("%w: sandboxId is required", errInvalidRequest)
+	}
+
+	return &listCommandExecutionsForSandboxOutput{CommandExecutions: []string{}}, nil
+}
+
+type listCuratedEnvironmentImagesInput struct{}
+
+type listCuratedEnvironmentImagesOutput struct {
+	Platforms []map[string]any `json:"platforms"`
+}
+
+func (h *Handler) handleListCuratedEnvironmentImages(
+	_ context.Context,
+	_ *listCuratedEnvironmentImagesInput,
+) (*listCuratedEnvironmentImagesOutput, error) {
+	return &listCuratedEnvironmentImagesOutput{Platforms: []map[string]any{}}, nil
+}
+
+type listFleetsInput struct{}
+
+type listFleetsOutput struct {
+	Fleets []string `json:"fleets"`
+}
+
+func (h *Handler) handleListFleets(_ context.Context, _ *listFleetsInput) (*listFleetsOutput, error) {
+	return &listFleetsOutput{Fleets: h.Backend.ListFleets()}, nil
+}
+
+type listReportGroupsInput struct{}
+
+type listReportGroupsOutput struct {
+	ReportGroups []string `json:"reportGroups"`
+}
+
+func (h *Handler) handleListReportGroups(_ context.Context, _ *listReportGroupsInput) (*listReportGroupsOutput, error) {
+	return &listReportGroupsOutput{ReportGroups: h.Backend.ListReportGroups()}, nil
+}
+
+type listReportsInput struct{}
+
+type listReportsOutput struct {
+	Reports []string `json:"reports"`
+}
+
+func (h *Handler) handleListReports(_ context.Context, _ *listReportsInput) (*listReportsOutput, error) {
+	return &listReportsOutput{Reports: []string{}}, nil
+}
+
+type listReportsForReportGroupInput struct {
+	ReportGroupArn string `json:"reportGroupArn"`
+}
+
+type listReportsForReportGroupOutput struct {
+	Reports []string `json:"reports"`
+}
+
+func (h *Handler) handleListReportsForReportGroup(
+	_ context.Context,
+	_ *listReportsForReportGroupInput,
+) (*listReportsForReportGroupOutput, error) {
+	return &listReportsForReportGroupOutput{Reports: []string{}}, nil
+}
+
+type listSandboxesInput struct{}
+
+type listSandboxesOutput struct {
+	IDs []string `json:"ids"`
+}
+
+func (h *Handler) handleListSandboxes(_ context.Context, _ *listSandboxesInput) (*listSandboxesOutput, error) {
+	return &listSandboxesOutput{IDs: h.Backend.ListSandboxes()}, nil
+}
+
+type listSandboxesForProjectInput struct {
+	ProjectName string `json:"projectName"`
+}
+
+type listSandboxesForProjectOutput struct {
+	IDs []string `json:"ids"`
+}
+
+func (h *Handler) handleListSandboxesForProject(
+	_ context.Context,
+	in *listSandboxesForProjectInput,
+) (*listSandboxesForProjectOutput, error) {
+	if in.ProjectName == "" {
+		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
+	}
+
+	return &listSandboxesForProjectOutput{IDs: []string{}}, nil
+}
+
+type listSharedProjectsInput struct{}
+
+type listSharedProjectsOutput struct {
+	Projects []string `json:"projects"`
+}
+
+func (h *Handler) handleListSharedProjects(
+	_ context.Context,
+	_ *listSharedProjectsInput,
+) (*listSharedProjectsOutput, error) {
+	return &listSharedProjectsOutput{Projects: []string{}}, nil
+}
+
+type listSharedReportGroupsInput struct{}
+
+type listSharedReportGroupsOutput struct {
+	ReportGroups []string `json:"reportGroups"`
+}
+
+func (h *Handler) handleListSharedReportGroups(
+	_ context.Context,
+	_ *listSharedReportGroupsInput,
+) (*listSharedReportGroupsOutput, error) {
+	return &listSharedReportGroupsOutput{ReportGroups: []string{}}, nil
+}
+
+type listSourceCredentialsInput struct{}
+
+type listSourceCredentialsOutput struct {
+	SourceCredentialsInfos []map[string]any `json:"sourceCredentialsInfos"`
+}
+
+func (h *Handler) handleListSourceCredentials(
+	_ context.Context,
+	_ *listSourceCredentialsInput,
+) (*listSourceCredentialsOutput, error) {
+	return &listSourceCredentialsOutput{SourceCredentialsInfos: []map[string]any{}}, nil
+}
+
+type putResourcePolicyInput struct {
+	Policy      string `json:"policy"`
+	ResourceArn string `json:"resourceArn"`
+}
+
+type putResourcePolicyOutput struct {
+	ResourceArn string `json:"resourceArn"`
+}
+
+func (h *Handler) handlePutResourcePolicy(
+	_ context.Context,
+	in *putResourcePolicyInput,
+) (*putResourcePolicyOutput, error) {
+	if in.ResourceArn == "" || in.Policy == "" {
+		return nil, fmt.Errorf("%w: resourceArn and policy are required", errInvalidRequest)
+	}
+
+	return &putResourcePolicyOutput{ResourceArn: in.ResourceArn}, nil
+}
+
+type retryBuildBatchInput struct {
+	ID string `json:"id"`
+}
+
+type retryBuildBatchOutput struct {
+	BuildBatch *BuildBatch `json:"buildBatch"`
+}
+
+func (h *Handler) handleRetryBuildBatch(_ context.Context, in *retryBuildBatchInput) (*retryBuildBatchOutput, error) {
+	if in.ID == "" {
+		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
+	}
+
+	return &retryBuildBatchOutput{}, nil
+}
+
+type startBuildBatchInput struct {
+	ProjectName string `json:"projectName"`
+}
+
+type startBuildBatchOutput struct {
+	BuildBatch *BuildBatch `json:"buildBatch"`
+}
+
+func (h *Handler) handleStartBuildBatch(_ context.Context, in *startBuildBatchInput) (*startBuildBatchOutput, error) {
+	if in.ProjectName == "" {
+		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
+	}
+
+	bb, err := h.Backend.StartBuildBatch(in.ProjectName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startBuildBatchOutput{BuildBatch: bb}, nil
+}
+
+type startCommandExecutionInput struct {
+	SandboxID string `json:"sandboxId"`
+	Command   string `json:"command"`
+	Type      string `json:"type"`
+}
+
+type startCommandExecutionOutput struct {
+	CommandExecution *CommandExecution `json:"commandExecution"`
+}
+
+func (h *Handler) handleStartCommandExecution(
+	_ context.Context,
+	in *startCommandExecutionInput,
+) (*startCommandExecutionOutput, error) {
+	if in.SandboxID == "" {
+		return nil, fmt.Errorf("%w: sandboxId is required", errInvalidRequest)
+	}
+
+	ce, err := h.Backend.StartCommandExecution(in.SandboxID, in.Command, in.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startCommandExecutionOutput{CommandExecution: ce}, nil
+}
+
+type startSandboxInput struct {
+	ProjectName string `json:"projectName"`
+}
+
+type startSandboxOutput struct {
+	Sandbox *Sandbox `json:"sandbox"`
+}
+
+func (h *Handler) handleStartSandbox(_ context.Context, in *startSandboxInput) (*startSandboxOutput, error) {
+	if in.ProjectName == "" {
+		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
+	}
+
+	sb, err := h.Backend.StartSandbox(in.ProjectName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startSandboxOutput{Sandbox: sb}, nil
+}
+
+type startSandboxConnectionInput struct {
+	SandboxID string `json:"sandboxId"`
+}
+
+type startSandboxConnectionOutput struct {
+	Endpoint string `json:"endpoint"`
+}
+
+func (h *Handler) handleStartSandboxConnection(
+	_ context.Context,
+	in *startSandboxConnectionInput,
+) (*startSandboxConnectionOutput, error) {
+	if in.SandboxID == "" {
+		return nil, fmt.Errorf("%w: sandboxId is required", errInvalidRequest)
+	}
+
+	return &startSandboxConnectionOutput{Endpoint: "wss://localhost:9999/" + in.SandboxID}, nil
+}
+
+type stopBuildBatchInput struct {
+	ID string `json:"id"`
+}
+
+type stopBuildBatchOutput struct {
+	BuildBatch *BuildBatch `json:"buildBatch"`
+}
+
+func (h *Handler) handleStopBuildBatch(_ context.Context, in *stopBuildBatchInput) (*stopBuildBatchOutput, error) {
+	if in.ID == "" {
+		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
+	}
+
+	return &stopBuildBatchOutput{}, nil
+}
+
+type stopSandboxInput struct {
+	ID string `json:"id"`
+}
+
+type stopSandboxOutput struct {
+	Sandbox *Sandbox `json:"sandbox"`
+}
+
+func (h *Handler) handleStopSandbox(_ context.Context, in *stopSandboxInput) (*stopSandboxOutput, error) {
+	if in.ID == "" {
+		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
+	}
+
+	return &stopSandboxOutput{}, nil
+}
+
+type updateFleetInput struct {
+	Arn          string `json:"arn"`
+	BaseCapacity int32  `json:"baseCapacity"`
+}
+
+type updateFleetOutput struct {
+	Fleet *Fleet `json:"fleet"`
+}
+
+func (h *Handler) handleUpdateFleet(_ context.Context, in *updateFleetInput) (*updateFleetOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
+	}
+
+	return &updateFleetOutput{}, nil
+}
+
+type updateProjectVisibilityInput struct {
+	ProjectArn        string `json:"projectArn"`
+	ProjectVisibility string `json:"projectVisibility"`
+}
+
+type updateProjectVisibilityOutput struct {
+	ProjectArn        string `json:"projectArn"`
+	ProjectVisibility string `json:"projectVisibility"`
+}
+
+func (h *Handler) handleUpdateProjectVisibility(
+	_ context.Context,
+	in *updateProjectVisibilityInput,
+) (*updateProjectVisibilityOutput, error) {
+	if in.ProjectArn == "" {
+		return nil, fmt.Errorf("%w: projectArn is required", errInvalidRequest)
+	}
+
+	return &updateProjectVisibilityOutput{
+		ProjectArn:        in.ProjectArn,
+		ProjectVisibility: in.ProjectVisibility,
+	}, nil
+}
+
+type updateReportGroupInput struct {
+	ExportConfig *ReportExportConfig `json:"exportConfig,omitempty"`
+	Arn          string              `json:"arn"`
+}
+
+type updateReportGroupOutput struct {
+	ReportGroup *ReportGroup `json:"reportGroup"`
+}
+
+func (h *Handler) handleUpdateReportGroup(
+	_ context.Context,
+	in *updateReportGroupInput,
+) (*updateReportGroupOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
+	}
+
+	return &updateReportGroupOutput{}, nil
+}
+
+type updateWebhookInput struct {
+	ProjectName  string `json:"projectName"`
+	BranchFilter string `json:"branchFilter"`
+	BuildType    string `json:"buildType"`
+}
+
+type updateWebhookOutput struct {
+	Webhook *Webhook `json:"webhook"`
+}
+
+func (h *Handler) handleUpdateWebhook(_ context.Context, in *updateWebhookInput) (*updateWebhookOutput, error) {
+	if in.ProjectName == "" {
+		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
+	}
+
+	return &updateWebhookOutput{}, nil
 }
