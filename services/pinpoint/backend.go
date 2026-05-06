@@ -43,6 +43,10 @@ type InMemoryBackend struct {
 	recommenders   map[string]*RecommenderConfiguration
 	journeys       map[string]*Journey
 	smsTemplates   map[string]*SmsTemplate
+	voiceTemplates map[string]*VoiceTemplate
+	endpoints      map[string]*Endpoint
+	eventStreams   map[string]*EventStream
+	channels       map[string]*Channel
 	mu             *lockmetrics.RWMutex
 	accountID      string
 	region         string
@@ -57,7 +61,10 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		apps:           make(map[string]*App),
 		arnIndex:       make(map[string]tagHolder),
 		campaigns:      make(map[string]*Campaign),
+		channels:       make(map[string]*Channel),
 		emailTemplates: make(map[string]*EmailTemplate),
+		endpoints:      make(map[string]*Endpoint),
+		eventStreams:   make(map[string]*EventStream),
 		exportJobs:     make(map[string]*ExportJob),
 		importJobs:     make(map[string]*ImportJob),
 		inAppTemplates: make(map[string]*InAppTemplate),
@@ -66,6 +73,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		recommenders:   make(map[string]*RecommenderConfiguration),
 		segments:       make(map[string]*Segment),
 		smsTemplates:   make(map[string]*SmsTemplate),
+		voiceTemplates: make(map[string]*VoiceTemplate),
 	}
 }
 
@@ -77,7 +85,10 @@ func (b *InMemoryBackend) Reset() {
 	b.apps = make(map[string]*App)
 	b.arnIndex = make(map[string]tagHolder)
 	b.campaigns = make(map[string]*Campaign)
+	b.channels = make(map[string]*Channel)
 	b.emailTemplates = make(map[string]*EmailTemplate)
+	b.endpoints = make(map[string]*Endpoint)
+	b.eventStreams = make(map[string]*EventStream)
 	b.exportJobs = make(map[string]*ExportJob)
 	b.importJobs = make(map[string]*ImportJob)
 	b.inAppTemplates = make(map[string]*InAppTemplate)
@@ -86,6 +97,7 @@ func (b *InMemoryBackend) Reset() {
 	b.recommenders = make(map[string]*RecommenderConfiguration)
 	b.segments = make(map[string]*Segment)
 	b.smsTemplates = make(map[string]*SmsTemplate)
+	b.voiceTemplates = make(map[string]*VoiceTemplate)
 }
 
 // Region returns the configured AWS region.

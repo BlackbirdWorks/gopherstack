@@ -503,7 +503,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
-	assert.Equal(t, 19, pinpoint.HandlerOpsLen(h))
+	assert.Equal(t, 122, pinpoint.HandlerOpsLen(h))
 }
 
 // ──────────────────────────────────────────────────
