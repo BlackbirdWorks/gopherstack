@@ -358,6 +358,8 @@ func (b *InMemoryBackend) StartDocumentAnalysis(documentURI string) (*DocumentJo
 }
 
 // GetDocumentAnalysis retrieves the results of a document analysis job.
+// It returns a direct pointer to the stored job (lazy/CoW — no allocation on read path).
+// Callers MUST NOT mutate the returned value.
 func (b *InMemoryBackend) GetDocumentAnalysis(jobID string) (*DocumentJob, error) {
 	b.mu.RLock("GetDocumentAnalysis")
 	defer b.mu.RUnlock()
@@ -367,7 +369,7 @@ func (b *InMemoryBackend) GetDocumentAnalysis(jobID string) (*DocumentJob, error
 		return nil, fmt.Errorf("%w: job %s not found", ErrJobNotFound, jobID)
 	}
 
-	return cloneJob(job), nil
+	return job, nil
 }
 
 // StartDocumentTextDetection creates an async text detection job.
@@ -390,6 +392,8 @@ func (b *InMemoryBackend) StartDocumentTextDetection(documentURI string) (*Docum
 }
 
 // GetDocumentTextDetection retrieves the results of a text detection job.
+// It returns a direct pointer to the stored job (lazy/CoW — no allocation on read path).
+// Callers MUST NOT mutate the returned value.
 func (b *InMemoryBackend) GetDocumentTextDetection(jobID string) (*DocumentJob, error) {
 	b.mu.RLock("GetDocumentTextDetection")
 	defer b.mu.RUnlock()
@@ -399,7 +403,7 @@ func (b *InMemoryBackend) GetDocumentTextDetection(jobID string) (*DocumentJob, 
 		return nil, fmt.Errorf("%w: job %s not found", ErrJobNotFound, jobID)
 	}
 
-	return cloneJob(job), nil
+	return job, nil
 }
 
 // ListJobs returns all stored jobs sorted by creation time (newest first).
@@ -500,6 +504,8 @@ func (b *InMemoryBackend) StartExpenseAnalysis(documentURI string) (*ExpenseJob,
 }
 
 // GetExpenseAnalysis retrieves the results of an expense analysis job.
+// It returns a direct pointer to the stored job (lazy/CoW — no allocation on read path).
+// Callers MUST NOT mutate the returned value.
 func (b *InMemoryBackend) GetExpenseAnalysis(jobID string) (*ExpenseJob, error) {
 	b.mu.RLock("GetExpenseAnalysis")
 	defer b.mu.RUnlock()
@@ -509,7 +515,7 @@ func (b *InMemoryBackend) GetExpenseAnalysis(jobID string) (*ExpenseJob, error) 
 		return nil, fmt.Errorf("%w: expense job %s not found", ErrJobNotFound, jobID)
 	}
 
-	return cloneExpenseJob(job), nil
+	return job, nil
 }
 
 // StartLendingAnalysis creates an async lending analysis job.
@@ -531,6 +537,8 @@ func (b *InMemoryBackend) StartLendingAnalysis(_ string) (*LendingJob, error) {
 }
 
 // GetLendingAnalysis retrieves the results of a lending analysis job.
+// It returns a direct pointer to the stored job (lazy/CoW — no allocation on read path).
+// Callers MUST NOT mutate the returned value.
 func (b *InMemoryBackend) GetLendingAnalysis(jobID string) (*LendingJob, error) {
 	b.mu.RLock("GetLendingAnalysis")
 	defer b.mu.RUnlock()
@@ -540,7 +548,7 @@ func (b *InMemoryBackend) GetLendingAnalysis(jobID string) (*LendingJob, error) 
 		return nil, fmt.Errorf("%w: lending job %s not found", ErrJobNotFound, jobID)
 	}
 
-	return cloneLendingJob(job), nil
+	return job, nil
 }
 
 // validateFeatureTypes checks that the given slice contains at least one valid feature type.
