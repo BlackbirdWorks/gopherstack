@@ -169,3 +169,54 @@ type AccountLimit struct {
 	Name  string `xml:"Name"  json:"name"`
 	Value int    `xml:"Value" json:"value"`
 }
+
+// StackSet represents a CloudFormation StackSet.
+type StackSet struct {
+	StackSetID   string `xml:"StackSetId"            json:"stackSetID"`
+	StackSetName string `xml:"StackSetName"          json:"stackSetName"`
+	Description  string `xml:"Description,omitempty" json:"description,omitempty"`
+	Status       string `xml:"Status"                json:"status"`
+	TemplateBody string `xml:"-"                     json:"templateBody,omitempty"`
+}
+
+// StackSetSummary is a brief summary of a StackSet.
+type StackSetSummary struct {
+	StackSetID   string `xml:"StackSetId"`
+	StackSetName string `xml:"StackSetName"`
+	Status       string `xml:"Status"`
+	Description  string `xml:"Description,omitempty"`
+}
+
+// StackInstance represents an instance of a StackSet in a specific account/region.
+type StackInstance struct {
+	StackSetID   string `xml:"StackSetId,omitempty"   json:"stackSetID,omitempty"`
+	StackSetName string `xml:"StackSetName,omitempty" json:"stackSetName,omitempty"`
+	StackID      string `xml:"StackId,omitempty"      json:"stackID,omitempty"`
+	Account      string `xml:"Account,omitempty"      json:"account,omitempty"`
+	Region       string `xml:"Region,omitempty"       json:"region,omitempty"`
+	Status       string `xml:"Status,omitempty"       json:"status,omitempty"`
+}
+
+// GeneratedTemplate holds a CloudFormation generated template.
+type GeneratedTemplate struct {
+	GeneratedTemplateID   string `xml:"GeneratedTemplateId,omitempty"   json:"generatedTemplateID,omitempty"`
+	GeneratedTemplateName string `xml:"GeneratedTemplateName,omitempty" json:"generatedTemplateName,omitempty"`
+	Status                string `xml:"Status,omitempty"                json:"status,omitempty"`
+	TemplateBody          string `xml:"-"                               json:"templateBody,omitempty"`
+}
+
+// ResourceScan holds the status of a resource scan.
+type ResourceScan struct {
+	ResourceScanID      string  `xml:"ResourceScanId,omitempty"      json:"resourceScanID,omitempty"`
+	Status              string  `xml:"Status,omitempty"              json:"status,omitempty"`
+	PercentageCompleted float64 `xml:"PercentageCompleted,omitempty" json:"percentageCompleted,omitempty"`
+}
+
+// TypeSummary holds a brief summary of a CloudFormation type.
+type TypeSummary struct {
+	TypeName    string `xml:"TypeName,omitempty"`
+	TypeArn     string `xml:"TypeArn,omitempty"`
+	Type        string `xml:"Type,omitempty"`
+	Visibility  string `xml:"Visibility,omitempty"`
+	Description string `xml:"Description,omitempty"`
+}

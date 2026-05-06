@@ -11,20 +11,52 @@
 		DescribeStackEventsCommand,
 		GetTemplateCommand,
 		ValidateTemplateCommand,
+		CreateChangeSetCommand,
+		DescribeChangeSetCommand,
+		ListChangeSetsCommand,
+		ExecuteChangeSetCommand,
+		DeleteChangeSetCommand,
+		DetectStackDriftCommand,
+		DescribeStackDriftDetectionStatusCommand,
+		DescribeStackResourceDriftsCommand,
+		CreateStackSetCommand,
+		DeleteStackSetCommand,
+		ListStackSetsCommand,
 		type Stack,
 		type StackResourceSummary,
 		type StackEvent,
+		type Change,
+		type StackResourceDrift,
+		type StackSetSummary,
 		StackStatus
 	} from '@aws-sdk/client-cloudformation';
 	import { toast } from 'svelte-sonner';
-	import { Layers, Search, RefreshCw, Plus, Trash2, ChevronRight, FileCode, Activity, AlertCircle } from 'lucide-svelte';
+	import {
+		Layers,
+		Search,
+		RefreshCw,
+		Plus,
+		Trash2,
+		ChevronRight,
+		FileCode,
+		Activity,
+		AlertCircle,
+		GitCompare,
+		ScanSearch,
+		Server
+	} from 'lucide-svelte';
 
 	const cfn = getCloudFormationClient();
+
+	// Main view: 'stacks' | 'stacksets'
+	let mainView = $state<'stacks' | 'stacksets'>('stacks');
 
 	let loading = $state(false);
 	let stacks = $state<Stack[]>([]);
 	let selectedStack = $state<Stack | null>(null);
-	let activeTab = $state<'overview' | 'resources' | 'events' | 'template'>('overview');
+	let activeTab = $state<'overview' | 'resources' | 'events' | 'template' | 'changesets' | 'drift'>(
+		'overview'
+	);
 	let searchQuery = $state('');
 
 	// Resources & Events
@@ -34,6 +66,34 @@
 	let loadingEvents = $state(false);
 	let template = $state('');
 	let loadingTemplate = $state(false);
+
+	// Change sets
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let changeSets = $state<any[]>([]);
+	let loadingChangeSets = $state(false);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let selectedChangeSet = $state<any | null>(null);
+	let changeSetChanges = $state<Change[]>([]);
+	let showCreateChangeSet = $state(false);
+	let newChangeSetName = $state('');
+	let newChangeSetTemplate = $state('');
+	let creatingChangeSet = $state(false);
+
+	// Drift
+	let driftDetectionID = $state('');
+	let driftStatus = $state('');
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let driftResourceDrifts = $state<StackResourceDrift[]>([]);
+	let detectingDrift = $state(false);
+	let loadingDrift = $state(false);
+
+	// StackSets
+	let stackSets = $state<StackSetSummary[]>([]);
+	let loadingStackSets = $state(false);
+	let showCreateStackSet = $state(false);
+	let newStackSetName = $state('');
+	let newStackSetTemplate = $state('');
+	let creatingStackSet = $state(false);
 
 	// Create Stack
 	let showCreateStack = $state(false);
@@ -55,7 +115,9 @@
 	let deletingStack = $state<string | null>(null);
 
 	const filteredStacks = $derived(
-		stacks.filter((s) => !searchQuery || (s.StackName ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
+		stacks.filter(
+			(s) => !searchQuery || (s.StackName ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+		)
 	);
 
 	const statusColor = (status: string | undefined) => {
@@ -67,6 +129,20 @@
 		return 'blue';
 	};
 
+	const changeActionColor = (action: string | undefined) => {
+		if (action === 'Add') return 'green';
+		if (action === 'Remove') return 'red';
+		if (action === 'Modify') return 'yellow';
+		return 'blue';
+	};
+
+	const driftStatusColor = (status: string | undefined) => {
+		if (status === 'IN_SYNC') return 'green';
+		if (status === 'MODIFIED' || status === 'DELETED') return 'red';
+		if (status === 'NOT_CHECKED') return 'gray';
+		return 'yellow';
+	};
+
 	async function loadStacks() {
 		loading = true;
 		try {
@@ -76,6 +152,18 @@
 			toast.error('Failed to load stacks: ' + String(e));
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadStackSets() {
+		loadingStackSets = true;
+		try {
+			const resp = await cfn.send(new ListStackSetsCommand({}));
+			stackSets = resp.Summaries ?? [];
+		} catch (e) {
+			toast.error('Failed to load stack sets: ' + String(e));
+		} finally {
+			loadingStackSets = false;
 		}
 	}
 
@@ -121,19 +209,169 @@
 		}
 	}
 
-	async function handleTabChange(tab: 'overview' | 'resources' | 'events' | 'template') {
+	async function loadChangeSets(stackName: string) {
+		loadingChangeSets = true;
+		try {
+			const resp = await cfn.send(new ListChangeSetsCommand({ StackName: stackName }));
+			changeSets = resp.Summaries ?? [];
+		} catch (e) {
+			toast.error('Failed to load change sets: ' + String(e));
+		} finally {
+			loadingChangeSets = false;
+		}
+	}
+
+	async function selectChangeSet(changeSetName: string) {
+		if (!selectedStack) return;
+		try {
+			const resp = await cfn.send(
+				new DescribeChangeSetCommand({
+					StackName: selectedStack.StackName ?? '',
+					ChangeSetName: changeSetName
+				})
+			);
+			selectedChangeSet = resp;
+			changeSetChanges = resp.Changes ?? [];
+		} catch (e) {
+			toast.error('Failed to load change set: ' + String(e));
+		}
+	}
+
+	async function executeChangeSet(changeSetName: string) {
+		if (!selectedStack) return;
+		if (
+			!await confirmDestructive({
+				title: 'Execute Change Set',
+				message: `Execute change set "${changeSetName}"? This will modify the stack.`
+			})
+		)
+			return;
+		try {
+			await cfn.send(
+				new ExecuteChangeSetCommand({
+					StackName: selectedStack.StackName ?? '',
+					ChangeSetName: changeSetName
+				})
+			);
+			toast.success('Change set execution initiated');
+			selectedChangeSet = null;
+			await loadChangeSets(selectedStack.StackName ?? '');
+			await loadStacks();
+		} catch (e) {
+			toast.error('Failed to execute change set: ' + String(e));
+		}
+	}
+
+	async function deleteChangeSet(changeSetName: string) {
+		if (!selectedStack) return;
+		try {
+			await cfn.send(
+				new DeleteChangeSetCommand({
+					StackName: selectedStack.StackName ?? '',
+					ChangeSetName: changeSetName
+				})
+			);
+			toast.success(`Change set "${changeSetName}" deleted`);
+			if (selectedChangeSet?.ChangeSetName === changeSetName) selectedChangeSet = null;
+			await loadChangeSets(selectedStack.StackName ?? '');
+		} catch (e) {
+			toast.error('Failed to delete change set: ' + String(e));
+		}
+	}
+
+	async function createChangeSet() {
+		if (!selectedStack || !newChangeSetName.trim() || !newChangeSetTemplate.trim()) return;
+		creatingChangeSet = true;
+		try {
+			await cfn.send(
+				new CreateChangeSetCommand({
+					StackName: selectedStack.StackName ?? '',
+					ChangeSetName: newChangeSetName.trim(),
+					TemplateBody: newChangeSetTemplate.trim()
+				})
+			);
+			toast.success(`Change set "${newChangeSetName}" created`);
+			showCreateChangeSet = false;
+			newChangeSetName = '';
+			newChangeSetTemplate = '';
+			await loadChangeSets(selectedStack.StackName ?? '');
+		} catch (e) {
+			toast.error('Failed to create change set: ' + String(e));
+		} finally {
+			creatingChangeSet = false;
+		}
+	}
+
+	async function detectDrift() {
+		if (!selectedStack) return;
+		detectingDrift = true;
+		driftStatus = '';
+		driftResourceDrifts = [];
+		try {
+			const resp = await cfn.send(
+				new DetectStackDriftCommand({ StackName: selectedStack.StackName ?? '' })
+			);
+			driftDetectionID = resp.StackDriftDetectionId ?? '';
+			// Poll for completion
+			let attempts = 0;
+			const poll = async () => {
+				attempts++;
+				const statusResp = await cfn.send(
+					new DescribeStackDriftDetectionStatusCommand({
+						StackDriftDetectionId: driftDetectionID
+					})
+				);
+				driftStatus = statusResp.DetectionStatus ?? '';
+				if (
+					statusResp.DetectionStatus === 'DETECTION_COMPLETE' ||
+					statusResp.DetectionStatus === 'DETECTION_FAILED' ||
+					attempts > 10
+				) {
+					detectingDrift = false;
+					await loadDriftResults();
+				} else {
+					setTimeout(poll, 1000);
+				}
+			};
+			await poll();
+		} catch (e) {
+			toast.error('Failed to detect drift: ' + String(e));
+			detectingDrift = false;
+		}
+	}
+
+	async function loadDriftResults() {
+		if (!selectedStack) return;
+		loadingDrift = true;
+		try {
+			const resp = await cfn.send(
+				new DescribeStackResourceDriftsCommand({ StackName: selectedStack.StackName ?? '' })
+			);
+			driftResourceDrifts = resp.StackResourceDrifts ?? [];
+		} catch (e) {
+			toast.error('Failed to load drift results: ' + String(e));
+		} finally {
+			loadingDrift = false;
+		}
+	}
+
+	async function handleTabChange(
+		tab: 'overview' | 'resources' | 'events' | 'template' | 'changesets' | 'drift'
+	) {
 		activeTab = tab;
 		if (!selectedStack) return;
 		const name = selectedStack.StackName ?? '';
 		if (tab === 'events' && events.length === 0) await loadEvents(name);
 		if (tab === 'template' && !template) await loadTemplate(name);
+		if (tab === 'changesets') await loadChangeSets(name);
+		if (tab === 'drift') await loadDriftResults();
 	}
 
 	async function createStack() {
 		if (!newStackName.trim() || !newTemplateBody.trim()) return;
 		creatingStack = true;
 		try {
-			const params: Parameters<typeof cfn.send>[0] extends CreateStackCommand ? never : { StackName: string; TemplateBody: string; Parameters?: { ParameterKey: string; ParameterValue: string }[] } = {
+			const params: { StackName: string; TemplateBody: string; Parameters?: { ParameterKey: string; ParameterValue: string }[] } = {
 				StackName: newStackName.trim(),
 				TemplateBody: newTemplateBody.trim()
 			};
@@ -162,10 +400,12 @@
 		if (!selectedStack || !updateTemplateBody.trim()) return;
 		updatingStack = true;
 		try {
-			await cfn.send(new UpdateStackCommand({
-				StackName: selectedStack.StackName ?? '',
-				TemplateBody: updateTemplateBody.trim()
-			}));
+			await cfn.send(
+				new UpdateStackCommand({
+					StackName: selectedStack.StackName ?? '',
+					TemplateBody: updateTemplateBody.trim()
+				})
+			);
 			toast.success(`Stack "${selectedStack.StackName}" update initiated`);
 			showUpdateStack = false;
 			updateTemplateBody = '';
@@ -178,7 +418,13 @@
 	}
 
 	async function deleteStack(name: string) {
-		if (!await confirmDestructive({ title: 'Delete Stack', message: `Delete stack "${name}"? All provisioned resources will be destroyed.` })) return;
+		if (
+			!await confirmDestructive({
+				title: 'Delete Stack',
+				message: `Delete stack "${name}"? All provisioned resources will be destroyed.`
+			})
+		)
+			return;
 		deletingStack = name;
 		try {
 			await cfn.send(new DeleteStackCommand({ StackName: name }));
@@ -192,12 +438,53 @@
 		}
 	}
 
+	async function createStackSet() {
+		if (!newStackSetName.trim() || !newStackSetTemplate.trim()) return;
+		creatingStackSet = true;
+		try {
+			await cfn.send(
+				new CreateStackSetCommand({
+					StackSetName: newStackSetName.trim(),
+					TemplateBody: newStackSetTemplate.trim()
+				})
+			);
+			toast.success(`StackSet "${newStackSetName}" created`);
+			showCreateStackSet = false;
+			newStackSetName = '';
+			newStackSetTemplate = '';
+			await loadStackSets();
+		} catch (e) {
+			toast.error('Failed to create stack set: ' + String(e));
+		} finally {
+			creatingStackSet = false;
+		}
+	}
+
+	async function deleteStackSet(name: string) {
+		if (
+			!await confirmDestructive({
+				title: 'Delete StackSet',
+				message: `Delete StackSet "${name}"?`
+			})
+		)
+			return;
+		try {
+			await cfn.send(new DeleteStackSetCommand({ StackSetName: name }));
+			toast.success(`StackSet "${name}" deleted`);
+			await loadStackSets();
+		} catch (e) {
+			toast.error('Failed to delete stack set: ' + String(e));
+		}
+	}
+
 	async function validateTemplate() {
 		if (!newTemplateBody.trim()) return;
 		validatingTemplate = true;
 		validationResult = '';
 		try {
-			const resp = await cfn.send(new ValidateTemplateCommand({ TemplateBody: newTemplateBody.trim() }));
+			const resp = await cfn.send(
+				new ValidateTemplateCommand({ TemplateBody: newTemplateBody.trim() })
+			);
 			validationResult = `Valid! Parameters: ${(resp.Parameters ?? []).map((p) => p.ParameterKey).join(', ') || 'none'}`;
 		} catch (e) {
 			validationResult = 'Invalid: ' + String(e);
@@ -225,19 +512,87 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
-			<button onclick={loadStacks} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
-				<RefreshCw class="w-4 h-4" /> Refresh
-			</button>
-			<button onclick={() => (showCreateStack = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700 text-sm font-medium">
-				<Plus class="w-4 h-4" /> Create Stack
-			</button>
+			<!-- View toggle -->
+			<div class="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-sm">
+				<button
+					onclick={() => { mainView = 'stacks'; selectedStack = null; }}
+					class={`px-3 py-2 flex items-center gap-1 ${mainView === 'stacks' ? 'bg-orange-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+				>
+					<Layers class="w-4 h-4" /> Stacks
+				</button>
+				<button
+					onclick={() => { mainView = 'stacksets'; loadStackSets(); }}
+					class={`px-3 py-2 flex items-center gap-1 ${mainView === 'stacksets' ? 'bg-orange-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+				>
+					<Server class="w-4 h-4" /> StackSets
+				</button>
+			</div>
+			{#if mainView === 'stacks'}
+				<button onclick={loadStacks} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
+					<RefreshCw class="w-4 h-4" /> Refresh
+				</button>
+				<button onclick={() => (showCreateStack = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700 text-sm font-medium">
+					<Plus class="w-4 h-4" /> Create Stack
+				</button>
+			{:else}
+				<button onclick={loadStackSets} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
+					<RefreshCw class="w-4 h-4" /> Refresh
+				</button>
+				<button onclick={() => (showCreateStackSet = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700 text-sm font-medium">
+					<Plus class="w-4 h-4" /> Create StackSet
+				</button>
+			{/if}
 		</div>
 	</div>
 
-	{#if selectedStack}
+	<!-- StackSets view -->
+	{#if mainView === 'stacksets'}
+		{#if loadingStackSets}
+			<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-orange-600 border-t-transparent rounded-full"></div></div>
+		{:else if stackSets.length === 0}
+			<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+				<Server class="w-12 h-12 mx-auto mb-3 opacity-40" />
+				<p class="font-medium">No StackSets found</p>
+				<p class="text-sm mt-1">Create a StackSet to manage stacks across accounts and regions</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
+						<tr>
+							<th class="px-4 py-3 text-left">StackSet Name</th>
+							<th class="px-4 py-3 text-left">Status</th>
+							<th class="px-4 py-3 text-left">Description</th>
+							<th class="px-4 py-3 text-left">Actions</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+						{#each stackSets as ss}
+							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+								<td class="px-4 py-3 font-medium">{ss.StackSetName}</td>
+								<td class="px-4 py-3">
+									<span class={`px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(ss.Status)}-100 text-${statusColor(ss.Status)}-700`}>
+										{ss.Status ?? '-'}
+									</span>
+								</td>
+								<td class="px-4 py-3 text-gray-500 text-xs">{ss.Description ?? '-'}</td>
+								<td class="px-4 py-3">
+									<button onclick={() => deleteStackSet(ss.StackSetName ?? '')} class="text-red-500 hover:text-red-700 p-1">
+										<Trash2 class="w-4 h-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+
+	<!-- Stacks view -->
+	{:else if selectedStack}
 		<!-- Stack Detail -->
 		<div class="flex items-center gap-2 text-sm">
-			<button onclick={() => { selectedStack = null; resources = []; events = []; template = ''; }} class="text-orange-600 hover:underline">Stacks</button>
+			<button onclick={() => { selectedStack = null; resources = []; events = []; template = ''; changeSets = []; driftResourceDrifts = []; }} class="text-orange-600 hover:underline">Stacks</button>
 			<ChevronRight class="w-4 h-4 text-gray-400" />
 			<span class="text-gray-600 dark:text-gray-300 font-medium">{selectedStack.StackName}</span>
 			<span class={`ml-2 px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(selectedStack.StackStatus)}-100 dark:bg-${statusColor(selectedStack.StackStatus)}-900/30 text-${statusColor(selectedStack.StackStatus)}-700 dark:text-${statusColor(selectedStack.StackStatus)}-400`}>
@@ -247,12 +602,14 @@
 
 		<!-- Tabs -->
 		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-			{#each ['overview', 'resources', 'events', 'template'] as tab}
+			{#each ['overview', 'resources', 'events', 'template', 'changesets', 'drift'] as tab}
 				<button
-					onclick={() => handleTabChange(tab as 'overview' | 'resources' | 'events' | 'template')}
-					class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}
+					onclick={() => handleTabChange(tab as 'overview' | 'resources' | 'events' | 'template' | 'changesets' | 'drift')}
+					class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1 ${activeTab === tab ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}
 				>
-					{tab.charAt(0).toUpperCase() + tab.slice(1)}
+					{#if tab === 'changesets'}<GitCompare class="w-3.5 h-3.5" />{/if}
+					{#if tab === 'drift'}<ScanSearch class="w-3.5 h-3.5" />{/if}
+					{tab === 'changesets' ? 'Change Sets' : tab === 'drift' ? 'Drift' : tab.charAt(0).toUpperCase() + tab.slice(1)}
 				</button>
 			{/each}
 			<button onclick={() => { showUpdateStack = true; updateTemplateBody = template; }} class="ml-auto px-4 py-2 text-sm text-orange-600 hover:underline">Update Stack</button>
@@ -375,6 +732,152 @@
 			{/if}
 		{/if}
 
+		<!-- Change Sets Tab -->
+		{#if activeTab === 'changesets'}
+			<div class="flex items-center justify-between mb-2">
+				<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Change Sets</h3>
+				<button onclick={() => (showCreateChangeSet = true)} class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-medium hover:bg-orange-700">
+					<Plus class="w-3.5 h-3.5" /> New Change Set
+				</button>
+			</div>
+			{#if loadingChangeSets}
+				<div class="flex justify-center py-8"><div class="animate-spin w-6 h-6 border-4 border-orange-600 border-t-transparent rounded-full"></div></div>
+			{:else}
+				<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+					<!-- Change set list -->
+					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+						<table class="w-full text-sm">
+							<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+								<tr>
+									<th class="px-4 py-2 text-left">Name</th>
+									<th class="px-4 py-2 text-left">Status</th>
+									<th class="px-4 py-2 text-left">Actions</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+								{#each changeSets as cs}
+									<tr class={`hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer ${selectedChangeSet?.ChangeSetName === cs.ChangeSetName ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}>
+										<td class="px-4 py-2">
+											<button onclick={() => selectChangeSet(cs.ChangeSetName ?? '')} class="text-orange-600 hover:underline text-xs font-medium">{cs.ChangeSetName}</button>
+										</td>
+										<td class="px-4 py-2">
+											<span class={`px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(cs.Status)}-100 text-${statusColor(cs.Status)}-700`}>{cs.Status}</span>
+										</td>
+										<td class="px-4 py-2 flex gap-1">
+											{#if cs.Status === 'CREATE_COMPLETE'}
+												<button onclick={() => executeChangeSet(cs.ChangeSetName ?? '')} class="px-2 py-0.5 bg-green-600 text-white rounded text-xs hover:bg-green-700">Execute</button>
+											{/if}
+											<button onclick={() => deleteChangeSet(cs.ChangeSetName ?? '')} class="text-red-500 hover:text-red-700 p-0.5"><Trash2 class="w-3.5 h-3.5" /></button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+						{#if changeSets.length === 0}<div class="text-center py-6 text-gray-500 text-sm">No change sets</div>{/if}
+					</div>
+
+					<!-- Change set diff viewer -->
+					{#if selectedChangeSet}
+						<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+							<div class="flex items-center justify-between">
+								<h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+									<GitCompare class="w-4 h-4 text-orange-500" />
+									{selectedChangeSet.ChangeSetName}
+								</h4>
+								<span class={`px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(selectedChangeSet.Status)}-100 text-${statusColor(selectedChangeSet.Status)}-700`}>{selectedChangeSet.Status}</span>
+							</div>
+							{#if selectedChangeSet.Description}
+								<p class="text-xs text-gray-500">{selectedChangeSet.Description}</p>
+							{/if}
+							<div class="space-y-2">
+								<p class="text-xs font-medium text-gray-600 dark:text-gray-400">{changeSetChanges.length} change{changeSetChanges.length !== 1 ? 's' : ''}</p>
+								{#each changeSetChanges as change}
+									<div class="flex items-center gap-3 p-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+										<span class={`px-2 py-0.5 rounded text-xs font-bold bg-${changeActionColor(change.ResourceChange?.Action)}-100 text-${changeActionColor(change.ResourceChange?.Action)}-700 min-w-[56px] text-center`}>
+											{change.ResourceChange?.Action ?? '-'}
+										</span>
+										<div class="flex-1 min-w-0">
+											<p class="text-xs font-medium text-gray-900 dark:text-white truncate">{change.ResourceChange?.LogicalResourceId}</p>
+											<p class="text-xs text-gray-500 truncate">{change.ResourceChange?.ResourceType}</p>
+										</div>
+									</div>
+								{/each}
+								{#if changeSetChanges.length === 0}
+									<p class="text-xs text-gray-500 text-center py-4">No changes</p>
+								{/if}
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
+		{/if}
+
+		<!-- Drift Tab -->
+		{#if activeTab === 'drift'}
+			<div class="space-y-4">
+				<div class="flex items-center justify-between">
+					<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+						<ScanSearch class="w-4 h-4 text-orange-500" /> Drift Detection
+					</h3>
+					<button
+						onclick={detectDrift}
+						disabled={detectingDrift}
+						class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-medium hover:bg-orange-700 disabled:opacity-50"
+					>
+						{#if detectingDrift}
+							<div class="animate-spin w-3 h-3 border-2 border-white border-t-transparent rounded-full"></div>
+							Detecting...
+						{:else}
+							<ScanSearch class="w-3.5 h-3.5" /> Detect Drift
+						{/if}
+					</button>
+				</div>
+
+				{#if driftStatus}
+					<div class="flex items-center gap-2 text-sm">
+						<span class="text-gray-500">Detection status:</span>
+						<span class={`px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(driftStatus)}-100 text-${statusColor(driftStatus)}-700`}>{driftStatus}</span>
+					</div>
+				{/if}
+
+				{#if loadingDrift}
+					<div class="flex justify-center py-8"><div class="animate-spin w-6 h-6 border-4 border-orange-600 border-t-transparent rounded-full"></div></div>
+				{:else if driftResourceDrifts.length > 0}
+					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+						<table class="w-full text-sm">
+							<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+								<tr>
+									<th class="px-4 py-3 text-left">Logical ID</th>
+									<th class="px-4 py-3 text-left">Type</th>
+									<th class="px-4 py-3 text-left">Drift Status</th>
+									<th class="px-4 py-3 text-left">Physical ID</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+								{#each driftResourceDrifts as drift}
+									<tr>
+										<td class="px-4 py-3 font-medium text-xs">{drift.LogicalResourceId}</td>
+										<td class="px-4 py-3 text-xs text-gray-500">{drift.ResourceType}</td>
+										<td class="px-4 py-3">
+											<span class={`px-2 py-0.5 rounded text-xs font-medium bg-${driftStatusColor(drift.StackResourceDriftStatus)}-100 text-${driftStatusColor(drift.StackResourceDriftStatus)}-700`}>
+												{drift.StackResourceDriftStatus}
+											</span>
+										</td>
+										<td class="px-4 py-3 text-xs font-mono text-gray-500 truncate max-w-xs">{drift.PhysicalResourceId ?? '-'}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{:else}
+					<div class="text-center py-12 text-gray-500 dark:text-gray-400">
+						<ScanSearch class="w-10 h-10 mx-auto mb-3 opacity-40" />
+						<p class="text-sm">Run drift detection to compare stack resources against their expected configuration</p>
+					</div>
+				{/if}
+			</div>
+		{/if}
+
 	{:else}
 		<!-- Stack List -->
 		<div class="relative">
@@ -478,6 +981,56 @@
 				<button onclick={() => (showUpdateStack = false)} class="flex-1 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
 				<button onclick={updateStack} disabled={updatingStack || !updateTemplateBody.trim()} class="flex-1 px-4 py-2 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
 					{updatingStack ? 'Updating...' : 'Update Stack'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Change Set Modal -->
+{#if showCreateChangeSet && selectedStack}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+				<GitCompare class="w-5 h-5 text-orange-500" /> Create Change Set
+			</h2>
+			<div>
+				<label for="changeset-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Change Set Name</label>
+				<input id="changeset-name" bind:value={newChangeSetName} type="text" placeholder="my-changeset" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div>
+				<label for="changeset-template" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New Template Body</label>
+				<textarea id="changeset-template" bind:value={newChangeSetTemplate} rows={10} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"></textarea>
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showCreateChangeSet = false)} class="flex-1 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={createChangeSet} disabled={creatingChangeSet || !newChangeSetName.trim() || !newChangeSetTemplate.trim()} class="flex-1 px-4 py-2 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
+					{creatingChangeSet ? 'Creating...' : 'Create Change Set'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create StackSet Modal -->
+{#if showCreateStackSet}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+				<Server class="w-5 h-5 text-orange-500" /> Create StackSet
+			</h2>
+			<div>
+				<label for="stackset-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">StackSet Name</label>
+				<input id="stackset-name" bind:value={newStackSetName} type="text" placeholder="my-stackset" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div>
+				<label for="stackset-template" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Template Body</label>
+				<textarea id="stackset-template" bind:value={newStackSetTemplate} rows={10} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"></textarea>
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showCreateStackSet = false)} class="flex-1 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={createStackSet} disabled={creatingStackSet || !newStackSetName.trim() || !newStackSetTemplate.trim()} class="flex-1 px-4 py-2 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
+					{creatingStackSet ? 'Creating...' : 'Create StackSet'}
 				</button>
 			</div>
 		</div>

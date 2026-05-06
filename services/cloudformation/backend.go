@@ -18,14 +18,19 @@ import (
 )
 
 var (
-	ErrStackNotFound          = errors.New("stack with id does not exist")
-	ErrStackAlreadyExists     = errors.New("stack already exists")
-	ErrChangeSetNotFound      = errors.New("change set not found")
-	ErrChangeSetExists        = errors.New("change set already exists")
-	ErrResourceNotFound       = errors.New("resource not found in stack")
-	ErrExportNotFound         = errors.New("export with given name not found")
-	ErrDuplicateExport        = errors.New("export already exists and is owned by another stack")
-	ErrDriftDetectionNotFound = errors.New("drift detection not found")
+	ErrStackNotFound             = errors.New("stack with id does not exist")
+	ErrStackAlreadyExists        = errors.New("stack already exists")
+	ErrChangeSetNotFound         = errors.New("change set not found")
+	ErrChangeSetExists           = errors.New("change set already exists")
+	ErrResourceNotFound          = errors.New("resource not found in stack")
+	ErrExportNotFound            = errors.New("export with given name not found")
+	ErrDuplicateExport           = errors.New("export already exists and is owned by another stack")
+	ErrDriftDetectionNotFound    = errors.New("drift detection not found")
+	ErrStackSetNotFound          = errors.New("stack set not found")
+	ErrStackSetAlreadyExists     = errors.New("stack set already exists")
+	ErrStackInstanceNotFound     = errors.New("stack instance not found")
+	ErrGeneratedTemplateNotFound = errors.New("generated template not found")
+	ErrResourceScanNotFound      = errors.New("resource scan not found")
 )
 
 // StorageBackend defines the interface for the CloudFormation in-memory backend.
@@ -67,23 +72,95 @@ type StorageBackend interface {
 	ContinueUpdateRollback(ctx context.Context, nameOrID string) error
 	CancelUpdateStack(ctx context.Context, nameOrID string) error
 	DescribeAccountLimits() []AccountLimit
+	// Stack Sets
+	CreateStackSet(name, description, templateBody string) (*StackSet, error)
+	UpdateStackSet(name, templateBody string) (*StackSet, error)
+	DeleteStackSet(name string) error
+	DescribeStackSet(name string) (*StackSet, error)
+	ListStackSets(nextToken string) ([]StackSetSummary, error)
+	CreateStackInstances(stackSetName string, accounts, regions []string) error
+	DeleteStackInstances(stackSetName string, accounts, regions []string) error
+	UpdateStackInstances(stackSetName string, accounts, regions []string) error
+	ListStackInstances(stackSetName, nextToken string) ([]StackInstance, error)
+	DescribeStackInstance(stackSetName, account, region string) (*StackInstance, error)
+	DetectStackSetDrift(stackSetName string) (string, error)
+	ListStackSetOperations(stackSetName, nextToken string) ([]string, error)
+	DescribeStackSetOperation(stackSetName, operationID string) (string, error)
+	StopStackSetOperation(stackSetName, operationID string) error
+	ListStackSetOperationResults(stackSetName, operationID, nextToken string) ([]string, error)
+	ListStackSetAutoDeploymentTargets(stackSetName string) ([]string, error)
+	ImportStacksToStackSet(stackSetName string, stackIDs []string) error
+	ListStackInstanceResourceDrifts(stackSetName, operationID, account, region string) ([]string, error)
+	// Generated templates
+	CreateGeneratedTemplate(name string, resources []string) (*GeneratedTemplate, error)
+	UpdateGeneratedTemplate(id, name string) error
+	DeleteGeneratedTemplate(id string) error
+	DescribeGeneratedTemplate(id string) (*GeneratedTemplate, error)
+	GetGeneratedTemplate(id string) (string, error)
+	ListGeneratedTemplates(nextToken string) ([]GeneratedTemplate, error)
+	// Resource scans
+	StartResourceScan() (string, error)
+	DescribeResourceScan(scanID string) (*ResourceScan, error)
+	ListResourceScans(nextToken string) ([]ResourceScan, error)
+	ListResourceScanResources(scanID, nextToken string) ([]string, error)
+	ListResourceScanRelatedResources(scanID string, resources []string) ([]string, error)
+	// Type management
+	ActivateType(typeName, typeArn string) error
+	DeactivateType(typeName, typeArn string) error
+	RegisterType(typeName, schemaHandlerPackage string) (string, error)
+	DeregisterType(arn string) error
+	PublishType(typeName string) error
+	SetTypeDefaultVersion(arn, version string) error
+	SetTypeConfiguration(typeName, configuration string) error
+	BatchDescribeTypeConfigurations(typeConfigIdentifiers []string) ([]string, error)
+	ListTypes(nextToken string) ([]TypeSummary, error)
+	ListTypeVersions(typeName, nextToken string) ([]string, error)
+	ListTypeRegistrations(typeName, nextToken string) ([]string, error)
+	DescribeTypeRegistration(registrationToken string) (string, error)
+	TestType(typeName, arn string) (string, error)
+	RegisterPublisher(connectionArn string) (string, error)
+	DescribePublisher(publisherID string) (string, error)
+	// Stack refactor
+	CreateStackRefactor(description string, stackDefinitions []string) (string, error)
+	DescribeStackRefactor(stackRefactorID string) (string, error)
+	ExecuteStackRefactor(stackRefactorID string) error
+	ListStackRefactors(nextToken string) ([]string, error)
+	ListStackRefactorActions(stackRefactorID string) ([]string, error)
+	// Org access
+	ActivateOrganizationsAccess() error
+	DeactivateOrganizationsAccess() error
+	DescribeOrganizationsAccess() (string, error)
+	// Misc
+	SignalResource(stackName, logicalID, uniqueID, status string) error
+	RollbackStack(ctx context.Context, stackName string) error
+	RecordHandlerProgress(bearerToken, operationStatus string) error
+	GetHookResult(hookResultToken string) (string, error)
+	ListHookResults(hookResultToken, nextToken string) ([]string, error)
+	DescribeChangeSetHooks(stackName, changeSetName string) ([]string, error)
+	DescribeEvents(nextToken string) ([]StackEvent, error)
+	UpdateTerminationProtection(stackName string, enable bool) error
+	ValidateTemplate(templateBody string) (*TemplateSummary, error)
 }
 
 // InMemoryBackend is a concurrency-safe in-memory CloudFormation backend.
 type InMemoryBackend struct {
-	stacks          map[string]*Stack
-	stackIDIndex    map[string]string // stackID (ARN) → stackName
-	events          map[string][]StackEvent
-	resources       map[string]map[string]*StackResource
-	changeSets      map[string]map[string]*ChangeSet
-	exports         map[string]*Export
-	driftDetections map[string]*DriftDetectionStatus
-	stackPolicies   map[string]string
-	creator         *ResourceCreator
-	resolver        DynamicRefResolver
-	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
+	stacks             map[string]*Stack
+	stackIDIndex       map[string]string // stackID (ARN) → stackName
+	events             map[string][]StackEvent
+	resources          map[string]map[string]*StackResource
+	changeSets         map[string]map[string]*ChangeSet
+	exports            map[string]*Export
+	driftDetections    map[string]*DriftDetectionStatus
+	stackPolicies      map[string]string
+	stackSets          map[string]*StackSet
+	stackInstances     map[string][]StackInstance // stackSetName → instances
+	generatedTemplates map[string]*GeneratedTemplate
+	resourceScans      map[string]*ResourceScan
+	creator            *ResourceCreator
+	resolver           DynamicRefResolver
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
 }
 
 const (
@@ -119,19 +196,23 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 	}
 
 	return &InMemoryBackend{
-		stacks:          make(map[string]*Stack),
-		stackIDIndex:    make(map[string]string),
-		events:          make(map[string][]StackEvent),
-		resources:       make(map[string]map[string]*StackResource),
-		changeSets:      make(map[string]map[string]*ChangeSet),
-		exports:         make(map[string]*Export),
-		driftDetections: make(map[string]*DriftDetectionStatus),
-		stackPolicies:   make(map[string]string),
-		creator:         creator,
-		resolver:        resolver,
-		accountID:       accountID,
-		region:          region,
-		mu:              lockmetrics.New("cloudformation"),
+		stacks:             make(map[string]*Stack),
+		stackIDIndex:       make(map[string]string),
+		events:             make(map[string][]StackEvent),
+		resources:          make(map[string]map[string]*StackResource),
+		changeSets:         make(map[string]map[string]*ChangeSet),
+		exports:            make(map[string]*Export),
+		driftDetections:    make(map[string]*DriftDetectionStatus),
+		stackPolicies:      make(map[string]string),
+		stackSets:          make(map[string]*StackSet),
+		stackInstances:     make(map[string][]StackInstance),
+		generatedTemplates: make(map[string]*GeneratedTemplate),
+		resourceScans:      make(map[string]*ResourceScan),
+		creator:            creator,
+		resolver:           resolver,
+		accountID:          accountID,
+		region:             region,
+		mu:                 lockmetrics.New("cloudformation"),
 	}
 }
 
