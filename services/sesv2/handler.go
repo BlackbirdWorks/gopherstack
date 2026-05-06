@@ -41,6 +41,128 @@ const (
 )
 
 const (
+	// new ops — account.
+	opGetAccount                            = "GetAccount"
+	opGetBlacklistReports                   = "GetBlacklistReports"
+	opPutAccountDedicatedIPWarmupAttributes = "PutAccountDedicatedIpWarmupAttributes"
+	opPutAccountDetails                     = "PutAccountDetails"
+	opPutAccountSendingAttributes           = "PutAccountSendingAttributes"
+	opPutAccountSuppressionAttributes       = "PutAccountSuppressionAttributes"
+	opPutAccountVdmAttributes               = "PutAccountVdmAttributes"
+
+	// new ops — suppressed destinations.
+	opPutSuppressedDestination    = "PutSuppressedDestination"
+	opGetSuppressedDestination    = "GetSuppressedDestination"
+	opDeleteSuppressedDestination = "DeleteSuppressedDestination"
+	opListSuppressedDestinations  = "ListSuppressedDestinations"
+
+	// new ops — contact lists / contacts.
+	opGetContactList    = "GetContactList"
+	opDeleteContactList = "DeleteContactList"
+	opUpdateContactList = "UpdateContactList"
+	opListContactLists  = "ListContactLists"
+	opGetContact        = "GetContact"
+	opDeleteContact     = "DeleteContact"
+	opUpdateContact     = "UpdateContact"
+	opListContacts      = "ListContacts"
+
+	// new ops — custom verification templates.
+	opGetCustomVerificationEmailTemplate    = "GetCustomVerificationEmailTemplate"
+	opDeleteCustomVerificationEmailTemplate = "DeleteCustomVerificationEmailTemplate"
+	opUpdateCustomVerificationEmailTemplate = "UpdateCustomVerificationEmailTemplate"
+	opListCustomVerificationEmailTemplates  = "ListCustomVerificationEmailTemplates"
+	opSendCustomVerificationEmail           = "SendCustomVerificationEmail"
+
+	// new ops — dedicated IP pools.
+	opGetDedicatedIPPool                  = "GetDedicatedIpPool"
+	opDeleteDedicatedIPPool               = "DeleteDedicatedIpPool"
+	opListDedicatedIPPools                = "ListDedicatedIpPools"
+	opGetDedicatedIP                      = "GetDedicatedIp"
+	opGetDedicatedIps                     = "GetDedicatedIps"
+	opPutDedicatedIPInPool                = "PutDedicatedIpInPool"
+	opPutDedicatedIPPoolScalingAttributes = "PutDedicatedIpPoolScalingAttributes"
+	opPutDedicatedIPWarmupAttributes      = "PutDedicatedIpWarmupAttributes"
+
+	// new ops — deliverability.
+	opGetDeliverabilityDashboardOptions = "GetDeliverabilityDashboardOptions"
+	opPutDeliverabilityDashboardOption  = "PutDeliverabilityDashboardOption"
+	opGetDeliverabilityTestReport       = "GetDeliverabilityTestReport"
+	opListDeliverabilityTestReports     = "ListDeliverabilityTestReports"
+	opGetDomainDeliverabilityCampaign   = "GetDomainDeliverabilityCampaign"
+	opGetDomainStatisticsReport         = "GetDomainStatisticsReport"
+	opListDomainDeliverabilityCampaigns = "ListDomainDeliverabilityCampaigns"
+	opGetEmailAddressInsights           = "GetEmailAddressInsights"
+	opGetMessageInsights                = "GetMessageInsights"
+	opListRecommendations               = "ListRecommendations"
+
+	// new ops — email templates.
+	opGetEmailTemplate        = "GetEmailTemplate"
+	opDeleteEmailTemplate     = "DeleteEmailTemplate"
+	opUpdateEmailTemplate     = "UpdateEmailTemplate"
+	opListEmailTemplates      = "ListEmailTemplates"
+	opTestRenderEmailTemplate = "TestRenderEmailTemplate"
+
+	// new ops — export / import jobs.
+	opCreateExportJob = "CreateExportJob"
+	opGetExportJob    = "GetExportJob"
+	opListExportJobs  = "ListExportJobs"
+	opCreateImportJob = "CreateImportJob"
+	opGetImportJob    = "GetImportJob"
+	opListImportJobs  = "ListImportJobs"
+
+	// new ops — email identity policies.
+	opGetEmailIdentityPolicies  = "GetEmailIdentityPolicies"
+	opDeleteEmailIdentityPolicy = "DeleteEmailIdentityPolicy"
+	opUpdateEmailIdentityPolicy = "UpdateEmailIdentityPolicy"
+
+	// new ops — email identity attributes.
+	opPutEmailIdentityConfigurationSetAttributes = "PutEmailIdentityConfigurationSetAttributes"
+	opPutEmailIdentityDkimAttributes             = "PutEmailIdentityDkimAttributes"
+	opPutEmailIdentityDkimSigningAttributes      = "PutEmailIdentityDkimSigningAttributes"
+	opPutEmailIdentityFeedbackAttributes         = "PutEmailIdentityFeedbackAttributes"
+	opPutEmailIdentityMailFromAttributes         = "PutEmailIdentityMailFromAttributes"
+
+	// new ops — configuration set event destinations.
+	opGetConfigurationSetEventDestinations   = "GetConfigurationSetEventDestinations"
+	opDeleteConfigurationSetEventDestination = "DeleteConfigurationSetEventDestination"
+	opUpdateConfigurationSetEventDestination = "UpdateConfigurationSetEventDestination"
+
+	// new ops — configuration set attributes.
+	opPutConfigurationSetArchivingOptions   = "PutConfigurationSetArchivingOptions"
+	opPutConfigurationSetDeliveryOptions    = "PutConfigurationSetDeliveryOptions"
+	opPutConfigurationSetReputationOptions  = "PutConfigurationSetReputationOptions"
+	opPutConfigurationSetSendingOptions     = "PutConfigurationSetSendingOptions"
+	opPutConfigurationSetSuppressionOptions = "PutConfigurationSetSuppressionOptions"
+	opPutConfigurationSetTrackingOptions    = "PutConfigurationSetTrackingOptions"
+	opPutConfigurationSetVdmOptions         = "PutConfigurationSetVdmOptions"
+
+	// new ops — bulk email.
+	opSendBulkEmail = "SendBulkEmail"
+
+	// new ops — multi-region endpoints.
+	opCreateMultiRegionEndpoint = "CreateMultiRegionEndpoint"
+	opGetMultiRegionEndpoint    = "GetMultiRegionEndpoint"
+	opDeleteMultiRegionEndpoint = "DeleteMultiRegionEndpoint"
+	opListMultiRegionEndpoints  = "ListMultiRegionEndpoints"
+
+	// new ops — tenants.
+	opCreateTenant                    = "CreateTenant"
+	opGetTenant                       = "GetTenant"
+	opDeleteTenant                    = "DeleteTenant"
+	opListTenants                     = "ListTenants"
+	opCreateTenantResourceAssociation = "CreateTenantResourceAssociation"
+	opDeleteTenantResourceAssociation = "DeleteTenantResourceAssociation"
+	opListResourceTenants             = "ListResourceTenants"
+	opListTenantResources             = "ListTenantResources"
+
+	// new ops — reputation entities.
+	opGetReputationEntity                         = "GetReputationEntity"
+	opListReputationEntities                      = "ListReputationEntities"
+	opUpdateReputationEntityCustomerManagedStatus = "UpdateReputationEntityCustomerManagedStatus"
+	opUpdateReputationEntityPolicy                = "UpdateReputationEntityPolicy"
+)
+
+const (
 	sesv2PathPrefix = "/v2/email/"
 	unknownAction   = "Unknown"
 )
@@ -66,7 +188,7 @@ func (h *Handler) Name() string {
 }
 
 // GetSupportedOperations returns the list of supported SES v2 operations.
-func (h *Handler) GetSupportedOperations() []string {
+func (h *Handler) GetSupportedOperations() []string { //nolint:funlen
 	return []string{
 		opBatchGetMetricData,
 		opCancelExportJob,
@@ -80,16 +202,104 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateEmailIdentity,
 		opCreateEmailIdentityPolicy,
 		opCreateEmailTemplate,
+		opCreateExportJob,
+		opCreateImportJob,
+		opCreateMultiRegionEndpoint,
+		opCreateTenant,
+		opCreateTenantResourceAssociation,
 		opDeleteConfigurationSet,
+		opDeleteConfigurationSetEventDestination,
+		opDeleteContact,
+		opDeleteContactList,
+		opDeleteCustomVerificationEmailTemplate,
+		opDeleteDedicatedIPPool,
 		opDeleteEmailIdentity,
+		opDeleteEmailIdentityPolicy,
+		opDeleteEmailTemplate,
+		opDeleteMultiRegionEndpoint,
+		opDeleteSuppressedDestination,
+		opDeleteTenant,
+		opDeleteTenantResourceAssociation,
+		opGetAccount,
+		opGetBlacklistReports,
 		opGetConfigurationSet,
+		opGetConfigurationSetEventDestinations,
+		opGetContact,
+		opGetContactList,
+		opGetCustomVerificationEmailTemplate,
+		opGetDedicatedIP,
+		opGetDedicatedIPPool,
+		opGetDedicatedIps,
+		opGetDeliverabilityDashboardOptions,
+		opGetDeliverabilityTestReport,
+		opGetDomainDeliverabilityCampaign,
+		opGetDomainStatisticsReport,
+		opGetEmailAddressInsights,
 		opGetEmailIdentity,
+		opGetEmailIdentityPolicies,
+		opGetEmailTemplate,
+		opGetExportJob,
+		opGetImportJob,
+		opGetMessageInsights,
+		opGetMultiRegionEndpoint,
+		opGetReputationEntity,
+		opGetSuppressedDestination,
+		opGetTenant,
 		opListConfigurationSets,
+		opListContactLists,
+		opListContacts,
+		opListCustomVerificationEmailTemplates,
+		opListDedicatedIPPools,
+		opListDeliverabilityTestReports,
+		opListDomainDeliverabilityCampaigns,
 		opListEmailIdentities,
+		opListEmailTemplates,
+		opListExportJobs,
+		opListImportJobs,
+		opListMultiRegionEndpoints,
+		opListRecommendations,
+		opListReputationEntities,
+		opListResourceTenants,
+		opListSuppressedDestinations,
 		opListTagsForResource,
+		opListTenantResources,
+		opListTenants,
+		opPutAccountDedicatedIPWarmupAttributes,
+		opPutAccountDetails,
+		opPutAccountSendingAttributes,
+		opPutAccountSuppressionAttributes,
+		opPutAccountVdmAttributes,
+		opPutConfigurationSetArchivingOptions,
+		opPutConfigurationSetDeliveryOptions,
+		opPutConfigurationSetReputationOptions,
+		opPutConfigurationSetSendingOptions,
+		opPutConfigurationSetSuppressionOptions,
+		opPutConfigurationSetTrackingOptions,
+		opPutConfigurationSetVdmOptions,
+		opPutDedicatedIPInPool,
+		opPutDedicatedIPPoolScalingAttributes,
+		opPutDedicatedIPWarmupAttributes,
+		opPutDeliverabilityDashboardOption,
+		opPutEmailIdentityConfigurationSetAttributes,
+		opPutEmailIdentityDkimAttributes,
+		opPutEmailIdentityDkimSigningAttributes,
+		opPutEmailIdentityFeedbackAttributes,
+		opPutEmailIdentityMailFromAttributes,
+		opPutSuppressedDestination,
+		opSendBulkEmail,
+		opSendCustomVerificationEmail,
 		opSendEmail,
 		opTagResource,
+		opTestRenderEmailTemplate,
 		opUntagResource,
+		opUpdateConfigurationSetEventDestination,
+		opUpdateContact,
+		opUpdateContactList,
+		opUpdateCustomVerificationEmailTemplate,
+		opUpdateEmailIdentityPolicy,
+		opUpdateEmailTemplate,
+		opUpdateReputationEntityCustomerManagedStatus,
+		opUpdateReputationEntityPolicy,
 	}
 }
 
@@ -172,31 +382,55 @@ func parseSESv2Path(method, path string) (string, string) {
 }
 
 // parseMiscPaths handles the newer SES v2 path prefixes.
-func parseMiscPaths(method string, segments []string) (string, string) {
+//
+//nolint:cyclop // routes many sub-path categories
+func parseMiscPaths(
+	method string,
+	segments []string,
+) (string, string) {
 	switch segments[0] {
 	case "metrics":
 		return parseMetricsPath(method, segments)
 	case "export-jobs":
-		return parseExportJobsPath(method, segments)
+		// POST /v2/email/export-jobs handled by extended parser; legacy cancel path handled below
+		if op, res := parseExportJobsPath(method, segments); op != unknownAction {
+			return op, res
+		}
+
+		return parseExtendedPaths(method, segments)
 	case "contact-lists":
-		return parseContactListPath(method, segments)
+		if method == http.MethodPost && len(segments) == 1 {
+			return opCreateContactList, ""
+		}
+
+		if method == http.MethodPost && len(segments) == 3 && segments[2] == segContacts {
+			return opCreateContact, segments[1]
+		}
+
+		return parseExtendedPaths(method, segments)
 	case "custom-verification-email-templates":
 		if method == http.MethodPost && len(segments) == 1 {
 			return opCreateCustomVerificationEmailTemplate, ""
 		}
+
+		return parseExtendedPaths(method, segments)
 	case "dedicated-ip-pools":
 		if method == http.MethodPost && len(segments) == 1 {
 			return opCreateDedicatedIPPool, ""
 		}
+
+		return parseExtendedPaths(method, segments)
 	case "deliverability-dashboard":
 		return parseDeliverabilityDashboardPath(method, segments)
 	case "templates":
 		if method == http.MethodPost && len(segments) == 1 {
 			return opCreateEmailTemplate, ""
 		}
-	}
 
-	return unknownAction, ""
+		return parseExtendedPaths(method, segments)
+	default:
+		return parseExtendedPaths(method, segments)
+	}
 }
 
 const metricsPathSegments = 2
@@ -211,7 +445,8 @@ func parseMetricsPath(method string, segments []string) (string, string) {
 }
 
 func parseExportJobsPath(method string, segments []string) (string, string) {
-	if len(segments) == exportJobPathSegments && segments[2] == "cancel" && method == http.MethodPut {
+	if len(segments) == exportJobPathSegments && segments[2] == "cancel" &&
+		method == http.MethodPut {
 		return opCancelExportJob, segments[1]
 	}
 
@@ -236,23 +471,12 @@ func parseIdentityPath(method string, segments []string) (string, string) {
 		return opGetEmailIdentity, segments[1]
 	case method == http.MethodDelete && len(segments) == 2:
 		return opDeleteEmailIdentity, segments[1]
-	case method == http.MethodPost && len(segments) == 4 && segments[2] == "policies":
+	case method == http.MethodPost && len(segments) == 4 && segments[2] == segPolicies:
 		// POST /v2/email/identities/{identity}/policies/{policyName}
 		return opCreateEmailIdentityPolicy, segments[1]
 	}
 
-	return unknownAction, ""
-}
-
-func parseContactListPath(method string, segments []string) (string, string) {
-	switch {
-	case method == http.MethodPost && len(segments) == 1:
-		return opCreateContactList, ""
-	case method == http.MethodPost && len(segments) == 3 && segments[2] == "contacts":
-		return opCreateContact, segments[1]
-	}
-
-	return unknownAction, ""
+	return parseIdentityExtPath(method, segments)
 }
 
 func parseConfigSetPath(method string, segments []string) (string, string) {
@@ -265,11 +489,11 @@ func parseConfigSetPath(method string, segments []string) (string, string) {
 		return opGetConfigurationSet, segments[1]
 	case method == http.MethodDelete && len(segments) == 2:
 		return opDeleteConfigurationSet, segments[1]
-	case method == http.MethodPost && len(segments) == 3 && segments[2] == "event-destinations":
+	case method == http.MethodPost && len(segments) == 3 && segments[2] == segEventDestinations:
 		return opCreateConfigurationSetEventDestination, segments[1]
 	}
 
-	return unknownAction, ""
+	return parseConfigSetExtPath(method, segments)
 }
 
 func parseTagsPath(method string) (string, string) {
@@ -332,6 +556,11 @@ func (h *Handler) dispatchOp(c *echo.Context, op, resource string) (any, error) 
 	}
 
 	resp, err = h.dispatchNewOps(c, op, resource)
+	if !errors.Is(err, errOpNotHandled) {
+		return resp, err
+	}
+
+	resp, err = h.dispatchExtendedOps(c, op, resource)
 	if !errors.Is(err, errOpNotHandled) {
 		return resp, err
 	}
@@ -725,7 +954,10 @@ func (h *Handler) handleBatchGetMetricData(c *echo.Context) (any, error) {
 
 	queries := make([]MetricDataQuery, 0, len(in.Queries))
 	for _, q := range in.Queries {
-		queries = append(queries, MetricDataQuery{ID: q.ID, Namespace: q.Namespace, Metric: q.Metric})
+		queries = append(
+			queries,
+			MetricDataQuery{ID: q.ID, Namespace: q.Namespace, Metric: q.Metric},
+		)
 	}
 
 	results, err := h.Backend.BatchGetMetricData(queries)
@@ -765,7 +997,10 @@ func (h *Handler) handleCancelExportJob(jobID string) (any, error) {
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handleCreateConfigurationSetEventDestination(c *echo.Context, configSetName string) (any, error) {
+func (h *Handler) handleCreateConfigurationSetEventDestination(
+	c *echo.Context,
+	configSetName string,
+) (any, error) {
 	var in createConfigurationSetEventDestinationInput
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
@@ -921,7 +1156,12 @@ func (h *Handler) handleOpError(c *echo.Context, op string, opErr error) error {
 	default:
 		logger.Load(c.Request().Context()).Error("SESv2 internal error", "error", opErr, "op", op)
 
-		return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "internal server error")
+		return h.writeError(
+			c,
+			http.StatusInternalServerError,
+			"InternalFailure",
+			"internal server error",
+		)
 	}
 }
 

@@ -74,6 +74,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "serverlessrepo",
   "organizations",
   "ses",
+  "sesv2",
   "sfn",
   "shield",
   "sns",
@@ -536,7 +537,10 @@ export const sidebarCategories: DashboardCategory[] = [
   {
     id: "business",
     label: "Business & Communication",
-    routes: [{ id: "ses", href: "/dashboard/ses", label: "SES", icon: "ses", common: true }],
+    routes: [
+      { id: "ses", href: "/dashboard/ses", label: "SES", icon: "ses", common: true },
+      { id: "sesv2", href: "/dashboard/sesv2", label: "SES v2", icon: "sesv2", common: true },
+    ],
   },
   {
     id: "networking",

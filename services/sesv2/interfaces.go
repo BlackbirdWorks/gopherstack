@@ -4,35 +4,192 @@ import "github.com/blackbirdworks/gopherstack/pkgs/page"
 
 // StorageBackend is the interface for sesv2 storage operations.
 type StorageBackend interface {
+	// Core identity ops
 	CreateEmailIdentity(identity string) (*EmailIdentity, error)
 	GetEmailIdentity(identity string) (*EmailIdentity, error)
 	ListEmailIdentities(nextToken string, pageSize int) page.Page[*EmailIdentity]
 	DeleteEmailIdentity(identity string) error
+
+	// Email identity policy ops
+	CreateEmailIdentityPolicy(identity, policyName, policy string) error
+	GetEmailIdentityPolicies(identity string) (map[string]string, error)
+	DeleteEmailIdentityPolicy(identity, policyName string) error
+	UpdateEmailIdentityPolicy(identity, policyName, policy string) error
+
+	// Email identity attribute ops (stubs)
+	PutEmailIdentityConfigurationSetAttributes(identity string) error
+	PutEmailIdentityDkimAttributes(identity string) error
+	PutEmailIdentityDkimSigningAttributes(identity string) error
+	PutEmailIdentityFeedbackAttributes(identity string) error
+	PutEmailIdentityMailFromAttributes(identity string) error
+
+	// Configuration set ops
 	CreateConfigurationSet(name string) (*ConfigurationSet, error)
 	GetConfigurationSet(name string) (*ConfigurationSet, error)
 	ListConfigurationSets(nextToken string, pageSize int) page.Page[*ConfigurationSet]
 	DeleteConfigurationSet(name string) error
-	SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error)
-	ListEmails() []Email
-	Region() string
-	AccountID() string
-	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
-	BatchGetMetricData(queries []MetricDataQuery) ([]MetricDataResult, error)
-	CancelExportJob(jobID string) error
+
+	// Configuration set attribute ops (stubs)
+	PutConfigurationSetArchivingOptions(configSetName string) error
+	PutConfigurationSetDeliveryOptions(configSetName string) error
+	PutConfigurationSetReputationOptions(configSetName string) error
+	PutConfigurationSetSendingOptions(configSetName string) error
+	PutConfigurationSetSuppressionOptions(configSetName string) error
+	PutConfigurationSetTrackingOptions(configSetName string) error
+	PutConfigurationSetVdmOptions(configSetName string) error
+
+	// Event destination ops
 	CreateConfigurationSetEventDestination(
 		configSetName, destName string,
 		enabled bool,
 		matchingEventTypes []string,
 	) (*EventDestination, error)
-	CreateContact(contactListName, emailAddress string, topicPreferences []TopicPreference) (*Contact, error)
+	GetConfigurationSetEventDestinations(configSetName string) ([]*EventDestination, error)
+	DeleteConfigurationSetEventDestination(configSetName, destName string) error
+	UpdateConfigurationSetEventDestination(
+		configSetName, destName string,
+		enabled bool,
+		matchingEventTypes []string,
+	) error
+
+	// Email sending ops
+	SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error)
+	SendBulkEmail(
+		fromEmailAddress string,
+		bulkEmailEntries []map[string]any,
+	) ([]map[string]any, error)
+	SendCustomVerificationEmail(emailAddress, templateName string) (string, error)
+	ListEmails() []Email
+
+	// Contact list ops
 	CreateContactList(name, description string) (*ContactList, error)
-	CreateCustomVerificationEmailTemplate(in *CustomVerificationEmailTemplate) (*CustomVerificationEmailTemplate, error)
+	GetContactList(name string) (*ContactList, error)
+	DeleteContactList(name string) error
+	UpdateContactList(name, description string) error
+	ListContactLists(nextToken string, pageSize int) page.Page[*ContactList]
+
+	// Contact ops
+	CreateContact(
+		contactListName, emailAddress string,
+		topicPreferences []TopicPreference,
+	) (*Contact, error)
+	GetContact(contactListName, emailAddress string) (*Contact, error)
+	DeleteContact(contactListName, emailAddress string) error
+	UpdateContact(contactListName, emailAddress string, topicPreferences []TopicPreference) error
+	ListContacts(contactListName, nextToken string, pageSize int) (page.Page[*Contact], error)
+
+	// Custom verification template ops
+	CreateCustomVerificationEmailTemplate(
+		in *CustomVerificationEmailTemplate,
+	) (*CustomVerificationEmailTemplate, error)
+	GetCustomVerificationEmailTemplate(name string) (*CustomVerificationEmailTemplate, error)
+	DeleteCustomVerificationEmailTemplate(name string) error
+	UpdateCustomVerificationEmailTemplate(in *CustomVerificationEmailTemplate) error
+	ListCustomVerificationEmailTemplates(
+		nextToken string,
+		pageSize int,
+	) page.Page[*CustomVerificationEmailTemplate]
+
+	// Dedicated IP pool ops
 	CreateDedicatedIPPool(poolName, scalingMode string) (*DedicatedIPPool, error)
-	CreateDeliverabilityTestReport(reportName, fromEmailAddress string) (*DeliverabilityTestReport, error)
-	CreateEmailIdentityPolicy(identity, policyName, policy string) error
+	GetDedicatedIPPool(poolName string) (*DedicatedIPPool, error)
+	DeleteDedicatedIPPool(poolName string) error
+	ListDedicatedIPPools(nextToken string, pageSize int) page.Page[string]
+	GetDedicatedIP(ip string) (map[string]any, error)
+	GetDedicatedIps() []map[string]any
+	PutDedicatedIPInPool(ip, poolName string) error
+	PutDedicatedIPPoolScalingAttributes(poolName, scalingMode string) error
+	PutDedicatedIPWarmupAttributes(ip, warmupStatus string) error
+
+	// Deliverability test report ops
+	CreateDeliverabilityTestReport(
+		reportName, fromEmailAddress string,
+	) (*DeliverabilityTestReport, error)
+	GetDeliverabilityTestReport(reportID string) (*DeliverabilityTestReport, error)
+	ListDeliverabilityTestReports(
+		nextToken string,
+		pageSize int,
+	) page.Page[*DeliverabilityTestReport]
+
+	// Deliverability dashboard ops (stubs)
+	GetDeliverabilityDashboardOptions() (map[string]any, error)
+	PutDeliverabilityDashboardOption() error
+	GetDomainDeliverabilityCampaign(domain, campaignID string) (map[string]any, error)
+	GetDomainStatisticsReport(domain, startDate, endDate string) (map[string]any, error)
+	ListDomainDeliverabilityCampaigns(
+		startDate, endDate, domain, nextToken string,
+	) ([]map[string]any, string, error)
+
+	// Email template ops
 	CreateEmailTemplate(templateName string, content *EmailTemplateContent) (*EmailTemplate, error)
+	GetEmailTemplate(name string) (*EmailTemplate, error)
+	DeleteEmailTemplate(name string) error
+	UpdateEmailTemplate(name string, content *EmailTemplateContent) error
+	ListEmailTemplates(nextToken string, pageSize int) page.Page[*EmailTemplate]
+	TestRenderEmailTemplate(name, templateData string) (string, error)
+
+	// Export job ops
+	CreateExportJob(dataSource string) (*ExportJob, error)
+	GetExportJob(jobID string) (*ExportJob, error)
+	ListExportJobs(nextToken string, pageSize int) page.Page[*ExportJob]
+	CancelExportJob(jobID string) error
+
+	// Import job ops
+	CreateImportJob(dataSource string) (*ImportJob, error)
+	GetImportJob(jobID string) (*ImportJob, error)
+	ListImportJobs(nextToken string, pageSize int) page.Page[*ImportJob]
+
+	// Suppressed destination ops
+	PutSuppressedDestination(email, reason string) error
+	GetSuppressedDestination(email string) (*SuppressedDestination, error)
+	DeleteSuppressedDestination(email string) error
+	ListSuppressedDestinations(nextToken string, pageSize int) page.Page[*SuppressedDestination]
+
+	// Account ops
+	GetAccount() (*AccountDetails, error)
+	PutAccountDetails(details *AccountDetails) error
+	PutAccountSendingAttributes(sendingEnabled bool) error
+	PutAccountSuppressionAttributes() error
+	PutAccountVdmAttributes() error
+	PutAccountDedicatedIPWarmupAttributes() error
+	GetBlacklistReports() (map[string][]string, error)
+
+	// Insights / analytics (stubs)
+	GetEmailAddressInsights(emailAddress string) (map[string]any, error)
+	GetMessageInsights(messageID string) (map[string]any, error)
+	ListRecommendations(nextToken string, pageSize int) ([]map[string]any, string, error)
+
+	// Multi-region endpoint ops (stubs)
+	CreateMultiRegionEndpoint(endpointName string) (string, error)
+	GetMultiRegionEndpoint(endpointName string) (map[string]any, error)
+	DeleteMultiRegionEndpoint(endpointName string) error
+	ListMultiRegionEndpoints(nextToken string, pageSize int) ([]map[string]any, string, error)
+
+	// Tenant ops (stubs)
+	CreateTenant(tenantName string) (map[string]any, error)
+	GetTenant(tenantName string) (map[string]any, error)
+	DeleteTenant(tenantName string) error
+	ListTenants(nextToken string, pageSize int) ([]map[string]any, string, error)
+	CreateTenantResourceAssociation(tenantName, resourceArn string) error
+	DeleteTenantResourceAssociation(tenantName, resourceArn string) error
+	ListResourceTenants(resourceArn string, pageSize int) ([]map[string]any, string, error)
+	ListTenantResources(tenantName string, pageSize int) ([]map[string]any, string, error)
+
+	// Reputation entity ops (stubs)
+	GetReputationEntity(entityID string) (map[string]any, error)
+	ListReputationEntities(nextToken string, pageSize int) ([]map[string]any, string, error)
+	UpdateReputationEntityCustomerManagedStatus(entityID string) error
+	UpdateReputationEntityPolicy(entityID, policy string) error
+
+	// Metrics
+	BatchGetMetricData(queries []MetricDataQuery) ([]MetricDataResult, error)
+
+	// Infrastructure
+	Region() string
+	AccountID() string
+	Reset()
+	Snapshot() []byte
+	Restore(data []byte) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

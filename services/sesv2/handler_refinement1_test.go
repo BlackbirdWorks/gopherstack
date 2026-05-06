@@ -24,7 +24,12 @@ func newRefinement1Handler(t *testing.T) (*sesv2.Handler, *sesv2.InMemoryBackend
 }
 
 // doReq performs a request against the sesv2 handler via echo.
-func doReq(t *testing.T, h *sesv2.Handler, method, path string, body any) *httptest.ResponseRecorder {
+func doReq(
+	t *testing.T,
+	h *sesv2.Handler,
+	method, path string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte
@@ -53,7 +58,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	_, backend := newRefinement1Handler(t)
 	h := sesv2.NewHandler(backend)
 
-	assert.Equal(t, 22, sesv2.HandlerOpsLen(h))
+	assert.Equal(t, 110, sesv2.HandlerOpsLen(h))
 }
 
 // TestRefinement1_AccountID verifies AccountID returns a non-empty value.
@@ -382,9 +387,11 @@ func TestRefinement1_CreateCustomVerificationEmailTemplate(t *testing.T) {
 		{
 			name: "duplicate",
 			setup: func(b *sesv2.InMemoryBackend) {
-				_, _ = b.CreateCustomVerificationEmailTemplate(&sesv2.CustomVerificationEmailTemplate{
-					TemplateName: "my-tmpl",
-				})
+				_, _ = b.CreateCustomVerificationEmailTemplate(
+					&sesv2.CustomVerificationEmailTemplate{
+						TemplateName: "my-tmpl",
+					},
+				)
 			},
 			templateName: "my-tmpl",
 			wantErr:      true,
@@ -398,10 +405,12 @@ func TestRefinement1_CreateCustomVerificationEmailTemplate(t *testing.T) {
 			backend := sesv2.NewInMemoryBackend()
 			tt.setup(backend)
 
-			_, err := backend.CreateCustomVerificationEmailTemplate(&sesv2.CustomVerificationEmailTemplate{
-				TemplateName:     tt.templateName,
-				FromEmailAddress: "verify@example.com",
-			})
+			_, err := backend.CreateCustomVerificationEmailTemplate(
+				&sesv2.CustomVerificationEmailTemplate{
+					TemplateName:     tt.templateName,
+					FromEmailAddress: "verify@example.com",
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -509,7 +518,10 @@ func TestRefinement1_CreateDeliverabilityTestReport(t *testing.T) {
 			t.Parallel()
 
 			backend := sesv2.NewInMemoryBackend()
-			report, err := backend.CreateDeliverabilityTestReport(tt.reportName, tt.fromEmailAddress)
+			report, err := backend.CreateDeliverabilityTestReport(
+				tt.reportName,
+				tt.fromEmailAddress,
+			)
 
 			require.NoError(t, err)
 			require.NotNil(t, report)
@@ -564,7 +576,11 @@ func TestRefinement1_CreateEmailIdentityPolicy(t *testing.T) {
 			backend := sesv2.NewInMemoryBackend()
 			tt.setup(backend)
 
-			err := backend.CreateEmailIdentityPolicy(tt.identity, tt.policyName, `{"Version":"2012-10-17"}`)
+			err := backend.CreateEmailIdentityPolicy(
+				tt.identity,
+				tt.policyName,
+				`{"Version":"2012-10-17"}`,
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -898,7 +914,11 @@ func TestRefinement1_HTTPBatchGetMetricDataBadJSON(t *testing.T) {
 
 	h, _ := newRefinement1Handler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/v2/email/metrics/batch", bytes.NewReader([]byte("not-json")))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v2/email/metrics/batch",
+		bytes.NewReader([]byte("not-json")),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	e := echo.New()
@@ -943,7 +963,13 @@ func TestRefinement1_HTTPCreateConfigurationSetEventDestination(t *testing.T) {
 			"MatchingEventTypes": []string{"SEND"},
 		},
 	}
-	rec := doReq(t, h, http.MethodPost, "/v2/email/configuration-sets/my-cs/event-destinations", body)
+	rec := doReq(
+		t,
+		h,
+		http.MethodPost,
+		"/v2/email/configuration-sets/my-cs/event-destinations",
+		body,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -1028,7 +1054,13 @@ func TestRefinement1_HTTPCreateEmailIdentityPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	body := map[string]any{"Policy": `{"Version":"2012-10-17"}`}
-	rec := doReq(t, h, http.MethodPost, "/v2/email/identities/owner@example.com/policies/my-policy", body)
+	rec := doReq(
+		t,
+		h,
+		http.MethodPost,
+		"/v2/email/identities/owner@example.com/policies/my-policy",
+		body,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
