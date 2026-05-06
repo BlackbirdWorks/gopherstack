@@ -6,9 +6,17 @@
 		CreateBrokerCommand,
 		DescribeBrokerCommand,
 		ListConfigurationsCommand,
+		DeleteBrokerCommand,
+		RebootBrokerCommand,
+		UpdateBrokerCommand,
+		ListUsersCommand,
+		CreateUserCommand,
+		DeleteUserCommand,
+		UpdateUserCommand,
 		type BrokerSummary,
 		type DescribeBrokerResponse,
 		type Configuration,
+		type UserSummary,
 		DeploymentMode,
 		EngineType
 	} from '@aws-sdk/client-mq';
@@ -19,12 +27,15 @@
 		RefreshCw,
 		Settings,
 		Server,
-		CheckCircle,
-		Clock,
-		XCircle,
 		ChevronRight,
 		Tag,
-		Plus
+		Plus,
+		Trash2,
+		RotateCcw,
+		Pencil,
+		Users,
+		UserPlus,
+		X
 	} from 'lucide-svelte';
 
 	const mq = getMQClient();
@@ -36,6 +47,8 @@
 	let configurations = $state<Configuration[]>([]);
 	let selectedBroker = $state<DescribeBrokerResponse | null>(null);
 	let loadingDetail = $state(false);
+
+	// Create broker modal
 	let showCreateBrokerModal = $state(false);
 	let creating = $state(false);
 	let newBrokerName = $state('');
@@ -43,6 +56,45 @@
 	let newBrokerVersion = $state('5.15.14');
 	let newBrokerDeployment = $state(DeploymentMode.SINGLE_INSTANCE);
 	let newBrokerInstance = $state('mq.m5.large');
+
+	// Delete broker modal
+	let showDeleteBrokerModal = $state(false);
+	let brokerToDelete = $state<BrokerSummary | null>(null);
+	let deleting = $state(false);
+
+	// Update broker modal
+	let showUpdateBrokerModal = $state(false);
+	let updating = $state(false);
+	let updateEngineVersion = $state('');
+	let updateHostInstanceType = $state('');
+	let updateAutoMinorUpgrade = $state(false);
+
+	// Reboot broker
+	let rebooting = $state(false);
+
+	// User management
+	let brokerUsers = $state<UserSummary[]>([]);
+	let loadingUsers = $state(false);
+	let showUsersPanel = $state(false);
+
+	// Create user modal
+	let showCreateUserModal = $state(false);
+	let creatingUser = $state(false);
+	let newUsername = $state('');
+	let newUserPassword = $state('');
+	let newUserConsole = $state(false);
+	let newUserGroups = $state('');
+
+	// Update user modal
+	let showUpdateUserModal = $state(false);
+	let updatingUser = $state(false);
+	let userToEdit = $state<UserSummary | null>(null);
+	let editUserPassword = $state('');
+	let editUserConsole = $state(false);
+	let editUserGroups = $state('');
+
+	// Delete user
+	let deletingUser = $state<string | null>(null);
 
 	const filteredBrokers = $derived(
 		brokers.filter(
@@ -105,6 +157,8 @@
 	async function selectBroker(brokerId: string) {
 		loadingDetail = true;
 		selectedBroker = null;
+		showUsersPanel = false;
+		brokerUsers = [];
 		try {
 			const res = await mq.send(new DescribeBrokerCommand({ BrokerId: brokerId }));
 			selectedBroker = res;
@@ -119,6 +173,7 @@
 		activeTab = tab;
 		searchQuery = '';
 		selectedBroker = null;
+		showUsersPanel = false;
 		if (tab === 'brokers' && brokers.length === 0) await loadBrokers();
 		else if (tab === 'configurations' && configurations.length === 0) await loadConfigurations();
 	}
@@ -149,6 +204,171 @@
 			toast.error(`Failed to create broker: ${(err as Error).message}`);
 		} finally {
 			creating = false;
+		}
+	}
+
+	function openDeleteBroker(broker: BrokerSummary, e: Event) {
+		e.stopPropagation();
+		brokerToDelete = broker;
+		showDeleteBrokerModal = true;
+	}
+
+	async function deleteBroker() {
+		if (!brokerToDelete?.BrokerId) return;
+		deleting = true;
+		try {
+			await mq.send(new DeleteBrokerCommand({ BrokerId: brokerToDelete.BrokerId }));
+			toast.success(`Broker "${brokerToDelete.BrokerName}" deleted`);
+			showDeleteBrokerModal = false;
+			if (selectedBroker?.BrokerId === brokerToDelete.BrokerId) {
+				selectedBroker = null;
+				showUsersPanel = false;
+			}
+			brokerToDelete = null;
+			await loadBrokers();
+		} catch (err: unknown) {
+			toast.error(`Failed to delete broker: ${(err as Error).message}`);
+		} finally {
+			deleting = false;
+		}
+	}
+
+	async function rebootBroker(e: Event) {
+		e.stopPropagation();
+		if (!selectedBroker?.BrokerId) return;
+		rebooting = true;
+		try {
+			await mq.send(new RebootBrokerCommand({ BrokerId: selectedBroker.BrokerId }));
+			toast.success(`Broker "${selectedBroker.BrokerName}" rebooted`);
+		} catch (err: unknown) {
+			toast.error(`Failed to reboot broker: ${(err as Error).message}`);
+		} finally {
+			rebooting = false;
+		}
+	}
+
+	function openUpdateBroker() {
+		if (!selectedBroker) return;
+		updateEngineVersion = selectedBroker.EngineVersion ?? '';
+		updateHostInstanceType = selectedBroker.HostInstanceType ?? '';
+		updateAutoMinorUpgrade = selectedBroker.AutoMinorVersionUpgrade ?? false;
+		showUpdateBrokerModal = true;
+	}
+
+	async function updateBroker() {
+		if (!selectedBroker?.BrokerId) return;
+		updating = true;
+		try {
+			await mq.send(new UpdateBrokerCommand({
+				BrokerId: selectedBroker.BrokerId,
+				EngineVersion: updateEngineVersion || undefined,
+				HostInstanceType: updateHostInstanceType || undefined,
+				AutoMinorVersionUpgrade: updateAutoMinorUpgrade,
+			}));
+			toast.success(`Broker "${selectedBroker.BrokerName}" updated`);
+			showUpdateBrokerModal = false;
+			await selectBroker(selectedBroker.BrokerId);
+		} catch (err: unknown) {
+			toast.error(`Failed to update broker: ${(err as Error).message}`);
+		} finally {
+			updating = false;
+		}
+	}
+
+	async function loadUsers() {
+		if (!selectedBroker?.BrokerId) return;
+		loadingUsers = true;
+		try {
+			const res = await mq.send(new ListUsersCommand({ BrokerId: selectedBroker.BrokerId }));
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			brokerUsers = ((res as any).Users ?? []) as UserSummary[];
+		} catch (err: unknown) {
+			toast.error(`Failed to load users: ${(err as Error).message}`);
+		} finally {
+			loadingUsers = false;
+		}
+	}
+
+	async function toggleUsersPanel() {
+		showUsersPanel = !showUsersPanel;
+		if (showUsersPanel && brokerUsers.length === 0) {
+			await loadUsers();
+		}
+	}
+
+	function openCreateUser() {
+		newUsername = '';
+		newUserPassword = '';
+		newUserConsole = false;
+		newUserGroups = '';
+		showCreateUserModal = true;
+	}
+
+	async function createUser() {
+		if (!selectedBroker?.BrokerId || !newUsername.trim()) return;
+		creatingUser = true;
+		try {
+			await mq.send(new CreateUserCommand({
+				BrokerId: selectedBroker.BrokerId,
+				Username: newUsername.trim(),
+				Password: newUserPassword,
+				ConsoleAccess: newUserConsole,
+				Groups: newUserGroups ? newUserGroups.split(',').map((g) => g.trim()).filter(Boolean) : undefined,
+			}));
+			toast.success(`User "${newUsername.trim()}" created`);
+			showCreateUserModal = false;
+			await loadUsers();
+		} catch (err: unknown) {
+			toast.error(`Failed to create user: ${(err as Error).message}`);
+		} finally {
+			creatingUser = false;
+		}
+	}
+
+	function openEditUser(user: UserSummary) {
+		userToEdit = user;
+		editUserPassword = '';
+		editUserConsole = user.ConsoleAccess ?? false;
+		editUserGroups = '';
+		showUpdateUserModal = true;
+	}
+
+	async function updateUser() {
+		if (!selectedBroker?.BrokerId || !userToEdit?.Username) return;
+		updatingUser = true;
+		try {
+			await mq.send(new UpdateUserCommand({
+				BrokerId: selectedBroker.BrokerId,
+				Username: userToEdit.Username,
+				Password: editUserPassword || undefined,
+				ConsoleAccess: editUserConsole,
+				Groups: editUserGroups ? editUserGroups.split(',').map((g) => g.trim()).filter(Boolean) : undefined,
+			}));
+			toast.success(`User "${userToEdit.Username}" updated`);
+			showUpdateUserModal = false;
+			userToEdit = null;
+			await loadUsers();
+		} catch (err: unknown) {
+			toast.error(`Failed to update user: ${(err as Error).message}`);
+		} finally {
+			updatingUser = false;
+		}
+	}
+
+	async function deleteUser(username: string) {
+		if (!selectedBroker?.BrokerId) return;
+		deletingUser = username;
+		try {
+			await mq.send(new DeleteUserCommand({
+				BrokerId: selectedBroker.BrokerId,
+				Username: username,
+			}));
+			toast.success(`User "${username}" deleted`);
+			await loadUsers();
+		} catch (err: unknown) {
+			toast.error(`Failed to delete user: ${(err as Error).message}`);
+		} finally {
+			deletingUser = null;
 		}
 	}
 
@@ -287,6 +507,14 @@
 								</div>
 								<div class="flex items-center gap-1.5 ml-2 flex-shrink-0">
 									<span class="px-2 py-0.5 text-xs rounded-full {statusColor(broker.BrokerState)}">{broker.BrokerState}</span>
+									<button
+										onclick={(e) => openDeleteBroker(broker, e)}
+										class="p-1 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+										title="Delete broker"
+										aria-label="Delete broker"
+									>
+										<Trash2 class="w-3.5 h-3.5" />
+									</button>
 									<ChevronRight class="w-4 h-4 text-slate-400" />
 								</div>
 							</div>
@@ -316,7 +544,7 @@
 		</div>
 
 		<!-- Detail panel -->
-		<div class="lg:col-span-2">
+		<div class="lg:col-span-2 space-y-4">
 			{#if loadingDetail}
 				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
 					<div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mb-2"></div>
@@ -332,8 +560,32 @@
 								<span class="px-2 py-0.5 text-xs rounded-full {engineColor(selectedBroker.EngineType)}">{selectedBroker.EngineType}</span>
 							</div>
 						</div>
-						<div class="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
-							<MessageSquare class="w-5 h-5 text-orange-600 dark:text-orange-400" />
+						<div class="flex items-center gap-2">
+							<button
+								onclick={rebootBroker}
+								disabled={rebooting}
+								class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-50"
+								title="Reboot broker"
+							>
+								<RotateCcw class="w-3.5 h-3.5 {rebooting ? 'animate-spin' : ''}" />
+								{rebooting ? 'Rebooting...' : 'Reboot'}
+							</button>
+							<button
+								onclick={openUpdateBroker}
+								class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg transition-colors"
+								title="Update broker"
+							>
+								<Pencil class="w-3.5 h-3.5" />
+								Update
+							</button>
+							<button
+								onclick={() => { if (selectedBroker) { const s = brokers.find(b => b.BrokerId === selectedBroker!.BrokerId); if (s) openDeleteBroker(s, new Event('click')); } }}
+								class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+								title="Delete broker"
+							>
+								<Trash2 class="w-3.5 h-3.5" />
+								Delete
+							</button>
 						</div>
 					</div>
 
@@ -369,6 +621,79 @@
 							</div>
 						</div>
 					{/if}
+
+					<!-- Users section -->
+					<div>
+						<div class="flex items-center justify-between mb-2">
+							<button
+								onclick={toggleUsersPanel}
+								class="flex items-center gap-2 font-semibold text-slate-900 dark:text-white hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
+							>
+								<Users class="w-4 h-4" />
+								Users
+								<ChevronRight class="w-4 h-4 transition-transform {showUsersPanel ? 'rotate-90' : ''}" />
+							</button>
+							{#if showUsersPanel}
+								<button
+									onclick={openCreateUser}
+									class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition-colors"
+								>
+									<UserPlus class="w-3.5 h-3.5" />
+									Add User
+								</button>
+							{/if}
+						</div>
+
+						{#if showUsersPanel}
+							{#if loadingUsers}
+								<div class="text-center py-6">
+									<div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500 mb-2"></div>
+									<p class="text-sm text-slate-500 dark:text-slate-400">Loading users...</p>
+								</div>
+							{:else if brokerUsers.length === 0}
+								<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-6 text-center">
+									<Users class="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+									<p class="text-sm text-slate-500 dark:text-slate-400">No users found</p>
+								</div>
+							{:else}
+								<div class="space-y-2">
+									{#each brokerUsers as user}
+										<div class="flex items-center justify-between bg-slate-50 dark:bg-slate-700/30 rounded-lg px-3 py-2">
+											<div>
+												<p class="text-sm font-medium text-slate-900 dark:text-white">{user.Username}</p>
+												{#if user.ConsoleAccess}
+													<span class="text-xs text-green-600 dark:text-green-400">Console access</span>
+												{/if}
+											</div>
+											<div class="flex items-center gap-1.5">
+												<button
+													onclick={() => openEditUser(user)}
+													class="p-1 text-slate-400 hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
+													title="Edit user"
+													aria-label="Edit user"
+												>
+													<Pencil class="w-3.5 h-3.5" />
+												</button>
+												<button
+													onclick={() => deleteUser(user.Username ?? '')}
+													disabled={deletingUser === user.Username}
+													class="p-1 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
+													title="Delete user"
+													aria-label="Delete user"
+												>
+													{#if deletingUser === user.Username}
+														<div class="w-3.5 h-3.5 animate-spin rounded-full border-b-2 border-red-500"></div>
+													{:else}
+														<Trash2 class="w-3.5 h-3.5" />
+													{/if}
+												</button>
+											</div>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						{/if}
+					</div>
 				</div>
 			{:else}
 				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
@@ -381,13 +706,14 @@
 </div>
 
 
+<!-- Create Broker Modal -->
 {#if showCreateBrokerModal}
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreateBrokerModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showCreateBrokerModal = false)} role="dialog" aria-modal="true">
 <div class="relative p-4 w-full max-w-md" role="document">
 <div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
 <div class="flex items-center justify-between p-4 border-b dark:border-slate-600">
 <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create Broker</h3>
-<button aria-label="Close" onclick={() => { showCreateBrokerModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><svg class="w-3 h-3" fill="none" viewBox="0 0 14 14"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" /></svg></button>
+<button aria-label="Close" onclick={() => { showCreateBrokerModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><X class="w-4 h-4" /></button>
 </div>
 <div class="p-4">
 <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); createBroker(); }}>
@@ -413,6 +739,148 @@
 <button type="button" onclick={() => { showCreateBrokerModal = false; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:bg-slate-700">Cancel</button>
 <button type="submit" disabled={creating} class="text-white bg-orange-600 hover:bg-orange-700 focus:ring-4 focus:ring-orange-300 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">
 {creating ? 'Creating...' : 'Create Broker'}
+</button>
+</div>
+</form>
+</div>
+</div>
+</div>
+</div>
+{/if}
+
+
+<!-- Delete Broker Modal -->
+{#if showDeleteBrokerModal && brokerToDelete}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showDeleteBrokerModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showDeleteBrokerModal = false)} role="dialog" aria-modal="true">
+<div class="relative p-4 w-full max-w-md" role="document">
+<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+<div class="flex items-center justify-between p-4 border-b dark:border-slate-600">
+<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Delete Broker</h3>
+<button aria-label="Close" onclick={() => { showDeleteBrokerModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><X class="w-4 h-4" /></button>
+</div>
+<div class="p-4 space-y-4">
+<p class="text-slate-700 dark:text-slate-300">Are you sure you want to delete broker <span class="font-semibold text-slate-900 dark:text-white">{brokerToDelete.BrokerName}</span>? This action cannot be undone.</p>
+<div class="flex gap-3 justify-end">
+<button type="button" onclick={() => { showDeleteBrokerModal = false; brokerToDelete = null; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:bg-slate-700">Cancel</button>
+<button type="button" onclick={deleteBroker} disabled={deleting} class="text-white bg-red-600 hover:bg-red-700 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">
+{deleting ? 'Deleting...' : 'Delete Broker'}
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+{/if}
+
+
+<!-- Update Broker Modal -->
+{#if showUpdateBrokerModal && selectedBroker}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showUpdateBrokerModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showUpdateBrokerModal = false)} role="dialog" aria-modal="true">
+<div class="relative p-4 w-full max-w-md" role="document">
+<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+<div class="flex items-center justify-between p-4 border-b dark:border-slate-600">
+<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Update Broker</h3>
+<button aria-label="Close" onclick={() => { showUpdateBrokerModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><X class="w-4 h-4" /></button>
+</div>
+<div class="p-4">
+<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); updateBroker(); }}>
+<div>
+<label for="update-engine-version" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Engine Version</label>
+<input type="text" id="update-engine-version" bind:value={updateEngineVersion} placeholder="5.18.3" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+</div>
+<div>
+<label for="update-host-instance" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Host Instance Type</label>
+<select id="update-host-instance" bind:value={updateHostInstanceType} class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white">
+<option value="mq.m5.large">mq.m5.large</option>
+<option value="mq.m5.xlarge">mq.m5.xlarge</option>
+</select>
+</div>
+<div class="flex items-center gap-2">
+<input type="checkbox" id="update-auto-minor" bind:checked={updateAutoMinorUpgrade} class="w-4 h-4 text-orange-600 rounded border-slate-300 focus:ring-orange-500" />
+<label for="update-auto-minor" class="text-sm font-medium text-slate-900 dark:text-white">Auto Minor Version Upgrade</label>
+</div>
+<div class="flex gap-3 justify-end pt-2">
+<button type="button" onclick={() => { showUpdateBrokerModal = false; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:bg-slate-700">Cancel</button>
+<button type="submit" disabled={updating} class="text-white bg-orange-600 hover:bg-orange-700 focus:ring-4 focus:ring-orange-300 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">
+{updating ? 'Updating...' : 'Update Broker'}
+</button>
+</div>
+</form>
+</div>
+</div>
+</div>
+</div>
+{/if}
+
+
+<!-- Create User Modal -->
+{#if showCreateUserModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreateUserModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showCreateUserModal = false)} role="dialog" aria-modal="true">
+<div class="relative p-4 w-full max-w-md" role="document">
+<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+<div class="flex items-center justify-between p-4 border-b dark:border-slate-600">
+<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Add User</h3>
+<button aria-label="Close" onclick={() => { showCreateUserModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><X class="w-4 h-4" /></button>
+</div>
+<div class="p-4">
+<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); createUser(); }}>
+<div>
+<label for="user-username" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Username</label>
+<input type="text" id="user-username" bind:value={newUsername} placeholder="admin" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+</div>
+<div>
+<label for="user-password" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Password</label>
+<input type="password" id="user-password" bind:value={newUserPassword} placeholder="••••••••" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+</div>
+<div>
+<label for="user-groups" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Groups <span class="text-slate-400 font-normal">(comma-separated)</span></label>
+<input type="text" id="user-groups" bind:value={newUserGroups} placeholder="admins, developers" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+</div>
+<div class="flex items-center gap-2">
+<input type="checkbox" id="user-console" bind:checked={newUserConsole} class="w-4 h-4 text-orange-600 rounded border-slate-300 focus:ring-orange-500" />
+<label for="user-console" class="text-sm font-medium text-slate-900 dark:text-white">Console Access</label>
+</div>
+<div class="flex gap-3 justify-end pt-2">
+<button type="button" onclick={() => { showCreateUserModal = false; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:bg-slate-700">Cancel</button>
+<button type="submit" disabled={creatingUser} class="text-white bg-orange-600 hover:bg-orange-700 focus:ring-4 focus:ring-orange-300 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">
+{creatingUser ? 'Adding...' : 'Add User'}
+</button>
+</div>
+</form>
+</div>
+</div>
+</div>
+</div>
+{/if}
+
+
+<!-- Update User Modal -->
+{#if showUpdateUserModal && userToEdit}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showUpdateUserModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showUpdateUserModal = false)} role="dialog" aria-modal="true">
+<div class="relative p-4 w-full max-w-md" role="document">
+<div class="relative bg-white rounded-lg shadow dark:bg-slate-700">
+<div class="flex items-center justify-between p-4 border-b dark:border-slate-600">
+<h3 class="text-xl font-semibold text-slate-900 dark:text-white">Update User: {userToEdit.Username}</h3>
+<button aria-label="Close" onclick={() => { showUpdateUserModal = false; userToEdit = null; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-600 dark:hover:text-white"><X class="w-4 h-4" /></button>
+</div>
+<div class="p-4">
+<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); updateUser(); }}>
+<div>
+<label for="edit-user-password" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">New Password <span class="text-slate-400 font-normal">(leave blank to keep current)</span></label>
+<input type="password" id="edit-user-password" bind:value={editUserPassword} placeholder="••••••••" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+</div>
+<div>
+<label for="edit-user-groups" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Groups <span class="text-slate-400 font-normal">(comma-separated)</span></label>
+<input type="text" id="edit-user-groups" bind:value={editUserGroups} placeholder="admins, developers" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:placeholder-slate-400 dark:text-white" />
+</div>
+<div class="flex items-center gap-2">
+<input type="checkbox" id="edit-user-console" bind:checked={editUserConsole} class="w-4 h-4 text-orange-600 rounded border-slate-300 focus:ring-orange-500" />
+<label for="edit-user-console" class="text-sm font-medium text-slate-900 dark:text-white">Console Access</label>
+</div>
+<div class="flex gap-3 justify-end pt-2">
+<button type="button" onclick={() => { showUpdateUserModal = false; userToEdit = null; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:bg-slate-700">Cancel</button>
+<button type="submit" disabled={updatingUser} class="text-white bg-orange-600 hover:bg-orange-700 focus:ring-4 focus:ring-orange-300 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">
+{updatingUser ? 'Updating...' : 'Update User'}
 </button>
 </div>
 </form>
