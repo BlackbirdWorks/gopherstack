@@ -96,52 +96,54 @@ func validateParameterName(name string) error {
 	return nil
 }
 
-// encryptValue encrypts a value using AES-256 (mock KMS encryption).
-func encryptValue(plaintext string) (string, error) {
+// mockGCM is a package-level GCM cipher instance built once from the mock KMS key.
+// The AES block and GCM AEAD are stateless after construction, so sharing is safe.
+//
+//nolint:gochecknoglobals // intentional package-level singleton for GCM pool optimisation
+var mockGCM cipher.AEAD
+
+//nolint:gochecknoinits // init is the correct place to initialise the GCM singleton
+func init() {
 	block, err := aes.NewCipher([]byte(mockKMSKeyStr))
 	if err != nil {
-		return "", err
+		panic("ssm: failed to create AES cipher: " + err.Error())
 	}
 
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
+		panic("ssm: failed to create GCM: " + err.Error())
+	}
+
+	mockGCM = gcm
+}
+
+// encryptValue encrypts a value using AES-256 (mock KMS encryption).
+func encryptValue(plaintext string) (string, error) {
+	nonce := make([]byte, mockGCM.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", err
 	}
 
-	nonce := make([]byte, gcm.NonceSize())
-	if _, nonceErr := io.ReadFull(rand.Reader, nonce); nonceErr != nil {
-		return "", nonceErr
-	}
-
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	ciphertext := mockGCM.Seal(nonce, nonce, []byte(plaintext), nil)
 
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
 // decryptValue decrypts a value encrypted with encryptValue.
 func decryptValue(ciphertext string) (string, error) {
-	block, err := aes.NewCipher([]byte(mockKMSKeyStr))
-	if err != nil {
-		return "", err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-
 	ciphertextBytes, err := base64.StdEncoding.DecodeString(ciphertext)
 	if err != nil {
 		return "", err
 	}
 
-	nonceSize := gcm.NonceSize()
+	nonceSize := mockGCM.NonceSize()
 	if len(ciphertextBytes) < nonceSize {
 		return "", ErrCiphertextTooShort
 	}
 
 	nonce, ciphertextOnly := ciphertextBytes[:nonceSize], ciphertextBytes[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertextOnly, nil)
+
+	plaintext, err := mockGCM.Open(nil, nonce, ciphertextOnly, nil)
 	if err != nil {
 		return "", err
 	}
