@@ -89,6 +89,18 @@ type OrganizationConformancePack struct {
 	OrganizationConformancePackName string `json:"organizationConformancePackName"`
 }
 
+// StoredQuery represents an AWS Config stored query.
+type StoredQuery struct {
+	QueryName string `json:"QueryName"`
+	QueryID   string `json:"QueryId,omitempty"`
+}
+
+// Tag represents an AWS resource tag.
+type Tag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
 // ConfigurationRecorderStatus represents the recording status of a recorder.
 type ConfigurationRecorderStatus struct {
 	Name      string `json:"name"`
@@ -125,6 +137,7 @@ type InMemoryBackend struct {
 	conformancePacks    map[string]*ConformancePack
 	orgConfigRules      map[string]*OrganizationConfigRule
 	orgConformancePacks map[string]*OrganizationConformancePack
+	storedQueries       map[string]*StoredQuery
 	mu                  *lockmetrics.RWMutex
 }
 
@@ -139,6 +152,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		conformancePacks:    make(map[string]*ConformancePack),
 		orgConfigRules:      make(map[string]*OrganizationConfigRule),
 		orgConformancePacks: make(map[string]*OrganizationConformancePack),
+		storedQueries:       make(map[string]*StoredQuery),
 		mu:                  lockmetrics.New("awsconfig"),
 	}
 }
@@ -390,6 +404,7 @@ func (b *InMemoryBackend) Reset() {
 	b.conformancePacks = make(map[string]*ConformancePack)
 	b.orgConfigRules = make(map[string]*OrganizationConfigRule)
 	b.orgConformancePacks = make(map[string]*OrganizationConformancePack)
+	b.storedQueries = make(map[string]*StoredQuery)
 }
 
 // aggregationAuthKey returns a composite key for an aggregation authorization.
