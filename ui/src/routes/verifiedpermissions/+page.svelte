@@ -5,22 +5,61 @@
 		ListPolicyStoresCommand,
 		ListPoliciesCommand,
 		ListIdentitySourcesCommand,
+		ListPolicyTemplatesCommand,
+		GetSchemaCommand,
+		PutSchemaCommand,
+		GetPolicyCommand,
+		CreatePolicyCommand,
+		UpdatePolicyCommand,
+		DeletePolicyCommand,
+		IsAuthorizedCommand,
 		type PolicyStoreItem,
 		type PolicyItem,
-		type IdentitySourceItem
+		type IdentitySourceItem,
+		type PolicyTemplateItem
 	} from '@aws-sdk/client-verifiedpermissions';
 	import { toast } from 'svelte-sonner';
-	import { Shield, RefreshCw, Search, Lock, FileText, Users } from 'lucide-svelte';
+	import { Shield, RefreshCw, Search, Lock, FileText, Users, Code, Play, Database, ChevronDown, ChevronRight, Pencil, Trash2, Plus, X, Check } from 'lucide-svelte';
 
 	const vp = getVerifiedPermissionsClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'stores' | 'policies' | 'identity'>('stores');
+	let activeTab = $state<'stores' | 'policies' | 'identity' | 'schema' | 'authz'>('stores');
 	let searchQuery = $state('');
 	let stores = $state<PolicyStoreItem[]>([]);
 	let policies = $state<PolicyItem[]>([]);
 	let identitySources = $state<IdentitySourceItem[]>([]);
+	let policyTemplates = $state<PolicyTemplateItem[]>([]);
 	let selectedStoreId = $state<string | null>(null);
+	let expandedPolicyId = $state<string | null>(null);
+	let policyStatements = $state<Record<string, string>>({});
+	let deletingPolicyId = $state<string | null>(null);
+
+	// Schema state
+	let schemaText = $state('');
+	let schemaLoading = $state(false);
+	let schemaSaving = $state(false);
+	let schemaEditing = $state(false);
+	let schemaDraft = $state('');
+	let schemaCached = $state<{ storeId: string; text: string } | null>(null);
+
+	// Cedar editor state (create/edit policy)
+	let policyEditorOpen = $state(false);
+	let policyEditorMode = $state<'create' | 'edit'>('create');
+	let policyEditorId = $state('');
+	let policyEditorStatement = $state('');
+	let policyEditorSaving = $state(false);
+	let policyEditorDescription = $state('');
+
+	// Authorization tester state
+	let authzPrincipalType = $state('');
+	let authzPrincipalId = $state('');
+	let authzActionType = $state('');
+	let authzActionId = $state('');
+	let authzResourceType = $state('');
+	let authzResourceId = $state('');
+	let authzResult = $state<{ decision: string; determiningPolicies: string[]; errors: string[] } | null>(null);
+	let authzLoading = $state(false);
 
 	const filteredStores = $derived(stores.filter((s) => (s.policyStoreId ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredPolicies = $derived(policies.filter((p) => (p.policyId ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
@@ -39,16 +78,189 @@
 
 	async function loadPolicies(storeId: string) {
 		selectedStoreId = storeId;
+		schemaText = '';
+		schemaCached = null;
 		try {
-			const [polResp, idResp] = await Promise.all([
+			const [polResp, idResp, tmplResp] = await Promise.all([
 				vp.send(new ListPoliciesCommand({ policyStoreId: storeId })),
-				vp.send(new ListIdentitySourcesCommand({ policyStoreId: storeId }))
+				vp.send(new ListIdentitySourcesCommand({ policyStoreId: storeId })),
+				vp.send(new ListPolicyTemplatesCommand({ policyStoreId: storeId }))
 			]);
 			policies = polResp.policies ?? [];
 			identitySources = idResp.identitySources ?? [];
+			policyTemplates = tmplResp.policyTemplates ?? [];
 			activeTab = 'policies';
 		} catch (e) {
 			toast.error('Failed to load policies: ' + String(e));
+		}
+	}
+
+	async function loadPolicyStatement(policyId: string) {
+		if (!selectedStoreId || policyStatements[policyId] !== undefined) return;
+		try {
+			const resp = await vp.send(new GetPolicyCommand({ policyStoreId: selectedStoreId, policyId }));
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const stmt = (resp as any).definition?.static?.statement ?? '';
+			policyStatements = { ...policyStatements, [policyId]: stmt };
+		} catch {
+			policyStatements = { ...policyStatements, [policyId]: '' };
+		}
+	}
+
+	function togglePolicyExpand(policyId: string) {
+		if (expandedPolicyId === policyId) {
+			expandedPolicyId = null;
+		} else {
+			expandedPolicyId = policyId;
+			loadPolicyStatement(policyId);
+		}
+	}
+
+	function openCreatePolicy() {
+		policyEditorMode = 'create';
+		policyEditorId = '';
+		policyEditorStatement = `permit(\n  principal,\n  action,\n  resource\n);`;
+		policyEditorDescription = '';
+		policyEditorOpen = true;
+	}
+
+	function openEditPolicy(policy: PolicyItem) {
+		policyEditorMode = 'edit';
+		policyEditorId = policy.policyId ?? '';
+		policyEditorStatement = policyStatements[policy.policyId ?? ''] ?? '';
+		policyEditorDescription = '';
+		policyEditorOpen = true;
+	}
+
+	async function savePolicy() {
+		if (!selectedStoreId) return;
+		policyEditorSaving = true;
+		try {
+			if (policyEditorMode === 'create') {
+				await vp.send(new CreatePolicyCommand({
+					policyStoreId: selectedStoreId,
+					definition: {
+						static: {
+							statement: policyEditorStatement,
+							description: policyEditorDescription || undefined
+						}
+					}
+				}));
+				toast.success('Policy created');
+			} else {
+				await vp.send(new UpdatePolicyCommand({
+					policyStoreId: selectedStoreId,
+					policyId: policyEditorId,
+					definition: {
+						static: { statement: policyEditorStatement }
+					}
+				}));
+				policyStatements = { ...policyStatements, [policyEditorId]: policyEditorStatement };
+				toast.success('Policy updated');
+			}
+			policyEditorOpen = false;
+			await loadPolicies(selectedStoreId);
+		} catch (e) {
+			toast.error('Failed to save policy: ' + String(e));
+		} finally {
+			policyEditorSaving = false;
+		}
+	}
+
+	async function deletePolicy(policyId: string) {
+		if (!selectedStoreId) return;
+		deletingPolicyId = null;
+		try {
+			await vp.send(new DeletePolicyCommand({ policyStoreId: selectedStoreId, policyId }));
+			toast.success('Policy deleted');
+			await loadPolicies(selectedStoreId);
+		} catch (e) {
+			toast.error('Failed to delete policy: ' + String(e));
+		}
+	}
+
+	async function loadSchema() {
+		if (!selectedStoreId) return;
+		// Return from cache if same store
+		if (schemaCached?.storeId === selectedStoreId) {
+			schemaText = schemaCached.text;
+			return;
+		}
+		schemaLoading = true;
+		try {
+			const resp = await vp.send(new GetSchemaCommand({ policyStoreId: selectedStoreId }));
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const raw = (resp as any).schema ?? (resp as any).definition?.cedarJson ?? '';
+			schemaText = raw;
+			schemaCached = { storeId: selectedStoreId, text: raw };
+		} catch (e) {
+			const msg = String(e);
+			if (msg.includes('ResourceNotFoundException') || msg.includes('not found')) {
+				schemaText = '';
+				schemaCached = { storeId: selectedStoreId, text: '' };
+			} else {
+				toast.error('Failed to load schema: ' + msg);
+			}
+		} finally {
+			schemaLoading = false;
+		}
+	}
+
+	async function openSchemaTab() {
+		activeTab = 'schema';
+		schemaEditing = false;
+		await loadSchema();
+	}
+
+	function startEditSchema() {
+		schemaDraft = schemaText;
+		schemaEditing = true;
+	}
+
+	function cancelEditSchema() {
+		schemaEditing = false;
+		schemaDraft = '';
+	}
+
+	async function saveSchema() {
+		if (!selectedStoreId) return;
+		schemaSaving = true;
+		try {
+			await vp.send(new PutSchemaCommand({
+				policyStoreId: selectedStoreId,
+				definition: { cedarJson: schemaDraft }
+			}));
+			schemaText = schemaDraft;
+			schemaCached = { storeId: selectedStoreId, text: schemaDraft };
+			schemaEditing = false;
+			toast.success('Schema saved');
+		} catch (e) {
+			toast.error('Failed to save schema: ' + String(e));
+		} finally {
+			schemaSaving = false;
+		}
+	}
+
+	async function runAuthz() {
+		if (!selectedStoreId) return;
+		authzLoading = true;
+		authzResult = null;
+		try {
+			const resp = await vp.send(new IsAuthorizedCommand({
+				policyStoreId: selectedStoreId,
+				principal: authzPrincipalType ? { entityType: authzPrincipalType, entityId: authzPrincipalId } : undefined,
+				action: authzActionType ? { actionType: authzActionType, actionId: authzActionId } : undefined,
+				resource: authzResourceType ? { entityType: authzResourceType, entityId: authzResourceId } : undefined
+			}));
+			authzResult = {
+				decision: resp.decision ?? 'DENY',
+				determiningPolicies: (resp.determiningPolicies ?? []).map((dp) => dp.policyId ?? ''),
+				errors: (resp.errors ?? []).map((e) => e.errorDescription ?? '')
+			};
+		} catch (e) {
+			toast.error('Authorization check failed: ' + String(e));
+		} finally {
+			authzLoading = false;
 		}
 	}
 
@@ -69,7 +281,7 @@
 		</button>
 	</div>
 
-	<div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+	<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
 		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
 			<div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg"><Lock class="w-5 h-5 text-green-600 dark:text-green-400" /></div>
 			<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{stores.length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Policy Stores</p></div>
@@ -82,23 +294,42 @@
 			<div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg"><Users class="w-5 h-5 text-purple-600 dark:text-purple-400" /></div>
 			<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{identitySources.length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Identity Sources</p></div>
 		</div>
+		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
+			<div class="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg"><Code class="w-5 h-5 text-orange-600 dark:text-orange-400" /></div>
+			<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{policyTemplates.length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Templates</p></div>
+		</div>
 	</div>
 
 	<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
 		<div class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row gap-3 justify-between">
-			<div class="flex gap-2">
-				{#each [['stores', 'Policy Stores'], ['policies', 'Policies'], ['identity', 'Identity Sources']] as [tab, label]}
-					<button onclick={() => { activeTab = tab as typeof activeTab; searchQuery = ''; }}
-						class="px-4 py-2 rounded-lg text-sm font-medium {activeTab === tab ? 'bg-green-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'}">
-						{label}
+			<div class="flex gap-2 flex-wrap">
+				{#each ([['stores', 'Policy Stores', Lock], ['policies', 'Policies', FileText], ['identity', 'Identity Sources', Users], ['schema', 'Schema', Database], ['authz', 'Authz Tester', Play]] as const) as [tab, label, Icon]}
+					<button
+						onclick={() => {
+							if (tab === 'schema') { openSchemaTab(); }
+							else { activeTab = tab; searchQuery = ''; }
+						}}
+						class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 {activeTab === tab ? 'bg-green-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'}"
+					>
+						<Icon class="w-3.5 h-3.5" />{label}
 					</button>
 				{/each}
 			</div>
-			<div class="relative">
-				<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-				<input bind:value={searchQuery} placeholder="Search..." class="pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-full sm:w-64" />
+			<div class="flex items-center gap-2">
+				{#if activeTab === 'policies' && selectedStoreId}
+					<button onclick={openCreatePolicy} class="flex items-center gap-1 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700">
+						<Plus class="w-4 h-4" /> New Policy
+					</button>
+				{/if}
+				{#if activeTab !== 'schema' && activeTab !== 'authz'}
+					<div class="relative">
+						<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+						<input bind:value={searchQuery} placeholder="Search..." class="pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-full sm:w-64" />
+					</div>
+				{/if}
 			</div>
 		</div>
+
 		<div class="p-4">
 			{#if loading}
 				<div class="text-center py-8 text-gray-500 dark:text-gray-400">Loading...</div>
@@ -109,7 +340,7 @@
 					<div class="space-y-2">
 						{#each filteredStores as store}
 							<button onclick={() => loadPolicies(store.policyStoreId ?? '')}
-								class="w-full flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700 text-left">
+								class="w-full flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700 text-left {selectedStoreId === store.policyStoreId ? 'ring-2 ring-green-500' : ''}">
 								<div class="flex items-center gap-3">
 									<Lock class="w-5 h-5 text-green-500" />
 									<div>
@@ -124,18 +355,49 @@
 				{/if}
 			{:else if activeTab === 'policies'}
 				{#if filteredPolicies.length === 0}
-					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No policies found. Select a policy store to view policies.</div>
+					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No policies found. Select a policy store or create a new policy.</div>
 				{:else}
 					<div class="space-y-2">
 						{#each filteredPolicies as policy}
-							<div class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
-								<div class="flex items-center gap-3">
-									<FileText class="w-5 h-5 text-blue-500" />
-									<div>
-										<p class="font-medium text-gray-900 dark:text-white">{policy.policyId}</p>
-										<p class="text-xs text-gray-500 dark:text-gray-400">{policy.policyType}</p>
-									</div>
+							<div class="rounded-lg bg-gray-50 dark:bg-slate-700/50 overflow-hidden">
+								<div class="flex items-center justify-between p-3">
+									<button class="flex items-center gap-3 flex-1 text-left" onclick={() => togglePolicyExpand(policy.policyId ?? '')}>
+										{#if expandedPolicyId === policy.policyId}
+											<ChevronDown class="w-4 h-4 text-gray-400 shrink-0" />
+										{:else}
+											<ChevronRight class="w-4 h-4 text-gray-400 shrink-0" />
+										{/if}
+										<FileText class="w-5 h-5 text-blue-500 shrink-0" />
+										<div>
+											<p class="font-medium text-gray-900 dark:text-white">{policy.policyId}</p>
+											<p class="text-xs text-gray-500 dark:text-gray-400">{policy.policyType}</p>
+										</div>
+									</button>
+									{#if policy.policyType === 'STATIC'}
+										<div class="flex items-center gap-1">
+											<button onclick={() => openEditPolicy(policy)} title="Edit" class="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-500 dark:text-gray-400">
+												<Pencil class="w-4 h-4" />
+											</button>
+											{#if deletingPolicyId === policy.policyId}
+												<button onclick={() => deletePolicy(policy.policyId ?? '')} class="px-2 py-1 rounded bg-red-600 text-white text-xs">Confirm</button>
+												<button onclick={() => { deletingPolicyId = null; }} class="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-500"><X class="w-4 h-4" /></button>
+											{:else}
+												<button onclick={() => { deletingPolicyId = policy.policyId ?? ''; }} title="Delete" class="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500">
+													<Trash2 class="w-4 h-4" />
+												</button>
+											{/if}
+										</div>
+									{/if}
 								</div>
+								{#if expandedPolicyId === policy.policyId}
+									<div class="px-3 pb-3 border-t border-gray-200 dark:border-slate-600 pt-2">
+										{#if policyStatements[policy.policyId ?? ''] !== undefined}
+											<pre class="text-xs font-mono bg-gray-900 text-green-300 p-3 rounded overflow-x-auto">{policyStatements[policy.policyId ?? ''] || '(no statement)'}</pre>
+										{:else}
+											<div class="text-xs text-gray-400 py-2">Loading...</div>
+										{/if}
+									</div>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -156,7 +418,155 @@
 						{/each}
 					</div>
 				{/if}
+			{:else if activeTab === 'schema'}
+				{#if !selectedStoreId}
+					<div class="text-center py-8 text-gray-500 dark:text-gray-400">Select a policy store first to view or edit its schema.</div>
+				{:else if schemaLoading}
+					<div class="text-center py-8 text-gray-500 dark:text-gray-400">Loading schema...</div>
+				{:else}
+					<div class="space-y-3">
+						<div class="flex items-center justify-between">
+							<p class="text-sm text-gray-600 dark:text-gray-400">Cedar JSON schema for policy store <span class="font-mono text-xs bg-gray-100 dark:bg-slate-700 px-1 py-0.5 rounded">{selectedStoreId}</span></p>
+							{#if !schemaEditing}
+								<button onclick={startEditSchema} class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">
+									<Pencil class="w-3.5 h-3.5" /> Edit Schema
+								</button>
+							{:else}
+								<div class="flex items-center gap-2">
+									<button onclick={cancelEditSchema} class="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-slate-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700">
+										<X class="w-3.5 h-3.5" /> Cancel
+									</button>
+									<button onclick={saveSchema} disabled={schemaSaving} class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:opacity-50">
+										<Check class="w-3.5 h-3.5" /> {schemaSaving ? 'Saving...' : 'Save Schema'}
+									</button>
+								</div>
+							{/if}
+						</div>
+						{#if schemaEditing}
+							<textarea
+								bind:value={schemaDraft}
+								rows={20}
+								placeholder='{"namespace": {"entityTypes": {}, "actions": {}}}'
+								class="w-full font-mono text-xs bg-gray-900 text-green-300 p-3 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 resize-y"
+							></textarea>
+							<p class="text-xs text-gray-500 dark:text-gray-400">Enter a valid Cedar JSON schema. Changes are applied immediately on save.</p>
+						{:else if schemaText}
+							<pre class="text-xs font-mono bg-gray-900 text-green-300 p-3 rounded overflow-x-auto whitespace-pre-wrap break-all">{schemaText}</pre>
+						{:else}
+							<div class="text-center py-8 text-gray-500 dark:text-gray-400">
+								No schema defined for this policy store.
+								<button onclick={startEditSchema} class="ml-2 text-blue-500 hover:underline">Add one now</button>
+							</div>
+						{/if}
+					</div>
+				{/if}
+			{:else if activeTab === 'authz'}
+				{#if !selectedStoreId}
+					<div class="text-center py-8 text-gray-500 dark:text-gray-400">Select a policy store first to test authorization.</div>
+				{:else}
+					<div class="space-y-6">
+						<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+							<div class="space-y-2">
+								<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Principal</h3>
+								<input bind:value={authzPrincipalType} placeholder="Entity type (e.g. User)" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+								<input bind:value={authzPrincipalId} placeholder="Entity ID (e.g. alice)" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+							</div>
+							<div class="space-y-2">
+								<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Action</h3>
+								<input bind:value={authzActionType} placeholder="Action type (e.g. Action)" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+								<input bind:value={authzActionId} placeholder="Action ID (e.g. read)" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+							</div>
+							<div class="space-y-2">
+								<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Resource</h3>
+								<input bind:value={authzResourceType} placeholder="Entity type (e.g. Document)" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+								<input bind:value={authzResourceId} placeholder="Entity ID (e.g. doc-123)" class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+							</div>
+						</div>
+
+						<div class="flex items-center gap-3">
+							<button
+								onclick={runAuthz}
+								disabled={authzLoading}
+								class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white font-medium text-sm hover:bg-green-700 disabled:opacity-50"
+							>
+								<Play class="w-4 h-4" /> {authzLoading ? 'Checking...' : 'Check Authorization'}
+							</button>
+							<p class="text-xs text-gray-500 dark:text-gray-400">Against store: <span class="font-mono">{selectedStoreId}</span></p>
+						</div>
+
+						{#if authzResult}
+							<div class="rounded-lg border {authzResult.decision === 'ALLOW' ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20' : 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20'} p-4 space-y-2">
+								<div class="flex items-center gap-2">
+									<span class="text-lg font-bold {authzResult.decision === 'ALLOW' ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}">{authzResult.decision}</span>
+								</div>
+								{#if authzResult.determiningPolicies.length > 0}
+									<div>
+										<p class="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Determining Policies:</p>
+										<ul class="space-y-1">
+											{#each authzResult.determiningPolicies as pid}
+												<li class="text-xs font-mono bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded">{pid}</li>
+											{/each}
+										</ul>
+									</div>
+								{/if}
+								{#if authzResult.errors.length > 0}
+									<div>
+										<p class="text-xs font-semibold text-red-600 dark:text-red-400 mb-1">Errors:</p>
+										<ul class="space-y-1">
+											{#each authzResult.errors as err}
+												<li class="text-xs text-red-600 dark:text-red-400">{err}</li>
+											{/each}
+										</ul>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
 </div>
+
+<!-- Cedar Policy Editor Modal -->
+{#if policyEditorOpen}
+	<div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+			<div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-700">
+				<div class="flex items-center gap-2">
+					<Code class="w-5 h-5 text-green-500" />
+					<h2 class="text-lg font-semibold text-gray-900 dark:text-white">{policyEditorMode === 'create' ? 'New Cedar Policy' : 'Edit Cedar Policy'}</h2>
+				</div>
+				<button onclick={() => { policyEditorOpen = false; }} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+					<X class="w-5 h-5" />
+				</button>
+			</div>
+			<div class="flex-1 overflow-auto p-4 space-y-3">
+				{#if policyEditorMode === 'create'}
+					<div>
+						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description (optional)</label>
+						<input bind:value={policyEditorDescription} placeholder="Policy description..." class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+					</div>
+				{:else}
+					<p class="text-sm text-gray-500 dark:text-gray-400">Policy ID: <span class="font-mono text-xs">{policyEditorId}</span></p>
+				{/if}
+				<div>
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cedar Statement</label>
+					<textarea
+						bind:value={policyEditorStatement}
+						rows={16}
+						class="w-full font-mono text-xs bg-gray-900 text-green-300 p-3 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 resize-y"
+					></textarea>
+				</div>
+			</div>
+			<div class="flex items-center justify-end gap-2 p-4 border-t border-gray-200 dark:border-slate-700">
+				<button onclick={() => { policyEditorOpen = false; }} class="px-4 py-2 rounded-lg border border-gray-300 dark:border-slate-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700">
+					Cancel
+				</button>
+				<button onclick={savePolicy} disabled={policyEditorSaving || !policyEditorStatement.trim()} class="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+					{policyEditorSaving ? 'Saving...' : policyEditorMode === 'create' ? 'Create Policy' : 'Update Policy'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
