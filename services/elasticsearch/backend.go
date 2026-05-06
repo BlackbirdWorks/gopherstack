@@ -153,8 +153,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // SetDNSRegistrar wires a DNS server so Elasticsearch domain hostnames are auto-registered.
 func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 	b.mu.Lock("SetDNSRegistrar")
+	defer b.mu.Unlock()
+
 	b.dnsRegistrar = dns
-	b.mu.Unlock()
 }
 
 // CreateDomain creates a new Elasticsearch domain.

@@ -69,6 +69,7 @@
     "@aws-sdk/client-elastic-load-balancing-v2": "3.1032.0",
     "@aws-sdk/client-elastic-transcoder": "3.957.0",
     "@aws-sdk/client-elasticache": "3.1032.0",
+    "@aws-sdk/client-elasticsearch-service": "3.1032.0",
     "@aws-sdk/client-emr": "3.1032.0",
     "@aws-sdk/client-emr-serverless": "3.1032.0",
     "@aws-sdk/client-eventbridge": "3.1032.0",
