@@ -144,6 +144,53 @@ type RestoreTestingSelection struct {
 	ProtectedResourceType       string    `json:"protectedResourceType,omitempty"`
 }
 
+// RecoveryPoint represents an AWS Backup recovery point.
+type RecoveryPoint struct {
+	CreationDate      time.Time  `json:"creationDate"`
+	CompletionDate    *time.Time `json:"completionDate,omitempty"`
+	RecoveryPointArn  string     `json:"recoveryPointArn"`
+	BackupVaultName   string     `json:"backupVaultName"`
+	BackupVaultArn    string     `json:"backupVaultArn"`
+	ResourceArn       string     `json:"resourceArn,omitempty"`
+	ResourceType      string     `json:"resourceType,omitempty"`
+	IAMRoleArn        string     `json:"iamRoleArn,omitempty"`
+	Status            string     `json:"status"`
+	BackupSizeInBytes int64      `json:"backupSizeInBytes,omitempty"`
+}
+
+// CopyJob represents an AWS Backup copy job.
+type CopyJob struct {
+	CreationDate              time.Time  `json:"creationDate"`
+	CompletionDate            *time.Time `json:"completionDate,omitempty"`
+	CopyJobID                 string     `json:"copyJobId"`
+	SourceBackupVaultArn      string     `json:"sourceBackupVaultArn,omitempty"`
+	DestinationBackupVaultArn string     `json:"destinationBackupVaultArn,omitempty"`
+	ResourceArn               string     `json:"resourceArn,omitempty"`
+	ResourceType              string     `json:"resourceType,omitempty"`
+	IAMRoleArn                string     `json:"iamRoleArn,omitempty"`
+	State                     string     `json:"state"`
+	AccountID                 string     `json:"accountId"`
+	Region                    string     `json:"region"`
+}
+
+// VaultAccessPolicy holds an access policy document for a backup vault.
+type VaultAccessPolicy struct {
+	Policy string `json:"policy"`
+}
+
+// VaultLockConfig holds the lock configuration for a backup vault.
+type VaultLockConfig struct {
+	MinRetentionDays  int64 `json:"minRetentionDays,omitempty"`
+	MaxRetentionDays  int64 `json:"maxRetentionDays,omitempty"`
+	ChangeableForDays int64 `json:"changeableForDays,omitempty"`
+}
+
+// VaultNotificationConfig holds notification settings for a backup vault.
+type VaultNotificationConfig struct {
+	SNSTopicArn       string   `json:"snsTopicArn"`
+	BackupVaultEvents []string `json:"backupVaultEvents"`
+}
+
 // InMemoryBackend is the in-memory store for AWS Backup resources.
 type InMemoryBackend struct {
 	vaults                   map[string]*Vault
@@ -156,6 +203,11 @@ type InMemoryBackend struct {
 	restoreAccessVaults      map[string]*RestoreAccessVault                 // vaultName → vault
 	restoreTestingPlans      map[string]*RestoreTestingPlan                 // planName → plan
 	restoreTestingSelections map[string]map[string]*RestoreTestingSelection // planName → selectionName → selection
+	recoveryPoints           map[string]map[string]*RecoveryPoint           // vaultName → recoveryPointArn → point
+	copyJobs                 map[string]*CopyJob                            // copyJobID → job
+	vaultAccessPolicies      map[string]*VaultAccessPolicy                  // vaultName → policy
+	vaultLockConfigs         map[string]*VaultLockConfig                    // vaultName → lock config
+	vaultNotifications       map[string]*VaultNotificationConfig            // vaultName → notification config
 	mpaApprovals             map[string]string                              // vaultName → mpaApprovalTeamArn
 	vaultARNIndex            map[string]string                              // ARN → vault name
 	planARNIndex             map[string]string                              // ARN → plan name
@@ -180,6 +232,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		restoreAccessVaults:      make(map[string]*RestoreAccessVault),
 		restoreTestingPlans:      make(map[string]*RestoreTestingPlan),
 		restoreTestingSelections: make(map[string]map[string]*RestoreTestingSelection),
+		recoveryPoints:           make(map[string]map[string]*RecoveryPoint),
+		copyJobs:                 make(map[string]*CopyJob),
+		vaultAccessPolicies:      make(map[string]*VaultAccessPolicy),
+		vaultLockConfigs:         make(map[string]*VaultLockConfig),
+		vaultNotifications:       make(map[string]*VaultNotificationConfig),
 		mpaApprovals:             make(map[string]string),
 		vaultARNIndex:            make(map[string]string),
 		planARNIndex:             make(map[string]string),
@@ -210,7 +267,10 @@ func (b *InMemoryBackend) CreateBackupVault(
 	defer b.mu.Unlock()
 
 	if !isValidVaultName(name) {
-		return nil, fmt.Errorf("%w: BackupVaultName must be 2-50 alphanumeric or hyphen characters", ErrValidation)
+		return nil, fmt.Errorf(
+			"%w: BackupVaultName must be 2-50 alphanumeric or hyphen characters",
+			ErrValidation,
+		)
 	}
 
 	if _, ok := b.vaults[name]; ok {
@@ -296,7 +356,11 @@ func (b *InMemoryBackend) DeleteBackupVault(name string) error {
 }
 
 // CreateBackupPlan creates a new backup plan.
-func (b *InMemoryBackend) CreateBackupPlan(planName string, rules []Rule, kv map[string]string) (*Plan, error) {
+func (b *InMemoryBackend) CreateBackupPlan(
+	planName string,
+	rules []Rule,
+	kv map[string]string,
+) (*Plan, error) {
 	b.mu.Lock("CreateBackupPlan")
 	defer b.mu.Unlock()
 
@@ -435,7 +499,9 @@ func (b *InMemoryBackend) DeleteBackupPlan(idOrName string) error {
 }
 
 // StartBackupJob starts a new backup job.
-func (b *InMemoryBackend) StartBackupJob(vaultName, resourceArn, iamRoleArn, resourceType string) (*Job, error) {
+func (b *InMemoryBackend) StartBackupJob(
+	vaultName, resourceArn, iamRoleArn, resourceType string,
+) (*Job, error) {
 	b.mu.Lock("StartBackupJob")
 	defer b.mu.Unlock()
 
@@ -607,7 +673,9 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 }
 
 // AssociateBackupVaultMpaApprovalTeam associates an MPA approval team with a backup vault.
-func (b *InMemoryBackend) AssociateBackupVaultMpaApprovalTeam(vaultName, mpaApprovalTeamArn string) error {
+func (b *InMemoryBackend) AssociateBackupVaultMpaApprovalTeam(
+	vaultName, mpaApprovalTeamArn string,
+) error {
 	b.mu.Lock("AssociateBackupVaultMpaApprovalTeam")
 	defer b.mu.Unlock()
 
@@ -639,7 +707,9 @@ func (b *InMemoryBackend) CancelLegalHold(legalHoldID string) error {
 }
 
 // CreateBackupSelection creates a backup selection for a plan.
-func (b *InMemoryBackend) CreateBackupSelection(planID, selectionName, iamRoleArn string) (*Selection, error) {
+func (b *InMemoryBackend) CreateBackupSelection(
+	planID, selectionName, iamRoleArn string,
+) (*Selection, error) {
 	b.mu.Lock("CreateBackupSelection")
 	defer b.mu.Unlock()
 
@@ -732,7 +802,10 @@ func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
 	defer b.mu.Unlock()
 
 	if !isValidVaultName(name) {
-		return nil, fmt.Errorf("%w: BackupVaultName must be 2-50 alphanumeric or hyphen characters", ErrValidation)
+		return nil, fmt.Errorf(
+			"%w: BackupVaultName must be 2-50 alphanumeric or hyphen characters",
+			ErrValidation,
+		)
 	}
 
 	if minRetentionDays <= 0 {
@@ -809,7 +882,11 @@ func (b *InMemoryBackend) CreateRestoreAccessBackupVault(
 	}
 
 	if _, ok := b.restoreAccessVaults[vaultName]; ok {
-		return nil, fmt.Errorf("%w: restore access vault %s already exists", ErrAlreadyExists, vaultName)
+		return nil, fmt.Errorf(
+			"%w: restore access vault %s already exists",
+			ErrAlreadyExists,
+			vaultName,
+		)
 	}
 
 	vaultARN := arn.Build("backup", b.region, b.accountID, "restore-access-backup-vault:"+vaultName)
@@ -827,7 +904,9 @@ func (b *InMemoryBackend) CreateRestoreAccessBackupVault(
 }
 
 // CreateRestoreTestingPlan creates a restore testing plan.
-func (b *InMemoryBackend) CreateRestoreTestingPlan(name, scheduleExpression string) (*RestoreTestingPlan, error) {
+func (b *InMemoryBackend) CreateRestoreTestingPlan(
+	name, scheduleExpression string,
+) (*RestoreTestingPlan, error) {
 	b.mu.Lock("CreateRestoreTestingPlan")
 	defer b.mu.Unlock()
 
@@ -862,7 +941,11 @@ func (b *InMemoryBackend) CreateRestoreTestingSelection(
 	}
 
 	if _, exists := b.restoreTestingSelections[planName][selectionName]; exists {
-		return nil, fmt.Errorf("%w: restore testing selection %s already exists", ErrAlreadyExists, selectionName)
+		return nil, fmt.Errorf(
+			"%w: restore testing selection %s already exists",
+			ErrAlreadyExists,
+			selectionName,
+		)
 	}
 
 	sel := &RestoreTestingSelection{
@@ -918,10 +1001,766 @@ func (b *InMemoryBackend) Reset() {
 	b.restoreAccessVaults = make(map[string]*RestoreAccessVault)
 	b.restoreTestingPlans = make(map[string]*RestoreTestingPlan)
 	b.restoreTestingSelections = make(map[string]map[string]*RestoreTestingSelection)
+	b.recoveryPoints = make(map[string]map[string]*RecoveryPoint)
+	b.copyJobs = make(map[string]*CopyJob)
+	b.vaultAccessPolicies = make(map[string]*VaultAccessPolicy)
+	b.vaultLockConfigs = make(map[string]*VaultLockConfig)
+	b.vaultNotifications = make(map[string]*VaultNotificationConfig)
 	b.mpaApprovals = make(map[string]string)
 	b.vaultARNIndex = make(map[string]string)
 	b.planARNIndex = make(map[string]string)
 	b.planIDIndex = make(map[string]string)
 	b.frameworkARNIndex = make(map[string]string)
 	b.reportPlanARNIndex = make(map[string]string)
+}
+
+// --- Recovery Point methods ---
+
+// ListRecoveryPointsByBackupVault returns all recovery points for a vault.
+func (b *InMemoryBackend) ListRecoveryPointsByBackupVault(
+	vaultName string,
+) ([]*RecoveryPoint, error) {
+	b.mu.RLock("ListRecoveryPointsByBackupVault")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return nil, fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	pts := b.recoveryPoints[vaultName]
+	list := make([]*RecoveryPoint, 0, len(pts))
+	for _, rp := range pts {
+		cp := *rp
+		list = append(list, &cp)
+	}
+
+	slices.SortFunc(list, func(a, b *RecoveryPoint) int {
+		if a.CreationDate.After(b.CreationDate) {
+			return -1
+		}
+		if a.CreationDate.Before(b.CreationDate) {
+			return 1
+		}
+
+		return 0
+	})
+
+	return list, nil
+}
+
+// DescribeRecoveryPoint returns a specific recovery point.
+func (b *InMemoryBackend) DescribeRecoveryPoint(
+	vaultName, recoveryPointArn string,
+) (*RecoveryPoint, error) {
+	b.mu.RLock("DescribeRecoveryPoint")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return nil, fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	pts := b.recoveryPoints[vaultName]
+	rp, ok := pts[recoveryPointArn]
+	if !ok {
+		return nil, fmt.Errorf("%w: recovery point %s not found", ErrNotFound, recoveryPointArn)
+	}
+
+	cp := *rp
+
+	return &cp, nil
+}
+
+// GetRecoveryPointRestoreMetadata returns restore metadata for a recovery point.
+func (b *InMemoryBackend) GetRecoveryPointRestoreMetadata(
+	vaultName, recoveryPointArn string,
+) (map[string]string, error) {
+	b.mu.RLock("GetRecoveryPointRestoreMetadata")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return nil, fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	pts := b.recoveryPoints[vaultName]
+	if _, ok := pts[recoveryPointArn]; !ok {
+		return nil, fmt.Errorf("%w: recovery point %s not found", ErrNotFound, recoveryPointArn)
+	}
+
+	return map[string]string{}, nil
+}
+
+// DeleteRecoveryPoint deletes a recovery point from a vault.
+func (b *InMemoryBackend) DeleteRecoveryPoint(vaultName, recoveryPointArn string) error {
+	b.mu.Lock("DeleteRecoveryPoint")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	pts := b.recoveryPoints[vaultName]
+	if _, ok := pts[recoveryPointArn]; !ok {
+		return fmt.Errorf("%w: recovery point %s not found", ErrNotFound, recoveryPointArn)
+	}
+
+	delete(pts, recoveryPointArn)
+	if v, ok := b.vaults[vaultName]; ok {
+		if v.NumberOfRecoveryPoints > 0 {
+			v.NumberOfRecoveryPoints--
+		}
+	}
+
+	return nil
+}
+
+// DisassociateRecoveryPoint disassociates a recovery point from a vault.
+func (b *InMemoryBackend) DisassociateRecoveryPoint(vaultName, recoveryPointArn string) error {
+	b.mu.Lock("DisassociateRecoveryPoint")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	pts := b.recoveryPoints[vaultName]
+	if _, ok := pts[recoveryPointArn]; !ok {
+		return fmt.Errorf("%w: recovery point %s not found", ErrNotFound, recoveryPointArn)
+	}
+
+	delete(pts, recoveryPointArn)
+
+	return nil
+}
+
+// DisassociateRecoveryPointFromParent disassociates a recovery point from its parent.
+func (b *InMemoryBackend) DisassociateRecoveryPointFromParent(
+	vaultName, recoveryPointArn string,
+) error {
+	b.mu.Lock("DisassociateRecoveryPointFromParent")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	pts := b.recoveryPoints[vaultName]
+	if _, ok := pts[recoveryPointArn]; !ok {
+		return fmt.Errorf("%w: recovery point %s not found", ErrNotFound, recoveryPointArn)
+	}
+
+	return nil
+}
+
+// AddRecoveryPoint adds a recovery point to a vault (used internally and in tests).
+func (b *InMemoryBackend) AddRecoveryPoint(vaultName string, rp *RecoveryPoint) error {
+	b.mu.Lock("AddRecoveryPoint")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	if b.recoveryPoints[vaultName] == nil {
+		b.recoveryPoints[vaultName] = make(map[string]*RecoveryPoint)
+	}
+
+	cp := *rp
+	b.recoveryPoints[vaultName][rp.RecoveryPointArn] = &cp
+	b.vaults[vaultName].NumberOfRecoveryPoints++
+
+	return nil
+}
+
+// --- Vault compliance methods ---
+
+// PutBackupVaultAccessPolicy sets an access policy for a vault.
+func (b *InMemoryBackend) PutBackupVaultAccessPolicy(vaultName, policy string) error {
+	b.mu.Lock("PutBackupVaultAccessPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	b.vaultAccessPolicies[vaultName] = &VaultAccessPolicy{Policy: policy}
+
+	return nil
+}
+
+// GetBackupVaultAccessPolicy returns the access policy for a vault.
+func (b *InMemoryBackend) GetBackupVaultAccessPolicy(vaultName string) (*VaultAccessPolicy, error) {
+	b.mu.RLock("GetBackupVaultAccessPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return nil, fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	pol, ok := b.vaultAccessPolicies[vaultName]
+	if !ok {
+		return nil, fmt.Errorf("%w: no access policy for vault %s", ErrNotFound, vaultName)
+	}
+
+	cp := *pol
+
+	return &cp, nil
+}
+
+// DeleteBackupVaultAccessPolicy deletes the access policy for a vault.
+func (b *InMemoryBackend) DeleteBackupVaultAccessPolicy(vaultName string) error {
+	b.mu.Lock("DeleteBackupVaultAccessPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	delete(b.vaultAccessPolicies, vaultName)
+
+	return nil
+}
+
+// PutBackupVaultLockConfiguration sets the lock configuration for a vault.
+func (b *InMemoryBackend) PutBackupVaultLockConfiguration(
+	vaultName string,
+	cfg *VaultLockConfig,
+) error {
+	b.mu.Lock("PutBackupVaultLockConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	cp := *cfg
+	b.vaultLockConfigs[vaultName] = &cp
+
+	return nil
+}
+
+// DeleteBackupVaultLockConfiguration deletes the lock configuration for a vault.
+func (b *InMemoryBackend) DeleteBackupVaultLockConfiguration(vaultName string) error {
+	b.mu.Lock("DeleteBackupVaultLockConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	delete(b.vaultLockConfigs, vaultName)
+
+	return nil
+}
+
+// PutBackupVaultNotifications sets notification configuration for a vault.
+func (b *InMemoryBackend) PutBackupVaultNotifications(
+	vaultName string,
+	cfg *VaultNotificationConfig,
+) error {
+	b.mu.Lock("PutBackupVaultNotifications")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	cp := *cfg
+	b.vaultNotifications[vaultName] = &cp
+
+	return nil
+}
+
+// GetBackupVaultNotifications returns notification configuration for a vault.
+func (b *InMemoryBackend) GetBackupVaultNotifications(
+	vaultName string,
+) (*VaultNotificationConfig, error) {
+	b.mu.RLock("GetBackupVaultNotifications")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return nil, fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	cfg, ok := b.vaultNotifications[vaultName]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: no notification configuration for vault %s",
+			ErrNotFound,
+			vaultName,
+		)
+	}
+
+	cp := *cfg
+	cp.BackupVaultEvents = make([]string, len(cfg.BackupVaultEvents))
+	copy(cp.BackupVaultEvents, cfg.BackupVaultEvents)
+
+	return &cp, nil
+}
+
+// DeleteBackupVaultNotifications deletes notification configuration for a vault.
+func (b *InMemoryBackend) DeleteBackupVaultNotifications(vaultName string) error {
+	b.mu.Lock("DeleteBackupVaultNotifications")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vaults[vaultName]; !ok {
+		return fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	delete(b.vaultNotifications, vaultName)
+
+	return nil
+}
+
+// --- Backup Selection read/delete methods ---
+
+// GetBackupSelection returns a specific backup selection.
+func (b *InMemoryBackend) GetBackupSelection(planID, selectionID string) (*Selection, error) {
+	b.mu.RLock("GetBackupSelection")
+	defer b.mu.RUnlock()
+
+	// Resolve planID to canonical ID if needed.
+	if _, found := b.planIDIndex[planID]; !found {
+		if p, exists := b.plans[planID]; exists {
+			planID = p.BackupPlanID
+		} else {
+			return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, planID)
+		}
+	}
+
+	sels := b.selections[planID]
+	sel, ok := sels[selectionID]
+	if !ok {
+		return nil, fmt.Errorf("%w: backup selection %s not found", ErrNotFound, selectionID)
+	}
+
+	cp := *sel
+
+	return &cp, nil
+}
+
+// ListBackupSelections returns all backup selections for a plan.
+func (b *InMemoryBackend) ListBackupSelections(planID string) ([]*Selection, error) {
+	b.mu.RLock("ListBackupSelections")
+	defer b.mu.RUnlock()
+
+	// Resolve planID.
+	if _, found := b.planIDIndex[planID]; !found {
+		if p, exists := b.plans[planID]; exists {
+			planID = p.BackupPlanID
+		} else {
+			return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, planID)
+		}
+	}
+
+	sels := b.selections[planID]
+	list := make([]*Selection, 0, len(sels))
+	for _, sel := range sels {
+		cp := *sel
+		list = append(list, &cp)
+	}
+
+	slices.SortFunc(list, func(a, b *Selection) int {
+		if a.SelectionName < b.SelectionName {
+			return -1
+		}
+		if a.SelectionName > b.SelectionName {
+			return 1
+		}
+
+		return 0
+	})
+
+	return list, nil
+}
+
+// DeleteBackupSelection deletes a backup selection.
+func (b *InMemoryBackend) DeleteBackupSelection(planID, selectionID string) error {
+	b.mu.Lock("DeleteBackupSelection")
+	defer b.mu.Unlock()
+
+	// Resolve planID.
+	if _, found := b.planIDIndex[planID]; !found {
+		if p, exists := b.plans[planID]; exists {
+			planID = p.BackupPlanID
+		} else {
+			return fmt.Errorf("%w: backup plan %s not found", ErrNotFound, planID)
+		}
+	}
+
+	sels := b.selections[planID]
+	if _, ok := sels[selectionID]; !ok {
+		return fmt.Errorf("%w: backup selection %s not found", ErrNotFound, selectionID)
+	}
+
+	delete(sels, selectionID)
+
+	return nil
+}
+
+// --- Copy Job methods ---
+
+// ListCopyJobs returns all copy jobs.
+func (b *InMemoryBackend) ListCopyJobs() []*CopyJob {
+	b.mu.RLock("ListCopyJobs")
+	defer b.mu.RUnlock()
+
+	list := make([]*CopyJob, 0, len(b.copyJobs))
+	for _, j := range b.copyJobs {
+		cp := *j
+		list = append(list, &cp)
+	}
+
+	slices.SortFunc(list, func(a, b *CopyJob) int {
+		if a.CreationDate.After(b.CreationDate) {
+			return -1
+		}
+		if a.CreationDate.Before(b.CreationDate) {
+			return 1
+		}
+
+		return 0
+	})
+
+	return list
+}
+
+// DescribeCopyJob returns a copy job by ID.
+func (b *InMemoryBackend) DescribeCopyJob(copyJobID string) (*CopyJob, error) {
+	b.mu.RLock("DescribeCopyJob")
+	defer b.mu.RUnlock()
+
+	j, ok := b.copyJobs[copyJobID]
+	if !ok {
+		return nil, fmt.Errorf("%w: copy job %s not found", ErrNotFound, copyJobID)
+	}
+
+	cp := *j
+
+	return &cp, nil
+}
+
+// --- Restore Testing read/update/delete methods ---
+
+// GetRestoreTestingPlan returns a restore testing plan by name.
+func (b *InMemoryBackend) GetRestoreTestingPlan(planName string) (*RestoreTestingPlan, error) {
+	b.mu.RLock("GetRestoreTestingPlan")
+	defer b.mu.RUnlock()
+
+	rtp, ok := b.restoreTestingPlans[planName]
+	if !ok {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	cp := *rtp
+
+	return &cp, nil
+}
+
+// ListRestoreTestingPlans returns all restore testing plans.
+func (b *InMemoryBackend) ListRestoreTestingPlans() []*RestoreTestingPlan {
+	b.mu.RLock("ListRestoreTestingPlans")
+	defer b.mu.RUnlock()
+
+	list := make([]*RestoreTestingPlan, 0, len(b.restoreTestingPlans))
+	for _, rtp := range b.restoreTestingPlans {
+		cp := *rtp
+		list = append(list, &cp)
+	}
+
+	slices.SortFunc(list, func(a, b *RestoreTestingPlan) int {
+		if a.RestoreTestingPlanName < b.RestoreTestingPlanName {
+			return -1
+		}
+		if a.RestoreTestingPlanName > b.RestoreTestingPlanName {
+			return 1
+		}
+
+		return 0
+	})
+
+	return list
+}
+
+// UpdateRestoreTestingPlan updates a restore testing plan.
+func (b *InMemoryBackend) UpdateRestoreTestingPlan(
+	planName, scheduleExpression string,
+) (*RestoreTestingPlan, error) {
+	b.mu.Lock("UpdateRestoreTestingPlan")
+	defer b.mu.Unlock()
+
+	rtp, ok := b.restoreTestingPlans[planName]
+	if !ok {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	rtp.ScheduleExpression = scheduleExpression
+	cp := *rtp
+
+	return &cp, nil
+}
+
+// DeleteRestoreTestingPlan deletes a restore testing plan and all its selections.
+func (b *InMemoryBackend) DeleteRestoreTestingPlan(planName string) error {
+	b.mu.Lock("DeleteRestoreTestingPlan")
+	defer b.mu.Unlock()
+
+	if _, ok := b.restoreTestingPlans[planName]; !ok {
+		return fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	delete(b.restoreTestingPlans, planName)
+	delete(b.restoreTestingSelections, planName)
+
+	return nil
+}
+
+// GetRestoreTestingSelection returns a specific restore testing selection.
+func (b *InMemoryBackend) GetRestoreTestingSelection(
+	planName, selectionName string,
+) (*RestoreTestingSelection, error) {
+	b.mu.RLock("GetRestoreTestingSelection")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.restoreTestingPlans[planName]; !ok {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	sel, ok := b.restoreTestingSelections[planName][selectionName]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: restore testing selection %s not found",
+			ErrNotFound,
+			selectionName,
+		)
+	}
+
+	cp := *sel
+
+	return &cp, nil
+}
+
+// ListRestoreTestingSelections returns all selections for a restore testing plan.
+func (b *InMemoryBackend) ListRestoreTestingSelections(
+	planName string,
+) ([]*RestoreTestingSelection, error) {
+	b.mu.RLock("ListRestoreTestingSelections")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.restoreTestingPlans[planName]; !ok {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	sels := b.restoreTestingSelections[planName]
+	list := make([]*RestoreTestingSelection, 0, len(sels))
+	for _, sel := range sels {
+		cp := *sel
+		list = append(list, &cp)
+	}
+
+	slices.SortFunc(list, func(a, b *RestoreTestingSelection) int {
+		if a.RestoreTestingSelectionName < b.RestoreTestingSelectionName {
+			return -1
+		}
+		if a.RestoreTestingSelectionName > b.RestoreTestingSelectionName {
+			return 1
+		}
+
+		return 0
+	})
+
+	return list, nil
+}
+
+// UpdateRestoreTestingSelection updates a restore testing selection.
+func (b *InMemoryBackend) UpdateRestoreTestingSelection(
+	planName, selectionName, protectedResourceType string,
+) (*RestoreTestingSelection, error) {
+	b.mu.Lock("UpdateRestoreTestingSelection")
+	defer b.mu.Unlock()
+
+	if _, ok := b.restoreTestingPlans[planName]; !ok {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	sel, ok := b.restoreTestingSelections[planName][selectionName]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: restore testing selection %s not found",
+			ErrNotFound,
+			selectionName,
+		)
+	}
+
+	sel.ProtectedResourceType = protectedResourceType
+	cp := *sel
+
+	return &cp, nil
+}
+
+// DeleteRestoreTestingSelection deletes a restore testing selection.
+func (b *InMemoryBackend) DeleteRestoreTestingSelection(planName, selectionName string) error {
+	b.mu.Lock("DeleteRestoreTestingSelection")
+	defer b.mu.Unlock()
+
+	if _, ok := b.restoreTestingPlans[planName]; !ok {
+		return fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	if _, ok := b.restoreTestingSelections[planName][selectionName]; !ok {
+		return fmt.Errorf("%w: restore testing selection %s not found", ErrNotFound, selectionName)
+	}
+
+	delete(b.restoreTestingSelections[planName], selectionName)
+
+	return nil
+}
+
+// --- Framework read/update/delete methods ---
+
+// DescribeFramework returns a framework by name.
+func (b *InMemoryBackend) DescribeFramework(name string) (*Framework, error) {
+	b.mu.RLock("DescribeFramework")
+	defer b.mu.RUnlock()
+
+	f, ok := b.frameworks[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: framework %s not found", ErrNotFound, name)
+	}
+
+	cp := *f
+
+	return &cp, nil
+}
+
+// ListFrameworks returns all frameworks.
+func (b *InMemoryBackend) ListFrameworks() []*Framework {
+	b.mu.RLock("ListFrameworks")
+	defer b.mu.RUnlock()
+
+	list := make([]*Framework, 0, len(b.frameworks))
+	for _, f := range b.frameworks {
+		cp := *f
+		list = append(list, &cp)
+	}
+
+	slices.SortFunc(list, func(a, b *Framework) int {
+		if a.FrameworkName < b.FrameworkName {
+			return -1
+		}
+		if a.FrameworkName > b.FrameworkName {
+			return 1
+		}
+
+		return 0
+	})
+
+	return list
+}
+
+// UpdateFramework updates a framework's description.
+func (b *InMemoryBackend) UpdateFramework(name, description string) (*Framework, error) {
+	b.mu.Lock("UpdateFramework")
+	defer b.mu.Unlock()
+
+	f, ok := b.frameworks[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: framework %s not found", ErrNotFound, name)
+	}
+
+	f.FrameworkDescription = description
+	cp := *f
+
+	return &cp, nil
+}
+
+// DeleteFramework deletes a framework.
+func (b *InMemoryBackend) DeleteFramework(name string) error {
+	b.mu.Lock("DeleteFramework")
+	defer b.mu.Unlock()
+
+	f, ok := b.frameworks[name]
+	if !ok {
+		return fmt.Errorf("%w: framework %s not found", ErrNotFound, name)
+	}
+
+	delete(b.frameworkARNIndex, f.FrameworkArn)
+	delete(b.frameworks, name)
+	f.Tags.Close()
+
+	return nil
+}
+
+// --- Report Plan read/update/delete methods ---
+
+// ListReportPlans returns all report plans.
+func (b *InMemoryBackend) ListReportPlans() []*ReportPlan {
+	b.mu.RLock("ListReportPlans")
+	defer b.mu.RUnlock()
+
+	list := make([]*ReportPlan, 0, len(b.reportPlans))
+	for _, rp := range b.reportPlans {
+		cp := *rp
+		list = append(list, &cp)
+	}
+
+	slices.SortFunc(list, func(a, b *ReportPlan) int {
+		if a.ReportPlanName < b.ReportPlanName {
+			return -1
+		}
+		if a.ReportPlanName > b.ReportPlanName {
+			return 1
+		}
+
+		return 0
+	})
+
+	return list
+}
+
+// DescribeReportPlan returns a report plan by name.
+func (b *InMemoryBackend) DescribeReportPlan(name string) (*ReportPlan, error) {
+	b.mu.RLock("DescribeReportPlan")
+	defer b.mu.RUnlock()
+
+	rp, ok := b.reportPlans[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: report plan %s not found", ErrNotFound, name)
+	}
+
+	cp := *rp
+
+	return &cp, nil
+}
+
+// UpdateReportPlan updates a report plan's description.
+func (b *InMemoryBackend) UpdateReportPlan(name, description string) (*ReportPlan, error) {
+	b.mu.Lock("UpdateReportPlan")
+	defer b.mu.Unlock()
+
+	rp, ok := b.reportPlans[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: report plan %s not found", ErrNotFound, name)
+	}
+
+	rp.ReportPlanDescription = description
+	cp := *rp
+
+	return &cp, nil
+}
+
+// DeleteReportPlan deletes a report plan.
+func (b *InMemoryBackend) DeleteReportPlan(name string) error {
+	b.mu.Lock("DeleteReportPlan")
+	defer b.mu.Unlock()
+
+	rp, ok := b.reportPlans[name]
+	if !ok {
+		return fmt.Errorf("%w: report plan %s not found", ErrNotFound, name)
+	}
+
+	delete(b.reportPlanARNIndex, rp.ReportPlanArn)
+	delete(b.reportPlans, name)
+	rp.Tags.Close()
+
+	return nil
 }

@@ -7,13 +7,16 @@
 		ListBackupVaultsCommand,
 		ListBackupJobsCommand,
 		ListRestoreJobsCommand,
+		ListRecoveryPointsByBackupVaultCommand,
+		DeleteRecoveryPointCommand,
 		CreateBackupPlanCommand,
 		DeleteBackupPlanCommand,
 		GetBackupPlanCommand,
 		type BackupPlansListMember,
 		type BackupVaultListMember,
 		type BackupJob,
-		type RestoreJobsListMember
+		type RestoreJobsListMember,
+		type RecoveryPointByBackupVault
 	} from '@aws-sdk/client-backup';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -32,7 +35,7 @@
 	const backup = getBackupClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'plans' | 'vaults' | 'jobs'>('plans');
+	let activeTab = $state<'plans' | 'vaults' | 'jobs' | 'recovery-points'>('plans');
 	let searchQuery = $state('');
 
 	// Backup Plans
@@ -50,6 +53,11 @@
 
 	// Vaults
 	let vaults = $state<BackupVaultListMember[]>([]);
+
+	// Recovery Points
+	let recoveryPoints = $state<RecoveryPointByBackupVault[]>([]);
+	let selectedVaultForRP = $state('');
+	let rpLoading = $state(false);
 
 	// Jobs
 	let jobs = $state<BackupJob[]>([]);
@@ -174,11 +182,51 @@
 		}
 	}
 
+	async function loadRecoveryPoints() {
+		if (!selectedVaultForRP) return;
+		rpLoading = true;
+		try {
+			const res = await backup.send(
+				new ListRecoveryPointsByBackupVaultCommand({ BackupVaultName: selectedVaultForRP })
+			);
+			recoveryPoints = res.RecoveryPoints ?? [];
+		} catch (e) {
+			toast.error(`Failed to load recovery points: ${e}`);
+		} finally {
+			rpLoading = false;
+		}
+	}
+
+	async function deleteRecoveryPoint(rp: RecoveryPointByBackupVault) {
+		if (
+			!rp.BackupVaultName ||
+			!rp.RecoveryPointArn ||
+			!(await confirmDestructive({
+				title: 'Delete Recovery Point',
+				message: `Delete recovery point ${rp.RecoveryPointArn?.slice(-12)}? This cannot be undone.`
+			}))
+		)
+			return;
+		try {
+			await backup.send(
+				new DeleteRecoveryPointCommand({
+					BackupVaultName: rp.BackupVaultName,
+					RecoveryPointArn: rp.RecoveryPointArn
+				})
+			);
+			toast.success('Recovery point deleted');
+			await loadRecoveryPoints();
+		} catch (e) {
+			toast.error(`Failed to delete recovery point: ${e}`);
+		}
+	}
+
 	async function onTabChange(tab: typeof activeTab) {
 		activeTab = tab;
 		searchQuery = '';
 		if (tab === 'plans') await loadPlans();
 		else if (tab === 'vaults') await loadVaults();
+		else if (tab === 'recovery-points') await loadVaults();
 		else await loadJobs();
 	}
 
@@ -205,7 +253,7 @@
 
 	<!-- Tabs -->
 	<div class="flex border-b">
-		{#each [{ id: 'plans', label: 'Backup Plans' }, { id: 'vaults', label: 'Backup Vaults' }, { id: 'jobs', label: 'Backup Jobs' }] as tab}
+		{#each [{ id: 'plans', label: 'Backup Plans' }, { id: 'vaults', label: 'Backup Vaults' }, { id: 'jobs', label: 'Backup Jobs' }, { id: 'recovery-points', label: 'Recovery Points' }] as tab}
 			<button
 				onclick={() => onTabChange(tab.id as typeof activeTab)}
 				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
@@ -416,6 +464,99 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Recovery Points Tab -->
+{#if activeTab === 'recovery-points'}
+	<div class="flex items-center gap-3">
+		<select
+			bind:value={selectedVaultForRP}
+			onchange={loadRecoveryPoints}
+			class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+		>
+			<option value="">Select a vault...</option>
+			{#each vaults as vault}
+				<option value={vault.BackupVaultName}>{vault.BackupVaultName}</option>
+			{/each}
+		</select>
+		{#if selectedVaultForRP}
+			<button
+				onclick={loadRecoveryPoints}
+				class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
+			>
+				<RefreshCw class="h-4 w-4" />
+				Refresh
+			</button>
+		{/if}
+	</div>
+
+	{#if !selectedVaultForRP}
+		<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+			<HardDrive class="h-12 w-12 mb-3 opacity-30" />
+			<p>Select a vault to browse recovery points</p>
+		</div>
+	{:else if rpLoading}
+		<div class="flex justify-center py-12">
+			<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+		</div>
+	{:else if recoveryPoints.length === 0}
+		<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+			<Archive class="h-12 w-12 mb-3 opacity-30" />
+			<p>No recovery points found in "{selectedVaultForRP}"</p>
+		</div>
+	{:else}
+		<div class="rounded-lg border overflow-hidden">
+			<table class="w-full text-sm">
+				<thead class="bg-muted/50">
+					<tr>
+						<th class="px-4 py-3 text-left font-medium">Recovery Point ARN</th>
+						<th class="px-4 py-3 text-left font-medium">Resource</th>
+						<th class="px-4 py-3 text-left font-medium">Type</th>
+						<th class="px-4 py-3 text-left font-medium">Status</th>
+						<th class="px-4 py-3 text-left font-medium">Created</th>
+						<th class="px-4 py-3 text-right font-medium">Actions</th>
+					</tr>
+				</thead>
+				<tbody class="divide-y">
+					{#each recoveryPoints as rp}
+						<tr class="hover:bg-muted/30">
+							<td class="px-4 py-3 font-mono text-xs">
+								{(rp.RecoveryPointArn ?? '').split(':').pop()?.slice(0, 16) ?? '—'}…
+							</td>
+							<td class="px-4 py-3 text-xs text-muted-foreground truncate max-w-[180px]">
+								{rp.ResourceArn ?? '—'}
+							</td>
+							<td class="px-4 py-3 text-xs">{rp.ResourceType ?? '—'}</td>
+							<td class="px-4 py-3">
+								<span
+									class="rounded-full px-2 py-0.5 text-xs font-medium {rp.Status === 'COMPLETED'
+										? 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900'
+										: rp.Status === 'PARTIAL'
+											? 'text-yellow-700 bg-yellow-100 dark:text-yellow-300 dark:bg-yellow-900'
+											: 'text-muted-foreground bg-muted'}"
+								>
+									{rp.Status ?? '—'}
+								</span>
+							</td>
+							<td class="px-4 py-3 text-xs text-muted-foreground">
+								{rp.CreationDate ? new Date(rp.CreationDate).toLocaleString() : '—'}
+							</td>
+							<td class="px-4 py-3 text-right">
+								<button
+									onclick={() => deleteRecoveryPoint(rp)}
+									class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+									title="Delete recovery point"
+								>
+									<Trash2 class="h-4 w-4" />
+								</button>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+		<p class="text-xs text-muted-foreground">{recoveryPoints.length} recovery point{recoveryPoints.length !== 1 ? 's' : ''} in "{selectedVaultForRP}"</p>
+	{/if}
+{/if}
 
 <!-- Create Plan Modal -->
 {#if showCreateModal}

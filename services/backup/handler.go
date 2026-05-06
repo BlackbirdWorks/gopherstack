@@ -55,6 +55,55 @@ const (
 	opTagResource                         = "TagResource"
 	opUntagResource                       = "UntagResource"
 	opUpdateBackupPlan                    = "UpdateBackupPlan"
+
+	// Recovery point operations.
+	opListRecoveryPointsByBackupVault     = "ListRecoveryPointsByBackupVault"
+	opDescribeRecoveryPoint               = "DescribeRecoveryPoint"
+	opGetRecoveryPointRestoreMetadata     = "GetRecoveryPointRestoreMetadata"
+	opDeleteRecoveryPoint                 = "DeleteRecoveryPoint"
+	opDisassociateRecoveryPoint           = "DisassociateRecoveryPoint"
+	opDisassociateRecoveryPointFromParent = "DisassociateRecoveryPointFromParent"
+
+	// Vault compliance operations.
+	opPutBackupVaultAccessPolicy         = "PutBackupVaultAccessPolicy"
+	opGetBackupVaultAccessPolicy         = "GetBackupVaultAccessPolicy"
+	opDeleteBackupVaultAccessPolicy      = "DeleteBackupVaultAccessPolicy"
+	opPutBackupVaultLockConfiguration    = "PutBackupVaultLockConfiguration"
+	opDeleteBackupVaultLockConfiguration = "DeleteBackupVaultLockConfiguration"
+	opPutBackupVaultNotifications        = "PutBackupVaultNotifications"
+	opGetBackupVaultNotifications        = "GetBackupVaultNotifications"
+	opDeleteBackupVaultNotifications     = "DeleteBackupVaultNotifications"
+
+	// Backup selection read/delete operations.
+	opGetBackupSelection    = "GetBackupSelection"
+	opListBackupSelections  = "ListBackupSelections"
+	opDeleteBackupSelection = "DeleteBackupSelection"
+
+	// Copy job operations.
+	opListCopyJobs    = "ListCopyJobs"
+	opDescribeCopyJob = "DescribeCopyJob"
+
+	// Restore testing read/update/delete operations.
+	opGetRestoreTestingPlan         = "GetRestoreTestingPlan"
+	opListRestoreTestingPlans       = "ListRestoreTestingPlans"
+	opUpdateRestoreTestingPlan      = "UpdateRestoreTestingPlan"
+	opDeleteRestoreTestingPlan      = "DeleteRestoreTestingPlan"
+	opGetRestoreTestingSelection    = "GetRestoreTestingSelection"
+	opListRestoreTestingSelections  = "ListRestoreTestingSelections"
+	opUpdateRestoreTestingSelection = "UpdateRestoreTestingSelection"
+	opDeleteRestoreTestingSelection = "DeleteRestoreTestingSelection"
+
+	// Framework read/update/delete operations.
+	opDescribeFramework = "DescribeFramework"
+	opListFrameworks    = "ListFrameworks"
+	opUpdateFramework   = "UpdateFramework"
+	opDeleteFramework   = "DeleteFramework"
+
+	// Report plan read/update/delete operations.
+	opListReportPlans    = "ListReportPlans"
+	opDescribeReportPlan = "DescribeReportPlan"
+	opUpdateReportPlan   = "UpdateReportPlan"
+	opDeleteReportPlan   = "DeleteReportPlan"
 )
 
 const (
@@ -63,6 +112,7 @@ const (
 	pathBackupVaults        = "/backup-vaults"
 	pathBackupPlans         = "/backup/plans"
 	pathBackupJobs          = "/backup-jobs"
+	pathCopyJobs            = "/copy-jobs"
 	pathTags                = "/tags/"
 	pathLegalHolds          = "/legal-holds"
 	pathAuditFrameworks     = "/audit/frameworks"
@@ -73,6 +123,19 @@ const (
 
 	// splitTwo is the N argument for [strings.SplitN] to split into at most 2 parts.
 	splitTwo = 2
+
+	// JSON field name constants used in multiple handlers.
+	keyState                       = "State"
+	keySelectionID                 = "SelectionId"
+	keyFrameworkArn                = "FrameworkArn"
+	keyFrameworkName               = "FrameworkName"
+	keyStatus                      = "Status"
+	keyReportPlanArn               = "ReportPlanArn"
+	keyReportPlanName              = "ReportPlanName"
+	keyRestoreTestingPlanArn       = "RestoreTestingPlanArn"
+	keyRestoreTestingPlanName      = "RestoreTestingPlanName"
+	keyRestoreTestingSelectionName = "RestoreTestingSelectionName"
+	keyRecoveryPointArn            = "RecoveryPointArn"
 )
 
 var (
@@ -92,7 +155,10 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 // WithJanitor attaches a background janitor to the handler.
 // The optional taskTimeout bounds each sweep; 0 means no per-task timeout.
-func (h *Handler) WithJanitor(interval, jobTTL time.Duration, taskTimeout ...time.Duration) *Handler {
+func (h *Handler) WithJanitor(
+	interval, jobTTL time.Duration,
+	taskTimeout ...time.Duration,
+) *Handler {
 	j := NewJanitor(h.Backend, interval, jobTTL)
 	if len(taskTimeout) > 0 {
 		j.TaskTimeout = taskTimeout[0]
@@ -143,6 +209,48 @@ func (h *Handler) GetSupportedOperations() []string {
 		opTagResource,
 		opUntagResource,
 		opListTags,
+		// Recovery points.
+		opListRecoveryPointsByBackupVault,
+		opDescribeRecoveryPoint,
+		opGetRecoveryPointRestoreMetadata,
+		opDeleteRecoveryPoint,
+		opDisassociateRecoveryPoint,
+		opDisassociateRecoveryPointFromParent,
+		// Vault compliance.
+		opPutBackupVaultAccessPolicy,
+		opGetBackupVaultAccessPolicy,
+		opDeleteBackupVaultAccessPolicy,
+		opPutBackupVaultLockConfiguration,
+		opDeleteBackupVaultLockConfiguration,
+		opPutBackupVaultNotifications,
+		opGetBackupVaultNotifications,
+		opDeleteBackupVaultNotifications,
+		// Backup selections.
+		opGetBackupSelection,
+		opListBackupSelections,
+		opDeleteBackupSelection,
+		// Copy jobs.
+		opListCopyJobs,
+		opDescribeCopyJob,
+		// Restore testing.
+		opGetRestoreTestingPlan,
+		opListRestoreTestingPlans,
+		opUpdateRestoreTestingPlan,
+		opDeleteRestoreTestingPlan,
+		opGetRestoreTestingSelection,
+		opListRestoreTestingSelections,
+		opUpdateRestoreTestingSelection,
+		opDeleteRestoreTestingSelection,
+		// Frameworks.
+		opDescribeFramework,
+		opListFrameworks,
+		opUpdateFramework,
+		opDeleteFramework,
+		// Report plans.
+		opListReportPlans,
+		opDescribeReportPlan,
+		opUpdateReportPlan,
+		opDeleteReportPlan,
 	}
 }
 
@@ -168,6 +276,7 @@ func matchesBackupPath(path string) bool {
 		pathBackupVaults + "/",
 		pathBackupPlans + "/",
 		pathBackupJobs + "/",
+		pathCopyJobs + "/",
 		pathTags + "arn:aws:backup:",
 		pathLegalHolds + "/",
 		pathAuditFrameworks + "/",
@@ -181,6 +290,7 @@ func matchesBackupPath(path string) bool {
 		pathBackupVaults,
 		pathBackupPlans,
 		pathBackupJobs,
+		pathCopyJobs,
 		pathLegalHolds,
 		pathAuditFrameworks,
 		pathAuditReportPlans,
@@ -222,6 +332,8 @@ func parseBackupPath(method, rawPath string) backupRoute {
 		return parsePlanRoute(method, strings.TrimPrefix(path, pathBackupPlans))
 	case strings.HasPrefix(path, pathBackupJobs):
 		return parseJobRoute(method, strings.TrimPrefix(path, pathBackupJobs))
+	case strings.HasPrefix(path, pathCopyJobs):
+		return parseCopyJobRoute(method, strings.TrimPrefix(path, pathCopyJobs))
 	case strings.HasPrefix(path, pathTags):
 		return parseTagsRoute(method, strings.TrimPrefix(path, pathTags))
 	case strings.HasPrefix(path, pathLegalHolds):
@@ -231,9 +343,15 @@ func parseBackupPath(method, rawPath string) backupRoute {
 	case strings.HasPrefix(path, pathAuditReportPlans):
 		return parseReportPlanRoute(method, strings.TrimPrefix(path, pathAuditReportPlans))
 	case strings.HasPrefix(path, pathLogicallyAirGapped):
-		return parseLogicallyAirGappedRoute(method, strings.TrimPrefix(path, pathLogicallyAirGapped))
+		return parseLogicallyAirGappedRoute(
+			method,
+			strings.TrimPrefix(path, pathLogicallyAirGapped),
+		)
 	case strings.HasPrefix(path, pathRestoreAccessVaults):
-		return parseRestoreAccessVaultRoute(method, strings.TrimPrefix(path, pathRestoreAccessVaults))
+		return parseRestoreAccessVaultRoute(
+			method,
+			strings.TrimPrefix(path, pathRestoreAccessVaults),
+		)
 	case strings.HasPrefix(path, pathRestoreTestingPlans):
 		return parseRestoreTestingRoute(method, strings.TrimPrefix(path, pathRestoreTestingPlans))
 	}
@@ -241,21 +359,45 @@ func parseBackupPath(method, rawPath string) backupRoute {
 	return backupRoute{operation: opUnknown}
 }
 
+// vaultSubRoute tries to match a sub-resource suffix, returning the vault name and op suffix.
+// Returns ("", "") if no recognized suffix is found.
+func vaultSubRoute(name string) (string, string) {
+	for _, sfx := range []string{
+		"/mpaApprovalTeam",
+		"/access-policy",
+		"/vault-lock",
+		"/notification-configuration",
+	} {
+		if v, ok := strings.CutSuffix(name, sfx); ok {
+			return v, sfx
+		}
+	}
+
+	return "", ""
+}
+
 func parseVaultRoute(method, suffix string) backupRoute {
-	// suffix is either "" (collection) or "/{name}" or "/{name}/mpaApprovalTeam"
+	// suffix is either "" (collection) or "/{name}" or "/{name}/{subresource}"
 	name := strings.TrimPrefix(suffix, "/")
+
 	if name == "" {
-		// /backup-vaults
 		if method == http.MethodGet {
 			return backupRoute{operation: opListBackupVaults}
 		}
-	} else if before, ok := strings.CutSuffix(name, "/mpaApprovalTeam"); ok {
-		// /backup-vaults/{name}/mpaApprovalTeam
-		vaultName := before
-		if method == http.MethodPut {
-			return backupRoute{operation: opAssociateBackupVaultMpaApprovalTeam, resource: vaultName}
-		}
-	} else if !strings.Contains(name, "/") {
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if strings.Contains(name, "/recovery-points") {
+		return parseVaultRecoveryPointRoute(method, name)
+	}
+
+	vn, sub := vaultSubRoute(name)
+	if sub != "" {
+		return parseVaultSubResourceRoute(method, vn, sub)
+	}
+
+	if !strings.Contains(name, "/") {
 		// /backup-vaults/{name}
 		switch method {
 		case http.MethodPut:
@@ -270,8 +412,111 @@ func parseVaultRoute(method, suffix string) backupRoute {
 	return backupRoute{operation: opUnknown}
 }
 
+func parseVaultSubResourceRoute(method, vaultName, sub string) backupRoute {
+	switch sub {
+	case "/mpaApprovalTeam":
+		if method == http.MethodPut {
+			return backupRoute{operation: opAssociateBackupVaultMpaApprovalTeam, resource: vaultName}
+		}
+	case "/access-policy":
+		switch method {
+		case http.MethodPut:
+			return backupRoute{operation: opPutBackupVaultAccessPolicy, resource: vaultName}
+		case http.MethodGet:
+			return backupRoute{operation: opGetBackupVaultAccessPolicy, resource: vaultName}
+		case http.MethodDelete:
+			return backupRoute{operation: opDeleteBackupVaultAccessPolicy, resource: vaultName}
+		}
+	case "/vault-lock":
+		switch method {
+		case http.MethodPut:
+			return backupRoute{operation: opPutBackupVaultLockConfiguration, resource: vaultName}
+		case http.MethodDelete:
+			return backupRoute{operation: opDeleteBackupVaultLockConfiguration, resource: vaultName}
+		}
+	case "/notification-configuration":
+		switch method {
+		case http.MethodPut:
+			return backupRoute{operation: opPutBackupVaultNotifications, resource: vaultName}
+		case http.MethodGet:
+			return backupRoute{operation: opGetBackupVaultNotifications, resource: vaultName}
+		case http.MethodDelete:
+			return backupRoute{operation: opDeleteBackupVaultNotifications, resource: vaultName}
+		}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+// rpSubSuffix returns the recognized sub-resource suffixes for recovery points.
+func rpSubSuffixes() []string {
+	return []string{"/disassociate", "/parentAssociation", "/restore-metadata"}
+}
+
+// parseVaultRecoveryPointRoute handles /backup-vaults/{name}/recovery-points[/{arn}[/...]]
+// The resource field is encoded as "vaultName|recoveryPointArn".
+func parseVaultRecoveryPointRoute(method, name string) backupRoute {
+	// name = "{vaultName}/recovery-points" or "{vaultName}/recovery-points/{arn}[/sub]"
+	parts := strings.SplitN(name, "/recovery-points", splitTwo)
+	vaultName := parts[0]
+	rest := ""
+
+	if len(parts) == splitTwo {
+		rest = strings.TrimPrefix(parts[1], "/")
+	}
+
+	if rest == "" {
+		if method == http.MethodGet {
+			return backupRoute{operation: opListRecoveryPointsByBackupVault, resource: vaultName}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	// Check for known sub-resource suffixes.
+	for _, sfx := range rpSubSuffixes() {
+		if arn, ok := strings.CutSuffix(rest, sfx); ok {
+			return parseRecoveryPointSubRoute(method, vaultName, arn, sfx)
+		}
+	}
+
+	if !strings.Contains(rest, "/") {
+		// /backup-vaults/{name}/recovery-points/{arn}
+		switch method {
+		case http.MethodGet:
+			return backupRoute{operation: opDescribeRecoveryPoint, resource: vaultName + "|" + rest}
+		case http.MethodDelete:
+			return backupRoute{operation: opDeleteRecoveryPoint, resource: vaultName + "|" + rest}
+		}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+func parseRecoveryPointSubRoute(method, vaultName, rpArn, sub string) backupRoute {
+	res := vaultName + "|" + rpArn
+
+	switch sub {
+	case "/disassociate":
+		if method == http.MethodPost {
+			return backupRoute{operation: opDisassociateRecoveryPoint, resource: res}
+		}
+	case "/parentAssociation":
+		if method == http.MethodDelete {
+			return backupRoute{operation: opDisassociateRecoveryPointFromParent, resource: res}
+		}
+	case "/restore-metadata":
+		if method == http.MethodGet {
+			return backupRoute{operation: opGetRecoveryPointRestoreMetadata, resource: res}
+		}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+//nolint:cyclop // plan sub-resources require branching
 func parsePlanRoute(method, suffix string) backupRoute {
-	// suffix is "" or "/{id}" or "/{id}/selections"
+	// suffix is "" or "/{id}" or "/{id}/selections[/{selId}]"
 	id := strings.TrimPrefix(suffix, "/")
 
 	switch {
@@ -284,13 +529,35 @@ func parsePlanRoute(method, suffix string) backupRoute {
 			return backupRoute{operation: opListBackupPlans}
 		}
 	case strings.Contains(id, "/"):
-		// /backup/plans/{id}/selections
+		// /backup/plans/{id}/selections[/{selId}]
 		parts := strings.SplitN(id, "/", splitTwo)
 		planID := parts[0]
 		rest := parts[1]
 
-		if rest == "selections" && method == http.MethodPut {
-			return backupRoute{operation: opCreateBackupSelection, resource: planID}
+		switch {
+		case rest == "selections":
+			switch method {
+			case http.MethodPut:
+				return backupRoute{operation: opCreateBackupSelection, resource: planID}
+			case http.MethodGet:
+				return backupRoute{operation: opListBackupSelections, resource: planID}
+			}
+		case strings.HasPrefix(rest, "selections/"):
+			selID := strings.TrimPrefix(rest, "selections/")
+			if !strings.Contains(selID, "/") {
+				switch method {
+				case http.MethodGet:
+					return backupRoute{
+						operation: opGetBackupSelection,
+						resource:  planID + "|" + selID,
+					}
+				case http.MethodDelete:
+					return backupRoute{
+						operation: opDeleteBackupSelection,
+						resource:  planID + "|" + selID,
+					}
+				}
+			}
 		}
 	default:
 		// /backup/plans/{id}
@@ -357,12 +624,40 @@ func parseLegalHoldRoute(method, suffix string) backupRoute {
 	return backupRoute{operation: opUnknown}
 }
 
+func parseCopyJobRoute(method, suffix string) backupRoute {
+	id := strings.TrimPrefix(suffix, "/")
+	if id == "" {
+		if method == http.MethodGet {
+			return backupRoute{operation: opListCopyJobs}
+		}
+	} else if !strings.Contains(id, "/") {
+		if method == http.MethodGet {
+			return backupRoute{operation: opDescribeCopyJob, resource: id}
+		}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
 func parseFrameworkRoute(method, suffix string) backupRoute {
 	name := strings.TrimPrefix(suffix, "/")
 	if name == "" {
 		// /audit/frameworks
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
 			return backupRoute{operation: opCreateFramework}
+		case http.MethodGet:
+			return backupRoute{operation: opListFrameworks}
+		}
+	} else if !strings.Contains(name, "/") {
+		// /audit/frameworks/{name}
+		switch method {
+		case http.MethodGet:
+			return backupRoute{operation: opDescribeFramework, resource: name}
+		case http.MethodPut:
+			return backupRoute{operation: opUpdateFramework, resource: name}
+		case http.MethodDelete:
+			return backupRoute{operation: opDeleteFramework, resource: name}
 		}
 	}
 
@@ -373,8 +668,21 @@ func parseReportPlanRoute(method, suffix string) backupRoute {
 	name := strings.TrimPrefix(suffix, "/")
 	if name == "" {
 		// /audit/report-plans
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
 			return backupRoute{operation: opCreateReportPlan}
+		case http.MethodGet:
+			return backupRoute{operation: opListReportPlans}
+		}
+	} else if !strings.Contains(name, "/") {
+		// /audit/report-plans/{name}
+		switch method {
+		case http.MethodGet:
+			return backupRoute{operation: opDescribeReportPlan, resource: name}
+		case http.MethodPut:
+			return backupRoute{operation: opUpdateReportPlan, resource: name}
+		case http.MethodDelete:
+			return backupRoute{operation: opDeleteReportPlan, resource: name}
 		}
 	}
 
@@ -406,20 +714,65 @@ func parseRestoreAccessVaultRoute(method, suffix string) backupRoute {
 }
 
 func parseRestoreTestingRoute(method, suffix string) backupRoute {
-	// suffix is "" or "/{planName}" or "/{planName}/selections"
+	// suffix is "" or "/{planName}" or "/{planName}/selections[/{selName}]"
 	rest := strings.TrimPrefix(suffix, "/")
-	if rest == "" {
+
+	switch {
+	case rest == "":
 		// /restore-testing/plans
-		if method == http.MethodPut {
+		switch method {
+		case http.MethodPut:
 			return backupRoute{operation: opCreateRestoreTestingPlan}
+		case http.MethodGet:
+			return backupRoute{operation: opListRestoreTestingPlans}
 		}
-	} else if strings.Contains(rest, "/") {
-		// /restore-testing/plans/{planName}/selections
-		parts := strings.SplitN(rest, "/", splitTwo)
-		planName := parts[0]
-		sub := parts[1]
-		if sub == "selections" && method == http.MethodPut {
+	case strings.Contains(rest, "/"):
+		return parseRestoreTestingSubRoute(method, rest)
+	default:
+		// /restore-testing/plans/{planName}
+		switch method {
+		case http.MethodGet:
+			return backupRoute{operation: opGetRestoreTestingPlan, resource: rest}
+		case http.MethodPut:
+			return backupRoute{operation: opUpdateRestoreTestingPlan, resource: rest}
+		case http.MethodDelete:
+			return backupRoute{operation: opDeleteRestoreTestingPlan, resource: rest}
+		}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+func parseRestoreTestingSubRoute(method, rest string) backupRoute {
+	parts := strings.SplitN(rest, "/", splitTwo)
+	planName := parts[0]
+	sub := parts[1]
+
+	switch {
+	case sub == "selections":
+		switch method {
+		case http.MethodPut:
 			return backupRoute{operation: opCreateRestoreTestingSelection, resource: planName}
+		case http.MethodGet:
+			return backupRoute{operation: opListRestoreTestingSelections, resource: planName}
+		}
+	case strings.HasPrefix(sub, "selections/"):
+		selName := strings.TrimPrefix(sub, "selections/")
+		if !strings.Contains(selName, "/") {
+			switch method {
+			case http.MethodGet:
+				return backupRoute{operation: opGetRestoreTestingSelection, resource: planName + "|" + selName}
+			case http.MethodPut:
+				return backupRoute{
+					operation: opUpdateRestoreTestingSelection,
+					resource:  planName + "|" + selName,
+				}
+			case http.MethodDelete:
+				return backupRoute{
+					operation: opDeleteRestoreTestingSelection,
+					resource:  planName + "|" + selName,
+				}
+			}
 		}
 	}
 
@@ -499,13 +852,52 @@ func (h *Handler) dispatch(c *echo.Context, route backupRoute, body []byte) erro
 	case opListTags:
 		return h.handleListTags(c, route.resource)
 	default:
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
+		return c.JSON(
+			http.StatusNotFound,
+			errResp("ResourceNotFoundException", "unknown operation: "+route.operation),
+		)
 	}
 }
 
-// dispatchNewOps dispatches the 10 newly added Backup operations.
-// It returns (true, result) if the operation was handled, or (false, nil) otherwise.
+// dispatchNewOps dispatches additional Backup operations beyond the original set.
+// It delegates to domain-specific sub-dispatchers. Returns (true, result) if handled.
 func (h *Handler) dispatchNewOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+	if ok, result := h.dispatchCreateOps(c, route, body); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchRecoveryPointOps(c, route); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchVaultComplianceOps(c, route, body); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchSelectionOps(c, route); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchCopyJobOps(c, route); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchRestoreTestingOps(c, route, body); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchFrameworkOps(c, route, body); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchReportPlanOps(c, route, body); ok {
+		return true, result
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchCreateOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
 	switch route.operation {
 	case opAssociateBackupVaultMpaApprovalTeam:
 		return true, h.handleAssociateBackupVaultMpaApprovalTeam(c, route.resource, body)
@@ -527,6 +919,127 @@ func (h *Handler) dispatchNewOps(c *echo.Context, route backupRoute, body []byte
 		return true, h.handleCreateRestoreTestingPlan(c, body)
 	case opCreateRestoreTestingSelection:
 		return true, h.handleCreateRestoreTestingSelection(c, route.resource, body)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchRecoveryPointOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
+	case opListRecoveryPointsByBackupVault:
+		return true, h.handleListRecoveryPointsByBackupVault(c, route.resource)
+	case opDescribeRecoveryPoint:
+		return true, h.handleDescribeRecoveryPoint(c, route.resource)
+	case opGetRecoveryPointRestoreMetadata:
+		return true, h.handleGetRecoveryPointRestoreMetadata(c, route.resource)
+	case opDeleteRecoveryPoint:
+		return true, h.handleDeleteRecoveryPoint(c, route.resource)
+	case opDisassociateRecoveryPoint:
+		return true, h.handleDisassociateRecoveryPoint(c, route.resource)
+	case opDisassociateRecoveryPointFromParent:
+		return true, h.handleDisassociateRecoveryPointFromParent(c, route.resource)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchVaultComplianceOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case opPutBackupVaultAccessPolicy:
+		return true, h.handlePutBackupVaultAccessPolicy(c, route.resource, body)
+	case opGetBackupVaultAccessPolicy:
+		return true, h.handleGetBackupVaultAccessPolicy(c, route.resource)
+	case opDeleteBackupVaultAccessPolicy:
+		return true, h.handleDeleteBackupVaultAccessPolicy(c, route.resource)
+	case opPutBackupVaultLockConfiguration:
+		return true, h.handlePutBackupVaultLockConfiguration(c, route.resource, body)
+	case opDeleteBackupVaultLockConfiguration:
+		return true, h.handleDeleteBackupVaultLockConfiguration(c, route.resource)
+	case opPutBackupVaultNotifications:
+		return true, h.handlePutBackupVaultNotifications(c, route.resource, body)
+	case opGetBackupVaultNotifications:
+		return true, h.handleGetBackupVaultNotifications(c, route.resource)
+	case opDeleteBackupVaultNotifications:
+		return true, h.handleDeleteBackupVaultNotifications(c, route.resource)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchSelectionOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
+	case opGetBackupSelection:
+		return true, h.handleGetBackupSelection(c, route.resource)
+	case opListBackupSelections:
+		return true, h.handleListBackupSelections(c, route.resource)
+	case opDeleteBackupSelection:
+		return true, h.handleDeleteBackupSelection(c, route.resource)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchCopyJobOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
+	case opListCopyJobs:
+		return true, h.handleListCopyJobs(c)
+	case opDescribeCopyJob:
+		return true, h.handleDescribeCopyJob(c, route.resource)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchRestoreTestingOps(
+	c *echo.Context, route backupRoute, body []byte,
+) (bool, error) {
+	switch route.operation {
+	case opGetRestoreTestingPlan:
+		return true, h.handleGetRestoreTestingPlan(c, route.resource)
+	case opListRestoreTestingPlans:
+		return true, h.handleListRestoreTestingPlans(c)
+	case opUpdateRestoreTestingPlan:
+		return true, h.handleUpdateRestoreTestingPlan(c, route.resource, body)
+	case opDeleteRestoreTestingPlan:
+		return true, h.handleDeleteRestoreTestingPlan(c, route.resource)
+	case opGetRestoreTestingSelection:
+		return true, h.handleGetRestoreTestingSelection(c, route.resource)
+	case opListRestoreTestingSelections:
+		return true, h.handleListRestoreTestingSelections(c, route.resource)
+	case opUpdateRestoreTestingSelection:
+		return true, h.handleUpdateRestoreTestingSelection(c, route.resource, body)
+	case opDeleteRestoreTestingSelection:
+		return true, h.handleDeleteRestoreTestingSelection(c, route.resource)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchFrameworkOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case opDescribeFramework:
+		return true, h.handleDescribeFramework(c, route.resource)
+	case opListFrameworks:
+		return true, h.handleListFrameworks(c)
+	case opUpdateFramework:
+		return true, h.handleUpdateFramework(c, route.resource, body)
+	case opDeleteFramework:
+		return true, h.handleDeleteFramework(c, route.resource)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchReportPlanOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case opListReportPlans:
+		return true, h.handleListReportPlans(c)
+	case opDescribeReportPlan:
+		return true, h.handleDescribeReportPlan(c, route.resource)
+	case opUpdateReportPlan:
+		return true, h.handleUpdateReportPlan(c, route.resource, body)
+	case opDeleteReportPlan:
+		return true, h.handleDeleteReportPlan(c, route.resource)
 	}
 
 	return false, nil
@@ -565,17 +1078,28 @@ type createBackupVaultBody struct {
 
 func (h *Handler) handleCreateBackupVault(c *echo.Context, name string, body []byte) error {
 	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "BackupVaultName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
 	}
 
 	var in createBackupVaultBody
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
 		}
 	}
 
-	v, err := h.Backend.CreateBackupVault(name, in.EncryptionKeyArn, in.CreatorRequestID, in.BackupVaultTags)
+	v, err := h.Backend.CreateBackupVault(
+		name,
+		in.EncryptionKeyArn,
+		in.CreatorRequestID,
+		in.BackupVaultTags,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -696,7 +1220,10 @@ func (h *Handler) handleCreateBackupPlan(c *echo.Context, body []byte) error {
 	if in.BackupPlan.BackupPlanName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", fmt.Sprintf("%s: BackupPlanName is required", errInvalidRequest)),
+			errResp(
+				"ValidationException",
+				fmt.Sprintf("%s: BackupPlanName is required", errInvalidRequest),
+			),
 		)
 	}
 
@@ -819,11 +1346,19 @@ func (h *Handler) handleStartBackupJob(c *echo.Context, body []byte) error {
 	if in.BackupVaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", fmt.Sprintf("%s: BackupVaultName is required", errInvalidRequest)),
+			errResp(
+				"ValidationException",
+				fmt.Sprintf("%s: BackupVaultName is required", errInvalidRequest),
+			),
 		)
 	}
 
-	j, err := h.Backend.StartBackupJob(in.BackupVaultName, in.ResourceArn, in.IamRoleArn, in.ResourceType)
+	j, err := h.Backend.StartBackupJob(
+		in.BackupVaultName,
+		in.ResourceArn,
+		in.IamRoleArn,
+		in.ResourceType,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -845,7 +1380,7 @@ func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
 		keyBackupJobID:     j.BackupJobID,
 		keyBackupVaultName: j.BackupVaultName,
 		keyBackupVaultArn:  j.BackupVaultArn,
-		"State":            j.State,
+		keyState:           j.State,
 		keyCreationDate:    epochSeconds(j.CreationTime),
 	}
 	if j.ResourceArn != "" {
@@ -872,7 +1407,7 @@ func (h *Handler) handleListBackupJobs(c *echo.Context) error {
 			keyBackupVaultName: j.BackupVaultName,
 			keyBackupVaultArn:  j.BackupVaultArn,
 			"ResourceArn":      j.ResourceArn,
-			"State":            j.State,
+			keyState:           j.State,
 			keyCreationDate:    epochSeconds(j.CreationTime),
 		})
 	}
@@ -922,13 +1457,19 @@ type untagResourceBody struct {
 
 func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string, body []byte) error {
 	if resourceArn == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "ResourceArn is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "ResourceArn is required"),
+		)
 	}
 
 	var in untagResourceBody
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
 		}
 	}
 
@@ -946,15 +1487,25 @@ type associateMpaApprovalTeamBody struct {
 	RequesterComment   string `json:"RequesterComment,omitempty"`
 }
 
-func (h *Handler) handleAssociateBackupVaultMpaApprovalTeam(c *echo.Context, vaultName string, body []byte) error {
+func (h *Handler) handleAssociateBackupVaultMpaApprovalTeam(
+	c *echo.Context,
+	vaultName string,
+	body []byte,
+) error {
 	if vaultName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "BackupVaultName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
 	}
 
 	var in associateMpaApprovalTeamBody
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
 		}
 	}
 
@@ -967,7 +1518,10 @@ func (h *Handler) handleAssociateBackupVaultMpaApprovalTeam(c *echo.Context, vau
 
 func (h *Handler) handleCancelLegalHold(c *echo.Context, legalHoldID string) error {
 	if legalHoldID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "LegalHoldId is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "LegalHoldId is required"),
+		)
 	}
 
 	if err := h.Backend.CancelLegalHold(legalHoldID); err != nil {
@@ -989,7 +1543,10 @@ type backupSelectionDoc struct {
 
 func (h *Handler) handleCreateBackupSelection(c *echo.Context, planID string, body []byte) error {
 	if planID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "BackupPlanId is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupPlanId is required"),
+		)
 	}
 
 	var in createBackupSelectionBody
@@ -997,14 +1554,18 @@ func (h *Handler) handleCreateBackupSelection(c *echo.Context, planID string, bo
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 	}
 
-	sel, err := h.Backend.CreateBackupSelection(planID, in.BackupSelection.SelectionName, in.BackupSelection.IamRoleArn)
+	sel, err := h.Backend.CreateBackupSelection(
+		planID,
+		in.BackupSelection.SelectionName,
+		in.BackupSelection.IamRoleArn,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyBackupPlanID: sel.BackupPlanID,
-		"SelectionId":   sel.SelectionID,
+		keySelectionID:  sel.SelectionID,
 		keyCreationDate: epochSeconds(sel.CreationTime),
 	})
 }
@@ -1022,7 +1583,10 @@ func (h *Handler) handleCreateFramework(c *echo.Context, body []byte) error {
 	}
 
 	if in.FrameworkName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "FrameworkName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "FrameworkName is required"),
+		)
 	}
 
 	f, err := h.Backend.CreateFramework(in.FrameworkName, in.FrameworkDescription)
@@ -1031,8 +1595,8 @@ func (h *Handler) handleCreateFramework(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"FrameworkArn":  f.FrameworkArn,
-		"FrameworkName": f.FrameworkName,
+		keyFrameworkArn:  f.FrameworkArn,
+		keyFrameworkName: f.FrameworkName,
 	})
 }
 
@@ -1053,7 +1617,10 @@ func (h *Handler) handleCreateLegalHold(c *echo.Context, body []byte) error {
 	}
 
 	if in.Description == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "Description is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "Description is required"),
+		)
 	}
 
 	lh, err := h.Backend.CreateLegalHold(in.Title, in.Description)
@@ -1066,7 +1633,7 @@ func (h *Handler) handleCreateLegalHold(c *echo.Context, body []byte) error {
 		"LegalHoldArn":  lh.LegalHoldArn,
 		"Title":         lh.Title,
 		"Description":   lh.Description,
-		"Status":        lh.Status,
+		keyStatus:       lh.Status,
 		keyCreationDate: epochSeconds(lh.CreationDate),
 	})
 }
@@ -1078,15 +1645,25 @@ type createLogicallyAirGappedBody struct {
 	MinRetentionDays int64             `json:"MinRetentionDays"`
 }
 
-func (h *Handler) handleCreateLogicallyAirGappedBackupVault(c *echo.Context, name string, body []byte) error {
+func (h *Handler) handleCreateLogicallyAirGappedBackupVault(
+	c *echo.Context,
+	name string,
+	body []byte,
+) error {
 	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "BackupVaultName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
 	}
 
 	var in createLogicallyAirGappedBody
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
 		}
 	}
 
@@ -1118,7 +1695,10 @@ func (h *Handler) handleCreateReportPlan(c *echo.Context, body []byte) error {
 	}
 
 	if in.ReportPlanName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "ReportPlanName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "ReportPlanName is required"),
+		)
 	}
 
 	rp, err := h.Backend.CreateReportPlan(in.ReportPlanName, in.ReportPlanDescription)
@@ -1127,9 +1707,9 @@ func (h *Handler) handleCreateReportPlan(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"ReportPlanArn":  rp.ReportPlanArn,
-		"ReportPlanName": rp.ReportPlanName,
-		keyCreationTime:  epochSeconds(rp.CreationTime),
+		keyReportPlanArn:  rp.ReportPlanArn,
+		keyReportPlanName: rp.ReportPlanName,
+		keyCreationTime:   epochSeconds(rp.CreationTime),
 	})
 }
 
@@ -1148,7 +1728,10 @@ func (h *Handler) handleCreateRestoreAccessBackupVault(c *echo.Context, body []b
 	}
 
 	if in.SourceBackupVaultArn == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "SourceBackupVaultArn is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "SourceBackupVaultArn is required"),
+		)
 	}
 
 	rav, err := h.Backend.CreateRestoreAccessBackupVault(
@@ -1183,7 +1766,10 @@ func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) e
 	}
 
 	if in.RestoreTestingPlan.RestoreTestingPlanName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "RestoreTestingPlanName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "RestoreTestingPlanName is required"),
+		)
 	}
 
 	rtp, err := h.Backend.CreateRestoreTestingPlan(
@@ -1195,9 +1781,9 @@ func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) e
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"RestoreTestingPlanArn":  rtp.RestoreTestingPlanArn,
-		"RestoreTestingPlanName": rtp.RestoreTestingPlanName,
-		keyCreationTime:          epochSeconds(rtp.CreationTime),
+		keyRestoreTestingPlanArn:  rtp.RestoreTestingPlanArn,
+		keyRestoreTestingPlanName: rtp.RestoreTestingPlanName,
+		keyCreationTime:           epochSeconds(rtp.CreationTime),
 	})
 }
 
@@ -1211,9 +1797,16 @@ type createRestoreTestingSelectionBody struct {
 	CreatorRequestID        string                     `json:"CreatorRequestId,omitempty"`
 }
 
-func (h *Handler) handleCreateRestoreTestingSelection(c *echo.Context, planName string, body []byte) error {
+func (h *Handler) handleCreateRestoreTestingSelection(
+	c *echo.Context,
+	planName string,
+	body []byte,
+) error {
 	if planName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "RestoreTestingPlanName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "RestoreTestingPlanName is required"),
+		)
 	}
 
 	var in createRestoreTestingSelectionBody
@@ -1238,9 +1831,905 @@ func (h *Handler) handleCreateRestoreTestingSelection(c *echo.Context, planName 
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"RestoreTestingPlanArn":       sel.RestoreTestingPlanArn,
-		"RestoreTestingPlanName":      sel.RestoreTestingPlanName,
-		"RestoreTestingSelectionName": sel.RestoreTestingSelectionName,
-		keyCreationTime:               epochSeconds(sel.CreationTime),
+		keyRestoreTestingPlanArn:       sel.RestoreTestingPlanArn,
+		keyRestoreTestingPlanName:      sel.RestoreTestingPlanName,
+		keyRestoreTestingSelectionName: sel.RestoreTestingSelectionName,
+		keyCreationTime:                epochSeconds(sel.CreationTime),
 	})
+}
+
+// splitVaultRP splits a "vaultName|recoveryPointArn" resource string.
+// Returns ("", "", false) if the resource is not in the expected format.
+func splitVaultRP(resource string) (string, string, bool) {
+	parts := strings.SplitN(resource, "|", splitTwo)
+	if len(parts) != splitTwo || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+
+	return parts[0], parts[1], true
+}
+
+// splitPlanSel splits a "planID|selectionID" resource string.
+// Returns ("", "", false) if the resource is not in the expected format.
+func splitPlanSel(resource string) (string, string, bool) {
+	parts := strings.SplitN(resource, "|", splitTwo)
+	if len(parts) != splitTwo || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+
+	return parts[0], parts[1], true
+}
+
+// --- Recovery point handlers ---
+
+func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultName string) error {
+	if vaultName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
+	}
+
+	pts, err := h.Backend.ListRecoveryPointsByBackupVault(vaultName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(pts))
+	for _, rp := range pts {
+		item := map[string]any{
+			keyRecoveryPointArn: rp.RecoveryPointArn,
+			"BackupVaultName":   rp.BackupVaultName,
+			keyBackupVaultArn:   rp.BackupVaultArn,
+			keyStatus:           rp.Status,
+			keyCreationDate:     epochSeconds(rp.CreationDate),
+		}
+		if rp.ResourceArn != "" {
+			item["ResourceArn"] = rp.ResourceArn
+		}
+		if rp.ResourceType != "" {
+			item["ResourceType"] = rp.ResourceType
+		}
+		items = append(items, item)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"RecoveryPoints": items,
+	})
+}
+
+func (h *Handler) handleDescribeRecoveryPoint(c *echo.Context, resource string) error {
+	vaultName, rpArn, ok := splitVaultRP(resource)
+	if !ok {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "invalid resource path"),
+		)
+	}
+
+	rp, err := h.Backend.DescribeRecoveryPoint(vaultName, rpArn)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	resp := map[string]any{
+		keyRecoveryPointArn: rp.RecoveryPointArn,
+		"BackupVaultName":   rp.BackupVaultName,
+		keyBackupVaultArn:   rp.BackupVaultArn,
+		keyStatus:           rp.Status,
+		keyCreationDate:     epochSeconds(rp.CreationDate),
+	}
+	if rp.ResourceArn != "" {
+		resp["ResourceArn"] = rp.ResourceArn
+	}
+	if rp.ResourceType != "" {
+		resp["ResourceType"] = rp.ResourceType
+	}
+	if rp.IAMRoleArn != "" {
+		resp["IamRoleArn"] = rp.IAMRoleArn
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleGetRecoveryPointRestoreMetadata(c *echo.Context, resource string) error {
+	vaultName, rpArn, ok := splitVaultRP(resource)
+	if !ok {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "invalid resource path"),
+		)
+	}
+
+	metadata, err := h.Backend.GetRecoveryPointRestoreMetadata(vaultName, rpArn)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyBackupVaultArn:   "",
+		keyRecoveryPointArn: rpArn,
+		"RestoreMetadata":   metadata,
+	})
+}
+
+func (h *Handler) handleDeleteRecoveryPoint(c *echo.Context, resource string) error {
+	vaultName, rpArn, ok := splitVaultRP(resource)
+	if !ok {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "invalid resource path"),
+		)
+	}
+
+	if err := h.Backend.DeleteRecoveryPoint(vaultName, rpArn); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleDisassociateRecoveryPoint(c *echo.Context, resource string) error {
+	vaultName, rpArn, ok := splitVaultRP(resource)
+	if !ok {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "invalid resource path"),
+		)
+	}
+
+	if err := h.Backend.DisassociateRecoveryPoint(vaultName, rpArn); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleDisassociateRecoveryPointFromParent(
+	c *echo.Context,
+	resource string,
+) error {
+	vaultName, rpArn, ok := splitVaultRP(resource)
+	if !ok {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "invalid resource path"),
+		)
+	}
+
+	if err := h.Backend.DisassociateRecoveryPointFromParent(vaultName, rpArn); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- Vault compliance handlers ---
+
+type putVaultAccessPolicyBody struct {
+	Policy string `json:"Policy"`
+}
+
+func (h *Handler) handlePutBackupVaultAccessPolicy(
+	c *echo.Context,
+	vaultName string,
+	body []byte,
+) error {
+	if vaultName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
+	}
+
+	var in putVaultAccessPolicyBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
+		}
+	}
+
+	if err := h.Backend.PutBackupVaultAccessPolicy(vaultName, in.Policy); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleGetBackupVaultAccessPolicy(c *echo.Context, vaultName string) error {
+	if vaultName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
+	}
+
+	pol, err := h.Backend.GetBackupVaultAccessPolicy(vaultName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyBackupVaultArn:  "",
+		keyBackupVaultName: vaultName,
+		"Policy":           pol.Policy,
+	})
+}
+
+func (h *Handler) handleDeleteBackupVaultAccessPolicy(c *echo.Context, vaultName string) error {
+	if vaultName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
+	}
+
+	if err := h.Backend.DeleteBackupVaultAccessPolicy(vaultName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+type putVaultLockConfigBody struct {
+	MinRetentionDays  int64 `json:"MinRetentionDays,omitempty"`
+	MaxRetentionDays  int64 `json:"MaxRetentionDays,omitempty"`
+	ChangeableForDays int64 `json:"ChangeableForDays,omitempty"`
+}
+
+func (h *Handler) handlePutBackupVaultLockConfiguration(
+	c *echo.Context,
+	vaultName string,
+	body []byte,
+) error {
+	if vaultName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
+	}
+
+	var in putVaultLockConfigBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
+		}
+	}
+
+	cfg := &VaultLockConfig{
+		MinRetentionDays:  in.MinRetentionDays,
+		MaxRetentionDays:  in.MaxRetentionDays,
+		ChangeableForDays: in.ChangeableForDays,
+	}
+
+	if err := h.Backend.PutBackupVaultLockConfiguration(vaultName, cfg); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleDeleteBackupVaultLockConfiguration(
+	c *echo.Context,
+	vaultName string,
+) error {
+	if vaultName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
+	}
+
+	if err := h.Backend.DeleteBackupVaultLockConfiguration(vaultName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+type putVaultNotificationsBody struct {
+	SNSTopicArn       string   `json:"SNSTopicArn"`
+	BackupVaultEvents []string `json:"BackupVaultEvents"`
+}
+
+func (h *Handler) handlePutBackupVaultNotifications(
+	c *echo.Context,
+	vaultName string,
+	body []byte,
+) error {
+	if vaultName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
+	}
+
+	var in putVaultNotificationsBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
+		}
+	}
+
+	cfg := &VaultNotificationConfig{
+		SNSTopicArn:       in.SNSTopicArn,
+		BackupVaultEvents: in.BackupVaultEvents,
+	}
+
+	if err := h.Backend.PutBackupVaultNotifications(vaultName, cfg); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleGetBackupVaultNotifications(c *echo.Context, vaultName string) error {
+	if vaultName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
+	}
+
+	cfg, err := h.Backend.GetBackupVaultNotifications(vaultName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyBackupVaultArn:   "",
+		keyBackupVaultName:  vaultName,
+		"SNSTopicArn":       cfg.SNSTopicArn,
+		"BackupVaultEvents": cfg.BackupVaultEvents,
+	})
+}
+
+func (h *Handler) handleDeleteBackupVaultNotifications(c *echo.Context, vaultName string) error {
+	if vaultName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupVaultName is required"),
+		)
+	}
+
+	if err := h.Backend.DeleteBackupVaultNotifications(vaultName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- Backup selection read/delete handlers ---
+
+func (h *Handler) handleGetBackupSelection(c *echo.Context, resource string) error {
+	planID, selID, ok := splitPlanSel(resource)
+	if !ok {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "invalid resource path"),
+		)
+	}
+
+	sel, err := h.Backend.GetBackupSelection(planID, selID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyBackupPlanID: sel.BackupPlanID,
+		keySelectionID:  sel.SelectionID,
+		keyCreationDate: epochSeconds(sel.CreationTime),
+		"BackupSelection": map[string]any{
+			"SelectionName": sel.SelectionName,
+			"IamRoleArn":    sel.IAMRoleArn,
+		},
+	})
+}
+
+func (h *Handler) handleListBackupSelections(c *echo.Context, planID string) error {
+	if planID == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "BackupPlanId is required"),
+		)
+	}
+
+	sels, err := h.Backend.ListBackupSelections(planID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(sels))
+	for _, sel := range sels {
+		items = append(items, map[string]any{
+			keyBackupPlanID: sel.BackupPlanID,
+			keySelectionID:  sel.SelectionID,
+			"SelectionName": sel.SelectionName,
+			keyCreationDate: epochSeconds(sel.CreationTime),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupSelectionsList": items,
+	})
+}
+
+func (h *Handler) handleDeleteBackupSelection(c *echo.Context, resource string) error {
+	planID, selID, ok := splitPlanSel(resource)
+	if !ok {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "invalid resource path"),
+		)
+	}
+
+	if err := h.Backend.DeleteBackupSelection(planID, selID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- Copy job handlers ---
+
+func (h *Handler) handleListCopyJobs(c *echo.Context) error {
+	jobs := h.Backend.ListCopyJobs()
+	items := make([]map[string]any, 0, len(jobs))
+
+	for _, j := range jobs {
+		item := map[string]any{
+			"CopyJobId":     j.CopyJobID,
+			keyState:        j.State,
+			keyCreationDate: epochSeconds(j.CreationDate),
+		}
+		if j.ResourceArn != "" {
+			item["ResourceArn"] = j.ResourceArn
+		}
+		if j.SourceBackupVaultArn != "" {
+			item["SourceBackupVaultArn"] = j.SourceBackupVaultArn
+		}
+		if j.DestinationBackupVaultArn != "" {
+			item["DestinationBackupVaultArn"] = j.DestinationBackupVaultArn
+		}
+		items = append(items, item)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"CopyJobs": items,
+	})
+}
+
+func (h *Handler) handleDescribeCopyJob(c *echo.Context, copyJobID string) error {
+	if copyJobID == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "CopyJobId is required"),
+		)
+	}
+
+	j, err := h.Backend.DescribeCopyJob(copyJobID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	resp := map[string]any{
+		"CopyJobId":     j.CopyJobID,
+		keyState:        j.State,
+		keyCreationDate: epochSeconds(j.CreationDate),
+	}
+	if j.ResourceArn != "" {
+		resp["ResourceArn"] = j.ResourceArn
+	}
+	if j.SourceBackupVaultArn != "" {
+		resp["SourceBackupVaultArn"] = j.SourceBackupVaultArn
+	}
+	if j.DestinationBackupVaultArn != "" {
+		resp["DestinationBackupVaultArn"] = j.DestinationBackupVaultArn
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"CopyJob": resp,
+	})
+}
+
+// --- Restore testing read/update/delete handlers ---
+
+func (h *Handler) handleGetRestoreTestingPlan(c *echo.Context, planName string) error {
+	if planName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "RestoreTestingPlanName is required"),
+		)
+	}
+
+	rtp, err := h.Backend.GetRestoreTestingPlan(planName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"RestoreTestingPlan": map[string]any{
+			keyRestoreTestingPlanArn:  rtp.RestoreTestingPlanArn,
+			keyRestoreTestingPlanName: rtp.RestoreTestingPlanName,
+			"ScheduleExpression":      rtp.ScheduleExpression,
+			keyCreationTime:           epochSeconds(rtp.CreationTime),
+		},
+	})
+}
+
+func (h *Handler) handleListRestoreTestingPlans(c *echo.Context) error {
+	plans := h.Backend.ListRestoreTestingPlans()
+	items := make([]map[string]any, 0, len(plans))
+
+	for _, rtp := range plans {
+		items = append(items, map[string]any{
+			keyRestoreTestingPlanArn:  rtp.RestoreTestingPlanArn,
+			keyRestoreTestingPlanName: rtp.RestoreTestingPlanName,
+			"ScheduleExpression":      rtp.ScheduleExpression,
+			keyCreationTime:           epochSeconds(rtp.CreationTime),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"RestoreTestingPlans": items,
+	})
+}
+
+type updateRestoreTestingPlanBody struct {
+	RestoreTestingPlan restoreTestingPlanDoc `json:"RestoreTestingPlan"`
+}
+
+func (h *Handler) handleUpdateRestoreTestingPlan(
+	c *echo.Context,
+	planName string,
+	body []byte,
+) error {
+	if planName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "RestoreTestingPlanName is required"),
+		)
+	}
+
+	var in updateRestoreTestingPlanBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
+		}
+	}
+
+	rtp, err := h.Backend.UpdateRestoreTestingPlan(
+		planName,
+		in.RestoreTestingPlan.ScheduleExpression,
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyRestoreTestingPlanArn:  rtp.RestoreTestingPlanArn,
+		keyRestoreTestingPlanName: rtp.RestoreTestingPlanName,
+		keyCreationTime:           epochSeconds(rtp.CreationTime),
+	})
+}
+
+func (h *Handler) handleDeleteRestoreTestingPlan(c *echo.Context, planName string) error {
+	if planName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "RestoreTestingPlanName is required"),
+		)
+	}
+
+	if err := h.Backend.DeleteRestoreTestingPlan(planName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleGetRestoreTestingSelection(c *echo.Context, resource string) error {
+	planName, selName, ok := splitPlanSel(resource)
+	if !ok {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "invalid resource path"),
+		)
+	}
+
+	sel, err := h.Backend.GetRestoreTestingSelection(planName, selName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"RestoreTestingSelection": map[string]any{
+			keyRestoreTestingPlanName:      sel.RestoreTestingPlanName,
+			keyRestoreTestingSelectionName: sel.RestoreTestingSelectionName,
+			"ProtectedResourceType":        sel.ProtectedResourceType,
+			keyCreationTime:                epochSeconds(sel.CreationTime),
+		},
+	})
+}
+
+func (h *Handler) handleListRestoreTestingSelections(c *echo.Context, planName string) error {
+	if planName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "RestoreTestingPlanName is required"),
+		)
+	}
+
+	sels, err := h.Backend.ListRestoreTestingSelections(planName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(sels))
+	for _, sel := range sels {
+		items = append(items, map[string]any{
+			keyRestoreTestingPlanName:      sel.RestoreTestingPlanName,
+			keyRestoreTestingSelectionName: sel.RestoreTestingSelectionName,
+			"ProtectedResourceType":        sel.ProtectedResourceType,
+			keyCreationTime:                epochSeconds(sel.CreationTime),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"RestoreTestingSelections": items,
+	})
+}
+
+type updateRestoreTestingSelectionBody struct {
+	RestoreTestingSelection restoreTestingSelectionDoc `json:"RestoreTestingSelection"`
+}
+
+func (h *Handler) handleUpdateRestoreTestingSelection(
+	c *echo.Context,
+	resource string,
+	body []byte,
+) error {
+	planName, selName, ok := splitPlanSel(resource)
+	if !ok {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "invalid resource path"),
+		)
+	}
+
+	var in updateRestoreTestingSelectionBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
+		}
+	}
+
+	sel, err := h.Backend.UpdateRestoreTestingSelection(
+		planName,
+		selName,
+		in.RestoreTestingSelection.ProtectedResourceType,
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyRestoreTestingPlanArn:       sel.RestoreTestingPlanArn,
+		keyRestoreTestingPlanName:      sel.RestoreTestingPlanName,
+		keyRestoreTestingSelectionName: sel.RestoreTestingSelectionName,
+		keyCreationTime:                epochSeconds(sel.CreationTime),
+	})
+}
+
+func (h *Handler) handleDeleteRestoreTestingSelection(c *echo.Context, resource string) error {
+	planName, selName, ok := splitPlanSel(resource)
+	if !ok {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "invalid resource path"),
+		)
+	}
+
+	if err := h.Backend.DeleteRestoreTestingSelection(planName, selName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- Framework read/update/delete handlers ---
+
+func (h *Handler) handleDescribeFramework(c *echo.Context, name string) error {
+	if name == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "FrameworkName is required"),
+		)
+	}
+
+	f, err := h.Backend.DescribeFramework(name)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyFrameworkArn:        f.FrameworkArn,
+		keyFrameworkName:       f.FrameworkName,
+		"FrameworkDescription": f.FrameworkDescription,
+		keyCreationTime:        epochSeconds(f.CreationTime),
+	})
+}
+
+func (h *Handler) handleListFrameworks(c *echo.Context) error {
+	frameworks := h.Backend.ListFrameworks()
+	items := make([]map[string]any, 0, len(frameworks))
+
+	for _, f := range frameworks {
+		items = append(items, map[string]any{
+			keyFrameworkArn:        f.FrameworkArn,
+			keyFrameworkName:       f.FrameworkName,
+			"FrameworkDescription": f.FrameworkDescription,
+			keyCreationTime:        epochSeconds(f.CreationTime),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"Frameworks": items,
+	})
+}
+
+type updateFrameworkBody struct {
+	FrameworkDescription string `json:"FrameworkDescription,omitempty"`
+	IdempotencyToken     string `json:"IdempotencyToken,omitempty"`
+}
+
+func (h *Handler) handleUpdateFramework(c *echo.Context, name string, body []byte) error {
+	if name == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "FrameworkName is required"),
+		)
+	}
+
+	var in updateFrameworkBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
+		}
+	}
+
+	f, err := h.Backend.UpdateFramework(name, in.FrameworkDescription)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyFrameworkArn:  f.FrameworkArn,
+		keyFrameworkName: f.FrameworkName,
+	})
+}
+
+func (h *Handler) handleDeleteFramework(c *echo.Context, name string) error {
+	if name == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "FrameworkName is required"),
+		)
+	}
+
+	if err := h.Backend.DeleteFramework(name); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- Report plan read/update/delete handlers ---
+
+func (h *Handler) handleListReportPlans(c *echo.Context) error {
+	plans := h.Backend.ListReportPlans()
+	items := make([]map[string]any, 0, len(plans))
+
+	for _, rp := range plans {
+		items = append(items, map[string]any{
+			keyReportPlanArn:        rp.ReportPlanArn,
+			keyReportPlanName:       rp.ReportPlanName,
+			"ReportPlanDescription": rp.ReportPlanDescription,
+			keyCreationTime:         epochSeconds(rp.CreationTime),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"ReportPlans": items,
+	})
+}
+
+func (h *Handler) handleDescribeReportPlan(c *echo.Context, name string) error {
+	if name == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "ReportPlanName is required"),
+		)
+	}
+
+	rp, err := h.Backend.DescribeReportPlan(name)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"ReportPlan": map[string]any{
+			keyReportPlanArn:        rp.ReportPlanArn,
+			keyReportPlanName:       rp.ReportPlanName,
+			"ReportPlanDescription": rp.ReportPlanDescription,
+			keyCreationTime:         epochSeconds(rp.CreationTime),
+		},
+	})
+}
+
+type updateReportPlanBody struct {
+	ReportPlanDescription string `json:"ReportPlanDescription,omitempty"`
+	IdempotencyToken      string `json:"IdempotencyToken,omitempty"`
+}
+
+func (h *Handler) handleUpdateReportPlan(c *echo.Context, name string, body []byte) error {
+	if name == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "ReportPlanName is required"),
+		)
+	}
+
+	var in updateReportPlanBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid request body"),
+			)
+		}
+	}
+
+	rp, err := h.Backend.UpdateReportPlan(name, in.ReportPlanDescription)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyReportPlanArn:  rp.ReportPlanArn,
+		keyReportPlanName: rp.ReportPlanName,
+	})
+}
+
+func (h *Handler) handleDeleteReportPlan(c *echo.Context, name string) error {
+	if name == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "ReportPlanName is required"),
+		)
+	}
+
+	if err := h.Backend.DeleteReportPlan(name); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
 }
