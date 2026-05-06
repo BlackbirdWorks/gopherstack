@@ -77,6 +77,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteTrustedTokenIssuer",
 		"DescribeApplication",
 		"DescribeAccountAssignmentCreationStatus",
+		"DescribeRegion",
 		"DescribeAccountAssignmentDeletionStatus",
 		"DescribeApplicationAssignment",
 		"DescribeApplicationProvider",
@@ -411,6 +412,8 @@ func (h *Handler) dispatchRefinement3Ops(c *echo.Context, op string, body []byte
 		return h.handleListAccountsForProvisionedPermissionSet(c, body)
 	case "ListApplicationAssignmentsForPrincipal":
 		return h.handleListApplicationAssignmentsForPrincipal(c, body)
+	case "DescribeRegion":
+		return h.handleDescribeRegion(c, body)
 	default:
 		return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
 	}
@@ -2273,6 +2276,14 @@ func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
 	return writeJSON(c, http.StatusOK, map[string]any{
 		"Regions":    out,
 		keyNextToken: nil,
+	})
+}
+
+func (h *Handler) handleDescribeRegion(c *echo.Context, _ []byte) error {
+	// DescribeRegion returns metadata about a region for an SSO instance.
+	// In-process simulation returns a minimal stub response.
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Region": map[string]any{},
 	})
 }
 

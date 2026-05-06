@@ -17,10 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := stepfunctions.NewInMemoryBackend()
 	h := stepfunctions.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &stepfunctionssdk.Client{}, h.GetSupportedOperations(), []string{
-		"DescribeMapRun",
-		"ListMapRuns",
-		"TestState",
-		"UpdateMapRun",
-	})
+	sdkcheck.CheckCompleteness(t, &stepfunctionssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

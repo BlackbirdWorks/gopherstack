@@ -17,7 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := athena.NewInMemoryBackend()
 	h := athena.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &athenasdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetResourceDashboard",
-	})
+	sdkcheck.CheckCompleteness(t, &athenasdk.Client{}, h.GetSupportedOperations(), []string{})
 }

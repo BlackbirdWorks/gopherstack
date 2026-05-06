@@ -17,10 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := eventbridge.NewInMemoryBackend()
 	h := eventbridge.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &eventbridgesdk.Client{}, h.GetSupportedOperations(), []string{
-		// ListPartnerEventSourceAccounts returns accounts that have been granted
-		// access to a partner event source. This is a cross-account metadata
-		// operation that has no meaningful in-process simulation.
-		"ListPartnerEventSourceAccounts",
-	})
+	sdkcheck.CheckCompleteness(t, &eventbridgesdk.Client{}, h.GetSupportedOperations(), []string{})
 }
