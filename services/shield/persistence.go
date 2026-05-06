@@ -9,6 +9,7 @@ type backendSnapshot struct {
 	Protections               map[string]*Protection      `json:"protections"`
 	ProtectionGroups          map[string]*ProtectionGroup `json:"protectionGroups"`
 	Attacks                   map[string]*Attack          `json:"attacks"`
+	ALARConfigs               map[string]*ALARConfig      `json:"alarConfigs,omitempty"`
 	Subscription              *Subscription               `json:"subscription,omitempty"`
 	DRTAccess                 *DRTAccess                  `json:"drtAccess,omitempty"`
 	AccountID                 string                      `json:"accountID"`
@@ -62,10 +63,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		drtCopy = &cp
 	}
 
+	alarCopy := make(map[string]*ALARConfig, len(b.alarConfigs))
+	for k, v := range b.alarConfigs {
+		cp := *v
+		alarCopy[k] = &cp
+	}
+
 	snap := backendSnapshot{
 		Protections:               protectionsCopy,
 		ProtectionGroups:          groupsCopy,
 		Attacks:                   attacksCopy,
+		ALARConfigs:               alarCopy,
 		Subscription:              b.subscription,
 		DRTAccess:                 drtCopy,
 		EmergencyContacts:         append([]EmergencyContact(nil), b.emergencyContacts...),
@@ -106,6 +114,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.proactiveEngagementStatus = snap.ProactiveEngagementStatus
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	if snap.ALARConfigs != nil {
+		b.alarConfigs = snap.ALARConfigs
+	} else {
+		b.alarConfigs = make(map[string]*ALARConfig)
+	}
 
 	// Rebuild O(1) indexes.
 	b.resourceARNIndex = make(map[string]string, len(snap.Protections))

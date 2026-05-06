@@ -199,11 +199,20 @@ type AttackStatisticsItem struct {
 	AttackCount int64 `json:"AttackCount"`
 }
 
+// ALARConfig holds Application Layer Automatic Response configuration for a protection.
+type ALARConfig struct {
+	// Action is either "BLOCK" or "COUNT".
+	Action  string `json:"action"`
+	Enabled bool   `json:"enabled"`
+}
+
 // InMemoryBackend is an in-memory store for Shield Advanced resources.
 type InMemoryBackend struct {
-	protections               map[string]*Protection
-	protectionGroups          map[string]*ProtectionGroup
-	attacks                   map[string]*Attack
+	protections      map[string]*Protection
+	protectionGroups map[string]*ProtectionGroup
+	attacks          map[string]*Attack
+	// alarConfigs maps ResourceArn -> ALARConfig
+	alarConfigs               map[string]*ALARConfig
 	subscription              *Subscription
 	drtAccess                 *DRTAccess
 	resourceARNIndex          map[string]string
@@ -221,6 +230,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		protections:      make(map[string]*Protection),
 		protectionGroups: make(map[string]*ProtectionGroup),
 		attacks:          make(map[string]*Attack),
+		alarConfigs:      make(map[string]*ALARConfig),
 		resourceARNIndex: make(map[string]string),
 		nameIndex:        make(map[string]string),
 		accountID:        accountID,
@@ -449,12 +459,96 @@ func (b *InMemoryBackend) Reset() {
 	b.protections = make(map[string]*Protection)
 	b.protectionGroups = make(map[string]*ProtectionGroup)
 	b.attacks = make(map[string]*Attack)
+	b.alarConfigs = make(map[string]*ALARConfig)
 	b.resourceARNIndex = make(map[string]string)
 	b.nameIndex = make(map[string]string)
 	b.subscription = nil
 	b.drtAccess = nil
 	b.emergencyContacts = nil
 	b.proactiveEngagementStatus = ""
+}
+
+// EnableApplicationLayerAutomaticResponse enables ALAR for the given resource ARN.
+// action must be "BLOCK" or "COUNT".
+func (b *InMemoryBackend) EnableApplicationLayerAutomaticResponse(resourceARN, action string) error {
+	b.mu.Lock("EnableApplicationLayerAutomaticResponse")
+	defer b.mu.Unlock()
+
+	if b.subscription == nil {
+		return fmt.Errorf("%w: Shield Advanced subscription is required", ErrSubscriptionRequired)
+	}
+
+	if _, ok := b.resourceARNIndex[resourceARN]; !ok {
+		return fmt.Errorf("%w: no protection found for resource %q", ErrProtectionNotFound, resourceARN)
+	}
+
+	b.alarConfigs[resourceARN] = &ALARConfig{Enabled: true, Action: action}
+
+	return nil
+}
+
+// DisableApplicationLayerAutomaticResponse disables ALAR for the given resource ARN.
+func (b *InMemoryBackend) DisableApplicationLayerAutomaticResponse(resourceARN string) error {
+	b.mu.Lock("DisableApplicationLayerAutomaticResponse")
+	defer b.mu.Unlock()
+
+	if _, ok := b.resourceARNIndex[resourceARN]; !ok {
+		return fmt.Errorf("%w: no protection found for resource %q", ErrProtectionNotFound, resourceARN)
+	}
+
+	delete(b.alarConfigs, resourceARN)
+
+	return nil
+}
+
+// UpdateApplicationLayerAutomaticResponse updates the ALAR action for a resource ARN.
+func (b *InMemoryBackend) UpdateApplicationLayerAutomaticResponse(resourceARN, action string) error {
+	b.mu.Lock("UpdateApplicationLayerAutomaticResponse")
+	defer b.mu.Unlock()
+
+	if _, ok := b.resourceARNIndex[resourceARN]; !ok {
+		return fmt.Errorf("%w: no protection found for resource %q", ErrProtectionNotFound, resourceARN)
+	}
+
+	cfg, ok := b.alarConfigs[resourceARN]
+	if !ok || !cfg.Enabled {
+		return fmt.Errorf(
+			"%w: ALAR is not enabled for resource %q; enable it first",
+			ErrValidation,
+			resourceARN,
+		)
+	}
+
+	cfg.Action = action
+
+	return nil
+}
+
+// ListResourcesInProtectionGroup returns the member ARNs for a protection group.
+// For groups with Pattern=ALL it returns ARNs of all current protections.
+func (b *InMemoryBackend) ListResourcesInProtectionGroup(protectionGroupID string) ([]string, error) {
+	b.mu.RLock("ListResourcesInProtectionGroup")
+	defer b.mu.RUnlock()
+
+	pg, ok := b.protectionGroups[protectionGroupID]
+	if !ok {
+		return nil, fmt.Errorf("%w: protection group %q not found", ErrProtectionGroupNotFound, protectionGroupID)
+	}
+
+	if pg.Pattern == PatternAll {
+		arns := make([]string, 0, len(b.protections))
+		for _, p := range b.protections {
+			arns = append(arns, p.ResourceARN)
+		}
+
+		slices.Sort(arns)
+
+		return arns, nil
+	}
+
+	members := append([]string(nil), pg.Members...)
+
+	return members, nil
 }
 
 // AddProtectionInternal creates a protection directly (for tests).
