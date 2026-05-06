@@ -1,4 +1,4 @@
-package sagemakerrumtime
+package sagemakerruntime
 
 import (
 	"time"
@@ -35,7 +35,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		invocations: make([]*Invocation, 0),
 		accountID:   accountID,
 		region:      region,
-		mu:          lockmetrics.New("sagemakerrumtime"),
+		mu:          lockmetrics.New("sagemakerruntime"),
 	}
 }
 

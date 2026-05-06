@@ -405,6 +405,7 @@ export function getEFSClient(region?: string): EFSClient {
 }
 
 import { SageMakerClient } from "@aws-sdk/client-sagemaker";
+import { SageMakerRuntimeClient } from "@aws-sdk/client-sagemaker-runtime";
 import { CodeCommitClient } from "@aws-sdk/client-codecommit";
 import { CodeartifactClient } from "@aws-sdk/client-codeartifact";
 import { RAMClient } from "@aws-sdk/client-ram";
@@ -455,6 +456,10 @@ import { SWFClient } from "@aws-sdk/client-swf";
 
 export function getSageMakerClient(region?: string): SageMakerClient {
   return new SageMakerClient(clientConfig(region));
+}
+
+export function getSageMakerRuntimeClient(region?: string): SageMakerRuntimeClient {
+  return new SageMakerRuntimeClient(clientConfig(region));
 }
 
 export function getCodeCommitClient(region?: string): CodeCommitClient {

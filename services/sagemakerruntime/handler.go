@@ -1,4 +1,4 @@
-package sagemakerrumtime
+package sagemakerruntime
 
 import (
 	"encoding/binary"
@@ -101,7 +101,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			log.ErrorContext(r.Context(), "sagemakerrumtime: failed to read request body", "error", err)
+			log.ErrorContext(r.Context(), "sagemakerruntime: failed to read request body", "error", err)
 
 			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 		}
