@@ -749,6 +749,126 @@ func (b *InMemoryBackend) DeleteEnvironmentConfiguration(_, _ string) error {
 	return nil
 }
 
+// DeletePlatformVersion removes a platform version by ARN and returns the deleted version.
+func (b *InMemoryBackend) DeletePlatformVersion(platformARN string) (*PlatformVersion, error) {
+	b.mu.Lock("DeletePlatformVersion")
+	defer b.mu.Unlock()
+
+	pv, ok := b.platformVersions[platformARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: platform version %s not found", ErrNotFound, platformARN)
+	}
+
+	out := clonePlatformVersion(pv)
+	delete(b.platformVersions, platformARN)
+
+	return out, nil
+}
+
+// DescribePlatformVersion returns a platform version by ARN.
+func (b *InMemoryBackend) DescribePlatformVersion(platformARN string) (*PlatformVersion, error) {
+	b.mu.RLock("DescribePlatformVersion")
+	defer b.mu.RUnlock()
+
+	pv, ok := b.platformVersions[platformARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: platform version %s not found", ErrNotFound, platformARN)
+	}
+
+	return clonePlatformVersion(pv), nil
+}
+
+// DescribeEnvironmentHealth returns the health and status of an environment by name.
+func (b *InMemoryBackend) DescribeEnvironmentHealth(envName string) (string, string) {
+	b.mu.RLock("DescribeEnvironmentHealth")
+	defer b.mu.RUnlock()
+
+	for _, env := range b.environments {
+		if env.EnvironmentName == envName {
+			return env.Health, env.Status
+		}
+	}
+
+	return "Grey", "Terminated"
+}
+
+// DisassociateEnvironmentOperationsRole removes the operations role from an environment.
+func (b *InMemoryBackend) DisassociateEnvironmentOperationsRole(envName string) error {
+	b.mu.Lock("DisassociateEnvironmentOperationsRole")
+	defer b.mu.Unlock()
+
+	for _, env := range b.environments {
+		if env.EnvironmentName == envName {
+			env.OperationsRole = ""
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: environment %s not found", ErrNotFound, envName)
+}
+
+// ListPlatformVersions returns all stored platform versions sorted by ARN.
+func (b *InMemoryBackend) ListPlatformVersions() []*PlatformVersion {
+	b.mu.RLock("ListPlatformVersions")
+	defer b.mu.RUnlock()
+
+	list := make([]*PlatformVersion, 0, len(b.platformVersions))
+
+	for _, pv := range b.platformVersions {
+		list = append(list, clonePlatformVersion(pv))
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].PlatformArn < list[j].PlatformArn
+	})
+
+	return list
+}
+
+// SwapEnvironmentCNAMEs is a no-op stub — in-memory environments have no real CNAME routing.
+func (b *InMemoryBackend) SwapEnvironmentCNAMEs(_, _ string) error {
+	return nil
+}
+
+// UpdateApplicationVersion updates an application version's description.
+func (b *InMemoryBackend) UpdateApplicationVersion(
+	appName, versionLabel, description string,
+) (*ApplicationVersion, error) {
+	b.mu.Lock("UpdateApplicationVersion")
+	defer b.mu.Unlock()
+
+	key := appVersionKey(appName, versionLabel)
+
+	ver, ok := b.appVersions[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: application version %s not found", ErrNotFound, versionLabel)
+	}
+
+	ver.Description = description
+
+	return cloneApplicationVersion(ver), nil
+}
+
+// UpdateConfigurationTemplate updates a configuration template's description.
+func (b *InMemoryBackend) UpdateConfigurationTemplate(
+	appName, templateName, description string,
+) (*ConfigurationTemplate, error) {
+	b.mu.Lock("UpdateConfigurationTemplate")
+	defer b.mu.Unlock()
+
+	key := configTemplateKey(appName, templateName)
+
+	tmpl, ok := b.configTemplates[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: configuration template %s not found", ErrNotFound, templateName)
+	}
+
+	tmpl.Description = description
+
+	return cloneConfigurationTemplate(tmpl), nil
+}
+
 // --- Seed helpers (used in tests via export_test.go) ---
 
 // addApplicationInternal seeds an application directly into the backend, bypassing validation.

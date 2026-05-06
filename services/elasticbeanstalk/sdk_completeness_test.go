@@ -17,25 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := elasticbeanstalk.NewInMemoryBackend("000000000000", "us-east-1")
 	h := elasticbeanstalk.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &elasticbeanstalksdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeletePlatformVersion",
-		"DescribeAccountAttributes",
-		"DescribeConfigurationOptions",
-		"DescribeEnvironmentHealth",
-		"DescribeEnvironmentManagedActionHistory",
-		"DescribeEnvironmentManagedActions",
-		"DescribeInstancesHealth",
-		"DescribePlatformVersion",
-		"DisassociateEnvironmentOperationsRole",
-		"ListAvailableSolutionStacks",
-		"ListPlatformBranches",
-		"ListPlatformVersions",
-		"RequestEnvironmentInfo",
-		"RetrieveEnvironmentInfo",
-		"SwapEnvironmentCNAMEs",
-		"UpdateApplicationResourceLifecycle",
-		"UpdateApplicationVersion",
-		"UpdateConfigurationTemplate",
-		"ValidateConfigurationSettings",
-	})
+	sdkcheck.CheckCompleteness(t, &elasticbeanstalksdk.Client{}, h.GetSupportedOperations(), []string{})
 }
