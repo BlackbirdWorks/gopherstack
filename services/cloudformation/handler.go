@@ -86,6 +86,74 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ContinueUpdateRollback",
 		"CancelUpdateStack",
 		"DescribeAccountLimits",
+		// Stack Sets
+		"CreateStackSet",
+		"UpdateStackSet",
+		"DeleteStackSet",
+		"DescribeStackSet",
+		"ListStackSets",
+		"CreateStackInstances",
+		"DeleteStackInstances",
+		"UpdateStackInstances",
+		"ListStackInstances",
+		"DescribeStackInstance",
+		"DetectStackSetDrift",
+		"ListStackSetOperations",
+		"DescribeStackSetOperation",
+		"StopStackSetOperation",
+		"ListStackSetOperationResults",
+		"ListStackSetAutoDeploymentTargets",
+		"ImportStacksToStackSet",
+		"ListStackInstanceResourceDrifts",
+		// Generated templates
+		"CreateGeneratedTemplate",
+		"UpdateGeneratedTemplate",
+		"DeleteGeneratedTemplate",
+		"DescribeGeneratedTemplate",
+		"GetGeneratedTemplate",
+		"ListGeneratedTemplates",
+		// Resource scans
+		"StartResourceScan",
+		"DescribeResourceScan",
+		"ListResourceScans",
+		"ListResourceScanResources",
+		"ListResourceScanRelatedResources",
+		// Type management
+		"ActivateType",
+		"DeactivateType",
+		"RegisterType",
+		"DeregisterType",
+		"PublishType",
+		"SetTypeDefaultVersion",
+		"SetTypeConfiguration",
+		"BatchDescribeTypeConfigurations",
+		"ListTypes",
+		"ListTypeVersions",
+		"ListTypeRegistrations",
+		"DescribeTypeRegistration",
+		"TestType",
+		"RegisterPublisher",
+		"DescribePublisher",
+		// Stack refactor
+		"CreateStackRefactor",
+		"DescribeStackRefactor",
+		"ExecuteStackRefactor",
+		"ListStackRefactors",
+		"ListStackRefactorActions",
+		// Org access
+		"ActivateOrganizationsAccess",
+		"DeactivateOrganizationsAccess",
+		"DescribeOrganizationsAccess",
+		// Misc
+		"SignalResource",
+		"RollbackStack",
+		"RecordHandlerProgress",
+		"GetHookResult",
+		"ListHookResults",
+		"DescribeChangeSetHooks",
+		"DescribeEvents",
+		"UpdateTerminationProtection",
+		"ValidateTemplate",
 	}
 }
 
@@ -179,6 +247,10 @@ func (h *Handler) dispatch(action string, form url.Values, c *echo.Context) erro
 	}
 
 	if handled, err := h.dispatchExtOps(action, form, c); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchOps(action, form, c); handled {
 		return err
 	}
 
