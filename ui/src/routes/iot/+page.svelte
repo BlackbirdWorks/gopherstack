@@ -9,9 +9,15 @@
 		DeleteThingCommand,
 		ListThingGroupsCommand,
 		ListTopicRulesCommand,
+		GetTopicRuleCommand,
+		ListPoliciesCommand,
+		CreatePolicyCommand,
+		DeletePolicyCommand,
+		GetPolicyCommand,
 		type ThingAttribute,
 		type GroupNameAndArn,
-		type TopicRuleListItem
+		type TopicRuleListItem,
+		type Policy
 	} from '@aws-sdk/client-iot';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -23,13 +29,14 @@
 		Eye,
 		Tag,
 		GitBranch,
-		Radio
+		Radio,
+		ShieldCheck
 	} from 'lucide-svelte';
 
 	const iot = getIoTClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'things' | 'groups' | 'rules'>('things');
+	let activeTab = $state<'things' | 'groups' | 'rules' | 'policies'>('things');
 	let searchQuery = $state('');
 
 	// Things
@@ -47,6 +54,30 @@
 
 	// Rules
 	let rules = $state<TopicRuleListItem[]>([]);
+	let selectedRule = $state<TopicRuleListItem | null>(null);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let ruleDetail = $state<any | null>(null);
+	let loadingRuleDetail = $state(false);
+
+	// Policies
+	let policies = $state<Policy[]>([]);
+	let selectedPolicy = $state<Policy | null>(null);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let policyDetail = $state<any | null>(null);
+	let loadingPolicyDetail = $state(false);
+	let showCreatePolicyModal = $state(false);
+	let creatingPolicy = $state(false);
+	let newPolicyName = $state('');
+	let newPolicyDocument = $state(
+		JSON.stringify(
+			{
+				Version: '2012-10-17',
+				Statement: [{ Effect: 'Allow', Action: 'iot:*', Resource: '*' }]
+			},
+			null,
+			2
+		)
+	);
 
 	const filteredThings = $derived(
 		things.filter(
@@ -66,6 +97,10 @@
 				(r.ruleName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
 				(r.topicPattern ?? '').toLowerCase().includes(searchQuery.toLowerCase())
 		)
+	);
+
+	const filteredPolicies = $derived(
+		policies.filter((p) => (p.policyName ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
 	);
 
 	async function loadThings() {
@@ -104,6 +139,18 @@
 		}
 	}
 
+	async function loadPolicies() {
+		loading = true;
+		try {
+			const res = await iot.send(new ListPoliciesCommand({ pageSize: 100 }));
+			policies = res.policies ?? [];
+		} catch (e) {
+			toast.error(`Failed to load policies: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
 	async function viewThing(thing: ThingAttribute) {
 		selectedThing = thing;
 		if (!thing.thingName) return;
@@ -119,7 +166,14 @@
 	}
 
 	async function deleteThing(thing: ThingAttribute) {
-		if (!thing.thingName || !await confirmDestructive({ title: 'Delete Thing', message: `Delete thing "${thing.thingName}"? All attached certificates and policies will be detached.` })) return;
+		if (
+			!thing.thingName ||
+			!(await confirmDestructive({
+				title: 'Delete Thing',
+				message: `Delete thing "${thing.thingName}"? All attached certificates and policies will be detached.`
+			}))
+		)
+			return;
 		try {
 			await iot.send(new DeleteThingCommand({ thingName: thing.thingName }));
 			toast.success(`Thing "${thing.thingName}" deleted`);
@@ -152,13 +206,84 @@
 		}
 	}
 
+	async function viewRule(rule: TopicRuleListItem) {
+		selectedRule = rule;
+		if (!rule.ruleName) return;
+		loadingRuleDetail = true;
+		try {
+			const res = await iot.send(new GetTopicRuleCommand({ ruleName: rule.ruleName }));
+			ruleDetail = res;
+		} catch (e) {
+			toast.error(`Failed to load rule details: ${e}`);
+		} finally {
+			loadingRuleDetail = false;
+		}
+	}
+
+	async function viewPolicy(policy: Policy) {
+		selectedPolicy = policy;
+		if (!policy.policyName) return;
+		loadingPolicyDetail = true;
+		try {
+			const res = await iot.send(new GetPolicyCommand({ policyName: policy.policyName }));
+			policyDetail = res;
+		} catch (e) {
+			toast.error(`Failed to load policy details: ${e}`);
+		} finally {
+			loadingPolicyDetail = false;
+		}
+	}
+
+	async function deletePolicy(policy: Policy) {
+		if (
+			!policy.policyName ||
+			!(await confirmDestructive({
+				title: 'Delete Policy',
+				message: `Delete policy "${policy.policyName}"?`
+			}))
+		)
+			return;
+		try {
+			await iot.send(new DeletePolicyCommand({ policyName: policy.policyName }));
+			toast.success(`Policy "${policy.policyName}" deleted`);
+			if (selectedPolicy?.policyName === policy.policyName) selectedPolicy = null;
+			await loadPolicies();
+		} catch (e) {
+			toast.error(`Failed to delete policy: ${e}`);
+		}
+	}
+
+	async function createPolicy() {
+		if (!newPolicyName.trim()) return;
+		creatingPolicy = true;
+		try {
+			await iot.send(
+				new CreatePolicyCommand({
+					policyName: newPolicyName.trim(),
+					policyDocument: newPolicyDocument.trim()
+				})
+			);
+			toast.success(`Policy "${newPolicyName}" created`);
+			showCreatePolicyModal = false;
+			newPolicyName = '';
+			await loadPolicies();
+		} catch (e) {
+			toast.error(`Failed to create policy: ${e}`);
+		} finally {
+			creatingPolicy = false;
+		}
+	}
+
 	async function onTabChange(tab: typeof activeTab) {
 		activeTab = tab;
 		searchQuery = '';
 		selectedThing = null;
+		selectedRule = null;
+		selectedPolicy = null;
 		if (tab === 'things') await loadThings();
 		else if (tab === 'groups') await loadGroups();
-		else await loadRules();
+		else if (tab === 'rules') await loadRules();
+		else await loadPolicies();
 	}
 
 	onMount(() => loadThings());
@@ -184,7 +309,7 @@
 
 	<!-- Tabs -->
 	<div class="flex border-b">
-		{#each [{ id: 'things', label: 'Things', icon: Radio }, { id: 'groups', label: 'Thing Groups', icon: Tag }, { id: 'rules', label: 'Topic Rules', icon: GitBranch }] as tab}
+		{#each [{ id: 'things', label: 'Things', icon: Radio }, { id: 'groups', label: 'Thing Groups', icon: Tag }, { id: 'rules', label: 'Topic Rules', icon: GitBranch }, { id: 'policies', label: 'Policies', icon: ShieldCheck }] as tab}
 			<button
 				onclick={() => onTabChange(tab.id as typeof activeTab)}
 				class="flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
@@ -247,14 +372,20 @@
 								</td>
 								<td class="px-4 py-3 text-right flex justify-end gap-1">
 									<button
-										onclick={(e) => { e.stopPropagation(); viewThing(thing); }}
+										onclick={(e) => {
+											e.stopPropagation();
+											viewThing(thing);
+										}}
 										class="rounded p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
 										title="View details"
 									>
 										<Eye class="h-4 w-4" />
 									</button>
 									<button
-										onclick={(e) => { e.stopPropagation(); deleteThing(thing); }}
+										onclick={(e) => {
+											e.stopPropagation();
+											deleteThing(thing);
+										}}
 										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
 										title="Delete thing"
 									>
@@ -272,7 +403,10 @@
 				<div class="rounded-lg border p-4 space-y-3">
 					<div class="flex items-center justify-between">
 						<h3 class="font-semibold">{selectedThing.thingName}</h3>
-						<button onclick={() => (selectedThing = null)} class="text-xs text-muted-foreground hover:text-foreground">
+						<button
+							onclick={() => (selectedThing = null)}
+							class="text-xs text-muted-foreground hover:text-foreground"
+						>
 							Close
 						</button>
 					</div>
@@ -369,21 +503,200 @@
 							<th class="px-4 py-3 text-left font-medium">Rule Name</th>
 							<th class="px-4 py-3 text-left font-medium">Topic Pattern</th>
 							<th class="px-4 py-3 text-left font-medium">Created</th>
+							<th class="px-4 py-3 text-right font-medium">Actions</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y">
 						{#each filteredRules as rule}
-							<tr class="hover:bg-muted/30">
+							<tr
+								class="hover:bg-muted/30 cursor-pointer"
+								onclick={() => viewRule(rule)}
+							>
 								<td class="px-4 py-3 font-medium">{rule.ruleName}</td>
-								<td class="px-4 py-3 font-mono text-xs text-muted-foreground">{rule.topicPattern ?? '—'}</td>
+								<td class="px-4 py-3 font-mono text-xs text-muted-foreground"
+									>{rule.topicPattern ?? '—'}</td
+								>
 								<td class="px-4 py-3 text-xs text-muted-foreground">
 									{rule.createdAt ? new Date(rule.createdAt).toLocaleDateString() : '—'}
+								</td>
+								<td class="px-4 py-3 text-right">
+									<button
+										onclick={(e) => {
+											e.stopPropagation();
+											viewRule(rule);
+										}}
+										class="rounded p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
+										title="View rule details"
+									>
+										<Eye class="h-4 w-4" />
+									</button>
 								</td>
 							</tr>
 						{/each}
 					</tbody>
 				</table>
 			</div>
+
+			<!-- Rule Detail Panel -->
+			{#if selectedRule}
+				<div class="rounded-lg border p-4 space-y-3">
+					<div class="flex items-center justify-between">
+						<h3 class="font-semibold">{selectedRule.ruleName}</h3>
+						<button
+							onclick={() => { selectedRule = null; ruleDetail = null; }}
+							class="text-xs text-muted-foreground hover:text-foreground"
+						>
+							Close
+						</button>
+					</div>
+					{#if loadingRuleDetail}
+						<RefreshCw class="h-5 w-5 animate-spin text-muted-foreground" />
+					{:else if ruleDetail?.rule}
+						<div class="space-y-2 text-sm">
+							<div>
+								<span class="font-medium">SQL:</span>
+								<code class="ml-2 rounded bg-muted px-2 py-0.5 text-xs font-mono"
+									>{ruleDetail.rule.sql ?? '—'}</code
+								>
+							</div>
+							{#if ruleDetail.rule.description}
+								<div>
+									<span class="font-medium">Description:</span>
+									<span class="ml-2 text-muted-foreground">{ruleDetail.rule.description}</span>
+								</div>
+							{/if}
+							{#if ruleDetail.rule.actions?.length}
+								<div>
+									<p class="font-medium mb-1">Actions</p>
+									<div class="space-y-1">
+										{#each ruleDetail.rule.actions as action}
+											<div class="rounded bg-muted px-3 py-2 text-xs font-mono">
+												{#if action.sqs}
+													<span class="font-semibold text-orange-600">SQS</span> →
+													{action.sqs.queueUrl}
+												{:else if action.lambda}
+													<span class="font-semibold text-purple-600">Lambda</span> →
+													{action.lambda.functionArn}
+												{:else}
+													{JSON.stringify(action)}
+												{/if}
+											</div>
+										{/each}
+									</div>
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/if}
+		{/if}
+	{/if}
+
+	<!-- Policies Tab -->
+	{#if activeTab === 'policies'}
+		<div class="flex items-center justify-between gap-4">
+			<div class="relative flex-1">
+				<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+				<input
+					type="text"
+					placeholder="Search policies..."
+					bind:value={searchQuery}
+					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+				/>
+			</div>
+			<button
+				onclick={() => (showCreatePolicyModal = true)}
+				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+			>
+				<Plus class="h-4 w-4" />
+				Create Policy
+			</button>
+		</div>
+
+		{#if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if filteredPolicies.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<ShieldCheck class="h-12 w-12 mb-3 opacity-30" />
+				<p>No IoT policies found</p>
+				<p class="text-sm">Create a policy to control device permissions</p>
+			</div>
+		{:else}
+			<div class="rounded-lg border overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-muted/50">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">Policy Name</th>
+							<th class="px-4 py-3 text-left font-medium">ARN</th>
+							<th class="px-4 py-3 text-right font-medium">Actions</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y">
+						{#each filteredPolicies as policy}
+							<tr
+								class="hover:bg-muted/30 cursor-pointer"
+								onclick={() => viewPolicy(policy)}
+							>
+								<td class="px-4 py-3 font-medium">{policy.policyName}</td>
+								<td class="px-4 py-3 text-xs text-muted-foreground truncate max-w-[300px]"
+									>{policy.policyArn ?? '—'}</td
+								>
+								<td class="px-4 py-3 text-right flex justify-end gap-1">
+									<button
+										onclick={(e) => {
+											e.stopPropagation();
+											viewPolicy(policy);
+										}}
+										class="rounded p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
+										title="View policy"
+									>
+										<Eye class="h-4 w-4" />
+									</button>
+									<button
+										onclick={(e) => {
+											e.stopPropagation();
+											deletePolicy(policy);
+										}}
+										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+										title="Delete policy"
+									>
+										<Trash2 class="h-4 w-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+
+			<!-- Policy Detail Panel -->
+			{#if selectedPolicy}
+				<div class="rounded-lg border p-4 space-y-3">
+					<div class="flex items-center justify-between">
+						<h3 class="font-semibold">{selectedPolicy.policyName}</h3>
+						<button
+							onclick={() => { selectedPolicy = null; policyDetail = null; }}
+							class="text-xs text-muted-foreground hover:text-foreground"
+						>
+							Close
+						</button>
+					</div>
+					{#if loadingPolicyDetail}
+						<RefreshCw class="h-5 w-5 animate-spin text-muted-foreground" />
+					{:else if policyDetail?.policyDocument}
+						<div>
+							<p class="text-sm font-medium mb-2">Policy Document</p>
+							<pre class="rounded bg-muted px-3 py-2 text-xs font-mono overflow-auto max-h-64">{JSON.stringify(
+									JSON.parse(policyDetail.policyDocument),
+									null,
+									2
+								)}</pre>
+						</div>
+					{/if}
+				</div>
+			{/if}
 		{/if}
 	{/if}
 </div>
@@ -405,7 +718,9 @@
 					/>
 				</div>
 				<div>
-					<label for="thing-type" class="block text-sm font-medium mb-1">Thing Type (optional)</label>
+					<label for="thing-type" class="block text-sm font-medium mb-1"
+						>Thing Type (optional)</label
+					>
 					<input
 						id="thing-type"
 						type="text"
@@ -428,6 +743,53 @@
 					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
 				>
 					{creating ? 'Creating...' : 'Create Thing'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Policy Modal -->
+{#if showCreatePolicyModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-lg rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="text-lg font-semibold mb-4">Create IoT Policy</h2>
+			<div class="space-y-3">
+				<div>
+					<label for="policy-name" class="block text-sm font-medium mb-1">Policy Name *</label>
+					<input
+						id="policy-name"
+						type="text"
+						bind:value={newPolicyName}
+						placeholder="my-iot-policy"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div>
+					<label for="policy-doc" class="block text-sm font-medium mb-1"
+						>Policy Document (JSON) *</label
+					>
+					<textarea
+						id="policy-doc"
+						bind:value={newPolicyDocument}
+						rows={8}
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					></textarea>
+				</div>
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					onclick={() => (showCreatePolicyModal = false)}
+					class="rounded-md border px-4 py-2 text-sm hover:bg-accent"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={createPolicy}
+					disabled={creatingPolicy || !newPolicyName.trim() || !newPolicyDocument.trim()}
+					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					{creatingPolicy ? 'Creating...' : 'Create Policy'}
 				</button>
 			</div>
 		</div>
