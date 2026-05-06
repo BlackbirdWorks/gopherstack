@@ -7,9 +7,16 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+)
+
+const (
+	// statusInProgress is the status for an in-progress job or execution.
+	statusInProgress = "InProgress"
 )
 
 var (
@@ -545,7 +552,7 @@ func (b *InMemoryBackend) AcknowledgeJob(jobID, nonce string) (string, error) {
 	}
 
 	if job.Nonce == nonce {
-		job.Status = "InProgress"
+		job.Status = statusInProgress
 	}
 
 	return job.Status, nil
@@ -562,7 +569,7 @@ func (b *InMemoryBackend) AcknowledgeThirdPartyJob(jobID, nonce, clientToken str
 	}
 
 	if job.Nonce == nonce {
-		job.Status = "InProgress"
+		job.Status = statusInProgress
 	}
 
 	return job.Status, nil
@@ -746,4 +753,416 @@ func copyArtifactRefs(refs []ArtifactRef) []ArtifactRef {
 	copy(out, refs)
 
 	return out
+}
+
+// --- Pipeline execution stubs ---
+
+// PipelineExecution represents a stub pipeline execution.
+type PipelineExecution struct {
+	PipelineName        string
+	PipelineExecutionID string
+	Status              string
+	PipelineVersion     int
+}
+
+// StartPipelineExecution starts a new execution of a pipeline.
+func (b *InMemoryBackend) StartPipelineExecution(pipelineName string) (*PipelineExecution, error) {
+	b.mu.Lock("StartPipelineExecution")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return &PipelineExecution{
+		PipelineName:        pipelineName,
+		PipelineExecutionID: uuid.NewString(),
+		Status:              statusInProgress,
+		PipelineVersion:     b.pipelines[pipelineName].Declaration.Version,
+	}, nil
+}
+
+// GetPipelineExecution returns a stub pipeline execution.
+func (b *InMemoryBackend) GetPipelineExecution(pipelineName, executionID string) (*PipelineExecution, error) {
+	b.mu.RLock("GetPipelineExecution")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return &PipelineExecution{
+		PipelineName:        pipelineName,
+		PipelineExecutionID: executionID,
+		Status:              "Succeeded",
+	}, nil
+}
+
+// StopPipelineExecution stops an in-progress pipeline execution.
+func (b *InMemoryBackend) StopPipelineExecution(pipelineName, executionID, reason string) (*PipelineExecution, error) {
+	b.mu.RLock("StopPipelineExecution")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	_ = reason
+
+	return &PipelineExecution{
+		PipelineName:        pipelineName,
+		PipelineExecutionID: executionID,
+		Status:              "Stopping",
+	}, nil
+}
+
+// ListPipelineExecutions returns stub executions for a pipeline.
+func (b *InMemoryBackend) ListPipelineExecutions(pipelineName string) ([]PipelineExecution, error) {
+	b.mu.RLock("ListPipelineExecutions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return []PipelineExecution{}, nil
+}
+
+// StageState represents the stub state of a pipeline stage.
+type StageState struct {
+	InboundTransitionState  *StageTransitionState
+	OutboundTransitionState *StageTransitionState
+	StageName               string
+}
+
+// GetPipelineState returns the current state of each stage in a pipeline.
+func (b *InMemoryBackend) GetPipelineState(pipelineName string) ([]StageState, error) {
+	b.mu.RLock("GetPipelineState")
+	defer b.mu.RUnlock()
+
+	p, ok := b.pipelines[pipelineName]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	states := make([]StageState, len(p.Declaration.Stages))
+	for i, stage := range p.Declaration.Stages {
+		inKey := stageTransitionKey{
+			PipelineName: pipelineName, StageName: stage.Name, TransitionType: transitionTypeInbound,
+		}
+		outKey := stageTransitionKey{
+			PipelineName: pipelineName, StageName: stage.Name, TransitionType: transitionTypeOutbound,
+		}
+
+		var inState, outState *StageTransitionState
+		if ts, found := b.stageTransitions[inKey]; found {
+			tsCopy := *ts
+			inState = &tsCopy
+		}
+
+		if ts, found := b.stageTransitions[outKey]; found {
+			tsCopy := *ts
+			outState = &tsCopy
+		}
+
+		states[i] = StageState{
+			StageName:               stage.Name,
+			InboundTransitionState:  inState,
+			OutboundTransitionState: outState,
+		}
+	}
+
+	return states, nil
+}
+
+// RetryStageExecution retries a failed stage in a pipeline.
+func (b *InMemoryBackend) RetryStageExecution(pipelineName, stageName, executionID string) (*PipelineExecution, error) {
+	b.mu.RLock("RetryStageExecution")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	_ = stageName
+
+	return &PipelineExecution{
+		PipelineName:        pipelineName,
+		PipelineExecutionID: executionID,
+		Status:              statusInProgress,
+	}, nil
+}
+
+// RollbackStage rolls back a stage to a previous successful execution.
+func (b *InMemoryBackend) RollbackStage(pipelineName, stageName, targetExecutionID string) (*PipelineExecution, error) {
+	b.mu.RLock("RollbackStage")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	_ = stageName
+	_ = targetExecutionID
+
+	return &PipelineExecution{
+		PipelineName:        pipelineName,
+		PipelineExecutionID: uuid.NewString(),
+		Status:              statusInProgress,
+	}, nil
+}
+
+// OverrideStageCondition overrides a stage condition.
+func (b *InMemoryBackend) OverrideStageCondition(pipelineName, stageName, executionID string) error {
+	b.mu.RLock("OverrideStageCondition")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return ErrNotFound
+	}
+
+	_ = stageName
+	_ = executionID
+
+	return nil
+}
+
+// ListWebhooks returns all webhooks in the backend.
+func (b *InMemoryBackend) ListWebhooks() []*Webhook {
+	b.mu.RLock("ListWebhooks")
+	defer b.mu.RUnlock()
+
+	result := make([]*Webhook, 0, len(b.webhooks))
+	for _, wh := range b.webhooks {
+		cp := *wh
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result
+}
+
+// PutWebhook creates or updates a webhook.
+func (b *InMemoryBackend) PutWebhook(name, targetPipeline, targetAction string) (*Webhook, error) {
+	b.mu.Lock("PutWebhook")
+	defer b.mu.Unlock()
+
+	wh := &Webhook{
+		Name:           name,
+		TargetPipeline: targetPipeline,
+		TargetAction:   targetAction,
+	}
+	b.webhooks[name] = wh
+	cp := *wh
+
+	return &cp, nil
+}
+
+// RegisterWebhookWithThirdParty registers a webhook with a third-party provider.
+func (b *InMemoryBackend) RegisterWebhookWithThirdParty(name string) error {
+	b.mu.RLock("RegisterWebhookWithThirdParty")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.webhooks[name]; !ok {
+		return ErrWebhookNotFound
+	}
+
+	return nil
+}
+
+// PollForJobs returns available jobs for an action type.
+func (b *InMemoryBackend) PollForJobs(category, owner, provider, version string) ([]*Job, error) {
+	b.mu.RLock("PollForJobs")
+	defer b.mu.RUnlock()
+
+	result := make([]*Job, 0)
+
+	for _, job := range b.jobs {
+		if job.Status == "Queued" {
+			cp := *job
+			result = append(result, &cp)
+		}
+	}
+
+	_ = category
+	_ = owner
+	_ = provider
+	_ = version
+
+	return result, nil
+}
+
+// PollForThirdPartyJobs returns available third-party jobs.
+func (b *InMemoryBackend) PollForThirdPartyJobs(category, provider, version string) ([]*Job, error) {
+	return b.PollForJobs(category, "ThirdParty", provider, version)
+}
+
+// GetThirdPartyJobDetails returns stub details for a third-party job.
+func (b *InMemoryBackend) GetThirdPartyJobDetails(jobID, clientToken string) (*Job, error) {
+	b.mu.RLock("GetThirdPartyJobDetails")
+	defer b.mu.RUnlock()
+
+	job, ok := b.jobs[jobID]
+	if !ok {
+		return nil, ErrJobNotFound
+	}
+
+	_ = clientToken
+
+	cp := *job
+
+	return &cp, nil
+}
+
+// PutJobSuccessResult acknowledges job success.
+func (b *InMemoryBackend) PutJobSuccessResult(jobID string) error {
+	b.mu.RLock("PutJobSuccessResult")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.jobs[jobID]; !ok {
+		return ErrJobNotFound
+	}
+
+	return nil
+}
+
+// PutJobFailureResult acknowledges job failure.
+func (b *InMemoryBackend) PutJobFailureResult(jobID, message string) error {
+	b.mu.RLock("PutJobFailureResult")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.jobs[jobID]; !ok {
+		return ErrJobNotFound
+	}
+
+	_ = message
+
+	return nil
+}
+
+// PutThirdPartyJobSuccessResult acknowledges third-party job success.
+func (b *InMemoryBackend) PutThirdPartyJobSuccessResult(jobID, _ string) error {
+	return b.PutJobSuccessResult(jobID)
+}
+
+// PutThirdPartyJobFailureResult acknowledges third-party job failure.
+func (b *InMemoryBackend) PutThirdPartyJobFailureResult(jobID, _, message string) error {
+	return b.PutJobFailureResult(jobID, message)
+}
+
+// PutActionRevision puts an action revision for a pipeline source action.
+func (b *InMemoryBackend) PutActionRevision(pipelineName, stageName, actionName string) error {
+	b.mu.RLock("PutActionRevision")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return ErrNotFound
+	}
+
+	_ = stageName
+	_ = actionName
+
+	return nil
+}
+
+// PutApprovalResult submits a manual approval for a pipeline action.
+func (b *InMemoryBackend) PutApprovalResult(pipelineName, stageName, actionName, status, summary string) error {
+	b.mu.RLock("PutApprovalResult")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return ErrNotFound
+	}
+
+	_ = stageName
+	_ = actionName
+	_ = status
+	_ = summary
+
+	return nil
+}
+
+// UpdateActionType updates an action type definition.
+func (b *InMemoryBackend) UpdateActionType(cat *CustomActionType) error {
+	b.mu.Lock("UpdateActionType")
+	defer b.mu.Unlock()
+
+	key := customActionTypeKey{
+		Category: cat.Category,
+		Provider: cat.Provider,
+		Version:  cat.Version,
+	}
+
+	if _, ok := b.customActionTypes[key]; !ok {
+		return ErrActionTypeNotFound
+	}
+
+	cp := copyCustomActionType(cat)
+	b.customActionTypes[key] = cp
+
+	return nil
+}
+
+// ListActionTypes returns all registered action types.
+func (b *InMemoryBackend) ListActionTypes() []*CustomActionType {
+	b.mu.RLock("ListActionTypes")
+	defer b.mu.RUnlock()
+
+	result := make([]*CustomActionType, 0, len(b.customActionTypes))
+
+	for _, cat := range b.customActionTypes {
+		result = append(result, copyCustomActionType(cat))
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Provider < result[j].Provider
+	})
+
+	return result
+}
+
+// ListActionExecutions returns stub action executions for a pipeline.
+func (b *InMemoryBackend) ListActionExecutions(pipelineName string) ([]map[string]any, error) {
+	b.mu.RLock("ListActionExecutions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return []map[string]any{}, nil
+}
+
+// ListRuleExecutions returns stub rule executions for a pipeline.
+func (b *InMemoryBackend) ListRuleExecutions(pipelineName string) ([]map[string]any, error) {
+	b.mu.RLock("ListRuleExecutions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return []map[string]any{}, nil
+}
+
+// ListRuleTypes returns empty rule types (stub).
+func (b *InMemoryBackend) ListRuleTypes() []map[string]any {
+	return []map[string]any{}
+}
+
+// ListDeployActionExecutionTargets returns stub targets.
+func (b *InMemoryBackend) ListDeployActionExecutionTargets(pipelineName, executionID string) ([]map[string]any, error) {
+	b.mu.RLock("ListDeployActionExecutionTargets")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pipelines[pipelineName]; !ok {
+		return nil, ErrNotFound
+	}
+
+	_ = executionID
+
+	return []map[string]any{}, nil
 }

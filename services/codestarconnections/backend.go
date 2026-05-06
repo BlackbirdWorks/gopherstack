@@ -739,3 +739,133 @@ func (b *InMemoryBackend) GetSyncBlockerSummary(
 		LatestBlockers: []SyncBlocker{},
 	}, nil
 }
+
+// RepositorySyncDefinition is a stub definition for a repository sync.
+type RepositorySyncDefinition struct {
+	Branch    string
+	Directory string
+	Parent    string
+	Target    string
+}
+
+// ListRepositorySyncDefinitions returns stub sync definitions for a repository link and sync type.
+func (b *InMemoryBackend) ListRepositorySyncDefinitions(
+	repositoryLinkID, syncType string,
+) ([]RepositorySyncDefinition, error) {
+	b.mu.RLock("ListRepositorySyncDefinitions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repositoryLinks[repositoryLinkID]; !ok {
+		return nil, ErrNotFound
+	}
+
+	_ = syncType
+
+	return []RepositorySyncDefinition{}, nil
+}
+
+// ListSyncConfigurations returns all sync configurations for a given repository link and sync type.
+func (b *InMemoryBackend) ListSyncConfigurations(repositoryLinkID, syncType string) []*SyncConfiguration {
+	b.mu.RLock("ListSyncConfigurations")
+	defer b.mu.RUnlock()
+
+	result := make([]*SyncConfiguration, 0)
+
+	for _, cfg := range b.syncConfigurations {
+		if cfg.RepositoryLinkID != repositoryLinkID {
+			continue
+		}
+
+		if syncType != "" && cfg.SyncType != syncType {
+			continue
+		}
+
+		cp := *cfg
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ResourceName < result[j].ResourceName
+	})
+
+	return result
+}
+
+// UpdateRepositoryLink updates the connection ARN or encryption key for a repository link.
+func (b *InMemoryBackend) UpdateRepositoryLink(
+	repositoryLinkID, connectionArn, encryptionKeyArn string,
+) (*RepositoryLink, error) {
+	b.mu.Lock("UpdateRepositoryLink")
+	defer b.mu.Unlock()
+
+	link, ok := b.repositoryLinks[repositoryLinkID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if connectionArn != "" {
+		link.ConnectionArn = connectionArn
+	}
+
+	if encryptionKeyArn != "" {
+		link.EncryptionKeyArn = encryptionKeyArn
+	}
+
+	cp := *link
+
+	return &cp, nil
+}
+
+// UpdateSyncBlocker is a stub that accepts a blocker ID resolution; no real blockers stored.
+func (b *InMemoryBackend) UpdateSyncBlocker(
+	id, resolvedReason string,
+) (*SyncBlockerSummary, error) {
+	b.mu.RLock("UpdateSyncBlocker")
+	defer b.mu.RUnlock()
+
+	_ = id
+	_ = resolvedReason
+
+	return &SyncBlockerSummary{
+		LatestBlockers: []SyncBlocker{},
+	}, nil
+}
+
+// UpdateSyncConfiguration updates branch, config file, role ARN, or repository link for a sync configuration.
+func (b *InMemoryBackend) UpdateSyncConfiguration(
+	resourceName, syncType, branch, configFile, repositoryLinkID, roleArn string,
+) (*SyncConfiguration, error) {
+	if syncType != "" && !validSyncTypes()[syncType] {
+		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
+
+	b.mu.Lock("UpdateSyncConfiguration")
+	defer b.mu.Unlock()
+
+	key := syncConfigKey(resourceName, syncType)
+	cfg, ok := b.syncConfigurations[key]
+
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if branch != "" {
+		cfg.Branch = branch
+	}
+
+	if configFile != "" {
+		cfg.ConfigFile = configFile
+	}
+
+	if repositoryLinkID != "" {
+		cfg.RepositoryLinkID = repositoryLinkID
+	}
+
+	if roleArn != "" {
+		cfg.RoleArn = roleArn
+	}
+
+	cp := *cfg
+
+	return &cp, nil
+}

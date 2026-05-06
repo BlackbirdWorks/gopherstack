@@ -3,6 +3,7 @@ package codeartifact
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -946,6 +947,471 @@ func (b *InMemoryBackend) DeleteDomainPermissionsPolicy(domainName string) (*Dom
 	}
 	cp := *pol
 	delete(b.domainPolicies, domainName)
+
+	return &cp, nil
+}
+
+// DisassociateExternalConnection removes an external connection from a repository.
+func (b *InMemoryBackend) DisassociateExternalConnection(
+	domainName, repoName, connectionName string,
+) (*Repository, error) {
+	b.mu.Lock("DisassociateExternalConnection")
+	defer b.mu.Unlock()
+
+	key := repoKey(domainName, repoName)
+	if _, ok := b.repositories[key]; !ok {
+		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
+	}
+
+	conns := b.externalConnections[key]
+	filtered := conns[:0]
+
+	for _, c := range conns {
+		if c.ExternalConnectionName != connectionName {
+			filtered = append(filtered, c)
+		}
+	}
+
+	b.externalConnections[key] = filtered
+	cp := *b.repositories[key]
+
+	return &cp, nil
+}
+
+// DisposePackageVersions moves specified versions of a package to the Disposed status.
+func (b *InMemoryBackend) DisposePackageVersions(
+	domainName, repoName, format, namespace, name string,
+	versions []string,
+) (map[string]string, error) {
+	b.mu.Lock("DisposePackageVersions")
+	defer b.mu.Unlock()
+
+	results := make(map[string]string, len(versions))
+
+	for _, v := range versions {
+		key := packageVersionKey(domainName, repoName, format, namespace, name, v)
+		if pv, ok := b.packageVersions[key]; ok {
+			pv.Status = "Disposed"
+			results[v] = "SUCCESS"
+		} else {
+			results[v] = "NOT_FOUND"
+		}
+	}
+
+	return results, nil
+}
+
+// GetAssociatedPackageGroup returns the most specific package group associated with a package.
+func (b *InMemoryBackend) GetAssociatedPackageGroup(
+	domainName, format, namespace, name string,
+) (*PackageGroup, error) {
+	b.mu.RLock("GetAssociatedPackageGroup")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.domains[domainName]; !ok {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+	}
+
+	_ = format
+	_ = namespace
+	_ = name
+
+	// Return nil if no group matches (not an error per AWS API).
+	return nil, nil //nolint:nilnil // AWS returns no error when no group matches
+}
+
+// ListPackageGroups returns all package groups in a domain, optionally filtered by prefix.
+func (b *InMemoryBackend) ListPackageGroups(domainName, prefix string) ([]*PackageGroup, error) {
+	b.mu.RLock("ListPackageGroups")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.domains[domainName]; !ok {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+	}
+
+	result := make([]*PackageGroup, 0)
+
+	for _, pg := range b.packageGroups {
+		if pg.DomainName != domainName {
+			continue
+		}
+
+		if prefix != "" && !strings.HasPrefix(pg.Pattern, prefix) {
+			continue
+		}
+
+		cp := *pg
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Pattern < result[j].Pattern
+	})
+
+	return result, nil
+}
+
+// ListSubPackageGroups returns sub-package groups of a given package group pattern.
+func (b *InMemoryBackend) ListSubPackageGroups(domainName, pattern string) ([]*PackageGroup, error) {
+	b.mu.RLock("ListSubPackageGroups")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.domains[domainName]; !ok {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+	}
+
+	result := make([]*PackageGroup, 0)
+
+	for _, pg := range b.packageGroups {
+		if pg.DomainName != domainName {
+			continue
+		}
+
+		if pg.Pattern == pattern || !strings.HasPrefix(pg.Pattern, pattern) {
+			continue
+		}
+
+		cp := *pg
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Pattern < result[j].Pattern
+	})
+
+	return result, nil
+}
+
+// UpdatePackageGroup updates description or contact info of a package group.
+func (b *InMemoryBackend) UpdatePackageGroup(
+	domainName, pattern, description, contactInfo string,
+) (*PackageGroup, error) {
+	b.mu.Lock("UpdatePackageGroup")
+	defer b.mu.Unlock()
+
+	key := packageGroupKey(domainName, pattern)
+	pg, ok := b.packageGroups[key]
+
+	if !ok {
+		return nil, fmt.Errorf("%w: package group %s not found", ErrNotFound, pattern)
+	}
+
+	if description != "" {
+		pg.Description = description
+	}
+
+	if contactInfo != "" {
+		pg.ContactInfo = contactInfo
+	}
+
+	cp := *pg
+
+	return &cp, nil
+}
+
+// UpdatePackageGroupOriginConfiguration is a stub that accepts origin config changes.
+func (b *InMemoryBackend) UpdatePackageGroupOriginConfiguration(
+	domainName, pattern string,
+) (*PackageGroup, error) {
+	b.mu.RLock("UpdatePackageGroupOriginConfiguration")
+	defer b.mu.RUnlock()
+
+	key := packageGroupKey(domainName, pattern)
+	pg, ok := b.packageGroups[key]
+
+	if !ok {
+		return nil, fmt.Errorf("%w: package group %s not found", ErrNotFound, pattern)
+	}
+
+	cp := *pg
+
+	return &cp, nil
+}
+
+// ListAllowedRepositoriesForGroup is a stub returning allowed repositories for a package group.
+func (b *InMemoryBackend) ListAllowedRepositoriesForGroup(
+	domainName, pattern string,
+) ([]string, error) {
+	b.mu.RLock("ListAllowedRepositoriesForGroup")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.domains[domainName]; !ok {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+	}
+
+	_ = pattern
+
+	return []string{}, nil
+}
+
+// ListAssociatedPackages lists packages associated with a package group.
+func (b *InMemoryBackend) ListAssociatedPackages(domainName, pattern string) ([]*Package, error) {
+	b.mu.RLock("ListAssociatedPackages")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.domains[domainName]; !ok {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+	}
+
+	_ = pattern
+
+	return []*Package{}, nil
+}
+
+// ListPackages lists packages in a repository.
+func (b *InMemoryBackend) ListPackages(domainName, repoName, format, namespace string) ([]*Package, error) {
+	b.mu.RLock("ListPackages")
+	defer b.mu.RUnlock()
+
+	key := repoKey(domainName, repoName)
+	if _, ok := b.repositories[key]; !ok {
+		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
+	}
+
+	result := make([]*Package, 0)
+
+	for _, pv := range b.packageVersions {
+		if pv.DomainName != domainName || pv.Repository != repoName {
+			continue
+		}
+
+		if format != "" && pv.Format != format {
+			continue
+		}
+
+		if namespace != "" && pv.Namespace != namespace {
+			continue
+		}
+
+		// Deduplicate by package name.
+		found := false
+
+		for _, existing := range result {
+			if existing.Name == pv.PackageName && existing.Format == pv.Format && existing.Namespace == pv.Namespace {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			result = append(result, &Package{
+				DomainName:  domainName,
+				DomainOwner: b.accountID,
+				Repository:  repoName,
+				Format:      pv.Format,
+				Namespace:   pv.Namespace,
+				Name:        pv.PackageName,
+			})
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+// ListPackageVersions lists all versions of a package in a repository.
+func (b *InMemoryBackend) ListPackageVersions(
+	domainName, repoName, format, namespace, name string,
+) ([]*PackageVersion, error) {
+	b.mu.RLock("ListPackageVersions")
+	defer b.mu.RUnlock()
+
+	key := repoKey(domainName, repoName)
+	if _, ok := b.repositories[key]; !ok {
+		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
+	}
+
+	result := make([]*PackageVersion, 0)
+
+	for _, pv := range b.packageVersions {
+		if pv.DomainName != domainName || pv.Repository != repoName {
+			continue
+		}
+
+		if format != "" && pv.Format != format {
+			continue
+		}
+
+		if namespace != "" && pv.Namespace != namespace {
+			continue
+		}
+
+		if name != "" && pv.PackageName != name {
+			continue
+		}
+
+		cp := *pv
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Version < result[j].Version
+	})
+
+	return result, nil
+}
+
+// ListPackageVersionAssets is a stub returning asset list for a package version.
+func (b *InMemoryBackend) ListPackageVersionAssets(
+	domainName, repoName, format, namespace, name, version string,
+) ([]map[string]any, error) {
+	b.mu.RLock("ListPackageVersionAssets")
+	defer b.mu.RUnlock()
+
+	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
+	if _, ok := b.packageVersions[key]; !ok {
+		return nil, fmt.Errorf("%w: package version not found", ErrNotFound)
+	}
+
+	return []map[string]any{}, nil
+}
+
+// ListPackageVersionDependencies is a stub returning empty dependencies.
+func (b *InMemoryBackend) ListPackageVersionDependencies(
+	domainName, repoName, format, namespace, name, version string,
+) ([]map[string]any, error) {
+	b.mu.RLock("ListPackageVersionDependencies")
+	defer b.mu.RUnlock()
+
+	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
+	if _, ok := b.packageVersions[key]; !ok {
+		return nil, fmt.Errorf("%w: package version not found", ErrNotFound)
+	}
+
+	return []map[string]any{}, nil
+}
+
+// GetPackageVersionAsset is a stub that returns empty asset data.
+func (b *InMemoryBackend) GetPackageVersionAsset(
+	domainName, repoName, format, namespace, name, version, asset string,
+) ([]byte, error) {
+	b.mu.RLock("GetPackageVersionAsset")
+	defer b.mu.RUnlock()
+
+	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
+	if _, ok := b.packageVersions[key]; !ok {
+		return nil, fmt.Errorf("%w: package version not found", ErrNotFound)
+	}
+
+	_ = asset
+
+	return []byte{}, nil
+}
+
+// GetPackageVersionReadme is a stub that returns empty README content.
+func (b *InMemoryBackend) GetPackageVersionReadme(
+	domainName, repoName, format, namespace, name, version string,
+) (string, error) {
+	b.mu.RLock("GetPackageVersionReadme")
+	defer b.mu.RUnlock()
+
+	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
+	if _, ok := b.packageVersions[key]; !ok {
+		return "", fmt.Errorf("%w: package version not found", ErrNotFound)
+	}
+
+	return "", nil
+}
+
+// PublishPackageVersion creates or updates a package version in the backend.
+func (b *InMemoryBackend) PublishPackageVersion(
+	domainName, repoName, format, namespace, name, version string,
+) (*PackageVersion, error) {
+	b.mu.Lock("PublishPackageVersion")
+	defer b.mu.Unlock()
+
+	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
+
+	if existing, ok := b.packageVersions[key]; ok {
+		cp := *existing
+
+		return &cp, nil
+	}
+
+	pv := &PackageVersion{
+		DomainName:  domainName,
+		Repository:  repoName,
+		Format:      format,
+		Namespace:   namespace,
+		PackageName: name,
+		Version:     version,
+		Status:      "Published",
+		Revision:    uuid.NewString()[:8],
+		PublishedAt: time.Now().UTC(),
+	}
+	b.packageVersions[key] = pv
+
+	cp := *pv
+
+	return &cp, nil
+}
+
+// UpdatePackageVersionsStatus updates the status of specified package versions.
+func (b *InMemoryBackend) UpdatePackageVersionsStatus(
+	domainName, repoName, format, namespace, name, targetStatus string,
+	versions []string,
+) (map[string]string, error) {
+	b.mu.Lock("UpdatePackageVersionsStatus")
+	defer b.mu.Unlock()
+
+	results := make(map[string]string, len(versions))
+
+	for _, v := range versions {
+		key := packageVersionKey(domainName, repoName, format, namespace, name, v)
+		if pv, ok := b.packageVersions[key]; ok {
+			pv.Status = targetStatus
+			results[v] = "SUCCESS"
+		} else {
+			results[v] = "NOT_FOUND"
+		}
+	}
+
+	return results, nil
+}
+
+// PutPackageOriginConfiguration is a stub accepting package origin configuration.
+func (b *InMemoryBackend) PutPackageOriginConfiguration(
+	domainName, repoName, format, namespace, name string,
+) (*Package, error) {
+	b.mu.RLock("PutPackageOriginConfiguration")
+	defer b.mu.RUnlock()
+
+	key := repoKey(domainName, repoName)
+	if _, ok := b.repositories[key]; !ok {
+		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
+	}
+
+	return &Package{
+		DomainName:  domainName,
+		DomainOwner: b.accountID,
+		Repository:  repoName,
+		Format:      format,
+		Namespace:   namespace,
+		Name:        name,
+	}, nil
+}
+
+// UpdateRepository updates repository description or upstreams.
+func (b *InMemoryBackend) UpdateRepository(domainName, repoName, description string) (*Repository, error) {
+	b.mu.Lock("UpdateRepository")
+	defer b.mu.Unlock()
+
+	key := repoKey(domainName, repoName)
+	repo, ok := b.repositories[key]
+
+	if !ok {
+		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
+	}
+
+	if description != "" {
+		repo.Description = description
+	}
+
+	cp := *repo
 
 	return &cp, nil
 }

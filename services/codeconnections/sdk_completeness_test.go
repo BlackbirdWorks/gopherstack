@@ -17,16 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := codeconnections.NewInMemoryBackend("000000000000", "us-east-1")
 	h := codeconnections.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &codeconnectionssdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetSyncBlockerSummary",
-		"GetSyncConfiguration",
-		"ListHosts",
-		"ListRepositoryLinks",
-		"ListRepositorySyncDefinitions",
-		"ListSyncConfigurations",
-		"UpdateHost",
-		"UpdateRepositoryLink",
-		"UpdateSyncBlocker",
-		"UpdateSyncConfiguration",
-	})
+	sdkcheck.CheckCompleteness(t, &codeconnectionssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

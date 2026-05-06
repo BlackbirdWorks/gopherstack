@@ -18,7 +18,14 @@ const (
 	codepipelineTargetPrefix = "CodePipeline_20150709."
 
 	// transitionTypeInbound and transitionTypeOutbound are the valid values for StageTransitionType.
-	transitionTypeInbound  = "Inbound"
+	transitionTypeInbound = "Inbound"
+
+	// keyOwnerCustom is the owner value for custom action types.
+	keyOwnerCustom = "Custom"
+	// keyNonce is the JSON key for job nonce values.
+	keyNonce = "nonce"
+	// keyJobID is the JSON key for job IDs.
+	keyJobID               = "id"
 	transitionTypeOutbound = "Outbound"
 )
 
@@ -70,6 +77,32 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"UpdatePipeline",
+		"GetPipelineExecution",
+		"GetPipelineState",
+		"GetThirdPartyJobDetails",
+		"ListActionExecutions",
+		"ListActionTypes",
+		"ListDeployActionExecutionTargets",
+		"ListPipelineExecutions",
+		"ListRuleExecutions",
+		"ListRuleTypes",
+		"ListWebhooks",
+		"OverrideStageCondition",
+		"PollForJobs",
+		"PollForThirdPartyJobs",
+		"PutActionRevision",
+		"PutApprovalResult",
+		"PutJobFailureResult",
+		"PutJobSuccessResult",
+		"PutThirdPartyJobFailureResult",
+		"PutThirdPartyJobSuccessResult",
+		"PutWebhook",
+		"RegisterWebhookWithThirdParty",
+		"RetryStageExecution",
+		"RollbackStage",
+		"StartPipelineExecution",
+		"StopPipelineExecution",
+		"UpdateActionType",
 	}
 }
 
@@ -119,24 +152,50 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"AcknowledgeJob":                  service.WrapOp(h.handleAcknowledgeJob),
-		"AcknowledgeThirdPartyJob":        service.WrapOp(h.handleAcknowledgeThirdPartyJob),
-		"CreateCustomActionType":          service.WrapOp(h.handleCreateCustomActionType),
-		"CreatePipeline":                  service.WrapOp(h.handleCreatePipeline),
-		"DeleteCustomActionType":          service.WrapOp(h.handleDeleteCustomActionType),
-		"DeletePipeline":                  service.WrapOp(h.handleDeletePipeline),
-		"DeleteWebhook":                   service.WrapOp(h.handleDeleteWebhook),
-		"DeregisterWebhookWithThirdParty": service.WrapOp(h.handleDeregisterWebhookWithThirdParty),
-		"DisableStageTransition":          service.WrapOp(h.handleDisableStageTransition),
-		"EnableStageTransition":           service.WrapOp(h.handleEnableStageTransition),
-		"GetActionType":                   service.WrapOp(h.handleGetActionType),
-		"GetJobDetails":                   service.WrapOp(h.handleGetJobDetails),
-		"GetPipeline":                     service.WrapOp(h.handleGetPipeline),
-		"ListPipelines":                   service.WrapOp(h.handleListPipelines),
-		"ListTagsForResource":             service.WrapOp(h.handleListTagsForResource),
-		"TagResource":                     service.WrapOp(h.handleTagResource),
-		"UntagResource":                   service.WrapOp(h.handleUntagResource),
-		"UpdatePipeline":                  service.WrapOp(h.handleUpdatePipeline),
+		"AcknowledgeJob":                   service.WrapOp(h.handleAcknowledgeJob),
+		"AcknowledgeThirdPartyJob":         service.WrapOp(h.handleAcknowledgeThirdPartyJob),
+		"CreateCustomActionType":           service.WrapOp(h.handleCreateCustomActionType),
+		"CreatePipeline":                   service.WrapOp(h.handleCreatePipeline),
+		"DeleteCustomActionType":           service.WrapOp(h.handleDeleteCustomActionType),
+		"DeletePipeline":                   service.WrapOp(h.handleDeletePipeline),
+		"DeleteWebhook":                    service.WrapOp(h.handleDeleteWebhook),
+		"DeregisterWebhookWithThirdParty":  service.WrapOp(h.handleDeregisterWebhookWithThirdParty),
+		"DisableStageTransition":           service.WrapOp(h.handleDisableStageTransition),
+		"EnableStageTransition":            service.WrapOp(h.handleEnableStageTransition),
+		"GetActionType":                    service.WrapOp(h.handleGetActionType),
+		"GetJobDetails":                    service.WrapOp(h.handleGetJobDetails),
+		"GetPipeline":                      service.WrapOp(h.handleGetPipeline),
+		"ListPipelines":                    service.WrapOp(h.handleListPipelines),
+		"ListTagsForResource":              service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                      service.WrapOp(h.handleTagResource),
+		"UntagResource":                    service.WrapOp(h.handleUntagResource),
+		"UpdatePipeline":                   service.WrapOp(h.handleUpdatePipeline),
+		"GetPipelineExecution":             service.WrapOp(h.handleGetPipelineExecution),
+		"GetPipelineState":                 service.WrapOp(h.handleGetPipelineState),
+		"GetThirdPartyJobDetails":          service.WrapOp(h.handleGetThirdPartyJobDetails),
+		"ListActionExecutions":             service.WrapOp(h.handleListActionExecutions),
+		"ListActionTypes":                  service.WrapOp(h.handleListActionTypes),
+		"ListDeployActionExecutionTargets": service.WrapOp(h.handleListDeployActionExecutionTargets),
+		"ListPipelineExecutions":           service.WrapOp(h.handleListPipelineExecutions),
+		"ListRuleExecutions":               service.WrapOp(h.handleListRuleExecutions),
+		"ListRuleTypes":                    service.WrapOp(h.handleListRuleTypes),
+		"ListWebhooks":                     service.WrapOp(h.handleListWebhooks),
+		"OverrideStageCondition":           service.WrapOp(h.handleOverrideStageCondition),
+		"PollForJobs":                      service.WrapOp(h.handlePollForJobs),
+		"PollForThirdPartyJobs":            service.WrapOp(h.handlePollForThirdPartyJobs),
+		"PutActionRevision":                service.WrapOp(h.handlePutActionRevision),
+		"PutApprovalResult":                service.WrapOp(h.handlePutApprovalResult),
+		"PutJobFailureResult":              service.WrapOp(h.handlePutJobFailureResult),
+		"PutJobSuccessResult":              service.WrapOp(h.handlePutJobSuccessResult),
+		"PutThirdPartyJobFailureResult":    service.WrapOp(h.handlePutThirdPartyJobFailureResult),
+		"PutThirdPartyJobSuccessResult":    service.WrapOp(h.handlePutThirdPartyJobSuccessResult),
+		"PutWebhook":                       service.WrapOp(h.handlePutWebhook),
+		"RegisterWebhookWithThirdParty":    service.WrapOp(h.handleRegisterWebhookWithThirdParty),
+		"RetryStageExecution":              service.WrapOp(h.handleRetryStageExecution),
+		"RollbackStage":                    service.WrapOp(h.handleRollbackStage),
+		"StartPipelineExecution":           service.WrapOp(h.handleStartPipelineExecution),
+		"StopPipelineExecution":            service.WrapOp(h.handleStopPipelineExecution),
+		"UpdateActionType":                 service.WrapOp(h.handleUpdateActionType),
 	}
 }
 
@@ -598,7 +657,7 @@ func (h *Handler) handleCreateCustomActionType(
 		ActionType: customActionTypeResponse{
 			ID: ActionTypeID{
 				Category: created.Category,
-				Owner:    "Custom",
+				Owner:    keyOwnerCustom,
 				Provider: created.Provider,
 				Version:  created.Version,
 			},
@@ -690,7 +749,7 @@ func (h *Handler) handleGetActionType(
 		ActionType: customActionTypeResponse{
 			ID: ActionTypeID{
 				Category: cat.Category,
-				Owner:    "Custom",
+				Owner:    keyOwnerCustom,
 				Provider: cat.Provider,
 				Version:  cat.Version,
 			},
@@ -867,4 +926,703 @@ func (h *Handler) handleEnableStageTransition(
 	}
 
 	return &enableStageTransitionOutput{}, nil
+}
+
+// --- Pipeline execution handlers ---
+
+type startPipelineExecutionInput struct {
+	Name string `json:"name"`
+}
+
+type pipelineExecutionOutput struct {
+	PipelineExecutionID string `json:"pipelineExecutionId"`
+}
+
+func (h *Handler) handleStartPipelineExecution(
+	_ context.Context,
+	in *startPipelineExecutionInput,
+) (*pipelineExecutionOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
+	}
+
+	exec, err := h.Backend.StartPipelineExecution(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pipelineExecutionOutput{PipelineExecutionID: exec.PipelineExecutionID}, nil
+}
+
+type getPipelineExecutionInput struct {
+	PipelineName        string `json:"pipelineName"`
+	PipelineExecutionID string `json:"pipelineExecutionId"`
+}
+
+type getPipelineExecutionOutput struct {
+	PipelineExecution map[string]any `json:"pipelineExecution"`
+}
+
+func (h *Handler) handleGetPipelineExecution(
+	_ context.Context,
+	in *getPipelineExecutionInput,
+) (*getPipelineExecutionOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	exec, err := h.Backend.GetPipelineExecution(in.PipelineName, in.PipelineExecutionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getPipelineExecutionOutput{
+		PipelineExecution: map[string]any{
+			"pipelineName":        exec.PipelineName,
+			"pipelineExecutionId": exec.PipelineExecutionID,
+			"status":              exec.Status,
+			"pipelineVersion":     exec.PipelineVersion,
+		},
+	}, nil
+}
+
+type stopPipelineExecutionInput struct {
+	PipelineName        string `json:"pipelineName"`
+	PipelineExecutionID string `json:"pipelineExecutionId"`
+	Reason              string `json:"reason"`
+	Abandon             bool   `json:"abandon"`
+}
+
+func (h *Handler) handleStopPipelineExecution(
+	_ context.Context,
+	in *stopPipelineExecutionInput,
+) (*pipelineExecutionOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	exec, err := h.Backend.StopPipelineExecution(in.PipelineName, in.PipelineExecutionID, in.Reason)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pipelineExecutionOutput{PipelineExecutionID: exec.PipelineExecutionID}, nil
+}
+
+type listPipelineExecutionsInput struct {
+	PipelineName string `json:"pipelineName"`
+	NextToken    string `json:"nextToken"`
+	MaxResults   int32  `json:"maxResults"`
+}
+
+type listPipelineExecutionsOutput struct {
+	PipelineExecutionSummaries []map[string]any `json:"pipelineExecutionSummaries"`
+}
+
+func (h *Handler) handleListPipelineExecutions(
+	_ context.Context,
+	in *listPipelineExecutionsInput,
+) (*listPipelineExecutionsOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	execs, err := h.Backend.ListPipelineExecutions(in.PipelineName)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]map[string]any, len(execs))
+	for i, e := range execs {
+		items[i] = map[string]any{
+			"pipelineExecutionId": e.PipelineExecutionID,
+			"status":              e.Status,
+		}
+	}
+
+	return &listPipelineExecutionsOutput{PipelineExecutionSummaries: items}, nil
+}
+
+// --- Pipeline state ---
+
+type getPipelineStateInput struct {
+	Name string `json:"name"`
+}
+
+type getPipelineStateOutput struct {
+	PipelineName    string           `json:"pipelineName"`
+	StageStates     []map[string]any `json:"stageStates"`
+	PipelineVersion int              `json:"pipelineVersion"`
+}
+
+func (h *Handler) handleGetPipelineState(
+	_ context.Context,
+	in *getPipelineStateInput,
+) (*getPipelineStateOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
+	}
+
+	states, err := h.Backend.GetPipelineState(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]map[string]any, len(states))
+	for i, s := range states {
+		item := map[string]any{"stageName": s.StageName}
+		if s.InboundTransitionState != nil {
+			item["inboundTransitionState"] = map[string]any{
+				"disabled": s.InboundTransitionState.Disabled,
+				"reason":   s.InboundTransitionState.Reason,
+			}
+		}
+
+		if s.OutboundTransitionState != nil {
+			item["outboundTransitionState"] = map[string]any{
+				"disabled": s.OutboundTransitionState.Disabled,
+				"reason":   s.OutboundTransitionState.Reason,
+			}
+		}
+
+		items[i] = item
+	}
+
+	return &getPipelineStateOutput{
+		PipelineName: in.Name,
+		StageStates:  items,
+	}, nil
+}
+
+// --- Stage execution control ---
+
+type retryStageExecutionInput struct {
+	PipelineName        string `json:"pipelineName"`
+	StageName           string `json:"stageName"`
+	PipelineExecutionID string `json:"pipelineExecutionId"`
+	RetryMode           string `json:"retryMode"`
+}
+
+func (h *Handler) handleRetryStageExecution(
+	_ context.Context,
+	in *retryStageExecutionInput,
+) (*pipelineExecutionOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	exec, err := h.Backend.RetryStageExecution(in.PipelineName, in.StageName, in.PipelineExecutionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pipelineExecutionOutput{PipelineExecutionID: exec.PipelineExecutionID}, nil
+}
+
+type rollbackStageInput struct {
+	PipelineName              string `json:"pipelineName"`
+	StageName                 string `json:"stageName"`
+	TargetPipelineExecutionID string `json:"targetPipelineExecutionId"`
+}
+
+func (h *Handler) handleRollbackStage(
+	_ context.Context,
+	in *rollbackStageInput,
+) (*pipelineExecutionOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	exec, err := h.Backend.RollbackStage(in.PipelineName, in.StageName, in.TargetPipelineExecutionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pipelineExecutionOutput{PipelineExecutionID: exec.PipelineExecutionID}, nil
+}
+
+type overrideStageConditionInput struct {
+	PipelineName        string `json:"pipelineName"`
+	StageName           string `json:"stageName"`
+	PipelineExecutionID string `json:"pipelineExecutionId"`
+	ConditionType       string `json:"conditionType"`
+}
+
+type emptyOut struct{}
+
+func (h *Handler) handleOverrideStageCondition(
+	_ context.Context,
+	in *overrideStageConditionInput,
+) (*emptyOut, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.OverrideStageCondition(in.PipelineName, in.StageName, in.PipelineExecutionID); err != nil {
+		return nil, err
+	}
+
+	return &emptyOut{}, nil
+}
+
+// --- Webhook operations ---
+
+type listWebhooksInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
+
+type webhookView struct {
+	Name                     string `json:"name"`
+	TargetPipeline           string `json:"targetPipeline"`
+	TargetAction             string `json:"targetAction"`
+	RegisteredWithThirdParty bool   `json:"registeredWithThirdParty"`
+}
+
+type listWebhooksOutput struct {
+	Webhooks []webhookView `json:"webhooks"`
+}
+
+func (h *Handler) handleListWebhooks(
+	_ context.Context,
+	_ *listWebhooksInput,
+) (*listWebhooksOutput, error) {
+	webhooks := h.Backend.ListWebhooks()
+	views := make([]webhookView, len(webhooks))
+
+	for i, wh := range webhooks {
+		views[i] = webhookView{
+			Name:                     wh.Name,
+			TargetPipeline:           wh.TargetPipeline,
+			TargetAction:             wh.TargetAction,
+			RegisteredWithThirdParty: wh.RegisteredWithThirdParty,
+		}
+	}
+
+	return &listWebhooksOutput{Webhooks: views}, nil
+}
+
+type putWebhookInput struct {
+	Webhook struct {
+		Name           string `json:"name"`
+		TargetPipeline string `json:"targetPipeline"`
+		TargetAction   string `json:"targetAction"`
+	} `json:"webhook"`
+	Tags []Tag `json:"tags"`
+}
+
+type putWebhookOutput struct {
+	Webhook webhookView `json:"webhook"`
+}
+
+func (h *Handler) handlePutWebhook(
+	_ context.Context,
+	in *putWebhookInput,
+) (*putWebhookOutput, error) {
+	if in.Webhook.Name == "" {
+		return nil, fmt.Errorf("%w: webhook name is required", errInvalidRequest)
+	}
+
+	wh, err := h.Backend.PutWebhook(in.Webhook.Name, in.Webhook.TargetPipeline, in.Webhook.TargetAction)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putWebhookOutput{
+		Webhook: webhookView{
+			Name:           wh.Name,
+			TargetPipeline: wh.TargetPipeline,
+			TargetAction:   wh.TargetAction,
+		},
+	}, nil
+}
+
+type registerWebhookInput struct {
+	WebhookName string `json:"webhookName"`
+}
+
+func (h *Handler) handleRegisterWebhookWithThirdParty(
+	_ context.Context,
+	in *registerWebhookInput,
+) (*emptyOut, error) {
+	if err := h.Backend.RegisterWebhookWithThirdParty(in.WebhookName); err != nil {
+		return nil, err
+	}
+
+	return &emptyOut{}, nil
+}
+
+// --- Job polling/result handlers ---
+
+type pollForJobsInput struct {
+	ActionTypeID struct {
+		Category string `json:"category"`
+		Owner    string `json:"owner"`
+		Provider string `json:"provider"`
+		Version  string `json:"version"`
+	} `json:"actionTypeId"`
+	MaxBatchSize int32 `json:"maxBatchSize"`
+}
+
+type pollForJobsOutput struct {
+	Jobs []map[string]any `json:"jobs"`
+}
+
+func (h *Handler) handlePollForJobs(
+	_ context.Context,
+	in *pollForJobsInput,
+) (*pollForJobsOutput, error) {
+	jobs, err := h.Backend.PollForJobs(
+		in.ActionTypeID.Category, in.ActionTypeID.Owner,
+		in.ActionTypeID.Provider, in.ActionTypeID.Version,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]map[string]any, len(jobs))
+	for i, j := range jobs {
+		items[i] = map[string]any{keyJobID: j.ID, keyNonce: j.Nonce}
+	}
+
+	return &pollForJobsOutput{Jobs: items}, nil
+}
+
+type pollForThirdPartyJobsInput struct {
+	ActionTypeID struct {
+		Category string `json:"category"`
+		Owner    string `json:"owner"`
+		Provider string `json:"provider"`
+		Version  string `json:"version"`
+	} `json:"actionTypeId"`
+	MaxBatchSize int32 `json:"maxBatchSize"`
+}
+
+type pollForThirdPartyJobsOutput struct {
+	Jobs []map[string]any `json:"jobs"`
+}
+
+func (h *Handler) handlePollForThirdPartyJobs(
+	_ context.Context,
+	in *pollForThirdPartyJobsInput,
+) (*pollForThirdPartyJobsOutput, error) {
+	jobs, err := h.Backend.PollForThirdPartyJobs(
+		in.ActionTypeID.Category, in.ActionTypeID.Provider, in.ActionTypeID.Version,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]map[string]any, len(jobs))
+	for i, j := range jobs {
+		items[i] = map[string]any{keyJobID: j.ID, keyNonce: j.Nonce}
+	}
+
+	return &pollForThirdPartyJobsOutput{Jobs: items}, nil
+}
+
+type getThirdPartyJobDetailsInput struct {
+	JobID       string `json:"jobId"`
+	ClientToken string `json:"clientToken"`
+}
+
+type getThirdPartyJobDetailsOutput struct {
+	JobDetails map[string]any `json:"jobDetails"`
+}
+
+func (h *Handler) handleGetThirdPartyJobDetails(
+	_ context.Context,
+	in *getThirdPartyJobDetailsInput,
+) (*getThirdPartyJobDetailsOutput, error) {
+	if in.JobID == "" {
+		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
+	}
+
+	job, err := h.Backend.GetThirdPartyJobDetails(in.JobID, in.ClientToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getThirdPartyJobDetailsOutput{
+		JobDetails: map[string]any{keyJobID: job.ID, keyNonce: job.Nonce},
+	}, nil
+}
+
+type putJobSuccessResultInput struct {
+	JobID string `json:"jobId"`
+}
+
+func (h *Handler) handlePutJobSuccessResult(
+	_ context.Context,
+	in *putJobSuccessResultInput,
+) (*emptyOut, error) {
+	if in.JobID == "" {
+		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
+	}
+
+	return &emptyOut{}, h.Backend.PutJobSuccessResult(in.JobID)
+}
+
+type putJobFailureResultInput struct {
+	JobID          string `json:"jobId"`
+	FailureDetails struct {
+		Message string `json:"message"`
+	} `json:"failureDetails"`
+}
+
+func (h *Handler) handlePutJobFailureResult(
+	_ context.Context,
+	in *putJobFailureResultInput,
+) (*emptyOut, error) {
+	if in.JobID == "" {
+		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
+	}
+
+	return &emptyOut{}, h.Backend.PutJobFailureResult(in.JobID, in.FailureDetails.Message)
+}
+
+type putThirdPartyJobSuccessResultInput struct {
+	JobID       string `json:"jobId"`
+	ClientToken string `json:"clientToken"`
+}
+
+func (h *Handler) handlePutThirdPartyJobSuccessResult(
+	_ context.Context,
+	in *putThirdPartyJobSuccessResultInput,
+) (*emptyOut, error) {
+	return &emptyOut{}, h.Backend.PutThirdPartyJobSuccessResult(in.JobID, in.ClientToken)
+}
+
+type putThirdPartyJobFailureResultInput struct {
+	JobID          string `json:"jobId"`
+	ClientToken    string `json:"clientToken"`
+	FailureDetails struct {
+		Message string `json:"message"`
+	} `json:"failureDetails"`
+}
+
+func (h *Handler) handlePutThirdPartyJobFailureResult(
+	_ context.Context,
+	in *putThirdPartyJobFailureResultInput,
+) (*emptyOut, error) {
+	return &emptyOut{}, h.Backend.PutThirdPartyJobFailureResult(in.JobID, in.ClientToken, in.FailureDetails.Message)
+}
+
+// --- Action operations ---
+
+type putActionRevisionInput struct {
+	PipelineName   string `json:"pipelineName"`
+	StageName      string `json:"stageName"`
+	ActionName     string `json:"actionName"`
+	ActionRevision struct {
+		RevisionID       string `json:"revisionId"`
+		RevisionChangeID string `json:"revisionChangeId"`
+	} `json:"actionRevision"`
+}
+
+type putActionRevisionOutput struct {
+	PipelineExecutionID string `json:"pipelineExecutionId"`
+	NewRevision         bool   `json:"newRevision"`
+}
+
+func (h *Handler) handlePutActionRevision(
+	_ context.Context,
+	in *putActionRevisionInput,
+) (*putActionRevisionOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.PutActionRevision(in.PipelineName, in.StageName, in.ActionName); err != nil {
+		return nil, err
+	}
+
+	return &putActionRevisionOutput{NewRevision: true}, nil
+}
+
+type putApprovalResultInput struct {
+	PipelineName   string `json:"pipelineName"`
+	StageName      string `json:"stageName"`
+	ActionName     string `json:"actionName"`
+	ApprovalResult struct {
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+	} `json:"approvalResult"`
+}
+
+type putApprovalResultOutput struct {
+	ApprovedAt string `json:"approvedAt"`
+}
+
+func (h *Handler) handlePutApprovalResult(
+	_ context.Context,
+	in *putApprovalResultInput,
+) (*putApprovalResultOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.PutApprovalResult(
+		in.PipelineName, in.StageName, in.ActionName,
+		in.ApprovalResult.Status, in.ApprovalResult.Summary,
+	); err != nil {
+		return nil, err
+	}
+
+	return &putApprovalResultOutput{}, nil
+}
+
+type listActionExecutionsInput struct {
+	PipelineName string `json:"pipelineName"`
+	NextToken    string `json:"nextToken"`
+	MaxResults   int32  `json:"maxResults"`
+}
+
+type listActionExecutionsOutput struct {
+	ActionExecutionDetails []map[string]any `json:"actionExecutionDetails"`
+}
+
+func (h *Handler) handleListActionExecutions(
+	_ context.Context,
+	in *listActionExecutionsInput,
+) (*listActionExecutionsOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	items, err := h.Backend.ListActionExecutions(in.PipelineName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listActionExecutionsOutput{ActionExecutionDetails: items}, nil
+}
+
+type listActionTypesInput struct {
+	ActionOwnerFilter string `json:"actionOwnerFilter"`
+	RegionFilter      string `json:"regionFilter"`
+	NextToken         string `json:"nextToken"`
+}
+
+type listActionTypesOutput struct {
+	ActionTypes []map[string]any `json:"actionTypes"`
+}
+
+func (h *Handler) handleListActionTypes(
+	_ context.Context,
+	_ *listActionTypesInput,
+) (*listActionTypesOutput, error) {
+	types := h.Backend.ListActionTypes()
+	items := make([]map[string]any, len(types))
+
+	for i, at := range types {
+		items[i] = map[string]any{
+			keyJobID: map[string]any{
+				"category": at.Category,
+				"owner":    keyOwnerCustom,
+				"provider": at.Provider,
+				"version":  at.Version,
+			},
+		}
+	}
+
+	return &listActionTypesOutput{ActionTypes: items}, nil
+}
+
+type updateActionTypeInput struct {
+	ActionType struct {
+		ID struct {
+			Category string `json:"category"`
+			Owner    string `json:"owner"`
+			Provider string `json:"provider"`
+			Version  string `json:"version"`
+		} `json:"id"`
+	} `json:"actionType"`
+}
+
+func (h *Handler) handleUpdateActionType(
+	_ context.Context,
+	in *updateActionTypeInput,
+) (*emptyOut, error) {
+	cat := &CustomActionType{
+		Category: in.ActionType.ID.Category,
+		Provider: in.ActionType.ID.Provider,
+		Version:  in.ActionType.ID.Version,
+	}
+
+	if err := h.Backend.UpdateActionType(cat); err != nil {
+		return nil, err
+	}
+
+	return &emptyOut{}, nil
+}
+
+// --- Rule operations ---
+
+type listRuleExecutionsInput struct {
+	PipelineName string `json:"pipelineName"`
+	NextToken    string `json:"nextToken"`
+	MaxResults   int32  `json:"maxResults"`
+}
+
+type listRuleExecutionsOutput struct {
+	RuleExecutionDetails []map[string]any `json:"ruleExecutionDetails"`
+}
+
+func (h *Handler) handleListRuleExecutions(
+	_ context.Context,
+	in *listRuleExecutionsInput,
+) (*listRuleExecutionsOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	items, err := h.Backend.ListRuleExecutions(in.PipelineName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listRuleExecutionsOutput{RuleExecutionDetails: items}, nil
+}
+
+type listRuleTypesInput struct {
+	RegionFilter string `json:"regionFilter"`
+}
+
+type listRuleTypesOutput struct {
+	RuleTypes []map[string]any `json:"ruleTypes"`
+}
+
+func (h *Handler) handleListRuleTypes(
+	_ context.Context,
+	_ *listRuleTypesInput,
+) (*listRuleTypesOutput, error) {
+	return &listRuleTypesOutput{RuleTypes: h.Backend.ListRuleTypes()}, nil
+}
+
+type listDeployActionExecutionTargetsInput struct {
+	PipelineName      string `json:"pipelineName"`
+	ActionExecutionID string `json:"actionExecutionId"`
+	NextToken         string `json:"nextToken"`
+	MaxResults        int32  `json:"maxResults"`
+}
+
+type listDeployActionExecutionTargetsOutput struct {
+	Targets []map[string]any `json:"targets"`
+}
+
+func (h *Handler) handleListDeployActionExecutionTargets(
+	_ context.Context,
+	in *listDeployActionExecutionTargetsInput,
+) (*listDeployActionExecutionTargetsOutput, error) {
+	if in.PipelineName == "" {
+		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	items, err := h.Backend.ListDeployActionExecutionTargets(in.PipelineName, in.ActionExecutionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listDeployActionExecutionTargetsOutput{Targets: items}, nil
 }

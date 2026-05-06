@@ -586,6 +586,242 @@ func (b *InMemoryBackend) GetResourceSyncStatus(resourceName, syncType string) (
 	}, nil
 }
 
+// ListHosts returns all hosts sorted by name.
+func (b *InMemoryBackend) ListHosts() []*Host {
+	b.mu.RLock("ListHosts")
+	defer b.mu.RUnlock()
+
+	result := make([]*Host, 0, len(b.hosts))
+
+	for _, host := range b.hosts {
+		cp := *host
+		cp.Tags = make(map[string]string, len(host.Tags))
+		maps.Copy(cp.Tags, host.Tags)
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result
+}
+
+// UpdateHost updates the provider endpoint for a host.
+func (b *InMemoryBackend) UpdateHost(hostArn, providerEndpoint string) error {
+	b.mu.Lock("UpdateHost")
+	defer b.mu.Unlock()
+
+	host, ok := b.hosts[hostArn]
+	if !ok {
+		return ErrNotFound
+	}
+
+	if providerEndpoint != "" {
+		host.ProviderEndpoint = providerEndpoint
+	}
+
+	return nil
+}
+
+// ListRepositoryLinks returns all repository links sorted by ID.
+func (b *InMemoryBackend) ListRepositoryLinks() []*RepositoryLink {
+	b.mu.RLock("ListRepositoryLinks")
+	defer b.mu.RUnlock()
+
+	result := make([]*RepositoryLink, 0, len(b.repositoryLinks))
+
+	for _, link := range b.repositoryLinks {
+		cp := *link
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].RepositoryLinkID < result[j].RepositoryLinkID
+	})
+
+	return result
+}
+
+// UpdateRepositoryLink updates the connection ARN or encryption key for a repository link.
+func (b *InMemoryBackend) UpdateRepositoryLink(
+	repositoryLinkID, connectionArn, encryptionKeyArn string,
+) (*RepositoryLink, error) {
+	b.mu.Lock("UpdateRepositoryLink")
+	defer b.mu.Unlock()
+
+	link, ok := b.repositoryLinks[repositoryLinkID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if connectionArn != "" {
+		link.ConnectionArn = connectionArn
+	}
+
+	if encryptionKeyArn != "" {
+		link.EncryptionKeyArn = encryptionKeyArn
+	}
+
+	cp := *link
+
+	return &cp, nil
+}
+
+// GetSyncConfiguration retrieves a sync configuration by resource name and sync type.
+func (b *InMemoryBackend) GetSyncConfiguration(resourceName, syncType string) (*SyncConfiguration, error) {
+	b.mu.RLock("GetSyncConfiguration")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.syncConfigurations[syncConfigKey(resourceName, syncType)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// ListSyncConfigurations returns all sync configurations for a repository link and sync type.
+func (b *InMemoryBackend) ListSyncConfigurations(repositoryLinkID, syncType string) []*SyncConfiguration {
+	b.mu.RLock("ListSyncConfigurations")
+	defer b.mu.RUnlock()
+
+	result := make([]*SyncConfiguration, 0)
+
+	for _, cfg := range b.syncConfigurations {
+		if cfg.RepositoryLinkID != repositoryLinkID {
+			continue
+		}
+
+		if syncType != "" && cfg.SyncType != syncType {
+			continue
+		}
+
+		cp := *cfg
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ResourceName < result[j].ResourceName
+	})
+
+	return result
+}
+
+// UpdateSyncConfiguration updates fields on an existing sync configuration.
+func (b *InMemoryBackend) UpdateSyncConfiguration(
+	resourceName, syncType, branch, configFile, repositoryLinkID, roleArn string,
+) (*SyncConfiguration, error) {
+	if syncType != "" && !validSyncTypes()[syncType] {
+		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
+
+	b.mu.Lock("UpdateSyncConfiguration")
+	defer b.mu.Unlock()
+
+	key := syncConfigKey(resourceName, syncType)
+	cfg, ok := b.syncConfigurations[key]
+
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if branch != "" {
+		cfg.Branch = branch
+	}
+
+	if configFile != "" {
+		cfg.ConfigFile = configFile
+	}
+
+	if repositoryLinkID != "" {
+		cfg.RepositoryLinkID = repositoryLinkID
+	}
+
+	if roleArn != "" {
+		cfg.RoleArn = roleArn
+	}
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// RepositorySyncDefinition is a stub definition for a repository sync.
+type RepositorySyncDefinition struct {
+	Branch    string
+	Directory string
+	Parent    string
+	Target    string
+}
+
+// ListRepositorySyncDefinitions returns stub sync definitions for a repository link and sync type.
+func (b *InMemoryBackend) ListRepositorySyncDefinitions(
+	repositoryLinkID, syncType string,
+) ([]RepositorySyncDefinition, error) {
+	b.mu.RLock("ListRepositorySyncDefinitions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repositoryLinks[repositoryLinkID]; !ok {
+		return nil, ErrNotFound
+	}
+
+	_ = syncType
+
+	return []RepositorySyncDefinition{}, nil
+}
+
+// SyncBlockerSummary is a stub summary of sync blockers for a resource.
+type SyncBlockerSummary struct {
+	ResourceName       string
+	ParentResourceName string
+	LatestBlockers     []SyncBlocker
+}
+
+// SyncBlocker represents a single sync blocker.
+type SyncBlocker struct {
+	ID            string
+	Type          string
+	Status        string
+	CreatedAt     time.Time
+	CreatedReason string
+}
+
+// GetSyncBlockerSummary returns a stub sync blocker summary for a resource.
+func (b *InMemoryBackend) GetSyncBlockerSummary(
+	resourceName, syncType string,
+) (*SyncBlockerSummary, error) {
+	b.mu.RLock("GetSyncBlockerSummary")
+	defer b.mu.RUnlock()
+
+	key := syncConfigKey(resourceName, syncType)
+	if _, ok := b.syncConfigurations[key]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return &SyncBlockerSummary{
+		ResourceName:   resourceName,
+		LatestBlockers: []SyncBlocker{},
+	}, nil
+}
+
+// UpdateSyncBlocker is a stub that accepts blocker resolution.
+func (b *InMemoryBackend) UpdateSyncBlocker(
+	id, resolvedReason string,
+) (*SyncBlockerSummary, error) {
+	b.mu.RLock("UpdateSyncBlocker")
+	defer b.mu.RUnlock()
+
+	_ = id
+	_ = resolvedReason
+
+	return &SyncBlockerSummary{
+		LatestBlockers: []SyncBlocker{},
+	}, nil
+}
+
 // sortedTagKeys returns the keys of the tags map in sorted order.
 func sortedTagKeys(tags map[string]string) []string {
 	keys := make([]string, 0, len(tags))

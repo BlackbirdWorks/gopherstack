@@ -17,15 +17,19 @@ import (
 )
 
 const (
-	keyName         = "name"
-	keyStatusField  = "status"
-	keyDomainOwner  = "domainOwner"
-	keyRepository   = "repository"
-	keyPolicy       = "policy"
-	keyRevision     = "revision"
-	keyResourceArn  = "resourceArn"
-	keyPackageGroup = "packageGroup"
-	keyVersion      = "version"
+	keyName               = "name"
+	keyStatusField        = "status"
+	keyDomainOwner        = "domainOwner"
+	keyRepository         = "repository"
+	keyPolicy             = "policy"
+	keyRevision           = "revision"
+	keyFormat             = "format"
+	keyPackageKey         = "package"
+	keyFailedVersions     = "failedVersions"
+	keySuccessfulVersions = "successfulVersions"
+	keyResourceArn        = "resourceArn"
+	keyPackageGroup       = "packageGroup"
+	keyVersion            = "version"
 )
 
 const (
@@ -37,58 +41,93 @@ const (
 )
 
 const (
-	opAssociateExternalConnection       = "AssociateExternalConnection"
-	opCopyPackageVersions               = "CopyPackageVersions"
-	opCreateDomain                      = "CreateDomain"
-	opCreatePackageGroup                = "CreatePackageGroup"
-	opCreateRepository                  = "CreateRepository"
-	opDeleteDomain                      = "DeleteDomain"
-	opDeleteDomainPermissionsPolicy     = "DeleteDomainPermissionsPolicy"
-	opDeletePackage                     = "DeletePackage"
-	opDeletePackageGroup                = "DeletePackageGroup"
-	opDeletePackageVersions             = "DeletePackageVersions"
-	opDeleteRepository                  = "DeleteRepository"
-	opDeleteRepositoryPermissionsPolicy = "DeleteRepositoryPermissionsPolicy"
-	opDescribeDomain                    = "DescribeDomain"
-	opDescribePackage                   = "DescribePackage"
-	opDescribePackageGroup              = "DescribePackageGroup"
-	opDescribePackageVersion            = "DescribePackageVersion"
-	opDescribeRepository                = "DescribeRepository"
-	opGetAuthorizationToken             = "GetAuthorizationToken"
-	opGetDomainPermissionsPolicy        = "GetDomainPermissionsPolicy"
-	opGetRepositoryEndpoint             = "GetRepositoryEndpoint"
-	opGetRepositoryPermissionsPolicy    = "GetRepositoryPermissionsPolicy"
-	opListDomains                       = "ListDomains"
-	opListRepositories                  = "ListRepositories"
-	opListRepositoriesInDomain          = "ListRepositoriesInDomain"
-	opListTagsForResource               = "ListTagsForResource"
-	opPutDomainPermissionsPolicy        = "PutDomainPermissionsPolicy"
-	opPutRepositoryPermissionsPolicy    = "PutRepositoryPermissionsPolicy"
-	opTagResource                       = "TagResource"
-	opUntagResource                     = "UntagResource"
+	opAssociateExternalConnection           = "AssociateExternalConnection"
+	opCopyPackageVersions                   = "CopyPackageVersions"
+	opCreateDomain                          = "CreateDomain"
+	opCreatePackageGroup                    = "CreatePackageGroup"
+	opCreateRepository                      = "CreateRepository"
+	opDeleteDomain                          = "DeleteDomain"
+	opDeleteDomainPermissionsPolicy         = "DeleteDomainPermissionsPolicy"
+	opDeletePackage                         = "DeletePackage"
+	opDeletePackageGroup                    = "DeletePackageGroup"
+	opDeletePackageVersions                 = "DeletePackageVersions"
+	opDeleteRepository                      = "DeleteRepository"
+	opDeleteRepositoryPermissionsPolicy     = "DeleteRepositoryPermissionsPolicy"
+	opDescribeDomain                        = "DescribeDomain"
+	opDescribePackage                       = "DescribePackage"
+	opDescribePackageGroup                  = "DescribePackageGroup"
+	opDescribePackageVersion                = "DescribePackageVersion"
+	opDescribeRepository                    = "DescribeRepository"
+	opGetAuthorizationToken                 = "GetAuthorizationToken"
+	opGetDomainPermissionsPolicy            = "GetDomainPermissionsPolicy"
+	opGetRepositoryEndpoint                 = "GetRepositoryEndpoint"
+	opGetRepositoryPermissionsPolicy        = "GetRepositoryPermissionsPolicy"
+	opListDomains                           = "ListDomains"
+	opListRepositories                      = "ListRepositories"
+	opListRepositoriesInDomain              = "ListRepositoriesInDomain"
+	opListTagsForResource                   = "ListTagsForResource"
+	opPutDomainPermissionsPolicy            = "PutDomainPermissionsPolicy"
+	opPutRepositoryPermissionsPolicy        = "PutRepositoryPermissionsPolicy"
+	opTagResource                           = "TagResource"
+	opUntagResource                         = "UntagResource"
+	opDisassociateExternalConnection        = "DisassociateExternalConnection"
+	opDisposePackageVersions                = "DisposePackageVersions"
+	opGetAssociatedPackageGroup             = "GetAssociatedPackageGroup"
+	opGetPackageVersionAsset                = "GetPackageVersionAsset"
+	opGetPackageVersionReadme               = "GetPackageVersionReadme"
+	opListAllowedRepositoriesForGroup       = "ListAllowedRepositoriesForGroup"
+	opListAssociatedPackages                = "ListAssociatedPackages"
+	opListPackageGroups                     = "ListPackageGroups"
+	opListPackageVersionAssets              = "ListPackageVersionAssets"
+	opListPackageVersionDependencies        = "ListPackageVersionDependencies"
+	opListPackageVersions                   = "ListPackageVersions"
+	opListPackages                          = "ListPackages"
+	opListSubPackageGroups                  = "ListSubPackageGroups"
+	opPublishPackageVersion                 = "PublishPackageVersion"
+	opPutPackageOriginConfiguration         = "PutPackageOriginConfiguration"
+	opUpdatePackageGroup                    = "UpdatePackageGroup"
+	opUpdatePackageGroupOriginConfiguration = "UpdatePackageGroupOriginConfiguration"
+	opUpdatePackageVersionsStatus           = "UpdatePackageVersionsStatus"
+	opUpdateRepository                      = "UpdateRepository"
 )
 
 const (
 	codeartifactMatchPriority = service.PriorityPathVersioned + 1
 
-	pathV1Domain                       = "/v1/domain"
-	pathV1Domains                      = "/v1/domains"
-	pathV1DomainRepositories           = "/v1/domain/repositories"
-	pathV1DomainPermissions            = "/v1/domain/permissions/policy"
-	pathV1Repository                   = "/v1/repository"
-	pathV1Repositories                 = "/v1/repositories"
-	pathV1RepositoryEndpoint           = "/v1/repository/endpoint"
-	pathV1RepositoryExternalConnection = "/v1/repository/external-connection"
-	pathV1RepositoryPermissions        = "/v1/repository/permissions/policy"
-	pathV1Tags                         = "/v1/tags"
-	pathV1Tag                          = "/v1/tag"
-	pathV1Untag                        = "/v1/untag"
-	pathV1AuthToken                    = "/v1/authorization-token" //nolint:gosec // not a credential
-	pathV1PackageGroup                 = "/v1/package-group"
-	pathV1Package                      = "/v1/package"
-	pathV1PackageVersion               = "/v1/package/version"
-	pathV1PackageVersionsCopy          = "/v1/package/versions/copy"
-	pathV1PackageVersionsDelete        = "/v1/package/versions/delete"
+	pathV1Domain                          = "/v1/domain"
+	pathV1Domains                         = "/v1/domains"
+	pathV1DomainRepositories              = "/v1/domain/repositories"
+	pathV1DomainPermissions               = "/v1/domain/permissions/policy"
+	pathV1Repository                      = "/v1/repository"
+	pathV1Repositories                    = "/v1/repositories"
+	pathV1RepositoryEndpoint              = "/v1/repository/endpoint"
+	pathV1RepositoryExternalConnection    = "/v1/repository/external-connection"
+	pathV1RepositoryPermissions           = "/v1/repository/permissions/policy"
+	pathV1Tags                            = "/v1/tags"
+	pathV1Tag                             = "/v1/tag"
+	pathV1Untag                           = "/v1/untag"
+	pathV1AuthToken                       = "/v1/authorization-token" //nolint:gosec // not a credential
+	pathV1PackageGroup                    = "/v1/package-group"
+	pathV1Package                         = "/v1/package"
+	pathV1PackageVersion                  = "/v1/package/version"
+	pathV1PackageVersionsCopy             = "/v1/package/versions/copy"
+	pathV1PackageVersionsDelete           = "/v1/package/versions/delete"
+	pathV1PackageVersionsDispose          = "/v1/package/versions/dispose"
+	pathV1PackageVersionsUpdateStatus     = "/v1/package/versions/update_status"
+	pathV1PackageVersionAsset             = "/v1/package/version/asset"
+	pathV1PackageVersionReadme            = "/v1/package/version/readme"
+	pathV1PackageVersionAssets            = "/v1/package/version/assets"
+	pathV1PackageVersionDependencies      = "/v1/package/version/dependencies"
+	pathV1PackageVersionsPublish          = "/v1/package/versions/publish"
+	pathV1PackageOriginConfiguration      = "/v1/package/origin-configuration"
+	pathV1PackageGroups                   = "/v1/package-groups"
+	pathV1PackageGroupAssociatedPackages  = "/v1/package-group-associated-packages" //nolint:gosec // not a credential
+	pathV1PackageGroupAllowedRepos        = "/v1/package-group-allowed-repositories"
+	pathV1PackageGroupOriginConfiguration = "/v1/package-group-origin-configuration"
+	pathV1SubPackageGroups                = "/v1/sub-package-groups"
+	pathV1AssociatedPackageGroup          = "/v1/associated-package-group"
+	pathV1Packages                        = "/v1/packages"
+	pathV1PackageVersions                 = "/v1/package/versions"
 )
 
 const (
@@ -152,6 +191,25 @@ func (h *Handler) GetSupportedOperations() []string {
 		opPutRepositoryPermissionsPolicy,
 		opTagResource,
 		opUntagResource,
+		opDisassociateExternalConnection,
+		opDisposePackageVersions,
+		opGetAssociatedPackageGroup,
+		opGetPackageVersionAsset,
+		opGetPackageVersionReadme,
+		opListAllowedRepositoriesForGroup,
+		opListAssociatedPackages,
+		opListPackageGroups,
+		opListPackageVersionAssets,
+		opListPackageVersionDependencies,
+		opListPackageVersions,
+		opListPackages,
+		opListSubPackageGroups,
+		opPublishPackageVersion,
+		opPutPackageOriginConfiguration,
+		opUpdatePackageGroup,
+		opUpdatePackageGroupOriginConfiguration,
+		opUpdatePackageVersionsStatus,
+		opUpdateRepository,
 	}
 }
 
@@ -164,27 +222,50 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this CodeArtifact instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
+// isDomainRepoPath returns true if the path is a known domain/repo/tag/auth path.
+func isDomainRepoPath(path string) bool {
+	return path == pathV1Domain || strings.HasPrefix(path, pathV1Domain+"/") ||
+		path == pathV1Domains || path == pathV1Repository ||
+		strings.HasPrefix(path, pathV1Repository+"/") ||
+		path == pathV1Repositories || path == pathV1Tags ||
+		path == pathV1Tag || path == pathV1Untag || path == pathV1AuthToken
+}
+
+// isPackageCoreGroupPath returns true for core package and package-group paths.
+func isPackageCoreGroupPath(path string) bool {
+	return path == pathV1PackageGroup || path == pathV1PackageGroups ||
+		path == pathV1Package || path == pathV1PackageVersion ||
+		path == pathV1PackageVersionsCopy || path == pathV1PackageVersionsDelete
+}
+
+// isPackageExtendedPath returns true for extended package-version and group operation paths.
+func isPackageExtendedPath(path string) bool {
+	return path == pathV1PackageVersionsDispose || path == pathV1PackageVersionsUpdateStatus ||
+		path == pathV1PackageVersionAsset || path == pathV1PackageVersionReadme ||
+		path == pathV1PackageVersionAssets || path == pathV1PackageVersionDependencies ||
+		path == pathV1PackageVersionsPublish || path == pathV1PackageOriginConfiguration ||
+		path == pathV1PackageGroupAssociatedPackages || path == pathV1PackageGroupAllowedRepos ||
+		path == pathV1PackageGroupOriginConfiguration || path == pathV1SubPackageGroups ||
+		path == pathV1AssociatedPackageGroup || path == pathV1Packages || path == pathV1PackageVersions
+}
+
+// isPackagePath returns true if the path is a known package/package-group path.
+func isPackagePath(path string) bool {
+	return isPackageCoreGroupPath(path) || isPackageExtendedPath(path)
+}
+
+// isCodeArtifactPath returns true if the given path is a known CodeArtifact REST path.
+func isCodeArtifactPath(path string) bool {
+	return isDomainRepoPath(path) || isPackagePath(path)
+}
+
 // RouteMatcher returns a function that matches AWS CodeArtifact REST requests.
 // CodeArtifact uses /v1/ paths that are distinct from Batch and AppSync.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return path == pathV1Domain ||
-			strings.HasPrefix(path, pathV1Domain+"/") ||
-			path == pathV1Domains ||
-			path == pathV1Repository ||
-			strings.HasPrefix(path, pathV1Repository+"/") ||
-			path == pathV1Repositories ||
-			path == pathV1Tags ||
-			path == pathV1Tag ||
-			path == pathV1Untag ||
-			path == pathV1AuthToken ||
-			path == pathV1PackageGroup ||
-			path == pathV1Package ||
-			path == pathV1PackageVersion ||
-			path == pathV1PackageVersionsCopy ||
-			path == pathV1PackageVersionsDelete
+		return isCodeArtifactPath(path)
 	}
 }
 
@@ -222,7 +303,7 @@ func parseDomainRepoPath(method, path string) codeartifactRoute {
 	case pathV1RepositoryEndpoint:
 		return codeartifactRoute{operation: opGetRepositoryEndpoint}
 	case pathV1RepositoryExternalConnection:
-		return codeartifactRoute{operation: opAssociateExternalConnection}
+		return parseRepositoryExternalConnectionRoute(method)
 	case pathV1RepositoryPermissions:
 		return parseRepositoryPermissionsRoute(method)
 	case pathV1Repositories:
@@ -241,18 +322,52 @@ func parseDomainRepoPath(method, path string) codeartifactRoute {
 }
 
 // parsePackageOpPath handles package, package-group, and package-version routes.
+//
+//nolint:cyclop // large switch-case dispatch is inherently high cyclomatic complexity
 func parsePackageOpPath(method, path string) codeartifactRoute {
 	switch path {
 	case pathV1PackageGroup:
 		return parsePackageGroupRoute(method)
+	case pathV1PackageGroups:
+		return codeartifactRoute{operation: opListPackageGroups}
 	case pathV1Package:
 		return parsePackageRoute(method)
+	case pathV1Packages:
+		return codeartifactRoute{operation: opListPackages}
 	case pathV1PackageVersion:
 		return codeartifactRoute{operation: opDescribePackageVersion}
+	case pathV1PackageVersions:
+		return codeartifactRoute{operation: opListPackageVersions}
 	case pathV1PackageVersionsCopy:
 		return codeartifactRoute{operation: opCopyPackageVersions}
 	case pathV1PackageVersionsDelete:
 		return codeartifactRoute{operation: opDeletePackageVersions}
+	case pathV1PackageVersionsDispose:
+		return codeartifactRoute{operation: opDisposePackageVersions}
+	case pathV1PackageVersionsUpdateStatus:
+		return codeartifactRoute{operation: opUpdatePackageVersionsStatus}
+	case pathV1PackageVersionsPublish:
+		return codeartifactRoute{operation: opPublishPackageVersion}
+	case pathV1PackageVersionAsset:
+		return codeartifactRoute{operation: opGetPackageVersionAsset}
+	case pathV1PackageVersionReadme:
+		return codeartifactRoute{operation: opGetPackageVersionReadme}
+	case pathV1PackageVersionAssets:
+		return codeartifactRoute{operation: opListPackageVersionAssets}
+	case pathV1PackageVersionDependencies:
+		return codeartifactRoute{operation: opListPackageVersionDependencies}
+	case pathV1PackageOriginConfiguration:
+		return codeartifactRoute{operation: opPutPackageOriginConfiguration}
+	case pathV1PackageGroupAssociatedPackages:
+		return codeartifactRoute{operation: opListAssociatedPackages}
+	case pathV1PackageGroupAllowedRepos:
+		return codeartifactRoute{operation: opListAllowedRepositoriesForGroup}
+	case pathV1PackageGroupOriginConfiguration:
+		return codeartifactRoute{operation: opUpdatePackageGroupOriginConfiguration}
+	case pathV1SubPackageGroups:
+		return codeartifactRoute{operation: opListSubPackageGroups}
+	case pathV1AssociatedPackageGroup:
+		return codeartifactRoute{operation: opGetAssociatedPackageGroup}
 	}
 
 	return codeartifactRoute{operation: opUnknown}
@@ -292,6 +407,8 @@ func parseRepositoryRoute(method string) codeartifactRoute {
 		return codeartifactRoute{operation: opDescribeRepository}
 	case http.MethodDelete:
 		return codeartifactRoute{operation: opDeleteRepository}
+	case http.MethodPut:
+		return codeartifactRoute{operation: opUpdateRepository}
 	}
 
 	return codeartifactRoute{operation: opUnknown}
@@ -318,6 +435,19 @@ func parsePackageGroupRoute(method string) codeartifactRoute {
 		return codeartifactRoute{operation: opDescribePackageGroup}
 	case http.MethodDelete:
 		return codeartifactRoute{operation: opDeletePackageGroup}
+	case http.MethodPut:
+		return codeartifactRoute{operation: opUpdatePackageGroup}
+	}
+
+	return codeartifactRoute{operation: opUnknown}
+}
+
+func parseRepositoryExternalConnectionRoute(method string) codeartifactRoute {
+	switch method {
+	case http.MethodPost:
+		return codeartifactRoute{operation: opAssociateExternalConnection}
+	case http.MethodDelete:
+		return codeartifactRoute{operation: opDisassociateExternalConnection}
 	}
 
 	return codeartifactRoute{operation: opUnknown}
@@ -482,7 +612,7 @@ func (h *Handler) buildDomainRepoOps() map[string]func(*echo.Context, []byte) er
 	}
 }
 
-func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error {
+func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error { //nolint:funlen
 	return map[string]func(*echo.Context, []byte) error{
 		opCopyPackageVersions: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
@@ -533,6 +663,129 @@ func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error
 				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
 				q.Get("namespace"), q.Get("package"), q.Get(keyVersion),
 			)
+		},
+		opDisassociateExternalConnection: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleDisassociateExternalConnection(
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("externalConnection"),
+			)
+		},
+		opDisposePackageVersions: func(c *echo.Context, body []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleDisposePackageVersions(
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"), q.Get("namespace"), q.Get("package"), body,
+			)
+		},
+		opGetAssociatedPackageGroup: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleGetAssociatedPackageGroup(
+				c, q.Get(keyDomain), q.Get("format"), q.Get("namespace"), q.Get("package"),
+			)
+		},
+		opGetPackageVersionAsset: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleGetPackageVersionAsset(
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
+				q.Get("namespace"), q.Get("package"), q.Get(keyVersion), q.Get("asset"),
+			)
+		},
+		opGetPackageVersionReadme: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleGetPackageVersionReadme(
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
+				q.Get("namespace"), q.Get("package"), q.Get(keyVersion),
+			)
+		},
+		opListAllowedRepositoriesForGroup: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleListAllowedRepositoriesForGroup(c, q.Get(keyDomain), q.Get(keyPackageGroup))
+		},
+		opListAssociatedPackages: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleListAssociatedPackages(c, q.Get(keyDomain), q.Get(keyPackageGroup))
+		},
+		opListPackageGroups: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleListPackageGroups(c, q.Get(keyDomain), q.Get("prefix"))
+		},
+		opListPackageVersionAssets: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleListPackageVersionAssets(
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
+				q.Get("namespace"), q.Get("package"), q.Get(keyVersion),
+			)
+		},
+		opListPackageVersionDependencies: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleListPackageVersionDependencies(
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
+				q.Get("namespace"), q.Get("package"), q.Get(keyVersion),
+			)
+		},
+		opListPackageVersions: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleListPackageVersions(
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
+				q.Get("namespace"), q.Get("package"),
+			)
+		},
+		opListPackages: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleListPackages(c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"), q.Get("namespace"))
+		},
+		opListSubPackageGroups: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleListSubPackageGroups(c, q.Get(keyDomain), q.Get(keyPackageGroup))
+		},
+		opPublishPackageVersion: func(c *echo.Context, body []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handlePublishPackageVersion(
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
+				q.Get("namespace"), q.Get("package"), q.Get(keyVersion), body,
+			)
+		},
+		opPutPackageOriginConfiguration: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handlePutPackageOriginConfiguration(
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
+				q.Get("namespace"), q.Get("package"),
+			)
+		},
+		opUpdatePackageGroup: func(c *echo.Context, body []byte) error {
+			return h.handleUpdatePackageGroup(c, c.Request().URL.Query().Get(keyDomain), body)
+		},
+		opUpdatePackageGroupOriginConfiguration: func(c *echo.Context, _ []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleUpdatePackageGroupOriginConfiguration(c, q.Get(keyDomain), q.Get(keyPackageGroup))
+		},
+		opUpdatePackageVersionsStatus: func(c *echo.Context, body []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleUpdatePackageVersionsStatus(
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
+				q.Get("namespace"), q.Get("package"), body,
+			)
+		},
+		opUpdateRepository: func(c *echo.Context, body []byte) error {
+			q := c.Request().URL.Query()
+
+			return h.handleUpdateRepository(c, q.Get(keyDomain), q.Get(keyRepository), body)
 		},
 	}
 }
@@ -1102,7 +1355,7 @@ func (h *Handler) handleDeletePackageGroup(c *echo.Context, domainName, pattern 
 
 func packageToMap(pkg *Package) map[string]any {
 	m := map[string]any{
-		"format":       pkg.Format,
+		keyFormat:      pkg.Format,
 		keyName:        pkg.Name,
 		keyDomainName:  pkg.DomainName,
 		keyDomainOwner: pkg.DomainOwner,
@@ -1135,7 +1388,7 @@ func (h *Handler) handleDescribePackage(c *echo.Context, domainName, repoName, f
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"package": packageToMap(pkg),
+		keyPackageKey: packageToMap(pkg),
 	})
 }
 
@@ -1257,8 +1510,8 @@ func (h *Handler) handleDeletePackageVersions(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"failedVersions":     failedList,
-		"successfulVersions": successList,
+		keyFailedVersions:     failedList,
+		keySuccessfulVersions: successList,
 	})
 }
 
@@ -1312,8 +1565,8 @@ func (h *Handler) handleCopyPackageVersions(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"failedVersions":     failedList,
-		"successfulVersions": successList,
+		keyFailedVersions:     failedList,
+		keySuccessfulVersions: successList,
 	})
 }
 
@@ -1428,4 +1681,352 @@ func (h *Handler) handleDeleteRepositoryPermissionsPolicy(c *echo.Context, domai
 			keyResourceArn: pol.ResourceARN,
 		},
 	})
+}
+
+// --- New handler implementations ---
+
+func (h *Handler) handleDisassociateExternalConnection(
+	c *echo.Context, domainName, repoName, connectionName string,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	r, err := h.Backend.DisassociateExternalConnection(domainName, repoName, connectionName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	extConns := h.Backend.GetExternalConnections(domainName, repoName)
+
+	return c.JSON(http.StatusOK, map[string]any{keyRepository: repoToMap(r, extConns)})
+}
+
+type disposeVersionsBody struct {
+	Versions []string `json:"versions"`
+}
+
+func (h *Handler) handleDisposePackageVersions(
+	c *echo.Context, domainName, repoName, format, namespace, name string, body []byte,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	var in disposeVersionsBody
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &in)
+	}
+
+	results, err := h.Backend.DisposePackageVersions(domainName, repoName, format, namespace, name, in.Versions)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keySuccessfulVersions: results, keyFailedVersions: map[string]any{}})
+}
+
+func (h *Handler) handleGetAssociatedPackageGroup(c *echo.Context, domainName, format, namespace, name string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	pg, err := h.Backend.GetAssociatedPackageGroup(domainName, format, namespace, name)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	if pg == nil {
+		return c.JSON(http.StatusOK, map[string]any{keyPackageGroup: nil})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyPackageGroup: packageGroupToMap(pg)})
+}
+
+func (h *Handler) handleGetPackageVersionAsset(
+	c *echo.Context, domainName, repoName, format, namespace, name, version, asset string,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	data, err := h.Backend.GetPackageVersionAsset(domainName, repoName, format, namespace, name, version, asset)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.Blob(http.StatusOK, "application/octet-stream", data)
+}
+
+func (h *Handler) handleGetPackageVersionReadme(
+	c *echo.Context, domainName, repoName, format, namespace, name, version string,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	readme, err := h.Backend.GetPackageVersionReadme(domainName, repoName, format, namespace, name, version)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"readme": readme})
+}
+
+func (h *Handler) handleListAllowedRepositoriesForGroup(c *echo.Context, domainName, pattern string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	repos, err := h.Backend.ListAllowedRepositoriesForGroup(domainName, pattern)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"allowedRepositories": repos})
+}
+
+func (h *Handler) handleListAssociatedPackages(c *echo.Context, domainName, pattern string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	pkgs, err := h.Backend.ListAssociatedPackages(domainName, pattern)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(pkgs))
+	for _, pkg := range pkgs {
+		items = append(items, packageToMap(pkg))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"packages": items})
+}
+
+func (h *Handler) handleListPackageGroups(c *echo.Context, domainName, prefix string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	groups, err := h.Backend.ListPackageGroups(domainName, prefix)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(groups))
+	for _, pg := range groups {
+		items = append(items, packageGroupToMap(pg))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"packageGroups": items})
+}
+
+func (h *Handler) handleListPackageVersionAssets(
+	c *echo.Context, domainName, repoName, format, namespace, name, version string,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	assets, err := h.Backend.ListPackageVersionAssets(domainName, repoName, format, namespace, name, version)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"assets": assets})
+}
+
+func (h *Handler) handleListPackageVersionDependencies(
+	c *echo.Context, domainName, repoName, format, namespace, name, version string,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	deps, err := h.Backend.ListPackageVersionDependencies(domainName, repoName, format, namespace, name, version)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"dependencies": deps})
+}
+
+func (h *Handler) handleListPackageVersions(
+	c *echo.Context, domainName, repoName, format, namespace, name string,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	versions, err := h.Backend.ListPackageVersions(domainName, repoName, format, namespace, name)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(versions))
+	for _, pv := range versions {
+		items = append(items, packageVersionToMap(pv))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"versions": items, "package": name, "format": format})
+}
+
+func (h *Handler) handleListPackages(c *echo.Context, domainName, repoName, format, namespace string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	pkgs, err := h.Backend.ListPackages(domainName, repoName, format, namespace)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(pkgs))
+	for _, pkg := range pkgs {
+		items = append(items, packageToMap(pkg))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"packages": items})
+}
+
+func (h *Handler) handleListSubPackageGroups(c *echo.Context, domainName, pattern string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	groups, err := h.Backend.ListSubPackageGroups(domainName, pattern)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(groups))
+	for _, pg := range groups {
+		items = append(items, packageGroupToMap(pg))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"packageGroups": items})
+}
+
+func (h *Handler) handlePublishPackageVersion(
+	c *echo.Context, domainName, repoName, format, namespace, name, version string, _ []byte,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	pv, err := h.Backend.PublishPackageVersion(domainName, repoName, format, namespace, name, version)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, packageVersionToMap(pv))
+}
+
+func (h *Handler) handlePutPackageOriginConfiguration(
+	c *echo.Context, domainName, repoName, format, namespace, name string,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	pkg, err := h.Backend.PutPackageOriginConfiguration(domainName, repoName, format, namespace, name)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"package": packageToMap(pkg)})
+}
+
+type updatePackageGroupBody struct {
+	Description  string `json:"description"`
+	ContactInfo  string `json:"contactInfo"`
+	PackageGroup string `json:"packageGroup"`
+}
+
+func (h *Handler) handleUpdatePackageGroup(c *echo.Context, domainName string, body []byte) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	var in updatePackageGroupBody
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &in)
+	}
+
+	pattern := c.Request().URL.Query().Get(keyPackageGroup)
+	if pattern == "" {
+		pattern = in.PackageGroup
+	}
+
+	pg, err := h.Backend.UpdatePackageGroup(domainName, pattern, in.Description, in.ContactInfo)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"packageGroup": packageGroupToMap(pg)})
+}
+
+func (h *Handler) handleUpdatePackageGroupOriginConfiguration(c *echo.Context, domainName, pattern string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	pg, err := h.Backend.UpdatePackageGroupOriginConfiguration(domainName, pattern)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"packageGroup": packageGroupToMap(pg)})
+}
+
+type updateVersionsStatusBody struct {
+	TargetStatus string   `json:"targetStatus"`
+	Versions     []string `json:"versions"`
+}
+
+func (h *Handler) handleUpdatePackageVersionsStatus(
+	c *echo.Context, domainName, repoName, format, namespace, name string, body []byte,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	var in updateVersionsStatusBody
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &in)
+	}
+
+	results, err := h.Backend.UpdatePackageVersionsStatus(
+		domainName, repoName, format, namespace, name, in.TargetStatus, in.Versions,
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keySuccessfulVersions: results, keyFailedVersions: map[string]any{}})
+}
+
+type updateRepositoryBody struct {
+	Description string `json:"description"`
+}
+
+func (h *Handler) handleUpdateRepository(c *echo.Context, domainName, repoName string, body []byte) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	var in updateRepositoryBody
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &in)
+	}
+
+	r, err := h.Backend.UpdateRepository(domainName, repoName, in.Description)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	extConns := h.Backend.GetExternalConnections(domainName, repoName)
+
+	return c.JSON(http.StatusOK, map[string]any{keyRepository: repoToMap(r, extConns)})
 }

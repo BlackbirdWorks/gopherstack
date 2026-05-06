@@ -44,23 +44,33 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateConnection":        service.WrapOp(h.handleCreateConnection),
-		"GetConnection":           service.WrapOp(h.handleGetConnection),
-		"ListConnections":         service.WrapOp(h.handleListConnections),
-		"DeleteConnection":        service.WrapOp(h.handleDeleteConnection),
-		"TagResource":             service.WrapOp(h.handleTagResource),
-		"UntagResource":           service.WrapOp(h.handleUntagResource),
-		"ListTagsForResource":     service.WrapOp(h.handleListTagsForResource),
-		"CreateHost":              service.WrapOp(h.handleCreateHost),
-		"GetHost":                 service.WrapOp(h.handleGetHost),
-		"DeleteHost":              service.WrapOp(h.handleDeleteHost),
-		"CreateRepositoryLink":    service.WrapOp(h.handleCreateRepositoryLink),
-		"GetRepositoryLink":       service.WrapOp(h.handleGetRepositoryLink),
-		"DeleteRepositoryLink":    service.WrapOp(h.handleDeleteRepositoryLink),
-		"CreateSyncConfiguration": service.WrapOp(h.handleCreateSyncConfiguration),
-		"DeleteSyncConfiguration": service.WrapOp(h.handleDeleteSyncConfiguration),
-		"GetRepositorySyncStatus": service.WrapOp(h.handleGetRepositorySyncStatus),
-		"GetResourceSyncStatus":   service.WrapOp(h.handleGetResourceSyncStatus),
+		"CreateConnection":              service.WrapOp(h.handleCreateConnection),
+		"GetConnection":                 service.WrapOp(h.handleGetConnection),
+		"ListConnections":               service.WrapOp(h.handleListConnections),
+		"DeleteConnection":              service.WrapOp(h.handleDeleteConnection),
+		"TagResource":                   service.WrapOp(h.handleTagResource),
+		"UntagResource":                 service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource":           service.WrapOp(h.handleListTagsForResource),
+		"CreateHost":                    service.WrapOp(h.handleCreateHost),
+		"GetHost":                       service.WrapOp(h.handleGetHost),
+		"DeleteHost":                    service.WrapOp(h.handleDeleteHost),
+		"CreateRepositoryLink":          service.WrapOp(h.handleCreateRepositoryLink),
+		"GetRepositoryLink":             service.WrapOp(h.handleGetRepositoryLink),
+		"DeleteRepositoryLink":          service.WrapOp(h.handleDeleteRepositoryLink),
+		"CreateSyncConfiguration":       service.WrapOp(h.handleCreateSyncConfiguration),
+		"DeleteSyncConfiguration":       service.WrapOp(h.handleDeleteSyncConfiguration),
+		"GetRepositorySyncStatus":       service.WrapOp(h.handleGetRepositorySyncStatus),
+		"GetResourceSyncStatus":         service.WrapOp(h.handleGetResourceSyncStatus),
+		"GetSyncBlockerSummary":         service.WrapOp(h.handleGetSyncBlockerSummary),
+		"GetSyncConfiguration":          service.WrapOp(h.handleGetSyncConfiguration),
+		"ListHosts":                     service.WrapOp(h.handleListHosts),
+		"ListRepositoryLinks":           service.WrapOp(h.handleListRepositoryLinks),
+		"ListRepositorySyncDefinitions": service.WrapOp(h.handleListRepositorySyncDefinitions),
+		"ListSyncConfigurations":        service.WrapOp(h.handleListSyncConfigurations),
+		"UpdateHost":                    service.WrapOp(h.handleUpdateHost),
+		"UpdateRepositoryLink":          service.WrapOp(h.handleUpdateRepositoryLink),
+		"UpdateSyncBlocker":             service.WrapOp(h.handleUpdateSyncBlocker),
+		"UpdateSyncConfiguration":       service.WrapOp(h.handleUpdateSyncConfiguration),
 	}
 }
 
@@ -92,6 +102,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteSyncConfiguration",
 		"GetRepositorySyncStatus",
 		"GetResourceSyncStatus",
+		"GetSyncBlockerSummary",
+		"GetSyncConfiguration",
+		"ListHosts",
+		"ListRepositoryLinks",
+		"ListRepositorySyncDefinitions",
+		"ListSyncConfigurations",
+		"UpdateHost",
+		"UpdateRepositoryLink",
+		"UpdateSyncBlocker",
+		"UpdateSyncConfiguration",
 	}
 }
 
@@ -781,4 +801,348 @@ func buildSyncEventItems(evts []SyncEvent) []syncEventItem {
 	}
 
 	return out
+}
+
+// --- ListHosts ---
+
+type listHostsInput struct {
+	NextToken  *string `json:"NextToken"`
+	MaxResults *int32  `json:"MaxResults"`
+}
+
+type hostItem struct {
+	HostArn          string `json:"HostArn"`
+	Name             string `json:"Name"`
+	ProviderEndpoint string `json:"ProviderEndpoint"`
+	ProviderType     string `json:"ProviderType"`
+	Status           string `json:"Status"`
+	StatusMessage    string `json:"StatusMessage,omitempty"`
+}
+
+type listHostsOutput struct {
+	Hosts []hostItem `json:"Hosts"`
+}
+
+func (h *Handler) handleListHosts(_ context.Context, _ *listHostsInput) (*listHostsOutput, error) {
+	hosts := h.Backend.ListHosts()
+	items := make([]hostItem, len(hosts))
+
+	for i, host := range hosts {
+		items[i] = hostItem{
+			HostArn:          host.HostArn,
+			Name:             host.Name,
+			ProviderEndpoint: host.ProviderEndpoint,
+			ProviderType:     host.ProviderType,
+			Status:           host.Status,
+			StatusMessage:    host.StatusMessage,
+		}
+	}
+
+	return &listHostsOutput{Hosts: items}, nil
+}
+
+// --- UpdateHost ---
+
+type updateHostInput struct {
+	HostArn          string `json:"HostArn"`
+	ProviderEndpoint string `json:"ProviderEndpoint"`
+}
+
+func (h *Handler) handleUpdateHost(_ context.Context, in *updateHostInput) (*emptyOutput, error) {
+	if in.HostArn == "" {
+		return nil, fmt.Errorf("%w: HostArn is required", ErrValidation)
+	}
+
+	if err := h.Backend.UpdateHost(in.HostArn, in.ProviderEndpoint); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+// --- ListRepositoryLinks ---
+
+type listRepositoryLinksInput struct {
+	NextToken  *string `json:"NextToken"`
+	MaxResults *int32  `json:"MaxResults"`
+}
+
+type listRepositoryLinksOutput struct {
+	RepositoryLinks []repositoryLinkItem `json:"RepositoryLinks"`
+}
+
+func (h *Handler) handleListRepositoryLinks(
+	_ context.Context,
+	_ *listRepositoryLinksInput,
+) (*listRepositoryLinksOutput, error) {
+	links := h.Backend.ListRepositoryLinks()
+	items := make([]repositoryLinkItem, len(links))
+
+	for i, link := range links {
+		items[i] = repositoryLinkToItem(link)
+	}
+
+	return &listRepositoryLinksOutput{RepositoryLinks: items}, nil
+}
+
+// --- UpdateRepositoryLink ---
+
+type updateRepositoryLinkInput struct {
+	RepositoryLinkID string `json:"RepositoryLinkId"`
+	ConnectionArn    string `json:"ConnectionArn"`
+	EncryptionKeyArn string `json:"EncryptionKeyArn"`
+}
+
+type updateRepositoryLinkOutput struct {
+	RepositoryLinkInfo repositoryLinkItem `json:"RepositoryLinkInfo"`
+}
+
+func (h *Handler) handleUpdateRepositoryLink(
+	_ context.Context,
+	in *updateRepositoryLinkInput,
+) (*updateRepositoryLinkOutput, error) {
+	if in.RepositoryLinkID == "" {
+		return nil, fmt.Errorf("%w: RepositoryLinkId is required", ErrValidation)
+	}
+
+	link, err := h.Backend.UpdateRepositoryLink(in.RepositoryLinkID, in.ConnectionArn, in.EncryptionKeyArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateRepositoryLinkOutput{RepositoryLinkInfo: repositoryLinkToItem(link)}, nil
+}
+
+// --- GetSyncConfiguration ---
+
+type getSyncConfigurationInput struct {
+	ResourceName string `json:"ResourceName"`
+	SyncType     string `json:"SyncType"`
+}
+
+type getSyncConfigurationOutput struct {
+	SyncConfiguration syncConfigurationItem `json:"SyncConfiguration"`
+}
+
+func (h *Handler) handleGetSyncConfiguration(
+	_ context.Context,
+	in *getSyncConfigurationInput,
+) (*getSyncConfigurationOutput, error) {
+	if in.ResourceName == "" {
+		return nil, fmt.Errorf("%w: ResourceName is required", ErrValidation)
+	}
+
+	if in.SyncType == "" {
+		return nil, fmt.Errorf("%w: SyncType is required", ErrValidation)
+	}
+
+	cfg, err := h.Backend.GetSyncConfiguration(in.ResourceName, in.SyncType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getSyncConfigurationOutput{SyncConfiguration: syncConfigToItem(cfg)}, nil
+}
+
+// --- ListSyncConfigurations ---
+
+type listSyncConfigurationsInput struct {
+	NextToken        *string `json:"NextToken"`
+	MaxResults       *int32  `json:"MaxResults"`
+	RepositoryLinkID string  `json:"RepositoryLinkId"`
+	SyncType         string  `json:"SyncType"`
+}
+
+type listSyncConfigurationsOutput struct {
+	SyncConfigurations []syncConfigurationItem `json:"SyncConfigurations"`
+}
+
+func (h *Handler) handleListSyncConfigurations(
+	_ context.Context,
+	in *listSyncConfigurationsInput,
+) (*listSyncConfigurationsOutput, error) {
+	if in.RepositoryLinkID == "" {
+		return nil, fmt.Errorf("%w: RepositoryLinkId is required", ErrValidation)
+	}
+
+	cfgs := h.Backend.ListSyncConfigurations(in.RepositoryLinkID, in.SyncType)
+	items := make([]syncConfigurationItem, len(cfgs))
+
+	for i, cfg := range cfgs {
+		items[i] = syncConfigToItem(cfg)
+	}
+
+	return &listSyncConfigurationsOutput{SyncConfigurations: items}, nil
+}
+
+// --- UpdateSyncConfiguration ---
+
+type updateSyncConfigurationInput struct {
+	ResourceName     string `json:"ResourceName"`
+	SyncType         string `json:"SyncType"`
+	Branch           string `json:"Branch"`
+	ConfigFile       string `json:"ConfigFile"`
+	RepositoryLinkID string `json:"RepositoryLinkId"`
+	RoleArn          string `json:"RoleArn"`
+}
+
+type updateSyncConfigurationOutput struct {
+	SyncConfiguration syncConfigurationItem `json:"SyncConfiguration"`
+}
+
+func (h *Handler) handleUpdateSyncConfiguration(
+	_ context.Context,
+	in *updateSyncConfigurationInput,
+) (*updateSyncConfigurationOutput, error) {
+	if in.ResourceName == "" {
+		return nil, fmt.Errorf("%w: ResourceName is required", ErrValidation)
+	}
+
+	if in.SyncType == "" {
+		return nil, fmt.Errorf("%w: SyncType is required", ErrValidation)
+	}
+
+	cfg, err := h.Backend.UpdateSyncConfiguration(
+		in.ResourceName, in.SyncType, in.Branch, in.ConfigFile, in.RepositoryLinkID, in.RoleArn,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateSyncConfigurationOutput{SyncConfiguration: syncConfigToItem(cfg)}, nil
+}
+
+// --- ListRepositorySyncDefinitions ---
+
+type listRepositorySyncDefinitionsInput struct {
+	RepositoryLinkID string `json:"RepositoryLinkId"`
+	SyncType         string `json:"SyncType"`
+}
+
+type repositorySyncDefinitionItem struct {
+	Branch    string `json:"Branch"`
+	Directory string `json:"Directory"`
+	Parent    string `json:"Parent,omitempty"`
+	Target    string `json:"Target"`
+}
+
+type listRepositorySyncDefinitionsOutput struct {
+	RepositorySyncDefinitions []repositorySyncDefinitionItem `json:"RepositorySyncDefinitions"`
+}
+
+func (h *Handler) handleListRepositorySyncDefinitions(
+	_ context.Context,
+	in *listRepositorySyncDefinitionsInput,
+) (*listRepositorySyncDefinitionsOutput, error) {
+	if in.RepositoryLinkID == "" {
+		return nil, fmt.Errorf("%w: RepositoryLinkId is required", ErrValidation)
+	}
+
+	defs, err := h.Backend.ListRepositorySyncDefinitions(in.RepositoryLinkID, in.SyncType)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]repositorySyncDefinitionItem, len(defs))
+	for i, d := range defs {
+		items[i] = repositorySyncDefinitionItem(d)
+	}
+
+	return &listRepositorySyncDefinitionsOutput{RepositorySyncDefinitions: items}, nil
+}
+
+// --- GetSyncBlockerSummary ---
+
+type getSyncBlockerSummaryInput struct {
+	ResourceName string `json:"ResourceName"`
+	SyncType     string `json:"SyncType"`
+}
+
+type syncBlockerItem struct {
+	ID            string `json:"Id"`
+	Type          string `json:"Type"`
+	Status        string `json:"Status"`
+	CreatedAt     string `json:"CreatedAt"`
+	CreatedReason string `json:"CreatedReason"`
+}
+
+type syncBlockerSummaryItem struct {
+	ResourceName       string            `json:"ResourceName"`
+	ParentResourceName string            `json:"ParentResourceName,omitempty"`
+	LatestBlockers     []syncBlockerItem `json:"LatestBlockers"`
+}
+
+type getSyncBlockerSummaryOutput struct {
+	SyncBlockerSummary syncBlockerSummaryItem `json:"SyncBlockerSummary"`
+}
+
+func (h *Handler) handleGetSyncBlockerSummary(
+	_ context.Context,
+	in *getSyncBlockerSummaryInput,
+) (*getSyncBlockerSummaryOutput, error) {
+	if in.ResourceName == "" {
+		return nil, fmt.Errorf("%w: ResourceName is required", ErrValidation)
+	}
+
+	if in.SyncType == "" {
+		return nil, fmt.Errorf("%w: SyncType is required", ErrValidation)
+	}
+
+	summary, err := h.Backend.GetSyncBlockerSummary(in.ResourceName, in.SyncType)
+	if err != nil {
+		return nil, err
+	}
+
+	blockers := make([]syncBlockerItem, len(summary.LatestBlockers))
+	for i, b := range summary.LatestBlockers {
+		blockers[i] = syncBlockerItem{
+			ID:            b.ID,
+			Type:          b.Type,
+			Status:        b.Status,
+			CreatedAt:     b.CreatedAt.Format(time.RFC3339),
+			CreatedReason: b.CreatedReason,
+		}
+	}
+
+	return &getSyncBlockerSummaryOutput{
+		SyncBlockerSummary: syncBlockerSummaryItem{
+			ResourceName:       summary.ResourceName,
+			ParentResourceName: summary.ParentResourceName,
+			LatestBlockers:     blockers,
+		},
+	}, nil
+}
+
+// --- UpdateSyncBlocker ---
+
+type updateSyncBlockerInput struct {
+	ID             string `json:"Id"`
+	ResolvedReason string `json:"ResolvedReason"`
+	ResourceName   string `json:"ResourceName"`
+	SyncType       string `json:"SyncType"`
+}
+
+type updateSyncBlockerOutput struct {
+	SyncBlockerSummary syncBlockerSummaryItem `json:"SyncBlockerSummary"`
+}
+
+func (h *Handler) handleUpdateSyncBlocker(
+	_ context.Context,
+	in *updateSyncBlockerInput,
+) (*updateSyncBlockerOutput, error) {
+	if in.ID == "" {
+		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
+	}
+
+	summary, err := h.Backend.UpdateSyncBlocker(in.ID, in.ResolvedReason)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateSyncBlockerOutput{
+		SyncBlockerSummary: syncBlockerSummaryItem{
+			ResourceName:   summary.ResourceName,
+			LatestBlockers: []syncBlockerItem{},
+		},
+	}, nil
 }

@@ -8,9 +8,15 @@
 		GetPipelineStateCommand,
 		DeletePipelineCommand,
 		CreatePipelineCommand,
+		StartPipelineExecutionCommand,
+		ListPipelineExecutionsCommand,
+		ListWebhooksCommand,
+		PutApprovalResultCommand,
 		type PipelineDeclaration,
 		type GetPipelineStateCommandOutput,
-		type StageState
+		type StageState,
+		type PipelineExecutionSummary,
+		type WebhookDetail
 	} from '@aws-sdk/client-codepipeline';
 	import { toast } from 'svelte-sonner';
 	import { 
@@ -34,6 +40,12 @@
 	let selectedPipeline = $state<PipelineDeclaration | null>(null);
 	let pipelineState = $state<GetPipelineStateCommandOutput | null>(null);
 	let loadingDetails = $state(false);
+
+	// Execution/webhook state
+	let executions = $state<PipelineExecutionSummary[]>([]);
+	let webhooks = $state<WebhookDetail[]>([]);
+	let activeTab = $state<'stages' | 'executions' | 'webhooks'>('stages');
+	let startingExecution = $state(false);
 
 	// Modal State
 	let showCreateModal = $state(false);
@@ -69,14 +81,53 @@
 	async function selectPipeline(pipeline: PipelineDeclaration) {
 		selectedPipeline = pipeline;
 		pipelineState = null;
+		executions = [];
+		webhooks = [];
+		activeTab = 'stages';
 		loadingDetails = true;
 		try {
-			const res = await codepipeline.send(new GetPipelineStateCommand({ name: pipeline.name }));
-			pipelineState = res;
+			const [stateRes, execRes, webhookRes] = await Promise.all([
+				codepipeline.send(new GetPipelineStateCommand({ name: pipeline.name })),
+				codepipeline.send(new ListPipelineExecutionsCommand({ pipelineName: pipeline.name })).catch(() => ({ pipelineExecutionSummaries: [] })),
+				codepipeline.send(new ListWebhooksCommand({})).catch(() => ({ webhooks: [] }))
+			]);
+			pipelineState = stateRes;
+			executions = execRes.pipelineExecutionSummaries ?? [];
+			webhooks = (webhookRes.webhooks ?? []).filter(w => w.definition?.targetPipeline === pipeline.name);
 		} catch (err: unknown) {
 			toast.error(`Failed to load state: ${(err as Error).message}`);
 		} finally {
 			loadingDetails = false;
+		}
+	}
+
+	async function startExecution() {
+		if (!selectedPipeline?.name) return;
+		startingExecution = true;
+		try {
+			const res = await codepipeline.send(new StartPipelineExecutionCommand({ name: selectedPipeline.name }));
+			toast.success(`Execution started: ${res.pipelineExecutionId}`);
+			await selectPipeline(selectedPipeline);
+		} catch (err: unknown) {
+			toast.error(`Failed to start: ${(err as Error).message}`);
+		} finally {
+			startingExecution = false;
+		}
+	}
+
+	async function approveAction(stageName: string, actionName: string, status: 'Approved' | 'Rejected') {
+		if (!selectedPipeline?.name) return;
+		try {
+			await codepipeline.send(new PutApprovalResultCommand({
+				pipelineName: selectedPipeline.name,
+				stageName,
+				actionName,
+				approvalResult: { status, summary: `${status} via UI` },
+				token: 'stub-token'
+			}));
+			toast.success(`Action ${status.toLowerCase()}`);
+		} catch (err: unknown) {
+			toast.error(`Approval failed: ${(err as Error).message}`);
 		}
 	}
 
@@ -245,7 +296,53 @@
 						</button>
 					</div>
 
+					<!-- Toolbar: start execution + tabs -->
+					<div class="px-8 py-3 border-b border-slate-100 dark:border-slate-700/50 flex items-center justify-between gap-4">
+						<div class="flex gap-2">
+							<button onclick={() => (activeTab = 'stages')} class="px-3 py-1.5 text-xs font-bold rounded-lg transition-colors {activeTab === 'stages' ? 'bg-violet-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}">Stage Flow</button>
+							<button onclick={() => (activeTab = 'executions')} class="px-3 py-1.5 text-xs font-bold rounded-lg transition-colors {activeTab === 'executions' ? 'bg-violet-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}">Executions ({executions.length})</button>
+							<button onclick={() => (activeTab = 'webhooks')} class="px-3 py-1.5 text-xs font-bold rounded-lg transition-colors {activeTab === 'webhooks' ? 'bg-violet-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}">Webhooks ({webhooks.length})</button>
+						</div>
+						<button
+							onclick={startExecution}
+							disabled={startingExecution}
+							class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-60"
+						>
+							<Play class="w-3 h-3" />
+							{startingExecution ? 'Starting...' : 'Start Execution'}
+						</button>
+					</div>
+
 					<div class="p-8">
+						{#if activeTab === 'executions'}
+							<div class="space-y-2">
+								{#if executions.length === 0}
+									<p class="text-center py-8 text-sm text-slate-500 dark:text-slate-400 italic">No executions found</p>
+								{:else}
+									{#each executions as exec}
+										<div class="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-700/50">
+											<span class="font-mono text-xs text-slate-600 dark:text-slate-300">{exec.pipelineExecutionId}</span>
+											<span class="text-xs px-2 py-0.5 rounded-full {exec.status === 'Succeeded' ? 'bg-emerald-100 text-emerald-700' : exec.status === 'Failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}">{exec.status}</span>
+										</div>
+									{/each}
+								{/if}
+							</div>
+						{:else if activeTab === 'webhooks'}
+							<div class="space-y-2">
+								{#if webhooks.length === 0}
+									<p class="text-center py-8 text-sm text-slate-500 dark:text-slate-400 italic">No webhooks configured for this pipeline</p>
+								{:else}
+									{#each webhooks as wh}
+										<div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/50">
+											<div class="flex items-center justify-between">
+												<span class="font-mono text-xs text-slate-900 dark:text-white">{wh.definition?.name}</span>
+												<span class="text-xs text-slate-500 dark:text-slate-400">{wh.definition?.targetAction}</span>
+											</div>
+										</div>
+									{/each}
+								{/if}
+							</div>
+						{:else}
 						<!-- Stage Flow -->
 						<div class="relative">
 							<div class="absolute inset-y-0 left-[11px] w-0.5 bg-slate-100 dark:bg-slate-700/50 z-0"></div>
@@ -312,6 +409,8 @@
 								{/each}
 							</div>
 						</div>
+						</div>
+						{/if}
 					</div>
 
 					<!-- Monitoring Panel -->
