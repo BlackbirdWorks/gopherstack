@@ -216,12 +216,14 @@
 				DomainName: newDomainName.trim(),
 				ElasticsearchVersion: newEsVersion,
 				ElasticsearchClusterConfig: {
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
 					InstanceType: newInstanceType as any,
 					InstanceCount: newInstanceCount
 				},
 				EBSOptions: {
 					EBSEnabled: true,
 					VolumeSize: newStorageSize,
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
 					VolumeType: 'gp2' as any
 				}
 			}));
@@ -251,6 +253,7 @@
 			await elasticsearch.send(new UpdateElasticsearchDomainConfigCommand({
 				DomainName: selectedDomain.DomainName ?? '',
 				ElasticsearchClusterConfig: {
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
 					InstanceType: updateInstanceType as any,
 					InstanceCount: updateInstanceCount
 				}
