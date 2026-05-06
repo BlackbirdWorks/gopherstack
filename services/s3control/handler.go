@@ -30,6 +30,31 @@ const (
 	pathJobs                 = "/v20180820/jobs"
 	pathMRAPCreate           = "/v20180820/async-requests/mrap/create"
 	pathStorageLensGroup     = "/v20180820/storagelensgroup"
+
+	// Additional path constants for stub operations.
+	pathAccessGrantsInstanceResourcePolicy = "/v20180820/accessgrantsinstance/resourcepolicy"
+	pathAccessGrantsInstancePrefix         = "/v20180820/accessgrantsinstance/"
+	pathAccessGrantsLocationPrefix         = "/v20180820/accessgrantsinstance/location/"
+	pathAccessGrantPrefix                  = "/v20180820/accessgrantsinstance/grant/"
+	pathDataAccess                         = "/v20180820/accessgrantsinstance/dataaccess"
+	pathCallerAccessGrants                 = "/v20180820/accessgrantsinstance/caller-grants"
+	pathMRAPPrefix                         = "/v20180820/async-requests/mrap/"
+	pathMRAPDeletePrefix                   = "/v20180820/async-requests/mrap/delete"
+	pathMRAPPutPolicyPrefix                = "/v20180820/async-requests/mrap/put_policy"
+	pathMRAPList                           = "/v20180820/mrap/instances"
+	pathMRAPInstancePrefix                 = "/v20180820/mrap/instances/"
+	pathStorageLensPrefix                  = "/v20180820/storagelens/"
+	pathStorageLensList                    = "/v20180820/storagelens"
+	pathStorageLensGroupPrefix             = "/v20180820/storagelensgroup/"
+	pathTagsPrefix                         = "/v20180820/tags/"
+	pathJobPrefix                          = "/v20180820/jobs/"
+	pathAccessPointsDirectoryBuckets       = "/v20180820/accesspointfordirectories"
+	pathAccessPointsForObjectLambdaList    = "/v20180820/accesspointforobjectlambda"
+	pathRegionalBuckets                    = "/v20180820/bucket"
+
+	// opDeleteMRAP is the operation name for DeleteMultiRegionAccessPoint.
+	// It is used in multiple dispatch cases to avoid a goconst violation.
+	opDeleteMRAP = "DeleteMultiRegionAccessPoint"
 )
 
 // Handler is the Echo HTTP handler for S3 Control operations.
@@ -53,19 +78,115 @@ func (h *Handler) Name() string { return "S3Control" }
 // GetSupportedOperations returns the list of supported S3 Control operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"AssociateAccessGrantsIdentityCenter",
-		"CreateAccessGrant",
-		"CreateAccessGrantsInstance",
-		"CreateAccessGrantsLocation",
-		"CreateAccessPoint",
-		"CreateAccessPointForObjectLambda",
-		"CreateBucket",
-		"CreateJob",
-		"CreateMultiRegionAccessPoint",
-		"CreateStorageLensGroup",
+		// Public access block
 		"DeletePublicAccessBlock",
 		"GetPublicAccessBlock",
 		"PutPublicAccessBlock",
+		// Access Grants Instance
+		"AssociateAccessGrantsIdentityCenter",
+		"CreateAccessGrantsInstance",
+		"DeleteAccessGrantsInstance",
+		"DeleteAccessGrantsInstanceResourcePolicy",
+		"DissociateAccessGrantsIdentityCenter",
+		"GetAccessGrantsInstance",
+		"GetAccessGrantsInstanceForPrefix",
+		"GetAccessGrantsInstanceResourcePolicy",
+		"ListAccessGrantsInstances",
+		"PutAccessGrantsInstanceResourcePolicy",
+		// Access Grants
+		"CreateAccessGrant",
+		"DeleteAccessGrant",
+		"GetAccessGrant",
+		"GetDataAccess",
+		"ListAccessGrants",
+		"ListCallerAccessGrants",
+		// Access Grants Locations
+		"CreateAccessGrantsLocation",
+		"DeleteAccessGrantsLocation",
+		"GetAccessGrantsLocation",
+		"ListAccessGrantsLocations",
+		"UpdateAccessGrantsLocation",
+		// Access Points
+		"CreateAccessPoint",
+		"DeleteAccessPoint",
+		"GetAccessPoint",
+		"GetAccessPointPolicy",
+		"GetAccessPointPolicyStatus",
+		"GetAccessPointScope",
+		"ListAccessPoints",
+		"ListAccessPointsForDirectoryBuckets",
+		"PutAccessPointPolicy",
+		"PutAccessPointScope",
+		"DeleteAccessPointPolicy",
+		"DeleteAccessPointScope",
+		// Object Lambda Access Points
+		"CreateAccessPointForObjectLambda",
+		"DeleteAccessPointForObjectLambda",
+		"DeleteAccessPointPolicyForObjectLambda",
+		"GetAccessPointConfigurationForObjectLambda",
+		"GetAccessPointForObjectLambda",
+		"GetAccessPointPolicyForObjectLambda",
+		"GetAccessPointPolicyStatusForObjectLambda",
+		"ListAccessPointsForObjectLambda",
+		"PutAccessPointConfigurationForObjectLambda",
+		"PutAccessPointPolicyForObjectLambda",
+		// Outposts Buckets
+		"CreateBucket",
+		"DeleteBucket",
+		"DeleteBucketLifecycleConfiguration",
+		"DeleteBucketPolicy",
+		"DeleteBucketReplication",
+		"DeleteBucketTagging",
+		"GetBucket",
+		"GetBucketLifecycleConfiguration",
+		"GetBucketPolicy",
+		"GetBucketReplication",
+		"GetBucketTagging",
+		"GetBucketVersioning",
+		"ListRegionalBuckets",
+		"PutBucketLifecycleConfiguration",
+		"PutBucketPolicy",
+		"PutBucketReplication",
+		"PutBucketTagging",
+		"PutBucketVersioning",
+		// Batch Jobs
+		"CreateJob",
+		"DeleteJobTagging",
+		"DescribeJob",
+		"GetJobTagging",
+		"ListJobs",
+		"PutJobTagging",
+		"UpdateJobPriority",
+		"UpdateJobStatus",
+		// MRAP
+		"CreateMultiRegionAccessPoint",
+		"DeleteMultiRegionAccessPoint",
+		"DescribeMultiRegionAccessPointOperation",
+		"GetMultiRegionAccessPoint",
+		"GetMultiRegionAccessPointPolicy",
+		"GetMultiRegionAccessPointPolicyStatus",
+		"GetMultiRegionAccessPointRoutes",
+		"ListMultiRegionAccessPoints",
+		"PutMultiRegionAccessPointPolicy",
+		"SubmitMultiRegionAccessPointRoutes",
+		// Storage Lens
+		"DeleteStorageLensConfiguration",
+		"DeleteStorageLensConfigurationTagging",
+		"GetStorageLensConfiguration",
+		"GetStorageLensConfigurationTagging",
+		"ListStorageLensConfigurations",
+		"PutStorageLensConfiguration",
+		"PutStorageLensConfigurationTagging",
+		// Storage Lens Groups
+		"CreateStorageLensGroup",
+		"DeleteStorageLensGroup",
+		"GetStorageLensGroup",
+		"ListStorageLensGroups",
+		"UpdateStorageLensGroup",
+		// Resource Tags
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -114,35 +235,244 @@ func extractPublicAccessBlockOp(method string) string {
 	return "Unknown"
 }
 
-func extractNewOpsOperation(path, method string) string {
+// isSimplePath returns true if path has the given prefix and the remainder
+// contains no "/" (i.e., it is a direct resource path, not a sub-resource).
+func isSimplePath(prefix, path string) bool {
+	return strings.HasPrefix(path, prefix) &&
+		!strings.Contains(strings.TrimPrefix(path, prefix), "/")
+}
+
+// isGrantsLocationPath returns true if path has the access grants location prefix
+// and the remainder does NOT start with "s" (avoiding "storagelensgroup" collisions).
+func isGrantsLocationPath(path string) bool {
+	return strings.HasPrefix(path, pathAccessGrantsLocationPrefix) &&
+		!strings.HasPrefix(strings.TrimPrefix(path, pathAccessGrantsLocationPrefix), "s")
+}
+
+// isPrefixSuffix returns true if path has the given prefix AND suffix.
+func isPrefixSuffix(prefix, path, suffix string) bool {
+	return strings.HasPrefix(path, prefix) && strings.HasSuffix(path, suffix)
+}
+
+func extractNewOpsOperation(path, method string) string { //nolint:cyclop,gocognit,gocyclo // path dispatch table
 	switch {
 	case path == pathAccessGrantsInstance && method == http.MethodPost:
 		return "CreateAccessGrantsInstance"
+	case path == pathAccessGrantsInstance && method == http.MethodGet:
+		return "GetAccessGrantsInstance"
+	case path == pathAccessGrantsInstance && method == http.MethodDelete:
+		return "DeleteAccessGrantsInstance"
+	case path == pathAccessGrantsInstanceResourcePolicy && method == http.MethodGet:
+		return "GetAccessGrantsInstanceResourcePolicy"
+	case path == pathAccessGrantsInstanceResourcePolicy && method == http.MethodPut:
+		return "PutAccessGrantsInstanceResourcePolicy"
+	case path == pathAccessGrantsInstanceResourcePolicy && method == http.MethodDelete:
+		return "DeleteAccessGrantsInstanceResourcePolicy"
 	case path == pathIdentityCenter && method == http.MethodPost:
 		return "AssociateAccessGrantsIdentityCenter"
+	case path == pathIdentityCenter && method == http.MethodDelete:
+		return "DissociateAccessGrantsIdentityCenter"
 	case path == pathAccessGrant && method == http.MethodPost:
 		return "CreateAccessGrant"
+	case path == pathAccessGrant && method == http.MethodGet:
+		return "ListAccessGrants"
+	case path == pathCallerAccessGrants && method == http.MethodGet:
+		return "ListCallerAccessGrants"
+	case path == pathDataAccess && method == http.MethodGet:
+		return "GetDataAccess"
 	case path == pathAccessGrantsLocation && method == http.MethodPost:
 		return "CreateAccessGrantsLocation"
+	case path == pathAccessGrantsLocation && method == http.MethodGet:
+		return "ListAccessGrantsLocations"
+	case strings.HasPrefix(path, pathAccessGrantsInstancePrefix+"prefix") && method == http.MethodGet:
+		return "GetAccessGrantsInstanceForPrefix"
+	case strings.HasPrefix(path, pathAccessGrantPrefix) && method == http.MethodGet:
+		return "GetAccessGrant"
+	case strings.HasPrefix(path, pathAccessGrantPrefix) && method == http.MethodDelete:
+		return "DeleteAccessGrant"
+	case isGrantsLocationPath(path) && method == http.MethodGet:
+		return "GetAccessGrantsLocation"
+	case isGrantsLocationPath(path) && method == http.MethodDelete:
+		return "DeleteAccessGrantsLocation"
+	case isGrantsLocationPath(path) && method == http.MethodPut:
+		return "UpdateAccessGrantsLocation"
 	}
 
-	return extractResourceOpsOperation(path, method)
+	return extractAccessPointOpsOperation(path, method)
 }
 
-func extractResourceOpsOperation(path, method string) string {
+//nolint:cyclop,gocognit,gocyclo // path dispatch table for access point and object lambda ops
+func extractAccessPointOpsOperation(path, method string) string {
 	switch {
-	case strings.HasPrefix(path, pathAccessPointPrefix) && method == http.MethodPut:
+	case isSimplePath(pathAccessPointPrefix, path) && method == http.MethodPut:
 		return "CreateAccessPoint"
-	case strings.HasPrefix(path, pathObjectLambdaPrefix) && method == http.MethodPut:
+	case isSimplePath(pathAccessPointPrefix, path) && method == http.MethodGet:
+		return "GetAccessPoint"
+	case isSimplePath(pathAccessPointPrefix, path) && method == http.MethodDelete:
+		return "DeleteAccessPoint"
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodGet:
+		return "GetAccessPointPolicy"
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodPut:
+		return "PutAccessPointPolicy"
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodDelete:
+		return "DeleteAccessPointPolicy"
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/policyStatus") && method == http.MethodGet:
+		return "GetAccessPointPolicyStatus"
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodGet:
+		return "GetAccessPointScope"
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodPut:
+		return "PutAccessPointScope"
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodDelete:
+		return "DeleteAccessPointScope"
+	case isSimplePath(pathObjectLambdaPrefix, path) && method == http.MethodPut:
 		return "CreateAccessPointForObjectLambda"
-	case strings.HasPrefix(path, pathBucketPrefix) && method == http.MethodPut:
+	case isSimplePath(pathObjectLambdaPrefix, path) && method == http.MethodGet:
+		return "GetAccessPointForObjectLambda"
+	case isSimplePath(pathObjectLambdaPrefix, path) && method == http.MethodDelete:
+		return "DeleteAccessPointForObjectLambda"
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy") && method == http.MethodGet:
+		return "GetAccessPointPolicyForObjectLambda"
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy") && method == http.MethodPut:
+		return "PutAccessPointPolicyForObjectLambda"
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy") && method == http.MethodDelete:
+		return "DeleteAccessPointPolicyForObjectLambda"
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policyStatus") && method == http.MethodGet:
+		return "GetAccessPointPolicyStatusForObjectLambda"
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/configuration") && method == http.MethodGet:
+		return "GetAccessPointConfigurationForObjectLambda"
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/configuration") && method == http.MethodPut:
+		return "PutAccessPointConfigurationForObjectLambda"
+	case path == "/v20180820/accesspoint" && method == http.MethodGet:
+		return "ListAccessPoints"
+	case path == pathAccessPointsDirectoryBuckets && method == http.MethodGet:
+		return "ListAccessPointsForDirectoryBuckets"
+	case path == pathAccessPointsForObjectLambdaList && method == http.MethodGet:
+		return "ListAccessPointsForObjectLambda"
+	}
+
+	return extractBucketOpsOperation(path, method)
+}
+
+func extractBucketOpsOperation(path, method string) string { //nolint:cyclop,gocyclo // path dispatch table
+	switch {
+	case isSimplePath(pathBucketPrefix, path) && method == http.MethodPut:
 		return "CreateBucket"
+	case isSimplePath(pathBucketPrefix, path) && method == http.MethodGet:
+		return "GetBucket"
+	case isSimplePath(pathBucketPrefix, path) && method == http.MethodDelete:
+		return "DeleteBucket"
+	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle") && method == http.MethodGet:
+		return "GetBucketLifecycleConfiguration"
+	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle") && method == http.MethodPut:
+		return "PutBucketLifecycleConfiguration"
+	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle") && method == http.MethodDelete:
+		return "DeleteBucketLifecycleConfiguration"
+	case isPrefixSuffix(pathBucketPrefix, path, "/policy") && method == http.MethodGet:
+		return "GetBucketPolicy"
+	case isPrefixSuffix(pathBucketPrefix, path, "/policy") && method == http.MethodPut:
+		return "PutBucketPolicy"
+	case isPrefixSuffix(pathBucketPrefix, path, "/policy") && method == http.MethodDelete:
+		return "DeleteBucketPolicy"
+	case isPrefixSuffix(pathBucketPrefix, path, "/replication") && method == http.MethodGet:
+		return "GetBucketReplication"
+	case isPrefixSuffix(pathBucketPrefix, path, "/replication") && method == http.MethodPut:
+		return "PutBucketReplication"
+	case isPrefixSuffix(pathBucketPrefix, path, "/replication") && method == http.MethodDelete:
+		return "DeleteBucketReplication"
+	case isPrefixSuffix(pathBucketPrefix, path, "/tagging") && method == http.MethodGet:
+		return "GetBucketTagging"
+	case isPrefixSuffix(pathBucketPrefix, path, "/tagging") && method == http.MethodPut:
+		return "PutBucketTagging"
+	case isPrefixSuffix(pathBucketPrefix, path, "/tagging") && method == http.MethodDelete:
+		return "DeleteBucketTagging"
+	case isPrefixSuffix(pathBucketPrefix, path, "/versioning") && method == http.MethodGet:
+		return "GetBucketVersioning"
+	case isPrefixSuffix(pathBucketPrefix, path, "/versioning") && method == http.MethodPut:
+		return "PutBucketVersioning"
+	case path == pathRegionalBuckets && method == http.MethodGet:
+		return "ListRegionalBuckets"
+	}
+
+	return extractJobMRAPStorageLensOps(path, method)
+}
+
+func extractJobMRAPStorageLensOps(path, method string) string { //nolint:cyclop,gocyclo // path dispatch table
+	switch {
 	case path == pathJobs && method == http.MethodPost:
 		return "CreateJob"
+	case path == pathJobs && method == http.MethodGet:
+		return "ListJobs"
+	case isSimplePath(pathJobPrefix, path) && method == http.MethodGet:
+		return "DescribeJob"
+	case isPrefixSuffix(pathJobPrefix, path, "/tagging") && method == http.MethodGet:
+		return "GetJobTagging"
+	case isPrefixSuffix(pathJobPrefix, path, "/tagging") && method == http.MethodPut:
+		return "PutJobTagging"
+	case isPrefixSuffix(pathJobPrefix, path, "/tagging") && method == http.MethodDelete:
+		return "DeleteJobTagging"
+	case isPrefixSuffix(pathJobPrefix, path, "/priority") && method == http.MethodPut:
+		return "UpdateJobPriority"
+	case isPrefixSuffix(pathJobPrefix, path, "/status") && method == http.MethodPut:
+		return "UpdateJobStatus"
 	case path == pathMRAPCreate && method == http.MethodPost:
 		return "CreateMultiRegionAccessPoint"
+	case strings.HasPrefix(path, pathMRAPDeletePrefix) && method == http.MethodPost:
+		return "DeleteMultiRegionAccessPoint"
+	case strings.HasPrefix(path, pathMRAPPutPolicyPrefix) && method == http.MethodPost:
+		return "PutMultiRegionAccessPointPolicy"
+	case strings.HasPrefix(path, pathMRAPPrefix) && method == http.MethodGet:
+		return "DescribeMultiRegionAccessPointOperation"
+	case path == pathMRAPList && method == http.MethodGet:
+		return "ListMultiRegionAccessPoints"
+	case isSimplePath(pathMRAPInstancePrefix, path) && method == http.MethodGet:
+		return "GetMultiRegionAccessPoint"
+	case isSimplePath(pathMRAPInstancePrefix, path) && method == http.MethodDelete:
+		return opDeleteMRAP
+	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policy") && method == http.MethodGet:
+		return "GetMultiRegionAccessPointPolicy"
+	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policyStatus") && method == http.MethodGet:
+		return "GetMultiRegionAccessPointPolicyStatus"
+	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/routes") && method == http.MethodGet:
+		return "GetMultiRegionAccessPointRoutes"
+	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/routes") && method == http.MethodPatch:
+		return "SubmitMultiRegionAccessPointRoutes"
+	}
+
+	return extractStorageLensTagOps(path, method)
+}
+
+func extractStorageLensTagOps(path, method string) string { //nolint:cyclop,gocyclo // path dispatch table
+	switch {
+	case isSimplePath(pathStorageLensPrefix, path) && method == http.MethodGet:
+		return "GetStorageLensConfiguration"
+	case isSimplePath(pathStorageLensPrefix, path) && method == http.MethodPut:
+		return "PutStorageLensConfiguration"
+	case isSimplePath(pathStorageLensPrefix, path) && method == http.MethodDelete:
+		return "DeleteStorageLensConfiguration"
+	case isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") && method == http.MethodGet:
+		return "GetStorageLensConfigurationTagging"
+	case isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") && method == http.MethodPut:
+		return "PutStorageLensConfigurationTagging"
+	case isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") && method == http.MethodDelete:
+		return "DeleteStorageLensConfigurationTagging"
+	case path == pathStorageLensList && method == http.MethodGet:
+		return "ListStorageLensConfigurations"
 	case path == pathStorageLensGroup && method == http.MethodPost:
 		return "CreateStorageLensGroup"
+	case path == pathStorageLensGroup && method == http.MethodGet:
+		return "ListStorageLensGroups"
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodGet:
+		return "GetStorageLensGroup"
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodPut:
+		return "UpdateStorageLensGroup"
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodDelete:
+		return "DeleteStorageLensGroup"
+	case strings.HasPrefix(path, pathTagsPrefix) && method == http.MethodGet:
+		return "ListTagsForResource"
+	case strings.HasPrefix(path, pathTagsPrefix) && method == http.MethodPost:
+		return "TagResource"
+	case strings.HasPrefix(path, pathTagsPrefix) && method == http.MethodDelete:
+		return "UntagResource"
 	}
 
 	return "Unknown"
@@ -181,35 +511,229 @@ func (h *Handler) dispatchPublicAccessBlock(c *echo.Context, method string) erro
 	return c.String(http.StatusNotFound, "not found")
 }
 
+//nolint:cyclop,gocognit,gocyclo // dispatch table for access grants ops
 func (h *Handler) dispatchNewOps(c *echo.Context, path, method string) error {
 	switch {
 	case path == pathAccessGrantsInstance && method == http.MethodPost:
 		return h.handleCreateAccessGrantsInstance(c)
+	case path == pathAccessGrantsInstance && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessGrantsInstance")
+	case path == pathAccessGrantsInstance && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteAccessGrantsInstance")
+	case path == pathAccessGrantsInstanceResourcePolicy && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessGrantsInstanceResourcePolicy")
+	case path == pathAccessGrantsInstanceResourcePolicy && method == http.MethodPut:
+		return h.handleStub(c, "PutAccessGrantsInstanceResourcePolicy")
+	case path == pathAccessGrantsInstanceResourcePolicy && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteAccessGrantsInstanceResourcePolicy")
 	case path == pathIdentityCenter && method == http.MethodPost:
 		return h.handleAssociateAccessGrantsIdentityCenter(c)
+	case path == pathIdentityCenter && method == http.MethodDelete:
+		return h.handleStub(c, "DissociateAccessGrantsIdentityCenter")
 	case path == pathAccessGrant && method == http.MethodPost:
 		return h.handleCreateAccessGrant(c)
+	case path == pathAccessGrant && method == http.MethodGet:
+		return h.handleStub(c, "ListAccessGrants")
+	case path == pathCallerAccessGrants && method == http.MethodGet:
+		return h.handleStub(c, "ListCallerAccessGrants")
+	case path == pathDataAccess && method == http.MethodGet:
+		return h.handleStub(c, "GetDataAccess")
 	case path == pathAccessGrantsLocation && method == http.MethodPost:
 		return h.handleCreateAccessGrantsLocation(c)
+	case path == pathAccessGrantsLocation && method == http.MethodGet:
+		return h.handleStub(c, "ListAccessGrantsLocations")
+	case strings.HasPrefix(path, pathAccessGrantsInstancePrefix+"prefix") && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessGrantsInstanceForPrefix")
+	case strings.HasPrefix(path, pathAccessGrantPrefix) && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessGrant")
+	case strings.HasPrefix(path, pathAccessGrantPrefix) && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteAccessGrant")
+	case isGrantsLocationPath(path) && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessGrantsLocation")
+	case isGrantsLocationPath(path) && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteAccessGrantsLocation")
+	case isGrantsLocationPath(path) && method == http.MethodPut:
+		return h.handleStub(c, "UpdateAccessGrantsLocation")
 	}
 
-	return h.dispatchResourceOps(c, path, method)
+	return h.dispatchAccessPointOps(c, path, method)
 }
 
-func (h *Handler) dispatchResourceOps(c *echo.Context, path, method string) error {
+//nolint:cyclop,gocognit,gocyclo // dispatch table for access point ops
+func (h *Handler) dispatchAccessPointOps(c *echo.Context, path, method string) error {
 	switch {
-	case strings.HasPrefix(path, pathAccessPointPrefix) && method == http.MethodPut:
+	case isSimplePath(pathAccessPointPrefix, path) && method == http.MethodPut:
 		return h.handleCreateAccessPoint(c)
-	case strings.HasPrefix(path, pathObjectLambdaPrefix) && method == http.MethodPut:
+	case isSimplePath(pathAccessPointPrefix, path) && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessPoint")
+	case isSimplePath(pathAccessPointPrefix, path) && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteAccessPoint")
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessPointPolicy")
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodPut:
+		return h.handleStub(c, "PutAccessPointPolicy")
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteAccessPointPolicy")
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/policyStatus") && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessPointPolicyStatus")
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessPointScope")
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodPut:
+		return h.handleStub(c, "PutAccessPointScope")
+	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteAccessPointScope")
+	case isSimplePath(pathObjectLambdaPrefix, path) && method == http.MethodPut:
 		return h.handleCreateAccessPointForObjectLambda(c)
-	case strings.HasPrefix(path, pathBucketPrefix) && method == http.MethodPut:
+	case isSimplePath(pathObjectLambdaPrefix, path) && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessPointForObjectLambda")
+	case isSimplePath(pathObjectLambdaPrefix, path) && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteAccessPointForObjectLambda")
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy") && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessPointPolicyForObjectLambda")
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy") && method == http.MethodPut:
+		return h.handleStub(c, "PutAccessPointPolicyForObjectLambda")
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy") && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteAccessPointPolicyForObjectLambda")
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policyStatus") && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessPointPolicyStatusForObjectLambda")
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/configuration") && method == http.MethodGet:
+		return h.handleStub(c, "GetAccessPointConfigurationForObjectLambda")
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/configuration") && method == http.MethodPut:
+		return h.handleStub(c, "PutAccessPointConfigurationForObjectLambda")
+	case path == "/v20180820/accesspoint" && method == http.MethodGet:
+		return h.handleStub(c, "ListAccessPoints")
+	case path == pathAccessPointsDirectoryBuckets && method == http.MethodGet:
+		return h.handleStub(c, "ListAccessPointsForDirectoryBuckets")
+	case path == pathAccessPointsForObjectLambdaList && method == http.MethodGet:
+		return h.handleStub(c, "ListAccessPointsForObjectLambda")
+	}
+
+	return h.dispatchBucketOps(c, path, method)
+}
+
+//nolint:cyclop,gocyclo // dispatch table for outposts bucket ops
+func (h *Handler) dispatchBucketOps(c *echo.Context, path, method string) error {
+	switch {
+	case isSimplePath(pathBucketPrefix, path) && method == http.MethodPut:
 		return h.handleCreateBucket(c)
+	case isSimplePath(pathBucketPrefix, path) && method == http.MethodGet:
+		return h.handleStub(c, "GetBucket")
+	case isSimplePath(pathBucketPrefix, path) && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteBucket")
+	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle") && method == http.MethodGet:
+		return h.handleStub(c, "GetBucketLifecycleConfiguration")
+	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle") && method == http.MethodPut:
+		return h.handleStub(c, "PutBucketLifecycleConfiguration")
+	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle") && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteBucketLifecycleConfiguration")
+	case isPrefixSuffix(pathBucketPrefix, path, "/policy") && method == http.MethodGet:
+		return h.handleStub(c, "GetBucketPolicy")
+	case isPrefixSuffix(pathBucketPrefix, path, "/policy") && method == http.MethodPut:
+		return h.handleStub(c, "PutBucketPolicy")
+	case isPrefixSuffix(pathBucketPrefix, path, "/policy") && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteBucketPolicy")
+	case isPrefixSuffix(pathBucketPrefix, path, "/replication") && method == http.MethodGet:
+		return h.handleStub(c, "GetBucketReplication")
+	case isPrefixSuffix(pathBucketPrefix, path, "/replication") && method == http.MethodPut:
+		return h.handleStub(c, "PutBucketReplication")
+	case isPrefixSuffix(pathBucketPrefix, path, "/replication") && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteBucketReplication")
+	case isPrefixSuffix(pathBucketPrefix, path, "/tagging") && method == http.MethodGet:
+		return h.handleStub(c, "GetBucketTagging")
+	case isPrefixSuffix(pathBucketPrefix, path, "/tagging") && method == http.MethodPut:
+		return h.handleStub(c, "PutBucketTagging")
+	case isPrefixSuffix(pathBucketPrefix, path, "/tagging") && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteBucketTagging")
+	case isPrefixSuffix(pathBucketPrefix, path, "/versioning") && method == http.MethodGet:
+		return h.handleStub(c, "GetBucketVersioning")
+	case isPrefixSuffix(pathBucketPrefix, path, "/versioning") && method == http.MethodPut:
+		return h.handleStub(c, "PutBucketVersioning")
+	case path == pathRegionalBuckets && method == http.MethodGet:
+		return h.handleStub(c, "ListRegionalBuckets")
+	}
+
+	return h.dispatchJobMRAPStorageLensOps(c, path, method)
+}
+
+//nolint:cyclop,gocyclo // dispatch table for job and MRAP ops
+func (h *Handler) dispatchJobMRAPStorageLensOps(c *echo.Context, path, method string) error {
+	switch {
 	case path == pathJobs && method == http.MethodPost:
 		return h.handleCreateJob(c)
+	case path == pathJobs && method == http.MethodGet:
+		return h.handleStub(c, "ListJobs")
+	case isSimplePath(pathJobPrefix, path) && method == http.MethodGet:
+		return h.handleStub(c, "DescribeJob")
+	case isPrefixSuffix(pathJobPrefix, path, "/tagging") && method == http.MethodGet:
+		return h.handleStub(c, "GetJobTagging")
+	case isPrefixSuffix(pathJobPrefix, path, "/tagging") && method == http.MethodPut:
+		return h.handleStub(c, "PutJobTagging")
+	case isPrefixSuffix(pathJobPrefix, path, "/tagging") && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteJobTagging")
+	case isPrefixSuffix(pathJobPrefix, path, "/priority") && method == http.MethodPut:
+		return h.handleStub(c, "UpdateJobPriority")
+	case isPrefixSuffix(pathJobPrefix, path, "/status") && method == http.MethodPut:
+		return h.handleStub(c, "UpdateJobStatus")
 	case path == pathMRAPCreate && method == http.MethodPost:
 		return h.handleCreateMultiRegionAccessPoint(c)
+	case strings.HasPrefix(path, pathMRAPDeletePrefix) && method == http.MethodPost:
+		return h.handleStub(c, opDeleteMRAP)
+	case strings.HasPrefix(path, pathMRAPPutPolicyPrefix) && method == http.MethodPost:
+		return h.handleStub(c, "PutMultiRegionAccessPointPolicy")
+	case strings.HasPrefix(path, pathMRAPPrefix) && method == http.MethodGet:
+		return h.handleStub(c, "DescribeMultiRegionAccessPointOperation")
+	case path == pathMRAPList && method == http.MethodGet:
+		return h.handleStub(c, "ListMultiRegionAccessPoints")
+	case isSimplePath(pathMRAPInstancePrefix, path) && method == http.MethodGet:
+		return h.handleStub(c, "GetMultiRegionAccessPoint")
+	case isSimplePath(pathMRAPInstancePrefix, path) && method == http.MethodDelete:
+		return h.handleStub(c, opDeleteMRAP)
+	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policy") && method == http.MethodGet:
+		return h.handleStub(c, "GetMultiRegionAccessPointPolicy")
+	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policyStatus") && method == http.MethodGet:
+		return h.handleStub(c, "GetMultiRegionAccessPointPolicyStatus")
+	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/routes") && method == http.MethodGet:
+		return h.handleStub(c, "GetMultiRegionAccessPointRoutes")
+	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/routes") && method == http.MethodPatch:
+		return h.handleStub(c, "SubmitMultiRegionAccessPointRoutes")
+	}
+
+	return h.dispatchStorageLensTagOps(c, path, method)
+}
+
+//nolint:cyclop,gocyclo // dispatch table for storage lens and tag ops
+func (h *Handler) dispatchStorageLensTagOps(c *echo.Context, path, method string) error {
+	switch {
+	case isSimplePath(pathStorageLensPrefix, path) && method == http.MethodGet:
+		return h.handleStub(c, "GetStorageLensConfiguration")
+	case isSimplePath(pathStorageLensPrefix, path) && method == http.MethodPut:
+		return h.handleStub(c, "PutStorageLensConfiguration")
+	case isSimplePath(pathStorageLensPrefix, path) && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteStorageLensConfiguration")
+	case isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") && method == http.MethodGet:
+		return h.handleStub(c, "GetStorageLensConfigurationTagging")
+	case isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") && method == http.MethodPut:
+		return h.handleStub(c, "PutStorageLensConfigurationTagging")
+	case isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteStorageLensConfigurationTagging")
+	case path == pathStorageLensList && method == http.MethodGet:
+		return h.handleStub(c, "ListStorageLensConfigurations")
 	case path == pathStorageLensGroup && method == http.MethodPost:
 		return h.handleCreateStorageLensGroup(c)
+	case path == pathStorageLensGroup && method == http.MethodGet:
+		return h.handleStub(c, "ListStorageLensGroups")
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodGet:
+		return h.handleStub(c, "GetStorageLensGroup")
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodPut:
+		return h.handleStub(c, "UpdateStorageLensGroup")
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodDelete:
+		return h.handleStub(c, "DeleteStorageLensGroup")
+	case strings.HasPrefix(path, pathTagsPrefix) && method == http.MethodGet:
+		return h.handleStub(c, "ListTagsForResource")
+	case strings.HasPrefix(path, pathTagsPrefix) && method == http.MethodPost:
+		return h.handleStub(c, "TagResource")
+	case strings.HasPrefix(path, pathTagsPrefix) && method == http.MethodDelete:
+		return h.handleStub(c, "UntagResource")
 	}
 
 	return c.String(http.StatusNotFound, "not found")
@@ -258,6 +782,12 @@ func writeXML(c *echo.Context, v any) error {
 	}
 
 	return c.Blob(http.StatusOK, "application/xml", append([]byte(xml.Header), data...))
+}
+
+// handleStub returns 501 Not Implemented for operations that are stubbed.
+// The operation name is included in the response body for debugging.
+func (h *Handler) handleStub(c *echo.Context, operation string) error {
+	return c.String(http.StatusNotImplemented, operation+" not implemented")
 }
 
 // --- public access block handlers ---
