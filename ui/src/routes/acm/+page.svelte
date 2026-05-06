@@ -32,7 +32,8 @@
 	let selectedCert = $state<CertificateDetail | null>(null);
 	let loadingDetail = $state(false);
 	let searchQuery = $state('');
-	let statusFilter = $state('all');
+	let statusFilter = $state('');
+	let detailTab = $state<'overview' | 'sans' | 'validation'>('overview');
 
 	let showRequestModal = $state(false);
 	let requesting = $state(false);
@@ -43,10 +44,18 @@
 	const filteredCerts = $derived(
 		certificates.filter((c) => {
 			const domainMatch = (c.DomainName ?? '').toLowerCase().includes(searchQuery.toLowerCase());
-			const statusMatch = statusFilter === 'all' || c.Status === statusFilter;
+			const statusMatch = !statusFilter || c.Status === statusFilter;
 			return domainMatch && statusMatch;
 		})
 	);
+
+	function expiryAlert(notAfter?: Date): 'critical' | 'warning' | null {
+		if (!notAfter) return null;
+		const days = (notAfter.getTime() - Date.now()) / 86400000;
+		if (days <= 30) return 'critical';
+		if (days <= 60) return 'warning';
+		return null;
+	}
 
 	function statusBadge(status?: string) {
 		if (status === 'ISSUED') return 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900';
@@ -79,6 +88,7 @@
 	async function viewCertificate(arn: string) {
 		loadingDetail = true;
 		selectedCert = null;
+		detailTab = 'overview';
 		try {
 			const res = await acm.send(new DescribeCertificateCommand({ CertificateArn: arn }));
 			selectedCert = res.Certificate ?? null;
@@ -173,7 +183,7 @@
 			bind:value={statusFilter}
 			class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 		>
-			<option value="all">All Statuses</option>
+			<option value="">All Statuses</option>
 			<option value="ISSUED">Issued</option>
 			<option value="PENDING_VALIDATION">Pending Validation</option>
 			<option value="EXPIRED">Expired</option>
@@ -239,8 +249,20 @@
 							<td class="px-4 py-3 text-muted-foreground capitalize">
 								{(cert.Type ?? 'AMAZON_ISSUED').replace(/_/g, ' ').toLowerCase()}
 							</td>
-							<td class="px-4 py-3 text-muted-foreground text-xs">
-								{cert.NotAfter ? new Date(cert.NotAfter).toLocaleDateString() : '—'}
+							<td class="px-4 py-3 text-xs">
+								{#if cert.NotAfter}
+									{@const alert = expiryAlert(new Date(cert.NotAfter))}
+									<span class="flex items-center gap-1 {alert === 'critical' ? 'text-red-600 font-semibold' : alert === 'warning' ? 'text-yellow-600 font-medium' : 'text-muted-foreground'}">
+										{#if alert === 'critical'}
+											<AlertTriangle class="h-3 w-3 shrink-0" />
+										{:else if alert === 'warning'}
+											<Clock class="h-3 w-3 shrink-0" />
+										{/if}
+										{new Date(cert.NotAfter).toLocaleDateString()}
+									</span>
+								{:else}
+									<span class="text-muted-foreground">—</span>
+								{/if}
 							</td>
 							<td class="px-4 py-3 text-right flex justify-end gap-1">
 								<button
@@ -271,9 +293,41 @@
 			<RefreshCw class="h-6 w-6 animate-spin text-muted-foreground" />
 		</div>
 	{:else if selectedCert}
-		<div class="rounded-lg border p-5 space-y-4">
-			<div class="flex items-center justify-between">
-				<h3 class="font-semibold">{selectedCert.DomainName}</h3>
+		{@const certExpiry = selectedCert.NotAfter ? new Date(selectedCert.NotAfter) : null}
+		{@const expAlert = expiryAlert(certExpiry ?? undefined)}
+		<div class="rounded-lg border overflow-hidden">
+			<!-- Detail header -->
+			<div class="flex items-center justify-between px-5 py-4 border-b bg-muted/30">
+				<div class="flex items-center gap-3">
+					{#if selectedCert.Status === 'ISSUED'}
+						<CheckCircle class="h-5 w-5 text-green-500 shrink-0" />
+					{:else if selectedCert.Status === 'PENDING_VALIDATION'}
+						<Clock class="h-5 w-5 text-yellow-500 shrink-0" />
+					{:else if selectedCert.Status === 'FAILED' || selectedCert.Status === 'EXPIRED'}
+						<XCircle class="h-5 w-5 text-red-500 shrink-0" />
+					{:else}
+						<AlertTriangle class="h-5 w-5 text-muted-foreground shrink-0" />
+					{/if}
+					<div>
+						<h3 class="font-semibold">{selectedCert.DomainName}</h3>
+						<div class="flex items-center gap-2 mt-0.5">
+							<span class="rounded-full px-2 py-0.5 text-xs font-medium {statusBadge(selectedCert.Status)}">
+								{selectedCert.Status}
+							</span>
+							{#if expAlert === 'critical'}
+								<span class="flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
+									<AlertTriangle class="h-3 w-3" />
+									Expires soon
+								</span>
+							{:else if expAlert === 'warning'}
+								<span class="flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">
+									<Clock class="h-3 w-3" />
+									Expiring in 60 days
+								</span>
+							{/if}
+						</div>
+					</div>
+				</div>
 				<div class="flex gap-2">
 					{#if selectedCert.Status === 'ISSUED'}
 						<button
@@ -284,78 +338,157 @@
 							Renew
 						</button>
 					{/if}
-					<button onclick={() => (selectedCert = null)} class="text-xs text-muted-foreground hover:text-foreground">
+					<button
+						onclick={() => deleteCertificate(selectedCert?.CertificateArn ?? '', selectedCert?.DomainName)}
+						class="flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950"
+					>
+						<Trash2 class="h-3.5 w-3.5" />
+						Delete
+					</button>
+					<button onclick={() => (selectedCert = null)} class="text-xs text-muted-foreground hover:text-foreground px-2">
 						Close
 					</button>
 				</div>
 			</div>
-			<div class="grid grid-cols-2 gap-4 text-sm">
-				<div>
-					<p class="text-muted-foreground">Status</p>
-					<span class="rounded-full px-2 py-0.5 text-xs font-medium {statusBadge(selectedCert.Status)}">
-						{selectedCert.Status}
-					</span>
-				</div>
-				<div>
-					<p class="text-muted-foreground">Type</p>
-					<p>{selectedCert.Type ?? '—'}</p>
-				</div>
-				<div>
-					<p class="text-muted-foreground">Issued</p>
-					<p>{selectedCert.IssuedAt ? new Date(selectedCert.IssuedAt).toLocaleDateString() : '—'}</p>
-				</div>
-				<div>
-					<p class="text-muted-foreground">Expires</p>
-					<p>{selectedCert.NotAfter ? new Date(selectedCert.NotAfter).toLocaleDateString() : '—'}</p>
-				</div>
-				<div>
-					<p class="text-muted-foreground">Issuer</p>
-					<p>{selectedCert.Issuer ?? 'Amazon'}</p>
-				</div>
-				<div>
-					<p class="text-muted-foreground">Key Algorithm</p>
-					<p>{selectedCert.KeyAlgorithm ?? '—'}</p>
-				</div>
+
+			<!-- Tabs -->
+			<div class="flex border-b">
+				{#each [['overview', 'Overview'], ['sans', 'SANs'], ['validation', 'Validation Records']] as [tab, label]}
+					<button
+						onclick={() => (detailTab = tab as typeof detailTab)}
+						class="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors {detailTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+					>
+						{label}
+						{#if tab === 'sans'}
+							<span class="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs">
+								{(selectedCert.SubjectAlternativeNames ?? []).length}
+							</span>
+						{:else if tab === 'validation'}
+							<span class="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs">
+								{(selectedCert.DomainValidationOptions ?? []).length}
+							</span>
+						{/if}
+					</button>
+				{/each}
 			</div>
-			{#if (selectedCert.SubjectAlternativeNames ?? []).length > 0}
-				<div>
-					<p class="text-sm text-muted-foreground mb-1">Subject Alternative Names</p>
-					<div class="flex flex-wrap gap-1">
-						{#each selectedCert.SubjectAlternativeNames ?? [] as san}
-							<span class="rounded bg-muted px-2 py-0.5 text-xs font-mono">{san}</span>
-						{/each}
+
+			<!-- Tab content -->
+			<div class="p-5">
+				{#if detailTab === 'overview'}
+					<div class="grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
+						<div>
+							<p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">ARN</p>
+							<p class="font-mono text-xs break-all">{selectedCert.CertificateArn ?? '—'}</p>
+						</div>
+						<div>
+							<p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">Type</p>
+							<p>{selectedCert.Type ?? '—'}</p>
+						</div>
+						<div>
+							<p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">Issued</p>
+							<p>{selectedCert.IssuedAt ? new Date(selectedCert.IssuedAt).toLocaleDateString() : '—'}</p>
+						</div>
+						<div>
+							<p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">Expires</p>
+							<p class="{expAlert === 'critical' ? 'text-red-600 font-semibold' : expAlert === 'warning' ? 'text-yellow-600 font-medium' : ''}">
+								{certExpiry ? certExpiry.toLocaleDateString() : '—'}
+							</p>
+						</div>
+						<div>
+							<p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">Issuer</p>
+							<p>{selectedCert.Issuer ?? 'Amazon'}</p>
+						</div>
+						<div>
+							<p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">Key Algorithm</p>
+							<p>{selectedCert.KeyAlgorithm ?? '—'}</p>
+						</div>
+						<div>
+							<p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">Renewal Eligibility</p>
+							<p>{selectedCert.RenewalEligibility ?? '—'}</p>
+						</div>
+						<div>
+							<p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">In Use</p>
+							<p>{(selectedCert.InUseBy ?? []).length > 0 ? `${(selectedCert.InUseBy ?? []).length} resource(s)` : 'Not in use'}</p>
+						</div>
 					</div>
-				</div>
-			{/if}
-			{#if (selectedCert.DomainValidationOptions ?? []).length > 0}
-				<div>
-					<p class="text-sm font-medium mb-2">DNS Validation Records</p>
-					<div class="rounded border overflow-hidden">
-						<table class="w-full text-xs">
-							<thead class="bg-muted/50">
-								<tr>
-									<th class="px-3 py-2 text-left">Domain</th>
-									<th class="px-3 py-2 text-left">CNAME Name</th>
-									<th class="px-3 py-2 text-left">CNAME Value</th>
-								</tr>
-							</thead>
-							<tbody class="divide-y">
-								{#each selectedCert.DomainValidationOptions ?? [] as opt}
+				{:else if detailTab === 'sans'}
+					{@const sans = selectedCert.SubjectAlternativeNames ?? []}
+					{#if sans.length === 0}
+						<p class="text-sm text-muted-foreground py-4 text-center">No Subject Alternative Names</p>
+					{:else}
+						<div class="flex flex-wrap gap-1.5">
+							{#each sans as san}
+								<span class="rounded bg-muted px-2.5 py-1 text-xs font-mono">{san}</span>
+							{/each}
+						</div>
+					{/if}
+				{:else if detailTab === 'validation'}
+					{@const opts = selectedCert.DomainValidationOptions ?? []}
+					{#if opts.length === 0}
+						<p class="text-sm text-muted-foreground py-4 text-center">No validation records</p>
+					{:else}
+						<div class="rounded border overflow-hidden">
+							<table class="w-full text-xs">
+								<thead class="bg-muted/50">
 									<tr>
-										<td class="px-3 py-2">{opt.DomainName}</td>
-										<td class="px-3 py-2 font-mono truncate max-w-[180px]">
-											{opt.ResourceRecord?.Name ?? '—'}
-										</td>
-										<td class="px-3 py-2 font-mono truncate max-w-[180px]">
-											{opt.ResourceRecord?.Value ?? '—'}
-										</td>
+										<th class="px-3 py-2 text-left font-medium">Domain</th>
+										<th class="px-3 py-2 text-left font-medium">Status</th>
+										<th class="px-3 py-2 text-left font-medium">Record Type</th>
+										<th class="px-3 py-2 text-left font-medium">CNAME Name</th>
+										<th class="px-3 py-2 text-left font-medium">CNAME Value</th>
 									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				</div>
-			{/if}
+								</thead>
+								<tbody class="divide-y">
+									{#each opts as opt}
+										<tr class="hover:bg-muted/30">
+											<td class="px-3 py-2 font-medium">{opt.DomainName ?? '—'}</td>
+											<td class="px-3 py-2">
+												{#if opt.ValidationStatus === 'SUCCESS'}
+													<span class="flex items-center gap-1 text-green-600">
+														<CheckCircle class="h-3 w-3" />
+														Validated
+													</span>
+												{:else if opt.ValidationStatus === 'PENDING_VALIDATION'}
+													<span class="flex items-center gap-1 text-yellow-600">
+														<Clock class="h-3 w-3" />
+														Pending
+													</span>
+												{:else if opt.ValidationStatus === 'FAILED'}
+													<span class="flex items-center gap-1 text-red-600">
+														<XCircle class="h-3 w-3" />
+														Failed
+													</span>
+												{:else}
+													<span class="text-muted-foreground">{opt.ValidationStatus ?? '—'}</span>
+												{/if}
+											</td>
+											<td class="px-3 py-2 text-muted-foreground">{opt.ResourceRecord?.Type ?? opt.ValidationMethod ?? '—'}</td>
+											<td class="px-3 py-2 font-mono">
+												{#if opt.ResourceRecord?.Name}
+													<span class="block truncate max-w-[200px]" title={opt.ResourceRecord.Name}>
+														{opt.ResourceRecord.Name}
+													</span>
+												{:else}
+													<span class="text-muted-foreground">—</span>
+												{/if}
+											</td>
+											<td class="px-3 py-2 font-mono">
+												{#if opt.ResourceRecord?.Value}
+													<span class="block truncate max-w-[200px]" title={opt.ResourceRecord.Value}>
+														{opt.ResourceRecord.Value}
+													</span>
+												{:else}
+													<span class="text-muted-foreground">—</span>
+												{/if}
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				{/if}
+			</div>
 		</div>
 	{/if}
 </div>
