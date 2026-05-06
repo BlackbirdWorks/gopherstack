@@ -131,6 +131,7 @@
     "@aws-sdk/client-s3-control": "3.1032.0",
     "@aws-sdk/client-s3tables": "3.1032.0",
     "@aws-sdk/client-sagemaker": "3.1032.0",
+    "@aws-sdk/client-sagemaker-runtime": "3.1032.0",
     "@aws-sdk/client-scheduler": "3.1032.0",
     "@aws-sdk/client-secrets-manager": "3.1032.0",
     "@aws-sdk/client-securityhub": "3.1032.0",

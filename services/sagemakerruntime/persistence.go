@@ -1,4 +1,4 @@
-package sagemakerrumtime
+package sagemakerruntime
 
 import (
 	"encoding/json"

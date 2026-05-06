@@ -5883,7 +5883,7 @@ func TestTerraform_SageMakerRuntime(t *testing.T) {
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "sagemakerrumtime/success",
+			fixture: "sagemakerruntime/success",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 

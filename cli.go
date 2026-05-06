@@ -156,7 +156,7 @@ import (
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
-	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"

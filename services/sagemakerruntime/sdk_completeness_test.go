@@ -1,11 +1,11 @@
-package sagemakerrumtime_test
+package sagemakerruntime_test
 
 import (
 	"testing"
 
-	sagemakerrumtimesdk "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
+	sagemakerruntimesdk "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
-	"github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
+	"github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 )
 
 // TestSDKCompleteness verifies that every operation exposed by the AWS SDK v2
@@ -15,7 +15,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := sagemakerrumtime.NewInMemoryBackend("000000000000", "us-east-1")
-	h := sagemakerrumtime.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &sagemakerrumtimesdk.Client{}, h.GetSupportedOperations(), nil)
+	backend := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
+	h := sagemakerruntime.NewHandler(backend)
+	sdkcheck.CheckCompleteness(t, &sagemakerruntimesdk.Client{}, h.GetSupportedOperations(), nil)
 }

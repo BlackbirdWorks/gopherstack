@@ -1,4 +1,4 @@
-package sagemakerrumtime_test
+package sagemakerruntime_test
 
 import (
 	"bytes"
@@ -13,18 +13,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
+	"github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 )
 
-func newTestHandler(t *testing.T) *sagemakerrumtime.Handler {
+func newTestHandler(t *testing.T) *sagemakerruntime.Handler {
 	t.Helper()
 
-	return sagemakerrumtime.NewHandler(sagemakerrumtime.NewInMemoryBackend("000000000000", "us-east-1"))
+	return sagemakerruntime.NewHandler(sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
 func doRequest(
 	t *testing.T,
-	h *sagemakerrumtime.Handler,
+	h *sagemakerruntime.Handler,
 	method, path string,
 	body any,
 ) *httptest.ResponseRecorder {
@@ -309,7 +309,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 func TestBackend_RecordAndList(t *testing.T) {
 	t.Parallel()
 
-	b := sagemakerrumtime.NewInMemoryBackend("123456789012", "us-east-1")
+	b := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
 	assert.Equal(t, "us-east-1", b.Region())
 
 	invocations := b.ListInvocations()
@@ -330,11 +330,11 @@ func TestBackend_RecordAndList(t *testing.T) {
 func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
-	p := &sagemakerrumtime.Provider{}
+	p := &sagemakerruntime.Provider{}
 	assert.Equal(t, "SageMakerRuntime", p.Name())
 
-	backend := sagemakerrumtime.NewInMemoryBackend("000000000000", "us-east-1")
-	h := sagemakerrumtime.NewHandler(backend)
+	backend := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
+	h := sagemakerruntime.NewHandler(backend)
 
 	assert.NotNil(t, h)
 	assert.Equal(t, "SageMakerRuntime", h.Name())
@@ -345,7 +345,7 @@ func TestProvider_InitFull(t *testing.T) {
 	t.Parallel()
 
 	ctx := &service.AppContext{}
-	p := &sagemakerrumtime.Provider{}
+	p := &sagemakerruntime.Provider{}
 	reg, err := p.Init(ctx)
 
 	require.NoError(t, err)
@@ -421,13 +421,13 @@ func TestBackend_InvocationHistoryCap(t *testing.T) {
 		},
 		{
 			name:        "at_cap",
-			recordCount: sagemakerrumtime.MaxInvocationHistory,
-			wantLen:     sagemakerrumtime.MaxInvocationHistory,
+			recordCount: sagemakerruntime.MaxInvocationHistory,
+			wantLen:     sagemakerruntime.MaxInvocationHistory,
 		},
 		{
 			name:        "above_cap_retains_most_recent",
-			recordCount: sagemakerrumtime.MaxInvocationHistory + 50,
-			wantLen:     sagemakerrumtime.MaxInvocationHistory,
+			recordCount: sagemakerruntime.MaxInvocationHistory + 50,
+			wantLen:     sagemakerruntime.MaxInvocationHistory,
 		},
 	}
 
@@ -435,7 +435,7 @@ func TestBackend_InvocationHistoryCap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := sagemakerrumtime.NewInMemoryBackend("123456789012", "us-east-1")
+			b := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
 
 			for i := range tt.recordCount {
 				b.RecordInvocation("InvokeEndpoint", "ep", fmt.Sprintf(`{"seq":%d}`, i), `{}`)
@@ -444,7 +444,7 @@ func TestBackend_InvocationHistoryCap(t *testing.T) {
 			invocations := b.ListInvocations()
 			assert.Len(t, invocations, tt.wantLen)
 
-			if tt.recordCount > sagemakerrumtime.MaxInvocationHistory {
+			if tt.recordCount > sagemakerruntime.MaxInvocationHistory {
 				last := invocations[len(invocations)-1]
 				assert.Contains(t, last.Input, fmt.Sprintf(`"seq":%d`, tt.recordCount-1))
 			}
@@ -473,7 +473,7 @@ func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := sagemakerrumtime.NewInMemoryBackend("123456789012", "us-east-1")
+			b := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
 
 			for i := range tt.setupInvCount {
 				b.RecordInvocation("InvokeEndpoint", "ep", fmt.Sprintf(`{"seq":%d}`, i), `{}`)
@@ -483,7 +483,7 @@ func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
 			require.NotNil(t, snap)
 
 			// Restore into a fresh backend.
-			b2 := sagemakerrumtime.NewInMemoryBackend("123456789012", "us-east-1")
+			b2 := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
 			require.NoError(t, b2.Restore(snap))
 
 			restored := b2.ListInvocations()
