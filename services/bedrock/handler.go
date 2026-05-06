@@ -16,19 +16,24 @@ import (
 )
 
 const (
-	guardrailsPrefix            = "/guardrails"
-	foundationModelsPrefix      = "/foundation-models"
-	provisionedModelThroughput  = "/provisioned-model-throughput"
-	provisionedModelThroughputs = "/provisioned-model-throughputs"
-	listTagsForResourcePath     = "/listTagsForResource"
-	tagResourcePath             = "/tagResource"
-	untagResourcePath           = "/untagResource"
-	evaluationJobsPrefix        = "/evaluation-jobs"
-	evaluationJobsBatchDelete   = "/evaluation-jobs/batch-delete"
-	automatedReasoningPrefix    = "/automated-reasoning-policies"
-	customModelsCreate          = "/custom-models/create-custom-model"
-	customModelDeploymentsPath  = "/model-customization/custom-model-deployments"
-	foundationModelAgreement    = "/create-foundation-model-agreement"
+	guardrailsPrefix             = "/guardrails"
+	foundationModelsPrefix       = "/foundation-models"
+	provisionedModelThroughput   = "/provisioned-model-throughput"
+	provisionedModelThroughputs  = "/provisioned-model-throughputs"
+	listTagsForResourcePath      = "/listTagsForResource"
+	tagResourcePath              = "/tagResource"
+	untagResourcePath            = "/untagResource"
+	evaluationJobsPrefix         = "/evaluation-jobs"
+	evaluationJobsBatchDelete    = "/evaluation-jobs/batch-delete"
+	automatedReasoningPrefix     = "/automated-reasoning-policies"
+	customModelsCreate           = "/custom-models/create-custom-model"
+	customModelDeploymentsPath   = "/model-customization/custom-model-deployments"
+	foundationModelAgreement     = "/create-foundation-model-agreement"
+	customModelsPrefix           = "/custom-models"
+	modelCustomizationJobsPrefix = "/model-customization-jobs"
+	inferenceProfilesPrefix      = "/inference-profiles"
+	marketplaceEndpointsPrefix   = "/marketplace-model/endpoints"
+	loggingConfigPath            = "/logging/modelinvocations"
 )
 
 // isoTime is a [time.Time] that marshals as RFC3339.
@@ -68,19 +73,40 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateFoundationModelAgreement",
 		"CreateGuardrail",
 		"CreateGuardrailVersion",
+		"CreateInferenceProfile",
+		"CreateMarketplaceModelEndpoint",
+		"CreateModelCustomizationJob",
 		"CreateProvisionedModelThroughput",
+		"DeleteCustomModel",
 		"DeleteGuardrail",
+		"DeleteInferenceProfile",
+		"DeleteMarketplaceModelEndpoint",
+		"DeleteModelInvocationLoggingConfiguration",
 		"DeleteProvisionedModelThroughput",
+		"DeregisterMarketplaceModelEndpoint",
+		"GetCustomModel",
 		"GetFoundationModel",
 		"GetGuardrail",
+		"GetInferenceProfile",
+		"GetMarketplaceModelEndpoint",
+		"GetModelCustomizationJob",
+		"GetModelInvocationLoggingConfiguration",
 		"GetProvisionedModelThroughput",
+		"ListCustomModels",
 		"ListFoundationModels",
 		"ListGuardrails",
+		"ListInferenceProfiles",
+		"ListMarketplaceModelEndpoints",
+		"ListModelCustomizationJobs",
 		"ListProvisionedModelThroughputs",
 		"ListTagsForResource",
+		"PutModelInvocationLoggingConfiguration",
+		"RegisterMarketplaceModelEndpoint",
+		"StopModelCustomizationJob",
 		"TagResource",
 		"UntagResource",
 		"UpdateGuardrail",
+		"UpdateMarketplaceModelEndpoint",
 		"UpdateProvisionedModelThroughput",
 	}
 }
@@ -104,7 +130,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, provisionedModelThroughput) ||
 			strings.HasPrefix(path, evaluationJobsPrefix) ||
 			strings.HasPrefix(path, automatedReasoningPrefix) ||
-			path == customModelsCreate ||
+			strings.HasPrefix(path, modelCustomizationJobsPrefix) ||
+			strings.HasPrefix(path, inferenceProfilesPrefix) ||
+			strings.HasPrefix(path, marketplaceEndpointsPrefix) ||
+			strings.HasPrefix(path, customModelsPrefix) ||
+			path == loggingConfigPath ||
 			path == customModelDeploymentsPath ||
 			path == foundationModelAgreement ||
 			path == listTagsForResourcePath ||
@@ -129,6 +159,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		extractEvaluationJobOperation,
 		extractARPOperation,
 		extractCustomModelOperation,
+		extractCustomModelListOperation,
+		extractCustomizationJobOperation,
+		extractInferenceProfileOperation,
+		extractMarketplaceEndpointOperation,
+		extractLoggingConfigOperation,
 	} {
 		if op, ok := fn(path, method); ok {
 			return op
@@ -299,6 +334,22 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return id
 	}
 
+	if id, ok := strings.CutPrefix(path, customModelsPrefix+"/"); ok {
+		return id
+	}
+
+	if id, ok := strings.CutPrefix(path, modelCustomizationJobsPrefix+"/"); ok {
+		return id
+	}
+
+	if id, ok := strings.CutPrefix(path, inferenceProfilesPrefix+"/"); ok {
+		return id
+	}
+
+	if id, ok := strings.CutPrefix(path, marketplaceEndpointsPrefix+"/"); ok {
+		return id
+	}
+
 	return ""
 }
 
@@ -321,30 +372,56 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			}
 		}
 
-		if ok, err := h.routeGuardrail(c, path, method, body); ok {
-			return err
-		}
-		if ok, err := h.routeFoundationModel(c, path, method); ok {
-			return err
-		}
-		if ok, err := h.routePMT(c, path, method, body); ok {
-			return err
-		}
-		if ok, err := h.routeTag(c, path, method, body); ok {
-			return err
-		}
-		if ok, err := h.routeEvaluationJob(c, path, method, body); ok {
-			return err
-		}
-		if ok, err := h.routeARP(c, path, method, body); ok {
-			return err
-		}
-		if ok, err := h.routeCustomModel(c, path, method, body); ok {
-			return err
-		}
-
-		return c.JSON(http.StatusNotFound, errorResponse("UnknownOperationException", "unknown operation: "+path))
+		return h.dispatch(c, path, method, body)
 	}
+}
+
+// dispatch routes a Bedrock request to the appropriate handler.
+func (h *Handler) dispatch(c *echo.Context, path, method string, body []byte) error {
+	if ok, err := h.routeGuardrail(c, path, method, body); ok {
+		return err
+	}
+	if ok, err := h.routeFoundationModel(c, path, method); ok {
+		return err
+	}
+	if ok, err := h.routePMT(c, path, method, body); ok {
+		return err
+	}
+	if ok, err := h.routeTag(c, path, method, body); ok {
+		return err
+	}
+	if ok, err := h.routeEvaluationJob(c, path, method, body); ok {
+		return err
+	}
+	if ok, err := h.routeARP(c, path, method, body); ok {
+		return err
+	}
+	if ok, err := h.routeCustomModel(c, path, method, body); ok {
+		return err
+	}
+	if ok, err := h.routeCustomModelList(c, path, method); ok {
+		return err
+	}
+
+	return h.dispatchExtended(c, path, method, body)
+}
+
+// dispatchExtended handles additional Bedrock route groups.
+func (h *Handler) dispatchExtended(c *echo.Context, path, method string, body []byte) error {
+	if ok, err := h.routeCustomizationJob(c, path, method, body); ok {
+		return err
+	}
+	if ok, err := h.routeInferenceProfile(c, path, method, body); ok {
+		return err
+	}
+	if ok, err := h.routeMarketplaceEndpoint(c, path, method, body); ok {
+		return err
+	}
+	if ok, err := h.routeLoggingConfig(c, path, method, body); ok {
+		return err
+	}
+
+	return c.JSON(http.StatusNotFound, errorResponse("UnknownOperationException", "unknown operation: "+path))
 }
 
 func (h *Handler) routeGuardrail(c *echo.Context, path, method string, body []byte) (bool, error) {
@@ -1160,6 +1237,612 @@ type createGuardrailVersionOutput struct {
 	GuardrailID string `json:"guardrailId"`
 	Version     string `json:"version"`
 }
+
+func extractCustomModelListOperation(path, method string) (string, bool) {
+	isSubPath := strings.HasPrefix(path, customModelsPrefix+"/")
+
+	switch {
+	case path == customModelsPrefix && method == http.MethodGet:
+		return "ListCustomModels", true
+	case isSubPath && method == http.MethodGet:
+		return "GetCustomModel", true
+	case isSubPath && method == http.MethodDelete:
+		return "DeleteCustomModel", true
+	default:
+		return "", false
+	}
+}
+
+func extractCustomizationJobOperation(path, method string) (string, bool) {
+	isSubPath := strings.HasPrefix(path, modelCustomizationJobsPrefix+"/")
+	isStop := isSubPath && strings.HasSuffix(path, "/stop")
+
+	switch {
+	case path == modelCustomizationJobsPrefix && method == http.MethodPost:
+		return "CreateModelCustomizationJob", true
+	case path == modelCustomizationJobsPrefix && method == http.MethodGet:
+		return "ListModelCustomizationJobs", true
+	case isSubPath && method == http.MethodGet && !isStop:
+		return "GetModelCustomizationJob", true
+	case isStop && method == http.MethodPost:
+		return "StopModelCustomizationJob", true
+	default:
+		return "", false
+	}
+}
+
+func extractInferenceProfileOperation(path, method string) (string, bool) {
+	switch {
+	case path == inferenceProfilesPrefix && method == http.MethodPost:
+		return "CreateInferenceProfile", true
+	case path == inferenceProfilesPrefix && method == http.MethodGet:
+		return "ListInferenceProfiles", true
+	case strings.HasPrefix(path, inferenceProfilesPrefix+"/") && method == http.MethodGet:
+		return "GetInferenceProfile", true
+	case strings.HasPrefix(path, inferenceProfilesPrefix+"/") && method == http.MethodDelete:
+		return "DeleteInferenceProfile", true
+	default:
+		return "", false
+	}
+}
+
+func extractMarketplaceEndpointOperation(path, method string) (string, bool) {
+	if path == marketplaceEndpointsPrefix {
+		return extractMarketplaceEndpointRootOp(method)
+	}
+
+	if !strings.HasPrefix(path, marketplaceEndpointsPrefix+"/") {
+		return "", false
+	}
+
+	return extractMarketplaceEndpointSubOp(path, method)
+}
+
+func extractMarketplaceEndpointRootOp(method string) (string, bool) {
+	switch method {
+	case http.MethodPost:
+		return "CreateMarketplaceModelEndpoint", true
+	case http.MethodGet:
+		return "ListMarketplaceModelEndpoints", true
+	default:
+		return "", false
+	}
+}
+
+func extractMarketplaceEndpointSubOp(path, method string) (string, bool) {
+	isReg := strings.HasSuffix(path, "/registration")
+	isDereg := strings.HasSuffix(path, "/deregistration")
+
+	switch {
+	case method == http.MethodPost && isReg:
+		return "RegisterMarketplaceModelEndpoint", true
+	case method == http.MethodPost && isDereg:
+		return "DeregisterMarketplaceModelEndpoint", true
+	case method == http.MethodGet && !isReg && !isDereg:
+		return "GetMarketplaceModelEndpoint", true
+	case method == http.MethodPut:
+		return "UpdateMarketplaceModelEndpoint", true
+	case method == http.MethodDelete:
+		return "DeleteMarketplaceModelEndpoint", true
+	default:
+		return "", false
+	}
+}
+
+func extractLoggingConfigOperation(path, method string) (string, bool) {
+	switch {
+	case path == loggingConfigPath && method == http.MethodGet:
+		return "GetModelInvocationLoggingConfiguration", true
+	case path == loggingConfigPath && method == http.MethodPut:
+		return "PutModelInvocationLoggingConfiguration", true
+	case path == loggingConfigPath && method == http.MethodDelete:
+		return "DeleteModelInvocationLoggingConfiguration", true
+	default:
+		return "", false
+	}
+}
+
+func (h *Handler) routeCustomModelList(c *echo.Context, path, method string) (bool, error) {
+	isSubPath := strings.HasPrefix(path, customModelsPrefix+"/")
+
+	switch {
+	case path == customModelsPrefix && method == http.MethodGet:
+		return true, h.handleListCustomModels(c)
+	case isSubPath && method == http.MethodGet:
+		id := decodePath(strings.TrimPrefix(path, customModelsPrefix+"/"))
+
+		return true, h.handleGetCustomModel(c, id)
+	case isSubPath && method == http.MethodDelete:
+		id := decodePath(strings.TrimPrefix(path, customModelsPrefix+"/"))
+
+		return true, h.handleDeleteCustomModel(c, id)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeCustomizationJob(c *echo.Context, path, method string, body []byte) (bool, error) {
+	isSubPath := strings.HasPrefix(path, modelCustomizationJobsPrefix+"/")
+	isStop := isSubPath && strings.HasSuffix(path, "/stop")
+
+	switch {
+	case path == modelCustomizationJobsPrefix && method == http.MethodPost:
+		return true, h.handleCreateModelCustomizationJob(c, body)
+	case path == modelCustomizationJobsPrefix && method == http.MethodGet:
+		return true, h.handleListModelCustomizationJobs(c)
+	case isSubPath && method == http.MethodGet && !isStop:
+		id := decodePath(strings.TrimPrefix(path, modelCustomizationJobsPrefix+"/"))
+
+		return true, h.handleGetModelCustomizationJob(c, id)
+	case isStop && method == http.MethodPost:
+		rest := strings.TrimPrefix(path, modelCustomizationJobsPrefix+"/")
+		id := decodePath(strings.TrimSuffix(rest, "/stop"))
+
+		return true, h.handleStopModelCustomizationJob(c, id)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeInferenceProfile(c *echo.Context, path, method string, body []byte) (bool, error) {
+	switch {
+	case path == inferenceProfilesPrefix && method == http.MethodPost:
+		return true, h.handleCreateInferenceProfile(c, body)
+	case path == inferenceProfilesPrefix && method == http.MethodGet:
+		return true, h.handleListInferenceProfiles(c)
+	case strings.HasPrefix(path, inferenceProfilesPrefix+"/") && method == http.MethodGet:
+		id := decodePath(strings.TrimPrefix(path, inferenceProfilesPrefix+"/"))
+
+		return true, h.handleGetInferenceProfile(c, id)
+	case strings.HasPrefix(path, inferenceProfilesPrefix+"/") && method == http.MethodDelete:
+		id := decodePath(strings.TrimPrefix(path, inferenceProfilesPrefix+"/"))
+
+		return true, h.handleDeleteInferenceProfile(c, id)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeMarketplaceEndpoint(c *echo.Context, path, method string, body []byte) (bool, error) {
+	if path == marketplaceEndpointsPrefix {
+		return h.routeMarketplaceEndpointRoot(c, method, body)
+	}
+
+	if !strings.HasPrefix(path, marketplaceEndpointsPrefix+"/") {
+		return false, nil
+	}
+
+	return h.routeMarketplaceEndpointSub(c, path, method)
+}
+
+func (h *Handler) routeMarketplaceEndpointRoot(
+	c *echo.Context, method string, body []byte,
+) (bool, error) {
+	switch method {
+	case http.MethodPost:
+		return true, h.handleCreateMarketplaceModelEndpoint(c, body)
+	case http.MethodGet:
+		return true, h.handleListMarketplaceModelEndpoints(c)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeMarketplaceEndpointSub(c *echo.Context, path, method string) (bool, error) {
+	rest := strings.TrimPrefix(path, marketplaceEndpointsPrefix+"/")
+
+	switch {
+	case method == http.MethodPost && strings.HasSuffix(path, "/registration"):
+		id := decodePath(strings.TrimSuffix(rest, "/registration"))
+
+		return true, h.handleRegisterMarketplaceModelEndpoint(c, id)
+	case method == http.MethodPost && strings.HasSuffix(path, "/deregistration"):
+		id := decodePath(strings.TrimSuffix(rest, "/deregistration"))
+
+		return true, h.handleDeregisterMarketplaceModelEndpoint(c, id)
+	case method == http.MethodGet:
+		return true, h.handleGetMarketplaceModelEndpoint(c, decodePath(rest))
+	case method == http.MethodPut:
+		return true, h.handleUpdateMarketplaceModelEndpoint(c, decodePath(rest))
+	case method == http.MethodDelete:
+		return true, h.handleDeleteMarketplaceModelEndpoint(c, decodePath(rest))
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) routeLoggingConfig(c *echo.Context, path, method string, body []byte) (bool, error) {
+	if path != loggingConfigPath {
+		return false, nil
+	}
+
+	switch method {
+	case http.MethodGet:
+		return true, h.handleGetModelInvocationLoggingConfiguration(c)
+	case http.MethodPut:
+		return true, h.handlePutModelInvocationLoggingConfiguration(c, body)
+	case http.MethodDelete:
+		return true, h.handleDeleteModelInvocationLoggingConfiguration(c)
+	default:
+		return false, nil
+	}
+}
+
+// --- GetCustomModel / ListCustomModels / DeleteCustomModel handlers ---
+
+type customModelOutput struct {
+	CreationTime string `json:"creationTime"`
+	ModelArn     string `json:"modelArn"`
+	ModelName    string `json:"modelName"`
+	Tags         []Tag  `json:"tags,omitempty"`
+}
+
+func customModelToOutput(m *CustomModel) customModelOutput {
+	return customModelOutput{
+		ModelArn:     m.ModelArn,
+		ModelName:    m.ModelName,
+		CreationTime: m.CreationTime.Format(time.RFC3339),
+		Tags:         m.Tags,
+	}
+}
+
+func (h *Handler) handleGetCustomModel(c *echo.Context, id string) error {
+	m, err := h.Backend.GetCustomModel(id)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, customModelToOutput(m))
+}
+
+type listCustomModelsOutput struct {
+	NextToken      string              `json:"nextToken,omitempty"`
+	ModelSummaries []customModelOutput `json:"modelSummaries"`
+}
+
+func (h *Handler) handleListCustomModels(c *echo.Context) error {
+	nextToken := c.Request().URL.Query().Get("nextToken")
+	models, outToken := h.Backend.ListCustomModels(nextToken)
+	summaries := make([]customModelOutput, 0, len(models))
+
+	for _, m := range models {
+		summaries = append(summaries, customModelToOutput(m))
+	}
+
+	return c.JSON(http.StatusOK, listCustomModelsOutput{ModelSummaries: summaries, NextToken: outToken})
+}
+
+func (h *Handler) handleDeleteCustomModel(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteCustomModel(id); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- ModelCustomizationJob handlers ---
+
+type createModelCustomizationJobInput struct {
+	JobName             string `json:"jobName"`
+	BaseModelIdentifier string `json:"baseModelIdentifier"`
+	CustomizationType   string `json:"customizationType,omitempty"`
+	Tags                []Tag  `json:"tags,omitempty"`
+}
+
+type createModelCustomizationJobOutput struct {
+	JobArn string `json:"jobArn"`
+}
+
+func (h *Handler) handleCreateModelCustomizationJob(c *echo.Context, body []byte) error {
+	in, err := parseBody[createModelCustomizationJobInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	job, opErr := h.Backend.CreateModelCustomizationJob(
+		in.JobName, in.BaseModelIdentifier, in.CustomizationType, in.Tags,
+	)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, createModelCustomizationJobOutput{JobArn: job.JobArn})
+}
+
+type modelCustomizationJobOutput struct {
+	CreationTime      string `json:"creationTime"`
+	LastModifiedTime  string `json:"lastModifiedTime"`
+	JobArn            string `json:"jobArn"`
+	JobName           string `json:"jobName"`
+	BaseModelArn      string `json:"baseModelArn"`
+	OutputModelArn    string `json:"outputModelArn"`
+	Status            string `json:"status"`
+	CustomizationType string `json:"customizationType,omitempty"`
+	Tags              []Tag  `json:"tags,omitempty"`
+}
+
+func customizationJobToOutput(j *ModelCustomizationJob) modelCustomizationJobOutput {
+	return modelCustomizationJobOutput{
+		JobArn:            j.JobArn,
+		JobName:           j.JobName,
+		BaseModelArn:      j.BaseModelArn,
+		OutputModelArn:    j.OutputModelArn,
+		Status:            j.Status,
+		CustomizationType: j.CustomizationType,
+		CreationTime:      j.CreationTime.Format(time.RFC3339),
+		LastModifiedTime:  j.LastModifiedTime.Format(time.RFC3339),
+		Tags:              j.Tags,
+	}
+}
+
+func (h *Handler) handleGetModelCustomizationJob(c *echo.Context, id string) error {
+	job, err := h.Backend.GetModelCustomizationJob(id)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, customizationJobToOutput(job))
+}
+
+type listModelCustomizationJobsOutput struct {
+	NextToken                      string                        `json:"nextToken,omitempty"`
+	ModelCustomizationJobSummaries []modelCustomizationJobOutput `json:"modelCustomizationJobSummaries"`
+}
+
+func (h *Handler) handleListModelCustomizationJobs(c *echo.Context) error {
+	nextToken := c.Request().URL.Query().Get("nextToken")
+	jobs, outToken := h.Backend.ListModelCustomizationJobs(nextToken)
+	summaries := make([]modelCustomizationJobOutput, 0, len(jobs))
+
+	for _, j := range jobs {
+		summaries = append(summaries, customizationJobToOutput(j))
+	}
+
+	return c.JSON(http.StatusOK, listModelCustomizationJobsOutput{
+		ModelCustomizationJobSummaries: summaries,
+		NextToken:                      outToken,
+	})
+}
+
+func (h *Handler) handleStopModelCustomizationJob(c *echo.Context, id string) error {
+	if err := h.Backend.StopModelCustomizationJob(id); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- InferenceProfile handlers ---
+
+type createInferenceProfileInput struct {
+	InferenceProfileName string `json:"inferenceProfileName"`
+	Description          string `json:"description,omitempty"`
+	Tags                 []Tag  `json:"tags,omitempty"`
+}
+
+type createInferenceProfileOutput struct {
+	InferenceProfileArn string `json:"inferenceProfileArn"`
+	Status              string `json:"status"`
+}
+
+func (h *Handler) handleCreateInferenceProfile(c *echo.Context, body []byte) error {
+	in, err := parseBody[createInferenceProfileInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	profile, opErr := h.Backend.CreateInferenceProfile(in.InferenceProfileName, in.Description, in.Tags)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, createInferenceProfileOutput{
+		InferenceProfileArn: profile.InferenceProfileArn,
+		Status:              profile.Status,
+	})
+}
+
+type inferenceProfileOutput struct {
+	CreatedAt            string `json:"createdAt"`
+	UpdatedAt            string `json:"updatedAt"`
+	InferenceProfileArn  string `json:"inferenceProfileArn"`
+	InferenceProfileID   string `json:"inferenceProfileId"`
+	InferenceProfileName string `json:"inferenceProfileName"`
+	Status               string `json:"status"`
+	Type                 string `json:"type"`
+	Description          string `json:"description,omitempty"`
+}
+
+func inferenceProfileToOutput(p *InferenceProfile) inferenceProfileOutput {
+	return inferenceProfileOutput{
+		InferenceProfileArn:  p.InferenceProfileArn,
+		InferenceProfileID:   p.InferenceProfileID,
+		InferenceProfileName: p.InferenceProfileName,
+		Status:               p.Status,
+		Type:                 p.Type,
+		Description:          p.Description,
+		CreatedAt:            p.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:            p.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func (h *Handler) handleGetInferenceProfile(c *echo.Context, id string) error {
+	profile, err := h.Backend.GetInferenceProfile(id)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, inferenceProfileToOutput(profile))
+}
+
+type listInferenceProfilesOutput struct {
+	NextToken                 string                   `json:"nextToken,omitempty"`
+	InferenceProfileSummaries []inferenceProfileOutput `json:"inferenceProfileSummaries"`
+}
+
+func (h *Handler) handleListInferenceProfiles(c *echo.Context) error {
+	nextToken := c.Request().URL.Query().Get("nextToken")
+	profiles, outToken := h.Backend.ListInferenceProfiles(nextToken)
+	summaries := make([]inferenceProfileOutput, 0, len(profiles))
+
+	for _, p := range profiles {
+		summaries = append(summaries, inferenceProfileToOutput(p))
+	}
+
+	return c.JSON(http.StatusOK, listInferenceProfilesOutput{
+		InferenceProfileSummaries: summaries,
+		NextToken:                 outToken,
+	})
+}
+
+func (h *Handler) handleDeleteInferenceProfile(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteInferenceProfile(id); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- MarketplaceModelEndpoint handlers ---
+
+type createMarketplaceModelEndpointInput struct {
+	EndpointName          string `json:"endpointName"`
+	ModelSourceIdentifier string `json:"modelSourceIdentifier"`
+	Tags                  []Tag  `json:"tags,omitempty"`
+}
+
+type createMarketplaceModelEndpointOutput struct {
+	MarketplaceModelEndpoint marketplaceEndpointOutput `json:"marketplaceModelEndpoint"`
+}
+
+type marketplaceEndpointOutput struct {
+	CreatedAt             string `json:"createdAt"`
+	UpdatedAt             string `json:"updatedAt"`
+	EndpointArn           string `json:"endpointArn"`
+	EndpointName          string `json:"endpointName"`
+	ModelSourceIdentifier string `json:"modelSourceIdentifier"`
+	Status                string `json:"status"`
+}
+
+func marketplaceEndpointToOutput(ep *MarketplaceModelEndpoint) marketplaceEndpointOutput {
+	return marketplaceEndpointOutput{
+		EndpointArn:           ep.EndpointArn,
+		EndpointName:          ep.EndpointName,
+		ModelSourceIdentifier: ep.ModelSourceID,
+		Status:                ep.Status,
+		CreatedAt:             ep.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:             ep.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func (h *Handler) handleCreateMarketplaceModelEndpoint(c *echo.Context, body []byte) error {
+	in, err := parseBody[createMarketplaceModelEndpointInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	ep, opErr := h.Backend.CreateMarketplaceModelEndpoint(in.EndpointName, in.ModelSourceIdentifier, in.Tags)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, createMarketplaceModelEndpointOutput{
+		MarketplaceModelEndpoint: marketplaceEndpointToOutput(ep),
+	})
+}
+
+func (h *Handler) handleGetMarketplaceModelEndpoint(c *echo.Context, id string) error {
+	ep, err := h.Backend.GetMarketplaceModelEndpoint(id)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, marketplaceEndpointToOutput(ep))
+}
+
+type listMarketplaceModelEndpointsOutput struct {
+	NextToken                 string                      `json:"nextToken,omitempty"`
+	MarketplaceModelEndpoints []marketplaceEndpointOutput `json:"marketplaceModelEndpoints"`
+}
+
+func (h *Handler) handleListMarketplaceModelEndpoints(c *echo.Context) error {
+	nextToken := c.Request().URL.Query().Get("nextToken")
+	endpoints, outToken := h.Backend.ListMarketplaceModelEndpoints(nextToken)
+	summaries := make([]marketplaceEndpointOutput, 0, len(endpoints))
+
+	for _, ep := range endpoints {
+		summaries = append(summaries, marketplaceEndpointToOutput(ep))
+	}
+
+	return c.JSON(http.StatusOK, listMarketplaceModelEndpointsOutput{
+		MarketplaceModelEndpoints: summaries,
+		NextToken:                 outToken,
+	})
+}
+
+func (h *Handler) handleDeleteMarketplaceModelEndpoint(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteMarketplaceModelEndpoint(id); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleUpdateMarketplaceModelEndpoint(c *echo.Context, id string) error {
+	ep, err := h.Backend.UpdateMarketplaceModelEndpoint(id)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, marketplaceEndpointToOutput(ep))
+}
+
+func (h *Handler) handleRegisterMarketplaceModelEndpoint(c *echo.Context, id string) error {
+	if err := h.Backend.RegisterMarketplaceModelEndpoint(id); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleDeregisterMarketplaceModelEndpoint(c *echo.Context, id string) error {
+	if err := h.Backend.DeregisterMarketplaceModelEndpoint(id); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- ModelInvocationLoggingConfiguration handlers ---
+
+type modelInvocationLoggingConfigOutput struct {
+	LoggingConfig *ModelInvocationLoggingConfiguration `json:"loggingConfig,omitempty"`
+}
+
+func (h *Handler) handleGetModelInvocationLoggingConfiguration(c *echo.Context) error {
+	cfg := h.Backend.GetModelInvocationLoggingConfiguration()
+
+	return c.JSON(http.StatusOK, modelInvocationLoggingConfigOutput{LoggingConfig: cfg})
+}
+
+func (h *Handler) handlePutModelInvocationLoggingConfiguration(c *echo.Context, body []byte) error {
+	in, err := parseBody[ModelInvocationLoggingConfiguration](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	h.Backend.PutModelInvocationLoggingConfiguration(in)
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleDeleteModelInvocationLoggingConfiguration(c *echo.Context) error {
+	h.Backend.DeleteModelInvocationLoggingConfiguration()
+
+	return c.NoContent(http.StatusOK)
+}
+
+// --- GuardrailVersion handlers ---
 
 func (h *Handler) handleCreateGuardrailVersion(c *echo.Context, id string, body []byte) error {
 	in, err := parseBody[createGuardrailVersionInput](body)

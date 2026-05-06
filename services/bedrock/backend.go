@@ -159,6 +159,50 @@ type GuardrailVersion struct {
 	Description string `json:"description,omitempty"`
 }
 
+// ModelCustomizationJob represents a model customization job.
+type ModelCustomizationJob struct {
+	CreationTime      time.Time `json:"creationTime"`
+	LastModifiedTime  time.Time `json:"lastModifiedTime"`
+	EndTime           time.Time `json:"endTime"`
+	JobArn            string    `json:"jobArn"`
+	JobName           string    `json:"jobName"`
+	BaseModelArn      string    `json:"baseModelArn"`
+	OutputModelArn    string    `json:"outputModelArn"`
+	Status            string    `json:"status"`
+	CustomizationType string    `json:"customizationType,omitempty"`
+	Tags              []Tag     `json:"tags,omitempty"`
+}
+
+// InferenceProfile represents an inference profile resource.
+type InferenceProfile struct {
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+	InferenceProfileArn  string    `json:"inferenceProfileArn"`
+	InferenceProfileID   string    `json:"inferenceProfileId"`
+	InferenceProfileName string    `json:"inferenceProfileName"`
+	Status               string    `json:"status"`
+	Type                 string    `json:"type"`
+	Description          string    `json:"description,omitempty"`
+	Tags                 []Tag     `json:"tags,omitempty"`
+}
+
+// MarketplaceModelEndpoint represents a marketplace model endpoint.
+type MarketplaceModelEndpoint struct {
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+	EndpointArn   string    `json:"endpointArn"`
+	EndpointName  string    `json:"endpointName"`
+	ModelSourceID string    `json:"modelSourceIdentifier"`
+	Status        string    `json:"status"`
+	Tags          []Tag     `json:"tags,omitempty"`
+}
+
+// ModelInvocationLoggingConfiguration represents the logging configuration.
+type ModelInvocationLoggingConfiguration struct {
+	S3BucketName   string `json:"s3BucketName,omitempty"`
+	LoggingEnabled bool   `json:"loggingEnabled"`
+}
+
 // InMemoryBackend stores Amazon Bedrock state in memory.
 type InMemoryBackend struct {
 	guardrails                  map[string]*Guardrail
@@ -173,13 +217,20 @@ type InMemoryBackend struct {
 	customModels                map[string]*CustomModel                           // modelArn → model
 	customModelDeployments      map[string]*CustomModelDeployment                 // deploymentArn → deployment
 	foundationModelAgreements   map[string]*FoundationModelAgreement              // modelID → agreement
-	guardrailsByName            map[string]string                                 // guardrail name → ID
-	guardrailsByARN             map[string]string                                 // guardrail ARN → ID
-	pmtsByName                  map[string]string                                 // PMT name → ARN
-	arpByName                   map[string]string                                 // policy name → ARN
-	customModelsByName          map[string]string                                 // model name → ARN
-	customModelDeployByName     map[string]string                                 // deployment name → ARN
-	evaluationJobsByName        map[string]string                                 // job name → ARN
+	modelCustomizationJobs      map[string]*ModelCustomizationJob                 // jobArn → job
+	inferenceProfiles           map[string]*InferenceProfile                      // profileArn → profile
+	marketplaceEndpoints        map[string]*MarketplaceModelEndpoint              // endpointArn → endpoint
+	loggingConfig               *ModelInvocationLoggingConfiguration
+	guardrailsByName            map[string]string // guardrail name → ID
+	guardrailsByARN             map[string]string // guardrail ARN → ID
+	pmtsByName                  map[string]string // PMT name → ARN
+	arpByName                   map[string]string // policy name → ARN
+	customModelsByName          map[string]string // model name → ARN
+	customModelDeployByName     map[string]string // deployment name → ARN
+	evaluationJobsByName        map[string]string // job name → ARN
+	customizationJobsByName     map[string]string // job name → ARN
+	inferenceProfilesByName     map[string]string // profile name → ARN
+	marketplaceEndpointsByName  map[string]string // endpoint name → ARN
 	mu                          *lockmetrics.RWMutex
 	accountID                   string
 	region                      string
@@ -193,6 +244,9 @@ type InMemoryBackend struct {
 	arpTestCaseCounter          int
 	customModelCounter          int
 	customModelDeployCounter    int
+	customizationJobCounter     int
+	inferenceProfileCounter     int
+	marketplaceEndpointCounter  int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend pre-seeded with foundation models.
@@ -210,6 +264,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		customModels:                make(map[string]*CustomModel),
 		customModelDeployments:      make(map[string]*CustomModelDeployment),
 		foundationModelAgreements:   make(map[string]*FoundationModelAgreement),
+		modelCustomizationJobs:      make(map[string]*ModelCustomizationJob),
+		inferenceProfiles:           make(map[string]*InferenceProfile),
+		marketplaceEndpoints:        make(map[string]*MarketplaceModelEndpoint),
 		guardrailsByName:            make(map[string]string),
 		guardrailsByARN:             make(map[string]string),
 		pmtsByName:                  make(map[string]string),
@@ -217,6 +274,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		customModelsByName:          make(map[string]string),
 		customModelDeployByName:     make(map[string]string),
 		evaluationJobsByName:        make(map[string]string),
+		customizationJobsByName:     make(map[string]string),
+		inferenceProfilesByName:     make(map[string]string),
+		marketplaceEndpointsByName:  make(map[string]string),
 		accountID:                   accountID,
 		region:                      region,
 		mu:                          lockmetrics.New("bedrock"),
@@ -247,6 +307,10 @@ func (b *InMemoryBackend) Reset() {
 	b.customModels = make(map[string]*CustomModel)
 	b.customModelDeployments = make(map[string]*CustomModelDeployment)
 	b.foundationModelAgreements = make(map[string]*FoundationModelAgreement)
+	b.modelCustomizationJobs = make(map[string]*ModelCustomizationJob)
+	b.inferenceProfiles = make(map[string]*InferenceProfile)
+	b.marketplaceEndpoints = make(map[string]*MarketplaceModelEndpoint)
+	b.loggingConfig = nil
 	b.guardrailsByName = make(map[string]string)
 	b.guardrailsByARN = make(map[string]string)
 	b.pmtsByName = make(map[string]string)
@@ -254,6 +318,9 @@ func (b *InMemoryBackend) Reset() {
 	b.customModelsByName = make(map[string]string)
 	b.customModelDeployByName = make(map[string]string)
 	b.evaluationJobsByName = make(map[string]string)
+	b.customizationJobsByName = make(map[string]string)
+	b.inferenceProfilesByName = make(map[string]string)
+	b.marketplaceEndpointsByName = make(map[string]string)
 	b.guardrailCounter = 0
 	b.guardrailVersionCounter = 0
 	b.provisionedCounter = 0
@@ -263,6 +330,9 @@ func (b *InMemoryBackend) Reset() {
 	b.arpTestCaseCounter = 0
 	b.customModelCounter = 0
 	b.customModelDeployCounter = 0
+	b.customizationJobCounter = 0
+	b.inferenceProfileCounter = 0
+	b.marketplaceEndpointCounter = 0
 }
 
 func (b *InMemoryBackend) seedFoundationModels() {
@@ -982,6 +1052,8 @@ func (b *InMemoryBackend) BatchDeleteEvaluationJob(jobARNs []string) (
 // --- AutomatedReasoningPolicy methods ---
 
 // CreateAutomatedReasoningPolicy creates a new Automated Reasoning policy.
+//
+//nolint:dupl // Identical structure to CreateMarketplaceModelEndpoint; different types.
 func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 	name, description string,
 	tags []Tag,
@@ -1186,6 +1258,508 @@ func (b *InMemoryBackend) CreateFoundationModelAgreement(modelID string) (*Found
 	cp := *agreement
 
 	return &cp, nil
+}
+
+// --- GetCustomModel / ListCustomModels / DeleteCustomModel methods ---
+
+// findCustomModelARN resolves a custom model ID or name to its ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) findCustomModelARN(idOrARN string) (string, bool) {
+	if _, ok := b.customModels[idOrARN]; ok {
+		return idOrARN, true
+	}
+
+	if a := b.customModelsByName[idOrARN]; a != "" {
+		return a, true
+	}
+
+	return "", false
+}
+
+// resolveCustomModelARN resolves to ARN or returns ErrNotFound.
+func (b *InMemoryBackend) resolveCustomModelARN(idOrARN string) (string, error) {
+	if a, ok := b.findCustomModelARN(idOrARN); ok {
+		return a, nil
+	}
+
+	return "", fmt.Errorf("%w: custom model %s not found", ErrNotFound, idOrARN)
+}
+
+// GetCustomModel returns a custom model by ARN or name.
+func (b *InMemoryBackend) GetCustomModel(idOrARN string) (*CustomModel, error) {
+	b.mu.RLock("GetCustomModel")
+	defer b.mu.RUnlock()
+
+	modelARN, err := b.resolveCustomModelARN(idOrARN)
+	if err != nil {
+		return nil, err
+	}
+
+	m := b.customModels[modelARN]
+	cp := *m
+	cp.Tags = copyTags(m.Tags)
+
+	return &cp, nil
+}
+
+// ListCustomModels returns all custom models with optional pagination.
+func (b *InMemoryBackend) ListCustomModels(nextToken string) ([]*CustomModel, string) {
+	b.mu.RLock("ListCustomModels")
+	defer b.mu.RUnlock()
+
+	list := make([]*CustomModel, 0, len(b.customModels))
+
+	for _, m := range b.customModels {
+		cp := *m
+		cp.Tags = copyTags(m.Tags)
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ModelArn < list[j].ModelArn })
+
+	return paginateBedrockSlice(list, nextToken)
+}
+
+// DeleteCustomModel removes a custom model by ARN or name.
+func (b *InMemoryBackend) DeleteCustomModel(idOrARN string) error {
+	b.mu.Lock("DeleteCustomModel")
+	defer b.mu.Unlock()
+
+	modelARN, err := b.resolveCustomModelARN(idOrARN)
+	if err != nil {
+		return err
+	}
+
+	m := b.customModels[modelARN]
+	delete(b.customModelsByName, m.ModelName)
+	delete(b.customModels, modelARN)
+
+	return nil
+}
+
+// --- ModelCustomizationJob methods ---
+
+// newCustomizationJobID generates a unique customization job ID.
+func (b *InMemoryBackend) newCustomizationJobID() string {
+	b.customizationJobCounter++
+
+	return fmt.Sprintf("cj-%07d", b.customizationJobCounter)
+}
+
+// CreateModelCustomizationJob creates a new model customization job.
+func (b *InMemoryBackend) CreateModelCustomizationJob(
+	jobName, baseModelID, customizationType string,
+	tags []Tag,
+) (*ModelCustomizationJob, error) {
+	b.mu.Lock("CreateModelCustomizationJob")
+	defer b.mu.Unlock()
+
+	if jobName == "" {
+		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
+	}
+
+	if _, exists := b.customizationJobsByName[jobName]; exists {
+		return nil, fmt.Errorf("%w: customization job %s already exists", ErrAlreadyExists, jobName)
+	}
+
+	id := b.newCustomizationJobID()
+	jobARN := arn.Build("bedrock", b.region, b.accountID, "model-customization-job/"+id)
+	outputModelARN := arn.Build("bedrock", b.region, b.accountID, "custom-model/output-"+id)
+	baseModelARN := arn.Build("bedrock", b.region, b.accountID, "foundation-model/"+baseModelID)
+	now := time.Now().UTC()
+
+	job := &ModelCustomizationJob{
+		JobArn:            jobARN,
+		JobName:           jobName,
+		BaseModelArn:      baseModelARN,
+		OutputModelArn:    outputModelARN,
+		Status:            "InProgress",
+		CustomizationType: customizationType,
+		CreationTime:      now,
+		LastModifiedTime:  now,
+		Tags:              copyTags(tags),
+	}
+	b.modelCustomizationJobs[jobARN] = job
+	b.customizationJobsByName[jobName] = jobARN
+	cp := *job
+	cp.Tags = copyTags(job.Tags)
+
+	return &cp, nil
+}
+
+// findCustomizationJobARN resolves a job ID or name to its ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) findCustomizationJobARN(idOrARN string) (string, bool) {
+	if _, ok := b.modelCustomizationJobs[idOrARN]; ok {
+		return idOrARN, true
+	}
+
+	if a := b.customizationJobsByName[idOrARN]; a != "" {
+		return a, true
+	}
+
+	return "", false
+}
+
+// GetModelCustomizationJob returns a model customization job by ARN or name.
+func (b *InMemoryBackend) GetModelCustomizationJob(idOrARN string) (*ModelCustomizationJob, error) {
+	b.mu.RLock("GetModelCustomizationJob")
+	defer b.mu.RUnlock()
+
+	jobARN, ok := b.findCustomizationJobARN(idOrARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: model customization job %s not found", ErrNotFound, idOrARN)
+	}
+
+	j := b.modelCustomizationJobs[jobARN]
+	cp := *j
+	cp.Tags = copyTags(j.Tags)
+
+	return &cp, nil
+}
+
+// ListModelCustomizationJobs returns all customization jobs with optional pagination.
+func (b *InMemoryBackend) ListModelCustomizationJobs(nextToken string) ([]*ModelCustomizationJob, string) {
+	b.mu.RLock("ListModelCustomizationJobs")
+	defer b.mu.RUnlock()
+
+	list := make([]*ModelCustomizationJob, 0, len(b.modelCustomizationJobs))
+
+	for _, j := range b.modelCustomizationJobs {
+		cp := *j
+		cp.Tags = copyTags(j.Tags)
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].JobArn < list[j].JobArn })
+
+	return paginateBedrockSlice(list, nextToken)
+}
+
+// StopModelCustomizationJob stops a running customization job.
+func (b *InMemoryBackend) StopModelCustomizationJob(idOrARN string) error {
+	b.mu.Lock("StopModelCustomizationJob")
+	defer b.mu.Unlock()
+
+	jobARN, ok := b.findCustomizationJobARN(idOrARN)
+	if !ok {
+		return fmt.Errorf("%w: model customization job %s not found", ErrNotFound, idOrARN)
+	}
+
+	b.modelCustomizationJobs[jobARN].Status = "Stopped"
+
+	return nil
+}
+
+// --- InferenceProfile methods ---
+
+// newInferenceProfileID generates a unique inference profile ID.
+func (b *InMemoryBackend) newInferenceProfileID() string {
+	b.inferenceProfileCounter++
+
+	return fmt.Sprintf("ip-%07d", b.inferenceProfileCounter)
+}
+
+// CreateInferenceProfile creates a new inference profile.
+func (b *InMemoryBackend) CreateInferenceProfile(
+	name, description string,
+	tags []Tag,
+) (*InferenceProfile, error) {
+	b.mu.Lock("CreateInferenceProfile")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: inferenceProfileName is required", ErrValidation)
+	}
+
+	if _, exists := b.inferenceProfilesByName[name]; exists {
+		return nil, fmt.Errorf("%w: inference profile %s already exists", ErrAlreadyExists, name)
+	}
+
+	id := b.newInferenceProfileID()
+	profileARN := arn.Build("bedrock", b.region, b.accountID, "inference-profile/"+id)
+	now := time.Now().UTC()
+
+	profile := &InferenceProfile{
+		InferenceProfileArn:  profileARN,
+		InferenceProfileID:   id,
+		InferenceProfileName: name,
+		Description:          description,
+		Status:               "ACTIVE",
+		Type:                 "APPLICATION",
+		CreatedAt:            now,
+		UpdatedAt:            now,
+		Tags:                 copyTags(tags),
+	}
+	b.inferenceProfiles[profileARN] = profile
+	b.inferenceProfilesByName[name] = profileARN
+	cp := *profile
+	cp.Tags = copyTags(profile.Tags)
+
+	return &cp, nil
+}
+
+// findInferenceProfileARN resolves a profile ID or name to its ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) findInferenceProfileARN(idOrARN string) (string, bool) {
+	if _, ok := b.inferenceProfiles[idOrARN]; ok {
+		return idOrARN, true
+	}
+
+	if a := b.inferenceProfilesByName[idOrARN]; a != "" {
+		return a, true
+	}
+
+	return "", false
+}
+
+// GetInferenceProfile returns an inference profile by ARN or name.
+func (b *InMemoryBackend) GetInferenceProfile(idOrARN string) (*InferenceProfile, error) {
+	b.mu.RLock("GetInferenceProfile")
+	defer b.mu.RUnlock()
+
+	profileARN, ok := b.findInferenceProfileARN(idOrARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: inference profile %s not found", ErrNotFound, idOrARN)
+	}
+
+	p := b.inferenceProfiles[profileARN]
+	cp := *p
+	cp.Tags = copyTags(p.Tags)
+
+	return &cp, nil
+}
+
+// ListInferenceProfiles returns all inference profiles with optional pagination.
+func (b *InMemoryBackend) ListInferenceProfiles(nextToken string) ([]*InferenceProfile, string) {
+	b.mu.RLock("ListInferenceProfiles")
+	defer b.mu.RUnlock()
+
+	list := make([]*InferenceProfile, 0, len(b.inferenceProfiles))
+
+	for _, p := range b.inferenceProfiles {
+		cp := *p
+		cp.Tags = copyTags(p.Tags)
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].InferenceProfileArn < list[j].InferenceProfileArn
+	})
+
+	return paginateBedrockSlice(list, nextToken)
+}
+
+// DeleteInferenceProfile removes an inference profile by ARN or name.
+func (b *InMemoryBackend) DeleteInferenceProfile(idOrARN string) error {
+	b.mu.Lock("DeleteInferenceProfile")
+	defer b.mu.Unlock()
+
+	profileARN, ok := b.findInferenceProfileARN(idOrARN)
+	if !ok {
+		return fmt.Errorf("%w: inference profile %s not found", ErrNotFound, idOrARN)
+	}
+
+	p := b.inferenceProfiles[profileARN]
+	delete(b.inferenceProfilesByName, p.InferenceProfileName)
+	delete(b.inferenceProfiles, profileARN)
+
+	return nil
+}
+
+// --- MarketplaceModelEndpoint methods ---
+
+// newMarketplaceEndpointID generates a unique marketplace endpoint ID.
+func (b *InMemoryBackend) newMarketplaceEndpointID() string {
+	b.marketplaceEndpointCounter++
+
+	return fmt.Sprintf("mme-%07d", b.marketplaceEndpointCounter)
+}
+
+// CreateMarketplaceModelEndpoint creates a new marketplace model endpoint.
+//
+//nolint:dupl // Identical structure to CreateAutomatedReasoningPolicy; different types.
+func (b *InMemoryBackend) CreateMarketplaceModelEndpoint(
+	endpointName, modelSourceID string,
+	tags []Tag,
+) (*MarketplaceModelEndpoint, error) {
+	b.mu.Lock("CreateMarketplaceModelEndpoint")
+	defer b.mu.Unlock()
+
+	if endpointName == "" {
+		return nil, fmt.Errorf("%w: endpointName is required", ErrValidation)
+	}
+
+	if _, exists := b.marketplaceEndpointsByName[endpointName]; exists {
+		return nil, fmt.Errorf("%w: marketplace endpoint %s already exists", ErrAlreadyExists, endpointName)
+	}
+
+	id := b.newMarketplaceEndpointID()
+	endpointARN := arn.Build("bedrock", b.region, b.accountID, "marketplace-model-endpoint/"+id)
+	now := time.Now().UTC()
+
+	ep := &MarketplaceModelEndpoint{
+		EndpointArn:   endpointARN,
+		EndpointName:  endpointName,
+		ModelSourceID: modelSourceID,
+		Status:        "Creating",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		Tags:          copyTags(tags),
+	}
+	b.marketplaceEndpoints[endpointARN] = ep
+	b.marketplaceEndpointsByName[endpointName] = endpointARN
+	cp := *ep
+	cp.Tags = copyTags(ep.Tags)
+
+	return &cp, nil
+}
+
+// findMarketplaceEndpointARN resolves an endpoint ID or name to its ARN.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) findMarketplaceEndpointARN(idOrARN string) (string, bool) {
+	if _, ok := b.marketplaceEndpoints[idOrARN]; ok {
+		return idOrARN, true
+	}
+
+	if a := b.marketplaceEndpointsByName[idOrARN]; a != "" {
+		return a, true
+	}
+
+	return "", false
+}
+
+// GetMarketplaceModelEndpoint returns a marketplace endpoint by ARN or name.
+func (b *InMemoryBackend) GetMarketplaceModelEndpoint(idOrARN string) (*MarketplaceModelEndpoint, error) {
+	b.mu.RLock("GetMarketplaceModelEndpoint")
+	defer b.mu.RUnlock()
+
+	epARN, ok := b.findMarketplaceEndpointARN(idOrARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
+	}
+
+	ep := b.marketplaceEndpoints[epARN]
+	cp := *ep
+	cp.Tags = copyTags(ep.Tags)
+
+	return &cp, nil
+}
+
+// ListMarketplaceModelEndpoints returns all marketplace endpoints with optional pagination.
+func (b *InMemoryBackend) ListMarketplaceModelEndpoints(nextToken string) ([]*MarketplaceModelEndpoint, string) {
+	b.mu.RLock("ListMarketplaceModelEndpoints")
+	defer b.mu.RUnlock()
+
+	list := make([]*MarketplaceModelEndpoint, 0, len(b.marketplaceEndpoints))
+
+	for _, ep := range b.marketplaceEndpoints {
+		cp := *ep
+		cp.Tags = copyTags(ep.Tags)
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].EndpointArn < list[j].EndpointArn })
+
+	return paginateBedrockSlice(list, nextToken)
+}
+
+// DeleteMarketplaceModelEndpoint removes a marketplace endpoint by ARN or name.
+func (b *InMemoryBackend) DeleteMarketplaceModelEndpoint(idOrARN string) error {
+	b.mu.Lock("DeleteMarketplaceModelEndpoint")
+	defer b.mu.Unlock()
+
+	epARN, ok := b.findMarketplaceEndpointARN(idOrARN)
+	if !ok {
+		return fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
+	}
+
+	ep := b.marketplaceEndpoints[epARN]
+	delete(b.marketplaceEndpointsByName, ep.EndpointName)
+	delete(b.marketplaceEndpoints, epARN)
+
+	return nil
+}
+
+// UpdateMarketplaceModelEndpoint updates a marketplace endpoint status.
+func (b *InMemoryBackend) UpdateMarketplaceModelEndpoint(idOrARN string) (*MarketplaceModelEndpoint, error) {
+	b.mu.Lock("UpdateMarketplaceModelEndpoint")
+	defer b.mu.Unlock()
+
+	epARN, ok := b.findMarketplaceEndpointARN(idOrARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
+	}
+
+	ep := b.marketplaceEndpoints[epARN]
+	ep.UpdatedAt = time.Now().UTC()
+	cp := *ep
+	cp.Tags = copyTags(ep.Tags)
+
+	return &cp, nil
+}
+
+// RegisterMarketplaceModelEndpoint transitions endpoint status to Active.
+func (b *InMemoryBackend) RegisterMarketplaceModelEndpoint(idOrARN string) error {
+	b.mu.Lock("RegisterMarketplaceModelEndpoint")
+	defer b.mu.Unlock()
+
+	epARN, ok := b.findMarketplaceEndpointARN(idOrARN)
+	if !ok {
+		return fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
+	}
+
+	b.marketplaceEndpoints[epARN].Status = "Active"
+
+	return nil
+}
+
+// DeregisterMarketplaceModelEndpoint transitions endpoint status to Deregistered.
+func (b *InMemoryBackend) DeregisterMarketplaceModelEndpoint(idOrARN string) error {
+	b.mu.Lock("DeregisterMarketplaceModelEndpoint")
+	defer b.mu.Unlock()
+
+	epARN, ok := b.findMarketplaceEndpointARN(idOrARN)
+	if !ok {
+		return fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
+	}
+
+	b.marketplaceEndpoints[epARN].Status = "Deregistered"
+
+	return nil
+}
+
+// --- ModelInvocationLoggingConfiguration methods ---
+
+// GetModelInvocationLoggingConfiguration returns the current logging configuration.
+func (b *InMemoryBackend) GetModelInvocationLoggingConfiguration() *ModelInvocationLoggingConfiguration {
+	b.mu.RLock("GetModelInvocationLoggingConfiguration")
+	defer b.mu.RUnlock()
+
+	if b.loggingConfig == nil {
+		return &ModelInvocationLoggingConfiguration{}
+	}
+
+	cp := *b.loggingConfig
+
+	return &cp
+}
+
+// PutModelInvocationLoggingConfiguration sets the logging configuration.
+func (b *InMemoryBackend) PutModelInvocationLoggingConfiguration(cfg *ModelInvocationLoggingConfiguration) {
+	b.mu.Lock("PutModelInvocationLoggingConfiguration")
+	defer b.mu.Unlock()
+
+	cp := *cfg
+	b.loggingConfig = &cp
+}
+
+// DeleteModelInvocationLoggingConfiguration removes the logging configuration.
+func (b *InMemoryBackend) DeleteModelInvocationLoggingConfiguration() {
+	b.mu.Lock("DeleteModelInvocationLoggingConfiguration")
+	defer b.mu.Unlock()
+
+	b.loggingConfig = nil
 }
 
 // --- GuardrailVersion methods ---
