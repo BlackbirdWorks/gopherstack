@@ -17,32 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := amplify.NewInMemoryBackend("000000000000", "us-east-1")
 	h := amplify.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &amplifysdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateBackendEnvironment",
-		"CreateDeployment",
-		"CreateDomainAssociation",
-		"CreateWebhook",
-		"DeleteBackendEnvironment",
-		"DeleteDomainAssociation",
-		"DeleteJob",
-		"DeleteWebhook",
-		"GenerateAccessLogs",
-		"GetArtifactUrl",
-		"GetBackendEnvironment",
-		"GetDomainAssociation",
-		"GetJob",
-		"GetWebhook",
-		"ListArtifacts",
-		"ListBackendEnvironments",
-		"ListDomainAssociations",
-		"ListJobs",
-		"ListWebhooks",
-		"StartDeployment",
-		"StartJob",
-		"StopJob",
-		"UpdateApp",
-		"UpdateBranch",
-		"UpdateDomainAssociation",
-		"UpdateWebhook",
-	})
+	sdkcheck.CheckCompleteness(t, &amplifysdk.Client{}, h.GetSupportedOperations(), []string{})
 }
