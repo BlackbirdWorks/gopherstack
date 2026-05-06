@@ -90,6 +90,7 @@
     "@aws-sdk/client-kafka": "3.1032.0",
     "@aws-sdk/client-keyspaces": "3.1032.0",
     "@aws-sdk/client-kinesis": "3.1032.0",
+    "@aws-sdk/client-kinesis-analytics": "3.1042.0",
     "@aws-sdk/client-kinesis-analytics-v2": "3.1042.0",
     "@aws-sdk/client-kinesis-video": "3.1032.0",
     "@aws-sdk/client-kms": "3.1032.0",

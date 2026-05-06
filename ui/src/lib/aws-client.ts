@@ -1,4 +1,5 @@
 import { EC2Client } from "@aws-sdk/client-ec2";
+import { KinesisAnalyticsClient } from "@aws-sdk/client-kinesis-analytics";
 import { KinesisAnalyticsV2Client } from "@aws-sdk/client-kinesis-analytics-v2";
 import { LakeFormationClient } from "@aws-sdk/client-lakeformation";
 import { ManagedBlockchainClient } from "@aws-sdk/client-managedblockchain";
@@ -657,6 +658,10 @@ export function getManagedBlockchainClient(region?: string): ManagedBlockchainCl
 
 export function getPipesClient(region?: string): PipesClient {
   return new PipesClient(clientConfig(region));
+}
+
+export function getKinesisAnalyticsClient(region?: string): KinesisAnalyticsClient {
+  return new KinesisAnalyticsClient(clientConfig(region));
 }
 
 export function getKinesisAnalyticsV2Client(region?: string): KinesisAnalyticsV2Client {
