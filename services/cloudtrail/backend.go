@@ -3,6 +3,7 @@ package cloudtrail
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -126,8 +127,24 @@ type Trail struct {
 	HasCustomEventSelectors    bool            `json:"hasCustomEventSelectors"`
 }
 
+// Import represents a CloudTrail import resource.
+type Import struct {
+	CreatedTimestamp time.Time `json:"createdTimestamp"`
+	UpdatedTimestamp time.Time `json:"updatedTimestamp"`
+	ImportID         string    `json:"importId"`
+	ImportSource     string    `json:"importSource,omitempty"`
+	ImportStatus     string    `json:"importStatus"`
+	Destinations     []string  `json:"destinations,omitempty"`
+}
+
+// InsightSelector represents a CloudTrail insight selector.
+type InsightSelector struct {
+	InsightType string `json:"InsightType"`
+}
+
 // InMemoryBackend is the in-memory store for CloudTrail resources.
 type InMemoryBackend struct {
+	mu               *lockmetrics.RWMutex
 	trails           map[string]*Trail
 	trailsByARN      map[string]string
 	channels         map[string]*Channel
@@ -141,13 +158,15 @@ type InMemoryBackend struct {
 	edsByName        map[string]string // name → EDS ID
 	queries          map[string]*Query
 	resourcePolicies map[string]*ResourcePolicy
-	mu               *lockmetrics.RWMutex
+	imports          map[string]*Import
+	insightSelectors map[string][]InsightSelector // trail ARN → selectors
 	accountID        string
 	region           string
 	channelCounter   int
 	dashboardCounter int
 	edsCounter       int
 	queryCounter     int
+	importCounter    int
 }
 
 // NewInMemoryBackend creates a new in-memory CloudTrail backend.
@@ -166,6 +185,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		edsByName:        make(map[string]string),
 		queries:          make(map[string]*Query),
 		resourcePolicies: make(map[string]*ResourcePolicy),
+		imports:          make(map[string]*Import),
+		insightSelectors: make(map[string][]InsightSelector),
 		accountID:        accountID,
 		region:           region,
 		mu:               lockmetrics.New("cloudtrail"),
@@ -203,10 +224,13 @@ func (b *InMemoryBackend) Reset() {
 	b.edsByName = make(map[string]string)
 	b.queries = make(map[string]*Query)
 	b.resourcePolicies = make(map[string]*ResourcePolicy)
+	b.imports = make(map[string]*Import)
+	b.insightSelectors = make(map[string][]InsightSelector)
 	b.channelCounter = 0
 	b.dashboardCounter = 0
 	b.edsCounter = 0
 	b.queryCounter = 0
+	b.importCounter = 0
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -740,7 +764,7 @@ func (b *InMemoryBackend) CreateEventDataStore(
 		EventDataStoreID:     id,
 		EventDataStoreARN:    edsARN,
 		Name:                 name,
-		Status:               "ENABLED",
+		Status:               statusEnabled,
 		MultiRegionEnabled:   multiRegionEnabled,
 		OrganizationEnabled:  organizationEnabled,
 		TerminationProtected: terminationProtected,
@@ -866,4 +890,523 @@ func (b *InMemoryBackend) DescribeQuery(queryID string) (*Query, error) {
 	cp := *q
 
 	return &cp, nil
+}
+
+// GetEventDataStore returns an event data store by ID or ARN.
+func (b *InMemoryBackend) GetEventDataStore(edsIDOrARN string) (*EventDataStore, error) {
+	b.mu.RLock("GetEventDataStore")
+	defer b.mu.RUnlock()
+
+	id := edsIDOrARN
+	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
+		id = mapped
+	}
+	eds, ok := b.eventDataStores[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+	}
+	cp := *eds
+
+	return &cp, nil
+}
+
+// UpdateEventDataStore updates an existing event data store.
+func (b *InMemoryBackend) UpdateEventDataStore(
+	edsIDOrARN string,
+	name string,
+	multiRegionEnabled, organizationEnabled, terminationProtected *bool,
+	retentionPeriod *int32,
+) (*EventDataStore, error) {
+	b.mu.Lock("UpdateEventDataStore")
+	defer b.mu.Unlock()
+
+	id := edsIDOrARN
+	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
+		id = mapped
+	}
+	eds, ok := b.eventDataStores[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+	}
+	if name != "" && name != eds.Name {
+		delete(b.edsByName, eds.Name)
+		eds.Name = name
+		b.edsByName[name] = id
+	}
+	if multiRegionEnabled != nil {
+		eds.MultiRegionEnabled = *multiRegionEnabled
+	}
+	if organizationEnabled != nil {
+		eds.OrganizationEnabled = *organizationEnabled
+	}
+	if terminationProtected != nil {
+		eds.TerminationProtected = *terminationProtected
+	}
+	if retentionPeriod != nil {
+		eds.RetentionPeriod = *retentionPeriod
+	}
+	eds.UpdatedTimestamp = time.Now().UTC()
+	cp := *eds
+
+	return &cp, nil
+}
+
+// ListEventDataStores returns all event data stores.
+func (b *InMemoryBackend) ListEventDataStores() []*EventDataStore {
+	b.mu.RLock("ListEventDataStores")
+	defer b.mu.RUnlock()
+
+	list := make([]*EventDataStore, 0, len(b.eventDataStores))
+	for _, eds := range b.eventDataStores {
+		cp := *eds
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].EventDataStoreARN < list[j].EventDataStoreARN })
+
+	return list
+}
+
+// RestoreEventDataStore restores a deleted event data store (sets status to ENABLED).
+func (b *InMemoryBackend) RestoreEventDataStore(edsIDOrARN string) (*EventDataStore, error) {
+	b.mu.Lock("RestoreEventDataStore")
+	defer b.mu.Unlock()
+
+	id := edsIDOrARN
+	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
+		id = mapped
+	}
+	eds, ok := b.eventDataStores[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+	}
+	eds.Status = statusEnabled
+	eds.UpdatedTimestamp = time.Now().UTC()
+	cp := *eds
+
+	return &cp, nil
+}
+
+// StartEventDataStoreIngestion starts ingestion for an event data store.
+func (b *InMemoryBackend) StartEventDataStoreIngestion(edsIDOrARN string) error {
+	b.mu.Lock("StartEventDataStoreIngestion")
+	defer b.mu.Unlock()
+
+	id := edsIDOrARN
+	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
+		id = mapped
+	}
+	eds, ok := b.eventDataStores[id]
+	if !ok {
+		return fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+	}
+	eds.Status = statusEnabled
+	eds.UpdatedTimestamp = time.Now().UTC()
+
+	return nil
+}
+
+// StopEventDataStoreIngestion stops ingestion for an event data store.
+func (b *InMemoryBackend) StopEventDataStoreIngestion(edsIDOrARN string) error {
+	b.mu.Lock("StopEventDataStoreIngestion")
+	defer b.mu.Unlock()
+
+	id := edsIDOrARN
+	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
+		id = mapped
+	}
+	eds, ok := b.eventDataStores[id]
+	if !ok {
+		return fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+	}
+	eds.Status = "STOPPED_INGESTION"
+	eds.UpdatedTimestamp = time.Now().UTC()
+
+	return nil
+}
+
+// GetChannel returns a channel by ID or ARN.
+func (b *InMemoryBackend) GetChannel(channelIDOrARN string) (*Channel, error) {
+	b.mu.RLock("GetChannel")
+	defer b.mu.RUnlock()
+
+	id := channelIDOrARN
+	if mapped, ok := b.channelsByARN[channelIDOrARN]; ok {
+		id = mapped
+	}
+	ch, ok := b.channels[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrChannelNotFound, channelIDOrARN)
+	}
+	cp := *ch
+
+	return &cp, nil
+}
+
+// UpdateChannel updates an existing channel.
+func (b *InMemoryBackend) UpdateChannel(channelIDOrARN string, destinations []Destination) (*Channel, error) {
+	b.mu.Lock("UpdateChannel")
+	defer b.mu.Unlock()
+
+	id := channelIDOrARN
+	if mapped, ok := b.channelsByARN[channelIDOrARN]; ok {
+		id = mapped
+	}
+	ch, ok := b.channels[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrChannelNotFound, channelIDOrARN)
+	}
+	if destinations != nil {
+		ch.Destinations = destinations
+	}
+	cp := *ch
+
+	return &cp, nil
+}
+
+// ListChannels returns all channels.
+func (b *InMemoryBackend) ListChannels() []*Channel {
+	b.mu.RLock("ListChannels")
+	defer b.mu.RUnlock()
+
+	list := make([]*Channel, 0, len(b.channels))
+	for _, ch := range b.channels {
+		cp := *ch
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].ChannelARN < list[j].ChannelARN })
+
+	return list
+}
+
+// GetDashboard returns a dashboard by ID or ARN.
+func (b *InMemoryBackend) GetDashboard(dashIDOrARN string) (*Dashboard, error) {
+	b.mu.RLock("GetDashboard")
+	defer b.mu.RUnlock()
+
+	id := dashIDOrARN
+	if mapped, ok := b.dashboardsByARN[dashIDOrARN]; ok {
+		id = mapped
+	}
+	d, ok := b.dashboards[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
+	}
+	cp := *d
+
+	return &cp, nil
+}
+
+// UpdateDashboard updates an existing dashboard.
+func (b *InMemoryBackend) UpdateDashboard(dashIDOrARN string, name string) (*Dashboard, error) {
+	b.mu.Lock("UpdateDashboard")
+	defer b.mu.Unlock()
+
+	id := dashIDOrARN
+	if mapped, ok := b.dashboardsByARN[dashIDOrARN]; ok {
+		id = mapped
+	}
+	d, ok := b.dashboards[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
+	}
+	if name != "" && name != d.Name {
+		delete(b.dashboardsByName, d.Name)
+		d.Name = name
+		b.dashboardsByName[name] = id
+	}
+	cp := *d
+
+	return &cp, nil
+}
+
+// ListDashboards returns all dashboards.
+func (b *InMemoryBackend) ListDashboards() []*Dashboard {
+	b.mu.RLock("ListDashboards")
+	defer b.mu.RUnlock()
+
+	list := make([]*Dashboard, 0, len(b.dashboards))
+	for _, d := range b.dashboards {
+		cp := *d
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].DashboardARN < list[j].DashboardARN })
+
+	return list
+}
+
+// StartDashboardRefresh triggers a refresh of a dashboard (sets status to REFRESHING).
+func (b *InMemoryBackend) StartDashboardRefresh(dashIDOrARN string) (*Dashboard, error) {
+	b.mu.Lock("StartDashboardRefresh")
+	defer b.mu.Unlock()
+
+	id := dashIDOrARN
+	if mapped, ok := b.dashboardsByARN[dashIDOrARN]; ok {
+		id = mapped
+	}
+	d, ok := b.dashboards[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
+	}
+	d.Status = "REFRESHING"
+	cp := *d
+
+	return &cp, nil
+}
+
+// GetQueryResults returns results for a completed query (stub returns empty rows).
+func (b *InMemoryBackend) GetQueryResults(queryID string) (*Query, error) {
+	b.mu.RLock("GetQueryResults")
+	defer b.mu.RUnlock()
+
+	q, ok := b.queries[queryID]
+	if !ok {
+		return nil, fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
+	}
+	cp := *q
+
+	return &cp, nil
+}
+
+// ListQueries returns all queries.
+func (b *InMemoryBackend) ListQueries() []*Query {
+	b.mu.RLock("ListQueries")
+	defer b.mu.RUnlock()
+
+	list := make([]*Query, 0, len(b.queries))
+	for _, q := range b.queries {
+		cp := *q
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].QueryID < list[j].QueryID })
+
+	return list
+}
+
+// StartImport creates an import job.
+func (b *InMemoryBackend) StartImport(destinations []string, importSource string) (*Import, error) {
+	b.mu.Lock("StartImport")
+	defer b.mu.Unlock()
+
+	b.importCounter++
+	id := fmt.Sprintf("import-%06d", b.importCounter)
+	now := time.Now().UTC()
+	imp := &Import{
+		ImportID:         id,
+		Destinations:     destinations,
+		ImportSource:     importSource,
+		ImportStatus:     "INITIALIZING",
+		CreatedTimestamp: now,
+		UpdatedTimestamp: now,
+	}
+	b.imports[id] = imp
+	cp := *imp
+
+	return &cp, nil
+}
+
+// GetImport returns an import by ID.
+func (b *InMemoryBackend) GetImport(importID string) (*Import, error) {
+	b.mu.RLock("GetImport")
+	defer b.mu.RUnlock()
+
+	imp, ok := b.imports[importID]
+	if !ok {
+		return nil, fmt.Errorf("%w: import %s not found", ErrNotFound, importID)
+	}
+	cp := *imp
+
+	return &cp, nil
+}
+
+// ListImports returns all imports.
+func (b *InMemoryBackend) ListImports() []*Import {
+	b.mu.RLock("ListImports")
+	defer b.mu.RUnlock()
+
+	list := make([]*Import, 0, len(b.imports))
+	for _, imp := range b.imports {
+		cp := *imp
+		list = append(list, &cp)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].ImportID < list[j].ImportID })
+
+	return list
+}
+
+// StopImport stops an in-progress import.
+func (b *InMemoryBackend) StopImport(importID string) (*Import, error) {
+	b.mu.Lock("StopImport")
+	defer b.mu.Unlock()
+
+	imp, ok := b.imports[importID]
+	if !ok {
+		return nil, fmt.Errorf("%w: import %s not found", ErrNotFound, importID)
+	}
+	imp.ImportStatus = "STOPPED"
+	imp.UpdatedTimestamp = time.Now().UTC()
+	cp := *imp
+
+	return &cp, nil
+}
+
+// PutInsightSelectors sets insight selectors for a trail.
+func (b *InMemoryBackend) PutInsightSelectors(trailNameOrARN string, selectors []InsightSelector) error {
+	b.mu.Lock("PutInsightSelectors")
+	defer b.mu.Unlock()
+
+	t := b.findByNameOrARNLocked(trailNameOrARN)
+	if t == nil {
+		return fmt.Errorf("%w: trail %s not found", ErrNotFound, trailNameOrARN)
+	}
+	b.insightSelectors[t.TrailARN] = selectors
+
+	return nil
+}
+
+// GetInsightSelectors returns insight selectors for a trail.
+func (b *InMemoryBackend) GetInsightSelectors(trailNameOrARN string) (string, []InsightSelector, error) {
+	b.mu.RLock("GetInsightSelectors")
+	defer b.mu.RUnlock()
+
+	t := b.findByNameOrARNLocked(trailNameOrARN)
+	if t == nil {
+		return "", nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, trailNameOrARN)
+	}
+	sels := b.insightSelectors[t.TrailARN]
+	cp := make([]InsightSelector, len(sels))
+	copy(cp, sels)
+
+	return t.TrailARN, cp, nil
+}
+
+// GetResourcePolicy returns the resource policy for the given ARN.
+func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (*ResourcePolicy, error) {
+	b.mu.RLock("GetResourcePolicy")
+	defer b.mu.RUnlock()
+
+	rp, ok := b.resourcePolicies[resourceARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource policy for %s not found", ErrNotFound, resourceARN)
+	}
+	cp := *rp
+
+	return &cp, nil
+}
+
+// PutResourcePolicy sets the resource policy for the given ARN.
+func (b *InMemoryBackend) PutResourcePolicy(resourceARN, policy string) *ResourcePolicy {
+	b.mu.Lock("PutResourcePolicy")
+	defer b.mu.Unlock()
+
+	rp := &ResourcePolicy{ResourceARN: resourceARN, ResourcePolicy: policy}
+	b.resourcePolicies[resourceARN] = rp
+	cp := *rp
+
+	return &cp
+}
+
+// RegisterOrganizationDelegatedAdmin is a no-op that registers an org delegated admin.
+func (b *InMemoryBackend) RegisterOrganizationDelegatedAdmin(accountID string) error {
+	if accountID == "" {
+		return fmt.Errorf("%w: MemberAccountId is required", ErrValidation)
+	}
+
+	return nil
+}
+
+// DisableFederation disables federation for an event data store (no-op, returns EDS).
+func (b *InMemoryBackend) DisableFederation(edsIDOrARN string) (*EventDataStore, error) {
+	b.mu.Lock("DisableFederation")
+	defer b.mu.Unlock()
+
+	id := edsIDOrARN
+	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
+		id = mapped
+	}
+	eds, ok := b.eventDataStores[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+	}
+	cp := *eds
+
+	return &cp, nil
+}
+
+// EnableFederation enables federation for an event data store (no-op, returns EDS).
+func (b *InMemoryBackend) EnableFederation(edsIDOrARN, _ string) (*EventDataStore, error) {
+	b.mu.Lock("EnableFederation")
+	defer b.mu.Unlock()
+
+	id := edsIDOrARN
+	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
+		id = mapped
+	}
+	eds, ok := b.eventDataStores[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+	}
+	cp := *eds
+
+	return &cp, nil
+}
+
+// GenerateQuery generates a query for an event data store (stub).
+func (b *InMemoryBackend) GenerateQuery(_ []string, requestedQueryMaxResults int32) (*Query, error) {
+	b.mu.Lock("GenerateQuery")
+	defer b.mu.Unlock()
+
+	b.queryCounter++
+	qid := fmt.Sprintf("query-%06d", b.queryCounter)
+	q := &Query{
+		QueryID:      qid,
+		QueryString:  "SELECT * FROM events LIMIT " + strconv.Itoa(int(requestedQueryMaxResults)),
+		QueryStatus:  "QUEUED",
+		CreationTime: time.Now().UTC(),
+	}
+	b.queries[qid] = q
+	cp := *q
+
+	return &cp, nil
+}
+
+// GetEventConfiguration returns event configuration (stub).
+func (b *InMemoryBackend) GetEventConfiguration(resourceARN string) map[string]any {
+	return map[string]any{
+		keyResourceArn:       resourceARN,
+		"EventConfiguration": []any{},
+	}
+}
+
+// PutEventConfiguration sets event configuration (no-op stub).
+func (b *InMemoryBackend) PutEventConfiguration(resourceARN string) error {
+	if resourceARN == "" {
+		return fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	return nil
+}
+
+// SearchSampleQueries returns empty sample queries (stub).
+func (b *InMemoryBackend) SearchSampleQueries() []map[string]any {
+	return []map[string]any{}
+}
+
+// ListPublicKeys returns empty public keys (stub).
+func (b *InMemoryBackend) ListPublicKeys() []map[string]any {
+	return []map[string]any{}
+}
+
+// ListInsightsData returns empty insights data (stub).
+func (b *InMemoryBackend) ListInsightsData() []map[string]any {
+	return []map[string]any{}
+}
+
+// ListInsightsMetricData returns empty insights metric data (stub).
+func (b *InMemoryBackend) ListInsightsMetricData() []map[string]any {
+	return []map[string]any{}
+}
+
+// ListImportFailures returns empty import failures (stub).
+func (b *InMemoryBackend) ListImportFailures(_ string) []map[string]any {
+	return []map[string]any{}
 }

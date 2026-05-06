@@ -10,8 +10,13 @@
 		StopLoggingCommand,
 		CreateTrailCommand,
 		DeleteTrailCommand,
+		ListEventDataStoresCommand,
+		CreateEventDataStoreCommand,
+		DeleteEventDataStoreCommand,
+		StartEventDataStoreIngestionCommand,
+		StopEventDataStoreIngestionCommand,
 		type Trail,
-		type TrailInfo,
+		type EventDataStore,
 		type Event as CloudTrailEvent,
 		type LookupAttribute
 	} from '@aws-sdk/client-cloudtrail';
@@ -27,13 +32,14 @@
 		CheckCircle,
 		XCircle,
 		Clock,
-		Filter
+		Filter,
+		Database
 	} from 'lucide-svelte';
 
 	const ct = getCloudTrailClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'trails' | 'events'>('trails');
+	let activeTab = $state<'trails' | 'events' | 'datastores'>('trails');
 	let searchQuery = $state('');
 
 	// Trails
@@ -53,6 +59,16 @@
 	let eventEndTime = $state('');
 	let maxResults = $state(50);
 
+	// Event Data Stores
+	let eventDataStores = $state<EventDataStore[]>([]);
+	let loadingDataStores = $state(false);
+	let dsSearchQuery = $state('');
+	let showCreateDSModal = $state(false);
+	let creatingDS = $state(false);
+	let newDSName = $state('');
+	let newDSMultiRegion = $state(false);
+	let newDSRetentionPeriod = $state(90);
+
 	const filteredTrails = $derived(
 		trails.filter(
 			(t) =>
@@ -67,6 +83,12 @@
 				(e.EventName ?? '').toLowerCase().includes(eventFilter.toLowerCase()) ||
 				(e.Username ?? '').toLowerCase().includes(eventFilter.toLowerCase()) ||
 				(e.EventSource ?? '').toLowerCase().includes(eventFilter.toLowerCase())
+		)
+	);
+
+	const filteredDataStores = $derived(
+		eventDataStores.filter((ds) =>
+			(ds.Name ?? '').toLowerCase().includes(dsSearchQuery.toLowerCase())
 		)
 	);
 
@@ -170,10 +192,87 @@
 		}
 	}
 
+	async function loadDataStores() {
+		loadingDataStores = true;
+		try {
+			const res = await ct.send(new ListEventDataStoresCommand({}));
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			eventDataStores = (res.EventDataStores ?? []) as any;
+		} catch (e) {
+			toast.error(`Failed to load event data stores: ${e}`);
+		} finally {
+			loadingDataStores = false;
+		}
+	}
+
+	async function createEventDataStore() {
+		if (!newDSName.trim()) return;
+		creatingDS = true;
+		try {
+			await ct.send(
+				new CreateEventDataStoreCommand({
+					Name: newDSName.trim(),
+					MultiRegionEnabled: newDSMultiRegion,
+					RetentionPeriod: newDSRetentionPeriod
+				})
+			);
+			toast.success(`Event data store "${newDSName}" created`);
+			showCreateDSModal = false;
+			newDSName = '';
+			newDSMultiRegion = false;
+			newDSRetentionPeriod = 90;
+			await loadDataStores();
+		} catch (e) {
+			toast.error(`Failed to create event data store: ${e}`);
+		} finally {
+			creatingDS = false;
+		}
+	}
+
+	async function deleteEventDataStore(ds: EventDataStore) {
+		if (
+			!ds.EventDataStoreArn ||
+			!(await confirmDestructive({
+				title: 'Delete Event Data Store',
+				message: `Delete event data store "${ds.Name}"? All stored events will be lost.`
+			}))
+		)
+			return;
+		try {
+			await ct.send(new DeleteEventDataStoreCommand({ EventDataStore: ds.EventDataStoreArn }));
+			toast.success(`Event data store "${ds.Name}" deleted`);
+			await loadDataStores();
+		} catch (e) {
+			toast.error(`Failed to delete event data store: ${e}`);
+		}
+	}
+
+	async function toggleDSIngestion(ds: EventDataStore) {
+		if (!ds.EventDataStoreArn) return;
+		const isEnabled = ds.Status === 'ENABLED';
+		try {
+			if (isEnabled) {
+				await ct.send(
+					new StopEventDataStoreIngestionCommand({ EventDataStore: ds.EventDataStoreArn })
+				);
+				toast.success(`Stopped ingestion for "${ds.Name}"`);
+			} else {
+				await ct.send(
+					new StartEventDataStoreIngestionCommand({ EventDataStore: ds.EventDataStoreArn })
+				);
+				toast.success(`Started ingestion for "${ds.Name}"`);
+			}
+			await loadDataStores();
+		} catch (e) {
+			toast.error(`Failed to toggle ingestion: ${e}`);
+		}
+	}
+
 	async function onTabChange(tab: typeof activeTab) {
 		activeTab = tab;
 		if (tab === 'trails') await loadTrails();
-		else await lookupEvents();
+		else if (tab === 'events') await lookupEvents();
+		else await loadDataStores();
 	}
 
 	onMount(() => loadTrails());
@@ -199,7 +298,7 @@
 
 	<!-- Tabs -->
 	<div class="flex border-b">
-		{#each [{ id: 'trails', label: 'Trails' }, { id: 'events', label: 'Event History' }] as tab}
+		{#each [{ id: 'trails', label: 'Trails' }, { id: 'events', label: 'Event History' }, { id: 'datastores', label: 'Event Data Stores' }] as tab}
 			<button
 				onclick={() => onTabChange(tab.id as typeof activeTab)}
 				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
@@ -411,6 +510,156 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Create Event Data Store Modal -->
+{#if showCreateDSModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="text-lg font-semibold mb-4">Create Event Data Store</h2>
+			<div class="space-y-3">
+				<div>
+					<label for="ds-name" class="block text-sm font-medium mb-1">Name *</label>
+					<input
+						id="ds-name"
+						type="text"
+						bind:value={newDSName}
+						placeholder="my-event-data-store"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div>
+					<label for="ds-retention" class="block text-sm font-medium mb-1"
+						>Retention Period (days)</label
+					>
+					<input
+						id="ds-retention"
+						type="number"
+						bind:value={newDSRetentionPeriod}
+						min="7"
+						max="2557"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div class="flex items-center gap-2">
+					<input
+						id="ds-multi"
+						type="checkbox"
+						bind:checked={newDSMultiRegion}
+						class="rounded"
+					/>
+					<label for="ds-multi" class="text-sm">Multi-region enabled</label>
+				</div>
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					onclick={() => (showCreateDSModal = false)}
+					class="rounded-md border px-4 py-2 text-sm hover:bg-accent"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={createEventDataStore}
+					disabled={creatingDS || !newDSName.trim()}
+					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					{creatingDS ? 'Creating...' : 'Create Store'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Event Data Stores Tab -->
+{#if activeTab === 'datastores'}
+	<div class="flex items-center justify-between gap-4">
+		<div class="relative flex-1">
+			<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+			<input
+				type="text"
+				placeholder="Search event data stores..."
+				bind:value={dsSearchQuery}
+				class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+			/>
+		</div>
+		<button
+			onclick={() => (showCreateDSModal = true)}
+			class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+		>
+			<Plus class="h-4 w-4" />
+			Create Store
+		</button>
+	</div>
+
+	{#if loadingDataStores}
+		<div class="flex justify-center py-12">
+			<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+		</div>
+	{:else if filteredDataStores.length === 0}
+		<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+			<Database class="h-12 w-12 mb-3 opacity-30" />
+			<p>No event data stores found</p>
+			<p class="text-sm">Create an event data store to collect and query events</p>
+		</div>
+	{:else}
+		<div class="rounded-lg border overflow-hidden">
+			<table class="w-full text-sm">
+				<thead class="bg-muted/50">
+					<tr>
+						<th class="px-4 py-3 text-left font-medium">Name</th>
+						<th class="px-4 py-3 text-left font-medium">Status</th>
+						<th class="px-4 py-3 text-left font-medium">Retention (days)</th>
+						<th class="px-4 py-3 text-left font-medium">Multi-Region</th>
+						<th class="px-4 py-3 text-right font-medium">Actions</th>
+					</tr>
+				</thead>
+				<tbody class="divide-y">
+					{#each filteredDataStores as ds}
+						<tr class="hover:bg-muted/30">
+							<td class="px-4 py-3 font-medium">{ds.Name ?? '—'}</td>
+							<td class="px-4 py-3">
+								{#if ds.Status === 'ENABLED'}
+									<span class="flex items-center gap-1 text-green-600">
+										<CheckCircle class="h-4 w-4" />
+										Enabled
+									</span>
+								{:else}
+									<span class="flex items-center gap-1 text-muted-foreground">
+										<XCircle class="h-4 w-4" />
+										{ds.Status ?? 'Unknown'}
+									</span>
+								{/if}
+							</td>
+							<td class="px-4 py-3 text-muted-foreground">{ds.RetentionPeriod ?? '—'}</td>
+							<td class="px-4 py-3 text-muted-foreground">
+								{ds.MultiRegionEnabled ? 'Yes' : 'No'}
+							</td>
+							<td class="px-4 py-3 text-right flex justify-end gap-1">
+								<button
+									onclick={() => toggleDSIngestion(ds)}
+									class="rounded p-1 hover:bg-accent"
+									title={ds.Status === 'ENABLED' ? 'Stop ingestion' : 'Start ingestion'}
+								>
+									{#if ds.Status === 'ENABLED'}
+										<Square class="h-4 w-4 text-yellow-500" />
+									{:else}
+										<Play class="h-4 w-4 text-green-500" />
+									{/if}
+								</button>
+								<button
+									onclick={() => deleteEventDataStore(ds)}
+									class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+									title="Delete event data store"
+								>
+									<Trash2 class="h-4 w-4" />
+								</button>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{/if}
+{/if}
 
 <!-- Create Trail Modal -->
 {#if showCreateModal}
