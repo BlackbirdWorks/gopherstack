@@ -35,8 +35,22 @@ const (
 	elasticsearchCCSOutbound    = "/2015-01-01/es/ccs/outboundConnection"
 	elasticsearchVpcEndpoints   = "/2015-01-01/es/vpcEndpoints"
 	elasticsearchPackages       = "/2015-01-01/packages"
+	elasticsearchDomainPackages = "/2015-01-01/domain"
 
 	opUnknown = "Unknown"
+)
+
+const (
+	elasticsearchCCSInboundSearch   = "/2015-01-01/es/ccs/inboundConnection/search"
+	elasticsearchCCSOutboundSearch  = "/2015-01-01/es/ccs/outboundConnection/search"
+	elasticsearchUpgradeDomain      = "/2015-01-01/es/upgradeDomain"
+	elasticsearchCompatibleVersions = "/2015-01-01/es/compatibleVersions"
+	elasticsearchVersions           = "/2015-01-01/es/versions"
+	elasticsearchInstanceTypes      = "/2015-01-01/es/instanceTypes"
+	elasticsearchInstanceTypeLimits = "/2015-01-01/es/instanceTypeLimits"
+	elasticsearchReservedOfferings  = "/2015-01-01/es/reservedInstanceOfferings"
+	elasticsearchReservedInstances  = "/2015-01-01/es/reservedInstances"
+	elasticsearchPurchaseReserved   = "/2015-01-01/es/purchaseReservedInstanceOffering"
 )
 
 // Handler is the HTTP handler for Elasticsearch operations.
@@ -59,6 +73,11 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // Routes with dynamic path segments (e.g., domain name, connection ID) are
 // handled separately via the domain and prefix routers.
 func (h *Handler) buildOps() map[string]http.HandlerFunc {
+	describeInbound := h.handleDescribeInboundCrossClusterSearchConnections
+	describeOutbound := h.handleDescribeOutboundCrossClusterSearchConnections
+	describeReservedOfferings := h.handleDescribeReservedElasticsearchInstanceOfferings
+	purchaseReserved := h.handlePurchaseReservedElasticsearchInstanceOffering
+
 	return map[string]http.HandlerFunc{
 		http.MethodPost + " " + elasticsearchDomainInfo:                 h.handleDescribeElasticsearchDomains,
 		http.MethodGet + " " + elasticsearchTagsPath:                    h.handleListTags,
@@ -66,9 +85,23 @@ func (h *Handler) buildOps() map[string]http.HandlerFunc {
 		http.MethodPost + " " + elasticsearchTagsRemove:                 h.handleRemoveTags,
 		http.MethodDelete + " " + elasticsearchServiceRole:              h.handleDeleteElasticsearchServiceRole,
 		http.MethodPost + " " + elasticsearchSoftwareUpdate + "/cancel": h.handleCancelElasticsearchServiceSoftwareUpdate,
+		http.MethodPost + " " + elasticsearchSoftwareUpdate:             h.handleStartElasticsearchServiceSoftwareUpdate,
 		http.MethodPost + " " + elasticsearchCCSOutbound:                h.handleCreateOutboundCrossClusterSearchConnection,
 		http.MethodPost + " " + elasticsearchVpcEndpoints:               h.handleCreateVpcEndpoint,
 		http.MethodPost + " " + elasticsearchPackages:                   h.handleCreatePackage,
+		http.MethodPost + " " + elasticsearchCCSInboundSearch:           describeInbound,
+		http.MethodPost + " " + elasticsearchCCSOutboundSearch:          describeOutbound,
+		http.MethodPost + " " + elasticsearchPackages + "/describe":     h.handleDescribePackages,
+		http.MethodPost + " " + elasticsearchPackages + "/update":       h.handleUpdatePackage,
+		http.MethodPost + " " + elasticsearchVpcEndpoints + "/describe": h.handleDescribeVpcEndpoints,
+		http.MethodPost + " " + elasticsearchVpcEndpoints + "/update":   h.handleUpdateVpcEndpoint,
+		http.MethodGet + " " + elasticsearchVpcEndpoints:                h.handleListVpcEndpoints,
+		http.MethodGet + " " + elasticsearchCompatibleVersions:          h.handleGetCompatibleElasticsearchVersions,
+		http.MethodGet + " " + elasticsearchVersions:                    h.handleListElasticsearchVersions,
+		http.MethodGet + " " + elasticsearchReservedOfferings:           describeReservedOfferings,
+		http.MethodGet + " " + elasticsearchReservedInstances:           h.handleDescribeReservedElasticsearchInstances,
+		http.MethodPost + " " + elasticsearchPurchaseReserved:           purchaseReserved,
+		http.MethodPost + " " + elasticsearchUpgradeDomain:              h.handleUpgradeElasticsearchDomain,
 	}
 }
 
@@ -79,7 +112,7 @@ func (h *Handler) Name() string { return "Elasticsearch" }
 func (h *Handler) MatchPriority() int { return service.PriorityPathSubdomain }
 
 // RouteMatcher returns a matcher that selects Elasticsearch requests by path prefix.
-func (h *Handler) RouteMatcher() service.Matcher {
+func (h *Handler) RouteMatcher() service.Matcher { //nolint:cyclop // matches all Elasticsearch path prefixes
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
@@ -92,7 +125,17 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, elasticsearchCCSInbound) ||
 			path == elasticsearchCCSOutbound ||
 			path == elasticsearchVpcEndpoints ||
-			strings.HasPrefix(path, elasticsearchPackages)
+			strings.HasPrefix(path, elasticsearchVpcEndpoints+"/") ||
+			strings.HasPrefix(path, elasticsearchPackages) ||
+			strings.HasPrefix(path, elasticsearchDomainPackages+"/") ||
+			strings.HasPrefix(path, elasticsearchUpgradeDomain) ||
+			path == elasticsearchCompatibleVersions ||
+			path == elasticsearchVersions ||
+			strings.HasPrefix(path, elasticsearchInstanceTypes) ||
+			strings.HasPrefix(path, elasticsearchInstanceTypeLimits) ||
+			path == elasticsearchReservedOfferings ||
+			path == elasticsearchReservedInstances ||
+			path == elasticsearchPurchaseReserved
 	}
 }
 
@@ -111,13 +154,45 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateVpcEndpoint",
 		"DeleteElasticsearchDomain",
 		"DeleteElasticsearchServiceRole",
+		"DeleteInboundCrossClusterSearchConnection",
+		"DeleteOutboundCrossClusterSearchConnection",
+		"DeletePackage",
+		"DeleteVpcEndpoint",
+		"DescribeDomainAutoTunes",
+		"DescribeDomainChangeProgress",
 		"DescribeElasticsearchDomain",
 		"DescribeElasticsearchDomainConfig",
 		"DescribeElasticsearchDomains",
+		"DescribeElasticsearchInstanceTypeLimits",
+		"DescribeInboundCrossClusterSearchConnections",
+		"DescribeOutboundCrossClusterSearchConnections",
+		"DescribePackages",
+		"DescribeReservedElasticsearchInstanceOfferings",
+		"DescribeReservedElasticsearchInstances",
+		"DescribeVpcEndpoints",
+		"DissociatePackage",
+		"GetCompatibleElasticsearchVersions",
+		"GetPackageVersionHistory",
+		"GetUpgradeHistory",
+		"GetUpgradeStatus",
 		"ListDomainNames",
+		"ListDomainsForPackage",
+		"ListElasticsearchInstanceTypes",
+		"ListElasticsearchVersions",
+		"ListPackagesForDomain",
 		"ListTags",
+		"ListVpcEndpointAccess",
+		"ListVpcEndpoints",
+		"ListVpcEndpointsForDomain",
+		"PurchaseReservedElasticsearchInstanceOffering",
+		"RejectInboundCrossClusterSearchConnection",
 		"RemoveTags",
+		"RevokeVpcEndpointAccess",
+		"StartElasticsearchServiceSoftwareUpdate",
 		"UpdateElasticsearchDomainConfig",
+		"UpdatePackage",
+		"UpdateVpcEndpoint",
+		"UpgradeElasticsearchDomain",
 	}
 }
 
@@ -172,20 +247,92 @@ func extractTagAndServiceOperation(path, method string) string {
 }
 
 // extractCCSVpcPackageOperation handles CCS, VPC endpoint, and package paths.
+//
+//nolint:cyclop,gocognit,gocyclo,funlen // large switch covers all CCS/VPC/package routes
 func extractCCSVpcPackageOperation(path, method string) string {
 	switch {
 	case strings.HasPrefix(path, elasticsearchCCSInbound+"/") &&
 		strings.HasSuffix(path, "/accept") &&
 		method == http.MethodPut:
 		return "AcceptInboundCrossClusterSearchConnection"
+	case strings.HasPrefix(path, elasticsearchCCSInbound+"/") &&
+		strings.HasSuffix(path, "/reject") &&
+		method == http.MethodPut:
+		return "RejectInboundCrossClusterSearchConnection"
+	case strings.HasPrefix(path, elasticsearchCCSInbound+"/") &&
+		method == http.MethodDelete:
+		return "DeleteInboundCrossClusterSearchConnection"
+	case path == elasticsearchCCSInboundSearch && method == http.MethodPost:
+		return "DescribeInboundCrossClusterSearchConnections"
 	case path == elasticsearchCCSOutbound && method == http.MethodPost:
 		return "CreateOutboundCrossClusterSearchConnection"
+	case strings.HasPrefix(path, elasticsearchCCSOutbound+"/") &&
+		method == http.MethodDelete:
+		return "DeleteOutboundCrossClusterSearchConnection"
+	case path == elasticsearchCCSOutboundSearch && method == http.MethodPost:
+		return "DescribeOutboundCrossClusterSearchConnections"
 	case path == elasticsearchVpcEndpoints && method == http.MethodPost:
 		return "CreateVpcEndpoint"
+	case path == elasticsearchVpcEndpoints && method == http.MethodGet:
+		return "ListVpcEndpoints"
+	case path == elasticsearchVpcEndpoints+"/describe" && method == http.MethodPost:
+		return "DescribeVpcEndpoints"
+	case path == elasticsearchVpcEndpoints+"/update" && method == http.MethodPost:
+		return "UpdateVpcEndpoint"
+	case strings.HasPrefix(path, elasticsearchVpcEndpoints+"/") &&
+		method == http.MethodDelete:
+		return "DeleteVpcEndpoint"
 	case strings.HasPrefix(path, elasticsearchPackages+"/associate/") && method == http.MethodPost:
 		return "AssociatePackage"
+	case strings.HasPrefix(path, elasticsearchPackages+"/dissociate/") && method == http.MethodPost:
+		return "DissociatePackage"
 	case path == elasticsearchPackages && method == http.MethodPost:
 		return "CreatePackage"
+	case path == elasticsearchPackages+"/describe" && method == http.MethodPost:
+		return "DescribePackages"
+	case path == elasticsearchPackages+"/update" && method == http.MethodPost:
+		return "UpdatePackage"
+	case strings.HasPrefix(path, elasticsearchPackages+"/") &&
+		strings.HasSuffix(path, "/history") &&
+		method == http.MethodGet:
+		return "GetPackageVersionHistory"
+	case strings.HasPrefix(path, elasticsearchPackages+"/") &&
+		strings.HasSuffix(path, "/domains") &&
+		method == http.MethodGet:
+		return "ListDomainsForPackage"
+	case strings.HasPrefix(path, elasticsearchPackages+"/") &&
+		method == http.MethodDelete:
+		return "DeletePackage"
+	case strings.HasPrefix(path, elasticsearchDomainPackages+"/") &&
+		strings.HasSuffix(path, "/packages") &&
+		method == http.MethodGet:
+		return "ListPackagesForDomain"
+	case path == elasticsearchCompatibleVersions && method == http.MethodGet:
+		return "GetCompatibleElasticsearchVersions"
+	case path == elasticsearchVersions && method == http.MethodGet:
+		return "ListElasticsearchVersions"
+	case strings.HasPrefix(path, elasticsearchInstanceTypes+"/") && method == http.MethodGet:
+		return "ListElasticsearchInstanceTypes"
+	case strings.HasPrefix(path, elasticsearchInstanceTypeLimits+"/") && method == http.MethodGet:
+		return "DescribeElasticsearchInstanceTypeLimits"
+	case path == elasticsearchReservedOfferings && method == http.MethodGet:
+		return "DescribeReservedElasticsearchInstanceOfferings"
+	case path == elasticsearchReservedInstances && method == http.MethodGet:
+		return "DescribeReservedElasticsearchInstances"
+	case path == elasticsearchPurchaseReserved && method == http.MethodPost:
+		return "PurchaseReservedElasticsearchInstanceOffering"
+	case path == elasticsearchUpgradeDomain && method == http.MethodPost:
+		return "UpgradeElasticsearchDomain"
+	case strings.HasPrefix(path, elasticsearchUpgradeDomain+"/") &&
+		strings.HasSuffix(path, "/history") &&
+		method == http.MethodGet:
+		return "GetUpgradeHistory"
+	case strings.HasPrefix(path, elasticsearchUpgradeDomain+"/") &&
+		strings.HasSuffix(path, "/status") &&
+		method == http.MethodGet:
+		return "GetUpgradeStatus"
+	case path == elasticsearchSoftwareUpdate && method == http.MethodPost:
+		return "StartElasticsearchServiceSoftwareUpdate"
 	}
 
 	return ""
@@ -206,16 +353,26 @@ func extractDomainOperation(rest, method string) string {
 }
 
 // extractSubDomainOperation resolves operations on specific domain paths (rest starts with "/").
-func extractSubDomainOperation(rest, method string) string {
+func extractSubDomainOperation(rest, method string) string { //nolint:cyclop // covers all domain sub-path operations
 	switch {
 	case strings.HasSuffix(rest, "/config/cancel") && method == http.MethodPost:
 		return "CancelDomainConfigChange"
 	case strings.HasSuffix(rest, "/authorizeVpcEndpointAccess") && method == http.MethodPost:
 		return "AuthorizeVpcEndpointAccess"
+	case strings.HasSuffix(rest, "/revokeVpcEndpointAccess") && method == http.MethodPost:
+		return "RevokeVpcEndpointAccess"
 	case strings.HasSuffix(rest, "/config") && method == http.MethodPost:
 		return "UpdateElasticsearchDomainConfig"
 	case strings.HasSuffix(rest, "/config"):
 		return "DescribeElasticsearchDomainConfig"
+	case strings.HasSuffix(rest, "/autoTunes") && method == http.MethodGet:
+		return "DescribeDomainAutoTunes"
+	case strings.HasSuffix(rest, "/progress") && method == http.MethodGet:
+		return "DescribeDomainChangeProgress"
+	case strings.HasSuffix(rest, "/listVpcEndpointAccess") && method == http.MethodGet:
+		return "ListVpcEndpointAccess"
+	case strings.HasSuffix(rest, "/vpcEndpoints") && method == http.MethodGet:
+		return "ListVpcEndpointsForDomain"
 	case method == http.MethodGet:
 		return "DescribeElasticsearchDomain"
 	case method == http.MethodDelete:
@@ -354,20 +511,109 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // handlePrefixRoutes handles routes that require prefix matching with path params.
 // Returns true if the request was handled.
+//
+//nolint:cyclop,gocognit,gocyclo,funlen // large prefix router covers all dynamic routes
 func (h *Handler) handlePrefixRoutes(w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
 
-	switch {
-	case strings.HasPrefix(path, elasticsearchCCSInbound+"/") &&
-		strings.HasSuffix(path, "/accept") &&
-		r.Method == http.MethodPut:
-		h.handleAcceptInboundCrossClusterSearchConnection(w, r)
+	// CCS inbound routes (ordered most-specific first)
+	if strings.HasPrefix(path, elasticsearchCCSInbound+"/") {
+		switch {
+		case strings.HasSuffix(path, "/accept") && r.Method == http.MethodPut:
+			h.handleAcceptInboundCrossClusterSearchConnection(w, r)
+
+			return true
+		case strings.HasSuffix(path, "/reject") && r.Method == http.MethodPut:
+			h.handleRejectInboundCrossClusterSearchConnection(w, r)
+
+			return true
+		case r.Method == http.MethodDelete:
+			h.handleDeleteInboundCrossClusterSearchConnection(w, r)
+
+			return true
+		}
+	}
+
+	// CCS outbound dynamic routes
+	if strings.HasPrefix(path, elasticsearchCCSOutbound+"/") && r.Method == http.MethodDelete {
+		h.handleDeleteOutboundCrossClusterSearchConnection(w, r)
 
 		return true
+	}
+
+	// VPC endpoint dynamic routes (check prefix with "/" to avoid matching fixed paths)
+	if strings.HasPrefix(path, elasticsearchVpcEndpoints+"/") && r.Method == http.MethodDelete {
+		h.handleDeleteVpcEndpoint(w, r)
+
+		return true
+	}
+
+	// Package routes (most-specific first to avoid prefix conflicts)
+	switch {
 	case strings.HasPrefix(path, elasticsearchPackages+"/associate/") && r.Method == http.MethodPost:
 		h.handleAssociatePackage(w, r)
 
 		return true
+	case strings.HasPrefix(path, elasticsearchPackages+"/dissociate/") && r.Method == http.MethodPost:
+		h.handleDissociatePackage(w, r)
+
+		return true
+	case strings.HasPrefix(path, elasticsearchPackages+"/") &&
+		strings.HasSuffix(path, "/history") &&
+		r.Method == http.MethodGet:
+		h.handleGetPackageVersionHistory(w, r)
+
+		return true
+	case strings.HasPrefix(path, elasticsearchPackages+"/") &&
+		strings.HasSuffix(path, "/domains") &&
+		r.Method == http.MethodGet:
+		h.handleListDomainsForPackage(w, r)
+
+		return true
+	case strings.HasPrefix(path, elasticsearchPackages+"/") && r.Method == http.MethodDelete:
+		// Only handle if not a fixed route (/describe, /update are handled in ops table)
+		rest := strings.TrimPrefix(path, elasticsearchPackages+"/")
+		if !strings.Contains(rest, "/") {
+			h.handleDeletePackage(w, r)
+
+			return true
+		}
+	}
+
+	// Domain-scoped package routes (path prefix /2015-01-01/domain, not /2015-01-01/es/domain)
+	if strings.HasPrefix(path, elasticsearchDomainPackages+"/") &&
+		strings.HasSuffix(path, "/packages") &&
+		r.Method == http.MethodGet {
+		h.handleListPackagesForDomain(w, r)
+
+		return true
+	}
+
+	// Instance types / limits (dynamic version segment)
+	if strings.HasPrefix(path, elasticsearchInstanceTypes+"/") && r.Method == http.MethodGet {
+		h.handleListElasticsearchInstanceTypes(w, r)
+
+		return true
+	}
+
+	if strings.HasPrefix(path, elasticsearchInstanceTypeLimits+"/") && r.Method == http.MethodGet {
+		h.handleDescribeElasticsearchInstanceTypeLimits(w, r)
+
+		return true
+	}
+
+	// Upgrade domain history/status (dynamic domain name)
+	if strings.HasPrefix(path, elasticsearchUpgradeDomain+"/") {
+		switch {
+		case strings.HasSuffix(path, "/history") && r.Method == http.MethodGet:
+			h.handleGetUpgradeHistory(w, r)
+
+			return true
+		case strings.HasSuffix(path, "/status") && r.Method == http.MethodGet:
+			h.handleGetUpgradeStatus(w, r)
+
+			return true
+		}
 	}
 
 	return false
@@ -394,9 +640,23 @@ func (h *Handler) handleDomainRoutes(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleGetDomainRoute(w http.ResponseWriter, r *http.Request, rest string) {
 	trimmed := domainNameFromRest(rest)
-	if before, ok := strings.CutSuffix(trimmed, "/config"); ok {
-		h.handleDescribeDomainConfig(w, r, before)
-	} else {
+	switch {
+	case strings.HasSuffix(trimmed, "/config"):
+		domainName, _ := strings.CutSuffix(trimmed, "/config")
+		h.handleDescribeDomainConfig(w, r, domainName)
+	case strings.HasSuffix(trimmed, "/autoTunes"):
+		domainName, _ := strings.CutSuffix(trimmed, "/autoTunes")
+		h.handleDescribeDomainAutoTunes(w, r, domainName)
+	case strings.HasSuffix(trimmed, "/progress"):
+		domainName, _ := strings.CutSuffix(trimmed, "/progress")
+		h.handleDescribeDomainChangeProgress(w, r, domainName)
+	case strings.HasSuffix(trimmed, "/listVpcEndpointAccess"):
+		domainName, _ := strings.CutSuffix(trimmed, "/listVpcEndpointAccess")
+		h.handleListVpcEndpointAccess(w, r, domainName)
+	case strings.HasSuffix(trimmed, "/vpcEndpoints"):
+		domainName, _ := strings.CutSuffix(trimmed, "/vpcEndpoints")
+		h.handleListVpcEndpointsForDomain(w, r, domainName)
+	default:
 		h.handleDescribeDomain(w, r, trimmed)
 	}
 }
@@ -414,6 +674,9 @@ func (h *Handler) handlePostDomainRoute(w http.ResponseWriter, r *http.Request, 
 	case strings.HasSuffix(trimmed, "/authorizeVpcEndpointAccess"):
 		domainName, _ := strings.CutSuffix(trimmed, "/authorizeVpcEndpointAccess")
 		h.handleAuthorizeVpcEndpointAccess(w, r, domainName)
+	case strings.HasSuffix(trimmed, "/revokeVpcEndpointAccess"):
+		domainName, _ := strings.CutSuffix(trimmed, "/revokeVpcEndpointAccess")
+		h.handleRevokeVpcEndpointAccess(w, r, domainName)
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -1283,4 +1546,132 @@ func (h *Handler) handleCancelElasticsearchServiceSoftwareUpdate(w http.Response
 func (h *Handler) handleDeleteElasticsearchServiceRole(w http.ResponseWriter, _ *http.Request) {
 	_ = h.Backend.DeleteElasticsearchServiceRole()
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) handleStartElasticsearchServiceSoftwareUpdate(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{"ServiceSoftwareOptions": map[string]any{"UpdateStatus": "PENDING_UPDATE"}})
+}
+
+func (h *Handler) handleDescribeInboundCrossClusterSearchConnections(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{"CrossClusterSearchConnections": []any{}})
+}
+
+func (h *Handler) handleDescribeOutboundCrossClusterSearchConnections(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{"CrossClusterSearchConnections": []any{}})
+}
+
+func (h *Handler) handleDescribePackages(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{"PackageDetailsList": []any{}})
+}
+
+func (h *Handler) handleUpdatePackage(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{"PackageDetails": map[string]any{}})
+}
+
+func (h *Handler) handleDescribeVpcEndpoints(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{"VpcEndpoints": []any{}})
+}
+
+func (h *Handler) handleUpdateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{"VpcEndpoint": map[string]any{}})
+}
+
+func (h *Handler) handleListVpcEndpoints(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": []any{}})
+}
+
+func (h *Handler) handleGetCompatibleElasticsearchVersions(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{"CompatibleElasticsearchVersions": []any{}})
+}
+
+func (h *Handler) handleListElasticsearchVersions(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{"ElasticsearchVersions": []string{"7.10", "7.1", "6.8"}})
+}
+
+func (h *Handler) handleDeleteInboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleDeleteOutboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleDeleteVpcEndpoint(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleDescribeReservedElasticsearchInstanceOfferings(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleDescribeReservedElasticsearchInstances(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleGetPackageVersionHistory(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handlePurchaseReservedElasticsearchInstanceOffering(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleRejectInboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleUpgradeElasticsearchDomain(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleDeletePackage(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleDescribeDomainAutoTunes(w http.ResponseWriter, r *http.Request, _ string) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleDescribeDomainChangeProgress(w http.ResponseWriter, r *http.Request, _ string) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleDescribeElasticsearchInstanceTypeLimits(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleGetUpgradeHistory(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleGetUpgradeStatus(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleListDomainsForPackage(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleListElasticsearchInstanceTypes(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleListPackagesForDomain(w http.ResponseWriter, r *http.Request) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleListVpcEndpointAccess(w http.ResponseWriter, r *http.Request, _ string) {
+	h.writeJSON(r, w, map[string]any{})
+}
+
+func (h *Handler) handleListVpcEndpointsForDomain(w http.ResponseWriter, r *http.Request, _ string) {
+	h.writeJSON(r, w, map[string]any{"VpcEndpoints": []any{}})
+}
+
+func (h *Handler) handleRevokeVpcEndpointAccess(w http.ResponseWriter, r *http.Request, _ string) {
+	h.writeJSON(r, w, map[string]any{})
 }

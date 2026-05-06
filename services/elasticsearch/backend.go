@@ -78,6 +78,30 @@ type VpcEndpoint struct {
 	AuthorizedAccts []string          `json:"authorizedAccounts"`
 }
 
+// ReservedInstanceOffering represents a reserved Elasticsearch instance offering.
+type ReservedInstanceOffering struct {
+	OfferingID    string  `json:"reservedElasticsearchInstanceOfferingId"`
+	InstanceType  string  `json:"elasticsearchInstanceType"`
+	PaymentOption string  `json:"paymentOption"`
+	Currency      string  `json:"currencyCode"`
+	FixedPrice    float64 `json:"fixedPrice"`
+	UsagePrice    float64 `json:"usagePrice"`
+	Duration      int     `json:"duration"`
+}
+
+// ReservedInstance represents a purchased reserved Elasticsearch instance.
+type ReservedInstance struct {
+	ReservationID   string  `json:"reservedElasticsearchInstanceId"`
+	ReservationName string  `json:"reservationName"`
+	OfferingID      string  `json:"reservedElasticsearchInstanceOfferingId"`
+	InstanceType    string  `json:"elasticsearchInstanceType"`
+	State           string  `json:"state"`
+	FixedPrice      float64 `json:"fixedPrice"`
+	UsagePrice      float64 `json:"usagePrice"`
+	Duration        int     `json:"duration"`
+	Count           int     `json:"elasticsearchInstanceCount"`
+}
+
 // DNSRegistrar can register and deregister hostnames with an embedded DNS server.
 type DNSRegistrar interface {
 	Register(hostname string)
@@ -585,4 +609,449 @@ func (b *InMemoryBackend) AddDomainInternal(d Domain) {
 	if cp.ARN != "" {
 		b.arnIndex[cp.ARN] = cp.Name
 	}
+}
+
+// DeleteInboundCrossClusterSearchConnection removes an inbound cross-cluster connection.
+func (b *InMemoryBackend) DeleteInboundCrossClusterSearchConnection(connectionID string) (*InboundConnection, error) {
+	b.mu.Lock("DeleteInboundCrossClusterSearchConnection")
+	defer b.mu.Unlock()
+
+	conn, exists := b.inboundConnections[connectionID]
+	if !exists {
+		return nil, fmt.Errorf("%w: inbound connection %s not found", ErrConnectionNotFound, connectionID)
+	}
+
+	cp := *conn
+	delete(b.inboundConnections, connectionID)
+
+	return &cp, nil
+}
+
+// DeleteOutboundCrossClusterSearchConnection removes an outbound cross-cluster connection.
+func (b *InMemoryBackend) DeleteOutboundCrossClusterSearchConnection(connectionID string) (*OutboundConnection, error) {
+	b.mu.Lock("DeleteOutboundCrossClusterSearchConnection")
+	defer b.mu.Unlock()
+
+	conn, exists := b.outboundConnections[connectionID]
+	if !exists {
+		return nil, fmt.Errorf("%w: outbound connection %s not found", ErrConnectionNotFound, connectionID)
+	}
+
+	cp := *conn
+	delete(b.outboundConnections, connectionID)
+
+	return &cp, nil
+}
+
+// RejectInboundCrossClusterSearchConnection rejects a pending inbound connection.
+func (b *InMemoryBackend) RejectInboundCrossClusterSearchConnection(connectionID string) (*InboundConnection, error) {
+	b.mu.Lock("RejectInboundCrossClusterSearchConnection")
+	defer b.mu.Unlock()
+
+	conn, exists := b.inboundConnections[connectionID]
+	if !exists {
+		return nil, fmt.Errorf("%w: inbound connection %s not found", ErrConnectionNotFound, connectionID)
+	}
+
+	conn.ConnectionStatus = "REJECTED"
+	cp := *conn
+
+	return &cp, nil
+}
+
+// DescribeInboundCrossClusterSearchConnections returns all inbound cross-cluster connections.
+func (b *InMemoryBackend) DescribeInboundCrossClusterSearchConnections() []*InboundConnection {
+	b.mu.RLock("DescribeInboundCrossClusterSearchConnections")
+	defer b.mu.RUnlock()
+
+	result := make([]*InboundConnection, 0, len(b.inboundConnections))
+	for _, conn := range b.inboundConnections {
+		cp := *conn
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
+// DescribeOutboundCrossClusterSearchConnections returns all outbound cross-cluster connections.
+func (b *InMemoryBackend) DescribeOutboundCrossClusterSearchConnections() []*OutboundConnection {
+	b.mu.RLock("DescribeOutboundCrossClusterSearchConnections")
+	defer b.mu.RUnlock()
+
+	result := make([]*OutboundConnection, 0, len(b.outboundConnections))
+	for _, conn := range b.outboundConnections {
+		cp := *conn
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
+// DeletePackage removes a package by ID.
+func (b *InMemoryBackend) DeletePackage(packageID string) (*Package, error) {
+	b.mu.Lock("DeletePackage")
+	defer b.mu.Unlock()
+
+	pkg, exists := b.packages[packageID]
+	if !exists {
+		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	}
+
+	cp := *pkg
+	delete(b.packagesByName, pkg.Name)
+	delete(b.packages, packageID)
+	delete(b.packageAssociations, packageID)
+
+	return &cp, nil
+}
+
+// DescribePackages returns packages matching the given IDs, or all packages if the list is empty.
+func (b *InMemoryBackend) DescribePackages(packageIDs []string) []*Package {
+	b.mu.RLock("DescribePackages")
+	defer b.mu.RUnlock()
+
+	if len(packageIDs) == 0 {
+		result := make([]*Package, 0, len(b.packages))
+		for _, pkg := range b.packages {
+			cp := *pkg
+			result = append(result, &cp)
+		}
+
+		return result
+	}
+
+	result := make([]*Package, 0, len(packageIDs))
+	for _, id := range packageIDs {
+		if pkg, exists := b.packages[id]; exists {
+			cp := *pkg
+			result = append(result, &cp)
+		}
+	}
+
+	return result
+}
+
+// DissociatePackage removes a package association from a domain.
+func (b *InMemoryBackend) DissociatePackage(packageID, domainName string) error {
+	b.mu.Lock("DissociatePackage")
+	defer b.mu.Unlock()
+
+	if _, exists := b.packages[packageID]; !exists {
+		return fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	}
+
+	if _, exists := b.domains[domainName]; !exists {
+		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	assocs := b.packageAssociations[packageID]
+	for i, name := range assocs {
+		if name == domainName {
+			b.packageAssociations[packageID] = append(assocs[:i], assocs[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// GetPackageVersionHistory returns the version history for a package.
+func (b *InMemoryBackend) GetPackageVersionHistory(packageID string) ([]*Package, error) {
+	b.mu.RLock("GetPackageVersionHistory")
+	defer b.mu.RUnlock()
+
+	pkg, exists := b.packages[packageID]
+	if !exists {
+		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	}
+
+	cp := *pkg
+
+	return []*Package{&cp}, nil
+}
+
+// ListDomainsForPackage returns all domain names associated with a package.
+func (b *InMemoryBackend) ListDomainsForPackage(packageID string) ([]string, error) {
+	b.mu.RLock("ListDomainsForPackage")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.packages[packageID]; !exists {
+		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	}
+
+	assocs := b.packageAssociations[packageID]
+	result := make([]string, len(assocs))
+	copy(result, assocs)
+
+	return result, nil
+}
+
+// ListPackagesForDomain returns all packages associated with a domain.
+func (b *InMemoryBackend) ListPackagesForDomain(domainName string) []*Package {
+	b.mu.RLock("ListPackagesForDomain")
+	defer b.mu.RUnlock()
+
+	var result []*Package
+	for packageID, assocs := range b.packageAssociations {
+		if slices.Contains(assocs, domainName) {
+			if pkg, exists := b.packages[packageID]; exists {
+				cp := *pkg
+				result = append(result, &cp)
+			}
+		}
+	}
+
+	return result
+}
+
+// UpdatePackage updates a package description.
+func (b *InMemoryBackend) UpdatePackage(packageID, description string) (*Package, error) {
+	b.mu.Lock("UpdatePackage")
+	defer b.mu.Unlock()
+
+	pkg, exists := b.packages[packageID]
+	if !exists {
+		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	}
+
+	pkg.Description = description
+	cp := *pkg
+
+	return &cp, nil
+}
+
+// DeleteVpcEndpoint removes a VPC endpoint by ID.
+func (b *InMemoryBackend) DeleteVpcEndpoint(vpcEndpointID string) (*VpcEndpoint, error) {
+	b.mu.Lock("DeleteVpcEndpoint")
+	defer b.mu.Unlock()
+
+	endpoint, exists := b.vpcEndpoints[vpcEndpointID]
+	if !exists {
+		return nil, fmt.Errorf("%w: VPC endpoint %s not found", ErrVpcEndpointNotFound, vpcEndpointID)
+	}
+
+	cp := *endpoint
+	delete(b.vpcEndpoints, vpcEndpointID)
+
+	return &cp, nil
+}
+
+// DescribeVpcEndpoints returns VPC endpoints matching the given IDs, or all endpoints if empty.
+func (b *InMemoryBackend) DescribeVpcEndpoints(vpcEndpointIDs []string) []*VpcEndpoint {
+	b.mu.RLock("DescribeVpcEndpoints")
+	defer b.mu.RUnlock()
+
+	if len(vpcEndpointIDs) == 0 {
+		result := make([]*VpcEndpoint, 0, len(b.vpcEndpoints))
+		for _, ep := range b.vpcEndpoints {
+			cp := *ep
+			result = append(result, &cp)
+		}
+
+		return result
+	}
+
+	result := make([]*VpcEndpoint, 0, len(vpcEndpointIDs))
+	for _, id := range vpcEndpointIDs {
+		if ep, exists := b.vpcEndpoints[id]; exists {
+			cp := *ep
+			result = append(result, &cp)
+		}
+	}
+
+	return result
+}
+
+// ListVpcEndpointAccess returns authorized account principals for a domain's VPC endpoint access.
+func (b *InMemoryBackend) ListVpcEndpointAccess(domainName string) ([]string, error) {
+	b.mu.RLock("ListVpcEndpointAccess")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.domains[domainName]; !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	return []string{}, nil
+}
+
+// ListVpcEndpoints returns all VPC endpoints.
+func (b *InMemoryBackend) ListVpcEndpoints() []*VpcEndpoint {
+	b.mu.RLock("ListVpcEndpoints")
+	defer b.mu.RUnlock()
+
+	result := make([]*VpcEndpoint, 0, len(b.vpcEndpoints))
+	for _, ep := range b.vpcEndpoints {
+		cp := *ep
+		result = append(result, &cp)
+	}
+
+	return result
+}
+
+// ListVpcEndpointsForDomain returns VPC endpoints associated with a specific domain ARN.
+func (b *InMemoryBackend) ListVpcEndpointsForDomain(domainName string) []*VpcEndpoint {
+	b.mu.RLock("ListVpcEndpointsForDomain")
+	defer b.mu.RUnlock()
+
+	d, exists := b.domains[domainName]
+	if !exists {
+		return nil
+	}
+
+	var result []*VpcEndpoint
+	for _, ep := range b.vpcEndpoints {
+		if ep.DomainARN == d.ARN {
+			cp := *ep
+			result = append(result, &cp)
+		}
+	}
+
+	return result
+}
+
+// RevokeVpcEndpointAccess revokes an account's access to a domain's VPC endpoint.
+func (b *InMemoryBackend) RevokeVpcEndpointAccess(domainName, account string) error {
+	b.mu.RLock("RevokeVpcEndpointAccess")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.domains[domainName]; !exists {
+		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	_ = account
+
+	return nil
+}
+
+// UpdateVpcEndpoint updates the VPC options of a VPC endpoint.
+func (b *InMemoryBackend) UpdateVpcEndpoint(vpcEndpointID string, vpcOptions map[string]string) (*VpcEndpoint, error) {
+	b.mu.Lock("UpdateVpcEndpoint")
+	defer b.mu.Unlock()
+
+	endpoint, exists := b.vpcEndpoints[vpcEndpointID]
+	if !exists {
+		return nil, fmt.Errorf("%w: VPC endpoint %s not found", ErrVpcEndpointNotFound, vpcEndpointID)
+	}
+
+	newOpts := make(map[string]string, len(vpcOptions))
+	maps.Copy(newOpts, vpcOptions)
+	endpoint.VpcOptions = newOpts
+
+	retOpts := make(map[string]string, len(newOpts))
+	maps.Copy(retOpts, newOpts)
+	cp := *endpoint
+	cp.VpcOptions = retOpts
+
+	return &cp, nil
+}
+
+// DescribeDomainAutoTunes validates a domain exists and returns (the in-memory backend has no auto-tune state).
+func (b *InMemoryBackend) DescribeDomainAutoTunes(domainName string) error {
+	b.mu.RLock("DescribeDomainAutoTunes")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.domains[domainName]; !exists {
+		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	return nil
+}
+
+// DescribeDomainChangeProgress validates a domain exists and returns (changes are synchronous in-memory).
+func (b *InMemoryBackend) DescribeDomainChangeProgress(domainName string) error {
+	b.mu.RLock("DescribeDomainChangeProgress")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.domains[domainName]; !exists {
+		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	return nil
+}
+
+// GetUpgradeHistory validates a domain exists and returns empty history (no upgrade state tracked).
+func (b *InMemoryBackend) GetUpgradeHistory(domainName string) error {
+	b.mu.RLock("GetUpgradeHistory")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.domains[domainName]; !exists {
+		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	return nil
+}
+
+// GetUpgradeStatus validates a domain exists and returns (no upgrade in progress in-memory).
+func (b *InMemoryBackend) GetUpgradeStatus(domainName string) error {
+	b.mu.RLock("GetUpgradeStatus")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.domains[domainName]; !exists {
+		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	return nil
+}
+
+// StartElasticsearchServiceSoftwareUpdate schedules a software update (no-op in-memory).
+func (b *InMemoryBackend) StartElasticsearchServiceSoftwareUpdate(domainName string) (*Domain, error) {
+	b.mu.RLock("StartElasticsearchServiceSoftwareUpdate")
+	defer b.mu.RUnlock()
+
+	d, exists := b.domains[domainName]
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	return domainCopy(d), nil
+}
+
+// UpgradeElasticsearchDomain upgrades a domain to the target version.
+func (b *InMemoryBackend) UpgradeElasticsearchDomain(domainName, targetVersion string) (*Domain, error) {
+	b.mu.Lock("UpgradeElasticsearchDomain")
+	defer b.mu.Unlock()
+
+	d, exists := b.domains[domainName]
+	if !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	}
+
+	if targetVersion != "" {
+		d.ElasticsearchVersion = targetVersion
+	}
+
+	return domainCopy(d), nil
+}
+
+// DescribeReservedElasticsearchInstanceOfferings returns available reserved instance offerings.
+func (b *InMemoryBackend) DescribeReservedElasticsearchInstanceOfferings() []ReservedInstanceOffering {
+	return []ReservedInstanceOffering{}
+}
+
+// DescribeReservedElasticsearchInstances returns purchased reserved instances.
+func (b *InMemoryBackend) DescribeReservedElasticsearchInstances() []ReservedInstance {
+	return []ReservedInstance{}
+}
+
+// PurchaseReservedElasticsearchInstanceOffering purchases a reserved instance offering.
+func (b *InMemoryBackend) PurchaseReservedElasticsearchInstanceOffering(
+	offeringID, name string, count int,
+) (*ReservedInstance, error) {
+	if offeringID == "" {
+		return nil, fmt.Errorf("%w: ReservedElasticsearchInstanceOfferingId is required", ErrValidation)
+	}
+
+	b.mu.Lock("PurchaseReservedElasticsearchInstanceOffering")
+	defer b.mu.Unlock()
+
+	id := fmt.Sprintf("ri-%010d", b.nextIDLocked())
+
+	return &ReservedInstance{
+		ReservationID:   id,
+		ReservationName: name,
+		OfferingID:      offeringID,
+		Count:           count,
+		State:           "payment-pending",
+	}, nil
 }
