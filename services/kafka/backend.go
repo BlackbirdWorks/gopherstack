@@ -154,17 +154,32 @@ func (b *InMemoryBackend) Reset() {
 
 // clusterARN builds an ARN for an MSK cluster.
 func (b *InMemoryBackend) clusterARN(name string) string {
-	return arn.Build("kafka", b.region, b.accountID, fmt.Sprintf("cluster/%s/%s", name, uuid.New().String()))
+	return arn.Build(
+		"kafka",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("cluster/%s/%s", name, uuid.New().String()),
+	)
 }
 
 // configurationARN builds an ARN for an MSK configuration.
 func (b *InMemoryBackend) configurationARN(name string) string {
-	return arn.Build("kafka", b.region, b.accountID, fmt.Sprintf("configuration/%s/%s", name, uuid.New().String()))
+	return arn.Build(
+		"kafka",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("configuration/%s/%s", name, uuid.New().String()),
+	)
 }
 
 // replicatorARN builds an ARN for an MSK replicator.
 func (b *InMemoryBackend) replicatorARN(name string) string {
-	return arn.Build("kafka", b.region, b.accountID, fmt.Sprintf("replicator/%s/%s", name, uuid.New().String()))
+	return arn.Build(
+		"kafka",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("replicator/%s/%s", name, uuid.New().String()),
+	)
 }
 
 // vpcConnectionARN builds an ARN for an MSK VPC connection.
@@ -689,6 +704,652 @@ func (b *InMemoryBackend) DeleteVpcConnection(vpcConnectionArn string) error {
 	return nil
 }
 
+// --- Replicator describe/list/update operations ---
+
+// DescribeReplicator retrieves a replicator by ARN.
+func (b *InMemoryBackend) DescribeReplicator(replicatorArn string) (*Replicator, error) {
+	b.mu.RLock("DescribeReplicator")
+	defer b.mu.RUnlock()
+
+	r, ok := b.replicators[replicatorArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return cloneReplicator(r), nil
+}
+
+// ListReplicators returns all replicators sorted by name.
+func (b *InMemoryBackend) ListReplicators() []*Replicator {
+	b.mu.RLock("ListReplicators")
+	defer b.mu.RUnlock()
+
+	out := make([]*Replicator, 0, len(b.replicators))
+	for _, r := range b.replicators {
+		out = append(out, cloneReplicator(r))
+	}
+
+	slices.SortFunc(out, func(a, b *Replicator) int {
+		if a.ReplicatorName < b.ReplicatorName {
+			return -1
+		}
+		if a.ReplicatorName > b.ReplicatorName {
+			return 1
+		}
+
+		return 0
+	})
+
+	return out
+}
+
+// UpdateReplicationInfo updates the replicator description.
+func (b *InMemoryBackend) UpdateReplicationInfo(
+	replicatorArn, description string,
+) (*Replicator, error) {
+	b.mu.Lock("UpdateReplicationInfo")
+	defer b.mu.Unlock()
+
+	r, ok := b.replicators[replicatorArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	r.Description = description
+
+	return cloneReplicator(r), nil
+}
+
+// --- Topic describe/list/update operations ---
+
+// DescribeTopic retrieves a topic by cluster ARN and topic name.
+func (b *InMemoryBackend) DescribeTopic(clusterArn, topicName string) (*Topic, error) {
+	b.mu.RLock("DescribeTopic")
+	defer b.mu.RUnlock()
+
+	key := topicKey(clusterArn, topicName)
+	t, ok := b.topics[key]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return cloneTopic(t), nil
+}
+
+// DescribeTopicPartitions retrieves a topic's partition count.
+func (b *InMemoryBackend) DescribeTopicPartitions(clusterArn, topicName string) (*Topic, error) {
+	return b.DescribeTopic(clusterArn, topicName)
+}
+
+// ListTopics returns all topics for a cluster sorted by topic name.
+func (b *InMemoryBackend) ListTopics(clusterArn string) ([]*Topic, error) {
+	b.mu.RLock("ListTopics")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	prefix := clusterArn + topicKeySeparator
+	out := make([]*Topic, 0)
+
+	for k, t := range b.topics {
+		if strings.HasPrefix(k, prefix) {
+			out = append(out, cloneTopic(t))
+		}
+	}
+
+	slices.SortFunc(out, func(a, b *Topic) int {
+		if a.TopicName < b.TopicName {
+			return -1
+		}
+		if a.TopicName > b.TopicName {
+			return 1
+		}
+
+		return 0
+	})
+
+	return out, nil
+}
+
+// UpdateTopic updates a topic's config entries and/or partition count.
+func (b *InMemoryBackend) UpdateTopic(
+	clusterArn, topicName string,
+	numPartitions int32,
+	configEntries map[string]string,
+) (*Topic, error) {
+	b.mu.Lock("UpdateTopic")
+	defer b.mu.Unlock()
+
+	key := topicKey(clusterArn, topicName)
+	t, ok := b.topics[key]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if numPartitions > 0 {
+		t.NumPartitions = numPartitions
+	}
+
+	if configEntries != nil {
+		maps.Copy(t.ConfigEntries, configEntries)
+	}
+
+	return cloneTopic(t), nil
+}
+
+// --- VPC connection describe/list/reject operations ---
+
+// DescribeVpcConnection retrieves a VPC connection by ARN.
+func (b *InMemoryBackend) DescribeVpcConnection(vpcConnectionArn string) (*VpcConnection, error) {
+	b.mu.RLock("DescribeVpcConnection")
+	defer b.mu.RUnlock()
+
+	v, ok := b.vpcConnections[vpcConnectionArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return cloneVpcConnection(v), nil
+}
+
+// ListVpcConnections returns all VPC connections sorted by ARN.
+func (b *InMemoryBackend) ListVpcConnections() []*VpcConnection {
+	b.mu.RLock("ListVpcConnections")
+	defer b.mu.RUnlock()
+
+	out := make([]*VpcConnection, 0, len(b.vpcConnections))
+	for _, v := range b.vpcConnections {
+		out = append(out, cloneVpcConnection(v))
+	}
+
+	slices.SortFunc(out, func(a, b *VpcConnection) int {
+		if a.VpcConnectionArn < b.VpcConnectionArn {
+			return -1
+		}
+		if a.VpcConnectionArn > b.VpcConnectionArn {
+			return 1
+		}
+
+		return 0
+	})
+
+	return out
+}
+
+// ListClientVpcConnections returns all VPC connections for a given cluster.
+func (b *InMemoryBackend) ListClientVpcConnections(clusterArn string) ([]*VpcConnection, error) {
+	b.mu.RLock("ListClientVpcConnections")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	out := make([]*VpcConnection, 0)
+
+	for _, v := range b.vpcConnections {
+		if v.TargetClusterArn == clusterArn {
+			out = append(out, cloneVpcConnection(v))
+		}
+	}
+
+	slices.SortFunc(out, func(a, b *VpcConnection) int {
+		if a.VpcConnectionArn < b.VpcConnectionArn {
+			return -1
+		}
+		if a.VpcConnectionArn > b.VpcConnectionArn {
+			return 1
+		}
+
+		return 0
+	})
+
+	return out, nil
+}
+
+// RejectClientVpcConnection rejects (deletes) a VPC connection.
+func (b *InMemoryBackend) RejectClientVpcConnection(vpcConnectionArn string) error {
+	return b.DeleteVpcConnection(vpcConnectionArn)
+}
+
+// --- Cluster policy get/put operations ---
+
+// GetClusterPolicy retrieves the policy document for a cluster.
+func (b *InMemoryBackend) GetClusterPolicy(clusterArn string) (string, error) {
+	b.mu.RLock("GetClusterPolicy")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return "", ErrNotFound
+	}
+
+	policy := b.clusterPolicies[clusterArn]
+
+	return policy, nil
+}
+
+// PutClusterPolicy sets the policy document for a cluster.
+func (b *InMemoryBackend) PutClusterPolicy(clusterArn, policy string) error {
+	b.mu.Lock("PutClusterPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return ErrNotFound
+	}
+
+	b.clusterPolicies[clusterArn] = policy
+
+	return nil
+}
+
+// --- Cluster operation list operations ---
+
+// ListClusterOperations returns all cluster operations for a cluster.
+func (b *InMemoryBackend) ListClusterOperations(clusterArn string) ([]*ClusterOperation, error) {
+	b.mu.RLock("ListClusterOperations")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	out := make([]*ClusterOperation, 0)
+
+	for _, op := range b.clusterOperations {
+		if op.ClusterArn == clusterArn {
+			out = append(out, cloneClusterOperation(op))
+		}
+	}
+
+	slices.SortFunc(out, func(a, b *ClusterOperation) int {
+		if a.ClusterOperationArn < b.ClusterOperationArn {
+			return -1
+		}
+		if a.ClusterOperationArn > b.ClusterOperationArn {
+			return 1
+		}
+
+		return 0
+	})
+
+	return out, nil
+}
+
+// DescribeClusterOperationV2 retrieves a cluster operation (V2) by ARN.
+func (b *InMemoryBackend) DescribeClusterOperationV2(
+	clusterOperationArn string,
+) (*ClusterOperation, error) {
+	return b.DescribeClusterOperation(clusterOperationArn)
+}
+
+// ListClusterOperationsV2 returns all cluster operations for a cluster (V2).
+func (b *InMemoryBackend) ListClusterOperationsV2(clusterArn string) ([]*ClusterOperation, error) {
+	return b.ListClusterOperations(clusterArn)
+}
+
+// --- Configuration revision operations ---
+
+// ConfigurationRevision represents a revision of an MSK configuration.
+type ConfigurationRevision struct {
+	ConfigurationArn string `json:"configurationArn"`
+	Description      string `json:"description,omitempty"`
+	ServerProperties string `json:"serverProperties,omitempty"`
+	Revision         int64  `json:"revision"`
+}
+
+// DescribeConfigurationRevision retrieves a configuration revision.
+// In this stub, revision 1 always refers to the current configuration state.
+func (b *InMemoryBackend) DescribeConfigurationRevision(
+	configArn string,
+	revision int64,
+) (*ConfigurationRevision, error) {
+	b.mu.RLock("DescribeConfigurationRevision")
+	defer b.mu.RUnlock()
+
+	c, ok := b.configurations[configArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return &ConfigurationRevision{
+		ConfigurationArn: c.Arn,
+		Revision:         revision,
+		Description:      c.Description,
+		ServerProperties: c.ServerProperties,
+	}, nil
+}
+
+// UpdateConfiguration updates a configuration's server properties and description.
+func (b *InMemoryBackend) UpdateConfiguration(
+	configArn, description, serverProperties string,
+) (*Configuration, error) {
+	b.mu.Lock("UpdateConfiguration")
+	defer b.mu.Unlock()
+
+	c, ok := b.configurations[configArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if description != "" {
+		c.Description = description
+	}
+
+	if serverProperties != "" {
+		c.ServerProperties = serverProperties
+	}
+
+	return cloneConfiguration(c), nil
+}
+
+// ListConfigurationRevisions lists revisions for a configuration.
+// In this stub, every configuration has a single revision (revision 1).
+func (b *InMemoryBackend) ListConfigurationRevisions(
+	configArn string,
+) ([]*ConfigurationRevision, error) {
+	b.mu.RLock("ListConfigurationRevisions")
+	defer b.mu.RUnlock()
+
+	c, ok := b.configurations[configArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return []*ConfigurationRevision{
+		{
+			ConfigurationArn: c.Arn,
+			Revision:         1,
+			Description:      c.Description,
+			ServerProperties: c.ServerProperties,
+		},
+	}, nil
+}
+
+// --- Broker / cluster update operations ---
+
+// UpdateBrokerCount updates the number of broker nodes in a cluster.
+func (b *InMemoryBackend) UpdateBrokerCount(
+	clusterArn string,
+	numBrokers int32,
+) (*ClusterOperation, error) {
+	b.mu.Lock("UpdateBrokerCount")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	c.NumberOfBrokerNodes = numBrokers
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_COUNT")
+
+	return op, nil
+}
+
+// UpdateBrokerStorage updates the EBS storage size for broker nodes.
+func (b *InMemoryBackend) UpdateBrokerStorage(
+	clusterArn string,
+	volumeSize int32,
+) (*ClusterOperation, error) {
+	b.mu.Lock("UpdateBrokerStorage")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	if c.BrokerNodeGroupInfo.StorageInfo == nil {
+		c.BrokerNodeGroupInfo.StorageInfo = &StorageInfo{}
+	}
+
+	if c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo == nil {
+		c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo = &EBSStorageInfo{}
+	}
+
+	c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo.VolumeSize = volumeSize
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_STORAGE")
+
+	return op, nil
+}
+
+// UpdateBrokerType updates the instance type for broker nodes.
+func (b *InMemoryBackend) UpdateBrokerType(
+	clusterArn, instanceType string,
+) (*ClusterOperation, error) {
+	b.mu.Lock("UpdateBrokerType")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	c.BrokerNodeGroupInfo.InstanceType = instanceType
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_BROKER_TYPE")
+
+	return op, nil
+}
+
+// UpdateClusterConfiguration updates the configuration for a cluster.
+func (b *InMemoryBackend) UpdateClusterConfiguration(
+	clusterArn, _ string,
+	_ int64,
+) (*ClusterOperation, error) {
+	b.mu.Lock("UpdateClusterConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CLUSTER_CONFIGURATION")
+
+	return op, nil
+}
+
+// UpdateClusterKafkaVersion updates the Kafka version for a cluster.
+func (b *InMemoryBackend) UpdateClusterKafkaVersion(
+	clusterArn, targetKafkaVersion string,
+) (*ClusterOperation, error) {
+	b.mu.Lock("UpdateClusterKafkaVersion")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters[clusterArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	c.KafkaVersion = targetKafkaVersion
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CLUSTER_KAFKA_VERSION")
+
+	return op, nil
+}
+
+// UpdateConnectivity updates connectivity settings for a cluster (stub: no-op).
+func (b *InMemoryBackend) UpdateConnectivity(clusterArn string) (*ClusterOperation, error) {
+	b.mu.Lock("UpdateConnectivity")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_CONNECTIVITY")
+
+	return op, nil
+}
+
+// UpdateMonitoring updates monitoring settings for a cluster (stub: no-op).
+func (b *InMemoryBackend) UpdateMonitoring(clusterArn string) (*ClusterOperation, error) {
+	b.mu.Lock("UpdateMonitoring")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_MONITORING")
+
+	return op, nil
+}
+
+// UpdateRebalancing updates rebalancing settings for a cluster (stub: no-op).
+func (b *InMemoryBackend) UpdateRebalancing(clusterArn string) (*ClusterOperation, error) {
+	b.mu.Lock("UpdateRebalancing")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_REBALANCING")
+
+	return op, nil
+}
+
+// UpdateSecurity updates security settings for a cluster (stub: no-op).
+func (b *InMemoryBackend) UpdateSecurity(clusterArn string) (*ClusterOperation, error) {
+	b.mu.Lock("UpdateSecurity")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_SECURITY")
+
+	return op, nil
+}
+
+// UpdateStorage updates storage settings for a cluster (stub: no-op).
+func (b *InMemoryBackend) UpdateStorage(clusterArn string) (*ClusterOperation, error) {
+	b.mu.Lock("UpdateStorage")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "UPDATE_STORAGE")
+
+	return op, nil
+}
+
+// RebootBroker initiates a broker reboot operation.
+func (b *InMemoryBackend) RebootBroker(clusterArn string, _ []string) (*ClusterOperation, error) {
+	b.mu.Lock("RebootBroker")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	op := b.newClusterOperationLocked(clusterArn, "REBOOT_BROKER")
+
+	return op, nil
+}
+
+// --- SCRAM secret list operations ---
+
+// ListScramSecrets returns all SCRAM secrets for a cluster.
+func (b *InMemoryBackend) ListScramSecrets(clusterArn string) ([]string, error) {
+	b.mu.RLock("ListScramSecrets")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	secrets := b.scramSecrets[clusterArn]
+	out := make([]string, len(secrets))
+	copy(out, secrets)
+
+	return out, nil
+}
+
+// --- Misc read ops ---
+
+// ListNodes returns broker node stubs for a cluster.
+func (b *InMemoryBackend) ListNodes(clusterArn string) ([]*BrokerNode, error) {
+	b.mu.RLock("ListNodes")
+	defer b.mu.RUnlock()
+
+	c, ok := b.clusters[clusterArn]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	out := make([]*BrokerNode, 0, int(c.NumberOfBrokerNodes))
+
+	for i := range c.NumberOfBrokerNodes {
+		out = append(out, &BrokerNode{
+			BrokerID:     i + 1,
+			InstanceType: c.BrokerNodeGroupInfo.InstanceType,
+		})
+	}
+
+	return out, nil
+}
+
+// ListKafkaVersions returns a static list of supported Kafka versions.
+func (b *InMemoryBackend) ListKafkaVersions() []*MSKVersion {
+	return []*MSKVersion{
+		{Version: "3.6.0", Status: ClusterStateActive},
+		{Version: "3.5.1", Status: ClusterStateActive},
+		{Version: "3.4.0", Status: ClusterStateActive},
+		{Version: "2.8.1", Status: ClusterStateActive},
+		{Version: "2.8.0", Status: "DEPRECATED"},
+		{Version: "2.6.0", Status: "DEPRECATED"},
+	}
+}
+
+// GetCompatibleKafkaVersions returns Kafka versions compatible with the given source version.
+func (b *InMemoryBackend) GetCompatibleKafkaVersions(clusterArn string) ([]*MSKVersion, error) {
+	b.mu.RLock("GetCompatibleKafkaVersions")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters[clusterArn]; !ok {
+		return nil, ErrNotFound
+	}
+
+	return []*MSKVersion{
+		{Version: "3.6.0", Status: ClusterStateActive},
+		{Version: "3.5.1", Status: ClusterStateActive},
+	}, nil
+}
+
+// BrokerNode represents a stub broker node.
+type BrokerNode struct {
+	InstanceType string `json:"instanceType,omitempty"`
+	BrokerID     int32  `json:"brokerId"`
+}
+
+// MSKVersion represents an available Kafka version.
+type MSKVersion struct {
+	Version string `json:"version"`
+	Status  string `json:"status"`
+}
+
+// newClusterOperationLocked creates and stores a cluster operation.
+// MUST be called with b.mu write lock held.
+func (b *InMemoryBackend) newClusterOperationLocked(
+	clusterArn, operationType string,
+) *ClusterOperation {
+	clusterOperationArn := b.clusterOperationARN(clusterArn)
+	op := &ClusterOperation{
+		ClusterOperationArn: clusterOperationArn,
+		ClusterArn:          clusterArn,
+		OperationType:       operationType,
+		OperationState:      ClusterOperationStateUpdateComplete,
+	}
+	b.clusterOperations[clusterOperationArn] = op
+
+	return cloneClusterOperation(op)
+}
+
 // --- Cluster policy operations ---
 
 // DeleteClusterPolicy deletes the policy attached to an MSK cluster.
@@ -708,7 +1369,9 @@ func (b *InMemoryBackend) DeleteClusterPolicy(clusterArn string) error {
 // --- Cluster operation operations ---
 
 // DescribeClusterOperation retrieves a cluster operation by ARN.
-func (b *InMemoryBackend) DescribeClusterOperation(clusterOperationArn string) (*ClusterOperation, error) {
+func (b *InMemoryBackend) DescribeClusterOperation(
+	clusterOperationArn string,
+) (*ClusterOperation, error) {
 	b.mu.RLock("DescribeClusterOperation")
 	defer b.mu.RUnlock()
 
@@ -721,7 +1384,9 @@ func (b *InMemoryBackend) DescribeClusterOperation(clusterOperationArn string) (
 }
 
 // AddClusterOperationInternal adds a cluster operation for testing purposes.
-func (b *InMemoryBackend) AddClusterOperationInternal(clusterArn, operationType string) *ClusterOperation {
+func (b *InMemoryBackend) AddClusterOperationInternal(
+	clusterArn, operationType string,
+) *ClusterOperation {
 	b.mu.Lock("AddClusterOperationInternal")
 	defer b.mu.Unlock()
 
