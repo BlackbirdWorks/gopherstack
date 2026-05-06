@@ -66,7 +66,26 @@ type StorageBackend interface {
 	DeclineHandshake(handshakeID string) (*Handshake, error)
 	DescribeHandshake(handshakeID string) (*Handshake, error)
 	DescribeResponsibilityTransfer(handshakeID string) (*Handshake, error)
+	InviteAccountToOrganization(target HandshakeParty, notes string) (*Handshake, error)
+	InviteOrganizationToTransferResponsibility(target HandshakeParty, notes string) (*Handshake, error)
+	LeaveOrganization() error
+	ListHandshakesForAccount() ([]*Handshake, error)
+	ListHandshakesForOrganization() ([]*Handshake, error)
+	ListInboundResponsibilityTransfers() ([]*Handshake, error)
+	ListOutboundResponsibilityTransfers() ([]*Handshake, error)
+	TerminateResponsibilityTransfer(handshakeID string) (*Handshake, error)
+	UpdateResponsibilityTransfer(handshakeID, action string) (*Handshake, error)
 	AddHandshakeInternal(h *Handshake)
+
+	// Account status operations
+	ListCreateAccountStatus(states []string) ([]*CreateAccountStatus, error)
+	ListAccountsWithInvalidEffectivePolicy(policyType string) ([]*Account, error)
+
+	// Delegated service operations
+	ListDelegatedServicesForAccount(accountID string) ([]DelegatedService, error)
+
+	// Effective policy validation operations
+	ListEffectivePolicyValidationErrors(policyType, targetID string) ([]any, error)
 
 	// Resource policy operations
 	DeleteResourcePolicy() error

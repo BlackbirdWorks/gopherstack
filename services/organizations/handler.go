@@ -65,12 +65,23 @@ func (h *Handler) GetSupportedOperations() []string {
 		"EnableAWSServiceAccess",
 		"EnableAllFeatures",
 		"EnablePolicyType",
+		"InviteAccountToOrganization",
+		"InviteOrganizationToTransferResponsibility",
+		"LeaveOrganization",
 		"ListAccounts",
 		"ListAccountsForParent",
+		"ListAccountsWithInvalidEffectivePolicy",
 		"ListAWSServiceAccessForOrganization",
 		"ListChildren",
+		"ListCreateAccountStatus",
 		"ListDelegatedAdministrators",
+		"ListDelegatedServicesForAccount",
+		"ListEffectivePolicyValidationErrors",
+		"ListHandshakesForAccount",
+		"ListHandshakesForOrganization",
+		"ListInboundResponsibilityTransfers",
 		"ListOrganizationalUnitsForParent",
+		"ListOutboundResponsibilityTransfers",
 		"ListParents",
 		"ListPolicies",
 		"ListPoliciesForTarget",
@@ -82,9 +93,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RegisterDelegatedAdministrator",
 		"RemoveAccountFromOrganization",
 		"TagResource",
+		"TerminateResponsibilityTransfer",
 		"UntagResource",
 		"UpdateOrganizationalUnit",
 		"UpdatePolicy",
+		"UpdateResponsibilityTransfer",
 	}
 }
 
@@ -1036,6 +1049,38 @@ func toPolicySummaryObject(p *Policy) policySummaryObject {
 
 // dispatchNewOps handles handshake, resource-policy, and effective-policy operations.
 func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool, error) {
+	if ok, result := h.dispatchHandshakeOps(c, op, body); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchTransferOps(c, op, body); ok {
+		return true, result
+	}
+
+	switch op {
+	case "DeleteResourcePolicy":
+		return true, h.handleDeleteResourcePolicy(c, body)
+	case "DescribeResourcePolicy":
+		return true, h.handleDescribeResourcePolicy(c, body)
+	case "PutResourcePolicy":
+		return true, h.handlePutResourcePolicy(c, body)
+	case "DescribeEffectivePolicy":
+		return true, h.handleDescribeEffectivePolicy(c, body)
+	case "ListCreateAccountStatus":
+		return true, h.handleListCreateAccountStatus(c, body)
+	case "ListAccountsWithInvalidEffectivePolicy":
+		return true, h.handleListAccountsWithInvalidEffectivePolicy(c, body)
+	case "ListDelegatedServicesForAccount":
+		return true, h.handleListDelegatedServicesForAccount(c, body)
+	case "ListEffectivePolicyValidationErrors":
+		return true, h.handleListEffectivePolicyValidationErrors(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchHandshakeOps handles invitation and handshake listing operations.
+func (h *Handler) dispatchHandshakeOps(c *echo.Context, op string, body []byte) (bool, error) {
 	switch op {
 	case "AcceptHandshake":
 		return true, h.handleAcceptHandshake(c, body)
@@ -1045,16 +1090,34 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool,
 		return true, h.handleDeclineHandshake(c, body)
 	case "DescribeHandshake":
 		return true, h.handleDescribeHandshake(c, body)
+	case "InviteAccountToOrganization":
+		return true, h.handleInviteAccountToOrganization(c, body)
+	case "LeaveOrganization":
+		return true, h.handleLeaveOrganization(c, body)
+	case "ListHandshakesForAccount":
+		return true, h.handleListHandshakesForAccount(c, body)
+	case "ListHandshakesForOrganization":
+		return true, h.handleListHandshakesForOrganization(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchTransferOps handles responsibility-transfer operations.
+func (h *Handler) dispatchTransferOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
 	case "DescribeResponsibilityTransfer":
 		return true, h.handleDescribeResponsibilityTransfer(c, body)
-	case "DeleteResourcePolicy":
-		return true, h.handleDeleteResourcePolicy(c, body)
-	case "DescribeResourcePolicy":
-		return true, h.handleDescribeResourcePolicy(c, body)
-	case "PutResourcePolicy":
-		return true, h.handlePutResourcePolicy(c, body)
-	case "DescribeEffectivePolicy":
-		return true, h.handleDescribeEffectivePolicy(c, body)
+	case "InviteOrganizationToTransferResponsibility":
+		return true, h.handleInviteOrganizationToTransferResponsibility(c, body)
+	case "ListInboundResponsibilityTransfers":
+		return true, h.handleListInboundResponsibilityTransfers(c, body)
+	case "ListOutboundResponsibilityTransfers":
+		return true, h.handleListOutboundResponsibilityTransfers(c, body)
+	case "TerminateResponsibilityTransfer":
+		return true, h.handleTerminateResponsibilityTransfer(c, body)
+	case "UpdateResponsibilityTransfer":
+		return true, h.handleUpdateResponsibilityTransfer(c, body)
 	}
 
 	return false, nil
@@ -1195,6 +1258,240 @@ func (h *Handler) handleDescribeResponsibilityTransfer(c *echo.Context, body []b
 	}
 
 	return c.JSON(http.StatusOK, describeResponsibilityTransferResponse{HandshakeDetails: toHandshakeObject(hs)})
+}
+
+// ----------------------------------------
+// New handshake / invitation / transfer handlers
+// ----------------------------------------
+
+func (h *Handler) handleInviteAccountToOrganization(c *echo.Context, body []byte) error {
+	var req inviteAccountToOrganizationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.Target.ID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Target.Id is required")
+	}
+
+	hs, err := h.Backend.InviteAccountToOrganization(req.Target, req.Notes)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, inviteAccountToOrganizationResponse{Handshake: toHandshakeObject(hs)})
+}
+
+func (h *Handler) handleInviteOrganizationToTransferResponsibility(c *echo.Context, body []byte) error {
+	var req inviteOrganizationToTransferResponsibilityRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.Target.ID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Target.Id is required")
+	}
+
+	hs, err := h.Backend.InviteOrganizationToTransferResponsibility(req.Target, req.Notes)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, inviteOrganizationToTransferResponsibilityResponse{Handshake: toHandshakeObject(hs)})
+}
+
+func (h *Handler) handleLeaveOrganization(c *echo.Context, _ []byte) error {
+	if err := h.Backend.LeaveOrganization(); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, struct{}{})
+}
+
+func (h *Handler) handleListHandshakesForAccount(c *echo.Context, _ []byte) error {
+	handshakes, err := h.Backend.ListHandshakesForAccount()
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	objs := make([]handshakeObject, 0, len(handshakes))
+	for _, hs := range handshakes {
+		objs = append(objs, toHandshakeObject(hs))
+	}
+
+	return c.JSON(http.StatusOK, listHandshakesForAccountResponse{Handshakes: objs})
+}
+
+func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, _ []byte) error {
+	handshakes, err := h.Backend.ListHandshakesForOrganization()
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	objs := make([]handshakeObject, 0, len(handshakes))
+	for _, hs := range handshakes {
+		objs = append(objs, toHandshakeObject(hs))
+	}
+
+	return c.JSON(http.StatusOK, listHandshakesForOrganizationResponse{Handshakes: objs})
+}
+
+func (h *Handler) handleListInboundResponsibilityTransfers(c *echo.Context, _ []byte) error {
+	handshakes, err := h.Backend.ListInboundResponsibilityTransfers()
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	objs := make([]handshakeObject, 0, len(handshakes))
+	for _, hs := range handshakes {
+		objs = append(objs, toHandshakeObject(hs))
+	}
+
+	return c.JSON(http.StatusOK, listInboundResponsibilityTransfersResponse{ResponsibilityTransfers: objs})
+}
+
+func (h *Handler) handleListOutboundResponsibilityTransfers(c *echo.Context, _ []byte) error {
+	handshakes, err := h.Backend.ListOutboundResponsibilityTransfers()
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	objs := make([]handshakeObject, 0, len(handshakes))
+	for _, hs := range handshakes {
+		objs = append(objs, toHandshakeObject(hs))
+	}
+
+	return c.JSON(http.StatusOK, listOutboundResponsibilityTransfersResponse{ResponsibilityTransfers: objs})
+}
+
+func (h *Handler) handleTerminateResponsibilityTransfer(c *echo.Context, body []byte) error {
+	var req terminateResponsibilityTransferRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.HandshakeID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
+	}
+
+	hs, err := h.Backend.TerminateResponsibilityTransfer(req.HandshakeID)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, terminateResponsibilityTransferResponse{HandshakeDetails: toHandshakeObject(hs)})
+}
+
+func (h *Handler) handleUpdateResponsibilityTransfer(c *echo.Context, body []byte) error {
+	var req updateResponsibilityTransferRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.HandshakeID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
+	}
+
+	if req.Action == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Action is required")
+	}
+
+	hs, err := h.Backend.UpdateResponsibilityTransfer(req.HandshakeID, req.Action)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, updateResponsibilityTransferResponse{HandshakeDetails: toHandshakeObject(hs)})
+}
+
+// ----------------------------------------
+// New account-status / delegated-service / effective-policy handlers
+// ----------------------------------------
+
+func (h *Handler) handleListCreateAccountStatus(c *echo.Context, body []byte) error {
+	var req listCreateAccountStatusRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	statuses, err := h.Backend.ListCreateAccountStatus(req.States)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	objs := make([]CreateAccountStatus, 0, len(statuses))
+	for _, s := range statuses {
+		objs = append(objs, *s)
+	}
+
+	return c.JSON(http.StatusOK, listCreateAccountStatusResponse{CreateAccountStatuses: objs})
+}
+
+func (h *Handler) handleListAccountsWithInvalidEffectivePolicy(c *echo.Context, body []byte) error {
+	var req listAccountsWithInvalidEffectivePolicyRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.PolicyType == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "PolicyType is required")
+	}
+
+	accounts, err := h.Backend.ListAccountsWithInvalidEffectivePolicy(req.PolicyType)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	objs := make([]accountObject, 0, len(accounts))
+	for _, a := range accounts {
+		objs = append(objs, toAccountObject(a))
+	}
+
+	return c.JSON(http.StatusOK, listAccountsWithInvalidEffectivePolicyResponse{Accounts: objs})
+}
+
+func (h *Handler) handleListDelegatedServicesForAccount(c *echo.Context, body []byte) error {
+	var req listDelegatedServicesForAccountRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.AccountID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "AccountId is required")
+	}
+
+	services, err := h.Backend.ListDelegatedServicesForAccount(req.AccountID)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	objs := make([]delegatedServiceObject, 0, len(services))
+	for _, svc := range services {
+		objs = append(objs, delegatedServiceObject{
+			ServicePrincipal:      svc.ServicePrincipal,
+			DelegationEnabledDate: epochSeconds(svc.DelegationEnabledDate),
+		})
+	}
+
+	return c.JSON(http.StatusOK, listDelegatedServicesForAccountResponse{DelegatedServices: objs})
+}
+
+func (h *Handler) handleListEffectivePolicyValidationErrors(c *echo.Context, body []byte) error {
+	var req listEffectivePolicyValidationErrorsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+	}
+
+	if req.PolicyType == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "PolicyType is required")
+	}
+
+	errs, err := h.Backend.ListEffectivePolicyValidationErrors(req.PolicyType, req.TargetID)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, listEffectivePolicyValidationErrorsResponse{ValidationErrors: errs})
 }
 
 // ----------------------------------------
