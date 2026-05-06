@@ -28,7 +28,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Equal(t, 22, ram.HandlerOpsLen(h))
+	assert.Equal(t, 36, ram.HandlerOpsLen(h))
 }
 
 // TestRefinement1_GetSupportedOperationsSorted verifies the ops list is sorted.

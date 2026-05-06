@@ -51,6 +51,23 @@ const (
 )
 
 const (
+	opListPendingInvitationResources        = "ListPendingInvitationResources"
+	opListPermissionAssociations            = "ListPermissionAssociations"
+	opListPermissionVersions                = "ListPermissionVersions"
+	opListPermissions                       = "ListPermissions"
+	opListPrincipals                        = "ListPrincipals"
+	opListReplacePermissionAssociationsWork = "ListReplacePermissionAssociationsWork"
+	opListResourceTypes                     = "ListResourceTypes"
+	opListResources                         = "ListResources"
+	opListSourceAssociations                = "ListSourceAssociations"
+	opPromotePermissionCreatedFromPolicy    = "PromotePermissionCreatedFromPolicy"
+	opPromoteResourceShareCreatedFromPolicy = "PromoteResourceShareCreatedFromPolicy"
+	opRejectResourceShareInvitation         = "RejectResourceShareInvitation"
+	opReplacePermissionAssociations         = "ReplacePermissionAssociations"
+	opSetDefaultPermissionVersion           = "SetDefaultPermissionVersion"
+)
+
+const (
 	ramService       = "ram"
 	ramMatchPriority = 87
 )
@@ -99,8 +116,22 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetResourceShareAssociations,
 		opGetResourceShareInvitations,
 		opGetResourceShares,
+		opListPendingInvitationResources,
+		opListPermissionAssociations,
+		opListPermissionVersions,
+		opListPermissions,
+		opListPrincipals,
+		opListReplacePermissionAssociationsWork,
 		opListResourceSharePermissions,
+		opListResourceTypes,
+		opListResources,
+		opListSourceAssociations,
 		opListTagsForResource,
+		opPromotePermissionCreatedFromPolicy,
+		opPromoteResourceShareCreatedFromPolicy,
+		opRejectResourceShareInvitation,
+		opReplacePermissionAssociations,
+		opSetDefaultPermissionVersion,
 		opTagResource,
 		opUntagResource,
 		opUpdateResourceShare,
@@ -128,7 +159,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		return isRAMCreateOrAcceptPath(path) || isRAMDeletePath(path) ||
-			isRAMGetPath(path) || isRAMAssociationPath(path) || isRAMTagPath(path)
+			isRAMGetPath(path) || isRAMAssociationPath(path) || isRAMTagPath(path) ||
+			isRAMListPath(path) || isRAMPromotePath(path)
 	}
 }
 
@@ -138,7 +170,29 @@ func isRAMCreateOrAcceptPath(path string) bool {
 		strings.HasPrefix(path, "/createpermission") ||
 		strings.HasPrefix(path, "/createresourceshare") ||
 		strings.HasPrefix(path, "/enablesharingwithawsorganization") ||
+		strings.HasPrefix(path, "/rejectresourceshareinvitation") ||
+		strings.HasPrefix(path, "/setdefaultpermissionversion") ||
 		strings.HasPrefix(path, "/updateresourceshare")
+}
+
+// isRAMListPath returns true for new list operation paths.
+func isRAMListPath(path string) bool {
+	return strings.HasPrefix(path, "/listpendinginvitationresources") ||
+		strings.HasPrefix(path, "/listpermissionassociations") ||
+		strings.HasPrefix(path, "/listpermissionversions") ||
+		strings.HasPrefix(path, "/listpermissions") ||
+		strings.HasPrefix(path, "/listprincipals") ||
+		strings.HasPrefix(path, "/listreplacepermissionassociationswork") ||
+		strings.HasPrefix(path, "/listresourcetypes") ||
+		strings.HasPrefix(path, "/listresources") ||
+		strings.HasPrefix(path, "/listsourceassociations")
+}
+
+// isRAMPromotePath returns true for promote/replace paths.
+func isRAMPromotePath(path string) bool {
+	return strings.HasPrefix(path, "/promotepermissioncreatedfrompolicy") ||
+		strings.HasPrefix(path, "/promoteresourcesharecreatedfrompolicy") ||
+		strings.HasPrefix(path, "/replacepermissionassociations")
 }
 
 // isRAMDeletePath returns true for delete paths.
@@ -214,6 +268,10 @@ func extractCreateDeleteOp(path string) string {
 		return opDeleteResourceShare
 	case strings.HasPrefix(path, "/enablesharingwithawsorganization"):
 		return opEnableSharingWithAwsOrganization
+	case strings.HasPrefix(path, "/rejectresourceshareinvitation"):
+		return opRejectResourceShareInvitation
+	case strings.HasPrefix(path, "/setdefaultpermissionversion"):
+		return opSetDefaultPermissionVersion
 	case strings.HasPrefix(path, "/updateresourceshare"):
 		return opUpdateResourceShare
 	default:
@@ -222,7 +280,11 @@ func extractCreateDeleteOp(path string) string {
 }
 
 // extractGetListOp maps get/list paths to operation names.
-func extractGetListOp(path string) string {
+//
+//nolint:cyclop // large switch needed to map all RAM list/get paths to op names
+func extractGetListOp(
+	path string,
+) string {
 	switch {
 	case strings.HasPrefix(path, "/getpermission"):
 		return opGetPermission
@@ -234,8 +296,32 @@ func extractGetListOp(path string) string {
 		return opGetResourceShareInvitations
 	case strings.HasPrefix(path, "/getresourceshares"):
 		return opGetResourceShares
+	case strings.HasPrefix(path, "/listpendinginvitationresources"):
+		return opListPendingInvitationResources
+	case strings.HasPrefix(path, "/listpermissionassociations"):
+		return opListPermissionAssociations
+	case strings.HasPrefix(path, "/listpermissionversions"):
+		return opListPermissionVersions
+	case strings.HasPrefix(path, "/listpermissions"):
+		return opListPermissions
+	case strings.HasPrefix(path, "/listprincipals"):
+		return opListPrincipals
+	case strings.HasPrefix(path, "/listreplacepermissionassociationswork"):
+		return opListReplacePermissionAssociationsWork
 	case strings.HasPrefix(path, "/listresourcesharepermissions"):
 		return opListResourceSharePermissions
+	case strings.HasPrefix(path, "/listresourcetypes"):
+		return opListResourceTypes
+	case strings.HasPrefix(path, "/listresources"):
+		return opListResources
+	case strings.HasPrefix(path, "/listsourceassociations"):
+		return opListSourceAssociations
+	case strings.HasPrefix(path, "/promotepermissioncreatedfrompolicy"):
+		return opPromotePermissionCreatedFromPolicy
+	case strings.HasPrefix(path, "/promoteresourcesharecreatedfrompolicy"):
+		return opPromoteResourceShareCreatedFromPolicy
+	case strings.HasPrefix(path, "/replacepermissionassociations"):
+		return opReplacePermissionAssociations
 	case strings.HasPrefix(path, "/listtagsforresource"):
 		return opListTagsForResource
 	case strings.HasPrefix(path, "/tagresource"):
@@ -296,7 +382,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, op string, c *echo.Context, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(
+	ctx context.Context,
+	op string,
+	c *echo.Context,
+	body []byte,
+) ([]byte, error) {
 	if result, ok, err := h.dispatchMutateOps(ctx, op, c, body); ok {
 		return result, err
 	}
@@ -331,29 +422,26 @@ func (h *Handler) dispatchCRUDOps(
 	c *echo.Context,
 	body []byte,
 ) ([]byte, bool, error) {
+	if r, ok, err := h.dispatchCRUDShareOps(ctx, op, c, body); ok {
+		return r, true, err
+	}
+
+	return h.dispatchCRUDPermissionOps(ctx, op, c, body)
+}
+
+func (h *Handler) dispatchCRUDShareOps(
+	ctx context.Context,
+	op string,
+	c *echo.Context,
+	body []byte,
+) ([]byte, bool, error) {
 	switch op {
 	case opAcceptResourceShareInvitation:
 		r, err := h.handleAcceptResourceShareInvitation(ctx, body)
 
 		return r, true, err
-	case opCreatePermission:
-		r, err := h.handleCreatePermission(ctx, body)
-
-		return r, true, err
-	case opCreatePermissionVersion:
-		r, err := h.handleCreatePermissionVersion(ctx, body)
-
-		return r, true, err
 	case opCreateResourceShare:
 		r, err := h.handleCreateResourceShare(ctx, body)
-
-		return r, true, err
-	case opDeletePermission:
-		r, err := h.handleDeletePermission(ctx, c)
-
-		return r, true, err
-	case opDeletePermissionVersion:
-		r, err := h.handleDeletePermissionVersion(ctx, c)
 
 		return r, true, err
 	case opDeleteResourceShare:
@@ -362,6 +450,14 @@ func (h *Handler) dispatchCRUDOps(
 		return r, true, err
 	case opUpdateResourceShare:
 		r, err := h.handleUpdateResourceShare(ctx, body)
+
+		return r, true, err
+	case opRejectResourceShareInvitation:
+		r, err := h.handleRejectResourceShareInvitation(ctx, body)
+
+		return r, true, err
+	case opPromoteResourceShareCreatedFromPolicy:
+		r, err := h.handlePromoteResourceShareCreatedFromPolicy(ctx, body)
 
 		return r, true, err
 	case opEnableSharingWithAwsOrganization:
@@ -381,7 +477,51 @@ func (h *Handler) dispatchCRUDOps(
 	}
 }
 
-func (h *Handler) dispatchAssocOps(ctx context.Context, op string, body []byte) ([]byte, bool, error) {
+func (h *Handler) dispatchCRUDPermissionOps(
+	ctx context.Context,
+	op string,
+	c *echo.Context,
+	body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case opCreatePermission:
+		r, err := h.handleCreatePermission(ctx, body)
+
+		return r, true, err
+	case opCreatePermissionVersion:
+		r, err := h.handleCreatePermissionVersion(ctx, body)
+
+		return r, true, err
+	case opDeletePermission:
+		r, err := h.handleDeletePermission(ctx, c)
+
+		return r, true, err
+	case opDeletePermissionVersion:
+		r, err := h.handleDeletePermissionVersion(ctx, c)
+
+		return r, true, err
+	case opSetDefaultPermissionVersion:
+		r, err := h.handleSetDefaultPermissionVersion(ctx, body)
+
+		return r, true, err
+	case opPromotePermissionCreatedFromPolicy:
+		r, err := h.handlePromotePermissionCreatedFromPolicy(ctx, body)
+
+		return r, true, err
+	case opReplacePermissionAssociations:
+		r, err := h.handleReplacePermissionAssociations(ctx, body)
+
+		return r, true, err
+	default:
+		return nil, false, nil
+	}
+}
+
+func (h *Handler) dispatchAssocOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
 	switch op {
 	case opAssociateResourceSharePermission:
 		r, err := h.handleAssociateResourceSharePermission(ctx, body)
@@ -404,7 +544,23 @@ func (h *Handler) dispatchAssocOps(ctx context.Context, op string, body []byte) 
 	}
 }
 
-func (h *Handler) dispatchReadOps(ctx context.Context, op string, body []byte) ([]byte, bool, error) {
+func (h *Handler) dispatchReadOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
+	if r, ok, err := h.dispatchGetOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	return h.dispatchListOps(ctx, op, body)
+}
+
+func (h *Handler) dispatchGetOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
 	switch op {
 	case opGetPermission:
 		r, err := h.handleGetPermission(ctx, body)
@@ -426,12 +582,59 @@ func (h *Handler) dispatchReadOps(ctx context.Context, op string, body []byte) (
 		r, err := h.handleGetResourceShares(ctx, body)
 
 		return r, true, err
+	case opListTagsForResource:
+		r, err := h.handleListTagsForResource(ctx, body)
+
+		return r, true, err
 	case opListResourceSharePermissions:
 		r, err := h.handleListResourceSharePermissions(ctx, body)
 
 		return r, true, err
-	case opListTagsForResource:
-		r, err := h.handleListTagsForResource(ctx, body)
+	default:
+		return nil, false, nil
+	}
+}
+
+func (h *Handler) dispatchListOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case opListPendingInvitationResources:
+		r, err := h.handleListPendingInvitationResources(ctx, body)
+
+		return r, true, err
+	case opListPermissionAssociations:
+		r, err := h.handleListPermissionAssociations(ctx, body)
+
+		return r, true, err
+	case opListPermissionVersions:
+		r, err := h.handleListPermissionVersions(ctx, body)
+
+		return r, true, err
+	case opListPermissions:
+		r, err := h.handleListPermissions(ctx, body)
+
+		return r, true, err
+	case opListPrincipals:
+		r, err := h.handleListPrincipals(ctx, body)
+
+		return r, true, err
+	case opListReplacePermissionAssociationsWork:
+		r, err := h.handleListReplacePermissionAssociationsWork(ctx, body)
+
+		return r, true, err
+	case opListResourceTypes:
+		r, err := h.handleListResourceTypes(ctx, body)
+
+		return r, true, err
+	case opListResources:
+		r, err := h.handleListResources(ctx, body)
+
+		return r, true, err
+	case opListSourceAssociations:
+		r, err := h.handleListSourceAssociations(ctx, body)
 
 		return r, true, err
 	default:
@@ -490,7 +693,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(
+			http.StatusInternalServerError,
+			map[string]string{keyMessageField: err.Error()},
+		)
 	}
 }
 
@@ -703,7 +909,11 @@ func (h *Handler) handleUpdateResourceShare(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: resourceShareArn is required", errInvalidRequest)
 	}
 
-	rs, err := h.Backend.UpdateResourceShare(req.ResourceShareArn, req.Name, req.AllowExternalPrincipals)
+	rs, err := h.Backend.UpdateResourceShare(
+		req.ResourceShareArn,
+		req.Name,
+		req.AllowExternalPrincipals,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -720,7 +930,10 @@ type deleteResourceShareResponse struct {
 func (h *Handler) handleDeleteResourceShare(_ context.Context, c *echo.Context) ([]byte, error) {
 	shareARN := c.Request().URL.Query().Get("resourceShareArn")
 	if shareARN == "" {
-		return nil, fmt.Errorf("%w: resourceShareArn query parameter is required", errInvalidRequest)
+		return nil, fmt.Errorf(
+			"%w: resourceShareArn query parameter is required",
+			errInvalidRequest,
+		)
 	}
 
 	if err := h.Backend.DeleteResourceShare(shareARN); err != nil {
@@ -750,7 +963,11 @@ func (h *Handler) handleAssociateResourceShare(_ context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: resourceShareArn is required", errInvalidRequest)
 	}
 
-	associations, err := h.Backend.AssociateResourceShare(req.ResourceShareArn, req.Principals, req.ResourceArns)
+	associations, err := h.Backend.AssociateResourceShare(
+		req.ResourceShareArn,
+		req.Principals,
+		req.ResourceArns,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -784,7 +1001,11 @@ func (h *Handler) handleDisassociateResourceShare(_ context.Context, body []byte
 		return nil, fmt.Errorf("%w: resourceShareArn is required", errInvalidRequest)
 	}
 
-	associations, err := h.Backend.DisassociateResourceShare(req.ResourceShareArn, req.Principals, req.ResourceArns)
+	associations, err := h.Backend.DisassociateResourceShare(
+		req.ResourceShareArn,
+		req.Principals,
+		req.ResourceArns,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -811,13 +1032,19 @@ type getResourceShareAssociationsResponse struct {
 	ResourceShareAssociations []associationObject `json:"resourceShareAssociations"`
 }
 
-func (h *Handler) handleGetResourceShareAssociations(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleGetResourceShareAssociations(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
 	var req getResourceShareAssociationsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	associations := h.Backend.GetResourceShareAssociations(req.AssociationType, req.ResourceShareArns)
+	associations := h.Backend.GetResourceShareAssociations(
+		req.AssociationType,
+		req.ResourceShareArns,
+	)
 
 	// Apply principal or resource ARN filter.
 	filtered := make([]associationObject, 0, len(associations))
@@ -936,7 +1163,10 @@ type listResourceSharePermissionsResponse struct {
 }
 
 // handleListResourceSharePermissions returns the managed permissions associated with a resource share.
-func (h *Handler) handleListResourceSharePermissions(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListResourceSharePermissions(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
 	var req listResourceSharePermissionsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1075,7 +1305,10 @@ type acceptResourceShareInvitationResponse struct {
 	ResourceShareInvitation invitationObject `json:"resourceShareInvitation"`
 }
 
-func (h *Handler) handleAcceptResourceShareInvitation(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleAcceptResourceShareInvitation(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
 	var req acceptResourceShareInvitationRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1126,7 +1359,12 @@ func (h *Handler) handleCreatePermission(_ context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: policyTemplate is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.CreatePermission(req.Name, req.ResourceType, req.PolicyTemplate, fromTagObjects(req.Tags))
+	p, err := h.Backend.CreatePermission(
+		req.Name,
+		req.ResourceType,
+		req.PolicyTemplate,
+		fromTagObjects(req.Tags),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1194,7 +1432,10 @@ type deletePermissionVersionResponse struct {
 	ReturnValue      bool   `json:"returnValue"`
 }
 
-func (h *Handler) handleDeletePermissionVersion(_ context.Context, c *echo.Context) ([]byte, error) {
+func (h *Handler) handleDeletePermissionVersion(
+	_ context.Context,
+	c *echo.Context,
+) ([]byte, error) {
 	permissionARN := c.Request().URL.Query().Get("permissionArn")
 	if permissionARN == "" {
 		return nil, fmt.Errorf("%w: permissionArn query parameter is required", errInvalidRequest)
@@ -1202,7 +1443,10 @@ func (h *Handler) handleDeletePermissionVersion(_ context.Context, c *echo.Conte
 
 	versionStr := c.Request().URL.Query().Get("permissionVersion")
 	if versionStr == "" {
-		return nil, fmt.Errorf("%w: permissionVersion query parameter is required", errInvalidRequest)
+		return nil, fmt.Errorf(
+			"%w: permissionVersion query parameter is required",
+			errInvalidRequest,
+		)
 	}
 
 	var version int32
@@ -1214,7 +1458,9 @@ func (h *Handler) handleDeletePermissionVersion(_ context.Context, c *echo.Conte
 		return nil, err
 	}
 
-	return json.Marshal(deletePermissionVersionResponse{ReturnValue: true, PermissionStatus: "UPDATING"})
+	return json.Marshal(
+		deletePermissionVersionResponse{ReturnValue: true, PermissionStatus: "UPDATING"},
+	)
 }
 
 // --- GetPermission ---
@@ -1259,7 +1505,10 @@ type associateResourceSharePermissionResponse struct {
 	ReturnValue bool `json:"returnValue"`
 }
 
-func (h *Handler) handleAssociateResourceSharePermission(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleAssociateResourceSharePermission(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
 	var req associateResourceSharePermissionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1293,7 +1542,10 @@ type disassociateResourceSharePermissionResponse struct {
 	ReturnValue bool `json:"returnValue"`
 }
 
-func (h *Handler) handleDisassociateResourceSharePermission(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDisassociateResourceSharePermission(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
 	var req disassociateResourceSharePermissionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1327,13 +1579,19 @@ type getResourceShareInvitationsResponse struct {
 	ResourceShareInvitations []invitationObject `json:"resourceShareInvitations"`
 }
 
-func (h *Handler) handleGetResourceShareInvitations(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleGetResourceShareInvitations(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
 	var req getResourceShareInvitationsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	invitations := h.Backend.GetResourceShareInvitations(req.ResourceShareInvitationArns, req.ResourceShareArns)
+	invitations := h.Backend.GetResourceShareInvitations(
+		req.ResourceShareInvitationArns,
+		req.ResourceShareArns,
+	)
 	objs := make([]invitationObject, 0, len(invitations))
 
 	for _, inv := range invitations {
@@ -1364,4 +1622,492 @@ func (h *Handler) handleGetResourcePolicies(_ context.Context, body []byte) ([]b
 	policies := h.Backend.GetResourcePolicies(req.ResourceArns)
 
 	return json.Marshal(getResourcePoliciesResponse{Policies: policies})
+}
+
+// --- RejectResourceShareInvitation ---
+
+type rejectResourceShareInvitationRequest struct {
+	ResourceShareInvitationArn string `json:"resourceShareInvitationArn"`
+}
+
+type rejectResourceShareInvitationResponse struct {
+	ResourceShareInvitation invitationObject `json:"resourceShareInvitation"`
+}
+
+func (h *Handler) handleRejectResourceShareInvitation(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
+	var req rejectResourceShareInvitationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceShareInvitationArn == "" {
+		return nil, fmt.Errorf("%w: resourceShareInvitationArn is required", errInvalidRequest)
+	}
+
+	inv, err := h.Backend.RejectResourceShareInvitation(req.ResourceShareInvitationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(rejectResourceShareInvitationResponse{
+		ResourceShareInvitation: toInvitationObject(inv),
+	})
+}
+
+// --- SetDefaultPermissionVersion ---
+
+type setDefaultPermissionVersionRequest struct {
+	PermissionArn     string `json:"permissionArn"`
+	PermissionVersion int32  `json:"permissionVersion"`
+}
+
+type setDefaultPermissionVersionResponse struct {
+	ReturnValue bool `json:"returnValue"`
+}
+
+func (h *Handler) handleSetDefaultPermissionVersion(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
+	var req setDefaultPermissionVersionRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.PermissionArn == "" {
+		return nil, fmt.Errorf("%w: permissionArn is required", errInvalidRequest)
+	}
+
+	if req.PermissionVersion == 0 {
+		return nil, fmt.Errorf("%w: permissionVersion is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.SetDefaultPermissionVersion(req.PermissionArn, req.PermissionVersion); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(setDefaultPermissionVersionResponse{ReturnValue: true})
+}
+
+// --- PromotePermissionCreatedFromPolicy ---
+
+type promotePermissionCreatedFromPolicyRequest struct {
+	PermissionArn string `json:"permissionArn"`
+	Name          string `json:"name"`
+}
+
+type promotePermissionCreatedFromPolicyResponse struct {
+	Permission permissionSummaryObject `json:"permission"`
+}
+
+func (h *Handler) handlePromotePermissionCreatedFromPolicy(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
+	var req promotePermissionCreatedFromPolicyRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.PermissionArn == "" {
+		return nil, fmt.Errorf("%w: permissionArn is required", errInvalidRequest)
+	}
+
+	p, err := h.Backend.PromotePermissionCreatedFromPolicy(req.PermissionArn, req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(
+		promotePermissionCreatedFromPolicyResponse{Permission: toPermissionSummaryObject(p)},
+	)
+}
+
+// --- PromoteResourceShareCreatedFromPolicy ---
+
+type promoteResourceShareCreatedFromPolicyRequest struct {
+	ResourceShareArn string `json:"resourceShareArn"`
+}
+
+type promoteResourceShareCreatedFromPolicyResponse struct {
+	ReturnValue bool `json:"returnValue"`
+}
+
+func (h *Handler) handlePromoteResourceShareCreatedFromPolicy(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
+	var req promoteResourceShareCreatedFromPolicyRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceShareArn == "" {
+		return nil, fmt.Errorf("%w: resourceShareArn is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.PromoteResourceShareCreatedFromPolicy(req.ResourceShareArn); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(promoteResourceShareCreatedFromPolicyResponse{ReturnValue: true})
+}
+
+// --- ReplacePermissionAssociations ---
+
+type replacePermissionAssociationsRequest struct {
+	FromPermissionVersion *int32 `json:"fromPermissionVersion,omitempty"`
+	FromPermissionArn     string `json:"fromPermissionArn"`
+	ToPermissionArn       string `json:"toPermissionArn"`
+}
+
+type replacePermissionAssociationsWork struct {
+	ID                string `json:"id"`
+	FromPermissionArn string `json:"fromPermissionArn"`
+	ToPermissionArn   string `json:"toPermissionArn"`
+	Status            string `json:"status"`
+}
+
+type replacePermissionAssociationsResponse struct {
+	ReplacePermissionAssociationsWork replacePermissionAssociationsWork `json:"replacePermissionAssociationsWork"`
+}
+
+func (h *Handler) handleReplacePermissionAssociations(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
+	var req replacePermissionAssociationsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.FromPermissionArn == "" {
+		return nil, fmt.Errorf("%w: fromPermissionArn is required", errInvalidRequest)
+	}
+
+	if req.ToPermissionArn == "" {
+		return nil, fmt.Errorf("%w: toPermissionArn is required", errInvalidRequest)
+	}
+
+	workID, err := h.Backend.ReplacePermissionAssociations(
+		req.FromPermissionArn,
+		req.ToPermissionArn,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(replacePermissionAssociationsResponse{
+		ReplacePermissionAssociationsWork: replacePermissionAssociationsWork{
+			ID:                workID,
+			FromPermissionArn: req.FromPermissionArn,
+			ToPermissionArn:   req.ToPermissionArn,
+			Status:            "IN_PROGRESS",
+		},
+	})
+}
+
+// --- ListPermissions ---
+
+type listPermissionsRequest struct {
+	PermissionType string `json:"permissionType"`
+	ResourceType   string `json:"resourceType"`
+	NextToken      string `json:"nextToken"`
+}
+
+type listPermissionsResponse struct {
+	NextToken   string                    `json:"nextToken,omitempty"`
+	Permissions []permissionSummaryObject `json:"permissions"`
+}
+
+func (h *Handler) handleListPermissions(_ context.Context, body []byte) ([]byte, error) {
+	var req listPermissionsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	perms := h.Backend.ListPermissions(req.ResourceType)
+	objs := make([]permissionSummaryObject, 0, len(perms))
+
+	for _, p := range perms {
+		objs = append(objs, toPermissionSummaryObject(p))
+	}
+
+	return json.Marshal(listPermissionsResponse{Permissions: objs})
+}
+
+// --- ListPermissionVersions ---
+
+type listPermissionVersionsRequest struct {
+	PermissionArn string `json:"permissionArn"`
+	NextToken     string `json:"nextToken"`
+}
+
+type listPermissionVersionsResponse struct {
+	NextToken   string                   `json:"nextToken,omitempty"`
+	Permissions []permissionDetailObject `json:"permissions"`
+}
+
+func (h *Handler) handleListPermissionVersions(_ context.Context, body []byte) ([]byte, error) {
+	var req listPermissionVersionsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.PermissionArn == "" {
+		return nil, fmt.Errorf("%w: permissionArn is required", errInvalidRequest)
+	}
+
+	versions, err := h.Backend.ListPermissionVersions(req.PermissionArn)
+	if err != nil {
+		return nil, err
+	}
+
+	p, _, pErr := h.Backend.GetPermission(req.PermissionArn, nil)
+	if pErr != nil {
+		return nil, pErr
+	}
+
+	objs := make([]permissionDetailObject, 0, len(versions))
+
+	for _, pv := range versions {
+		objs = append(objs, toPermissionDetailObject(p, pv))
+	}
+
+	return json.Marshal(listPermissionVersionsResponse{Permissions: objs})
+}
+
+// --- ListPermissionAssociations ---
+
+type permissionAssociationObject struct {
+	ResourceShareArn  string `json:"resourceShareArn"`
+	PermissionArn     string `json:"permissionArn"`
+	PermissionVersion int32  `json:"permissionVersion"`
+}
+
+type listPermissionAssociationsRequest struct {
+	PermissionArn     string `json:"permissionArn"`
+	PermissionVersion *int32 `json:"permissionVersion,omitempty"`
+	NextToken         string `json:"nextToken"`
+}
+
+type listPermissionAssociationsResponse struct {
+	NextToken   string                        `json:"nextToken,omitempty"`
+	Permissions []permissionAssociationObject `json:"permissions"`
+}
+
+func (h *Handler) handleListPermissionAssociations(_ context.Context, body []byte) ([]byte, error) {
+	var req listPermissionAssociationsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	assocs := h.Backend.ListPermissionAssociations(req.PermissionArn)
+	objs := make([]permissionAssociationObject, 0, len(assocs))
+
+	for _, a := range assocs {
+		objs = append(objs, permissionAssociationObject{
+			ResourceShareArn:  a.ShareARN,
+			PermissionArn:     a.PermissionARN,
+			PermissionVersion: a.Version,
+		})
+	}
+
+	return json.Marshal(listPermissionAssociationsResponse{Permissions: objs})
+}
+
+// --- ListResources ---
+
+type resourceObject struct {
+	Arn              string  `json:"arn"`
+	ResourceShareArn string  `json:"resourceShareArn"`
+	Type             string  `json:"type"`
+	Status           string  `json:"status"`
+	CreationTime     float64 `json:"creationTime"`
+	LastUpdatedTime  float64 `json:"lastUpdatedTime"`
+}
+
+func toResourceObject(a *ResourceShareAssociation) resourceObject {
+	return resourceObject{
+		Arn:              a.AssociatedEntity,
+		ResourceShareArn: a.ResourceShareARN,
+		Type:             "UNKNOWN",
+		Status:           a.Status,
+		CreationTime:     epochSeconds(a.CreationTime),
+		LastUpdatedTime:  epochSeconds(a.LastUpdatedTime),
+	}
+}
+
+type listResourcesRequest struct {
+	ResourceOwner    string `json:"resourceOwner"`
+	ResourceShareArn string `json:"resourceShareArn"`
+	ResourceType     string `json:"resourceType"`
+	NextToken        string `json:"nextToken"`
+}
+
+type listResourcesResponse struct {
+	NextToken string           `json:"nextToken,omitempty"`
+	Resources []resourceObject `json:"resources"`
+}
+
+func (h *Handler) handleListResources(_ context.Context, body []byte) ([]byte, error) {
+	var req listResourcesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	assocs := h.Backend.ListResources(req.ResourceOwner, req.ResourceShareArn, req.ResourceType)
+	objs := make([]resourceObject, 0, len(assocs))
+
+	for _, a := range assocs {
+		objs = append(objs, toResourceObject(a))
+	}
+
+	return json.Marshal(listResourcesResponse{Resources: objs})
+}
+
+// --- ListPrincipals ---
+
+type principalObject struct {
+	ID               string  `json:"id"`
+	ResourceShareArn string  `json:"resourceShareArn"`
+	External         bool    `json:"external"`
+	CreationTime     float64 `json:"creationTime"`
+	LastUpdatedTime  float64 `json:"lastUpdatedTime"`
+}
+
+func toPrincipalObject(a *ResourceShareAssociation) principalObject {
+	return principalObject{
+		ID:               a.AssociatedEntity,
+		ResourceShareArn: a.ResourceShareARN,
+		External:         a.External,
+		CreationTime:     epochSeconds(a.CreationTime),
+		LastUpdatedTime:  epochSeconds(a.LastUpdatedTime),
+	}
+}
+
+type listPrincipalsRequest struct {
+	ResourceOwner    string `json:"resourceOwner"`
+	ResourceShareArn string `json:"resourceShareArn"`
+	NextToken        string `json:"nextToken"`
+}
+
+type listPrincipalsResponse struct {
+	NextToken  string            `json:"nextToken,omitempty"`
+	Principals []principalObject `json:"principals"`
+}
+
+func (h *Handler) handleListPrincipals(_ context.Context, body []byte) ([]byte, error) {
+	var req listPrincipalsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	assocs := h.Backend.ListPrincipals(req.ResourceOwner, req.ResourceShareArn)
+	objs := make([]principalObject, 0, len(assocs))
+
+	for _, a := range assocs {
+		objs = append(objs, toPrincipalObject(a))
+	}
+
+	return json.Marshal(listPrincipalsResponse{Principals: objs})
+}
+
+// --- ListPendingInvitationResources ---
+
+type listPendingInvitationResourcesRequest struct {
+	ResourceShareInvitationArn string `json:"resourceShareInvitationArn"`
+	NextToken                  string `json:"nextToken"`
+}
+
+type listPendingInvitationResourcesResponse struct {
+	NextToken string           `json:"nextToken,omitempty"`
+	Resources []resourceObject `json:"resources"`
+}
+
+func (h *Handler) handleListPendingInvitationResources(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
+	var req listPendingInvitationResourcesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceShareInvitationArn == "" {
+		return nil, fmt.Errorf("%w: resourceShareInvitationArn is required", errInvalidRequest)
+	}
+
+	assocs, err := h.Backend.ListPendingInvitationResources(req.ResourceShareInvitationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	objs := make([]resourceObject, 0, len(assocs))
+
+	for _, a := range assocs {
+		objs = append(objs, toResourceObject(a))
+	}
+
+	return json.Marshal(listPendingInvitationResourcesResponse{Resources: objs})
+}
+
+// --- ListResourceTypes ---
+
+type resourceTypeObject struct {
+	ResourceType string `json:"resourceType"`
+	ServiceName  string `json:"serviceName"`
+}
+
+type listResourceTypesResponse struct {
+	NextToken     string               `json:"nextToken,omitempty"`
+	ResourceTypes []resourceTypeObject `json:"resourceTypes"`
+}
+
+const serviceNameEC2 = "ec2"
+
+func (h *Handler) handleListResourceTypes(_ context.Context, _ []byte) ([]byte, error) {
+	// Return a static set of well-known shareable resource types.
+	types := []resourceTypeObject{
+		{ResourceType: "ec2:Subnet", ServiceName: serviceNameEC2},
+		{ResourceType: "ec2:VPC", ServiceName: serviceNameEC2},
+		{ResourceType: "ec2:TransitGateway", ServiceName: serviceNameEC2},
+		{ResourceType: "route53resolver:ResolverRule", ServiceName: "route53resolver"},
+	}
+
+	return json.Marshal(listResourceTypesResponse{ResourceTypes: types})
+}
+
+// --- ListReplacePermissionAssociationsWork ---
+
+type listReplacePermissionAssociationsWorkResponse struct {
+	NextToken                         string                              `json:"nextToken,omitempty"`
+	ReplacePermissionAssociationsWork []replacePermissionAssociationsWork `json:"replacePermissionAssociationsWork"`
+}
+
+func (h *Handler) handleListReplacePermissionAssociationsWork(
+	_ context.Context,
+	_ []byte,
+) ([]byte, error) {
+	// Mock returns empty list; work items are ephemeral in this implementation.
+	return json.Marshal(listReplacePermissionAssociationsWorkResponse{
+		ReplacePermissionAssociationsWork: []replacePermissionAssociationsWork{},
+	})
+}
+
+// --- ListSourceAssociations ---
+
+type listSourceAssociationsResponse struct {
+	NextToken    string              `json:"nextToken,omitempty"`
+	Associations []associationObject `json:"associations"`
+}
+
+func (h *Handler) handleListSourceAssociations(_ context.Context, _ []byte) ([]byte, error) {
+	// Returns empty list in the mock — source associations are not tracked.
+	return json.Marshal(listSourceAssociationsResponse{
+		Associations: []associationObject{},
+	})
 }
