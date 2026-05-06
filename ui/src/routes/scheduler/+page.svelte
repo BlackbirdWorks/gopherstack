@@ -22,7 +22,8 @@
 		Eye,
 		Play,
 		Pause,
-		Layers
+		Layers,
+		Pencil
 	} from 'lucide-svelte';
 
 	const scheduler = getSchedulerClient();
@@ -45,6 +46,17 @@
 	let newScheduleRoleArn = $state('');
 	let newScheduleState = $state<'ENABLED' | 'DISABLED'>('ENABLED');
 	let newScheduleTimezone = $state('UTC');
+
+	// Edit modal
+	let showEditModal = $state(false);
+	let editing = $state(false);
+	let editScheduleName = $state('');
+	let editScheduleGroupName = $state('');
+	let editScheduleExpression = $state('');
+	let editScheduleTargetArn = $state('');
+	let editScheduleRoleArn = $state('');
+	let editScheduleState = $state<'ENABLED' | 'DISABLED'>('ENABLED');
+	let editScheduleTimezone = $state('UTC');
 
 	// Groups
 	let groups = $state<ScheduleGroupSummary[]>([]);
@@ -112,6 +124,57 @@
 			await loadSchedules();
 		} catch (e) {
 			toast.error(`Failed to delete schedule: ${e}`);
+		}
+	}
+
+	async function openEditModal(schedule: ScheduleSummary) {
+		// Fetch full schedule details to populate the edit form
+		try {
+			const res = await scheduler.send(
+				new GetScheduleCommand({ Name: schedule.Name, GroupName: schedule.GroupName })
+			);
+			editScheduleName = res.Name ?? '';
+			editScheduleGroupName = schedule.GroupName ?? 'default';
+			editScheduleExpression = res.ScheduleExpression ?? '';
+			editScheduleTimezone = res.ScheduleExpressionTimezone ?? 'UTC';
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			editScheduleState = (res.State as any) ?? 'ENABLED';
+			editScheduleTargetArn = res.Target?.Arn ?? '';
+			editScheduleRoleArn = res.Target?.RoleArn ?? '';
+			showEditModal = true;
+		} catch (e) {
+			toast.error(`Failed to load schedule details: ${e}`);
+		}
+	}
+
+	async function updateSchedule() {
+		if (!editScheduleExpression.trim() || !editScheduleTargetArn.trim() || !editScheduleRoleArn.trim()) {
+			toast.error('Expression, target ARN, and role ARN are required');
+			return;
+		}
+		editing = true;
+		try {
+			await scheduler.send(
+				new UpdateScheduleCommand({
+					Name: editScheduleName,
+					GroupName: editScheduleGroupName === 'default' ? undefined : editScheduleGroupName,
+					ScheduleExpression: editScheduleExpression.trim(),
+					ScheduleExpressionTimezone: editScheduleTimezone,
+					State: editScheduleState,
+					Target: {
+						Arn: editScheduleTargetArn.trim(),
+						RoleArn: editScheduleRoleArn.trim()
+					},
+					FlexibleTimeWindow: { Mode: 'OFF' }
+				})
+			);
+			toast.success(`Schedule "${editScheduleName}" updated`);
+			showEditModal = false;
+			await loadSchedules();
+		} catch (e) {
+			toast.error(`Failed to update schedule: ${e}`);
+		} finally {
+			editing = false;
 		}
 	}
 
@@ -263,6 +326,13 @@
 								</td>
 								<td class="px-4 py-3 text-right flex justify-end gap-1">
 									<button
+										onclick={() => openEditModal(schedule)}
+										class="rounded p-1 text-muted-foreground hover:bg-accent"
+										title="Edit schedule"
+									>
+										<Pencil class="h-4 w-4" />
+									</button>
+									<button
 										onclick={() => deleteSchedule(schedule)}
 										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
 										title="Delete schedule"
@@ -331,6 +401,86 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Edit Schedule Modal -->
+{#if showEditModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-lg rounded-lg bg-background p-6 shadow-xl overflow-y-auto max-h-[90vh]">
+			<h2 class="text-lg font-semibold mb-4">Edit Schedule: {editScheduleName}</h2>
+			<div class="space-y-3">
+				<div>
+					<label for="edit-sch-expr" class="block text-sm font-medium mb-1">Schedule Expression *</label>
+					<input
+						id="edit-sch-expr"
+						type="text"
+						bind:value={editScheduleExpression}
+						placeholder="rate(1 hour) or cron(0 12 * * ? *)"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+					<p class="text-xs text-muted-foreground mt-1">
+						Examples: rate(5 minutes), cron(0 9 ? * MON-FRI *)
+					</p>
+				</div>
+				<div>
+					<label for="edit-sch-tz" class="block text-sm font-medium mb-1">Timezone</label>
+					<input
+						id="edit-sch-tz"
+						type="text"
+						bind:value={editScheduleTimezone}
+						placeholder="UTC"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div>
+					<label for="edit-sch-target" class="block text-sm font-medium mb-1">Target ARN *</label>
+					<input
+						id="edit-sch-target"
+						type="text"
+						bind:value={editScheduleTargetArn}
+						placeholder="arn:aws:lambda:us-east-1:123456789012:function:my-function"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div>
+					<label for="edit-sch-role" class="block text-sm font-medium mb-1">Execution Role ARN *</label>
+					<input
+						id="edit-sch-role"
+						type="text"
+						bind:value={editScheduleRoleArn}
+						placeholder="arn:aws:iam::123456789012:role/scheduler-role"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
+				<div>
+					<label for="edit-sch-state" class="block text-sm font-medium mb-1">State</label>
+					<select
+						id="edit-sch-state"
+						bind:value={editScheduleState}
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					>
+						<option value="ENABLED">Enabled</option>
+						<option value="DISABLED">Disabled</option>
+					</select>
+				</div>
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					onclick={() => (showEditModal = false)}
+					class="rounded-md border px-4 py-2 text-sm hover:bg-accent"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={updateSchedule}
+					disabled={editing || !editScheduleExpression.trim()}
+					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					{editing ? 'Saving...' : 'Save Changes'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Create Schedule Modal -->
 {#if showCreateModal}
