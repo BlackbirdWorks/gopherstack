@@ -17,39 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := ses.NewInMemoryBackend()
 	h := ses.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &sessdk.Client{}, h.GetSupportedOperations(), []string{
-		"DeleteIdentityPolicy",
-		"DeleteVerifiedEmailAddress",
-		"DescribeConfigurationSet",
-		"DescribeReceiptRule",
-		"GetIdentityDkimAttributes",
-		"GetIdentityMailFromDomainAttributes",
-		"GetIdentityNotificationAttributes",
-		"GetIdentityPolicies",
-		"ListIdentityPolicies",
-		"ListVerifiedEmailAddresses",
-		"PutConfigurationSetDeliveryOptions",
-		"PutIdentityPolicy",
-		"ReorderReceiptRuleSet",
-		"SendBounce",
-		"SendBulkTemplatedEmail",
-		"SendCustomVerificationEmail",
-		"SetIdentityDkimEnabled",
-		"SetIdentityFeedbackForwardingEnabled",
-		"SetIdentityHeadersInNotificationsEnabled",
-		"SetIdentityMailFromDomain",
-		"SetIdentityNotificationTopic",
-		"SetReceiptRulePosition",
-		"TestRenderTemplate",
-		"UpdateAccountSendingEnabled",
-		"UpdateConfigurationSetEventDestination",
-		"UpdateConfigurationSetReputationMetricsEnabled",
-		"UpdateConfigurationSetSendingEnabled",
-		"UpdateConfigurationSetTrackingOptions",
-		"UpdateCustomVerificationEmailTemplate",
-		"UpdateReceiptRule",
-		"VerifyDomainDkim",
-		"VerifyDomainIdentity",
-		"VerifyEmailAddress",
-	})
+	sdkcheck.CheckCompleteness(t, &sessdk.Client{}, h.GetSupportedOperations(), []string{})
 }

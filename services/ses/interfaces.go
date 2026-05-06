@@ -12,6 +12,7 @@ type StorageBackend interface {
 	SendTemplatedEmail(from string, to []string, templateName string) (string, error)
 	ListEmails() []Email
 	GetEmailByID(messageID string) (Email, error)
+	SearchEmails(query string) []Email
 	CreateTemplate(tmpl EmailTemplate) error
 	UpdateTemplate(tmpl EmailTemplate) error
 	GetTemplate(name string) (EmailTemplate, error)
@@ -20,18 +21,29 @@ type StorageBackend interface {
 	CreateConfigurationSet(name string) error
 	DeleteConfigurationSet(name string) error
 	ListConfigurationSets(nextToken string, maxItems int) page.Page[string]
+	DescribeConfigurationSet(name string) (ConfigurationSetDescription, error)
+	PutConfigurationSetDeliveryOptions(configSetName, tlsPolicy string) error
 	GetSendQuota() SendQuota
 	GetSendStatistics() []SendDataPoint
 	CreateReceiptRuleSet(name string) error
 	CloneReceiptRuleSet(originalName, newName string) error
 	CreateReceiptRule(ruleSetName string, rule ReceiptRule, after string) error
+	DescribeReceiptRule(ruleSetName, ruleName string) (ReceiptRule, error)
+	UpdateReceiptRule(ruleSetName string, rule ReceiptRule) error
+	ReorderReceiptRuleSet(ruleSetName string, ruleNames []string) error
+	SetReceiptRulePosition(ruleSetName, ruleName string, position int) error
 	CreateReceiptFilter(filter ReceiptFilter) error
 	CreateConfigurationSetEventDestination(configSetName string, dest EventDestination) error
 	DeleteConfigurationSetEventDestination(configSetName, destName string) error
+	UpdateConfigurationSetEventDestination(configSetName string, dest EventDestination) error
+	UpdateConfigurationSetReputationMetricsEnabled(configSetName string, enabled bool) error
+	UpdateConfigurationSetSendingEnabled(configSetName string, enabled bool) error
 	CreateConfigurationSetTrackingOptions(configSetName, customRedirectDomain string) error
 	DeleteConfigurationSetTrackingOptions(configSetName string) error
+	UpdateConfigurationSetTrackingOptions(configSetName, customRedirectDomain string) error
 	CreateCustomVerificationEmailTemplate(tmpl CustomVerificationEmailTemplate) error
 	DeleteCustomVerificationEmailTemplate(templateName string) error
+	UpdateCustomVerificationEmailTemplate(tmpl CustomVerificationEmailTemplate) error
 	ListReceiptFilters() []ReceiptFilter
 	ListReceiptRuleSets() []ReceiptRuleSet
 	DeleteReceiptFilter(name string) error
@@ -42,6 +54,33 @@ type StorageBackend interface {
 	DescribeReceiptRuleSet(name string) (ReceiptRuleSet, error)
 	SetActiveReceiptRuleSet(name string) error
 	DescribeActiveReceiptRuleSet() (ReceiptRuleSet, bool, error)
+	// Identity policy ops
+	PutIdentityPolicy(identity, policyName, policy string) error
+	DeleteIdentityPolicy(identity, policyName string) error
+	GetIdentityPolicies(identity string, policyNames []string) (map[string]string, error)
+	ListIdentityPolicies(identity string) ([]string, error)
+	// Identity attribute ops
+	GetIdentityDkimAttributes(identities []string) map[string]DkimAttributes
+	GetIdentityMailFromDomainAttributes(identities []string) map[string]MailFromDomainAttributes
+	GetIdentityNotificationAttributes(identities []string) map[string]NotificationAttributes
+	SetIdentityDkimEnabled(identity string, enabled bool) error
+	SetIdentityFeedbackForwardingEnabled(identity string, enabled bool) error
+	SetIdentityHeadersInNotificationsEnabled(identity, notificationType string, enabled bool) error
+	SetIdentityMailFromDomain(identity, mailFromDomain string) error
+	SetIdentityNotificationTopic(identity, notificationType, snsTopic string) error
+	// Domain verification
+	VerifyDomainIdentity(domain string) (string, error)
+	VerifyDomainDkim(domain string) ([]string, error)
+	VerifyEmailAddress(email string) error
+	DeleteVerifiedEmailAddress(email string)
+	ListVerifiedEmailAddresses() []string
+	// Account-level
+	UpdateAccountSendingEnabled(enabled bool)
+	// Send ops
+	SendBounce(originalMsgID string) (string, error)
+	SendBulkTemplatedEmail(source, templateName string, destinations []string) ([]string, error)
+	SendCustomVerificationEmail(email, templateName string) (string, error)
+	TestRenderTemplate(templateName, templateData string) (string, error)
 	Region() string
 	AccountID() string
 	Reset()
