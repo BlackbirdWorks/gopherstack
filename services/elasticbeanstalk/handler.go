@@ -59,6 +59,7 @@ func (h *Handler) buildOps() map[string]formOpFunc {
 		"ApplyEnvironmentManagedAction":           h.handleApplyEnvironmentManagedAction,
 		"AssociateEnvironmentOperationsRole":      h.handleAssociateEnvironmentOperationsRole,
 		"CheckDNSAvailability":                    h.handleCheckDNSAvailability,
+		"CloneEnvironment":                        h.handleCloneEnvironment,
 		"ComposeEnvironments":                     h.handleComposeEnvironments,
 		"CreateApplication":                       h.handleCreateApplication,
 		"CreateConfigurationTemplate":             h.handleCreateConfigurationTemplate,
@@ -115,6 +116,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ApplyEnvironmentManagedAction",
 		"AssociateEnvironmentOperationsRole",
 		"CheckDNSAvailability",
+		"CloneEnvironment",
 		"ComposeEnvironments",
 		"CreateApplication",
 		"CreateConfigurationTemplate",
@@ -459,7 +461,24 @@ type environmentDescType struct {
 }
 
 func toEnvironmentDesc(env *Environment, region string) environmentDescType {
-	cname := env.EnvironmentName + "." + region + ".elasticbeanstalk.com"
+	cname := env.CNAME
+	if cname == "" {
+		cname = env.EnvironmentName + "." + region + ".elasticbeanstalk.com"
+	}
+
+	tierName := env.TierName
+	if tierName == "" {
+		tierName = env.Tier
+	}
+
+	if tierName == "" {
+		tierName = "WebServer"
+	}
+
+	tierType := env.TierType
+	if tierType == "" {
+		tierType = "Standard"
+	}
 
 	return environmentDescType{
 		ApplicationName:   env.ApplicationName,
@@ -470,8 +489,8 @@ func toEnvironmentDesc(env *Environment, region string) environmentDescType {
 		Status:            env.Status,
 		Health:            env.Health,
 		Tier: environmentTierType{
-			Name:    env.Tier,
-			Type:    "Standard",
+			Name:    tierName,
+			Type:    tierType,
 			Version: "1.0",
 		},
 		CNAME:       cname,
@@ -502,7 +521,37 @@ func (h *Handler) handleCreateEnvironment(vals url.Values) (any, error) {
 	description := vals.Get("Description")
 	tags := parseTagList(vals, "Tags.member")
 
-	env, err := h.Backend.CreateEnvironment(appName, envName, solutionStack, description, tags)
+	// Parse tier (improvement #1)
+	tierName := vals.Get("Tier.Name")
+	tierType := vals.Get("Tier.Type")
+
+	// Parse load balancer type from OptionSettings (improvement #14)
+	lbType := parseOptionSetting(vals, "aws:elasticbeanstalk:environment", "LoadBalancerType")
+
+	// Parse VPC config from OptionSettings (improvement #15)
+	vpcID := parseOptionSetting(vals, "aws:ec2:vpc", "VPCId")
+	subnets := parseOptionSetting(vals, "aws:ec2:vpc", "Subnets")
+
+	// Parse instance profile from OptionSettings (improvement #16)
+	instanceProfile := parseOptionSetting(vals, "aws:autoscaling:launchconfiguration", "IamInstanceProfile")
+	if err := ValidateInstanceProfileARN(instanceProfile); err != nil {
+		return nil, err
+	}
+
+	// Parse custom AMI from OptionSettings (improvement #5)
+	customAMI := parseOptionSetting(vals, "aws:autoscaling:launchconfiguration", "ImageId")
+
+	params := CreateEnvironmentParams{
+		TierType:         tierType,
+		TierName:         tierName,
+		LoadBalancerType: lbType,
+		VPCID:            vpcID,
+		Subnets:          subnets,
+		InstanceProfile:  instanceProfile,
+		CustomAMI:        customAMI,
+	}
+
+	env, err := h.Backend.CreateEnvironment(appName, envName, solutionStack, description, tags, params)
 	if err != nil {
 		return nil, err
 	}
@@ -679,7 +728,11 @@ func (h *Handler) handleCreateApplicationVersion(vals url.Values) (any, error) {
 	description := vals.Get("Description")
 	tags := parseTagList(vals, "Tags.member")
 
-	ver, err := h.Backend.CreateApplicationVersion(appName, versionLabel, description, tags)
+	// Parse S3 source bundle (improvement #8)
+	s3Bucket := vals.Get("SourceBundle.S3Bucket")
+	s3Key := vals.Get("SourceBundle.S3Key")
+
+	ver, err := h.Backend.CreateApplicationVersion(appName, versionLabel, description, s3Bucket, s3Key, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1076,6 +1129,28 @@ func parseTagList(vals url.Values, prefix string) map[string]string {
 	return tags
 }
 
+// parseOptionSetting parses a specific option setting value from indexed form values.
+// AWS EB uses OptionSettings.member.N.Namespace / OptionName / Value format.
+func parseOptionSetting(vals url.Values, namespace, optionName string) string {
+	for i := 1; ; i++ {
+		nsKey := fmt.Sprintf("OptionSettings.member.%d.Namespace", i)
+		ns := vals.Get(nsKey)
+
+		if ns == "" {
+			break
+		}
+
+		if ns == namespace {
+			onKey := fmt.Sprintf("OptionSettings.member.%d.OptionName", i)
+			if vals.Get(onKey) == optionName {
+				return vals.Get(fmt.Sprintf("OptionSettings.member.%d.Value", i))
+			}
+		}
+	}
+
+	return ""
+}
+
 // Reset clears all backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
@@ -1262,6 +1337,54 @@ func (h *Handler) handleComposeEnvironments(vals url.Values) (any, error) {
 		Xmlns:                     ebXMLNS,
 		ComposeEnvironmentsResult: composeEnvironmentsResult{Environments: members},
 		ResponseMetadata:          responseMetadata{RequestID: "eb-compose-envs"},
+	}, nil
+}
+
+// cloneEnvironmentResponse is the XML response for CloneEnvironment (improvement #9).
+type cloneEnvironmentResponse struct {
+	XMLName                xml.Name            `xml:"CloneEnvironmentResponse"`
+	Xmlns                  string              `xml:"xmlns,attr"`
+	CloneEnvironmentResult environmentDescType `xml:"CloneEnvironmentResult"`
+	ResponseMetadata       responseMetadata    `xml:"ResponseMetadata"`
+}
+
+// handleCloneEnvironment clones an existing environment into a new environment.
+func (h *Handler) handleCloneEnvironment(vals url.Values) (any, error) {
+	srcEnvName := vals.Get("SourceEnvironmentName")
+	if srcEnvName == "" {
+		return nil, fmt.Errorf("%w: SourceEnvironmentName is required", ErrInvalidParameter)
+	}
+
+	newEnvName := vals.Get("EnvironmentName")
+	if newEnvName == "" {
+		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
+	}
+
+	appName := vals.Get("ApplicationName")
+
+	// Resolve app name from the source environment if not provided.
+	if appName == "" {
+		envs := h.Backend.DescribeEnvironments("", []string{srcEnvName}, nil)
+		if len(envs) == 1 {
+			appName = envs[0].ApplicationName
+		} else {
+			return nil, fmt.Errorf(
+				"%w: source environment %s not found or ambiguous; specify ApplicationName",
+				ErrNotFound,
+				srcEnvName,
+			)
+		}
+	}
+
+	env, err := h.Backend.CloneEnvironment(appName, srcEnvName, newEnvName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloneEnvironmentResponse{
+		Xmlns:                  ebXMLNS,
+		CloneEnvironmentResult: toEnvironmentDesc(env, h.Backend.Region()),
+		ResponseMetadata:       responseMetadata{RequestID: "eb-clone-env"},
 	}, nil
 }
 
@@ -1637,11 +1760,27 @@ type describeEnvironmentManagedActionHistoryResponse struct { //nolint:lll // AW
 	DescribeEnvironmentManagedActionHistoryResult describeEnvironmentManagedActionHistoryResult `xml:"DescribeEnvironmentManagedActionHistoryResult"` //nolint:lll // AWS XML operation name is inherently long
 }
 
-func (h *Handler) handleDescribeEnvironmentManagedActionHistory(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeEnvironmentManagedActionHistory(vals url.Values) (any, error) {
+	envName := vals.Get("EnvironmentName")
+
+	// Return real stored history (improvement #4)
+	historyItems := h.Backend.DescribeEnvironmentManagedActionHistory(envName)
+	members := make([]managedActionHistoryItem, 0, len(historyItems))
+
+	for _, item := range historyItems {
+		members = append(members, managedActionHistoryItem{
+			ActionID:          item.ActionID,
+			ActionType:        item.ActionType,
+			ActionDescription: item.ActionDescription,
+			Status:            item.Status,
+			FinishedTime:      item.FinishedTime,
+		})
+	}
+
 	return &describeEnvironmentManagedActionHistoryResponse{
 		Xmlns: ebXMLNS,
 		DescribeEnvironmentManagedActionHistoryResult: describeEnvironmentManagedActionHistoryResult{
-			ManagedActionHistoryItems: []managedActionHistoryItem{},
+			ManagedActionHistoryItems: members,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-describe-env-managed-history"},
 	}, nil
@@ -1952,7 +2091,29 @@ func (h *Handler) handleSwapEnvironmentCNAMEs(vals url.Values) (any, error) {
 		)
 	}
 
-	_ = h.Backend.SwapEnvironmentCNAMEs(sourceEnv, destEnv)
+	// Resolve env names from IDs if names not provided
+	if sourceEnv == "" {
+		srcID := vals.Get("SourceEnvironmentId")
+		envs := h.Backend.DescribeEnvironments("", nil, []string{srcID})
+
+		if len(envs) > 0 {
+			sourceEnv = envs[0].EnvironmentName
+		}
+	}
+
+	if destEnv == "" {
+		dstID := vals.Get("DestinationEnvironmentId")
+		envs := h.Backend.DescribeEnvironments("", nil, []string{dstID})
+
+		if len(envs) > 0 {
+			destEnv = envs[0].EnvironmentName
+		}
+	}
+
+	// Actually swap CNAMEs (improvement #10)
+	if err := h.Backend.SwapEnvironmentCNAMEs(sourceEnv, destEnv); err != nil {
+		return nil, err
+	}
 
 	return &swapEnvironmentCNAMEsResponse{
 		Xmlns:            ebXMLNS,
@@ -1984,6 +2145,11 @@ func (h *Handler) handleUpdateApplicationResourceLifecycle(vals url.Values) (any
 	}
 
 	serviceRole := vals.Get("ResourceLifecycleConfig.ServiceRole")
+
+	// Store lifecycle service role in the application (improvement #7)
+	if _, err := h.Backend.UpdateApplicationResourceLifecycle(appName, serviceRole); err != nil {
+		return nil, err
+	}
 
 	return &updateApplicationResourceLifecycleResponse{
 		Xmlns: ebXMLNS,
@@ -2084,11 +2250,55 @@ type validateConfigurationSettingsResponse struct {
 	ValidateConfigurationSettingsResult validateConfigurationSettingsResult `xml:"ValidateConfigurationSettingsResult"`
 }
 
-func (h *Handler) handleValidateConfigurationSettings(_ url.Values) (any, error) {
+// knownNamespaces is the set of valid EB configuration namespaces for validation (improvement #13).
+//
+//nolint:gochecknoglobals // package-level constant set
+var knownNamespaces = map[string]bool{
+	"aws:autoscaling:asg":                       true,
+	"aws:autoscaling:launchconfiguration":        true,
+	"aws:autoscaling:trigger":                    true,
+	"aws:ec2:vpc":                                true,
+	"aws:elasticbeanstalk:application":           true,
+	"aws:elasticbeanstalk:cloudwatch:logs":       true,
+	"aws:elasticbeanstalk:environment":           true,
+	"aws:elasticbeanstalk:environment:proxy":     true,
+	"aws:elasticbeanstalk:healthreporting:system": true,
+	"aws:elasticbeanstalk:managedactions":        true,
+	"aws:elasticbeanstalk:monitoring":            true,
+	"aws:elasticbeanstalk:sns:topics":            true,
+	"aws:elasticbeanstalk:xray":                  true,
+	"aws:elb:loadbalancer":                       true,
+	"aws:elbv2:loadbalancer":                     true,
+	"aws:rds:dbinstance":                         true,
+}
+
+func (h *Handler) handleValidateConfigurationSettings(vals url.Values) (any, error) {
+	messages := make([]validationMessage, 0)
+
+	// Validate option settings namespaces (improvement #13)
+	for i := 1; ; i++ {
+		nsKey := fmt.Sprintf("OptionSettings.member.%d.Namespace", i)
+		ns := vals.Get(nsKey)
+
+		if ns == "" {
+			break
+		}
+
+		if !knownNamespaces[ns] {
+			optName := vals.Get(fmt.Sprintf("OptionSettings.member.%d.OptionName", i))
+			messages = append(messages, validationMessage{
+				Message:    fmt.Sprintf("Invalid namespace: %s", ns),
+				Severity:   "error",
+				Namespace:  ns,
+				OptionName: optName,
+			})
+		}
+	}
+
 	return &validateConfigurationSettingsResponse{
 		Xmlns: ebXMLNS,
 		ValidateConfigurationSettingsResult: validateConfigurationSettingsResult{
-			Messages: []validationMessage{},
+			Messages: messages,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-validate-config-settings"},
 	}, nil
