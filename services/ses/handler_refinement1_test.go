@@ -787,12 +787,12 @@ func TestBackend_Persistence_ActiveRuleSet(t *testing.T) {
 	assert.Equal(t, "rs1", b2.ActiveRuleSet())
 }
 
-// TestHandler_GetSupportedOperations_Count tests that 38 operations are supported.
+// TestHandler_GetSupportedOperations_Count tests that all operations are supported.
 func TestHandler_GetSupportedOperations_Count(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	assert.Equal(t, 38, h.HandlerOpsLen())
+	assert.Equal(t, 71, h.HandlerOpsLen())
 }
 
 // TestBackend_Region_AccountID tests Region and AccountID methods.

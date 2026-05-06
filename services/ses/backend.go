@@ -53,6 +53,14 @@ const (
 	TLSPolicyOptional   = "Optional"
 	TLSPolicyRequire    = "Require"
 	ruleSetStatusActive = "Active"
+
+	// identityStatusSuccess is the verification status for verified identities.
+	identityStatusSuccess = "Success"
+	// identityStatusNotStarted is the default status for unverified identities.
+	identityStatusNotStarted = "NotStarted"
+	// boolTrue / boolFalse are the string literals used in AWS form-encoded params.
+	boolTrue  = "true"
+	boolFalse = "false"
 )
 
 const defaultAccountID = "123456789012"
@@ -256,9 +264,9 @@ func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string)
 
 	for _, id := range identities {
 		if _, ok := b.identities[id]; ok {
-			result[id] = "Success"
+			result[id] = identityStatusSuccess
 		} else {
-			result[id] = "NotStarted"
+			result[id] = identityStatusNotStarted
 		}
 	}
 

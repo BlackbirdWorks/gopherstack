@@ -94,14 +94,22 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteConfigurationSetTrackingOptions",
 		"DeleteCustomVerificationEmailTemplate",
 		"DeleteIdentity",
+		"DeleteIdentityPolicy",
 		"DeleteReceiptFilter",
 		"DeleteReceiptRule",
 		"DeleteReceiptRuleSet",
 		"DeleteTemplate",
+		"DeleteVerifiedEmailAddress",
 		"DescribeActiveReceiptRuleSet",
+		"DescribeConfigurationSet",
+		"DescribeReceiptRule",
 		"DescribeReceiptRuleSet",
 		"GetAccountSendingEnabled",
 		"GetCustomVerificationEmailTemplate",
+		"GetIdentityDkimAttributes",
+		"GetIdentityMailFromDomainAttributes",
+		"GetIdentityNotificationAttributes",
+		"GetIdentityPolicies",
 		"GetIdentityVerificationAttributes",
 		"GetSendQuota",
 		"GetSendStatistics",
@@ -109,14 +117,39 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListConfigurationSets",
 		"ListCustomVerificationEmailTemplates",
 		"ListIdentities",
+		"ListIdentityPolicies",
 		"ListReceiptFilters",
 		"ListReceiptRuleSets",
 		"ListTemplates",
+		"ListVerifiedEmailAddresses",
+		"PutConfigurationSetDeliveryOptions",
+		"PutIdentityPolicy",
+		"ReorderReceiptRuleSet",
+		"SendBounce",
+		"SendBulkTemplatedEmail",
+		"SendCustomVerificationEmail",
 		"SendEmail",
 		"SendRawEmail",
 		"SendTemplatedEmail",
 		"SetActiveReceiptRuleSet",
+		"SetIdentityDkimEnabled",
+		"SetIdentityFeedbackForwardingEnabled",
+		"SetIdentityHeadersInNotificationsEnabled",
+		"SetIdentityMailFromDomain",
+		"SetIdentityNotificationTopic",
+		"SetReceiptRulePosition",
+		"TestRenderTemplate",
+		"UpdateAccountSendingEnabled",
+		"UpdateConfigurationSetEventDestination",
+		"UpdateConfigurationSetReputationMetricsEnabled",
+		"UpdateConfigurationSetSendingEnabled",
+		"UpdateConfigurationSetTrackingOptions",
+		"UpdateCustomVerificationEmailTemplate",
+		"UpdateReceiptRule",
 		"UpdateTemplate",
+		"VerifyDomainDkim",
+		"VerifyDomainIdentity",
+		"VerifyEmailAddress",
 		"VerifyEmailIdentity",
 	}
 }
@@ -359,6 +392,161 @@ func (h *Handler) dispatchRefinedOps(vals url.Values, reqID, action string) (any
 		return h.handleSetActiveReceiptRuleSet(vals, reqID)
 	case "DescribeActiveReceiptRuleSet":
 		return h.handleDescribeActiveReceiptRuleSet(reqID)
+	default:
+		return h.dispatchMissingOps(vals, reqID, action)
+	}
+}
+
+// dispatchMissingOps handles the previously missing SES operations.
+// It delegates to three sub-dispatchers by domain to keep cyclomatic complexity low.
+func (h *Handler) dispatchMissingOps(vals url.Values, reqID, action string) (any, error) {
+	res, err := h.dispatchIdentityOps(vals, reqID, action)
+	if !errIsUnknown(err) {
+		return res, err
+	}
+
+	res, err = h.dispatchSendMissingOps(vals, reqID, action)
+	if !errIsUnknown(err) {
+		return res, err
+	}
+
+	return h.dispatchConfigReceiptOps(vals, reqID, action)
+}
+
+// errIsUnknown reports whether err is errUnknownSESAction.
+func errIsUnknown(err error) bool {
+	return errors.Is(err, errUnknownSESAction)
+}
+
+// dispatchIdentityOps handles identity policy, attribute, domain verification and
+// legacy email address operations.
+// dispatchIdentityOps handles identity policy and attribute operations.
+func (h *Handler) dispatchIdentityOps(vals url.Values, reqID, action string) (any, error) {
+	switch action {
+	case "PutIdentityPolicy":
+		return h.handlePutIdentityPolicy(vals, reqID)
+
+	case "DeleteIdentityPolicy":
+		return h.handleDeleteIdentityPolicy(vals, reqID)
+
+	case "GetIdentityPolicies":
+		return h.handleGetIdentityPolicies(vals, reqID)
+
+	case "ListIdentityPolicies":
+		return h.handleListIdentityPolicies(vals, reqID)
+
+	case "GetIdentityDkimAttributes":
+		return h.handleGetIdentityDkimAttributes(vals, reqID), nil
+
+	case "GetIdentityMailFromDomainAttributes":
+		return h.handleGetIdentityMailFromDomainAttributes(vals, reqID), nil
+
+	case "GetIdentityNotificationAttributes":
+		return h.handleGetIdentityNotificationAttributes(vals, reqID), nil
+
+	case "SetIdentityDkimEnabled":
+		return h.handleSetIdentityDkimEnabled(vals, reqID)
+
+	case "SetIdentityFeedbackForwardingEnabled":
+		return h.handleSetIdentityFeedbackForwardingEnabled(vals, reqID)
+
+	default:
+		return h.dispatchIdentitySetVerifyOps(vals, reqID, action)
+	}
+}
+
+// dispatchIdentitySetVerifyOps handles the identity set/notification, domain verification and
+// legacy email address operations.
+func (h *Handler) dispatchIdentitySetVerifyOps(vals url.Values, reqID, action string) (any, error) {
+	switch action {
+	case "SetIdentityHeadersInNotificationsEnabled":
+		return h.handleSetIdentityHeadersInNotificationsEnabled(vals, reqID)
+
+	case "SetIdentityMailFromDomain":
+		return h.handleSetIdentityMailFromDomain(vals, reqID)
+
+	case "SetIdentityNotificationTopic":
+		return h.handleSetIdentityNotificationTopic(vals, reqID)
+
+	case "VerifyDomainIdentity":
+		return h.handleVerifyDomainIdentity(vals, reqID)
+
+	case "VerifyDomainDkim":
+		return h.handleVerifyDomainDkim(vals, reqID)
+
+	case "VerifyEmailAddress":
+		return h.handleVerifyEmailAddress(vals, reqID)
+
+	case "DeleteVerifiedEmailAddress":
+		return h.handleDeleteVerifiedEmailAddress(vals, reqID), nil
+
+	case "ListVerifiedEmailAddresses":
+		return h.handleListVerifiedEmailAddresses(reqID), nil
+
+	case "UpdateAccountSendingEnabled":
+		return h.handleUpdateAccountSendingEnabled(vals, reqID), nil
+
+	default:
+		return nil, errUnknownSESAction
+	}
+}
+
+// dispatchSendMissingOps handles the new send/render/custom-verif-template operations.
+func (h *Handler) dispatchSendMissingOps(vals url.Values, reqID, action string) (any, error) {
+	switch action {
+	case "SendBounce":
+		return h.handleSendBounce(vals, reqID)
+
+	case "SendBulkTemplatedEmail":
+		return h.handleSendBulkTemplatedEmail(vals, reqID)
+
+	case "SendCustomVerificationEmail":
+		return h.handleSendCustomVerificationEmail(vals, reqID)
+
+	case "TestRenderTemplate":
+		return h.handleTestRenderTemplate(vals, reqID)
+
+	case "UpdateCustomVerificationEmailTemplate":
+		return h.handleUpdateCustomVerificationEmailTemplate(vals, reqID)
+
+	default:
+		return nil, errUnknownSESAction
+	}
+}
+
+// dispatchConfigReceiptOps handles the receipt rule and configuration set update operations.
+func (h *Handler) dispatchConfigReceiptOps(vals url.Values, reqID, action string) (any, error) {
+	switch action {
+	case "DescribeReceiptRule":
+		return h.handleDescribeReceiptRule(vals, reqID)
+
+	case "UpdateReceiptRule":
+		return h.handleUpdateReceiptRule(vals, reqID)
+
+	case "ReorderReceiptRuleSet":
+		return h.handleReorderReceiptRuleSet(vals, reqID)
+
+	case "SetReceiptRulePosition":
+		return h.handleSetReceiptRulePosition(vals, reqID)
+
+	case "DescribeConfigurationSet":
+		return h.handleDescribeConfigurationSet(vals, reqID)
+
+	case "PutConfigurationSetDeliveryOptions":
+		return h.handlePutConfigurationSetDeliveryOptions(vals, reqID)
+
+	case "UpdateConfigurationSetEventDestination":
+		return h.handleUpdateConfigurationSetEventDestination(vals, reqID)
+
+	case "UpdateConfigurationSetReputationMetricsEnabled":
+		return h.handleUpdateConfigurationSetReputationMetricsEnabled(vals, reqID)
+
+	case "UpdateConfigurationSetSendingEnabled":
+		return h.handleUpdateConfigurationSetSendingEnabled(vals, reqID)
+
+	case "UpdateConfigurationSetTrackingOptions":
+		return h.handleUpdateConfigurationSetTrackingOptions(vals, reqID)
+
 	default:
 		return nil, errUnknownSESAction
 	}
@@ -1067,8 +1255,8 @@ func (h *Handler) handleCreateReceiptRule(vals url.Values, reqID string) (any, e
 	ruleSetName := vals.Get("RuleSetName")
 	after := vals.Get("After")
 
-	enabled := vals.Get("Rule.Enabled") != "false"
-	scanEnabled := vals.Get("Rule.ScanEnabled") != "false"
+	enabled := vals.Get("Rule.Enabled") != boolFalse
+	scanEnabled := vals.Get("Rule.ScanEnabled") != boolFalse
 
 	rule := ReceiptRule{
 		Name:        vals.Get("Rule.Name"),
@@ -1112,7 +1300,7 @@ func (h *Handler) handleCreateReceiptFilter(vals url.Values, reqID string) (any,
 func (h *Handler) handleCreateConfigurationSetEventDestination(vals url.Values, reqID string) (any, error) {
 	dest := EventDestination{
 		Name:               vals.Get("EventDestination.Name"),
-		Enabled:            vals.Get("EventDestination.Enabled") == "true",
+		Enabled:            vals.Get("EventDestination.Enabled") == boolTrue,
 		MatchingEventTypes: parseSESMemberList(vals, "EventDestination.MatchingEventTypes"),
 		SNSTopicARN:        vals.Get("EventDestination.SNSDestination.TopicARN"),
 	}
@@ -1571,4 +1759,806 @@ type listCustomVerificationEmailTemplatesResponse struct {
 	Xmlns     string                                     `xml:"xmlns,attr"`
 	RequestID string                                     `xml:"ResponseMetadata>RequestId"`
 	Result    listCustomVerificationEmailTemplatesResult `xml:"ListCustomVerificationEmailTemplatesResult"`
+}
+
+// ---- missing ops: action handlers ----
+
+func (h *Handler) handlePutIdentityPolicy(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.PutIdentityPolicy(
+		vals.Get("Identity"),
+		vals.Get("PolicyName"),
+		vals.Get("Policy"),
+	); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{XMLName: xml.Name{Local: "PutIdentityPolicyResponse"}, Xmlns: sesXMLNS, RequestID: reqID}, nil
+}
+
+func (h *Handler) handleDeleteIdentityPolicy(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.DeleteIdentityPolicy(vals.Get("Identity"), vals.Get("PolicyName")); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "DeleteIdentityPolicyResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleGetIdentityPolicies(vals url.Values, reqID string) (any, error) {
+	identity := vals.Get("Identity")
+	policyNames := parseSESMemberList(vals, "PolicyNames")
+
+	policies, err := h.Backend.GetIdentityPolicies(identity, policyNames)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]xmlPolicyEntry, 0, len(policies))
+	for k, v := range policies {
+		entries = append(entries, xmlPolicyEntry{Key: k, Value: v})
+	}
+
+	return &getIdentityPoliciesResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    getIdentityPoliciesResult{Policies: xmlPolicyMap{Entries: entries}},
+	}, nil
+}
+
+func (h *Handler) handleListIdentityPolicies(vals url.Values, reqID string) (any, error) {
+	names, err := h.Backend.ListIdentityPolicies(vals.Get("Identity"))
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlMember, 0, len(names))
+	for _, n := range names {
+		members = append(members, xmlMember{Value: n})
+	}
+
+	return &listIdentityPoliciesResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    listIdentityPoliciesResult{PolicyNames: xmlMemberList{Members: members}},
+	}, nil
+}
+
+func (h *Handler) handleGetIdentityDkimAttributes(vals url.Values, reqID string) any {
+	identities := parseSESMemberList(vals, "Identities")
+	attrs := h.Backend.GetIdentityDkimAttributes(identities)
+
+	entries := make([]xmlDkimEntry, 0, len(attrs))
+	for k, v := range attrs {
+		tokens := make([]xmlMember, 0, len(v.DkimTokens))
+		for _, t := range v.DkimTokens {
+			tokens = append(tokens, xmlMember{Value: t})
+		}
+
+		entries = append(entries, xmlDkimEntry{
+			Key: k,
+			Value: xmlDkimAttributes{
+				DkimEnabled:            v.DkimEnabled,
+				DkimVerificationStatus: v.DkimVerificationStatus,
+				DkimTokens:             xmlMemberList{Members: tokens},
+			},
+		})
+	}
+
+	return &getIdentityDkimAttributesResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    getIdentityDkimAttributesResult{DkimAttributes: xmlDkimMap{Entries: entries}},
+	}
+}
+
+func (h *Handler) handleGetIdentityMailFromDomainAttributes(vals url.Values, reqID string) any {
+	identities := parseSESMemberList(vals, "Identities")
+	attrs := h.Backend.GetIdentityMailFromDomainAttributes(identities)
+
+	entries := make([]xmlMailFromEntry, 0, len(attrs))
+	for k, v := range attrs {
+		entries = append(entries, xmlMailFromEntry{Key: k, Value: xmlMailFromDomainAttributes(v)})
+	}
+
+	return &getIdentityMailFromDomainAttributesResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result: getIdentityMailFromDomainAttributesResult{
+			MailFromDomainAttributes: xmlMailFromMap{Entries: entries},
+		},
+	}
+}
+
+func (h *Handler) handleGetIdentityNotificationAttributes(vals url.Values, reqID string) any {
+	identities := parseSESMemberList(vals, "Identities")
+	attrs := h.Backend.GetIdentityNotificationAttributes(identities)
+
+	entries := make([]xmlNotifEntry, 0, len(attrs))
+	for k, v := range attrs {
+		entries = append(entries, xmlNotifEntry{Key: k, Value: xmlNotificationAttributes(v)})
+	}
+
+	return &getIdentityNotificationAttributesResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    getIdentityNotificationAttributesResult{NotificationAttributes: xmlNotifMap{Entries: entries}},
+	}
+}
+
+func (h *Handler) handleSetIdentityDkimEnabled(vals url.Values, reqID string) (any, error) {
+	enabled := vals.Get("DkimEnabled") == boolTrue
+	if err := h.Backend.SetIdentityDkimEnabled(vals.Get("Identity"), enabled); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "SetIdentityDkimEnabledResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleSetIdentityFeedbackForwardingEnabled(vals url.Values, reqID string) (any, error) {
+	enabled := vals.Get("ForwardingEnabled") == boolTrue
+	if err := h.Backend.SetIdentityFeedbackForwardingEnabled(vals.Get("Identity"), enabled); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "SetIdentityFeedbackForwardingEnabledResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleSetIdentityHeadersInNotificationsEnabled(vals url.Values, reqID string) (any, error) {
+	enabled := vals.Get("Enabled") == boolTrue
+	if err := h.Backend.SetIdentityHeadersInNotificationsEnabled(
+		vals.Get("Identity"),
+		vals.Get("NotificationType"),
+		enabled,
+	); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "SetIdentityHeadersInNotificationsEnabledResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleSetIdentityMailFromDomain(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.SetIdentityMailFromDomain(vals.Get("Identity"), vals.Get("MailFromDomain")); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "SetIdentityMailFromDomainResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleSetIdentityNotificationTopic(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.SetIdentityNotificationTopic(
+		vals.Get("Identity"),
+		vals.Get("NotificationType"),
+		vals.Get("SnsTopic"),
+	); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "SetIdentityNotificationTopicResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleVerifyDomainIdentity(vals url.Values, reqID string) (any, error) {
+	token, err := h.Backend.VerifyDomainIdentity(vals.Get("Domain"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &verifyDomainIdentityResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    verifyDomainIdentityResult{VerificationToken: token},
+	}, nil
+}
+
+func (h *Handler) handleVerifyDomainDkim(vals url.Values, reqID string) (any, error) {
+	tokens, err := h.Backend.VerifyDomainDkim(vals.Get("Domain"))
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlMember, 0, len(tokens))
+	for _, t := range tokens {
+		members = append(members, xmlMember{Value: t})
+	}
+
+	return &verifyDomainDkimResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    verifyDomainDkimResult{DkimTokens: xmlMemberList{Members: members}},
+	}, nil
+}
+
+func (h *Handler) handleVerifyEmailAddress(vals url.Values, reqID string) (any, error) {
+	email := vals.Get("EmailAddress")
+	if err := h.Backend.VerifyEmailAddress(email); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "VerifyEmailAddressResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleDeleteVerifiedEmailAddress(vals url.Values, reqID string) any {
+	h.Backend.DeleteVerifiedEmailAddress(vals.Get("EmailAddress"))
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "DeleteVerifiedEmailAddressResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}
+}
+
+func (h *Handler) handleListVerifiedEmailAddresses(reqID string) any {
+	emails := h.Backend.ListVerifiedEmailAddresses()
+	members := make([]xmlMember, 0, len(emails))
+
+	for _, e := range emails {
+		members = append(members, xmlMember{Value: e})
+	}
+
+	return &listVerifiedEmailAddressesResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    listVerifiedEmailAddressesResult{VerifiedEmailAddresses: xmlMemberList{Members: members}},
+	}
+}
+
+func (h *Handler) handleUpdateAccountSendingEnabled(vals url.Values, reqID string) any {
+	enabled := vals.Get("Enabled") == boolTrue
+	h.Backend.UpdateAccountSendingEnabled(enabled)
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "UpdateAccountSendingEnabledResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}
+}
+
+func (h *Handler) handleSendBounce(vals url.Values, reqID string) (any, error) {
+	msgID, err := h.Backend.SendBounce(vals.Get("OriginalMessageId"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &sendBounceResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    sendEmailResult{MessageID: msgID},
+	}, nil
+}
+
+func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (any, error) {
+	source := vals.Get("Source")
+	template := vals.Get("Template")
+
+	// Collect destination emails from Destinations.member.N.Destination.ToAddresses.member.1
+	var destinations []string
+	for i := 1; ; i++ {
+		d := vals.Get(fmt.Sprintf("Destinations.member.%d.Destination.ToAddresses.member.1", i))
+		if d == "" {
+			break
+		}
+
+		destinations = append(destinations, d)
+	}
+
+	msgIDs, err := h.Backend.SendBulkTemplatedEmail(source, template, destinations)
+	if err != nil {
+		return nil, err
+	}
+
+	statuses := make([]xmlBulkEmailDestStatus, 0, len(msgIDs))
+	for _, id := range msgIDs {
+		statuses = append(statuses, xmlBulkEmailDestStatus{MessageID: id, Status: identityStatusSuccess})
+	}
+
+	return &sendBulkTemplatedEmailResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    sendBulkTemplatedEmailResult{Status: xmlBulkStatusList{Members: statuses}},
+	}, nil
+}
+
+func (h *Handler) handleSendCustomVerificationEmail(vals url.Values, reqID string) (any, error) {
+	msgID, err := h.Backend.SendCustomVerificationEmail(vals.Get("EmailAddress"), vals.Get("TemplateName"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &sendCustomVerificationEmailResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    sendEmailResult{MessageID: msgID},
+	}, nil
+}
+
+func (h *Handler) handleTestRenderTemplate(vals url.Values, reqID string) (any, error) {
+	rendered, err := h.Backend.TestRenderTemplate(vals.Get("TemplateName"), vals.Get("TemplateData"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &testRenderTemplateResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    testRenderTemplateResult{RenderedTemplate: rendered},
+	}, nil
+}
+
+func (h *Handler) handleUpdateCustomVerificationEmailTemplate(vals url.Values, reqID string) (any, error) {
+	tmpl := CustomVerificationEmailTemplate{
+		TemplateName:          vals.Get("TemplateName"),
+		FromEmailAddress:      vals.Get("FromEmailAddress"),
+		TemplateSubject:       vals.Get("TemplateSubject"),
+		TemplateContent:       vals.Get("TemplateContent"),
+		SuccessRedirectionURL: vals.Get("SuccessRedirectionURL"),
+		FailureRedirectionURL: vals.Get("FailureRedirectionURL"),
+	}
+
+	if err := h.Backend.UpdateCustomVerificationEmailTemplate(tmpl); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "UpdateCustomVerificationEmailTemplateResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleDescribeReceiptRule(vals url.Values, reqID string) (any, error) {
+	rule, err := h.Backend.DescribeReceiptRule(vals.Get("RuleSetName"), vals.Get("RuleName"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeReceiptRuleResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    describeReceiptRuleResult{Rule: toXMLReceiptRule(rule)},
+	}, nil
+}
+
+func (h *Handler) handleUpdateReceiptRule(vals url.Values, reqID string) (any, error) {
+	ruleSetName := vals.Get("RuleSetName")
+	enabled := vals.Get("Rule.Enabled") != boolFalse
+	scanEnabled := vals.Get("Rule.ScanEnabled") != boolFalse
+
+	rule := ReceiptRule{
+		Name:        vals.Get("Rule.Name"),
+		Enabled:     enabled,
+		TLSPolicy:   vals.Get("Rule.TlsPolicy"),
+		ScanEnabled: scanEnabled,
+		Recipients:  parseSESMemberList(vals, "Rule.Recipients"),
+	}
+
+	if err := h.Backend.UpdateReceiptRule(ruleSetName, rule); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "UpdateReceiptRuleResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleReorderReceiptRuleSet(vals url.Values, reqID string) (any, error) {
+	ruleSetName := vals.Get("RuleSetName")
+	ruleNames := parseSESMemberList(vals, "RuleNames")
+
+	if err := h.Backend.ReorderReceiptRuleSet(ruleSetName, ruleNames); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "ReorderReceiptRuleSetResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleSetReceiptRulePosition(vals url.Values, reqID string) (any, error) {
+	ruleSetName := vals.Get("RuleSetName")
+	ruleName := vals.Get("RuleName")
+
+	position := 0
+	if s := vals.Get("Position"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			position = n
+		}
+	}
+
+	if err := h.Backend.SetReceiptRulePosition(ruleSetName, ruleName, position); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "SetReceiptRulePositionResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleDescribeConfigurationSet(vals url.Values, reqID string) (any, error) {
+	desc, err := h.Backend.DescribeConfigurationSet(vals.Get("ConfigurationSetName"))
+	if err != nil {
+		return nil, err
+	}
+
+	dests := make([]xmlEventDestination, 0, len(desc.EventDestinations))
+	for _, d := range desc.EventDestinations {
+		evTypes := make([]xmlMember, 0, len(d.MatchingEventTypes))
+		for _, t := range d.MatchingEventTypes {
+			evTypes = append(evTypes, xmlMember{Value: t})
+		}
+
+		dests = append(dests, xmlEventDestination{
+			Name:               d.Name,
+			Enabled:            d.Enabled,
+			MatchingEventTypes: xmlMemberList{Members: evTypes},
+			SNSTopicARN:        d.SNSTopicARN,
+		})
+	}
+
+	result := describeConfigurationSetResult{
+		ConfigurationSet:  xmlConfigurationSet{Name: desc.Name},
+		EventDestinations: xmlEventDestinationList{Members: dests},
+	}
+
+	if desc.TrackingOptions != nil {
+		result.TrackingOptions = &xmlTrackingOptions{CustomRedirectDomain: desc.TrackingOptions.CustomRedirectDomain}
+	}
+
+	return &describeConfigurationSetResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    result,
+	}, nil
+}
+
+func (h *Handler) handlePutConfigurationSetDeliveryOptions(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.PutConfigurationSetDeliveryOptions(
+		vals.Get("ConfigurationSetName"),
+		vals.Get("DeliveryOptions.TlsPolicy"),
+	); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "PutConfigurationSetDeliveryOptionsResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleUpdateConfigurationSetEventDestination(vals url.Values, reqID string) (any, error) {
+	dest := EventDestination{
+		Name:               vals.Get("EventDestination.Name"),
+		Enabled:            vals.Get("EventDestination.Enabled") == boolTrue,
+		MatchingEventTypes: parseSESMemberList(vals, "EventDestination.MatchingEventTypes"),
+		SNSTopicARN:        vals.Get("EventDestination.SNSDestination.TopicARN"),
+	}
+
+	if err := h.Backend.UpdateConfigurationSetEventDestination(vals.Get("ConfigurationSetName"), dest); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "UpdateConfigurationSetEventDestinationResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleUpdateConfigurationSetReputationMetricsEnabled(vals url.Values, reqID string) (any, error) {
+	enabled := vals.Get("Enabled") == boolTrue
+	configSetName := vals.Get("ConfigurationSetName")
+
+	if err := h.Backend.UpdateConfigurationSetReputationMetricsEnabled(configSetName, enabled); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "UpdateConfigurationSetReputationMetricsEnabledResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleUpdateConfigurationSetSendingEnabled(vals url.Values, reqID string) (any, error) {
+	enabled := vals.Get("Enabled") == boolTrue
+	if err := h.Backend.UpdateConfigurationSetSendingEnabled(vals.Get("ConfigurationSetName"), enabled); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "UpdateConfigurationSetSendingEnabledResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleUpdateConfigurationSetTrackingOptions(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.UpdateConfigurationSetTrackingOptions(
+		vals.Get("ConfigurationSetName"),
+		vals.Get("TrackingOptions.CustomRedirectDomain"),
+	); err != nil {
+		return nil, err
+	}
+
+	return &emptyResponse{
+		XMLName:   xml.Name{Local: "UpdateConfigurationSetTrackingOptionsResponse"},
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+// ---- missing ops: XML types ----
+
+// emptyResponse is a generic empty-result XML envelope used by no-op operations.
+type emptyResponse struct {
+	XMLName   xml.Name `xml:""`
+	Xmlns     string   `xml:"xmlns,attr"`
+	Result    struct{} `xml:"*Result"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type xmlPolicyEntry struct {
+	Key   string `xml:"key"`
+	Value string `xml:"value"`
+}
+
+type xmlPolicyMap struct {
+	Entries []xmlPolicyEntry `xml:"entry"`
+}
+
+type getIdentityPoliciesResult struct {
+	Policies xmlPolicyMap `xml:"Policies"`
+}
+
+type getIdentityPoliciesResponse struct {
+	XMLName   xml.Name                  `xml:"GetIdentityPoliciesResponse"`
+	Xmlns     string                    `xml:"xmlns,attr"`
+	RequestID string                    `xml:"ResponseMetadata>RequestId"`
+	Result    getIdentityPoliciesResult `xml:"GetIdentityPoliciesResult"`
+}
+
+type listIdentityPoliciesResult struct {
+	PolicyNames xmlMemberList `xml:"PolicyNames"`
+}
+
+type listIdentityPoliciesResponse struct {
+	XMLName   xml.Name                   `xml:"ListIdentityPoliciesResponse"`
+	Xmlns     string                     `xml:"xmlns,attr"`
+	RequestID string                     `xml:"ResponseMetadata>RequestId"`
+	Result    listIdentityPoliciesResult `xml:"ListIdentityPoliciesResult"`
+}
+
+type xmlDkimAttributes struct {
+	DkimVerificationStatus string        `xml:"DkimVerificationStatus"`
+	DkimTokens             xmlMemberList `xml:"DkimTokens"`
+	DkimEnabled            bool          `xml:"DkimEnabled"`
+}
+
+type xmlDkimEntry struct {
+	Key   string            `xml:"key"`
+	Value xmlDkimAttributes `xml:"value"`
+}
+
+type xmlDkimMap struct {
+	Entries []xmlDkimEntry `xml:"entry"`
+}
+
+type getIdentityDkimAttributesResult struct {
+	DkimAttributes xmlDkimMap `xml:"DkimAttributes"`
+}
+
+type getIdentityDkimAttributesResponse struct {
+	XMLName   xml.Name                        `xml:"GetIdentityDkimAttributesResponse"`
+	Xmlns     string                          `xml:"xmlns,attr"`
+	RequestID string                          `xml:"ResponseMetadata>RequestId"`
+	Result    getIdentityDkimAttributesResult `xml:"GetIdentityDkimAttributesResult"`
+}
+
+type xmlMailFromDomainAttributes struct {
+	MailFromDomain       string `xml:"MailFromDomain,omitempty"`
+	MailFromDomainStatus string `xml:"MailFromDomainStatus"`
+	BehaviorOnMXFailure  string `xml:"BehaviorOnMXFailure,omitempty"`
+}
+
+type xmlMailFromEntry struct {
+	Key   string                      `xml:"key"`
+	Value xmlMailFromDomainAttributes `xml:"value"`
+}
+
+type xmlMailFromMap struct {
+	Entries []xmlMailFromEntry `xml:"entry"`
+}
+
+type getIdentityMailFromDomainAttributesResult struct {
+	MailFromDomainAttributes xmlMailFromMap `xml:"MailFromDomainAttributes"`
+}
+
+type getIdentityMailFromDomainAttributesResponse struct {
+	XMLName   xml.Name                                  `xml:"GetIdentityMailFromDomainAttributesResponse"`
+	Xmlns     string                                    `xml:"xmlns,attr"`
+	RequestID string                                    `xml:"ResponseMetadata>RequestId"`
+	Result    getIdentityMailFromDomainAttributesResult `xml:"GetIdentityMailFromDomainAttributesResult"`
+}
+
+type xmlNotificationAttributes struct {
+	BounceTopic        string `xml:"BounceTopic,omitempty"`
+	ComplaintTopic     string `xml:"ComplaintTopic,omitempty"`
+	DeliveryTopic      string `xml:"DeliveryTopic,omitempty"`
+	ForwardingEnabled  bool   `xml:"ForwardingEnabled"`
+	HeadersInBounce    bool   `xml:"HeadersInBounce"`
+	HeadersInComplaint bool   `xml:"HeadersInComplaint"`
+	HeadersInDelivery  bool   `xml:"HeadersInDelivery"`
+}
+
+type xmlNotifEntry struct {
+	Key   string                    `xml:"key"`
+	Value xmlNotificationAttributes `xml:"value"`
+}
+
+type xmlNotifMap struct {
+	Entries []xmlNotifEntry `xml:"entry"`
+}
+
+type getIdentityNotificationAttributesResult struct {
+	NotificationAttributes xmlNotifMap `xml:"NotificationAttributes"`
+}
+
+type getIdentityNotificationAttributesResponse struct {
+	XMLName   xml.Name                                `xml:"GetIdentityNotificationAttributesResponse"`
+	Xmlns     string                                  `xml:"xmlns,attr"`
+	RequestID string                                  `xml:"ResponseMetadata>RequestId"`
+	Result    getIdentityNotificationAttributesResult `xml:"GetIdentityNotificationAttributesResult"`
+}
+
+type verifyDomainIdentityResult struct {
+	VerificationToken string `xml:"VerificationToken"`
+}
+
+type verifyDomainIdentityResponse struct {
+	XMLName   xml.Name                   `xml:"VerifyDomainIdentityResponse"`
+	Xmlns     string                     `xml:"xmlns,attr"`
+	RequestID string                     `xml:"ResponseMetadata>RequestId"`
+	Result    verifyDomainIdentityResult `xml:"VerifyDomainIdentityResult"`
+}
+
+type verifyDomainDkimResult struct {
+	DkimTokens xmlMemberList `xml:"DkimTokens"`
+}
+
+type verifyDomainDkimResponse struct {
+	XMLName   xml.Name               `xml:"VerifyDomainDkimResponse"`
+	Xmlns     string                 `xml:"xmlns,attr"`
+	RequestID string                 `xml:"ResponseMetadata>RequestId"`
+	Result    verifyDomainDkimResult `xml:"VerifyDomainDkimResult"`
+}
+
+type listVerifiedEmailAddressesResult struct {
+	VerifiedEmailAddresses xmlMemberList `xml:"VerifiedEmailAddresses"`
+}
+
+type listVerifiedEmailAddressesResponse struct {
+	XMLName   xml.Name                         `xml:"ListVerifiedEmailAddressesResponse"`
+	Xmlns     string                           `xml:"xmlns,attr"`
+	RequestID string                           `xml:"ResponseMetadata>RequestId"`
+	Result    listVerifiedEmailAddressesResult `xml:"ListVerifiedEmailAddressesResult"`
+}
+
+type sendBounceResponse struct {
+	XMLName   xml.Name        `xml:"SendBounceResponse"`
+	Xmlns     string          `xml:"xmlns,attr"`
+	RequestID string          `xml:"ResponseMetadata>RequestId"`
+	Result    sendEmailResult `xml:"SendBounceResult"`
+}
+
+type xmlBulkEmailDestStatus struct {
+	MessageID string `xml:"MessageId"`
+	Status    string `xml:"Status"`
+}
+
+type xmlBulkStatusList struct {
+	Members []xmlBulkEmailDestStatus `xml:"member"`
+}
+
+type sendBulkTemplatedEmailResult struct {
+	Status xmlBulkStatusList `xml:"Status"`
+}
+
+type sendBulkTemplatedEmailResponse struct {
+	XMLName   xml.Name                     `xml:"SendBulkTemplatedEmailResponse"`
+	Xmlns     string                       `xml:"xmlns,attr"`
+	RequestID string                       `xml:"ResponseMetadata>RequestId"`
+	Result    sendBulkTemplatedEmailResult `xml:"SendBulkTemplatedEmailResult"`
+}
+
+type sendCustomVerificationEmailResponse struct {
+	XMLName   xml.Name        `xml:"SendCustomVerificationEmailResponse"`
+	Xmlns     string          `xml:"xmlns,attr"`
+	RequestID string          `xml:"ResponseMetadata>RequestId"`
+	Result    sendEmailResult `xml:"SendCustomVerificationEmailResult"`
+}
+
+type testRenderTemplateResult struct {
+	RenderedTemplate string `xml:"RenderedTemplate"`
+}
+
+type testRenderTemplateResponse struct {
+	XMLName   xml.Name                 `xml:"TestRenderTemplateResponse"`
+	Xmlns     string                   `xml:"xmlns,attr"`
+	RequestID string                   `xml:"ResponseMetadata>RequestId"`
+	Result    testRenderTemplateResult `xml:"TestRenderTemplateResult"`
+}
+
+type describeReceiptRuleResult struct {
+	Rule xmlReceiptRule `xml:"Rule"`
+}
+
+type describeReceiptRuleResponse struct {
+	XMLName   xml.Name                  `xml:"DescribeReceiptRuleResponse"`
+	Xmlns     string                    `xml:"xmlns,attr"`
+	RequestID string                    `xml:"ResponseMetadata>RequestId"`
+	Result    describeReceiptRuleResult `xml:"DescribeReceiptRuleResult"`
+}
+
+type xmlConfigurationSet struct {
+	Name string `xml:"Name"`
+}
+
+type xmlEventDestination struct {
+	Name               string        `xml:"Name"`
+	SNSTopicARN        string        `xml:"SNSDestination>TopicARN,omitempty"`
+	MatchingEventTypes xmlMemberList `xml:"MatchingEventTypes"`
+	Enabled            bool          `xml:"Enabled"`
+}
+
+type xmlEventDestinationList struct {
+	Members []xmlEventDestination `xml:"member"`
+}
+
+type xmlTrackingOptions struct {
+	CustomRedirectDomain string `xml:"CustomRedirectDomain,omitempty"`
+}
+
+type describeConfigurationSetResult struct {
+	TrackingOptions   *xmlTrackingOptions     `xml:"TrackingOptions,omitempty"`
+	ConfigurationSet  xmlConfigurationSet     `xml:"ConfigurationSet"`
+	EventDestinations xmlEventDestinationList `xml:"EventDestinations"`
+}
+
+type describeConfigurationSetResponse struct {
+	XMLName   xml.Name                       `xml:"DescribeConfigurationSetResponse"`
+	Xmlns     string                         `xml:"xmlns,attr"`
+	RequestID string                         `xml:"ResponseMetadata>RequestId"`
+	Result    describeConfigurationSetResult `xml:"DescribeConfigurationSetResult"`
 }
