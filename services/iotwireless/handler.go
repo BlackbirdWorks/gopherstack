@@ -28,6 +28,96 @@ const (
 	opUntagResource                             = "UntagResource"
 )
 
+// Additional operation name constants for stub ops.
+const (
+	opCreateMulticastGroup                                  = "CreateMulticastGroup"
+	opGetMulticastGroup                                     = "GetMulticastGroup"
+	opListMulticastGroups                                   = "ListMulticastGroups"
+	opDeleteMulticastGroup                                  = "DeleteMulticastGroup"
+	opUpdateMulticastGroup                                  = "UpdateMulticastGroup"
+	opGetMulticastGroupSession                              = "GetMulticastGroupSession"
+	opStartMulticastGroupSession                            = "StartMulticastGroupSession"
+	opListMulticastGroupsByFuotaTask                        = "ListMulticastGroupsByFuotaTask"
+	opSendDataToMulticastGroup                              = "SendDataToMulticastGroup"
+	opStartBulkAssociateWirelessDeviceWithMulticastGroup    = "StartBulkAssociateWirelessDeviceWithMulticastGroup"
+	opStartBulkDisassociateWirelessDeviceFromMulticastGroup = "StartBulkDisassociateWirelessDeviceFromMulticastGroup"
+	opDisassociateWirelessDeviceFromMulticastGroup          = "DisassociateWirelessDeviceFromMulticastGroup"
+	opDisassociateMulticastGroupFromFuotaTask               = "DisassociateMulticastGroupFromFuotaTask"
+	opDisassociateWirelessDeviceFromFuotaTask               = "DisassociateWirelessDeviceFromFuotaTask"
+	opUpdateFuotaTask                                       = "UpdateFuotaTask"
+	opStartFuotaTask                                        = "StartFuotaTask"
+	opCreateNetworkAnalyzerConfiguration                    = "CreateNetworkAnalyzerConfiguration"
+	opGetNetworkAnalyzerConfiguration                       = "GetNetworkAnalyzerConfiguration"
+	opListNetworkAnalyzerConfigurations                     = "ListNetworkAnalyzerConfigurations"
+	opDeleteNetworkAnalyzerConfiguration                    = "DeleteNetworkAnalyzerConfiguration"
+	opUpdateNetworkAnalyzerConfiguration                    = "UpdateNetworkAnalyzerConfiguration"
+	opGetEventConfigurationByResourceTypes                  = "GetEventConfigurationByResourceTypes"
+	opUpdateEventConfigurationByResourceTypes               = "UpdateEventConfigurationByResourceTypes"
+	opListEventConfigurations                               = "ListEventConfigurations"
+	opGetResourceEventConfiguration                         = "GetResourceEventConfiguration"
+	opUpdateResourceEventConfiguration                      = "UpdateResourceEventConfiguration"
+	opGetLogLevelsByResourceTypes                           = "GetLogLevelsByResourceTypes"
+	opUpdateLogLevelsByResourceTypes                        = "UpdateLogLevelsByResourceTypes"
+	opResetAllResourceLogLevels                             = "ResetAllResourceLogLevels"
+	opGetResourceLogLevel                                   = "GetResourceLogLevel"
+	opPutResourceLogLevel                                   = "PutResourceLogLevel"
+	opResetResourceLogLevel                                 = "ResetResourceLogLevel"
+	opGetMetricConfiguration                                = "GetMetricConfiguration"
+	opUpdateMetricConfiguration                             = "UpdateMetricConfiguration"
+	opGetMetrics                                            = "GetMetrics"
+	opGetPosition                                           = "GetPosition"
+	opUpdatePosition                                        = "UpdatePosition"
+	opGetPositionConfiguration                              = "GetPositionConfiguration"
+	opPutPositionConfiguration                              = "PutPositionConfiguration"
+	opListPositionConfigurations                            = "ListPositionConfigurations"
+	opGetPositionEstimate                                   = "GetPositionEstimate"
+	opGetResourcePosition                                   = "GetResourcePosition"
+	opUpdateResourcePosition                                = "UpdateResourcePosition"
+	opCreateWirelessGatewayTask                             = "CreateWirelessGatewayTask"
+	opGetWirelessGatewayTask                                = "GetWirelessGatewayTask"
+	opDeleteWirelessGatewayTask                             = "DeleteWirelessGatewayTask"
+	opCreateWirelessGatewayTaskDefinition                   = "CreateWirelessGatewayTaskDefinition"
+	opGetWirelessGatewayTaskDefinition                      = "GetWirelessGatewayTaskDefinition"
+	opListWirelessGatewayTaskDefinitions                    = "ListWirelessGatewayTaskDefinitions"
+	opDeleteWirelessGatewayTaskDefinition                   = "DeleteWirelessGatewayTaskDefinition"
+	opGetWirelessGatewayCertificate                         = "GetWirelessGatewayCertificate"
+	opGetWirelessGatewayFirmwareInformation                 = "GetWirelessGatewayFirmwareInformation"
+	opGetWirelessGatewayStatistics                          = "GetWirelessGatewayStatistics"
+	opDisassociateWirelessGatewayFromCertificate            = "DisassociateWirelessGatewayFromCertificate"
+	opDisassociateWirelessGatewayFromThing                  = "DisassociateWirelessGatewayFromThing"
+	opUpdateWirelessGateway                                 = "UpdateWirelessGateway"
+	opGetWirelessDeviceStatistics                           = "GetWirelessDeviceStatistics"
+	opSendDataToWirelessDevice                              = "SendDataToWirelessDevice"
+	opTestWirelessDevice                                    = "TestWirelessDevice"
+	opDeregisterWirelessDevice                              = "DeregisterWirelessDevice"
+	opUpdateWirelessDevice                                  = "UpdateWirelessDevice"
+	opDisassociateWirelessDeviceFromThing                   = "DisassociateWirelessDeviceFromThing"
+	opDeleteQueuedMessages                                  = "DeleteQueuedMessages"
+	opListQueuedMessages                                    = "ListQueuedMessages"
+	opStartWirelessDeviceImportTask                         = "StartWirelessDeviceImportTask"
+	opStartSingleWirelessDeviceImportTask                   = "StartSingleWirelessDeviceImportTask"
+	opGetWirelessDeviceImportTask                           = "GetWirelessDeviceImportTask"
+	opDeleteWirelessDeviceImportTask                        = "DeleteWirelessDeviceImportTask"
+	opUpdateWirelessDeviceImportTask                        = "UpdateWirelessDeviceImportTask"
+	opListWirelessDeviceImportTasks                         = "ListWirelessDeviceImportTasks"
+	opListDevicesForWirelessDeviceImportTask                = "ListDevicesForWirelessDeviceImportTask"
+	opGetPartnerAccount                                     = "GetPartnerAccount"
+	opListPartnerAccounts                                   = "ListPartnerAccounts"
+	opDisassociateAwsAccountFromPartnerAccount              = "DisassociateAwsAccountFromPartnerAccount"
+	opUpdatePartnerAccount                                  = "UpdatePartnerAccount"
+	opUpdateDestination                                     = "UpdateDestination"
+	opGetServiceEndpoint                                    = "GetServiceEndpoint"
+
+	// Destination operation name constants (used in GetSupportedOperations, routing, and dispatch).
+	opCreateDestination = "CreateDestination"
+	opGetDestination    = "GetDestination"
+	opListDestinations  = "ListDestinations"
+	opDeleteDestination = "DeleteDestination"
+
+	// path sub-segment constants.
+	pathSubSession = "session"
+)
+
 const (
 	iotwirelessService       = "iotwireless"
 	iotwirelessMatchPriority = 86
@@ -56,24 +146,46 @@ func (h *Handler) Reset() {
 func (h *Handler) Name() string { return "IoTWireless" }
 
 // GetSupportedOperations returns the list of supported IoT Wireless operations.
-func (h *Handler) GetSupportedOperations() []string {
+func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // exhaustive ops list
 	return []string{
 		"CreateWirelessDevice",
 		"GetWirelessDevice",
 		"ListWirelessDevices",
 		"DeleteWirelessDevice",
+		"UpdateWirelessDevice",
+		"DeregisterWirelessDevice",
+		"GetWirelessDeviceStatistics",
+		"SendDataToWirelessDevice",
+		"TestWirelessDevice",
+		"DisassociateWirelessDeviceFromThing",
+		"DeleteQueuedMessages",
+		"ListQueuedMessages",
 		"CreateWirelessGateway",
 		"GetWirelessGateway",
 		"ListWirelessGateways",
 		"DeleteWirelessGateway",
+		"UpdateWirelessGateway",
+		"GetWirelessGatewayCertificate",
+		"GetWirelessGatewayFirmwareInformation",
+		"GetWirelessGatewayStatistics",
+		"GetWirelessGatewayTask",
+		"DeleteWirelessGatewayTask",
+		"CreateWirelessGatewayTask",
+		"DisassociateWirelessGatewayFromCertificate",
+		"DisassociateWirelessGatewayFromThing",
+		"CreateWirelessGatewayTaskDefinition",
+		"GetWirelessGatewayTaskDefinition",
+		"ListWirelessGatewayTaskDefinitions",
+		"DeleteWirelessGatewayTaskDefinition",
 		"CreateServiceProfile",
 		"GetServiceProfile",
 		"ListServiceProfiles",
 		"DeleteServiceProfile",
-		"CreateDestination",
-		"GetDestination",
-		"ListDestinations",
-		"DeleteDestination",
+		opCreateDestination,
+		opGetDestination,
+		opListDestinations,
+		opDeleteDestination,
+		opUpdateDestination,
 		opTagResource,
 		opUntagResource,
 		opListTagsForResource,
@@ -93,6 +205,61 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetFuotaTask",
 		"ListFuotaTasks",
 		"DeleteFuotaTask",
+		"UpdateFuotaTask",
+		"StartFuotaTask",
+		"DisassociateMulticastGroupFromFuotaTask",
+		"DisassociateWirelessDeviceFromFuotaTask",
+		"CreateMulticastGroup",
+		"GetMulticastGroup",
+		"ListMulticastGroups",
+		"DeleteMulticastGroup",
+		"UpdateMulticastGroup",
+		"GetMulticastGroupSession",
+		"StartMulticastGroupSession",
+		"ListMulticastGroupsByFuotaTask",
+		"SendDataToMulticastGroup",
+		"StartBulkAssociateWirelessDeviceWithMulticastGroup",
+		"StartBulkDisassociateWirelessDeviceFromMulticastGroup",
+		"DisassociateWirelessDeviceFromMulticastGroup",
+		"CreateNetworkAnalyzerConfiguration",
+		"GetNetworkAnalyzerConfiguration",
+		"ListNetworkAnalyzerConfigurations",
+		"DeleteNetworkAnalyzerConfiguration",
+		"UpdateNetworkAnalyzerConfiguration",
+		"GetEventConfigurationByResourceTypes",
+		"UpdateEventConfigurationByResourceTypes",
+		"ListEventConfigurations",
+		"GetResourceEventConfiguration",
+		"UpdateResourceEventConfiguration",
+		"GetLogLevelsByResourceTypes",
+		"UpdateLogLevelsByResourceTypes",
+		"ResetAllResourceLogLevels",
+		"GetResourceLogLevel",
+		"PutResourceLogLevel",
+		"ResetResourceLogLevel",
+		"GetMetricConfiguration",
+		"UpdateMetricConfiguration",
+		"GetMetrics",
+		"GetPosition",
+		"UpdatePosition",
+		"GetPositionConfiguration",
+		"PutPositionConfiguration",
+		"ListPositionConfigurations",
+		"GetPositionEstimate",
+		"GetResourcePosition",
+		"UpdateResourcePosition",
+		"GetWirelessDeviceImportTask",
+		"DeleteWirelessDeviceImportTask",
+		"UpdateWirelessDeviceImportTask",
+		"ListWirelessDeviceImportTasks",
+		"ListDevicesForWirelessDeviceImportTask",
+		"StartWirelessDeviceImportTask",
+		"StartSingleWirelessDeviceImportTask",
+		"GetPartnerAccount",
+		"ListPartnerAccounts",
+		"DisassociateAwsAccountFromPartnerAccount",
+		"UpdatePartnerAccount",
+		"GetServiceEndpoint",
 	}
 }
 
@@ -121,6 +288,21 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			"/" + pathBaseFuotaTasks,
 			"/" + pathBaseMulticastGroups,
 			"/" + pathBasePartnerAccounts,
+			"/" + pathBaseNetworkAnalyzerConfigs,
+			"/" + pathBaseEventConfigsResourceTypes,
+			"/" + pathBaseEventConfigs,
+			"/" + pathBaseLogLevels,
+			"/" + pathBaseMetricConfiguration,
+			"/" + pathBaseMetrics,
+			"/" + pathBasePositions,
+			"/" + pathBasePositionConfigurations,
+			"/" + pathBasePositionEstimate,
+			"/" + pathBaseResourcePositions,
+			"/" + pathBaseWirelessGatewayTaskDefs,
+			"/" + pathBaseWirelessDeviceImportTask,
+			"/" + pathBaseWirelessDeviceImportTasks,
+			"/" + pathBaseSingleWirelessDeviceImport,
+			"/" + pathBaseServiceEndpoint,
 		} {
 			if path == prefix || strings.HasPrefix(path, prefix+"/") {
 				return httputils.ExtractServiceFromRequest(c.Request()) == iotwirelessService
@@ -186,14 +368,29 @@ const (
 	idSegmentIndex = 2
 
 	// path base segment constants used in route matching and path parsing.
-	pathBaseWirelessDevices  = "wireless-devices"
-	pathBaseWirelessGateways = "wireless-gateways"
-	pathBaseServiceProfiles  = "service-profiles"
-	pathBaseDestinations     = "destinations"
-	pathBaseDeviceProfiles   = "device-profiles"
-	pathBaseFuotaTasks       = "fuota-tasks"
-	pathBaseMulticastGroups  = "multicast-groups"
-	pathBasePartnerAccounts  = "partner-accounts"
+	pathBaseWirelessDevices            = "wireless-devices"
+	pathBaseWirelessGateways           = "wireless-gateways"
+	pathBaseServiceProfiles            = "service-profiles"
+	pathBaseDestinations               = "destinations"
+	pathBaseDeviceProfiles             = "device-profiles"
+	pathBaseFuotaTasks                 = "fuota-tasks"
+	pathBaseMulticastGroups            = "multicast-groups"
+	pathBasePartnerAccounts            = "partner-accounts"
+	pathBaseNetworkAnalyzerConfigs     = "network-analyzer-configurations"
+	pathBaseEventConfigsResourceTypes  = "event-configurations-resource-types"
+	pathBaseEventConfigs               = "event-configurations"
+	pathBaseLogLevels                  = "log-levels"
+	pathBaseMetricConfiguration        = "metric-configuration"
+	pathBaseMetrics                    = "metrics"
+	pathBasePositions                  = "positions"
+	pathBasePositionConfigurations     = "position-configurations"
+	pathBasePositionEstimate           = "position-estimate"
+	pathBaseResourcePositions          = "resource-positions"
+	pathBaseWirelessGatewayTaskDefs    = "wireless-gateway-task-definitions"
+	pathBaseWirelessDeviceImportTask   = "wireless_device_import_task"
+	pathBaseWirelessDeviceImportTasks  = "wireless_device_import_tasks"
+	pathBaseSingleWirelessDeviceImport = "wireless_single_device_import_task"
+	pathBaseServiceEndpoint            = "service-endpoint"
 )
 
 // parseIoTWirelessPath maps a method+path to an operation and resource identifier.
@@ -239,6 +436,8 @@ func parseIoTWirelessPath(method, path string) (string, string) {
 }
 
 // parseIoTWirelessBase routes path segments to their operation names.
+//
+//nolint:cyclop,gocognit,gocyclo,funlen // routes across many resource types
 func parseIoTWirelessBase(method, base, id, subPath string, hasID bool) (string, string) {
 	switch base {
 	case pathBaseWirelessDevices:
@@ -248,7 +447,7 @@ func parseIoTWirelessBase(method, base, id, subPath string, hasID bool) (string,
 	case pathBaseServiceProfiles:
 		return parseCollectionPath(method, "ServiceProfile", hasID, id)
 	case pathBaseDestinations:
-		return parseCollectionPath(method, "Destination", hasID, id)
+		return parseDestinationPath(method, id, hasID)
 	case pathBaseDeviceProfiles:
 		return parseCollectionPath(method, "DeviceProfile", hasID, id)
 	case pathBaseFuotaTasks:
@@ -256,50 +455,401 @@ func parseIoTWirelessBase(method, base, id, subPath string, hasID bool) (string,
 	case pathBaseMulticastGroups:
 		return parseMulticastGroupPath(method, id, subPath, hasID)
 	case pathBasePartnerAccounts:
-		if hasID && method == http.MethodPut {
-			return opAssociateAwsAccountWithPartnerAccount, id
+		return parsePartnerAccountPath(method, id, hasID)
+	case pathBaseNetworkAnalyzerConfigs:
+		return parseNetworkAnalyzerPath(method, id, hasID)
+	case pathBaseEventConfigsResourceTypes:
+		return parseEventConfigsResourceTypesPath(method)
+	case pathBaseEventConfigs:
+		return parseEventConfigsPath(method, id, hasID)
+	case pathBaseLogLevels:
+		return parseLogLevelsPath(method, id, hasID)
+	case pathBaseMetricConfiguration:
+		if method == http.MethodGet {
+			return opGetMetricConfiguration, ""
+		}
+
+		if method == http.MethodPut {
+			return opUpdateMetricConfiguration, ""
+		}
+	case pathBaseMetrics:
+		if method == http.MethodPost {
+			return opGetMetrics, ""
+		}
+	case pathBasePositions:
+		if hasID {
+			if method == http.MethodGet {
+				return opGetPosition, id
+			}
+
+			if method == http.MethodPut {
+				return opUpdatePosition, id
+			}
+		}
+	case pathBasePositionConfigurations:
+		return parsePositionConfigPath(method, id, hasID)
+	case pathBasePositionEstimate:
+		if method == http.MethodPost {
+			return opGetPositionEstimate, ""
+		}
+	case pathBaseResourcePositions:
+		if hasID {
+			if method == http.MethodGet {
+				return opGetResourcePosition, id
+			}
+
+			if method == http.MethodPut {
+				return opUpdateResourcePosition, id
+			}
+		}
+	case pathBaseWirelessGatewayTaskDefs:
+		return parseGatewayTaskDefPath(method, id, hasID)
+	case pathBaseWirelessDeviceImportTask:
+		return parseImportTaskPath(method, id, hasID)
+	case pathBaseWirelessDeviceImportTasks:
+		if method == http.MethodGet {
+			return opListWirelessDeviceImportTasks, ""
+		}
+	case pathBaseSingleWirelessDeviceImport:
+		if method == http.MethodPost {
+			return opStartSingleWirelessDeviceImportTask, ""
+		}
+	case pathBaseServiceEndpoint:
+		if method == http.MethodGet {
+			return opGetServiceEndpoint, ""
+		}
+	}
+
+	return "", ""
+}
+
+// parseDestinationPath handles destinations sub-path routing including UpdateDestination.
+func parseDestinationPath(method, id string, hasID bool) (string, string) {
+	if hasID {
+		switch method {
+		case http.MethodGet:
+			return opGetDestination, id
+		case http.MethodDelete:
+			return opDeleteDestination, id
+		case http.MethodPatch:
+			return opUpdateDestination, id
 		}
 
 		return "", ""
+	}
+
+	switch method {
+	case http.MethodPost:
+		return opCreateDestination, ""
+	case http.MethodGet:
+		return opListDestinations, ""
+	}
+
+	return "", ""
+}
+
+// parsePartnerAccountPath handles partner-accounts sub-path routing.
+func parsePartnerAccountPath(method, id string, hasID bool) (string, string) {
+	if !hasID {
+		if method == http.MethodGet {
+			return opListPartnerAccounts, ""
+		}
+
+		return "", ""
+	}
+
+	switch method {
+	case http.MethodPut:
+		return opAssociateAwsAccountWithPartnerAccount, id
+	case http.MethodGet:
+		return opGetPartnerAccount, id
+	case http.MethodDelete:
+		return opDisassociateAwsAccountFromPartnerAccount, id
+	case http.MethodPatch:
+		return opUpdatePartnerAccount, id
+	}
+
+	return "", ""
+}
+
+// parseNetworkAnalyzerPath handles network-analyzer-configurations routing.
+func parseNetworkAnalyzerPath(method, id string, hasID bool) (string, string) {
+	if !hasID {
+		switch method {
+		case http.MethodPost:
+			return opCreateNetworkAnalyzerConfiguration, ""
+		case http.MethodGet:
+			return opListNetworkAnalyzerConfigurations, ""
+		}
+
+		return "", ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetNetworkAnalyzerConfiguration, id
+	case http.MethodDelete:
+		return opDeleteNetworkAnalyzerConfiguration, id
+	case http.MethodPatch:
+		return opUpdateNetworkAnalyzerConfiguration, id
+	}
+
+	return "", ""
+}
+
+// parseEventConfigsResourceTypesPath handles event-configurations-resource-types routing.
+func parseEventConfigsResourceTypesPath(method string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return opGetEventConfigurationByResourceTypes, ""
+	case http.MethodPost:
+		return opUpdateEventConfigurationByResourceTypes, ""
+	}
+
+	return "", ""
+}
+
+// parseEventConfigsPath handles event-configurations routing.
+func parseEventConfigsPath(method, id string, hasID bool) (string, string) {
+	if !hasID {
+		if method == http.MethodGet {
+			return opListEventConfigurations, ""
+		}
+
+		return "", ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetResourceEventConfiguration, id
+	case http.MethodPatch:
+		return opUpdateResourceEventConfiguration, id
+	}
+
+	return "", ""
+}
+
+// parseLogLevelsPath handles log-levels routing.
+func parseLogLevelsPath(method, id string, hasID bool) (string, string) {
+	if !hasID {
+		switch method {
+		case http.MethodGet:
+			return opGetLogLevelsByResourceTypes, ""
+		case http.MethodPost:
+			return opUpdateLogLevelsByResourceTypes, ""
+		case http.MethodDelete:
+			return opResetAllResourceLogLevels, ""
+		}
+
+		return "", ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetResourceLogLevel, id
+	case http.MethodPut:
+		return opPutResourceLogLevel, id
+	case http.MethodDelete:
+		return opResetResourceLogLevel, id
+	}
+
+	return "", ""
+}
+
+// parsePositionConfigPath handles position-configurations routing.
+func parsePositionConfigPath(method, id string, hasID bool) (string, string) {
+	if !hasID {
+		if method == http.MethodGet {
+			return opListPositionConfigurations, ""
+		}
+
+		return "", ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetPositionConfiguration, id
+	case http.MethodPut:
+		return opPutPositionConfiguration, id
+	}
+
+	return "", ""
+}
+
+// parseGatewayTaskDefPath handles wireless-gateway-task-definitions routing.
+func parseGatewayTaskDefPath(method, id string, hasID bool) (string, string) {
+	if !hasID {
+		switch method {
+		case http.MethodPost:
+			return opCreateWirelessGatewayTaskDefinition, ""
+		case http.MethodGet:
+			return opListWirelessGatewayTaskDefinitions, ""
+		}
+
+		return "", ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetWirelessGatewayTaskDefinition, id
+	case http.MethodDelete:
+		return opDeleteWirelessGatewayTaskDefinition, id
+	}
+
+	return "", ""
+}
+
+// parseImportTaskPath handles wireless_device_import_task routing.
+func parseImportTaskPath(method, id string, hasID bool) (string, string) {
+	if !hasID {
+		switch method {
+		case http.MethodPost:
+			return opStartWirelessDeviceImportTask, ""
+		case http.MethodGet:
+			return opListDevicesForWirelessDeviceImportTask, ""
+		}
+
+		return "", ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetWirelessDeviceImportTask, id
+	case http.MethodDelete:
+		return opDeleteWirelessDeviceImportTask, id
+	case http.MethodPatch:
+		return opUpdateWirelessDeviceImportTask, id
 	}
 
 	return "", ""
 }
 
 // parseWirelessDevicePath handles wireless-devices sub-path routing.
+//
+//nolint:cyclop,gocognit,nestif // routes across several sub-paths
 func parseWirelessDevicePath(method, id, subPath string, hasID bool) (string, string) {
-	if hasID && subPath == "thing" && method == http.MethodPut {
-		return opAssociateWirelessDeviceWithThing, id
+	if hasID {
+		switch subPath {
+		case "thing":
+			if method == http.MethodPut {
+				return opAssociateWirelessDeviceWithThing, id
+			}
+
+			if method == http.MethodDelete {
+				return opDisassociateWirelessDeviceFromThing, id
+			}
+		case "statistics":
+			if method == http.MethodGet {
+				return opGetWirelessDeviceStatistics, id
+			}
+		case "data":
+			if method == http.MethodPost {
+				return opSendDataToWirelessDevice, id
+			}
+
+			if method == http.MethodDelete {
+				return opDeleteQueuedMessages, id
+			}
+
+			if method == http.MethodGet {
+				return opListQueuedMessages, id
+			}
+		case "test":
+			if method == http.MethodPost {
+				return opTestWirelessDevice, id
+			}
+		case "deregister":
+			if method == http.MethodPatch {
+				return opDeregisterWirelessDevice, id
+			}
+		case "":
+			if method == http.MethodPatch {
+				return opUpdateWirelessDevice, id
+			}
+		}
 	}
 
 	return parseCollectionPath(method, "WirelessDevice", hasID, id)
 }
 
 // parseWirelessGatewayPath handles wireless-gateways sub-path routing.
+//
+//nolint:cyclop,gocognit,nestif // routes across several sub-paths
 func parseWirelessGatewayPath(method, id, subPath string, hasID bool) (string, string) {
-	if hasID && subPath == "certificate" && method == http.MethodPut {
-		return opAssociateWirelessGatewayWithCertificate, id
-	}
+	if hasID {
+		switch subPath {
+		case "certificate":
+			if method == http.MethodPut {
+				return opAssociateWirelessGatewayWithCertificate, id
+			}
 
-	if hasID && subPath == "thing" && method == http.MethodPut {
-		return opAssociateWirelessGatewayWithThing, id
+			if method == http.MethodGet {
+				return opGetWirelessGatewayCertificate, id
+			}
+
+			if method == http.MethodDelete {
+				return opDisassociateWirelessGatewayFromCertificate, id
+			}
+		case "thing":
+			if method == http.MethodPut {
+				return opAssociateWirelessGatewayWithThing, id
+			}
+
+			if method == http.MethodDelete {
+				return opDisassociateWirelessGatewayFromThing, id
+			}
+		case "firmware-information":
+			if method == http.MethodGet {
+				return opGetWirelessGatewayFirmwareInformation, id
+			}
+		case "statistics":
+			if method == http.MethodGet {
+				return opGetWirelessGatewayStatistics, id
+			}
+		case "tasks":
+			if method == http.MethodPost {
+				return opCreateWirelessGatewayTask, id
+			}
+
+			if method == http.MethodGet {
+				return opGetWirelessGatewayTask, id
+			}
+
+			if method == http.MethodDelete {
+				return opDeleteWirelessGatewayTask, id
+			}
+		case "":
+			if method == http.MethodPatch {
+				return opUpdateWirelessGateway, id
+			}
+		}
 	}
 
 	return parseCollectionPath(method, "WirelessGateway", hasID, id)
 }
 
 // parseFuotaTaskPath handles fuota-tasks sub-path routing.
+//
+//nolint:cyclop // routes across several sub-paths
 func parseFuotaTaskPath(method, id, subPath string, hasID bool) (string, string) {
 	if hasID {
-		switch subPath {
-		case pathBaseMulticastGroups:
-			if method == http.MethodPut {
-				return opAssociateMulticastGroupWithFuotaTask, id
-			}
-		case pathBaseWirelessDevices:
-			if method == http.MethodPut {
-				return opAssociateWirelessDeviceWithFuotaTask, id
-			}
+		switch {
+		case subPath == pathBaseMulticastGroups && method == http.MethodPut:
+			// PUT /fuota-tasks/{id}/multicast-groups → associate
+			return opAssociateMulticastGroupWithFuotaTask, id
+		case subPath == pathBaseMulticastGroups && method == http.MethodGet:
+			// GET /fuota-tasks/{id}/multicast-groups → list
+			return opListMulticastGroupsByFuotaTask, id
+		case strings.HasPrefix(subPath, "multicast-groups/") && method == http.MethodDelete:
+			return opDisassociateMulticastGroupFromFuotaTask, id
+		case subPath == pathBaseWirelessDevices && method == http.MethodPut:
+			return opAssociateWirelessDeviceWithFuotaTask, id
+		case strings.HasPrefix(subPath, "wireless-devices/") && method == http.MethodDelete:
+			return opDisassociateWirelessDeviceFromFuotaTask, id
+		case subPath == "" && method == http.MethodPut:
+			return opStartFuotaTask, id
+		case subPath == "" && method == http.MethodPatch:
+			return opUpdateFuotaTask, id
 		}
 	}
 
@@ -307,18 +857,43 @@ func parseFuotaTaskPath(method, id, subPath string, hasID bool) (string, string)
 }
 
 // parseMulticastGroupPath handles multicast-groups sub-path routing.
+//
+//nolint:cyclop // routes across several sub-paths
 func parseMulticastGroupPath(method, id, subPath string, hasID bool) (string, string) {
-	if hasID {
-		switch subPath {
-		case pathBaseWirelessDevices:
-			if method == http.MethodPut {
-				return opAssociateWirelessDeviceWithMulticastGroup, id
-			}
-		case "session":
-			if method == http.MethodDelete {
-				return opCancelMulticastGroupSession, id
-			}
+	if !hasID {
+		switch method {
+		case http.MethodPost:
+			return opCreateMulticastGroup, ""
+		case http.MethodGet:
+			return opListMulticastGroups, ""
 		}
+
+		return "", ""
+	}
+
+	switch {
+	case subPath == pathBaseWirelessDevices && method == http.MethodPut:
+		return opAssociateWirelessDeviceWithMulticastGroup, id
+	case strings.HasPrefix(subPath, "wireless-devices/") && method == http.MethodDelete:
+		return opDisassociateWirelessDeviceFromMulticastGroup, id
+	case subPath == pathSubSession && method == http.MethodDelete:
+		return opCancelMulticastGroupSession, id
+	case subPath == pathSubSession && method == http.MethodPut:
+		return opStartMulticastGroupSession, id
+	case subPath == pathSubSession && method == http.MethodGet:
+		return opGetMulticastGroupSession, id
+	case subPath == "data" && method == http.MethodPost:
+		return opSendDataToMulticastGroup, id
+	case subPath == "bulk" && method == http.MethodPatch:
+		return opStartBulkAssociateWirelessDeviceWithMulticastGroup, id
+	case subPath == "bulk" && method == http.MethodPost:
+		return opStartBulkDisassociateWirelessDeviceFromMulticastGroup, id
+	case subPath == "" && method == http.MethodGet:
+		return opGetMulticastGroup, id
+	case subPath == "" && method == http.MethodDelete:
+		return opDeleteMulticastGroup, id
+	case subPath == "" && method == http.MethodPatch:
+		return opUpdateMulticastGroup, id
 	}
 
 	return "", ""
@@ -348,6 +923,8 @@ func parseCollectionPath(method, resourceType string, hasID bool, id string) (st
 }
 
 // dispatch routes to the appropriate handler based on the operation name.
+//
+//nolint:cyclop // routes across many resource types
 func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte, query url.Values) error {
 	if handled, result := h.dispatchWirelessDevice(c, op, resource, body); handled {
 		return result
@@ -369,6 +946,34 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte, qu
 		return result
 	}
 
+	if handled, result := h.dispatchMulticastOps(c, op, resource, body); handled {
+		return result
+	}
+
+	if handled, result := h.dispatchNetworkAnalyzerOps(c, op, resource, body); handled {
+		return result
+	}
+
+	if handled, result := h.dispatchMetricsAndLogOps(c, op, resource, body); handled {
+		return result
+	}
+
+	if handled, result := h.dispatchPositionOps(c, op, resource); handled {
+		return result
+	}
+
+	if handled, result := h.dispatchGatewayTaskOps(c, op, resource, body); handled {
+		return result
+	}
+
+	if handled, result := h.dispatchImportTaskOps(c, op, resource); handled {
+		return result
+	}
+
+	if handled, result := h.dispatchPartnerAndMiscOps(c, op, resource, body); handled {
+		return result
+	}
+
 	switch op {
 	case opListTagsForResource:
 		return h.listTagsForResource(c, resource)
@@ -379,6 +984,222 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte, qu
 	}
 
 	return writeError(c, http.StatusNotFound, "unknown operation")
+}
+
+// dispatchMulticastOps handles multicast group operations.
+//
+//nolint:cyclop // routes across many resource types
+func (h *Handler) dispatchMulticastOps(c *echo.Context, op, resource string, _ []byte) (bool, error) {
+	switch op {
+	case opCreateMulticastGroup:
+		return true, h.createMulticastGroup(c)
+	case opGetMulticastGroup:
+		return true, h.getMulticastGroup(c, resource)
+	case opListMulticastGroups:
+		return true, h.listMulticastGroups(c)
+	case opDeleteMulticastGroup:
+		return true, h.deleteMulticastGroup(c, resource)
+	case opUpdateMulticastGroup:
+		return true, h.updateMulticastGroup(c, resource)
+	case opGetMulticastGroupSession:
+		return true, h.getMulticastGroupSession(c, resource)
+	case opStartMulticastGroupSession:
+		return true, h.startMulticastGroupSession(c, resource)
+	case opListMulticastGroupsByFuotaTask:
+		return true, h.listMulticastGroupsByFuotaTask(c, resource)
+	case opSendDataToMulticastGroup:
+		return true, h.sendDataToMulticastGroup(c, resource)
+	case opStartBulkAssociateWirelessDeviceWithMulticastGroup:
+		return true, h.startBulkAssociateWirelessDeviceWithMulticastGroup(c, resource)
+	case opStartBulkDisassociateWirelessDeviceFromMulticastGroup:
+		return true, h.startBulkDisassociateWirelessDeviceFromMulticastGroup(c, resource)
+	case opDisassociateWirelessDeviceFromMulticastGroup:
+		return true, h.disassociateWirelessDeviceFromMulticastGroup(c, resource, "")
+	case opDisassociateMulticastGroupFromFuotaTask:
+		return true, h.disassociateMulticastGroupFromFuotaTask(c, resource, "")
+	case opDisassociateWirelessDeviceFromFuotaTask:
+		return true, h.disassociateWirelessDeviceFromFuotaTask(c, resource, "")
+	case opStartFuotaTask:
+		return true, h.startFuotaTask(c, resource)
+	case opUpdateFuotaTask:
+		return true, h.updateFuotaTask(c, resource)
+	}
+
+	return false, nil
+}
+
+// dispatchNetworkAnalyzerOps handles network analyzer configuration operations.
+func (h *Handler) dispatchNetworkAnalyzerOps(c *echo.Context, op, resource string, _ []byte) (bool, error) {
+	switch op {
+	case opCreateNetworkAnalyzerConfiguration:
+		return true, h.createNetworkAnalyzerConfiguration(c)
+	case opGetNetworkAnalyzerConfiguration:
+		return true, h.getNetworkAnalyzerConfiguration(c, resource)
+	case opListNetworkAnalyzerConfigurations:
+		return true, h.listNetworkAnalyzerConfigurations(c)
+	case opDeleteNetworkAnalyzerConfiguration:
+		return true, h.deleteNetworkAnalyzerConfiguration(c, resource)
+	case opUpdateNetworkAnalyzerConfiguration:
+		return true, h.updateNetworkAnalyzerConfiguration(c, resource)
+	case opGetEventConfigurationByResourceTypes:
+		return true, h.getEventConfigurationByResourceTypes(c)
+	case opUpdateEventConfigurationByResourceTypes:
+		return true, h.updateEventConfigurationByResourceTypes(c)
+	case opListEventConfigurations:
+		return true, h.listEventConfigurations(c)
+	case opGetResourceEventConfiguration:
+		return true, h.getResourceEventConfiguration(c, resource)
+	case opUpdateResourceEventConfiguration:
+		return true, h.updateResourceEventConfiguration(c, resource)
+	}
+
+	return false, nil
+}
+
+// dispatchMetricsAndLogOps handles metrics, log level, and event config operations.
+func (h *Handler) dispatchMetricsAndLogOps(c *echo.Context, op, resource string, _ []byte) (bool, error) {
+	switch op {
+	case opGetLogLevelsByResourceTypes:
+		return true, h.getLogLevelsByResourceTypes(c)
+	case opUpdateLogLevelsByResourceTypes:
+		return true, h.updateLogLevelsByResourceTypes(c)
+	case opResetAllResourceLogLevels:
+		return true, h.resetAllResourceLogLevels(c)
+	case opGetResourceLogLevel:
+		return true, h.getResourceLogLevel(c, resource)
+	case opPutResourceLogLevel:
+		return true, h.putResourceLogLevel(c, resource)
+	case opResetResourceLogLevel:
+		return true, h.resetResourceLogLevel(c, resource)
+	case opGetMetricConfiguration:
+		return true, h.getMetricConfiguration(c)
+	case opUpdateMetricConfiguration:
+		return true, h.updateMetricConfiguration(c)
+	case opGetMetrics:
+		return true, h.getMetrics(c)
+	}
+
+	return false, nil
+}
+
+// dispatchPositionOps handles position and location operations.
+func (h *Handler) dispatchPositionOps(c *echo.Context, op, resource string) (bool, error) {
+	switch op {
+	case opGetPosition:
+		return true, h.getPosition(c, resource)
+	case opUpdatePosition:
+		return true, h.updatePosition(c, resource)
+	case opGetPositionConfiguration:
+		return true, h.getPositionConfiguration(c, resource)
+	case opPutPositionConfiguration:
+		return true, h.putPositionConfiguration(c, resource)
+	case opListPositionConfigurations:
+		return true, h.listPositionConfigurations(c)
+	case opGetPositionEstimate:
+		return true, h.getPositionEstimate(c)
+	case opGetResourcePosition:
+		return true, h.getResourcePosition(c, resource)
+	case opUpdateResourcePosition:
+		return true, h.updateResourcePosition(c, resource)
+	}
+
+	return false, nil
+}
+
+// dispatchGatewayTaskOps handles gateway task and task definition operations.
+func (h *Handler) dispatchGatewayTaskOps(c *echo.Context, op, resource string, _ []byte) (bool, error) {
+	switch op {
+	case opCreateWirelessGatewayTask:
+		return true, h.createWirelessGatewayTask(c, resource)
+	case opGetWirelessGatewayTask:
+		return true, h.getWirelessGatewayTask(c, resource)
+	case opDeleteWirelessGatewayTask:
+		return true, h.deleteWirelessGatewayTask(c, resource)
+	case opCreateWirelessGatewayTaskDefinition:
+		return true, h.createWirelessGatewayTaskDefinition(c)
+	case opGetWirelessGatewayTaskDefinition:
+		return true, h.getWirelessGatewayTaskDefinition(c, resource)
+	case opListWirelessGatewayTaskDefinitions:
+		return true, h.listWirelessGatewayTaskDefinitions(c)
+	case opDeleteWirelessGatewayTaskDefinition:
+		return true, h.deleteWirelessGatewayTaskDefinition(c, resource)
+	}
+
+	return false, nil
+}
+
+// dispatchImportTaskOps handles wireless device import task operations.
+func (h *Handler) dispatchImportTaskOps(c *echo.Context, op, resource string) (bool, error) {
+	switch op {
+	case opStartWirelessDeviceImportTask:
+		return true, h.startWirelessDeviceImportTask(c)
+	case opStartSingleWirelessDeviceImportTask:
+		return true, h.startSingleWirelessDeviceImportTask(c)
+	case opGetWirelessDeviceImportTask:
+		return true, h.getWirelessDeviceImportTask(c, resource)
+	case opDeleteWirelessDeviceImportTask:
+		return true, h.deleteWirelessDeviceImportTask(c, resource)
+	case opUpdateWirelessDeviceImportTask:
+		return true, h.updateWirelessDeviceImportTask(c, resource)
+	case opListWirelessDeviceImportTasks:
+		return true, h.listWirelessDeviceImportTasks(c)
+	case opListDevicesForWirelessDeviceImportTask:
+		return true, h.listDevicesForWirelessDeviceImportTask(c)
+	}
+
+	return false, nil
+}
+
+// dispatchPartnerAndMiscOps handles partner account, destination update, and misc operations.
+//
+//nolint:cyclop // routes across many resource types
+func (h *Handler) dispatchPartnerAndMiscOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
+	case opGetPartnerAccount:
+		return true, h.getPartnerAccount(c, resource)
+	case opListPartnerAccounts:
+		return true, h.listPartnerAccounts(c)
+	case opDisassociateAwsAccountFromPartnerAccount:
+		return true, h.disassociateAwsAccountFromPartnerAccount(c, resource)
+	case opUpdatePartnerAccount:
+		return true, h.updatePartnerAccount(c, resource)
+	case opUpdateDestination:
+		return true, h.updateDestination(c, resource)
+	case opGetServiceEndpoint:
+		return true, h.getServiceEndpoint(c)
+	case opGetWirelessGatewayCertificate:
+		return true, h.getWirelessGatewayCertificate(c, resource)
+	case opGetWirelessGatewayFirmwareInformation:
+		return true, h.getWirelessGatewayFirmwareInformation(c, resource)
+	case opGetWirelessGatewayStatistics:
+		return true, h.getWirelessGatewayStatistics(c, resource)
+	case opDisassociateWirelessGatewayFromCertificate:
+		return true, h.disassociateWirelessGatewayFromCertificate(c, resource)
+	case opDisassociateWirelessGatewayFromThing:
+		return true, h.disassociateWirelessGatewayFromThing(c, resource)
+	case opUpdateWirelessGateway:
+		return true, h.updateWirelessGateway(c, resource)
+	case opGetWirelessDeviceStatistics:
+		return true, h.getWirelessDeviceStatistics(c, resource)
+	case opSendDataToWirelessDevice:
+		return true, h.sendDataToWirelessDevice(c, resource)
+	case opTestWirelessDevice:
+		return true, h.testWirelessDevice(c, resource)
+	case opDeregisterWirelessDevice:
+		return true, h.deregisterWirelessDevice(c, resource)
+	case opUpdateWirelessDevice:
+		return true, h.updateWirelessDevice(c, resource)
+	case opDisassociateWirelessDeviceFromThing:
+		return true, h.disassociateWirelessDeviceFromThing(c, resource)
+	case opDeleteQueuedMessages:
+		return true, h.deleteQueuedMessages(c, resource)
+	case opListQueuedMessages:
+		return true, h.listQueuedMessages(c, resource)
+	}
+
+	_ = body
+
+	return false, nil
 }
 
 // dispatchWirelessDevice handles wireless device operations.
@@ -432,13 +1253,13 @@ func (h *Handler) dispatchServiceProfile(c *echo.Context, op, resource string, b
 // dispatchDestination handles destination operations.
 func (h *Handler) dispatchDestination(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
-	case "CreateDestination":
+	case opCreateDestination:
 		return true, h.createDestination(c, body)
-	case "GetDestination":
+	case opGetDestination:
 		return true, h.getDestination(c, resource)
-	case "ListDestinations":
+	case opListDestinations:
 		return true, h.listDestinations(c)
-	case "DeleteDestination":
+	case opDeleteDestination:
 		return true, h.deleteDestination(c, resource)
 	}
 
