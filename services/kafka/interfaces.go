@@ -36,6 +36,9 @@ type StorageBackend interface {
 	// Replicator operations
 	CreateReplicator(name, description, serviceExecutionRoleArn string, tags map[string]string) (*Replicator, error)
 	DeleteReplicator(replicatorArn string) error
+	DescribeReplicator(replicatorArn string) (*Replicator, error)
+	ListReplicators() []*Replicator
+	UpdateReplicationInfo(replicatorArn, description string) (*Replicator, error)
 
 	// Topic operations
 	CreateTopic(
@@ -44,16 +47,55 @@ type StorageBackend interface {
 		configEntries map[string]string,
 	) (*Topic, error)
 	DeleteTopic(clusterArn, topicName string) error
+	DescribeTopic(clusterArn, topicName string) (*Topic, error)
+	DescribeTopicPartitions(clusterArn, topicName string) (*Topic, error)
+	ListTopics(clusterArn string) ([]*Topic, error)
+	UpdateTopic(clusterArn, topicName string, numPartitions int32, configEntries map[string]string) (*Topic, error)
 
 	// VPC connection operations
 	CreateVpcConnection(targetClusterArn, vpcID, authentication string, tags map[string]string) (*VpcConnection, error)
 	DeleteVpcConnection(vpcConnectionArn string) error
+	DescribeVpcConnection(vpcConnectionArn string) (*VpcConnection, error)
+	ListVpcConnections() []*VpcConnection
+	ListClientVpcConnections(clusterArn string) ([]*VpcConnection, error)
+	RejectClientVpcConnection(vpcConnectionArn string) error
 
 	// Cluster policy operations
 	DeleteClusterPolicy(clusterArn string) error
+	GetClusterPolicy(clusterArn string) (string, error)
+	PutClusterPolicy(clusterArn, policy string) error
 
 	// Cluster operation operations
 	DescribeClusterOperation(clusterOperationArn string) (*ClusterOperation, error)
+	DescribeClusterOperationV2(clusterOperationArn string) (*ClusterOperation, error)
+	ListClusterOperations(clusterArn string) ([]*ClusterOperation, error)
+	ListClusterOperationsV2(clusterArn string) ([]*ClusterOperation, error)
+
+	// Configuration revision operations
+	DescribeConfigurationRevision(configArn string, revision int64) (*ConfigurationRevision, error)
+	UpdateConfiguration(configArn, description, serverProperties string) (*Configuration, error)
+	ListConfigurationRevisions(configArn string) ([]*ConfigurationRevision, error)
+
+	// Broker / cluster update operations
+	UpdateBrokerCount(clusterArn string, numBrokers int32) (*ClusterOperation, error)
+	UpdateBrokerStorage(clusterArn string, volumeSize int32) (*ClusterOperation, error)
+	UpdateBrokerType(clusterArn, instanceType string) (*ClusterOperation, error)
+	UpdateClusterConfiguration(clusterArn, configArn string, revision int64) (*ClusterOperation, error)
+	UpdateClusterKafkaVersion(clusterArn, targetKafkaVersion string) (*ClusterOperation, error)
+	UpdateConnectivity(clusterArn string) (*ClusterOperation, error)
+	UpdateMonitoring(clusterArn string) (*ClusterOperation, error)
+	UpdateRebalancing(clusterArn string) (*ClusterOperation, error)
+	UpdateSecurity(clusterArn string) (*ClusterOperation, error)
+	UpdateStorage(clusterArn string) (*ClusterOperation, error)
+	RebootBroker(clusterArn string, brokerIDs []string) (*ClusterOperation, error)
+
+	// SCRAM secret list
+	ListScramSecrets(clusterArn string) ([]string, error)
+
+	// Node / version ops
+	ListNodes(clusterArn string) ([]*BrokerNode, error)
+	ListKafkaVersions() []*MSKVersion
+	GetCompatibleKafkaVersions(clusterArn string) ([]*MSKVersion, error)
 
 	// Lifecycle
 	Reset()
