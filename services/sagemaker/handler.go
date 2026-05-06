@@ -78,16 +78,41 @@ func (h *Handler) GetSupportedOperations() []string {
 		"BatchReplaceClusterNodes",
 		"CreateAction",
 		"CreateAlgorithm",
+		"CreateEndpoint",
 		"CreateEndpointConfig",
+		"CreateHyperParameterTuningJob",
 		"CreateModel",
+		"CreateNotebookInstance",
+		"CreatePresignedNotebookInstanceUrl",
+		"CreateTrainingJob",
+		"DeleteEndpoint",
 		"DeleteEndpointConfig",
+		"DeleteHyperParameterTuningJob",
 		"DeleteModel",
+		"DeleteNotebookInstance",
 		"DeleteTags",
+		"DeleteTrainingJob",
+		"DescribeEndpoint",
 		"DescribeEndpointConfig",
+		"DescribeHyperParameterTuningJob",
 		"DescribeModel",
+		"DescribeNotebookInstance",
+		"DescribeTrainingJob",
 		"ListEndpointConfigs",
+		"ListEndpoints",
+		"ListHyperParameterTuningJobs",
 		"ListModels",
+		"ListNotebookInstances",
 		"ListTags",
+		"ListTrainingJobs",
+		"StartNotebookInstance",
+		"StopHyperParameterTuningJob",
+		"StopNotebookInstance",
+		"StopTrainingJob",
+		"UpdateEndpoint",
+		"UpdateEndpointWeightsAndCapacities",
+		"UpdateNotebookInstance",
+		"UpdateTrainingJob",
 	}
 }
 
@@ -207,30 +232,194 @@ func (h *Handler) dispatchCoreOps(ctx context.Context, op string, body []byte) (
 }
 
 func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([]byte, error) {
+	if r, ok, err := h.dispatchLineageAndBatchOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchEndpointOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchTrainingJobOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchNotebookOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchHPTuningJobOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
+}
+
+func (h *Handler) dispatchLineageAndBatchOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
 	switch op {
 	case "AddAssociation":
-		return h.handleAddAssociation(ctx, body)
+		r, err := h.handleAddAssociation(ctx, body)
+
+		return r, true, err
 	case "AssociateTrialComponent":
-		return h.handleAssociateTrialComponent(ctx, body)
+		r, err := h.handleAssociateTrialComponent(ctx, body)
+
+		return r, true, err
 	case "AttachClusterNodeVolume":
-		return h.handleAttachClusterNodeVolume(ctx, body)
+		r, err := h.handleAttachClusterNodeVolume(ctx, body)
+
+		return r, true, err
 	case "BatchAddClusterNodes":
-		return h.handleBatchAddClusterNodes(ctx, body)
+		r, err := h.handleBatchAddClusterNodes(ctx, body)
+
+		return r, true, err
 	case "BatchDeleteClusterNodes":
-		return h.handleBatchDeleteClusterNodes(ctx, body)
+		r, err := h.handleBatchDeleteClusterNodes(ctx, body)
+
+		return r, true, err
 	case "BatchDescribeModelPackage":
-		return h.handleBatchDescribeModelPackage(body)
+		r, err := h.handleBatchDescribeModelPackage(body)
+
+		return r, true, err
 	case "BatchRebootClusterNodes":
-		return h.handleBatchRebootClusterNodes(ctx, body)
+		r, err := h.handleBatchRebootClusterNodes(ctx, body)
+
+		return r, true, err
 	case "BatchReplaceClusterNodes":
-		return h.handleBatchReplaceClusterNodes(ctx, body)
+		r, err := h.handleBatchReplaceClusterNodes(ctx, body)
+
+		return r, true, err
 	case "CreateAction":
-		return h.handleCreateAction(ctx, body)
+		r, err := h.handleCreateAction(ctx, body)
+
+		return r, true, err
 	case "CreateAlgorithm":
-		return h.handleCreateAlgorithm(ctx, body)
-	default:
-		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
+		r, err := h.handleCreateAlgorithm(ctx, body)
+
+		return r, true, err
 	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchEndpointOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case "CreateEndpoint":
+		r, err := h.handleCreateEndpoint(ctx, body)
+
+		return r, true, err
+	case "DescribeEndpoint":
+		r, err := h.handleDescribeEndpoint(ctx, body)
+
+		return r, true, err
+	case "ListEndpoints":
+		r, err := h.handleListEndpoints(body)
+
+		return r, true, err
+	case "DeleteEndpoint":
+		return nil, true, h.handleDeleteEndpoint(ctx, body)
+	case "UpdateEndpoint":
+		r, err := h.handleUpdateEndpoint(ctx, body)
+
+		return r, true, err
+	case "UpdateEndpointWeightsAndCapacities":
+		r, err := h.handleUpdateEndpointWeightsAndCapacities(ctx, body)
+
+		return r, true, err
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchTrainingJobOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case "CreateTrainingJob":
+		r, err := h.handleCreateTrainingJob(ctx, body)
+
+		return r, true, err
+	case "DescribeTrainingJob":
+		r, err := h.handleDescribeTrainingJob(ctx, body)
+
+		return r, true, err
+	case "ListTrainingJobs":
+		r, err := h.handleListTrainingJobs(body)
+
+		return r, true, err
+	case "StopTrainingJob":
+		return nil, true, h.handleStopTrainingJob(ctx, body)
+	case "DeleteTrainingJob":
+		return nil, true, h.handleDeleteTrainingJob(ctx, body)
+	case "UpdateTrainingJob":
+		r, err := h.handleUpdateTrainingJob(ctx, body)
+
+		return r, true, err
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchNotebookOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case "CreateNotebookInstance":
+		r, err := h.handleCreateNotebookInstance(ctx, body)
+
+		return r, true, err
+	case "DescribeNotebookInstance":
+		r, err := h.handleDescribeNotebookInstance(ctx, body)
+
+		return r, true, err
+	case "ListNotebookInstances":
+		r, err := h.handleListNotebookInstances(body)
+
+		return r, true, err
+	case "DeleteNotebookInstance":
+		return nil, true, h.handleDeleteNotebookInstance(ctx, body)
+	case "StartNotebookInstance":
+		return nil, true, h.handleStartNotebookInstance(ctx, body)
+	case "StopNotebookInstance":
+		return nil, true, h.handleStopNotebookInstance(ctx, body)
+	case "UpdateNotebookInstance":
+		return nil, true, h.handleUpdateNotebookInstance(ctx, body)
+	case "CreatePresignedNotebookInstanceUrl":
+		r, err := h.handleCreatePresignedNotebookInstanceURL(ctx, body)
+
+		return r, true, err
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchHPTuningJobOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case "CreateHyperParameterTuningJob":
+		r, err := h.handleCreateHyperParameterTuningJob(ctx, body)
+
+		return r, true, err
+	case "DescribeHyperParameterTuningJob":
+		r, err := h.handleDescribeHyperParameterTuningJob(ctx, body)
+
+		return r, true, err
+	case "ListHyperParameterTuningJobs":
+		r, err := h.handleListHyperParameterTuningJobs(body)
+
+		return r, true, err
+	case "StopHyperParameterTuningJob":
+		return nil, true, h.handleStopHyperParameterTuningJob(ctx, body)
+	case "DeleteHyperParameterTuningJob":
+		return nil, true, h.handleDeleteHyperParameterTuningJob(ctx, body)
+	}
+
+	return nil, false, nil
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
