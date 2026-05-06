@@ -60,16 +60,20 @@ func (h *Handler) GetSupportedOperations() []string {
 		"BatchGetDevEndpoints",
 		"BatchStopJobRun",
 		"CancelDataQualityRulesetEvaluationRun",
+		"CreateConnection",
 		"CreateCrawler",
 		"CreateDatabase",
 		"CreateDataQualityRuleset",
 		"CreateJob",
 		"CreateTable",
+		"DeleteConnection",
 		"DeleteCrawler",
 		"DeleteDatabase",
 		"DeleteDataQualityRuleset",
 		"DeleteJob",
 		"DeleteTable",
+		"GetConnection",
+		"GetConnections",
 		"GetCrawler",
 		"GetCrawlers",
 		"GetDatabase",
@@ -84,6 +88,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetTable",
 		"GetTables",
 		"GetTags",
+		"ListCrawlers",
 		"ListDataQualityRulesets",
 		"ResetJobBookmark",
 		"StartCrawler",
@@ -144,9 +149,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req struct {
-		Name         string `json:"Name"`
-		DatabaseName string `json:"DatabaseName"`
-		ResourceArn  string `json:"ResourceArn"`
+		Name           string `json:"Name"`
+		DatabaseName   string `json:"DatabaseName"`
+		ResourceArn    string `json:"ResourceArn"`
+		CrawlerName    string `json:"CrawlerName"`
+		JobName        string `json:"JobName"`
+		ConnectionName string `json:"ConnectionName"`
 	}
 
 	_ = json.Unmarshal(body, &req)
@@ -156,6 +164,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return req.ResourceArn
 	case req.Name != "":
 		return req.Name
+	case req.CrawlerName != "":
+		return req.CrawlerName
+	case req.JobName != "":
+		return req.JobName
+	case req.ConnectionName != "":
+		return req.ConnectionName
 	case req.DatabaseName != "":
 		return req.DatabaseName
 	}
@@ -190,16 +204,20 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"BatchGetDevEndpoints":                  service.WrapOp(h.handleBatchGetDevEndpoints),
 		"BatchStopJobRun":                       service.WrapOp(h.handleBatchStopJobRun),
 		"CancelDataQualityRulesetEvaluationRun": service.WrapOp(h.handleCancelDataQualityRulesetEvaluationRun),
+		"CreateConnection":                      service.WrapOp(h.handleCreateConnection),
 		"CreateCrawler":                         service.WrapOp(h.handleCreateCrawler),
 		"CreateDatabase":                        service.WrapOp(h.handleCreateDatabase),
 		"CreateDataQualityRuleset":              service.WrapOp(h.handleCreateDataQualityRuleset),
 		"CreateJob":                             service.WrapOp(h.handleCreateJob),
 		"CreateTable":                           service.WrapOp(h.handleCreateTable),
+		"DeleteConnection":                      service.WrapOp(h.handleDeleteConnection),
 		"DeleteCrawler":                         service.WrapOp(h.handleDeleteCrawler),
 		"DeleteDatabase":                        service.WrapOp(h.handleDeleteDatabase),
 		"DeleteDataQualityRuleset":              service.WrapOp(h.handleDeleteDataQualityRuleset),
 		"DeleteJob":                             service.WrapOp(h.handleDeleteJob),
 		"DeleteTable":                           service.WrapOp(h.handleDeleteTable),
+		"GetConnection":                         service.WrapOp(h.handleGetConnection),
+		"GetConnections":                        service.WrapOp(h.handleGetConnections),
 		"GetCrawler":                            service.WrapOp(h.handleGetCrawler),
 		"GetCrawlers":                           service.WrapOp(h.handleGetCrawlers),
 		"GetDatabase":                           service.WrapOp(h.handleGetDatabase),
@@ -214,6 +232,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"GetTable":                              service.WrapOp(h.handleGetTable),
 		"GetTables":                             service.WrapOp(h.handleGetTables),
 		"GetTags":                               service.WrapOp(h.handleGetTags),
+		"ListCrawlers":                          service.WrapOp(h.handleListCrawlers),
 		"ListDataQualityRulesets":               service.WrapOp(h.handleListDataQualityRulesets),
 		"ResetJobBookmark":                      service.WrapOp(h.handleResetJobBookmark),
 		"StartCrawler":                          service.WrapOp(h.handleStartCrawler),
@@ -249,6 +268,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	switch {
+	case errors.Is(err, ErrCrawlerRunning):
+		return c.JSON(http.StatusBadRequest, errorResponse("CrawlerRunningException", err.Error()))
+	case errors.Is(err, ErrCrawlerNotRunning):
+		return c.JSON(http.StatusBadRequest, errorResponse("CrawlerNotRunningException", err.Error()))
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, errorResponse("EntityNotFoundException", err.Error()))
 	case errors.Is(err, awserr.ErrAlreadyExists):
@@ -765,6 +788,90 @@ func (h *Handler) handleBatchDeleteConnection(
 	return &batchDeleteConnectionOutput{Succeeded: succeeded, Errors: errs}, nil
 }
 
+// --- Single connection handlers ---
+
+type createConnectionInput struct {
+	Tags            map[string]string `json:"Tags,omitempty"`
+	ConnectionInput connectionInput   `json:"ConnectionInput"`
+}
+
+type connectionInput struct {
+	ConnectionProperties map[string]string `json:"ConnectionProperties,omitempty"`
+	Name                 string            `json:"Name"`
+	ConnectionType       string            `json:"ConnectionType,omitempty"`
+}
+
+type createConnectionOutput struct {
+	Name string `json:"Name"`
+}
+
+func (h *Handler) handleCreateConnection(
+	_ context.Context,
+	in *createConnectionInput,
+) (*createConnectionOutput, error) {
+	c, err := h.Backend.CreateConnection(
+		in.ConnectionInput.Name,
+		in.ConnectionInput.ConnectionType,
+		in.ConnectionInput.ConnectionProperties,
+		in.Tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createConnectionOutput{Name: c.Name}, nil
+}
+
+type getConnectionInput struct {
+	Name string `json:"Name"`
+}
+
+type getConnectionOutput struct {
+	Connection *Connection `json:"Connection"`
+}
+
+func (h *Handler) handleGetConnection(
+	_ context.Context,
+	in *getConnectionInput,
+) (*getConnectionOutput, error) {
+	c, err := h.Backend.GetConnection(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getConnectionOutput{Connection: c}, nil
+}
+
+type getConnectionsInput struct{}
+
+type getConnectionsOutput struct {
+	ConnectionList []*Connection `json:"ConnectionList"`
+}
+
+func (h *Handler) handleGetConnections(
+	_ context.Context,
+	_ *getConnectionsInput,
+) (*getConnectionsOutput, error) {
+	conns := h.Backend.GetConnections()
+
+	return &getConnectionsOutput{ConnectionList: conns}, nil
+}
+
+type deleteConnectionInput struct {
+	ConnectionName string `json:"ConnectionName"`
+}
+
+func (h *Handler) handleDeleteConnection(
+	_ context.Context,
+	in *deleteConnectionInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteConnection(in.ConnectionName); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
 // --- Batch blueprint handlers ---
 
 type batchGetBlueprintsInput struct {
@@ -803,6 +910,23 @@ func (h *Handler) handleBatchGetCrawlers(
 	found, missing := h.Backend.BatchGetCrawlers(in.CrawlerNames)
 
 	return &batchGetCrawlersOutput{Crawlers: found, CrawlersNotFound: missing}, nil
+}
+
+// --- ListCrawlers handler ---
+
+type listCrawlersInput struct{}
+
+type listCrawlersOutput struct {
+	CrawlerNames []string `json:"CrawlerNames"`
+}
+
+func (h *Handler) handleListCrawlers(
+	_ context.Context,
+	_ *listCrawlersInput,
+) (*listCrawlersOutput, error) {
+	names := h.Backend.ListCrawlers()
+
+	return &listCrawlersOutput{CrawlerNames: names}, nil
 }
 
 // --- Batch custom entity type handlers ---
@@ -969,13 +1093,9 @@ func (h *Handler) handleResetJobBookmark(
 	_ context.Context,
 	in *resetJobBookmarkInput,
 ) (*resetJobBookmarkOutput, error) {
-	bm, err := h.Backend.GetJobBookmark(in.JobName)
+	bm, err := h.Backend.ResetJobBookmarkWithResult(in.JobName)
 	if err != nil {
 		return nil, err
-	}
-
-	if resetErr := h.Backend.ResetJobBookmark(in.JobName); resetErr != nil {
-		return nil, resetErr
 	}
 
 	return &resetJobBookmarkOutput{JobBookmarkEntry: bm}, nil
@@ -1008,12 +1128,12 @@ func (h *Handler) handleStopCrawler(_ context.Context, in *stopCrawlerInput) (*e
 }
 
 type updateCrawlerScheduleInput struct {
-	Name     string `json:"Name"`
-	Schedule string `json:"Schedule"`
+	CrawlerName string `json:"CrawlerName"`
+	Schedule    string `json:"Schedule"`
 }
 
 func (h *Handler) handleUpdateCrawlerSchedule(_ context.Context, in *updateCrawlerScheduleInput) (*emptyOutput, error) {
-	if err := h.Backend.UpdateCrawlerSchedule(in.Name, in.Schedule); err != nil {
+	if err := h.Backend.UpdateCrawlerSchedule(in.CrawlerName, in.Schedule); err != nil {
 		return nil, err
 	}
 
@@ -1073,8 +1193,12 @@ type getDataQualityRulesetInput struct {
 }
 
 type getDataQualityRulesetOutput struct {
-	Name    string `json:"Name"`
-	Ruleset string `json:"Ruleset,omitempty"`
+	Name           string  `json:"Name"`
+	Ruleset        string  `json:"Ruleset,omitempty"`
+	Description    string  `json:"Description,omitempty"`
+	ARN            string  `json:"Arn,omitempty"`
+	CreatedOn      float64 `json:"CreatedOn,omitempty"`
+	LastModifiedOn float64 `json:"LastModifiedOn,omitempty"`
 }
 
 func (h *Handler) handleGetDataQualityRuleset(
@@ -1086,7 +1210,14 @@ func (h *Handler) handleGetDataQualityRuleset(
 		return nil, err
 	}
 
-	return &getDataQualityRulesetOutput{Name: r.Name, Ruleset: r.Ruleset}, nil
+	return &getDataQualityRulesetOutput{
+		Name:           r.Name,
+		Ruleset:        r.Ruleset,
+		Description:    r.Description,
+		ARN:            r.ARN,
+		CreatedOn:      r.CreatedOn,
+		LastModifiedOn: r.LastModifiedOn,
+	}, nil
 }
 
 type deleteDataQualityRulesetInput struct {
@@ -1123,7 +1254,7 @@ func (h *Handler) handleUpdateDataQualityRuleset(
 type listDataQualityRulesetsInput struct{}
 
 type listDataQualityRulesetsOutput struct {
-	DataQualityRulesets []*DataQualityRuleset `json:"DataQualityRulesets"`
+	Rulesets []*DataQualityRuleset `json:"Rulesets"`
 }
 
 func (h *Handler) handleListDataQualityRulesets(
@@ -1132,7 +1263,7 @@ func (h *Handler) handleListDataQualityRulesets(
 ) (*listDataQualityRulesetsOutput, error) {
 	rulesets := h.Backend.ListDataQualityRulesets()
 
-	return &listDataQualityRulesetsOutput{DataQualityRulesets: rulesets}, nil
+	return &listDataQualityRulesetsOutput{Rulesets: rulesets}, nil
 }
 
 type startDataQualityRulesetEvaluationRunInput struct {

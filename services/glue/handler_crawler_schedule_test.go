@@ -140,8 +140,8 @@ func TestHandlerCrawlerSchedule_UpdateCrawlerSchedule(t *testing.T) {
 			})
 
 			rec := doGlueRequest(t, h, "UpdateCrawlerSchedule", map[string]any{
-				"Name":     tt.crawlerName,
-				"Schedule": tt.schedule,
+				"CrawlerName": tt.crawlerName,
+				"Schedule":    tt.schedule,
 			})
 
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -181,6 +181,10 @@ func TestHandlerCrawlerSchedule_StartCrawlerSchedule(t *testing.T) {
 				"Name":         "my-crawler",
 				"Role":         "arn:aws:iam::000000000000:role/r",
 				"DatabaseName": "db",
+			})
+			doGlueRequest(t, h, "UpdateCrawlerSchedule", map[string]any{
+				"CrawlerName": "my-crawler",
+				"Schedule":    "cron(0 12 * * ? *)",
 			})
 
 			if tt.preSchedule {

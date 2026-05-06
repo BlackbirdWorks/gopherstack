@@ -207,7 +207,7 @@ func TestHandlerDataQuality_ListDataQualityRulesets(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 			var out map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			rulesets, _ := out["DataQualityRulesets"].([]any)
+			rulesets, _ := out["Rulesets"].([]any)
 			assert.Len(t, rulesets, tt.wantLen)
 		})
 	}

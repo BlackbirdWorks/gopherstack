@@ -170,7 +170,7 @@ describe("AppConfig Page", () => {
       { timeout: 3000 },
     );
 
-    // Click Profiles tab to see profiles
+    // Switch to Profiles tab to see configuration profiles
     await fireEvent.click(screen.getByText("Profiles"));
 
     await waitFor(

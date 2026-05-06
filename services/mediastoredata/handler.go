@@ -196,7 +196,7 @@ func (h *Handler) handleGetObject(c *echo.Context) error {
 
 	w := c.Response()
 	setObjectHeaders(w, obj)
-	// AWS MediaStore Data returns X-Amz-Content-Sha256 on GET responses.
+	// AWS MediaStore Data returns X-Amz-Content-SHA256 on GET responses.
 	w.Header().Set("X-Amz-Content-Sha256", obj.SHA256)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.WriteHeader(http.StatusOK)

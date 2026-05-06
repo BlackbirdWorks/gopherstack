@@ -10,6 +10,8 @@ import (
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 )
 
 // TestElasticbeanstalkDashboard verifies the Elastic Beanstalk dashboard UI renders applications and environments.
@@ -24,6 +26,7 @@ func TestElasticbeanstalkDashboard(t *testing.T) {
 		"64bit Amazon Linux 2023 v4.0.0 running Python 3.11",
 		"E2E test environment",
 		map[string]string{"env": "e2e"},
+		elasticbeanstalk.CreateEnvironmentParams{},
 	)
 	require.NoError(t, err)
 

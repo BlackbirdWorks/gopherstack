@@ -52,7 +52,7 @@ func TestMediaStoreDashboard(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "e2e-test-container")
-	assert.Contains(t, content, "Create Container")
+	assert.Contains(t, content, "New Container")
 }
 
 // TestMediaStoreDashboard_Empty verifies the MediaStore dashboard renders correctly with no data.
