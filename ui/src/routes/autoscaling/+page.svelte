@@ -469,7 +469,7 @@
 				InstanceIds: [instanceId],
 				ProtectedFromScaleIn: !currentlyProtected
 			}));
-			toast.success(`Protection ${!currentlyProtected ? 'enabled' : 'disabled'} for ${instanceId}`);
+			toast.success(`Protection ${currentlyProtected ? 'disabled' : 'enabled'} for ${instanceId}`);
 			await loadGroups();
 			const updated = groups.find((g) => g.AutoScalingGroupName === selectedGroup?.AutoScalingGroupName);
 			if (updated) selectedGroup = updated;
