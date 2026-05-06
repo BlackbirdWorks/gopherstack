@@ -1036,7 +1036,12 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			path:   "/v1/recommenders/",
 			wantOp: "CreateRecommenderConfiguration",
 		},
-		{name: "recommenders_unknown_method", method: http.MethodGet, path: "/v1/recommenders", wantOp: "Unknown"},
+		{
+			name:   "recommenders_list_method",
+			method: http.MethodGet,
+			path:   "/v1/recommenders",
+			wantOp: "GetRecommenderConfigurations",
+		},
 		{
 			name:   "CreateEmailTemplate",
 			method: http.MethodPost,
@@ -1062,10 +1067,10 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			wantOp: "CreateSmsTemplate",
 		},
 		{
-			name:   "template_unknown_method",
+			name:   "template_get_method",
 			method: http.MethodGet,
 			path:   "/v1/templates/my-tpl/email",
-			wantOp: "Unknown",
+			wantOp: "GetEmailTemplate",
 		},
 		{name: "unknown_path", method: http.MethodGet, path: "/v1/unknown", wantOp: "Unknown"},
 		{
@@ -1243,7 +1248,7 @@ func TestHandler_ErrorPaths(t *testing.T) {
 		},
 		{
 			name:       "dispatchRecommenders_method_not_allowed",
-			method:     http.MethodGet,
+			method:     http.MethodDelete,
 			path:       "/v1/recommenders",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
@@ -1256,14 +1261,14 @@ func TestHandler_ErrorPaths(t *testing.T) {
 		},
 		{
 			name:       "dispatchTemplates_method_not_allowed",
-			method:     http.MethodGet,
+			method:     http.MethodPatch,
 			path:       "/v1/templates/my-tpl/email",
-			wantStatus: http.StatusMethodNotAllowed,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "dispatchTemplates_unsupported_type",
 			method:     http.MethodPost,
-			path:       "/v1/templates/my-tpl/voice",
+			path:       "/v1/templates/my-tpl/unknown-type",
 			wantStatus: http.StatusInternalServerError,
 		},
 		{
@@ -1295,10 +1300,10 @@ func TestHandler_ErrorPaths(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "dispatchTemplates_no_type",
-			method:     http.MethodPost,
+			name:       "dispatchTemplates_list",
+			method:     http.MethodGet,
 			path:       "/v1/templates/",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "handleTagResource_bad_json",

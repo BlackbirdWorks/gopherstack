@@ -38,6 +38,20 @@ const (
 	importJobType          = "IMPORT"
 	segmentTypeDimensional = "DIMENSIONAL"
 	unknownOperation       = "Unknown"
+
+	// sub-path segment constants used throughout dispatch helpers.
+	subPathJobsExport       = "jobs/export"
+	subPathJobsImport       = "jobs/import"
+	subPathVersions         = "versions"
+	subPathExecutionMetrics = "execution/metrics"
+	phoneValidatePath       = "/v1/phone/number/validate"
+
+	// dispatchSplitN is the split count used in journey/campaign/segment sub-path dispatch.
+	dispatchSplitTwo   = 2
+	dispatchSplitThree = 3
+
+	// acceptedMessage is the standard response message for accepted operations.
+	acceptedMessage = "Accepted"
 )
 
 // Handler is the HTTP handler for the Amazon Pinpoint REST API.
@@ -61,27 +75,146 @@ func (h *Handler) Reset() {
 func (h *Handler) Name() string { return "Pinpoint" }
 
 // GetSupportedOperations returns the list of supported Pinpoint operations.
+//
+//nolint:funlen // Long list of all supported operations; splitting would reduce clarity.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		// App
 		"CreateApp",
-		"CreateCampaign",
-		"CreateEmailTemplate",
-		"CreateExportJob",
-		"CreateImportJob",
-		"CreateInAppTemplate",
-		"CreateJourney",
-		"CreatePushTemplate",
-		"CreateRecommenderConfiguration",
-		"CreateSegment",
-		"CreateSmsTemplate",
 		"DeleteApp",
 		"GetApp",
 		"GetApplicationSettings",
 		"GetApps",
+		"UpdateApplicationSettings",
+		"GetApplicationDateRangeKpi",
+		// Tags
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
-		"UpdateApplicationSettings",
+		// Campaigns
+		"CreateCampaign",
+		"DeleteCampaign",
+		"GetCampaign",
+		"GetCampaigns",
+		"UpdateCampaign",
+		"GetCampaignActivities",
+		"GetCampaignDateRangeKpi",
+		"GetCampaignVersion",
+		"GetCampaignVersions",
+		// Segments
+		"CreateSegment",
+		"DeleteSegment",
+		"GetSegment",
+		"GetSegments",
+		"UpdateSegment",
+		"GetSegmentExportJobs",
+		"GetSegmentImportJobs",
+		"GetSegmentVersion",
+		"GetSegmentVersions",
+		// Journeys
+		"CreateJourney",
+		"DeleteJourney",
+		"GetJourney",
+		"ListJourneys",
+		"UpdateJourney",
+		"UpdateJourneyState",
+		"GetJourneyDateRangeKpi",
+		"GetJourneyExecutionMetrics",
+		"GetJourneyExecutionActivityMetrics",
+		"GetJourneyRuns",
+		"GetJourneyRunExecutionMetrics",
+		"GetJourneyRunExecutionActivityMetrics",
+		// Templates
+		"CreateEmailTemplate",
+		"GetEmailTemplate",
+		"UpdateEmailTemplate",
+		"DeleteEmailTemplate",
+		"CreateInAppTemplate",
+		"GetInAppTemplate",
+		"UpdateInAppTemplate",
+		"DeleteInAppTemplate",
+		"CreatePushTemplate",
+		"GetPushTemplate",
+		"UpdatePushTemplate",
+		"DeletePushTemplate",
+		"CreateSmsTemplate",
+		"GetSmsTemplate",
+		"UpdateSmsTemplate",
+		"DeleteSmsTemplate",
+		"CreateVoiceTemplate",
+		"GetVoiceTemplate",
+		"UpdateVoiceTemplate",
+		"DeleteVoiceTemplate",
+		"ListTemplates",
+		"ListTemplateVersions",
+		"UpdateTemplateActiveVersion",
+		// Channels
+		"GetAdmChannel",
+		"UpdateAdmChannel",
+		"DeleteAdmChannel",
+		"GetApnsChannel",
+		"UpdateApnsChannel",
+		"DeleteApnsChannel",
+		"GetApnsSandboxChannel",
+		"UpdateApnsSandboxChannel",
+		"DeleteApnsSandboxChannel",
+		"GetApnsVoipChannel",
+		"UpdateApnsVoipChannel",
+		"DeleteApnsVoipChannel",
+		"GetApnsVoipSandboxChannel",
+		"UpdateApnsVoipSandboxChannel",
+		"DeleteApnsVoipSandboxChannel",
+		"GetBaiduChannel",
+		"UpdateBaiduChannel",
+		"DeleteBaiduChannel",
+		"GetEmailChannel",
+		"UpdateEmailChannel",
+		"DeleteEmailChannel",
+		"GetGcmChannel",
+		"UpdateGcmChannel",
+		"DeleteGcmChannel",
+		"GetSmsChannel",
+		"UpdateSmsChannel",
+		"DeleteSmsChannel",
+		"GetVoiceChannel",
+		"UpdateVoiceChannel",
+		"DeleteVoiceChannel",
+		"GetChannels",
+		// Endpoints
+		"GetEndpoint",
+		"UpdateEndpoint",
+		"DeleteEndpoint",
+		"GetUserEndpoints",
+		"DeleteUserEndpoints",
+		"UpdateEndpointsBatch",
+		"RemoveAttributes",
+		// EventStream
+		"GetEventStream",
+		"PutEventStream",
+		"DeleteEventStream",
+		// Messaging
+		"SendMessages",
+		"SendUsersMessages",
+		"SendOTPMessage",
+		"VerifyOTPMessage",
+		// Events
+		"PutEvents",
+		"GetInAppMessages",
+		// Phone
+		"PhoneNumberValidate",
+		// Jobs
+		"CreateExportJob",
+		"GetExportJob",
+		"GetExportJobs",
+		"CreateImportJob",
+		"GetImportJob",
+		"GetImportJobs",
+		// Recommenders
+		"CreateRecommenderConfiguration",
+		"GetRecommenderConfiguration",
+		"GetRecommenderConfigurations",
+		"UpdateRecommenderConfiguration",
+		"DeleteRecommenderConfiguration",
 	}
 }
 
@@ -105,8 +238,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return strings.HasPrefix(path, "/v1/apps") ||
 			strings.HasPrefix(path, "/v1/tags/") ||
-			strings.HasPrefix(path, "/v1/templates/") ||
-			strings.HasPrefix(path, "/v1/recommenders")
+			strings.HasPrefix(path, "/v1/templates") ||
+			strings.HasPrefix(path, "/v1/recommenders") ||
+			strings.HasPrefix(path, "/v1/phone/") ||
+			path == phoneValidatePath
 	}
 }
 
@@ -114,6 +249,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 func (h *Handler) MatchPriority() int { return pinpointMatchPriority }
 
 // ExtractOperation extracts the operation name from the request path and method.
+//
+//nolint:cyclop,gocognit // Many op variants mapped from path/method; inevitable complexity.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	method := c.Request().Method
 	path := c.Request().URL.Path
@@ -145,8 +282,29 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		if method == http.MethodPost {
 			return "CreateRecommenderConfiguration"
 		}
+
+		if method == http.MethodGet {
+			return "GetRecommenderConfigurations"
+		}
+	case strings.HasPrefix(path, "/v1/recommenders/"):
+		recommenderID := strings.TrimPrefix(path, "/v1/recommenders/")
+
+		if recommenderID != "" {
+			switch method {
+			case http.MethodGet:
+				return "GetRecommenderConfiguration"
+			case http.MethodPut:
+				return "UpdateRecommenderConfiguration"
+			case http.MethodDelete:
+				return "DeleteRecommenderConfiguration"
+			}
+		}
+	case path == "/v1/templates" || path == "/v1/templates/":
+		return "ListTemplates"
 	case strings.HasPrefix(path, "/v1/templates/"):
 		return h.extractTemplateOperation(method, path)
+	case path == phoneValidatePath:
+		return "PhoneNumberValidate"
 	}
 
 	return unknownOperation
@@ -167,6 +325,8 @@ func extractTagOperation(method string) string {
 }
 
 // extractAppSubOperation resolves the operation name for paths under /v1/apps/{id}/.
+//
+//nolint:cyclop,gocognit,gocyclo,funlen // Fan-out over many sub-path patterns is inherently complex.
 func (h *Handler) extractAppSubOperation(method, suffix string) string {
 	parts := strings.SplitN(suffix, "/", appSubPathParts)
 	if len(parts) != appSubPathParts {
@@ -183,16 +343,266 @@ func (h *Handler) extractAppSubOperation(method, suffix string) string {
 		case http.MethodPut:
 			return "UpdateApplicationSettings"
 		}
-	case subPath == "campaigns" && method == http.MethodPost:
-		return "CreateCampaign"
-	case subPath == "journeys" && method == http.MethodPost:
-		return "CreateJourney"
-	case subPath == "segments" && method == http.MethodPost:
-		return "CreateSegment"
-	case subPath == "jobs/export" && method == http.MethodPost:
-		return "CreateExportJob"
-	case subPath == "jobs/import" && method == http.MethodPost:
-		return "CreateImportJob"
+	case subPath == "campaigns":
+		switch method {
+		case http.MethodPost:
+			return "CreateCampaign"
+		case http.MethodGet:
+			return "GetCampaigns"
+		}
+	case strings.HasPrefix(subPath, "campaigns/"):
+		return h.extractCampaignSubOp(method, strings.TrimPrefix(subPath, "campaigns/"))
+	case subPath == "journeys":
+		switch method {
+		case http.MethodPost:
+			return "CreateJourney"
+		case http.MethodGet:
+			return "ListJourneys"
+		}
+	case strings.HasPrefix(subPath, "journeys/"):
+		return h.extractJourneySubOp(method, strings.TrimPrefix(subPath, "journeys/"))
+	case subPath == "segments":
+		switch method {
+		case http.MethodPost:
+			return "CreateSegment"
+		case http.MethodGet:
+			return "GetSegments"
+		}
+	case strings.HasPrefix(subPath, "segments/"):
+		return h.extractSegmentSubOp(method, strings.TrimPrefix(subPath, "segments/"))
+	case subPath == subPathJobsExport:
+		switch method {
+		case http.MethodPost:
+			return "CreateExportJob"
+		case http.MethodGet:
+			return "GetExportJobs"
+		}
+	case strings.HasPrefix(subPath, subPathJobsExport+"/"):
+		return "GetExportJob"
+	case subPath == subPathJobsImport:
+		switch method {
+		case http.MethodPost:
+			return "CreateImportJob"
+		case http.MethodGet:
+			return "GetImportJobs"
+		}
+	case strings.HasPrefix(subPath, subPathJobsImport+"/"):
+		return "GetImportJob"
+	case subPath == "eventstream":
+		switch method {
+		case http.MethodGet:
+			return "GetEventStream"
+		case http.MethodPost:
+			return "PutEventStream"
+		case http.MethodDelete:
+			return "DeleteEventStream"
+		}
+	case subPath == "messages":
+		return "SendMessages"
+	case subPath == "users-messages":
+		return "SendUsersMessages"
+	case subPath == "otp":
+		return "SendOTPMessage"
+	case subPath == "verify-otp":
+		return "VerifyOTPMessage"
+	case subPath == "events":
+		return "PutEvents"
+	case strings.HasPrefix(subPath, "kpis/daterange/"):
+		return "GetApplicationDateRangeKpi"
+	case subPath == "channels":
+		return "GetChannels"
+	case strings.HasPrefix(subPath, "channels/"):
+		return h.extractChannelOp(method, strings.TrimPrefix(subPath, "channels/"))
+	case subPath == "endpoints":
+		return "UpdateEndpointsBatch"
+	case strings.HasPrefix(subPath, "endpoints/"):
+		return h.extractEndpointSubOp(method, strings.TrimPrefix(subPath, "endpoints/"))
+	case strings.HasPrefix(subPath, "users/"):
+		userID := strings.TrimPrefix(subPath, "users/")
+		if userID != "" {
+			switch method {
+			case http.MethodGet:
+				return "GetUserEndpoints"
+			case http.MethodDelete:
+				return "DeleteUserEndpoints"
+			}
+		}
+	case strings.HasPrefix(subPath, "attributes/"):
+		return "RemoveAttributes"
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) extractCampaignSubOp(method, rest string) string {
+	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
+	subPath := ""
+
+	if len(parts) == dispatchSplitTwo {
+		subPath = parts[1]
+	}
+
+	switch {
+	case subPath == "":
+		switch method {
+		case http.MethodGet:
+			return "GetCampaign"
+		case http.MethodPut:
+			return "UpdateCampaign"
+		case http.MethodDelete:
+			return "DeleteCampaign"
+		}
+	case subPath == "activities":
+		return "GetCampaignActivities"
+	case strings.HasPrefix(subPath, "kpis/daterange/"):
+		return "GetCampaignDateRangeKpi"
+	case subPath == subPathVersions:
+		return "GetCampaignVersions"
+	case strings.HasPrefix(subPath, subPathVersions+"/"):
+		return "GetCampaignVersion"
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) extractJourneySubOp(method, rest string) string {
+	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
+	subPath := ""
+
+	if len(parts) == dispatchSplitTwo {
+		subPath = parts[1]
+	}
+
+	switch {
+	case subPath == "":
+		switch method {
+		case http.MethodGet:
+			return "GetJourney"
+		case http.MethodPut:
+			return "UpdateJourney"
+		case http.MethodDelete:
+			return "DeleteJourney"
+		}
+	case subPath == "state":
+		return "UpdateJourneyState"
+	case strings.HasPrefix(subPath, "kpis/daterange/"):
+		return "GetJourneyDateRangeKpi"
+	case subPath == subPathExecutionMetrics:
+		return "GetJourneyExecutionMetrics"
+	case strings.HasPrefix(subPath, "activities/") && strings.HasSuffix(subPath, "/execution/metrics"):
+		return "GetJourneyExecutionActivityMetrics"
+	case subPath == "runs":
+		return "GetJourneyRuns"
+	case strings.HasPrefix(subPath, "runs/"):
+		runRest := strings.TrimPrefix(subPath, "runs/")
+		if strings.HasSuffix(runRest, "/execution/metrics") {
+			if strings.Contains(runRest, "/activities/") {
+				return "GetJourneyRunExecutionActivityMetrics"
+			}
+
+			return "GetJourneyRunExecutionMetrics"
+		}
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) extractSegmentSubOp(method, rest string) string {
+	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
+	subPath := ""
+
+	if len(parts) == dispatchSplitTwo {
+		subPath = parts[1]
+	}
+
+	switch {
+	case subPath == "":
+		switch method {
+		case http.MethodGet:
+			return "GetSegment"
+		case http.MethodPut:
+			return "UpdateSegment"
+		case http.MethodDelete:
+			return "DeleteSegment"
+		}
+	case subPath == subPathJobsExport:
+		return "GetSegmentExportJobs"
+	case subPath == subPathJobsImport:
+		return "GetSegmentImportJobs"
+	case subPath == subPathVersions:
+		return "GetSegmentVersions"
+	case strings.HasPrefix(subPath, subPathVersions+"/"):
+		return "GetSegmentVersion"
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) extractChannelOp(method, channelType string) string {
+	if channelType == "" {
+		return unknownOperation
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "Get" + channelTypeOpName(channelType) + "Channel"
+	case http.MethodPut:
+		return "Update" + channelTypeOpName(channelType) + "Channel"
+	case http.MethodDelete:
+		return "Delete" + channelTypeOpName(channelType) + "Channel"
+	}
+
+	return unknownOperation
+}
+
+// channelTypeOpName converts a URL channel type segment to the AWS op suffix.
+// e.g. "adm" → "Adm", "apns" → "Apns", "apns_sandbox" → "ApnsSandbox".
+func channelTypeOpName(channelType string) string {
+	switch strings.ToLower(channelType) {
+	case "adm":
+		return "Adm"
+	case "apns":
+		return "Apns"
+	case "apns_sandbox":
+		return "ApnsSandbox"
+	case "apns_voip":
+		return "ApnsVoip"
+	case "apns_voip_sandbox":
+		return "ApnsVoipSandbox"
+	case "baidu":
+		return "Baidu"
+	case templateTypeEmail:
+		return "Email"
+	case "gcm":
+		return "Gcm"
+	case templateTypeSMS:
+		return "Sms"
+	case templateTypeVoice:
+		return "Voice"
+	}
+
+	return channelType
+}
+
+func (h *Handler) extractEndpointSubOp(method, rest string) string {
+	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
+	subPath := ""
+
+	if len(parts) == dispatchSplitTwo {
+		subPath = parts[1]
+	}
+
+	if subPath == "inappmessages" {
+		return "GetInAppMessages"
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "GetEndpoint"
+	case http.MethodPut:
+		return "UpdateEndpoint"
+	case http.MethodDelete:
+		return "DeleteEndpoint"
 	}
 
 	return unknownOperation
@@ -201,21 +611,103 @@ func (h *Handler) extractAppSubOperation(method, suffix string) string {
 // extractTemplateOperation resolves the operation name for paths under /v1/templates/.
 func (h *Handler) extractTemplateOperation(method, path string) string {
 	suffix := strings.TrimPrefix(path, "/v1/templates/")
-	parts := strings.SplitN(suffix, "/", templateSubPathParts)
+	parts := strings.SplitN(suffix, "/", dispatchSplitThree)
 
-	if len(parts) != templateSubPathParts || method != http.MethodPost {
+	if len(parts) < templateSubPathParts {
 		return unknownOperation
 	}
 
-	switch parts[1] {
-	case "email":
+	templateType := parts[1]
+	subPath := ""
+
+	if len(parts) == dispatchSplitThree {
+		subPath = parts[2]
+	}
+
+	switch subPath {
+	case "versions":
+		return "ListTemplateVersions"
+	case "active-version":
+		return "UpdateTemplateActiveVersion"
+	case "":
+		switch method {
+		case http.MethodPost:
+			return h.createTemplateOpName(templateType)
+		case http.MethodGet:
+			return h.getTemplateOpName(templateType)
+		case http.MethodPut:
+			return h.updateTemplateOpName(templateType)
+		case http.MethodDelete:
+			return h.deleteTemplateOpName(templateType)
+		}
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) createTemplateOpName(t string) string {
+	switch t {
+	case templateTypeEmail:
 		return "CreateEmailTemplate"
-	case "inapp":
+	case templateTypeInApp:
 		return "CreateInAppTemplate"
-	case "push":
+	case templateTypePush:
 		return "CreatePushTemplate"
-	case "sms":
+	case templateTypeSMS:
 		return "CreateSmsTemplate"
+	case templateTypeVoice:
+		return "CreateVoiceTemplate"
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) getTemplateOpName(t string) string {
+	switch t {
+	case templateTypeEmail:
+		return "GetEmailTemplate"
+	case templateTypeInApp:
+		return "GetInAppTemplate"
+	case templateTypePush:
+		return "GetPushTemplate"
+	case templateTypeSMS:
+		return "GetSmsTemplate"
+	case templateTypeVoice:
+		return "GetVoiceTemplate"
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) updateTemplateOpName(t string) string {
+	switch t {
+	case templateTypeEmail:
+		return "UpdateEmailTemplate"
+	case templateTypeInApp:
+		return "UpdateInAppTemplate"
+	case templateTypePush:
+		return "UpdatePushTemplate"
+	case templateTypeSMS:
+		return "UpdateSmsTemplate"
+	case templateTypeVoice:
+		return "UpdateVoiceTemplate"
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) deleteTemplateOpName(t string) string {
+	switch t {
+	case templateTypeEmail:
+		return "DeleteEmailTemplate"
+	case templateTypeInApp:
+		return "DeleteInAppTemplate"
+	case templateTypePush:
+		return "DeletePushTemplate"
+	case templateTypeSMS:
+		return "DeleteSmsTemplate"
+	case templateTypeVoice:
+		return "DeleteVoiceTemplate"
 	}
 
 	return unknownOperation
@@ -268,8 +760,12 @@ func (h *Handler) ServeHTTP(c *echo.Context) error {
 		return h.dispatchApp(c, suffix)
 	case path == "/v1/recommenders" || path == "/v1/recommenders/":
 		return h.dispatchRecommenders(c)
-	case strings.HasPrefix(path, "/v1/templates/"):
+	case strings.HasPrefix(path, "/v1/recommenders/"):
+		return h.dispatchRecommenderByID(c, strings.TrimPrefix(path, "/v1/recommenders/"))
+	case strings.HasPrefix(path, "/v1/templates"):
 		return h.dispatchTemplates(c, path)
+	case path == phoneValidatePath:
+		return h.handlePhoneNumberValidate(c)
 	}
 
 	ctx := c.Request().Context()
@@ -323,6 +819,8 @@ func (h *Handler) dispatchApp(c *echo.Context, appID string) error {
 }
 
 // dispatchAppSubPath handles paths under /v1/apps/{appId}/ (e.g. settings).
+//
+//nolint:cyclop,funlen // Fan-out over many sub-path patterns; inevitable cyclomatic complexity.
 func (h *Handler) dispatchAppSubPath(c *echo.Context, suffix string) error {
 	parts := strings.SplitN(suffix, "/", appSubPathParts)
 	if len(parts) != appSubPathParts {
@@ -334,16 +832,59 @@ func (h *Handler) dispatchAppSubPath(c *echo.Context, suffix string) error {
 	switch {
 	case subPath == "settings":
 		return h.dispatchAppSettings(c, appID)
-	case subPath == "campaigns" && c.Request().Method == http.MethodPost:
-		return h.handleCreateCampaign(c, appID)
-	case subPath == "journeys" && c.Request().Method == http.MethodPost:
-		return h.handleCreateJourney(c, appID)
-	case subPath == "segments" && c.Request().Method == http.MethodPost:
-		return h.handleCreateSegment(c, appID)
-	case subPath == "jobs/export" && c.Request().Method == http.MethodPost:
-		return h.handleCreateExportJob(c, appID)
-	case subPath == "jobs/import" && c.Request().Method == http.MethodPost:
-		return h.handleCreateImportJob(c, appID)
+	case subPath == "campaigns":
+		return h.dispatchCampaigns(c, appID)
+	case strings.HasPrefix(subPath, "campaigns/"):
+		return h.dispatchCampaignByID(c, appID, strings.TrimPrefix(subPath, "campaigns/"))
+	case subPath == "journeys":
+		return h.dispatchJourneys(c, appID)
+	case strings.HasPrefix(subPath, "journeys/"):
+		return h.dispatchJourneyByID(c, appID, strings.TrimPrefix(subPath, "journeys/"))
+	case subPath == "segments":
+		return h.dispatchSegments(c, appID)
+	case strings.HasPrefix(subPath, "segments/"):
+		return h.dispatchSegmentByID(c, appID, strings.TrimPrefix(subPath, "segments/"))
+	case subPath == subPathJobsExport:
+		return h.dispatchExportJobs(c, appID, "")
+	case strings.HasPrefix(subPath, subPathJobsExport+"/"):
+		return h.handleGetExportJob(c, appID, strings.TrimPrefix(subPath, "jobs/export/"))
+	case subPath == subPathJobsImport:
+		return h.dispatchImportJobs(c, appID, "")
+	case strings.HasPrefix(subPath, subPathJobsImport+"/"):
+		return h.handleGetImportJob(c, appID, strings.TrimPrefix(subPath, "jobs/import/"))
+	case subPath == "eventstream":
+		return h.dispatchEventStream(c, appID)
+	case subPath == "messages":
+		return h.handleSendMessages(c, appID)
+	case subPath == "users-messages":
+		return h.handleSendUsersMessages(c, appID)
+	case subPath == "otp":
+		return h.handleSendOTPMessage(c, appID)
+	case subPath == "verify-otp":
+		return h.handleVerifyOTPMessage(c, appID)
+	case subPath == "events":
+		return h.handlePutEvents(c, appID)
+	case strings.HasPrefix(subPath, "kpis/daterange/"):
+		return h.handleGetApplicationDateRangeKpi(c, appID, strings.TrimPrefix(subPath, "kpis/daterange/"))
+	case strings.HasPrefix(subPath, "channels/"):
+		channelType := strings.TrimPrefix(subPath, "channels/")
+
+		return h.dispatchChannelByType(c, appID, channelType)
+	case subPath == "channels":
+		return h.handleGetChannels(c, appID)
+	case strings.HasPrefix(subPath, "endpoints/"):
+		return h.dispatchEndpointByID(c, appID, strings.TrimPrefix(subPath, "endpoints/"))
+	case subPath == "endpoints":
+		if c.Request().Method == http.MethodPut {
+			return h.handleUpdateEndpointsBatch(c, appID)
+		}
+	case strings.HasPrefix(subPath, "users/"):
+		return h.dispatchUserByID(c, appID, strings.TrimPrefix(subPath, "users/"))
+	case strings.HasPrefix(subPath, "attributes/"):
+		attrType := strings.TrimPrefix(subPath, "attributes/")
+		if c.Request().Method == http.MethodPut {
+			return h.handleRemoveAttributes(c, appID, attrType)
+		}
 	}
 
 	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
@@ -551,31 +1092,59 @@ func writeErrorResponse(c *echo.Context, statusCode int, errorType, message stri
 	return nil
 }
 
-// dispatchRecommenders routes POST /v1/recommenders requests.
+// dispatchRecommenders routes /v1/recommenders requests (POST=create, GET=list).
 func (h *Handler) dispatchRecommenders(c *echo.Context) error {
-	if c.Request().Method == http.MethodPost {
+	switch c.Request().Method {
+	case http.MethodPost:
 		return h.handleCreateRecommenderConfiguration(c)
+	case http.MethodGet:
+		return h.handleGetRecommenderConfigurations(c)
 	}
 
 	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
 }
 
-// dispatchTemplates routes requests under /v1/templates/{templateName}/{type}.
+// dispatchTemplates routes requests under /v1/templates.
 func (h *Handler) dispatchTemplates(c *echo.Context, path string) error {
-	suffix := strings.TrimPrefix(path, "/v1/templates/")
-	parts := strings.SplitN(suffix, "/", templateSubPathParts)
+	// /v1/templates (list all)
+	if path == "/v1/templates" || path == "/v1/templates/" {
+		return h.handleListTemplates(c)
+	}
 
-	if len(parts) != templateSubPathParts {
+	suffix := strings.TrimPrefix(path, "/v1/templates/")
+	// suffix format: {templateName}/{type} or {templateName}/{type}/versions or {templateName}/{type}/active-version
+	parts := strings.SplitN(suffix, "/", dispatchSplitThree)
+
+	if len(parts) < templateSubPathParts {
 		return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
 	}
 
 	templateName, templateType := parts[0], parts[1]
+	subPath := ""
 
-	if c.Request().Method != http.MethodPost {
-		return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	if len(parts) == dispatchSplitThree {
+		subPath = parts[2]
 	}
 
-	return h.handleCreateTemplate(c, templateName, templateType)
+	switch subPath {
+	case "versions":
+		return h.handleListTemplateVersions(c, templateName, templateType)
+	case "active-version":
+		return h.handleUpdateTemplateActiveVersion(c, templateName, templateType)
+	case "":
+		switch c.Request().Method {
+		case http.MethodPost:
+			return h.handleCreateTemplate(c, templateName, templateType)
+		case http.MethodGet:
+			return h.handleGetTemplate(c, templateName, templateType)
+		case http.MethodPut:
+			return h.handleUpdateTemplate(c, templateName, templateType)
+		case http.MethodDelete:
+			return h.handleDeleteTemplateByType(c, templateName, templateType)
+		}
+	}
+
+	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
 }
 
 // handleCreateTemplate handles creation of any template type (email, inapp, push, sms).
@@ -615,7 +1184,7 @@ func (h *Handler) handleCreateTemplate(c *echo.Context, templateName, templateTy
 // createTemplateByType creates a template based on templateType and returns its ARN.
 func (h *Handler) createTemplateByType(body []byte, region, templateName, templateType string) (string, error) {
 	switch templateType {
-	case "email":
+	case templateTypeEmail:
 		var req createEmailTemplateRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			return "", errInvalidRequestBody
@@ -628,7 +1197,7 @@ func (h *Handler) createTemplateByType(body []byte, region, templateName, templa
 
 		return t.ARN, nil
 
-	case "inapp":
+	case templateTypeInApp:
 		var req createInAppTemplateRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			return "", errInvalidRequestBody
@@ -641,7 +1210,7 @@ func (h *Handler) createTemplateByType(body []byte, region, templateName, templa
 
 		return t.ARN, nil
 
-	case "push":
+	case templateTypePush:
 		var req createPushTemplateRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			return "", errInvalidRequestBody
@@ -654,7 +1223,7 @@ func (h *Handler) createTemplateByType(body []byte, region, templateName, templa
 
 		return t.ARN, nil
 
-	case "sms":
+	case templateTypeSMS:
 		var req createSmsTemplateRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			return "", errInvalidRequestBody
@@ -913,6 +1482,290 @@ func (h *Handler) handleCreateRecommenderConfiguration(c *echo.Context) error {
 	})
 
 	return nil
+}
+
+// ──────────────────────────────────────────────────
+// Sub-resource dispatch helpers
+// ──────────────────────────────────────────────────
+
+func (h *Handler) dispatchCampaigns(c *echo.Context, appID string) error {
+	switch c.Request().Method {
+	case http.MethodPost:
+		return h.handleCreateCampaign(c, appID)
+	case http.MethodGet:
+		return h.handleGetCampaigns(c, appID)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) dispatchCampaignByID(c *echo.Context, appID, rest string) error {
+	// rest can be: {id}, {id}/activities, {id}/kpis/daterange/{kpi}, {id}/versions, {id}/versions/{v}
+	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
+	campaignID := parts[0]
+	subPath := ""
+
+	if len(parts) == dispatchSplitTwo {
+		subPath = parts[1]
+	}
+
+	switch {
+	case subPath == "":
+		switch c.Request().Method {
+		case http.MethodGet:
+			return h.handleGetCampaign(c, appID, campaignID)
+		case http.MethodPut:
+			return h.handleUpdateCampaign(c, appID, campaignID)
+		case http.MethodDelete:
+			return h.handleDeleteCampaign(c, appID, campaignID)
+		}
+	case subPath == "activities":
+		return h.handleGetCampaignActivities(c, appID, campaignID)
+	case strings.HasPrefix(subPath, "kpis/daterange/"):
+		kpiName := strings.TrimPrefix(subPath, "kpis/daterange/")
+
+		return h.handleGetCampaignDateRangeKpi(c, appID, campaignID, kpiName)
+	case subPath == subPathVersions:
+		return h.handleGetCampaignVersions(c, appID, campaignID)
+	case strings.HasPrefix(subPath, subPathVersions+"/"):
+		versionStr := strings.TrimPrefix(subPath, "versions/")
+		v, _ := parseVersionParam(versionStr)
+
+		return h.handleGetCampaignVersion(c, appID, campaignID, v)
+	}
+
+	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
+}
+
+func (h *Handler) dispatchJourneys(c *echo.Context, appID string) error {
+	switch c.Request().Method {
+	case http.MethodPost:
+		return h.handleCreateJourney(c, appID)
+	case http.MethodGet:
+		return h.handleListJourneys(c, appID)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) dispatchJourneyByID(c *echo.Context, appID, rest string) error {
+	// rest: {id}, {id}/state, {id}/kpis/daterange/{kpi},
+	//       {id}/execution/metrics, {id}/activities/{aid}/execution/metrics,
+	//       {id}/runs, {id}/runs/{rid}/execution/metrics,
+	//       {id}/runs/{rid}/activities/{aid}/execution/metrics
+	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
+	journeyID := parts[0]
+	subPath := ""
+
+	if len(parts) == dispatchSplitTwo {
+		subPath = parts[1]
+	}
+
+	switch {
+	case subPath == "":
+		switch c.Request().Method {
+		case http.MethodGet:
+			return h.handleGetJourney(c, appID, journeyID)
+		case http.MethodPut:
+			return h.handleUpdateJourney(c, appID, journeyID)
+		case http.MethodDelete:
+			return h.handleDeleteJourney(c, appID, journeyID)
+		}
+	case subPath == "state":
+		return h.handleUpdateJourneyState(c, appID, journeyID)
+	case strings.HasPrefix(subPath, "kpis/daterange/"):
+		kpiName := strings.TrimPrefix(subPath, "kpis/daterange/")
+
+		return h.handleGetJourneyDateRangeKpi(c, appID, journeyID, kpiName)
+	case subPath == subPathExecutionMetrics:
+		return h.handleGetJourneyExecutionMetrics(c, appID, journeyID)
+	case strings.HasPrefix(subPath, "activities/") && strings.HasSuffix(subPath, "/execution/metrics"):
+		activityID := strings.TrimPrefix(subPath, "activities/")
+		activityID = strings.TrimSuffix(activityID, "/execution/metrics")
+
+		return h.handleGetJourneyExecutionActivityMetrics(c, appID, journeyID, activityID)
+	case subPath == "runs":
+		return h.handleGetJourneyRuns(c, appID, journeyID)
+	case strings.HasPrefix(subPath, "runs/"):
+		return h.dispatchJourneyRun(c, appID, journeyID, strings.TrimPrefix(subPath, "runs/"))
+	}
+
+	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
+}
+
+func (h *Handler) dispatchJourneyRun(c *echo.Context, appID, journeyID, rest string) error {
+	// rest: {runId}/execution/metrics, {runId}/activities/{aid}/execution/metrics
+	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
+	runID := parts[0]
+	subPath := ""
+
+	if len(parts) == dispatchSplitTwo {
+		subPath = parts[1]
+	}
+
+	switch {
+	case subPath == subPathExecutionMetrics:
+		return h.handleGetJourneyRunExecutionMetrics(c, appID, journeyID, runID)
+	case strings.HasPrefix(subPath, "activities/") && strings.HasSuffix(subPath, "/execution/metrics"):
+		activityID := strings.TrimPrefix(subPath, "activities/")
+		activityID = strings.TrimSuffix(activityID, "/execution/metrics")
+
+		return h.handleGetJourneyRunExecutionActivityMetrics(c, appID, journeyID, runID, activityID)
+	}
+
+	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
+}
+
+func (h *Handler) dispatchSegments(c *echo.Context, appID string) error {
+	switch c.Request().Method {
+	case http.MethodPost:
+		return h.handleCreateSegment(c, appID)
+	case http.MethodGet:
+		return h.handleGetSegments(c, appID)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) dispatchSegmentByID(c *echo.Context, appID, rest string) error {
+	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
+	segmentID := parts[0]
+	subPath := ""
+
+	if len(parts) == dispatchSplitTwo {
+		subPath = parts[1]
+	}
+
+	switch {
+	case subPath == "":
+		switch c.Request().Method {
+		case http.MethodGet:
+			return h.handleGetSegment(c, appID, segmentID)
+		case http.MethodPut:
+			return h.handleUpdateSegment(c, appID, segmentID)
+		case http.MethodDelete:
+			return h.handleDeleteSegment(c, appID, segmentID)
+		}
+	case subPath == subPathJobsExport:
+		return h.handleGetSegmentExportJobs(c, appID, segmentID)
+	case subPath == subPathJobsImport:
+		return h.handleGetSegmentImportJobs(c, appID, segmentID)
+	case subPath == subPathVersions:
+		return h.handleGetSegmentVersions(c, appID, segmentID)
+	case strings.HasPrefix(subPath, subPathVersions+"/"):
+		versionStr := strings.TrimPrefix(subPath, "versions/")
+		v, _ := parseVersionParam(versionStr)
+
+		return h.handleGetSegmentVersion(c, appID, segmentID, v)
+	}
+
+	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
+}
+
+func (h *Handler) dispatchExportJobs(c *echo.Context, appID, jobID string) error {
+	if jobID != "" {
+		return h.handleGetExportJob(c, appID, jobID)
+	}
+
+	switch c.Request().Method {
+	case http.MethodPost:
+		return h.handleCreateExportJob(c, appID)
+	case http.MethodGet:
+		return h.handleGetExportJobs(c, appID)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) dispatchImportJobs(c *echo.Context, appID, jobID string) error {
+	if jobID != "" {
+		return h.handleGetImportJob(c, appID, jobID)
+	}
+
+	switch c.Request().Method {
+	case http.MethodPost:
+		return h.handleCreateImportJob(c, appID)
+	case http.MethodGet:
+		return h.handleGetImportJobs(c, appID)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) dispatchEventStream(c *echo.Context, appID string) error {
+	switch c.Request().Method {
+	case http.MethodGet:
+		return h.handleGetEventStream(c, appID)
+	case http.MethodPost:
+		return h.handlePutEventStream(c, appID)
+	case http.MethodDelete:
+		return h.handleDeleteEventStream(c, appID)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) dispatchChannelByType(c *echo.Context, appID, channelType string) error {
+	switch c.Request().Method {
+	case http.MethodGet:
+		return h.handleGetChannel(c, appID, channelType)
+	case http.MethodPut:
+		return h.handleUpdateChannel(c, appID, channelType)
+	case http.MethodDelete:
+		return h.handleDeleteChannel(c, appID, channelType)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) dispatchEndpointByID(c *echo.Context, appID, rest string) error {
+	// rest: {endpointId} or {endpointId}/inappmessages
+	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
+	endpointID := parts[0]
+	subPath := ""
+
+	if len(parts) == dispatchSplitTwo {
+		subPath = parts[1]
+	}
+
+	if subPath == "inappmessages" {
+		return h.handleGetInAppMessages(c, appID, endpointID)
+	}
+
+	switch c.Request().Method {
+	case http.MethodGet:
+		return h.handleGetEndpoint(c, appID, endpointID)
+	case http.MethodPut:
+		return h.handleUpdateEndpoint(c, appID, endpointID)
+	case http.MethodDelete:
+		return h.handleDeleteEndpoint(c, appID, endpointID)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) dispatchUserByID(c *echo.Context, appID, userID string) error {
+	switch c.Request().Method {
+	case http.MethodGet:
+		return h.handleGetUserEndpoints(c, appID, userID)
+	case http.MethodDelete:
+		return h.handleDeleteUserEndpoints(c, appID, userID)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+func (h *Handler) dispatchRecommenderByID(c *echo.Context, recommenderID string) error {
+	switch c.Request().Method {
+	case http.MethodGet:
+		return h.handleGetRecommenderConfiguration(c, recommenderID)
+	case http.MethodPut:
+		return h.handleUpdateRecommenderConfiguration(c, recommenderID)
+	case http.MethodDelete:
+		return h.handleDeleteRecommenderConfiguration(c, recommenderID)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
 }
 
 // handleCreateSegment handles POST /v1/apps/{appId}/segments.
