@@ -125,6 +125,7 @@ type InMemoryBackend struct {
 	replicationConfigs        map[string]*ReplicationConfiguration
 	backupPolicies            map[string]string
 	fileSystemPolicies        map[string]string
+	fileSystemProtection      map[string]string
 	mountTargetSecurityGroups map[string][]string
 	fileSystemsByARN          map[string]*FileSystem
 	mountTargetsByARN         map[string]*MountTarget
@@ -152,6 +153,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		replicationConfigs:        make(map[string]*ReplicationConfiguration),
 		backupPolicies:            make(map[string]string),
 		fileSystemPolicies:        make(map[string]string),
+		fileSystemProtection:      make(map[string]string),
 		mountTargetSecurityGroups: make(map[string][]string),
 		fileSystemsByARN:          make(map[string]*FileSystem),
 		mountTargetsByARN:         make(map[string]*MountTarget),
@@ -182,6 +184,7 @@ func (b *InMemoryBackend) Reset() {
 	b.replicationConfigs = make(map[string]*ReplicationConfiguration)
 	b.backupPolicies = make(map[string]string)
 	b.fileSystemPolicies = make(map[string]string)
+	b.fileSystemProtection = make(map[string]string)
 	b.mountTargetSecurityGroups = make(map[string][]string)
 	b.fileSystemsByARN = make(map[string]*FileSystem)
 	b.mountTargetsByARN = make(map[string]*MountTarget)
@@ -205,7 +208,11 @@ func (b *InMemoryBackend) CreateFileSystem(
 		if fs.CreationToken == creationToken {
 			cp := *fs
 
-			return &cp, fmt.Errorf("%w: file system with token %s already exists", ErrAlreadyExists, creationToken)
+			return &cp, fmt.Errorf(
+				"%w: file system with token %s already exists",
+				ErrAlreadyExists,
+				creationToken,
+			)
 		}
 	}
 
@@ -412,7 +419,9 @@ func (b *InMemoryBackend) ListTagsForResource(resourceID string) (map[string]str
 }
 
 // CreateMountTarget creates a mount target for a file system.
-func (b *InMemoryBackend) CreateMountTarget(fileSystemID, subnetID, ipAddress string) (*MountTarget, error) {
+func (b *InMemoryBackend) CreateMountTarget(
+	fileSystemID, subnetID, ipAddress string,
+) (*MountTarget, error) {
 	b.mu.Lock("CreateMountTarget")
 	defer b.mu.Unlock()
 
@@ -442,14 +451,20 @@ func (b *InMemoryBackend) CreateMountTarget(fileSystemID, subnetID, ipAddress st
 }
 
 // DescribeMountTargets returns mount targets, optionally filtered by file system ID or mount target ID.
-func (b *InMemoryBackend) DescribeMountTargets(fileSystemID, mountTargetID string) ([]*MountTarget, error) {
+func (b *InMemoryBackend) DescribeMountTargets(
+	fileSystemID, mountTargetID string,
+) ([]*MountTarget, error) {
 	b.mu.RLock("DescribeMountTargets")
 	defer b.mu.RUnlock()
 
 	if mountTargetID != "" {
 		mt, ok := b.mountTargets[mountTargetID]
 		if !ok {
-			return nil, fmt.Errorf("%w: mount target %s not found", ErrMountTargetNotFound, mountTargetID)
+			return nil, fmt.Errorf(
+				"%w: mount target %s not found",
+				ErrMountTargetNotFound,
+				mountTargetID,
+			)
 		}
 		cp := *mt
 
@@ -489,7 +504,10 @@ func (b *InMemoryBackend) DeleteMountTarget(mountTargetID string) error {
 }
 
 // CreateAccessPoint creates an access point for a file system.
-func (b *InMemoryBackend) CreateAccessPoint(fileSystemID string, kv map[string]string) (*AccessPoint, error) {
+func (b *InMemoryBackend) CreateAccessPoint(
+	fileSystemID string,
+	kv map[string]string,
+) (*AccessPoint, error) {
 	b.mu.Lock("CreateAccessPoint")
 	defer b.mu.Unlock()
 
@@ -526,14 +544,20 @@ func (b *InMemoryBackend) CreateAccessPoint(fileSystemID string, kv map[string]s
 }
 
 // DescribeAccessPoints returns access points, optionally filtered by file system ID or access point ID.
-func (b *InMemoryBackend) DescribeAccessPoints(fileSystemID, accessPointID string) ([]*AccessPoint, error) {
+func (b *InMemoryBackend) DescribeAccessPoints(
+	fileSystemID, accessPointID string,
+) ([]*AccessPoint, error) {
 	b.mu.RLock("DescribeAccessPoints")
 	defer b.mu.RUnlock()
 
 	if accessPointID != "" {
 		ap, ok := b.accessPoints[accessPointID]
 		if !ok {
-			return nil, fmt.Errorf("%w: access point %s not found", ErrAccessPointNotFound, accessPointID)
+			return nil, fmt.Errorf(
+				"%w: access point %s not found",
+				ErrAccessPointNotFound,
+				accessPointID,
+			)
 		}
 		cp := *ap
 
@@ -570,7 +594,9 @@ func (b *InMemoryBackend) DeleteAccessPoint(accessPointID string) error {
 }
 
 // DescribeLifecycleConfiguration returns lifecycle policies for a file system.
-func (b *InMemoryBackend) DescribeLifecycleConfiguration(fileSystemID string) ([]LifecyclePolicy, error) {
+func (b *InMemoryBackend) DescribeLifecycleConfiguration(
+	fileSystemID string,
+) ([]LifecyclePolicy, error) {
 	b.mu.RLock("DescribeLifecycleConfiguration")
 	defer b.mu.RUnlock()
 
@@ -667,7 +693,11 @@ func (b *InMemoryBackend) DeleteReplicationConfiguration(sourceFileSystemID stri
 	}
 
 	if _, exists := b.replicationConfigs[sourceFileSystemID]; !exists {
-		return fmt.Errorf("%w: replication configuration not found for file system %s", ErrNotFound, sourceFileSystemID)
+		return fmt.Errorf(
+			"%w: replication configuration not found for file system %s",
+			ErrNotFound,
+			sourceFileSystemID,
+		)
 	}
 
 	delete(b.replicationConfigs, sourceFileSystemID)
@@ -676,7 +706,9 @@ func (b *InMemoryBackend) DeleteReplicationConfiguration(sourceFileSystemID stri
 }
 
 // DescribeReplicationConfigurations returns replication configurations, optionally filtered by file system ID.
-func (b *InMemoryBackend) DescribeReplicationConfigurations(fileSystemID string) ([]*ReplicationConfiguration, error) {
+func (b *InMemoryBackend) DescribeReplicationConfigurations(
+	fileSystemID string,
+) ([]*ReplicationConfiguration, error) {
 	b.mu.RLock("DescribeReplicationConfigurations")
 	defer b.mu.RUnlock()
 
@@ -700,7 +732,10 @@ func (b *InMemoryBackend) DescribeReplicationConfigurations(fileSystemID string)
 		copy(cp.Destinations, rc.Destinations)
 		list = append(list, &cp)
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].SourceFileSystemID < list[j].SourceFileSystemID })
+	sort.Slice(
+		list,
+		func(i, j int) bool { return list[i].SourceFileSystemID < list[j].SourceFileSystemID },
+	)
 
 	return list, nil
 }
@@ -792,12 +827,18 @@ func (b *InMemoryBackend) DescribeBackupPolicy(fileSystemID string) (string, err
 }
 
 // DescribeMountTargetSecurityGroups returns the security groups for a mount target.
-func (b *InMemoryBackend) DescribeMountTargetSecurityGroups(mountTargetID string) ([]string, error) {
+func (b *InMemoryBackend) DescribeMountTargetSecurityGroups(
+	mountTargetID string,
+) ([]string, error) {
 	b.mu.RLock("DescribeMountTargetSecurityGroups")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.mountTargets[mountTargetID]; !ok {
-		return nil, fmt.Errorf("%w: mount target %s not found", ErrMountTargetNotFound, mountTargetID)
+		return nil, fmt.Errorf(
+			"%w: mount target %s not found",
+			ErrMountTargetNotFound,
+			mountTargetID,
+		)
 	}
 
 	groups := b.mountTargetSecurityGroups[mountTargetID]
@@ -840,7 +881,10 @@ func (b *InMemoryBackend) PutFileSystemPolicy(fileSystemID, policy string) error
 }
 
 // UpdateFileSystem updates throughput settings for a file system.
-func (b *InMemoryBackend) UpdateFileSystem(fileSystemID string, req UpdateFileSystemRequest) (*FileSystem, error) {
+func (b *InMemoryBackend) UpdateFileSystem(
+	fileSystemID string,
+	req UpdateFileSystemRequest,
+) (*FileSystem, error) {
 	b.mu.Lock("UpdateFileSystem")
 	defer b.mu.Unlock()
 
@@ -865,6 +909,59 @@ func (b *InMemoryBackend) UpdateFileSystem(fileSystemID string, req UpdateFileSy
 	cp := *fs
 
 	return &cp, nil
+}
+
+// ModifyMountTargetSecurityGroups replaces the security groups for a mount target.
+func (b *InMemoryBackend) ModifyMountTargetSecurityGroups(
+	mountTargetID string,
+	securityGroups []string,
+) error {
+	b.mu.Lock("ModifyMountTargetSecurityGroups")
+	defer b.mu.Unlock()
+
+	if _, ok := b.mountTargets[mountTargetID]; !ok {
+		return fmt.Errorf("%w: mount target %s not found", ErrMountTargetNotFound, mountTargetID)
+	}
+
+	groups := make([]string, len(securityGroups))
+	copy(groups, securityGroups)
+	b.mountTargetSecurityGroups[mountTargetID] = groups
+
+	return nil
+}
+
+// PutAccountPreferences sets the account-level resource ID preference.
+func (b *InMemoryBackend) PutAccountPreferences(resourceIDType string) (AccountPreferences, error) {
+	b.mu.Lock("PutAccountPreferences")
+	defer b.mu.Unlock()
+
+	if resourceIDType != "LONG_ID" && resourceIDType != "SHORT_ID" {
+		return AccountPreferences{}, fmt.Errorf(
+			"%w: invalid ResourceIdType %q, must be LONG_ID or SHORT_ID",
+			ErrValidation,
+			resourceIDType,
+		)
+	}
+
+	b.accountPreferences.ResourceIDType = resourceIDType
+
+	return b.accountPreferences, nil
+}
+
+// UpdateFileSystemProtection sets the replication overwrite protection for a file system.
+func (b *InMemoryBackend) UpdateFileSystemProtection(
+	fileSystemID, replicationOverwriteProtection string,
+) error {
+	b.mu.Lock("UpdateFileSystemProtection")
+	defer b.mu.Unlock()
+
+	if _, ok := b.fileSystems[fileSystemID]; !ok {
+		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+
+	b.fileSystemProtection[fileSystemID] = replicationOverwriteProtection
+
+	return nil
 }
 
 // AddFileSystemInternal inserts a pre-built FileSystem directly into the backend (test seed helper).
