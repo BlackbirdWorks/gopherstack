@@ -268,6 +268,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeletePartnerEventSource",
 		"DescribePartnerEventSource",
 		"ListPartnerEventSources",
+		"ListPartnerEventSourceAccounts",
 		"TestEventPattern",
 		"PutPermission",
 		"RemovePermission",
@@ -1326,6 +1327,15 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 				NextToken           string               `json:"NextToken,omitempty"`
 				PartnerEventSources []PartnerEventSource `json:"PartnerEventSources"`
 			}{PartnerEventSources: srcs, NextToken: next}, nil
+		},
+		"ListPartnerEventSourceAccounts": func(_ []byte) (any, error) {
+			// ListPartnerEventSourceAccounts returns accounts that have been
+			// granted access to a partner event source. Cross-account metadata
+			// has no meaningful in-process simulation; return empty list.
+			return &struct {
+				NextToken                  string `json:"NextToken,omitempty"`
+				PartnerEventSourceAccounts []any  `json:"PartnerEventSourceAccounts"`
+			}{PartnerEventSourceAccounts: []any{}}, nil
 		},
 		"PutPartnerEvents": func(b []byte) (any, error) {
 			var input putEventsInput

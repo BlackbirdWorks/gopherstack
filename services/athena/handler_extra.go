@@ -184,6 +184,7 @@ func (h *Handler) extendedSupportedOperations() []string {
 		"ListEngineVersions",
 		"ListApplicationDPUSizes",
 		"GetQueryRuntimeStatistics",
+		"GetResourceDashboard",
 	}
 }
 
@@ -627,6 +628,11 @@ func (h *Handler) miscOps() map[string]athenaActionFn {
 			}
 
 			return map[string]any{"QueryRuntimeStatistics": stats}, nil
+		},
+		"GetResourceDashboard": func(_ []byte) (any, error) {
+			// GetResourceDashboard returns a dashboard for an Athena resource.
+			// In-process simulation returns an empty dashboard.
+			return map[string]any{"ResourceDashboard": map[string]any{}}, nil
 		},
 	}
 }

@@ -27,6 +27,15 @@ import (
 const ()
 
 const (
+	opGetMetricWidgetImage    = "GetMetricWidgetImage"
+	opListAlarmMuteRules      = "ListAlarmMuteRules"
+	opListManagedInsightRules = "ListManagedInsightRules"
+	opPutManagedInsightRules  = "PutManagedInsightRules"
+	opStartMetricStreams      = "StartMetricStreams"
+	opStopMetricStreams       = "StopMetricStreams"
+)
+
+const (
 	opSetAlarmState       = "SetAlarmState"
 	opUpdateAlarmMuteRule = "UpdateAlarmMuteRule"
 	opUpdateInsightRule   = "UpdateInsightRule"
@@ -191,6 +200,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDisableInsightRules,
 		opEnableInsightRules,
 		opGetAlarmMuteRule,
+		opGetMetricWidgetImage,
+		opListAlarmMuteRules,
+		opListManagedInsightRules,
+		opPutManagedInsightRules,
+		opStartMetricStreams,
+		opStopMetricStreams,
 	}
 }
 
@@ -474,6 +489,18 @@ func (h *Handler) dispatchResourceUpsertFormAction(
 		return h.handlePutMetricStream(form, c)
 	case opUpdateMetricStream:
 		return h.handleUpdateMetricStream(form, c)
+	case opGetMetricWidgetImage:
+		return h.handleGetMetricWidgetImage(form, c)
+	case opListAlarmMuteRules:
+		return h.handleListAlarmMuteRules(form, c)
+	case opListManagedInsightRules:
+		return h.handleListManagedInsightRules(form, c)
+	case opPutManagedInsightRules:
+		return h.handlePutManagedInsightRules(form, c)
+	case opStartMetricStreams:
+		return h.handleStartMetricStreams(form, c)
+	case opStopMetricStreams:
+		return h.handleStopMetricStreams(form, c)
 	default:
 		return h.dispatchAlarmFormAction(action, form, c)
 	}
@@ -2264,6 +2291,75 @@ func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) e
 	type response struct {
 		Result    result   `xml:"GetInsightRuleReportResult"`
 		XMLName   xml.Name `xml:"GetInsightRuleReportResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleGetMetricWidgetImage(_ url.Values, c *echo.Context) error {
+	// GetMetricWidgetImage renders a metric widget as an image. In-process
+	// simulation returns an empty stub.
+	type response struct {
+		MetricWidgetImage string   `xml:"GetMetricWidgetImageResult>MetricWidgetImage"`
+		XMLName           xml.Name `xml:"GetMetricWidgetImageResponse"`
+		Xmlns             string   `xml:"xmlns,attr"`
+		RequestID         string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleListAlarmMuteRules(_ url.Values, c *echo.Context) error {
+	// ListAlarmMuteRules lists alarm mute rules. In-process simulation returns empty list.
+	type response struct {
+		XMLName   xml.Name `xml:"ListAlarmMuteRulesResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleListManagedInsightRules(_ url.Values, c *echo.Context) error {
+	// ListManagedInsightRules lists managed insight rules. In-process simulation returns empty list.
+	type response struct {
+		XMLName   xml.Name `xml:"ListManagedInsightRulesResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handlePutManagedInsightRules(_ url.Values, c *echo.Context) error {
+	// PutManagedInsightRules creates or updates managed insight rules.
+	// In-process simulation is a no-op.
+	type response struct {
+		XMLName   xml.Name `xml:"PutManagedInsightRulesResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleStartMetricStreams(_ url.Values, c *echo.Context) error {
+	// StartMetricStreams starts streaming of metrics. In-process simulation is a no-op.
+	type response struct {
+		XMLName   xml.Name `xml:"StartMetricStreamsResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleStopMetricStreams(_ url.Values, c *echo.Context) error {
+	// StopMetricStreams stops streaming of metrics. In-process simulation is a no-op.
+	type response struct {
+		XMLName   xml.Name `xml:"StopMetricStreamsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}

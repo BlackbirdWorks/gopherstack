@@ -43,6 +43,8 @@ const (
 	opTagResource                        = "TagResource"
 	opUntagResource                      = "UntagResource"
 	opUpdateLedger                       = "UpdateLedger"
+	opStreamJournalToKinesis             = "StreamJournalToKinesis"
+	opUpdateLedgerPermissionsMode        = "UpdateLedgerPermissionsMode"
 )
 
 const (
@@ -63,6 +65,8 @@ const (
 	qldbRevisionSegment = "revision"
 	// qldbJournalS3ExportsPath is the global journal S3 exports path.
 	qldbJournalS3ExportsPath = "/journal-s3-exports"
+	// qldbPermissionsModeSegment is the path segment for permissions-mode operations.
+	qldbPermissionsModeSegment = "permissions-mode"
 	// qldbLedgerPathMinSegments is the minimum path segments for /ledgers/{name}: ["ledgers", "{name}"].
 	qldbLedgerPathMinSegments = 2
 	// qldbLedgerSubPathSegments is the number of path segments for /ledgers/{name}/{sub}: 3.
@@ -124,6 +128,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opTagResource,
 		opUntagResource,
 		opUpdateLedger,
+		opStreamJournalToKinesis,
+		opUpdateLedgerPermissionsMode,
 	}
 }
 
@@ -242,19 +248,38 @@ func extractLedgerByNameOp(method string) string {
 }
 
 func extractLedgerSubOp(sub, method string) string {
+	if op := extractLedgerKinesisOp(sub, method); op != opUnknown {
+		return op
+	}
+
+	return extractLedgerMiscSubOp(sub, method)
+}
+
+func extractLedgerKinesisOp(sub, method string) string {
 	switch {
 	case sub == qldbJournalKinesisSegment && method == http.MethodGet:
 		return opListJournalKinesisStreamsForLedger
+	case sub == qldbJournalKinesisSegment && method == http.MethodPost:
+		return opStreamJournalToKinesis
 	case sub == qldbJournalS3Segment && method == http.MethodPost:
 		return opExportJournalToS3
 	case sub == qldbJournalS3Segment && method == http.MethodGet:
 		return opListJournalS3ExportsForLedger
+	}
+
+	return opUnknown
+}
+
+func extractLedgerMiscSubOp(sub, method string) string {
+	switch {
 	case sub == qldbBlockSegment && method == http.MethodPost:
 		return opGetBlock
 	case sub == qldbDigestSegment && method == http.MethodPost:
 		return opGetDigest
 	case sub == qldbRevisionSegment && method == http.MethodPost:
 		return opGetRevision
+	case sub == qldbPermissionsModeSegment && method == http.MethodPatch:
+		return opUpdateLedgerPermissionsMode
 	}
 
 	return opUnknown
@@ -405,6 +430,14 @@ func (h *Handler) dispatchJournalOps(
 		return res, true, err
 	case opGetRevision:
 		res, err := h.handleGetRevision(ctx, path)
+
+		return res, true, err
+	case opStreamJournalToKinesis:
+		res, err := h.handleStreamJournalToKinesis(ctx, path, body)
+
+		return res, true, err
+	case opUpdateLedgerPermissionsMode:
+		res, err := h.handleUpdateLedgerPermissionsMode(ctx, path, body)
 
 		return res, true, err
 	}
@@ -1014,4 +1047,42 @@ func extractTagsARN(path string) (string, error) {
 	}
 
 	return decoded, nil
+}
+
+func (h *Handler) handleStreamJournalToKinesis(_ context.Context, path string, _ []byte) ([]byte, error) {
+	ledgerName := extractLedgerName(path)
+	if ledgerName == "" {
+		return nil, fmt.Errorf("%w: missing ledger name in path", errInvalidRequest)
+	}
+
+	// StreamJournalToKinesis streams a ledger to Kinesis. In-process simulation
+	// returns a stub stream ID; no actual Kinesis connection is made.
+	streamID := h.ledgerARN(ledgerName) + "/stream/" + ledgerName + "-stub"
+
+	return json.Marshal(map[string]string{"StreamId": streamID})
+}
+
+func (h *Handler) handleUpdateLedgerPermissionsMode(_ context.Context, path string, body []byte) ([]byte, error) {
+	name := extractLedgerName(path)
+	if name == "" {
+		return nil, fmt.Errorf("%w: missing ledger name in path", errInvalidRequest)
+	}
+
+	var req struct {
+		PermissionsMode string `json:"PermissionsMode"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	l, err := h.Backend.GetLedger(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]any{
+		"Name":            l.Name,
+		"Arn":             h.ledgerARN(l.Name),
+		"PermissionsMode": req.PermissionsMode,
+	})
 }

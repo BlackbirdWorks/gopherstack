@@ -195,6 +195,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateStateMachine",
 		"UpdateStateMachineAlias",
 		"ValidateStateMachineDefinition",
+		"DescribeMapRun",
+		"ListMapRuns",
+		"TestState",
+		"UpdateMapRun",
 	}
 }
 
@@ -813,6 +817,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.executionActions())
 	maps.Copy(table, h.activityActions())
 	maps.Copy(table, h.utilActions())
+	maps.Copy(table, h.mapRunActions())
 
 	return table
 }
@@ -921,6 +926,28 @@ func (h *Handler) handleSendTaskHeartbeat(b []byte) (any, error) {
 
 type validateStateMachineDefinitionInput struct {
 	Definition string `json:"definition"`
+}
+
+// mapRunActions returns handler functions for Map Run operations.
+func (h *Handler) mapRunActions() map[string]actionFn {
+	return map[string]actionFn{
+		"DescribeMapRun": func(_ []byte) (any, error) {
+			// DescribeMapRun describes a Map Run. In-process simulation returns a stub.
+			return map[string]any{"MapRunArn": "", "ExecutionArn": "", "Status": "SUCCEEDED"}, nil
+		},
+		"ListMapRuns": func(_ []byte) (any, error) {
+			// ListMapRuns lists Map Runs for an execution. In-process simulation returns empty list.
+			return map[string]any{"MapRuns": []any{}}, nil
+		},
+		"TestState": func(_ []byte) (any, error) {
+			// TestState tests a single state definition. In-process simulation returns a stub output.
+			return map[string]any{"Output": "{}", "Status": "SUCCEEDED"}, nil
+		},
+		"UpdateMapRun": func(_ []byte) (any, error) {
+			// UpdateMapRun updates a Map Run's concurrency. In-process simulation is a no-op.
+			return map[string]any{}, nil
+		},
+	}
 }
 
 // utilActions returns utility operations like definition validation.
