@@ -40,6 +40,7 @@ const (
 	opSearchResources       = "SearchResources"
 	opStartTagSyncTask      = "StartTagSyncTask"
 	opUpdateAccountSettings = "UpdateAccountSettings"
+	opUngroupResources      = "UngroupResources"
 )
 
 var (
@@ -89,6 +90,7 @@ var rgRESTPathOps = map[string]string{ //nolint:gochecknoglobals // lookup table
 	"/resources/search":        opSearchResources,
 	"/start-tag-sync-task":     opStartTagSyncTask,
 	"/update-account-settings": opUpdateAccountSettings,
+	"/ungroup-resources":       opUngroupResources,
 }
 
 type groupNameInput struct {
@@ -145,6 +147,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		opSearchResources:       service.WrapOp(h.handleSearchResources),
 		opStartTagSyncTask:      service.WrapOp(h.handleStartTagSyncTask),
 		opUpdateAccountSettings: service.WrapOp(h.handleUpdateAccountSettings),
+		opUngroupResources:      service.WrapOp(h.handleUngroupResources),
 	}
 }
 
@@ -172,6 +175,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opSearchResources,
 		opStartTagSyncTask,
 		"Tag",
+		opUngroupResources,
 		"Untag",
 		opUpdateAccountSettings,
 		opUpdateGroup,
@@ -919,6 +923,38 @@ func (h *Handler) handleListTagSyncTasks(
 	}
 
 	return &listTagSyncTasksOutput{TagSyncTasks: tasks}, nil
+}
+
+// handleUngroupResources removes resources from a group.
+type ungroupResourcesInput struct {
+	Group        string   `json:"Group"`
+	ResourceArns []string `json:"ResourceArns"`
+}
+
+type ungroupResourcesOutput struct {
+	Failed    []map[string]string `json:"Failed,omitempty"`
+	Pending   []map[string]string `json:"Pending,omitempty"`
+	Succeeded []string            `json:"Succeeded"`
+}
+
+func (h *Handler) handleUngroupResources(
+	_ context.Context,
+	in *ungroupResourcesInput,
+) (*ungroupResourcesOutput, error) {
+	if in.Group == "" {
+		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
+	}
+
+	succeeded, err := h.Backend.UngroupResources(in.Group, in.ResourceArns)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ungroupResourcesOutput{
+		Succeeded: succeeded,
+		Failed:    []map[string]string{},
+		Pending:   []map[string]string{},
+	}, nil
 }
 
 // handleUpdateAccountSettings updates account-level lifecycle event settings.

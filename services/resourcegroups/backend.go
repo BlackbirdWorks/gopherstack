@@ -37,6 +37,10 @@ const (
 	tagSyncTaskStatusActive = "ACTIVE"
 )
 
+// tagSyncTaskTTL is the maximum age of a completed or cancelled tag-sync task
+// before it is evicted from memory during list operations.
+const tagSyncTaskTTL = 24 * time.Hour
+
 // AccountLifecycleEventStatus constants.
 const (
 	accountLifecycleEventsActive   = "ACTIVE"
@@ -500,6 +504,47 @@ func (b *InMemoryBackend) GroupResources(nameOrARN string, resourceARNs []string
 	return succeeded, nil
 }
 
+// UngroupResources removes a list of resource ARNs from a group.
+// ARNs that are not currently in the group are silently ignored.
+func (b *InMemoryBackend) UngroupResources(nameOrARN string, resourceARNs []string) ([]string, error) {
+	b.mu.Lock("UngroupResources")
+	defer b.mu.Unlock()
+
+	name := resolveGroupName(nameOrARN)
+	if _, ok := b.groups[name]; !ok {
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	remove := make(map[string]struct{}, len(resourceARNs))
+	for _, a := range resourceARNs {
+		remove[a] = struct{}{}
+	}
+
+	kept := b.groupResources[name][:0:0]
+	for _, a := range b.groupResources[name] {
+		if _, ok := remove[a]; !ok {
+			kept = append(kept, a)
+		}
+	}
+
+	b.groupResources[name] = kept
+
+	now := time.Now().UTC()
+	succeeded := make([]string, 0, len(resourceARNs))
+
+	for _, a := range resourceARNs {
+		succeeded = append(succeeded, a)
+		b.groupingStatuses[name] = append(b.groupingStatuses[name], GroupingStatusItem{
+			ResourceArn: a,
+			Action:      groupingActionUngroup,
+			Status:      groupingStatusSuccess,
+			UpdatedAt:   now,
+		})
+	}
+
+	return succeeded, nil
+}
+
 // ListGroupResources returns all resource ARNs associated with a group.
 func (b *InMemoryBackend) ListGroupResources(nameOrARN string) ([]ResourceIdentifier, error) {
 	b.mu.RLock("ListGroupResources")
@@ -629,10 +674,20 @@ func (b *InMemoryBackend) GetTagSyncTask(taskARN string) (*TagSyncTask, error) {
 }
 
 // ListTagSyncTasks returns all tag-sync tasks, optionally filtered by group ARN or name.
+// Inactive tasks older than tagSyncTaskTTL are evicted before the result is assembled.
 // Results are sorted by TaskArn for deterministic ordering.
 func (b *InMemoryBackend) ListTagSyncTasks(filters []ListTagSyncTasksFilter) ([]TagSyncTask, error) {
-	b.mu.RLock("ListTagSyncTasks")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListTagSyncTasks")
+	defer b.mu.Unlock()
+
+	cutoff := time.Now().UTC().Add(-tagSyncTaskTTL)
+
+	// Evict stale non-active tasks.
+	for taskARN, task := range b.tagSyncTasks {
+		if task.Status != tagSyncTaskStatusActive && task.CreatedAt.Before(cutoff) {
+			delete(b.tagSyncTasks, taskARN)
+		}
+	}
 
 	out := make([]TagSyncTask, 0, len(b.tagSyncTasks))
 

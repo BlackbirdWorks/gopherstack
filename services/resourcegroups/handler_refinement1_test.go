@@ -42,7 +42,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newTestResourceGroupsHandler(t)
-	assert.Equal(t, 19, resourcegroups.HandlerOpsLen(h))
+	assert.Equal(t, 20, resourcegroups.HandlerOpsLen(h))
 }
 
 // TestRefinement1_GetSupportedOperations verifies the list is sorted and complete.

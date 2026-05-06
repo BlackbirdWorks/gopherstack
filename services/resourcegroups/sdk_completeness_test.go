@@ -17,7 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 	h := resourcegroups.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &resourcegroupssdk.Client{}, h.GetSupportedOperations(), []string{
-		"UngroupResources",
-	})
+	sdkcheck.CheckCompleteness(t, &resourcegroupssdk.Client{}, h.GetSupportedOperations(), []string{})
 }
