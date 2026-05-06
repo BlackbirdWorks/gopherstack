@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -149,6 +150,20 @@ type StorageBackend interface {
 	// Environment variable operations on GraphQL APIs.
 	GetGraphqlAPIEnvironmentVariables(apiID string) (map[string]string, error)
 	PutGraphqlAPIEnvironmentVariables(apiID string, envVars map[string]string) (map[string]string, error)
+	// EvaluateMappingTemplate evaluates a VTL request/response mapping template.
+	EvaluateMappingTemplate(template, context string) (string, error)
+	// EvaluateCode evaluates APPSYNC_JS code.
+	EvaluateCode(code, contextJSON, function, runtime string) (string, error)
+	// StartDataSourceIntrospection starts an introspection job for a data source.
+	StartDataSourceIntrospection(apiID, dataSourceName string) (string, error)
+	// GetDataSourceIntrospection returns the result of a data source introspection job.
+	GetDataSourceIntrospection(introspectionID string) (*DataSourceIntrospectionResult, error)
+	// StartSchemaMerge triggers a schema merge for a merged GraphQL API.
+	StartSchemaMerge(apiID string) (SchemaStatus, error)
+	// UpdateSourceAPIAssociation updates a source API association on a merged API.
+	UpdateSourceAPIAssociation(mergedAPIID, associationID, description string) (*SourceAPIAssociation, error)
+	// ListTypesByAssociation lists types for a given merged API source association.
+	ListTypesByAssociation(mergedAPIID, associationID, format string) ([]*APIType, error)
 }
 
 // apiIDChars is the character set used to generate AppSync API IDs.
@@ -2236,6 +2251,135 @@ func (b *InMemoryBackend) PutGraphqlAPIEnvironmentVariables(
 	api.EnvironmentVariables = maps.Clone(envVars)
 
 	return maps.Clone(api.EnvironmentVariables), nil
+}
+
+// EvaluateMappingTemplate evaluates a VTL mapping template with the provided context JSON.
+// The context is expected to be a JSON object with optional "arguments" and "result" keys.
+func (b *InMemoryBackend) EvaluateMappingTemplate(template, contextJSON string) (string, error) {
+	var ctx struct {
+		Arguments map[string]any `json:"arguments"`
+		Result    any            `json:"result"`
+	}
+
+	if contextJSON != "" {
+		if err := json.Unmarshal([]byte(contextJSON), &ctx); err != nil {
+			return "", fmt.Errorf("%w: invalid context JSON", ErrValidation)
+		}
+	}
+
+	out, err := renderVTL(template, ctx.Arguments, ctx.Result)
+	if err != nil {
+		return "", err
+	}
+
+	return out, nil
+}
+
+// EvaluateCode evaluates APPSYNC_JS code (basic stub — returns empty result).
+func (b *InMemoryBackend) EvaluateCode(code, _, _, _ string) (string, error) {
+	if code == "" {
+		return "", fmt.Errorf("%w: code is required", ErrValidation)
+	}
+
+	// Stub: return an empty evaluationResult.
+	result := `{"evaluationResult":"{}"}`
+
+	return result, nil
+}
+
+// StartDataSourceIntrospection starts an introspection job for a data source.
+// Returns an introspection ID that can be polled via GetDataSourceIntrospection.
+func (b *InMemoryBackend) StartDataSourceIntrospection(apiID, dataSourceName string) (string, error) {
+	b.mu.RLock("StartDataSourceIntrospection")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return "", fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	if _, ok := b.datasources[apiID][dataSourceName]; !ok {
+		return "", fmt.Errorf("%w: datasource %s not found", ErrNotFound, dataSourceName)
+	}
+
+	id := randomAPIID()
+
+	return id, nil
+}
+
+// GetDataSourceIntrospection returns the result of a data source introspection job.
+// Since introspection is a no-op stub, this always returns a COMPLETED result.
+func (b *InMemoryBackend) GetDataSourceIntrospection(introspectionID string) (*DataSourceIntrospectionResult, error) {
+	if introspectionID == "" {
+		return nil, fmt.Errorf("%w: introspectionId is required", ErrValidation)
+	}
+
+	return &DataSourceIntrospectionResult{
+		IntrospectionID: introspectionID,
+		Status:          "SUCCESS",
+		Models:          []any{},
+	}, nil
+}
+
+// StartSchemaMerge triggers a schema merge for a merged GraphQL API.
+func (b *InMemoryBackend) StartSchemaMerge(apiID string) (SchemaStatus, error) {
+	b.mu.RLock("StartSchemaMerge")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return "", fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	return SchemaStatusActive, nil
+}
+
+// UpdateSourceAPIAssociation updates the description of a source API association.
+func (b *InMemoryBackend) UpdateSourceAPIAssociation(
+	mergedAPIID, associationID, description string,
+) (*SourceAPIAssociation, error) {
+	b.mu.Lock("UpdateSourceApiAssociation")
+	defer b.mu.Unlock()
+
+	assoc, ok := b.sourceAssocs[associationID]
+	if !ok || assoc.MergedAPIID != mergedAPIID {
+		return nil, fmt.Errorf("%w: source api association %s not found", ErrNotFound, associationID)
+	}
+
+	cp := *assoc
+	cp.Description = description
+
+	b.sourceAssocs[associationID] = &cp
+
+	return &cp, nil
+}
+
+// ListTypesByAssociation lists types associated with a given merged API source association.
+// Since types are stored per-API and not per-association in the in-memory backend,
+// this returns types from the merged API.
+func (b *InMemoryBackend) ListTypesByAssociation(mergedAPIID, associationID, _ string) ([]*APIType, error) {
+	b.mu.RLock("ListTypesByAssociation")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[mergedAPIID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, mergedAPIID)
+	}
+
+	if _, ok := b.sourceAssocs[associationID]; !ok {
+		return nil, fmt.Errorf("%w: source api association %s not found", ErrNotFound, associationID)
+	}
+
+	ts := b.types[mergedAPIID]
+	out := make([]*APIType, 0, len(ts))
+
+	for _, t := range ts {
+		cp := *t
+		out = append(out, &cp)
+	}
+
+	slices.SortFunc(out, func(a, b *APIType) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	return out, nil
 }
 
 // SweepExpiredAPIKeys removes all expired API keys across all GraphQL APIs.

@@ -10,10 +10,13 @@
 		ListDataSourcesCommand,
 		ListFunctionsCommand,
 		ListResolversCommand,
+		GetResolverCommand,
+		UpdateResolverCommand,
 		GetIntrospectionSchemaCommand,
 		type GraphqlApi,
 		type DataSource,
-		type FunctionConfiguration
+		type FunctionConfiguration,
+		type Resolver
 	} from '@aws-sdk/client-appsync';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -25,13 +28,15 @@
 		Database,
 		Code,
 		Eye,
-		ChevronRight
+		ChevronRight,
+		Play,
+		Edit
 	} from 'lucide-svelte';
 
 	const appsync = getAppSyncClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'apis' | 'datasources' | 'functions'>('apis');
+	let activeTab = $state<'apis' | 'datasources' | 'functions' | 'resolvers' | 'graphql'>('apis');
 	let searchQuery = $state('');
 
 	// APIs
@@ -51,6 +56,20 @@
 	// Functions
 	let functions = $state<FunctionConfiguration[]>([]);
 
+	// Resolvers
+	let resolvers = $state<Resolver[]>([]);
+	let resolverTypeName = $state('');
+	let editingResolver = $state<Resolver | null>(null);
+	let resolverRequestVTL = $state('');
+	let resolverResponseVTL = $state('');
+	let savingResolver = $state(false);
+
+	// GraphQL executor
+	let gqlQuery = $state('{\n  __typename\n}');
+	let gqlVariables = $state('{}');
+	let gqlResult = $state('');
+	let executingGql = $state(false);
+
 	const filteredApis = $derived(
 		apis.filter((a) => (a.name ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
 	);
@@ -65,6 +84,14 @@
 
 	const filteredFunctions = $derived(
 		functions.filter((f) => (f.name ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
+	);
+
+	const filteredResolvers = $derived(
+		resolvers.filter(
+			(r) =>
+				(r.typeName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+				(r.fieldName ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+		)
 	);
 
 	function authTypeBadge(authType?: string) {
@@ -145,6 +172,95 @@
 		}
 	}
 
+	async function loadResolvers(typeName?: string) {
+		loading = true;
+		const id = selectedApiId;
+		const type = typeName ?? resolverTypeName;
+		if (!id || !type) {
+			loading = false;
+			return;
+		}
+		try {
+			const res = await appsync.send(
+				new ListResolversCommand({ apiId: id, typeName: type, maxResults: 100 })
+			);
+			resolvers = res.resolvers ?? [];
+		} catch (e) {
+			toast.error(`Failed to load resolvers: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	function openResolverEditor(resolver: Resolver) {
+		editingResolver = resolver;
+		resolverRequestVTL = resolver.requestMappingTemplate ?? '';
+		resolverResponseVTL = resolver.responseMappingTemplate ?? '';
+	}
+
+	function closeResolverEditor() {
+		editingResolver = null;
+		resolverRequestVTL = '';
+		resolverResponseVTL = '';
+	}
+
+	async function saveResolver() {
+		if (!editingResolver || !selectedApiId) return;
+		savingResolver = true;
+		try {
+			await appsync.send(
+				new UpdateResolverCommand({
+					apiId: selectedApiId,
+					typeName: editingResolver.typeName,
+					fieldName: editingResolver.fieldName,
+					dataSourceName: editingResolver.dataSourceName,
+					requestMappingTemplate: resolverRequestVTL || undefined,
+					responseMappingTemplate: resolverResponseVTL || undefined
+				})
+			);
+			toast.success('Resolver updated');
+			closeResolverEditor();
+			await loadResolvers();
+		} catch (e) {
+			toast.error(`Failed to save resolver: ${e}`);
+		} finally {
+			savingResolver = false;
+		}
+	}
+
+	async function executeGraphQL() {
+		if (!selectedApiId) {
+			toast.error('Select an API first');
+			return;
+		}
+		executingGql = true;
+		gqlResult = '';
+		try {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			let variables: Record<string, any> = {};
+			try {
+				variables = JSON.parse(gqlVariables || '{}');
+			} catch {
+				toast.error('Invalid variables JSON');
+				return;
+			}
+			// Use raw fetch to POST to the GraphQL endpoint
+			const endpoint = `/appsync/v1/apis/${selectedApiId}/graphql`;
+			const res = await fetch(endpoint, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ query: gqlQuery, variables })
+			});
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const json: any = await res.json();
+			gqlResult = JSON.stringify(json, null, 2);
+		} catch (e) {
+			gqlResult = `Error: ${e}`;
+		} finally {
+			executingGql = false;
+		}
+	}
+
 	async function createApi() {
 		if (!newApiName.trim()) return;
 		creating = true;
@@ -185,10 +301,13 @@
 		else if (tab === 'datasources') {
 			if (selectedApiId) await loadDataSources();
 			else toast.error('Select an API first to view data sources');
-		} else {
+		} else if (tab === 'functions') {
 			if (selectedApiId) await loadFunctions();
 			else toast.error('Select an API first to view functions');
+		} else if (tab === 'resolvers' && selectedApiId && resolverTypeName) {
+			await loadResolvers();
 		}
+		// graphql tab needs no initial load
 	}
 
 	onMount(() => loadApis());
@@ -213,11 +332,17 @@
 	</div>
 
 	<!-- Tabs -->
-	<div class="flex border-b">
-		{#each [{ id: 'apis', label: 'GraphQL APIs' }, { id: 'datasources', label: 'Data Sources' }, { id: 'functions', label: 'Functions' }] as tab}
+	<div class="flex border-b overflow-x-auto">
+		{#each [
+			{ id: 'apis', label: 'GraphQL APIs' },
+			{ id: 'datasources', label: 'Data Sources' },
+			{ id: 'functions', label: 'Functions' },
+			{ id: 'resolvers', label: 'Resolver Editor' },
+			{ id: 'graphql', label: 'GraphQL Executor' }
+		] as tab}
 			<button
 				onclick={() => onTabChange(tab.id as typeof activeTab)}
-				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
 			>
 				{tab.label}
 			</button>
@@ -317,6 +442,13 @@
 							>
 								<Code class="h-3.5 w-3.5" />
 								Functions
+							</button>
+							<button
+								onclick={() => { selectedApiId = selectedApi?.apiId ?? ''; onTabChange('graphql'); }}
+								class="flex items-center gap-1.5 text-xs rounded-md border px-3 py-1.5 hover:bg-accent"
+							>
+								<Play class="h-3.5 w-3.5" />
+								Execute GraphQL
 							</button>
 							<button onclick={() => (selectedApi = null)} class="text-xs text-muted-foreground hover:text-foreground">
 								Close
@@ -444,6 +576,177 @@
 						{/each}
 					</tbody>
 				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Resolver Editor Tab -->
+	{#if activeTab === 'resolvers'}
+		{#if !selectedApiId}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Edit class="h-12 w-12 mb-3 opacity-30" />
+				<p>Select an API from the APIs tab first</p>
+			</div>
+		{:else}
+			<div class="flex items-center gap-3 mb-4">
+				<input
+					type="text"
+					placeholder="Type name (e.g. Query)"
+					bind:value={resolverTypeName}
+					class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary w-56"
+				/>
+				<button
+					onclick={() => loadResolvers()}
+					disabled={!resolverTypeName}
+					class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
+				>
+					<Search class="h-4 w-4" />
+					Load Resolvers
+				</button>
+			</div>
+
+			{#if loading}
+				<div class="flex justify-center py-12">
+					<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+				</div>
+			{:else if resolvers.length === 0 && resolverTypeName}
+				<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+					<Edit class="h-12 w-12 mb-3 opacity-30" />
+					<p>No resolvers found for type "{resolverTypeName}"</p>
+				</div>
+			{:else if resolvers.length > 0}
+				<div class="flex gap-4">
+					<!-- Resolver list -->
+					<div class="w-64 shrink-0 rounded-lg border overflow-hidden">
+						<div class="bg-muted/50 px-3 py-2 text-xs font-medium">Resolvers</div>
+						<div class="divide-y">
+							{#each filteredResolvers as r}
+								<button
+									onclick={() => openResolverEditor(r)}
+									class="w-full text-left px-3 py-2 text-sm hover:bg-accent {editingResolver?.fieldName === r.fieldName ? 'bg-accent' : ''}"
+								>
+									<div class="font-medium">{r.fieldName}</div>
+									<div class="text-xs text-muted-foreground">{r.kind ?? 'UNIT'}</div>
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<!-- VTL Editor -->
+					{#if editingResolver}
+						<div class="flex-1 space-y-4">
+							<div class="flex items-center justify-between">
+								<h3 class="font-semibold text-sm">
+									{editingResolver.typeName}.{editingResolver.fieldName}
+								</h3>
+								<div class="flex gap-2">
+									<button
+										onclick={saveResolver}
+										disabled={savingResolver}
+										class="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+									>
+										{savingResolver ? 'Saving…' : 'Save'}
+									</button>
+									<button
+										onclick={closeResolverEditor}
+										class="text-xs text-muted-foreground hover:text-foreground"
+									>
+										Cancel
+									</button>
+								</div>
+							</div>
+
+							<div>
+								<label class="block text-xs font-medium mb-1 text-muted-foreground">Request Mapping Template (VTL)</label>
+								<textarea
+									bind:value={resolverRequestVTL}
+									rows={8}
+									placeholder="{&#10;  &quot;version&quot;: &quot;2018-05-29&quot;,&#10;  &quot;operation&quot;: &quot;Invoke&quot;&#10;}"
+									class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+								></textarea>
+							</div>
+
+							<div>
+								<label class="block text-xs font-medium mb-1 text-muted-foreground">Response Mapping Template (VTL)</label>
+								<textarea
+									bind:value={resolverResponseVTL}
+									rows={8}
+									placeholder="$util.toJson($context.result)"
+									class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+								></textarea>
+							</div>
+
+							<div class="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+								<p class="font-medium">VTL quick reference</p>
+								<p><code>$ctx.args.key</code> — resolver argument</p>
+								<p><code>$ctx.result</code> — resolver result</p>
+								<p><code>$util.toJson($ctx.result)</code> — JSON-encode result</p>
+								<p><code>$util.dynamodb.toDynamoDBJson($ctx.args.id)</code> — DynamoDB format</p>
+							</div>
+						</div>
+					{:else}
+						<div class="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+							Select a resolver to edit its VTL templates
+						</div>
+					{/if}
+				</div>
+			{/if}
+		{/if}
+	{/if}
+
+	<!-- GraphQL Executor Tab -->
+	{#if activeTab === 'graphql'}
+		{#if !selectedApiId}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Play class="h-12 w-12 mb-3 opacity-30" />
+				<p>Select an API from the APIs tab first</p>
+			</div>
+		{:else}
+			<div class="space-y-4">
+				<div class="flex items-center justify-between">
+					<p class="text-sm text-muted-foreground">
+						Executing against API: <span class="font-mono text-foreground">{selectedApiId}</span>
+					</p>
+					<button
+						onclick={executeGraphQL}
+						disabled={executingGql}
+						class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+					>
+						{#if executingGql}
+							<RefreshCw class="h-4 w-4 animate-spin" />
+							Running…
+						{:else}
+							<Play class="h-4 w-4" />
+							Execute
+						{/if}
+					</button>
+				</div>
+
+				<div class="grid grid-cols-2 gap-4">
+					<div class="space-y-2">
+						<label class="block text-sm font-medium">Query / Mutation</label>
+						<textarea
+							bind:value={gqlQuery}
+							rows={14}
+							class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+						></textarea>
+					</div>
+					<div class="space-y-2">
+						<label class="block text-sm font-medium">Variables (JSON)</label>
+						<textarea
+							bind:value={gqlVariables}
+							rows={6}
+							class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+						></textarea>
+					</div>
+				</div>
+
+				{#if gqlResult}
+					<div>
+						<p class="text-sm font-medium mb-2">Result</p>
+						<pre class="rounded-lg bg-muted p-4 text-xs font-mono overflow-auto max-h-96">{gqlResult}</pre>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	{/if}
