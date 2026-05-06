@@ -29,6 +29,7 @@ type StorageBackend interface {
 	CreateCrawler(name, role, dbName string, targets CrawlerTarget, tags map[string]string) (*Crawler, error)
 	GetCrawler(name string) (*Crawler, error)
 	GetCrawlers() []*Crawler
+	ListCrawlers() []string
 	UpdateCrawler(name, role, dbName string, targets CrawlerTarget) error
 	DeleteCrawler(name string) error
 
@@ -48,6 +49,12 @@ type StorageBackend interface {
 	BatchCreatePartition(dbName, tableName string, inputs []PartitionInput) ([]*Partition, []PartitionError)
 	BatchDeletePartition(dbName, tableName string, values []PartitionValueList) []PartitionError
 	BatchDeleteTableVersion(dbName, tableName string, versionIDs []string) []TableVersionError
+
+	// Connection operations.
+	CreateConnection(name, connType string, props map[string]string, tags map[string]string) (*Connection, error)
+	GetConnection(name string) (*Connection, error)
+	GetConnections() []*Connection
+	DeleteConnection(name string) error
 
 	// Batch connection operations.
 	BatchDeleteConnection(names []string) ([]string, []ErrorDetail)
@@ -86,6 +93,7 @@ type StorageBackend interface {
 	BatchStopJobRun(jobName string, runIDs []string) []BatchStopJobRunError
 	GetJobBookmark(jobName string) (*JobBookmark, error)
 	ResetJobBookmark(jobName string) error
+	ResetJobBookmarkWithResult(jobName string) (*JobBookmark, error)
 
 	// Crawler scheduling operations.
 	StartCrawler(name string) error

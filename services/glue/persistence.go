@@ -48,7 +48,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 			return &cp
 		}),
-		Connections: maps.Clone(b.connections),
+		Connections: copyMap(b.connections, cloneConnection),
 		Blueprints:  maps.Clone(b.blueprints),
 		CustomEntityTypes: copyMap(b.customEntityTypes, func(c *CustomEntityType) *CustomEntityType {
 			cp := *c
@@ -183,7 +183,7 @@ func (b *InMemoryBackend) restoreFromSnapshot(snap backendSnapshot) {
 
 		return &cp
 	})
-	b.connections = maps.Clone(snap.Connections)
+	b.connections = copyMap(snap.Connections, cloneConnection)
 	b.blueprints = maps.Clone(snap.Blueprints)
 	b.customEntityTypes = copyMap(snap.CustomEntityTypes, func(c *CustomEntityType) *CustomEntityType {
 		cp := *c

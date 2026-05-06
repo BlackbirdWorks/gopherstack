@@ -142,7 +142,7 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 	}
 
 	// Verify x-amz-content-sha256 if supplied by the SDK.
-	if declared := r.Header.Get("X-Amz-Content-SHA256"); declared != "" &&
+	if declared := r.Header.Get("X-Amz-Content-Sha256"); declared != "" &&
 		declared != "UNSIGNED-PAYLOAD" && declared != "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
 		if actual := contentSHA256(body); actual != declared {
 			return c.JSON(http.StatusBadRequest,
@@ -197,7 +197,7 @@ func (h *Handler) handleGetObject(c *echo.Context) error {
 	w := c.Response()
 	setObjectHeaders(w, obj)
 	// AWS MediaStore Data returns X-Amz-Content-SHA256 on GET responses.
-	w.Header().Set("X-Amz-Content-SHA256", obj.SHA256)
+	w.Header().Set("X-Amz-Content-Sha256", obj.SHA256)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.WriteHeader(http.StatusOK)
 
@@ -227,7 +227,7 @@ func (h *Handler) handleRangeGet(c *echo.Context, obj *Object, rangeHdr string) 
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, size))
 	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(chunk)), 10))
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("X-Amz-Content-SHA256", contentSHA256(chunk))
+	w.Header().Set("X-Amz-Content-Sha256", contentSHA256(chunk))
 	w.WriteHeader(http.StatusPartialContent)
 
 	if _, writeErr := w.Write(chunk); writeErr != nil {
