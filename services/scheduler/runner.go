@@ -60,7 +60,10 @@ type Runner struct {
 	sns         SNSPublisher
 	sfn         StepFunctionsStarter
 	lastFiredAt map[string]time.Time
-	mu          sync.Mutex
+	// cronCache caches parsed cron fields keyed by expression string to avoid re-parsing on every poll.
+	cronCache map[string]*cronFields
+	mu        sync.Mutex
+	cacheMu   sync.RWMutex
 }
 
 // NewRunner creates a new Runner for the given scheduler backend.
@@ -68,6 +71,7 @@ func NewRunner(backend StorageBackend) *Runner {
 	return &Runner{
 		backend:     backend,
 		lastFiredAt: make(map[string]time.Time),
+		cronCache:   make(map[string]*cronFields),
 	}
 }
 
@@ -167,9 +171,31 @@ func (r *Runner) isDueRate(name, expr string, now time.Time) bool {
 	return now.Sub(last) >= interval
 }
 
+// cachedParseCron returns the parsed cron fields for expr, using the cache.
+func (r *Runner) cachedParseCron(expr string) (*cronFields, error) {
+	r.cacheMu.RLock()
+	if cf, ok := r.cronCache[expr]; ok {
+		r.cacheMu.RUnlock()
+
+		return cf, nil
+	}
+	r.cacheMu.RUnlock()
+
+	cf, err := parseCronExpression(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	r.cacheMu.Lock()
+	r.cronCache[expr] = cf
+	r.cacheMu.Unlock()
+
+	return cf, nil
+}
+
 // isDueCron returns true when now matches all fields of the cron expression.
 func (r *Runner) isDueCron(name, expr string, now time.Time) bool {
-	fields, err := parseCronExpression(expr)
+	fields, err := r.cachedParseCron(expr)
 	if err != nil {
 		return false
 	}
