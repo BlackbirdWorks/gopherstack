@@ -132,6 +132,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "iotdataplane",
   "iotanalytics",
   "lakeformation",
+  "costexplorer",
 ]);
 
 // The 25 most commonly used AWS services shown in the sidebar.
@@ -631,6 +632,12 @@ export const sidebarCategories: DashboardCategory[] = [
       },
       { id: "support", href: "/dashboard/support", label: "Support", icon: "support" },
       { id: "pipes", href: "/dashboard/pipes", label: "Pipes", icon: "pipes" },
+      {
+        id: "costexplorer",
+        href: "/dashboard/costexplorer",
+        label: "Cost Explorer",
+        icon: "costexplorer",
+      },
     ],
   },
   {
