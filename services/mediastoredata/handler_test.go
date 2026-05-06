@@ -4,7 +4,10 @@ package mediastoredata_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -448,4 +451,300 @@ func TestMediaStoreData_Lifecycle(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, getRec2.Code)
 		})
 	}
+}
+
+func TestMediaStoreData_PutObject_SHA256InResponse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	content := []byte("hello sha256")
+	sum := sha256.Sum256(content)
+	wantSHA := hex.EncodeToString(sum[:])
+
+	rec := doRequest(t, h, http.MethodPut, "/test/sha.bin", content, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, wantSHA, resp["ContentSHA256"])
+	assert.NotEmpty(t, rec.Header().Get("ETag"))
+}
+
+func TestMediaStoreData_GetObject_XAmzSHA256Header(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	content := []byte("sha header check")
+
+	doRequest(t, h, http.MethodPut, "/sha/file.bin", content, nil)
+
+	rec := doRequest(t, h, http.MethodGet, "/sha/file.bin", nil, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotEmpty(t, rec.Header().Get("X-Amz-Content-Sha256"))
+	assert.Equal(t, "bytes", rec.Header().Get("Accept-Ranges"))
+}
+
+func TestMediaStoreData_PathValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "empty_path_rejected",
+			path:       "/",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "traversal_rejected",
+			path:       "/../etc/passwd",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "valid_path_accepted",
+			path:       "/folder/file.mp4",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPut, tt.path, []byte("data"), nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestMediaStoreData_StorageClassValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		storageClass string
+		wantStatus   int
+	}{
+		{name: "temporal_valid", storageClass: "TEMPORAL", wantStatus: http.StatusOK},
+		{name: "standard_valid", storageClass: "STANDARD", wantStatus: http.StatusOK},
+		{name: "empty_defaults_to_temporal", storageClass: "", wantStatus: http.StatusOK},
+		{name: "unknown_rejected", storageClass: "GLACIER", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			headers := map[string]string{}
+			if tt.storageClass != "" {
+				headers["X-Amz-Storage-Class"] = tt.storageClass
+			}
+
+			rec := doRequest(t, h, http.MethodPut, "/cls/file.bin", []byte("data"), headers)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestMediaStoreData_ConditionalGet(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	content := []byte("conditional content")
+	doRequest(t, h, http.MethodPut, "/cond/obj.bin", content, nil)
+
+	getRec := doRequest(t, h, http.MethodGet, "/cond/obj.bin", nil, nil)
+	etag := getRec.Header().Get("ETag")
+	require.NotEmpty(t, etag)
+
+	tests := []struct {
+		headers    map[string]string
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "if_none_match_matches_304",
+			headers:    map[string]string{"If-None-Match": etag},
+			wantStatus: http.StatusNotModified,
+		},
+		{
+			name:       "if_none_match_star_304",
+			headers:    map[string]string{"If-None-Match": "*"},
+			wantStatus: http.StatusNotModified,
+		},
+		{
+			name:       "if_none_match_different_200",
+			headers:    map[string]string{"If-None-Match": `"differentetag"`},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "if_match_matches_200",
+			headers:    map[string]string{"If-Match": etag},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "if_match_different_412",
+			headers:    map[string]string{"If-Match": `"wrongetag"`},
+			wantStatus: http.StatusPreconditionFailed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, http.MethodGet, "/cond/obj.bin", nil, tt.headers)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestMediaStoreData_RangeRequests(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	content := []byte("0123456789abcdef") // 16 bytes
+	doRequest(t, h, http.MethodPut, "/range/obj.bin", content, nil)
+
+	tests := []struct {
+		name       string
+		rangeHdr   string
+		wantBody   []byte
+		wantStatus int
+	}{
+		{
+			name:       "full_range",
+			rangeHdr:   "bytes=0-15",
+			wantStatus: http.StatusPartialContent,
+			wantBody:   content,
+		},
+		{
+			name:       "partial_range",
+			rangeHdr:   "bytes=4-7",
+			wantStatus: http.StatusPartialContent,
+			wantBody:   []byte("4567"),
+		},
+		{
+			name:       "suffix_range",
+			rangeHdr:   "bytes=-4",
+			wantStatus: http.StatusPartialContent,
+			wantBody:   []byte("cdef"),
+		},
+		{
+			name:       "open_range",
+			rangeHdr:   "bytes=12-",
+			wantStatus: http.StatusPartialContent,
+			wantBody:   []byte("cdef"),
+		},
+		{
+			name:       "out_of_range_416",
+			rangeHdr:   "bytes=100-200",
+			wantStatus: http.StatusRequestedRangeNotSatisfiable,
+			wantBody:   nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, http.MethodGet, "/range/obj.bin", nil, map[string]string{"Range": tt.rangeHdr})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != nil {
+				assert.Equal(t, tt.wantBody, rec.Body.Bytes())
+			}
+
+			if tt.wantStatus == http.StatusPartialContent {
+				assert.NotEmpty(t, rec.Header().Get("Content-Range"))
+			}
+		})
+	}
+}
+
+func TestMediaStoreData_ListItems_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Insert 5 objects.
+	for i := range 5 {
+		doRequest(t, h, http.MethodPut, fmt.Sprintf("/items/%02d.bin", i), []byte("data"), nil)
+	}
+
+	// Page 1: MaxResults=2.
+	rec1 := doRequest(t, h, http.MethodGet, "/?Path=items&MaxResults=2", nil, nil)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var page1 struct {
+		NextToken *string `json:"NextToken"`
+		Items     []struct {
+			Name string `json:"Name"`
+		} `json:"Items"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	assert.Len(t, page1.Items, 2)
+	require.NotNil(t, page1.NextToken)
+
+	// Page 2: continue from NextToken.
+	rec2 := doRequest(t, h, http.MethodGet, "/?Path=items&MaxResults=2&NextToken="+*page1.NextToken, nil, nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var page2 struct {
+		NextToken *string `json:"NextToken"`
+		Items     []struct {
+			Name string `json:"Name"`
+		} `json:"Items"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	assert.Len(t, page2.Items, 2)
+
+	// Names must not overlap pages.
+	for _, i1 := range page1.Items {
+		for _, i2 := range page2.Items {
+			assert.NotEqual(t, i1.Name, i2.Name)
+		}
+	}
+}
+
+func TestMediaStoreData_ContentSHA256Verification(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	content := []byte("verify sha")
+	sum := sha256.Sum256(content)
+	correctSHA := hex.EncodeToString(sum[:])
+
+	t.Run("correct_sha_accepted", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, http.MethodPut, "/verify/obj.bin", content, map[string]string{
+			"X-Amz-Content-SHA256": correctSHA,
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("wrong_sha_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, http.MethodPut, "/verify/obj2.bin", content, map[string]string{
+			"X-Amz-Content-SHA256": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("unsigned_payload_skips_check", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, http.MethodPut, "/verify/obj3.bin", content, map[string]string{
+			"X-Amz-Content-SHA256": "UNSIGNED-PAYLOAD",
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
 }

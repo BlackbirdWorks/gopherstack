@@ -2,6 +2,7 @@ package mediastoredata
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -140,12 +141,28 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 		)
 	}
 
+	// Verify x-amz-content-sha256 if supplied by the SDK.
+	if declared := r.Header.Get("X-Amz-Content-SHA256"); declared != "" &&
+		declared != "UNSIGNED-PAYLOAD" && declared != "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
+		if actual := contentSHA256(body); actual != declared {
+			return c.JSON(http.StatusBadRequest,
+				errorResponse("InvalidContentSHA256Exception",
+					fmt.Sprintf("content SHA256 mismatch: got %s, expected %s", actual, declared)))
+		}
+	}
+
 	path := r.URL.Path
 	contentType := r.Header.Get("Content-Type")
 	cacheControl := r.Header.Get("Cache-Control")
 	storageClass := r.Header.Get("X-Amz-Storage-Class")
 
-	obj := h.Backend.PutObject(path, body, contentType, cacheControl, storageClass)
+	obj, putErr := h.Backend.PutObject(path, body, contentType, cacheControl, storageClass)
+	if putErr != nil {
+		return h.writeError(c, putErr)
+	}
+
+	// Echo the ETag as a response header (matches real AWS behaviour).
+	c.Response().Header().Set("ETag", obj.ETag)
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"ContentSHA256": obj.SHA256,
@@ -163,13 +180,59 @@ func (h *Handler) handleGetObject(c *echo.Context) error {
 		return h.writeError(c, err)
 	}
 
+	// Evaluate conditional request headers before sending body.
+	if status, ok := evalConditional(r, obj); !ok {
+		w := c.Response()
+		setObjectHeaders(w, obj)
+		w.WriteHeader(status)
+
+		return nil
+	}
+
+	// Handle Range request.
+	if rangeHdr := r.Header.Get("Range"); rangeHdr != "" {
+		return h.handleRangeGet(c, obj, rangeHdr)
+	}
+
 	w := c.Response()
 	setObjectHeaders(w, obj)
+	// AWS MediaStore Data returns X-Amz-Content-SHA256 on GET responses.
+	w.Header().Set("X-Amz-Content-SHA256", obj.SHA256)
+	w.Header().Set("Accept-Ranges", "bytes")
 	w.WriteHeader(http.StatusOK)
 
 	if _, writeErr := w.Write(obj.Body); writeErr != nil {
 		logger.Load(r.Context()).
 			ErrorContext(r.Context(), "mediastoredata: failed to write response body", "error", writeErr)
+	}
+
+	return nil
+}
+
+// handleRangeGet serves a partial response for a Range GET.
+func (h *Handler) handleRangeGet(c *echo.Context, obj *Object, rangeHdr string) error {
+	size := obj.ContentLength
+	start, end, ok := parseByteRange(rangeHdr, size)
+
+	if !ok {
+		c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
+
+		return c.JSON(http.StatusRequestedRangeNotSatisfiable,
+			errorResponse("InvalidRangeException", "requested range not satisfiable"))
+	}
+
+	chunk := obj.Body[start : end+1]
+	w := c.Response()
+	setObjectHeaders(w, obj)
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, size))
+	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(chunk)), 10))
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("X-Amz-Content-SHA256", contentSHA256(chunk))
+	w.WriteHeader(http.StatusPartialContent)
+
+	if _, writeErr := w.Write(chunk); writeErr != nil {
+		logger.Load(c.Request().Context()).
+			ErrorContext(c.Request().Context(), "mediastoredata: failed to write range body", "error", writeErr)
 	}
 
 	return nil
@@ -204,12 +267,23 @@ type itemEntry struct {
 
 // handleListItems handles GET / or GET /?Path=...
 func (h *Handler) handleListItems(c *echo.Context) error {
-	folderPath := c.Request().URL.Query().Get("Path")
+	q := c.Request().URL.Query()
 
-	items := h.Backend.ListItems(folderPath)
-	entries := make([]itemEntry, 0, len(items))
+	in := ListItemsInput{
+		FolderPath: q.Get("Path"),
+		NextToken:  q.Get("NextToken"),
+	}
 
-	for _, item := range items {
+	if raw := q.Get("MaxResults"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			in.MaxResults = n
+		}
+	}
+
+	result := h.Backend.ListItems(in)
+	entries := make([]itemEntry, 0, len(result.Items))
+
+	for _, item := range result.Items {
 		entry := itemEntry{
 			Name: item.Name,
 			Type: item.Type,
@@ -226,7 +300,12 @@ func (h *Handler) handleListItems(c *echo.Context) error {
 		entries = append(entries, entry)
 	}
 
-	return c.JSON(http.StatusOK, listItemsOutput{Items: entries})
+	out := listItemsOutput{Items: entries}
+	if result.NextToken != "" {
+		out.NextToken = &result.NextToken
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // handleDescribeObject handles HEAD /{Path+}.
@@ -240,6 +319,7 @@ func (h *Handler) handleDescribeObject(c *echo.Context) error {
 
 	w := c.Response()
 	setObjectHeaders(w, obj)
+	w.Header().Set("Accept-Ranges", "bytes")
 	w.WriteHeader(http.StatusOK)
 
 	return nil
@@ -257,10 +337,138 @@ func setObjectHeaders(w http.ResponseWriter, obj *Object) {
 	}
 }
 
+// evalConditional checks conditional request headers (If-Match, If-None-Match,
+// If-Modified-Since, If-Unmodified-Since). Returns (statusCode, proceed).
+// proceed=false means the caller should write statusCode and stop.
+func evalConditional(r *http.Request, obj *Object) (int, bool) {
+	etag := obj.ETag
+
+	// If-None-Match: return 304 if client already has this version.
+	if inm := r.Header.Get("If-None-Match"); inm != "" {
+		if etagMatches(inm, etag) {
+			return http.StatusNotModified, false
+		}
+	}
+
+	// If-Match: return 412 if client's precondition is not satisfied.
+	if im := r.Header.Get("If-Match"); im != "" {
+		if !etagMatches(im, etag) {
+			return http.StatusPreconditionFailed, false
+		}
+	}
+
+	// If-Modified-Since: return 304 if object has not changed.
+	if ims := r.Header.Get("If-Modified-Since"); ims != "" {
+		if t, err := http.ParseTime(ims); err == nil && !obj.LastModified.After(t) {
+			return http.StatusNotModified, false
+		}
+	}
+
+	// If-Unmodified-Since: return 412 if object has been modified.
+	if ius := r.Header.Get("If-Unmodified-Since"); ius != "" {
+		if t, err := http.ParseTime(ius); err == nil && obj.LastModified.After(t) {
+			return http.StatusPreconditionFailed, false
+		}
+	}
+
+	return http.StatusOK, true
+}
+
+// etagMatches reports whether the wildcard "*" or a quoted ETag from the
+// header value matches target.
+func etagMatches(header, target string) bool {
+	if strings.TrimSpace(header) == "*" {
+		return true
+	}
+
+	for part := range strings.SplitSeq(header, ",") {
+		if strings.TrimSpace(part) == target {
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseSuffixRange parses "bytes=-N" (last N bytes).
+func parseSuffixRange(endStr string, size int64) (int64, int64, bool) {
+	n, err := strconv.ParseInt(endStr, 10, 64)
+	if err != nil || n < 0 {
+		return 0, 0, false
+	}
+
+	return max(size-n, 0), size - 1, true
+}
+
+// parseOpenRange parses "bytes=N-" (from N to end).
+func parseOpenRange(startStr string, size int64) (int64, int64, bool) {
+	start, err := strconv.ParseInt(startStr, 10, 64)
+	if err != nil || start < 0 {
+		return 0, 0, false
+	}
+
+	return start, size - 1, true
+}
+
+// parseClosedRange parses "bytes=N-M". end is not yet clamped to size.
+func parseClosedRange(startStr, endStr string) (int64, int64, bool) {
+	start, err := strconv.ParseInt(startStr, 10, 64)
+	if err != nil || start < 0 {
+		return 0, 0, false
+	}
+
+	end, err := strconv.ParseInt(endStr, 10, 64)
+	if err != nil || end < start {
+		return 0, 0, false
+	}
+
+	return start, end, true
+}
+
+// parseByteRange parses a "bytes=start-end" Range header value.
+// Returns (start, end, ok). end is inclusive and clamped to size-1.
+// Only single-range specs are supported.
+func parseByteRange(header string, size int64) (int64, int64, bool) {
+	spec, ok := strings.CutPrefix(header, "bytes=")
+	if !ok || strings.Contains(spec, ",") {
+		return 0, 0, false
+	}
+
+	startStr, endStr, hasDash := strings.Cut(spec, "-")
+	if !hasDash {
+		return 0, 0, false
+	}
+
+	var start, end int64
+
+	switch {
+	case startStr == "" && endStr != "":
+		start, end, ok = parseSuffixRange(endStr, size)
+	case startStr != "" && endStr == "":
+		start, end, ok = parseOpenRange(startStr, size)
+	default:
+		start, end, ok = parseClosedRange(startStr, endStr)
+		if ok && end >= size {
+			end = size - 1
+		}
+	}
+
+	if !ok || start >= size {
+		return 0, 0, false
+	}
+
+	return start, end, true
+}
+
 // writeError maps backend errors to appropriate HTTP responses.
 func (h *Handler) writeError(c *echo.Context, err error) error {
-	if errors.Is(err, ErrNotFound) {
+	switch {
+	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound, errorResponse("ObjectNotFoundException", err.Error()))
+	case errors.Is(err, ErrInvalidPath):
+		return c.JSON(http.StatusBadRequest, errorResponse("InvalidPathException", err.Error()))
+	case errors.Is(err, ErrInvalidStorageClass):
+		return c.JSON(http.StatusBadRequest, errorResponse("InvalidStorageClassException", err.Error()))
 	}
 
 	return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerError", err.Error()))

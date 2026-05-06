@@ -1377,6 +1377,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	const (
 		msdErrBackendUnavailable = "MediaStore Data backend not available"
 		msdErrPathRequired       = "path is required"
+		msdErrObjectNotFound     = "object not found"
 		msdUploadMaxBytes        = 32 << 20 // 32 MiB
 	)
 
@@ -1405,8 +1406,10 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.JSON(http.StatusOK, map[string]any{"objects": []msdObjectEntry{}})
 		}
 
-		items := backend.ListAllObjects()
+		prefix := strings.TrimSpace(c.QueryParam("prefix"))
+		items := backend.ListAllObjects(prefix)
 		entries := make([]msdObjectEntry, 0, len(items))
+
 		for _, item := range items {
 			if item == nil || item.Name == "" {
 				continue
@@ -1425,6 +1428,20 @@ func (h *DashboardHandler) setupSubRouter() {
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{"objects": entries})
+	})
+
+	h.SubRouter.GET("/dashboard/api/mediastoredata/stats", func(c *echo.Context) error {
+		backend := msdBackend()
+		if backend == nil {
+			return c.JSON(http.StatusOK, map[string]any{"objectCount": 0, "totalBytes": 0})
+		}
+
+		s := backend.Stats()
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"objectCount": s.ObjectCount,
+			"totalBytes":  s.TotalBytes,
+		})
 	})
 
 	h.SubRouter.POST("/dashboard/api/mediastoredata/upload", func(c *echo.Context) error {
@@ -1465,12 +1482,48 @@ func (h *DashboardHandler) setupSubRouter() {
 		cacheControl := r.FormValue("cache_control")
 		storageClass := r.FormValue("storage_class")
 
-		obj := backend.PutObject("/"+strings.TrimPrefix(objPath, "/"), body, contentType, cacheControl, storageClass)
+		obj, putErr := backend.PutObject(
+			"/"+strings.TrimPrefix(objPath, "/"), body, contentType, cacheControl, storageClass,
+		)
+		if putErr != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: putErr.Error()})
+		}
 
 		return c.JSON(http.StatusOK, map[string]string{
 			"etag":   obj.ETag,
 			"sha256": obj.SHA256,
 		})
+	})
+
+	h.SubRouter.PATCH("/dashboard/api/mediastoredata/objects", func(c *echo.Context) error {
+		backend := msdBackend()
+		if backend == nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: msdErrBackendUnavailable})
+		}
+
+		objPath := strings.TrimSpace(c.QueryParam("path"))
+		if objPath == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: msdErrPathRequired})
+		}
+
+		var body struct {
+			ContentType  string `json:"contentType"`
+			CacheControl string `json:"cacheControl"`
+		}
+
+		if err := c.Bind(&body); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{keyError: "invalid request body"})
+		}
+
+		if err := backend.UpdateObjectMetadata(
+			"/"+strings.TrimPrefix(objPath, "/"),
+			body.ContentType,
+			body.CacheControl,
+		); err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{keyError: msdErrObjectNotFound})
+		}
+
+		return c.NoContent(http.StatusOK)
 	})
 
 	h.SubRouter.GET("/dashboard/api/mediastoredata/download", func(c *echo.Context) error {
@@ -1486,7 +1539,7 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		obj, err := backend.GetObject("/" + strings.TrimPrefix(objPath, "/"))
 		if err != nil {
-			return c.JSON(http.StatusNotFound, map[string]string{keyError: "object not found"})
+			return c.JSON(http.StatusNotFound, map[string]string{keyError: msdErrObjectNotFound})
 		}
 
 		w := c.Response()
@@ -1494,6 +1547,7 @@ func (h *DashboardHandler) setupSubRouter() {
 		if ct == "" {
 			ct = "application/octet-stream"
 		}
+
 		w.Header().Set("Content-Type", ct)
 		w.Header().Set("Content-Length", strconv.FormatInt(obj.ContentLength, 10))
 		w.Header().Set("ETag", obj.ETag)
@@ -1516,7 +1570,7 @@ func (h *DashboardHandler) setupSubRouter() {
 		}
 
 		if err := backend.DeleteObject("/" + strings.TrimPrefix(objPath, "/")); err != nil {
-			return c.JSON(http.StatusNotFound, map[string]string{keyError: "object not found"})
+			return c.JSON(http.StatusNotFound, map[string]string{keyError: msdErrObjectNotFound})
 		}
 
 		return c.NoContent(http.StatusOK)
