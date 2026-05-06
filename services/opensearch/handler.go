@@ -16,18 +16,37 @@ import (
 )
 
 const (
-	openSearchPathPrefix      = "/2021-01-01/opensearch/domain"
-	openSearchTagsPath        = "/2021-01-01/tags"
-	openSearchTagsRemoval     = "/2021-01-01/tags-removal"
-	openSearchCCPath          = "/2021-01-01/opensearch/cc"
-	openSearchDirectQueryPath = "/2021-01-01/opensearch/directQueryDataSource"
-	openSearchPackagesPath    = "/2021-01-01/packages"
-	openSearchServiceSwPath   = "/2021-01-01/opensearch/serviceSoftwareUpdate"
-	openSearchApplicationPath = "/2021-01-01/opensearch/application"
+	openSearchPathPrefix           = "/2021-01-01/opensearch/domain"
+	openSearchTagsPath             = "/2021-01-01/tags"
+	openSearchTagsRemoval          = "/2021-01-01/tags-removal"
+	openSearchCCPath               = "/2021-01-01/opensearch/cc"
+	openSearchDirectQueryPath      = "/2021-01-01/opensearch/directQueryDataSource"
+	openSearchPackagesPath         = "/2021-01-01/packages"
+	openSearchServiceSwPath        = "/2021-01-01/opensearch/serviceSoftwareUpdate"
+	openSearchApplicationPath      = "/2021-01-01/opensearch/application"
+	openSearchVersionsPath         = "/2021-01-01/opensearch/versions"
+	openSearchInstanceTypesPath    = "/2021-01-01/opensearch/instanceTypeDetails"
+	openSearchCompatiblePath       = "/2021-01-01/opensearch/compatibleVersions"
+	openSearchVpcEndpointsPath     = "/2021-01-01/opensearch/vpcEndpoints"
+	openSearchScheduledActionsPath = "/2021-01-01/opensearch/scheduledActions"
+	openSearchReservedPath         = "/2021-01-01/opensearch/reservedInstances"
+	openSearchUpgradePath          = "/2021-01-01/opensearch/upgradeDomain"
 	// pkgPathParts is the number of path segments after the associate prefix (PackageID/DomainName).
 	pkgPathParts = 2
 	// opUnknown is the sentinel returned when no operation can be determined from a request.
 	opUnknown = "Unknown"
+	// JSON field name constants reused across stub responses.
+	jsonKeyStatus           = "Status"
+	jsonKeyConnection       = "Connection"
+	jsonKeyConnectionID     = "ConnectionId"
+	jsonKeyConnectionStatus = "ConnectionStatus"
+	jsonKeyPkgDetailsList   = "DomainPackageDetailsList"
+	jsonKeyPackageID        = "PackageID"
+	jsonKeyPackageDetails   = "PackageDetails"
+	jsonKeyPackageName      = "PackageName"
+	jsonKeyPackageStatus    = "PackageStatus"
+	jsonKeyVpcEndpointID    = "VpcEndpointId"
+	jsonKeyStatusCode       = "StatusCode"
 )
 
 // Handler is the HTTP handler for OpenSearch operations.
@@ -59,6 +78,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, openSearchPackagesPath) ||
 			strings.HasPrefix(path, openSearchServiceSwPath) ||
 			strings.HasPrefix(path, openSearchApplicationPath) ||
+			strings.HasPrefix(path, openSearchVersionsPath) ||
+			strings.HasPrefix(path, openSearchInstanceTypesPath) ||
+			strings.HasPrefix(path, openSearchCompatiblePath) ||
+			strings.HasPrefix(path, openSearchVpcEndpointsPath) ||
+			strings.HasPrefix(path, openSearchScheduledActionsPath) ||
+			strings.HasPrefix(path, openSearchReservedPath) ||
+			strings.HasPrefix(path, openSearchUpgradePath) ||
 			path == openSearchTagsPath ||
 			path == openSearchTagsRemoval
 	}
@@ -78,9 +104,77 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CancelServiceSoftwareUpdate",
 		"CreateApplication",
 		"CreateDomain",
+		"CreateIndex",
+		"CreateOutboundConnection",
+		"CreatePackage",
+		"CreateVpcEndpoint",
+		"DeleteApplication",
+		"DeleteDataSource",
+		"DeleteDirectQueryDataSource",
 		"DeleteDomain",
+		"DeleteInboundConnection",
+		"DeleteIndex",
+		"DeleteOutboundConnection",
+		"DeletePackage",
+		"DeleteVpcEndpoint",
 		"DescribeDomain",
+		"DescribeDomainAutoTunes",
+		"DescribeDomainChangeProgress",
+		"DescribeDomainConfig",
+		"DescribeDomainHealth",
+		"DescribeDomainNodes",
+		"DescribeDomains",
+		"DescribeDryRunProgress",
+		"DescribeInboundConnections",
+		"DescribeInstanceTypeLimits",
+		"DescribeOutboundConnections",
+		"DescribePackages",
+		"DescribeReservedInstanceOfferings",
+		"DescribeReservedInstances",
+		"DescribeVpcEndpoints",
+		"DissociatePackage",
+		"DissociatePackages",
+		"GetApplication",
+		"GetCompatibleVersions",
+		"GetDataSource",
+		"GetDefaultApplicationSetting",
+		"GetDirectQueryDataSource",
+		"GetDomainMaintenanceStatus",
+		"GetIndex",
+		"GetPackageVersionHistory",
+		"GetUpgradeHistory",
+		"GetUpgradeStatus",
+		"ListApplications",
+		"ListDataSources",
+		"ListDirectQueryDataSources",
+		"ListDomainMaintenances",
 		"ListDomainNames",
+		"ListDomainsForPackage",
+		"ListInstanceTypeDetails",
+		"ListPackagesForDomain",
+		"ListScheduledActions",
+		"ListTags",
+		"ListVersions",
+		"ListVpcEndpointAccess",
+		"ListVpcEndpoints",
+		"ListVpcEndpointsForDomain",
+		"PurchaseReservedInstanceOffering",
+		"PutDefaultApplicationSetting",
+		"RejectInboundConnection",
+		"RemoveTags",
+		"RevokeVpcEndpointAccess",
+		"StartDomainMaintenance",
+		"StartServiceSoftwareUpdate",
+		"UpdateApplication",
+		"UpdateDataSource",
+		"UpdateDirectQueryDataSource",
+		"UpdateDomainConfig",
+		"UpdateIndex",
+		"UpdatePackage",
+		"UpdatePackageScope",
+		"UpdateScheduledAction",
+		"UpdateVpcEndpoint",
+		"UpgradeDomain",
 	}
 }
 
@@ -366,6 +460,20 @@ func (h *Handler) dispatchNonDomainRoutes(w http.ResponseWriter, r *http.Request
 		h.handleServiceSoftwareRoutes(w, r)
 	case strings.HasPrefix(path, openSearchApplicationPath):
 		h.handleApplicationRoutes(w, r)
+	case strings.HasPrefix(path, openSearchVersionsPath):
+		h.handleVersionsRoutes(w, r)
+	case strings.HasPrefix(path, openSearchInstanceTypesPath):
+		h.handleInstanceTypeDetailsRoutes(w, r)
+	case strings.HasPrefix(path, openSearchCompatiblePath):
+		h.handleCompatibleVersionsRoutes(w, r)
+	case strings.HasPrefix(path, openSearchVpcEndpointsPath):
+		h.handleVpcEndpointsRoutes(w, r)
+	case strings.HasPrefix(path, openSearchScheduledActionsPath):
+		h.handleScheduledActionsRoutes(w, r)
+	case strings.HasPrefix(path, openSearchReservedPath):
+		h.handleReservedInstancesRoutes(w, r)
+	case strings.HasPrefix(path, openSearchUpgradePath):
+		h.handleUpgradeDomainRoutes(w, r)
 	default:
 		return false
 	}
@@ -377,30 +485,103 @@ func (h *Handler) dispatchNonDomainRoutes(w http.ResponseWriter, r *http.Request
 func (h *Handler) dispatchDomainRoutes(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, openSearchPathPrefix)
 
-	switch {
-	case (rest == "" || rest == "/") && r.Method == http.MethodPost:
-		h.handleCreateDomain(w, r)
-	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
-		h.handleListDomainNames(w, r)
-	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
+	// Root-level domain list/create.
+	if rest == "" || rest == "/" {
+		h.dispatchDomainRootRoutes(w, r)
+
+		return
+	}
+
+	// Bulk describe: GET /domain/describe → DescribeDomains.
+	if rest == "/describe" && r.Method == http.MethodGet {
+		h.writeJSON(r, w, map[string]any{"DomainStatusList": []any{}})
+
+		return
+	}
+
+	if !strings.HasPrefix(rest, "/") {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
 		h.dispatchDomainGetRoutes(w, r, rest)
-	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:
-		h.handleDeleteDomain(w, r, domainNameFromRest(rest))
-	case strings.HasPrefix(rest, "/") && r.Method == http.MethodPost:
+	case http.MethodDelete:
+		h.dispatchDomainDeleteRoutes(w, r, rest)
+	case http.MethodPost:
 		h.handleDomainSubRoutes(w, r, rest)
+	case http.MethodPut:
+		h.dispatchDomainPutRoutes(w, r, rest)
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
 }
 
+// dispatchDomainRootRoutes handles POST/GET on the domain root.
+func (h *Handler) dispatchDomainRootRoutes(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		h.handleCreateDomain(w, r)
+	case http.MethodGet:
+		h.handleListDomainNames(w, r)
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// dispatchDomainDeleteRoutes handles DELETE under a domain path.
+func (h *Handler) dispatchDomainDeleteRoutes(w http.ResponseWriter, r *http.Request, rest string) {
+	trimmed := strings.TrimPrefix(rest, "/")
+	if h.dispatchDomainDeleteRoutesExtended(w, r, trimmed) {
+		return
+	}
+
+	h.handleDeleteDomain(w, r, domainNameFromRest(rest))
+}
+
+// dispatchDomainPutRoutes handles PUT under a domain path (UpdateDomainConfig).
+func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request, rest string) {
+	trimmed := domainNameFromRest(rest)
+
+	name, ok := strings.CutSuffix(trimmed, "/config")
+	if !ok {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+
+		return
+	}
+
+	domain, err := h.Backend.DescribeDomain(name)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return
+	}
+
+	cfg := map[string]any{
+		"Options":     domain.EngineVersion,
+		jsonKeyStatus: map[string]any{"State": domainStatusActive},
+	}
+	h.writeJSON(r, w, map[string]any{"DomainConfig": map[string]any{"EngineVersion": cfg}})
+}
+
 // dispatchDomainGetRoutes handles GET requests under a domain path.
 func (h *Handler) dispatchDomainGetRoutes(w http.ResponseWriter, r *http.Request, rest string) {
 	trimmed := domainNameFromRest(rest)
+
 	if before, ok := strings.CutSuffix(trimmed, "/config"); ok {
 		h.handleDescribeDomainConfig(w, r, before)
-	} else {
-		h.handleDescribeDomain(w, r, trimmed)
+
+		return
 	}
+
+	if h.dispatchDomainGetRoutesExtended(w, r, trimmed) {
+		return
+	}
+
+	// Plain domain name — DescribeDomain.
+	h.handleDescribeDomain(w, r, trimmed)
 }
 
 func domainNameFromRest(rest string) string {
@@ -735,6 +916,9 @@ func (h *Handler) handleDomainSubRoutes(w http.ResponseWriter, r *http.Request, 
 		domainName := strings.TrimSuffix(trimmed, "/config/cancel")
 		h.handleCancelDomainConfigChange(w, r, domainName)
 	default:
+		if h.dispatchDomainPostRoutesExtended(w, r, trimmed) {
+			return
+		}
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
 }
@@ -743,50 +927,243 @@ func (h *Handler) handleDomainSubRoutes(w http.ResponseWriter, r *http.Request, 
 func (h *Handler) handleCCRoutes(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, openSearchCCPath)
 
-	// PUT /2021-01-01/opensearch/cc/inboundConnection/{ConnectionId}/accept
-	if strings.HasPrefix(rest, "/inboundConnection/") && strings.HasSuffix(rest, "/accept") &&
-		r.Method == http.MethodPut {
-		connID := strings.TrimSuffix(strings.TrimPrefix(rest, "/inboundConnection/"), "/accept")
-		h.handleAcceptInboundConnection(w, r, connID)
+	if strings.HasPrefix(rest, "/inboundConnection") {
+		h.handleCCInboundRoutes(w, r, rest)
+
+		return
+	}
+
+	if strings.HasPrefix(rest, "/outboundConnection") {
+		h.handleCCOutboundRoutes(w, r, rest)
 
 		return
 	}
 
 	h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+}
+
+// handleCCInboundRoutes handles inbound cross-cluster connection sub-routes.
+func (h *Handler) handleCCInboundRoutes(w http.ResponseWriter, r *http.Request, rest string) {
+	const prefix = "/inboundConnection/"
+
+	switch {
+	// GET /inboundConnection → DescribeInboundConnections
+	case (rest == "/inboundConnection" || rest == "/inboundConnection/") && r.Method == http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"Connections": []any{}})
+	// PUT /inboundConnection/{id}/accept → AcceptInboundConnection
+	case strings.HasPrefix(rest, prefix) && strings.HasSuffix(rest, "/accept") &&
+		r.Method == http.MethodPut:
+		connID := strings.TrimSuffix(strings.TrimPrefix(rest, prefix), "/accept")
+		h.handleAcceptInboundConnection(w, r, connID)
+	// PUT /inboundConnection/{id}/reject → RejectInboundConnection
+	case strings.HasPrefix(rest, prefix) && strings.HasSuffix(rest, "/reject") &&
+		r.Method == http.MethodPut:
+		connID := strings.TrimSuffix(strings.TrimPrefix(rest, prefix), "/reject")
+		status := map[string]any{jsonKeyConnection: map[string]any{
+			jsonKeyConnectionID:     connID,
+			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: "REJECTED"},
+		}}
+		h.writeJSON(r, w, status)
+	// DELETE /inboundConnection/{id} → DeleteInboundConnection
+	case strings.HasPrefix(rest, prefix) && r.Method == http.MethodDelete:
+		connID := strings.TrimPrefix(rest, prefix)
+		status := map[string]any{jsonKeyConnection: map[string]any{
+			jsonKeyConnectionID:     connID,
+			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: "DELETED"},
+		}}
+		h.writeJSON(r, w, status)
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleCCOutboundRoutes handles outbound cross-cluster connection sub-routes.
+func (h *Handler) handleCCOutboundRoutes(w http.ResponseWriter, r *http.Request, rest string) {
+	const prefix = "/outboundConnection/"
+
+	switch {
+	// GET /outboundConnection → DescribeOutboundConnections
+	case (rest == "/outboundConnection" || rest == "/outboundConnection/") &&
+		r.Method == http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"Connections": []any{}})
+	// POST /outboundConnection → CreateOutboundConnection
+	case (rest == "/outboundConnection" || rest == "/outboundConnection/") &&
+		r.Method == http.MethodPost:
+		h.writeJSON(r, w, map[string]any{
+			"ConnectionId":     "stub-conn-id",
+			"ConnectionStatus": map[string]any{jsonKeyStatusCode: "VALIDATING"},
+		})
+	// DELETE /outboundConnection/{id} → DeleteOutboundConnection
+	case strings.HasPrefix(rest, prefix) && r.Method == http.MethodDelete:
+		connID := strings.TrimPrefix(rest, prefix)
+		status := map[string]any{jsonKeyConnection: map[string]any{
+			jsonKeyConnectionID:     connID,
+			jsonKeyConnectionStatus: map[string]any{jsonKeyStatusCode: "DELETED"},
+		}}
+		h.writeJSON(r, w, status)
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
 }
 
 // handleDirectQueryRoutes handles direct query data source routes.
 func (h *Handler) handleDirectQueryRoutes(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, openSearchDirectQueryPath)
 
-	// POST /2021-01-01/opensearch/directQueryDataSource
-	if (rest == "" || rest == "/") && r.Method == http.MethodPost {
+	switch {
+	// POST /2021-01-01/opensearch/directQueryDataSource → AddDirectQueryDataSource
+	case (rest == "" || rest == "/") && r.Method == http.MethodPost:
 		h.handleAddDirectQueryDataSource(w, r)
-
-		return
+	// GET /2021-01-01/opensearch/directQueryDataSource → ListDirectQueryDataSources
+	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"DirectQueryDataSources": []any{}})
+	// GET /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → GetDirectQueryDataSource
+	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
+		h.writeJSON(r, w, map[string]any{
+			"DataSourceName": strings.TrimPrefix(rest, "/"),
+			"DataSourceType": map[string]any{},
+			"OpenSearchArns": []any{},
+		})
+	// DELETE /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → DeleteDirectQueryDataSource
+	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:
+		w.WriteHeader(http.StatusOK)
+	// PUT /2021-01-01/opensearch/directQueryDataSource/{dataSourceName} → UpdateDirectQueryDataSource
+	case strings.HasPrefix(rest, "/") && r.Method == http.MethodPut:
+		h.writeJSON(r, w, map[string]any{"DataSourceArn": "stub-arn"})
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
-
-	h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 }
 
 // handlePackageRoutes handles package routes.
 func (h *Handler) handlePackageRoutes(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, openSearchPackagesPath)
 
+	// Root paths first.
+	if rest == "" || rest == "/" {
+		h.handlePackageRootRoutes(w, r)
+
+		return
+	}
+
+	// Named sub-paths: associate, dissociate.
+	if h.handlePackageAssocRoutes(w, r, rest) {
+		return
+	}
+
+	// Sub-resource paths: history, domains, scope.
+	if h.handlePackageSubResourceRoutes(w, r, rest) {
+		return
+	}
+
+	// Fallback: single-segment package-ID routes.
+	h.handlePackageIDRoutes(w, r, rest)
+}
+
+// handlePackageAssocRoutes handles associate/dissociate package routes.
+// Returns true if the request was handled.
+func (h *Handler) handlePackageAssocRoutes(w http.ResponseWriter, r *http.Request, rest string) bool {
 	switch {
-	// POST /2021-01-01/packages/associate/{PackageID}/{DomainName}
+	// POST /packages/associate/{PackageID}/{DomainName} → AssociatePackage
 	case strings.HasPrefix(rest, "/associate/") && r.Method == http.MethodPost:
 		parts := strings.SplitN(strings.TrimPrefix(rest, "/associate/"), "/", pkgPathParts)
 		if len(parts) != pkgPathParts {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid associate package path")
 
-			return
+			return true
 		}
 
 		h.handleAssociatePackage(w, r, parts[0], parts[1])
-	// POST /2021-01-01/packages/associateMultiple
+
+		return true
+	// POST /packages/associateMultiple → AssociatePackages
 	case rest == "/associateMultiple" && r.Method == http.MethodPost:
 		h.handleAssociatePackages(w, r)
+
+		return true
+	// DELETE /packages/dissociate/{PackageID}/{DomainName} → DissociatePackage
+	case strings.HasPrefix(rest, "/dissociate/") && r.Method == http.MethodDelete:
+		h.writeJSON(r, w, map[string]any{"DomainPackageDetails": map[string]any{"DomainPackageStatus": "DISSOCIATING"}})
+
+		return true
+	// POST /packages/dissociateMultiple → DissociatePackages
+	case rest == "/dissociateMultiple" && r.Method == http.MethodPost:
+		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: []any{}})
+
+		return true
+	}
+
+	return false
+}
+
+// handlePackageSubResourceRoutes handles package sub-resource routes (history, domains, scope).
+// Returns true if the request was handled.
+func (h *Handler) handlePackageSubResourceRoutes(w http.ResponseWriter, r *http.Request, rest string) bool {
+	switch {
+	// GET /packages/{packageId}/history → GetPackageVersionHistory
+	case strings.HasSuffix(rest, "/history") && r.Method == http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"PackageVersionHistoryList": []any{}})
+
+		return true
+	// GET /packages/{packageId}/domains → ListDomainsForPackage
+	case strings.HasSuffix(rest, "/domains") && r.Method == http.MethodGet:
+		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: []any{}})
+
+		return true
+	// PUT /packages/{packageId}/scope → UpdatePackageScope
+	case strings.HasSuffix(rest, "/scope") && r.Method == http.MethodPut:
+		h.writeJSON(r, w, map[string]any{
+			jsonKeyPackageID:              "",
+			"Operation":                   "ADD",
+			"PackageScopeOperationStatus": softwareUpdateCompleted,
+		})
+
+		return true
+	}
+
+	return false
+}
+
+// handlePackageRootRoutes handles /packages and /packages/ requests.
+func (h *Handler) handlePackageRootRoutes(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	// POST /packages → CreatePackage
+	case http.MethodPost:
+		h.writeJSON(r, w, map[string]any{
+			jsonKeyPackageDetails: map[string]any{
+				jsonKeyPackageID:     "pkg-stub",
+				jsonKeyPackageName:   EngineStub,
+				jsonKeyPackageStatus: pkgStateActive,
+			},
+		})
+	// GET /packages → DescribePackages
+	case http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"PackageDetailsList": []any{}})
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handlePackageIDRoutes handles /packages/{packageId} requests.
+func (h *Handler) handlePackageIDRoutes(w http.ResponseWriter, r *http.Request, rest string) {
+	pkgID := strings.TrimPrefix(rest, "/")
+	if strings.Contains(pkgID, "/") {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+
+		return
+	}
+
+	switch r.Method {
+	// DELETE /packages/{packageId} → DeletePackage
+	case http.MethodDelete:
+		h.writeJSON(r, w, map[string]any{
+			jsonKeyPackageDetails: map[string]any{jsonKeyPackageID: pkgID, jsonKeyPackageStatus: "DELETING"},
+		})
+	// POST /packages/{packageId} → UpdatePackage
+	case http.MethodPost:
+		h.writeJSON(r, w, map[string]any{
+			jsonKeyPackageDetails: map[string]any{jsonKeyPackageID: pkgID, jsonKeyPackageStatus: pkgStateActive},
+		})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -810,14 +1187,70 @@ func (h *Handler) handleServiceSoftwareRoutes(w http.ResponseWriter, r *http.Req
 func (h *Handler) handleApplicationRoutes(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, openSearchApplicationPath)
 
-	// POST /2021-01-01/opensearch/application
-	if (rest == "" || rest == "/") && r.Method == http.MethodPost {
-		h.handleCreateApplication(w, r)
+	// Root: Create/List applications.
+	if rest == "" || rest == "/" {
+		h.handleApplicationRootRoutes(w, r)
 
 		return
 	}
 
-	h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	// Settings sub-path.
+	if rest == "/settings/default" {
+		h.handleApplicationSettingsRoutes(w, r)
+
+		return
+	}
+
+	// Per-app-ID routes.
+	h.handleApplicationIDRoutes(w, r, rest)
+}
+
+// handleApplicationRootRoutes handles /application and /application/ requests.
+func (h *Handler) handleApplicationRootRoutes(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		h.handleCreateApplication(w, r)
+	case http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"ApplicationSummaries": []any{}})
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleApplicationSettingsRoutes handles /application/settings/default requests.
+func (h *Handler) handleApplicationSettingsRoutes(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.writeJSON(r, w, map[string]any{
+			"ApplicationType":            "OpenSearchDashboards",
+			"DefaultApplicationSettings": []any{},
+		})
+	case http.MethodPut:
+		w.WriteHeader(http.StatusOK)
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleApplicationIDRoutes handles /application/{appId} requests.
+func (h *Handler) handleApplicationIDRoutes(w http.ResponseWriter, r *http.Request, rest string) {
+	appID := strings.TrimPrefix(rest, "/")
+	if strings.Contains(appID, "/") {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"Id": appID, "Name": EngineStub, jsonKeyStatus: "ACTIVE"})
+	case http.MethodDelete:
+		w.WriteHeader(http.StatusOK)
+	case http.MethodPut:
+		h.writeJSON(r, w, map[string]any{"Id": appID, "Name": EngineStub, jsonKeyStatus: "UPDATING"})
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
 }
 
 // acceptInboundConnectionOutput is the JSON response for AcceptInboundConnection.
@@ -1281,4 +1714,257 @@ func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request
 		AppConfigs:  outConfigs,
 		DataSources: outDS,
 	})
+}
+
+// handleVersionsRoutes handles GET /2021-01-01/opensearch/versions → ListVersions.
+func (h *Handler) handleVersionsRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		"Versions": []string{"OpenSearch_2.11", "OpenSearch_2.9", "OpenSearch_2.7", "Elasticsearch_8.11"},
+	})
+}
+
+// handleInstanceTypeDetailsRoutes handles GET /2021-01-01/opensearch/instanceTypeDetails → ListInstanceTypeDetails.
+func (h *Handler) handleInstanceTypeDetailsRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"InstanceTypeDetails": []any{}})
+}
+
+// handleCompatibleVersionsRoutes handles GET /2021-01-01/opensearch/compatibleVersions → GetCompatibleVersions.
+func (h *Handler) handleCompatibleVersionsRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"CompatibleVersions": []any{}})
+}
+
+// handleVpcEndpointsRoutes handles VPC endpoint routes.
+func (h *Handler) handleVpcEndpointsRoutes(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, openSearchVpcEndpointsPath)
+
+	switch {
+	// POST /vpcEndpoints/describe → DescribeVpcEndpoints
+	case rest == "/describe" && r.Method == http.MethodPost:
+		h.writeJSON(r, w, map[string]any{"VpcEndpoints": []any{}, "VpcEndpointErrors": []any{}})
+	// Root: Create/List.
+	case rest == "" || rest == "/":
+		h.handleVpcEndpointRootRoutes(w, r)
+	// Per-ID: Delete/Update.
+	case strings.HasPrefix(rest, "/"):
+		h.handleVpcEndpointIDRoutes(w, r, strings.TrimPrefix(rest, "/"))
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleVpcEndpointRootRoutes handles /vpcEndpoints and /vpcEndpoints/ requests.
+func (h *Handler) handleVpcEndpointRootRoutes(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		h.writeJSON(r, w, map[string]any{
+			"VpcEndpoint": map[string]any{jsonKeyVpcEndpointID: "vpce-stub", jsonKeyStatus: pkgStateActive},
+		})
+	case http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"VpcEndpoints": []any{}})
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleVpcEndpointIDRoutes handles /vpcEndpoints/{id} requests.
+func (h *Handler) handleVpcEndpointIDRoutes(w http.ResponseWriter, r *http.Request, endpointID string) {
+	switch r.Method {
+	case http.MethodDelete:
+		h.writeJSON(r, w, map[string]any{
+			"VpcEndpointSummary": map[string]any{jsonKeyVpcEndpointID: endpointID, jsonKeyStatus: "DELETING"},
+		})
+	case http.MethodPut:
+		h.writeJSON(r, w, map[string]any{
+			"VpcEndpoint": map[string]any{jsonKeyVpcEndpointID: endpointID, jsonKeyStatus: "UPDATING"},
+		})
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleScheduledActionsRoutes handles scheduled action routes.
+func (h *Handler) handleScheduledActionsRoutes(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, openSearchScheduledActionsPath)
+
+	switch {
+	// GET /scheduledActions → ListScheduledActions
+	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"ScheduledActions": []any{}})
+	// PUT /scheduledActions/update → UpdateScheduledAction
+	case rest == "/update" && r.Method == http.MethodPut:
+		h.writeJSON(r, w, map[string]any{"ScheduledAction": map[string]any{}})
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleReservedInstancesRoutes handles reserved instance routes.
+func (h *Handler) handleReservedInstancesRoutes(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, openSearchReservedPath)
+
+	switch {
+	// GET /reservedInstances → DescribeReservedInstances
+	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"ReservedInstances": []any{}})
+	// GET /reservedInstances/offerings → DescribeReservedInstanceOfferings
+	case rest == "/offerings" && r.Method == http.MethodGet:
+		h.writeJSON(r, w, map[string]any{"ReservedInstanceOfferings": []any{}})
+	// POST /reservedInstances/offerings/{offeringId} → PurchaseReservedInstanceOffering
+	case strings.HasPrefix(rest, "/offerings/") && r.Method == http.MethodPost:
+		offeringID := strings.TrimPrefix(rest, "/offerings/")
+		h.writeJSON(r, w, map[string]any{"ReservedInstanceId": offeringID, "ReservationName": EngineStub})
+	default:
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleUpgradeDomainRoutes handles POST /2021-01-01/opensearch/upgradeDomain → UpgradeDomain.
+func (h *Handler) handleUpgradeDomainRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		"UpgradeId":     "stub-upgrade-id",
+		"DomainName":    "",
+		"TargetVersion": "",
+		"StepStatus":    "REQUESTED",
+	})
+}
+
+// dispatchDomainGetRoutesExtended handles additional GET sub-routes on a domain.
+// Returns true if handled.
+func (h *Handler) dispatchDomainGetRoutesExtended(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	if h.dispatchDomainGetStatusRoutes(w, r, trimmed) {
+		return true
+	}
+
+	return h.dispatchDomainGetResourceRoutes(w, r, trimmed)
+}
+
+// dispatchDomainGetStatusRoutes handles status/health/upgrade/vpc GET sub-routes on a domain.
+// Returns true if handled.
+func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	switch {
+	case strings.HasSuffix(trimmed, "/autoTunes"):
+		// DescribeDomainAutoTunes
+		h.writeJSON(r, w, map[string]any{"AutoTunes": []any{}})
+	case strings.HasSuffix(trimmed, "/progress"):
+		// DescribeDomainChangeProgress
+		h.writeJSON(r, w, map[string]any{"ChangeProgressStatus": map[string]any{
+			"ChangeId": EngineStub, jsonKeyStatus: softwareUpdateCompleted,
+			"CompletedProperties": []any{}, "PendingProperties": []any{}, "TotalNumberOfStages": 0,
+		}})
+	case strings.HasSuffix(trimmed, "/health"):
+		// DescribeDomainHealth
+		h.writeJSON(r, w, map[string]any{"DomainState": "Active", "TotalShards": 0, "ActiveShards": 0})
+	case strings.HasSuffix(trimmed, "/nodes"):
+		// DescribeDomainNodes
+		h.writeJSON(r, w, map[string]any{"DomainNodesStatusList": []any{}})
+	case strings.HasSuffix(trimmed, "/dryRun"):
+		// DescribeDryRunProgress
+		h.writeJSON(r, w, map[string]any{"DryRunProgressStatus": map[string]any{
+			"DryRunId": "stub", "DryRunStatus": softwareUpdateCompleted, "CreationDate": "", "UpdateDate": "",
+		}})
+	case strings.HasSuffix(trimmed, "/upgradeHistory"):
+		// GetUpgradeHistory
+		h.writeJSON(r, w, map[string]any{"UpgradeHistories": []any{}})
+	case strings.HasSuffix(trimmed, "/upgrades"):
+		// GetUpgradeStatus
+		h.writeJSON(r, w, map[string]any{"UpgradeName": "stub", "StepStatus": "SUCCEEDED", "UpgradeStep": "UPGRADE"})
+	case strings.HasSuffix(trimmed, "/vpcEndpoints"):
+		// ListVpcEndpointsForDomain
+		h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": []any{}})
+	case strings.HasSuffix(trimmed, "/listVpcEndpointAccess"):
+		// ListVpcEndpointAccess
+		h.writeJSON(r, w, map[string]any{"AuthorizedPrincipalList": []any{}})
+	default:
+		return false
+	}
+
+	return true
+}
+
+// dispatchDomainGetResourceRoutes handles resource-listing GET sub-routes on a domain.
+// Returns true if handled.
+func (h *Handler) dispatchDomainGetResourceRoutes(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	switch {
+	case strings.Contains(trimmed, "/dataSource/"):
+		// GetDataSource
+		h.writeJSON(r, w, map[string]any{"DataSource": map[string]any{}})
+	case strings.HasSuffix(trimmed, "/dataSource"):
+		// ListDataSources
+		h.writeJSON(r, w, map[string]any{"DataSources": []any{}})
+	case strings.HasSuffix(trimmed, "/packages"):
+		// ListPackagesForDomain
+		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: []any{}})
+	case strings.Contains(trimmed, "/maintenance/"):
+		// GetDomainMaintenanceStatus
+		h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
+	case strings.HasSuffix(trimmed, "/maintenance"):
+		// ListDomainMaintenances
+		h.writeJSON(r, w, map[string]any{"DomainMaintenances": []any{}})
+	default:
+		return false
+	}
+
+	return true
+}
+
+// dispatchDomainPostRoutesExtended handles additional POST sub-routes on a domain.
+// Returns true if handled.
+func (h *Handler) dispatchDomainPostRoutesExtended(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	switch {
+	case strings.HasSuffix(trimmed, "/maintenance"):
+		// StartDomainMaintenance
+		h.writeJSON(r, w, map[string]any{"MaintenanceId": "stub-maintenance-id"})
+	case strings.HasSuffix(trimmed, "/revokeVpcEndpointAccess"):
+		// RevokeVpcEndpointAccess
+		w.WriteHeader(http.StatusOK)
+	case strings.HasSuffix(trimmed, "/serviceSoftwareUpdate"):
+		// StartServiceSoftwareUpdate
+		h.writeJSON(r, w, map[string]any{
+			"ServiceSoftwareOptions": map[string]any{"UpdateStatus": "PENDING_UPDATE", "UpdateAvailable": true},
+		})
+	case strings.HasSuffix(trimmed, "/updateDataSource"):
+		// UpdateDataSource
+		h.writeJSON(r, w, map[string]any{"Message": "DataSource updated"})
+	default:
+		return false
+	}
+
+	return true
+}
+
+// dispatchDomainDeleteRoutesExtended handles DELETE sub-routes on a domain.
+// Returns true if handled.
+func (h *Handler) dispatchDomainDeleteRoutesExtended(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	if strings.Contains(trimmed, "/dataSource/") {
+		// DeleteDataSource
+		h.writeJSON(r, w, map[string]any{"Message": "DataSource deleted"})
+
+		return true
+	}
+
+	return false
 }
