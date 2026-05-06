@@ -454,6 +454,7 @@ import { IdentitystoreClient } from "@aws-sdk/client-identitystore";
 import { SSOAdminClient } from "@aws-sdk/client-sso-admin";
 import { IoTAnalyticsClient } from "@aws-sdk/client-iotanalytics";
 import { IoTDataPlaneClient } from "@aws-sdk/client-iot-data-plane";
+import { IoTWirelessClient } from "@aws-sdk/client-iot-wireless";
 import { ElasticLoadBalancingClient } from "@aws-sdk/client-elastic-load-balancing";
 import { ResourceGroupsClient } from "@aws-sdk/client-resource-groups";
 import { ResourceGroupsTaggingAPIClient } from "@aws-sdk/client-resource-groups-tagging-api";
@@ -637,6 +638,10 @@ export function getIoTAnalyticsClient(region?: string): IoTAnalyticsClient {
 
 export function getIoTDataPlaneClient(region?: string): IoTDataPlaneClient {
   return new IoTDataPlaneClient(clientConfig(region));
+}
+
+export function getIoTWirelessClient(region?: string): IoTWirelessClient {
+  return new IoTWirelessClient(clientConfig(region));
 }
 
 export function getELBClient(region?: string): ElasticLoadBalancingClient {

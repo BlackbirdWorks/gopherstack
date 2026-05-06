@@ -133,6 +133,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "rdsdata",
   "iotdataplane",
   "iotanalytics",
+  "iotwireless",
   "lakeformation",
   "costexplorer",
 ]);
@@ -495,6 +496,7 @@ export const sidebarCategories: DashboardCategory[] = [
         icon: "iotdataplane",
       },
       { id: "iotanalytics", href: "/dashboard/iotanalytics", label: "IoT Analytics", icon: "iot" },
+      { id: "iotwireless", href: "/dashboard/iotwireless", label: "IoT Wireless", icon: "iot" },
     ],
   },
   {
