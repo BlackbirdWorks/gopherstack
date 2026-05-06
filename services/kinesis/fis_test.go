@@ -442,6 +442,7 @@ func TestKinesis_FIS_MultiStream_CtxCancel_ClearsAll(t *testing.T) {
 			_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
 				StreamName: streamName, PartitionKey: "k", Data: []byte("d"),
 			})
+
 			return putErr == nil
 		}, 2*time.Second, 20*time.Millisecond, "fault should clear for stream %s after ctx cancel", name)
 	}
@@ -500,6 +501,7 @@ func TestKinesis_FIS_MultipleActions_AllClearedOnCtxCancel(t *testing.T) {
 			_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
 				StreamName: streamName, PartitionKey: "k", Data: []byte("d"),
 			})
+
 			return putErr == nil
 		}, 2*time.Second, 20*time.Millisecond, "fault should clear for stream %s after ctx cancel", name)
 	}
@@ -543,6 +545,7 @@ func TestKinesis_FIS_TimedFault_MultiStream_CtxCancelOverridesTimer(t *testing.T
 			_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
 				StreamName: streamName, PartitionKey: "k", Data: []byte("d"),
 			})
+
 			return putErr == nil
 		}, 2*time.Second, 20*time.Millisecond, "timed fault should clear early for stream %s on ctx cancel", name)
 	}
