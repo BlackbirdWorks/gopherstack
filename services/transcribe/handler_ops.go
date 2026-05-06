@@ -1,0 +1,887 @@
+package transcribe
+
+import (
+	"context"
+)
+
+// --- GetCallAnalyticsJob ---
+
+type getCallAnalyticsJobInput struct {
+	CallAnalyticsJobName string `json:"CallAnalyticsJobName"`
+}
+
+type callAnalyticsJobOutput struct {
+	CallAnalyticsJobName   string `json:"CallAnalyticsJobName"`
+	CallAnalyticsJobStatus string `json:"CallAnalyticsJobStatus"`
+	LanguageCode           string `json:"LanguageCode"`
+}
+
+type getCallAnalyticsJobOutput struct {
+	CallAnalyticsJob *callAnalyticsJobOutput `json:"CallAnalyticsJob"`
+}
+
+func (h *Handler) handleGetCallAnalyticsJob(
+	_ context.Context,
+	in *getCallAnalyticsJobInput,
+) (*getCallAnalyticsJobOutput, error) {
+	job, err := h.Backend.GetCallAnalyticsJob(in.CallAnalyticsJobName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getCallAnalyticsJobOutput{
+		CallAnalyticsJob: &callAnalyticsJobOutput{
+			CallAnalyticsJobName:   job.CallAnalyticsJobName,
+			CallAnalyticsJobStatus: job.CallAnalyticsJobStatus,
+			LanguageCode:           job.LanguageCode,
+		},
+	}, nil
+}
+
+// --- StartCallAnalyticsJob ---
+
+type startCallAnalyticsJobInput struct {
+	CallAnalyticsJobName string          `json:"CallAnalyticsJobName"`
+	LanguageCode         string          `json:"LanguageCode"`
+	Media                transcribeMedia `json:"Media"`
+}
+
+type startCallAnalyticsJobOutput struct {
+	CallAnalyticsJob *callAnalyticsJobOutput `json:"CallAnalyticsJob"`
+}
+
+func (h *Handler) handleStartCallAnalyticsJob(
+	_ context.Context,
+	in *startCallAnalyticsJobInput,
+) (*startCallAnalyticsJobOutput, error) {
+	job, err := h.Backend.StartCallAnalyticsJob(
+		in.CallAnalyticsJobName,
+		in.LanguageCode,
+		in.Media.MediaFileURI,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startCallAnalyticsJobOutput{
+		CallAnalyticsJob: &callAnalyticsJobOutput{
+			CallAnalyticsJobName:   job.CallAnalyticsJobName,
+			CallAnalyticsJobStatus: job.CallAnalyticsJobStatus,
+			LanguageCode:           job.LanguageCode,
+		},
+	}, nil
+}
+
+// --- ListCallAnalyticsJobs ---
+
+type listCallAnalyticsJobsInput struct {
+	Status    string `json:"Status"`
+	NextToken string `json:"NextToken"`
+}
+
+type callAnalyticsJobSummary struct {
+	CallAnalyticsJobName   string `json:"CallAnalyticsJobName"`
+	CallAnalyticsJobStatus string `json:"CallAnalyticsJobStatus"`
+	LanguageCode           string `json:"LanguageCode"`
+}
+
+type listCallAnalyticsJobsOutput struct {
+	NextToken                 string                    `json:"NextToken,omitempty"`
+	CallAnalyticsJobSummaries []callAnalyticsJobSummary `json:"CallAnalyticsJobSummaries"`
+}
+
+func (h *Handler) handleListCallAnalyticsJobs(
+	_ context.Context,
+	in *listCallAnalyticsJobsInput,
+) (*listCallAnalyticsJobsOutput, error) {
+	jobs, nextToken := h.Backend.ListCallAnalyticsJobs(in.Status, in.NextToken)
+
+	summaries := make([]callAnalyticsJobSummary, 0, len(jobs))
+	for _, j := range jobs {
+		summaries = append(summaries, callAnalyticsJobSummary{
+			CallAnalyticsJobName:   j.CallAnalyticsJobName,
+			CallAnalyticsJobStatus: j.CallAnalyticsJobStatus,
+			LanguageCode:           j.LanguageCode,
+		})
+	}
+
+	return &listCallAnalyticsJobsOutput{
+		CallAnalyticsJobSummaries: summaries,
+		NextToken:                 nextToken,
+	}, nil
+}
+
+// --- GetCallAnalyticsCategory ---
+
+type getCallAnalyticsCategoryInput struct {
+	CategoryName string `json:"CategoryName"`
+}
+
+type getCallAnalyticsCategoryOutput struct {
+	CategoryProperties *callAnalyticsCategoryProperties `json:"CategoryProperties"`
+}
+
+func (h *Handler) handleGetCallAnalyticsCategory(
+	_ context.Context,
+	in *getCallAnalyticsCategoryInput,
+) (*getCallAnalyticsCategoryOutput, error) {
+	cat, err := h.Backend.GetCallAnalyticsCategory(in.CategoryName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getCallAnalyticsCategoryOutput{
+		CategoryProperties: &callAnalyticsCategoryProperties{
+			CategoryName: cat.CategoryName,
+			InputType:    cat.InputType,
+		},
+	}, nil
+}
+
+// --- UpdateCallAnalyticsCategory ---
+
+type updateCallAnalyticsCategoryInput struct {
+	CategoryName string `json:"CategoryName"`
+	InputType    string `json:"InputType"`
+}
+
+type updateCallAnalyticsCategoryOutput struct {
+	CategoryProperties *callAnalyticsCategoryProperties `json:"CategoryProperties"`
+}
+
+func (h *Handler) handleUpdateCallAnalyticsCategory(
+	_ context.Context,
+	in *updateCallAnalyticsCategoryInput,
+) (*updateCallAnalyticsCategoryOutput, error) {
+	cat, err := h.Backend.UpdateCallAnalyticsCategory(in.CategoryName, in.InputType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateCallAnalyticsCategoryOutput{
+		CategoryProperties: &callAnalyticsCategoryProperties{
+			CategoryName: cat.CategoryName,
+			InputType:    cat.InputType,
+		},
+	}, nil
+}
+
+// --- ListCallAnalyticsCategories ---
+
+type listCallAnalyticsCategoriesInput struct {
+	NextToken string `json:"NextToken"`
+}
+
+type listCallAnalyticsCategoriesOutput struct {
+	NextToken  string                            `json:"NextToken,omitempty"`
+	Categories []callAnalyticsCategoryProperties `json:"Categories"`
+}
+
+func (h *Handler) handleListCallAnalyticsCategories(
+	_ context.Context,
+	in *listCallAnalyticsCategoriesInput,
+) (*listCallAnalyticsCategoriesOutput, error) {
+	cats, nextToken := h.Backend.ListCallAnalyticsCategories(in.NextToken)
+
+	result := make([]callAnalyticsCategoryProperties, 0, len(cats))
+	for _, c := range cats {
+		result = append(result, callAnalyticsCategoryProperties{
+			CategoryName: c.CategoryName,
+			InputType:    c.InputType,
+		})
+	}
+
+	return &listCallAnalyticsCategoriesOutput{
+		Categories: result,
+		NextToken:  nextToken,
+	}, nil
+}
+
+// --- GetMedicalScribeJob ---
+
+type getMedicalScribeJobInput struct {
+	MedicalScribeJobName string `json:"MedicalScribeJobName"`
+}
+
+type medicalScribeJobOutput struct {
+	MedicalScribeJobName   string `json:"MedicalScribeJobName"`
+	MedicalScribeJobStatus string `json:"MedicalScribeJobStatus"`
+}
+
+type getMedicalScribeJobOutput struct {
+	MedicalScribeJob *medicalScribeJobOutput `json:"MedicalScribeJob"`
+}
+
+func (h *Handler) handleGetMedicalScribeJob(
+	_ context.Context,
+	in *getMedicalScribeJobInput,
+) (*getMedicalScribeJobOutput, error) {
+	job, err := h.Backend.GetMedicalScribeJob(in.MedicalScribeJobName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getMedicalScribeJobOutput{
+		MedicalScribeJob: &medicalScribeJobOutput{
+			MedicalScribeJobName:   job.MedicalScribeJobName,
+			MedicalScribeJobStatus: job.MedicalScribeJobStatus,
+		},
+	}, nil
+}
+
+// --- StartMedicalScribeJob ---
+
+type startMedicalScribeJobInput struct {
+	MedicalScribeJobName string          `json:"MedicalScribeJobName"`
+	Media                transcribeMedia `json:"Media"`
+}
+
+type startMedicalScribeJobOutput struct {
+	MedicalScribeJob *medicalScribeJobOutput `json:"MedicalScribeJob"`
+}
+
+func (h *Handler) handleStartMedicalScribeJob(
+	_ context.Context,
+	in *startMedicalScribeJobInput,
+) (*startMedicalScribeJobOutput, error) {
+	job, err := h.Backend.StartMedicalScribeJob(in.MedicalScribeJobName, in.Media.MediaFileURI)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMedicalScribeJobOutput{
+		MedicalScribeJob: &medicalScribeJobOutput{
+			MedicalScribeJobName:   job.MedicalScribeJobName,
+			MedicalScribeJobStatus: job.MedicalScribeJobStatus,
+		},
+	}, nil
+}
+
+// --- ListMedicalScribeJobs ---
+
+type listMedicalScribeJobsInput struct {
+	Status    string `json:"Status"`
+	NextToken string `json:"NextToken"`
+}
+
+type listMedicalScribeJobsOutput struct {
+	NextToken                 string                   `json:"NextToken,omitempty"`
+	MedicalScribeJobSummaries []medicalScribeJobOutput `json:"MedicalScribeJobSummaries"`
+}
+
+func (h *Handler) handleListMedicalScribeJobs(
+	_ context.Context,
+	in *listMedicalScribeJobsInput,
+) (*listMedicalScribeJobsOutput, error) {
+	jobs, nextToken := h.Backend.ListMedicalScribeJobs(in.Status, in.NextToken)
+
+	summaries := make([]medicalScribeJobOutput, 0, len(jobs))
+	for _, j := range jobs {
+		summaries = append(summaries, medicalScribeJobOutput{
+			MedicalScribeJobName:   j.MedicalScribeJobName,
+			MedicalScribeJobStatus: j.MedicalScribeJobStatus,
+		})
+	}
+
+	return &listMedicalScribeJobsOutput{
+		MedicalScribeJobSummaries: summaries,
+		NextToken:                 nextToken,
+	}, nil
+}
+
+// --- GetMedicalTranscriptionJob ---
+
+type getMedicalTranscriptionJobInput struct {
+	MedicalTranscriptionJobName string `json:"MedicalTranscriptionJobName"`
+}
+
+type medicalTranscriptionJobOutput struct {
+	MedicalTranscriptionJobName string `json:"MedicalTranscriptionJobName"`
+	TranscriptionJobStatus      string `json:"TranscriptionJobStatus"`
+	LanguageCode                string `json:"LanguageCode"`
+}
+
+type getMedicalTranscriptionJobOutput struct {
+	MedicalTranscriptionJob *medicalTranscriptionJobOutput `json:"MedicalTranscriptionJob"`
+}
+
+func (h *Handler) handleGetMedicalTranscriptionJob(
+	_ context.Context,
+	in *getMedicalTranscriptionJobInput,
+) (*getMedicalTranscriptionJobOutput, error) {
+	job, err := h.Backend.GetMedicalTranscriptionJob(in.MedicalTranscriptionJobName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getMedicalTranscriptionJobOutput{
+		MedicalTranscriptionJob: &medicalTranscriptionJobOutput{
+			MedicalTranscriptionJobName: job.MedicalTranscriptionJobName,
+			TranscriptionJobStatus:      job.TranscriptionJobStatus,
+			LanguageCode:                job.LanguageCode,
+		},
+	}, nil
+}
+
+// --- StartMedicalTranscriptionJob ---
+
+type startMedicalTranscriptionJobInput struct {
+	MedicalTranscriptionJobName string          `json:"MedicalTranscriptionJobName"`
+	LanguageCode                string          `json:"LanguageCode"`
+	Media                       transcribeMedia `json:"Media"`
+}
+
+type startMedicalTranscriptionJobOutput struct {
+	MedicalTranscriptionJob *medicalTranscriptionJobOutput `json:"MedicalTranscriptionJob"`
+}
+
+func (h *Handler) handleStartMedicalTranscriptionJob(
+	_ context.Context,
+	in *startMedicalTranscriptionJobInput,
+) (*startMedicalTranscriptionJobOutput, error) {
+	job, err := h.Backend.StartMedicalTranscriptionJob(
+		in.MedicalTranscriptionJobName,
+		in.LanguageCode,
+		in.Media.MediaFileURI,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startMedicalTranscriptionJobOutput{
+		MedicalTranscriptionJob: &medicalTranscriptionJobOutput{
+			MedicalTranscriptionJobName: job.MedicalTranscriptionJobName,
+			TranscriptionJobStatus:      job.TranscriptionJobStatus,
+			LanguageCode:                job.LanguageCode,
+		},
+	}, nil
+}
+
+// --- ListMedicalTranscriptionJobs ---
+
+type listMedicalTranscriptionJobsInput struct {
+	Status    string `json:"Status"`
+	NextToken string `json:"NextToken"`
+}
+
+type listMedicalTranscriptionJobsOutput struct {
+	NextToken                        string                          `json:"NextToken,omitempty"`
+	MedicalTranscriptionJobSummaries []medicalTranscriptionJobOutput `json:"MedicalTranscriptionJobSummaries"`
+}
+
+func (h *Handler) handleListMedicalTranscriptionJobs(
+	_ context.Context,
+	in *listMedicalTranscriptionJobsInput,
+) (*listMedicalTranscriptionJobsOutput, error) {
+	jobs, nextToken := h.Backend.ListMedicalTranscriptionJobs(in.Status, in.NextToken)
+
+	summaries := make([]medicalTranscriptionJobOutput, 0, len(jobs))
+	for _, j := range jobs {
+		summaries = append(summaries, medicalTranscriptionJobOutput{
+			MedicalTranscriptionJobName: j.MedicalTranscriptionJobName,
+			TranscriptionJobStatus:      j.TranscriptionJobStatus,
+			LanguageCode:                j.LanguageCode,
+		})
+	}
+
+	return &listMedicalTranscriptionJobsOutput{
+		MedicalTranscriptionJobSummaries: summaries,
+		NextToken:                        nextToken,
+	}, nil
+}
+
+// --- GetVocabulary ---
+
+type getVocabularyInput struct {
+	VocabularyName string `json:"VocabularyName"`
+}
+
+type getVocabularyOutput struct {
+	VocabularyName  string `json:"VocabularyName"`
+	LanguageCode    string `json:"LanguageCode"`
+	VocabularyState string `json:"VocabularyState"`
+}
+
+func (h *Handler) handleGetVocabulary(
+	_ context.Context,
+	in *getVocabularyInput,
+) (*getVocabularyOutput, error) {
+	v, err := h.Backend.GetVocabulary(in.VocabularyName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getVocabularyOutput{
+		VocabularyName:  v.VocabularyName,
+		LanguageCode:    v.LanguageCode,
+		VocabularyState: v.VocabularyState,
+	}, nil
+}
+
+// --- UpdateVocabulary ---
+
+type updateVocabularyInput struct {
+	VocabularyName string `json:"VocabularyName"`
+	LanguageCode   string `json:"LanguageCode"`
+}
+
+type updateVocabularyOutput struct {
+	VocabularyName  string `json:"VocabularyName"`
+	LanguageCode    string `json:"LanguageCode"`
+	VocabularyState string `json:"VocabularyState"`
+}
+
+func (h *Handler) handleUpdateVocabulary(
+	_ context.Context,
+	in *updateVocabularyInput,
+) (*updateVocabularyOutput, error) {
+	v, err := h.Backend.UpdateVocabulary(in.VocabularyName, in.LanguageCode)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateVocabularyOutput{
+		VocabularyName:  v.VocabularyName,
+		LanguageCode:    v.LanguageCode,
+		VocabularyState: v.VocabularyState,
+	}, nil
+}
+
+// --- DeleteVocabulary ---
+
+type deleteVocabularyInput struct {
+	VocabularyName string `json:"VocabularyName"`
+}
+
+func (h *Handler) handleDeleteVocabulary(
+	_ context.Context,
+	in *deleteVocabularyInput,
+) (*struct{}, error) {
+	if err := h.Backend.DeleteVocabulary(in.VocabularyName); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- ListVocabularies ---
+
+type listVocabulariesInput struct {
+	StateEquals string `json:"StateEquals"`
+	NextToken   string `json:"NextToken"`
+}
+
+type vocabularySummary struct {
+	VocabularyName  string `json:"VocabularyName"`
+	LanguageCode    string `json:"LanguageCode"`
+	VocabularyState string `json:"VocabularyState"`
+}
+
+type listVocabulariesOutput struct {
+	NextToken    string              `json:"NextToken,omitempty"`
+	Vocabularies []vocabularySummary `json:"Vocabularies"`
+}
+
+func (h *Handler) handleListVocabularies(
+	_ context.Context,
+	in *listVocabulariesInput,
+) (*listVocabulariesOutput, error) {
+	vocabs, nextToken := h.Backend.ListVocabularies(in.StateEquals, in.NextToken)
+
+	result := make([]vocabularySummary, 0, len(vocabs))
+	for _, v := range vocabs {
+		result = append(result, vocabularySummary{
+			VocabularyName:  v.VocabularyName,
+			LanguageCode:    v.LanguageCode,
+			VocabularyState: v.VocabularyState,
+		})
+	}
+
+	return &listVocabulariesOutput{
+		Vocabularies: result,
+		NextToken:    nextToken,
+	}, nil
+}
+
+// --- GetVocabularyFilter ---
+
+type getVocabularyFilterInput struct {
+	VocabularyFilterName string `json:"VocabularyFilterName"`
+}
+
+type vocabularyFilterOutput struct {
+	VocabularyFilterName string `json:"VocabularyFilterName"`
+	LanguageCode         string `json:"LanguageCode"`
+}
+
+type getVocabularyFilterOutput struct {
+	VocabularyFilterName string `json:"VocabularyFilterName"`
+	LanguageCode         string `json:"LanguageCode"`
+}
+
+func (h *Handler) handleGetVocabularyFilter(
+	_ context.Context,
+	in *getVocabularyFilterInput,
+) (*getVocabularyFilterOutput, error) {
+	f, err := h.Backend.GetVocabularyFilter(in.VocabularyFilterName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getVocabularyFilterOutput{
+		VocabularyFilterName: f.VocabularyFilterName,
+		LanguageCode:         f.LanguageCode,
+	}, nil
+}
+
+// --- UpdateVocabularyFilter ---
+
+type updateVocabularyFilterInput struct {
+	VocabularyFilterName string `json:"VocabularyFilterName"`
+	LanguageCode         string `json:"LanguageCode"`
+}
+
+func (h *Handler) handleUpdateVocabularyFilter(
+	_ context.Context,
+	in *updateVocabularyFilterInput,
+) (*vocabularyFilterOutput, error) {
+	f, err := h.Backend.UpdateVocabularyFilter(in.VocabularyFilterName, in.LanguageCode)
+	if err != nil {
+		return nil, err
+	}
+
+	return &vocabularyFilterOutput{
+		VocabularyFilterName: f.VocabularyFilterName,
+		LanguageCode:         f.LanguageCode,
+	}, nil
+}
+
+// --- DeleteVocabularyFilter ---
+
+type deleteVocabularyFilterInput struct {
+	VocabularyFilterName string `json:"VocabularyFilterName"`
+}
+
+func (h *Handler) handleDeleteVocabularyFilter(
+	_ context.Context,
+	in *deleteVocabularyFilterInput,
+) (*struct{}, error) {
+	if err := h.Backend.DeleteVocabularyFilter(in.VocabularyFilterName); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- ListVocabularyFilters ---
+
+type listVocabularyFiltersInput struct {
+	NextToken string `json:"NextToken"`
+}
+
+type listVocabularyFiltersOutput struct {
+	NextToken         string                   `json:"NextToken,omitempty"`
+	VocabularyFilters []vocabularyFilterOutput `json:"VocabularyFilters"`
+}
+
+func (h *Handler) handleListVocabularyFilters(
+	_ context.Context,
+	in *listVocabularyFiltersInput,
+) (*listVocabularyFiltersOutput, error) {
+	filters, nextToken := h.Backend.ListVocabularyFilters(in.NextToken)
+
+	result := make([]vocabularyFilterOutput, 0, len(filters))
+	for _, f := range filters {
+		result = append(result, vocabularyFilterOutput{
+			VocabularyFilterName: f.VocabularyFilterName,
+			LanguageCode:         f.LanguageCode,
+		})
+	}
+
+	return &listVocabularyFiltersOutput{
+		VocabularyFilters: result,
+		NextToken:         nextToken,
+	}, nil
+}
+
+// --- GetMedicalVocabulary ---
+
+type getMedicalVocabularyInput struct {
+	VocabularyName string `json:"VocabularyName"`
+}
+
+type getMedicalVocabularyOutput struct {
+	VocabularyName  string `json:"VocabularyName"`
+	LanguageCode    string `json:"LanguageCode"`
+	VocabularyState string `json:"VocabularyState"`
+}
+
+func (h *Handler) handleGetMedicalVocabulary(
+	_ context.Context,
+	in *getMedicalVocabularyInput,
+) (*getMedicalVocabularyOutput, error) {
+	v, err := h.Backend.GetMedicalVocabulary(in.VocabularyName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getMedicalVocabularyOutput{
+		VocabularyName:  v.VocabularyName,
+		LanguageCode:    v.LanguageCode,
+		VocabularyState: v.VocabularyState,
+	}, nil
+}
+
+// --- UpdateMedicalVocabulary ---
+
+type updateMedicalVocabularyInput struct {
+	VocabularyName    string `json:"VocabularyName"`
+	LanguageCode      string `json:"LanguageCode"`
+	VocabularyFileURI string `json:"VocabularyFileUri"`
+}
+
+type updateMedicalVocabularyOutput struct {
+	VocabularyName  string `json:"VocabularyName"`
+	LanguageCode    string `json:"LanguageCode"`
+	VocabularyState string `json:"VocabularyState"`
+}
+
+func (h *Handler) handleUpdateMedicalVocabulary(
+	_ context.Context,
+	in *updateMedicalVocabularyInput,
+) (*updateMedicalVocabularyOutput, error) {
+	v, err := h.Backend.UpdateMedicalVocabulary(
+		in.VocabularyName,
+		in.LanguageCode,
+		in.VocabularyFileURI,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateMedicalVocabularyOutput{
+		VocabularyName:  v.VocabularyName,
+		LanguageCode:    v.LanguageCode,
+		VocabularyState: v.VocabularyState,
+	}, nil
+}
+
+// --- DeleteMedicalVocabulary ---
+
+type deleteMedicalVocabularyInput struct {
+	VocabularyName string `json:"VocabularyName"`
+}
+
+func (h *Handler) handleDeleteMedicalVocabulary(
+	_ context.Context,
+	in *deleteMedicalVocabularyInput,
+) (*struct{}, error) {
+	if err := h.Backend.DeleteMedicalVocabulary(in.VocabularyName); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
+}
+
+// --- ListMedicalVocabularies ---
+
+type listMedicalVocabulariesInput struct {
+	StateEquals string `json:"StateEquals"`
+	NextToken   string `json:"NextToken"`
+}
+
+type medicalVocabularySummary struct {
+	VocabularyName  string `json:"VocabularyName"`
+	LanguageCode    string `json:"LanguageCode"`
+	VocabularyState string `json:"VocabularyState"`
+}
+
+type listMedicalVocabulariesOutput struct {
+	NextToken    string                     `json:"NextToken,omitempty"`
+	Vocabularies []medicalVocabularySummary `json:"Vocabularies"`
+}
+
+func (h *Handler) handleListMedicalVocabularies(
+	_ context.Context,
+	in *listMedicalVocabulariesInput,
+) (*listMedicalVocabulariesOutput, error) {
+	vocabs, nextToken := h.Backend.ListMedicalVocabularies(in.StateEquals, in.NextToken)
+
+	result := make([]medicalVocabularySummary, 0, len(vocabs))
+	for _, v := range vocabs {
+		result = append(result, medicalVocabularySummary{
+			VocabularyName:  v.VocabularyName,
+			LanguageCode:    v.LanguageCode,
+			VocabularyState: v.VocabularyState,
+		})
+	}
+
+	return &listMedicalVocabulariesOutput{
+		Vocabularies: result,
+		NextToken:    nextToken,
+	}, nil
+}
+
+// --- DescribeLanguageModel ---
+
+type describeLanguageModelInput struct {
+	ModelName string `json:"ModelName"`
+}
+
+type languageModelOutput struct {
+	ModelName     string `json:"ModelName"`
+	BaseModelName string `json:"BaseModelName"`
+	LanguageCode  string `json:"LanguageCode"`
+	ModelStatus   string `json:"ModelStatus"`
+}
+
+type describeLanguageModelOutput struct {
+	LanguageModel *languageModelOutput `json:"LanguageModel"`
+}
+
+func (h *Handler) handleDescribeLanguageModel(
+	_ context.Context,
+	in *describeLanguageModelInput,
+) (*describeLanguageModelOutput, error) {
+	m, err := h.Backend.DescribeLanguageModel(in.ModelName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLanguageModelOutput{
+		LanguageModel: &languageModelOutput{
+			ModelName:     m.ModelName,
+			BaseModelName: m.BaseModelName,
+			LanguageCode:  m.LanguageCode,
+			ModelStatus:   m.ModelStatus,
+		},
+	}, nil
+}
+
+// --- ListLanguageModels ---
+
+type listLanguageModelsInput struct {
+	NextToken    string `json:"NextToken"`
+	StatusEquals string `json:"StatusEquals"`
+}
+
+type listLanguageModelsOutput struct {
+	NextToken string                `json:"NextToken,omitempty"`
+	Models    []languageModelOutput `json:"Models"`
+}
+
+func (h *Handler) handleListLanguageModels(
+	_ context.Context,
+	in *listLanguageModelsInput,
+) (*listLanguageModelsOutput, error) {
+	models, nextToken := h.Backend.ListLanguageModels(in.StatusEquals, in.NextToken)
+
+	result := make([]languageModelOutput, 0, len(models))
+	for _, m := range models {
+		result = append(result, languageModelOutput{
+			ModelName:     m.ModelName,
+			BaseModelName: m.BaseModelName,
+			LanguageCode:  m.LanguageCode,
+			ModelStatus:   m.ModelStatus,
+		})
+	}
+
+	return &listLanguageModelsOutput{
+		Models:    result,
+		NextToken: nextToken,
+	}, nil
+}
+
+// --- Tags (no-op stubs) ---
+
+type tagResourceInput struct {
+	Tags        map[string]string `json:"Tags"`
+	ResourceArn string            `json:"ResourceArn"`
+}
+
+func (h *Handler) handleTagResource(
+	_ context.Context,
+	_ *tagResourceInput,
+) (*struct{}, error) {
+	return &struct{}{}, nil
+}
+
+type untagResourceInput struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleUntagResource(
+	_ context.Context,
+	_ *untagResourceInput,
+) (*struct{}, error) {
+	return &struct{}{}, nil
+}
+
+type listTagsForResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags        map[string]string `json:"Tags"`
+	ResourceArn string            `json:"ResourceArn,omitempty"`
+}
+
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *listTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
+	return &listTagsForResourceOutput{
+		ResourceArn: in.ResourceArn,
+		Tags:        map[string]string{},
+	}, nil
+}
+
+// allSupportedOps returns all 43 supported operations in sorted order.
+func allSupportedOps() []string {
+	return []string{
+		"CreateCallAnalyticsCategory",
+		"CreateLanguageModel",
+		"CreateMedicalVocabulary",
+		"CreateVocabulary",
+		"CreateVocabularyFilter",
+		"DeleteCallAnalyticsCategory",
+		"DeleteCallAnalyticsJob",
+		"DeleteLanguageModel",
+		"DeleteMedicalScribeJob",
+		"DeleteMedicalTranscriptionJob",
+		"DeleteMedicalVocabulary",
+		"DeleteTranscriptionJob",
+		"DeleteVocabulary",
+		"DeleteVocabularyFilter",
+		"DescribeLanguageModel",
+		"GetCallAnalyticsCategory",
+		"GetCallAnalyticsJob",
+		"GetMedicalScribeJob",
+		"GetMedicalTranscriptionJob",
+		"GetMedicalVocabulary",
+		"GetTranscriptionJob",
+		"GetVocabulary",
+		"GetVocabularyFilter",
+		"ListCallAnalyticsCategories",
+		"ListCallAnalyticsJobs",
+		"ListLanguageModels",
+		"ListMedicalScribeJobs",
+		"ListMedicalTranscriptionJobs",
+		"ListMedicalVocabularies",
+		"ListTagsForResource",
+		"ListTranscriptionJobs",
+		"ListVocabularies",
+		"ListVocabularyFilters",
+		"StartCallAnalyticsJob",
+		"StartMedicalScribeJob",
+		"StartMedicalTranscriptionJob",
+		"StartTranscriptionJob",
+		"TagResource",
+		"UntagResource",
+		"UpdateCallAnalyticsCategory",
+		"UpdateMedicalVocabulary",
+		"UpdateVocabulary",
+		"UpdateVocabularyFilter",
+	}
+}

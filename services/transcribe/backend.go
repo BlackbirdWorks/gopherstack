@@ -162,7 +162,9 @@ func (b *InMemoryBackend) ensureNonNilMaps() {
 }
 
 // StartTranscriptionJob creates a new transcription job with synthetic results.
-func (b *InMemoryBackend) StartTranscriptionJob(jobName, languageCode, mediaFileURI string) (*TranscriptionJob, error) {
+func (b *InMemoryBackend) StartTranscriptionJob(
+	jobName, languageCode, mediaFileURI string,
+) (*TranscriptionJob, error) {
 	if jobName == "" {
 		return nil, fmt.Errorf("%w: TranscriptionJobName is required", ErrValidation)
 	}
@@ -211,7 +213,9 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 }
 
 // ListTranscriptionJobs returns transcription jobs, optionally filtered by status, with pagination.
-func (b *InMemoryBackend) ListTranscriptionJobs(statusFilter, nextToken string) ([]TranscriptionJob, string) {
+func (b *InMemoryBackend) ListTranscriptionJobs(
+	statusFilter, nextToken string,
+) ([]TranscriptionJob, string) {
 	b.mu.RLock("ListTranscriptionJobs")
 	defer b.mu.RUnlock()
 
@@ -224,19 +228,7 @@ func (b *InMemoryBackend) ListTranscriptionJobs(statusFilter, nextToken string) 
 
 	sort.Slice(all, func(i, j int) bool { return all[i].JobName < all[j].JobName })
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(all) {
-		return []TranscriptionJob{}, ""
-	}
-	end := startIdx + transcribeDefaultPageSize
-	var outToken string
-	if end < len(all) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(all)
-	}
-
-	return all[startIdx:end], outToken
+	return paginateList(all, nextToken)
 }
 
 // DeleteTranscriptionJob removes a transcription job by name.
@@ -258,7 +250,9 @@ func (b *InMemoryBackend) DeleteTranscriptionJob(jobName string) error {
 }
 
 // CreateCallAnalyticsCategory creates a new Call Analytics category.
-func (b *InMemoryBackend) CreateCallAnalyticsCategory(categoryName, inputType string) (*CallAnalyticsCategory, error) {
+func (b *InMemoryBackend) CreateCallAnalyticsCategory(
+	categoryName, inputType string,
+) (*CallAnalyticsCategory, error) {
 	if categoryName == "" {
 		return nil, fmt.Errorf("%w: CategoryName is required", ErrValidation)
 	}
@@ -303,7 +297,9 @@ func (b *InMemoryBackend) DeleteCallAnalyticsCategory(categoryName string) error
 }
 
 // CreateLanguageModel creates a new custom language model.
-func (b *InMemoryBackend) CreateLanguageModel(modelName, baseModelName, languageCode string) (*LanguageModel, error) {
+func (b *InMemoryBackend) CreateLanguageModel(
+	modelName, baseModelName, languageCode string,
+) (*LanguageModel, error) {
 	if modelName == "" {
 		return nil, fmt.Errorf("%w: ModelName is required", ErrValidation)
 	}
@@ -377,7 +373,11 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 	defer b.mu.Unlock()
 
 	if _, ok := b.medicalVocabularies[vocabularyName]; ok {
-		return nil, fmt.Errorf("%w: medical vocabulary %s already exists", ErrAlreadyExists, vocabularyName)
+		return nil, fmt.Errorf(
+			"%w: medical vocabulary %s already exists",
+			ErrAlreadyExists,
+			vocabularyName,
+		)
 	}
 
 	now := time.Now()
@@ -396,7 +396,9 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 }
 
 // CreateVocabulary creates a new custom vocabulary.
-func (b *InMemoryBackend) CreateVocabulary(vocabularyName, languageCode string) (*Vocabulary, error) {
+func (b *InMemoryBackend) CreateVocabulary(
+	vocabularyName, languageCode string,
+) (*Vocabulary, error) {
 	if vocabularyName == "" {
 		return nil, fmt.Errorf("%w: VocabularyName is required", ErrValidation)
 	}
@@ -427,7 +429,9 @@ func (b *InMemoryBackend) CreateVocabulary(vocabularyName, languageCode string) 
 }
 
 // CreateVocabularyFilter creates a new custom vocabulary filter.
-func (b *InMemoryBackend) CreateVocabularyFilter(vocabularyFilterName, languageCode string) (*VocabularyFilter, error) {
+func (b *InMemoryBackend) CreateVocabularyFilter(
+	vocabularyFilterName, languageCode string,
+) (*VocabularyFilter, error) {
 	if vocabularyFilterName == "" {
 		return nil, fmt.Errorf("%w: VocabularyFilterName is required", ErrValidation)
 	}
@@ -440,7 +444,11 @@ func (b *InMemoryBackend) CreateVocabularyFilter(vocabularyFilterName, languageC
 	defer b.mu.Unlock()
 
 	if _, ok := b.vocabularyFilters[vocabularyFilterName]; ok {
-		return nil, fmt.Errorf("%w: vocabulary filter %s already exists", ErrAlreadyExists, vocabularyFilterName)
+		return nil, fmt.Errorf(
+			"%w: vocabulary filter %s already exists",
+			ErrAlreadyExists,
+			vocabularyFilterName,
+		)
 	}
 
 	now := time.Now()
@@ -580,6 +588,593 @@ func (b *InMemoryBackend) AddVocabularyFilterInternal(f *VocabularyFilter) {
 
 	cp := *f
 	b.vocabularyFilters[f.VocabularyFilterName] = &cp
+}
+
+// --- Call Analytics jobs ---
+
+// StartCallAnalyticsJob creates a new Call Analytics job.
+func (b *InMemoryBackend) StartCallAnalyticsJob(
+	jobName, languageCode, _ string,
+) (*CallAnalyticsJob, error) {
+	if jobName == "" {
+		return nil, fmt.Errorf("%w: CallAnalyticsJobName is required", ErrValidation)
+	}
+
+	b.mu.Lock("StartCallAnalyticsJob")
+	defer b.mu.Unlock()
+
+	if _, ok := b.callAnalyticsJobs[jobName]; ok {
+		return nil, fmt.Errorf(
+			"%w: call analytics job %s already exists",
+			ErrAlreadyExists,
+			jobName,
+		)
+	}
+
+	now := time.Now()
+	job := &CallAnalyticsJob{
+		CallAnalyticsJobName:   jobName,
+		CallAnalyticsJobStatus: jobStatusCompleted,
+		LanguageCode:           languageCode,
+		CreationTime:           now,
+		CompletionTime:         now,
+	}
+	b.callAnalyticsJobs[jobName] = job
+
+	cp := *job
+
+	return &cp, nil
+}
+
+// GetCallAnalyticsJob returns a Call Analytics job by name.
+func (b *InMemoryBackend) GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob, error) {
+	b.mu.RLock("GetCallAnalyticsJob")
+	defer b.mu.RUnlock()
+
+	job, ok := b.callAnalyticsJobs[jobName]
+	if !ok {
+		return nil, fmt.Errorf("%w: call analytics job %s not found", ErrNotFound, jobName)
+	}
+
+	cp := *job
+
+	return &cp, nil
+}
+
+// ListCallAnalyticsJobs returns Call Analytics jobs with optional status filter and pagination.
+func (b *InMemoryBackend) ListCallAnalyticsJobs(
+	statusFilter, nextToken string,
+) ([]CallAnalyticsJob, string) {
+	b.mu.RLock("ListCallAnalyticsJobs")
+	defer b.mu.RUnlock()
+
+	all := make([]CallAnalyticsJob, 0, len(b.callAnalyticsJobs))
+	for _, j := range b.callAnalyticsJobs {
+		if statusFilter == "" || j.CallAnalyticsJobStatus == statusFilter {
+			all = append(all, *j)
+		}
+	}
+
+	sort.Slice(
+		all,
+		func(i, j int) bool { return all[i].CallAnalyticsJobName < all[j].CallAnalyticsJobName },
+	)
+
+	return paginateList(all, nextToken)
+}
+
+// --- Call Analytics categories (Get/Update/List) ---
+
+// GetCallAnalyticsCategory returns a Call Analytics category by name.
+func (b *InMemoryBackend) GetCallAnalyticsCategory(
+	categoryName string,
+) (*CallAnalyticsCategory, error) {
+	b.mu.RLock("GetCallAnalyticsCategory")
+	defer b.mu.RUnlock()
+
+	cat, ok := b.callAnalyticsCategories[categoryName]
+	if !ok {
+		return nil, fmt.Errorf("%w: category %s not found", ErrNotFound, categoryName)
+	}
+
+	cp := *cat
+
+	return &cp, nil
+}
+
+// UpdateCallAnalyticsCategory updates an existing Call Analytics category.
+func (b *InMemoryBackend) UpdateCallAnalyticsCategory(
+	categoryName, inputType string,
+) (*CallAnalyticsCategory, error) {
+	if categoryName == "" {
+		return nil, fmt.Errorf("%w: CategoryName is required", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateCallAnalyticsCategory")
+	defer b.mu.Unlock()
+
+	cat, ok := b.callAnalyticsCategories[categoryName]
+	if !ok {
+		return nil, fmt.Errorf("%w: category %s not found", ErrNotFound, categoryName)
+	}
+
+	cat.InputType = inputType
+	cat.LastUpdateTime = time.Now()
+
+	cp := *cat
+
+	return &cp, nil
+}
+
+// ListCallAnalyticsCategories returns all Call Analytics categories with pagination.
+func (b *InMemoryBackend) ListCallAnalyticsCategories(
+	nextToken string,
+) ([]CallAnalyticsCategory, string) {
+	b.mu.RLock("ListCallAnalyticsCategories")
+	defer b.mu.RUnlock()
+
+	all := make([]CallAnalyticsCategory, 0, len(b.callAnalyticsCategories))
+	for _, c := range b.callAnalyticsCategories {
+		all = append(all, *c)
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].CategoryName < all[j].CategoryName })
+
+	return paginateList(all, nextToken)
+}
+
+// --- Vocabulary CRUD ---
+
+// GetVocabulary returns a custom vocabulary by name.
+func (b *InMemoryBackend) GetVocabulary(vocabularyName string) (*Vocabulary, error) {
+	b.mu.RLock("GetVocabulary")
+	defer b.mu.RUnlock()
+
+	v, ok := b.vocabularies[vocabularyName]
+	if !ok {
+		return nil, fmt.Errorf("%w: vocabulary %s not found", ErrNotFound, vocabularyName)
+	}
+
+	cp := *v
+
+	return &cp, nil
+}
+
+// UpdateVocabulary updates an existing custom vocabulary.
+func (b *InMemoryBackend) UpdateVocabulary(
+	vocabularyName, languageCode string,
+) (*Vocabulary, error) {
+	if vocabularyName == "" {
+		return nil, fmt.Errorf("%w: VocabularyName is required", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateVocabulary")
+	defer b.mu.Unlock()
+
+	v, ok := b.vocabularies[vocabularyName]
+	if !ok {
+		return nil, fmt.Errorf("%w: vocabulary %s not found", ErrNotFound, vocabularyName)
+	}
+
+	if languageCode != "" {
+		v.LanguageCode = languageCode
+	}
+
+	v.LastModifiedTime = time.Now()
+
+	cp := *v
+
+	return &cp, nil
+}
+
+// DeleteVocabulary removes a custom vocabulary by name.
+func (b *InMemoryBackend) DeleteVocabulary(vocabularyName string) error {
+	if vocabularyName == "" {
+		return fmt.Errorf("%w: VocabularyName is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteVocabulary")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vocabularies[vocabularyName]; !ok {
+		return fmt.Errorf("%w: vocabulary %s not found", ErrNotFound, vocabularyName)
+	}
+
+	delete(b.vocabularies, vocabularyName)
+
+	return nil
+}
+
+// ListVocabularies returns custom vocabularies with optional state filter and pagination.
+func (b *InMemoryBackend) ListVocabularies(stateFilter, nextToken string) ([]Vocabulary, string) {
+	b.mu.RLock("ListVocabularies")
+	defer b.mu.RUnlock()
+
+	all := make([]Vocabulary, 0, len(b.vocabularies))
+	for _, v := range b.vocabularies {
+		if stateFilter == "" || v.VocabularyState == stateFilter {
+			all = append(all, *v)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].VocabularyName < all[j].VocabularyName })
+
+	return paginateList(all, nextToken)
+}
+
+// --- Vocabulary filter CRUD ---
+
+// GetVocabularyFilter returns a custom vocabulary filter by name.
+func (b *InMemoryBackend) GetVocabularyFilter(
+	vocabularyFilterName string,
+) (*VocabularyFilter, error) {
+	b.mu.RLock("GetVocabularyFilter")
+	defer b.mu.RUnlock()
+
+	f, ok := b.vocabularyFilters[vocabularyFilterName]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: vocabulary filter %s not found",
+			ErrNotFound,
+			vocabularyFilterName,
+		)
+	}
+
+	cp := *f
+
+	return &cp, nil
+}
+
+// UpdateVocabularyFilter updates an existing vocabulary filter.
+func (b *InMemoryBackend) UpdateVocabularyFilter(
+	vocabularyFilterName, languageCode string,
+) (*VocabularyFilter, error) {
+	if vocabularyFilterName == "" {
+		return nil, fmt.Errorf("%w: VocabularyFilterName is required", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateVocabularyFilter")
+	defer b.mu.Unlock()
+
+	f, ok := b.vocabularyFilters[vocabularyFilterName]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: vocabulary filter %s not found",
+			ErrNotFound,
+			vocabularyFilterName,
+		)
+	}
+
+	if languageCode != "" {
+		f.LanguageCode = languageCode
+	}
+
+	f.LastModifiedTime = time.Now()
+
+	cp := *f
+
+	return &cp, nil
+}
+
+// DeleteVocabularyFilter removes a vocabulary filter by name.
+func (b *InMemoryBackend) DeleteVocabularyFilter(vocabularyFilterName string) error {
+	if vocabularyFilterName == "" {
+		return fmt.Errorf("%w: VocabularyFilterName is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteVocabularyFilter")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vocabularyFilters[vocabularyFilterName]; !ok {
+		return fmt.Errorf("%w: vocabulary filter %s not found", ErrNotFound, vocabularyFilterName)
+	}
+
+	delete(b.vocabularyFilters, vocabularyFilterName)
+
+	return nil
+}
+
+// ListVocabularyFilters returns all vocabulary filters with pagination.
+func (b *InMemoryBackend) ListVocabularyFilters(nextToken string) ([]VocabularyFilter, string) {
+	b.mu.RLock("ListVocabularyFilters")
+	defer b.mu.RUnlock()
+
+	all := make([]VocabularyFilter, 0, len(b.vocabularyFilters))
+	for _, f := range b.vocabularyFilters {
+		all = append(all, *f)
+	}
+
+	sort.Slice(
+		all,
+		func(i, j int) bool { return all[i].VocabularyFilterName < all[j].VocabularyFilterName },
+	)
+
+	return paginateList(all, nextToken)
+}
+
+// --- Medical vocabulary CRUD ---
+
+// GetMedicalVocabulary returns a medical vocabulary by name.
+func (b *InMemoryBackend) GetMedicalVocabulary(vocabularyName string) (*MedicalVocabulary, error) {
+	b.mu.RLock("GetMedicalVocabulary")
+	defer b.mu.RUnlock()
+
+	v, ok := b.medicalVocabularies[vocabularyName]
+	if !ok {
+		return nil, fmt.Errorf("%w: medical vocabulary %s not found", ErrNotFound, vocabularyName)
+	}
+
+	cp := *v
+
+	return &cp, nil
+}
+
+// UpdateMedicalVocabulary updates an existing medical vocabulary.
+func (b *InMemoryBackend) UpdateMedicalVocabulary(
+	vocabularyName, languageCode, vocabularyFileURI string,
+) (*MedicalVocabulary, error) {
+	if vocabularyName == "" {
+		return nil, fmt.Errorf("%w: VocabularyName is required", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateMedicalVocabulary")
+	defer b.mu.Unlock()
+
+	v, ok := b.medicalVocabularies[vocabularyName]
+	if !ok {
+		return nil, fmt.Errorf("%w: medical vocabulary %s not found", ErrNotFound, vocabularyName)
+	}
+
+	if languageCode != "" {
+		v.LanguageCode = languageCode
+	}
+
+	if vocabularyFileURI != "" {
+		v.VocabularyFileURI = vocabularyFileURI
+	}
+
+	v.LastModifiedTime = time.Now()
+
+	cp := *v
+
+	return &cp, nil
+}
+
+// DeleteMedicalVocabulary removes a medical vocabulary by name.
+func (b *InMemoryBackend) DeleteMedicalVocabulary(vocabularyName string) error {
+	if vocabularyName == "" {
+		return fmt.Errorf("%w: VocabularyName is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteMedicalVocabulary")
+	defer b.mu.Unlock()
+
+	if _, ok := b.medicalVocabularies[vocabularyName]; !ok {
+		return fmt.Errorf("%w: medical vocabulary %s not found", ErrNotFound, vocabularyName)
+	}
+
+	delete(b.medicalVocabularies, vocabularyName)
+
+	return nil
+}
+
+// ListMedicalVocabularies returns medical vocabularies with optional state filter and pagination.
+func (b *InMemoryBackend) ListMedicalVocabularies(
+	stateFilter, nextToken string,
+) ([]MedicalVocabulary, string) {
+	b.mu.RLock("ListMedicalVocabularies")
+	defer b.mu.RUnlock()
+
+	all := make([]MedicalVocabulary, 0, len(b.medicalVocabularies))
+	for _, v := range b.medicalVocabularies {
+		if stateFilter == "" || v.VocabularyState == stateFilter {
+			all = append(all, *v)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].VocabularyName < all[j].VocabularyName })
+
+	return paginateList(all, nextToken)
+}
+
+// --- Medical Scribe jobs ---
+
+// StartMedicalScribeJob creates a new Medical Scribe job.
+func (b *InMemoryBackend) StartMedicalScribeJob(jobName, _ string) (*MedicalScribeJob, error) {
+	if jobName == "" {
+		return nil, fmt.Errorf("%w: MedicalScribeJobName is required", ErrValidation)
+	}
+
+	b.mu.Lock("StartMedicalScribeJob")
+	defer b.mu.Unlock()
+
+	if _, ok := b.medicalScribeJobs[jobName]; ok {
+		return nil, fmt.Errorf(
+			"%w: medical scribe job %s already exists",
+			ErrAlreadyExists,
+			jobName,
+		)
+	}
+
+	now := time.Now()
+	job := &MedicalScribeJob{
+		MedicalScribeJobName:   jobName,
+		MedicalScribeJobStatus: jobStatusCompleted,
+		CreationTime:           now,
+		CompletionTime:         now,
+	}
+	b.medicalScribeJobs[jobName] = job
+
+	cp := *job
+
+	return &cp, nil
+}
+
+// GetMedicalScribeJob returns a Medical Scribe job by name.
+func (b *InMemoryBackend) GetMedicalScribeJob(jobName string) (*MedicalScribeJob, error) {
+	b.mu.RLock("GetMedicalScribeJob")
+	defer b.mu.RUnlock()
+
+	job, ok := b.medicalScribeJobs[jobName]
+	if !ok {
+		return nil, fmt.Errorf("%w: medical scribe job %s not found", ErrNotFound, jobName)
+	}
+
+	cp := *job
+
+	return &cp, nil
+}
+
+// ListMedicalScribeJobs returns Medical Scribe jobs with optional status filter and pagination.
+func (b *InMemoryBackend) ListMedicalScribeJobs(
+	statusFilter, nextToken string,
+) ([]MedicalScribeJob, string) {
+	b.mu.RLock("ListMedicalScribeJobs")
+	defer b.mu.RUnlock()
+
+	all := make([]MedicalScribeJob, 0, len(b.medicalScribeJobs))
+	for _, j := range b.medicalScribeJobs {
+		if statusFilter == "" || j.MedicalScribeJobStatus == statusFilter {
+			all = append(all, *j)
+		}
+	}
+
+	sort.Slice(
+		all,
+		func(i, j int) bool { return all[i].MedicalScribeJobName < all[j].MedicalScribeJobName },
+	)
+
+	return paginateList(all, nextToken)
+}
+
+// --- Medical Transcription jobs ---
+
+// StartMedicalTranscriptionJob creates a new Medical Transcription job.
+func (b *InMemoryBackend) StartMedicalTranscriptionJob(
+	jobName, languageCode, _ string,
+) (*MedicalTranscriptionJob, error) {
+	if jobName == "" {
+		return nil, fmt.Errorf("%w: MedicalTranscriptionJobName is required", ErrValidation)
+	}
+
+	b.mu.Lock("StartMedicalTranscriptionJob")
+	defer b.mu.Unlock()
+
+	if _, ok := b.medicalTranscriptionJobs[jobName]; ok {
+		return nil, fmt.Errorf(
+			"%w: medical transcription job %s already exists",
+			ErrAlreadyExists,
+			jobName,
+		)
+	}
+
+	now := time.Now()
+	job := &MedicalTranscriptionJob{
+		MedicalTranscriptionJobName: jobName,
+		TranscriptionJobStatus:      jobStatusCompleted,
+		LanguageCode:                languageCode,
+		CreationTime:                now,
+		CompletionTime:              now,
+	}
+	b.medicalTranscriptionJobs[jobName] = job
+
+	cp := *job
+
+	return &cp, nil
+}
+
+// GetMedicalTranscriptionJob returns a Medical Transcription job by name.
+func (b *InMemoryBackend) GetMedicalTranscriptionJob(
+	jobName string,
+) (*MedicalTranscriptionJob, error) {
+	b.mu.RLock("GetMedicalTranscriptionJob")
+	defer b.mu.RUnlock()
+
+	job, ok := b.medicalTranscriptionJobs[jobName]
+	if !ok {
+		return nil, fmt.Errorf("%w: medical transcription job %s not found", ErrNotFound, jobName)
+	}
+
+	cp := *job
+
+	return &cp, nil
+}
+
+// ListMedicalTranscriptionJobs returns Medical Transcription jobs with optional status filter and pagination.
+func (b *InMemoryBackend) ListMedicalTranscriptionJobs(
+	statusFilter, nextToken string,
+) ([]MedicalTranscriptionJob, string) {
+	b.mu.RLock("ListMedicalTranscriptionJobs")
+	defer b.mu.RUnlock()
+
+	all := make([]MedicalTranscriptionJob, 0, len(b.medicalTranscriptionJobs))
+	for _, j := range b.medicalTranscriptionJobs {
+		if statusFilter == "" || j.TranscriptionJobStatus == statusFilter {
+			all = append(all, *j)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].MedicalTranscriptionJobName < all[j].MedicalTranscriptionJobName
+	})
+
+	return paginateList(all, nextToken)
+}
+
+// --- Language model (Describe/List) ---
+
+// DescribeLanguageModel returns a language model by name.
+func (b *InMemoryBackend) DescribeLanguageModel(modelName string) (*LanguageModel, error) {
+	b.mu.RLock("DescribeLanguageModel")
+	defer b.mu.RUnlock()
+
+	m, ok := b.languageModels[modelName]
+	if !ok {
+		return nil, fmt.Errorf("%w: language model %s not found", ErrNotFound, modelName)
+	}
+
+	cp := *m
+
+	return &cp, nil
+}
+
+// ListLanguageModels returns language models with optional status filter and pagination.
+func (b *InMemoryBackend) ListLanguageModels(
+	statusFilter, nextToken string,
+) ([]LanguageModel, string) {
+	b.mu.RLock("ListLanguageModels")
+	defer b.mu.RUnlock()
+
+	all := make([]LanguageModel, 0, len(b.languageModels))
+	for _, m := range b.languageModels {
+		if statusFilter == "" || m.ModelStatus == statusFilter {
+			all = append(all, *m)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ModelName < all[j].ModelName })
+
+	return paginateList(all, nextToken)
+}
+
+// paginateList applies pagination to a pre-sorted slice using a token-based offset.
+// It returns the page slice and the next-page token (empty string if last page).
+func paginateList[T any](all []T, nextToken string) ([]T, string) {
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []T{}, ""
+	}
+
+	end := startIdx + transcribeDefaultPageSize
+
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken
 }
 
 // parseNextToken parses a pagination token (integer offset) into a slice index.
