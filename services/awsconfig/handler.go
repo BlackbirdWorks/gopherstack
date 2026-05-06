@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -65,7 +66,9 @@ func (h *Handler) Name() string { return "AWSConfig" }
 
 // GetSupportedOperations returns the list of supported AWS Config operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
+	const baseOpCount = 21
+	base := make([]string, 0, baseOpCount+len(extendedSupportedOperations()))
+	base = append(base,
 		opPutConfigurationRecorder,
 		opDescribeConfigurationRecorders,
 		opDescribeConfigurationRecorderStatus,
@@ -87,7 +90,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDeleteEvaluationResults,
 		opDeleteOrganizationConfigRule,
 		opDeleteOrganizationConformancePack,
-	}
+	)
+
+	return append(base, extendedSupportedOperations()...)
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -262,7 +267,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) buildDispatchTable() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
+	base := map[string]service.JSONOpFunc{
 		opPutConfigurationRecorder:            service.WrapOp(h.handlePutConfigurationRecorder),
 		opDescribeConfigurationRecorders:      service.WrapOp(h.handleDescribeConfigurationRecorders),
 		opDescribeConfigurationRecorderStatus: service.WrapOp(h.handleDescribeConfigurationRecorderStatus),
@@ -285,6 +290,10 @@ func (h *Handler) buildDispatchTable() map[string]service.JSONOpFunc {
 		opDeleteOrganizationConfigRule:        service.WrapOp(h.handleDeleteOrganizationConfigRule),
 		opDeleteOrganizationConformancePack:   service.WrapOp(h.handleDeleteOrganizationConformancePack),
 	}
+
+	maps.Copy(base, h.buildExtendedDispatchTable())
+
+	return base
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {

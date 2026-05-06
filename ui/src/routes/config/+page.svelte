@@ -12,8 +12,16 @@
 		StopConfigurationRecorderCommand,
 		DeleteConfigRuleCommand,
 		PutConfigRuleCommand,
+		DescribeConformancePacksCommand,
+		DescribeConformancePackStatusCommand,
+		GetConformancePackComplianceSummaryCommand,
+		DeleteConformancePackCommand,
+		DescribeRemediationConfigurationsCommand,
+		StartRemediationExecutionCommand,
 		type ConfigRule,
-		type ComplianceByConfigRule
+		type ConformancePackDetail,
+		type ConformancePackStatusDetail,
+		type RemediationConfiguration
 	} from '@aws-sdk/client-config-service';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -27,13 +35,14 @@
 		AlertTriangle,
 		Play,
 		Square,
-		Filter
+		Package,
+		Wrench
 	} from 'lucide-svelte';
 
 	const config = getConfigClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'rules' | 'recorder'>('rules');
+	let activeTab = $state<'rules' | 'recorder' | 'conformance' | 'remediation'>('rules');
 	let searchQuery = $state('');
 
 	// Rules
@@ -54,11 +63,32 @@
 	let recorders = $state<Array<{ name?: string; recordingGroup?: Record<string, unknown> }>>([]);
 	let recorderStatuses = $state<Record<string, { recording?: boolean; lastStatus?: string }>>({});
 
+	// Conformance packs
+	let conformancePacks = $state<ConformancePackDetail[]>([]);
+	let conformancePackStatuses = $state<Record<string, ConformancePackStatusDetail>>({});
+	let conformanceScores = $state<Record<string, string>>({});
+
+	// Remediation
+	let remediations = $state<RemediationConfiguration[]>([]);
+	let remediatingRule = $state<string | null>(null);
+
 	const filteredRules = $derived(
 		rules.filter(
 			(r) =>
 				(r.ConfigRuleName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
 				(r.Source?.SourceIdentifier ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+		)
+	);
+
+	const filteredConformancePacks = $derived(
+		conformancePacks.filter((p) =>
+			(p.ConformancePackName ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+		)
+	);
+
+	const filteredRemediations = $derived(
+		remediations.filter((r) =>
+			(r.ConfigRuleName ?? '').toLowerCase().includes(searchQuery.toLowerCase())
 		)
 	);
 
@@ -70,6 +100,16 @@
 		if (type === 'INSUFFICIENT_DATA')
 			return { color: 'text-yellow-700 bg-yellow-100 dark:text-yellow-300 dark:bg-yellow-900', label: 'Insufficient Data' };
 		return { color: 'text-muted-foreground bg-muted', label: type || 'Unknown' };
+	}
+
+	function conformanceStatusBadge(status: string) {
+		if (status === 'CREATE_COMPLETE' || status === 'UPDATE_COMPLETE')
+			return { color: 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900', label: status };
+		if (status === 'CREATE_FAILED' || status === 'UPDATE_FAILED' || status === 'DELETE_FAILED')
+			return { color: 'text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900', label: status };
+		if (status?.includes('IN_PROGRESS'))
+			return { color: 'text-yellow-700 bg-yellow-100 dark:text-yellow-300 dark:bg-yellow-900', label: status };
+		return { color: 'text-muted-foreground bg-muted', label: status || 'Unknown' };
 	}
 
 	async function loadRules() {
@@ -96,7 +136,8 @@
 			const res = await config.send(new DescribeConfigurationRecordersCommand({}));
 			recorders = (res.ConfigurationRecorders ?? []).map((r) => ({
 				name: r.name,
-				recordingGroup: r.recordingGroup as Record<string, unknown>
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				recordingGroup: r.recordingGroup as Record<string, any>
 			}));
 			const statusRes = await config.send(new DescribeConfigurationRecorderStatusCommand({}));
 			const statusMap: Record<string, { recording?: boolean; lastStatus?: string }> = {};
@@ -109,6 +150,57 @@
 			recorderStatuses = statusMap;
 		} catch (e) {
 			toast.error(`Failed to load recorders: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadConformancePacks() {
+		loading = true;
+		try {
+			const [packRes, statusRes] = await Promise.all([
+				config.send(new DescribeConformancePacksCommand({})),
+				config.send(new DescribeConformancePackStatusCommand({}))
+			]);
+			conformancePacks = packRes.ConformancePackDetails ?? [];
+
+			const statusMap: Record<string, ConformancePackStatusDetail> = {};
+			for (const s of statusRes.ConformancePackStatusDetails ?? []) {
+				statusMap[s.ConformancePackName ?? ''] = s;
+			}
+			conformancePackStatuses = statusMap;
+
+			const scores: Record<string, string> = {};
+			if (conformancePacks.length > 0) {
+				try {
+					const scoreRes = await config.send(
+						new GetConformancePackComplianceSummaryCommand({
+							ConformancePackNames: conformancePacks.map((p) => p.ConformancePackName ?? '')
+						})
+					);
+					for (const s of scoreRes.ConformancePackComplianceSummaryList ?? []) {
+						scores[s.ConformancePackName ?? ''] =
+							s.ConformancePackComplianceStatus?.ComplianceType ?? 'UNKNOWN';
+					}
+				} catch {
+					// scores remain empty if compliance summary fails
+				}
+			}
+			conformanceScores = scores;
+		} catch (e) {
+			toast.error(`Failed to load conformance packs: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadRemediation() {
+		loading = true;
+		try {
+			const res = await config.send(new DescribeRemediationConfigurationsCommand({}));
+			remediations = res.RemediationConfigurations ?? [];
+		} catch (e) {
+			toast.error(`Failed to load remediation configurations: ${e}`);
 		} finally {
 			loading = false;
 		}
@@ -189,11 +281,42 @@
 		}
 	}
 
+	async function deleteConformancePack(pack: ConformancePackDetail) {
+		if (!await confirmDestructive({ title: 'Delete Conformance Pack', message: `Delete conformance pack "${pack.ConformancePackName}"?` })) return;
+		try {
+			await config.send(new DeleteConformancePackCommand({ ConformancePackName: pack.ConformancePackName }));
+			toast.success(`Conformance pack "${pack.ConformancePackName}" deleted`);
+			await loadConformancePacks();
+		} catch (e) {
+			toast.error(`Failed to delete conformance pack: ${e}`);
+		}
+	}
+
+	async function startRemediation(remediation: RemediationConfiguration) {
+		if (!remediation.ConfigRuleName) return;
+		remediatingRule = remediation.ConfigRuleName;
+		try {
+			await config.send(
+				new StartRemediationExecutionCommand({
+					ConfigRuleName: remediation.ConfigRuleName,
+					ResourceKeys: []
+				})
+			);
+			toast.success(`Remediation started for rule "${remediation.ConfigRuleName}"`);
+		} catch (e) {
+			toast.error(`Failed to start remediation: ${e}`);
+		} finally {
+			remediatingRule = null;
+		}
+	}
+
 	async function onTabChange(tab: typeof activeTab) {
 		activeTab = tab;
 		searchQuery = '';
 		if (tab === 'rules') await loadRules();
-		else await loadRecorders();
+		else if (tab === 'recorder') await loadRecorders();
+		else if (tab === 'conformance') await loadConformancePacks();
+		else if (tab === 'remediation') await loadRemediation();
 	}
 
 	onMount(() => loadRules());
@@ -209,7 +332,12 @@
 			</div>
 		</div>
 		<button
-			onclick={() => (activeTab === 'rules' ? loadRules() : loadRecorders())}
+			onclick={() => {
+				if (activeTab === 'rules') loadRules();
+				else if (activeTab === 'recorder') loadRecorders();
+				else if (activeTab === 'conformance') loadConformancePacks();
+				else loadRemediation();
+			}}
 			class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
 		>
 			<RefreshCw class="h-4 w-4" />
@@ -219,7 +347,12 @@
 
 	<!-- Tabs -->
 	<div class="flex border-b">
-		{#each [{ id: 'rules', label: 'Config Rules' }, { id: 'recorder', label: 'Configuration Recorder' }] as tab}
+		{#each [
+			{ id: 'rules', label: 'Config Rules' },
+			{ id: 'recorder', label: 'Configuration Recorder' },
+			{ id: 'conformance', label: 'Conformance Packs' },
+			{ id: 'remediation', label: 'Remediation' }
+		] as tab}
 			<button
 				onclick={() => onTabChange(tab.id as typeof activeTab)}
 				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"
@@ -229,27 +362,32 @@
 		{/each}
 	</div>
 
-	<!-- Rules Tab -->
-	{#if activeTab === 'rules'}
+	<!-- Search bar (shared across tabs) -->
+	{#if activeTab !== 'recorder'}
 		<div class="flex items-center justify-between gap-4">
 			<div class="relative flex-1">
 				<Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
 				<input
 					type="text"
-					placeholder="Search rules..."
+					placeholder="Search..."
 					bind:value={searchQuery}
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
-			<button
-				onclick={() => (showCreateModal = true)}
-				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
-			>
-				<Plus class="h-4 w-4" />
-				Add Rule
-			</button>
+			{#if activeTab === 'rules'}
+				<button
+					onclick={() => (showCreateModal = true)}
+					class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+				>
+					<Plus class="h-4 w-4" />
+					Add Rule
+				</button>
+			{/if}
 		</div>
+	{/if}
 
+	<!-- Rules Tab -->
+	{#if activeTab === 'rules'}
 		{#if loading}
 			<div class="flex justify-center py-12">
 				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
@@ -377,6 +515,133 @@
 						</div>
 					</div>
 				{/each}
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Conformance Packs Tab -->
+	{#if activeTab === 'conformance'}
+		{#if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if filteredConformancePacks.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Package class="h-12 w-12 mb-3 opacity-30" />
+				<p>No conformance packs found</p>
+				<p class="text-sm">Deploy conformance packs to enforce compliance standards</p>
+			</div>
+		{:else}
+			<div class="rounded-lg border overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-muted/50">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">Pack Name</th>
+							<th class="px-4 py-3 text-left font-medium">Status</th>
+							<th class="px-4 py-3 text-left font-medium">Compliance</th>
+							<th class="px-4 py-3 text-left font-medium">Last Updated</th>
+							<th class="px-4 py-3 text-right font-medium">Actions</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y">
+						{#each filteredConformancePacks as pack}
+							{@const packStatus = conformancePackStatuses[pack.ConformancePackName ?? '']}
+							{@const statusBadge = conformanceStatusBadge(packStatus?.ConformancePackState ?? '')}
+							{@const compBadge = complianceBadge(conformanceScores[pack.ConformancePackName ?? ''] ?? '')}
+							<tr class="hover:bg-muted/30">
+								<td class="px-4 py-3 font-medium">{pack.ConformancePackName}</td>
+								<td class="px-4 py-3">
+									<span class="rounded-full px-2 py-0.5 text-xs font-medium {statusBadge.color}">
+										{statusBadge.label || '—'}
+									</span>
+								</td>
+								<td class="px-4 py-3">
+									<span class="rounded-full px-2 py-0.5 text-xs font-medium {compBadge.color}">
+										{compBadge.label}
+									</span>
+								</td>
+								<td class="px-4 py-3 text-muted-foreground text-xs">
+									{packStatus?.LastUpdateCompletedTime
+										? new Date(packStatus.LastUpdateCompletedTime).toLocaleString()
+										: '—'}
+								</td>
+								<td class="px-4 py-3 text-right">
+									<button
+										onclick={() => deleteConformancePack(pack)}
+										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+										title="Delete conformance pack"
+									>
+										<Trash2 class="h-4 w-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Remediation Tab -->
+	{#if activeTab === 'remediation'}
+		{#if loading}
+			<div class="flex justify-center py-12">
+				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		{:else if filteredRemediations.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+				<Wrench class="h-12 w-12 mb-3 opacity-30" />
+				<p>No remediation configurations found</p>
+				<p class="text-sm">Configure auto-remediation on Config rules to fix non-compliant resources</p>
+			</div>
+		{:else}
+			<div class="rounded-lg border overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-muted/50">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">Config Rule</th>
+							<th class="px-4 py-3 text-left font-medium">Target Type</th>
+							<th class="px-4 py-3 text-left font-medium">Target ID</th>
+							<th class="px-4 py-3 text-left font-medium">Auto Remediate</th>
+							<th class="px-4 py-3 text-right font-medium">Actions</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y">
+						{#each filteredRemediations as remediation}
+							<tr class="hover:bg-muted/30">
+								<td class="px-4 py-3 font-medium">{remediation.ConfigRuleName ?? '—'}</td>
+								<td class="px-4 py-3 text-muted-foreground">{remediation.TargetType ?? '—'}</td>
+								<td class="px-4 py-3 text-xs text-muted-foreground font-mono">{remediation.TargetId ?? '—'}</td>
+								<td class="px-4 py-3">
+									{#if remediation.Automatic}
+										<span class="flex items-center gap-1 text-green-600 text-xs">
+											<CheckCircle class="h-3.5 w-3.5" />
+											Auto
+										</span>
+									{:else}
+										<span class="text-muted-foreground text-xs">Manual</span>
+									{/if}
+								</td>
+								<td class="px-4 py-3 text-right">
+									<button
+										onclick={() => startRemediation(remediation)}
+										disabled={remediatingRule === remediation.ConfigRuleName}
+										class="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+										title="Start remediation"
+									>
+										{#if remediatingRule === remediation.ConfigRuleName}
+											<RefreshCw class="h-3.5 w-3.5 animate-spin" />
+											Running...
+										{:else}
+											<Play class="h-3.5 w-3.5" />
+											Remediate
+										{/if}
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
 			</div>
 		{/if}
 	{/if}
