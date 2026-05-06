@@ -23,7 +23,12 @@ func newHandler() *sesv2.Handler {
 }
 
 // doRequest performs a request against the handler and returns the recorder.
-func doRequest(t *testing.T, h *sesv2.Handler, method, path string, body any) *httptest.ResponseRecorder {
+func doRequest(
+	t *testing.T,
+	h *sesv2.Handler,
+	method, path string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyReader *bytes.Reader
@@ -142,7 +147,13 @@ func TestSESv2Handler_GetEmailIdentity(t *testing.T) {
 			h := newHandler()
 
 			if tt.wantCode == http.StatusOK {
-				doRequest(t, h, http.MethodPost, "/v2/email/identities", map[string]any{"EmailIdentity": tt.identity})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v2/email/identities",
+					map[string]any{"EmailIdentity": tt.identity},
+				)
 			}
 
 			rec := doRequest(t, h, http.MethodGet, "/v2/email/identities/"+tt.identity, nil)
@@ -163,8 +174,20 @@ func TestSESv2Handler_ListEmailIdentities(t *testing.T) {
 
 	h := newHandler()
 
-	doRequest(t, h, http.MethodPost, "/v2/email/identities", map[string]any{"EmailIdentity": "alice@example.com"})
-	doRequest(t, h, http.MethodPost, "/v2/email/identities", map[string]any{"EmailIdentity": "bob@example.com"})
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v2/email/identities",
+		map[string]any{"EmailIdentity": "alice@example.com"},
+	)
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v2/email/identities",
+		map[string]any{"EmailIdentity": "bob@example.com"},
+	)
 
 	rec := doRequest(t, h, http.MethodGet, "/v2/email/identities", nil)
 
@@ -205,7 +228,13 @@ func TestSESv2Handler_DeleteEmailIdentity(t *testing.T) {
 			h := newHandler()
 
 			if tt.wantCode == http.StatusOK {
-				doRequest(t, h, http.MethodPost, "/v2/email/identities", map[string]any{"EmailIdentity": tt.identity})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v2/email/identities",
+					map[string]any{"EmailIdentity": tt.identity},
+				)
 			}
 
 			rec := doRequest(t, h, http.MethodDelete, "/v2/email/identities/"+tt.identity, nil)
@@ -383,8 +412,20 @@ func TestSESv2Handler_ListConfigurationSets(t *testing.T) {
 
 	h := newHandler()
 
-	doRequest(t, h, http.MethodPost, "/v2/email/configuration-sets", map[string]any{"ConfigurationSetName": "config-a"})
-	doRequest(t, h, http.MethodPost, "/v2/email/configuration-sets", map[string]any{"ConfigurationSetName": "config-b"})
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v2/email/configuration-sets",
+		map[string]any{"ConfigurationSetName": "config-a"},
+	)
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v2/email/configuration-sets",
+		map[string]any{"ConfigurationSetName": "config-b"},
+	)
 
 	rec := doRequest(t, h, http.MethodGet, "/v2/email/configuration-sets", nil)
 
@@ -434,7 +475,13 @@ func TestSESv2Handler_DeleteConfigurationSet(t *testing.T) {
 				)
 			}
 
-			rec := doRequest(t, h, http.MethodDelete, "/v2/email/configuration-sets/"+tt.csName, nil)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodDelete,
+				"/v2/email/configuration-sets/"+tt.csName,
+				nil,
+			)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
@@ -677,7 +724,13 @@ func TestSESv2Handler_Persistence(t *testing.T) {
 	h := newHandler()
 
 	// Create some state.
-	doRequest(t, h, http.MethodPost, "/v2/email/identities", map[string]any{"EmailIdentity": "persist@example.com"})
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v2/email/identities",
+		map[string]any{"EmailIdentity": "persist@example.com"},
+	)
 	doRequest(
 		t,
 		h,
@@ -707,7 +760,11 @@ func TestSESv2Handler_InvalidJSON(t *testing.T) {
 
 	h := newHandler()
 
-	req := httptest.NewRequest(http.MethodPost, "/v2/email/identities", strings.NewReader("not-json"))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v2/email/identities",
+		strings.NewReader("not-json"),
+	)
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -750,7 +807,13 @@ func TestSESv2Handler_URLEncodedIdentity(t *testing.T) {
 	h := newHandler()
 
 	// Create the identity with its plain name.
-	doRequest(t, h, http.MethodPost, "/v2/email/identities", map[string]any{"EmailIdentity": identity})
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v2/email/identities",
+		map[string]any{"EmailIdentity": identity},
+	)
 
 	// GET using percent-encoded path (AWS SDK / Terraform style).
 	rec := doRequest(t, h, http.MethodGet, "/v2/email/identities/"+encodedIdentity, nil)

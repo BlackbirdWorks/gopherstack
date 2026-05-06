@@ -67,6 +67,7 @@ import { SFNClient } from "@aws-sdk/client-sfn";
 import { WorkSpacesClient } from "@aws-sdk/client-workspaces";
 import { ApplicationAutoScalingClient } from "@aws-sdk/client-application-auto-scaling";
 import { PipesClient } from "@aws-sdk/client-pipes";
+import { SESv2Client } from "@aws-sdk/client-sesv2";
 
 const defaultRegion = "us-east-1";
 
@@ -243,6 +244,10 @@ export function getCloudFrontClient(region?: string): CloudFrontClient {
 
 export function getSESClient(region?: string): SESClient {
   return new SESClient(clientConfig(region));
+}
+
+export function getSESv2Client(region?: string): SESv2Client {
+  return new SESv2Client(clientConfig(region));
 }
 
 export function getCloudTrailClient(region?: string): CloudTrailClient {

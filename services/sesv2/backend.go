@@ -177,7 +177,10 @@ type InMemoryBackend struct {
 	deliverabilityTestReports   map[string]*DeliverabilityTestReport
 	emailTemplates              map[string]*EmailTemplate
 	exportJobs                  map[string]*ExportJob
+	importJobs                  map[string]*ImportJob
+	suppressedDestinations      map[string]*SuppressedDestination
 	emailIdentityPolicies       map[string]map[string]string
+	accountDetails              *AccountDetails
 	mu                          *lockmetrics.RWMutex
 	region                      string
 	accountID                   string
@@ -198,6 +201,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		emailTemplates:              make(map[string]*EmailTemplate),
 		exportJobs:                  make(map[string]*ExportJob),
 		emailIdentityPolicies:       make(map[string]map[string]string),
+		importJobs:                  make(map[string]*ImportJob),
+		suppressedDestinations:      make(map[string]*SuppressedDestination),
 		mu:                          lockmetrics.New("sesv2"),
 		region:                      config.DefaultRegion,
 		accountID:                   config.DefaultAccountID,
@@ -238,7 +243,10 @@ func (b *InMemoryBackend) Reset() {
 	b.deliverabilityTestReports = make(map[string]*DeliverabilityTestReport)
 	b.emailTemplates = make(map[string]*EmailTemplate)
 	b.exportJobs = make(map[string]*ExportJob)
+	b.importJobs = make(map[string]*ImportJob)
+	b.suppressedDestinations = make(map[string]*SuppressedDestination)
 	b.emailIdentityPolicies = make(map[string]map[string]string)
+	b.accountDetails = nil
 	b.emails = nil
 }
 
@@ -290,7 +298,10 @@ func (b *InMemoryBackend) GetEmailIdentity(identity string) (*EmailIdentity, err
 }
 
 // ListEmailIdentities returns a paginated, sorted list of email identities.
-func (b *InMemoryBackend) ListEmailIdentities(nextToken string, pageSize int) page.Page[*EmailIdentity] {
+func (b *InMemoryBackend) ListEmailIdentities(
+	nextToken string,
+	pageSize int,
+) page.Page[*EmailIdentity] {
 	b.mu.RLock("ListEmailIdentities")
 	defer b.mu.RUnlock()
 
@@ -359,7 +370,10 @@ func (b *InMemoryBackend) GetConfigurationSet(name string) (*ConfigurationSet, e
 }
 
 // ListConfigurationSets returns a paginated, sorted list of configuration sets.
-func (b *InMemoryBackend) ListConfigurationSets(nextToken string, pageSize int) page.Page[*ConfigurationSet] {
+func (b *InMemoryBackend) ListConfigurationSets(
+	nextToken string,
+	pageSize int,
+) page.Page[*ConfigurationSet] {
 	b.mu.RLock("ListConfigurationSets")
 	defer b.mu.RUnlock()
 
@@ -392,7 +406,11 @@ func (b *InMemoryBackend) DeleteConfigurationSet(name string) error {
 }
 
 // SendEmail captures an outbound email and returns a message ID.
-func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error) {
+func (b *InMemoryBackend) SendEmail(
+	from string,
+	to []string,
+	subject, bodyHTML, bodyText string,
+) (string, error) {
 	if from == "" {
 		return "", fmt.Errorf("%w: FromEmailAddress is required", ErrInvalidInput)
 	}
@@ -442,7 +460,9 @@ func (b *InMemoryBackend) ListEmails() []Email {
 const sesv2DefaultMaxItems = 100
 
 // BatchGetMetricData returns synthetic empty results for each query.
-func (b *InMemoryBackend) BatchGetMetricData(queries []MetricDataQuery) ([]MetricDataResult, error) {
+func (b *InMemoryBackend) BatchGetMetricData(
+	queries []MetricDataQuery,
+) ([]MetricDataResult, error) {
 	results := make([]MetricDataResult, 0, len(queries))
 	for _, q := range queries {
 		results = append(results, MetricDataResult{
@@ -603,7 +623,9 @@ func (b *InMemoryBackend) CreateCustomVerificationEmailTemplate(
 }
 
 // CreateDedicatedIPPool creates a dedicated IP pool.
-func (b *InMemoryBackend) CreateDedicatedIPPool(poolName, scalingMode string) (*DedicatedIPPool, error) {
+func (b *InMemoryBackend) CreateDedicatedIPPool(
+	poolName, scalingMode string,
+) (*DedicatedIPPool, error) {
 	if strings.TrimSpace(poolName) == "" {
 		return nil, fmt.Errorf("%w: PoolName is required", ErrInvalidInput)
 	}
@@ -619,7 +641,11 @@ func (b *InMemoryBackend) CreateDedicatedIPPool(poolName, scalingMode string) (*
 	defer b.mu.Unlock()
 
 	if _, exists := b.dedicatedIPPools[poolName]; exists {
-		return nil, fmt.Errorf("%w: dedicated IP pool %s already exists", ErrAlreadyExists, poolName)
+		return nil, fmt.Errorf(
+			"%w: dedicated IP pool %s already exists",
+			ErrAlreadyExists,
+			poolName,
+		)
 	}
 
 	pool := &DedicatedIPPool{
@@ -670,7 +696,12 @@ func (b *InMemoryBackend) CreateEmailIdentityPolicy(identity, policyName, policy
 	}
 
 	if _, exists := b.emailIdentityPolicies[identity][policyName]; exists {
-		return fmt.Errorf("%w: policy %s already exists for identity %s", ErrAlreadyExists, policyName, identity)
+		return fmt.Errorf(
+			"%w: policy %s already exists for identity %s",
+			ErrAlreadyExists,
+			policyName,
+			identity,
+		)
 	}
 
 	b.emailIdentityPolicies[identity][policyName] = policy
@@ -691,7 +722,11 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 	defer b.mu.Unlock()
 
 	if _, exists := b.emailTemplates[templateName]; exists {
-		return nil, fmt.Errorf("%w: email template %s already exists", ErrAlreadyExists, templateName)
+		return nil, fmt.Errorf(
+			"%w: email template %s already exists",
+			ErrAlreadyExists,
+			templateName,
+		)
 	}
 
 	var contentCopy *EmailTemplateContent
