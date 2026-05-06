@@ -17,32 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
 	h := codepipeline.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &codepipelinesdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetPipelineExecution",
-		"GetPipelineState",
-		"GetThirdPartyJobDetails",
-		"ListActionExecutions",
-		"ListActionTypes",
-		"ListDeployActionExecutionTargets",
-		"ListPipelineExecutions",
-		"ListRuleExecutions",
-		"ListRuleTypes",
-		"ListWebhooks",
-		"OverrideStageCondition",
-		"PollForJobs",
-		"PollForThirdPartyJobs",
-		"PutActionRevision",
-		"PutApprovalResult",
-		"PutJobFailureResult",
-		"PutJobSuccessResult",
-		"PutThirdPartyJobFailureResult",
-		"PutThirdPartyJobSuccessResult",
-		"PutWebhook",
-		"RegisterWebhookWithThirdParty",
-		"RetryStageExecution",
-		"RollbackStage",
-		"StartPipelineExecution",
-		"StopPipelineExecution",
-		"UpdateActionType",
-	})
+	sdkcheck.CheckCompleteness(t, &codepipelinesdk.Client{}, h.GetSupportedOperations(), []string{})
 }

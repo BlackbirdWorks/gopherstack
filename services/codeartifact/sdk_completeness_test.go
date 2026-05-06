@@ -17,25 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := codeartifact.NewInMemoryBackend("000000000000", "us-east-1")
 	h := codeartifact.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &codeartifactsdk.Client{}, h.GetSupportedOperations(), []string{
-		"DisassociateExternalConnection",
-		"DisposePackageVersions",
-		"GetAssociatedPackageGroup",
-		"GetPackageVersionAsset",
-		"GetPackageVersionReadme",
-		"ListAllowedRepositoriesForGroup",
-		"ListAssociatedPackages",
-		"ListPackageGroups",
-		"ListPackageVersionAssets",
-		"ListPackageVersionDependencies",
-		"ListPackageVersions",
-		"ListPackages",
-		"ListSubPackageGroups",
-		"PublishPackageVersion",
-		"PutPackageOriginConfiguration",
-		"UpdatePackageGroup",
-		"UpdatePackageGroupOriginConfiguration",
-		"UpdatePackageVersionsStatus",
-		"UpdateRepository",
-	})
+	sdkcheck.CheckCompleteness(t, &codeartifactsdk.Client{}, h.GetSupportedOperations(), []string{})
 }
