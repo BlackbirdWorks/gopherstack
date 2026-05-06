@@ -2,6 +2,7 @@
 package ce
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,6 +15,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// DefaultAnomalyTTL is the default time-to-live for detected anomalies.
+const DefaultAnomalyTTL = 30 * 24 * time.Hour
 
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
@@ -121,6 +125,7 @@ type InMemoryBackend struct {
 	mu                   *lockmetrics.RWMutex
 	accountID            string
 	region               string
+	anomalyTTL           time.Duration
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
@@ -133,6 +138,39 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("ce"),
+		anomalyTTL:           DefaultAnomalyTTL,
+	}
+}
+
+// StartJanitor launches a background goroutine that evicts anomalies older than
+// the backend's TTL. It stops when ctx is cancelled.
+func (b *InMemoryBackend) StartJanitor(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				b.evictExpiredAnomalies()
+			}
+		}
+	}()
+}
+
+// evictExpiredAnomalies removes anomalies whose CreationDate is older than anomalyTTL.
+func (b *InMemoryBackend) evictExpiredAnomalies() {
+	b.mu.Lock("evictExpiredAnomalies")
+	defer b.mu.Unlock()
+
+	cutoff := time.Now().UTC().Add(-b.anomalyTTL)
+
+	for id, a := range b.anomalies {
+		if a.CreationDate.Before(cutoff) {
+			delete(b.anomalies, id)
+		}
 	}
 }
 

@@ -1,3 +1,4 @@
+import { CostExplorerClient } from "@aws-sdk/client-cost-explorer";
 import { EC2Client } from "@aws-sdk/client-ec2";
 import { KinesisAnalyticsClient } from "@aws-sdk/client-kinesis-analytics";
 import { KinesisAnalyticsV2Client } from "@aws-sdk/client-kinesis-analytics-v2";
@@ -666,4 +667,8 @@ export function getKinesisAnalyticsClient(region?: string): KinesisAnalyticsClie
 
 export function getKinesisAnalyticsV2Client(region?: string): KinesisAnalyticsV2Client {
   return new KinesisAnalyticsV2Client(clientConfig(region));
+}
+
+export function getCostExplorerClient(region?: string): CostExplorerClient {
+  return new CostExplorerClient(clientConfig(region));
 }
