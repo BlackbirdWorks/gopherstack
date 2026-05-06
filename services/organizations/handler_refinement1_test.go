@@ -928,7 +928,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 		name    string
 		wantLen int
 	}{
-		{name: "fifty_ops", wantLen: 50},
+		{name: "fifty_ops", wantLen: 63},
 	}
 
 	for _, tt := range tests {

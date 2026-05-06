@@ -17,19 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := organizations.NewInMemoryBackend("000000000000", "us-east-1")
 	h := organizations.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &organizationssdk.Client{}, h.GetSupportedOperations(), []string{
-		"InviteAccountToOrganization",
-		"InviteOrganizationToTransferResponsibility",
-		"LeaveOrganization",
-		"ListAccountsWithInvalidEffectivePolicy",
-		"ListCreateAccountStatus",
-		"ListDelegatedServicesForAccount",
-		"ListEffectivePolicyValidationErrors",
-		"ListHandshakesForAccount",
-		"ListHandshakesForOrganization",
-		"ListInboundResponsibilityTransfers",
-		"ListOutboundResponsibilityTransfers",
-		"TerminateResponsibilityTransfer",
-		"UpdateResponsibilityTransfer",
-	})
+	sdkcheck.CheckCompleteness(t, &organizationssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

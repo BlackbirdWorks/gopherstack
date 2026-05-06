@@ -150,6 +150,12 @@ type ResourcePolicy struct {
 	Content string `json:"content"`
 }
 
+// DelegatedService holds a service principal for which an account is a delegated administrator.
+type DelegatedService struct {
+	DelegationEnabledDate time.Time `json:"DelegationEnabledDate"`
+	ServicePrincipal      string    `json:"ServicePrincipal"`
+}
+
 // EffectivePolicy represents the aggregated effective policy for a target.
 type EffectivePolicy struct {
 	LastUpdatedTimestamp time.Time `json:"lastUpdatedTimestamp"`
@@ -657,4 +663,132 @@ type effectivePolicyObject struct {
 
 type describeEffectivePolicyResponse struct {
 	EffectivePolicy effectivePolicyObject `json:"EffectivePolicy"`
+}
+
+// -- InviteAccountToOrganization --
+
+type inviteAccountToOrganizationRequest struct {
+	Target HandshakeParty `json:"Target"`
+	Notes  string         `json:"Notes,omitempty"`
+}
+
+type inviteAccountToOrganizationResponse struct {
+	Handshake handshakeObject `json:"Handshake"`
+}
+
+// -- LeaveOrganization --
+// (no request body; no response body)
+
+// -- ListHandshakesForAccount --
+
+type listHandshakesForAccountResponse struct {
+	NextToken  string            `json:"NextToken,omitempty"`
+	Handshakes []handshakeObject `json:"Handshakes"`
+}
+
+// -- ListHandshakesForOrganization --
+
+type listHandshakesForOrganizationResponse struct {
+	NextToken  string            `json:"NextToken,omitempty"`
+	Handshakes []handshakeObject `json:"Handshakes"`
+}
+
+// -- ListCreateAccountStatus --
+
+type listCreateAccountStatusRequest struct {
+	NextToken string   `json:"NextToken,omitempty"`
+	States    []string `json:"States,omitempty"`
+}
+
+type listCreateAccountStatusResponse struct {
+	NextToken             string                `json:"NextToken,omitempty"`
+	CreateAccountStatuses []CreateAccountStatus `json:"CreateAccountStatuses"`
+}
+
+// -- ListDelegatedServicesForAccount --
+
+type listDelegatedServicesForAccountRequest struct {
+	AccountID string `json:"AccountId"`
+	NextToken string `json:"NextToken,omitempty"`
+}
+
+type delegatedServiceObject struct {
+	ServicePrincipal      string  `json:"ServicePrincipal"`
+	DelegationEnabledDate float64 `json:"DelegationEnabledDate"`
+}
+
+type listDelegatedServicesForAccountResponse struct {
+	NextToken         string                   `json:"NextToken,omitempty"`
+	DelegatedServices []delegatedServiceObject `json:"DelegatedServices"`
+}
+
+// -- ListEffectivePolicyValidationErrors --
+
+type listEffectivePolicyValidationErrorsRequest struct {
+	PolicyType string `json:"PolicyType"`
+	TargetID   string `json:"TargetId,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+}
+
+type listEffectivePolicyValidationErrorsResponse struct {
+	NextToken        string `json:"NextToken,omitempty"`
+	ValidationErrors []any  `json:"ValidationErrors"`
+}
+
+// -- ListAccountsWithInvalidEffectivePolicy --
+
+type listAccountsWithInvalidEffectivePolicyRequest struct {
+	PolicyType string `json:"PolicyType"`
+	NextToken  string `json:"NextToken,omitempty"`
+}
+
+type listAccountsWithInvalidEffectivePolicyResponse struct {
+	NextToken string          `json:"NextToken,omitempty"`
+	Accounts  []accountObject `json:"Accounts"`
+}
+
+// -- ListInboundResponsibilityTransfers --
+
+type listInboundResponsibilityTransfersResponse struct {
+	NextToken               string            `json:"NextToken,omitempty"`
+	ResponsibilityTransfers []handshakeObject `json:"ResponsibilityTransfers"`
+}
+
+// -- ListOutboundResponsibilityTransfers --
+
+type listOutboundResponsibilityTransfersResponse struct {
+	NextToken               string            `json:"NextToken,omitempty"`
+	ResponsibilityTransfers []handshakeObject `json:"ResponsibilityTransfers"`
+}
+
+// -- TerminateResponsibilityTransfer --
+
+type terminateResponsibilityTransferRequest struct {
+	HandshakeID string `json:"HandshakeId"`
+}
+
+type terminateResponsibilityTransferResponse struct {
+	HandshakeDetails handshakeObject `json:"HandshakeDetails"`
+}
+
+// -- UpdateResponsibilityTransfer --
+
+type updateResponsibilityTransferRequest struct {
+	HandshakeID string `json:"HandshakeId"`
+	Action      string `json:"Action"`
+}
+
+type updateResponsibilityTransferResponse struct {
+	HandshakeDetails handshakeObject `json:"HandshakeDetails"`
+}
+
+// -- InviteOrganizationToTransferResponsibility --
+
+type inviteOrganizationToTransferResponsibilityRequest struct {
+	Target HandshakeParty `json:"Target"`
+	Notes  string         `json:"Notes,omitempty"`
+}
+
+type inviteOrganizationToTransferResponsibilityResponse struct {
+	Handshake handshakeObject `json:"Handshake"`
 }
