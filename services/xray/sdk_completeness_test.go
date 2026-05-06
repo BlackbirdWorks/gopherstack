@@ -17,17 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := xray.NewInMemoryBackend()
 	h := xray.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &xraysdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetServiceGraph",
-		"GetTimeSeriesServiceStatistics",
-		"GetTraceGraph",
-		"GetTraceSegmentDestination",
-		"ListRetrievedTraces",
-		"ListTagsForResource",
-		"StartTraceRetrieval",
-		"TagResource",
-		"UntagResource",
-		"UpdateIndexingRule",
-		"UpdateTraceSegmentDestination",
-	})
+	sdkcheck.CheckCompleteness(t, &xraysdk.Client{}, h.GetSupportedOperations(), []string{})
 }

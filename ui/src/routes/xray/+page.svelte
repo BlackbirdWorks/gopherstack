@@ -7,24 +7,25 @@
 		GetGroupsCommand,
 		BatchGetTracesCommand,
 		type TraceSummary,
-		type Group
+		type Group,
+		type Service
 	} from '@aws-sdk/client-xray';
 	import { toast } from 'svelte-sonner';
 	import {
 		Activity,
 		Search,
 		RefreshCw,
-		Eye,
 		Clock,
 		AlertCircle,
 		Layers,
-		Filter
+		Filter,
+		Share2
 	} from 'lucide-svelte';
 
 	const xray = getXRayClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'traces' | 'groups'>('traces');
+	let activeTab = $state<'traces' | 'groups' | 'service-graph'>('traces');
 	let searchQuery = $state('');
 
 	// Traces
@@ -35,6 +36,11 @@
 
 	// Groups
 	let groups = $state<Group[]>([]);
+
+	// Service graph
+	let serviceGraphNodes = $state<Service[]>([]);
+	let serviceGraphStartTime = $state(new Date(Date.now() - 3600000).toISOString().slice(0, 16));
+	let serviceGraphEndTime = $state(new Date().toISOString().slice(0, 16));
 
 	const filteredTraces = $derived(
 		traceSummaries.filter((t) => {
@@ -89,11 +95,29 @@
 		}
 	}
 
+	async function loadServiceGraph() {
+		loading = true;
+		try {
+			const res = await xray.send(
+				new GetServiceGraphCommand({
+					StartTime: new Date(serviceGraphStartTime),
+					EndTime: new Date(serviceGraphEndTime)
+				})
+			);
+			serviceGraphNodes = res.Services ?? [];
+		} catch (e) {
+			toast.error(`Failed to load service graph: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
 	async function onTabChange(tab: typeof activeTab) {
 		activeTab = tab;
 		searchQuery = '';
 		if (tab === 'traces') await loadTraces();
-		else await loadGroups();
+		else if (tab === 'groups') await loadGroups();
+		else await loadServiceGraph();
 	}
 
 	// Stats
@@ -172,7 +196,7 @@
 
 	<!-- Tabs -->
 	<div class="flex border-b">
-		{#each [{ id: 'traces', label: 'Traces' }, { id: 'groups', label: 'Groups' }] as tab}
+		{#each [{ id: 'traces', label: 'Traces' }, { id: 'groups', label: 'Groups' }, { id: 'service-graph', label: 'Service Graph' }] as tab}
 			<button
 				onclick={() => onTabChange(tab.id as typeof activeTab)}
 				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}"

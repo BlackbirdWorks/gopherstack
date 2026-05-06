@@ -47,7 +47,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := xray.NewInMemoryBackend()
 	h := xray.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 27)
+	assert.Len(t, h.GetSupportedOperations(), 38)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
@@ -519,7 +519,7 @@ func TestRefinement1_HandlerOpsLenHelper(t *testing.T) {
 
 	b := xray.NewInMemoryBackend()
 	h := xray.NewHandler(b)
-	assert.Equal(t, 27, h.HandlerOpsLen())
+	assert.Equal(t, 38, h.HandlerOpsLen())
 }
 
 // TestRefinement1_SnapshotRestorePreservesGroups verifies group data persists.

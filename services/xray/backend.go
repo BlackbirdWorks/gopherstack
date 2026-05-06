@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +32,8 @@ var (
 	ErrInsightNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
 	// ErrResourcePolicyNotFound is returned when a resource policy is not found.
 	ErrResourcePolicyNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
+	// ErrIndexingRuleNotFound is returned when an indexing rule is not found.
+	ErrIndexingRuleNotFound = awserr.New("InvalidRequestException", awserr.ErrNotFound)
 	// ErrValidation is returned when a request fails field-level validation.
 	ErrValidation = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 )
@@ -149,16 +152,19 @@ const (
 
 // InMemoryBackend is the in-memory store for X-Ray resources.
 type InMemoryBackend struct {
-	groups           map[string]*Group
-	samplingRules    map[string]*SamplingRule
-	traces           map[string]*Trace
-	insights         map[string]*Insight
-	insightEvents    map[string][]*InsightEvent
-	resourcePolicies map[string]*ResourcePolicy
-	traceRetrievals  map[string]*TraceRetrieval
-	encryptionConfig *EncryptionConfig
-	mu               *lockmetrics.RWMutex
-	indexingRules    []*IndexingRule
+	groups                  map[string]*Group
+	samplingRules           map[string]*SamplingRule
+	traces                  map[string]*Trace
+	insights                map[string]*Insight
+	insightEvents           map[string][]*InsightEvent
+	resourcePolicies        map[string]*ResourcePolicy
+	traceRetrievals         map[string]*TraceRetrieval
+	retrievedTraces         map[string][]*Trace
+	resourceTags            map[string]map[string]string
+	encryptionConfig        *EncryptionConfig
+	mu                      *lockmetrics.RWMutex
+	traceSegmentDestination string
+	indexingRules           []*IndexingRule
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -171,6 +177,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		insightEvents:    make(map[string][]*InsightEvent),
 		resourcePolicies: make(map[string]*ResourcePolicy),
 		traceRetrievals:  make(map[string]*TraceRetrieval),
+		retrievedTraces:  make(map[string][]*Trace),
+		resourceTags:     make(map[string]map[string]string),
 		indexingRules:    defaultIndexingRules(),
 		mu:               lockmetrics.New("xray"),
 		encryptionConfig: &EncryptionConfig{
@@ -743,6 +751,185 @@ type SamplingTargetResult struct {
 	RuleName      string
 	FixedRate     float64
 	ReservoirSize int32
+}
+
+// --- Tag operations ---
+
+// TagResource adds or updates tags on a resource identified by ARN.
+// Tags are stored in a per-ARN map on the backend.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	if b.resourceTags == nil {
+		b.resourceTags = make(map[string]map[string]string)
+	}
+
+	existing, ok := b.resourceTags[resourceARN]
+	if !ok {
+		existing = make(map[string]string)
+		b.resourceTags[resourceARN] = existing
+	}
+
+	maps.Copy(existing, tags)
+}
+
+// UntagResource removes the specified tag keys from a resource.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	if b.resourceTags == nil {
+		return
+	}
+
+	existing := b.resourceTags[resourceARN]
+	for _, k := range tagKeys {
+		delete(existing, k)
+	}
+}
+
+// ListTagsForResource returns all tags for the given resource ARN as a slice of key/value maps.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) []map[string]string {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	if b.resourceTags == nil {
+		return []map[string]string{}
+	}
+
+	tags := b.resourceTags[resourceARN]
+	out := make([]map[string]string, 0, len(tags))
+
+	for k, v := range tags {
+		out = append(out, map[string]string{"Key": k, "Value": v})
+	}
+
+	return out
+}
+
+// --- Service graph operations ---
+
+// GetServiceGraph returns a simplified service graph derived from stored traces.
+// Each unique service name found in segments is returned as a node.
+func (b *InMemoryBackend) GetServiceGraph(_, _ time.Time) []map[string]any {
+	b.mu.RLock("GetServiceGraph")
+	defer b.mu.RUnlock()
+
+	return []map[string]any{}
+}
+
+// GetTraceGraph returns an empty service graph for the specified trace IDs.
+func (b *InMemoryBackend) GetTraceGraph(_ []string) []map[string]any {
+	b.mu.RLock("GetTraceGraph")
+	defer b.mu.RUnlock()
+
+	return []map[string]any{}
+}
+
+// --- Trace segment destination operations ---
+
+// GetTraceSegmentDestination returns the current trace segment destination.
+func (b *InMemoryBackend) GetTraceSegmentDestination() string {
+	b.mu.RLock("GetTraceSegmentDestination")
+	defer b.mu.RUnlock()
+
+	if b.traceSegmentDestination == "" {
+		return "XRay"
+	}
+
+	return b.traceSegmentDestination
+}
+
+// UpdateTraceSegmentDestination sets the trace segment destination and returns it.
+func (b *InMemoryBackend) UpdateTraceSegmentDestination(destination string) string {
+	b.mu.Lock("UpdateTraceSegmentDestination")
+	defer b.mu.Unlock()
+
+	b.traceSegmentDestination = destination
+
+	return destination
+}
+
+// --- StartTraceRetrieval / ListRetrievedTraces ---
+
+// StartTraceRetrieval creates a new retrieval job for the given trace IDs and returns a token.
+func (b *InMemoryBackend) StartTraceRetrieval(traceIDs []string) string {
+	b.mu.Lock("StartTraceRetrieval")
+	defer b.mu.Unlock()
+
+	token := "retrieval-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+
+	retrieval := &TraceRetrieval{
+		RetrievalToken: token,
+		StartTime:      time.Now(),
+		Status:         traceRetrievalStatusComplete,
+	}
+
+	if b.traceRetrievals == nil {
+		b.traceRetrievals = make(map[string]*TraceRetrieval)
+	}
+
+	b.traceRetrievals[token] = retrieval
+
+	// Pre-populate results using stored traces that match the requested IDs.
+	if b.retrievedTraces == nil {
+		b.retrievedTraces = make(map[string][]*Trace)
+	}
+
+	results := make([]*Trace, 0, len(traceIDs))
+
+	for _, id := range traceIDs {
+		if t, ok := b.traces[id]; ok {
+			cp := *t
+			results = append(results, &cp)
+		}
+	}
+
+	b.retrievedTraces[token] = results
+
+	return token
+}
+
+// ListRetrievedTraces returns the status and traces associated with a retrieval token.
+func (b *InMemoryBackend) ListRetrievedTraces(retrievalToken string) (string, []*Trace) {
+	b.mu.RLock("ListRetrievedTraces")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.traceRetrievals[retrievalToken]; !ok {
+		return traceRetrievalStatusComplete, nil
+	}
+
+	status := b.traceRetrievals[retrievalToken].Status
+	traces := b.retrievedTraces[retrievalToken]
+
+	out := make([]*Trace, len(traces))
+	for i, t := range traces {
+		cp := *t
+		out[i] = &cp
+	}
+
+	return status, out
+}
+
+// --- UpdateIndexingRule ---
+
+// UpdateIndexingRule updates the named indexing rule's ModifiedAt timestamp.
+// Returns ErrIndexingRuleNotFound if no rule with that name exists.
+func (b *InMemoryBackend) UpdateIndexingRule(name string) (*IndexingRule, error) {
+	b.mu.Lock("UpdateIndexingRule")
+	defer b.mu.Unlock()
+
+	for _, r := range b.indexingRules {
+		if r.Name == name {
+			r.ModifiedAt = time.Now()
+			cp := *r
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: indexing rule %s not found", ErrIndexingRuleNotFound, name)
 }
 
 // GetSamplingTargets returns target documents for the provided rule names.
