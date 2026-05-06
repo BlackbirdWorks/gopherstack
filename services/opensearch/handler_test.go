@@ -364,7 +364,7 @@ func TestOpenSearchHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "CancelDomainConfigChange")
 	assert.Contains(t, ops, "CancelServiceSoftwareUpdate")
 	assert.Contains(t, ops, "CreateApplication")
-	assert.Len(t, ops, 14)
+	assert.Len(t, ops, 82)
 }
 
 func newEchoContext(method, path string, body string) *echo.Context {
@@ -1427,10 +1427,10 @@ func TestOpenSearchHandler_NewOps_EdgeCases(t *testing.T) {
 			wantCode: http.StatusNotFound,
 		},
 		{
-			name:     "application_route_not_found",
+			name:     "application_get_by_id_ok",
 			method:   http.MethodGet,
 			path:     "/2021-01-01/opensearch/application/some-id",
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "cc_route_not_found",
@@ -1439,10 +1439,10 @@ func TestOpenSearchHandler_NewOps_EdgeCases(t *testing.T) {
 			wantCode: http.StatusNotFound,
 		},
 		{
-			name:     "direct_query_route_not_found",
+			name:     "direct_query_list_ok",
 			method:   http.MethodGet,
 			path:     "/2021-01-01/opensearch/directQueryDataSource",
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "cancel_domain_config_change_invalid_json",
