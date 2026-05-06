@@ -1,14 +1,19 @@
 <script lang="ts">
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onMount } from 'svelte';
 	import { getEFSClient } from '$lib/aws-client';
 	import {
+		CreateFileSystemCommand,
+		DeleteFileSystemCommand,
 		DescribeFileSystemsCommand,
+		CreateMountTargetCommand,
+		DeleteMountTargetCommand,
 		DescribeMountTargetsCommand,
 		type FileSystemDescription,
 		type MountTargetDescription
 	} from '@aws-sdk/client-efs';
 	import { toast } from 'svelte-sonner';
-	import { HardDrive, Search, RefreshCw, ChevronRight, Server } from 'lucide-svelte';
+	import { HardDrive, Search, RefreshCw, ChevronRight, Server, Plus, Trash2 } from 'lucide-svelte';
 
 	const client = getEFSClient();
 
@@ -19,15 +24,32 @@
 	let activeTab = $state<'filesystems' | 'mounttargets'>('filesystems');
 	let searchQuery = $state('');
 
+	// Create file system
+	let showCreateModal = $state(false);
+	let creating = $state(false);
+	let newCreationToken = $state('');
+	let newPerformanceMode = $state('generalPurpose');
+	let newThroughputMode = $state('bursting');
+	let newEncrypted = $state(false);
+
+	// Create mount target
+	let showCreateMTModal = $state(false);
+	let creatingMT = $state(false);
+	let newMTSubnetId = $state('');
+
 	const filteredFS = $derived(
 		fileSystems.filter(
-			(f) => !searchQuery || (f.FileSystemId ?? '').toLowerCase().includes(searchQuery.toLowerCase()) || (f.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+			(f) =>
+				!searchQuery ||
+				(f.FileSystemId ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+				(f.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())
 		)
 	);
 
 	const filteredMountTargets = $derived(
 		mountTargets.filter(
-			(m) => !searchQuery || (m.MountTargetId ?? '').toLowerCase().includes(searchQuery.toLowerCase())
+			(m) =>
+				!searchQuery || (m.MountTargetId ?? '').toLowerCase().includes(searchQuery.toLowerCase())
 		)
 	);
 
@@ -46,11 +68,114 @@
 					new DescribeMountTargetsCommand({ FileSystemId: fileSystems[0].FileSystemId })
 				);
 				mountTargets = mtResp.MountTargets ?? [];
+			} else {
+				mountTargets = [];
 			}
 		} catch (e) {
 			toast.error('Failed to load EFS data: ' + String(e));
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadMountTargets(fsId: string) {
+		try {
+			const mtResp = await client.send(new DescribeMountTargetsCommand({ FileSystemId: fsId }));
+			mountTargets = mtResp.MountTargets ?? [];
+		} catch (e) {
+			toast.error('Failed to load mount targets: ' + String(e));
+		}
+	}
+
+	async function createFileSystem() {
+		if (!newCreationToken.trim()) {
+			toast.error('Creation token is required');
+			return;
+		}
+		creating = true;
+		try {
+			await client.send(
+				new CreateFileSystemCommand({
+					CreationToken: newCreationToken.trim(),
+					PerformanceMode: newPerformanceMode as 'generalPurpose' | 'maxIO',
+					ThroughputMode: newThroughputMode as 'bursting' | 'provisioned' | 'elastic',
+					Encrypted: newEncrypted
+				})
+			);
+			toast.success('File system created');
+			showCreateModal = false;
+			newCreationToken = '';
+			newPerformanceMode = 'generalPurpose';
+			newThroughputMode = 'bursting';
+			newEncrypted = false;
+			await loadData();
+		} catch (e) {
+			toast.error('Failed to create file system: ' + String(e));
+		} finally {
+			creating = false;
+		}
+	}
+
+	async function deleteFileSystem(fs: FileSystemDescription) {
+		const id = fs.FileSystemId ?? '';
+		const label = fs.Name ?? id;
+		if (
+			!(await confirmDestructive({
+				title: 'Delete File System',
+				message: `Delete file system "${label}"? All data will be permanently lost.`
+			}))
+		)
+			return;
+		try {
+			await client.send(new DeleteFileSystemCommand({ FileSystemId: id }));
+			toast.success(`File system ${id} deleted`);
+			if (selectedFS?.FileSystemId === id) selectedFS = null;
+			await loadData();
+		} catch (e) {
+			toast.error('Failed to delete file system: ' + String(e));
+		}
+	}
+
+	async function createMountTarget() {
+		if (!selectedFS?.FileSystemId) return;
+		if (!newMTSubnetId.trim()) {
+			toast.error('Subnet ID is required');
+			return;
+		}
+		creatingMT = true;
+		try {
+			await client.send(
+				new CreateMountTargetCommand({
+					FileSystemId: selectedFS.FileSystemId,
+					SubnetId: newMTSubnetId.trim()
+				})
+			);
+			toast.success('Mount target created');
+			showCreateMTModal = false;
+			newMTSubnetId = '';
+			await loadMountTargets(selectedFS.FileSystemId);
+		} catch (e) {
+			toast.error('Failed to create mount target: ' + String(e));
+		} finally {
+			creatingMT = false;
+		}
+	}
+
+	async function deleteMountTarget(mt: MountTargetDescription) {
+		const id = mt.MountTargetId ?? '';
+		if (
+			!(await confirmDestructive({
+				title: 'Delete Mount Target',
+				message: `Delete mount target "${id}"?`
+			}))
+		)
+			return;
+		try {
+			await client.send(new DeleteMountTargetCommand({ MountTargetId: id }));
+			toast.success(`Mount target ${id} deleted`);
+			if (selectedFS?.FileSystemId) await loadMountTargets(selectedFS.FileSystemId);
+		} catch (e) {
+			toast.error('Failed to delete mount target: ' + String(e));
 		}
 	}
 
@@ -66,9 +191,17 @@
 				<p class="text-sm text-gray-500 dark:text-gray-400">Scalable, elastic, cloud-native NFS file system</p>
 			</div>
 		</div>
-		<button onclick={loadData} title="Refresh" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
-			<RefreshCw class="w-4 h-4" /> Refresh
-		</button>
+		<div class="flex items-center gap-2">
+			<button
+				onclick={() => { showCreateModal = true; }}
+				class="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium"
+			>
+				<Plus class="w-4 h-4" /> Create File System
+			</button>
+			<button onclick={loadData} title="Refresh" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
+				<RefreshCw class="w-4 h-4" /> Refresh
+			</button>
+		</div>
 	</div>
 
 	<!-- Stat Cards -->
@@ -132,6 +265,58 @@
 				</div>
 			{/each}
 		</div>
+
+		<!-- Mount Target Management -->
+		<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
+			<div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Mount Targets</h2>
+				<button
+					onclick={() => { showCreateMTModal = true; }}
+					class="flex items-center gap-1 px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-xs font-medium"
+				>
+					<Plus class="w-3 h-3" /> Add Mount Target
+				</button>
+			</div>
+			{#if mountTargets.length === 0}
+				<div class="text-center py-8 text-gray-500 dark:text-gray-400">
+					<Server class="w-8 h-8 mx-auto mb-2 opacity-40" />
+					<p class="text-sm">No mount targets</p>
+				</div>
+			{:else}
+				<table class="w-full text-sm">
+					<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
+						<tr>
+							<th class="px-4 py-3 text-left">Mount Target ID</th>
+							<th class="px-4 py-3 text-left">State</th>
+							<th class="px-4 py-3 text-left">Subnet</th>
+							<th class="px-4 py-3 text-left">IP Address</th>
+							<th class="px-4 py-3 text-left"></th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+						{#each mountTargets as mt}
+							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+								<td class="px-4 py-3 font-medium text-gray-900 dark:text-white">{mt.MountTargetId ?? '-'}</td>
+								<td class="px-4 py-3">
+									<span class={`px-2 py-0.5 rounded text-xs font-medium ${mt.LifeCycleState === 'available' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{mt.LifeCycleState ?? '-'}</span>
+								</td>
+								<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{mt.SubnetId ?? '-'}</td>
+								<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{mt.IpAddress ?? '-'}</td>
+								<td class="px-4 py-3 text-right">
+									<button
+										onclick={() => deleteMountTarget(mt)}
+										class="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+										title="Delete mount target"
+									>
+										<Trash2 class="w-4 h-4" />
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+		</div>
 	{:else}
 		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
 			{#each [['filesystems', 'File Systems'], ['mounttargets', 'Mount Targets']] as [tab, label]}
@@ -166,13 +351,17 @@
 								<th class="px-4 py-3 text-left">State</th>
 								<th class="px-4 py-3 text-left">Performance Mode</th>
 								<th class="px-4 py-3 text-left">Throughput Mode</th>
+								<th class="px-4 py-3 text-left"></th>
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 							{#each filteredFS as fs}
 								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 									<td class="px-4 py-3">
-										<button onclick={() => { selectedFS = fs; }} class="text-teal-600 dark:text-teal-400 hover:underline font-medium">{fs.FileSystemId ?? '-'}</button>
+										<button
+											onclick={async () => { selectedFS = fs; await loadMountTargets(fs.FileSystemId ?? ''); }}
+											class="text-teal-600 dark:text-teal-400 hover:underline font-medium"
+										>{fs.FileSystemId ?? '-'}</button>
 									</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{fs.Name ?? '-'}</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{fs.CreationToken ?? '-'}</td>
@@ -181,6 +370,15 @@
 									</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{fs.PerformanceMode ?? '-'}</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{fs.ThroughputMode ?? '-'}</td>
+									<td class="px-4 py-3 text-right">
+										<button
+											onclick={() => deleteFileSystem(fs)}
+											class="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+											title="Delete file system"
+										>
+											<Trash2 class="w-4 h-4" />
+										</button>
+									</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -220,3 +418,88 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Create File System Modal -->
+{#if showCreateModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Create File System</h2>
+			<div class="space-y-4">
+				<div>
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Creation Token <span class="text-red-500">*</span></label>
+					<input
+						bind:value={newCreationToken}
+						type="text"
+						placeholder="my-fs-token"
+						class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
+					/>
+				</div>
+				<div>
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Performance Mode</label>
+					<select bind:value={newPerformanceMode} class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm">
+						<option value="generalPurpose">General Purpose</option>
+						<option value="maxIO">Max I/O</option>
+					</select>
+				</div>
+				<div>
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Throughput Mode</label>
+					<select bind:value={newThroughputMode} class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm">
+						<option value="bursting">Bursting</option>
+						<option value="provisioned">Provisioned</option>
+						<option value="elastic">Elastic</option>
+					</select>
+				</div>
+				<div class="flex items-center gap-2">
+					<input id="encrypted" type="checkbox" bind:checked={newEncrypted} class="rounded" />
+					<label for="encrypted" class="text-sm text-gray-700 dark:text-gray-300">Encrypted</label>
+				</div>
+			</div>
+			<div class="flex justify-end gap-3 mt-6">
+				<button
+					onclick={() => { showCreateModal = false; newCreationToken = ''; newPerformanceMode = 'generalPurpose'; newThroughputMode = 'bursting'; newEncrypted = false; }}
+					class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+				>Cancel</button>
+				<button
+					onclick={createFileSystem}
+					disabled={creating}
+					class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50"
+				>{creating ? 'Creating...' : 'Create'}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Mount Target Modal -->
+{#if showCreateMTModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Mount Target</h2>
+			<div class="space-y-4">
+				<div>
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">File System</label>
+					<p class="text-sm font-mono text-gray-600 dark:text-gray-400">{selectedFS?.FileSystemId}</p>
+				</div>
+				<div>
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Subnet ID <span class="text-red-500">*</span></label>
+					<input
+						bind:value={newMTSubnetId}
+						type="text"
+						placeholder="subnet-12345678"
+						class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
+					/>
+				</div>
+			</div>
+			<div class="flex justify-end gap-3 mt-6">
+				<button
+					onclick={() => { showCreateMTModal = false; newMTSubnetId = ''; }}
+					class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+				>Cancel</button>
+				<button
+					onclick={createMountTarget}
+					disabled={creatingMT}
+					class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50"
+				>{creatingMT ? 'Creating...' : 'Create'}</button>
+			</div>
+		</div>
+	</div>
+{/if}

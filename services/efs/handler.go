@@ -990,8 +990,8 @@ func (h *Handler) handleDescribeAccountPreferences(c *echo.Context) error {
 	prefs := h.Backend.DescribeAccountPreferences()
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"ResourceIDPreference": map[string]any{
-			"ResourceIDType": prefs.ResourceIDType,
+		"ResourceIdPreference": map[string]any{
+			"ResourceIdType": prefs.ResourceIDType,
 			"Resources":      []string{"FILE_SYSTEM", "MOUNT_TARGET"},
 		},
 	})
@@ -1106,8 +1106,8 @@ func (h *Handler) handleModifyMountTargetSecurityGroups(c *echo.Context, mountTa
 
 type putAccountPreferencesBody struct {
 	ResourceIDPreference struct {
-		ResourceIDType string `json:"ResourceIDType"`
-	} `json:"ResourceIDPreference"`
+		ResourceIDType string `json:"ResourceIdType"`
+	} `json:"ResourceIdPreference"`
 }
 
 func (h *Handler) handlePutAccountPreferences(c *echo.Context, body []byte) error {
@@ -1122,8 +1122,8 @@ func (h *Handler) handlePutAccountPreferences(c *echo.Context, body []byte) erro
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"ResourceIDPreference": map[string]any{
-			"ResourceIDType": prefs.ResourceIDType,
+		"ResourceIdPreference": map[string]any{
+			"ResourceIdType": prefs.ResourceIDType,
 			"Resources":      []string{"FILE_SYSTEM", "MOUNT_TARGET"},
 		},
 	})
