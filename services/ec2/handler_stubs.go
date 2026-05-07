@@ -328,7 +328,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeTransitGatewayPeeringAttachments"] = h.handleStubDescribeTransitGatewayPeeringAttachments
 	ops["DescribeTransitGatewayPolicyTables"] = h.handleStubDescribeTransitGatewayPolicyTables
 	ops["DescribeTransitGatewayRouteTableAnnouncements"] = h.handleStubDescribeTransitGatewayRouteTableAnnouncements
-	ops["DescribeTransitGatewayRouteTables"] = h.handleStubDescribeTransitGatewayRouteTables
+	// DescribeTransitGatewayRouteTables — moved to handler_ec2core.go
 	ops["DescribeTrunkInterfaceAssociations"] = h.handleStubDescribeTrunkInterfaceAssociations
 	ops["DescribeVerifiedAccessEndpoints"] = h.handleStubDescribeVerifiedAccessEndpoints
 	ops["DescribeVerifiedAccessGroups"] = h.handleStubDescribeVerifiedAccessGroups
@@ -656,9 +656,9 @@ func stubSupportedOperations() []string {
 		"AssociateSubnetCidrBlock",
 		"AssociateTransitGatewayMulticastDomain",
 		"AssociateTransitGatewayPolicyTable",
-		"AssociateTransitGatewayRouteTable",
+		// AssociateTransitGatewayRouteTable — now in ec2CoreSupportedOperations
 		"AssociateTrunkInterface",
-		"AssociateVpcCidrBlock",
+		// AssociateVpcCidrBlock — now in ec2CoreSupportedOperations
 		"AttachClassicLinkVpc",
 		"AttachVerifiedAccessTrustProvider",
 		"AttachVpnGateway",
@@ -691,7 +691,7 @@ func stubSupportedOperations() []string {
 		"CreateDefaultSubnet",
 		"CreateDefaultVpc",
 		"CreateDelegateMacVolumeOwnershipTask",
-		"CreateEgressOnlyInternetGateway",
+		// CreateEgressOnlyInternetGateway — now in ec2CoreSupportedOperations
 		"CreateFleet",
 		"CreateFpgaImage",
 		"CreateImageUsageReport",
@@ -742,8 +742,8 @@ func stubSupportedOperations() []string {
 		"CreateTransitGatewayPeeringAttachment",
 		"CreateTransitGatewayPolicyTable",
 		"CreateTransitGatewayPrefixListReference",
-		"CreateTransitGatewayRoute",
-		"CreateTransitGatewayRouteTable",
+		// CreateTransitGatewayRoute — now in ec2CoreSupportedOperations
+		// CreateTransitGatewayRouteTable — now in ec2CoreSupportedOperations
 		"CreateTransitGatewayRouteTableAnnouncement",
 		"CreateVerifiedAccessEndpoint",
 		"CreateVerifiedAccessGroup",
@@ -764,7 +764,7 @@ func stubSupportedOperations() []string {
 		"DeleteCoipCidr",
 		"DeleteCoipPool",
 		"DeleteCustomerGateway",
-		"DeleteEgressOnlyInternetGateway",
+		// DeleteEgressOnlyInternetGateway — now in ec2CoreSupportedOperations
 		"DeleteFleets",
 		"DeleteFpgaImage",
 		"DeleteImageUsageReport",
@@ -810,8 +810,8 @@ func stubSupportedOperations() []string {
 		"DeleteTransitGatewayPeeringAttachment",
 		"DeleteTransitGatewayPolicyTable",
 		"DeleteTransitGatewayPrefixListReference",
-		"DeleteTransitGatewayRoute",
-		"DeleteTransitGatewayRouteTable",
+		// DeleteTransitGatewayRoute — now in ec2CoreSupportedOperations
+		// DeleteTransitGatewayRouteTable — now in ec2CoreSupportedOperations
 		"DeleteTransitGatewayRouteTableAnnouncement",
 		"DeleteVerifiedAccessEndpoint",
 		"DeleteVerifiedAccessGroup",
@@ -857,7 +857,7 @@ func stubSupportedOperations() []string {
 		"DescribeConversionTasks",
 		"DescribeCustomerGateways",
 		"DescribeDeclarativePoliciesReports",
-		"DescribeEgressOnlyInternetGateways",
+		// DescribeEgressOnlyInternetGateways — now in ec2CoreSupportedOperations
 		"DescribeElasticGpus",
 		"DescribeExportImageTasks",
 		"DescribeExportTasks",
@@ -870,7 +870,7 @@ func stubSupportedOperations() []string {
 		"DescribeFpgaImages",
 		"DescribeHostReservationOfferings",
 		"DescribeHostReservations",
-		"DescribeIamInstanceProfileAssociations",
+		// DescribeIamInstanceProfileAssociations — now in ec2CoreSupportedOperations
 		"DescribeIdFormat",
 		"DescribeIdentityIdFormat",
 		"DescribeImageReferences",
@@ -950,7 +950,7 @@ func stubSupportedOperations() []string {
 		"DescribeTransitGatewayPeeringAttachments",
 		"DescribeTransitGatewayPolicyTables",
 		"DescribeTransitGatewayRouteTableAnnouncements",
-		"DescribeTransitGatewayRouteTables",
+		// DescribeTransitGatewayRouteTables — now in ec2CoreSupportedOperations
 		"DescribeTrunkInterfaceAssociations",
 		"DescribeVerifiedAccessEndpoints",
 		"DescribeVerifiedAccessGroups",
@@ -999,7 +999,7 @@ func stubSupportedOperations() []string {
 		"DisassociateCapacityReservationBillingOwner",
 		"DisassociateClientVpnTargetNetwork",
 		"DisassociateEnclaveCertificateIamRole",
-		"DisassociateIamInstanceProfile",
+		// DisassociateIamInstanceProfile — now in ec2CoreSupportedOperations
 		"DisassociateInstanceEventWindow",
 		"DisassociateIpamByoasn",
 		"DisassociateIpamResourceDiscovery",
@@ -1009,7 +1009,7 @@ func stubSupportedOperations() []string {
 		"DisassociateSubnetCidrBlock",
 		"DisassociateTransitGatewayMulticastDomain",
 		"DisassociateTransitGatewayPolicyTable",
-		"DisassociateTransitGatewayRouteTable",
+		// DisassociateTransitGatewayRouteTable — now in ec2CoreSupportedOperations
 		"DisassociateTrunkInterface",
 		"DisassociateVpcCidrBlock",
 		"EnableAddressTransfer",
@@ -1208,11 +1208,11 @@ func stubSupportedOperations() []string {
 		"RejectVpcPeeringConnection",
 		"ReleaseHosts",
 		"ReleaseIpamPoolAllocation",
-		"ReplaceIamInstanceProfileAssociation",
+		// ReplaceIamInstanceProfileAssociation — now in ec2CoreSupportedOperations
 		"ReplaceImageCriteriaInAllowedImagesSettings",
 		"ReplaceRoute",
-		"ReplaceRouteTableAssociation",
-		"ReplaceTransitGatewayRoute",
+		// ReplaceRouteTableAssociation — now in ec2CoreSupportedOperations
+		// ReplaceTransitGatewayRoute — now in ec2CoreSupportedOperations
 		"ReplaceVpnTunnel",
 		"ReportInstanceStatus",
 		"RequestSpotFleet",
@@ -1303,14 +1303,6 @@ func (h *Handler) handleStubAssociateEnclaveCertificateIamRole(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubAssociateIamInstanceProfile(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateIamInstanceProfileResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubAssociateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateInstanceEventWindowResponse"},
@@ -1375,24 +1367,12 @@ func (h *Handler) handleStubAssociateTransitGatewayPolicyTable(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubAssociateTransitGatewayRouteTable(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateTransitGatewayRouteTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubAssociateTrunkInterface(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "AssociateTrunkInterfaceResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
-}
-
-func (h *Handler) handleStubAssociateVpcCidrBlock(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "AssociateVpcCidrBlockResponse"}, RequestID: reqID, Return: true}, nil
 }
 
 func (h *Handler) handleStubAttachClassicLinkVpc(_ url.Values, reqID string) (any, error) {
@@ -1578,14 +1558,6 @@ func (h *Handler) handleStubCreateDefaultVpc(_ url.Values, reqID string) (any, e
 func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateDelegateMacVolumeOwnershipTaskResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateEgressOnlyInternetGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateEgressOnlyInternetGatewayResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -1953,30 +1925,6 @@ func (h *Handler) handleStubCreateTransitGatewayPrefixListReference(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTransitGatewayRouteResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateTransitGatewayRouteTable(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTransitGatewayRouteTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateTransitGatewayRouteTableAnnouncement(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTransitGatewayRouteTableAnnouncementResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateVerifiedAccessEndpoint(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVerifiedAccessEndpointResponse"},
@@ -2095,14 +2043,6 @@ func (h *Handler) handleStubDeleteCoipPool(_ url.Values, reqID string) (any, err
 
 func (h *Handler) handleStubDeleteCustomerGateway(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{XMLName: xml.Name{Local: "DeleteCustomerGatewayResponse"}, RequestID: reqID, Return: true}, nil
-}
-
-func (h *Handler) handleStubDeleteEgressOnlyInternetGateway(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteEgressOnlyInternetGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
 }
 
 func (h *Handler) handleStubDeleteFleets(_ url.Values, reqID string) (any, error) {
@@ -2432,30 +2372,6 @@ func (h *Handler) handleStubDeleteTransitGatewayPrefixListReference(_ url.Values
 	}, nil
 }
 
-func (h *Handler) handleStubDeleteTransitGatewayRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayRouteResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteTransitGatewayRouteTable(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayRouteTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteTransitGatewayRouteTableAnnouncement(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayRouteTableAnnouncementResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDeleteVerifiedAccessEndpoint(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteVerifiedAccessEndpointResponse"},
@@ -2780,14 +2696,6 @@ func (h *Handler) handleStubDescribeDeclarativePoliciesReports(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeEgressOnlyInternetGateways(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeEgressOnlyInternetGatewaysResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDescribeElasticGpus(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{XMLName: xml.Name{Local: "DescribeElasticGpusResponse"}, RequestID: reqID, Return: true}, nil
 }
@@ -2859,14 +2767,6 @@ func (h *Handler) handleStubDescribeHostReservationOfferings(_ url.Values, reqID
 func (h *Handler) handleStubDescribeHostReservations(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeHostReservationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeIamInstanceProfileAssociations(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeIamInstanceProfileAssociationsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3455,17 +3355,25 @@ func (h *Handler) handleStubDescribeTransitGatewayPolicyTables(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayRouteTableAnnouncements(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubCreateTransitGatewayRouteTableAnnouncement(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTransitGatewayRouteTableAnnouncementsResponse"},
+		XMLName:   xml.Name{Local: "CreateTransitGatewayRouteTableAnnouncementResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeTransitGatewayRouteTables(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleStubDeleteTransitGatewayRouteTableAnnouncement(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTransitGatewayRouteTablesResponse"},
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayRouteTableAnnouncementResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayRouteTableAnnouncements(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayRouteTableAnnouncementsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -3826,14 +3734,6 @@ func (h *Handler) handleStubDisassociateEnclaveCertificateIamRole(_ url.Values, 
 	}, nil
 }
 
-func (h *Handler) handleStubDisassociateIamInstanceProfile(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateIamInstanceProfileResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubDisassociateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateInstanceEventWindowResponse"},
@@ -3901,14 +3801,6 @@ func (h *Handler) handleStubDisassociateTransitGatewayMulticastDomain(_ url.Valu
 func (h *Handler) handleStubDisassociateTransitGatewayPolicyTable(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DisassociateTransitGatewayPolicyTableResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDisassociateTransitGatewayRouteTable(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateTransitGatewayRouteTableResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -5306,14 +5198,6 @@ func (h *Handler) handleStubReleaseIpamPoolAllocation(_ url.Values, reqID string
 	}, nil
 }
 
-func (h *Handler) handleStubReplaceIamInstanceProfileAssociation(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ReplaceIamInstanceProfileAssociationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubReplaceImageCriteriaInAllowedImagesSettings(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "ReplaceImageCriteriaInAllowedImagesSettingsResponse"},
@@ -5324,22 +5208,6 @@ func (h *Handler) handleStubReplaceImageCriteriaInAllowedImagesSettings(_ url.Va
 
 func (h *Handler) handleStubReplaceRoute(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{XMLName: xml.Name{Local: "ReplaceRouteResponse"}, RequestID: reqID, Return: true}, nil
-}
-
-func (h *Handler) handleStubReplaceRouteTableAssociation(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ReplaceRouteTableAssociationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubReplaceTransitGatewayRoute(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ReplaceTransitGatewayRouteResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
 }
 
 func (h *Handler) handleStubReplaceVpnTunnel(_ url.Values, reqID string) (any, error) {
