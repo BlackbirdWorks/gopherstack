@@ -50,6 +50,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	ops := make([]string, 0, len(supportedOpsBase())+len(supportedOpsExtended()))
 	ops = append(ops, supportedOpsBase()...)
 	ops = append(ops, supportedOpsExtended()...)
+	sort.Strings(ops)
 
 	return ops
 }
@@ -1435,7 +1436,13 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 			return nil, fmt.Errorf("%w: invalid Port %q", ErrInvalidParameter, rawPort)
 		}
 	}
-	cluster, err := h.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, port)
+
+	serverlessV2Cfg, parseErr := parseServerlessV2ScalingConfig(vals)
+	if parseErr != nil && !errors.Is(parseErr, ErrNoServerlessV2Config) {
+		return nil, parseErr
+	}
+
+	cluster, err := h.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -1936,7 +1943,7 @@ func toXMLOptionGroup(og *OptionGroup) xmlOptionGroup {
 }
 
 func toXMLCluster(c *DBCluster) xmlDBCluster {
-	return xmlDBCluster{
+	x := xmlDBCluster{
 		DBClusterIdentifier:             c.DBClusterIdentifier,
 		Engine:                          c.Engine,
 		Status:                          c.Status,
@@ -1950,6 +1957,47 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		ActivityStreamKMSKeyID:          c.ActivityStreamKMSKeyID,
 		ActivityStreamKinesisStreamName: c.ActivityStreamKinesisStreamName,
 	}
+	if c.ServerlessV2ScalingConfig != nil {
+		x.ServerlessV2ScalingConfiguration = &xmlServerlessV2ScalingConfiguration{
+			MinCapacity: c.ServerlessV2ScalingConfig.MinCapacity,
+			MaxCapacity: c.ServerlessV2ScalingConfig.MaxCapacity,
+		}
+	}
+
+	return x
+}
+
+// parseServerlessV2ScalingConfig parses ServerlessV2ScalingConfiguration from request form values.
+// Returns nil when neither field is present in the request.
+func parseServerlessV2ScalingConfig(vals url.Values) (*ServerlessV2ScalingConfiguration, error) {
+	rawMin := vals.Get("ServerlessV2ScalingConfiguration.MinCapacity")
+	rawMax := vals.Get("ServerlessV2ScalingConfiguration.MaxCapacity")
+	if rawMin == "" && rawMax == "" {
+		return nil, ErrNoServerlessV2Config
+	}
+	cfg := &ServerlessV2ScalingConfiguration{}
+	if rawMin != "" {
+		v, err := strconv.ParseFloat(rawMin, 64)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"%w: invalid ServerlessV2ScalingConfiguration.MinCapacity %q",
+				ErrInvalidParameter, rawMin,
+			)
+		}
+		cfg.MinCapacity = v
+	}
+	if rawMax != "" {
+		v, err := strconv.ParseFloat(rawMax, 64)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"%w: invalid ServerlessV2ScalingConfiguration.MaxCapacity %q",
+				ErrInvalidParameter, rawMax,
+			)
+		}
+		cfg.MaxCapacity = v
+	}
+
+	return cfg, nil
 }
 
 func toXMLClusterSnapshot(s *DBClusterSnapshot) xmlDBClusterSnapshot {
@@ -2074,19 +2122,29 @@ type describeOptionGroupOptionsResponse struct {
 
 // ---- Cluster XML types ----
 
+type xmlServerlessV2ScalingConfiguration struct {
+	MinCapacity float64 `xml:"MinCapacity"`
+	MaxCapacity float64 `xml:"MaxCapacity"`
+}
+
+// xmlServerlessV2Ref is a type alias to keep struct field definitions within line-length limits.
+type xmlServerlessV2Ref = xmlServerlessV2ScalingConfiguration
+
 type xmlDBCluster struct {
-	DBClusterIdentifier             string `xml:"DBClusterIdentifier"`
-	Engine                          string `xml:"Engine"`
-	Status                          string `xml:"Status"`
-	MasterUsername                  string `xml:"MasterUsername"`
-	DatabaseName                    string `xml:"DatabaseName,omitempty"`
-	DBClusterParameterGroupName     string `xml:"DBClusterParameterGroup"`
-	Endpoint                        string `xml:"Endpoint,omitempty"`
-	ActivityStreamStatus            string `xml:"ActivityStreamStatus,omitempty"`
-	ActivityStreamMode              string `xml:"ActivityStreamMode,omitempty"`
-	ActivityStreamKMSKeyID          string `xml:"ActivityStreamKmsKeyId,omitempty"`
-	ActivityStreamKinesisStreamName string `xml:"ActivityStreamKinesisStreamName,omitempty"`
-	Port                            int    `xml:"Port"`
+	// ServerlessV2ScalingConfiguration holds Aurora Serverless v2 capacity settings.
+	ServerlessV2ScalingConfiguration *xmlServerlessV2Ref `xml:"ServerlessV2ScalingConfiguration,omitempty"`
+	DBClusterIdentifier              string              `xml:"DBClusterIdentifier"`
+	Engine                           string              `xml:"Engine"`
+	Status                           string              `xml:"Status"`
+	MasterUsername                   string              `xml:"MasterUsername"`
+	DatabaseName                     string              `xml:"DatabaseName,omitempty"`
+	DBClusterParameterGroupName      string              `xml:"DBClusterParameterGroup"`
+	Endpoint                         string              `xml:"Endpoint,omitempty"`
+	ActivityStreamStatus             string              `xml:"ActivityStreamStatus,omitempty"`
+	ActivityStreamMode               string              `xml:"ActivityStreamMode,omitempty"`
+	ActivityStreamKMSKeyID           string              `xml:"ActivityStreamKmsKeyId,omitempty"`
+	ActivityStreamKinesisStreamName  string              `xml:"ActivityStreamKinesisStreamName,omitempty"`
+	Port                             int                 `xml:"Port"`
 }
 
 type xmlDBClusterList struct {

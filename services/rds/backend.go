@@ -76,6 +76,8 @@ var (
 	ErrBlueGreenDeploymentNotFound = errors.New("BlueGreenDeploymentNotFound")
 	// ErrBlueGreenDeploymentAlreadyExists is returned when a Blue/Green Deployment already exists.
 	ErrBlueGreenDeploymentAlreadyExists = errors.New("BlueGreenDeploymentAlreadyExists")
+	// ErrNoServerlessV2Config is a sentinel indicating no ServerlessV2ScalingConfiguration was provided.
+	ErrNoServerlessV2Config = errors.New("noServerlessV2Config")
 )
 
 const (
@@ -198,23 +200,30 @@ type OptionGroup struct {
 	Options                []OptionGroupOption `json:"options"`
 }
 
+// ServerlessV2ScalingConfiguration holds Aurora Serverless v2 capacity settings.
+type ServerlessV2ScalingConfiguration struct {
+	MinCapacity float64 `json:"minCapacity"`
+	MaxCapacity float64 `json:"maxCapacity"`
+}
+
 // DBCluster represents an Aurora-style RDS cluster.
 type DBCluster struct {
-	Endpoint                        string `json:"endpoint"`
-	ActivityStreamStatus            string `json:"activityStreamStatus"`
-	Status                          string `json:"status"`
-	MasterUsername                  string `json:"masterUsername"`
-	DatabaseName                    string `json:"databaseName"`
-	DBClusterParameterGroupName     string `json:"dbClusterParameterGroupName"`
-	Engine                          string `json:"engine"`
-	ActivityStreamAuditPolicy       string `json:"activityStreamAuditPolicy"`
-	DBClusterIdentifier             string `json:"dbClusterIdentifier"`
-	ActivityStreamKinesisStreamName string `json:"activityStreamKinesisStreamName"`
-	ActivityStreamKMSKeyID          string `json:"activityStreamKmsKeyId"`
-	ActivityStreamMode              string `json:"activityStreamMode"`
-	Port                            int    `json:"port"`
-	ServerlessCapacity              int    `json:"serverlessCapacity"`
-	HTTPEndpointEnabled             bool   `json:"httpEndpointEnabled"`
+	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration `json:"serverlessV2ScalingConfiguration,omitempty"`
+	Endpoint                        string                            `json:"endpoint"`
+	ActivityStreamStatus            string                            `json:"activityStreamStatus"`
+	Status                          string                            `json:"status"`
+	MasterUsername                  string                            `json:"masterUsername"`
+	DatabaseName                    string                            `json:"databaseName"`
+	DBClusterParameterGroupName     string                            `json:"dbClusterParameterGroupName"`
+	Engine                          string                            `json:"engine"`
+	ActivityStreamAuditPolicy       string                            `json:"activityStreamAuditPolicy"`
+	DBClusterIdentifier             string                            `json:"dbClusterIdentifier"`
+	ActivityStreamKinesisStreamName string                            `json:"activityStreamKinesisStreamName"`
+	ActivityStreamKMSKeyID          string                            `json:"activityStreamKmsKeyId"`
+	ActivityStreamMode              string                            `json:"activityStreamMode"`
+	Port                            int                               `json:"port"`
+	ServerlessCapacity              int                               `json:"serverlessCapacity"`
+	HTTPEndpointEnabled             bool                              `json:"httpEndpointEnabled"`
 }
 
 // DBClusterSnapshot represents an RDS cluster snapshot.
@@ -1489,6 +1498,7 @@ func (b *InMemoryBackend) ModifyOptionGroup(
 func (b *InMemoryBackend) CreateDBCluster(
 	id, engine, masterUser, dbName, paramGroupName string,
 	port int,
+	serverlessV2Cfg *ServerlessV2ScalingConfiguration,
 ) (*DBCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
@@ -1517,6 +1527,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 		DBClusterParameterGroupName: paramGroupName,
 		Endpoint:                    endpoint,
 		Port:                        port,
+		ServerlessV2ScalingConfig:   serverlessV2Cfg,
 	}
 	b.clusters[id] = cluster
 	cp := *cluster

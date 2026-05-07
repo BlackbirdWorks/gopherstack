@@ -56,7 +56,11 @@ type StorageBackend interface {
 	CopyOptionGroup(sourceGroupName, targetGroupName, targetDescription string) (*OptionGroup, error)
 
 	// DB cluster operations
-	CreateDBCluster(id, engine, masterUser, dbName, paramGroupName string, port int) (*DBCluster, error)
+	CreateDBCluster(
+		id, engine, masterUser, dbName, paramGroupName string,
+		port int,
+		serverlessV2Cfg *ServerlessV2ScalingConfiguration,
+	) (*DBCluster, error)
 	DescribeDBClusters(id string) ([]DBCluster, error)
 	DeleteDBCluster(id string) (*DBCluster, error)
 	ModifyDBCluster(id, paramGroupName string) (*DBCluster, error)
