@@ -27,6 +27,119 @@ const (
 	opUpdateResponseHeadersPolicy = "UpdateResponseHeadersPolicy"
 )
 
+// Stub operation constants for not-yet-implemented CloudFront operations.
+const (
+	opCreateDistributionTenant              = "CreateDistributionTenant"
+	opCreateDistributionWithTags            = "CreateDistributionWithTags"
+	opCreateFieldLevelEncryptionConfig      = "CreateFieldLevelEncryptionConfig"
+	opCreateFieldLevelEncryptionProfile     = "CreateFieldLevelEncryptionProfile"
+	opCreateInvalidationForDistTenant       = "CreateInvalidationForDistributionTenant"
+	opCreateKeyGroup                        = "CreateKeyGroup"
+	opCreateKeyValueStore                   = "CreateKeyValueStore"
+	opCreateMonitoringSubscription          = "CreateMonitoringSubscription"
+	opCreatePublicKey                       = "CreatePublicKey"
+	opCreateRealtimeLogConfig               = "CreateRealtimeLogConfig"
+	opCreateStreamingDistribution           = "CreateStreamingDistribution"
+	opCreateStreamingDistributionWithTags   = "CreateStreamingDistributionWithTags"
+	opCreateTrustStore                      = "CreateTrustStore"
+	opCreateVpcOrigin                       = "CreateVpcOrigin"
+	opDeleteAnycastIPList                   = "DeleteAnycastIpList"
+	opDeleteConnectionFunction              = "DeleteConnectionFunction"
+	opDeleteConnectionGroup                 = "DeleteConnectionGroup"
+	opDeleteContinuousDeploymentPolicy      = "DeleteContinuousDeploymentPolicy"
+	opDeleteDistributionTenant              = "DeleteDistributionTenant"
+	opDeleteFieldLevelEncryptionConfig      = "DeleteFieldLevelEncryptionConfig"
+	opDeleteFieldLevelEncryptionProfile     = "DeleteFieldLevelEncryptionProfile"
+	opDeleteKeyGroup                        = "DeleteKeyGroup"
+	opDeleteKeyValueStore                   = "DeleteKeyValueStore"
+	opDeleteMonitoringSubscription          = "DeleteMonitoringSubscription"
+	opDeletePublicKey                       = "DeletePublicKey"
+	opDeleteRealtimeLogConfig               = "DeleteRealtimeLogConfig"
+	opDeleteResourcePolicy                  = "DeleteResourcePolicy"
+	opDeleteStreamingDistribution           = "DeleteStreamingDistribution"
+	opDeleteTrustStore                      = "DeleteTrustStore"
+	opDeleteVpcOrigin                       = "DeleteVpcOrigin"
+	opDescribeConnectionFunction            = "DescribeConnectionFunction"
+	opDescribeKeyValueStore                 = "DescribeKeyValueStore"
+	opDisassociateDistributionTenantWebACL  = "DisassociateDistributionTenantWebACL"
+	opDisassociateDistributionWebACL        = "DisassociateDistributionWebACL"
+	opGetAnycastIPList                      = "GetAnycastIpList"
+	opGetConnectionFunction                 = "GetConnectionFunction"
+	opGetConnectionGroup                    = "GetConnectionGroup"
+	opGetConnectionGroupByRoutingEndpoint   = "GetConnectionGroupByRoutingEndpoint"
+	opGetContinuousDeploymentPolicy         = "GetContinuousDeploymentPolicy"
+	opGetContinuousDeploymentPolicyConfig   = "GetContinuousDeploymentPolicyConfig"
+	opGetDistributionTenant                 = "GetDistributionTenant"
+	opGetDistributionTenantByDomain         = "GetDistributionTenantByDomain"
+	opGetFieldLevelEncryption               = "GetFieldLevelEncryption"
+	opGetFieldLevelEncryptionConfig         = "GetFieldLevelEncryptionConfig"
+	opGetFieldLevelEncryptionProfile        = "GetFieldLevelEncryptionProfile"
+	opGetFieldLevelEncryptionProfileConfig  = "GetFieldLevelEncryptionProfileConfig"
+	opGetInvalidationForDistTenant          = "GetInvalidationForDistributionTenant"
+	opGetKeyGroup                           = "GetKeyGroup"
+	opGetKeyGroupConfig                     = "GetKeyGroupConfig"
+	opGetManagedCertificateDetails          = "GetManagedCertificateDetails"
+	opGetMonitoringSubscription             = "GetMonitoringSubscription"
+	opGetPublicKey                          = "GetPublicKey"
+	opGetPublicKeyConfig                    = "GetPublicKeyConfig"
+	opGetRealtimeLogConfig                  = "GetRealtimeLogConfig"
+	opGetResourcePolicy                     = "GetResourcePolicy"
+	opGetStreamingDistribution              = "GetStreamingDistribution"
+	opGetStreamingDistributionConfig        = "GetStreamingDistributionConfig"
+	opGetTrustStore                         = "GetTrustStore"
+	opGetVpcOrigin                          = "GetVpcOrigin"
+	opListAnycastIPLists                    = "ListAnycastIpLists"
+	opListConflictingAliases                = "ListConflictingAliases"
+	opListConnectionFunctions               = "ListConnectionFunctions"
+	opListConnectionGroups                  = "ListConnectionGroups"
+	opListContinuousDeploymentPolicies      = "ListContinuousDeploymentPolicies"
+	opListDistributionTenants               = "ListDistributionTenants"
+	opListDistributionTenantsByCustom       = "ListDistributionTenantsByCustomization"
+	opListDistributionsByAnycastIPListID    = "ListDistributionsByAnycastIpListId"
+	opListDistributionsByCachePolicyID      = "ListDistributionsByCachePolicyId"
+	opListDistributionsByConnectionFunction = "ListDistributionsByConnectionFunction"
+	opListDistributionsByConnectionMode     = "ListDistributionsByConnectionMode"
+	opListDistributionsByKeyGroup           = "ListDistributionsByKeyGroup"
+	opListDistributionsByOriginRequestPol   = "ListDistributionsByOriginRequestPolicyId"
+	opListDistributionsByOwnedResource      = "ListDistributionsByOwnedResource"
+	opListDistributionsByRealtimeLogConfig  = "ListDistributionsByRealtimeLogConfig"
+	opListDistributionsByResponseHeadersPol = "ListDistributionsByResponseHeadersPolicyId"
+	opListDistributionsByTrustStore         = "ListDistributionsByTrustStore"
+	opListDistributionsByVpcOriginID        = "ListDistributionsByVpcOriginId"
+	opListDistributionsByWebACLID           = "ListDistributionsByWebACLId"
+	opListDomainConflicts                   = "ListDomainConflicts"
+	opListFieldLevelEncryptionConfigs       = "ListFieldLevelEncryptionConfigs"
+	opListFieldLevelEncryptionProfiles      = "ListFieldLevelEncryptionProfiles"
+	opListInvalidationsForDistTenant        = "ListInvalidationsForDistributionTenant"
+	opListKeyGroups                         = "ListKeyGroups"
+	opListKeyValueStores                    = "ListKeyValueStores"
+	opListPublicKeys                        = "ListPublicKeys"
+	opListRealtimeLogConfigs                = "ListRealtimeLogConfigs"
+	opListStreamingDistributions            = "ListStreamingDistributions"
+	opListTrustStores                       = "ListTrustStores"
+	opListVpcOrigins                        = "ListVpcOrigins"
+	opPublishConnectionFunction             = "PublishConnectionFunction"
+	opPutResourcePolicy                     = "PutResourcePolicy"
+	opTestConnectionFunction                = "TestConnectionFunction"
+	opUpdateAnycastIPList                   = "UpdateAnycastIpList"
+	opUpdateConnectionFunction              = "UpdateConnectionFunction"
+	opUpdateConnectionGroup                 = "UpdateConnectionGroup"
+	opUpdateContinuousDeploymentPolicy      = "UpdateContinuousDeploymentPolicy"
+	opUpdateDistributionTenant              = "UpdateDistributionTenant"
+	opUpdateDistributionWithStagingConfig   = "UpdateDistributionWithStagingConfig"
+	opUpdateDomainAssociation               = "UpdateDomainAssociation"
+	opUpdateFieldLevelEncryptionConfig      = "UpdateFieldLevelEncryptionConfig"
+	opUpdateFieldLevelEncryptionProfile     = "UpdateFieldLevelEncryptionProfile"
+	opUpdateKeyGroup                        = "UpdateKeyGroup"
+	opUpdateKeyValueStore                   = "UpdateKeyValueStore"
+	opUpdatePublicKey                       = "UpdatePublicKey"
+	opUpdateRealtimeLogConfig               = "UpdateRealtimeLogConfig"
+	opUpdateStreamingDistribution           = "UpdateStreamingDistribution"
+	opUpdateTrustStore                      = "UpdateTrustStore"
+	opUpdateVpcOrigin                       = "UpdateVpcOrigin"
+	opVerifyDNSConfiguration                = "VerifyDnsConfiguration"
+)
+
 const (
 	opAssociateAlias                          = "AssociateAlias"
 	opAssociateDistributionTenantWebACL       = "AssociateDistributionTenantWebACL"
@@ -85,6 +198,10 @@ const (
 	maxItems     = 100
 
 	opUpdateCloudFrontOAI = "UpdateCloudFrontOriginAccessIdentity"
+
+	// Path segment constants used in parseCFPath.
+	sfxDistribution   = "distribution"
+	sfxResourcePolicy = "resource-policy"
 )
 
 // Handler is the Echo HTTP handler for AWS CloudFront operations (REST-XML protocol).
@@ -104,6 +221,8 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 func (h *Handler) Name() string { return "CloudFront" }
 
 // GetSupportedOperations returns the list of supported CloudFront operations.
+//
+//nolint:funlen // extended list for stub operations is inherently long
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opAssociateAlias,
@@ -164,6 +283,116 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateOriginAccessControl,
 		opUpdateOriginRequestPolicy,
 		opUpdateResponseHeadersPolicy,
+		// Stub operations.
+		opCreateDistributionTenant,
+		opCreateDistributionWithTags,
+		opCreateFieldLevelEncryptionConfig,
+		opCreateFieldLevelEncryptionProfile,
+		opCreateInvalidationForDistTenant,
+		opCreateKeyGroup,
+		opCreateKeyValueStore,
+		opCreateMonitoringSubscription,
+		opCreatePublicKey,
+		opCreateRealtimeLogConfig,
+		opCreateStreamingDistribution,
+		opCreateStreamingDistributionWithTags,
+		opCreateTrustStore,
+		opCreateVpcOrigin,
+		opDeleteAnycastIPList,
+		opDeleteConnectionFunction,
+		opDeleteConnectionGroup,
+		opDeleteContinuousDeploymentPolicy,
+		opDeleteDistributionTenant,
+		opDeleteFieldLevelEncryptionConfig,
+		opDeleteFieldLevelEncryptionProfile,
+		opDeleteKeyGroup,
+		opDeleteKeyValueStore,
+		opDeleteMonitoringSubscription,
+		opDeletePublicKey,
+		opDeleteRealtimeLogConfig,
+		opDeleteResourcePolicy,
+		opDeleteStreamingDistribution,
+		opDeleteTrustStore,
+		opDeleteVpcOrigin,
+		opDescribeConnectionFunction,
+		opDescribeKeyValueStore,
+		opDisassociateDistributionTenantWebACL,
+		opDisassociateDistributionWebACL,
+		opGetAnycastIPList,
+		opGetConnectionFunction,
+		opGetConnectionGroup,
+		opGetConnectionGroupByRoutingEndpoint,
+		opGetContinuousDeploymentPolicy,
+		opGetContinuousDeploymentPolicyConfig,
+		opGetDistributionTenant,
+		opGetDistributionTenantByDomain,
+		opGetFieldLevelEncryption,
+		opGetFieldLevelEncryptionConfig,
+		opGetFieldLevelEncryptionProfile,
+		opGetFieldLevelEncryptionProfileConfig,
+		opGetInvalidationForDistTenant,
+		opGetKeyGroup,
+		opGetKeyGroupConfig,
+		opGetManagedCertificateDetails,
+		opGetMonitoringSubscription,
+		opGetPublicKey,
+		opGetPublicKeyConfig,
+		opGetRealtimeLogConfig,
+		opGetResourcePolicy,
+		opGetStreamingDistribution,
+		opGetStreamingDistributionConfig,
+		opGetTrustStore,
+		opGetVpcOrigin,
+		opListAnycastIPLists,
+		opListConflictingAliases,
+		opListConnectionFunctions,
+		opListConnectionGroups,
+		opListContinuousDeploymentPolicies,
+		opListDistributionTenants,
+		opListDistributionTenantsByCustom,
+		opListDistributionsByAnycastIPListID,
+		opListDistributionsByCachePolicyID,
+		opListDistributionsByConnectionFunction,
+		opListDistributionsByConnectionMode,
+		opListDistributionsByKeyGroup,
+		opListDistributionsByOriginRequestPol,
+		opListDistributionsByOwnedResource,
+		opListDistributionsByRealtimeLogConfig,
+		opListDistributionsByResponseHeadersPol,
+		opListDistributionsByTrustStore,
+		opListDistributionsByVpcOriginID,
+		opListDistributionsByWebACLID,
+		opListDomainConflicts,
+		opListFieldLevelEncryptionConfigs,
+		opListFieldLevelEncryptionProfiles,
+		opListInvalidationsForDistTenant,
+		opListKeyGroups,
+		opListKeyValueStores,
+		opListPublicKeys,
+		opListRealtimeLogConfigs,
+		opListStreamingDistributions,
+		opListTrustStores,
+		opListVpcOrigins,
+		opPublishConnectionFunction,
+		opPutResourcePolicy,
+		opTestConnectionFunction,
+		opUpdateAnycastIPList,
+		opUpdateConnectionFunction,
+		opUpdateConnectionGroup,
+		opUpdateContinuousDeploymentPolicy,
+		opUpdateDistributionTenant,
+		opUpdateDistributionWithStagingConfig,
+		opUpdateDomainAssociation,
+		opUpdateFieldLevelEncryptionConfig,
+		opUpdateFieldLevelEncryptionProfile,
+		opUpdateKeyGroup,
+		opUpdateKeyValueStore,
+		opUpdatePublicKey,
+		opUpdateRealtimeLogConfig,
+		opUpdateStreamingDistribution,
+		opUpdateTrustStore,
+		opUpdateVpcOrigin,
+		opVerifyDNSConfiguration,
 	}
 }
 
@@ -188,14 +417,22 @@ func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
 // ExtractOperation extracts the CloudFront operation name from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	op, _ := parseCFPath(c.Request().Method, c.Request().URL.Path, c.Request().URL.Query().Get("Resource"))
+	op, _ := parseCFPath(
+		c.Request().Method,
+		c.Request().URL.Path,
+		c.Request().URL.Query().Get("Resource"),
+	)
 
 	return op
 }
 
 // ExtractResource extracts the primary resource identifier from the URL path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	_, res := parseCFPath(c.Request().Method, c.Request().URL.Path, c.Request().URL.Query().Get("Resource"))
+	_, res := parseCFPath(
+		c.Request().Method,
+		c.Request().URL.Path,
+		c.Request().URL.Query().Get("Resource"),
+	)
 
 	return res
 }
@@ -216,14 +453,14 @@ func xmlResp(c *echo.Context, status int, body string) error {
 
 // parseCFPath maps HTTP method + path to (operationName, resourceID).
 //
-//nolint:cyclop,funlen,gocognit,gocyclo // dispatch table for many REST operations is inherently wide
+//nolint:cyclop,funlen,gocognit,gocyclo,lll,nlreturn // dispatch table for many REST operations is inherently wide
 func parseCFPath(method, path, resourceParam string) (string, string) {
 	suffix := strings.TrimPrefix(path, cfPathPrefix)
 
 	switch {
-	case suffix == "distribution" && method == http.MethodPost:
+	case suffix == sfxDistribution && method == http.MethodPost:
 		return opCreateDistribution, ""
-	case suffix == "distribution" && method == http.MethodGet:
+	case suffix == sfxDistribution && method == http.MethodGet:
 		return opListDistributions, ""
 	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/config"):
 		id := strings.TrimPrefix(suffix, "distribution/")
@@ -449,6 +686,347 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodDelete:
 			return opUntagResource, resourceParam
 		}
+	// --- Stub operation paths ---
+	case suffix == sfxDistribution && method == http.MethodPost && resourceParam == "WithTags":
+		return opCreateDistributionWithTags, ""
+	case suffix == "distribution-tenant" && method == http.MethodPost:
+		return opCreateDistributionTenant, ""
+	case suffix == "distribution-tenant" && method == http.MethodGet:
+		return opListDistributionTenants, ""
+	case strings.HasPrefix(suffix, "distribution-tenant/") && !strings.Contains(strings.TrimPrefix(suffix, "distribution-tenant/"), "/"):
+		id := strings.TrimPrefix(suffix, "distribution-tenant/")
+		switch method {
+		case http.MethodGet:
+			return opGetDistributionTenant, id
+		case http.MethodPut:
+			return opUpdateDistributionTenant, id
+		case http.MethodDelete:
+			return opDeleteDistributionTenant, id
+		}
+	case suffix == "field-level-encryption" && method == http.MethodPost:
+		return opCreateFieldLevelEncryptionConfig, ""
+	case suffix == "field-level-encryption" && method == http.MethodGet:
+		return opListFieldLevelEncryptionConfigs, ""
+	case strings.HasPrefix(suffix, "field-level-encryption/") && !strings.Contains(strings.TrimPrefix(suffix, "field-level-encryption/"), "/"):
+		id := strings.TrimPrefix(suffix, "field-level-encryption/")
+		switch method {
+		case http.MethodGet:
+			return opGetFieldLevelEncryption, id
+		case http.MethodPut:
+			return opUpdateFieldLevelEncryptionConfig, id
+		case http.MethodDelete:
+			return opDeleteFieldLevelEncryptionConfig, id
+		}
+	case strings.HasPrefix(suffix, "field-level-encryption/") && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimPrefix(suffix, "field-level-encryption/")
+		id = strings.TrimSuffix(id, "/config")
+		if method == http.MethodGet {
+			return opGetFieldLevelEncryptionConfig, id
+		}
+	case suffix == "field-level-encryption-profile" && method == http.MethodPost:
+		return opCreateFieldLevelEncryptionProfile, ""
+	case suffix == "field-level-encryption-profile" && method == http.MethodGet:
+		return opListFieldLevelEncryptionProfiles, ""
+	case strings.HasPrefix(suffix, "field-level-encryption-profile/") && !strings.Contains(strings.TrimPrefix(suffix, "field-level-encryption-profile/"), "/"):
+		id := strings.TrimPrefix(suffix, "field-level-encryption-profile/")
+		switch method {
+		case http.MethodGet:
+			return opGetFieldLevelEncryptionProfile, id
+		case http.MethodPut:
+			return opUpdateFieldLevelEncryptionProfile, id
+		case http.MethodDelete:
+			return opDeleteFieldLevelEncryptionProfile, id
+		}
+	case strings.HasPrefix(suffix, "field-level-encryption-profile/") && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimPrefix(suffix, "field-level-encryption-profile/")
+		id = strings.TrimSuffix(id, "/config")
+		if method == http.MethodGet {
+			return opGetFieldLevelEncryptionProfileConfig, id
+		}
+	case suffix == "key-group" && method == http.MethodPost:
+		return opCreateKeyGroup, ""
+	case suffix == "key-group" && method == http.MethodGet:
+		return opListKeyGroups, ""
+	case strings.HasPrefix(suffix, "key-group/") && !strings.Contains(strings.TrimPrefix(suffix, "key-group/"), "/"):
+		id := strings.TrimPrefix(suffix, "key-group/")
+		switch method {
+		case http.MethodGet:
+			return opGetKeyGroup, id
+		case http.MethodPut:
+			return opUpdateKeyGroup, id
+		case http.MethodDelete:
+			return opDeleteKeyGroup, id
+		}
+	case strings.HasPrefix(suffix, "key-group/") && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimPrefix(suffix, "key-group/")
+		id = strings.TrimSuffix(id, "/config")
+		if method == http.MethodGet {
+			return opGetKeyGroupConfig, id
+		}
+	case suffix == "key-value-store" && method == http.MethodPost:
+		return opCreateKeyValueStore, ""
+	case suffix == "key-value-store" && method == http.MethodGet:
+		return opListKeyValueStores, ""
+	case strings.HasPrefix(suffix, "key-value-store/") && !strings.Contains(strings.TrimPrefix(suffix, "key-value-store/"), "/"):
+		id := strings.TrimPrefix(suffix, "key-value-store/")
+		switch method {
+		case http.MethodGet:
+			return opDescribeKeyValueStore, id
+		case http.MethodPut:
+			return opUpdateKeyValueStore, id
+		case http.MethodDelete:
+			return opDeleteKeyValueStore, id
+		}
+	case suffix == "public-key" && method == http.MethodPost:
+		return opCreatePublicKey, ""
+	case suffix == "public-key" && method == http.MethodGet:
+		return opListPublicKeys, ""
+	case strings.HasPrefix(suffix, "public-key/") && !strings.Contains(strings.TrimPrefix(suffix, "public-key/"), "/"):
+		id := strings.TrimPrefix(suffix, "public-key/")
+		switch method {
+		case http.MethodGet:
+			return opGetPublicKey, id
+		case http.MethodPut:
+			return opUpdatePublicKey, id
+		case http.MethodDelete:
+			return opDeletePublicKey, id
+		}
+	case strings.HasPrefix(suffix, "public-key/") && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimPrefix(suffix, "public-key/")
+		id = strings.TrimSuffix(id, "/config")
+		if method == http.MethodGet {
+			return opGetPublicKeyConfig, id
+		}
+	case suffix == "realtime-log-config" && method == http.MethodPost:
+		return opCreateRealtimeLogConfig, ""
+	case suffix == "realtime-log-config" && method == http.MethodGet:
+		return opListRealtimeLogConfigs, ""
+	case strings.HasPrefix(suffix, "realtime-log-config/") && !strings.Contains(strings.TrimPrefix(suffix, "realtime-log-config/"), "/"):
+		id := strings.TrimPrefix(suffix, "realtime-log-config/")
+		switch method {
+		case http.MethodGet:
+			return opGetRealtimeLogConfig, id
+		case http.MethodPut:
+			return opUpdateRealtimeLogConfig, id
+		case http.MethodDelete:
+			return opDeleteRealtimeLogConfig, id
+		}
+	case suffix == "streaming-distribution" && method == http.MethodPost:
+		return opCreateStreamingDistribution, ""
+	case suffix == "streaming-distribution" && method == http.MethodGet:
+		return opListStreamingDistributions, ""
+	case strings.HasPrefix(suffix, "streaming-distribution/") && !strings.Contains(strings.TrimPrefix(suffix, "streaming-distribution/"), "/"):
+		id := strings.TrimPrefix(suffix, "streaming-distribution/")
+		switch method {
+		case http.MethodGet:
+			return opGetStreamingDistribution, id
+		case http.MethodPut:
+			return opUpdateStreamingDistribution, id
+		case http.MethodDelete:
+			return opDeleteStreamingDistribution, id
+		}
+	case strings.HasPrefix(suffix, "streaming-distribution/") && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimPrefix(suffix, "streaming-distribution/")
+		id = strings.TrimSuffix(id, "/config")
+		if method == http.MethodGet {
+			return opGetStreamingDistributionConfig, id
+		}
+	case suffix == "trust-store" && method == http.MethodPost:
+		return opCreateTrustStore, ""
+	case suffix == "trust-store" && method == http.MethodGet:
+		return opListTrustStores, ""
+	case strings.HasPrefix(suffix, "trust-store/") && !strings.Contains(strings.TrimPrefix(suffix, "trust-store/"), "/"):
+		id := strings.TrimPrefix(suffix, "trust-store/")
+		switch method {
+		case http.MethodGet:
+			return opGetTrustStore, id
+		case http.MethodPut:
+			return opUpdateTrustStore, id
+		case http.MethodDelete:
+			return opDeleteTrustStore, id
+		}
+	case suffix == "vpc-origin" && method == http.MethodPost:
+		return opCreateVpcOrigin, ""
+	case suffix == "vpc-origin" && method == http.MethodGet:
+		return opListVpcOrigins, ""
+	case strings.HasPrefix(suffix, "vpc-origin/") && !strings.Contains(strings.TrimPrefix(suffix, "vpc-origin/"), "/"):
+		id := strings.TrimPrefix(suffix, "vpc-origin/")
+		switch method {
+		case http.MethodGet:
+			return opGetVpcOrigin, id
+		case http.MethodPut:
+			return opUpdateVpcOrigin, id
+		case http.MethodDelete:
+			return opDeleteVpcOrigin, id
+		}
+	case strings.HasPrefix(suffix, "anycast-ip-list/") && !strings.Contains(strings.TrimPrefix(suffix, "anycast-ip-list/"), "/"):
+		id := strings.TrimPrefix(suffix, "anycast-ip-list/")
+		switch method {
+		case http.MethodGet:
+			return opGetAnycastIPList, id
+		case http.MethodPut:
+			return opUpdateAnycastIPList, id
+		case http.MethodDelete:
+			return opDeleteAnycastIPList, id
+		}
+	case suffix == "anycast-ip-list" && method == http.MethodGet:
+		return opListAnycastIPLists, ""
+	case strings.HasPrefix(suffix, "connection-function/") && strings.HasSuffix(suffix, "/describe"):
+		id := strings.TrimPrefix(suffix, "connection-function/")
+		id = strings.TrimSuffix(id, "/describe")
+		return opDescribeConnectionFunction, id
+	case strings.HasPrefix(suffix, "connection-function/") && strings.HasSuffix(suffix, "/publish"):
+		id := strings.TrimPrefix(suffix, "connection-function/")
+		id = strings.TrimSuffix(id, "/publish")
+		return opPublishConnectionFunction, id
+	case strings.HasPrefix(suffix, "connection-function/") && strings.HasSuffix(suffix, "/test"):
+		id := strings.TrimPrefix(suffix, "connection-function/")
+		id = strings.TrimSuffix(id, "/test")
+		return opTestConnectionFunction, id
+	case strings.HasPrefix(suffix, "connection-function/") && !strings.Contains(strings.TrimPrefix(suffix, "connection-function/"), "/"):
+		id := strings.TrimPrefix(suffix, "connection-function/")
+		switch method {
+		case http.MethodGet:
+			return opGetConnectionFunction, id
+		case http.MethodPut:
+			return opUpdateConnectionFunction, id
+		case http.MethodDelete:
+			return opDeleteConnectionFunction, id
+		}
+	case suffix == "connection-function" && method == http.MethodGet:
+		return opListConnectionFunctions, ""
+	case suffix == "connection-group" && method == http.MethodGet:
+		return opListConnectionGroups, ""
+	case strings.HasPrefix(suffix, "connection-group/") && !strings.Contains(strings.TrimPrefix(suffix, "connection-group/"), "/"):
+		id := strings.TrimPrefix(suffix, "connection-group/")
+		switch method {
+		case http.MethodGet:
+			return opGetConnectionGroup, id
+		case http.MethodPut:
+			return opUpdateConnectionGroup, id
+		case http.MethodDelete:
+			return opDeleteConnectionGroup, id
+		}
+	case suffix == "continuous-deployment-policy" && method == http.MethodGet:
+		return opListContinuousDeploymentPolicies, ""
+	case strings.HasPrefix(suffix, "continuous-deployment-policy/") && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimPrefix(suffix, "continuous-deployment-policy/")
+		id = strings.TrimSuffix(id, "/config")
+		if method == http.MethodGet {
+			return opGetContinuousDeploymentPolicyConfig, id
+		}
+	case strings.HasPrefix(suffix, "continuous-deployment-policy/") && !strings.Contains(strings.TrimPrefix(suffix, "continuous-deployment-policy/"), "/"):
+		id := strings.TrimPrefix(suffix, "continuous-deployment-policy/")
+		switch method {
+		case http.MethodGet:
+			return opGetContinuousDeploymentPolicy, id
+		case http.MethodPut:
+			return opUpdateContinuousDeploymentPolicy, id
+		case http.MethodDelete:
+			return opDeleteContinuousDeploymentPolicy, id
+		}
+	case suffix == sfxResourcePolicy && method == http.MethodGet:
+		return opGetResourcePolicy, resourceParam
+	case suffix == sfxResourcePolicy && method == http.MethodPost:
+		return opPutResourcePolicy, resourceParam
+	case suffix == sfxResourcePolicy && method == http.MethodDelete:
+		return opDeleteResourcePolicy, resourceParam
+	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/monitoring-subscription"):
+		id := strings.TrimPrefix(suffix, "distribution/")
+		id = strings.TrimSuffix(id, "/monitoring-subscription")
+		switch method {
+		case http.MethodPost:
+			return opCreateMonitoringSubscription, id
+		case http.MethodGet:
+			return opGetMonitoringSubscription, id
+		case http.MethodDelete:
+			return opDeleteMonitoringSubscription, id
+		}
+	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/staging"):
+		id := strings.TrimPrefix(suffix, "distribution/")
+		id = strings.TrimSuffix(id, "/staging")
+		if method == http.MethodPut {
+			return opUpdateDistributionWithStagingConfig, id
+		}
+	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/disassociate-web-acl"):
+		id := strings.TrimPrefix(suffix, "distribution/")
+		id = strings.TrimSuffix(id, "/disassociate-web-acl")
+		if method == http.MethodPut {
+			return opDisassociateDistributionWebACL, id
+		}
+	case strings.HasPrefix(suffix, "distribution-tenant/") && strings.HasSuffix(suffix, "/disassociate-web-acl"):
+		id := strings.TrimPrefix(suffix, "distribution-tenant/")
+		id = strings.TrimSuffix(id, "/disassociate-web-acl")
+		if method == http.MethodPut {
+			return opDisassociateDistributionTenantWebACL, id
+		}
+	case strings.HasPrefix(suffix, "distribution-tenant/") && strings.Contains(suffix, "/invalidation"):
+		inner := strings.TrimPrefix(suffix, "distribution-tenant/")
+		if strings.HasSuffix(suffix, "/invalidation") && method == http.MethodPost {
+			id := strings.TrimSuffix(inner, "/invalidation")
+			return opCreateInvalidationForDistTenant, id
+		}
+		if strings.HasSuffix(suffix, "/invalidation") && method == http.MethodGet {
+			id := strings.TrimSuffix(inner, "/invalidation")
+			return opListInvalidationsForDistTenant, id
+		}
+		if before, after, ok := strings.Cut(inner, "/invalidation/"); ok &&
+			method == http.MethodGet {
+			_ = after
+			return opGetInvalidationForDistTenant, before
+		}
+	case strings.HasPrefix(suffix, "distribution/") && strings.Contains(suffix, "/list-by-"):
+		if method == http.MethodGet {
+			return opListDistributionsByOwnedResource, ""
+		}
+	case suffix == "conflicting-alias" && method == http.MethodGet:
+		return opListConflictingAliases, ""
+	case suffix == "domain-conflict" && method == http.MethodPost:
+		return opListDomainConflicts, ""
+	case suffix == "domain-association" && method == http.MethodPost:
+		return opUpdateDomainAssociation, ""
+	case suffix == "verify-dns-configuration" && method == http.MethodPost:
+		return opVerifyDNSConfiguration, ""
+	case strings.HasPrefix(suffix, "distributions/by-cache-policy-id/") && method == http.MethodGet:
+		id := strings.TrimPrefix(suffix, "distributions/by-cache-policy-id/")
+		return opListDistributionsByCachePolicyID, id
+	case strings.HasPrefix(suffix, "distributions/by-origin-request-policy-id/") && method == http.MethodGet:
+		id := strings.TrimPrefix(suffix, "distributions/by-origin-request-policy-id/")
+		return opListDistributionsByOriginRequestPol, id
+	case strings.HasPrefix(suffix, "distributions/by-response-headers-policy-id/") && method == http.MethodGet:
+		id := strings.TrimPrefix(suffix, "distributions/by-response-headers-policy-id/")
+		return opListDistributionsByResponseHeadersPol, id
+	case strings.HasPrefix(suffix, "distributions/by-web-acl-id/") && method == http.MethodGet:
+		id := strings.TrimPrefix(suffix, "distributions/by-web-acl-id/")
+		return opListDistributionsByWebACLID, id
+	case strings.HasPrefix(suffix, "distributions/by-key-group/") && method == http.MethodGet:
+		id := strings.TrimPrefix(suffix, "distributions/by-key-group/")
+		return opListDistributionsByKeyGroup, id
+	case strings.HasPrefix(suffix, "distributions/by-realtime-log-config") && method == http.MethodGet:
+		return opListDistributionsByRealtimeLogConfig, ""
+	case strings.HasPrefix(suffix, "distributions/by-vpc-origin-id/") && method == http.MethodGet:
+		id := strings.TrimPrefix(suffix, "distributions/by-vpc-origin-id/")
+		return opListDistributionsByVpcOriginID, id
+	case strings.HasPrefix(suffix, "distributions/by-anycast-ip-list-id/") && method == http.MethodGet:
+		id := strings.TrimPrefix(suffix, "distributions/by-anycast-ip-list-id/")
+		return opListDistributionsByAnycastIPListID, id
+	case strings.HasPrefix(suffix, "distributions/by-connection-function/") && method == http.MethodGet:
+		id := strings.TrimPrefix(suffix, "distributions/by-connection-function/")
+		return opListDistributionsByConnectionFunction, id
+	case suffix == "distributions/by-connection-mode" && method == http.MethodGet:
+		return opListDistributionsByConnectionMode, ""
+	case suffix == "distribution-tenants/by-customization" && method == http.MethodGet:
+		return opListDistributionTenantsByCustom, ""
+	case strings.HasPrefix(suffix, "distribution-tenant/") && strings.HasSuffix(suffix, "/managed-certificate-details"):
+		id := strings.TrimPrefix(suffix, "distribution-tenant/")
+		id = strings.TrimSuffix(id, "/managed-certificate-details")
+		return opGetManagedCertificateDetails, id
+	case suffix == "connection-group-by-routing-endpoint" && method == http.MethodGet:
+		return opGetConnectionGroupByRoutingEndpoint, ""
+	case suffix == "distribution-tenant-by-domain" && method == http.MethodGet:
+		return opGetDistributionTenantByDomain, ""
+	case strings.HasPrefix(suffix, "trust-store/") && strings.Contains(suffix, "/by-trust-store/"):
+		return opListDistributionsByTrustStore, ""
 	}
 
 	return "Unknown", ""
@@ -582,7 +1160,11 @@ func (h *Handler) dispatch(c *echo.Context, operation, resource string) error {
 		return err
 	}
 
-	return h.dispatchMisc(c, operation, resource)
+	if err := h.dispatchMisc(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchStubs(c, operation)
 }
 
 // errNotDispatched is a sentinel returned by sub-dispatchers when an operation
@@ -732,7 +1314,369 @@ func (h *Handler) dispatchMisc(c *echo.Context, operation, resource string) erro
 	case opUntagResource:
 		return h.handleUntagResource(c)
 	default:
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOperation", "unknown operation: "+operation))
+		return errNotDispatched
+	}
+}
+
+// cfStubXMLList returns an empty CloudFront list XML response for stub operations.
+func cfStubXMLList(ns, listTag string) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<%s xmlns="%s"><Items/><MaxItems>0</MaxItems><Quantity>0</Quantity><IsTruncated>false</IsTruncated></%s>`,
+		listTag, ns, listTag)
+}
+
+// dispatchStubs handles all stub CloudFront operations with minimal valid responses.
+//
+//nolint:funlen,cyclop,gocyclo,nlreturn // large dispatch table for stub operations
+func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
+	emptyItems := `<?xml version="1.0" encoding="UTF-8"?><Items xmlns="` + cfNS + `"/>`
+	noContent := func() error { return c.NoContent(http.StatusNoContent) }
+	emptyList := func(tag string) error { return xmlResp(c, http.StatusOK, cfStubXMLList(cfNS, tag)) }
+	created := func(tag, id string) error {
+		return xmlResp(c, http.StatusCreated, fmt.Sprintf(
+			`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
+			tag, cfNS, id, tag))
+	}
+	getStub := func(tag, id string) error {
+		return xmlResp(c, http.StatusOK, fmt.Sprintf(
+			`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
+			tag, cfNS, id, tag))
+	}
+	_ = emptyItems
+
+	switch operation {
+	// Distribution variants.
+	case opCreateDistributionTenant:
+		return created("DistributionTenant", "tenant-stub")
+	case opCreateDistributionWithTags:
+		return created("Distribution", "dist-stub")
+	case opUpdateDistributionTenant:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><DistributionTenant xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteDistributionTenant:
+		return noContent()
+	case opGetDistributionTenant, opGetDistributionTenantByDomain:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><DistributionTenant xmlns="`+cfNS+`"/>`,
+		)
+	case opListDistributionTenants, opListDistributionTenantsByCustom:
+		return emptyList("DistributionTenantList")
+	case opUpdateDistributionWithStagingConfig:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><Distribution xmlns="`+cfNS+`"/>`,
+		)
+	case opUpdateDomainAssociation:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><DomainAssociation xmlns="`+cfNS+`"/>`,
+		)
+	case opVerifyDNSConfiguration:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><VerifyDnsConfigurationResponse xmlns="`+cfNS+`"/>`,
+		)
+
+	// Monitoring subscription.
+	case opCreateMonitoringSubscription:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`,
+		)
+	case opGetMonitoringSubscription:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteMonitoringSubscription:
+		return noContent()
+
+	// Disassociate WebACL.
+	case opDisassociateDistributionWebACL, opDisassociateDistributionTenantWebACL:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><Distribution xmlns="`+cfNS+`"/>`,
+		)
+
+	// Field level encryption.
+	case opCreateFieldLevelEncryptionConfig:
+		return created("FieldLevelEncryption", "fle-stub")
+	case opGetFieldLevelEncryption, opGetFieldLevelEncryptionConfig:
+		return getStub("FieldLevelEncryption", "fle-stub")
+	case opUpdateFieldLevelEncryptionConfig:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><FieldLevelEncryption xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteFieldLevelEncryptionConfig:
+		return noContent()
+	case opListFieldLevelEncryptionConfigs:
+		return emptyList("FieldLevelEncryptionList")
+	case opCreateFieldLevelEncryptionProfile:
+		return created("FieldLevelEncryptionProfile", "flep-stub")
+	case opGetFieldLevelEncryptionProfile, opGetFieldLevelEncryptionProfileConfig:
+		return getStub("FieldLevelEncryptionProfile", "flep-stub")
+	case opUpdateFieldLevelEncryptionProfile:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><FieldLevelEncryptionProfile xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteFieldLevelEncryptionProfile:
+		return noContent()
+	case opListFieldLevelEncryptionProfiles:
+		return emptyList("FieldLevelEncryptionProfileList")
+
+	// Key group.
+	case opCreateKeyGroup:
+		return created("KeyGroup", "kg-stub")
+	case opGetKeyGroup, opGetKeyGroupConfig:
+		return getStub("KeyGroup", "kg-stub")
+	case opUpdateKeyGroup:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><KeyGroup xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteKeyGroup:
+		return noContent()
+	case opListKeyGroups:
+		return emptyList("KeyGroupList")
+
+	// Key value store.
+	case opCreateKeyValueStore:
+		return created("KeyValueStore", "kvs-stub")
+	case opDescribeKeyValueStore:
+		return getStub("KeyValueStore", "kvs-stub")
+	case opUpdateKeyValueStore:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><KeyValueStore xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteKeyValueStore:
+		return noContent()
+	case opListKeyValueStores:
+		return emptyList("KeyValueStoreList")
+
+	// Public key.
+	case opCreatePublicKey:
+		return created("PublicKey", "pk-stub")
+	case opGetPublicKey, opGetPublicKeyConfig:
+		return getStub("PublicKey", "pk-stub")
+	case opUpdatePublicKey:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><PublicKey xmlns="`+cfNS+`"/>`,
+		)
+	case opDeletePublicKey:
+		return noContent()
+	case opListPublicKeys:
+		return emptyList("PublicKeyList")
+
+	// Realtime log config.
+	case opCreateRealtimeLogConfig:
+		rlcARN := `arn:aws:cloudfront::000000000000:realtime-log-config/stub`
+		rlcXML := `<?xml version="1.0" encoding="UTF-8"?><RealtimeLogConfig xmlns="` +
+			cfNS + `"><ARN>` + rlcARN + `</ARN></RealtimeLogConfig>`
+		return xmlResp(c, http.StatusCreated, rlcXML)
+	case opGetRealtimeLogConfig:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><RealtimeLogConfig xmlns="`+cfNS+`"/>`,
+		)
+	case opUpdateRealtimeLogConfig:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><RealtimeLogConfig xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteRealtimeLogConfig:
+		return noContent()
+	case opListRealtimeLogConfigs:
+		return emptyList("RealtimeLogConfigs")
+
+	// Streaming distribution.
+	case opCreateStreamingDistribution, opCreateStreamingDistributionWithTags:
+		return created("StreamingDistribution", "sdist-stub")
+	case opGetStreamingDistribution, opGetStreamingDistributionConfig:
+		return getStub("StreamingDistribution", "sdist-stub")
+	case opUpdateStreamingDistribution:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><StreamingDistribution xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteStreamingDistribution:
+		return noContent()
+	case opListStreamingDistributions:
+		return emptyList("StreamingDistributionList")
+
+	// Trust store.
+	case opCreateTrustStore:
+		return created("TrustStore", "ts-stub")
+	case opGetTrustStore:
+		return getStub("TrustStore", "ts-stub")
+	case opUpdateTrustStore:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><TrustStore xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteTrustStore:
+		return noContent()
+	case opListTrustStores:
+		return emptyList("TrustStoreList")
+
+	// VPC origin.
+	case opCreateVpcOrigin:
+		return created("VpcOrigin", "vpc-origin-stub")
+	case opGetVpcOrigin:
+		return getStub("VpcOrigin", "vpc-origin-stub")
+	case opUpdateVpcOrigin:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><VpcOrigin xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteVpcOrigin:
+		return noContent()
+	case opListVpcOrigins:
+		return emptyList("VpcOriginList")
+
+	// Anycast IP list.
+	case opGetAnycastIPList:
+		return getStub("AnycastIpList", "anycast-stub")
+	case opUpdateAnycastIPList:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><AnycastIpList xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteAnycastIPList:
+		return noContent()
+	case opListAnycastIPLists:
+		return emptyList("AnycastIpLists")
+
+	// Connection function.
+	case opDescribeConnectionFunction:
+		return getStub("ConnectionFunction", "cf-stub")
+	case opGetConnectionFunction:
+		return getStub("ConnectionFunction", "cf-stub")
+	case opUpdateConnectionFunction:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><ConnectionFunction xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteConnectionFunction:
+		return noContent()
+	case opListConnectionFunctions:
+		return emptyList("ConnectionFunctionList")
+	case opPublishConnectionFunction:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><ConnectionFunction xmlns="`+cfNS+`"/>`,
+		)
+	case opTestConnectionFunction:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><TestResult xmlns="`+cfNS+`"/>`,
+		)
+
+	// Connection group.
+	case opGetConnectionGroup, opGetConnectionGroupByRoutingEndpoint:
+		return getStub("ConnectionGroup", "cg-stub")
+	case opUpdateConnectionGroup:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><ConnectionGroup xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteConnectionGroup:
+		return noContent()
+	case opListConnectionGroups:
+		return emptyList("ConnectionGroupList")
+
+	// Continuous deployment policy.
+	case opGetContinuousDeploymentPolicy, opGetContinuousDeploymentPolicyConfig:
+		return getStub("ContinuousDeploymentPolicy", "cdp-stub")
+	case opUpdateContinuousDeploymentPolicy:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><ContinuousDeploymentPolicy xmlns="`+cfNS+`"/>`,
+		)
+	case opDeleteContinuousDeploymentPolicy:
+		return noContent()
+	case opListContinuousDeploymentPolicies:
+		return emptyList("ContinuousDeploymentPolicyList")
+
+	// Resource policy.
+	case opGetResourcePolicy:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><ResourcePolicy xmlns="`+cfNS+`"><Policy>{}</Policy></ResourcePolicy>`,
+		)
+	case opPutResourcePolicy:
+		return noContent()
+	case opDeleteResourcePolicy:
+		return noContent()
+
+	// List distributions by X.
+	case opListDistributionsByCachePolicyID, opListDistributionsByOriginRequestPol,
+		opListDistributionsByResponseHeadersPol, opListDistributionsByWebACLID,
+		opListDistributionsByKeyGroup, opListDistributionsByRealtimeLogConfig,
+		opListDistributionsByVpcOriginID, opListDistributionsByAnycastIPListID,
+		opListDistributionsByConnectionFunction, opListDistributionsByConnectionMode,
+		opListDistributionsByTrustStore, opListDistributionsByOwnedResource:
+		return emptyList("DistributionList")
+
+	// Misc list operations.
+	case opListConflictingAliases:
+		return emptyList("ConflictingAliasesList")
+	case opListDomainConflicts:
+		return emptyList("DomainConflictList")
+
+	// Invalidation for distribution tenant.
+	case opCreateInvalidationForDistTenant:
+		return created("Invalidation", "inv-stub")
+	case opGetInvalidationForDistTenant:
+		return getStub("Invalidation", "inv-stub")
+	case opListInvalidationsForDistTenant:
+		return emptyList("InvalidationList")
+
+	// Managed certificate details.
+	case opGetManagedCertificateDetails:
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><ManagedCertificateDetails xmlns="`+cfNS+`"/>`,
+		)
+
+	default:
+		return xmlResp(
+			c,
+			http.StatusNotFound,
+			cfErrorXML("NoSuchOperation", "unknown operation: "+operation),
+		)
 	}
 }
 
@@ -780,7 +1724,11 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrValidation):
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", err.Error()))
 	default:
-		return xmlResp(c, http.StatusInternalServerError, cfErrorXML("InternalFailure", err.Error()))
+		return xmlResp(
+			c,
+			http.StatusInternalServerError,
+			cfErrorXML("InternalFailure", err.Error()),
+		)
 	}
 }
 
@@ -794,10 +1742,19 @@ func (h *Handler) handleCreateDistribution(c *echo.Context) error {
 
 	var cfg distributionConfigMinimal
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid DistributionConfig XML"))
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("MalformedXML", "invalid DistributionConfig XML"),
+		)
 	}
 
-	d, createErr := h.Backend.CreateDistribution(cfg.CallerReference, cfg.Comment, cfg.Enabled, body)
+	d, createErr := h.Backend.CreateDistribution(
+		cfg.CallerReference,
+		cfg.Comment,
+		cfg.Enabled,
+		body,
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -838,7 +1795,11 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 
 	var cfg distributionConfigMinimal
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid DistributionConfig XML"))
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("MalformedXML", "invalid DistributionConfig XML"),
+		)
 	}
 
 	current, getErr := h.Backend.GetDistribution(id)
@@ -848,8 +1809,14 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current distribution config ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current distribution config ETag",
+			),
+		)
 	}
 
 	d, updateErr := h.Backend.UpdateDistribution(id, cfg.Comment, cfg.Enabled, body)
@@ -870,8 +1837,14 @@ func (h *Handler) handleDeleteDistribution(c *echo.Context, id string) error {
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current distribution ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current distribution ETag",
+			),
+		)
 	}
 
 	if err := h.Backend.DeleteDistribution(id); err != nil {
@@ -921,7 +1894,11 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
-		return xmlResp(c, http.StatusInternalServerError, cfErrorXML("InternalFailure", xmlErr.Error()))
+		return xmlResp(
+			c,
+			http.StatusInternalServerError,
+			cfErrorXML("InternalFailure", xmlErr.Error()),
+		)
 	}
 
 	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
@@ -990,7 +1967,11 @@ func (h *Handler) handleAssociateDistributionWebACL(c *echo.Context, distributio
 	var req webACLAssociationXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid WebACLAssociation XML"))
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid WebACLAssociation XML"),
+			)
 		}
 	}
 
@@ -1010,7 +1991,11 @@ func (h *Handler) handleAssociateDistributionTenantWebACL(c *echo.Context, tenan
 	var req webACLAssociationXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid WebACLAssociation XML"))
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid WebACLAssociation XML"),
+			)
 		}
 	}
 
@@ -1030,7 +2015,11 @@ func (h *Handler) handleCopyDistribution(c *echo.Context, primaryDistID string) 
 	var req copyDistributionRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CopyDistributionRequest XML"))
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CopyDistributionRequest XML"),
+			)
 		}
 	}
 
@@ -1054,7 +2043,11 @@ func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
 	var req anycastIPListRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid AnycastIPListRequest XML"))
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid AnycastIPListRequest XML"),
+			)
 		}
 	}
 
@@ -1087,27 +2080,45 @@ func (h *Handler) handleCreateCachePolicy(c *echo.Context) error {
 	var req cachePolicyConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CachePolicyConfig XML"))
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CachePolicyConfig XML"),
+			)
 		}
 	}
 
-	policy, createErr := h.Backend.CreateCachePolicy(req.Name, req.Comment, req.DefaultTTL, req.MaxTTL, req.MinTTL)
+	policy, createErr := h.Backend.CreateCachePolicy(
+		req.Name,
+		req.Comment,
+		req.DefaultTTL,
+		req.MaxTTL,
+		req.MinTTL,
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<CachePolicy xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<CachePolicyConfig>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`<DefaultTTL>%d</DefaultTTL>`+
-		`<MaxTTL>%d</MaxTTL>`+
-		`<MinTTL>%d</MinTTL>`+
-		`</CachePolicyConfig>`+
-		`</CachePolicy>`,
-		cfNS, policy.ID, policy.Name, policy.Comment, policy.DefaultTTL, policy.MaxTTL, policy.MinTTL)
+	resp := fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<CachePolicy xmlns="%s">`+
+			`<Id>%s</Id>`+
+			`<CachePolicyConfig>`+
+			`<Name>%s</Name>`+
+			`<Comment>%s</Comment>`+
+			`<DefaultTTL>%d</DefaultTTL>`+
+			`<MaxTTL>%d</MaxTTL>`+
+			`<MinTTL>%d</MinTTL>`+
+			`</CachePolicyConfig>`+
+			`</CachePolicy>`,
+		cfNS,
+		policy.ID,
+		policy.Name,
+		policy.Comment,
+		policy.DefaultTTL,
+		policy.MaxTTL,
+		policy.MinTTL,
+	)
 
 	c.Response().Header().Set("ETag", policy.ETag)
 	c.Response().Header().Set("Location", cfPathPrefix+"cache-policy/"+policy.ID)
@@ -1229,7 +2240,11 @@ func (h *Handler) handleCreateOAI(c *echo.Context) error {
 
 	var cfg oaiConfigXML
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid OAI config XML"))
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("MalformedXML", "invalid OAI config XML"),
+		)
 	}
 
 	oai, createErr := h.Backend.CreateOAI(cfg.CallerReference, cfg.Comment)
@@ -1511,7 +2526,11 @@ type invalidPathsXML struct {
 func (h *Handler) handleCreateInvalidation(c *echo.Context, distID string) error {
 	body, err := readBody(c)
 	if err != nil {
-		return xmlResp(c, http.StatusInternalServerError, cfErrorXML("InternalFailure", err.Error()))
+		return xmlResp(
+			c,
+			http.StatusInternalServerError,
+			cfErrorXML("InternalFailure", err.Error()),
+		)
 	}
 
 	var batch invalidationBatchXML
@@ -1521,7 +2540,11 @@ func (h *Handler) handleCreateInvalidation(c *echo.Context, distID string) error
 		}
 	}
 
-	inv, backendErr := h.Backend.CreateInvalidation(distID, batch.CallerReference, batch.Paths.Items)
+	inv, backendErr := h.Backend.CreateInvalidation(
+		distID,
+		batch.CallerReference,
+		batch.Paths.Items,
+	)
 	if backendErr != nil {
 		return h.handleError(c, backendErr)
 	}
@@ -1534,7 +2557,9 @@ func (h *Handler) handleCreateInvalidation(c *echo.Context, distID string) error
 		`</Invalidation>`,
 		cfNS, inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339))
 
-	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+distID+"/invalidation/"+inv.ID)
+	c.Response().
+		Header().
+		Set("Location", cfPathPrefix+"distribution/"+distID+"/invalidation/"+inv.ID)
 
 	return xmlResp(c, http.StatusCreated, resp)
 }
@@ -1724,8 +2749,14 @@ func (h *Handler) handleUpdateCachePolicy(c *echo.Context, id string) error {
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current cache policy ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current cache policy ETag",
+			),
+		)
 	}
 
 	body, err := readBody(c)
@@ -1736,11 +2767,22 @@ func (h *Handler) handleUpdateCachePolicy(c *echo.Context, id string) error {
 	var req cachePolicyConfigXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CachePolicyConfig XML"))
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CachePolicyConfig XML"),
+			)
 		}
 	}
 
-	p, updateErr := h.Backend.UpdateCachePolicy(id, req.Name, req.Comment, req.DefaultTTL, req.MaxTTL, req.MinTTL)
+	p, updateErr := h.Backend.UpdateCachePolicy(
+		id,
+		req.Name,
+		req.Comment,
+		req.DefaultTTL,
+		req.MaxTTL,
+		req.MinTTL,
+	)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -1771,8 +2813,14 @@ func (h *Handler) handleDeleteCachePolicy(c *echo.Context, id string) error {
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current cache policy ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current cache policy ETag",
+			),
+		)
 	}
 
 	if err := h.Backend.DeleteCachePolicy(id); err != nil {
@@ -1859,7 +2907,8 @@ func (h *Handler) handleListOriginAccessControls(c *echo.Context) error {
 	var sb strings.Builder
 
 	for _, oac := range oacs {
-		fmt.Fprintf(&sb,
+		fmt.Fprintf(
+			&sb,
 			`<OriginAccessControlSummary>`+
 				`<Id>%s</Id>`+
 				`<Name>%s</Name>`+
@@ -1868,7 +2917,13 @@ func (h *Handler) handleListOriginAccessControls(c *echo.Context) error {
 				`<SigningBehavior>%s</SigningBehavior>`+
 				`<SigningProtocol>%s</SigningProtocol>`+
 				`</OriginAccessControlSummary>`,
-			oac.ID, oac.Name, oac.Description, oac.OriginType, oac.SigningBehavior, oac.SigningProtocol)
+			oac.ID,
+			oac.Name,
+			oac.Description,
+			oac.OriginType,
+			oac.SigningBehavior,
+			oac.SigningProtocol,
+		)
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -1940,18 +2995,26 @@ func (h *Handler) handleDeleteOriginAccessControl(c *echo.Context, id string) er
 }
 
 func oacResponseXML(oac *OriginAccessControl) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<OriginAccessControl xmlns="%s">`+
-		`<Id>%s</Id>`+
-		`<OriginAccessControlConfig>`+
-		`<Name>%s</Name>`+
-		`<Description>%s</Description>`+
-		`<OriginAccessControlOriginType>%s</OriginAccessControlOriginType>`+
-		`<SigningBehavior>%s</SigningBehavior>`+
-		`<SigningProtocol>%s</SigningProtocol>`+
-		`</OriginAccessControlConfig>`+
-		`</OriginAccessControl>`,
-		cfNS, oac.ID, oac.Name, oac.Description, oac.OriginType, oac.SigningBehavior, oac.SigningProtocol)
+	return fmt.Sprintf(
+		`<?xml version="1.0" encoding="UTF-8"?>`+
+			`<OriginAccessControl xmlns="%s">`+
+			`<Id>%s</Id>`+
+			`<OriginAccessControlConfig>`+
+			`<Name>%s</Name>`+
+			`<Description>%s</Description>`+
+			`<OriginAccessControlOriginType>%s</OriginAccessControlOriginType>`+
+			`<SigningBehavior>%s</SigningBehavior>`+
+			`<SigningProtocol>%s</SigningProtocol>`+
+			`</OriginAccessControlConfig>`+
+			`</OriginAccessControl>`,
+		cfNS,
+		oac.ID,
+		oac.Name,
+		oac.Description,
+		oac.OriginType,
+		oac.SigningBehavior,
+		oac.SigningProtocol,
+	)
 }
 
 // --- Response Headers Policy handlers ---
@@ -2060,8 +3123,14 @@ func (h *Handler) handleUpdateResponseHeadersPolicy(c *echo.Context, id string) 
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current response headers policy ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current response headers policy ETag",
+			),
+		)
 	}
 
 	body, err := readBody(c)
@@ -2100,8 +3169,14 @@ func (h *Handler) handleDeleteResponseHeadersPolicy(c *echo.Context, id string) 
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current response headers policy ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current response headers policy ETag",
+			),
+		)
 	}
 
 	if err := h.Backend.DeleteResponseHeadersPolicy(id); err != nil {
@@ -2148,7 +3223,11 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	var req createFunctionRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CreateFunctionRequest XML"))
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CreateFunctionRequest XML"),
+			)
 		}
 	}
 
@@ -2157,7 +3236,12 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		code = req.FunctionConfig.FunctionCode
 	}
 
-	fn, createErr := h.Backend.CreateFunction(req.Name, req.FunctionConfig.Comment, req.FunctionConfig.Runtime, code)
+	fn, createErr := h.Backend.CreateFunction(
+		req.Name,
+		req.FunctionConfig.Comment,
+		req.FunctionConfig.Runtime,
+		code,
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -2230,8 +3314,14 @@ func (h *Handler) handlePublishFunction(c *echo.Context, name string) error {
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current function ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current function ETag",
+			),
+		)
 	}
 
 	fn, err := h.Backend.PublishFunction(name)
@@ -2252,8 +3342,14 @@ func (h *Handler) handleUpdateFunction(c *echo.Context, name string) error {
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current function ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current function ETag",
+			),
+		)
 	}
 
 	body, err := readBody(c)
@@ -2264,7 +3360,11 @@ func (h *Handler) handleUpdateFunction(c *echo.Context, name string) error {
 	var req createFunctionRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid UpdateFunctionRequest XML"))
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateFunctionRequest XML"),
+			)
 		}
 	}
 
@@ -2273,7 +3373,12 @@ func (h *Handler) handleUpdateFunction(c *echo.Context, name string) error {
 		code = req.FunctionConfig.FunctionCode
 	}
 
-	fn, updateErr := h.Backend.UpdateFunction(name, req.FunctionConfig.Comment, req.FunctionConfig.Runtime, code)
+	fn, updateErr := h.Backend.UpdateFunction(
+		name,
+		req.FunctionConfig.Comment,
+		req.FunctionConfig.Runtime,
+		code,
+	)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
@@ -2291,8 +3396,14 @@ func (h *Handler) handleDeleteFunction(c *echo.Context, name string) error {
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current function ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current function ETag",
+			),
+		)
 	}
 
 	if err := h.Backend.DeleteFunction(name); err != nil {
@@ -2453,8 +3564,14 @@ func (h *Handler) handleUpdateOriginRequestPolicy(c *echo.Context, id string) er
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current origin request policy ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current origin request policy ETag",
+			),
+		)
 	}
 
 	var req orpConfigXML
@@ -2488,8 +3605,14 @@ func (h *Handler) handleDeleteOriginRequestPolicy(c *echo.Context, id string) er
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current origin request policy ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current origin request policy ETag",
+			),
+		)
 	}
 
 	if err := h.Backend.DeleteOriginRequestPolicy(id); err != nil {

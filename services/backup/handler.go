@@ -104,6 +104,56 @@ const (
 	opDescribeReportPlan = "DescribeReportPlan"
 	opUpdateReportPlan   = "UpdateReportPlan"
 	opDeleteReportPlan   = "DeleteReportPlan"
+
+	// Stub operations (minimal implementations).
+	opCreateTieringConfiguration             = "CreateTieringConfiguration"
+	opDeleteTieringConfiguration             = "DeleteTieringConfiguration"
+	opDescribeGlobalSettings                 = "DescribeGlobalSettings"
+	opDescribeProtectedResource              = "DescribeProtectedResource"
+	opDescribeRegionSettings                 = "DescribeRegionSettings"
+	opDescribeReportJob                      = "DescribeReportJob"
+	opDescribeRestoreJob                     = "DescribeRestoreJob"
+	opDescribeScanJob                        = "DescribeScanJob"
+	opDisassociateBackupVaultMpaApprovalTeam = "DisassociateBackupVaultMpaApprovalTeam"
+	opExportBackupPlanTemplate               = "ExportBackupPlanTemplate"
+	opGetBackupPlanFromJSON                  = "GetBackupPlanFromJSON"
+	opGetBackupPlanFromTemplate              = "GetBackupPlanFromTemplate"
+	opGetLegalHold                           = "GetLegalHold"
+	opGetRecoveryPointIndexDetails           = "GetRecoveryPointIndexDetails"
+	opGetRestoreJobMetadata                  = "GetRestoreJobMetadata"
+	opGetRestoreTestingInferredMetadata      = "GetRestoreTestingInferredMetadata"
+	opGetSupportedResourceTypes              = "GetSupportedResourceTypes"
+	opGetTieringConfiguration                = "GetTieringConfiguration"
+	opListBackupJobSummaries                 = "ListBackupJobSummaries"
+	opListBackupPlanTemplates                = "ListBackupPlanTemplates"
+	opListBackupPlanVersions                 = "ListBackupPlanVersions"
+	opListCopyJobSummaries                   = "ListCopyJobSummaries"
+	opListIndexedRecoveryPoints              = "ListIndexedRecoveryPoints"
+	opListLegalHolds                         = "ListLegalHolds"
+	opListProtectedResources                 = "ListProtectedResources"
+	opListProtectedResourcesByBackupVault    = "ListProtectedResourcesByBackupVault"
+	opListRecoveryPointsByLegalHold          = "ListRecoveryPointsByLegalHold"
+	opListRecoveryPointsByResource           = "ListRecoveryPointsByResource"
+	opListReportJobs                         = "ListReportJobs"
+	opListRestoreAccessBackupVaults          = "ListRestoreAccessBackupVaults"
+	opListRestoreJobSummaries                = "ListRestoreJobSummaries"
+	opListRestoreJobs                        = "ListRestoreJobs"
+	opListRestoreJobsByProtectedResource     = "ListRestoreJobsByProtectedResource"
+	opListScanJobSummaries                   = "ListScanJobSummaries"
+	opListScanJobs                           = "ListScanJobs"
+	opListTieringConfigurations              = "ListTieringConfigurations"
+	opPutRestoreValidationResult             = "PutRestoreValidationResult"
+	opRevokeRestoreAccessBackupVault         = "RevokeRestoreAccessBackupVault"
+	opStartCopyJob                           = "StartCopyJob"
+	opStartReportJob                         = "StartReportJob"
+	opStartRestoreJob                        = "StartRestoreJob"
+	opStartScanJob                           = "StartScanJob"
+	opStopBackupJob                          = "StopBackupJob"
+	opUpdateGlobalSettings                   = "UpdateGlobalSettings"
+	opUpdateRecoveryPointIndexSettings       = "UpdateRecoveryPointIndexSettings"
+	opUpdateRecoveryPointLifecycle           = "UpdateRecoveryPointLifecycle"
+	opUpdateRegionSettings                   = "UpdateRegionSettings"
+	opUpdateTieringConfiguration             = "UpdateTieringConfiguration"
 )
 
 const (
@@ -136,6 +186,15 @@ const (
 	keyRestoreTestingPlanName      = "RestoreTestingPlanName"
 	keyRestoreTestingSelectionName = "RestoreTestingSelectionName"
 	keyRecoveryPointArn            = "RecoveryPointArn"
+	keyBackupPlanName              = "BackupPlanName"
+	keyRules                       = "Rules"
+	keyRecoveryPoints              = "RecoveryPoints"
+	keyCopyJobID                   = "CopyJobId"
+	keyRestoreJobID                = "RestoreJobId"
+
+	// Status value constants.
+	statusCompleted = "COMPLETED"
+	statusActive    = "ACTIVE"
 )
 
 var (
@@ -182,6 +241,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 func (h *Handler) Name() string { return "Backup" }
 
 // GetSupportedOperations returns the list of supported Backup operations.
+//
+//nolint:funlen // extended list for stub operations is inherently long
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opAssociateBackupVaultMpaApprovalTeam,
@@ -251,6 +312,55 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDescribeReportPlan,
 		opUpdateReportPlan,
 		opDeleteReportPlan,
+		// Stub operations.
+		opCreateTieringConfiguration,
+		opDeleteTieringConfiguration,
+		opDescribeGlobalSettings,
+		opDescribeProtectedResource,
+		opDescribeRegionSettings,
+		opDescribeReportJob,
+		opDescribeRestoreJob,
+		opDescribeScanJob,
+		opDisassociateBackupVaultMpaApprovalTeam,
+		opExportBackupPlanTemplate,
+		opGetBackupPlanFromJSON,
+		opGetBackupPlanFromTemplate,
+		opGetLegalHold,
+		opGetRecoveryPointIndexDetails,
+		opGetRestoreJobMetadata,
+		opGetRestoreTestingInferredMetadata,
+		opGetSupportedResourceTypes,
+		opGetTieringConfiguration,
+		opListBackupJobSummaries,
+		opListBackupPlanTemplates,
+		opListBackupPlanVersions,
+		opListCopyJobSummaries,
+		opListIndexedRecoveryPoints,
+		opListLegalHolds,
+		opListProtectedResources,
+		opListProtectedResourcesByBackupVault,
+		opListRecoveryPointsByLegalHold,
+		opListRecoveryPointsByResource,
+		opListReportJobs,
+		opListRestoreAccessBackupVaults,
+		opListRestoreJobSummaries,
+		opListRestoreJobs,
+		opListRestoreJobsByProtectedResource,
+		opListScanJobSummaries,
+		opListScanJobs,
+		opListTieringConfigurations,
+		opPutRestoreValidationResult,
+		opRevokeRestoreAccessBackupVault,
+		opStartCopyJob,
+		opStartReportJob,
+		opStartRestoreJob,
+		opStartScanJob,
+		opStopBackupJob,
+		opUpdateGlobalSettings,
+		opUpdateRecoveryPointIndexSettings,
+		opUpdateRecoveryPointLifecycle,
+		opUpdateRegionSettings,
+		opUpdateTieringConfiguration,
 	}
 }
 
@@ -416,7 +526,10 @@ func parseVaultSubResourceRoute(method, vaultName, sub string) backupRoute {
 	switch sub {
 	case "/mpaApprovalTeam":
 		if method == http.MethodPut {
-			return backupRoute{operation: opAssociateBackupVaultMpaApprovalTeam, resource: vaultName}
+			return backupRoute{
+				operation: opAssociateBackupVaultMpaApprovalTeam,
+				resource:  vaultName,
+			}
 		}
 	case "/access-policy":
 		switch method {
@@ -761,7 +874,10 @@ func parseRestoreTestingSubRoute(method, rest string) backupRoute {
 		if !strings.Contains(selName, "/") {
 			switch method {
 			case http.MethodGet:
-				return backupRoute{operation: opGetRestoreTestingSelection, resource: planName + "|" + selName}
+				return backupRoute{
+					operation: opGetRestoreTestingSelection,
+					resource:  planName + "|" + selName,
+				}
 			case http.MethodPut:
 				return backupRoute{
 					operation: opUpdateRestoreTestingSelection,
@@ -894,6 +1010,10 @@ func (h *Handler) dispatchNewOps(c *echo.Context, route backupRoute, body []byte
 		return true, result
 	}
 
+	if ok, result := h.dispatchStubOps(c, route); ok {
+		return true, result
+	}
+
 	return false, nil
 }
 
@@ -943,7 +1063,11 @@ func (h *Handler) dispatchRecoveryPointOps(c *echo.Context, route backupRoute) (
 	return false, nil
 }
 
-func (h *Handler) dispatchVaultComplianceOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+func (h *Handler) dispatchVaultComplianceOps(
+	c *echo.Context,
+	route backupRoute,
+	body []byte,
+) (bool, error) {
 	switch route.operation {
 	case opPutBackupVaultAccessPolicy:
 		return true, h.handlePutBackupVaultAccessPolicy(c, route.resource, body)
@@ -1015,7 +1139,11 @@ func (h *Handler) dispatchRestoreTestingOps(
 	return false, nil
 }
 
-func (h *Handler) dispatchFrameworkOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+func (h *Handler) dispatchFrameworkOps(
+	c *echo.Context,
+	route backupRoute,
+	body []byte,
+) (bool, error) {
 	switch route.operation {
 	case opDescribeFramework:
 		return true, h.handleDescribeFramework(c, route.resource)
@@ -1030,7 +1158,11 @@ func (h *Handler) dispatchFrameworkOps(c *echo.Context, route backupRoute, body 
 	return false, nil
 }
 
-func (h *Handler) dispatchReportPlanOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+func (h *Handler) dispatchReportPlanOps(
+	c *echo.Context,
+	route backupRoute,
+	body []byte,
+) (bool, error) {
 	switch route.operation {
 	case opListReportPlans:
 		return true, h.handleListReportPlans(c)
@@ -1256,8 +1388,8 @@ func (h *Handler) handleGetBackupPlan(c *echo.Context, id string) error {
 		keyVersionID:     p.VersionID,
 		keyCreationDate:  epochSeconds(p.CreationTime),
 		"BackupPlan": map[string]any{
-			"BackupPlanName": p.BackupPlanName,
-			"Rules":          rulesToJSON(p.Rules),
+			keyBackupPlanName: p.BackupPlanName,
+			keyRules:          rulesToJSON(p.Rules),
 		},
 	}
 	if p.Tags != nil {
@@ -1275,11 +1407,11 @@ func (h *Handler) handleListBackupPlans(c *echo.Context) error {
 
 	for _, p := range plans {
 		items = append(items, map[string]any{
-			"BackupPlanName": p.BackupPlanName,
-			keyBackupPlanArn: p.BackupPlanArn,
-			keyBackupPlanID:  p.BackupPlanID,
-			keyVersionID:     p.VersionID,
-			keyCreationDate:  epochSeconds(p.CreationTime),
+			keyBackupPlanName: p.BackupPlanName,
+			keyBackupPlanArn:  p.BackupPlanArn,
+			keyBackupPlanID:   p.BackupPlanID,
+			keyVersionID:      p.VersionID,
+			keyCreationDate:   epochSeconds(p.CreationTime),
 		})
 	}
 
@@ -1879,7 +2011,7 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 	for _, rp := range pts {
 		item := map[string]any{
 			keyRecoveryPointArn: rp.RecoveryPointArn,
-			"BackupVaultName":   rp.BackupVaultName,
+			keyBackupVaultName:  rp.BackupVaultName,
 			keyBackupVaultArn:   rp.BackupVaultArn,
 			keyStatus:           rp.Status,
 			keyCreationDate:     epochSeconds(rp.CreationDate),
@@ -1894,7 +2026,7 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"RecoveryPoints": items,
+		keyRecoveryPoints: items,
 	})
 }
 
@@ -1914,7 +2046,7 @@ func (h *Handler) handleDescribeRecoveryPoint(c *echo.Context, resource string) 
 
 	resp := map[string]any{
 		keyRecoveryPointArn: rp.RecoveryPointArn,
-		"BackupVaultName":   rp.BackupVaultName,
+		keyBackupVaultName:  rp.BackupVaultName,
 		keyBackupVaultArn:   rp.BackupVaultArn,
 		keyStatus:           rp.Status,
 		keyCreationDate:     epochSeconds(rp.CreationDate),
@@ -2287,7 +2419,7 @@ func (h *Handler) handleListCopyJobs(c *echo.Context) error {
 
 	for _, j := range jobs {
 		item := map[string]any{
-			"CopyJobId":     j.CopyJobID,
+			keyCopyJobID:    j.CopyJobID,
 			keyState:        j.State,
 			keyCreationDate: epochSeconds(j.CreationDate),
 		}
@@ -2322,7 +2454,7 @@ func (h *Handler) handleDescribeCopyJob(c *echo.Context, copyJobID string) error
 	}
 
 	resp := map[string]any{
-		"CopyJobId":     j.CopyJobID,
+		keyCopyJobID:    j.CopyJobID,
 		keyState:        j.State,
 		keyCreationDate: epochSeconds(j.CreationDate),
 	}
@@ -2732,4 +2864,213 @@ func (h *Handler) handleDeleteReportPlan(c *echo.Context, name string) error {
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+// dispatchStubOps handles stub operations that return minimal valid responses.
+//
+//nolint:cyclop,funlen,gocyclo // large dispatch table for stub operations
+func (h *Handler) dispatchStubOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
+	case opDescribeGlobalSettings:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"GlobalSettings": map[string]string{},
+			"LastUpdateTime": time.Now().UTC().Format(time.RFC3339),
+		})
+	case opUpdateGlobalSettings:
+		return true, c.NoContent(http.StatusOK)
+	case opDescribeRegionSettings:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ResourceTypeManagementPreference": map[string]bool{},
+			"ResourceTypeOptInPreference":      map[string]bool{},
+		})
+	case opUpdateRegionSettings:
+		return true, c.NoContent(http.StatusOK)
+	case opGetSupportedResourceTypes:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ResourceTypes": []string{
+				"EBS", "EC2", "RDS", "S3", "DynamoDB", "EFS", "FSx",
+				"Aurora", "DocumentDB", "Neptune", "Redshift", "Timestream",
+			},
+		})
+	case opDescribeProtectedResource:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ResourceArn":    route.resource,
+			"ResourceType":   "EBS",
+			"LastBackupTime": time.Now().UTC().Format(time.RFC3339),
+		})
+	case opListProtectedResources:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"Results": []any{},
+		})
+	case opListProtectedResourcesByBackupVault:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"Results": []any{},
+		})
+	case opDescribeRestoreJob:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyRestoreJobID: route.resource,
+			keyStatus:       statusCompleted,
+		})
+	case opListRestoreJobs:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"RestoreJobs": []any{},
+		})
+	case opListRestoreJobsByProtectedResource:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"RestoreJobs": []any{},
+		})
+	case opListRestoreJobSummaries:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"RestoreJobSummaries": []any{},
+		})
+	case opGetRestoreJobMetadata:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyRestoreJobID: route.resource,
+			"Metadata":      map[string]string{},
+		})
+	case opGetRestoreTestingInferredMetadata:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"InferredMetadata": map[string]string{},
+		})
+	case opStartRestoreJob:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyRestoreJobID: "restore-" + route.resource,
+		})
+	case opPutRestoreValidationResult:
+		return true, c.NoContent(http.StatusNoContent)
+	case opDescribeReportJob:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ReportJob": map[string]any{
+				"ReportJobId": route.resource,
+				keyStatus:     statusCompleted,
+			},
+		})
+	case opListReportJobs:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ReportJobs": []any{},
+		})
+	case opStartReportJob:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ReportJobId": "report-job-" + route.resource,
+		})
+	case opDescribeScanJob:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ScanJobId": route.resource,
+			keyStatus:   statusCompleted,
+		})
+	case opListScanJobs:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ScanJobs": []any{},
+		})
+	case opListScanJobSummaries:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ScanJobSummaries": []any{},
+		})
+	case opStartScanJob:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ScanJobId": "scan-job-" + route.resource,
+		})
+	case opGetLegalHold:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"LegalHoldId": route.resource,
+			keyStatus:     statusActive,
+		})
+	case opListLegalHolds:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"LegalHolds": []any{},
+		})
+	case opListRecoveryPointsByLegalHold:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyRecoveryPoints: []any{},
+		})
+	case opListRecoveryPointsByResource:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyRecoveryPoints: []any{},
+		})
+	case opGetRecoveryPointIndexDetails:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyRecoveryPointArn: route.resource,
+			"IndexStatus":       statusActive,
+		})
+	case opUpdateRecoveryPointIndexSettings:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyRecoveryPointArn: route.resource,
+		})
+	case opUpdateRecoveryPointLifecycle:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyRecoveryPointArn: route.resource,
+		})
+	case opListIndexedRecoveryPoints:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"IndexedRecoveryPoints": []any{},
+		})
+	case opExportBackupPlanTemplate:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"BackupPlanTemplateJson": "{}",
+		})
+	case opGetBackupPlanFromJSON:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"BackupPlan": map[string]any{
+				"BackupPlanName": "imported-plan",
+				"Rules":          []any{},
+			},
+		})
+	case opGetBackupPlanFromTemplate:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"BackupPlanDocument": map[string]any{
+				"BackupPlanName": "template-plan",
+				"Rules":          []any{},
+			},
+		})
+	case opListBackupPlanTemplates:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"BackupPlanTemplatesList": []any{},
+		})
+	case opListBackupPlanVersions:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"BackupPlanVersionsList": []any{},
+		})
+	case opListBackupJobSummaries:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"BackupJobSummaries": []any{},
+		})
+	case opListCopyJobSummaries:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"CopyJobSummaries": []any{},
+		})
+	case opStartCopyJob:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyCopyJobID:   "copy-job-" + route.resource,
+			"CreationDate": time.Now().UTC().Format(time.RFC3339),
+		})
+	case opStopBackupJob:
+		return true, c.NoContent(http.StatusNoContent)
+	case opListRestoreAccessBackupVaults:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"RestoreAccessBackupVaults": []any{},
+		})
+	case opRevokeRestoreAccessBackupVault:
+		return true, c.NoContent(http.StatusNoContent)
+	case opDisassociateBackupVaultMpaApprovalTeam:
+		return true, c.NoContent(http.StatusNoContent)
+	case opCreateTieringConfiguration:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"BackupVaultArn": "arn:aws:backup:us-east-1:000000000000:backup-vault:" + route.resource,
+		})
+	case opDeleteTieringConfiguration:
+		return true, c.NoContent(http.StatusNoContent)
+	case opGetTieringConfiguration:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyBackupVaultName:      route.resource,
+			"TieringConfigurations": []any{},
+		})
+	case opListTieringConfigurations:
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"TieringConfigurations": []any{},
+		})
+	case opUpdateTieringConfiguration:
+		return true, c.NoContent(http.StatusOK)
+	}
+
+	return false, nil
 }
