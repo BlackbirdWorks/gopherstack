@@ -18,35 +18,52 @@ type StateMachine struct {
 	StartAt string            `json:"StartAt"`
 }
 
+// ItemBatcher configures batching for a Map state's Distributed Map.
+type ItemBatcher struct {
+	// MaxItemsPerBatch is the maximum number of items per batch. Zero means no limit.
+	MaxItemsPerBatch int `json:"MaxItemsPerBatch,omitempty"`
+	// MaxInputBytesPerBatch is the max total JSON bytes per batch. Zero means no limit.
+	MaxInputBytesPerBatch int `json:"MaxInputBytesPerBatch,omitempty"`
+}
+
+// ItemReader configures reading items from S3 for a Map state's Distributed Map.
+type ItemReader struct {
+	Parameters map[string]any `json:"Parameters,omitempty"`
+	Resource   string         `json:"Resource,omitempty"`
+}
+
 // State represents a single state in the state machine.
 type State struct {
-	Iterator       *StateMachine   `json:"Iterator,omitempty"`
-	ItemProcessor  *StateMachine   `json:"ItemProcessor,omitempty"`
-	SecondsPath    string          `json:"SecondsPath,omitempty"`
-	TimestampPath  string          `json:"TimestampPath,omitempty"`
-	ItemsPath      string          `json:"ItemsPath,omitempty"`
-	InputPath      string          `json:"InputPath,omitempty"`
-	OutputPath     string          `json:"OutputPath,omitempty"`
-	ResultPath     string          `json:"ResultPath,omitempty"`
-	Type           string          `json:"Type"`
-	Error          string          `json:"Error,omitempty"`
-	Cause          string          `json:"Cause,omitempty"`
-	Comment        string          `json:"Comment,omitempty"`
-	Next           string          `json:"Next,omitempty"`
-	Default        string          `json:"Default,omitempty"`
-	Timestamp      string          `json:"Timestamp,omitempty"`
-	Resource       string          `json:"Resource,omitempty"`
-	Retry          []Retrier       `json:"Retry,omitempty"`
-	Catch          []Catcher       `json:"Catch,omitempty"`
-	Choices        []ChoiceRule    `json:"Choices,omitempty"`
-	Result         json.RawMessage `json:"Result,omitempty"`
-	Branches       []Branch        `json:"Branches,omitempty"`
-	Parameters     json.RawMessage `json:"Parameters,omitempty"`
-	ResultSelector json.RawMessage `json:"ResultSelector,omitempty"`
-	TimeoutSeconds int             `json:"TimeoutSeconds,omitempty"`
-	Seconds        int             `json:"Seconds,omitempty"`
-	MaxConcurrency int             `json:"MaxConcurrency,omitempty"`
-	End            bool            `json:"End,omitempty"`
+	Iterator         *StateMachine   `json:"Iterator,omitempty"`
+	ItemProcessor    *StateMachine   `json:"ItemProcessor,omitempty"`
+	ItemBatcher      *ItemBatcher    `json:"ItemBatcher,omitempty"`
+	ItemReader       *ItemReader     `json:"ItemReader,omitempty"`
+	SecondsPath      string          `json:"SecondsPath,omitempty"`
+	TimestampPath    string          `json:"TimestampPath,omitempty"`
+	ItemsPath        string          `json:"ItemsPath,omitempty"`
+	InputPath        string          `json:"InputPath,omitempty"`
+	OutputPath       string          `json:"OutputPath,omitempty"`
+	ResultPath       string          `json:"ResultPath,omitempty"`
+	Type             string          `json:"Type"`
+	Error            string          `json:"Error,omitempty"`
+	Cause            string          `json:"Cause,omitempty"`
+	Comment          string          `json:"Comment,omitempty"`
+	Next             string          `json:"Next,omitempty"`
+	Default          string          `json:"Default,omitempty"`
+	Timestamp        string          `json:"Timestamp,omitempty"`
+	Resource         string          `json:"Resource,omitempty"`
+	Retry            []Retrier       `json:"Retry,omitempty"`
+	Catch            []Catcher       `json:"Catch,omitempty"`
+	Choices          []ChoiceRule    `json:"Choices,omitempty"`
+	Result           json.RawMessage `json:"Result,omitempty"`
+	Branches         []Branch        `json:"Branches,omitempty"`
+	Parameters       json.RawMessage `json:"Parameters,omitempty"`
+	ResultSelector   json.RawMessage `json:"ResultSelector,omitempty"`
+	TimeoutSeconds   int             `json:"TimeoutSeconds,omitempty"`
+	HeartbeatSeconds int             `json:"HeartbeatSeconds,omitempty"`
+	Seconds          int             `json:"Seconds,omitempty"`
+	MaxConcurrency   int             `json:"MaxConcurrency,omitempty"`
+	End              bool            `json:"End,omitempty"`
 }
 
 // Retrier defines retry behavior for a Task state on error.

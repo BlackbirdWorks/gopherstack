@@ -34,6 +34,7 @@ var (
 	ErrActivityDoesNotExist            = errors.New("ActivityDoesNotExist")
 	ErrTaskTokenNotFound               = errors.New("TaskTokenNotFound")
 	ErrActivityTaskFailed              = errors.New("ActivityTaskFailed")
+	ErrHeartbeatTimeout                = errors.New("States.HeartbeatTimeout")
 )
 
 const (
@@ -136,10 +137,16 @@ type InMemoryBackend struct {
 
 // activityTaskEntry holds a pending activity task and its result channel.
 type activityTaskEntry struct {
-	activityArn string
-	resultCh    chan activityTaskResult
-	taskToken   string
-	input       string
+	// heartbeatTimer is reset on each SendTaskHeartbeat call. Nil if no heartbeat timeout.
+	heartbeatTimer *time.Timer
+	// heartbeatStop signals the heartbeat monitor to stop (on task completion).
+	heartbeatStop chan struct{}
+	resultCh      chan activityTaskResult
+	activityArn   string
+	taskToken     string
+	input         string
+	// heartbeatDuration is the original duration for resetting the heartbeat timer.
+	heartbeatDuration time.Duration
 }
 
 // activityTaskResult holds the result of an activity task.
@@ -511,6 +518,12 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 	startDate := float64(time.Now().Unix())
 	execARN := b.execARN(smName, name)
 
+	// Express Workflows must complete within 5 minutes per AWS spec.
+	const expressSyncTimeout = 5 * time.Minute
+
+	syncCtx, syncCancel := context.WithTimeout(b.svcCtx, expressSyncTimeout)
+	defer syncCancel()
+
 	// Run synchronously with nil history recorder (sync executions are ephemeral).
 	executor := asl.NewExecutor(parsedSM, lambdaInvoker, nil)
 	executor.SetSQSIntegration(sqsIntegration)
@@ -518,7 +531,7 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 	executor.SetDynamoDBIntegration(ddbIntegration)
 	executor.SetActivityInvoker(b)
 
-	result, execErr := executor.Execute(b.svcCtx, execARN, input)
+	result, execErr := executor.Execute(syncCtx, execARN, input)
 
 	stopDate := float64(time.Now().Unix())
 
@@ -532,10 +545,16 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 	}
 
 	if execErr != nil {
-		syncResult.Status = statusFailed
-		syncResult.Error = execErr.Error()
+		if errors.Is(execErr, context.DeadlineExceeded) {
+			syncResult.Status = "TIMED_OUT"
+			syncResult.Error = "States.Timeout"
+			syncResult.Cause = "Express Workflow exceeded the 5-minute maximum execution time"
+		} else {
+			syncResult.Status = statusFailed
+			syncResult.Error = execErr.Error()
+		}
 
-		return syncResult, nil //nolint:nilerr // execution errors are encoded in the result; no Go error is returned
+		return syncResult, nil
 	}
 
 	if result.Error != "" {
@@ -1586,14 +1605,24 @@ func (b *InMemoryBackend) SendTaskFailure(taskToken, errCode, cause string) erro
 }
 
 // SendTaskHeartbeat resets the heartbeat timer for an activity task.
-// In this implementation, it only validates that the task token is known.
 func (b *InMemoryBackend) SendTaskHeartbeat(taskToken string) error {
 	b.mu.RLock("SendTaskHeartbeat")
-	_, ok := b.tasksByToken[taskToken]
+	entry, ok := b.tasksByToken[taskToken]
 	b.mu.RUnlock()
 
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrTaskTokenNotFound, taskToken)
+	}
+
+	if entry.heartbeatTimer != nil && entry.heartbeatDuration > 0 {
+		if !entry.heartbeatTimer.Stop() {
+			select {
+			case <-entry.heartbeatTimer.C:
+			default:
+			}
+		}
+
+		entry.heartbeatTimer.Reset(entry.heartbeatDuration)
 	}
 
 	return nil
@@ -1602,7 +1631,13 @@ func (b *InMemoryBackend) SendTaskHeartbeat(taskToken string) error {
 // InvokeActivity implements asl.ActivityInvoker.
 // It enqueues a task for the activity and blocks until a worker calls
 // SendTaskSuccess or SendTaskFailure, or the context is cancelled.
-func (b *InMemoryBackend) InvokeActivity(ctx context.Context, activityArn, inputJSON string) (string, error) {
+// If heartbeatSeconds > 0, the task fails with ErrHeartbeatTimeout if no
+// SendTaskHeartbeat call arrives within the interval.
+func (b *InMemoryBackend) InvokeActivity(
+	ctx context.Context,
+	activityArn, inputJSON string,
+	heartbeatSeconds int,
+) (string, error) {
 	tokenBytes := make([]byte, activityTokenBytes)
 	if _, err := cryptorand.Read(tokenBytes); err != nil {
 		return "", fmt.Errorf("generate task token: %w", err)
@@ -1617,11 +1652,21 @@ func (b *InMemoryBackend) InvokeActivity(ctx context.Context, activityArn, input
 		resultCh:    make(chan activityTaskResult, 1),
 	}
 
+	if heartbeatSeconds > 0 {
+		entry.heartbeatDuration = time.Duration(heartbeatSeconds) * time.Second
+		entry.heartbeatStop = make(chan struct{}, 1)
+		entry.heartbeatTimer = time.NewTimer(entry.heartbeatDuration)
+	}
+
 	b.mu.Lock("InvokeActivity")
 	queue, ok := b.pendingTaskQueues[activityArn]
 
 	if !ok {
 		b.mu.Unlock()
+
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
 
 		return "", fmt.Errorf("%w: %s", ErrActivityDoesNotExist, activityArn)
 	}
@@ -1637,21 +1682,45 @@ func (b *InMemoryBackend) InvokeActivity(ctx context.Context, activityArn, input
 		delete(b.tasksByToken, taskToken)
 		b.mu.Unlock()
 
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
+
 		return "", ctx.Err()
+	}
+
+	// Resolve heartbeat channel (nil if no timeout configured).
+	var heartbeatCh <-chan time.Time
+	if entry.heartbeatTimer != nil {
+		heartbeatCh = entry.heartbeatTimer.C
 	}
 
 	// Wait for the worker to complete the task.
 	select {
 	case result := <-entry.resultCh:
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
+
 		if result.succeeded {
 			return result.output, nil
 		}
 
 		return "", fmt.Errorf("%w: %s", ErrActivityTaskFailed, result.errCode)
+	case <-heartbeatCh:
+		b.mu.Lock("InvokeActivity.heartbeat.timeout")
+		delete(b.tasksByToken, taskToken)
+		b.mu.Unlock()
+
+		return "", ErrHeartbeatTimeout
 	case <-ctx.Done():
 		b.mu.Lock("InvokeActivity.wait.cancel")
 		delete(b.tasksByToken, taskToken)
 		b.mu.Unlock()
+
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
 
 		return "", ctx.Err()
 	}

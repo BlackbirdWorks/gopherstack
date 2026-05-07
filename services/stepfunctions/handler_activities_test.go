@@ -251,7 +251,7 @@ func TestHandler_SendTaskSuccess_WithRealToken(t *testing.T) {
 
 			taskCh := make(chan string, 1)
 			go func() {
-				out, err := bk.InvokeActivity(t.Context(), actARN, `{"in":1}`)
+				out, err := bk.InvokeActivity(t.Context(), actARN, `{"in":1}`, 0)
 				if err == nil {
 					taskCh <- out
 				} else {
