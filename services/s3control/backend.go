@@ -2,6 +2,7 @@ package s3control
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -128,6 +129,15 @@ type MultiRegionAccessPointRequest struct {
 	Name            string `json:"name"`
 }
 
+// MultiRegionAccessPoint represents a stored MRAP instance.
+type MultiRegionAccessPoint struct {
+	AccountID string `json:"accountID"`
+	Name      string `json:"name"`
+	Alias     string `json:"alias"`
+	Status    string `json:"status"`
+	Policy    string `json:"policy,omitempty"`
+}
+
 // StorageLensGroup represents an S3 Storage Lens group.
 type StorageLensGroup struct {
 	AccountID           string `json:"accountID"`
@@ -142,8 +152,10 @@ type InMemoryBackend struct {
 	accessGrants             map[string]*AccessGrant
 	accessGrantsLocations    map[string]*AccessGrantsLocation
 	accessPoints             map[string]*AccessPoint
+	accessPointPolicies      map[string]string
 	objectLambdaAccessPoints map[string]*ObjectLambdaAccessPoint
 	mrapRequests             map[string]*MultiRegionAccessPointRequest
+	mraps                    map[string]*MultiRegionAccessPoint
 	batchJobs                map[string]*BatchJob
 	accessGrantsInstances    map[string]*AccessGrantsInstance
 	storageLensGroups        map[string]*StorageLensGroup
@@ -166,10 +178,12 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		accessGrants:             make(map[string]*AccessGrant),
 		accessGrantsLocations:    make(map[string]*AccessGrantsLocation),
 		accessPoints:             make(map[string]*AccessPoint),
+		accessPointPolicies:      make(map[string]string),
 		objectLambdaAccessPoints: make(map[string]*ObjectLambdaAccessPoint),
 		outpostsBuckets:          make(map[string]*OutpostsBucket),
 		batchJobs:                make(map[string]*BatchJob),
 		mrapRequests:             make(map[string]*MultiRegionAccessPointRequest),
+		mraps:                    make(map[string]*MultiRegionAccessPoint),
 		storageLensGroups:        make(map[string]*StorageLensGroup),
 		mu:                       lockmetrics.New("s3control"),
 		accountID:                accountID,
@@ -193,10 +207,12 @@ func (b *InMemoryBackend) Reset() {
 	b.accessGrants = make(map[string]*AccessGrant)
 	b.accessGrantsLocations = make(map[string]*AccessGrantsLocation)
 	b.accessPoints = make(map[string]*AccessPoint)
+	b.accessPointPolicies = make(map[string]string)
 	b.objectLambdaAccessPoints = make(map[string]*ObjectLambdaAccessPoint)
 	b.outpostsBuckets = make(map[string]*OutpostsBucket)
 	b.batchJobs = make(map[string]*BatchJob)
 	b.mrapRequests = make(map[string]*MultiRegionAccessPointRequest)
+	b.mraps = make(map[string]*MultiRegionAccessPoint)
 	b.storageLensGroups = make(map[string]*StorageLensGroup)
 	b.nextID = 0
 }
@@ -387,6 +403,103 @@ func (b *InMemoryBackend) CreateAccessPoint(accountID, name, bucket string) *Acc
 	return &cp
 }
 
+// GetAccessPoint retrieves an S3 access point by name.
+func (b *InMemoryBackend) GetAccessPoint(accountID, name string) (*AccessPoint, error) {
+	b.mu.RLock("GetAccessPoint")
+	defer b.mu.RUnlock()
+
+	ap, ok := b.accessPoints[accountID+":"+name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	cp := *ap
+
+	return &cp, nil
+}
+
+// DeleteAccessPoint removes an S3 access point.
+func (b *InMemoryBackend) DeleteAccessPoint(accountID, name string) error {
+	b.mu.Lock("DeleteAccessPoint")
+	defer b.mu.Unlock()
+
+	key := accountID + ":" + name
+	if _, ok := b.accessPoints[key]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.accessPoints, key)
+	delete(b.accessPointPolicies, key)
+
+	return nil
+}
+
+// ListAccessPoints returns all access points for an account.
+func (b *InMemoryBackend) ListAccessPoints(accountID string) []*AccessPoint {
+	b.mu.RLock("ListAccessPoints")
+	defer b.mu.RUnlock()
+
+	prefix := accountID + ":"
+	var out []*AccessPoint
+
+	for k, v := range b.accessPoints {
+		if strings.HasPrefix(k, prefix) {
+			cp := *v
+			out = append(out, &cp)
+		}
+	}
+
+	return out
+}
+
+// PutAccessPointPolicy stores a policy for an access point.
+func (b *InMemoryBackend) PutAccessPointPolicy(accountID, name, policy string) error {
+	b.mu.Lock("PutAccessPointPolicy")
+	defer b.mu.Unlock()
+
+	key := accountID + ":" + name
+	if _, ok := b.accessPoints[key]; !ok {
+		return ErrNotFound
+	}
+
+	b.accessPointPolicies[key] = policy
+
+	return nil
+}
+
+// GetAccessPointPolicy retrieves the policy for an access point.
+func (b *InMemoryBackend) GetAccessPointPolicy(accountID, name string) (string, error) {
+	b.mu.RLock("GetAccessPointPolicy")
+	defer b.mu.RUnlock()
+
+	key := accountID + ":" + name
+	if _, ok := b.accessPoints[key]; !ok {
+		return "", ErrNotFound
+	}
+
+	policy, ok := b.accessPointPolicies[key]
+	if !ok {
+		return "", ErrNotFound
+	}
+
+	return policy, nil
+}
+
+// DeleteAccessPointPolicy removes the policy for an access point.
+func (b *InMemoryBackend) DeleteAccessPointPolicy(accountID, name string) error {
+	b.mu.Lock("DeleteAccessPointPolicy")
+	defer b.mu.Unlock()
+
+	key := accountID + ":" + name
+	if _, ok := b.accessPoints[key]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.accessPointPolicies, key)
+
+	return nil
+}
+
 // CreateAccessPointForObjectLambda creates an Object Lambda access point.
 func (b *InMemoryBackend) CreateAccessPointForObjectLambda(accountID, name string) *ObjectLambdaAccessPoint {
 	b.mu.Lock("CreateAccessPointForObjectLambda")
@@ -454,7 +567,7 @@ func (b *InMemoryBackend) CreateJob(accountID, roleArn string, priority int32) (
 	return &cp, nil
 }
 
-// CreateMultiRegionAccessPoint creates an async MRAP request.
+// CreateMultiRegionAccessPoint creates an async MRAP request and stores the MRAP instance.
 func (b *InMemoryBackend) CreateMultiRegionAccessPoint(
 	accountID, name, _ string,
 ) *MultiRegionAccessPointRequest {
@@ -471,9 +584,148 @@ func (b *InMemoryBackend) CreateMultiRegionAccessPoint(
 	}
 	b.mrapRequests[accountID+":"+token] = req
 
+	// Also store the real MRAP object so GetMultiRegionAccessPoint can retrieve it.
+	alias := fmt.Sprintf("%s.mrap.accesspoint.s3-global.amazonaws.com", name)
+	mrap := &MultiRegionAccessPoint{
+		AccountID: accountID,
+		Name:      name,
+		Alias:     alias,
+		Status:    "READY",
+	}
+	b.mraps[accountID+":"+name] = mrap
+
 	cp := *req
 
 	return &cp
+}
+
+// GetJob retrieves a batch job by ID.
+func (b *InMemoryBackend) GetJob(accountID, jobID string) (*BatchJob, error) {
+	b.mu.RLock("GetJob")
+	defer b.mu.RUnlock()
+
+	job, ok := b.batchJobs[accountID+":"+jobID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	cp := *job
+
+	return &cp, nil
+}
+
+// ListJobs returns all batch jobs for an account.
+func (b *InMemoryBackend) ListJobs(accountID string) []*BatchJob {
+	b.mu.RLock("ListJobs")
+	defer b.mu.RUnlock()
+
+	prefix := accountID + ":"
+	var out []*BatchJob
+
+	for k, v := range b.batchJobs {
+		if strings.HasPrefix(k, prefix) {
+			cp := *v
+			out = append(out, &cp)
+		}
+	}
+
+	return out
+}
+
+// UpdateJobPriority changes the priority of a batch job.
+func (b *InMemoryBackend) UpdateJobPriority(accountID, jobID string, priority int32) (*BatchJob, error) {
+	b.mu.Lock("UpdateJobPriority")
+	defer b.mu.Unlock()
+
+	job, ok := b.batchJobs[accountID+":"+jobID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	job.Priority = priority
+	cp := *job
+
+	return &cp, nil
+}
+
+// UpdateJobStatus changes the status of a batch job.
+func (b *InMemoryBackend) UpdateJobStatus(accountID, jobID, status string) (*BatchJob, error) {
+	b.mu.Lock("UpdateJobStatus")
+	defer b.mu.Unlock()
+
+	job, ok := b.batchJobs[accountID+":"+jobID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	job.Status = status
+	cp := *job
+
+	return &cp, nil
+}
+
+// GetMultiRegionAccessPoint retrieves an MRAP by name.
+func (b *InMemoryBackend) GetMultiRegionAccessPoint(accountID, name string) (*MultiRegionAccessPoint, error) {
+	b.mu.RLock("GetMultiRegionAccessPoint")
+	defer b.mu.RUnlock()
+
+	mrap, ok := b.mraps[accountID+":"+name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	cp := *mrap
+
+	return &cp, nil
+}
+
+// DeleteMultiRegionAccessPoint removes an MRAP.
+func (b *InMemoryBackend) DeleteMultiRegionAccessPoint(accountID, name string) error {
+	b.mu.Lock("DeleteMultiRegionAccessPoint")
+	defer b.mu.Unlock()
+
+	key := accountID + ":" + name
+	if _, ok := b.mraps[key]; !ok {
+		return ErrNotFound
+	}
+
+	delete(b.mraps, key)
+
+	return nil
+}
+
+// ListMultiRegionAccessPoints returns all MRAPs for an account.
+func (b *InMemoryBackend) ListMultiRegionAccessPoints(accountID string) []*MultiRegionAccessPoint {
+	b.mu.RLock("ListMultiRegionAccessPoints")
+	defer b.mu.RUnlock()
+
+	prefix := accountID + ":"
+	var out []*MultiRegionAccessPoint
+
+	for k, v := range b.mraps {
+		if strings.HasPrefix(k, prefix) {
+			cp := *v
+			out = append(out, &cp)
+		}
+	}
+
+	return out
+}
+
+// PutMultiRegionAccessPointPolicy stores a policy for an MRAP.
+func (b *InMemoryBackend) PutMultiRegionAccessPointPolicy(accountID, name, policy string) error {
+	b.mu.Lock("PutMultiRegionAccessPointPolicy")
+	defer b.mu.Unlock()
+
+	key := accountID + ":" + name
+	mrap, ok := b.mraps[key]
+	if !ok {
+		return ErrNotFound
+	}
+
+	mrap.Policy = policy
+
+	return nil
 }
 
 // CreateStorageLensGroup creates an S3 Storage Lens group.

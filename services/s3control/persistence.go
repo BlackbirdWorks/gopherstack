@@ -3,6 +3,7 @@ package s3control
 import (
 	"encoding/json"
 	"log/slog"
+	"maps"
 )
 
 type backendSnapshot struct {
@@ -11,10 +12,12 @@ type backendSnapshot struct {
 	AccessGrants             map[string]*AccessGrant                   `json:"accessGrants"`
 	AccessGrantsLocations    map[string]*AccessGrantsLocation          `json:"accessGrantsLocations"`
 	AccessPoints             map[string]*AccessPoint                   `json:"accessPoints"`
+	AccessPointPolicies      map[string]string                         `json:"accessPointPolicies"`
 	ObjectLambdaAccessPoints map[string]*ObjectLambdaAccessPoint       `json:"objectLambdaAccessPoints"`
 	OutpostsBuckets          map[string]*OutpostsBucket                `json:"outpostsBuckets"`
 	BatchJobs                map[string]*BatchJob                      `json:"batchJobs"`
 	MRAPRequests             map[string]*MultiRegionAccessPointRequest `json:"mrapRequests"`
+	MRAPs                    map[string]*MultiRegionAccessPoint        `json:"mraps"`
 	StorageLensGroups        map[string]*StorageLensGroup              `json:"storageLensGroups"`
 	NextID                   int64                                     `json:"nextID"`
 }
@@ -31,10 +34,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AccessGrants:             cloneMapAG(b.accessGrants),
 		AccessGrantsLocations:    cloneMapAGL(b.accessGrantsLocations),
 		AccessPoints:             cloneMapAP(b.accessPoints),
+		AccessPointPolicies:      cloneMapStr(b.accessPointPolicies),
 		ObjectLambdaAccessPoints: cloneMapOLAP(b.objectLambdaAccessPoints),
 		OutpostsBuckets:          cloneMapOB(b.outpostsBuckets),
 		BatchJobs:                cloneMapBJ(b.batchJobs),
 		MRAPRequests:             cloneMapMRAP(b.mrapRequests),
+		MRAPs:                    cloneMapMRAPObj(b.mraps),
 		StorageLensGroups:        cloneMapSLG(b.storageLensGroups),
 		NextID:                   b.nextID,
 	}
@@ -139,6 +144,23 @@ func cloneMapMRAP(m map[string]*MultiRegionAccessPointRequest) map[string]*Multi
 	return out
 }
 
+func cloneMapStr(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	maps.Copy(out, m)
+
+	return out
+}
+
+func cloneMapMRAPObj(m map[string]*MultiRegionAccessPoint) map[string]*MultiRegionAccessPoint {
+	out := make(map[string]*MultiRegionAccessPoint, len(m))
+	for k, v := range m {
+		cp := *v
+		out[k] = &cp
+	}
+
+	return out
+}
+
 func cloneMapSLG(m map[string]*StorageLensGroup) map[string]*StorageLensGroup {
 	out := make(map[string]*StorageLensGroup, len(m))
 	for k, v := range m {
@@ -186,6 +208,14 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 		snap.MRAPRequests = make(map[string]*MultiRegionAccessPointRequest)
 	}
 
+	if snap.MRAPs == nil {
+		snap.MRAPs = make(map[string]*MultiRegionAccessPoint)
+	}
+
+	if snap.AccessPointPolicies == nil {
+		snap.AccessPointPolicies = make(map[string]string)
+	}
+
 	if snap.StorageLensGroups == nil {
 		snap.StorageLensGroups = make(map[string]*StorageLensGroup)
 	}
@@ -210,10 +240,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accessGrants = snap.AccessGrants
 	b.accessGrantsLocations = snap.AccessGrantsLocations
 	b.accessPoints = snap.AccessPoints
+	b.accessPointPolicies = snap.AccessPointPolicies
 	b.objectLambdaAccessPoints = snap.ObjectLambdaAccessPoints
 	b.outpostsBuckets = snap.OutpostsBuckets
 	b.batchJobs = snap.BatchJobs
 	b.mrapRequests = snap.MRAPRequests
+	b.mraps = snap.MRAPs
 	b.storageLensGroups = snap.StorageLensGroups
 	b.nextID = snap.NextID
 
