@@ -25,7 +25,7 @@ const (
 	versionRedis710           = "7.1.0"
 	nodeTypeT3Micro           = "cache.t3.micro"
 	statusAvailable           = "available"
-	statusServerlessAvailable = "AVAILABLE"
+	statusServerlessAvailable = "available"
 	statusDisabled            = "disabled"
 )
 
