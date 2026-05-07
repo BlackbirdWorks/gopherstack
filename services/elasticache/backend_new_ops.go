@@ -2,6 +2,7 @@ package elasticache
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"time"
 
@@ -62,16 +63,24 @@ type GlobalReplicationGroup struct {
 	EngineVersion            string     `json:"engineVersion"`
 }
 
+// ServerlessCacheEndpoint holds the address and port for a serverless cache endpoint.
+type ServerlessCacheEndpoint struct {
+	Address string `json:"address"`
+	Port    int    `json:"port"`
+}
+
 // ServerlessCache represents an ElastiCache serverless cache.
 type ServerlessCache struct {
-	CreatedAt   time.Time  `json:"createdAt"`
-	Tags        *tags.Tags `json:"tags,omitempty"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Status      string     `json:"status"`
-	ARN         string     `json:"arn"`
-	Engine      string     `json:"engine"`
-	SubnetIDs   []string   `json:"subnetIds,omitempty"`
+	CreatedAt      time.Time                `json:"createdAt"`
+	Tags           *tags.Tags               `json:"tags,omitempty"`
+	Endpoint       *ServerlessCacheEndpoint `json:"endpoint,omitempty"`
+	ReaderEndpoint *ServerlessCacheEndpoint `json:"readerEndpoint,omitempty"`
+	Name           string                   `json:"name"`
+	Description    string                   `json:"description"`
+	Status         string                   `json:"status"`
+	ARN            string                   `json:"arn"`
+	Engine         string                   `json:"engine"`
+	SubnetIDs      []string                 `json:"subnetIds,omitempty"`
 }
 
 // ServerlessCacheSnapshot represents a snapshot of a serverless cache.
@@ -241,14 +250,27 @@ func (b *InMemoryBackend) CreateServerlessCache(name, description, engine string
 		engine = engineRedis
 	}
 
+	suffix := randomSuffix()
+	host := fmt.Sprintf("%s.serverless.%s.%s.cache.amazonaws.com", name, suffix, b.region)
+	readerHost := fmt.Sprintf("%s.serverless.%s.%s.cache.amazonaws.com", name+"-ro", suffix, b.region)
+	port := 6379
+	if engine == engineMemcached {
+		port = 11211
+	}
+
+	ep := &ServerlessCacheEndpoint{Address: host, Port: port}
+	readerEp := &ServerlessCacheEndpoint{Address: readerHost, Port: port}
+
 	sc := &ServerlessCache{
-		Name:        name,
-		Description: description,
-		Status:      statusAvailable,
-		ARN:         b.serverlessCacheARN(name),
-		Engine:      engine,
-		CreatedAt:   time.Now(),
-		Tags:        tags.New("elasticache.serverless." + name + ".tags"),
+		Name:           name,
+		Description:    description,
+		Status:         statusServerlessAvailable,
+		ARN:            b.serverlessCacheARN(name),
+		Engine:         engine,
+		CreatedAt:      time.Now(),
+		Tags:           tags.New("elasticache.serverless." + name + ".tags"),
+		Endpoint:       ep,
+		ReaderEndpoint: readerEp,
 	}
 	b.serverlessCaches[name] = sc
 	b.appendEventLocked(name, "serverless-cache", "serverless cache created")
