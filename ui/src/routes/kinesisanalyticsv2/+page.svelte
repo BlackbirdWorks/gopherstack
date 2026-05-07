@@ -270,6 +270,7 @@
 			const resp = await kda.send(
 				new DiscoverInputSchemaCommand({
 					ResourceARN: schemaResourceARN.trim(),
+					ServiceExecutionRole: '',
 					InputStartingPositionConfiguration: { InputStartingPosition: 'NOW' }
 				})
 			);

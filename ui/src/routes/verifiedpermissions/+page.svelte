@@ -446,7 +446,7 @@
 							<textarea
 								bind:value={schemaDraft}
 								rows={20}
-								placeholder='{"namespace": {"entityTypes": {}, "actions": {}}}'
+								placeholder="&#123;&quot;namespace&quot;: &#123;&quot;entityTypes&quot;: &#123;&#125;, &quot;actions&quot;: &#123;&#125;&#125;&#125;" 
 								class="w-full font-mono text-xs bg-gray-900 text-green-300 p-3 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 resize-y"
 							></textarea>
 							<p class="text-xs text-gray-500 dark:text-gray-400">Enter a valid Cedar JSON schema. Changes are applied immediately on save.</p>

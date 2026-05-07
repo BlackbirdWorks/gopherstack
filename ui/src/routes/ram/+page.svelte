@@ -301,7 +301,7 @@
 											<Key class="w-4 h-4 text-cyan-500" />
 											<div>
 												<!-- eslint-disable-next-line @typescript-eslint/no-explicit-any -->
-												<p class="text-sm font-medium text-gray-900 dark:text-white">Version {(ver as any).version ?? ver.permissionVersion}</p>
+												<p class="text-sm font-medium text-gray-900 dark:text-white">Version {(ver as any).version ?? ver.version}</p>
 												<!-- eslint-disable-next-line @typescript-eslint/no-explicit-any -->
 												{#if (ver as any).defaultVersion}
 													<span class="text-xs text-green-600 dark:text-green-400">Default</span>
@@ -311,7 +311,7 @@
 										<!-- eslint-disable-next-line @typescript-eslint/no-explicit-any -->
 										{#if !(ver as any).defaultVersion && selectedPermission?.arn}
 											<button
-												onclick={() => setDefaultVersion(selectedPermission!.arn!, Number((ver as any).version ?? ver.permissionVersion))}
+												onclick={() => setDefaultVersion(selectedPermission!.arn!, Number((ver as any).version ?? ver.version))}
 												class="text-xs px-3 py-1 rounded-lg bg-cyan-600 text-white hover:bg-cyan-700">
 												Set as Default
 											</button>

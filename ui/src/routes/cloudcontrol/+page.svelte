@@ -501,6 +501,7 @@
 			{#if detailLoading}
 				<div class="text-center py-8 text-gray-500 dark:text-gray-400">Loading…</div>
 			{:else if detailResource}
+				{@const parsed = detailPropertiesParsed()}
 				<div class="space-y-4">
 					<div>
 						<p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Identifier</p>
@@ -508,7 +509,6 @@
 					</div>
 					<div>
 						<p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Properties</p>
-						{@const parsed = detailPropertiesParsed()}
 						{#if parsed}
 							<div class="space-y-2">
 								{#each Object.entries(parsed) as [key, val]}

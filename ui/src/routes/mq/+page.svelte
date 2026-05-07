@@ -328,7 +328,8 @@
 	function openEditUser(user: UserSummary) {
 		userToEdit = user;
 		editUserPassword = '';
-		editUserConsole = user.ConsoleAccess ?? false;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		editUserConsole = (user as any).ConsoleAccess ?? false;
 		editUserGroups = '';
 		showUpdateUserModal = true;
 	}
@@ -661,7 +662,7 @@
 										<div class="flex items-center justify-between bg-slate-50 dark:bg-slate-700/30 rounded-lg px-3 py-2">
 											<div>
 												<p class="text-sm font-medium text-slate-900 dark:text-white">{user.Username}</p>
-												{#if user.ConsoleAccess}
+												{#if (user as any).ConsoleAccess}
 													<span class="text-xs text-green-600 dark:text-green-400">Console access</span>
 												{/if}
 											</div>

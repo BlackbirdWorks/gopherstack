@@ -274,10 +274,10 @@
 									<td class="px-4 py-3 font-medium text-blue-600 dark:text-blue-400">{fleet.name}</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{fleet.computeType ?? '-'}</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{fleet.environmentType ?? '-'}</td>
-									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{fleet.currentCapacity ?? fleet.desiredCapacity ?? '-'}</td>
+									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{fleet.baseCapacity ?? '-'}</td>
 									<td class="px-4 py-3">
-										<span class="px-2 py-0.5 rounded text-xs font-medium {fleet.statusMessage === 'ACTIVE' || (fleet.status?.statusCode ?? '') === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}">
-											{fleet.status?.statusCode ?? fleet.statusMessage ?? 'ACTIVE'}
+										<span class="px-2 py-0.5 rounded text-xs font-medium {(fleet.status?.statusCode ?? '') === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}">
+											{fleet.status?.statusCode ?? 'ACTIVE'}
 										</span>
 									</td>
 								</tr>

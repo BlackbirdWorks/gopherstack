@@ -16,7 +16,7 @@
 		type GetPipelineStateCommandOutput,
 		type StageState,
 		type PipelineExecutionSummary,
-		type WebhookDetail
+		type ListWebhookItem
 	} from '@aws-sdk/client-codepipeline';
 	import { toast } from 'svelte-sonner';
 	import { 
@@ -43,7 +43,7 @@
 
 	// Execution/webhook state
 	let executions = $state<PipelineExecutionSummary[]>([]);
-	let webhooks = $state<WebhookDetail[]>([]);
+	let webhooks = $state<ListWebhookItem[]>([]);
 	let activeTab = $state<'stages' | 'executions' | 'webhooks'>('stages');
 	let startingExecution = $state(false);
 
@@ -122,7 +122,7 @@
 				pipelineName: selectedPipeline.name,
 				stageName,
 				actionName,
-				approvalResult: { status, summary: `${status} via UI` },
+				result: { summary: `${status} via UI`, status },
 				token: 'stub-token'
 			}));
 			toast.success(`Action ${status.toLowerCase()}`);
@@ -408,7 +408,6 @@
 									</div>
 								{/each}
 							</div>
-						</div>
 						</div>
 						{/if}
 					</div>

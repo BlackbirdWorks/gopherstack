@@ -91,7 +91,8 @@
 					}
 				}
 			} else if (resp.Body) {
-				const decoded = new TextDecoder().decode(resp.Body as Uint8Array);
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const decoded = new TextDecoder().decode(resp.Body as unknown as Uint8Array);
 				streamChunks = [decoded];
 			}
 			toast.success('Streaming complete');

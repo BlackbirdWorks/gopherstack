@@ -354,7 +354,8 @@
 		await loadForTab(tab);
 	}
 
-	function ruleType(rule: { Statement?: Record<string, unknown> }): string {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	function ruleType(rule: { Statement?: any }): string {
 		if (rule.Statement?.ManagedRuleGroupStatement) return 'Managed Rule Group';
 		if (rule.Statement?.IPSetReferenceStatement) return 'IP Set';
 		if (rule.Statement?.ByteMatchStatement) return 'Byte Match';

@@ -163,7 +163,8 @@
 			await bedrock.send(
 				new CreateCustomModelCommand({
 					modelName: newCustomModelName.trim(),
-					baseModelIdentifier: newCustomModelBase.trim() || undefined
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+					modelSourceConfig: { s3DataSource: { s3Uri: newCustomModelBase.trim() } } as any
 				})
 			);
 			toast.success(`Custom model "${newCustomModelName}" created`);
