@@ -93,6 +93,8 @@ func (h *Handler) Name() string {
 }
 
 // GetSupportedOperations returns the list of supported IAM operations.
+//
+//nolint:funlen // large service with many operations
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateUser", "DeleteUser", opListUsers, "GetUser", "UpdateUser",

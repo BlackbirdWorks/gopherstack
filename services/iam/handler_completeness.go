@@ -32,6 +32,7 @@ func (h *Handler) iamCompletenessDispatchTable() map[string]iamActionFn {
 
 // ----- Instance Profile Tags -----
 
+//nolint:dupl // tag dispatch functions share structure by design
 func (h *Handler) iamInstanceProfileTagDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListInstanceProfileTags": func(vals url.Values, reqID string) (any, error) {
@@ -147,6 +148,7 @@ func (h *Handler) iamMFADeviceDispatch() map[string]iamActionFn {
 
 // ----- OIDC Provider Tags -----
 
+//nolint:dupl // tag dispatch functions share structure by design
 func (h *Handler) iamOIDCTagDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListOpenIDConnectProviderTags": func(vals url.Values, reqID string) (any, error) {
@@ -190,6 +192,7 @@ func (h *Handler) iamOIDCTagDispatch() map[string]iamActionFn {
 
 // ----- SAML Provider Tags -----
 
+//nolint:dupl // tag dispatch functions share structure by design
 func (h *Handler) iamSAMLTagDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListSAMLProviderTags": func(vals url.Values, reqID string) (any, error) {
@@ -233,6 +236,7 @@ func (h *Handler) iamSAMLTagDispatch() map[string]iamActionFn {
 
 // ----- Server Certificates -----
 
+//nolint:funlen // contains all operations for this IAM resource type
 func (h *Handler) iamServerCertDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListServerCertificates": func(_ url.Values, reqID string) (any, error) {
@@ -343,6 +347,7 @@ func (h *Handler) iamServerCertDispatch() map[string]iamActionFn {
 
 // ----- SSH Public Keys and Signing Certificates -----
 
+//nolint:funlen // contains all operations for this IAM resource type
 func (h *Handler) iamSSHSigningDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListSSHPublicKeys": func(_ url.Values, reqID string) (any, error) {
