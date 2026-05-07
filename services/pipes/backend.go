@@ -23,6 +23,9 @@ const (
 	stateUpdateFailed = "UPDATE_FAILED"
 	stateDeleteFailed = "DELETE_FAILED"
 
+	// stateTransitionDelay is the simulated delay for STARTING/STOPPING transitions.
+	stateTransitionDelay = 10 * time.Millisecond
+
 	maxPipeNameLen  = 64
 	maxTagKeyLen    = 128
 	maxTagValueLen  = 256
@@ -169,21 +172,38 @@ func clonePipe(p *Pipe) *Pipe {
 
 // InMemoryBackend is the in-memory store for pipes.
 type InMemoryBackend struct {
-	pipes        map[string]*Pipe
-	pipeARNIndex map[string]string
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	pipes               map[string]*Pipe
+	pipeARNIndex        map[string]string
+	enrichmentCallCount map[string]int64 // pipe name → enrichment invocation count
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
 }
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		pipes:        make(map[string]*Pipe),
-		pipeARNIndex: make(map[string]string),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("pipes"),
+		pipes:               make(map[string]*Pipe),
+		pipeARNIndex:        make(map[string]string),
+		enrichmentCallCount: make(map[string]int64),
+		accountID:           accountID,
+		region:              region,
+		mu:                  lockmetrics.New("pipes"),
 	}
+}
+
+// RecordEnrichmentCall increments the enrichment invocation counter for a pipe.
+func (b *InMemoryBackend) RecordEnrichmentCall(pipeName string) {
+	b.mu.Lock("RecordEnrichmentCall")
+	defer b.mu.Unlock()
+	b.enrichmentCallCount[pipeName]++
+}
+
+// GetEnrichmentCallCount returns the number of enrichment calls for a pipe.
+func (b *InMemoryBackend) GetEnrichmentCallCount(pipeName string) int64 {
+	b.mu.RLock("GetEnrichmentCallCount")
+	defer b.mu.RUnlock()
+
+	return b.enrichmentCallCount[pipeName]
 }
 
 func (b *InMemoryBackend) Region() string { return b.region }
@@ -470,11 +490,31 @@ func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
 		return nil, fmt.Errorf("%w: pipe %s is already in RUNNING state", ErrValidation, name)
 	}
 	p.DesiredState = stateRunning
-	p.CurrentState = stateRunning
+	// Transition through STARTING → RUNNING to simulate AWS behavior.
+	p.CurrentState = stateStarting
 	p.StateReason = ""
 	p.LastModifiedTime = time.Now()
+	cp := clonePipe(p)
 
-	return clonePipe(p), nil
+	// Complete the transition to RUNNING asynchronously.
+	go b.completeStartTransition(name)
+
+	return cp, nil
+}
+
+// completeStartTransition moves a pipe from STARTING to RUNNING after a brief delay.
+func (b *InMemoryBackend) completeStartTransition(name string) {
+	time.Sleep(stateTransitionDelay)
+	b.mu.Lock("completeStartTransition")
+	defer b.mu.Unlock()
+	p, ok := b.pipes[name]
+	if !ok {
+		return
+	}
+	if p.CurrentState == stateStarting {
+		p.CurrentState = stateRunning
+		p.LastModifiedTime = time.Now()
+	}
 }
 
 func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
@@ -488,11 +528,31 @@ func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
 		return nil, fmt.Errorf("%w: pipe %s is already in STOPPED state", ErrValidation, name)
 	}
 	p.DesiredState = stateStopped
-	p.CurrentState = stateStopped
+	// Transition through STOPPING → STOPPED to simulate AWS behavior.
+	p.CurrentState = stateStopping
 	p.StateReason = ""
 	p.LastModifiedTime = time.Now()
+	cp := clonePipe(p)
 
-	return clonePipe(p), nil
+	// Complete the transition to STOPPED asynchronously.
+	go b.completeStopTransition(name)
+
+	return cp, nil
+}
+
+// completeStopTransition moves a pipe from STOPPING to STOPPED after a brief delay.
+func (b *InMemoryBackend) completeStopTransition(name string) {
+	time.Sleep(stateTransitionDelay)
+	b.mu.Lock("completeStopTransition")
+	defer b.mu.Unlock()
+	p, ok := b.pipes[name]
+	if !ok {
+		return
+	}
+	if p.CurrentState == stateStopping {
+		p.CurrentState = stateStopped
+		p.LastModifiedTime = time.Now()
+	}
 }
 
 // MarkPipeFailed updates a pipe to a failed state with a reason message.
@@ -570,6 +630,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 	b.pipes = make(map[string]*Pipe)
 	b.pipeARNIndex = make(map[string]string)
+	b.enrichmentCallCount = make(map[string]int64)
 }
 
 func validatePipeName(name string) error {

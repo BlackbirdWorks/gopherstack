@@ -158,6 +158,13 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 		return
 	}
 
+	// Track enrichment invocation if enrichment is configured.
+	if p.Enrichment != "" {
+		r.backend.RecordEnrichmentCall(p.Name)
+		logger.Load(ctx).DebugContext(ctx, "pipes: enrichment configured (tracked)",
+			"pipe", p.Name, "enrichment", p.Enrichment, "messages", len(msgs))
+	}
+
 	receiptHandles, invokeErr := r.invokeTarget(ctx, p, msgs)
 	if invokeErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: target invocation failed",

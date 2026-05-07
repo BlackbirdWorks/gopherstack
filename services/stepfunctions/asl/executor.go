@@ -846,37 +846,11 @@ func (e *Executor) executeParallel(
 
 	var wg sync.WaitGroup
 	for i, branch := range state.Branches {
-		// Stop spawning new goroutines if context already cancelled.
 		if ctx.Err() != nil {
 			return "", nil, ctx.Err()
 		}
 
-		wg.Go(func() {
-			acquired := true
-			select {
-			case e.execSem <- struct{}{}:
-			case <-ctx.Done():
-				acquired = false
-			}
-
-			if !acquired {
-				return
-			}
-			defer func() { <-e.execSem }()
-
-			branchSM := &StateMachine{
-				StartAt: branch.StartAt,
-				States:  branch.States,
-			}
-			exec := e.newSubExecutor(branchSM)
-			res, err := exec.Execute(ctx, executionARN, marshalInput(input))
-			if err != nil {
-				errs[i] = err
-
-				return
-			}
-			results[i] = res.Output
-		})
+		wg.Go(func() { e.runParallelBranch(ctx, executionARN, branch, input, results, errs, i) })
 	}
 
 	wg.Wait()
@@ -885,13 +859,53 @@ func (e *Executor) executeParallel(
 		return "", nil, err
 	}
 
-	for _, err := range errs {
-		if err != nil {
-			return "", nil, err
+	for _, branchErr := range errs {
+		if branchErr != nil {
+			if next, out, matched := e.checkCatchers("", "Parallel", state, input, branchErr); matched {
+				return next, out, nil
+			}
+
+			return "", nil, branchErr
 		}
 	}
 
 	return state.Next, results, nil
+}
+
+// runParallelBranch executes a single Parallel state branch in a goroutine.
+func (e *Executor) runParallelBranch(
+	ctx context.Context,
+	executionARN string,
+	branch Branch,
+	input any,
+	results []any,
+	errs []error,
+	idx int,
+) {
+	select {
+	case e.execSem <- struct{}{}:
+	case <-ctx.Done():
+		return
+	}
+	defer func() { <-e.execSem }()
+
+	branchSM := &StateMachine{StartAt: branch.StartAt, States: branch.States}
+	exec := e.newSubExecutor(branchSM)
+	res, err := exec.Execute(ctx, executionARN, marshalInput(input))
+
+	if err != nil {
+		errs[idx] = err
+
+		return
+	}
+
+	if res.Error != "" {
+		errs[idx] = &FailError{ErrCode: res.Error, Cause: res.Cause}
+
+		return
+	}
+
+	results[idx] = res.Output
 }
 
 const maxMapConcurrencyLimit = 40
