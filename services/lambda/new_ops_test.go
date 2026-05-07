@@ -631,6 +631,34 @@ func TestNewOps_RouteMatcher_NewPaths(t *testing.T) {
 	}
 }
 
+// TestNewOps_InvokeWithResponseStream verifies that the streaming invoke endpoint
+// returns application/vnd.amazon.eventstream and at least one data frame.
+func TestNewOps_InvokeWithResponseStream(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	createFunctionForTest(t, h, "stream-fn")
+
+	rec := callInMemoryHandler(t, h, http.MethodPost,
+		"/2021-11-15/functions/stream-fn/response-streaming-invocations", `{}`)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/vnd.amazon.eventstream", rec.Header().Get("Content-Type"))
+	// Body must contain at least one 4-byte length prefix plus payload bytes.
+	assert.Greater(t, rec.Body.Len(), 4)
+}
+
+func TestNewOps_InvokeWithResponseStream_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	rec := callInMemoryHandler(t, h, http.MethodPost,
+		"/2021-11-15/functions/nonexistent/response-streaming-invocations", `{}`)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 // TestNewOps_GetSupportedOperations validates all new ops are in GetSupportedOperations.
 func TestNewOps_GetSupportedOperations(t *testing.T) {
 	t.Parallel()

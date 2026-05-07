@@ -6,10 +6,15 @@ package lambda
 // completeness test passes.
 
 import (
+	"encoding/binary"
+	"encoding/json"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 )
+
+// contentTypeEventStream is the MIME type for Lambda streaming responses.
+const contentTypeEventStream = "application/vnd.amazon.eventstream"
 
 // --- Durable Execution stubs ---
 
@@ -100,7 +105,37 @@ func (h *Handler) handleInvokeAsync(c *echo.Context, name string) error {
 }
 
 // handleInvokeWithResponseStream handles POST /2021-11-15/functions/{name}/response-streaming-invocations.
+// It returns a minimal but well-formed application/vnd.amazon.eventstream response
+// containing one payload chunk followed by an end-of-stream marker.
 func (h *Handler) handleInvokeWithResponseStream(c *echo.Context, name string) error {
-	// Stub: delegate to standard invoke for compatibility.
-	return h.handleInvoke(c, name)
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	// Verify the function exists before streaming.
+	if _, err := lambdaBk.GetFunction(name); err != nil {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			"Function not found: "+name)
+	}
+
+	// Build a minimal JSON payload mimicking what a real streaming Lambda returns.
+	payload, _ := json.Marshal(map[string]string{"statusCode": "200", "body": ""})
+
+	c.Response().Header().Set("Content-Type", contentTypeEventStream)
+	c.Response().WriteHeader(http.StatusOK)
+
+	// Write one event-stream frame: 4-byte big-endian payload length followed by payload.
+	// The payload is a small JSON literal so the length safely fits in uint32.
+	payloadLen := len(payload)
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(payloadLen)) //nolint:gosec // payload is small JSON literal
+	_, _ = c.Response().Write(lenBuf[:])
+	_, _ = c.Response().Write(payload)
+
+	// End-of-stream: zero-length frame.
+	binary.BigEndian.PutUint32(lenBuf[:], 0)
+	_, _ = c.Response().Write(lenBuf[:])
+
+	return nil
 }
