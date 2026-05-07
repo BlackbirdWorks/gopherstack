@@ -6852,3 +6852,91 @@ func TestTerraform_S3(t *testing.T) {
 		})
 	}
 }
+
+// TestTerraform_CachingMessagingComprehensive provisions ElastiCache, MemoryDB, and MSK resources
+// together and verifies all services are reachable and configured correctly.
+func TestTerraform_CachingMessagingComprehensive(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "caching-messaging-comprehensive/main",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Prefix": "tf-cmc-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				prefix := vars["Prefix"].(string)
+
+				// Verify ElastiCache replication group was created.
+				ecClient := createElastiCacheClient(t)
+				rgID := prefix + "-rg"
+				rgOut, err := ecClient.DescribeReplicationGroups(ctx, &elasticachesvc.DescribeReplicationGroupsInput{
+					ReplicationGroupId: aws.String(rgID),
+				})
+				require.NoError(t, err, "DescribeReplicationGroups should succeed")
+				require.Len(t, rgOut.ReplicationGroups, 1)
+				assert.Equal(t, rgID, aws.ToString(rgOut.ReplicationGroups[0].ReplicationGroupId))
+
+				// Verify ElastiCache snapshot was created.
+				snapName := prefix + "-snap"
+				snapOut, err := ecClient.DescribeSnapshots(ctx, &elasticachesvc.DescribeSnapshotsInput{
+					SnapshotName: aws.String(snapName),
+				})
+				require.NoError(t, err, "DescribeSnapshots should succeed")
+				require.Len(t, snapOut.Snapshots, 1)
+				assert.Equal(t, snapName, aws.ToString(snapOut.Snapshots[0].SnapshotName))
+
+				// Verify MemoryDB cluster was created.
+				mdbClient := createMemoryDBClient(t)
+				mdbName := prefix + "-mdb"
+				mdbOut, err := mdbClient.DescribeClusters(ctx, &memorydbsvc.DescribeClustersInput{})
+				require.NoError(t, err, "DescribeClusters should succeed")
+				foundMDB := false
+				for _, c := range mdbOut.Clusters {
+					if aws.ToString(c.Name) == mdbName {
+						foundMDB = true
+
+						break
+					}
+				}
+				assert.True(t, foundMDB, "MemoryDB cluster %q should exist", mdbName)
+
+				// Verify MSK cluster was created with SASL/IAM auth.
+				kafkaClient := createKafkaClient(t)
+				kafkaName := prefix + "-kafka"
+				kafkaOut, err := kafkaClient.ListClusters(ctx, &kafkasvc.ListClustersInput{
+					ClusterNameFilter: aws.String(kafkaName),
+				})
+				require.NoError(t, err, "ListClusters should succeed")
+				foundKafka := false
+				for _, cl := range kafkaOut.ClusterInfoList {
+					if aws.ToString(cl.ClusterName) == kafkaName {
+						foundKafka = true
+						require.NotNil(t, cl.ClientAuthentication, "ClientAuthentication should be set")
+						require.NotNil(t, cl.ClientAuthentication.Sasl, "SASL should be set")
+						require.NotNil(t, cl.ClientAuthentication.Sasl.Iam, "IAM SASL should be set")
+						assert.True(t, aws.ToBool(cl.ClientAuthentication.Sasl.Iam.Enabled), "IAM SASL should be enabled")
+
+						break
+					}
+				}
+				assert.True(t, foundKafka, "MSK cluster %q should exist", kafkaName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}

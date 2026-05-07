@@ -354,7 +354,7 @@ func TestRefinement1_CreateCluster_RequiresName(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateCluster("", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+	_, err := b.CreateCluster("", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, kafka.ErrValidation)
@@ -526,7 +526,7 @@ func TestRefinement1_ErrAlreadyExistsMapping(t *testing.T) {
 			name: "duplicate_cluster",
 			fn: func(b *kafka.InMemoryBackend) error {
 				b.AddClusterInternal("dup", "2.8.0")
-				_, err := b.CreateCluster("dup", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				_, err := b.CreateCluster("dup", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 
 				return err
 			},
