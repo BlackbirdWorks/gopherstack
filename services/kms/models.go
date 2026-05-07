@@ -54,40 +54,61 @@ type Key struct {
 	Rotations             []RotationRecord `json:"Rotations,omitempty"`
 	RotationDates         []float64        `json:"RotationDates,omitempty"`
 	OnDemandRotationDates []float64        `json:"OnDemandRotationDates,omitempty"`
-	CreationDate          float64          `json:"CreationDate"`
-	DeletionDate          float64          `json:"DeletionDate,omitempty"`
-	ValidTo               float64          `json:"ValidTo,omitempty"`
-	PendingWindowInDays   int              `json:"PendingWindowInDays,omitempty"`
-	RotationPeriodInDays  int32            `json:"RotationPeriodInDays,omitempty"`
-	Enabled               bool             `json:"Enabled"`
-	MultiRegion           bool             `json:"MultiRegion,omitempty"`
-	RotationEnabled       bool             `json:"RotationEnabled"`
+	// ReplicaKeyIDs stores the key IDs of replica keys created from this primary.
+	ReplicaKeyIDs        []string `json:"ReplicaKeyIds,omitempty"`
+	CreationDate         float64  `json:"CreationDate"`
+	DeletionDate         float64  `json:"DeletionDate,omitempty"`
+	ValidTo              float64  `json:"ValidTo,omitempty"`
+	PendingWindowInDays  int      `json:"PendingWindowInDays,omitempty"`
+	RotationPeriodInDays int32    `json:"RotationPeriodInDays,omitempty"`
+	Enabled              bool     `json:"Enabled"`
+	MultiRegion          bool     `json:"MultiRegion,omitempty"`
+	RotationEnabled      bool     `json:"RotationEnabled"`
+}
+
+// MultiRegionKeyRef is a reference to a primary or replica key in a multi-region set.
+type MultiRegionKeyRef struct {
+	// Arn is the ARN of the multi-region key.
+	Arn string `json:"Arn"`
+	// Region is the AWS region of the multi-region key.
+	Region string `json:"Region"`
+}
+
+// MultiRegionConfiguration describes the multi-region key topology.
+type MultiRegionConfiguration struct {
+	// MultiRegionKeyType is either PRIMARY or REPLICA.
+	MultiRegionKeyType string `json:"MultiRegionKeyType,omitempty"`
+	// PrimaryKey references the primary key in the multi-region set.
+	PrimaryKey *MultiRegionKeyRef `json:"PrimaryKey,omitempty"`
+	// ReplicaKeys lists the replica keys associated with the primary.
+	ReplicaKeys []MultiRegionKeyRef `json:"ReplicaKeys,omitempty"`
 }
 
 // KeyMetadata is the metadata for a KMS key returned in API responses.
 type KeyMetadata struct {
-	PrimaryRegion               string   `json:"PrimaryRegion,omitempty"`
-	Arn                         string   `json:"Arn"`
-	Description                 string   `json:"Description,omitempty"`
-	KeyState                    string   `json:"KeyState"`
-	KeyUsage                    string   `json:"KeyUsage"`
-	KeyManager                  string   `json:"KeyManager,omitempty"`
-	Origin                      string   `json:"Origin,omitempty"`
-	KeySpec                     string   `json:"KeySpec,omitempty"`
-	KeyID                       string   `json:"KeyId"`
-	CustomerMasterKeySpec       string   `json:"CustomerMasterKeySpec,omitempty"`
-	MultiRegionKeyType          string   `json:"MultiRegionKeyType,omitempty"`
-	ExpirationModel             string   `json:"ExpirationModel,omitempty"`
-	MacAlgorithms               []string `json:"MacAlgorithms,omitempty"`
-	SigningAlgorithms           []string `json:"SigningAlgorithms,omitempty"`
-	KeyAgreementAlgorithms      []string `json:"KeyAgreementAlgorithms,omitempty"`
-	EncryptionAlgorithms        []string `json:"EncryptionAlgorithms,omitempty"`
-	CreationDate                float64  `json:"CreationDate"`
-	DeletionDate                float64  `json:"DeletionDate,omitempty"`
-	ValidTo                     float64  `json:"ValidTo,omitempty"`
-	PendingDeletionWindowInDays int      `json:"PendingDeletionWindowInDays,omitempty"`
-	MultiRegion                 bool     `json:"MultiRegion"`
-	Enabled                     bool     `json:"Enabled"`
+	MultiRegionConfiguration    *MultiRegionConfiguration `json:"MultiRegionConfiguration,omitempty"`
+	PrimaryRegion               string                    `json:"PrimaryRegion,omitempty"`
+	Arn                         string                    `json:"Arn"`
+	Description                 string                    `json:"Description,omitempty"`
+	KeyState                    string                    `json:"KeyState"`
+	KeyUsage                    string                    `json:"KeyUsage"`
+	KeyManager                  string                    `json:"KeyManager,omitempty"`
+	Origin                      string                    `json:"Origin,omitempty"`
+	KeySpec                     string                    `json:"KeySpec,omitempty"`
+	KeyID                       string                    `json:"KeyId"`
+	CustomerMasterKeySpec       string                    `json:"CustomerMasterKeySpec,omitempty"`
+	MultiRegionKeyType          string                    `json:"MultiRegionKeyType,omitempty"`
+	ExpirationModel             string                    `json:"ExpirationModel,omitempty"`
+	MacAlgorithms               []string                  `json:"MacAlgorithms,omitempty"`
+	SigningAlgorithms           []string                  `json:"SigningAlgorithms,omitempty"`
+	KeyAgreementAlgorithms      []string                  `json:"KeyAgreementAlgorithms,omitempty"`
+	EncryptionAlgorithms        []string                  `json:"EncryptionAlgorithms,omitempty"`
+	CreationDate                float64                   `json:"CreationDate"`
+	DeletionDate                float64                   `json:"DeletionDate,omitempty"`
+	ValidTo                     float64                   `json:"ValidTo,omitempty"`
+	PendingDeletionWindowInDays int                       `json:"PendingDeletionWindowInDays,omitempty"`
+	MultiRegion                 bool                      `json:"MultiRegion"`
+	Enabled                     bool                      `json:"Enabled"`
 }
 
 // Tag is a key-value pair attached to a KMS resource.
@@ -169,8 +190,10 @@ type ListKeysOutput struct {
 // EncryptInput is the request payload for Encrypt.
 type EncryptInput struct {
 	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
-	KeyID             string            `json:"KeyId"`
-	Plaintext         []byte            `json:"Plaintext"`
+	// GrantTokens is an optional list of grant tokens used to authorize the operation.
+	GrantTokens []string `json:"GrantTokens,omitempty"`
+	KeyID       string   `json:"KeyId"`
+	Plaintext   []byte   `json:"Plaintext"`
 }
 
 // EncryptOutput is the response payload for Encrypt.
@@ -183,8 +206,10 @@ type EncryptOutput struct {
 // DecryptInput is the request payload for Decrypt.
 type DecryptInput struct {
 	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
-	KeyID             string            `json:"KeyId,omitempty"`
-	CiphertextBlob    []byte            `json:"CiphertextBlob"`
+	// GrantTokens is an optional list of grant tokens used to authorize the operation.
+	GrantTokens    []string `json:"GrantTokens,omitempty"`
+	KeyID          string   `json:"KeyId,omitempty"`
+	CiphertextBlob []byte   `json:"CiphertextBlob"`
 }
 
 // DecryptOutput is the response payload for Decrypt.
@@ -353,8 +378,22 @@ func UnixTimeFloat(t time.Time) float64 {
 	return float64(t.UnixNano()) / nanoToSeconds
 }
 
+// GrantConstraints holds the encryption context constraints for a grant.
+// When set, cryptographic operations using this grant's token must supply
+// an encryption context that satisfies the constraint.
+type GrantConstraints struct {
+	// EncryptionContextEquals requires the caller's encryption context to be
+	// an exact match of this map (same keys and values).
+	EncryptionContextEquals map[string]string `json:"EncryptionContextEquals,omitempty"`
+	// EncryptionContextSubset requires the caller's encryption context to
+	// contain at least all key-value pairs present in this map.
+	EncryptionContextSubset map[string]string `json:"EncryptionContextSubset,omitempty"`
+}
+
 // Grant represents a KMS key grant.
 type Grant struct {
+	// Constraints holds optional encryption context constraints for the grant.
+	Constraints *GrantConstraints `json:"Constraints,omitempty"`
 	// GrantID is the unique identifier for the grant.
 	GrantID string `json:"GrantId"`
 	// KeyID is the ID of the KMS key.
@@ -375,11 +414,12 @@ type Grant struct {
 
 // CreateGrantInput is the request payload for CreateGrant.
 type CreateGrantInput struct {
-	KeyID             string   `json:"KeyId"`
-	GranteePrincipal  string   `json:"GranteePrincipal"`
-	RetiringPrincipal string   `json:"RetiringPrincipal,omitempty"`
-	Name              string   `json:"Name,omitempty"`
-	Operations        []string `json:"Operations"`
+	Constraints       *GrantConstraints `json:"Constraints,omitempty"`
+	KeyID             string            `json:"KeyId"`
+	GranteePrincipal  string            `json:"GranteePrincipal"`
+	RetiringPrincipal string            `json:"RetiringPrincipal,omitempty"`
+	Name              string            `json:"Name,omitempty"`
+	Operations        []string          `json:"Operations"`
 }
 
 // CreateGrantOutput is the response payload for CreateGrant.
