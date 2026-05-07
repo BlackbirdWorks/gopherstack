@@ -69,7 +69,6 @@ const (
 	msgNotFound         = "Not Found"
 	msgMethodNotAllowed = "Method Not Allowed"
 	msgInvalidBody      = "invalid request body"
-	exportedOpenAPIDoc  = "{\"openapi\":\"3.0.1\"}"
 	emptyModelTemplate  = "{}"
 
 	// opUnknown is returned when no matching operation is found.
@@ -1245,7 +1244,8 @@ func (h *Handler) handleDeleteCorsConfiguration(c *echo.Context, apiID string) e
 }
 
 func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) error {
-	if _, err := h.Backend.GetAPI(apiID); err != nil {
+	spec, err := h.Backend.ExportAPI(apiID)
+	if err != nil {
 		if errors.Is(err, ErrAPINotFound) {
 			return c.JSON(http.StatusNotFound, notFoundResponse{Message: msgNotFound})
 		}
@@ -1253,7 +1253,7 @@ func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) 
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{"body": exportedOpenAPIDoc, "specification": specification})
+	return c.JSON(http.StatusOK, map[string]any{"body": spec, "specification": specification})
 }
 
 func (h *Handler) handleGetModelTemplate(c *echo.Context, apiID, modelID string) error {

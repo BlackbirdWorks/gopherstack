@@ -673,3 +673,355 @@ func TestInMemoryBackend_CreateAuthorizer_ApiNotFound(t *testing.T) {
 	})
 	require.ErrorIs(t, err, apigatewayv2.ErrAPINotFound)
 }
+
+func TestInMemoryBackend_JWTAuthorizer_StoresConfig(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	jwtCfg := &apigatewayv2.JwtConfiguration{
+		Issuer:   "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc",
+		Audience: []string{"client-id-1", "client-id-2"},
+	}
+
+	authorizer, err := b.CreateAuthorizer(api.APIID, apigatewayv2.CreateAuthorizerInput{
+		Name:             "jwt-auth",
+		AuthorizerType:   "JWT",
+		JwtConfiguration: jwtCfg,
+		IdentitySource:   []string{"$request.header.Authorization"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, authorizer.JwtConfiguration)
+	assert.Equal(t, jwtCfg.Issuer, authorizer.JwtConfiguration.Issuer)
+	assert.Equal(t, jwtCfg.Audience, authorizer.JwtConfiguration.Audience)
+
+	// GetAuthorizer returns JwtConfiguration.
+	got, err := b.GetAuthorizer(api.APIID, authorizer.AuthorizerID)
+	require.NoError(t, err)
+	require.NotNil(t, got.JwtConfiguration)
+	assert.Equal(t, jwtCfg.Issuer, got.JwtConfiguration.Issuer)
+
+	// CreateRoute with JWT authorizationType references the authorizer.
+	route, err := b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{
+		RouteKey:          "GET /protected",
+		AuthorizationType: "JWT",
+		AuthorizerID:      authorizer.AuthorizerID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "JWT", route.AuthorizationType)
+	assert.Equal(t, authorizer.AuthorizerID, route.AuthorizerID)
+
+	gotRoute, err := b.GetRoute(api.APIID, route.RouteID)
+	require.NoError(t, err)
+	assert.Equal(t, authorizer.AuthorizerID, gotRoute.AuthorizerID)
+}
+
+func TestInMemoryBackend_RouteSettings(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	stage, err := b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "prod"})
+	require.NoError(t, err)
+	assert.Nil(t, stage.RouteSettings)
+
+	// UpdateStage with RouteSettings persists them.
+	routeKey := "GET /items"
+	updated, err := b.UpdateStage(api.APIID, stage.StageName, apigatewayv2.UpdateStageInput{
+		RouteSettings: map[string]apigatewayv2.RouteSettings{
+			routeKey: {ThrottlingRateLimit: 100, ThrottlingBurstLimit: 50},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.RouteSettings)
+	assert.InDelta(t, float64(100), updated.RouteSettings[routeKey].ThrottlingRateLimit, 0)
+
+	// GetStage returns RouteSettings.
+	got, err := b.GetStage(api.APIID, stage.StageName)
+	require.NoError(t, err)
+	require.NotNil(t, got.RouteSettings)
+	assert.Equal(t, int32(50), got.RouteSettings[routeKey].ThrottlingBurstLimit)
+
+	// DeleteRouteSettings removes the key.
+	err = b.DeleteRouteSettings(api.APIID, stage.StageName, routeKey)
+	require.NoError(t, err)
+
+	got2, err := b.GetStage(api.APIID, stage.StageName)
+	require.NoError(t, err)
+	_, exists := got2.RouteSettings[routeKey]
+	assert.False(t, exists)
+}
+
+func TestInMemoryBackend_StageAccessLogSettings(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	_, err = b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "prod"})
+	require.NoError(t, err)
+
+	destARN := "arn:aws:logs:us-east-1:123456789012:log-group:/aws/apigateway/prod"
+	updated, err := b.UpdateStage(api.APIID, "prod", apigatewayv2.UpdateStageInput{
+		AccessLogSettings: &apigatewayv2.AccessLogSettings{
+			DestinationArn: destARN,
+			Format:         "$context.requestId",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.AccessLogSettings)
+	assert.Equal(t, destARN, updated.AccessLogSettings.DestinationArn)
+
+	got, err := b.GetStage(api.APIID, "prod")
+	require.NoError(t, err)
+	require.NotNil(t, got.AccessLogSettings)
+	assert.Equal(t, destARN, got.AccessLogSettings.DestinationArn)
+
+	// DeleteAccessLogSettings clears it.
+	err = b.DeleteAccessLogSettings(api.APIID, "prod")
+	require.NoError(t, err)
+
+	got2, err := b.GetStage(api.APIID, "prod")
+	require.NoError(t, err)
+	assert.Nil(t, got2.AccessLogSettings)
+}
+
+func TestInMemoryBackend_DomainNames(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	// CreateDomainName.
+	dn, err := b.CreateDomainName(apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "api.example.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{CertificateArn: "arn:aws:acm:us-east-1:123:certificate/abc", EndpointType: "REGIONAL"},
+		},
+		Tags: map[string]string{"env": "prod"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "api.example.com", dn.DomainNameValue)
+	require.Len(t, dn.DomainNameConfigurations, 1)
+	assert.Equal(t, "REGIONAL", dn.DomainNameConfigurations[0].EndpointType)
+
+	// GetDomainName.
+	got, err := b.GetDomainName("api.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "api.example.com", got.DomainNameValue)
+
+	// GetDomainNames.
+	all, err := b.GetDomainNames()
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+
+	// UpdateDomainName.
+	upd, err := b.UpdateDomainName("api.example.com", apigatewayv2.UpdateDomainNameInput{
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{CertificateArn: "arn:aws:acm:us-east-1:123:certificate/xyz", EndpointType: "EDGE"},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "EDGE", upd.DomainNameConfigurations[0].EndpointType)
+
+	// DeleteDomainName.
+	err = b.DeleteDomainName("api.example.com")
+	require.NoError(t, err)
+
+	_, err = b.GetDomainName("api.example.com")
+	require.ErrorIs(t, err, apigatewayv2.ErrDomainNameNotFound)
+}
+
+func TestInMemoryBackend_APIMappings(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	_, err = b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "prod"})
+	require.NoError(t, err)
+
+	_, err = b.CreateDomainName(apigatewayv2.CreateDomainNameInput{DomainNameValue: "api.example.com"})
+	require.NoError(t, err)
+
+	// CreateAPIMapping.
+	m, err := b.CreateAPIMapping("api.example.com", apigatewayv2.CreateAPIMappingInput{
+		APIID:         api.APIID,
+		Stage:         "prod",
+		APIMappingKey: "v1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, api.APIID, m.APIID)
+	assert.Equal(t, "prod", m.Stage)
+	assert.Equal(t, "v1", m.APIMappingKey)
+	assert.NotEmpty(t, m.APIMappingID)
+
+	// GetAPIMapping.
+	got, err := b.GetAPIMapping("api.example.com", m.APIMappingID)
+	require.NoError(t, err)
+	assert.Equal(t, m.APIMappingID, got.APIMappingID)
+
+	// GetAPIMappings.
+	all, err := b.GetAPIMappings("api.example.com")
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+
+	// UpdateAPIMapping.
+	upd, err := b.UpdateAPIMapping("api.example.com", m.APIMappingID, apigatewayv2.UpdateAPIMappingInput{
+		APIMappingKey: "v2",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "v2", upd.APIMappingKey)
+
+	// DeleteAPIMapping.
+	err = b.DeleteAPIMapping("api.example.com", m.APIMappingID)
+	require.NoError(t, err)
+
+	_, err = b.GetAPIMapping("api.example.com", m.APIMappingID)
+	require.ErrorIs(t, err, apigatewayv2.ErrAPIMappingNotFound)
+}
+
+func TestInMemoryBackend_VpcLinks(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	// CreateVpcLink.
+	vl, err := b.CreateVpcLink(apigatewayv2.CreateVpcLinkInput{
+		Name:             "my-vpc-link",
+		SubnetIDs:        []string{"subnet-aaa", "subnet-bbb"},
+		SecurityGroupIDs: []string{"sg-111"},
+		Tags:             map[string]string{"env": "prod"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "my-vpc-link", vl.Name)
+	assert.Equal(t, "AVAILABLE", vl.VpcLinkStatus)
+	assert.NotEmpty(t, vl.VpcLinkID)
+	assert.Equal(t, []string{"subnet-aaa", "subnet-bbb"}, vl.SubnetIDs)
+	assert.Equal(t, []string{"sg-111"}, vl.SecurityGroupIDs)
+
+	// GetVpcLink.
+	got, err := b.GetVpcLink(vl.VpcLinkID)
+	require.NoError(t, err)
+	assert.Equal(t, vl.VpcLinkID, got.VpcLinkID)
+
+	// GetVpcLinks.
+	all, err := b.GetVpcLinks()
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+
+	// UpdateVpcLink.
+	upd, err := b.UpdateVpcLink(vl.VpcLinkID, apigatewayv2.UpdateVpcLinkInput{Name: "updated-link"})
+	require.NoError(t, err)
+	assert.Equal(t, "updated-link", upd.Name)
+
+	// DeleteVpcLink.
+	err = b.DeleteVpcLink(vl.VpcLinkID)
+	require.NoError(t, err)
+
+	_, err = b.GetVpcLink(vl.VpcLinkID)
+	require.ErrorIs(t, err, apigatewayv2.ErrVpcLinkNotFound)
+}
+
+func TestInMemoryBackend_Model_Schema(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{Name: "test", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	schema := `{"type":"object","properties":{"id":{"type":"string"}}}`
+	model, err := b.CreateModel(api.APIID, apigatewayv2.CreateModelInput{
+		Name:        "MyModel",
+		Schema:      schema,
+		ContentType: "application/json",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, schema, model.Schema)
+	assert.Equal(t, "application/json", model.ContentType)
+
+	got, err := b.GetModel(api.APIID, model.ModelID)
+	require.NoError(t, err)
+	assert.Equal(t, schema, got.Schema)
+}
+
+func TestInMemoryBackend_WebSocket_RouteSelectionExpression(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	// WEBSOCKET api stores RouteSelectionExpression.
+	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{
+		Name:                     "ws-api",
+		ProtocolType:             "WEBSOCKET",
+		RouteSelectionExpression: "$request.body.action",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "$request.body.action", api.RouteSelectionExpression)
+
+	// WebSocket routes like $connect, $disconnect, $default can be stored.
+	for _, routeKey := range []string{"$connect", "$disconnect", "$default"} {
+		var route *apigatewayv2.Route
+		route, err = b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: routeKey})
+		require.NoError(t, err)
+		assert.Equal(t, routeKey, route.RouteKey)
+	}
+
+	routes, err := b.GetRoutes(api.APIID)
+	require.NoError(t, err)
+	assert.Len(t, routes, 3)
+}
+
+func TestInMemoryBackend_ExportAPI(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(apigatewayv2.CreateAPIInput{
+		Name:         "export-test",
+		ProtocolType: "HTTP",
+		Description:  "Test API",
+		Version:      "1.0",
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{
+		RouteKey:      "GET /items",
+		OperationName: "ListItems",
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{
+		RouteKey:          "POST /items",
+		AuthorizationType: "JWT",
+		AuthorizerID:      "some-id",
+	})
+	require.NoError(t, err)
+
+	spec, err := b.ExportAPI(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, "3.0.1", spec["openapi"])
+
+	info, ok := spec["info"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "export-test", info["title"])
+	assert.Equal(t, "1.0", info["version"])
+
+	paths, ok := spec["paths"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, paths, "/items")
+
+	// ExportAPI returns error for unknown API.
+	_, err = b.ExportAPI("nonexistent")
+	require.ErrorIs(t, err, apigatewayv2.ErrAPINotFound)
+}

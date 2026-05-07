@@ -203,6 +203,9 @@ type StorageBackend interface {
 	UntagResource(resourceARN string, tagKeys []string) error
 	GetTags(resourceARN string) (map[string]string, error)
 
+	// ExportAPI generates an OpenAPI specification for the API's routes.
+	ExportAPI(apiID string) (map[string]any, error)
+
 	// UpdateAPIMapping
 	UpdateAPIMapping(domainName, mappingID string, input UpdateAPIMappingInput) (*APIMapping, error)
 
@@ -3076,6 +3079,75 @@ func (b *InMemoryBackend) DeleteRouteSettings(apiID, stageName, routeKey string)
 	s.LastUpdatedDate = isoTime{time.Now()}
 
 	return nil
+}
+
+// ExportAPI generates a basic OpenAPI 3.0 specification for the API's routes.
+func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
+	b.mu.RLock("ExportAPI")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[apiID]
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	const routeKeyParts = 2
+
+	paths := map[string]any{}
+
+	for _, route := range d.routes {
+		// Parse route key: e.g. "GET /items" or "$connect" (WebSocket)
+		parts := strings.SplitN(route.RouteKey, " ", routeKeyParts)
+
+		var method, routePath string
+
+		if len(parts) == routeKeyParts {
+			method = strings.ToLower(parts[0])
+			routePath = parts[1]
+		} else {
+			// WebSocket route like $connect, $disconnect, $default
+			method = "get"
+			routePath = "/" + strings.TrimPrefix(route.RouteKey, "$")
+		}
+
+		if _, exists := paths[routePath]; !exists {
+			paths[routePath] = map[string]any{}
+		}
+
+		pathItem, _ := paths[routePath].(map[string]any)
+
+		op := map[string]any{
+			"operationId": route.RouteID,
+			"responses":   map[string]any{"200": map[string]any{"description": "Success"}},
+		}
+
+		if route.OperationName != "" {
+			op["summary"] = route.OperationName
+		}
+
+		if route.AuthorizationType != "" && route.AuthorizationType != "NONE" {
+			op["security"] = []any{map[string]any{route.AuthorizationType: []any{}}}
+		}
+
+		pathItem[method] = op
+	}
+
+	info := map[string]any{
+		"title":   d.api.Name,
+		"version": d.api.Version,
+	}
+
+	if d.api.Description != "" {
+		info["description"] = d.api.Description
+	}
+
+	spec := map[string]any{
+		"openapi": "3.0.1",
+		"info":    info,
+		"paths":   paths,
+	}
+
+	return spec, nil
 }
 
 // DeleteRouteRequestParameter removes a specific request parameter from a route.
