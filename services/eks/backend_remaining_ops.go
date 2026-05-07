@@ -177,7 +177,7 @@ func (b *InMemoryBackend) UpdateAddon(
 func (b *InMemoryBackend) DescribeAddonVersions() []map[string]any {
 	return []map[string]any{
 		{
-			keyAddonName: "vpc-cni",
+			keyAddonName: addonVPCCNI,
 			keyType:      keyNetworking,
 			keyAddonVersions: []map[string]any{
 				{
@@ -1001,13 +1001,22 @@ func (b *InMemoryBackend) DescribeInsightsRefresh(clusterName, refreshID string)
 
 // --- Cluster updates ---
 
-// UpdateClusterConfig updates the cluster configuration.
-func (b *InMemoryBackend) UpdateClusterConfig(clusterName string) (*Update, error) {
+// UpdateClusterConfig updates the cluster configuration including logging settings.
+// enabledLogTypes may be nil (no change) or a slice of log type strings to enable
+// (api, audit, authenticator, controllerManager, scheduler).
+func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, enabledLogTypes []string) (*Update, error) {
 	b.mu.Lock("UpdateClusterConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	c, ok := b.clusters[clusterName]
+	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	if enabledLogTypes != nil {
+		stored := make([]string, len(enabledLogTypes))
+		copy(stored, enabledLogTypes)
+		c.EnabledLogTypes = stored
 	}
 
 	return &Update{

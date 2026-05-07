@@ -47,6 +47,7 @@ type Cluster struct {
 	AccountID       string     `json:"accountId"`
 	Region          string     `json:"region"`
 	PlatformVersion string     `json:"platformVersion,omitempty"`
+	EnabledLogTypes []string   `json:"enabledLogTypes,omitempty"`
 }
 
 // Nodegroup represents an EKS managed node group.

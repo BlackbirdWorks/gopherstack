@@ -46,16 +46,23 @@ type IdentityProviderConfig struct {
 	Status      string            `json:"status"`
 }
 
+// AddonHealth represents the health status of an EKS managed add-on.
+type AddonHealth struct {
+	Issues []map[string]string `json:"issues,omitempty"`
+}
+
 // Addon represents an EKS managed add-on.
 type Addon struct {
-	CreatedAt             time.Time  `json:"createdAt"`
-	Tags                  *tags.Tags `json:"tags,omitempty"`
-	ClusterName           string     `json:"clusterName"`
-	AddonName             string     `json:"addonName"`
-	ARN                   string     `json:"addonArn"`
-	AddonVersion          string     `json:"addonVersion,omitempty"`
-	Status                string     `json:"status"`
-	ServiceAccountRoleARN string     `json:"serviceAccountRoleArn,omitempty"`
+	CreatedAt             time.Time    `json:"createdAt"`
+	Tags                  *tags.Tags   `json:"tags,omitempty"`
+	Health                *AddonHealth `json:"health,omitempty"`
+	ClusterName           string       `json:"clusterName"`
+	AddonName             string       `json:"addonName"`
+	ARN                   string       `json:"addonArn"`
+	AddonVersion          string       `json:"addonVersion,omitempty"`
+	MarketplaceVersion    string       `json:"marketplaceVersion,omitempty"`
+	Status                string       `json:"status"`
+	ServiceAccountRoleARN string       `json:"serviceAccountRoleArn,omitempty"`
 }
 
 // Capability represents an EKS capability.
@@ -296,6 +303,26 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 	return &cp, nil
 }
 
+const addonVPCCNI = "vpc-cni"
+
+// defaultAddonVersion returns a realistic default addon version for well-known addons.
+func defaultAddonVersion(addonName string) string {
+	switch addonName {
+	case addonVPCCNI:
+		return "v1.18.5-eksbuild.1"
+	case "coredns":
+		return "v1.11.4-eksbuild.2"
+	case "kube-proxy":
+		return "v1.32.0-eksbuild.1"
+	case "aws-ebs-csi-driver":
+		return "v1.37.0-eksbuild.1"
+	case "aws-efs-csi-driver":
+		return "v2.1.0-eksbuild.1"
+	default:
+		return "v1.16.1-eksbuild.1"
+	}
+}
+
 // CreateAddon creates a new managed add-on in a cluster.
 func (b *InMemoryBackend) CreateAddon(
 	clusterName, addonName, addonVersion, serviceAccountRoleARN string,
@@ -328,11 +355,19 @@ func (b *InMemoryBackend) CreateAddon(
 		t.Merge(kv)
 	}
 
+	if addonVersion == "" {
+		addonVersion = defaultAddonVersion(addonName)
+	}
+
 	addon := &Addon{
-		ClusterName:           clusterName,
-		AddonName:             addonName,
-		ARN:                   addonARN,
-		AddonVersion:          addonVersion,
+		ClusterName:        clusterName,
+		AddonName:          addonName,
+		ARN:                addonARN,
+		AddonVersion:       addonVersion,
+		MarketplaceVersion: addonVersion,
+		Health: &AddonHealth{
+			Issues: []map[string]string{},
+		},
 		ServiceAccountRoleARN: serviceAccountRoleARN,
 		Status:                statusActive,
 		CreatedAt:             time.Now().UTC(),
