@@ -741,6 +741,7 @@ func parseMetricDataQueriesFromForm(form url.Values) []MetricDataQuery {
 			ID:         id,
 			Label:      form.Get(prefix + "Label"),
 			Expression: form.Get(prefix + "Expression"),
+			AccountID:  form.Get(prefix + "AccountId"),
 			MetricStat: MetricStat{
 				Namespace:  form.Get(prefix + "MetricStat.Metric.Namespace"),
 				MetricName: form.Get(prefix + "MetricStat.Metric.MetricName"),

@@ -106,10 +106,13 @@ type MetricStat struct {
 
 // MetricDataQuery is a single query in a GetMetricData request.
 // Expression supports metric math (e.g. "m1+m2"). When non-empty, MetricStat is ignored.
+// AccountId, when set to an account other than the local account, causes the query to return
+// empty data (cross-account metrics are not supported locally but must not error).
 type MetricDataQuery struct {
 	ID         string     `json:"Id"`
 	Label      string     `json:"Label,omitempty"`
 	Expression string     `json:"Expression,omitempty"`
+	AccountID  string     `json:"AccountId,omitempty"`
 	MetricStat MetricStat `json:"MetricStat"`
 	Period     int32      `json:"Period,omitempty"`
 }
