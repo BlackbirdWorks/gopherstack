@@ -117,6 +117,9 @@ type Certificate struct {
 	FailureReason           string                   `json:"failureReason,omitempty"`
 	SubjectAlternativeNames []string                 `json:"subjectAlternativeNames,omitempty"`
 	DomainValidationOptions []DomainValidationOption `json:"domainValidationOptions,omitempty"`
+	// RenewalSummary describes the state of the most recent managed renewal attempt.
+	// It is set when RenewCertificate is called on an AMAZON_ISSUED certificate.
+	RenewalSummary *RenewalSummary `json:"renewalSummary,omitempty"`
 	// InUseBy holds the ARNs of AWS resources that use this certificate.
 	InUseBy []string `json:"inUseBy,omitempty"`
 	// KeyUsage lists the allowed key usages parsed from the X.509 certificate.
@@ -145,7 +148,18 @@ type certIdempotencyEntry struct {
 const (
 	renewalEligibilityEligible   = "ELIGIBLE"
 	renewalEligibilityIneligible = "INELIGIBLE"
+
+	// renewalStatusPendingValidation is the AWS RenewalStatus when a renewal is awaiting validation.
+	renewalStatusPendingValidation = "PENDING_VALIDATION"
 )
+
+// RenewalSummary describes the state of an ACM managed renewal for a certificate.
+type RenewalSummary struct {
+	// RenewalStatus is the status of the renewal (e.g. PENDING_VALIDATION, SUCCESS).
+	RenewalStatus string `json:"RenewalStatus"`
+	// DomainValidationOptions contains per-domain validation details for the renewal.
+	DomainValidationOptions []DomainValidationOption `json:"DomainValidationOptions,omitempty"`
+}
 
 // InMemoryBackend is the in-memory store for ACM certificates.
 type InMemoryBackend struct {
@@ -413,6 +427,18 @@ func copyCert(c *Certificate) Certificate {
 		}
 	}
 
+	if c.RenewalSummary != nil {
+		rs := *c.RenewalSummary
+		if len(c.RenewalSummary.DomainValidationOptions) > 0 {
+			rs.DomainValidationOptions = append(
+				[]DomainValidationOption(nil),
+				c.RenewalSummary.DomainValidationOptions...,
+			)
+		}
+
+		cp.RenewalSummary = &rs
+	}
+
 	return cp
 }
 
@@ -565,11 +591,43 @@ func (b *InMemoryBackend) RenewCertificate(certARN string) error {
 	c.NotBefore = notBefore
 	c.NotAfter = notAfter
 
+	// Mark the certificate as eligible for renewal and set the renewal summary.
+	c.RenewalEligibility = renewalEligibilityEligible
+	c.RenewalSummary = &RenewalSummary{
+		RenewalStatus:           renewalStatusPendingValidation,
+		DomainValidationOptions: c.DomainValidationOptions,
+	}
+
 	return nil
 }
 
+// fakeCertChain is a fake PEM certificate chain (intermediate + root) returned by
+// ExportCertificate when the stored certificate has no associated chain.
+// This simulates the AWS ACM behavior of always returning a chain for exported certs.
+const fakeCertChain = "-----BEGIN CERTIFICATE-----\n" +
+	"MIIBpDCCAUqgAwIBAgIUFakeIntermediateCA0001AgAgAAgICAgICAgICIwCgYIKoZIzj0E\n" +
+	"AwIwETEPMA0GA1UEAxMGZmFrZUNBMB4XDTIwMDEwMTAwMDAwMFoXDTMwMDEwMTAw\n" +
+	"MDAwMFowETEPMA0GA1UEAxMGZmFrZUNBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcD\n" +
+	"QgAEfakeIntermediatePublicKeyDataHereForTestingPurposesOnlyNotRealCA\n" +
+	"o0IwQDAdBgNVHQ4EFgQUFakeIntermediateCAKeyId001234MA8GA1UdEwEB/wQFMAMB\n" +
+	"Af8wDgYDVR0PAQH/BAQDAgGGMAoGCCqGSM49BAMCA0gAMEUCIFakeIntermediateSig\n" +
+	"nature001ForTestPurposesAgICAgICAgICAgICAgAgICAgICAgICAgICAgIA\n" +
+	"-----END CERTIFICATE-----\n" +
+	"-----BEGIN CERTIFICATE-----\n" +
+	"MIIBmDCCAT6gAwIBAgIUFakeRootCA0001AgAgAAgICAgICAgICIwCgYIKoZIzj0E\n" +
+	"AwIwDzENMAsGA1UEAxMEcm9vdDAeFw0yMDAxMDEwMDAwMDBaFw0zMDAxMDEwMDAw\n" +
+	"MDBaMA8xDTALBgNVBAMTBHJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARf\n" +
+	"akeRootPublicKeyDataHereForTestingPurposesOnlyNotARealRootCertificate\n" +
+	"o0IwQDAdBgNVHQ4EFgQUFakeRootCAKeyId00123456789012345678901234567890\n" +
+	"MA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgGGMAoGCCqGSM49BAMCA0AA\n" +
+	"MEYCIQCFakeRootSignature001ForTestingPurposesNotARealSignatureAtAllXX\n" +
+	"AiEAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA\n" +
+	"-----END CERTIFICATE-----\n"
+
 // ExportCertificate returns the PEM certificate body, chain, and private key for
-// an IMPORTED certificate. Returns ErrNotEligible for AMAZON_ISSUED certificates.
+// an IMPORTED or PRIVATE certificate. Returns ErrNotEligible for AMAZON_ISSUED certificates.
+// When the stored certificate has no associated chain, a fake chain (intermediate + root)
+// is returned in PEM format to simulate AWS ACM behaviour.
 func (b *InMemoryBackend) ExportCertificate(certARN string) (*Certificate, error) {
 	b.mu.RLock("ExportCertificate")
 	defer b.mu.RUnlock()
@@ -584,6 +642,11 @@ func (b *InMemoryBackend) ExportCertificate(certARN string) (*Certificate, error
 	}
 
 	cp := copyCert(cert)
+
+	// Always return a certificate chain; use a fake chain when none was supplied.
+	if cp.CertificateChain == "" {
+		cp.CertificateChain = fakeCertChain
+	}
 
 	return &cp, nil
 }

@@ -1143,12 +1143,25 @@ func (b *InMemoryBackend) UpdateAlias(input *UpdateAliasInput) error {
 }
 
 // DeleteAlias removes an alias.
+// Per AWS KMS behaviour, an alias pointing to a key in PendingDeletion state
+// cannot be deleted — the caller must cancel the deletion first.
 func (b *InMemoryBackend) DeleteAlias(input *DeleteAliasInput) error {
 	b.mu.Lock("DeleteAlias")
 	defer b.mu.Unlock()
 
-	if _, exists := b.aliases[input.AliasName]; !exists {
+	alias, exists := b.aliases[input.AliasName]
+	if !exists {
 		return ErrAliasNotFound
+	}
+
+	// Prevent deleting an alias that targets a key scheduled for deletion.
+	if alias.TargetKeyID != "" {
+		if key, ok := b.keys[alias.TargetKeyID]; ok && key.KeyState == KeyStatePendingDeletion {
+			return fmt.Errorf(
+				"%w: key %s is pending deletion; cancel the deletion before deleting the alias",
+				ErrKeyInvalidState, alias.TargetKeyID,
+			)
+		}
 	}
 
 	delete(b.aliases, input.AliasName)
