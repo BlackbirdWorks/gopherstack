@@ -80,29 +80,32 @@ type FunctionConfiguration struct {
 	ImageURI                     string                  `json:"ImageUri,omitempty"`
 	LastUpdateStatus             LastUpdateStatus        `json:"LastUpdateStatus"`
 	LastUpdateStatusReason       string                  `json:"LastUpdateStatusReason,omitempty"`
-	PackageType                  string                  `json:"PackageType"`
-	StateReason                  string                  `json:"StateReason,omitempty"`
-	StateReasonCode              string                  `json:"StateReasonCode,omitempty"`
-	Role                         string                  `json:"Role"`
-	LastModified                 string                  `json:"LastModified"`
-	Runtime                      string                  `json:"Runtime,omitempty"`
-	RevisionID                   string                  `json:"RevisionId"`
-	Description                  string                  `json:"Description"`
-	FunctionArn                  string                  `json:"FunctionArn"`
-	State                        FunctionState           `json:"State"`
-	FunctionName                 string                  `json:"FunctionName"`
-	CodeSha256                   string                  `json:"CodeSha256,omitempty"`
-	S3BucketCode                 string                  `json:"-"`
-	S3KeyCode                    string                  `json:"-"`
-	Handler                      string                  `json:"Handler,omitempty"`
-	Version                      string                  `json:"Version,omitempty"`
-	Tags                         map[string]string       `json:"Tags,omitempty"`
-	ZipData                      []byte                  `json:"-"`
-	Layers                       []*FunctionLayer        `json:"Layers,omitempty"`
-	Architectures                []string                `json:"Architectures,omitempty"`
-	MemorySize                   int                     `json:"MemorySize"`
-	Timeout                      int                     `json:"Timeout"`
-	CodeSize                     int64                   `json:"CodeSize"`
+	// MasterArn is the ARN of the owner function for Lambda@Edge replicas.
+	// When set, GetFunctionConfiguration returns this field to signal the function is an edge replica.
+	MasterArn       string            `json:"MasterArn,omitempty"`
+	PackageType     string            `json:"PackageType"`
+	StateReason     string            `json:"StateReason,omitempty"`
+	StateReasonCode string            `json:"StateReasonCode,omitempty"`
+	Role            string            `json:"Role"`
+	LastModified    string            `json:"LastModified"`
+	Runtime         string            `json:"Runtime,omitempty"`
+	RevisionID      string            `json:"RevisionId"`
+	Description     string            `json:"Description"`
+	FunctionArn     string            `json:"FunctionArn"`
+	State           FunctionState     `json:"State"`
+	FunctionName    string            `json:"FunctionName"`
+	CodeSha256      string            `json:"CodeSha256,omitempty"`
+	S3BucketCode    string            `json:"-"`
+	S3KeyCode       string            `json:"-"`
+	Handler         string            `json:"Handler,omitempty"`
+	Version         string            `json:"Version,omitempty"`
+	Tags            map[string]string `json:"Tags,omitempty"`
+	ZipData         []byte            `json:"-"`
+	Layers          []*FunctionLayer  `json:"Layers,omitempty"`
+	Architectures   []string          `json:"Architectures,omitempty"`
+	MemorySize      int               `json:"MemorySize"`
+	Timeout         int               `json:"Timeout"`
+	CodeSize        int64             `json:"CodeSize"`
 }
 
 // EnvironmentConfig holds Lambda function environment variables.
@@ -138,10 +141,11 @@ type ImageConfig struct {
 
 // UpdateFunctionCodeInput holds the request body for UpdateFunctionCode.
 type UpdateFunctionCodeInput struct {
-	ImageURI string `json:"ImageUri,omitempty"`
-	S3Bucket string `json:"S3Bucket,omitempty"`
-	S3Key    string `json:"S3Key,omitempty"`
-	ZipFile  []byte `json:"ZipFile,omitempty"`
+	Architectures []string `json:"Architectures,omitempty"`
+	ImageURI      string   `json:"ImageUri,omitempty"`
+	S3Bucket      string   `json:"S3Bucket,omitempty"`
+	S3Key         string   `json:"S3Key,omitempty"`
+	ZipFile       []byte   `json:"ZipFile,omitempty"`
 }
 
 // UpdateFunctionConfigurationInput holds the request body for UpdateFunctionConfiguration.

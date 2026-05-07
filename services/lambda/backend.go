@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	mrand "math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -75,6 +76,11 @@ const versionLatest = "$LATEST"
 
 // lambdaDefaultMaxItems is the default page size for ListFunctions.
 const lambdaDefaultMaxItems = 50
+
+// globalRand is used for non-security random choices (e.g. weighted alias routing).
+//
+//nolint:gochecknoglobals // intentional package-level RNG for weighted routing
+var globalRand = mrand.New(mrand.NewPCG(0, 1)) //nolint:gosec // non-security use
 
 // defaultEphemeralStorageSize is the default /tmp storage size in MB for Lambda functions.
 const defaultEphemeralStorageSize int32 = 512
@@ -1190,7 +1196,7 @@ func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionCon
 
 	if aliasMap := b.aliases[name]; aliasMap != nil {
 		if alias, ok := aliasMap[qualifier]; ok {
-			qualifier = alias.FunctionVersion
+			qualifier = selectAliasVersion(alias)
 		}
 	}
 
@@ -1212,6 +1218,33 @@ func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionCon
 	}
 
 	return nil, ErrVersionNotFound
+}
+
+// selectAliasVersion picks the target version for an alias invocation, respecting weighted
+// routing when RoutingConfig.AdditionalVersionWeights is set.
+//
+// AWS routing: AdditionalVersionWeights maps a secondary version to a weight (0–1).
+// A random float in [0,1) < secondaryWeight routes to the secondary version; otherwise
+// the primary alias.FunctionVersion is used.
+func selectAliasVersion(alias *FunctionAlias) string {
+	if alias.RoutingConfig == nil || len(alias.RoutingConfig.AdditionalVersionWeights) == 0 {
+		return alias.FunctionVersion
+	}
+
+	// Accumulate weights; the first bucket whose cumulative weight exceeds a random
+	// value [0,1) wins. If no bucket wins (total weight < 1), the primary version is used.
+	r := globalRand.Float64()
+	var cumulative float64
+
+	for version, weight := range alias.RoutingConfig.AdditionalVersionWeights {
+		cumulative += weight
+
+		if r < cumulative {
+			return version
+		}
+	}
+
+	return alias.FunctionVersion
 }
 
 // deepCopyEnvironment returns a deep copy of an EnvironmentConfig, or nil if src is nil.
