@@ -1070,11 +1070,22 @@ func (b *InMemoryBackend) rotateSecretLocked(secret *Secret) (string, error) {
 		return "", ErrVersionNotFound
 	}
 
+	// When a rotation Lambda ARN is configured, simulate the Lambda lifecycle by
+	// generating a fresh secret value (UUID string) as the new AWSCURRENT version.
+	// Without a Lambda ARN, preserve the existing secret value.
+	newSecretString := currentVer.SecretString
+	newSecretBinary := currentVer.SecretBinary
+
+	if secret.RotationLambdaARN != "" {
+		newSecretString = uuid.New().String()
+		newSecretBinary = nil
+	}
+
 	versionID := generateVersionID()
 	newVer := &SecretVersion{
 		VersionID:     versionID,
-		SecretString:  currentVer.SecretString,
-		SecretBinary:  currentVer.SecretBinary,
+		SecretString:  newSecretString,
+		SecretBinary:  newSecretBinary,
 		StagingLabels: []string{"AWSPENDING"},
 		CreatedDate:   UnixTimeFloat(b.now()),
 	}
