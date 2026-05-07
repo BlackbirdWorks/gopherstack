@@ -904,6 +904,103 @@ func TestTerraform_DynamoDBStreams(t *testing.T) {
 	}
 }
 
+// TestTerraform_DynamoDBComprehensive provisions tables with streams, global tables, TTL, and
+// on-demand billing via Terraform and verifies each feature via the DynamoDB SDK.
+func TestTerraform_DynamoDBComprehensive(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "comprehensive",
+			fixture: "dynamodb-comprehensive/main",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				suffix := uuid.NewString()[:8]
+
+				return map[string]any{
+					"StreamsTable":  "tf-ddb-streams-" + suffix,
+					"GlobalTable":   "tf-ddb-global-" + suffix,
+					"OnDemandTable": "tf-ddb-ondemand-" + suffix,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createDynamoDBClient(t)
+				streamsClient := createDynamoDBStreamsClient(t)
+
+				streamsTable := vars["StreamsTable"].(string)
+				globalTable := vars["GlobalTable"].(string)
+				onDemandTable := vars["OnDemandTable"].(string)
+
+				// --- Streams table: stream ARN present, TTL enabled ---
+				descOut, err := client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+					TableName: aws.String(streamsTable),
+				})
+				require.NoError(t, err, "DescribeTable(streams) should succeed")
+				require.NotNil(t, descOut.Table)
+				assert.NotEmpty(t, aws.ToString(descOut.Table.LatestStreamArn), "stream ARN should be set")
+				require.NotNil(t, descOut.Table.StreamSpecification)
+				assert.True(t, aws.ToBool(descOut.Table.StreamSpecification.StreamEnabled))
+				assert.Equal(t, ddbtypes.StreamViewTypeNewAndOldImages, descOut.Table.StreamSpecification.StreamViewType)
+
+				// TTL should be enabled on the streams table.
+				ttlOut, err := client.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+					TableName: aws.String(streamsTable),
+				})
+				require.NoError(t, err, "DescribeTimeToLive should succeed")
+				require.NotNil(t, ttlOut.TimeToLiveDescription)
+				assert.Equal(t, ddbtypes.TimeToLiveStatusEnabled, ttlOut.TimeToLiveDescription.TimeToLiveStatus)
+				assert.Equal(t, "expires_at", aws.ToString(ttlOut.TimeToLiveDescription.AttributeName))
+
+				// Stream should be listed.
+				listStreamsOut, err := streamsClient.ListStreams(ctx, &dynamodbstreamssvc.ListStreamsInput{
+					TableName: aws.String(streamsTable),
+				})
+				require.NoError(t, err, "ListStreams should succeed")
+				require.NotEmpty(t, listStreamsOut.Streams, "at least one stream should be listed")
+				assert.Equal(t, streamsTable, aws.ToString(listStreamsOut.Streams[0].TableName))
+
+				// --- Global table: GlobalTableVersion present ---
+				descGlobal, err := client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+					TableName: aws.String(globalTable),
+				})
+				require.NoError(t, err, "DescribeTable(global) should succeed")
+				require.NotNil(t, descGlobal.Table)
+				assert.NotEmpty(t, aws.ToString(descGlobal.Table.GlobalTableVersion),
+					"GlobalTableVersion should be set for a global table")
+
+				// DescribeGlobalTable should return the table.
+				descGT, err := client.DescribeGlobalTable(ctx, &dynamodb.DescribeGlobalTableInput{
+					GlobalTableName: aws.String(globalTable),
+				})
+				require.NoError(t, err, "DescribeGlobalTable should succeed")
+				require.NotNil(t, descGT.GlobalTableDescription)
+				assert.Equal(t, globalTable, aws.ToString(descGT.GlobalTableDescription.GlobalTableName))
+
+				// --- On-demand billing table ---
+				descOnDemand, err := client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+					TableName: aws.String(onDemandTable),
+				})
+				require.NoError(t, err, "DescribeTable(on-demand) should succeed")
+				require.NotNil(t, descOnDemand.Table)
+				require.NotNil(t, descOnDemand.Table.BillingModeSummary)
+				assert.Equal(t, ddbtypes.BillingModePayPerRequest,
+					descOnDemand.Table.BillingModeSummary.BillingMode,
+					"on-demand table should report PAY_PER_REQUEST billing mode")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_S3AndSQS provisions an S3 bucket and SQS queue and verifies both.
 func TestTerraform_S3AndSQS(t *testing.T) {
 	t.Parallel()

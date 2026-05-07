@@ -890,8 +890,9 @@ func (db *InMemoryDB) getTableByARN(resourceARN string) *Table {
 
 // --- DescribeImport ---
 
-// DescribeImport is a stub that returns a COMPLETED import description for any ARN.
-// The in-memory backend does not perform real data imports.
+// DescribeImport returns the import description for a given import ARN.
+// If the import was started via ImportTable, the stored record is returned.
+// Otherwise, a synthetic COMPLETED response is returned for backwards compatibility.
 func (db *InMemoryDB) DescribeImport(
 	_ context.Context,
 	input *dynamodb.DescribeImportInput,
@@ -903,6 +904,21 @@ func (db *InMemoryDB) DescribeImport(
 	importARN := *input.ImportArn
 	now := time.Now()
 
+	// Look up from persistent store first.
+	if imp, ok := db.lookupImport(importARN); ok {
+		tableARN := imp.TableArn
+
+		return &dynamodb.DescribeImportOutput{
+			ImportTableDescription: &types.ImportTableDescription{
+				ImportArn:    &importARN,
+				ImportStatus: types.ImportStatusCompleted,
+				TableArn:     &tableARN,
+				EndTime:      &now,
+			},
+		}, nil
+	}
+
+	// Fallback: synthetic response for unknown ARNs.
 	return &dynamodb.DescribeImportOutput{
 		ImportTableDescription: &types.ImportTableDescription{
 			ImportArn:    &importARN,
@@ -1143,8 +1159,9 @@ func (db *InMemoryDB) ExecuteTransaction(
 
 // --- ImportTable ---
 
-// ImportTable is a stub that generates a synthetic import ARN and returns COMPLETED status.
-// The in-memory backend does not perform real S3 imports.
+// ImportTable generates a synthetic import ARN, stores the import metadata, and returns COMPLETED status.
+// The in-memory backend does not perform real S3 imports, but persists the record so that
+// DescribeImport and ListImports return accurate results.
 func (db *InMemoryDB) ImportTable(
 	_ context.Context,
 	input *dynamodb.ImportTableInput,
@@ -1167,6 +1184,17 @@ func (db *InMemoryDB) ImportTable(
 			"table/"+*input.TableCreationParameters.TableName)
 	}
 
+	bucket := aws.ToString(input.S3BucketSource.S3Bucket)
+	inputFormat := string(input.InputFormat)
+
+	db.storeImport(storedImport{
+		ImportArn:    importARN,
+		ImportStatus: string(types.ImportStatusCompleted),
+		TableArn:     tableARN,
+		S3Bucket:     bucket,
+		InputFormat:  inputFormat,
+	})
+
 	return &dynamodb.ImportTableOutput{
 		ImportTableDescription: &types.ImportTableDescription{
 			ImportArn:    &importARN,
@@ -1180,13 +1208,26 @@ func (db *InMemoryDB) ImportTable(
 
 // --- ListImports ---
 
-// ListImports returns an empty list; the in-memory backend does not track imports.
+// ListImports returns stored import records, sorted by ImportArn.
 func (db *InMemoryDB) ListImports(
 	_ context.Context,
 	_ *dynamodb.ListImportsInput,
 ) (*dynamodb.ListImportsOutput, error) {
+	stored := db.listImportsStored()
+	summaries := make([]types.ImportSummary, 0, len(stored))
+
+	for _, imp := range stored {
+		importARN := imp.ImportArn
+		tableARN := imp.TableArn
+		summaries = append(summaries, types.ImportSummary{
+			ImportArn:    &importARN,
+			ImportStatus: types.ImportStatusCompleted,
+			TableArn:     &tableARN,
+		})
+	}
+
 	return &dynamodb.ListImportsOutput{
-		ImportSummaryList: []types.ImportSummary{},
+		ImportSummaryList: summaries,
 	}, nil
 }
 

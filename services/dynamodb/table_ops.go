@@ -676,6 +676,10 @@ func (db *InMemoryDB) UpdateTable(
 			table.TableClass = string(input.TableClass)
 		}
 
+		if input.BillingMode != "" {
+			table.BillingMode = string(input.BillingMode)
+		}
+
 		rcu = int64(table.ProvisionedThroughput.ReadCapacityUnits)
 		wcu = int64(table.ProvisionedThroughput.WriteCapacityUnits)
 		out = buildUpdateTableOutput(input, table)
