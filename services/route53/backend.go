@@ -1293,3 +1293,166 @@ func (b *InMemoryBackend) AddTrafficPolicyInternal(tp TrafficPolicy) {
 	cp := tp
 	b.trafficPolicies[tp.ID] = append(b.trafficPolicies[tp.ID], &cp)
 }
+
+// GetQueryLoggingConfig returns a single query logging configuration by ID.
+func (b *InMemoryBackend) GetQueryLoggingConfig(id string) (*QueryLoggingConfig, error) {
+	b.mu.RLock("GetQueryLoggingConfig")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.queryLoggingConfigs[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: query logging config %s not found", ErrQueryLoggingConfigNotFound, id)
+	}
+
+	cp := *cfg
+
+	return &cp, nil
+}
+
+// DeleteQueryLoggingConfig removes a query logging configuration.
+func (b *InMemoryBackend) DeleteQueryLoggingConfig(id string) error {
+	b.mu.Lock("DeleteQueryLoggingConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.queryLoggingConfigs[id]; !ok {
+		return fmt.Errorf("%w: query logging config %s not found", ErrQueryLoggingConfigNotFound, id)
+	}
+
+	delete(b.queryLoggingConfigs, id)
+
+	return nil
+}
+
+// ListQueryLoggingConfigs returns all query logging configurations, optionally filtered by hosted zone.
+func (b *InMemoryBackend) ListQueryLoggingConfigs(hostedZoneID string) ([]*QueryLoggingConfig, error) {
+	b.mu.RLock("ListQueryLoggingConfigs")
+	defer b.mu.RUnlock()
+
+	result := make([]*QueryLoggingConfig, 0, len(b.queryLoggingConfigs))
+	for _, cfg := range b.queryLoggingConfigs {
+		if hostedZoneID != "" && cfg.HostedZoneID != hostedZoneID {
+			continue
+		}
+
+		cp := *cfg
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+
+	return result, nil
+}
+
+// GetReusableDelegationSet returns a single reusable delegation set by ID.
+func (b *InMemoryBackend) GetReusableDelegationSet(id string) (*ReusableDelegationSet, error) {
+	b.mu.RLock("GetReusableDelegationSet")
+	defer b.mu.RUnlock()
+
+	ds, ok := b.reusableDelegationSets[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: delegation set %s not found", ErrDelegationSetNotFound, id)
+	}
+
+	cp := *ds
+
+	return &cp, nil
+}
+
+// DeleteReusableDelegationSet removes a reusable delegation set.
+func (b *InMemoryBackend) DeleteReusableDelegationSet(id string) error {
+	b.mu.Lock("DeleteReusableDelegationSet")
+	defer b.mu.Unlock()
+
+	if _, ok := b.reusableDelegationSets[id]; !ok {
+		return fmt.Errorf("%w: delegation set %s not found", ErrDelegationSetNotFound, id)
+	}
+
+	delete(b.reusableDelegationSets, id)
+
+	return nil
+}
+
+// ListReusableDelegationSets returns all reusable delegation sets.
+func (b *InMemoryBackend) ListReusableDelegationSets() ([]*ReusableDelegationSet, error) {
+	b.mu.RLock("ListReusableDelegationSets")
+	defer b.mu.RUnlock()
+
+	result := make([]*ReusableDelegationSet, 0, len(b.reusableDelegationSets))
+	for _, ds := range b.reusableDelegationSets {
+		cp := *ds
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+
+	return result, nil
+}
+
+// DisassociateVPCFromHostedZone removes a VPC association from a hosted zone.
+func (b *InMemoryBackend) DisassociateVPCFromHostedZone(zoneID, vpcID string) error {
+	if vpcID == "" {
+		return fmt.Errorf("%w: VPCId is required", ErrInvalidInput)
+	}
+
+	b.mu.Lock("DisassociateVPCFromHostedZone")
+	defer b.mu.Unlock()
+
+	if _, ok := b.zones[zoneID]; !ok {
+		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	assocs := b.vpcAssociations[zoneID]
+	newAssocs := assocs[:0:0]
+
+	for _, a := range assocs {
+		if a.VPCID != vpcID {
+			newAssocs = append(newAssocs, a)
+		}
+	}
+
+	b.vpcAssociations[zoneID] = newAssocs
+
+	return nil
+}
+
+// GetVPCAssociations returns VPC associations for a hosted zone.
+func (b *InMemoryBackend) GetVPCAssociations(zoneID string) ([]vpcAssociation, error) {
+	b.mu.RLock("GetVPCAssociations")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.zones[zoneID]; !ok {
+		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	assocs := b.vpcAssociations[zoneID]
+	result := make([]vpcAssociation, len(assocs))
+	copy(result, assocs)
+
+	return result, nil
+}
+
+// TestDNSAnswer looks up a record in the hosted zone and returns matching values.
+func (b *InMemoryBackend) TestDNSAnswer(zoneID, recordName, recordType string) ([]string, error) {
+	b.mu.RLock("TestDNSAnswer")
+	defer b.mu.RUnlock()
+
+	zd, ok := b.zones[zoneID]
+	if !ok {
+		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
+	}
+
+	name := normaliseName(recordName)
+	key := recordSetKey(name, recordType, "")
+
+	rrs, ok := zd.records[key]
+	if !ok {
+		return []string{}, nil
+	}
+
+	values := make([]string, 0, len(rrs.Records))
+	for _, r := range rrs.Records {
+		values = append(values, r.Value)
+	}
+
+	return values, nil
+}

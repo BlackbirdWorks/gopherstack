@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // Route53 limit/count constants for completeness operations.
@@ -168,14 +170,31 @@ type testDNSAnswerResponse struct {
 
 func (h *Handler) testDNSAnswer(c *echo.Context) error {
 	q := c.Request().URL.Query()
+	recordName := q.Get("recordname")
+	recordType := q.Get("recordtype")
+	zoneID := q.Get("hostedzoneid")
+
+	var recordData []string
+	responseCode := "NOERROR"
+
+	if zoneID != "" {
+		values, err := h.Backend.TestDNSAnswer(zoneID, recordName, recordType)
+		if err == nil {
+			recordData = values
+		}
+	}
+
+	if len(recordData) == 0 {
+		responseCode = "NXDOMAIN"
+	}
 
 	return writeXML(c, http.StatusOK, testDNSAnswerResponse{
 		Xmlns:        route53Namespace,
-		Nameserver:   "ns-1234.awsdns-00.org",
-		RecordName:   q.Get("recordname"),
-		RecordType:   q.Get("recordtype"),
-		RecordData:   []string{"1.2.3.4"},
-		ResponseCode: "NOERROR",
+		Nameserver:   dnsNS1Default,
+		RecordName:   recordName,
+		RecordType:   recordType,
+		RecordData:   recordData,
+		ResponseCode: responseCode,
 		Protocol:     "UDP",
 	})
 }
@@ -424,11 +443,27 @@ type disassociateVPCResponse struct {
 	ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
 }
 
-func (h *Handler) disassociateVPCFromHostedZone(c *echo.Context, _ string) error {
+func (h *Handler) disassociateVPCFromHostedZone(c *echo.Context, path string) error {
+	zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53DisassociateVPCSuffix)
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlAssociateVPCRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	if err = h.Backend.DisassociateVPCFromHostedZone(zoneID, req.VPC.VPCID); err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, disassociateVPCResponse{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
-			ID:          "/change/stub",
+			ID:          "/change/C" + zoneID,
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
@@ -556,13 +591,19 @@ type getReusableDSResponse struct {
 }
 
 func (h *Handler) getReusableDelegationSet(c *echo.Context, path string) error {
-	dsID := strings.TrimPrefix(path, "/2013-04-01/delegationset/")
+	rawID := strings.TrimPrefix(path, "/2013-04-01/delegationset/")
+	dsID := "/delegationset/" + rawID
+
+	ds, err := h.Backend.GetReusableDelegationSet(dsID)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
 
 	return writeXML(c, http.StatusOK, getReusableDSResponse{
 		Xmlns: route53Namespace,
 		DelegationSet: xmlDelegationSet{
-			ID:          "/delegationset/" + dsID,
-			NameServers: []string{"ns-1.awsdns-01.com", "ns-2.awsdns-02.net"},
+			ID:          ds.ID,
+			NameServers: ds.NameServers,
 		},
 	})
 }
@@ -572,7 +613,14 @@ type deleteReusableDSResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) deleteReusableDelegationSet(c *echo.Context, _ string) error {
+func (h *Handler) deleteReusableDelegationSet(c *echo.Context, path string) error {
+	rawID := strings.TrimPrefix(path, "/2013-04-01/delegationset/")
+	dsID := "/delegationset/" + rawID
+
+	if err := h.Backend.DeleteReusableDelegationSet(dsID); err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, deleteReusableDSResponse{Xmlns: route53Namespace})
 }
 
@@ -585,12 +633,17 @@ type getQueryLoggingConfigResponse struct {
 func (h *Handler) getQueryLoggingConfig(c *echo.Context, path string) error {
 	configID := strings.TrimPrefix(path, route53QueryLoggingRoot+"/")
 
+	cfg, err := h.Backend.GetQueryLoggingConfig(configID)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, getQueryLoggingConfigResponse{
 		Xmlns: route53Namespace,
 		QueryLoggingConfig: xmlQueryLoggingConfig{
-			ID:                        configID,
-			HostedZoneID:              "stub",
-			CloudWatchLogsLogGroupArn: "arn:aws:logs:us-east-1:123456789012:log-group:stub",
+			ID:                        cfg.ID,
+			HostedZoneID:              cfg.HostedZoneID,
+			CloudWatchLogsLogGroupArn: cfg.CloudWatchLogsLogGroupArn,
 		},
 	})
 }
@@ -600,7 +653,13 @@ type deleteQueryLoggingConfigResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
-func (h *Handler) deleteQueryLoggingConfig(c *echo.Context, _ string) error {
+func (h *Handler) deleteQueryLoggingConfig(c *echo.Context, path string) error {
+	configID := strings.TrimPrefix(path, route53QueryLoggingRoot+"/")
+
+	if err := h.Backend.DeleteQueryLoggingConfig(configID); err != nil {
+		return handleBackendError(c, err)
+	}
+
 	return writeXML(c, http.StatusOK, deleteQueryLoggingConfigResponse{Xmlns: route53Namespace})
 }
 
@@ -631,9 +690,25 @@ type listQueryLoggingConfigsResponse struct {
 }
 
 func (h *Handler) listQueryLoggingConfigs(c *echo.Context) error {
+	hostedZoneID := c.Request().URL.Query().Get("hostedzoneid")
+
+	cfgs, err := h.Backend.ListQueryLoggingConfigs(hostedZoneID)
+	if err != nil {
+		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	}
+
+	items := make([]xmlQueryLoggingConfig, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		items = append(items, xmlQueryLoggingConfig{
+			ID:                        cfg.ID,
+			HostedZoneID:              cfg.HostedZoneID,
+			CloudWatchLogsLogGroupArn: cfg.CloudWatchLogsLogGroupArn,
+		})
+	}
+
 	return writeXML(c, http.StatusOK, listQueryLoggingConfigsResponse{
 		Xmlns:               route53Namespace,
-		QueryLoggingConfigs: []xmlQueryLoggingConfig{},
+		QueryLoggingConfigs: items,
 	})
 }
 
@@ -647,9 +722,22 @@ type listReusableDSResponse struct {
 }
 
 func (h *Handler) listReusableDelegationSets(c *echo.Context) error {
+	sets, err := h.Backend.ListReusableDelegationSets()
+	if err != nil {
+		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	}
+
+	items := make([]xmlDelegationSet, 0, len(sets))
+	for _, ds := range sets {
+		items = append(items, xmlDelegationSet{
+			ID:          ds.ID,
+			NameServers: ds.NameServers,
+		})
+	}
+
 	return writeXML(c, http.StatusOK, listReusableDSResponse{
 		Xmlns:          route53Namespace,
-		DelegationSets: []xmlDelegationSet{},
+		DelegationSets: items,
 		IsTruncated:    false,
 		MaxItems:       "100",
 	})
