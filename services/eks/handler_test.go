@@ -649,7 +649,7 @@ func TestEKS_PersistenceSnapshotRestore(t *testing.T) {
 
 	_, err = b.CreateNodegroup(
 		"cluster1", "ng1", "arn:aws:iam::000000000000:role/ng-role",
-		"AL2_x86_64", "ON_DEMAND", "1.30",
+		"AL2_x86_64", "ON_DEMAND", "1.30", "",
 		[]string{"t3.medium"}, 2, 1, 5, map[string]string{"team": "platform"},
 	)
 	require.NoError(t, err)

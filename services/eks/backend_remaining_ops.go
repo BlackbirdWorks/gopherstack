@@ -233,6 +233,19 @@ func (b *InMemoryBackend) DescribeAddonVersions() []map[string]any {
 				},
 			},
 		},
+		{
+			keyAddonName: "aws-efs-csi-driver",
+			keyType:      "storage",
+			keyAddonVersions: []map[string]any{
+				{
+					keyAddonVersion: "v2.1.0-eksbuild.1",
+					keyCompatibilities: []map[string]string{
+						{keyClusterVersion: defaultK8sVersion},
+						{keyClusterVersion: priorK8sVersion},
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -1023,7 +1036,7 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 	return &Update{
 		ID:          stableID(clusterName + "/version-update/" + time.Now().String()),
 		ClusterName: clusterName,
-		Status:      statusInProgress,
+		Status:      "Successful",
 		Type:        typeVersionUpdate,
 		CreatedAt:   time.Now().UTC(),
 	}, nil

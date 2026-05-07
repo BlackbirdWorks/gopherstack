@@ -90,7 +90,7 @@ func (rc *ResourceCreator) createEKSNodegroup(
 
 	ng, err := rc.backends.EKS.Backend.CreateNodegroup(
 		clusterName, nodegroupName, nodeRole,
-		"AL2_x86_64", "ON_DEMAND", "",
+		"AL2_x86_64", "ON_DEMAND", "", "",
 		instanceTypes, eksNodegroupDefaultDesiredSize, 1, eksNodegroupDefaultMaxSize, nil,
 	)
 	if err != nil {
