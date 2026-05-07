@@ -38,6 +38,8 @@ type backendSnapshot struct {
 	Snapshots                      map[string]*Snapshot              `json:"snapshots,omitempty"`
 	NetworkACLs                    map[string]*StoredNetworkACL      `json:"networkACLs,omitempty"`
 	TransitGateways                map[string]*TransitGateway        `json:"transitGateways,omitempty"`
+	FlowLogs                       map[string]*FlowLog               `json:"flowLogs,omitempty"`
+	DhcpOptionSets                 map[string]*DhcpOptions           `json:"dhcpOptionSets,omitempty"`
 	Tags                           map[string]map[string]string      `json:"tags"`
 	AddressTransfers               map[string]*AddressTransfer       `json:"addressTransfers,omitempty"`
 	CapacityReservations           map[string]*CapacityReservation   `json:"capacityReservations,omitempty"`
@@ -83,6 +85,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Snapshots:                      b.snapshots,
 		NetworkACLs:                    b.networkACLs,
 		TransitGateways:                b.transitGateways,
+		FlowLogs:                       b.flowLogs,
+		DhcpOptionSets:                 b.dhcpOptionSets,
 		Tags:                           b.tags,
 		AddressTransfers:               b.addressTransfers,
 		CapacityReservations:           b.capacityReservations,
@@ -145,6 +149,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.snapshots = snap.Snapshots
 	b.networkACLs = snap.NetworkACLs
 	b.transitGateways = snap.TransitGateways
+	b.flowLogs = snap.FlowLogs
+	b.dhcpOptionSets = snap.DhcpOptionSets
 	b.tags = snap.Tags
 	b.addressTransfers = snap.AddressTransfers
 	b.capacityReservations = snap.CapacityReservations
@@ -261,6 +267,14 @@ func (s *backendSnapshot) initDeepDiveMaps() {
 
 	if s.TransitGateways == nil {
 		s.TransitGateways = make(map[string]*TransitGateway)
+	}
+
+	if s.FlowLogs == nil {
+		s.FlowLogs = make(map[string]*FlowLog)
+	}
+
+	if s.DhcpOptionSets == nil {
+		s.DhcpOptionSets = make(map[string]*DhcpOptions)
 	}
 }
 

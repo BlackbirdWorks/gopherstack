@@ -19,7 +19,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["AssignPrivateNatGatewayAddress"] = h.handleStubAssignPrivateNatGatewayAddress
 	ops["AssociateCapacityReservationBillingOwner"] = h.handleStubAssociateCapacityReservationBillingOwner
 	ops["AssociateClientVpnTargetNetwork"] = h.handleStubAssociateClientVpnTargetNetwork
-	ops["AssociateDhcpOptions"] = h.handleStubAssociateDhcpOptions
 	ops["AssociateEnclaveCertificateIamRole"] = h.handleStubAssociateEnclaveCertificateIamRole
 	ops["AssociateIamInstanceProfile"] = h.handleStubAssociateIamInstanceProfile
 	ops["AssociateInstanceEventWindow"] = h.handleStubAssociateInstanceEventWindow
@@ -66,10 +65,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateDefaultSubnet"] = h.handleStubCreateDefaultSubnet
 	ops["CreateDefaultVpc"] = h.handleStubCreateDefaultVpc
 	ops["CreateDelegateMacVolumeOwnershipTask"] = h.handleStubCreateDelegateMacVolumeOwnershipTask
-	ops["CreateDhcpOptions"] = h.handleStubCreateDhcpOptions
 	ops["CreateEgressOnlyInternetGateway"] = h.handleStubCreateEgressOnlyInternetGateway
 	ops["CreateFleet"] = h.handleStubCreateFleet
-	ops["CreateFlowLogs"] = h.handleStubCreateFlowLogs
 	ops["CreateFpgaImage"] = h.handleStubCreateFpgaImage
 	ops["CreateImageUsageReport"] = h.handleStubCreateImageUsageReport
 	ops["CreateInstanceConnectEndpoint"] = h.handleStubCreateInstanceConnectEndpoint
@@ -84,7 +81,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateIpamPrefixListResolverTarget"] = h.handleStubCreateIpamPrefixListResolverTarget
 	ops["CreateIpamResourceDiscovery"] = h.handleStubCreateIpamResourceDiscovery
 	ops["CreateIpamScope"] = h.handleStubCreateIpamScope
-	ops["CreateLaunchTemplateVersion"] = h.handleStubCreateLaunchTemplateVersion
 	ops["CreateLocalGatewayRoute"] = h.handleStubCreateLocalGatewayRoute
 	ops["CreateLocalGatewayRouteTable"] = h.handleStubCreateLocalGatewayRouteTable
 	ops["CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] =
@@ -125,7 +121,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateTransitGatewayRoute"] = h.handleStubCreateTransitGatewayRoute
 	ops["CreateTransitGatewayRouteTable"] = h.handleStubCreateTransitGatewayRouteTable
 	ops["CreateTransitGatewayRouteTableAnnouncement"] = h.handleStubCreateTransitGatewayRouteTableAnnouncement
-	ops["CreateTransitGatewayVpcAttachment"] = h.handleStubCreateTransitGatewayVpcAttachment
 	ops["CreateVerifiedAccessEndpoint"] = h.handleStubCreateVerifiedAccessEndpoint
 	ops["CreateVerifiedAccessGroup"] = h.handleStubCreateVerifiedAccessGroup
 	ops["CreateVerifiedAccessInstance"] = h.handleStubCreateVerifiedAccessInstance
@@ -145,10 +140,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteCoipCidr"] = h.handleStubDeleteCoipCidr
 	ops["DeleteCoipPool"] = h.handleStubDeleteCoipPool
 	ops["DeleteCustomerGateway"] = h.handleStubDeleteCustomerGateway
-	ops["DeleteDhcpOptions"] = h.handleStubDeleteDhcpOptions
 	ops["DeleteEgressOnlyInternetGateway"] = h.handleStubDeleteEgressOnlyInternetGateway
 	ops["DeleteFleets"] = h.handleStubDeleteFleets
-	ops["DeleteFlowLogs"] = h.handleStubDeleteFlowLogs
 	ops["DeleteFpgaImage"] = h.handleStubDeleteFpgaImage
 	ops["DeleteImageUsageReport"] = h.handleStubDeleteImageUsageReport
 	ops["DeleteInstanceConnectEndpoint"] = h.handleStubDeleteInstanceConnectEndpoint
@@ -161,7 +154,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteIpamPrefixListResolverTarget"] = h.handleStubDeleteIpamPrefixListResolverTarget
 	ops["DeleteIpamResourceDiscovery"] = h.handleStubDeleteIpamResourceDiscovery
 	ops["DeleteIpamScope"] = h.handleStubDeleteIpamScope
-	ops["DeleteLaunchTemplateVersions"] = h.handleStubDeleteLaunchTemplateVersions
 	ops["DeleteLocalGatewayRoute"] = h.handleStubDeleteLocalGatewayRoute
 	ops["DeleteLocalGatewayRouteTable"] = h.handleStubDeleteLocalGatewayRouteTable
 	ops["DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] =
@@ -198,7 +190,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteTransitGatewayRoute"] = h.handleStubDeleteTransitGatewayRoute
 	ops["DeleteTransitGatewayRouteTable"] = h.handleStubDeleteTransitGatewayRouteTable
 	ops["DeleteTransitGatewayRouteTableAnnouncement"] = h.handleStubDeleteTransitGatewayRouteTableAnnouncement
-	ops["DeleteTransitGatewayVpcAttachment"] = h.handleStubDeleteTransitGatewayVpcAttachment
 	ops["DeleteVerifiedAccessEndpoint"] = h.handleStubDeleteVerifiedAccessEndpoint
 	ops["DeleteVerifiedAccessGroup"] = h.handleStubDeleteVerifiedAccessGroup
 	ops["DeleteVerifiedAccessInstance"] = h.handleStubDeleteVerifiedAccessInstance
@@ -243,7 +234,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeConversionTasks"] = h.handleStubDescribeConversionTasks
 	ops["DescribeCustomerGateways"] = h.handleStubDescribeCustomerGateways
 	ops["DescribeDeclarativePoliciesReports"] = h.handleStubDescribeDeclarativePoliciesReports
-	ops["DescribeDhcpOptions"] = h.handleStubDescribeDhcpOptions
 	ops["DescribeEgressOnlyInternetGateways"] = h.handleStubDescribeEgressOnlyInternetGateways
 	ops["DescribeElasticGpus"] = h.handleStubDescribeElasticGpus
 	ops["DescribeExportImageTasks"] = h.handleStubDescribeExportImageTasks
@@ -253,7 +243,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeFleetHistory"] = h.handleStubDescribeFleetHistory
 	ops["DescribeFleetInstances"] = h.handleStubDescribeFleetInstances
 	ops["DescribeFleets"] = h.handleStubDescribeFleets
-	ops["DescribeFlowLogs"] = h.handleStubDescribeFlowLogs
 	ops["DescribeFpgaImageAttribute"] = h.handleStubDescribeFpgaImageAttribute
 	ops["DescribeFpgaImages"] = h.handleStubDescribeFpgaImages
 	ops["DescribeHostReservationOfferings"] = h.handleStubDescribeHostReservationOfferings
@@ -340,7 +329,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeTransitGatewayPolicyTables"] = h.handleStubDescribeTransitGatewayPolicyTables
 	ops["DescribeTransitGatewayRouteTableAnnouncements"] = h.handleStubDescribeTransitGatewayRouteTableAnnouncements
 	ops["DescribeTransitGatewayRouteTables"] = h.handleStubDescribeTransitGatewayRouteTables
-	ops["DescribeTransitGatewayVpcAttachments"] = h.handleStubDescribeTransitGatewayVpcAttachments
 	ops["DescribeTrunkInterfaceAssociations"] = h.handleStubDescribeTrunkInterfaceAssociations
 	ops["DescribeVerifiedAccessEndpoints"] = h.handleStubDescribeVerifiedAccessEndpoints
 	ops["DescribeVerifiedAccessGroups"] = h.handleStubDescribeVerifiedAccessGroups
@@ -468,7 +456,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetIpamPrefixListResolverVersionEntries"] = h.handleStubGetIpamPrefixListResolverVersionEntries
 	ops["GetIpamPrefixListResolverVersions"] = h.handleStubGetIpamPrefixListResolverVersions
 	ops["GetIpamResourceCidrs"] = h.handleStubGetIpamResourceCidrs
-	ops["GetLaunchTemplateData"] = h.handleStubGetLaunchTemplateData
 	ops["GetManagedPrefixListAssociations"] = h.handleStubGetManagedPrefixListAssociations
 	ops["GetManagedPrefixListEntries"] = h.handleStubGetManagedPrefixListEntries
 	ops["GetNetworkInsightsAccessScopeAnalysisFindings"] = h.handleStubGetNetworkInsightsAccessScopeAnalysisFindings
@@ -539,7 +526,6 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyIpamResourceCidr"] = h.handleStubModifyIpamResourceCidr
 	ops["ModifyIpamResourceDiscovery"] = h.handleStubModifyIpamResourceDiscovery
 	ops["ModifyIpamScope"] = h.handleStubModifyIpamScope
-	ops["ModifyLaunchTemplate"] = h.handleStubModifyLaunchTemplate
 	ops["ModifyLocalGatewayRoute"] = h.handleStubModifyLocalGatewayRoute
 	ops["ModifyManagedPrefixList"] = h.handleStubModifyManagedPrefixList
 	ops["ModifyPrivateDnsNameOptions"] = h.handleStubModifyPrivateDNSNameOptions
@@ -659,7 +645,6 @@ func stubSupportedOperations() []string {
 		"AssignPrivateNatGatewayAddress",
 		"AssociateCapacityReservationBillingOwner",
 		"AssociateClientVpnTargetNetwork",
-		"AssociateDhcpOptions",
 		"AssociateEnclaveCertificateIamRole",
 		"AssociateIamInstanceProfile",
 		"AssociateInstanceEventWindow",
@@ -706,10 +691,8 @@ func stubSupportedOperations() []string {
 		"CreateDefaultSubnet",
 		"CreateDefaultVpc",
 		"CreateDelegateMacVolumeOwnershipTask",
-		"CreateDhcpOptions",
 		"CreateEgressOnlyInternetGateway",
 		"CreateFleet",
-		"CreateFlowLogs",
 		"CreateFpgaImage",
 		"CreateImageUsageReport",
 		"CreateInstanceConnectEndpoint",
@@ -724,7 +707,6 @@ func stubSupportedOperations() []string {
 		"CreateIpamPrefixListResolverTarget",
 		"CreateIpamResourceDiscovery",
 		"CreateIpamScope",
-		"CreateLaunchTemplateVersion",
 		"CreateLocalGatewayRoute",
 		"CreateLocalGatewayRouteTable",
 		"CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
@@ -763,7 +745,6 @@ func stubSupportedOperations() []string {
 		"CreateTransitGatewayRoute",
 		"CreateTransitGatewayRouteTable",
 		"CreateTransitGatewayRouteTableAnnouncement",
-		"CreateTransitGatewayVpcAttachment",
 		"CreateVerifiedAccessEndpoint",
 		"CreateVerifiedAccessGroup",
 		"CreateVerifiedAccessInstance",
@@ -783,10 +764,8 @@ func stubSupportedOperations() []string {
 		"DeleteCoipCidr",
 		"DeleteCoipPool",
 		"DeleteCustomerGateway",
-		"DeleteDhcpOptions",
 		"DeleteEgressOnlyInternetGateway",
 		"DeleteFleets",
-		"DeleteFlowLogs",
 		"DeleteFpgaImage",
 		"DeleteImageUsageReport",
 		"DeleteInstanceConnectEndpoint",
@@ -799,7 +778,6 @@ func stubSupportedOperations() []string {
 		"DeleteIpamPrefixListResolverTarget",
 		"DeleteIpamResourceDiscovery",
 		"DeleteIpamScope",
-		"DeleteLaunchTemplateVersions",
 		"DeleteLocalGatewayRoute",
 		"DeleteLocalGatewayRouteTable",
 		"DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
@@ -835,7 +813,6 @@ func stubSupportedOperations() []string {
 		"DeleteTransitGatewayRoute",
 		"DeleteTransitGatewayRouteTable",
 		"DeleteTransitGatewayRouteTableAnnouncement",
-		"DeleteTransitGatewayVpcAttachment",
 		"DeleteVerifiedAccessEndpoint",
 		"DeleteVerifiedAccessGroup",
 		"DeleteVerifiedAccessInstance",
@@ -880,7 +857,6 @@ func stubSupportedOperations() []string {
 		"DescribeConversionTasks",
 		"DescribeCustomerGateways",
 		"DescribeDeclarativePoliciesReports",
-		"DescribeDhcpOptions",
 		"DescribeEgressOnlyInternetGateways",
 		"DescribeElasticGpus",
 		"DescribeExportImageTasks",
@@ -890,7 +866,6 @@ func stubSupportedOperations() []string {
 		"DescribeFleetHistory",
 		"DescribeFleetInstances",
 		"DescribeFleets",
-		"DescribeFlowLogs",
 		"DescribeFpgaImageAttribute",
 		"DescribeFpgaImages",
 		"DescribeHostReservationOfferings",
@@ -976,7 +951,6 @@ func stubSupportedOperations() []string {
 		"DescribeTransitGatewayPolicyTables",
 		"DescribeTransitGatewayRouteTableAnnouncements",
 		"DescribeTransitGatewayRouteTables",
-		"DescribeTransitGatewayVpcAttachments",
 		"DescribeTrunkInterfaceAssociations",
 		"DescribeVerifiedAccessEndpoints",
 		"DescribeVerifiedAccessGroups",
@@ -1103,7 +1077,6 @@ func stubSupportedOperations() []string {
 		"GetIpamPrefixListResolverVersionEntries",
 		"GetIpamPrefixListResolverVersions",
 		"GetIpamResourceCidrs",
-		"GetLaunchTemplateData",
 		"GetManagedPrefixListAssociations",
 		"GetManagedPrefixListEntries",
 		"GetNetworkInsightsAccessScopeAnalysisFindings",
@@ -1174,7 +1147,6 @@ func stubSupportedOperations() []string {
 		"ModifyIpamResourceCidr",
 		"ModifyIpamResourceDiscovery",
 		"ModifyIpamScope",
-		"ModifyLaunchTemplate",
 		"ModifyLocalGatewayRoute",
 		"ModifyManagedPrefixList",
 		"ModifyPrivateDnsNameOptions",
@@ -1321,10 +1293,6 @@ func (h *Handler) handleStubAssociateClientVpnTargetNetwork(_ url.Values, reqID 
 		RequestID: reqID,
 		Return:    true,
 	}, nil
-}
-
-func (h *Handler) handleStubAssociateDhcpOptions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "AssociateDhcpOptionsResponse"}, RequestID: reqID, Return: true}, nil
 }
 
 func (h *Handler) handleStubAssociateEnclaveCertificateIamRole(_ url.Values, reqID string) (any, error) {
@@ -1615,10 +1583,6 @@ func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(_ url.Values, r
 	}, nil
 }
 
-func (h *Handler) handleStubCreateDhcpOptions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateDhcpOptionsResponse"}, RequestID: reqID, Return: true}, nil
-}
-
 func (h *Handler) handleStubCreateEgressOnlyInternetGateway(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateEgressOnlyInternetGatewayResponse"},
@@ -1629,10 +1593,6 @@ func (h *Handler) handleStubCreateEgressOnlyInternetGateway(_ url.Values, reqID 
 
 func (h *Handler) handleStubCreateFleet(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{XMLName: xml.Name{Local: "CreateFleetResponse"}, RequestID: reqID, Return: true}, nil
-}
-
-func (h *Handler) handleStubCreateFlowLogs(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "CreateFlowLogsResponse"}, RequestID: reqID, Return: true}, nil
 }
 
 func (h *Handler) handleStubCreateFpgaImage(_ url.Values, reqID string) (any, error) {
@@ -1725,14 +1685,6 @@ func (h *Handler) handleStubCreateIpamResourceDiscovery(_ url.Values, reqID stri
 
 func (h *Handler) handleStubCreateIpamScope(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{XMLName: xml.Name{Local: "CreateIpamScopeResponse"}, RequestID: reqID, Return: true}, nil
-}
-
-func (h *Handler) handleStubCreateLaunchTemplateVersion(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateLaunchTemplateVersionResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
 }
 
 func (h *Handler) handleStubCreateLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
@@ -2025,14 +1977,6 @@ func (h *Handler) handleStubCreateTransitGatewayRouteTableAnnouncement(_ url.Val
 	}, nil
 }
 
-func (h *Handler) handleStubCreateTransitGatewayVpcAttachment(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateTransitGatewayVpcAttachmentResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
 func (h *Handler) handleStubCreateVerifiedAccessEndpoint(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateVerifiedAccessEndpointResponse"},
@@ -2153,10 +2097,6 @@ func (h *Handler) handleStubDeleteCustomerGateway(_ url.Values, reqID string) (a
 	return &stubResponse{XMLName: xml.Name{Local: "DeleteCustomerGatewayResponse"}, RequestID: reqID, Return: true}, nil
 }
 
-func (h *Handler) handleStubDeleteDhcpOptions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteDhcpOptionsResponse"}, RequestID: reqID, Return: true}, nil
-}
-
 func (h *Handler) handleStubDeleteEgressOnlyInternetGateway(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteEgressOnlyInternetGatewayResponse"},
@@ -2167,10 +2107,6 @@ func (h *Handler) handleStubDeleteEgressOnlyInternetGateway(_ url.Values, reqID 
 
 func (h *Handler) handleStubDeleteFleets(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{XMLName: xml.Name{Local: "DeleteFleetsResponse"}, RequestID: reqID, Return: true}, nil
-}
-
-func (h *Handler) handleStubDeleteFlowLogs(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DeleteFlowLogsResponse"}, RequestID: reqID, Return: true}, nil
 }
 
 func (h *Handler) handleStubDeleteFpgaImage(_ url.Values, reqID string) (any, error) {
@@ -2247,14 +2183,6 @@ func (h *Handler) handleStubDeleteIpamResourceDiscovery(_ url.Values, reqID stri
 
 func (h *Handler) handleStubDeleteIpamScope(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{XMLName: xml.Name{Local: "DeleteIpamScopeResponse"}, RequestID: reqID, Return: true}, nil
-}
-
-func (h *Handler) handleStubDeleteLaunchTemplateVersions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteLaunchTemplateVersionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
 }
 
 func (h *Handler) handleStubDeleteLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
@@ -2523,14 +2451,6 @@ func (h *Handler) handleStubDeleteTransitGatewayRouteTable(_ url.Values, reqID s
 func (h *Handler) handleStubDeleteTransitGatewayRouteTableAnnouncement(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DeleteTransitGatewayRouteTableAnnouncementResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDeleteTransitGatewayVpcAttachment(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayVpcAttachmentResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -2860,10 +2780,6 @@ func (h *Handler) handleStubDescribeDeclarativePoliciesReports(_ url.Values, req
 	}, nil
 }
 
-func (h *Handler) handleStubDescribeDhcpOptions(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeDhcpOptionsResponse"}, RequestID: reqID, Return: true}, nil
-}
-
 func (h *Handler) handleStubDescribeEgressOnlyInternetGateways(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeEgressOnlyInternetGatewaysResponse"},
@@ -2918,10 +2834,6 @@ func (h *Handler) handleStubDescribeFleetInstances(_ url.Values, reqID string) (
 
 func (h *Handler) handleStubDescribeFleets(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{XMLName: xml.Name{Local: "DescribeFleetsResponse"}, RequestID: reqID, Return: true}, nil
-}
-
-func (h *Handler) handleStubDescribeFlowLogs(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "DescribeFlowLogsResponse"}, RequestID: reqID, Return: true}, nil
 }
 
 func (h *Handler) handleStubDescribeFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
@@ -3554,14 +3466,6 @@ func (h *Handler) handleStubDescribeTransitGatewayRouteTableAnnouncements(_ url.
 func (h *Handler) handleStubDescribeTransitGatewayRouteTables(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "DescribeTransitGatewayRouteTablesResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubDescribeTransitGatewayVpcAttachments(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DescribeTransitGatewayVpcAttachmentsResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil
@@ -4470,10 +4374,6 @@ func (h *Handler) handleStubGetIpamResourceCidrs(_ url.Values, reqID string) (an
 	return &stubResponse{XMLName: xml.Name{Local: "GetIpamResourceCidrsResponse"}, RequestID: reqID, Return: true}, nil
 }
 
-func (h *Handler) handleStubGetLaunchTemplateData(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "GetLaunchTemplateDataResponse"}, RequestID: reqID, Return: true}, nil
-}
-
 func (h *Handler) handleStubGetManagedPrefixListAssociations(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "GetManagedPrefixListAssociationsResponse"},
@@ -4980,10 +4880,6 @@ func (h *Handler) handleStubModifyIpamResourceDiscovery(_ url.Values, reqID stri
 
 func (h *Handler) handleStubModifyIpamScope(_ url.Values, reqID string) (any, error) {
 	return &stubResponse{XMLName: xml.Name{Local: "ModifyIpamScopeResponse"}, RequestID: reqID, Return: true}, nil
-}
-
-func (h *Handler) handleStubModifyLaunchTemplate(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{XMLName: xml.Name{Local: "ModifyLaunchTemplateResponse"}, RequestID: reqID, Return: true}, nil
 }
 
 func (h *Handler) handleStubModifyLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
