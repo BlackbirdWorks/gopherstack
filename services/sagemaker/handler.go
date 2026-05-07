@@ -66,7 +66,7 @@ func (h *Handler) Reset() {
 
 // GetSupportedOperations returns the list of supported SageMaker operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
+	core := []string{ //nolint:prealloc // literal initialization, not append loop
 		"AddAssociation",
 		"AddTags",
 		"AssociateTrialComponent",
@@ -114,6 +114,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateNotebookInstance",
 		"UpdateTrainingJob",
 	}
+
+	return append(core, stubOpsSupported()...)
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -249,6 +251,10 @@ func (h *Handler) dispatchNewOps(ctx context.Context, op string, body []byte) ([
 	}
 
 	if r, ok, err := h.dispatchHPTuningJobOps(ctx, op, body); ok {
+		return r, err
+	}
+
+	if r, ok, err := h.dispatchStubOps(ctx, op, body); ok {
 		return r, err
 	}
 
