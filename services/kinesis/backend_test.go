@@ -407,6 +407,234 @@ func TestPutRecords_ThroughputErrorCode(t *testing.T) {
 	assert.Equal(t, 1, out.FailedRecordCount)
 }
 
+func TestSplitShard_Basic(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "split-stream", ShardCount: 1}))
+
+	// Get the initial shard list.
+	listOut, err := bk.ListShards(&kinesis.ListShardsInput{StreamName: "split-stream"})
+	require.NoError(t, err)
+	require.Len(t, listOut.Shards, 1)
+
+	parentID := listOut.Shards[0].ShardID
+	// Split at a midpoint well inside the shard range.
+	splitKey := "170141183460469231731687303715884105728" // 2^127 / 1
+
+	err = bk.SplitShard(&kinesis.SplitShardInput{
+		StreamName:         "split-stream",
+		ShardToSplit:       parentID,
+		NewStartingHashKey: splitKey,
+	})
+	require.NoError(t, err)
+
+	// Default list (open shards only) should now have 2 shards.
+	listOut, err = bk.ListShards(&kinesis.ListShardsInput{StreamName: "split-stream"})
+	require.NoError(t, err)
+	assert.Len(t, listOut.Shards, 2, "split should produce 2 open child shards")
+
+	// Both child shards reference the parent.
+	for _, s := range listOut.Shards {
+		assert.Equal(t, parentID, s.ParentShardID)
+	}
+
+	// Full list includes the closed parent + 2 children.
+	fullOut, err := bk.ListShards(&kinesis.ListShardsInput{
+		StreamName:  "split-stream",
+		ShardFilter: "FROM_TRIM_HORIZON",
+	})
+	require.NoError(t, err)
+	assert.Len(t, fullOut.Shards, 3, "FROM_TRIM_HORIZON should include closed parent")
+}
+
+func TestMergeShards_Basic(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "merge-stream", ShardCount: 2}))
+
+	listOut, err := bk.ListShards(&kinesis.ListShardsInput{StreamName: "merge-stream"})
+	require.NoError(t, err)
+	require.Len(t, listOut.Shards, 2)
+
+	shard1 := listOut.Shards[0].ShardID
+	shard2 := listOut.Shards[1].ShardID
+
+	err = bk.MergeShards(&kinesis.MergeShardsInput{
+		StreamName:           "merge-stream",
+		ShardToMerge:         shard1,
+		AdjacentShardToMerge: shard2,
+	})
+	require.NoError(t, err)
+
+	// Only 1 open shard (the merged one).
+	openOut, err := bk.ListShards(&kinesis.ListShardsInput{StreamName: "merge-stream"})
+	require.NoError(t, err)
+	assert.Len(t, openOut.Shards, 1)
+
+	merged := openOut.Shards[0]
+	assert.Equal(t, shard1, merged.ParentShardID)
+	assert.Equal(t, shard2, merged.AdjacentParentShardID)
+
+	// Full list: 2 closed parents + 1 open merged = 3.
+	fullOut, err := bk.ListShards(&kinesis.ListShardsInput{
+		StreamName:  "merge-stream",
+		ShardFilter: "FROM_TRIM_HORIZON",
+	})
+	require.NoError(t, err)
+	assert.Len(t, fullOut.Shards, 3)
+}
+
+func TestStreamEncryption_StartStop(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "enc-stream"}))
+
+	// Initially no encryption.
+	descOut, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "enc-stream"})
+	require.NoError(t, err)
+	assert.Equal(t, "NONE", descOut.EncryptionType)
+	assert.Empty(t, descOut.KeyID)
+
+	// Start encryption.
+	require.NoError(t, bk.StartStreamEncryption(&kinesis.StartStreamEncryptionInput{
+		StreamName:     "enc-stream",
+		EncryptionType: "KMS",
+		KeyID:          "alias/aws/kinesis",
+	}))
+
+	descOut, err = bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "enc-stream"})
+	require.NoError(t, err)
+	assert.Equal(t, "KMS", descOut.EncryptionType)
+	assert.Equal(t, "alias/aws/kinesis", descOut.KeyID)
+
+	// Stop encryption.
+	require.NoError(t, bk.StopStreamEncryption(&kinesis.StopStreamEncryptionInput{
+		StreamName:     "enc-stream",
+		EncryptionType: "KMS",
+		KeyID:          "alias/aws/kinesis",
+	}))
+
+	descOut, err = bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "enc-stream"})
+	require.NoError(t, err)
+	assert.Equal(t, "NONE", descOut.EncryptionType)
+	assert.Empty(t, descOut.KeyID)
+}
+
+func TestConsumerRegistrationAndList(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "consumer-lifecycle2"}))
+
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/consumer-lifecycle2"
+
+	// Register two consumers.
+	regOut1, err := bk.RegisterStreamConsumer(&kinesis.RegisterStreamConsumerInput{
+		StreamARN:    streamARN,
+		ConsumerName: "app-1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "app-1", regOut1.Consumer.ConsumerName)
+	assert.NotEmpty(t, regOut1.Consumer.ConsumerARN)
+
+	_, err = bk.RegisterStreamConsumer(&kinesis.RegisterStreamConsumerInput{
+		StreamARN:    streamARN,
+		ConsumerName: "app-2",
+	})
+	require.NoError(t, err)
+
+	// Duplicate registration should fail.
+	_, err = bk.RegisterStreamConsumer(&kinesis.RegisterStreamConsumerInput{
+		StreamARN:    streamARN,
+		ConsumerName: "app-1",
+	})
+	require.Error(t, err)
+
+	// ListStreamConsumers returns both.
+	listOut, err := bk.ListStreamConsumers(&kinesis.ListStreamConsumersInput{StreamARN: streamARN})
+	require.NoError(t, err)
+	assert.Len(t, listOut.Consumers, 2)
+
+	// DescribeStreamConsumer by ARN.
+	descOut, err := bk.DescribeStreamConsumer(&kinesis.DescribeStreamConsumerInput{
+		ConsumerARN: regOut1.Consumer.ConsumerARN,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "app-1", descOut.ConsumerDescription.ConsumerName)
+
+	// Deregister.
+	require.NoError(t, bk.DeregisterStreamConsumer(&kinesis.DeregisterStreamConsumerInput{
+		ConsumerARN: regOut1.Consumer.ConsumerARN,
+	}))
+
+	listOut, err = bk.ListStreamConsumers(&kinesis.ListStreamConsumersInput{StreamARN: streamARN})
+	require.NoError(t, err)
+	assert.Len(t, listOut.Consumers, 1)
+	assert.Equal(t, "app-2", listOut.Consumers[0].ConsumerName)
+}
+
+func TestSubscribeToShard_ReturnsRecords(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "subscribe-stream", ShardCount: 1}))
+
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/subscribe-stream"
+
+	regOut, err := bk.RegisterStreamConsumer(&kinesis.RegisterStreamConsumerInput{
+		StreamARN:    streamARN,
+		ConsumerName: "reader",
+	})
+	require.NoError(t, err)
+
+	// Put some records.
+	_, err = bk.PutRecord(&kinesis.PutRecordInput{
+		StreamName:   "subscribe-stream",
+		PartitionKey: "pk1",
+		Data:         []byte("hello"),
+	})
+	require.NoError(t, err)
+
+	shardOut, err := bk.ListShards(&kinesis.ListShardsInput{StreamName: "subscribe-stream"})
+	require.NoError(t, err)
+	require.Len(t, shardOut.Shards, 1)
+	shardID := shardOut.Shards[0].ShardID
+
+	subOut, err := bk.SubscribeToShard(&kinesis.SubscribeToShardInput{
+		ConsumerARN: regOut.Consumer.ConsumerARN,
+		ShardID:     shardID,
+		StartingPosition: kinesis.StartingPosition{
+			Type: "TRIM_HORIZON",
+		},
+	})
+	require.NoError(t, err)
+	assert.Len(t, subOut.Event.Records, 1)
+	assert.Equal(t, []byte("hello"), subOut.Event.Records[0].Data)
+}
+
+func TestListShards_AfterShardID(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "filter-stream", ShardCount: 4}))
+
+	// List all 4 shards.
+	allOut, err := bk.ListShards(&kinesis.ListShardsInput{StreamName: "filter-stream"})
+	require.NoError(t, err)
+	require.Len(t, allOut.Shards, 4)
+
+	// Use ExclusiveStartShardID to skip first two.
+	filtOut, err := bk.ListShards(&kinesis.ListShardsInput{
+		StreamName:            "filter-stream",
+		ExclusiveStartShardID: allOut.Shards[1].ShardID,
+	})
+	require.NoError(t, err)
+	assert.Len(t, filtOut.Shards, 2, "should return shards after the second shard")
+}
+
 func TestDeregisterStreamConsumer_ByIdentifier(t *testing.T) {
 	t.Parallel()
 
