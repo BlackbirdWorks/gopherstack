@@ -40,6 +40,15 @@ type storedExport struct {
 	S3Bucket     string
 }
 
+// storedImport holds the fields needed to satisfy DescribeImport and ListImports.
+type storedImport struct {
+	ImportArn    string
+	ImportStatus string
+	TableArn     string
+	S3Bucket     string
+	InputFormat  string
+}
+
 // InMemoryDB stores tables and items organized by region.
 type InMemoryDB struct {
 	Tables               map[string]map[string]*Table
@@ -47,6 +56,7 @@ type InMemoryDB struct {
 	Backups              map[string]*Backup            // backupARN → Backup
 	GlobalTables         map[string]*StoredGlobalTable // globalTableName → StoredGlobalTable
 	exports              map[string]storedExport       // exportARN → storedExport
+	imports              map[string]storedImport       // importARN → storedImport
 	txnTokens            map[string]time.Time          // committed idempotency tokens → expiry time
 	txnPending           map[string]time.Time          // in-progress idempotency tokens → start time
 	streamARNIndex       map[string]*Table             // streamARN → Table (reverse index)
@@ -143,6 +153,7 @@ func NewInMemoryDB() *InMemoryDB {
 		Backups:              make(map[string]*Backup),
 		GlobalTables:         make(map[string]*StoredGlobalTable),
 		exports:              make(map[string]storedExport),
+		imports:              make(map[string]storedImport),
 		txnTokens:            make(map[string]time.Time),
 		txnPending:           make(map[string]time.Time),
 		streamARNIndex:       make(map[string]*Table),
@@ -600,6 +611,7 @@ func (db *InMemoryDB) Reset() {
 	db.Backups = make(map[string]*Backup)
 	db.GlobalTables = make(map[string]*StoredGlobalTable)
 	db.exports = make(map[string]storedExport)
+	db.imports = make(map[string]storedImport)
 	db.txnTokens = make(map[string]time.Time)
 	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
@@ -666,4 +678,40 @@ func (db *InMemoryDB) listExportsWire(tableArn, _ string) *listExportsOutput {
 	})
 
 	return &listExportsOutput{ExportSummaries: summaries}
+}
+
+// storeImport persists an import record so it can be retrieved by DescribeImport/ListImports.
+func (db *InMemoryDB) storeImport(imp storedImport) {
+	db.mu.Lock("storeImport")
+	defer db.mu.Unlock()
+
+	db.imports[imp.ImportArn] = imp
+}
+
+// lookupImport retrieves a stored import by ARN.
+func (db *InMemoryDB) lookupImport(importARN string) (storedImport, bool) {
+	db.mu.RLock("lookupImport")
+	defer db.mu.RUnlock()
+
+	imp, ok := db.imports[importARN]
+
+	return imp, ok
+}
+
+// listImportsStored returns all stored imports as a slice, sorted by ARN.
+func (db *InMemoryDB) listImportsStored() []storedImport {
+	db.mu.RLock("listImportsStored")
+
+	result := make([]storedImport, 0, len(db.imports))
+	for _, imp := range db.imports {
+		result = append(result, imp)
+	}
+
+	db.mu.RUnlock()
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ImportArn < result[j].ImportArn
+	})
+
+	return result
 }
