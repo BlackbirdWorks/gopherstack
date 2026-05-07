@@ -17,7 +17,10 @@ import (
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
+	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -119,8 +122,12 @@ type ServiceBackends struct {
 	EMR            *emrbackend.Handler
 	MemoryDB       *memorydb.Handler
 	BedrockRuntime *bedrockruntime.Handler
-	AccountID      string
-	Region         string
+	// Phase-4 backends
+	ELBv2     *elbv2backend.Handler
+	WAFv2     *wafv2backend.Handler
+	Backup    *backupbackend.Handler
+	AccountID string
+	Region    string
 }
 
 // ResourceCreator creates and deletes cloud resources.
@@ -392,6 +399,26 @@ func (rc *ResourceCreator) createIAMEC2Resource(
 		physID, err := rc.createEC2Route(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
+	case "AWS::EC2::Instance":
+		physID, err := rc.createEC2Instance(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EC2::VPCGatewayAttachment":
+		physID, err := rc.createEC2VPCGatewayAttachment(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EC2::SubnetRouteTableAssociation":
+		physID, err := rc.createEC2SubnetRouteTableAssociation(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::IAM::User":
+		physID, err := rc.createIAMUser(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::IAM::Group":
+		physID, err := rc.createIAMGroup(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	default:
 		return "", false, nil
 	}
@@ -432,6 +459,24 @@ func (rc *ResourceCreator) createDataPlatformResource(
 		return rc.createS3BucketPolicy(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::Scheduler::Schedule":
 		return rc.createSchedulerSchedule(logicalID, props, params, physicalIDs)
+	case "AWS::ElasticLoadBalancingV2::LoadBalancer":
+		return rc.createELBv2LoadBalancer(logicalID, props, params, physicalIDs)
+	case "AWS::ElasticLoadBalancingV2::TargetGroup":
+		return rc.createELBv2TargetGroup(logicalID, props, params, physicalIDs)
+	case "AWS::ElasticLoadBalancingV2::Listener":
+		return rc.createELBv2Listener(logicalID, props, params, physicalIDs)
+	case "AWS::WAFv2::WebACL":
+		return rc.createWAFv2WebACL(logicalID, props, params, physicalIDs)
+	case "AWS::WAFv2::IPSet":
+		return rc.createWAFv2IPSet(logicalID, props, params, physicalIDs)
+	case "AWS::WAFv2::RuleGroup":
+		return rc.createWAFv2RuleGroup(logicalID, props, params, physicalIDs)
+	case "AWS::Backup::BackupVault":
+		return rc.createBackupVault(logicalID, props, params, physicalIDs)
+	case "AWS::Backup::BackupPlan":
+		return rc.createBackupPlan(logicalID, props, params, physicalIDs)
+	case "AWS::Backup::BackupSelection":
+		return rc.createBackupSelection(logicalID, props, params, physicalIDs)
 	default:
 		return rc.createNewServiceResource(ctx, logicalID, resourceType, props, params, physicalIDs)
 	}
@@ -475,6 +520,14 @@ func (rc *ResourceCreator) createRDSResource(
 		return physID, true, err
 	case "AWS::RDS::DBParameterGroup":
 		physID, err := rc.createRDSDBParameterGroup(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::RDS::DBCluster":
+		physID, err := rc.createRDSDBCluster(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::RDS::DBClusterParameterGroup":
+		physID, err := rc.createRDSDBClusterParameterGroup(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	default:
@@ -871,6 +924,16 @@ func (rc *ResourceCreator) deleteIAMEC2Resource(resourceType, physicalID string)
 		return true, rc.deleteEC2RouteTable(physicalID)
 	case "AWS::EC2::Route":
 		return true, nil // routes are deleted with their route table
+	case "AWS::EC2::Instance":
+		return true, rc.deleteEC2Instance(physicalID)
+	case "AWS::EC2::VPCGatewayAttachment":
+		return true, rc.deleteEC2VPCGatewayAttachment(physicalID)
+	case "AWS::EC2::SubnetRouteTableAssociation":
+		return true, rc.deleteEC2SubnetRouteTableAssociation(physicalID)
+	case "AWS::IAM::User":
+		return true, rc.deleteIAMUser(physicalID)
+	case "AWS::IAM::Group":
+		return true, rc.deleteIAMGroup(physicalID)
 	default:
 		return false, nil
 	}
@@ -904,6 +967,24 @@ func (rc *ResourceCreator) deleteDataPlatformResource(ctx context.Context, resou
 		return rc.deleteS3BucketPolicy(ctx, physicalID)
 	case "AWS::Scheduler::Schedule":
 		return rc.deleteSchedulerSchedule(physicalID)
+	case "AWS::ElasticLoadBalancingV2::LoadBalancer":
+		return rc.deleteELBv2LoadBalancer(physicalID)
+	case "AWS::ElasticLoadBalancingV2::TargetGroup":
+		return rc.deleteELBv2TargetGroup(physicalID)
+	case "AWS::ElasticLoadBalancingV2::Listener":
+		return rc.deleteELBv2Listener(physicalID)
+	case "AWS::WAFv2::WebACL":
+		return rc.deleteWAFv2WebACL(physicalID)
+	case "AWS::WAFv2::IPSet":
+		return rc.deleteWAFv2IPSet(physicalID)
+	case "AWS::WAFv2::RuleGroup":
+		return nil // rule group deletion is a no-op (no delete method in backend)
+	case "AWS::Backup::BackupVault":
+		return rc.deleteBackupVault(physicalID)
+	case "AWS::Backup::BackupPlan":
+		return rc.deleteBackupPlan(physicalID)
+	case "AWS::Backup::BackupSelection":
+		return nil // selections are deleted with their plan
 	default:
 		return rc.deleteNewServiceResource(physicalID, resourceType)
 	}
@@ -932,6 +1013,10 @@ func (rc *ResourceCreator) deleteComputeStorageResource(physicalID, resourceType
 		return true, rc.deleteRDSDBSubnetGroup(physicalID)
 	case "AWS::RDS::DBParameterGroup":
 		return true, rc.deleteRDSDBParameterGroup(physicalID)
+	case "AWS::RDS::DBCluster":
+		return true, rc.deleteRDSDBCluster(physicalID)
+	case "AWS::RDS::DBClusterParameterGroup":
+		return true, rc.deleteRDSDBClusterParameterGroup(physicalID)
 	case resTypeECSCluster:
 		return true, rc.deleteECSCluster(physicalID)
 	case "AWS::ECS::TaskDefinition":
