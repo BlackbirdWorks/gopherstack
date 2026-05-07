@@ -279,7 +279,7 @@ func (h *Handler) handleDescribeTrainingJob(_ context.Context, body []byte) ([]b
 		"TrainingJobName":   tj.TrainingJobName,
 		keyTrainingJobArn:   tj.TrainingJobArn,
 		"TrainingJobStatus": tj.TrainingJobStatus,
-		"RoleArn":           tj.RoleArn,
+		keyRoleArn:          tj.RoleArn,
 		keyCreationTime:     epochSeconds(tj.CreationTime),
 		keyLastModifiedTime: epochSeconds(tj.LastModifiedTime),
 	})

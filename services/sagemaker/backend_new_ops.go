@@ -439,7 +439,7 @@ func (b *InMemoryBackend) StartNotebookInstance(name string) error {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
 
-	nb.NotebookInstanceStatus = "InService"
+	nb.NotebookInstanceStatus = statusInService
 	nb.LastModifiedTime = time.Now()
 
 	return nil
