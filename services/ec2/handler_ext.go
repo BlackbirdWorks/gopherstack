@@ -1471,7 +1471,7 @@ func toNetworkInterfaceItem(eni *NetworkInterface) networkInterfaceItem {
 			AttachmentID: eni.AttachmentID,
 			InstanceID:   eni.InstanceID,
 			DeviceIndex:  eni.DeviceIndex,
-			Status:       "attached",
+			Status:       attachmentStateAttached,
 		}
 	}
 

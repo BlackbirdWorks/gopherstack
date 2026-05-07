@@ -640,7 +640,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 //nolint:funlen
 func stubSupportedOperations() []string {
 	return []string{
-		"AllocateIpamPoolCidr",
+		// "AllocateIpamPoolCidr", — moved to advancedNetworkingSupportedOperations
 		"ApplySecurityGroupsToClientVpnTargetNetwork",
 		"AssignPrivateNatGatewayAddress",
 		"AssociateCapacityReservationBillingOwner",
@@ -661,7 +661,7 @@ func stubSupportedOperations() []string {
 		// AssociateVpcCidrBlock — moved to ec2CoreSupportedOperations
 		"AttachClassicLinkVpc",
 		"AttachVerifiedAccessTrustProvider",
-		"AttachVpnGateway",
+		// "AttachVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"AuthorizeClientVpnIngress",
 		"BundleInstance",
 		"CancelBundleTask",
@@ -687,7 +687,7 @@ func stubSupportedOperations() []string {
 		"CreateClientVpnRoute",
 		"CreateCoipCidr",
 		"CreateCoipPool",
-		"CreateCustomerGateway",
+		// "CreateCustomerGateway", — moved to advancedNetworkingSupportedOperations
 		"CreateDefaultSubnet",
 		"CreateDefaultVpc",
 		"CreateDelegateMacVolumeOwnershipTask",
@@ -699,10 +699,10 @@ func stubSupportedOperations() []string {
 		"CreateInstanceEventWindow",
 		"CreateInstanceExportTask",
 		"CreateInterruptibleCapacityReservationAllocation",
-		"CreateIpam",
+		// "CreateIpam", — moved to advancedNetworkingSupportedOperations
 		"CreateIpamExternalResourceVerificationToken",
 		"CreateIpamPolicy",
-		"CreateIpamPool",
+		// "CreateIpamPool", — moved to advancedNetworkingSupportedOperations
 		"CreateIpamPrefixListResolver",
 		"CreateIpamPrefixListResolverTarget",
 		"CreateIpamResourceDiscovery",
@@ -752,28 +752,28 @@ func stubSupportedOperations() []string {
 		"CreateVpcBlockPublicAccessExclusion",
 		"CreateVpcEncryptionControl",
 		"CreateVpcEndpointConnectionNotification",
-		"CreateVpcEndpointServiceConfiguration",
+		// "CreateVpcEndpointServiceConfiguration", — moved to advancedNetworkingSupportedOperations
 		"CreateVpnConcentrator",
-		"CreateVpnConnection",
+		// "CreateVpnConnection", — moved to advancedNetworkingSupportedOperations
 		"CreateVpnConnectionRoute",
-		"CreateVpnGateway",
+		// "CreateVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"DeleteCapacityManagerDataExport",
 		"DeleteCarrierGateway",
 		"DeleteClientVpnEndpoint",
 		"DeleteClientVpnRoute",
 		"DeleteCoipCidr",
 		"DeleteCoipPool",
-		"DeleteCustomerGateway",
+		// "DeleteCustomerGateway", — moved to advancedNetworkingSupportedOperations
 		// DeleteEgressOnlyInternetGateway — moved to ec2CoreSupportedOperations
 		"DeleteFleets",
 		"DeleteFpgaImage",
 		"DeleteImageUsageReport",
 		"DeleteInstanceConnectEndpoint",
 		"DeleteInstanceEventWindow",
-		"DeleteIpam",
+		// "DeleteIpam", — moved to advancedNetworkingSupportedOperations
 		"DeleteIpamExternalResourceVerificationToken",
 		"DeleteIpamPolicy",
-		"DeleteIpamPool",
+		// "DeleteIpamPool", — moved to advancedNetworkingSupportedOperations
 		"DeleteIpamPrefixListResolver",
 		"DeleteIpamPrefixListResolverTarget",
 		"DeleteIpamResourceDiscovery",
@@ -820,11 +820,11 @@ func stubSupportedOperations() []string {
 		"DeleteVpcBlockPublicAccessExclusion",
 		"DeleteVpcEncryptionControl",
 		"DeleteVpcEndpointConnectionNotifications",
-		"DeleteVpcEndpointServiceConfigurations",
+		// "DeleteVpcEndpointServiceConfigurations", — moved to advancedNetworkingSupportedOperations
 		"DeleteVpnConcentrator",
-		"DeleteVpnConnection",
+		// "DeleteVpnConnection", — moved to advancedNetworkingSupportedOperations
 		"DeleteVpnConnectionRoute",
-		"DeleteVpnGateway",
+		// "DeleteVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"DeprovisionByoipCidr",
 		"DeprovisionIpamByoasn",
 		"DeprovisionIpamPoolCidr",
@@ -855,7 +855,7 @@ func stubSupportedOperations() []string {
 		"DescribeClientVpnTargetNetworks",
 		"DescribeCoipPools",
 		"DescribeConversionTasks",
-		"DescribeCustomerGateways",
+		// "DescribeCustomerGateways", — moved to advancedNetworkingSupportedOperations
 		"DescribeDeclarativePoliciesReports",
 		// DescribeEgressOnlyInternetGateways — moved to ec2CoreSupportedOperations
 		"DescribeElasticGpus",
@@ -888,13 +888,13 @@ func stubSupportedOperations() []string {
 		"DescribeIpamByoasn",
 		"DescribeIpamExternalResourceVerificationTokens",
 		"DescribeIpamPolicies",
-		"DescribeIpamPools",
+		// "DescribeIpamPools", — moved to advancedNetworkingSupportedOperations
 		"DescribeIpamPrefixListResolverTargets",
 		"DescribeIpamPrefixListResolvers",
 		"DescribeIpamResourceDiscoveries",
 		"DescribeIpamResourceDiscoveryAssociations",
 		"DescribeIpamScopes",
-		"DescribeIpams",
+		// "DescribeIpams", — moved to advancedNetworkingSupportedOperations
 		"DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations",
 		"DescribeLocalGatewayRouteTableVpcAssociations",
 		"DescribeLocalGatewayRouteTables",
@@ -967,14 +967,14 @@ func stubSupportedOperations() []string {
 		"DescribeVpcEndpointAssociations",
 		"DescribeVpcEndpointConnectionNotifications",
 		"DescribeVpcEndpointConnections",
-		"DescribeVpcEndpointServiceConfigurations",
+		// "DescribeVpcEndpointServiceConfigurations", — moved to advancedNetworkingSupportedOperations
 		"DescribeVpcEndpointServicePermissions",
 		"DescribeVpnConcentrators",
-		"DescribeVpnConnections",
-		"DescribeVpnGateways",
+		// "DescribeVpnConnections", — moved to advancedNetworkingSupportedOperations
+		// "DescribeVpnGateways", — moved to advancedNetworkingSupportedOperations
 		"DetachClassicLinkVpc",
 		"DetachVerifiedAccessTrustProvider",
-		"DetachVpnGateway",
+		// "DetachVpnGateway", — moved to advancedNetworkingSupportedOperations
 		"DisableAddressTransfer",
 		"DisableAllowedImagesSettings",
 		"DisableAwsNetworkPerformanceMetricSubscription",
@@ -1072,7 +1072,7 @@ func stubSupportedOperations() []string {
 		"GetIpamPolicyAllocationRules",
 		"GetIpamPolicyOrganizationTargets",
 		"GetIpamPoolAllocations",
-		"GetIpamPoolCidrs",
+		// "GetIpamPoolCidrs", — moved to advancedNetworkingSupportedOperations
 		"GetIpamPrefixListResolverRules",
 		"GetIpamPrefixListResolverVersionEntries",
 		"GetIpamPrefixListResolverVersions",
@@ -1175,7 +1175,7 @@ func stubSupportedOperations() []string {
 		"ModifyVpcEncryptionControl",
 		"ModifyVpcEndpoint",
 		"ModifyVpcEndpointConnectionNotification",
-		"ModifyVpcEndpointServiceConfiguration",
+		// "ModifyVpcEndpointServiceConfiguration", — moved to advancedNetworkingSupportedOperations
 		"ModifyVpcEndpointServicePayerResponsibility",
 		"ModifyVpcEndpointServicePermissions",
 		"ModifyVpcPeeringConnectionOptions",
@@ -1205,9 +1205,9 @@ func stubSupportedOperations() []string {
 		"RejectTransitGatewayPeeringAttachment",
 		"RejectTransitGatewayVpcAttachment",
 		"RejectVpcEndpointConnections",
-		"RejectVpcPeeringConnection",
+		// "RejectVpcPeeringConnection", — moved to advancedNetworkingSupportedOperations
 		"ReleaseHosts",
-		"ReleaseIpamPoolAllocation",
+		// "ReleaseIpamPoolAllocation", — moved to advancedNetworkingSupportedOperations
 		// ReplaceIamInstanceProfileAssociation — moved to ec2CoreSupportedOperations
 		"ReplaceImageCriteriaInAllowedImagesSettings",
 		"ReplaceRoute",
