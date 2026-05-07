@@ -1,6 +1,8 @@
 package sagemaker
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +13,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// generateID returns a random hex string of the given byte length (output chars = 2*n).
+func generateID(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+
+	return hex.EncodeToString(b)
+}
 
 const (
 	statusRunning = "Running"
@@ -284,6 +294,15 @@ type InMemoryBackend struct {
 	algorithmARNIndex          map[string]string                     // ARN → algorithm name
 	clusterARNIndex            map[string]string                     // ARN → cluster name
 	modelPackageARNIndex       map[string]string                     // ARN → model package ARN
+	domains                    map[string]*Domain                    // key: domainID
+	userProfiles               map[userProfileKey]*UserProfile       // key: domainID+name
+	apps                       map[appKey]*App                       // key: domainID+userProfile+appType+appName
+	featureGroups              map[string]*FeatureGroup              // key: featureGroupName
+	pipelines                  map[string]*Pipeline                  // key: pipelineName
+	pipelineExecutions         map[string]*PipelineExecution         // key: executionArn
+	experiments                map[string]*Experiment                // key: experimentName
+	trials                     map[string]*Trial                     // key: trialName
+	trialComponents            map[string]*TrialComponent            // key: trialComponentName
 	mu                         *lockmetrics.RWMutex
 	accountID                  string
 	region                     string
@@ -314,6 +333,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		algorithmARNIndex:          make(map[string]string),
 		clusterARNIndex:            make(map[string]string),
 		modelPackageARNIndex:       make(map[string]string),
+		domains:                    make(map[string]*Domain),
+		userProfiles:               make(map[userProfileKey]*UserProfile),
+		apps:                       make(map[appKey]*App),
+		featureGroups:              make(map[string]*FeatureGroup),
+		pipelines:                  make(map[string]*Pipeline),
+		pipelineExecutions:         make(map[string]*PipelineExecution),
+		experiments:                make(map[string]*Experiment),
+		trials:                     make(map[string]*Trial),
+		trialComponents:            make(map[string]*TrialComponent),
 		accountID:                  accountID,
 		region:                     region,
 		mu:                         lockmetrics.New("sagemaker"),
@@ -353,6 +381,15 @@ func (b *InMemoryBackend) Reset() {
 	b.algorithmARNIndex = make(map[string]string)
 	b.clusterARNIndex = make(map[string]string)
 	b.modelPackageARNIndex = make(map[string]string)
+	b.domains = make(map[string]*Domain)
+	b.userProfiles = make(map[userProfileKey]*UserProfile)
+	b.apps = make(map[appKey]*App)
+	b.featureGroups = make(map[string]*FeatureGroup)
+	b.pipelines = make(map[string]*Pipeline)
+	b.pipelineExecutions = make(map[string]*PipelineExecution)
+	b.experiments = make(map[string]*Experiment)
+	b.trials = make(map[string]*Trial)
+	b.trialComponents = make(map[string]*TrialComponent)
 }
 
 // CreateModel creates a new SageMaker model.

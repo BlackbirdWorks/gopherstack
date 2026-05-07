@@ -1,0 +1,1146 @@
+package sagemaker
+
+import (
+	"fmt"
+	"maps"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
+
+const idByteLen = 12 // number of random bytes used when generating resource IDs
+
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+var (
+	// ErrDomainNotFound is returned when a domain does not exist.
+	ErrDomainNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrDomainAlreadyExists is returned when a domain already exists.
+	ErrDomainAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrUserProfileNotFound is returned when a user profile does not exist.
+	ErrUserProfileNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrUserProfileAlreadyExists is returned when a user profile already exists.
+	ErrUserProfileAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrAppNotFound is returned when a SageMaker app does not exist.
+	ErrAppNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrAppAlreadyExists is returned when an app already exists.
+	ErrAppAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrFeatureGroupNotFound is returned when a feature group does not exist.
+	ErrFeatureGroupNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrFeatureGroupAlreadyExists is returned when a feature group already exists.
+	ErrFeatureGroupAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrPipelineNotFound is returned when a pipeline does not exist.
+	ErrPipelineNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrPipelineAlreadyExists is returned when a pipeline already exists.
+	ErrPipelineAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrPipelineExecutionNotFound is returned when a pipeline execution does not exist.
+	ErrPipelineExecutionNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrExperimentNotFound is returned when an experiment does not exist.
+	ErrExperimentNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrExperimentAlreadyExists is returned when an experiment already exists.
+	ErrExperimentAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrTrialNotFound is returned when a trial does not exist.
+	ErrTrialNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrTrialAlreadyExists is returned when a trial already exists.
+	ErrTrialAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrTrialComponentNotFound is returned when a trial component does not exist.
+	ErrTrialComponentNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrTrialComponentAlreadyExists is returned when a trial component already exists.
+	ErrTrialComponentAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+)
+
+// ---------------------------------------------------------------------------
+// Domain
+// ---------------------------------------------------------------------------
+
+// Domain represents a SageMaker Studio domain.
+type Domain struct {
+	CreationTime     time.Time         `json:"CreationTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	DomainID         string            `json:"DomainId"`
+	DomainArn        string            `json:"DomainArn"`
+	DomainName       string            `json:"DomainName"`
+	Status           string            `json:"Status"`
+	URL              string            `json:"Url,omitempty"`
+	AuthMode         string            `json:"AuthMode,omitempty"`
+}
+
+func cloneDomain(d *Domain) *Domain {
+	cp := *d
+	cp.Tags = maps.Clone(d.Tags)
+
+	return &cp
+}
+
+// UserProfileKey is the composite key for user profiles.
+type userProfileKey struct {
+	DomainID        string
+	UserProfileName string
+}
+
+// UserProfile represents a SageMaker Studio user profile.
+type UserProfile struct {
+	CreationTime     time.Time         `json:"CreationTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	DomainID         string            `json:"DomainId"`
+	UserProfileName  string            `json:"UserProfileName"`
+	UserProfileArn   string            `json:"UserProfileArn"`
+	Status           string            `json:"Status"`
+}
+
+func cloneUserProfile(up *UserProfile) *UserProfile {
+	cp := *up
+	cp.Tags = maps.Clone(up.Tags)
+
+	return &cp
+}
+
+// appKey is the composite key for SageMaker apps.
+type appKey struct {
+	DomainID        string
+	UserProfileName string
+	AppType         string
+	AppName         string
+}
+
+// App represents a SageMaker Studio app.
+type App struct {
+	CreationTime    time.Time         `json:"CreationTime"`
+	Tags            map[string]string `json:"Tags,omitempty"`
+	DomainID        string            `json:"DomainId"`
+	UserProfileName string            `json:"UserProfileName"`
+	AppType         string            `json:"AppType"`
+	AppName         string            `json:"AppName"`
+	AppArn          string            `json:"AppArn"`
+	Status          string            `json:"Status"`
+}
+
+func cloneApp(a *App) *App {
+	cp := *a
+	cp.Tags = maps.Clone(a.Tags)
+
+	return &cp
+}
+
+// ---------------------------------------------------------------------------
+// Feature Group
+// ---------------------------------------------------------------------------
+
+// FeatureDefinition holds the definition of a single feature.
+type FeatureDefinition struct {
+	FeatureName string `json:"FeatureName"`
+	FeatureType string `json:"FeatureType,omitempty"`
+}
+
+// FeatureGroup represents a SageMaker Feature Store feature group.
+//
+//nolint:govet // field order follows JSON API field order; GC pointer bitmap savings are negligible
+type FeatureGroup struct {
+	FeatureGroupName            string              `json:"FeatureGroupName"`
+	FeatureGroupArn             string              `json:"FeatureGroupArn"`
+	RecordIdentifierFeatureName string              `json:"RecordIdentifierFeatureName,omitempty"`
+	EventTimeFeatureName        string              `json:"EventTimeFeatureName,omitempty"`
+	FeatureGroupStatus          string              `json:"FeatureGroupStatus"`
+	Tags                        map[string]string   `json:"Tags,omitempty"`
+	FeatureDefinitions          []FeatureDefinition `json:"FeatureDefinitions,omitempty"`
+	CreationTime                time.Time           `json:"CreationTime"`
+}
+
+func cloneFeatureGroup(fg *FeatureGroup) *FeatureGroup {
+	cp := *fg
+	cp.Tags = maps.Clone(fg.Tags)
+	cp.FeatureDefinitions = make([]FeatureDefinition, len(fg.FeatureDefinitions))
+	copy(cp.FeatureDefinitions, fg.FeatureDefinitions)
+
+	return &cp
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline
+// ---------------------------------------------------------------------------
+
+// Pipeline represents a SageMaker Pipeline.
+type Pipeline struct {
+	CreationTime       time.Time         `json:"CreationTime"`
+	LastModifiedTime   time.Time         `json:"LastModifiedTime"`
+	Tags               map[string]string `json:"Tags,omitempty"`
+	PipelineName       string            `json:"PipelineName"`
+	PipelineArn        string            `json:"PipelineArn"`
+	PipelineStatus     string            `json:"PipelineStatus"`
+	PipelineDefinition string            `json:"PipelineDefinition,omitempty"`
+	RoleArn            string            `json:"RoleArn,omitempty"`
+}
+
+func clonePipeline(p *Pipeline) *Pipeline {
+	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
+
+	return &cp
+}
+
+// PipelineExecution represents a single execution of a SageMaker Pipeline.
+type PipelineExecution struct {
+	StartTime               time.Time `json:"StartTime"`
+	PipelineArn             string    `json:"PipelineArn"`
+	PipelineExecutionArn    string    `json:"PipelineExecutionArn"`
+	PipelineExecutionStatus string    `json:"PipelineExecutionStatus"`
+}
+
+func clonePipelineExecution(pe *PipelineExecution) *PipelineExecution {
+	cp := *pe
+
+	return &cp
+}
+
+// ---------------------------------------------------------------------------
+// Experiment
+// ---------------------------------------------------------------------------
+
+// Experiment represents a SageMaker Experiment.
+type Experiment struct {
+	CreationTime     time.Time         `json:"CreationTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	ExperimentName   string            `json:"ExperimentName"`
+	ExperimentArn    string            `json:"ExperimentArn"`
+}
+
+func cloneExperiment(e *Experiment) *Experiment {
+	cp := *e
+	cp.Tags = maps.Clone(e.Tags)
+
+	return &cp
+}
+
+// Trial represents a SageMaker Trial.
+type Trial struct {
+	CreationTime     time.Time         `json:"CreationTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	TrialName        string            `json:"TrialName"`
+	TrialArn         string            `json:"TrialArn"`
+	ExperimentName   string            `json:"ExperimentName"`
+}
+
+func cloneTrial(t *Trial) *Trial {
+	cp := *t
+	cp.Tags = maps.Clone(t.Tags)
+
+	return &cp
+}
+
+// TrialComponent represents a SageMaker Trial Component.
+type TrialComponent struct {
+	CreationTime       time.Time         `json:"CreationTime"`
+	LastModifiedTime   time.Time         `json:"LastModifiedTime"`
+	Tags               map[string]string `json:"Tags,omitempty"`
+	TrialComponentName string            `json:"TrialComponentName"`
+	TrialComponentArn  string            `json:"TrialComponentArn"`
+}
+
+func cloneTrialComponent(tc *TrialComponent) *TrialComponent {
+	cp := *tc
+	cp.Tags = maps.Clone(tc.Tags)
+
+	return &cp
+}
+
+// ---------------------------------------------------------------------------
+// Backend methods — Domain
+// ---------------------------------------------------------------------------
+
+// CreateDomain creates a new SageMaker Studio domain.
+func (b *InMemoryBackend) CreateDomain(
+	name, authMode string,
+	tags map[string]string,
+) (*Domain, error) {
+	b.mu.Lock("CreateDomain")
+	defer b.mu.Unlock()
+
+	for _, d := range b.domains {
+		if d.DomainName == name {
+			return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, name)
+		}
+	}
+
+	id := fmt.Sprintf("d-%s", generateID(idByteLen))
+	domainArn := arn.Build("sagemaker", b.region, b.accountID, "domain/"+id)
+	now := time.Now()
+
+	d := &Domain{
+		DomainID:         id,
+		DomainArn:        domainArn,
+		DomainName:       name,
+		AuthMode:         authMode,
+		Status:           statusInService,
+		URL:              fmt.Sprintf("https://%s.studio.%s.sagemaker.aws", id, b.region),
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Tags:             mergeTags(nil, tags),
+	}
+	b.domains[id] = d
+
+	return cloneDomain(d), nil
+}
+
+// DescribeDomain returns a domain by ID or name.
+func (b *InMemoryBackend) DescribeDomain(idOrName string) (*Domain, error) {
+	b.mu.RLock("DescribeDomain")
+	defer b.mu.RUnlock()
+
+	if d, ok := b.domains[idOrName]; ok {
+		return cloneDomain(d), nil
+	}
+
+	for _, d := range b.domains {
+		if d.DomainName == idOrName {
+			return cloneDomain(d), nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, idOrName)
+}
+
+// ListDomains returns all domains sorted by name.
+func (b *InMemoryBackend) ListDomains(nextToken string) ([]*Domain, string) {
+	b.mu.RLock("ListDomains")
+	defer b.mu.RUnlock()
+
+	list := make([]*Domain, 0, len(b.domains))
+
+	for _, d := range b.domains {
+		list = append(list, cloneDomain(d))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].DomainName < list[j].DomainName })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*Domain{}, ""
+	}
+
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// DeleteDomain deletes a domain by ID or name.
+func (b *InMemoryBackend) DeleteDomain(idOrName string) error {
+	b.mu.Lock("DeleteDomain")
+	defer b.mu.Unlock()
+
+	for id, d := range b.domains {
+		if id == idOrName || d.DomainName == idOrName {
+			delete(b.domains, id)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, idOrName)
+}
+
+// UpdateDomain updates a domain's status.
+func (b *InMemoryBackend) UpdateDomain(idOrName string) (*Domain, error) {
+	b.mu.Lock("UpdateDomain")
+	defer b.mu.Unlock()
+
+	for _, d := range b.domains {
+		if d.DomainID == idOrName || d.DomainName == idOrName {
+			d.LastModifiedTime = time.Now()
+
+			return cloneDomain(d), nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, idOrName)
+}
+
+// ---------------------------------------------------------------------------
+// Backend methods — UserProfile
+// ---------------------------------------------------------------------------
+
+// CreateUserProfile creates a new user profile in a domain.
+func (b *InMemoryBackend) CreateUserProfile(
+	domainID, name string,
+	tags map[string]string,
+) (*UserProfile, error) {
+	b.mu.Lock("CreateUserProfile")
+	defer b.mu.Unlock()
+
+	key := userProfileKey{DomainID: domainID, UserProfileName: name}
+	if _, ok := b.userProfiles[key]; ok {
+		return nil, fmt.Errorf(
+			"%w: user profile %s in domain %s already exists",
+			ErrUserProfileAlreadyExists,
+			name,
+			domainID,
+		)
+	}
+
+	upArn := arn.Build(
+		"sagemaker",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("user-profile/%s/%s", domainID, name),
+	)
+	now := time.Now()
+
+	up := &UserProfile{
+		DomainID:         domainID,
+		UserProfileName:  name,
+		UserProfileArn:   upArn,
+		Status:           statusInService,
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Tags:             mergeTags(nil, tags),
+	}
+	b.userProfiles[key] = up
+
+	return cloneUserProfile(up), nil
+}
+
+// DescribeUserProfile returns a user profile.
+func (b *InMemoryBackend) DescribeUserProfile(domainID, name string) (*UserProfile, error) {
+	b.mu.RLock("DescribeUserProfile")
+	defer b.mu.RUnlock()
+
+	key := userProfileKey{DomainID: domainID, UserProfileName: name}
+
+	up, ok := b.userProfiles[key]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: user profile %q in domain %q not found",
+			ErrUserProfileNotFound,
+			name,
+			domainID,
+		)
+	}
+
+	return cloneUserProfile(up), nil
+}
+
+// ListUserProfiles returns user profiles for a domain sorted by name.
+//
+//nolint:dupl // UserProfile and App share pagination structure but are distinct resource types
+func (b *InMemoryBackend) ListUserProfiles(domainID, nextToken string) ([]*UserProfile, string) {
+	b.mu.RLock("ListUserProfiles")
+	defer b.mu.RUnlock()
+
+	list := make([]*UserProfile, 0)
+
+	for _, up := range b.userProfiles {
+		if domainID == "" || up.DomainID == domainID {
+			list = append(list, cloneUserProfile(up))
+		}
+	}
+
+	sort.Slice(
+		list,
+		func(i, j int) bool { return list[i].UserProfileName < list[j].UserProfileName },
+	)
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*UserProfile{}, ""
+	}
+
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// DeleteUserProfile deletes a user profile.
+func (b *InMemoryBackend) DeleteUserProfile(domainID, name string) error {
+	b.mu.Lock("DeleteUserProfile")
+	defer b.mu.Unlock()
+
+	key := userProfileKey{DomainID: domainID, UserProfileName: name}
+	if _, ok := b.userProfiles[key]; !ok {
+		return fmt.Errorf(
+			"%w: user profile %q in domain %q not found",
+			ErrUserProfileNotFound,
+			name,
+			domainID,
+		)
+	}
+
+	delete(b.userProfiles, key)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Backend methods — App
+// ---------------------------------------------------------------------------
+
+// CreateApp creates a new SageMaker Studio app.
+func (b *InMemoryBackend) CreateApp(
+	domainID, userProfile, appType, appName string,
+	tags map[string]string,
+) (*App, error) {
+	b.mu.Lock("CreateApp")
+	defer b.mu.Unlock()
+
+	key := appKey{
+		DomainID:        domainID,
+		UserProfileName: userProfile,
+		AppType:         appType,
+		AppName:         appName,
+	}
+	if _, ok := b.apps[key]; ok {
+		return nil, fmt.Errorf("%w: app %s already exists", ErrAppAlreadyExists, appName)
+	}
+
+	appArn := arn.Build("sagemaker", b.region, b.accountID,
+		fmt.Sprintf("app/%s/%s/%s/%s", domainID, userProfile, appType, appName))
+	now := time.Now()
+
+	a := &App{
+		DomainID:        domainID,
+		UserProfileName: userProfile,
+		AppType:         appType,
+		AppName:         appName,
+		AppArn:          appArn,
+		Status:          statusInService,
+		CreationTime:    now,
+		Tags:            mergeTags(nil, tags),
+	}
+	b.apps[key] = a
+
+	return cloneApp(a), nil
+}
+
+// DescribeApp returns an app.
+func (b *InMemoryBackend) DescribeApp(
+	domainID, userProfile, appType, appName string,
+) (*App, error) {
+	b.mu.RLock("DescribeApp")
+	defer b.mu.RUnlock()
+
+	key := appKey{
+		DomainID:        domainID,
+		UserProfileName: userProfile,
+		AppType:         appType,
+		AppName:         appName,
+	}
+
+	a, ok := b.apps[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: app %q not found", ErrAppNotFound, appName)
+	}
+
+	return cloneApp(a), nil
+}
+
+// ListApps returns all apps, optionally filtered by domain.
+//
+//nolint:dupl // App and UserProfile share pagination structure but are distinct resource types
+func (b *InMemoryBackend) ListApps(domainID, nextToken string) ([]*App, string) {
+	b.mu.RLock("ListApps")
+	defer b.mu.RUnlock()
+
+	list := make([]*App, 0)
+
+	for _, a := range b.apps {
+		if domainID == "" || a.DomainID == domainID {
+			list = append(list, cloneApp(a))
+		}
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].AppName < list[j].AppName })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*App{}, ""
+	}
+
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// DeleteApp deletes an app (marks as Deleted).
+func (b *InMemoryBackend) DeleteApp(domainID, userProfile, appType, appName string) error {
+	b.mu.Lock("DeleteApp")
+	defer b.mu.Unlock()
+
+	key := appKey{
+		DomainID:        domainID,
+		UserProfileName: userProfile,
+		AppType:         appType,
+		AppName:         appName,
+	}
+	if _, ok := b.apps[key]; !ok {
+		return fmt.Errorf("%w: app %q not found", ErrAppNotFound, appName)
+	}
+
+	delete(b.apps, key)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Backend methods — FeatureGroup
+// ---------------------------------------------------------------------------
+
+// CreateFeatureGroup creates a new feature group.
+func (b *InMemoryBackend) CreateFeatureGroup(
+	name, recordID, eventTimeFeature string,
+	defs []FeatureDefinition,
+	tags map[string]string,
+) (*FeatureGroup, error) {
+	b.mu.Lock("CreateFeatureGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.featureGroups[name]; ok {
+		return nil, fmt.Errorf(
+			"%w: feature group %s already exists",
+			ErrFeatureGroupAlreadyExists,
+			name,
+		)
+	}
+
+	fgArn := arn.Build("sagemaker", b.region, b.accountID, "feature-group/"+name)
+	storedDefs := make([]FeatureDefinition, len(defs))
+	copy(storedDefs, defs)
+
+	fg := &FeatureGroup{
+		FeatureGroupName:            name,
+		FeatureGroupArn:             fgArn,
+		RecordIdentifierFeatureName: recordID,
+		EventTimeFeatureName:        eventTimeFeature,
+		FeatureDefinitions:          storedDefs,
+		FeatureGroupStatus:          "Created",
+		CreationTime:                time.Now(),
+		Tags:                        mergeTags(nil, tags),
+	}
+	b.featureGroups[name] = fg
+
+	return cloneFeatureGroup(fg), nil
+}
+
+// DescribeFeatureGroup returns a feature group by name.
+func (b *InMemoryBackend) DescribeFeatureGroup(name string) (*FeatureGroup, error) {
+	b.mu.RLock("DescribeFeatureGroup")
+	defer b.mu.RUnlock()
+
+	fg, ok := b.featureGroups[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
+	}
+
+	return cloneFeatureGroup(fg), nil
+}
+
+// ListFeatureGroups returns all feature groups.
+func (b *InMemoryBackend) ListFeatureGroups(nextToken string) ([]*FeatureGroup, string) {
+	b.mu.RLock("ListFeatureGroups")
+	defer b.mu.RUnlock()
+
+	list := make([]*FeatureGroup, 0, len(b.featureGroups))
+
+	for _, fg := range b.featureGroups {
+		list = append(list, cloneFeatureGroup(fg))
+	}
+
+	sort.Slice(
+		list,
+		func(i, j int) bool { return list[i].FeatureGroupName < list[j].FeatureGroupName },
+	)
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*FeatureGroup{}, ""
+	}
+
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// DeleteFeatureGroup deletes a feature group.
+func (b *InMemoryBackend) DeleteFeatureGroup(name string) error {
+	b.mu.Lock("DeleteFeatureGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.featureGroups[name]; !ok {
+		return fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
+	}
+
+	delete(b.featureGroups, name)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Backend methods — Pipeline
+// ---------------------------------------------------------------------------
+
+// CreatePipeline creates a new pipeline.
+func (b *InMemoryBackend) CreatePipeline(
+	name, definition, roleArn string,
+	tags map[string]string,
+) (*Pipeline, error) {
+	b.mu.Lock("CreatePipeline")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pipelines[name]; ok {
+		return nil, fmt.Errorf("%w: pipeline %s already exists", ErrPipelineAlreadyExists, name)
+	}
+
+	pArn := arn.Build("sagemaker", b.region, b.accountID, "pipeline/"+name)
+	now := time.Now()
+
+	p := &Pipeline{
+		PipelineName:       name,
+		PipelineArn:        pArn,
+		PipelineStatus:     "Active",
+		PipelineDefinition: definition,
+		RoleArn:            roleArn,
+		CreationTime:       now,
+		LastModifiedTime:   now,
+		Tags:               mergeTags(nil, tags),
+	}
+	b.pipelines[name] = p
+
+	return clonePipeline(p), nil
+}
+
+// DescribePipeline returns a pipeline by name.
+func (b *InMemoryBackend) DescribePipeline(name string) (*Pipeline, error) {
+	b.mu.RLock("DescribePipeline")
+	defer b.mu.RUnlock()
+
+	p, ok := b.pipelines[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
+	}
+
+	return clonePipeline(p), nil
+}
+
+// ListPipelines returns all pipelines.
+func (b *InMemoryBackend) ListPipelines(nextToken string) ([]*Pipeline, string) {
+	b.mu.RLock("ListPipelines")
+	defer b.mu.RUnlock()
+
+	list := make([]*Pipeline, 0, len(b.pipelines))
+
+	for _, p := range b.pipelines {
+		list = append(list, clonePipeline(p))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].PipelineName < list[j].PipelineName })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*Pipeline{}, ""
+	}
+
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// UpdatePipeline updates a pipeline definition.
+func (b *InMemoryBackend) UpdatePipeline(name, definition string) (*Pipeline, error) {
+	b.mu.Lock("UpdatePipeline")
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
+	}
+
+	if definition != "" {
+		p.PipelineDefinition = definition
+	}
+
+	p.LastModifiedTime = time.Now()
+
+	return clonePipeline(p), nil
+}
+
+// DeletePipeline deletes a pipeline.
+func (b *InMemoryBackend) DeletePipeline(name string) (*Pipeline, error) {
+	b.mu.Lock("DeletePipeline")
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
+	}
+
+	cp := clonePipeline(p)
+	delete(b.pipelines, name)
+
+	return cp, nil
+}
+
+// StartPipelineExecution creates a pipeline execution.
+func (b *InMemoryBackend) StartPipelineExecution(pipelineName string) (*PipelineExecution, error) {
+	b.mu.Lock("StartPipelineExecution")
+	defer b.mu.Unlock()
+
+	p, ok := b.pipelines[pipelineName]
+	if !ok {
+		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, pipelineName)
+	}
+
+	execID := generateID(idByteLen)
+	execArn := p.PipelineArn + "/execution/" + execID
+
+	pe := &PipelineExecution{
+		PipelineArn:             p.PipelineArn,
+		PipelineExecutionArn:    execArn,
+		PipelineExecutionStatus: "Succeeded",
+		StartTime:               time.Now(),
+	}
+	b.pipelineExecutions[execArn] = pe
+
+	return clonePipelineExecution(pe), nil
+}
+
+// DescribePipelineExecution returns a pipeline execution.
+func (b *InMemoryBackend) DescribePipelineExecution(execArn string) (*PipelineExecution, error) {
+	b.mu.RLock("DescribePipelineExecution")
+	defer b.mu.RUnlock()
+
+	pe, ok := b.pipelineExecutions[execArn]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: pipeline execution %q not found",
+			ErrPipelineExecutionNotFound,
+			execArn,
+		)
+	}
+
+	return clonePipelineExecution(pe), nil
+}
+
+// ListPipelineExecutions returns executions for a pipeline.
+func (b *InMemoryBackend) ListPipelineExecutions(
+	pipelineName, nextToken string,
+) ([]*PipelineExecution, string) {
+	b.mu.RLock("ListPipelineExecutions")
+	defer b.mu.RUnlock()
+
+	p, ok := b.pipelines[pipelineName]
+	list := make([]*PipelineExecution, 0)
+
+	if ok {
+		for _, pe := range b.pipelineExecutions {
+			if pe.PipelineArn == p.PipelineArn {
+				list = append(list, clonePipelineExecution(pe))
+			}
+		}
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].PipelineExecutionArn < list[j].PipelineExecutionArn
+	})
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*PipelineExecution{}, ""
+	}
+
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// ---------------------------------------------------------------------------
+// Backend methods — Experiment
+// ---------------------------------------------------------------------------
+
+// CreateExperiment creates a new experiment.
+func (b *InMemoryBackend) CreateExperiment(
+	name string,
+	tags map[string]string,
+) (*Experiment, error) {
+	b.mu.Lock("CreateExperiment")
+	defer b.mu.Unlock()
+
+	if _, ok := b.experiments[name]; ok {
+		return nil, fmt.Errorf("%w: experiment %s already exists", ErrExperimentAlreadyExists, name)
+	}
+
+	expArn := arn.Build("sagemaker", b.region, b.accountID, "experiment/"+name)
+	now := time.Now()
+
+	e := &Experiment{
+		ExperimentName:   name,
+		ExperimentArn:    expArn,
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Tags:             mergeTags(nil, tags),
+	}
+	b.experiments[name] = e
+
+	return cloneExperiment(e), nil
+}
+
+// DescribeExperiment returns an experiment by name.
+func (b *InMemoryBackend) DescribeExperiment(name string) (*Experiment, error) {
+	b.mu.RLock("DescribeExperiment")
+	defer b.mu.RUnlock()
+
+	e, ok := b.experiments[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
+	}
+
+	return cloneExperiment(e), nil
+}
+
+// ListExperiments returns all experiments.
+func (b *InMemoryBackend) ListExperiments(nextToken string) ([]*Experiment, string) {
+	b.mu.RLock("ListExperiments")
+	defer b.mu.RUnlock()
+
+	list := make([]*Experiment, 0, len(b.experiments))
+
+	for _, e := range b.experiments {
+		list = append(list, cloneExperiment(e))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ExperimentName < list[j].ExperimentName })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*Experiment{}, ""
+	}
+
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// DeleteExperiment deletes an experiment.
+func (b *InMemoryBackend) DeleteExperiment(name string) (*Experiment, error) {
+	b.mu.Lock("DeleteExperiment")
+	defer b.mu.Unlock()
+
+	e, ok := b.experiments[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
+	}
+
+	cp := cloneExperiment(e)
+	delete(b.experiments, name)
+
+	return cp, nil
+}
+
+// ---------------------------------------------------------------------------
+// Backend methods — Trial
+// ---------------------------------------------------------------------------
+
+// CreateTrial creates a new trial.
+func (b *InMemoryBackend) CreateTrial(
+	name, experimentName string,
+	tags map[string]string,
+) (*Trial, error) {
+	b.mu.Lock("CreateTrial")
+	defer b.mu.Unlock()
+
+	if _, ok := b.trials[name]; ok {
+		return nil, fmt.Errorf("%w: trial %s already exists", ErrTrialAlreadyExists, name)
+	}
+
+	trialArn := arn.Build("sagemaker", b.region, b.accountID, "experiment-trial/"+name)
+	now := time.Now()
+
+	t := &Trial{
+		TrialName:        name,
+		TrialArn:         trialArn,
+		ExperimentName:   experimentName,
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Tags:             mergeTags(nil, tags),
+	}
+	b.trials[name] = t
+
+	return cloneTrial(t), nil
+}
+
+// DescribeTrial returns a trial by name.
+func (b *InMemoryBackend) DescribeTrial(name string) (*Trial, error) {
+	b.mu.RLock("DescribeTrial")
+	defer b.mu.RUnlock()
+
+	t, ok := b.trials[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: trial %q not found", ErrTrialNotFound, name)
+	}
+
+	return cloneTrial(t), nil
+}
+
+// ListTrials returns all trials.
+func (b *InMemoryBackend) ListTrials(nextToken string) ([]*Trial, string) {
+	b.mu.RLock("ListTrials")
+	defer b.mu.RUnlock()
+
+	list := make([]*Trial, 0, len(b.trials))
+
+	for _, t := range b.trials {
+		list = append(list, cloneTrial(t))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].TrialName < list[j].TrialName })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*Trial{}, ""
+	}
+
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// DeleteTrial deletes a trial.
+func (b *InMemoryBackend) DeleteTrial(name string) (*Trial, error) {
+	b.mu.Lock("DeleteTrial")
+	defer b.mu.Unlock()
+
+	t, ok := b.trials[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: trial %q not found", ErrTrialNotFound, name)
+	}
+
+	cp := cloneTrial(t)
+	delete(b.trials, name)
+
+	return cp, nil
+}
+
+// ---------------------------------------------------------------------------
+// Backend methods — TrialComponent
+// ---------------------------------------------------------------------------
+
+// CreateTrialComponent creates a new trial component.
+func (b *InMemoryBackend) CreateTrialComponent(
+	name string,
+	tags map[string]string,
+) (*TrialComponent, error) {
+	b.mu.Lock("CreateTrialComponent")
+	defer b.mu.Unlock()
+
+	if _, ok := b.trialComponents[name]; ok {
+		return nil, fmt.Errorf(
+			"%w: trial component %s already exists",
+			ErrTrialComponentAlreadyExists,
+			name,
+		)
+	}
+
+	tcArn := arn.Build("sagemaker", b.region, b.accountID, "experiment-trial-component/"+name)
+	now := time.Now()
+
+	tc := &TrialComponent{
+		TrialComponentName: name,
+		TrialComponentArn:  tcArn,
+		CreationTime:       now,
+		LastModifiedTime:   now,
+		Tags:               mergeTags(nil, tags),
+	}
+	b.trialComponents[name] = tc
+
+	return cloneTrialComponent(tc), nil
+}
+
+// DescribeTrialComponent returns a trial component by name.
+func (b *InMemoryBackend) DescribeTrialComponent(name string) (*TrialComponent, error) {
+	b.mu.RLock("DescribeTrialComponent")
+	defer b.mu.RUnlock()
+
+	tc, ok := b.trialComponents[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: trial component %q not found", ErrTrialComponentNotFound, name)
+	}
+
+	return cloneTrialComponent(tc), nil
+}
+
+// DeleteTrialComponent deletes a trial component.
+func (b *InMemoryBackend) DeleteTrialComponent(name string) (*TrialComponent, error) {
+	b.mu.Lock("DeleteTrialComponent")
+	defer b.mu.Unlock()
+
+	tc, ok := b.trialComponents[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: trial component %q not found", ErrTrialComponentNotFound, name)
+	}
+
+	cp := cloneTrialComponent(tc)
+	delete(b.trialComponents, name)
+
+	return cp, nil
+}
