@@ -622,6 +622,7 @@ type replicationGroupXML struct {
 	CacheParameterGroupName    string `xml:"CacheParameterGroupName,omitempty"`
 	AutomaticFailover          string `xml:"AutomaticFailover,omitempty"`
 	MultiAZ                    string `xml:"MultiAZ,omitempty"`
+	CacheNodeType              string `xml:"CacheNodeType,omitempty"`
 	SnapshotWindow             string `xml:"SnapshotWindow,omitempty"`
 	PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow,omitempty"`
 	EngineVersion              string `xml:"EngineVersion,omitempty"`
@@ -630,14 +631,14 @@ type replicationGroupXML struct {
 
 // rgToXML converts a ReplicationGroup to its XML representation.
 func rgToXML(rg ReplicationGroup) replicationGroupXML {
-	multiAZ := "disabled"
+	multiAZ := statusDisabled
 	if rg.MultiAZEnabled {
 		multiAZ = "enabled"
 	}
 
 	autoFailover := rg.AutomaticFailover
 	if autoFailover == "" {
-		autoFailover = "disabled"
+		autoFailover = statusDisabled
 	}
 
 	return replicationGroupXML{
@@ -648,6 +649,7 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		CacheParameterGroupName:    rg.CacheParameterGroupName,
 		AutomaticFailover:          autoFailover,
 		MultiAZ:                    multiAZ,
+		CacheNodeType:              rg.CacheNodeType,
 		SnapshotWindow:             rg.SnapshotWindow,
 		PreferredMaintenanceWindow: rg.PreferredMaintenanceWindow,
 		EngineVersion:              rg.EngineVersion,
@@ -788,16 +790,32 @@ func (h *Handler) modifyReplicationGroup(c *echo.Context, form url.Values) error
 	desc := form.Get("ReplicationGroupDescription")
 	paramGroupName := form.Get("CacheParameterGroupName")
 	engineVersion := form.Get("EngineVersion")
+	cacheNodeType := form.Get("CacheNodeType")
 	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
 	snapshotWindow := form.Get("SnapshotWindow")
+
+	var automaticFailoverEnabled *bool
+	if s := form.Get("AutomaticFailoverEnabled"); s != "" {
+		v := strings.EqualFold(s, "true")
+		automaticFailoverEnabled = &v
+	}
+
+	var multiAZEnabled *bool
+	if s := form.Get("MultiAZEnabled"); s != "" {
+		v := strings.EqualFold(s, "true")
+		multiAZEnabled = &v
+	}
 
 	rg, err := h.Backend.ModifyReplicationGroup(
 		id,
 		desc,
 		paramGroupName,
 		engineVersion,
+		cacheNodeType,
 		maintenanceWindow,
 		snapshotWindow,
+		automaticFailoverEnabled,
+		multiAZEnabled,
 	)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {

@@ -150,22 +150,37 @@ func (h *Handler) createGlobalReplicationGroup(c *echo.Context, form url.Values)
 // CreateServerlessCache
 // ----------------------------------------
 
+type serverlessCacheEndpointXML struct {
+	Address string `xml:"Address"`
+	Port    int    `xml:"Port"`
+}
+
 type serverlessCacheXML struct {
-	ARN         string `xml:"ARN"`
-	Name        string `xml:"ServerlessCacheName"`
-	Description string `xml:"Description,omitempty"`
-	Status      string `xml:"Status"`
-	Engine      string `xml:"Engine,omitempty"`
+	Endpoint       *serverlessCacheEndpointXML `xml:"Endpoint,omitempty"`
+	ReaderEndpoint *serverlessCacheEndpointXML `xml:"ReaderEndpoint,omitempty"`
+	ARN            string                      `xml:"ARN"`
+	Name           string                      `xml:"ServerlessCacheName"`
+	Description    string                      `xml:"Description,omitempty"`
+	Status         string                      `xml:"Status"`
+	Engine         string                      `xml:"Engine,omitempty"`
 }
 
 func serverlessCacheToXML(sc *ServerlessCache) serverlessCacheXML {
-	return serverlessCacheXML{
+	x := serverlessCacheXML{
 		ARN:         sc.ARN,
 		Name:        sc.Name,
 		Description: sc.Description,
 		Status:      sc.Status,
 		Engine:      sc.Engine,
 	}
+	if sc.Endpoint != nil {
+		x.Endpoint = &serverlessCacheEndpointXML{Address: sc.Endpoint.Address, Port: sc.Endpoint.Port}
+	}
+	if sc.ReaderEndpoint != nil {
+		x.ReaderEndpoint = &serverlessCacheEndpointXML{Address: sc.ReaderEndpoint.Address, Port: sc.ReaderEndpoint.Port}
+	}
+
+	return x
 }
 
 func (h *Handler) createServerlessCache(c *echo.Context, form url.Values) error {

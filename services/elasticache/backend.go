@@ -20,11 +20,13 @@ import (
 )
 
 const (
-	familyRedis7    = "redis7"
-	engineMemcached = "memcached"
-	versionRedis710 = "7.1.0"
-	nodeTypeT3Micro = "cache.t3.micro"
-	statusAvailable = "available"
+	familyRedis7              = "redis7"
+	engineMemcached           = "memcached"
+	versionRedis710           = "7.1.0"
+	nodeTypeT3Micro           = "cache.t3.micro"
+	statusAvailable           = "available"
+	statusServerlessAvailable = "AVAILABLE"
+	statusDisabled            = "disabled"
 )
 
 const (
@@ -157,6 +159,7 @@ type ReplicationGroup struct {
 	CacheParameterGroupName    string     `json:"cacheParameterGroupName,omitempty"`
 	AutomaticFailover          string     `json:"automaticFailover,omitempty"`
 	EngineVersion              string     `json:"engineVersion,omitempty"`
+	CacheNodeType              string     `json:"cacheNodeType,omitempty"`
 	PreferredMaintenanceWindow string     `json:"preferredMaintenanceWindow,omitempty"`
 	SnapshotWindow             string     `json:"snapshotWindow,omitempty"`
 	MultiAZEnabled             bool       `json:"multiAZEnabled,omitempty"`
@@ -221,7 +224,8 @@ type StorageBackend interface {
 	DeleteReplicationGroup(id string) error
 	DescribeReplicationGroups(id, marker string, maxRecords int) (page.Page[ReplicationGroup], error)
 	ModifyReplicationGroup(
-		id, description, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string,
+		id, description, paramGroupName, engineVersion, cacheNodeType, maintenanceWindow, snapshotWindow string,
+		automaticFailoverEnabled, multiAZEnabled *bool,
 	) (*ReplicationGroup, error)
 	FailoverReplicationGroup(id, nodeGroupID string) (*ReplicationGroup, error)
 	CreateParameterGroup(name, family, description string) (*CacheParameterGroup, error)
@@ -972,7 +976,8 @@ func (b *InMemoryBackend) ModifyCluster(
 
 // ModifyReplicationGroup modifies an existing replication group.
 func (b *InMemoryBackend) ModifyReplicationGroup(
-	id, description, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string,
+	id, description, paramGroupName, engineVersion, cacheNodeType, maintenanceWindow, snapshotWindow string,
+	automaticFailoverEnabled, multiAZEnabled *bool,
 ) (*ReplicationGroup, error) {
 	b.mu.Lock("ModifyReplicationGroup")
 	defer b.mu.Unlock()
@@ -995,6 +1000,22 @@ func (b *InMemoryBackend) ModifyReplicationGroup(
 
 	if engineVersion != "" {
 		rg.EngineVersion = engineVersion
+	}
+
+	if cacheNodeType != "" {
+		rg.CacheNodeType = cacheNodeType
+	}
+
+	if automaticFailoverEnabled != nil {
+		if *automaticFailoverEnabled {
+			rg.AutomaticFailover = "enabled"
+		} else {
+			rg.AutomaticFailover = statusDisabled
+		}
+	}
+
+	if multiAZEnabled != nil {
+		rg.MultiAZEnabled = *multiAZEnabled
 	}
 
 	if maintenanceWindow != "" {
