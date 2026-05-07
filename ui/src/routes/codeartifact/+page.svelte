@@ -12,7 +12,7 @@
 		type RepositorySummary,
 		type PackageSummary,
 		type PackageVersionSummary,
-		type PackageVersionDependency,
+		type PackageDependency,
 		type PackageGroupSummary
 	} from '@aws-sdk/client-codeartifact';
 	import { toast } from 'svelte-sonner';
@@ -27,7 +27,7 @@
 	let repositories = $state<RepositorySummary[]>([]);
 	let packages = $state<PackageSummary[]>([]);
 	let versions = $state<PackageVersionSummary[]>([]);
-	let dependencies = $state<PackageVersionDependency[]>([]);
+	let dependencies = $state<PackageDependency[]>([]);
 	let packageGroups = $state<PackageGroupSummary[]>([]);
 	let selectedPackage = $state<PackageSummary | null>(null);
 	let selectedVersion = $state<PackageVersionSummary | null>(null);

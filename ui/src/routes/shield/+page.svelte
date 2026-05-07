@@ -80,8 +80,8 @@
 
 			// Load attack statistics
 			const statsRes = await shield.send(new DescribeAttackStatisticsCommand({}));
-			const items = statsRes.AttackStatistics?.DataItems ?? [];
-			const range = statsRes.AttackStatistics?.TimeRange;
+			const items = statsRes.DataItems ?? [];
+			const range = statsRes.TimeRange;
 			const total = items.reduce((sum: number, item: { AttackCount?: number }) => sum + (item.AttackCount ?? 0), 0);
 			attackStats = {
 				count: total,

@@ -9,7 +9,7 @@
 		DeleteCampaignCommand,
 		CreateSegmentCommand,
 		DeleteSegmentCommand,
-		GetJourneysCommand,
+		ListJourneysCommand,
 		CreateJourneyCommand,
 		DeleteJourneyCommand,
 		GetApplicationDateRangeKpiCommand,
@@ -78,7 +78,7 @@
 			const [campResp, segResp, journeyResp] = await Promise.all([
 				pp.send(new GetCampaignsCommand({ ApplicationId: appId })),
 				pp.send(new GetSegmentsCommand({ ApplicationId: appId })),
-				pp.send(new GetJourneysCommand({ ApplicationId: appId }))
+				pp.send(new ListJourneysCommand({ ApplicationId: appId }))
 			]);
 			campaigns = campResp.CampaignsResponse?.Item ?? [];
 			segments = segResp.SegmentsResponse?.Item ?? [];

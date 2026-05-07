@@ -164,7 +164,6 @@
 			await tr.send(
 				new StartCallAnalyticsJobCommand({
 					CallAnalyticsJobName: newAnalyticsJobName.trim(),
-					LanguageCode: newAnalyticsLanguage as 'en-US',
 					Media: { MediaFileUri: newAnalyticsMediaUri.trim() }
 				})
 			);

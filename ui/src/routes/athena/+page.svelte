@@ -532,7 +532,7 @@
 								<td class="px-4 py-3 font-mono text-xs">{session.SessionId ?? '-'}</td>
 								<td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${session.Status?.State === 'IDLE' || session.Status?.State === 'BUSY' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{session.Status?.State ?? '-'}</span></td>
 								<td class="px-4 py-3 text-xs text-gray-500">{session.Description ?? '-'}</td>
-								<td class="px-4 py-3 text-xs text-gray-500">{formatDate(session.Statistics?.SessionQueuedDateTime)}</td>
+								<td class="px-4 py-3 text-xs text-gray-500">{formatDate(session.Status?.StartDateTime)}</td>
 								<td class="px-4 py-3">
 									{#if session.Status?.State !== 'TERMINATED' && session.Status?.State !== 'TERMINATING'}
 										<button onclick={() => terminateSession(session.SessionId ?? '')} class="text-red-500 hover:text-red-700 p-1"><XCircle class="w-4 h-4" /></button>

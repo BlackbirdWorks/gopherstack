@@ -636,6 +636,7 @@ func (h *Handler) routeHostedZoneRoot(c *echo.Context, method string) error {
 	}
 }
 
+//nolint:cyclop // routes many hosted zone sub-paths
 func (h *Handler) routeHostedZone(c *echo.Context, path, method string) error {
 	if strings.HasSuffix(path, route53RRSetSuffix) {
 		switch method {

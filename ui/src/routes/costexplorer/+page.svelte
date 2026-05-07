@@ -123,7 +123,7 @@
 			await ce.send(
 				new CreateCostCategoryDefinitionCommand({
 					Name: newCategoryName.trim(),
-					RuleVersion: newCategoryRuleVersion,
+					RuleVersion: newCategoryRuleVersion as 'CostCategoryExpression.v1',
 					Rules: []
 				})
 			);
@@ -686,7 +686,7 @@
 											—
 										{/if}
 									</td>
-									<td class="px-4 py-2 text-muted-foreground">{a.Feedback?.FeedbackType ?? '—'}</td>
+									<td class="px-4 py-2 text-muted-foreground">{a.Feedback ?? '—'}</td>
 								</tr>
 							{/each}
 						</tbody>

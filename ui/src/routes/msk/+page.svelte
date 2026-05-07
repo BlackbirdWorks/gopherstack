@@ -223,7 +223,7 @@
 			await msk.send(
 				new CreateConfigurationCommand({
 					Name: newConfigName.trim(),
-					ServerProperties: Buffer.from(newConfigProperties).toString('base64')
+					ServerProperties: new TextEncoder().encode(newConfigProperties)
 				})
 			);
 			toast.success(`Configuration "${newConfigName}" created`);
@@ -480,7 +480,7 @@
 										<ChevronRight class="h-3 w-3 text-primary" />
 									{/if}
 								</td>
-								<td class="px-4 py-3 text-muted-foreground capitalize">{cluster.ClusterType ?? '—'}</td>
+								<td class="px-4 py-3 text-muted-foreground capitalize">{cluster.CurrentVersion ?? '—'}</td>
 								<td class="px-4 py-3">
 									<span class="rounded-full px-2 py-0.5 text-xs font-medium {stateBadge(cluster.State)}">
 										{cluster.State ?? '—'}

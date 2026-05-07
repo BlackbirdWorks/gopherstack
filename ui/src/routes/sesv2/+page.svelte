@@ -130,7 +130,7 @@
 			const res = await sesv2.send(new ListContactListsCommand({}));
 			contactLists = (res.ContactLists ?? []).map((cl) => ({
 				ContactListName: cl.ContactListName,
-				Description: cl.Description
+				Description: undefined
 			}));
 		} catch (e) {
 			toast.error(`Failed to load contact lists: ${e}`);

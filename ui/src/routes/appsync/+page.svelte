@@ -661,7 +661,7 @@
 								<textarea
 									bind:value={resolverRequestVTL}
 									rows={8}
-									placeholder="{&#10;  &quot;version&quot;: &quot;2018-05-29&quot;,&#10;  &quot;operation&quot;: &quot;Invoke&quot;&#10;}"
+									placeholder="&#123;&#10;  &quot;version&quot;: &quot;2018-05-29&quot;,&#10;  &quot;operation&quot;: &quot;Invoke&quot;&#10;&#125;"
 									class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary resize-y"
 								></textarea>
 							</div>

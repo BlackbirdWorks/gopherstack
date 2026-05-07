@@ -180,7 +180,7 @@
 					);
 					for (const s of scoreRes.ConformancePackComplianceSummaryList ?? []) {
 						scores[s.ConformancePackName ?? ''] =
-							s.ConformancePackComplianceStatus?.ComplianceType ?? 'UNKNOWN';
+							s.ConformancePackComplianceStatus ?? 'UNKNOWN';
 					}
 				} catch {
 					// scores remain empty if compliance summary fails
@@ -197,7 +197,7 @@
 	async function loadRemediation() {
 		loading = true;
 		try {
-			const res = await config.send(new DescribeRemediationConfigurationsCommand({}));
+			const res = await config.send(new DescribeRemediationConfigurationsCommand({ ConfigRuleNames: [] }));
 			remediations = res.RemediationConfigurations ?? [];
 		} catch (e) {
 			toast.error(`Failed to load remediation configurations: ${e}`);
