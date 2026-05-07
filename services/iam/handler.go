@@ -413,8 +413,9 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 		h.iamMiscDispatchTable(),
 		h.iamNewOpsDispatchTable(),
 		h.iamRefinementDispatchTable(),
-		h.iamRefinement2DispatchTable(),  // overrides with PathPrefix filtering + new ops
-		h.iamCompletenessDispatchTable(), // previously notImplemented operations
+		h.iamRefinement2DispatchTable(),   // overrides with PathPrefix filtering + new ops
+		h.iamCompletenessDispatchTable(),  // previously notImplemented operations
+		h.iamComprehensiveDispatchTable(), // SSH keys, MFA linking, access advisor, real SSC reset
 	}
 
 	combined := make(map[string]iamActionFn)

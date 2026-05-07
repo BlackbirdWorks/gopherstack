@@ -3514,6 +3514,7 @@ func wireIAMToSTS(iamReg, stsReg service.Registerable) {
 	}
 
 	stsBk.SetRoleLookup(&iamRoleLookupAdapter{backend: iamBk})
+	stsBk.SetOIDCLookup(iamBk)
 }
 
 // iamRoleLookupAdapter adapts the IAM backend to the STS RoleLookup interface.
