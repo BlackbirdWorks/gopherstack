@@ -246,7 +246,15 @@ func TestIntegration_STS_AssumeRoleWithWebIdentity(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 	client := createSTSClient(t)
+	iamClient := createIAMClient(t)
 	ctx := t.Context()
+
+	// Register the OIDC provider so the STS OIDC-validation check passes.
+	_, oidcErr := iamClient.CreateOpenIDConnectProvider(ctx, &iamsdk.CreateOpenIDConnectProviderInput{
+		Url:            aws.String("https://idp.example.com"),
+		ThumbprintList: []string{"0000000000000000000000000000000000000000"},
+	})
+	require.NoError(t, oidcErr)
 
 	roleARN := "arn:aws:iam::000000000000:role/web-identity-role-" + uuid.NewString()[:8]
 	webIdentityToken := "eyJhbGciOiJub25lIn0." +
