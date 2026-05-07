@@ -21,6 +21,7 @@ var (
 	ErrInvalidParameter      = errors.New("InvalidParameterValue")
 	ErrDuplicateSGName       = errors.New("InvalidGroup.Duplicate")
 	ErrInvalidInstanceState  = errors.New("IncorrectInstanceState")
+	ErrSpotFleetNotFound     = errors.New("InvalidSpotFleetRequestId.NotFound")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -211,6 +212,8 @@ type InMemoryBackend struct {
 	ipams                          map[string]*Ipam
 	ipamPools                      map[string]*IpamPool
 	ipamPoolAllocations            map[string]*IpamPoolAllocation
+	spotFleets                     map[string]*SpotFleetRequest
+	spotFleetHistory               map[string][]SpotFleetHistoryRecord
 	mu                             *lockmetrics.RWMutex
 	eniIDByAttachment              map[string]string
 	eniIDsByInstance               map[string]map[string]struct{}
@@ -271,6 +274,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		ipams:                          make(map[string]*Ipam),
 		ipamPools:                      make(map[string]*IpamPool),
 		ipamPoolAllocations:            make(map[string]*IpamPoolAllocation),
+		spotFleets:                     make(map[string]*SpotFleetRequest),
+		spotFleetHistory:               make(map[string][]SpotFleetHistoryRecord),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),
