@@ -1473,6 +1473,13 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 		}
 	}
 
+	// Apply Architectures if provided; default to x86_64.
+	if len(input.Architectures) > 0 {
+		fn.Architectures = input.Architectures
+	} else if len(fn.Architectures) == 0 {
+		fn.Architectures = []string{"x86_64"}
+	}
+
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
 	fn.RevisionID = uuid.New().String()
 	fn.LastUpdateStatus = LastUpdateStatusSuccessful
