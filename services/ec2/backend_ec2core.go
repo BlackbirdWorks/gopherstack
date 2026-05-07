@@ -1,7 +1,6 @@
 package ec2
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -13,14 +12,12 @@ import (
 
 var (
 	// ErrEgressOnlyIGWNotFound is returned when an egress-only internet gateway is not found.
-	ErrEgressOnlyIGWNotFound = errors.New("InvalidEgressOnlyInternetGatewayID.NotFound")
+	ErrEgressOnlyIGWNotFound = fmt.Errorf("InvalidEgressOnlyInternetGatewayID.NotFound")
 	// ErrIAMAssociationNotFound is returned when an IAM instance profile association is not found.
-	ErrIAMAssociationNotFound = errors.New("InvalidAssociationID.NotFound")
+	ErrIAMAssociationNotFound = fmt.Errorf("InvalidAssociationID.NotFound")
 	// ErrTGWRouteTableNotFound is returned when a transit gateway route table is not found.
-	ErrTGWRouteTableNotFound = errors.New("InvalidTransitGatewayRouteTableId.NotFound")
+	ErrTGWRouteTableNotFound = fmt.Errorf("InvalidTransitGatewayRouteTableId.NotFound")
 )
-
-const tgwRouteTypeStatic = "static"
 
 // ---- models ----
 
@@ -34,11 +31,11 @@ type EgressOnlyInternetGateway struct {
 
 // IamInstanceProfileAssociation represents an IAM instance profile association.
 type IamInstanceProfileAssociation struct {
-	Timestamp          time.Time `json:"timestamp"`
 	AssociationID      string    `json:"associationID"`
 	InstanceID         string    `json:"instanceID"`
 	IamInstanceProfile string    `json:"iamInstanceProfile"` // ARN or name
 	State              string    `json:"state"`
+	Timestamp          time.Time `json:"timestamp"`
 }
 
 // TransitGatewayRouteTable represents a TGW route table.
@@ -53,11 +50,11 @@ type TransitGatewayRouteTable struct {
 
 // TransitGatewayRoute represents a route in a TGW route table.
 type TransitGatewayRoute struct {
-	DestinationCidrBlock       string `json:"destinationCidrBlock"`
-	TransitGatewayAttachmentID string `json:"transitGatewayAttachmentID"`
-	TransitGatewayRouteTableID string `json:"transitGatewayRouteTableID"`
-	State                      string `json:"state"`
-	Type                       string `json:"type"`
+	DestinationCidrBlock        string `json:"destinationCidrBlock"`
+	TransitGatewayAttachmentID  string `json:"transitGatewayAttachmentID"`
+	TransitGatewayRouteTableID  string `json:"transitGatewayRouteTableID"`
+	State                       string `json:"state"`
+	Type                        string `json:"type"`
 }
 
 // TransitGatewayRouteTableAssociation represents an association between a TGW route table and attachment.
@@ -153,9 +150,7 @@ func (b *InMemoryBackend) DeleteEgressOnlyInternetGateway(id string) error {
 // ---- IAM Instance Profile Associations ----
 
 // AssociateIamInstanceProfile associates an IAM instance profile with an instance.
-func (b *InMemoryBackend) AssociateIamInstanceProfile(
-	instanceID, profileARN string,
-) (*IamInstanceProfileAssociation, error) {
+func (b *InMemoryBackend) AssociateIamInstanceProfile(instanceID, profileARN string) (*IamInstanceProfileAssociation, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
 	}
@@ -182,9 +177,7 @@ func (b *InMemoryBackend) AssociateIamInstanceProfile(
 }
 
 // DisassociateIamInstanceProfile removes an IAM instance profile association.
-func (b *InMemoryBackend) DisassociateIamInstanceProfile(
-	associationID string,
-) (*IamInstanceProfileAssociation, error) {
+func (b *InMemoryBackend) DisassociateIamInstanceProfile(associationID string) (*IamInstanceProfileAssociation, error) {
 	if associationID == "" {
 		return nil, fmt.Errorf("%w: AssociationId is required", ErrInvalidParameter)
 	}
@@ -204,11 +197,8 @@ func (b *InMemoryBackend) DisassociateIamInstanceProfile(
 	return &cp, nil
 }
 
-// DescribeIamInstanceProfileAssociations returns IAM instance profile associations,
-// optionally filtered by IDs or instance ID.
-func (b *InMemoryBackend) DescribeIamInstanceProfileAssociations(
-	associationIDs []string, instanceID string,
-) []*IamInstanceProfileAssociation {
+// DescribeIamInstanceProfileAssociations returns IAM instance profile associations, optionally filtered by IDs or instance ID.
+func (b *InMemoryBackend) DescribeIamInstanceProfileAssociations(associationIDs []string, instanceID string) []*IamInstanceProfileAssociation {
 	b.mu.RLock("DescribeIamInstanceProfileAssociations")
 	defer b.mu.RUnlock()
 
@@ -240,9 +230,7 @@ func (b *InMemoryBackend) DescribeIamInstanceProfileAssociations(
 }
 
 // ReplaceIamInstanceProfileAssociation replaces an IAM instance profile on an existing association.
-func (b *InMemoryBackend) ReplaceIamInstanceProfileAssociation(
-	associationID, profileARN string,
-) (*IamInstanceProfileAssociation, error) {
+func (b *InMemoryBackend) ReplaceIamInstanceProfileAssociation(associationID, profileARN string) (*IamInstanceProfileAssociation, error) {
 	if associationID == "" {
 		return nil, fmt.Errorf("%w: AssociationId is required", ErrInvalidParameter)
 	}
@@ -420,9 +408,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayRouteTable(id string) error {
 // ---- Transit Gateway Routes ----
 
 // CreateTransitGatewayRoute adds a static route to a TGW route table.
-func (b *InMemoryBackend) CreateTransitGatewayRoute(
-	routeTableID, destinationCIDR, attachmentID string,
-) (*TransitGatewayRoute, error) {
+func (b *InMemoryBackend) CreateTransitGatewayRoute(routeTableID, destinationCIDR, attachmentID string) (*TransitGatewayRoute, error) {
 	if routeTableID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayRouteTableId is required", ErrInvalidParameter)
 	}
@@ -443,7 +429,7 @@ func (b *InMemoryBackend) CreateTransitGatewayRoute(
 		TransitGatewayAttachmentID: attachmentID,
 		TransitGatewayRouteTableID: routeTableID,
 		State:                      stateActive,
-		Type:                       tgwRouteTypeStatic,
+		Type:                       "static",
 	}
 	key := routeTableID + ":" + destinationCIDR
 	b.tgwRoutes[key] = route
@@ -473,9 +459,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayRoute(routeTableID, destinationCID
 }
 
 // ReplaceTransitGatewayRoute replaces (or upserts) a route in a TGW route table.
-func (b *InMemoryBackend) ReplaceTransitGatewayRoute(
-	routeTableID, destinationCIDR, attachmentID string,
-) (*TransitGatewayRoute, error) {
+func (b *InMemoryBackend) ReplaceTransitGatewayRoute(routeTableID, destinationCIDR, attachmentID string) (*TransitGatewayRoute, error) {
 	if routeTableID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayRouteTableId is required", ErrInvalidParameter)
 	}
@@ -497,7 +481,7 @@ func (b *InMemoryBackend) ReplaceTransitGatewayRoute(
 		TransitGatewayAttachmentID: attachmentID,
 		TransitGatewayRouteTableID: routeTableID,
 		State:                      stateActive,
-		Type:                       tgwRouteTypeStatic,
+		Type:                       "static",
 	}
 	b.tgwRoutes[key] = route
 
@@ -509,9 +493,7 @@ func (b *InMemoryBackend) ReplaceTransitGatewayRoute(
 // ---- Transit Gateway Route Table Associations ----
 
 // AssociateTransitGatewayRouteTable associates a TGW attachment with a route table.
-func (b *InMemoryBackend) AssociateTransitGatewayRouteTable(
-	routeTableID, attachmentID string,
-) (*TransitGatewayRouteTableAssociation, error) {
+func (b *InMemoryBackend) AssociateTransitGatewayRouteTable(routeTableID, attachmentID string) (*TransitGatewayRouteTableAssociation, error) {
 	if routeTableID == "" {
 		return nil, fmt.Errorf("%w: TransitGatewayRouteTableId is required", ErrInvalidParameter)
 	}
@@ -530,7 +512,7 @@ func (b *InMemoryBackend) AssociateTransitGatewayRouteTable(
 	assoc := &TransitGatewayRouteTableAssociation{
 		TransitGatewayRouteTableID: routeTableID,
 		TransitGatewayAttachmentID: attachmentID,
-		ResourceType:               resourceTypeVPC,
+		ResourceType:               "vpc",
 		State:                      stateAvailable,
 	}
 	key := routeTableID + ":" + attachmentID
@@ -556,10 +538,7 @@ func (b *InMemoryBackend) DisassociateTransitGatewayRouteTable(routeTableID, att
 
 	key := routeTableID + ":" + attachmentID
 	if _, ok := b.tgwRTAssociations[key]; !ok {
-		return fmt.Errorf(
-			"%w: association between %s and %s not found",
-			ErrInvalidParameter, routeTableID, attachmentID,
-		)
+		return fmt.Errorf("%w: association between %s and %s not found", ErrInvalidParameter, routeTableID, attachmentID)
 	}
 
 	delete(b.tgwRTAssociations, key)
