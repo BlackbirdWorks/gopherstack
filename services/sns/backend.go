@@ -244,24 +244,32 @@ type StorageBackend interface {
 	ListOriginationNumbers(nextToken string) ([]XMLOriginationPhone, string, error)
 }
 
+// SMSDelivery records a single SMS message sent via PublishSMS.
+type SMSDelivery struct {
+	PhoneNumber string
+	Message     string
+	MessageID   string
+}
+
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
-	platformEndpoints    map[string]*PlatformEndpoint
-	topics               map[string]*Topic
-	subscriptions        map[string]*Subscription
+	svcCtx               context.Context
 	topicSubscriptions   map[string]map[string]*Subscription
+	httpClient           *http.Client
+	topics               map[string]*Topic
 	topicTags            map[string]*svcTags.Tags
 	platformApplications map[string]*PlatformApplication
 	smsSandbox           map[string]*SandboxPhoneNumber
 	optedOutPhoneNumbers map[string]bool
 	smsAttributes        map[string]string
-	httpClient           *http.Client
-	svcCtx               context.Context
-	workerSem            chan struct{}
 	mu                   *lockmetrics.RWMutex
+	subscriptions        map[string]*Subscription
+	platformEndpoints    map[string]*PlatformEndpoint
+	workerSem            chan struct{}
 	accountID            string
 	region               string
+	smsDeliveries        []SMSDelivery
 	deliveryWg           sync.WaitGroup
 	closing              atomic.Bool
 }
@@ -1058,13 +1066,35 @@ func (b *InMemoryBackend) PublishToTargetArn(
 }
 
 // PublishSMS publishes a message directly to a phone number via SMS.
-// In the mock, this validates the phone number and generates a unique message ID.
-func (b *InMemoryBackend) PublishSMS(phoneNumber, _ /* message */ string) (string, error) {
+// The delivery is recorded in smsDeliveries so tests can assert on it via DrainSMSDeliveries.
+func (b *InMemoryBackend) PublishSMS(phoneNumber, message string) (string, error) {
 	if !isValidE164(phoneNumber) {
 		return "", fmt.Errorf("%w: Invalid phone number; must be in E.164 format", ErrInvalidParameter)
 	}
 
-	return uuid.New().String(), nil
+	msgID := uuid.New().String()
+
+	b.mu.Lock("PublishSMS")
+	b.smsDeliveries = append(b.smsDeliveries, SMSDelivery{
+		PhoneNumber: phoneNumber,
+		Message:     message,
+		MessageID:   msgID,
+	})
+	b.mu.Unlock()
+
+	return msgID, nil
+}
+
+// DrainSMSDeliveries returns and clears all recorded SMS deliveries.
+// This is intended for test assertions to verify SMS messages sent via PublishSMS.
+func (b *InMemoryBackend) DrainSMSDeliveries() []SMSDelivery {
+	b.mu.Lock("DrainSMSDeliveries")
+	defer b.mu.Unlock()
+
+	deliveries := b.smsDeliveries
+	b.smsDeliveries = nil
+
+	return deliveries
 }
 
 func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]MessageAttribute) bool {
@@ -2366,4 +2396,5 @@ func (b *InMemoryBackend) Reset() {
 	b.smsSandbox = make(map[string]*SandboxPhoneNumber)
 	b.optedOutPhoneNumbers = make(map[string]bool)
 	b.smsAttributes = make(map[string]string)
+	b.smsDeliveries = nil
 }
