@@ -220,6 +220,176 @@ type UpdateThingInput struct {
 	ExpectedVersion  int64             `json:"expectedVersion,omitempty"`
 }
 
+// ThingType represents an AWS IoT Thing Type.
+type ThingType struct {
+	CreatedAt       time.Time `json:"createdAt"`
+	DeprecationDate time.Time `json:"deprecationDate"`
+	ThingTypeName   string    `json:"thingTypeName"`
+	ThingTypeARN    string    `json:"thingTypeArn"`
+	Description     string    `json:"description,omitempty"`
+	Deprecated      bool      `json:"deprecated"`
+}
+
+// ThingGroup represents an AWS IoT Thing Group.
+type ThingGroup struct {
+	CreatedAt       time.Time         `json:"createdAt"`
+	Attributes      map[string]string `json:"attributes"`
+	ThingGroupName  string            `json:"thingGroupName"`
+	ThingGroupARN   string            `json:"thingGroupArn"`
+	ThingGroupID    string            `json:"thingGroupId"`
+	Description     string            `json:"description,omitempty"`
+	ParentGroupName string            `json:"parentGroupName,omitempty"`
+	Members         []string          `json:"members"`
+	Version         int64             `json:"version"`
+}
+
+// Certificate represents an AWS IoT Certificate.
+type Certificate struct {
+	CreatedAt     time.Time `json:"createdAt"`
+	CertificateID string    `json:"certificateId"`
+	ARN           string    `json:"certificateArn"`
+	Status        string    `json:"status"`
+	PEM           string    `json:"certificatePem"`
+}
+
+// PolicyVersion represents a version of an AWS IoT policy.
+type PolicyVersion struct {
+	CreatedAt        time.Time `json:"createDate"`
+	VersionID        string    `json:"versionId"`
+	PolicyDocument   string    `json:"policyDocument"`
+	IsDefaultVersion bool      `json:"isDefaultVersion"`
+}
+
+// TopicRuleDestination represents an AWS IoT Topic Rule Destination.
+type TopicRuleDestination struct {
+	HTTPURLProperties *HTTPURLDestinationProperties `json:"httpUrlProperties,omitempty"`
+	ARN               string                        `json:"arn"`
+	Status            string                        `json:"status"`
+}
+
+// HTTPURLDestinationProperties holds properties for an HTTP URL destination.
+type HTTPURLDestinationProperties struct {
+	ConfirmationURL string `json:"confirmationUrl"`
+}
+
+// CertificateProvider represents an AWS IoT Certificate Provider.
+type CertificateProvider struct {
+	CreatedAt                   time.Time `json:"creationDate"`
+	LastModifiedAt              time.Time `json:"lastModifiedDate"`
+	CertificateProviderName     string    `json:"certificateProviderName"`
+	ARN                         string    `json:"certificateProviderArn"`
+	LambdaFunctionARN           string    `json:"lambdaFunctionArn"`
+	AccountDefaultForOperations []string  `json:"accountDefaultForOperations"`
+}
+
+// CreateThingTypeInput is the input for CreateThingType.
+type CreateThingTypeInput struct {
+	ThingTypeName string
+	Description   string
+}
+
+// CreateThingGroupInput is the input for CreateThingGroup.
+type CreateThingGroupInput struct {
+	Attributes      map[string]string
+	ThingGroupName  string
+	ParentGroupName string
+	Description     string
+}
+
+// UpdateThingGroupInput is the input for UpdateThingGroup.
+type UpdateThingGroupInput struct {
+	Attributes      map[string]string
+	ThingGroupName  string
+	Description     string
+	ExpectedVersion int64
+}
+
+// RemoveThingFromThingGroupInput is the input for RemoveThingFromThingGroup.
+type RemoveThingFromThingGroupInput struct {
+	ThingGroupName string `json:"thingGroupName"`
+	ThingGroupArn  string `json:"thingGroupArn"`
+	ThingName      string `json:"thingName"`
+	ThingArn       string `json:"thingArn"`
+}
+
+// CreateCertificateFromCsrInput is the input for CreateCertificateFromCsr.
+type CreateCertificateFromCsrInput struct {
+	CertificateSigningRequest string
+	SetAsActive               bool
+}
+
+// RegisterCertificateInput is the input for RegisterCertificate.
+type RegisterCertificateInput struct {
+	CertificatePem string
+	Status         string
+}
+
+// UpdateCertificateInput is the input for UpdateCertificate.
+type UpdateCertificateInput struct {
+	CertificateID string
+	NewStatus     string
+}
+
+// CreatePolicyVersionInput is the input for CreatePolicyVersion.
+type CreatePolicyVersionInput struct {
+	PolicyName     string
+	PolicyDocument string
+	SetAsDefault   bool
+}
+
+// CreateTopicRuleDestinationInput is the input for CreateTopicRuleDestination.
+type CreateTopicRuleDestinationInput struct {
+	DestinationConfiguration *TopicRuleDestinationConfiguration
+}
+
+// TopicRuleDestinationConfiguration is the configuration for a topic rule destination.
+type TopicRuleDestinationConfiguration struct {
+	HTTPURLConfiguration *HTTPURLDestinationConfiguration `json:"httpUrlConfiguration,omitempty"`
+}
+
+// HTTPURLDestinationConfiguration holds configuration for an HTTP URL destination.
+type HTTPURLDestinationConfiguration struct {
+	ConfirmationURL string `json:"confirmationUrl"`
+}
+
+// UpdateTopicRuleDestinationInput is the input for UpdateTopicRuleDestination.
+type UpdateTopicRuleDestinationInput struct {
+	ARN    string `json:"arn"`
+	Status string `json:"status"`
+}
+
+// DetachPolicyInput is the input for DetachPolicy.
+type DetachPolicyInput struct {
+	PolicyName string `json:"policyName"`
+	Target     string `json:"target"`
+}
+
+// ListAttachedPoliciesInput is the input for ListAttachedPolicies.
+type ListAttachedPoliciesInput struct {
+	Target    string
+	Recursive bool
+}
+
+// CreateCertificateProviderInput is the input for CreateCertificateProvider.
+type CreateCertificateProviderInput struct {
+	CertificateProviderName     string
+	LambdaFunctionARN           string
+	AccountDefaultForOperations []string
+}
+
+// UpdateCertificateProviderInput is the input for UpdateCertificateProvider.
+type UpdateCertificateProviderInput struct {
+	CertificateProviderName     string
+	LambdaFunctionARN           string
+	AccountDefaultForOperations []string
+}
+
+// ListThingsInThingGroupInput is the input for ListThingsInThingGroup.
+type ListThingsInThingGroupInput struct {
+	ThingGroupName string
+	Recursive      bool
+}
+
 // DisableTopicRuleInput is the input for DisableTopicRule.
 type DisableTopicRuleInput struct {
 	RuleName string

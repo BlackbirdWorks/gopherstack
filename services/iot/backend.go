@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -51,6 +53,13 @@ type InMemoryBackend struct {
 	thingPrincipals        map[string][]string
 	auditMitigationTasks   map[string]string
 	auditTasks             map[string]string
+	thingTypes             map[string]*ThingType
+	thingGroups            map[string]*ThingGroup
+	thingGroupMembers      map[string][]string // thingGroupName -> []thingName
+	certificates           map[string]*Certificate
+	policyVersions         map[string][]*PolicyVersion // policyName -> []versions
+	topicRuleDestinations  map[string]*TopicRuleDestination
+	certificateProviders   map[string]*CertificateProvider
 	accountID              string
 	region                 string
 	mqttPort               int
@@ -79,6 +88,13 @@ func NewInMemoryBackend() *InMemoryBackend {
 		thingPrincipals:        make(map[string][]string),
 		auditMitigationTasks:   make(map[string]string),
 		auditTasks:             make(map[string]string),
+		thingTypes:             make(map[string]*ThingType),
+		thingGroups:            make(map[string]*ThingGroup),
+		thingGroupMembers:      make(map[string][]string),
+		certificates:           make(map[string]*Certificate),
+		policyVersions:         make(map[string][]*PolicyVersion),
+		topicRuleDestinations:  make(map[string]*TopicRuleDestination),
+		certificateProviders:   make(map[string]*CertificateProvider),
 		accountID:              "000000000000",
 		region:                 "us-east-1",
 		mqttPort:               mqttDefaultPort,
@@ -112,6 +128,13 @@ func (b *InMemoryBackend) Reset() {
 	b.thingPrincipals = make(map[string][]string)
 	b.auditMitigationTasks = make(map[string]string)
 	b.auditTasks = make(map[string]string)
+	b.thingTypes = make(map[string]*ThingType)
+	b.thingGroups = make(map[string]*ThingGroup)
+	b.thingGroupMembers = make(map[string][]string)
+	b.certificates = make(map[string]*Certificate)
+	b.policyVersions = make(map[string][]*PolicyVersion)
+	b.topicRuleDestinations = make(map[string]*TopicRuleDestination)
+	b.certificateProviders = make(map[string]*CertificateProvider)
 }
 
 // SetRuleDispatcher wires the SQS/Lambda action dispatcher.
@@ -467,6 +490,15 @@ func (b *InMemoryBackend) AddThingToThingGroup(input *AddThingToThingGroupInput)
 	key := thingKey(input.ThingName, input.ThingArn)
 	b.thingThingGroups[key] = append(b.thingThingGroups[key], input.ThingGroupName)
 
+	// Also update the group membership index.
+	groupName := input.ThingGroupName
+	if groupName == "" {
+		groupName = input.ThingGroupArn
+	}
+
+	thingName := thingKey(input.ThingName, input.ThingArn)
+	b.addThingToGroupByName(thingName, groupName)
+
 	return nil
 }
 
@@ -792,4 +824,811 @@ func (b *InMemoryBackend) AddRuleInternal(r TopicRule) {
 	}
 
 	b.rules[r.RuleName] = &r
+}
+
+// -----------------------------------------------------------
+// ThingType operations
+// -----------------------------------------------------------
+
+// ErrThingTypeNotFound is returned when a ThingType does not exist.
+var ErrThingTypeNotFound = errors.New("thing type not found")
+
+// ErrThingGroupNotFound is returned when a ThingGroup does not exist.
+var ErrThingGroupNotFound = errors.New("thing group not found")
+
+// ErrCertificateNotFound is returned when a Certificate does not exist.
+var ErrCertificateNotFound = errors.New("certificate not found")
+
+// ErrCertificateProviderNotFound is returned when a CertificateProvider does not exist.
+var ErrCertificateProviderNotFound = errors.New("certificate provider not found")
+
+// ErrTopicRuleDestinationNotFound is returned when a TopicRuleDestination does not exist.
+var ErrTopicRuleDestinationNotFound = errors.New("topic rule destination not found")
+
+// ErrPolicyVersionNotFound is returned when a PolicyVersion does not exist.
+var ErrPolicyVersionNotFound = errors.New("policy version not found")
+
+// fakePEM is a minimal fake PEM certificate returned by CreateCertificateFromCsr and RegisterCertificate.
+const fakePEM = `-----BEGIN CERTIFICATE-----
+MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
+b2NhbGhvc3QwHhcNMjMwMTAxMDAwMDAwWhcNMjQwMTAxMDAwMDAwWjAUMRIwEAYD
+VQQDDAlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC7
+o4qne60TB3wolFl6qADvFVMZUDCwJJlFBMDkajIxpQFNbBgxDuAQFV8AAAAAAA==
+-----END CERTIFICATE-----`
+
+// certIDHexLen is the number of bytes (half the hex char count) for a certificate ID.
+const certIDHexLen = 32 // produces a 64-char hex string
+
+// randomHex generates a hex string of n bytes (2n characters).
+func randomHex(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = "0123456789abcdef"[i%16]
+	}
+
+	return string(b)
+}
+
+// CreateThingType creates a new IoT Thing Type.
+func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingType, error) {
+	if input.ThingTypeName == "" {
+		return nil, fmt.Errorf("%w: ThingTypeName is required", ErrValidation)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.thingTypes[input.ThingTypeName]; exists {
+		return nil, fmt.Errorf("%w: thing type %q already exists", ErrAlreadyExists, input.ThingTypeName)
+	}
+
+	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thingtype/%s", b.region, b.accountID, input.ThingTypeName)
+	tt := &ThingType{
+		ThingTypeName: input.ThingTypeName,
+		ThingTypeARN:  arn,
+		Description:   input.Description,
+		CreatedAt:     time.Now(),
+	}
+
+	b.thingTypes[input.ThingTypeName] = tt
+
+	return tt, nil
+}
+
+// DescribeThingType returns a ThingType by name.
+func (b *InMemoryBackend) DescribeThingType(thingTypeName string) (*ThingType, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	tt, ok := b.thingTypes[thingTypeName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrThingTypeNotFound, thingTypeName)
+	}
+
+	cp := *tt
+
+	return &cp, nil
+}
+
+// ListThingTypes returns all thing types sorted by name.
+func (b *InMemoryBackend) ListThingTypes() []*ThingType {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	keys := sortedKeys(b.thingTypes)
+	out := make([]*ThingType, 0, len(keys))
+
+	for _, k := range keys {
+		cp := *b.thingTypes[k]
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// DeprecateThingType marks a thing type as deprecated.
+func (b *InMemoryBackend) DeprecateThingType(thingTypeName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	tt, ok := b.thingTypes[thingTypeName]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, thingTypeName)
+	}
+
+	tt.Deprecated = true
+	tt.DeprecationDate = time.Now()
+
+	return nil
+}
+
+// DeleteThingType deletes a thing type by name.
+func (b *InMemoryBackend) DeleteThingType(thingTypeName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.thingTypes[thingTypeName]; !ok {
+		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, thingTypeName)
+	}
+
+	delete(b.thingTypes, thingTypeName)
+
+	return nil
+}
+
+// -----------------------------------------------------------
+// ThingGroup operations
+// -----------------------------------------------------------
+
+// CreateThingGroup creates a new IoT Thing Group.
+func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*ThingGroup, error) {
+	if input.ThingGroupName == "" {
+		return nil, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.thingGroups[input.ThingGroupName]; exists {
+		return nil, fmt.Errorf("%w: thing group %q already exists", ErrAlreadyExists, input.ThingGroupName)
+	}
+
+	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thinggroup/%s", b.region, b.accountID, input.ThingGroupName)
+	id := uuid.NewString()
+
+	attrs := make(map[string]string)
+	if input.Attributes != nil {
+		maps.Copy(attrs, input.Attributes)
+	}
+
+	tg := &ThingGroup{
+		ThingGroupName:  input.ThingGroupName,
+		ThingGroupARN:   arn,
+		ThingGroupID:    id,
+		Description:     input.Description,
+		ParentGroupName: input.ParentGroupName,
+		Attributes:      attrs,
+		Members:         []string{},
+		Version:         1,
+		CreatedAt:       time.Now(),
+	}
+
+	b.thingGroups[input.ThingGroupName] = tg
+	b.thingGroupMembers[input.ThingGroupName] = []string{}
+
+	return tg, nil
+}
+
+// DescribeThingGroup returns a ThingGroup by name.
+func (b *InMemoryBackend) DescribeThingGroup(thingGroupName string) (*ThingGroup, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	tg, ok := b.thingGroups[thingGroupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrThingGroupNotFound, thingGroupName)
+	}
+
+	cp := *tg
+	cp.Attributes = make(map[string]string, len(tg.Attributes))
+	maps.Copy(cp.Attributes, tg.Attributes)
+	cp.Members = make([]string, len(tg.Members))
+	copy(cp.Members, tg.Members)
+
+	return &cp, nil
+}
+
+// ListThingGroups returns all thing groups sorted by name.
+func (b *InMemoryBackend) ListThingGroups() []*ThingGroup {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	keys := sortedKeys(b.thingGroups)
+	out := make([]*ThingGroup, 0, len(keys))
+
+	for _, k := range keys {
+		tg := b.thingGroups[k]
+		cp := *tg
+		cp.Attributes = make(map[string]string, len(tg.Attributes))
+		maps.Copy(cp.Attributes, tg.Attributes)
+		cp.Members = make([]string, len(tg.Members))
+		copy(cp.Members, tg.Members)
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// UpdateThingGroup updates an existing thing group.
+func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) error {
+	if input.ThingGroupName == "" {
+		return fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	tg, ok := b.thingGroups[input.ThingGroupName]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
+	}
+
+	if input.Description != "" {
+		tg.Description = input.Description
+	}
+
+	if input.Attributes != nil {
+		if tg.Attributes == nil {
+			tg.Attributes = make(map[string]string)
+		}
+		maps.Copy(tg.Attributes, input.Attributes)
+	}
+
+	tg.Version++
+
+	return nil
+}
+
+// DeleteThingGroup deletes a thing group by name.
+func (b *InMemoryBackend) DeleteThingGroup(thingGroupName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.thingGroups[thingGroupName]; !ok {
+		return fmt.Errorf("%w: %s", ErrThingGroupNotFound, thingGroupName)
+	}
+
+	delete(b.thingGroups, thingGroupName)
+	delete(b.thingGroupMembers, thingGroupName)
+
+	return nil
+}
+
+// RemoveThingFromThingGroup removes a thing from a thing group.
+func (b *InMemoryBackend) RemoveThingFromThingGroup(input *RemoveThingFromThingGroupInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	groupName := input.ThingGroupName
+	if groupName == "" {
+		groupName = input.ThingGroupArn
+	}
+
+	thingName := input.ThingName
+	if thingName == "" {
+		thingName = input.ThingArn
+	}
+
+	members := b.thingGroupMembers[groupName]
+	filtered := make([]string, 0, len(members))
+
+	for _, m := range members {
+		if m != thingName {
+			filtered = append(filtered, m)
+		}
+	}
+
+	b.thingGroupMembers[groupName] = filtered
+
+	return nil
+}
+
+// ListThingsInThingGroup returns all things in a given thing group.
+func (b *InMemoryBackend) ListThingsInThingGroup(input *ListThingsInThingGroupInput) ([]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.thingGroups[input.ThingGroupName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
+	}
+
+	members := b.thingGroupMembers[input.ThingGroupName]
+	out := make([]string, len(members))
+	copy(out, members)
+
+	return out, nil
+}
+
+// -----------------------------------------------------------
+// Certificate operations
+// -----------------------------------------------------------
+
+// newCertificate creates a new Certificate with a random 64-hex-char ID.
+func (b *InMemoryBackend) newCertificate(pem, status string) *Certificate {
+	certID := randomHex(certIDHexLen)
+	arn := fmt.Sprintf("arn:aws:iot:%s:%s:cert/%s", b.region, b.accountID, certID)
+
+	return &Certificate{
+		CertificateID: certID,
+		ARN:           arn,
+		Status:        status,
+		PEM:           pem,
+		CreatedAt:     time.Now(),
+	}
+}
+
+// CreateCertificateFromCsr creates a new certificate from a CSR.
+func (b *InMemoryBackend) CreateCertificateFromCsr(input *CreateCertificateFromCsrInput) (*Certificate, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	status := "INACTIVE"
+	if input.SetAsActive {
+		status = "ACTIVE"
+	}
+
+	cert := b.newCertificate(fakePEM, status)
+	b.certificates[cert.CertificateID] = cert
+
+	return cert, nil
+}
+
+// RegisterCertificate registers a certificate.
+func (b *InMemoryBackend) RegisterCertificate(input *RegisterCertificateInput) (*Certificate, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	status := input.Status
+	if status == "" {
+		status = "INACTIVE"
+	}
+
+	pem := input.CertificatePem
+	if pem == "" {
+		pem = fakePEM
+	}
+
+	cert := b.newCertificate(pem, status)
+	b.certificates[cert.CertificateID] = cert
+
+	return cert, nil
+}
+
+// RegisterCertificateWithoutCA registers a certificate without a CA.
+func (b *InMemoryBackend) RegisterCertificateWithoutCA(input *RegisterCertificateInput) (*Certificate, error) {
+	return b.RegisterCertificate(input)
+}
+
+// DescribeCertificate returns a Certificate by ID.
+func (b *InMemoryBackend) DescribeCertificate(certificateID string) (*Certificate, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	cert, ok := b.certificates[certificateID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrCertificateNotFound, certificateID)
+	}
+
+	cp := *cert
+
+	return &cp, nil
+}
+
+// ListCertificates returns all certificates sorted by ID.
+func (b *InMemoryBackend) ListCertificates() []*Certificate {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	keys := sortedKeys(b.certificates)
+	out := make([]*Certificate, 0, len(keys))
+
+	for _, k := range keys {
+		cp := *b.certificates[k]
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// UpdateCertificate updates the status of a certificate.
+func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cert, ok := b.certificates[input.CertificateID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrCertificateNotFound, input.CertificateID)
+	}
+
+	cert.Status = input.NewStatus
+
+	return nil
+}
+
+// DeleteCertificate deletes a certificate by ID.
+func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.certificates[certificateID]; !ok {
+		return fmt.Errorf("%w: %s", ErrCertificateNotFound, certificateID)
+	}
+
+	delete(b.certificates, certificateID)
+
+	return nil
+}
+
+// -----------------------------------------------------------
+// Policy attachment operations
+// -----------------------------------------------------------
+
+// DetachPolicy detaches a policy from a target.
+func (b *InMemoryBackend) DetachPolicy(input *DetachPolicyInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	targets := b.policyTargets[input.PolicyName]
+	filtered := make([]string, 0, len(targets))
+
+	for _, t := range targets {
+		if t != input.Target {
+			filtered = append(filtered, t)
+		}
+	}
+
+	b.policyTargets[input.PolicyName] = filtered
+
+	return nil
+}
+
+// ListAttachedPolicies returns all policies attached to a target.
+func (b *InMemoryBackend) ListAttachedPolicies(input *ListAttachedPoliciesInput) ([]*Policy, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var out []*Policy
+
+	for policyName, targets := range b.policyTargets {
+		if slices.Contains(targets, input.Target) {
+			if p, ok := b.policies[policyName]; ok {
+				cp := *p
+				out = append(out, &cp)
+			}
+		}
+	}
+
+	return out, nil
+}
+
+// -----------------------------------------------------------
+// PolicyVersion operations
+// -----------------------------------------------------------
+
+// CreatePolicyVersion creates a new version of an existing policy.
+func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (*PolicyVersion, error) {
+	if input.PolicyName == "" {
+		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.policies[input.PolicyName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, input.PolicyName)
+	}
+
+	versions := b.policyVersions[input.PolicyName]
+	versionID := strconv.Itoa(len(versions) + 1)
+
+	if input.SetAsDefault {
+		for _, v := range versions {
+			v.IsDefaultVersion = false
+		}
+	}
+
+	pv := &PolicyVersion{
+		VersionID:        versionID,
+		PolicyDocument:   input.PolicyDocument,
+		IsDefaultVersion: input.SetAsDefault,
+		CreatedAt:        time.Now(),
+	}
+
+	b.policyVersions[input.PolicyName] = append(versions, pv)
+
+	return pv, nil
+}
+
+// GetPolicyVersion retrieves a specific version of a policy.
+func (b *InMemoryBackend) GetPolicyVersion(policyName, versionID string) (*PolicyVersion, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	versions := b.policyVersions[policyName]
+
+	for _, v := range versions {
+		if v.VersionID == versionID {
+			cp := *v
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: %s/%s", ErrPolicyVersionNotFound, policyName, versionID)
+}
+
+// ListPolicyVersions returns all versions of a policy.
+func (b *InMemoryBackend) ListPolicyVersions(policyName string) ([]*PolicyVersion, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.policies[policyName]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
+	}
+
+	versions := b.policyVersions[policyName]
+	out := make([]*PolicyVersion, len(versions))
+
+	for i, v := range versions {
+		cp := *v
+		out[i] = &cp
+	}
+
+	return out, nil
+}
+
+// DeletePolicyVersion deletes a specific version of a policy.
+func (b *InMemoryBackend) DeletePolicyVersion(policyName, versionID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	versions := b.policyVersions[policyName]
+	filtered := make([]*PolicyVersion, 0, len(versions))
+	found := false
+
+	for _, v := range versions {
+		if v.VersionID == versionID {
+			found = true
+		} else {
+			filtered = append(filtered, v)
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("%w: %s/%s", ErrPolicyVersionNotFound, policyName, versionID)
+	}
+
+	b.policyVersions[policyName] = filtered
+
+	return nil
+}
+
+// SetDefaultPolicyVersion sets the default version of a policy.
+func (b *InMemoryBackend) SetDefaultPolicyVersion(policyName, versionID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	versions := b.policyVersions[policyName]
+	found := false
+
+	for _, v := range versions {
+		if v.VersionID == versionID {
+			v.IsDefaultVersion = true
+			found = true
+		} else {
+			v.IsDefaultVersion = false
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("%w: %s/%s", ErrPolicyVersionNotFound, policyName, versionID)
+	}
+
+	return nil
+}
+
+// -----------------------------------------------------------
+// TopicRuleDestination operations
+// -----------------------------------------------------------
+
+// CreateTopicRuleDestination creates a new topic rule destination.
+func (b *InMemoryBackend) CreateTopicRuleDestination(
+	input *CreateTopicRuleDestinationInput,
+) (*TopicRuleDestination, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	arn := fmt.Sprintf("arn:aws:iot:%s:%s:ruledestination/http/%s",
+		b.region, b.accountID, uuid.NewString())
+
+	dest := &TopicRuleDestination{
+		ARN:    arn,
+		Status: "ENABLED",
+	}
+
+	if input.DestinationConfiguration != nil && input.DestinationConfiguration.HTTPURLConfiguration != nil {
+		dest.HTTPURLProperties = &HTTPURLDestinationProperties{
+			ConfirmationURL: input.DestinationConfiguration.HTTPURLConfiguration.ConfirmationURL,
+		}
+	}
+
+	b.topicRuleDestinations[arn] = dest
+
+	return dest, nil
+}
+
+// GetTopicRuleDestination returns a topic rule destination by ARN.
+func (b *InMemoryBackend) GetTopicRuleDestination(arn string) (*TopicRuleDestination, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	dest, ok := b.topicRuleDestinations[arn]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTopicRuleDestinationNotFound, arn)
+	}
+
+	cp := *dest
+
+	return &cp, nil
+}
+
+// ListTopicRuleDestinations returns all topic rule destinations.
+func (b *InMemoryBackend) ListTopicRuleDestinations() []*TopicRuleDestination {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	keys := sortedKeys(b.topicRuleDestinations)
+	out := make([]*TopicRuleDestination, 0, len(keys))
+
+	for _, k := range keys {
+		cp := *b.topicRuleDestinations[k]
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// UpdateTopicRuleDestination updates the status of a topic rule destination.
+func (b *InMemoryBackend) UpdateTopicRuleDestination(input *UpdateTopicRuleDestinationInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	dest, ok := b.topicRuleDestinations[input.ARN]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrTopicRuleDestinationNotFound, input.ARN)
+	}
+
+	dest.Status = input.Status
+
+	return nil
+}
+
+// DeleteTopicRuleDestination deletes a topic rule destination by ARN.
+func (b *InMemoryBackend) DeleteTopicRuleDestination(arn string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.topicRuleDestinations[arn]; !ok {
+		return fmt.Errorf("%w: %s", ErrTopicRuleDestinationNotFound, arn)
+	}
+
+	delete(b.topicRuleDestinations, arn)
+
+	return nil
+}
+
+// -----------------------------------------------------------
+// CertificateProvider operations
+// -----------------------------------------------------------
+
+// CreateCertificateProvider creates a new certificate provider.
+func (b *InMemoryBackend) CreateCertificateProvider(
+	input *CreateCertificateProviderInput,
+) (*CertificateProvider, error) {
+	if input.CertificateProviderName == "" {
+		return nil, fmt.Errorf("%w: CertificateProviderName is required", ErrValidation)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.certificateProviders[input.CertificateProviderName]; exists {
+		return nil, fmt.Errorf("%w: certificate provider %q already exists",
+			ErrAlreadyExists, input.CertificateProviderName)
+	}
+
+	arn := fmt.Sprintf("arn:aws:iot:%s:%s:certificateprovider/%s",
+		b.region, b.accountID, input.CertificateProviderName)
+
+	ops := make([]string, len(input.AccountDefaultForOperations))
+	copy(ops, input.AccountDefaultForOperations)
+
+	cp := &CertificateProvider{
+		CertificateProviderName:     input.CertificateProviderName,
+		ARN:                         arn,
+		LambdaFunctionARN:           input.LambdaFunctionARN,
+		AccountDefaultForOperations: ops,
+		CreatedAt:                   time.Now(),
+		LastModifiedAt:              time.Now(),
+	}
+
+	b.certificateProviders[input.CertificateProviderName] = cp
+
+	return cp, nil
+}
+
+// DescribeCertificateProvider returns a certificate provider by name.
+func (b *InMemoryBackend) DescribeCertificateProvider(name string) (*CertificateProvider, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	cp, ok := b.certificateProviders[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrCertificateProviderNotFound, name)
+	}
+
+	result := *cp
+	result.AccountDefaultForOperations = make([]string, len(cp.AccountDefaultForOperations))
+	copy(result.AccountDefaultForOperations, cp.AccountDefaultForOperations)
+
+	return &result, nil
+}
+
+// ListCertificateProviders returns all certificate providers sorted by name.
+func (b *InMemoryBackend) ListCertificateProviders() []*CertificateProvider {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	keys := sortedKeys(b.certificateProviders)
+	out := make([]*CertificateProvider, 0, len(keys))
+
+	for _, k := range keys {
+		cp := *b.certificateProviders[k]
+		cp.AccountDefaultForOperations = make([]string, len(b.certificateProviders[k].AccountDefaultForOperations))
+		copy(cp.AccountDefaultForOperations, b.certificateProviders[k].AccountDefaultForOperations)
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// UpdateCertificateProvider updates an existing certificate provider.
+func (b *InMemoryBackend) UpdateCertificateProvider(input *UpdateCertificateProviderInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp, ok := b.certificateProviders[input.CertificateProviderName]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrCertificateProviderNotFound, input.CertificateProviderName)
+	}
+
+	if input.LambdaFunctionARN != "" {
+		cp.LambdaFunctionARN = input.LambdaFunctionARN
+	}
+
+	if input.AccountDefaultForOperations != nil {
+		ops := make([]string, len(input.AccountDefaultForOperations))
+		copy(ops, input.AccountDefaultForOperations)
+		cp.AccountDefaultForOperations = ops
+	}
+
+	cp.LastModifiedAt = time.Now()
+
+	return nil
+}
+
+// DeleteCertificateProvider deletes a certificate provider by name.
+func (b *InMemoryBackend) DeleteCertificateProvider(name string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.certificateProviders[name]; !ok {
+		return fmt.Errorf("%w: %s", ErrCertificateProviderNotFound, name)
+	}
+
+	delete(b.certificateProviders, name)
+
+	return nil
+}
+
+// addThingToGroupByName adds thingName to groupName in thingGroupMembers (dedup).
+// Must be called with b.mu held.
+func (b *InMemoryBackend) addThingToGroupByName(thingName, groupName string) {
+	members := b.thingGroupMembers[groupName]
+
+	if slices.Contains(members, thingName) {
+		return
+	}
+
+	b.thingGroupMembers[groupName] = append(members, thingName)
 }
