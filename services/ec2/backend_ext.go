@@ -605,7 +605,7 @@ func (b *InMemoryBackend) AttachVolume(volumeID, instanceID, device string) (*Vo
 		VolumeID:   volumeID,
 		InstanceID: instanceID,
 		Device:     device,
-		State:      "attached",
+		State:      attachmentStateAttached,
 		AttachTime: time.Now(),
 	}
 	vol.Attachment = att

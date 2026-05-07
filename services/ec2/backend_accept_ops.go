@@ -156,28 +156,7 @@ func (b *InMemoryBackend) Reset() {
 	b.nextPrivateIPIndex = 0
 	b.nextElasticIPIndex = 0
 
-	// Reset new operation resource maps.
-	b.addressTransfers = make(map[string]*AddressTransfer)
-	b.capacityReservations = make(map[string]*CapacityReservation)
-	b.reservedInstancesExchanges = make(map[string]*ReservedInstancesExchange)
-	b.tgwMulticastDomainAssociations = make(map[string]*TransitGatewayMulticastDomainAssociation)
-	b.tgwPeeringAttachments = make(map[string]*TransitGatewayPeeringAttachment)
-	b.tgwVpcAttachments = make(map[string]*TransitGatewayVpcAttachment)
-	b.vpcEndpointConnections = make(map[string]*VpcEndpointConnection)
-	b.vpcPeeringConnections = make(map[string]*VpcPeeringConnection)
-	b.byoipCidrs = make(map[string]*ByoipCidr)
-	b.dedicatedHosts = make(map[string]*Host)
-	b.snapshots = make(map[string]*Snapshot)
-	b.networkACLs = make(map[string]*StoredNetworkACL)
-	b.transitGateways = make(map[string]*TransitGateway)
-	b.flowLogs = make(map[string]*FlowLog)
-	b.dhcpOptionSets = make(map[string]*DhcpOptions)
-	b.egressOnlyIGWs = make(map[string]*EgressOnlyInternetGateway)
-	b.iamAssociations = make(map[string]*IamInstanceProfileAssociation)
-	b.tgwRouteTables = make(map[string]*TransitGatewayRouteTable)
-	b.tgwRoutes = make(map[string]*TransitGatewayRoute)
-	b.tgwRTAssociations = make(map[string]*TransitGatewayRouteTableAssociation)
-	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
+	b.resetNewOpsMapsLocked()
 
 	// Re-populate defaults (must be called without the lock held since it acquires its own).
 	// Since we already hold the lock, populate inline.
@@ -199,6 +178,33 @@ func (b *InMemoryBackend) Reset() {
 		Description: "default VPC security group",
 		VPCID:       vpcDefaultName,
 	}
+}
+
+// resetNewOpsMapsLocked re-initialises all "new operations" resource maps introduced
+// after the original core set. Must be called with b.mu held.
+func (b *InMemoryBackend) resetNewOpsMapsLocked() {
+	b.addressTransfers = make(map[string]*AddressTransfer)
+	b.capacityReservations = make(map[string]*CapacityReservation)
+	b.reservedInstancesExchanges = make(map[string]*ReservedInstancesExchange)
+	b.tgwMulticastDomainAssociations = make(map[string]*TransitGatewayMulticastDomainAssociation)
+	b.tgwPeeringAttachments = make(map[string]*TransitGatewayPeeringAttachment)
+	b.tgwVpcAttachments = make(map[string]*TransitGatewayVpcAttachment)
+	b.vpcEndpointConnections = make(map[string]*VpcEndpointConnection)
+	b.vpcPeeringConnections = make(map[string]*VpcPeeringConnection)
+	b.byoipCidrs = make(map[string]*ByoipCidr)
+	b.dedicatedHosts = make(map[string]*Host)
+	b.snapshots = make(map[string]*Snapshot)
+	b.networkACLs = make(map[string]*StoredNetworkACL)
+	b.transitGateways = make(map[string]*TransitGateway)
+	b.flowLogs = make(map[string]*FlowLog)
+	b.dhcpOptionSets = make(map[string]*DhcpOptions)
+	b.egressOnlyIGWs = make(map[string]*EgressOnlyInternetGateway)
+	b.iamAssociations = make(map[string]*IamInstanceProfileAssociation)
+	b.tgwRouteTables = make(map[string]*TransitGatewayRouteTable)
+	b.tgwRoutes = make(map[string]*TransitGatewayRoute)
+	b.tgwRTAssociations = make(map[string]*TransitGatewayRouteTableAssociation)
+	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
+	b.resetAdvancedNetworkingMapsLocked()
 }
 
 // ---- AcceptAddressTransfer ----

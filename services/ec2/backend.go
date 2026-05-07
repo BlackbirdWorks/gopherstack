@@ -204,6 +204,13 @@ type InMemoryBackend struct {
 	tgwRoutes                      map[string]*TransitGatewayRoute
 	tgwRTAssociations              map[string]*TransitGatewayRouteTableAssociation
 	vpcCidrAssociations            map[string]*VpcCidrBlockAssociation
+	vpnGateways                    map[string]*VpnGateway
+	customerGateways               map[string]*CustomerGateway
+	vpnConnections                 map[string]*VpnConnection
+	vpcEndpointServiceConfigs      map[string]*VpcEndpointServiceConfig
+	ipams                          map[string]*Ipam
+	ipamPools                      map[string]*IpamPool
+	ipamPoolAllocations            map[string]*IpamPoolAllocation
 	mu                             *lockmetrics.RWMutex
 	eniIDByAttachment              map[string]string
 	eniIDsByInstance               map[string]map[string]struct{}
@@ -257,6 +264,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		tgwRoutes:                      make(map[string]*TransitGatewayRoute),
 		tgwRTAssociations:              make(map[string]*TransitGatewayRouteTableAssociation),
 		vpcCidrAssociations:            make(map[string]*VpcCidrBlockAssociation),
+		vpnGateways:                    make(map[string]*VpnGateway),
+		customerGateways:               make(map[string]*CustomerGateway),
+		vpnConnections:                 make(map[string]*VpnConnection),
+		vpcEndpointServiceConfigs:      make(map[string]*VpcEndpointServiceConfig),
+		ipams:                          make(map[string]*Ipam),
+		ipamPools:                      make(map[string]*IpamPool),
+		ipamPoolAllocations:            make(map[string]*IpamPoolAllocation),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),

@@ -546,6 +546,93 @@ type Backend interface {
 	// DisassociateTransitGatewayRouteTable removes an association between a TGW attachment and route table.
 	DisassociateTransitGatewayRouteTable(routeTableID, attachmentID string) error
 
+	// ---- VPN Gateways ----
+
+	// CreateVpnGateway creates a new virtual private gateway.
+	CreateVpnGateway(gatewayType string) (*VpnGateway, error)
+
+	// DescribeVpnGateways returns virtual private gateways, optionally filtered by IDs.
+	DescribeVpnGateways(ids []string) []*VpnGateway
+
+	// DeleteVpnGateway removes a VPN gateway.
+	DeleteVpnGateway(id string) error
+
+	// AttachVpnGateway attaches a VPN gateway to a VPC.
+	AttachVpnGateway(vgwID, vpcID string) error
+
+	// DetachVpnGateway detaches a VPN gateway from a VPC.
+	DetachVpnGateway(vgwID, vpcID string) error
+
+	// ---- Customer Gateways ----
+
+	// CreateCustomerGateway creates a new customer gateway.
+	CreateCustomerGateway(gatewayType, ipAddress, bgpAsn string) (*CustomerGateway, error)
+
+	// DescribeCustomerGateways returns customer gateways, optionally filtered by IDs.
+	DescribeCustomerGateways(ids []string) []*CustomerGateway
+
+	// DeleteCustomerGateway removes a customer gateway.
+	DeleteCustomerGateway(id string) error
+
+	// ---- VPN Connections ----
+
+	// CreateVpnConnection creates a VPN connection between a customer gateway and VPN gateway.
+	CreateVpnConnection(connType, customerGatewayID, vpnGatewayID string) (*VpnConnection, error)
+
+	// DescribeVpnConnections returns VPN connections, optionally filtered by IDs.
+	DescribeVpnConnections(ids []string) []*VpnConnection
+
+	// DeleteVpnConnection removes a VPN connection.
+	DeleteVpnConnection(id string) error
+
+	// ---- VPC Peering extras ----
+
+	// RejectVpcPeeringConnection rejects a pending VPC peering connection.
+	RejectVpcPeeringConnection(id string) error
+
+	// ---- VPC Endpoint Service Configurations ----
+
+	// CreateVpcEndpointServiceConfiguration creates a new endpoint service config.
+	CreateVpcEndpointServiceConfiguration(acceptanceRequired bool, nlbARNs []string) (*VpcEndpointServiceConfig, error)
+
+	// DescribeVpcEndpointServiceConfigurations returns endpoint service configs, optionally filtered by IDs.
+	DescribeVpcEndpointServiceConfigurations(ids []string) []*VpcEndpointServiceConfig
+
+	// DeleteVpcEndpointServiceConfigurations removes endpoint service configs by IDs.
+	DeleteVpcEndpointServiceConfigurations(ids []string) error
+
+	// ModifyVpcEndpointServiceConfiguration updates acceptance required for a service config.
+	ModifyVpcEndpointServiceConfiguration(id string, acceptanceRequired bool) error
+
+	// ---- IPAM ----
+
+	// CreateIpam creates a new IPAM instance.
+	CreateIpam() (*Ipam, error)
+
+	// DescribeIpams returns IPAM instances, optionally filtered by IDs.
+	DescribeIpams(ids []string) []*Ipam
+
+	// DeleteIpam removes an IPAM instance.
+	DeleteIpam(id string) error
+
+	// CreateIpamPool creates a new IPAM pool.
+	CreateIpamPool(ipamID, addressFamily, locale, cidr string) (*IpamPool, error)
+
+	// DescribeIpamPools returns IPAM pools, optionally filtered by IDs.
+	DescribeIpamPools(ids []string) []*IpamPool
+
+	// DeleteIpamPool removes an IPAM pool.
+	DeleteIpamPool(id string) error
+
+	// AllocateIpamPoolCidr allocates a CIDR from an IPAM pool.
+	AllocateIpamPoolCidr(poolID, cidr string, netmaskLength int) (*IpamPoolAllocation, error)
+
+	// GetIpamPoolCidrs returns allocations for an IPAM pool.
+	GetIpamPoolCidrs(poolID string) []*IpamPoolAllocation
+
+	// ReleaseIpamPoolAllocation releases an IPAM pool allocation.
+	ReleaseIpamPoolAllocation(poolID, allocationID string) error
+
 	// ---- reset ----
 
 	// Reset clears all resource state, returning the backend to its initial state.
