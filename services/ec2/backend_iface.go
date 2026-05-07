@@ -430,6 +430,57 @@ type Backend interface {
 	// DeleteTransitGateway removes a transit gateway by ID.
 	DeleteTransitGateway(id string) error
 
+	// CreateTransitGatewayVpcAttachment creates a TGW VPC attachment.
+	CreateTransitGatewayVpcAttachment(tgwID, vpcID string, subnetIDs []string) (*TransitGatewayVpcAttachment, error)
+
+	// DescribeTransitGatewayVpcAttachments returns TGW VPC attachments, optionally filtered by IDs.
+	DescribeTransitGatewayVpcAttachments(ids []string) []*TransitGatewayVpcAttachment
+
+	// DeleteTransitGatewayVpcAttachment removes a TGW VPC attachment by ID.
+	DeleteTransitGatewayVpcAttachment(id string) error
+
+	// ModifyTransitGatewayAttribute updates attributes of a transit gateway.
+	ModifyTransitGatewayAttribute(id, description string) error
+
+	// ---- Flow Logs ----
+
+	// CreateFlowLogs creates flow log records for the given resources.
+	CreateFlowLogs(resourceIDs []string, trafficType, logDestinationType, logDestination string) ([]*FlowLog, error)
+
+	// DescribeFlowLogs returns flow logs, optionally filtered by IDs.
+	DescribeFlowLogs(ids []string) []*FlowLog
+
+	// DeleteFlowLogs removes flow logs by ID.
+	DeleteFlowLogs(ids []string) error
+
+	// ---- DHCP Options ----
+
+	// CreateDhcpOptions creates a new DHCP options set.
+	CreateDhcpOptions(configs []DhcpConfiguration) (*DhcpOptions, error)
+
+	// DescribeDhcpOptions returns DHCP option sets, optionally filtered by IDs.
+	DescribeDhcpOptions(ids []string) []*DhcpOptions
+
+	// AssociateDhcpOptions associates a DHCP options set with a VPC.
+	AssociateDhcpOptions(dhcpOptionsID, vpcID string) error
+
+	// DeleteDhcpOptions removes a DHCP options set by ID.
+	DeleteDhcpOptions(id string) error
+
+	// ---- Launch Template extras ----
+
+	// ModifyLaunchTemplate updates the default version of a launch template.
+	ModifyLaunchTemplate(id string, defaultVersion int64) (*LaunchTemplate, error)
+
+	// CreateLaunchTemplateVersion adds a new version to a launch template.
+	CreateLaunchTemplateVersion(id, imageID, instanceType string) (*LaunchTemplateVersion, error)
+
+	// DeleteLaunchTemplateVersions removes specific versions from a launch template.
+	DeleteLaunchTemplateVersions(id string, versions []int64) ([]int64, error)
+
+	// GetLaunchTemplateData returns synthesized launch template data from an instance.
+	GetLaunchTemplateData(instanceID string) (*LaunchTemplate, error)
+
 	// ---- reset ----
 
 	// Reset clears all resource state, returning the backend to its initial state.

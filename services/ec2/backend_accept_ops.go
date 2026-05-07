@@ -170,6 +170,8 @@ func (b *InMemoryBackend) Reset() {
 	b.snapshots = make(map[string]*Snapshot)
 	b.networkACLs = make(map[string]*StoredNetworkACL)
 	b.transitGateways = make(map[string]*TransitGateway)
+	b.flowLogs = make(map[string]*FlowLog)
+	b.dhcpOptionSets = make(map[string]*DhcpOptions)
 
 	// Re-populate defaults (must be called without the lock held since it acquires its own).
 	// Since we already hold the lock, populate inline.
