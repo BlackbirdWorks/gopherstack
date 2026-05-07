@@ -172,6 +172,12 @@ func (b *InMemoryBackend) Reset() {
 	b.transitGateways = make(map[string]*TransitGateway)
 	b.flowLogs = make(map[string]*FlowLog)
 	b.dhcpOptionSets = make(map[string]*DhcpOptions)
+	b.egressOnlyIGWs = make(map[string]*EgressOnlyInternetGateway)
+	b.iamAssociations = make(map[string]*IamInstanceProfileAssociation)
+	b.tgwRouteTables = make(map[string]*TransitGatewayRouteTable)
+	b.tgwRoutes = make(map[string]*TransitGatewayRoute)
+	b.tgwRTAssociations = make(map[string]*TransitGatewayRouteTableAssociation)
+	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
 
 	// Re-populate defaults (must be called without the lock held since it acquires its own).
 	// Since we already hold the lock, populate inline.

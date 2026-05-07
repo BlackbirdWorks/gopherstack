@@ -87,6 +87,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps := append(deepDiveSupportedOperations(), refinement2SupportedOperations()...)
 	extOps = append(extOps, refinement3SupportedOperations()...)
 	extOps = append(extOps, networking1SupportedOperations()...)
+	extOps = append(extOps, ec2CoreSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
 	return append([]string{
@@ -408,6 +409,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerRefinement2Ops(h, ops)
 	registerRefinement3Ops(h, ops)
 	registerNetworking1Ops(h, ops)
+	registerEC2CoreOps(h, ops)
 	registerStubOps(h, ops)
 
 	return ops

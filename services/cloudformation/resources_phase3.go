@@ -1385,6 +1385,32 @@ func (rc *ResourceCreator) deletePhase3DataResource(physicalID, resourceType str
 	case "AWS::CloudWatch::Dashboard":
 		return rc.deleteCloudWatchDashboard(physicalID)
 	default:
+		return rc.deletePhase4Resource(physicalID, resourceType)
+	}
+}
+
+// deletePhase4Resource handles ELBv2, WAFv2, Backup, and RDS cluster resource deletions.
+func (rc *ResourceCreator) deletePhase4Resource(physicalID, resourceType string) error {
+	switch resourceType {
+	case "AWS::ElasticLoadBalancingV2::LoadBalancer":
+		return rc.deleteELBv2LoadBalancer(physicalID)
+	case "AWS::ElasticLoadBalancingV2::TargetGroup":
+		return rc.deleteELBv2TargetGroup(physicalID)
+	case "AWS::ElasticLoadBalancingV2::Listener":
+		return rc.deleteELBv2Listener(physicalID)
+	case "AWS::WAFv2::WebACL":
+		return rc.deleteWAFv2WebACL(physicalID)
+	case "AWS::WAFv2::IPSet":
+		return rc.deleteWAFv2IPSet(physicalID)
+	case "AWS::Backup::BackupVault":
+		return rc.deleteBackupVault(physicalID)
+	case "AWS::Backup::BackupPlan":
+		return rc.deleteBackupPlan(physicalID)
+	case "AWS::RDS::DBCluster":
+		return rc.deleteRDSDBCluster(physicalID)
+	case "AWS::RDS::DBClusterParameterGroup":
+		return rc.deleteRDSDBClusterParameterGroup(physicalID)
+	default:
 		return nil
 	}
 }

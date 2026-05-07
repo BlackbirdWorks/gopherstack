@@ -31,6 +31,7 @@ const (
 	resTypeDynamoDBTable  = "AWS::DynamoDB::Table"
 	resTypeIAMRole        = "AWS::IAM::Role"
 	resTypeEC2VPC         = "AWS::EC2::VPC"
+	resTypeEC2Instance    = "AWS::EC2::Instance"
 	resTypeECSCluster     = "AWS::ECS::Cluster"
 	resTypeKMSKey         = "AWS::KMS::Key"
 )
