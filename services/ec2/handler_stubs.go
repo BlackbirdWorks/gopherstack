@@ -20,7 +20,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["AssociateCapacityReservationBillingOwner"] = h.handleStubAssociateCapacityReservationBillingOwner
 	ops["AssociateClientVpnTargetNetwork"] = h.handleStubAssociateClientVpnTargetNetwork
 	ops["AssociateEnclaveCertificateIamRole"] = h.handleStubAssociateEnclaveCertificateIamRole
-	ops["AssociateIamInstanceProfile"] = h.handleStubAssociateIamInstanceProfile
+	// AssociateIamInstanceProfile — moved to handler_ec2core.go
 	ops["AssociateInstanceEventWindow"] = h.handleStubAssociateInstanceEventWindow
 	ops["AssociateIpamByoasn"] = h.handleStubAssociateIpamByoasn
 	ops["AssociateIpamResourceDiscovery"] = h.handleStubAssociateIpamResourceDiscovery
@@ -30,9 +30,9 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["AssociateSubnetCidrBlock"] = h.handleStubAssociateSubnetCidrBlock
 	ops["AssociateTransitGatewayMulticastDomain"] = h.handleStubAssociateTransitGatewayMulticastDomain
 	ops["AssociateTransitGatewayPolicyTable"] = h.handleStubAssociateTransitGatewayPolicyTable
-	ops["AssociateTransitGatewayRouteTable"] = h.handleStubAssociateTransitGatewayRouteTable
+	// AssociateTransitGatewayRouteTable — moved to handler_ec2core.go
 	ops["AssociateTrunkInterface"] = h.handleStubAssociateTrunkInterface
-	ops["AssociateVpcCidrBlock"] = h.handleStubAssociateVpcCidrBlock
+	// AssociateVpcCidrBlock — moved to handler_ec2core.go
 	ops["AttachClassicLinkVpc"] = h.handleStubAttachClassicLinkVpc
 	ops["AttachVerifiedAccessTrustProvider"] = h.handleStubAttachVerifiedAccessTrustProvider
 	ops["AttachVpnGateway"] = h.handleStubAttachVpnGateway
@@ -65,7 +65,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateDefaultSubnet"] = h.handleStubCreateDefaultSubnet
 	ops["CreateDefaultVpc"] = h.handleStubCreateDefaultVpc
 	ops["CreateDelegateMacVolumeOwnershipTask"] = h.handleStubCreateDelegateMacVolumeOwnershipTask
-	ops["CreateEgressOnlyInternetGateway"] = h.handleStubCreateEgressOnlyInternetGateway
+	// CreateEgressOnlyInternetGateway — moved to handler_ec2core.go
 	ops["CreateFleet"] = h.handleStubCreateFleet
 	ops["CreateFpgaImage"] = h.handleStubCreateFpgaImage
 	ops["CreateImageUsageReport"] = h.handleStubCreateImageUsageReport
@@ -118,8 +118,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateTransitGatewayPeeringAttachment"] = h.handleStubCreateTransitGatewayPeeringAttachment
 	ops["CreateTransitGatewayPolicyTable"] = h.handleStubCreateTransitGatewayPolicyTable
 	ops["CreateTransitGatewayPrefixListReference"] = h.handleStubCreateTransitGatewayPrefixListReference
-	ops["CreateTransitGatewayRoute"] = h.handleStubCreateTransitGatewayRoute
-	ops["CreateTransitGatewayRouteTable"] = h.handleStubCreateTransitGatewayRouteTable
+	// CreateTransitGatewayRoute — moved to handler_ec2core.go
+	// CreateTransitGatewayRouteTable — moved to handler_ec2core.go
 	ops["CreateTransitGatewayRouteTableAnnouncement"] = h.handleStubCreateTransitGatewayRouteTableAnnouncement
 	ops["CreateVerifiedAccessEndpoint"] = h.handleStubCreateVerifiedAccessEndpoint
 	ops["CreateVerifiedAccessGroup"] = h.handleStubCreateVerifiedAccessGroup
@@ -140,7 +140,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteCoipCidr"] = h.handleStubDeleteCoipCidr
 	ops["DeleteCoipPool"] = h.handleStubDeleteCoipPool
 	ops["DeleteCustomerGateway"] = h.handleStubDeleteCustomerGateway
-	ops["DeleteEgressOnlyInternetGateway"] = h.handleStubDeleteEgressOnlyInternetGateway
+	// DeleteEgressOnlyInternetGateway — moved to handler_ec2core.go
 	ops["DeleteFleets"] = h.handleStubDeleteFleets
 	ops["DeleteFpgaImage"] = h.handleStubDeleteFpgaImage
 	ops["DeleteImageUsageReport"] = h.handleStubDeleteImageUsageReport
@@ -187,8 +187,8 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DeleteTransitGatewayPeeringAttachment"] = h.handleStubDeleteTransitGatewayPeeringAttachment
 	ops["DeleteTransitGatewayPolicyTable"] = h.handleStubDeleteTransitGatewayPolicyTable
 	ops["DeleteTransitGatewayPrefixListReference"] = h.handleStubDeleteTransitGatewayPrefixListReference
-	ops["DeleteTransitGatewayRoute"] = h.handleStubDeleteTransitGatewayRoute
-	ops["DeleteTransitGatewayRouteTable"] = h.handleStubDeleteTransitGatewayRouteTable
+	// DeleteTransitGatewayRoute — moved to handler_ec2core.go
+	// DeleteTransitGatewayRouteTable — moved to handler_ec2core.go
 	ops["DeleteTransitGatewayRouteTableAnnouncement"] = h.handleStubDeleteTransitGatewayRouteTableAnnouncement
 	ops["DeleteVerifiedAccessEndpoint"] = h.handleStubDeleteVerifiedAccessEndpoint
 	ops["DeleteVerifiedAccessGroup"] = h.handleStubDeleteVerifiedAccessGroup
@@ -234,7 +234,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeConversionTasks"] = h.handleStubDescribeConversionTasks
 	ops["DescribeCustomerGateways"] = h.handleStubDescribeCustomerGateways
 	ops["DescribeDeclarativePoliciesReports"] = h.handleStubDescribeDeclarativePoliciesReports
-	ops["DescribeEgressOnlyInternetGateways"] = h.handleStubDescribeEgressOnlyInternetGateways
+	// DescribeEgressOnlyInternetGateways — moved to handler_ec2core.go
 	ops["DescribeElasticGpus"] = h.handleStubDescribeElasticGpus
 	ops["DescribeExportImageTasks"] = h.handleStubDescribeExportImageTasks
 	ops["DescribeExportTasks"] = h.handleStubDescribeExportTasks
@@ -247,7 +247,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeFpgaImages"] = h.handleStubDescribeFpgaImages
 	ops["DescribeHostReservationOfferings"] = h.handleStubDescribeHostReservationOfferings
 	ops["DescribeHostReservations"] = h.handleStubDescribeHostReservations
-	ops["DescribeIamInstanceProfileAssociations"] = h.handleStubDescribeIamInstanceProfileAssociations
+	// DescribeIamInstanceProfileAssociations — moved to handler_ec2core.go
 	ops["DescribeIdFormat"] = h.handleStubDescribeIDFormat
 	ops["DescribeIdentityIdFormat"] = h.handleStubDescribeIdentityIDFormat
 	ops["DescribeImageReferences"] = h.handleStubDescribeImageReferences
@@ -378,7 +378,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisassociateCapacityReservationBillingOwner"] = h.handleStubDisassociateCapacityReservationBillingOwner
 	ops["DisassociateClientVpnTargetNetwork"] = h.handleStubDisassociateClientVpnTargetNetwork
 	ops["DisassociateEnclaveCertificateIamRole"] = h.handleStubDisassociateEnclaveCertificateIamRole
-	ops["DisassociateIamInstanceProfile"] = h.handleStubDisassociateIamInstanceProfile
+	// DisassociateIamInstanceProfile — moved to handler_ec2core.go
 	ops["DisassociateInstanceEventWindow"] = h.handleStubDisassociateInstanceEventWindow
 	ops["DisassociateIpamByoasn"] = h.handleStubDisassociateIpamByoasn
 	ops["DisassociateIpamResourceDiscovery"] = h.handleStubDisassociateIpamResourceDiscovery
@@ -388,7 +388,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisassociateSubnetCidrBlock"] = h.handleStubDisassociateSubnetCidrBlock
 	ops["DisassociateTransitGatewayMulticastDomain"] = h.handleStubDisassociateTransitGatewayMulticastDomain
 	ops["DisassociateTransitGatewayPolicyTable"] = h.handleStubDisassociateTransitGatewayPolicyTable
-	ops["DisassociateTransitGatewayRouteTable"] = h.handleStubDisassociateTransitGatewayRouteTable
+	// DisassociateTransitGatewayRouteTable — moved to handler_ec2core.go
 	ops["DisassociateTrunkInterface"] = h.handleStubDisassociateTrunkInterface
 	ops["DisassociateVpcCidrBlock"] = h.handleStubDisassociateVpcCidrBlock
 	ops["EnableAddressTransfer"] = h.handleStubEnableAddressTransfer
@@ -587,11 +587,11 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["RejectVpcPeeringConnection"] = h.handleStubRejectVpcPeeringConnection
 	ops["ReleaseHosts"] = h.handleStubReleaseHosts
 	ops["ReleaseIpamPoolAllocation"] = h.handleStubReleaseIpamPoolAllocation
-	ops["ReplaceIamInstanceProfileAssociation"] = h.handleStubReplaceIamInstanceProfileAssociation
+	// ReplaceIamInstanceProfileAssociation — moved to handler_ec2core.go
 	ops["ReplaceImageCriteriaInAllowedImagesSettings"] = h.handleStubReplaceImageCriteriaInAllowedImagesSettings
 	ops["ReplaceRoute"] = h.handleStubReplaceRoute
-	ops["ReplaceRouteTableAssociation"] = h.handleStubReplaceRouteTableAssociation
-	ops["ReplaceTransitGatewayRoute"] = h.handleStubReplaceTransitGatewayRoute
+	// ReplaceRouteTableAssociation — moved to handler_ec2core.go
+	// ReplaceTransitGatewayRoute — moved to handler_ec2core.go
 	ops["ReplaceVpnTunnel"] = h.handleStubReplaceVpnTunnel
 	ops["ReportInstanceStatus"] = h.handleStubReportInstanceStatus
 	ops["RequestSpotFleet"] = h.handleStubRequestSpotFleet
@@ -646,7 +646,7 @@ func stubSupportedOperations() []string {
 		"AssociateCapacityReservationBillingOwner",
 		"AssociateClientVpnTargetNetwork",
 		"AssociateEnclaveCertificateIamRole",
-		"AssociateIamInstanceProfile",
+		// AssociateIamInstanceProfile — now in ec2CoreSupportedOperations
 		"AssociateInstanceEventWindow",
 		"AssociateIpamByoasn",
 		"AssociateIpamResourceDiscovery",

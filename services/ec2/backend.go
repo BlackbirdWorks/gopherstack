@@ -198,6 +198,12 @@ type InMemoryBackend struct {
 	transitGateways                map[string]*TransitGateway
 	flowLogs                       map[string]*FlowLog
 	dhcpOptionSets                 map[string]*DhcpOptions
+	egressOnlyIGWs                 map[string]*EgressOnlyInternetGateway
+	iamAssociations                map[string]*IamInstanceProfileAssociation
+	tgwRouteTables                 map[string]*TransitGatewayRouteTable
+	tgwRoutes                      map[string]*TransitGatewayRoute
+	tgwRTAssociations              map[string]*TransitGatewayRouteTableAssociation
+	vpcCidrAssociations            map[string]*VpcCidrBlockAssociation
 	mu                             *lockmetrics.RWMutex
 	eniIDByAttachment              map[string]string
 	eniIDsByInstance               map[string]map[string]struct{}
@@ -245,6 +251,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		transitGateways:                make(map[string]*TransitGateway),
 		flowLogs:                       make(map[string]*FlowLog),
 		dhcpOptionSets:                 make(map[string]*DhcpOptions),
+		egressOnlyIGWs:                 make(map[string]*EgressOnlyInternetGateway),
+		iamAssociations:                make(map[string]*IamInstanceProfileAssociation),
+		tgwRouteTables:                 make(map[string]*TransitGatewayRouteTable),
+		tgwRoutes:                      make(map[string]*TransitGatewayRoute),
+		tgwRTAssociations:              make(map[string]*TransitGatewayRouteTableAssociation),
+		vpcCidrAssociations:            make(map[string]*VpcCidrBlockAssociation),
 		instanceIDsByVPC:               make(map[string]map[string]struct{}),
 		eniIDsByInstance:               make(map[string]map[string]struct{}),
 		eniIDByAttachment:              make(map[string]string),
