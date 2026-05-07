@@ -401,7 +401,7 @@ func TestActivity_GetActivityTaskAndSendSuccess(t *testing.T) {
 			errCh := make(chan error, 1)
 
 			go func() {
-				out, invokeErr := b.InvokeActivity(t.Context(), a.ActivityArn, tt.input)
+				out, invokeErr := b.InvokeActivity(t.Context(), a.ActivityArn, tt.input, 0)
 				if invokeErr != nil {
 					errCh <- invokeErr
 
@@ -463,7 +463,7 @@ func TestActivity_GetActivityTaskAndSendFailure(t *testing.T) {
 			invokeErrCh := make(chan error, 1)
 
 			go func() {
-				_, invokeErr := b.InvokeActivity(t.Context(), a.ActivityArn, `{}`)
+				_, invokeErr := b.InvokeActivity(t.Context(), a.ActivityArn, `{}`, 0)
 				invokeErrCh <- invokeErr
 			}()
 
@@ -563,7 +563,7 @@ func TestActivity_InvokeCancellationRemovesTaskToken(t *testing.T) {
 
 			invokeErrCh := make(chan error, 1)
 			go func() {
-				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`)
+				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`, 0)
 				invokeErrCh <- invokeErr
 			}()
 
@@ -632,7 +632,7 @@ func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
 
 			invokeErrCh := make(chan error, 1)
 			go func() {
-				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`)
+				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`, 0)
 				invokeErrCh <- invokeErr
 			}()
 

@@ -54,7 +54,15 @@ type LambdaInvoker interface {
 
 // ActivityInvoker can enqueue an activity task and wait for its result.
 type ActivityInvoker interface {
-	InvokeActivity(ctx context.Context, activityArn, input string) (string, error)
+	// InvokeActivity enqueues a task and blocks until completed.
+	// heartbeatSeconds > 0 enables heartbeat timeout enforcement.
+	InvokeActivity(ctx context.Context, activityArn, input string, heartbeatSeconds int) (string, error)
+}
+
+// S3Reader reads objects from S3 for Map state ItemReader.
+type S3Reader interface {
+	// GetObjectBytes returns the raw bytes of an S3 object by bucket and key.
+	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
 }
 
 // SQSIntegration handles Step Functions SQS service integration.
@@ -115,6 +123,7 @@ type Executor struct {
 	dynamodb DynamoDBIntegration
 	history  HistoryRecorder
 	activity ActivityInvoker
+	s3       S3Reader
 	// execSem limits the total number of concurrently running sub-executors
 	// (spawned by Parallel/Map states) to prevent goroutine explosion.
 	execSem chan struct{}
@@ -143,6 +152,7 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		dynamodb:      e.dynamodb,
 		history:       e.history,
 		activity:      e.activity,
+		s3:            e.s3,
 		execSem:       e.execSem,
 		jsonPathCache: e.jsonPathCache,
 	}
@@ -156,6 +166,9 @@ func (e *Executor) SetSNSIntegration(sns SNSIntegration) { e.sns = sns }
 
 // SetDynamoDBIntegration configures the DynamoDB integration for Task states.
 func (e *Executor) SetDynamoDBIntegration(ddb DynamoDBIntegration) { e.dynamodb = ddb }
+
+// SetS3Reader configures the S3 reader for Map state ItemReader.
+func (e *Executor) SetS3Reader(s3 S3Reader) { e.s3 = s3 }
 
 // SetActivityInvoker configures the activity invoker for activity Task states.
 func (e *Executor) SetActivityInvoker(ai ActivityInvoker) { e.activity = ai }
@@ -618,7 +631,7 @@ func (e *Executor) invokeActivityTask(ctx context.Context, state *State, input a
 		return nil, ErrActivityNotConfigured
 	}
 
-	output, err := e.activity.InvokeActivity(ctx, state.Resource, marshalInput(input))
+	output, err := e.activity.InvokeActivity(ctx, state.Resource, marshalInput(input), state.HeartbeatSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -884,15 +897,31 @@ func (e *Executor) executeParallel(
 const maxMapConcurrencyLimit = 40
 
 // executeMap handles Map state: iterates over an array.
-func (e *Executor) executeMap(ctx context.Context, executionARN string, state *State, input any) (string, any, error) {
+func (e *Executor) executeMap(
+	ctx context.Context,
+	executionARN string,
+	state *State,
+	input any,
+) (string, any, error) {
 	iterator, err := e.getMapIterator(state)
 	if err != nil {
 		return "", nil, err
 	}
 
-	items, err := e.resolveMapItems(state, input)
+	items, err := e.resolveMapItems(ctx, state, input)
 	if err != nil {
 		return "", nil, err
+	}
+
+	// Apply ItemBatcher: wrap items into batches; each batch is one Map iteration.
+	if state.ItemBatcher != nil {
+		batched := batchItems(items, state.ItemBatcher)
+		batchResults := make([]any, len(batched))
+		batchErrs := make([]error, len(batched))
+		concurrency := resolveMapConcurrency(state.MaxConcurrency, len(batched))
+		e.runMapTasks(ctx, executionARN, iterator, batched, batchResults, batchErrs, concurrency)
+
+		return e.finalizeMap(ctx, batchResults, batchErrs, state.Next)
 	}
 
 	results := make([]any, len(items))
@@ -902,6 +931,50 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 	e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
 
 	return e.finalizeMap(ctx, results, errs, state.Next)
+}
+
+// batchItems groups items into batches according to ItemBatcher configuration.
+// Each batch is returned as []any and becomes one iteration input.
+func batchItems(items []any, batcher *ItemBatcher) []any {
+	if batcher == nil ||
+		(batcher.MaxItemsPerBatch <= 0 && batcher.MaxInputBytesPerBatch <= 0) {
+		result := make([]any, len(items))
+		for i, it := range items {
+			result[i] = []any{it}
+		}
+
+		return result
+	}
+
+	var batches []any
+
+	var current []any
+
+	currentBytes := 0
+
+	for _, item := range items {
+		itemBytes := len(marshalInput(item))
+
+		itemsFull := batcher.MaxItemsPerBatch > 0 && len(current) >= batcher.MaxItemsPerBatch
+		bytesFull := batcher.MaxInputBytesPerBatch > 0 &&
+			len(current) > 0 &&
+			currentBytes+itemBytes > batcher.MaxInputBytesPerBatch
+
+		if itemsFull || bytesFull {
+			batches = append(batches, current)
+			current = nil
+			currentBytes = 0
+		}
+
+		current = append(current, item)
+		currentBytes += itemBytes
+	}
+
+	if len(current) > 0 {
+		batches = append(batches, current)
+	}
+
+	return batches
 }
 
 // runMapItem executes a single map iteration item in the sub-executor.
@@ -939,10 +1012,67 @@ func (e *Executor) getMapIterator(state *State) (*StateMachine, error) {
 	return iterator, nil
 }
 
-func (e *Executor) resolveMapItems(state *State, input any) ([]any, error) {
+// ErrS3ReaderNotConfigured is returned when ItemReader requires S3 but no S3Reader is set.
+var ErrS3ReaderNotConfigured = errors.New("S3 reader not configured for Map state ItemReader")
+
+// ErrItemReaderInvalidData is returned when ItemReader S3 object cannot be parsed as items.
+var ErrItemReaderInvalidData = errors.New("ItemReader: unable to parse S3 object as JSON array or JSON lines")
+
+func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any) ([]any, error) {
+	if state.ItemReader != nil {
+		return e.resolveItemsFromReader(ctx, state.ItemReader)
+	}
+
 	items, err := resolveItems(state.ItemsPath, input)
 	if err != nil {
 		return nil, fmt.Errorf("map ItemsPath error: %w", err)
+	}
+
+	return items, nil
+}
+
+// resolveItemsFromReader reads items from S3 using the ItemReader configuration.
+// Supports JSON arrays and newline-delimited JSON (JSON Lines).
+func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReader) ([]any, error) {
+	if e.s3 == nil {
+		return nil, ErrS3ReaderNotConfigured
+	}
+
+	bucket, _ := reader.Parameters["Bucket"].(string)
+	key, _ := reader.Parameters["Key"].(string)
+
+	data, err := e.s3.GetObjectBytes(ctx, bucket, key)
+	if err != nil {
+		return nil, fmt.Errorf("ItemReader S3 get error: %w", err)
+	}
+
+	// Try JSON array first.
+	var arr []any
+	if jsonErr := json.Unmarshal(data, &arr); jsonErr == nil {
+		return arr, nil
+	}
+
+	// Try newline-delimited JSON (JSON Lines).
+	lines := strings.SplitSeq(strings.TrimSpace(string(data)), "\n")
+
+	var items []any
+
+	for line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var item any
+		if jsonErr := json.Unmarshal([]byte(line), &item); jsonErr != nil {
+			return nil, fmt.Errorf("%w: %w", ErrItemReaderInvalidData, jsonErr)
+		}
+
+		items = append(items, item)
+	}
+
+	if items == nil {
+		return []any{}, nil
 	}
 
 	return items, nil

@@ -170,6 +170,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteStateMachineVersion",
 		"DescribeActivity",
 		"DescribeExecution",
+		"DescribeMapRun",
 		"DescribeStateMachine",
 		"DescribeStateMachineAlias",
 		"DescribeStateMachineForExecution",
@@ -178,6 +179,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetExecutionHistory",
 		"ListActivities",
 		"ListExecutions",
+		"ListMapRuns",
 		"ListStateMachineAliases",
 		"ListStateMachineVersions",
 		"ListStateMachines",
@@ -191,14 +193,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"StartSyncExecution",
 		"StopExecution",
 		"TagResource",
+		"TestState",
 		"UntagResource",
+		"UpdateMapRun",
 		"UpdateStateMachine",
 		"UpdateStateMachineAlias",
 		"ValidateStateMachineDefinition",
-		"DescribeMapRun",
-		"ListMapRuns",
-		"TestState",
-		"UpdateMapRun",
 	}
 }
 
@@ -939,9 +939,8 @@ func (h *Handler) mapRunActions() map[string]actionFn {
 			// ListMapRuns lists Map Runs for an execution. In-process simulation returns empty list.
 			return map[string]any{"MapRuns": []any{}}, nil
 		},
-		"TestState": func(_ []byte) (any, error) {
-			// TestState tests a single state definition. In-process simulation returns a stub output.
-			return map[string]any{"Output": "{}", "Status": "SUCCEEDED"}, nil
+		"TestState": func(body []byte) (any, error) {
+			return h.handleTestState(body)
 		},
 		"UpdateMapRun": func(_ []byte) (any, error) {
 			// UpdateMapRun updates a Map Run's concurrency. In-process simulation is a no-op.
@@ -1015,6 +1014,81 @@ func (h *Handler) handleGetActivityTask(ctx context.Context, body []byte) ([]byt
 		TaskToken: task.TaskToken,
 		Input:     task.Input,
 	})
+}
+
+type testStateInput struct {
+	Definition string `json:"definition"`
+	Input      string `json:"input"`
+	RoleArn    string `json:"roleArn,omitempty"`
+}
+
+type testStateOutput struct {
+	Output string `json:"output,omitempty"`
+	Error  string `json:"error,omitempty"`
+	Cause  string `json:"cause,omitempty"`
+	Status string `json:"status"`
+}
+
+// handleTestState executes a single state definition in isolation and returns its output.
+// The definition is a JSON object mapping a single state name to its state definition.
+func (h *Handler) handleTestState(body []byte) (any, error) {
+	var input testStateInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, err
+	}
+
+	// Wrap the state definition in a minimal state machine.
+	var states map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input.Definition), &states); err != nil {
+		return nil, fmt.Errorf("%w: invalid state definition JSON: %w", ErrInvalidDefinition, err)
+	}
+
+	if len(states) != 1 {
+		return nil, fmt.Errorf("%w: TestState definition must contain exactly one state", ErrInvalidDefinition)
+	}
+
+	var stateName string
+
+	for k := range states {
+		stateName = k
+	}
+
+	smDef := fmt.Sprintf(`{"StartAt":%q,"States":%s}`, stateName, input.Definition)
+
+	sm, err := asl.Parse(smDef)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
+	}
+
+	var lambdaInvoker asl.LambdaInvoker
+
+	if bk, ok := h.Backend.(*InMemoryBackend); ok {
+		bk.mu.RLock("TestState")
+		lambdaInvoker = bk.lambdaInvoker
+		bk.mu.RUnlock()
+	}
+
+	executor := asl.NewExecutor(sm, lambdaInvoker, nil)
+
+	stateInput := input.Input
+	if stateInput == "" {
+		stateInput = "{}"
+	}
+
+	result, execErr := executor.Execute(context.Background(), "test-state", stateInput)
+	if execErr != nil {
+		out := &testStateOutput{Status: "FAILED", Error: execErr.Error()}
+
+		return out, nil //nolint:nilerr // execution errors are encoded in the response body
+	}
+
+	if result.Error != "" {
+		return &testStateOutput{Status: "FAILED", Error: result.Error, Cause: result.Cause}, nil
+	}
+
+	outputBytes, _ := json.Marshal(result.Output)
+
+	return &testStateOutput{Status: "SUCCEEDED", Output: string(outputBytes)}, nil
 }
 
 // handleError writes a standardized JSON error response.
