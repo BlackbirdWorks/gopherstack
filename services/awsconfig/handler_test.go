@@ -805,7 +805,7 @@ func TestAWSConfigHandler_DeleteConfigRule(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutConfigRule("my-rule"))
+				require.NoError(t, h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "my-rule"}))
 			},
 			body:     map[string]any{"ConfigRuleName": "my-rule"},
 			wantCode: http.StatusOK,
@@ -1254,8 +1254,8 @@ func TestAWSConfigHandler_DescribeConfigRules_BackedByStorage(t *testing.T) {
 			name: "returns_stored_rules",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutConfigRule("rule-x"))
-				require.NoError(t, h.Backend.PutConfigRule("rule-y"))
+				require.NoError(t, h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
+				require.NoError(t, h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-y"}))
 			},
 			body:      map[string]any{},
 			wantCode:  http.StatusOK,
@@ -1265,8 +1265,8 @@ func TestAWSConfigHandler_DescribeConfigRules_BackedByStorage(t *testing.T) {
 			name: "filter_by_name",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutConfigRule("rule-1"))
-				require.NoError(t, h.Backend.PutConfigRule("rule-2"))
+				require.NoError(t, h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-1"}))
+				require.NoError(t, h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-2"}))
 			},
 			body:      map[string]any{"ConfigRuleNames": []string{"rule-1"}},
 			wantCode:  http.StatusOK,
@@ -1480,7 +1480,8 @@ func TestAWSConfigHandler_PutConfigRule_ValidationAndDescribe(t *testing.T) {
 
 			h := newTestAWSConfigHandler(t)
 			// Call PutConfigRule directly via backend (handler not wired for PutConfigRule in HTTP yet)
-			err := h.Backend.PutConfigRule(tt.body.(map[string]any)["ConfigRuleName"].(string))
+			ruleName := tt.body.(map[string]any)["ConfigRuleName"].(string)
+			err := h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: ruleName})
 			require.Error(t, err)
 			assert.ErrorIs(t, err, awsconfig.ErrValidation)
 		})

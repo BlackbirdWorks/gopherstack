@@ -61,12 +61,22 @@ type AggregationAuthorization struct {
 	AuthorizedAwsRegion string `json:"authorizedAwsRegion"`
 }
 
+// ConfigRuleSource represents the source definition of an AWS Config config rule.
+type ConfigRuleSource struct {
+	Owner            string `json:"Owner,omitempty"`
+	SourceIdentifier string `json:"SourceIdentifier,omitempty"`
+}
+
 // ConfigRule represents an AWS Config config rule.
 type ConfigRule struct {
-	ConfigRuleName string `json:"configRuleName"`
-	ConfigRuleArn  string `json:"configRuleArn,omitempty"`
-	ConfigRuleID   string `json:"configRuleId,omitempty"`
-	Description    string `json:"description,omitempty"`
+	Source                    *ConfigRuleSource `json:"Source,omitempty"`
+	ConfigRuleName            string            `json:"configRuleName"`
+	ConfigRuleArn             string            `json:"configRuleArn,omitempty"`
+	ConfigRuleID              string            `json:"configRuleId,omitempty"`
+	Description               string            `json:"description,omitempty"`
+	InputParameters           string            `json:"inputParameters,omitempty"`
+	MaximumExecutionFrequency string            `json:"maximumExecutionFrequency,omitempty"`
+	ComplianceType            string            `json:"complianceType,omitempty"`
 }
 
 // ConfigurationAggregator represents an AWS Config configuration aggregator.
@@ -133,27 +143,39 @@ type InMemoryBackend struct {
 	channels            map[string]*DeliveryChannel
 	aggregationAuths    map[string]*AggregationAuthorization
 	configRules         map[string]*ConfigRule
+	ruleEvaluations     map[string]string // rule name → compliance type after evaluation
 	aggregators         map[string]*ConfigurationAggregator
 	conformancePacks    map[string]*ConformancePack
 	orgConfigRules      map[string]*OrganizationConfigRule
 	orgConformancePacks map[string]*OrganizationConformancePack
 	storedQueries       map[string]*StoredQuery
 	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
+	ruleCounter         int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithMeta("123456789012", "us-east-1")
+}
+
+// NewInMemoryBackendWithMeta creates a new InMemoryBackend with account and region context.
+func NewInMemoryBackendWithMeta(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		recorders:           make(map[string]*ConfigurationRecorder),
 		channels:            make(map[string]*DeliveryChannel),
 		aggregationAuths:    make(map[string]*AggregationAuthorization),
 		configRules:         make(map[string]*ConfigRule),
+		ruleEvaluations:     make(map[string]string),
 		aggregators:         make(map[string]*ConfigurationAggregator),
 		conformancePacks:    make(map[string]*ConformancePack),
 		orgConfigRules:      make(map[string]*OrganizationConfigRule),
 		orgConformancePacks: make(map[string]*OrganizationConformancePack),
 		storedQueries:       make(map[string]*StoredQuery),
 		mu:                  lockmetrics.New("awsconfig"),
+		accountID:           accountID,
+		region:              region,
 	}
 }
 
@@ -400,6 +422,8 @@ func (b *InMemoryBackend) Reset() {
 	b.channels = make(map[string]*DeliveryChannel)
 	b.aggregationAuths = make(map[string]*AggregationAuthorization)
 	b.configRules = make(map[string]*ConfigRule)
+	b.ruleEvaluations = make(map[string]string)
+	b.ruleCounter = 0
 	b.aggregators = make(map[string]*ConfigurationAggregator)
 	b.conformancePacks = make(map[string]*ConformancePack)
 	b.orgConfigRules = make(map[string]*OrganizationConfigRule)
@@ -487,16 +511,35 @@ func (b *InMemoryBackend) DeleteAggregationAuthorization(accountID, region strin
 	return nil
 }
 
-// PutConfigRule creates or updates a config rule.
-func (b *InMemoryBackend) PutConfigRule(name string) error {
-	if name == "" {
+// PutConfigRule creates or updates a config rule with full metadata.
+func (b *InMemoryBackend) PutConfigRule(input *ConfigRule) error {
+	if input == nil || input.ConfigRuleName == "" {
 		return fmt.Errorf("%w: ConfigRuleName is required", ErrValidation)
 	}
 
 	b.mu.Lock("PutConfigRule")
 	defer b.mu.Unlock()
 
-	b.configRules[name] = &ConfigRule{ConfigRuleName: name}
+	existing, ok := b.configRules[input.ConfigRuleName]
+	if ok {
+		// Preserve ARN and ID on update.
+		input.ConfigRuleArn = existing.ConfigRuleArn
+		input.ConfigRuleID = existing.ConfigRuleID
+	} else {
+		b.ruleCounter++
+		input.ConfigRuleArn = fmt.Sprintf(
+			"arn:aws:config:%s:%s:config-rule/config-rule-%08d",
+			b.region, b.accountID, b.ruleCounter,
+		)
+		input.ConfigRuleID = fmt.Sprintf("config-rule-%08d", b.ruleCounter)
+	}
+
+	if input.ComplianceType == "" {
+		input.ComplianceType = "NOT_APPLICABLE"
+	}
+
+	cp := *input
+	b.configRules[input.ConfigRuleName] = &cp
 
 	return nil
 }

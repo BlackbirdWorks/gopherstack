@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,16 +36,55 @@ const (
 // Handler is the Echo HTTP handler for SNS operations.
 type snsActionFn func(c *echo.Context) error
 
+// fifoDedupTTL is the deduplication window for FIFO topic messages per AWS specification.
+const fifoDedupTTL = 5 * time.Minute
+
+// fifoDeduplication tracks message deduplication IDs with a TTL for FIFO topics.
+type fifoDeduplication struct {
+	entries map[string]time.Time // dedupKey → expiry
+	mu      sync.Mutex
+}
+
+func newFifoDeduplication() *fifoDeduplication {
+	return &fifoDeduplication{entries: make(map[string]time.Time)}
+}
+
+// check returns true if the dedup ID has already been seen within the TTL window,
+// and records it otherwise.
+func (d *fifoDeduplication) check(topicArn, dedupID string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	now := time.Now()
+	key := topicArn + "/" + dedupID
+
+	// Evict expired entries opportunistically.
+	for k, exp := range d.entries {
+		if now.After(exp) {
+			delete(d.entries, k)
+		}
+	}
+
+	if exp, found := d.entries[key]; found && now.Before(exp) {
+		return true
+	}
+
+	d.entries[key] = now.Add(fifoDedupTTL)
+
+	return false
+}
+
 type Handler struct {
 	actions map[string]snsActionFn
 	Backend StorageBackend
+	dedup   *fifoDeduplication
 	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
 	DefaultRegion string
 }
 
 // NewHandler creates a new SNS Handler with the given backend and logger.
 func NewHandler(backend StorageBackend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{Backend: backend, dedup: newFifoDeduplication()}
 	h.actions = h.buildActions()
 
 	return h
@@ -544,6 +584,16 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 			if c.Request().FormValue("MessageGroupId") == "" {
 				return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
 					"MessageGroupId is required for FIFO topics")
+			}
+
+			// Enforce MessageDeduplicationId with 5-minute TTL per AWS FIFO semantics.
+			dedupID := c.Request().FormValue("MessageDeduplicationId")
+			if dedupID != "" && h.dedup.check(topicArn, dedupID) {
+				// AWS returns the original MessageId on duplicates; we return a new one for simplicity.
+				return h.writeXML(c, PublishResponse{
+					PublishResult:    PublishResult{MessageID: uuid.New().String()},
+					ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+				})
 			}
 		}
 

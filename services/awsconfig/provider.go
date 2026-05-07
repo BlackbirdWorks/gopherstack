@@ -1,6 +1,7 @@
 package awsconfig
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -14,7 +15,7 @@ func (p *Provider) Name() string { return "AWSConfig" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(_ *service.AppContext) (service.Registerable, error) {
-	backend := NewInMemoryBackend()
+	backend := NewInMemoryBackendWithMeta(config.DefaultAccountID, config.DefaultRegion)
 	handler := NewHandler(backend)
 
 	return handler, nil

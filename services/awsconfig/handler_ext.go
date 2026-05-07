@@ -907,9 +907,19 @@ func (h *Handler) handlePutAggregationAuthorization(
 }
 
 // PutConfigRule request/response types and handler.
-type putConfigRuleBody struct {
-	ConfigRuleName string `json:"ConfigRuleName"`
+type putConfigRuleSourceBody struct {
+	Owner            string `json:"Owner"`
+	SourceIdentifier string `json:"SourceIdentifier"`
 }
+
+type putConfigRuleBody struct {
+	Source                    *putConfigRuleSourceBody `json:"Source,omitempty"`
+	ConfigRuleName            string                   `json:"ConfigRuleName"`
+	Description               string                   `json:"Description,omitempty"`
+	InputParameters           string                   `json:"InputParameters,omitempty"`
+	MaximumExecutionFrequency string                   `json:"MaximumExecutionFrequency,omitempty"`
+}
+
 type putConfigRuleInput struct {
 	ConfigRule putConfigRuleBody `json:"ConfigRule"`
 }
@@ -917,7 +927,21 @@ type putConfigRuleInput struct {
 func (h *Handler) handlePutConfigRule(
 	_ context.Context, in *putConfigRuleInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutConfigRule(in.ConfigRule.ConfigRuleName)
+	rule := &ConfigRule{
+		ConfigRuleName:            in.ConfigRule.ConfigRuleName,
+		Description:               in.ConfigRule.Description,
+		InputParameters:           in.ConfigRule.InputParameters,
+		MaximumExecutionFrequency: in.ConfigRule.MaximumExecutionFrequency,
+	}
+
+	if in.ConfigRule.Source != nil {
+		rule.Source = &ConfigRuleSource{
+			Owner:            in.ConfigRule.Source.Owner,
+			SourceIdentifier: in.ConfigRule.Source.SourceIdentifier,
+		}
+	}
+
+	return &emptyOutput{}, h.Backend.PutConfigRule(rule)
 }
 
 // PutConfigurationAggregator request/response types and handler.
