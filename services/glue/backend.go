@@ -34,6 +34,12 @@ const (
 	stateRunning          = "RUNNING"
 	stateStarting         = "STARTING"
 	stateStopping         = "STOPPING"
+	stateReady            = "READY"
+	stateSucceeded        = "SUCCEEDED"
+	stateAvailable        = "AVAILABLE"
+	stateDeleting         = "DELETING"
+	stateProvisioning     = "PROVISIONING"
+	stateActive           = "ACTIVE"
 )
 
 // DatabaseInput is the input for creating or updating a Glue database.
@@ -733,7 +739,7 @@ func (b *InMemoryBackend) CreateCrawler(
 		Role:         role,
 		DatabaseName: dbName,
 		Targets:      targets,
-		State:        "READY",
+		State:        stateReady,
 		ARN:          b.crawlerARN(name),
 		Tags:         maps.Clone(tags),
 		CreationTime: now,
