@@ -565,17 +565,17 @@ func (h *Handler) dispatchAccessPointOps(c *echo.Context, path, method string) e
 	case isSimplePath(pathAccessPointPrefix, path) && method == http.MethodPut:
 		return h.handleCreateAccessPoint(c)
 	case isSimplePath(pathAccessPointPrefix, path) && method == http.MethodGet:
-		return h.handleStub(c, "GetAccessPoint")
+		return h.handleGetAccessPoint(c)
 	case isSimplePath(pathAccessPointPrefix, path) && method == http.MethodDelete:
-		return h.handleStub(c, "DeleteAccessPoint")
+		return h.handleDeleteAccessPoint(c)
 	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodGet:
-		return h.handleStub(c, "GetAccessPointPolicy")
+		return h.handleGetAccessPointPolicy(c)
 	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodPut:
-		return h.handleStub(c, "PutAccessPointPolicy")
+		return h.handlePutAccessPointPolicy(c)
 	case isPrefixSuffix(pathAccessPointPrefix, path, "/policy") && method == http.MethodDelete:
-		return h.handleStub(c, "DeleteAccessPointPolicy")
+		return h.handleDeleteAccessPointPolicy(c)
 	case isPrefixSuffix(pathAccessPointPrefix, path, "/policyStatus") && method == http.MethodGet:
-		return h.handleStub(c, "GetAccessPointPolicyStatus")
+		return h.handleGetAccessPointPolicyStatus(c)
 	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodGet:
 		return h.handleStub(c, "GetAccessPointScope")
 	case isPrefixSuffix(pathAccessPointPrefix, path, "/scope") && method == http.MethodPut:
@@ -601,7 +601,7 @@ func (h *Handler) dispatchAccessPointOps(c *echo.Context, path, method string) e
 	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/configuration") && method == http.MethodPut:
 		return h.handleStub(c, "PutAccessPointConfigurationForObjectLambda")
 	case path == "/v20180820/accesspoint" && method == http.MethodGet:
-		return h.handleStub(c, "ListAccessPoints")
+		return h.handleListAccessPoints(c)
 	case path == pathAccessPointsDirectoryBuckets && method == http.MethodGet:
 		return h.handleStub(c, "ListAccessPointsForDirectoryBuckets")
 	case path == pathAccessPointsForObjectLambdaList && method == http.MethodGet:
@@ -661,9 +661,9 @@ func (h *Handler) dispatchJobMRAPStorageLensOps(c *echo.Context, path, method st
 	case path == pathJobs && method == http.MethodPost:
 		return h.handleCreateJob(c)
 	case path == pathJobs && method == http.MethodGet:
-		return h.handleStub(c, "ListJobs")
+		return h.handleListJobs(c)
 	case isSimplePath(pathJobPrefix, path) && method == http.MethodGet:
-		return h.handleStub(c, "DescribeJob")
+		return h.handleDescribeJob(c)
 	case isPrefixSuffix(pathJobPrefix, path, "/tagging") && method == http.MethodGet:
 		return h.handleStub(c, "GetJobTagging")
 	case isPrefixSuffix(pathJobPrefix, path, "/tagging") && method == http.MethodPut:
@@ -671,23 +671,23 @@ func (h *Handler) dispatchJobMRAPStorageLensOps(c *echo.Context, path, method st
 	case isPrefixSuffix(pathJobPrefix, path, "/tagging") && method == http.MethodDelete:
 		return h.handleStub(c, "DeleteJobTagging")
 	case isPrefixSuffix(pathJobPrefix, path, "/priority") && method == http.MethodPut:
-		return h.handleStub(c, "UpdateJobPriority")
+		return h.handleUpdateJobPriority(c)
 	case isPrefixSuffix(pathJobPrefix, path, "/status") && method == http.MethodPut:
-		return h.handleStub(c, "UpdateJobStatus")
+		return h.handleUpdateJobStatus(c)
 	case path == pathMRAPCreate && method == http.MethodPost:
 		return h.handleCreateMultiRegionAccessPoint(c)
 	case strings.HasPrefix(path, pathMRAPDeletePrefix) && method == http.MethodPost:
-		return h.handleStub(c, opDeleteMRAP)
+		return h.handleDeleteMultiRegionAccessPointAsync(c)
 	case strings.HasPrefix(path, pathMRAPPutPolicyPrefix) && method == http.MethodPost:
-		return h.handleStub(c, "PutMultiRegionAccessPointPolicy")
+		return h.handlePutMultiRegionAccessPointPolicy(c)
 	case strings.HasPrefix(path, pathMRAPPrefix) && method == http.MethodGet:
 		return h.handleStub(c, "DescribeMultiRegionAccessPointOperation")
 	case path == pathMRAPList && method == http.MethodGet:
-		return h.handleStub(c, "ListMultiRegionAccessPoints")
+		return h.handleListMultiRegionAccessPoints(c)
 	case isSimplePath(pathMRAPInstancePrefix, path) && method == http.MethodGet:
-		return h.handleStub(c, "GetMultiRegionAccessPoint")
+		return h.handleGetMultiRegionAccessPoint(c)
 	case isSimplePath(pathMRAPInstancePrefix, path) && method == http.MethodDelete:
-		return h.handleStub(c, opDeleteMRAP)
+		return h.handleDeleteMultiRegionAccessPoint(c)
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policy") && method == http.MethodGet:
 		return h.handleStub(c, "GetMultiRegionAccessPointPolicy")
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policyStatus") && method == http.MethodGet:
@@ -1134,6 +1134,391 @@ func (h *Handler) handleCreateMultiRegionAccessPoint(c *echo.Context) error {
 	return writeXML(c, createMRAPResponseXML{
 		RequestTokenARN: req.RequestTokenARN,
 	})
+}
+
+// --- GetAccessPoint handler ---
+
+type getAccessPointResponseXML struct {
+	XMLName        xml.Name `xml:"GetAccessPointResult"`
+	Name           string   `xml:"Name"`
+	Bucket         string   `xml:"Bucket"`
+	NetworkOrigin  string   `xml:"NetworkOrigin"`
+	AccessPointArn string   `xml:"AccessPointArn,omitempty"`
+	Alias          string   `xml:"Alias,omitempty"`
+}
+
+func (h *Handler) handleGetAccessPoint(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	name := strings.TrimPrefix(c.Request().URL.Path, pathAccessPointPrefix)
+
+	ap, err := h.Backend.GetAccessPoint(accountID, name)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return writeXML(c, getAccessPointResponseXML{
+		Name:           ap.Name,
+		Bucket:         ap.Bucket,
+		NetworkOrigin:  "Internet",
+		AccessPointArn: ap.AccessPointArn,
+		Alias:          ap.Alias,
+	})
+}
+
+func (h *Handler) handleDeleteAccessPoint(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	name := strings.TrimPrefix(c.Request().URL.Path, pathAccessPointPrefix)
+
+	if err := h.Backend.DeleteAccessPoint(accountID, name); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- ListAccessPoints handler ---
+
+type listAccessPointItemXML struct {
+	Name           string `xml:"Name"`
+	Bucket         string `xml:"Bucket"`
+	NetworkOrigin  string `xml:"NetworkOrigin"`
+	AccessPointArn string `xml:"AccessPointArn,omitempty"`
+}
+
+type listAccessPointsResponseXML struct {
+	XMLName      xml.Name                 `xml:"ListAccessPointsResult"`
+	AccessPoints []listAccessPointItemXML `xml:"AccessPointList>AccessPoint"`
+}
+
+func (h *Handler) handleListAccessPoints(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+
+	aps := h.Backend.ListAccessPoints(accountID)
+
+	items := make([]listAccessPointItemXML, 0, len(aps))
+	for _, ap := range aps {
+		items = append(items, listAccessPointItemXML{
+			Name:           ap.Name,
+			Bucket:         ap.Bucket,
+			NetworkOrigin:  "Internet",
+			AccessPointArn: ap.AccessPointArn,
+		})
+	}
+
+	return writeXML(c, listAccessPointsResponseXML{AccessPoints: items})
+}
+
+// --- Access point policy handlers ---
+
+type putAccessPointPolicyRequestXML struct {
+	XMLName xml.Name `xml:"PutAccessPointPolicyRequest"`
+	Policy  string   `xml:"Policy"`
+}
+
+func (h *Handler) handlePutAccessPointPolicy(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	path := c.Request().URL.Path
+	name := strings.TrimSuffix(strings.TrimPrefix(path, pathAccessPointPrefix), "/policy")
+
+	var body putAccessPointPolicyRequestXML
+	if err := decodeXML(c, &body); err != nil {
+		return c.String(http.StatusBadRequest, "invalid request body")
+	}
+
+	if err := h.Backend.PutAccessPointPolicy(accountID, name, body.Policy); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusCreated)
+}
+
+type getAccessPointPolicyResponseXML struct {
+	XMLName xml.Name `xml:"GetAccessPointPolicyResult"`
+	Policy  string   `xml:"Policy"`
+}
+
+func (h *Handler) handleGetAccessPointPolicy(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	path := c.Request().URL.Path
+	name := strings.TrimSuffix(strings.TrimPrefix(path, pathAccessPointPrefix), "/policy")
+
+	policy, err := h.Backend.GetAccessPointPolicy(accountID, name)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return writeXML(c, getAccessPointPolicyResponseXML{Policy: policy})
+}
+
+func (h *Handler) handleDeleteAccessPointPolicy(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	path := c.Request().URL.Path
+	name := strings.TrimSuffix(strings.TrimPrefix(path, pathAccessPointPrefix), "/policy")
+
+	if err := h.Backend.DeleteAccessPointPolicy(accountID, name); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+type getAccessPointPolicyStatusResponseXML struct {
+	XMLName  xml.Name `xml:"GetAccessPointPolicyStatusResult"`
+	IsPublic bool     `xml:"PolicyStatus>IsPublic"`
+}
+
+func (h *Handler) handleGetAccessPointPolicyStatus(c *echo.Context) error {
+	return writeXML(c, getAccessPointPolicyStatusResponseXML{IsPublic: false})
+}
+
+// --- Batch job read/update handlers ---
+
+type describeJobDescriptorXML struct {
+	JobArn   string `xml:"JobArn"`
+	JobID    string `xml:"JobId"`
+	RoleArn  string `xml:"RoleArn"`
+	Status   string `xml:"Status"`
+	Priority int32  `xml:"Priority"`
+}
+
+type describeJobResponseXML struct {
+	XMLName xml.Name                 `xml:"DescribeJobResult"`
+	Job     describeJobDescriptorXML `xml:"Job"`
+}
+
+func (h *Handler) handleDescribeJob(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	jobID := strings.TrimPrefix(c.Request().URL.Path, pathJobPrefix)
+
+	job, err := h.Backend.GetJob(accountID, jobID)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return writeXML(c, describeJobResponseXML{
+		Job: describeJobDescriptorXML{
+			JobID:    job.JobID,
+			JobArn:   job.JobArn,
+			Status:   job.Status,
+			Priority: job.Priority,
+			RoleArn:  job.RoleArn,
+		},
+	})
+}
+
+type listJobsJobXML struct {
+	JobID    string `xml:"JobId"`
+	Status   string `xml:"Status"`
+	Priority int32  `xml:"Priority"`
+}
+
+type listJobsResponseXML struct {
+	XMLName xml.Name         `xml:"ListJobsResult"`
+	Jobs    []listJobsJobXML `xml:"Jobs>member"`
+}
+
+func (h *Handler) handleListJobs(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+
+	jobs := h.Backend.ListJobs(accountID)
+
+	items := make([]listJobsJobXML, 0, len(jobs))
+	for _, j := range jobs {
+		items = append(items, listJobsJobXML{
+			JobID:    j.JobID,
+			Status:   j.Status,
+			Priority: j.Priority,
+		})
+	}
+
+	return writeXML(c, listJobsResponseXML{Jobs: items})
+}
+
+type updateJobPriorityRequestXML struct {
+	XMLName  xml.Name `xml:"UpdateJobPriorityRequest"`
+	Priority int32    `xml:"Priority"`
+}
+
+type updateJobPriorityResponseXML struct {
+	XMLName  xml.Name `xml:"UpdateJobPriorityResult"`
+	JobID    string   `xml:"JobId"`
+	Priority int32    `xml:"Priority"`
+}
+
+func (h *Handler) handleUpdateJobPriority(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	path := c.Request().URL.Path
+	jobID := strings.TrimSuffix(strings.TrimPrefix(path, pathJobPrefix), "/priority")
+
+	var body updateJobPriorityRequestXML
+	if err := decodeXML(c, &body); err != nil {
+		return c.String(http.StatusBadRequest, "invalid request body")
+	}
+
+	job, err := h.Backend.UpdateJobPriority(accountID, jobID, body.Priority)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return writeXML(c, updateJobPriorityResponseXML{
+		JobID:    job.JobID,
+		Priority: job.Priority,
+	})
+}
+
+type updateJobStatusRequestXML struct {
+	XMLName            xml.Name `xml:"UpdateJobStatusRequest"`
+	RequestedJobStatus string   `xml:"RequestedJobStatus"`
+}
+
+type updateJobStatusResponseXML struct {
+	XMLName xml.Name `xml:"UpdateJobStatusResult"`
+	JobID   string   `xml:"JobId"`
+	Status  string   `xml:"Status"`
+}
+
+func (h *Handler) handleUpdateJobStatus(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	path := c.Request().URL.Path
+	jobID := strings.TrimSuffix(strings.TrimPrefix(path, pathJobPrefix), "/status")
+
+	var body updateJobStatusRequestXML
+	if err := decodeXML(c, &body); err != nil {
+		return c.String(http.StatusBadRequest, "invalid request body")
+	}
+
+	job, err := h.Backend.UpdateJobStatus(accountID, jobID, body.RequestedJobStatus)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return writeXML(c, updateJobStatusResponseXML{
+		JobID:  job.JobID,
+		Status: job.Status,
+	})
+}
+
+// --- MRAP handlers ---
+
+type getMRAPResponseXML struct {
+	XMLName xml.Name `xml:"GetMultiRegionAccessPointResult"`
+	Name    string   `xml:"AccessPoint>Name"`
+	Alias   string   `xml:"AccessPoint>Alias"`
+	Status  string   `xml:"AccessPoint>Status"`
+}
+
+func (h *Handler) handleGetMultiRegionAccessPoint(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	name := strings.TrimPrefix(c.Request().URL.Path, pathMRAPInstancePrefix)
+
+	mrap, err := h.Backend.GetMultiRegionAccessPoint(accountID, name)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return writeXML(c, getMRAPResponseXML{
+		Name:   mrap.Name,
+		Alias:  mrap.Alias,
+		Status: mrap.Status,
+	})
+}
+
+func (h *Handler) handleDeleteMultiRegionAccessPoint(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+	name := strings.TrimPrefix(c.Request().URL.Path, pathMRAPInstancePrefix)
+
+	if err := h.Backend.DeleteMultiRegionAccessPoint(accountID, name); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+type deleteMRAPAsyncRequestXML struct {
+	XMLName xml.Name `xml:"DeleteMultiRegionAccessPointRequest"`
+	Details struct {
+		Name string `xml:"Name"`
+	} `xml:"Details"`
+}
+
+type deleteMRAPAsyncResponseXML struct {
+	XMLName         xml.Name `xml:"DeleteMultiRegionAccessPointResult"`
+	RequestTokenARN string   `xml:"RequestTokenARN"`
+}
+
+func (h *Handler) handleDeleteMultiRegionAccessPointAsync(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+
+	var body deleteMRAPAsyncRequestXML
+	if err := decodeXML(c, &body); err != nil {
+		return c.String(http.StatusBadRequest, "invalid request body")
+	}
+
+	if err := h.Backend.DeleteMultiRegionAccessPoint(accountID, body.Details.Name); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	tokenARN := "arn:aws:s3::" + accountID + ":async-request/mrap/delete/1"
+
+	return writeXML(c, deleteMRAPAsyncResponseXML{RequestTokenARN: tokenARN})
+}
+
+type listMRAPItemXML struct {
+	Name   string `xml:"Name"`
+	Alias  string `xml:"Alias"`
+	Status string `xml:"Status"`
+}
+
+type listMRAPsResponseXML struct {
+	XMLName      xml.Name          `xml:"ListMultiRegionAccessPointsResult"`
+	AccessPoints []listMRAPItemXML `xml:"AccessPoints>item"`
+}
+
+func (h *Handler) handleListMultiRegionAccessPoints(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+
+	mraps := h.Backend.ListMultiRegionAccessPoints(accountID)
+
+	items := make([]listMRAPItemXML, 0, len(mraps))
+	for _, m := range mraps {
+		items = append(items, listMRAPItemXML{
+			Name:   m.Name,
+			Alias:  m.Alias,
+			Status: m.Status,
+		})
+	}
+
+	return writeXML(c, listMRAPsResponseXML{AccessPoints: items})
+}
+
+type putMRAPPolicyRequestXML struct {
+	XMLName xml.Name `xml:"PutMultiRegionAccessPointPolicyRequest"`
+	Details struct {
+		Name   string `xml:"Name"`
+		Policy string `xml:"Policy"`
+	} `xml:"Details"`
+}
+
+type putMRAPPolicyResponseXML struct {
+	XMLName         xml.Name `xml:"PutMultiRegionAccessPointPolicyResult"`
+	RequestTokenARN string   `xml:"RequestTokenARN"`
+}
+
+func (h *Handler) handlePutMultiRegionAccessPointPolicy(c *echo.Context) error {
+	accountID := accountIDFromRequest(c)
+
+	var body putMRAPPolicyRequestXML
+	if err := decodeXML(c, &body); err != nil {
+		return c.String(http.StatusBadRequest, "invalid request body")
+	}
+
+	if err := h.Backend.PutMultiRegionAccessPointPolicy(accountID, body.Details.Name, body.Details.Policy); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	policyTokenARN := "arn:aws:s3::" + accountID + ":async-request/mrap/put_policy/1"
+
+	return writeXML(c, putMRAPPolicyResponseXML{RequestTokenARN: policyTokenARN})
 }
 
 // --- CreateStorageLensGroup handler ---
