@@ -939,6 +939,17 @@ func clusterToJSON(c *Cluster) map[string]any {
 		}
 	}
 
+	if len(c.EnabledLogTypes) > 0 {
+		m["logging"] = map[string]any{
+			"clusterLogging": []map[string]any{
+				{
+					"types":   c.EnabledLogTypes,
+					"enabled": true,
+				},
+			},
+		}
+	}
+
 	return m
 }
 

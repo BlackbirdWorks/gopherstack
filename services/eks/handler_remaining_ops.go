@@ -143,7 +143,7 @@ func (h *Handler) handleDescribeAddonConfiguration(c *echo.Context) error {
 	addonVersion := c.Request().URL.Query().Get("addonVersion")
 
 	if addonName == "" {
-		addonName = "vpc-cni"
+		addonName = addonVPCCNI
 	}
 
 	result := h.Backend.DescribeAddonConfiguration(addonName, addonVersion)
@@ -163,6 +163,16 @@ func addonToJSON(a *Addon) map[string]any {
 
 	if a.ServiceAccountRoleARN != "" {
 		m["serviceAccountRoleArn"] = a.ServiceAccountRoleARN
+	}
+
+	if a.MarketplaceVersion != "" {
+		m["marketplaceVersion"] = a.MarketplaceVersion
+	}
+
+	if a.Health != nil {
+		m["health"] = map[string]any{
+			"issues": a.Health.Issues,
+		}
 	}
 
 	return m
@@ -790,7 +800,7 @@ func insightToJSON(ins *Insight) map[string]any {
 func (h *Handler) dispatchClusterUpdateOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
 	case opUpdateClusterConfig:
-		return true, h.handleUpdateClusterConfig(c, route.clusterName)
+		return true, h.handleUpdateClusterConfig(c, route.clusterName, body)
 	case opUpdateClusterVersion:
 		return true, h.handleUpdateClusterVersion(c, route.clusterName, body)
 	case opUpdateNodegroupVersion:
@@ -810,8 +820,36 @@ func (h *Handler) dispatchClusterUpdateOps(c *echo.Context, route eksRoute, body
 	return false, nil
 }
 
-func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string) error {
-	update, err := h.Backend.UpdateClusterConfig(clusterName)
+type updateClusterConfigLogging struct {
+	ClusterLogging []struct {
+		Types   []string `json:"types"`
+		Enabled bool     `json:"enabled"`
+	} `json:"clusterLogging"`
+}
+
+type updateClusterConfigBody struct {
+	Logging *updateClusterConfigLogging `json:"logging"`
+}
+
+func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string, body []byte) error {
+	var in updateClusterConfigBody
+	var enabledLogTypes []string
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
+		}
+
+		if in.Logging != nil {
+			for _, entry := range in.Logging.ClusterLogging {
+				if entry.Enabled {
+					enabledLogTypes = append(enabledLogTypes, entry.Types...)
+				}
+			}
+		}
+	}
+
+	update, err := h.Backend.UpdateClusterConfig(clusterName, enabledLogTypes)
 	if err != nil {
 		return h.handleError(c, err)
 	}

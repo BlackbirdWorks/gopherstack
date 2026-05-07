@@ -4002,6 +4002,72 @@ func TestTerraform_EKS(t *testing.T) {
 	}
 }
 
+// TestTerraform_EKSComprehensive provisions an EKS cluster with node group, Fargate profile,
+// add-on, and access entry via Terraform, then verifies resources via the EKS SDK.
+func TestTerraform_EKSComprehensive(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "eks-comprehensive/main",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterName": "tf-eks-comp-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEKSClient(t)
+				clusterName := vars["ClusterName"].(string)
+
+				// Verify cluster exists.
+				out, err := client.ListClusters(ctx, &ekssvc.ListClustersInput{})
+				require.NoError(t, err, "ListClusters should succeed")
+				assert.True(t, slices.Contains(out.Clusters, clusterName), "cluster %q should be listed", clusterName)
+
+				// Verify node group exists with scaling config.
+				ngOut, err := client.ListNodegroups(ctx, &ekssvc.ListNodegroupsInput{
+					ClusterName: &clusterName,
+				})
+				require.NoError(t, err, "ListNodegroups should succeed")
+				assert.True(t, slices.Contains(ngOut.Nodegroups, "workers"), "nodegroup 'workers' should be listed")
+
+				// Verify Fargate profile exists.
+				fpOut, err := client.ListFargateProfiles(ctx, &ekssvc.ListFargateProfilesInput{
+					ClusterName: &clusterName,
+				})
+				require.NoError(t, err, "ListFargateProfiles should succeed")
+				assert.True(t, slices.Contains(fpOut.FargateProfileNames, "serverless"), "fargate profile 'serverless' should be listed")
+
+				// Verify add-on exists.
+				addonOut, err := client.ListAddons(ctx, &ekssvc.ListAddonsInput{
+					ClusterName: &clusterName,
+				})
+				require.NoError(t, err, "ListAddons should succeed")
+				assert.True(t, slices.Contains(addonOut.Addons, "coredns"), "addon 'coredns' should be listed")
+
+				// Verify access entry exists.
+				aeOut, err := client.ListAccessEntries(ctx, &ekssvc.ListAccessEntriesInput{
+					ClusterName: &clusterName,
+				})
+				require.NoError(t, err, "ListAccessEntries should succeed")
+				assert.NotEmpty(t, aeOut.AccessEntries, "access entries should not be empty")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_Bedrock provisions Bedrock guardrail via Terraform and verifies it exists.
 func TestTerraform_Bedrock(t *testing.T) {
 	t.Parallel()
