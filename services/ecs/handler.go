@@ -618,18 +618,36 @@ func (h *Handler) handleListTaskDefinitions(
 
 // ----- Service handlers -----
 
+type serviceConnectClientAliasInput struct {
+	DNSName string `json:"dnsName,omitempty"`
+	Port    int    `json:"port"`
+}
+
+type serviceConnectServiceInput struct {
+	PortName      string                           `json:"portName"`
+	DiscoveryName string                           `json:"discoveryName,omitempty"`
+	ClientAliases []serviceConnectClientAliasInput `json:"clientAliases,omitempty"`
+}
+
+type serviceConnectConfigurationInput struct {
+	Namespace string                       `json:"namespace,omitempty"`
+	Services  []serviceConnectServiceInput `json:"services,omitempty"`
+	Enabled   bool                         `json:"enabled"`
+}
+
 type createServiceInput struct {
-	ServiceName              string                        `json:"serviceName"`
-	Cluster                  string                        `json:"cluster,omitempty"`
-	TaskDefinition           string                        `json:"taskDefinition"`
-	LaunchType               string                        `json:"launchType,omitempty"`
-	SchedulingStrategy       string                        `json:"schedulingStrategy,omitempty"`
-	Tags                     []Tag                         `json:"tags,omitempty"`
-	DeploymentConfiguration  *deploymentConfigurationInput `json:"deploymentConfiguration,omitempty"`
-	CapacityProviderStrategy []cpStrategyItemInput         `json:"capacityProviderStrategy,omitempty"`
-	PlacementConstraints     []placementConstraintInput    `json:"placementConstraints,omitempty"`
-	PlacementStrategy        []placementStrategyInput      `json:"placementStrategy,omitempty"`
-	DesiredCount             int                           `json:"desiredCount"`
+	DeploymentConfiguration     *deploymentConfigurationInput     `json:"deploymentConfiguration,omitempty"`
+	ServiceConnectConfiguration *serviceConnectConfigurationInput `json:"serviceConnectConfiguration,omitempty"`
+	ServiceName                 string                            `json:"serviceName"`
+	Cluster                     string                            `json:"cluster,omitempty"`
+	TaskDefinition              string                            `json:"taskDefinition"`
+	LaunchType                  string                            `json:"launchType,omitempty"`
+	SchedulingStrategy          string                            `json:"schedulingStrategy,omitempty"`
+	Tags                        []Tag                             `json:"tags,omitempty"`
+	CapacityProviderStrategy    []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
+	PlacementConstraints        []placementConstraintInput        `json:"placementConstraints,omitempty"`
+	PlacementStrategy           []placementStrategyInput          `json:"placementStrategy,omitempty"`
+	DesiredCount                int                               `json:"desiredCount"`
 }
 
 type createServiceOutput struct {
@@ -638,17 +656,18 @@ type createServiceOutput struct {
 
 func (h *Handler) handleCreateService(_ context.Context, in *createServiceInput) (*createServiceOutput, error) {
 	svc, err := h.Backend.CreateService(CreateServiceInput{
-		ServiceName:              in.ServiceName,
-		Cluster:                  in.Cluster,
-		TaskDefinition:           in.TaskDefinition,
-		LaunchType:               in.LaunchType,
-		SchedulingStrategy:       in.SchedulingStrategy,
-		Tags:                     in.Tags,
-		DeploymentConfiguration:  toDeploymentConfiguration(in.DeploymentConfiguration),
-		CapacityProviderStrategy: toCPStrategyItems(in.CapacityProviderStrategy),
-		PlacementConstraints:     toPlacementConstraints(in.PlacementConstraints),
-		PlacementStrategy:        toPlacementStrategies(in.PlacementStrategy),
-		DesiredCount:             in.DesiredCount,
+		ServiceName:                 in.ServiceName,
+		Cluster:                     in.Cluster,
+		TaskDefinition:              in.TaskDefinition,
+		LaunchType:                  in.LaunchType,
+		SchedulingStrategy:          in.SchedulingStrategy,
+		Tags:                        in.Tags,
+		DeploymentConfiguration:     toDeploymentConfiguration(in.DeploymentConfiguration),
+		CapacityProviderStrategy:    toCPStrategyItems(in.CapacityProviderStrategy),
+		PlacementConstraints:        toPlacementConstraints(in.PlacementConstraints),
+		PlacementStrategy:           toPlacementStrategies(in.PlacementStrategy),
+		ServiceConnectConfiguration: toServiceConnectConfiguration(in.ServiceConnectConfiguration),
+		DesiredCount:                in.DesiredCount,
 	})
 	if err != nil {
 		return nil, err
@@ -684,14 +703,15 @@ func (h *Handler) handleDescribeServices(
 }
 
 type updateServiceInput struct {
-	DesiredCount             *int                          `json:"desiredCount,omitempty"`
-	Cluster                  string                        `json:"cluster,omitempty"`
-	Service                  string                        `json:"service"`
-	TaskDefinition           string                        `json:"taskDefinition,omitempty"`
-	DeploymentConfiguration  *deploymentConfigurationInput `json:"deploymentConfiguration,omitempty"`
-	CapacityProviderStrategy []cpStrategyItemInput         `json:"capacityProviderStrategy,omitempty"`
-	PlacementConstraints     []placementConstraintInput    `json:"placementConstraints,omitempty"`
-	PlacementStrategy        []placementStrategyInput      `json:"placementStrategy,omitempty"`
+	DesiredCount                *int                              `json:"desiredCount,omitempty"`
+	DeploymentConfiguration     *deploymentConfigurationInput     `json:"deploymentConfiguration,omitempty"`
+	ServiceConnectConfiguration *serviceConnectConfigurationInput `json:"serviceConnectConfiguration,omitempty"`
+	Cluster                     string                            `json:"cluster,omitempty"`
+	Service                     string                            `json:"service"`
+	TaskDefinition              string                            `json:"taskDefinition,omitempty"`
+	CapacityProviderStrategy    []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
+	PlacementConstraints        []placementConstraintInput        `json:"placementConstraints,omitempty"`
+	PlacementStrategy           []placementStrategyInput          `json:"placementStrategy,omitempty"`
 }
 
 type updateServiceOutput struct {
@@ -700,14 +720,15 @@ type updateServiceOutput struct {
 
 func (h *Handler) handleUpdateService(_ context.Context, in *updateServiceInput) (*updateServiceOutput, error) {
 	svc, err := h.Backend.UpdateService(UpdateServiceInput{
-		Cluster:                  in.Cluster,
-		Service:                  in.Service,
-		TaskDefinition:           in.TaskDefinition,
-		DesiredCount:             in.DesiredCount,
-		DeploymentConfiguration:  toDeploymentConfiguration(in.DeploymentConfiguration),
-		CapacityProviderStrategy: toCPStrategyItems(in.CapacityProviderStrategy),
-		PlacementConstraints:     toPlacementConstraints(in.PlacementConstraints),
-		PlacementStrategy:        toPlacementStrategies(in.PlacementStrategy),
+		Cluster:                     in.Cluster,
+		Service:                     in.Service,
+		TaskDefinition:              in.TaskDefinition,
+		DesiredCount:                in.DesiredCount,
+		DeploymentConfiguration:     toDeploymentConfiguration(in.DeploymentConfiguration),
+		CapacityProviderStrategy:    toCPStrategyItems(in.CapacityProviderStrategy),
+		PlacementConstraints:        toPlacementConstraints(in.PlacementConstraints),
+		PlacementStrategy:           toPlacementStrategies(in.PlacementStrategy),
+		ServiceConnectConfiguration: toServiceConnectConfiguration(in.ServiceConnectConfiguration),
 	})
 	if err != nil {
 		return nil, err
@@ -759,16 +780,33 @@ func (h *Handler) handleListServices(_ context.Context, in *listServicesInput) (
 
 // ----- Task handlers -----
 
+type containerOverrideInput struct {
+	CPU         *int           `json:"cpu,omitempty"`
+	Memory      *int           `json:"memory,omitempty"`
+	Name        string         `json:"name"`
+	Command     []string       `json:"command,omitempty"`
+	Environment []KeyValuePair `json:"environment,omitempty"`
+}
+
+type taskOverrideInput struct {
+	TaskRoleArn        string                   `json:"taskRoleArn,omitempty"`
+	ExecutionRoleArn   string                   `json:"executionRoleArn,omitempty"`
+	CPU                string                   `json:"cpu,omitempty"`
+	Memory             string                   `json:"memory,omitempty"`
+	ContainerOverrides []containerOverrideInput `json:"containerOverrides,omitempty"`
+}
+
 type runTaskInput struct {
-	Cluster              string `json:"cluster,omitempty"`
-	TaskDefinition       string `json:"taskDefinition"`
-	LaunchType           string `json:"launchType,omitempty"`
-	Group                string `json:"group,omitempty"`
-	StartedBy            string `json:"startedBy,omitempty"`
-	PlatformVersion      string `json:"platformVersion,omitempty"`
-	Tags                 []Tag  `json:"tags,omitempty"`
-	Count                int    `json:"count,omitempty"`
-	EnableECSManagedTags bool   `json:"enableECSManagedTags,omitempty"`
+	Overrides            *taskOverrideInput `json:"overrides,omitempty"`
+	Cluster              string             `json:"cluster,omitempty"`
+	TaskDefinition       string             `json:"taskDefinition"`
+	LaunchType           string             `json:"launchType,omitempty"`
+	Group                string             `json:"group,omitempty"`
+	StartedBy            string             `json:"startedBy,omitempty"`
+	PlatformVersion      string             `json:"platformVersion,omitempty"`
+	Tags                 []Tag              `json:"tags,omitempty"`
+	Count                int                `json:"count,omitempty"`
+	EnableECSManagedTags bool               `json:"enableECSManagedTags,omitempty"`
 }
 
 type runTaskOutput struct {
@@ -786,6 +824,7 @@ func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOu
 		PlatformVersion:      in.PlatformVersion,
 		EnableECSManagedTags: in.EnableECSManagedTags,
 		Tags:                 in.Tags,
+		Overrides:            toTaskOverride(in.Overrides),
 	})
 	if err != nil {
 		return nil, err
@@ -995,40 +1034,59 @@ func toDeploymentConfigurationView(dc *DeploymentConfiguration) *deploymentConfi
 	return v
 }
 
+type serviceConnectClientAliasView struct {
+	DNSName string `json:"dnsName,omitempty"`
+	Port    int    `json:"port"`
+}
+
+type serviceConnectServiceView struct {
+	PortName      string                          `json:"portName"`
+	DiscoveryName string                          `json:"discoveryName,omitempty"`
+	ClientAliases []serviceConnectClientAliasView `json:"clientAliases,omitempty"`
+}
+
+type serviceConnectConfigurationView struct {
+	Namespace string                      `json:"namespace,omitempty"`
+	Services  []serviceConnectServiceView `json:"services,omitempty"`
+	Enabled   bool                        `json:"enabled"`
+}
+
 type serviceView struct {
-	ServiceArn               string                       `json:"serviceArn"`
-	ServiceName              string                       `json:"serviceName"`
-	ClusterArn               string                       `json:"clusterArn"`
-	TaskDefinition           string                       `json:"taskDefinition"`
-	Status                   string                       `json:"status"`
-	LaunchType               string                       `json:"launchType,omitempty"`
-	SchedulingStrategy       string                       `json:"schedulingStrategy,omitempty"`
-	Tags                     []Tag                        `json:"tags,omitempty"`
-	DeploymentConfiguration  *deploymentConfigurationView `json:"deploymentConfiguration,omitempty"`
-	CapacityProviderStrategy []cpStrategyItemInput        `json:"capacityProviderStrategy,omitempty"`
-	PlacementConstraints     []placementConstraintView    `json:"placementConstraints,omitempty"`
-	PlacementStrategy        []placementStrategyView      `json:"placementStrategy,omitempty"`
-	CreatedAt                float64                      `json:"createdAt"`
-	DesiredCount             int                          `json:"desiredCount"`
-	PendingCount             int                          `json:"pendingCount"`
-	RunningCount             int                          `json:"runningCount"`
+	ServiceConnectConfiguration *serviceConnectConfigurationView `json:"serviceConnectConfiguration,omitempty"`
+	DeploymentConfiguration     *deploymentConfigurationView     `json:"deploymentConfiguration,omitempty"`
+	ClusterArn                  string                           `json:"clusterArn"`
+	TaskDefinition              string                           `json:"taskDefinition"`
+	Status                      string                           `json:"status"`
+	LaunchType                  string                           `json:"launchType,omitempty"`
+	SchedulingStrategy          string                           `json:"schedulingStrategy,omitempty"`
+	ServiceArn                  string                           `json:"serviceArn"`
+	ServiceName                 string                           `json:"serviceName"`
+	CapacityProviderStrategy    []cpStrategyItemInput            `json:"capacityProviderStrategy,omitempty"`
+	PlacementConstraints        []placementConstraintView        `json:"placementConstraints,omitempty"`
+	PlacementStrategy           []placementStrategyView          `json:"placementStrategy,omitempty"`
+	Tags                        []Tag                            `json:"tags,omitempty"`
+	CreatedAt                   float64                          `json:"createdAt"`
+	DesiredCount                int                              `json:"desiredCount"`
+	PendingCount                int                              `json:"pendingCount"`
+	RunningCount                int                              `json:"runningCount"`
 }
 
 func toServiceView(s Service) serviceView {
 	v := serviceView{
-		ServiceArn:              s.ServiceArn,
-		ServiceName:             s.ServiceName,
-		ClusterArn:              s.ClusterArn,
-		TaskDefinition:          s.TaskDefinition,
-		Status:                  s.Status,
-		LaunchType:              s.LaunchType,
-		SchedulingStrategy:      s.SchedulingStrategy,
-		CreatedAt:               float64(s.CreatedAt.Unix()),
-		Tags:                    s.Tags,
-		DeploymentConfiguration: toDeploymentConfigurationView(s.DeploymentConfiguration),
-		DesiredCount:            s.DesiredCount,
-		PendingCount:            s.PendingCount,
-		RunningCount:            s.RunningCount,
+		ServiceArn:                  s.ServiceArn,
+		ServiceName:                 s.ServiceName,
+		ClusterArn:                  s.ClusterArn,
+		TaskDefinition:              s.TaskDefinition,
+		Status:                      s.Status,
+		LaunchType:                  s.LaunchType,
+		SchedulingStrategy:          s.SchedulingStrategy,
+		CreatedAt:                   float64(s.CreatedAt.Unix()),
+		Tags:                        s.Tags,
+		DeploymentConfiguration:     toDeploymentConfigurationView(s.DeploymentConfiguration),
+		ServiceConnectConfiguration: toServiceConnectConfigurationView(s.ServiceConnectConfiguration),
+		DesiredCount:                s.DesiredCount,
+		PendingCount:                s.PendingCount,
+		RunningCount:                s.RunningCount,
 	}
 
 	for _, item := range s.CapacityProviderStrategy {
@@ -1058,7 +1116,24 @@ type taskAttachmentView struct {
 	Details []taskAttachmentDetailView `json:"details,omitempty"`
 }
 
+type containerOverrideView struct {
+	CPU         *int           `json:"cpu,omitempty"`
+	Memory      *int           `json:"memory,omitempty"`
+	Name        string         `json:"name"`
+	Command     []string       `json:"command,omitempty"`
+	Environment []KeyValuePair `json:"environment,omitempty"`
+}
+
+type taskOverrideView struct {
+	TaskRoleArn        string                  `json:"taskRoleArn,omitempty"`
+	ExecutionRoleArn   string                  `json:"executionRoleArn,omitempty"`
+	CPU                string                  `json:"cpu,omitempty"`
+	Memory             string                  `json:"memory,omitempty"`
+	ContainerOverrides []containerOverrideView `json:"containerOverrides,omitempty"`
+}
+
 type taskView struct {
+	Overrides            *taskOverrideView    `json:"overrides,omitempty"`
 	TaskArn              string               `json:"taskArn"`
 	ClusterArn           string               `json:"clusterArn"`
 	TaskDefinitionArn    string               `json:"taskDefinitionArn"`
@@ -1095,6 +1170,7 @@ func toTaskView(t Task) taskView {
 		PlatformVersion:      t.PlatformVersion,
 		PlatformFamily:       t.PlatformFamily,
 		RuntimeID:            t.RuntimeID,
+		Overrides:            toTaskOverrideView(t.Overrides),
 	}
 
 	for _, a := range t.Attachments {
@@ -1181,6 +1257,100 @@ func toPlacementStrategies(in []placementStrategyInput) []PlacementStrategy {
 	out := make([]PlacementStrategy, len(in))
 	for i, s := range in {
 		out[i] = PlacementStrategy(s)
+	}
+
+	return out
+}
+
+// toServiceConnectConfiguration converts handler input to backend type.
+func toServiceConnectConfiguration(in *serviceConnectConfigurationInput) *ServiceConnectConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	out := &ServiceConnectConfiguration{
+		Namespace: in.Namespace,
+		Enabled:   in.Enabled,
+	}
+
+	for _, s := range in.Services {
+		svc := ServiceConnectService{
+			PortName:      s.PortName,
+			DiscoveryName: s.DiscoveryName,
+		}
+
+		for _, a := range s.ClientAliases {
+			svc.ClientAliases = append(svc.ClientAliases, ServiceConnectClientAlias(a))
+		}
+
+		out.Services = append(out.Services, svc)
+	}
+
+	return out
+}
+
+// toServiceConnectConfigurationView converts backend type to view.
+func toServiceConnectConfigurationView(in *ServiceConnectConfiguration) *serviceConnectConfigurationView {
+	if in == nil {
+		return nil
+	}
+
+	out := &serviceConnectConfigurationView{
+		Namespace: in.Namespace,
+		Enabled:   in.Enabled,
+	}
+
+	for _, s := range in.Services {
+		svc := serviceConnectServiceView{
+			PortName:      s.PortName,
+			DiscoveryName: s.DiscoveryName,
+		}
+
+		for _, a := range s.ClientAliases {
+			svc.ClientAliases = append(svc.ClientAliases, serviceConnectClientAliasView(a))
+		}
+
+		out.Services = append(out.Services, svc)
+	}
+
+	return out
+}
+
+// toTaskOverride converts handler input to backend type.
+func toTaskOverride(in *taskOverrideInput) *TaskOverride {
+	if in == nil {
+		return nil
+	}
+
+	out := &TaskOverride{
+		TaskRoleArn:      in.TaskRoleArn,
+		ExecutionRoleArn: in.ExecutionRoleArn,
+		CPU:              in.CPU,
+		Memory:           in.Memory,
+	}
+
+	for _, co := range in.ContainerOverrides {
+		out.ContainerOverrides = append(out.ContainerOverrides, ContainerOverride(co))
+	}
+
+	return out
+}
+
+// toTaskOverrideView converts backend type to view.
+func toTaskOverrideView(in *TaskOverride) *taskOverrideView {
+	if in == nil {
+		return nil
+	}
+
+	out := &taskOverrideView{
+		TaskRoleArn:      in.TaskRoleArn,
+		ExecutionRoleArn: in.ExecutionRoleArn,
+		CPU:              in.CPU,
+		Memory:           in.Memory,
+	}
+
+	for _, co := range in.ContainerOverrides {
+		out.ContainerOverrides = append(out.ContainerOverrides, containerOverrideView(co))
 	}
 
 	return out
