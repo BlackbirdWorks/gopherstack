@@ -858,7 +858,8 @@ func (db *InMemoryDB) DeleteResourcePolicy(
 
 	table := db.getTableByARN(*input.ResourceArn)
 	if table == nil {
-		return nil, NewResourceNotFoundException("Table not found for ARN: " + *input.ResourceArn)
+		// idempotent: nonexistent resource is a no-op
+		return &dynamodb.DeleteResourcePolicyOutput{RevisionId: aws.String("1")}, nil
 	}
 
 	table.mu.Lock("DeleteResourcePolicy")

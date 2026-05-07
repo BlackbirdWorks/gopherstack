@@ -170,6 +170,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteStateMachineVersion",
 		"DescribeActivity",
 		"DescribeExecution",
+		"DescribeMapRun",
 		"DescribeStateMachine",
 		"DescribeStateMachineAlias",
 		"DescribeStateMachineForExecution",
@@ -178,6 +179,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetExecutionHistory",
 		"ListActivities",
 		"ListExecutions",
+		"ListMapRuns",
 		"ListStateMachineAliases",
 		"ListStateMachineVersions",
 		"ListStateMachines",
@@ -191,14 +193,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"StartSyncExecution",
 		"StopExecution",
 		"TagResource",
+		"TestState",
 		"UntagResource",
+		"UpdateMapRun",
 		"UpdateStateMachine",
 		"UpdateStateMachineAlias",
 		"ValidateStateMachineDefinition",
-		"DescribeMapRun",
-		"ListMapRuns",
-		"TestState",
-		"UpdateMapRun",
 	}
 }
 

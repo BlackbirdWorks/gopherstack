@@ -55,7 +55,7 @@ func TestRefinement1_HandlerOpsLenHelper(t *testing.T) {
 
 	b := stepfunctions.NewInMemoryBackend()
 	h := stepfunctions.NewHandler(b)
-	assert.Equal(t, 34, h.HandlerOpsLen())
+	assert.Equal(t, 38, h.HandlerOpsLen())
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
