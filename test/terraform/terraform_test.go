@@ -462,7 +462,12 @@ func ensureTofuBinary(t *testing.T) string {
 func downloadTofuBinary(logger *slog.Logger) (string, error) {
 	ctx := context.Background()
 
-	versionReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://get.opentofu.org/tofu/api.json", nil)
+	versionReq, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		"https://get.opentofu.org/tofu/api.json",
+		nil,
+	)
 	if err != nil {
 		return "", fmt.Errorf("creating OpenTofu version request: %w", err)
 	}
@@ -666,7 +671,10 @@ func reuseOrInit(t *testing.T, dir, hcl string, run func(bool, ...string) bool) 
 
 	dotTerraform := filepath.Join(dir, ".terraform")
 	if err := hardLinkDir(filepath.Join(initSrc, ".terraform"), dotTerraform); err != nil {
-		t.Logf("could not hard-link .terraform from pre-init dir: %v; cleaning up and falling back to init", err)
+		t.Logf(
+			"could not hard-link .terraform from pre-init dir: %v; cleaning up and falling back to init",
+			err,
+		)
 		// Remove any partially-created tree so tofu init starts from a clean slate.
 		if rmErr := os.RemoveAll(dotTerraform); rmErr != nil {
 			t.Logf("failed to remove partial .terraform dir: %v", rmErr)
@@ -682,7 +690,10 @@ func reuseOrInit(t *testing.T, dir, hcl string, run func(bool, ...string) bool) 
 	// may re-resolve providers in a non-deterministic way.
 	lockData, readErr := os.ReadFile(filepath.Join(initSrc, ".terraform.lock.hcl"))
 	if readErr != nil {
-		t.Logf("failed to read .terraform.lock.hcl from pre-init dir: %v; falling back to init", readErr)
+		t.Logf(
+			"failed to read .terraform.lock.hcl from pre-init dir: %v; falling back to init",
+			readErr,
+		)
 		if rmErr := os.RemoveAll(dotTerraform); rmErr != nil {
 			t.Logf("failed to remove .terraform dir before fallback: %v", rmErr)
 		}
@@ -814,7 +825,11 @@ func runTFTest(t *testing.T, tc tfTestCase) {
 }
 
 // runTfTestWithEndpoint is a specialized runner for tests using setupEndpoint.
-func runTfTestWithEndpoint(t *testing.T, fixture string, verify func(t *testing.T, ctx context.Context)) {
+func runTfTestWithEndpoint(
+	t *testing.T,
+	fixture string,
+	verify func(t *testing.T, ctx context.Context),
+) {
 	t.Helper()
 
 	runTFTest(t, tfTestCase{
@@ -891,7 +906,11 @@ func TestTerraform_DynamoDBStreams(t *testing.T) {
 				require.NoError(t, err, "ListStreams should succeed after terraform apply")
 				require.NotEmpty(t, out.Streams, "stream should be listed for table %q", tableName)
 				assert.Equal(t, tableName, aws.ToString(out.Streams[0].TableName))
-				assert.NotEmpty(t, aws.ToString(out.Streams[0].StreamArn), "stream ARN should be non-empty")
+				assert.NotEmpty(
+					t,
+					aws.ToString(out.Streams[0].StreamArn),
+					"stream ARN should be non-empty",
+				)
 			},
 		},
 	}
@@ -940,10 +959,18 @@ func TestTerraform_DynamoDBComprehensive(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeTable(streams) should succeed")
 				require.NotNil(t, descOut.Table)
-				assert.NotEmpty(t, aws.ToString(descOut.Table.LatestStreamArn), "stream ARN should be set")
+				assert.NotEmpty(
+					t,
+					aws.ToString(descOut.Table.LatestStreamArn),
+					"stream ARN should be set",
+				)
 				require.NotNil(t, descOut.Table.StreamSpecification)
 				assert.True(t, aws.ToBool(descOut.Table.StreamSpecification.StreamEnabled))
-				assert.Equal(t, ddbtypes.StreamViewTypeNewAndOldImages, descOut.Table.StreamSpecification.StreamViewType)
+				assert.Equal(
+					t,
+					ddbtypes.StreamViewTypeNewAndOldImages,
+					descOut.Table.StreamSpecification.StreamViewType,
+				)
 
 				// TTL should be enabled on the streams table.
 				ttlOut, err := client.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
@@ -951,13 +978,24 @@ func TestTerraform_DynamoDBComprehensive(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeTimeToLive should succeed")
 				require.NotNil(t, ttlOut.TimeToLiveDescription)
-				assert.Equal(t, ddbtypes.TimeToLiveStatusEnabled, ttlOut.TimeToLiveDescription.TimeToLiveStatus)
-				assert.Equal(t, "expires_at", aws.ToString(ttlOut.TimeToLiveDescription.AttributeName))
+				assert.Equal(
+					t,
+					ddbtypes.TimeToLiveStatusEnabled,
+					ttlOut.TimeToLiveDescription.TimeToLiveStatus,
+				)
+				assert.Equal(
+					t,
+					"expires_at",
+					aws.ToString(ttlOut.TimeToLiveDescription.AttributeName),
+				)
 
 				// Stream should be listed.
-				listStreamsOut, err := streamsClient.ListStreams(ctx, &dynamodbstreamssvc.ListStreamsInput{
-					TableName: aws.String(streamsTable),
-				})
+				listStreamsOut, err := streamsClient.ListStreams(
+					ctx,
+					&dynamodbstreamssvc.ListStreamsInput{
+						TableName: aws.String(streamsTable),
+					},
+				)
 				require.NoError(t, err, "ListStreams should succeed")
 				require.NotEmpty(t, listStreamsOut.Streams, "at least one stream should be listed")
 				assert.Equal(t, streamsTable, aws.ToString(listStreamsOut.Streams[0].TableName))
@@ -977,7 +1015,11 @@ func TestTerraform_DynamoDBComprehensive(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeGlobalTable should succeed")
 				require.NotNil(t, descGT.GlobalTableDescription)
-				assert.Equal(t, globalTable, aws.ToString(descGT.GlobalTableDescription.GlobalTableName))
+				assert.Equal(
+					t,
+					globalTable,
+					aws.ToString(descGT.GlobalTableDescription.GlobalTableName),
+				)
 
 				// --- On-demand billing table ---
 				descOnDemand, err := client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
@@ -1066,7 +1108,11 @@ func TestTerraform_RDS(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeDBInstances should succeed after terraform apply")
 				require.Len(t, out.DBInstances, 1)
-				assert.Equal(t, vars["Identifier"].(string), aws.ToString(out.DBInstances[0].DBInstanceIdentifier))
+				assert.Equal(
+					t,
+					vars["Identifier"].(string),
+					aws.ToString(out.DBInstances[0].DBInstanceIdentifier),
+				)
 				assert.Equal(t, "postgres", aws.ToString(out.DBInstances[0].Engine))
 				assert.Equal(t, "available", aws.ToString(out.DBInstances[0].DBInstanceStatus))
 			},
@@ -1145,18 +1191,28 @@ func TestTerraform_Neptune(t *testing.T) {
 				assert.Equal(t, clusterID, *out.DBClusters[0].DBClusterIdentifier)
 
 				instanceID := "tf-neptune-inst-" + suffix
-				instOut, err := client.DescribeDBInstances(ctx, &neptunesvc.DescribeDBInstancesInput{
-					DBInstanceIdentifier: &instanceID,
-				})
+				instOut, err := client.DescribeDBInstances(
+					ctx,
+					&neptunesvc.DescribeDBInstancesInput{
+						DBInstanceIdentifier: &instanceID,
+					},
+				)
 				require.NoError(t, err, "DescribeDBInstances should succeed after terraform apply")
 				require.Len(t, instOut.DBInstances, 1)
 				assert.Equal(t, instanceID, *instOut.DBInstances[0].DBInstanceIdentifier)
 
 				sgName := "tf-neptune-sg-" + suffix
-				sgOut, err := client.DescribeDBSubnetGroups(ctx, &neptunesvc.DescribeDBSubnetGroupsInput{
-					DBSubnetGroupName: &sgName,
-				})
-				require.NoError(t, err, "DescribeDBSubnetGroups should succeed after terraform apply")
+				sgOut, err := client.DescribeDBSubnetGroups(
+					ctx,
+					&neptunesvc.DescribeDBSubnetGroupsInput{
+						DBSubnetGroupName: &sgName,
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeDBSubnetGroups should succeed after terraform apply",
+				)
 				require.Len(t, sgOut.DBSubnetGroups, 1)
 				assert.Equal(t, sgName, *sgOut.DBSubnetGroups[0].DBSubnetGroupName)
 			},
@@ -1209,7 +1265,11 @@ func TestTerraform_Lambda(t *testing.T) {
 				})
 				require.NoError(t, err, "GetFunction should succeed after terraform apply")
 				require.NotNil(t, out.Configuration)
-				assert.Equal(t, vars["FuncName"].(string), aws.ToString(out.Configuration.FunctionName))
+				assert.Equal(
+					t,
+					vars["FuncName"].(string),
+					aws.ToString(out.Configuration.FunctionName),
+				)
 			},
 		},
 	}
@@ -1263,7 +1323,11 @@ func TestTerraform_Lambda_ProvisionedConcurrency(t *testing.T) {
 						FunctionName: aws.String(vars["FuncName"].(string)),
 					},
 				)
-				require.NoError(t, err, "ListProvisionedConcurrencyConfigs should succeed after terraform apply")
+				require.NoError(
+					t,
+					err,
+					"ListProvisionedConcurrencyConfigs should succeed after terraform apply",
+				)
 				assert.NotEmpty(t, listOut.ProvisionedConcurrencyConfigs,
 					"at least one provisioned concurrency config should exist")
 			},
@@ -1338,7 +1402,9 @@ func TestTerraform_SNSSQSSubscription(t *testing.T) {
 				t.Helper()
 				client := createSNSClient(t)
 				out, err := client.GetTopicAttributes(ctx, &snssvc.GetTopicAttributesInput{
-					TopicArn: aws.String("arn:aws:sns:us-east-1:000000000000:" + vars["TopicName"].(string)),
+					TopicArn: aws.String(
+						"arn:aws:sns:us-east-1:000000000000:" + vars["TopicName"].(string),
+					),
 				})
 				require.NoError(t, err, "GetTopicAttributes should succeed after terraform apply")
 				assert.NotEmpty(t, out.Attributes)
@@ -1372,14 +1438,32 @@ func TestTerraform_SNSPlatformApplication(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createSNSClient(t)
-				out, err := client.ListPlatformApplications(ctx, &snssvc.ListPlatformApplicationsInput{})
-				require.NoError(t, err, "ListPlatformApplications should succeed after terraform apply")
+				out, err := client.ListPlatformApplications(
+					ctx,
+					&snssvc.ListPlatformApplicationsInput{},
+				)
+				require.NoError(
+					t,
+					err,
+					"ListPlatformApplications should succeed after terraform apply",
+				)
 
 				appName := vars["AppName"].(string)
-				found := slices.ContainsFunc(out.PlatformApplications, func(app snstypes.PlatformApplication) bool {
-					return strings.HasSuffix(aws.ToString(app.PlatformApplicationArn), "/"+appName)
-				})
-				assert.True(t, found, "platform application %q should exist after terraform apply", appName)
+				found := slices.ContainsFunc(
+					out.PlatformApplications,
+					func(app snstypes.PlatformApplication) bool {
+						return strings.HasSuffix(
+							aws.ToString(app.PlatformApplicationArn),
+							"/"+appName,
+						)
+					},
+				)
+				assert.True(
+					t,
+					found,
+					"platform application %q should exist after terraform apply",
+					appName,
+				)
 			},
 		},
 	}
@@ -1507,7 +1591,9 @@ func TestTerraform_Route53(t *testing.T) {
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
-				return map[string]any{"ZoneName": "tf-test-" + uuid.NewString()[:8] + ".example.com"}
+				return map[string]any{
+					"ZoneName": "tf-test-" + uuid.NewString()[:8] + ".example.com",
+				}
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
@@ -1519,7 +1605,8 @@ func TestTerraform_Route53(t *testing.T) {
 				found := false
 
 				for _, zone := range out.HostedZones {
-					if aws.ToString(zone.Name) == zoneName+"." || aws.ToString(zone.Name) == zoneName {
+					if aws.ToString(zone.Name) == zoneName+"." ||
+						aws.ToString(zone.Name) == zoneName {
 						found = true
 
 						break
@@ -1571,7 +1658,12 @@ func TestTerraform_CloudWatchLogGroup(t *testing.T) {
 					}
 				}
 
-				assert.True(t, found, "log group %q should exist after terraform apply", logGroupName)
+				assert.True(
+					t,
+					found,
+					"log group %q should exist after terraform apply",
+					logGroupName,
+				)
 			},
 		},
 	}
@@ -1738,10 +1830,17 @@ func TestTerraform_EventBridge(t *testing.T) {
 				assert.Equal(t, vars["ConnectionName"].(string), aws.ToString(connOut.Name))
 
 				// Verify API destination.
-				dstOut, err := client.DescribeApiDestination(ctx, &ebsvc.DescribeApiDestinationInput{
-					Name: aws.String(vars["APIDestinationName"].(string)),
-				})
-				require.NoError(t, err, "DescribeApiDestination should succeed after terraform apply")
+				dstOut, err := client.DescribeApiDestination(
+					ctx,
+					&ebsvc.DescribeApiDestinationInput{
+						Name: aws.String(vars["APIDestinationName"].(string)),
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeApiDestination should succeed after terraform apply",
+				)
 				assert.Equal(t, vars["APIDestinationName"].(string), aws.ToString(dstOut.Name))
 			},
 		},
@@ -1776,8 +1875,16 @@ func TestTerraform_CloudWatchAlarm(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeAlarms should succeed after terraform apply")
 				require.Len(t, out.MetricAlarms, 1)
-				assert.Equal(t, vars["AlarmName"].(string), aws.ToString(out.MetricAlarms[0].AlarmName))
-				assert.Equal(t, cwtypes.ComparisonOperatorGreaterThanThreshold, out.MetricAlarms[0].ComparisonOperator)
+				assert.Equal(
+					t,
+					vars["AlarmName"].(string),
+					aws.ToString(out.MetricAlarms[0].AlarmName),
+				)
+				assert.Equal(
+					t,
+					cwtypes.ComparisonOperatorGreaterThanThreshold,
+					out.MetricAlarms[0].ComparisonOperator,
+				)
 			},
 		},
 	}
@@ -1806,12 +1913,23 @@ func TestTerraform_Kinesis(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createKinesisClient(t)
-				out, err := client.DescribeStreamSummary(ctx, &kinesissvc.DescribeStreamSummaryInput{
-					StreamName: aws.String(vars["StreamName"].(string)),
-				})
-				require.NoError(t, err, "DescribeStreamSummary should succeed after terraform apply")
+				out, err := client.DescribeStreamSummary(
+					ctx,
+					&kinesissvc.DescribeStreamSummaryInput{
+						StreamName: aws.String(vars["StreamName"].(string)),
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeStreamSummary should succeed after terraform apply",
+				)
 				require.NotNil(t, out.StreamDescriptionSummary)
-				assert.Equal(t, vars["StreamName"].(string), aws.ToString(out.StreamDescriptionSummary.StreamName))
+				assert.Equal(
+					t,
+					vars["StreamName"].(string),
+					aws.ToString(out.StreamDescriptionSummary.StreamName),
+				)
 			},
 		},
 	}
@@ -1854,7 +1972,12 @@ func TestTerraform_ACM(t *testing.T) {
 					}
 				}
 
-				assert.True(t, found, "certificate for %q should exist after terraform apply", domain)
+				assert.True(
+					t,
+					found,
+					"certificate for %q should exist after terraform apply",
+					domain,
+				)
 			},
 		},
 	}
@@ -1884,8 +2007,15 @@ func TestTerraform_ACMPCA(t *testing.T) {
 				t.Helper()
 
 				client := createACMPCAClient(t)
-				out, err := client.ListCertificateAuthorities(ctx, &acmpcasvc.ListCertificateAuthoritiesInput{})
-				require.NoError(t, err, "ListCertificateAuthorities should succeed after terraform apply")
+				out, err := client.ListCertificateAuthorities(
+					ctx,
+					&acmpcasvc.ListCertificateAuthoritiesInput{},
+				)
+				require.NoError(
+					t,
+					err,
+					"ListCertificateAuthorities should succeed after terraform apply",
+				)
 
 				commonName := vars["CommonName"].(string)
 				found := false
@@ -1893,14 +2023,21 @@ func TestTerraform_ACMPCA(t *testing.T) {
 				for _, ca := range out.CertificateAuthorities {
 					if ca.CertificateAuthorityConfiguration != nil &&
 						ca.CertificateAuthorityConfiguration.Subject != nil &&
-						aws.ToString(ca.CertificateAuthorityConfiguration.Subject.CommonName) == commonName {
+						aws.ToString(
+							ca.CertificateAuthorityConfiguration.Subject.CommonName,
+						) == commonName {
 						found = true
 
 						break
 					}
 				}
 
-				assert.True(t, found, "CA with common name %q should exist after terraform apply", commonName)
+				assert.True(
+					t,
+					found,
+					"CA with common name %q should exist after terraform apply",
+					commonName,
+				)
 			},
 		},
 	}
@@ -1963,12 +2100,23 @@ func TestTerraform_ElastiCache(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createElastiCacheClient(t)
-				out, err := client.DescribeCacheClusters(ctx, &elasticachesvc.DescribeCacheClustersInput{
-					CacheClusterId: aws.String(vars["ClusterID"].(string)),
-				})
-				require.NoError(t, err, "DescribeCacheClusters should succeed after terraform apply")
+				out, err := client.DescribeCacheClusters(
+					ctx,
+					&elasticachesvc.DescribeCacheClustersInput{
+						CacheClusterId: aws.String(vars["ClusterID"].(string)),
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeCacheClusters should succeed after terraform apply",
+				)
 				require.Len(t, out.CacheClusters, 1)
-				assert.Equal(t, vars["ClusterID"].(string), aws.ToString(out.CacheClusters[0].CacheClusterId))
+				assert.Equal(
+					t,
+					vars["ClusterID"].(string),
+					aws.ToString(out.CacheClusters[0].CacheClusterId),
+				)
 			},
 		},
 	}
@@ -2002,7 +2150,11 @@ func TestTerraform_OpenSearch(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeDomain should succeed after terraform apply")
 				require.NotNil(t, out.DomainStatus)
-				assert.Equal(t, vars["DomainName"].(string), aws.ToString(out.DomainStatus.DomainName))
+				assert.Equal(
+					t,
+					vars["DomainName"].(string),
+					aws.ToString(out.DomainStatus.DomainName),
+				)
 			},
 		},
 	}
@@ -2031,12 +2183,23 @@ func TestTerraform_Elasticsearch(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createElasticsearchClient(t)
-				out, err := client.DescribeElasticsearchDomain(ctx, &elasticsearchsvc.DescribeElasticsearchDomainInput{
-					DomainName: aws.String(vars["DomainName"].(string)),
-				})
-				require.NoError(t, err, "DescribeElasticsearchDomain should succeed after terraform apply")
+				out, err := client.DescribeElasticsearchDomain(
+					ctx,
+					&elasticsearchsvc.DescribeElasticsearchDomainInput{
+						DomainName: aws.String(vars["DomainName"].(string)),
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeElasticsearchDomain should succeed after terraform apply",
+				)
 				require.NotNil(t, out.DomainStatus)
-				assert.Equal(t, vars["DomainName"].(string), aws.ToString(out.DomainStatus.DomainName))
+				assert.Equal(
+					t,
+					vars["DomainName"].(string),
+					aws.ToString(out.DomainStatus.DomainName),
+				)
 			},
 		},
 	}
@@ -2070,7 +2233,11 @@ func TestTerraform_Redshift(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeClusters should succeed after terraform apply")
 				require.Len(t, out.Clusters, 1)
-				assert.Equal(t, vars["ClusterID"].(string), aws.ToString(out.Clusters[0].ClusterIdentifier))
+				assert.Equal(
+					t,
+					vars["ClusterID"].(string),
+					aws.ToString(out.Clusters[0].ClusterIdentifier),
+				)
 			},
 		},
 	}
@@ -2104,10 +2271,17 @@ func TestTerraform_Firehose(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createFirehoseClient(t)
-				out, err := client.DescribeDeliveryStream(ctx, &firehosesvc.DescribeDeliveryStreamInput{
-					DeliveryStreamName: aws.String(vars["StreamName"].(string)),
-				})
-				require.NoError(t, err, "DescribeDeliveryStream should succeed after terraform apply")
+				out, err := client.DescribeDeliveryStream(
+					ctx,
+					&firehosesvc.DescribeDeliveryStreamInput{
+						DeliveryStreamName: aws.String(vars["StreamName"].(string)),
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeDeliveryStream should succeed after terraform apply",
+				)
 				require.NotNil(t, out.DeliveryStreamDescription)
 				assert.Equal(t,
 					vars["StreamName"].(string),
@@ -2253,9 +2427,12 @@ func TestTerraform_S3Control(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
 				client := createS3ControlClient(t)
-				out, err := client.GetPublicAccessBlock(ctx, &s3controlsvc.GetPublicAccessBlockInput{
-					AccountId: aws.String("000000000000"),
-				})
+				out, err := client.GetPublicAccessBlock(
+					ctx,
+					&s3controlsvc.GetPublicAccessBlockInput{
+						AccountId: aws.String("000000000000"),
+					},
+				)
 				require.NoError(t, err, "GetPublicAccessBlock should succeed after terraform apply")
 				require.NotNil(t, out.PublicAccessBlockConfiguration)
 				assert.True(t, aws.ToBool(out.PublicAccessBlockConfiguration.BlockPublicAcls))
@@ -2329,7 +2506,10 @@ func TestTerraform_S3Encryption(t *testing.T) {
 				require.NoError(t, err, "GetBucketEncryption should succeed after terraform apply")
 				require.NotNil(t, out.ServerSideEncryptionConfiguration)
 				require.NotEmpty(t, out.ServerSideEncryptionConfiguration.Rules)
-				require.NotNil(t, out.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault)
+				require.NotNil(
+					t,
+					out.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault,
+				)
 				assert.Equal(
 					t,
 					s3types.ServerSideEncryptionAes256,
@@ -2369,12 +2549,23 @@ func TestTerraform_AWSConfig(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createAWSConfigClient(t)
-				out, err := client.DescribeConfigurationRecorders(ctx, &configsvc.DescribeConfigurationRecordersInput{
-					ConfigurationRecorderNames: []string{vars["RecorderName"].(string)},
-				})
-				require.NoError(t, err, "DescribeConfigurationRecorders should succeed after terraform apply")
+				out, err := client.DescribeConfigurationRecorders(
+					ctx,
+					&configsvc.DescribeConfigurationRecordersInput{
+						ConfigurationRecorderNames: []string{vars["RecorderName"].(string)},
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeConfigurationRecorders should succeed after terraform apply",
+				)
 				require.Len(t, out.ConfigurationRecorders, 1)
-				assert.Equal(t, vars["RecorderName"].(string), aws.ToString(out.ConfigurationRecorders[0].Name))
+				assert.Equal(
+					t,
+					vars["RecorderName"].(string),
+					aws.ToString(out.ConfigurationRecorders[0].Name),
+				)
 			},
 		},
 	}
@@ -2407,7 +2598,10 @@ func TestTerraform_Route53Resolver(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createRoute53ResolverClient(t)
-				out, err := client.ListResolverRules(ctx, &route53resolversvc.ListResolverRulesInput{})
+				out, err := client.ListResolverRules(
+					ctx,
+					&route53resolversvc.ListResolverRulesInput{},
+				)
 				require.NoError(t, err, "ListResolverRules should succeed after terraform apply")
 				found := false
 				for _, r := range out.ResolverRules {
@@ -2417,7 +2611,12 @@ func TestTerraform_Route53Resolver(t *testing.T) {
 						break
 					}
 				}
-				assert.True(t, found, "resolver rule %q should be listed", vars["RuleName"].(string))
+				assert.True(
+					t,
+					found,
+					"resolver rule %q should be listed",
+					vars["RuleName"].(string),
+				)
 			},
 		},
 	}
@@ -2450,8 +2649,15 @@ func TestTerraform_EC2(t *testing.T) {
 				client := createEC2Client(t)
 
 				// Verify the network interface exists.
-				descOut, err := client.DescribeNetworkInterfaces(ctx, &ec2svc.DescribeNetworkInterfacesInput{})
-				require.NoError(t, err, "DescribeNetworkInterfaces should succeed after terraform apply")
+				descOut, err := client.DescribeNetworkInterfaces(
+					ctx,
+					&ec2svc.DescribeNetworkInterfacesInput{},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeNetworkInterfaces should succeed after terraform apply",
+				)
 
 				eniDesc := vars["ENIDescription"].(string)
 				var found bool
@@ -2464,7 +2670,12 @@ func TestTerraform_EC2(t *testing.T) {
 					}
 				}
 
-				require.True(t, found, "network interface with description %q should exist", eniDesc)
+				require.True(
+					t,
+					found,
+					"network interface with description %q should exist",
+					eniDesc,
+				)
 			},
 		},
 		{
@@ -2483,8 +2694,15 @@ func TestTerraform_EC2(t *testing.T) {
 				client := createEC2Client(t)
 
 				// Verify the security group with the unique name was created.
-				sgOut, err := client.DescribeSecurityGroups(ctx, &ec2svc.DescribeSecurityGroupsInput{})
-				require.NoError(t, err, "DescribeSecurityGroups should succeed after terraform apply")
+				sgOut, err := client.DescribeSecurityGroups(
+					ctx,
+					&ec2svc.DescribeSecurityGroupsInput{},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeSecurityGroups should succeed after terraform apply",
+				)
 				sgName := vars["SGName"].(string)
 				var found bool
 				for _, sg := range sgOut.SecurityGroups {
@@ -2500,7 +2718,11 @@ func TestTerraform_EC2(t *testing.T) {
 				out, err := client.DescribeInstances(ctx, &ec2svc.DescribeInstancesInput{})
 				require.NoError(t, err, "DescribeInstances should succeed after terraform apply")
 				require.NotEmpty(t, out.Reservations, "at least one reservation should exist")
-				require.NotEmpty(t, out.Reservations[0].Instances, "at least one instance should exist")
+				require.NotEmpty(
+					t,
+					out.Reservations[0].Instances,
+					"at least one instance should exist",
+				)
 
 				// Verify that tags from the fixture's `tags = {}` blocks were stored
 				// (via TagSpecification on CreateVpc / standalone CreateTags).
@@ -2517,7 +2739,11 @@ func TestTerraform_EC2(t *testing.T) {
 					}
 				}
 
-				require.NotEmpty(t, vpcID, "VPC with CIDR 10.2.0.0/16 should exist after terraform apply")
+				require.NotEmpty(
+					t,
+					vpcID,
+					"VPC with CIDR 10.2.0.0/16 should exist after terraform apply",
+				)
 
 				// DescribeTags with resource-id filter to get tags for the fixture's VPC.
 				tagsOut, err := client.DescribeTags(ctx, &ec2svc.DescribeTagsInput{
@@ -2532,7 +2758,12 @@ func TestTerraform_EC2(t *testing.T) {
 					vpcTags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
 				}
 
-				assert.Equal(t, "test-vpc", vpcTags["Name"], "VPC should have Name=test-vpc tag from terraform fixture")
+				assert.Equal(
+					t,
+					"test-vpc",
+					vpcTags["Name"],
+					"VPC should have Name=test-vpc tag from terraform fixture",
+				)
 			},
 		},
 	}
@@ -2588,9 +2819,12 @@ func TestTerraform_ECRLambda(t *testing.T) {
 
 				// 1. Verify the ECR repository was created.
 				ecrClient := createECRClient(t)
-				repoOut, err := ecrClient.DescribeRepositories(ctx, &ecrsvc.DescribeRepositoriesInput{
-					RepositoryNames: []string{vars["RepoName"].(string)},
-				})
+				repoOut, err := ecrClient.DescribeRepositories(
+					ctx,
+					&ecrsvc.DescribeRepositoriesInput{
+						RepositoryNames: []string{vars["RepoName"].(string)},
+					},
+				)
 				require.NoError(t, err, "ECR DescribeRepositories should succeed")
 				require.Len(t, repoOut.Repositories, 1)
 
@@ -2604,7 +2838,11 @@ func TestTerraform_ECRLambda(t *testing.T) {
 				})
 				require.NoError(t, err, "GetFunction should succeed")
 				require.NotNil(t, fnOut.Configuration)
-				assert.Equal(t, vars["FuncName"].(string), aws.ToString(fnOut.Configuration.FunctionName))
+				assert.Equal(
+					t,
+					vars["FuncName"].(string),
+					aws.ToString(fnOut.Configuration.FunctionName),
+				)
 
 				// 3. Confirm the ECR repo URI is wired into the Lambda environment.
 				// This validates the cross-service Terraform wiring: ECR → Lambda env var.
@@ -2701,7 +2939,12 @@ func TestTerraform_APIGateway_DataPlane(t *testing.T) {
 						break
 					}
 				}
-				require.NotEmpty(t, apiID, "REST API %q should be present", vars["APIName"].(string))
+				require.NotEmpty(
+					t,
+					apiID,
+					"REST API %q should be present",
+					vars["APIName"].(string),
+				)
 
 				// Invoke the deployed API through the data-plane endpoint.
 				// The MOCK integration returns HTTP 200 with an empty body by default.
@@ -2714,8 +2957,13 @@ func TestTerraform_APIGateway_DataPlane(t *testing.T) {
 
 				defer resp.Body.Close()
 
-				assert.Equal(t, http.StatusOK, resp.StatusCode,
-					"data-plane request to /restapis/%s/prod/_user_request_/items should return 200", apiID)
+				assert.Equal(
+					t,
+					http.StatusOK,
+					resp.StatusCode,
+					"data-plane request to /restapis/%s/prod/_user_request_/items should return 200",
+					apiID,
+				)
 			},
 		},
 	}
@@ -2799,7 +3047,11 @@ func TestTerraform_AppSync(t *testing.T) {
 				}
 
 				require.NotEmpty(t, apiID, "API %q should appear in list", vars["APIName"])
-				assert.Equal(t, appsyncsdktypes.AuthenticationTypeApiKey, listOut.GraphqlApis[0].AuthenticationType)
+				assert.Equal(
+					t,
+					appsyncsdktypes.AuthenticationTypeApiKey,
+					listOut.GraphqlApis[0].AuthenticationType,
+				)
 
 				// Verify data source exists.
 				dsOut, err := client.GetDataSource(ctx, &appsyncsdkv2.GetDataSourceInput{
@@ -2888,12 +3140,23 @@ func TestTerraform_Autoscaling(t *testing.T) {
 
 				client := createAutoscalingClient(t)
 
-				out, err := client.DescribeAutoScalingGroups(ctx, &autoscalingsvc.DescribeAutoScalingGroupsInput{
-					AutoScalingGroupNames: []string{vars["ASGName"].(string)},
-				})
-				require.NoError(t, err, "DescribeAutoScalingGroups should succeed after terraform apply")
+				out, err := client.DescribeAutoScalingGroups(
+					ctx,
+					&autoscalingsvc.DescribeAutoScalingGroupsInput{
+						AutoScalingGroupNames: []string{vars["ASGName"].(string)},
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeAutoScalingGroups should succeed after terraform apply",
+				)
 				require.Len(t, out.AutoScalingGroups, 1)
-				assert.Equal(t, vars["ASGName"].(string), aws.ToString(out.AutoScalingGroups[0].AutoScalingGroupName))
+				assert.Equal(
+					t,
+					vars["ASGName"].(string),
+					aws.ToString(out.AutoScalingGroups[0].AutoScalingGroupName),
+				)
 				assert.Equal(t, int32(1), aws.ToInt32(out.AutoScalingGroups[0].MinSize))
 				assert.Equal(t, int32(5), aws.ToInt32(out.AutoScalingGroups[0].MaxSize))
 
@@ -3008,10 +3271,17 @@ func TestTerraform_ECS(t *testing.T) {
 				assert.Equal(t, vars["ClusterName"].(string), *clusterOut.Clusters[0].ClusterName)
 
 				// Verify task definition exists.
-				tdOut, err := client.DescribeTaskDefinition(ctx, &ecssvc.DescribeTaskDefinitionInput{
-					TaskDefinition: aws.String(vars["Family"].(string)),
-				})
-				require.NoError(t, err, "DescribeTaskDefinition should succeed after terraform apply")
+				tdOut, err := client.DescribeTaskDefinition(
+					ctx,
+					&ecssvc.DescribeTaskDefinitionInput{
+						TaskDefinition: aws.String(vars["Family"].(string)),
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeTaskDefinition should succeed after terraform apply",
+				)
 				assert.Equal(t, vars["Family"].(string), *tdOut.TaskDefinition.Family)
 
 				// Verify service exists.
@@ -3060,9 +3330,12 @@ func TestTerraform_CognitoIdentityPool(t *testing.T) {
 				client := createCognitoIdentityClient(t)
 
 				// List pools and find ours by name.
-				listOut, err := client.ListIdentityPools(ctx, &cognitoidentitysvc.ListIdentityPoolsInput{
-					MaxResults: aws.Int32(60),
-				})
+				listOut, err := client.ListIdentityPools(
+					ctx,
+					&cognitoidentitysvc.ListIdentityPoolsInput{
+						MaxResults: aws.Int32(60),
+					},
+				)
 				require.NoError(t, err, "ListIdentityPools should succeed after terraform apply")
 
 				var poolID string
@@ -3075,25 +3348,48 @@ func TestTerraform_CognitoIdentityPool(t *testing.T) {
 					}
 				}
 
-				require.NotEmpty(t, poolID, "identity pool %q should appear in list", vars["PoolName"])
+				require.NotEmpty(
+					t,
+					poolID,
+					"identity pool %q should appear in list",
+					vars["PoolName"],
+				)
 
 				// Describe pool to confirm it exists.
-				descOut, err := client.DescribeIdentityPool(ctx, &cognitoidentitysvc.DescribeIdentityPoolInput{
-					IdentityPoolId: aws.String(poolID),
-				})
+				descOut, err := client.DescribeIdentityPool(
+					ctx,
+					&cognitoidentitysvc.DescribeIdentityPoolInput{
+						IdentityPoolId: aws.String(poolID),
+					},
+				)
 				require.NoError(t, err, "DescribeIdentityPool should succeed after terraform apply")
 				assert.Equal(t, vars["PoolName"].(string), aws.ToString(descOut.IdentityPoolName))
 				assert.True(t, descOut.AllowUnauthenticatedIdentities)
 
 				// Verify roles were attached via GetIdentityPoolRoles.
-				rolesOut, err := client.GetIdentityPoolRoles(ctx, &cognitoidentitysvc.GetIdentityPoolRolesInput{
-					IdentityPoolId: aws.String(poolID),
-				})
+				rolesOut, err := client.GetIdentityPoolRoles(
+					ctx,
+					&cognitoidentitysvc.GetIdentityPoolRolesInput{
+						IdentityPoolId: aws.String(poolID),
+					},
+				)
 				require.NoError(t, err, "GetIdentityPoolRoles should succeed after terraform apply")
-				assert.NotEmpty(t, rolesOut.Roles["authenticated"], "authenticated role ARN should be set")
-				assert.NotEmpty(t, rolesOut.Roles["unauthenticated"], "unauthenticated role ARN should be set")
+				assert.NotEmpty(
+					t,
+					rolesOut.Roles["authenticated"],
+					"authenticated role ARN should be set",
+				)
+				assert.NotEmpty(
+					t,
+					rolesOut.Roles["unauthenticated"],
+					"unauthenticated role ARN should be set",
+				)
 				assert.Contains(t, rolesOut.Roles["authenticated"], vars["AuthRoleName"].(string))
-				assert.Contains(t, rolesOut.Roles["unauthenticated"], vars["UnauthRoleName"].(string))
+				assert.Contains(
+					t,
+					rolesOut.Roles["unauthenticated"],
+					vars["UnauthRoleName"].(string),
+				)
 			},
 		},
 	}
@@ -3216,17 +3512,23 @@ func TestTerraform_CognitoIDP(t *testing.T) {
 				require.NotEmpty(t, poolID, "user pool %q should appear in list", vars["PoolName"])
 
 				// Describe the pool.
-				descOut, err := sdkClient.DescribeUserPool(ctx, &cognitoidpsvc.DescribeUserPoolInput{
-					UserPoolId: aws.String(poolID),
-				})
+				descOut, err := sdkClient.DescribeUserPool(
+					ctx,
+					&cognitoidpsvc.DescribeUserPoolInput{
+						UserPoolId: aws.String(poolID),
+					},
+				)
 				require.NoError(t, err, "DescribeUserPool should succeed")
 				assert.Equal(t, vars["PoolName"].(string), aws.ToString(descOut.UserPool.Name))
 
 				// List clients for the pool and find ours by name.
-				clientsOut, err := sdkClient.ListUserPoolClients(ctx, &cognitoidpsvc.ListUserPoolClientsInput{
-					UserPoolId: aws.String(poolID),
-					MaxResults: aws.Int32(maxUserPoolsToList),
-				})
+				clientsOut, err := sdkClient.ListUserPoolClients(
+					ctx,
+					&cognitoidpsvc.ListUserPoolClientsInput{
+						UserPoolId: aws.String(poolID),
+						MaxResults: aws.Int32(maxUserPoolsToList),
+					},
+				)
 				require.NoError(t, err, "ListUserPoolClients should succeed")
 
 				var clientID string
@@ -3239,15 +3541,27 @@ func TestTerraform_CognitoIDP(t *testing.T) {
 					}
 				}
 
-				require.NotEmpty(t, clientID, "user pool client %q should appear in list", vars["ClientName"])
+				require.NotEmpty(
+					t,
+					clientID,
+					"user pool client %q should appear in list",
+					vars["ClientName"],
+				)
 
 				// Describe the client.
-				descClientOut, err := sdkClient.DescribeUserPoolClient(ctx, &cognitoidpsvc.DescribeUserPoolClientInput{
-					UserPoolId: aws.String(poolID),
-					ClientId:   aws.String(clientID),
-				})
+				descClientOut, err := sdkClient.DescribeUserPoolClient(
+					ctx,
+					&cognitoidpsvc.DescribeUserPoolClientInput{
+						UserPoolId: aws.String(poolID),
+						ClientId:   aws.String(clientID),
+					},
+				)
 				require.NoError(t, err, "DescribeUserPoolClient should succeed")
-				assert.Equal(t, vars["ClientName"].(string), aws.ToString(descClientOut.UserPoolClient.ClientName))
+				assert.Equal(
+					t,
+					vars["ClientName"].(string),
+					aws.ToString(descClientOut.UserPoolClient.ClientName),
+				)
 			},
 		},
 	}
@@ -3478,7 +3792,9 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 					ctx,
 					http.MethodPost,
 					createURL,
-					strings.NewReader("connectionId="+connectionID+"&sourceIp=10.0.0.1&userAgent=test-agent"),
+					strings.NewReader(
+						"connectionId="+connectionID+"&sourceIp=10.0.0.1&userAgent=test-agent",
+					),
 				)
 				require.NoError(t, err, "creating dashboard create request should succeed")
 				createReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -3491,7 +3807,12 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				createResp, err := createClient.Do(createReq)
 				require.NoError(t, err, "dashboard create connection request should succeed")
 				defer createResp.Body.Close()
-				assert.Equal(t, http.StatusFound, createResp.StatusCode, "create connection should redirect")
+				assert.Equal(
+					t,
+					http.StatusFound,
+					createResp.StatusCode,
+					"create connection should redirect",
+				)
 
 				// GetConnection via /@connections/{connectionId}.
 				getURL := endpoint + "/@connections/" + connectionID
@@ -3502,7 +3823,12 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				getResp, err := http.DefaultClient.Do(getReq)
 				require.NoError(t, err, "GetConnection should succeed")
 				defer getResp.Body.Close()
-				assert.Equal(t, http.StatusOK, getResp.StatusCode, "GetConnection should return 200")
+				assert.Equal(
+					t,
+					http.StatusOK,
+					getResp.StatusCode,
+					"GetConnection should return 200",
+				)
 
 				// PostToConnection via /@connections/{connectionId}.
 				postURL := endpoint + "/@connections/" + connectionID
@@ -3519,7 +3845,12 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				postResp, err := http.DefaultClient.Do(postReq)
 				require.NoError(t, err, "PostToConnection should succeed")
 				defer postResp.Body.Close()
-				assert.Equal(t, http.StatusOK, postResp.StatusCode, "PostToConnection should return 200")
+				assert.Equal(
+					t,
+					http.StatusOK,
+					postResp.StatusCode,
+					"PostToConnection should return 200",
+				)
 
 				// DeleteConnection via /@connections/{connectionId}.
 				delURL := endpoint + "/@connections/" + connectionID
@@ -3530,7 +3861,12 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				delResp, err := http.DefaultClient.Do(delReq)
 				require.NoError(t, err, "DeleteConnection should succeed")
 				defer delResp.Body.Close()
-				assert.Equal(t, http.StatusNoContent, delResp.StatusCode, "DeleteConnection should return 204")
+				assert.Equal(
+					t,
+					http.StatusNoContent,
+					delResp.StatusCode,
+					"DeleteConnection should return 204",
+				)
 
 				// GetConnection after delete should return 410.
 				getReq2, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
@@ -3539,7 +3875,12 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				getResp2, err := http.DefaultClient.Do(getReq2)
 				require.NoError(t, err, "GetConnection after delete should not error")
 				defer getResp2.Body.Close()
-				assert.Equal(t, http.StatusGone, getResp2.StatusCode, "GetConnection after delete should return 410")
+				assert.Equal(
+					t,
+					http.StatusGone,
+					getResp2.StatusCode,
+					"GetConnection after delete should return 410",
+				)
 			},
 		},
 	}
@@ -3590,18 +3931,29 @@ func TestTerraform_AppConfig(t *testing.T) {
 				require.NoError(t, err, "ListEnvironments should succeed")
 				require.NotEmpty(t, envsOut.Items, "should have at least one environment")
 
-				profilesOut, err := client.ListConfigurationProfiles(ctx, &appconfigsvc.ListConfigurationProfilesInput{
-					ApplicationId: aws.String(appID),
-				})
+				profilesOut, err := client.ListConfigurationProfiles(
+					ctx,
+					&appconfigsvc.ListConfigurationProfilesInput{
+						ApplicationId: aws.String(appID),
+					},
+				)
 				require.NoError(t, err, "ListConfigurationProfiles should succeed")
-				require.NotEmpty(t, profilesOut.Items, "should have at least one configuration profile")
+				require.NotEmpty(
+					t,
+					profilesOut.Items,
+					"should have at least one configuration profile",
+				)
 
 				strategiesOut, err := client.ListDeploymentStrategies(
 					ctx,
 					&appconfigsvc.ListDeploymentStrategiesInput{},
 				)
 				require.NoError(t, err, "ListDeploymentStrategies should succeed")
-				require.NotEmpty(t, strategiesOut.Items, "should have at least one deployment strategy")
+				require.NotEmpty(
+					t,
+					strategiesOut.Items,
+					"should have at least one deployment strategy",
+				)
 			},
 		},
 	}
@@ -3678,7 +4030,12 @@ func TestTerraform_AppConfigData(t *testing.T) {
 				setResp, err := setClient.Do(setReq)
 				require.NoError(t, err, "set configuration request should succeed")
 				defer setResp.Body.Close()
-				assert.Equal(t, http.StatusFound, setResp.StatusCode, "set configuration should redirect")
+				assert.Equal(
+					t,
+					http.StatusFound,
+					setResp.StatusCode,
+					"set configuration should redirect",
+				)
 
 				// Start a configuration session via the AppConfigData API.
 				client := createAppConfigDataClient(t)
@@ -3691,8 +4048,16 @@ func TestTerraform_AppConfigData(t *testing.T) {
 					},
 				)
 				require.NoError(t, err, "StartConfigurationSession should succeed")
-				require.NotNil(t, sessionOut.InitialConfigurationToken, "initial token should not be nil")
-				assert.NotEmpty(t, *sessionOut.InitialConfigurationToken, "initial token should not be empty")
+				require.NotNil(
+					t,
+					sessionOut.InitialConfigurationToken,
+					"initial token should not be nil",
+				)
+				assert.NotEmpty(
+					t,
+					*sessionOut.InitialConfigurationToken,
+					"initial token should not be empty",
+				)
 
 				// Get latest configuration.
 				configOut, err := client.GetLatestConfiguration(ctx,
@@ -3711,9 +4076,17 @@ func TestTerraform_AppConfigData(t *testing.T) {
 				)
 
 				// Next token should rotate.
-				assert.NotNil(t, configOut.NextPollConfigurationToken, "next token should not be nil")
-				assert.NotEqual(t, *sessionOut.InitialConfigurationToken, *configOut.NextPollConfigurationToken,
-					"next token should differ from initial token")
+				assert.NotNil(
+					t,
+					configOut.NextPollConfigurationToken,
+					"next token should not be nil",
+				)
+				assert.NotEqual(
+					t,
+					*sessionOut.InitialConfigurationToken,
+					*configOut.NextPollConfigurationToken,
+					"next token should differ from initial token",
+				)
 
 				// Poll again with the new token to verify token rotation.
 				configOut2, err := client.GetLatestConfiguration(ctx,
@@ -3723,9 +4096,17 @@ func TestTerraform_AppConfigData(t *testing.T) {
 				)
 				require.NoError(t, err, "second GetLatestConfiguration should succeed")
 				require.NotNil(t, configOut2, "second config output should not be nil")
-				require.NotNil(t, configOut2.NextPollConfigurationToken, "second next token should not be nil")
-				assert.NotEqual(t, *configOut.NextPollConfigurationToken, *configOut2.NextPollConfigurationToken,
-					"token should rotate on each successive poll")
+				require.NotNil(
+					t,
+					configOut2.NextPollConfigurationToken,
+					"second next token should not be nil",
+				)
+				assert.NotEqual(
+					t,
+					*configOut.NextPollConfigurationToken,
+					*configOut2.NextPollConfigurationToken,
+					"token should rotate on each successive poll",
+				)
 			},
 		},
 	}
@@ -3756,10 +4137,17 @@ func TestTerraform_ApplicationAutoscaling(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createApplicationAutoscalingClient(t)
-				out, err := client.DescribeScalableTargets(ctx, &applicationautoscalingsvc.DescribeScalableTargetsInput{
-					ServiceNamespace: applicationautoscalingtypes.ServiceNamespaceEcs,
-				})
-				require.NoError(t, err, "DescribeScalableTargets should succeed after terraform apply")
+				out, err := client.DescribeScalableTargets(
+					ctx,
+					&applicationautoscalingsvc.DescribeScalableTargetsInput{
+						ServiceNamespace: applicationautoscalingtypes.ServiceNamespaceEcs,
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeScalableTargets should succeed after terraform apply",
+				)
 
 				expectedResourceID := "service/default/" + vars["ServiceName"].(string)
 				found := false
@@ -3817,7 +4205,12 @@ func TestTerraform_Athena(t *testing.T) {
 						break
 					}
 				}
-				assert.True(t, found, "workgroup %q should be listed", vars["WorkGroupName"].(string))
+				assert.True(
+					t,
+					found,
+					"workgroup %q should be listed",
+					vars["WorkGroupName"].(string),
+				)
 			},
 		},
 	}
@@ -3894,12 +4287,19 @@ func TestTerraform_Batch(t *testing.T) {
 				client := createBatchClient(t)
 				suffix := vars["Suffix"].(string)
 
-				ceOut, err := client.DescribeComputeEnvironments(ctx, &batchsvc.DescribeComputeEnvironmentsInput{
-					ComputeEnvironments: []string{"tf-ce-" + suffix},
-				})
+				ceOut, err := client.DescribeComputeEnvironments(
+					ctx,
+					&batchsvc.DescribeComputeEnvironmentsInput{
+						ComputeEnvironments: []string{"tf-ce-" + suffix},
+					},
+				)
 				require.NoError(t, err, "DescribeComputeEnvironments should succeed")
 				require.Len(t, ceOut.ComputeEnvironments, 1, "compute environment should exist")
-				assert.Equal(t, "tf-ce-"+suffix, *ceOut.ComputeEnvironments[0].ComputeEnvironmentName)
+				assert.Equal(
+					t,
+					"tf-ce-"+suffix,
+					*ceOut.ComputeEnvironments[0].ComputeEnvironmentName,
+				)
 
 				jqOut, err := client.DescribeJobQueues(ctx, &batchsvc.DescribeJobQueuesInput{
 					JobQueues: []string{"tf-jq-" + suffix},
@@ -3942,16 +4342,22 @@ func TestTerraform_Elasticbeanstalk(t *testing.T) {
 				appName := "tf-app-" + suffix
 				envName := "tf-env-" + suffix
 
-				appOut, err := client.DescribeApplications(ctx, &elasticbeanstalksvc.DescribeApplicationsInput{
-					ApplicationNames: []string{appName},
-				})
+				appOut, err := client.DescribeApplications(
+					ctx,
+					&elasticbeanstalksvc.DescribeApplicationsInput{
+						ApplicationNames: []string{appName},
+					},
+				)
 				require.NoError(t, err, "DescribeApplications should succeed")
 				require.Len(t, appOut.Applications, 1, "application should exist")
 				assert.Equal(t, appName, *appOut.Applications[0].ApplicationName)
 
-				envOut, err := client.DescribeEnvironments(ctx, &elasticbeanstalksvc.DescribeEnvironmentsInput{
-					EnvironmentNames: []string{envName},
-				})
+				envOut, err := client.DescribeEnvironments(
+					ctx,
+					&elasticbeanstalksvc.DescribeEnvironmentsInput{
+						EnvironmentNames: []string{envName},
+					},
+				)
 				require.NoError(t, err, "DescribeEnvironments should succeed")
 				require.Len(t, envOut.Environments, 1, "environment should exist")
 				assert.Equal(t, envName, *envOut.Environments[0].EnvironmentName)
@@ -4027,28 +4433,45 @@ func TestTerraform_EKSComprehensive(t *testing.T) {
 				// Verify cluster exists.
 				out, err := client.ListClusters(ctx, &ekssvc.ListClustersInput{})
 				require.NoError(t, err, "ListClusters should succeed")
-				assert.True(t, slices.Contains(out.Clusters, clusterName), "cluster %q should be listed", clusterName)
+				assert.True(
+					t,
+					slices.Contains(out.Clusters, clusterName),
+					"cluster %q should be listed",
+					clusterName,
+				)
 
 				// Verify node group exists with scaling config.
 				ngOut, err := client.ListNodegroups(ctx, &ekssvc.ListNodegroupsInput{
 					ClusterName: &clusterName,
 				})
 				require.NoError(t, err, "ListNodegroups should succeed")
-				assert.True(t, slices.Contains(ngOut.Nodegroups, "workers"), "nodegroup 'workers' should be listed")
+				assert.True(
+					t,
+					slices.Contains(ngOut.Nodegroups, "workers"),
+					"nodegroup 'workers' should be listed",
+				)
 
 				// Verify Fargate profile exists.
 				fpOut, err := client.ListFargateProfiles(ctx, &ekssvc.ListFargateProfilesInput{
 					ClusterName: &clusterName,
 				})
 				require.NoError(t, err, "ListFargateProfiles should succeed")
-				assert.True(t, slices.Contains(fpOut.FargateProfileNames, "serverless"), "fargate profile 'serverless' should be listed")
+				assert.True(
+					t,
+					slices.Contains(fpOut.FargateProfileNames, "serverless"),
+					"fargate profile 'serverless' should be listed",
+				)
 
 				// Verify add-on exists.
 				addonOut, err := client.ListAddons(ctx, &ekssvc.ListAddonsInput{
 					ClusterName: &clusterName,
 				})
 				require.NoError(t, err, "ListAddons should succeed")
-				assert.True(t, slices.Contains(addonOut.Addons, "coredns"), "addon 'coredns' should be listed")
+				assert.True(
+					t,
+					slices.Contains(addonOut.Addons, "coredns"),
+					"addon 'coredns' should be listed",
+				)
 
 				// Verify access entry exists.
 				aeOut, err := client.ListAccessEntries(ctx, &ekssvc.ListAccessEntriesInput{
@@ -4185,8 +4608,15 @@ func TestTerraform_Ce(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createCeClient(t)
-				out, err := client.ListCostCategoryDefinitions(ctx, &cesvc.ListCostCategoryDefinitionsInput{})
-				require.NoError(t, err, "ListCostCategoryDefinitions should succeed after terraform apply")
+				out, err := client.ListCostCategoryDefinitions(
+					ctx,
+					&cesvc.ListCostCategoryDefinitionsInput{},
+				)
+				require.NoError(
+					t,
+					err,
+					"ListCostCategoryDefinitions should succeed after terraform apply",
+				)
 
 				found := false
 				for _, ref := range out.CostCategoryReferences {
@@ -4196,7 +4626,12 @@ func TestTerraform_Ce(t *testing.T) {
 						break
 					}
 				}
-				assert.True(t, found, "cost category %q should be listed", vars["CategoryName"].(string))
+				assert.True(
+					t,
+					found,
+					"cost category %q should be listed",
+					vars["CategoryName"].(string),
+				)
 			},
 		},
 	}
@@ -4297,7 +4732,12 @@ func TestTerraform_CloudControl(t *testing.T) {
 					}
 				}
 
-				assert.NotEmpty(t, foundIdentifier, "cloudcontrol resource %q should be listed", expectedName)
+				assert.NotEmpty(
+					t,
+					foundIdentifier,
+					"cloudcontrol resource %q should be listed",
+					expectedName,
+				)
 
 				if foundIdentifier != "" {
 					getOut, getErr := client.GetResource(ctx, &cloudcontrolsvc.GetResourceInput{
@@ -4305,7 +4745,11 @@ func TestTerraform_CloudControl(t *testing.T) {
 						Identifier: aws.String(foundIdentifier),
 					})
 					require.NoError(t, getErr, "GetResource should succeed after terraform apply")
-					require.NotNil(t, getOut.ResourceDescription, "resource description should not be nil")
+					require.NotNil(
+						t,
+						getOut.ResourceDescription,
+						"resource description should not be nil",
+					)
 				}
 			},
 		},
@@ -4341,7 +4785,11 @@ func TestTerraform_CloudFront(t *testing.T) {
 					ctx,
 					&cloudfrontsvc.ListCloudFrontOriginAccessIdentitiesInput{},
 				)
-				require.NoError(t, err, "ListCloudFrontOriginAccessIdentities should succeed after terraform apply")
+				require.NoError(
+					t,
+					err,
+					"ListCloudFrontOriginAccessIdentities should succeed after terraform apply",
+				)
 				found := false
 				for _, oai := range out.CloudFrontOriginAccessIdentityList.Items {
 					if aws.ToString(oai.Comment) == "OAI-"+suffix {
@@ -4434,10 +4882,13 @@ func TestTerraform_CodeArtifact(t *testing.T) {
 				assert.Equal(t, domainName, aws.ToString(domainOut.Domain.Name))
 
 				// Verify the repository was created.
-				repoOut, err := client.DescribeRepository(ctx, &codeartifactsvc.DescribeRepositoryInput{
-					Domain:     aws.String(domainName),
-					Repository: aws.String(repoName),
-				})
+				repoOut, err := client.DescribeRepository(
+					ctx,
+					&codeartifactsvc.DescribeRepositoryInput{
+						Domain:     aws.String(domainName),
+						Repository: aws.String(repoName),
+					},
+				)
 				require.NoError(t, err, "DescribeRepository should succeed after terraform apply")
 				require.NotNil(t, repoOut.Repository, "repository should be returned")
 				assert.Equal(t, repoName, aws.ToString(repoOut.Repository.Name))
@@ -4639,17 +5090,32 @@ func TestTerraform_DMS(t *testing.T) {
 				client := createDMSClient(t)
 				instanceID := vars["InstanceID"].(string)
 
-				out, err := client.DescribeReplicationInstances(ctx, &dmssvc.DescribeReplicationInstancesInput{
-					Filters: []dmstypes.Filter{
-						{
-							Name:   aws.String("replication-instance-id"),
-							Values: []string{instanceID},
+				out, err := client.DescribeReplicationInstances(
+					ctx,
+					&dmssvc.DescribeReplicationInstancesInput{
+						Filters: []dmstypes.Filter{
+							{
+								Name:   aws.String("replication-instance-id"),
+								Values: []string{instanceID},
+							},
 						},
 					},
-				})
-				require.NoError(t, err, "DescribeReplicationInstances should succeed after terraform apply")
-				require.NotEmpty(t, out.ReplicationInstances, "replication instance should be returned")
-				assert.Equal(t, instanceID, aws.ToString(out.ReplicationInstances[0].ReplicationInstanceIdentifier))
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeReplicationInstances should succeed after terraform apply",
+				)
+				require.NotEmpty(
+					t,
+					out.ReplicationInstances,
+					"replication instance should be returned",
+				)
+				assert.Equal(
+					t,
+					instanceID,
+					aws.ToString(out.ReplicationInstances[0].ReplicationInstanceIdentifier),
+				)
 			},
 		},
 	}
@@ -4682,7 +5148,10 @@ func TestTerraform_CodeStarConnections(t *testing.T) {
 				client := createCodeStarConnectionsClient(t)
 				suffix := vars["Suffix"].(string)
 
-				out, err := client.ListConnections(ctx, &codestarconnectionssvc.ListConnectionsInput{})
+				out, err := client.ListConnections(
+					ctx,
+					&codestarconnectionssvc.ListConnectionsInput{},
+				)
 				require.NoError(t, err)
 
 				found := false
@@ -4833,9 +5302,17 @@ func TestTerraform_ELB(t *testing.T) {
 				out, err := client.DescribeLoadBalancers(ctx, &elbsvc.DescribeLoadBalancersInput{
 					LoadBalancerNames: []string{name},
 				})
-				require.NoError(t, err, "DescribeLoadBalancers should succeed after terraform apply")
+				require.NoError(
+					t,
+					err,
+					"DescribeLoadBalancers should succeed after terraform apply",
+				)
 				require.Len(t, out.LoadBalancerDescriptions, 1, "load balancer should exist")
-				assert.Equal(t, name, aws.ToString(out.LoadBalancerDescriptions[0].LoadBalancerName))
+				assert.Equal(
+					t,
+					name,
+					aws.ToString(out.LoadBalancerDescriptions[0].LoadBalancerName),
+				)
 			},
 		},
 	}
@@ -4967,10 +5444,17 @@ func TestTerraform_ELBv2(t *testing.T) {
 				lbName := "tf-alb-" + suffix
 				tgName := "tf-tg-" + suffix
 
-				lbOut, err := client.DescribeLoadBalancers(ctx, &elbv2svc.DescribeLoadBalancersInput{
-					Names: []string{lbName},
-				})
-				require.NoError(t, err, "DescribeLoadBalancers should succeed after terraform apply")
+				lbOut, err := client.DescribeLoadBalancers(
+					ctx,
+					&elbv2svc.DescribeLoadBalancersInput{
+						Names: []string{lbName},
+					},
+				)
+				require.NoError(
+					t,
+					err,
+					"DescribeLoadBalancers should succeed after terraform apply",
+				)
 				require.Len(t, lbOut.LoadBalancers, 1, "load balancer should exist")
 				assert.Equal(t, lbName, *lbOut.LoadBalancers[0].LoadBalancerName)
 
@@ -5023,8 +5507,15 @@ func TestTerraform_FIS(t *testing.T) {
 				suffix := vars["Suffix"].(string)
 				description := "tf-fis-" + suffix
 
-				out, err := client.ListExperimentTemplates(ctx, &fissvc.ListExperimentTemplatesInput{})
-				require.NoError(t, err, "ListExperimentTemplates should succeed after terraform apply")
+				out, err := client.ListExperimentTemplates(
+					ctx,
+					&fissvc.ListExperimentTemplatesInput{},
+				)
+				require.NoError(
+					t,
+					err,
+					"ListExperimentTemplates should succeed after terraform apply",
+				)
 
 				found := slices.ContainsFunc(
 					out.ExperimentTemplates,
@@ -5209,7 +5700,10 @@ func TestTerraform_KinesisAnalytics(t *testing.T) {
 				client := createKinesisAnalyticsClient(t)
 				appName := vars["AppName"].(string)
 
-				out, err := client.ListApplications(ctx, &kinesisanalyticssvc.ListApplicationsInput{})
+				out, err := client.ListApplications(
+					ctx,
+					&kinesisanalyticssvc.ListApplicationsInput{},
+				)
 				require.NoError(t, err, "ListApplications should succeed after terraform apply")
 
 				found := false
@@ -5271,7 +5765,12 @@ func TestTerraform_Kafka(t *testing.T) {
 					}
 				}
 
-				assert.True(t, found, "cluster %q should be listed after terraform apply", clusterName)
+				assert.True(
+					t,
+					found,
+					"cluster %q should be listed after terraform apply",
+					clusterName,
+				)
 			},
 		},
 	}
@@ -5307,7 +5806,10 @@ func TestTerraform_KinesisAnalyticsV2(t *testing.T) {
 				suffix := vars["Suffix"].(string)
 				appName := "tf-kinesisanalyticsv2-" + suffix
 
-				out, err := client.ListApplications(ctx, &kinesisanalyticsv2svc.ListApplicationsInput{})
+				out, err := client.ListApplications(
+					ctx,
+					&kinesisanalyticsv2svc.ListApplicationsInput{},
+				)
 				require.NoError(t, err, "ListApplications should succeed after terraform apply")
 
 				found := false
@@ -5319,7 +5821,12 @@ func TestTerraform_KinesisAnalyticsV2(t *testing.T) {
 					}
 				}
 
-				assert.True(t, found, "application %q should be listed after terraform apply", appName)
+				assert.True(
+					t,
+					found,
+					"application %q should be listed after terraform apply",
+					appName,
+				)
 			},
 		},
 	}
@@ -5419,7 +5926,12 @@ func TestTerraform_MQ(t *testing.T) {
 					}
 				}
 
-				assert.True(t, found, "broker %q should be listed after terraform apply", brokerName)
+				assert.True(
+					t,
+					found,
+					"broker %q should be listed after terraform apply",
+					brokerName,
+				)
 			},
 		},
 	}
@@ -5450,7 +5962,10 @@ func TestTerraform_LakeFormation(t *testing.T) {
 				t.Helper()
 				client := createLakeFormationClient(t)
 
-				out, err := client.GetDataLakeSettings(ctx, &lakeformationsvc.GetDataLakeSettingsInput{})
+				out, err := client.GetDataLakeSettings(
+					ctx,
+					&lakeformationsvc.GetDataLakeSettingsInput{},
+				)
 				require.NoError(t, err, "GetDataLakeSettings should succeed after terraform apply")
 				require.NotNil(t, out.DataLakeSettings, "DataLakeSettings should not be nil")
 			},
@@ -5582,7 +6097,10 @@ func TestTerraform_Organizations(t *testing.T) {
 
 				client := createOrganizationsClient(t)
 
-				out, err := client.DescribeOrganization(ctx, &organizationssvc.DescribeOrganizationInput{})
+				out, err := client.DescribeOrganization(
+					ctx,
+					&organizationssvc.DescribeOrganizationInput{},
+				)
 				require.NoError(t, err, "DescribeOrganization should succeed after terraform apply")
 				require.NotNil(t, out.Organization)
 				assert.Equal(t, "ALL", string(out.Organization.FeatureSet))
@@ -5612,7 +6130,11 @@ func TestTerraform_Organizations(t *testing.T) {
 					}
 				}
 
-				assert.True(t, found, "created OU should appear in ListOrganizationalUnitsForParent output")
+				assert.True(
+					t,
+					found,
+					"created OU should appear in ListOrganizationalUnitsForParent output",
+				)
 			},
 		},
 	}
@@ -5654,7 +6176,11 @@ func TestTerraform_MWAA(t *testing.T) {
 
 				found := slices.Contains(out.Environments, envName)
 
-				assert.True(t, found, "created environment should appear in ListEnvironments output")
+				assert.True(
+					t,
+					found,
+					"created environment should appear in ListEnvironments output",
+				)
 			},
 		},
 	}
@@ -5787,7 +6313,9 @@ func TestTerraform_QLDBSession(t *testing.T) {
 				)
 				assert.NotEmpty(
 					t,
-					aws.ToString(out.StartSession.SessionToken), //nolint:staticcheck // deprecated SDK
+					aws.ToString(
+						out.StartSession.SessionToken, //nolint:staticcheck // StartSession.SessionToken is deprecated
+					),
 					"session token should not be empty",
 				)
 			},
@@ -5915,7 +6443,11 @@ func TestTerraform_RAM(t *testing.T) {
 				})
 				require.NoError(t, err, "GetResourceShares should succeed after terraform apply")
 				require.NotEmpty(t, out.ResourceShares, "expected at least one resource share")
-				assert.Equal(t, vars["ShareName"].(string), aws.ToString(out.ResourceShares[0].Name))
+				assert.Equal(
+					t,
+					vars["ShareName"].(string),
+					aws.ToString(out.ResourceShares[0].Name),
+				)
 			},
 		},
 	}
@@ -6113,7 +6645,13 @@ func TestTerraform_ServerlessRepo(t *testing.T) {
 				body, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 
-				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(body))
+				assert.Equal(
+					t,
+					http.StatusOK,
+					resp.StatusCode,
+					"expected 200 OK, body: %s",
+					string(body),
+				)
 
 				var result map[string]any
 				require.NoError(t, json.Unmarshal(body, &result))
@@ -6168,7 +6706,13 @@ func TestTerraform_Shield(t *testing.T) {
 				respBody, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 
-				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+				assert.Equal(
+					t,
+					http.StatusOK,
+					resp.StatusCode,
+					"expected 200 OK, body: %s",
+					string(respBody),
+				)
 
 				var result map[string]string
 				require.NoError(t, json.Unmarshal(respBody, &result))
@@ -6221,10 +6765,13 @@ func TestTerraform_SsoAdmin(t *testing.T) {
 				found := false
 
 				for _, psArn := range out.PermissionSets {
-					desc, descErr := client.DescribePermissionSet(ctx, &ssoadminsvc.DescribePermissionSetInput{
-						InstanceArn:      &instanceArn,
-						PermissionSetArn: &psArn,
-					})
+					desc, descErr := client.DescribePermissionSet(
+						ctx,
+						&ssoadminsvc.DescribePermissionSetInput{
+							InstanceArn:      &instanceArn,
+							PermissionSetArn: &psArn,
+						},
+					)
 					if descErr == nil && aws.ToString(desc.PermissionSet.Name) == psName {
 						found = true
 
@@ -6269,7 +6816,11 @@ func TestTerraform_Textract(t *testing.T) {
 				key, _ := vars["Key"].(string)
 
 				reqURL := endpoint + "/"
-				body := fmt.Sprintf(`{"Document":{"S3Object":{"Bucket":"%s","Name":"%s"}}}`, bucket, key)
+				body := fmt.Sprintf(
+					`{"Document":{"S3Object":{"Bucket":"%s","Name":"%s"}}}`,
+					bucket,
+					key,
+				)
 
 				req, err := http.NewRequestWithContext(
 					ctx, http.MethodPost, reqURL, strings.NewReader(body))
@@ -6285,7 +6836,13 @@ func TestTerraform_Textract(t *testing.T) {
 				respBody, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 
-				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+				assert.Equal(
+					t,
+					http.StatusOK,
+					resp.StatusCode,
+					"expected 200 OK, body: %s",
+					string(respBody),
+				)
 
 				var result map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &result))
@@ -6346,7 +6903,13 @@ func TestTerraform_TimestreamWrite(t *testing.T) {
 				respBody, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 
-				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+				assert.Equal(
+					t,
+					http.StatusOK,
+					resp.StatusCode,
+					"expected 200 OK, body: %s",
+					string(respBody),
+				)
 
 				var result map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &result))
@@ -6386,49 +6949,66 @@ func TestTerraform_TimestreamQuery(t *testing.T) {
 				client := createTimestreamQueryClient(t)
 
 				// Verify ListScheduledQueries returns an empty list.
-				listOut, err := client.ListScheduledQueries(ctx, &timestreamquerysvc.ListScheduledQueriesInput{})
+				listOut, err := client.ListScheduledQueries(
+					ctx,
+					&timestreamquerysvc.ListScheduledQueriesInput{},
+				)
 				require.NoError(t, err, "ListScheduledQueries should succeed")
 				require.NotNil(t, listOut)
 
 				// Create a scheduled query.
-				createOut, err := client.CreateScheduledQuery(ctx, &timestreamquerysvc.CreateScheduledQueryInput{
-					Name:        aws.String("tf-tsq-verify"),
-					QueryString: aws.String("SELECT 1"),
-					ScheduleConfiguration: &timestreamquerytypes.ScheduleConfiguration{
-						ScheduleExpression: aws.String("rate(1 hour)"),
-					},
-					ScheduledQueryExecutionRoleArn: aws.String("arn:aws:iam::000000000000:role/verify"),
-					NotificationConfiguration: &timestreamquerytypes.NotificationConfiguration{
-						SnsConfiguration: &timestreamquerytypes.SnsConfiguration{
-							TopicArn: aws.String("arn:aws:sns:us-east-1:000000000000:verify"),
+				createOut, err := client.CreateScheduledQuery(
+					ctx,
+					&timestreamquerysvc.CreateScheduledQueryInput{
+						Name:        aws.String("tf-tsq-verify"),
+						QueryString: aws.String("SELECT 1"),
+						ScheduleConfiguration: &timestreamquerytypes.ScheduleConfiguration{
+							ScheduleExpression: aws.String("rate(1 hour)"),
+						},
+						ScheduledQueryExecutionRoleArn: aws.String(
+							"arn:aws:iam::000000000000:role/verify",
+						),
+						NotificationConfiguration: &timestreamquerytypes.NotificationConfiguration{
+							SnsConfiguration: &timestreamquerytypes.SnsConfiguration{
+								TopicArn: aws.String("arn:aws:sns:us-east-1:000000000000:verify"),
+							},
+						},
+						ErrorReportConfiguration: &timestreamquerytypes.ErrorReportConfiguration{
+							S3Configuration: &timestreamquerytypes.S3Configuration{
+								BucketName: aws.String("verify-bucket"),
+							},
 						},
 					},
-					ErrorReportConfiguration: &timestreamquerytypes.ErrorReportConfiguration{
-						S3Configuration: &timestreamquerytypes.S3Configuration{
-							BucketName: aws.String("verify-bucket"),
-						},
-					},
-				})
+				)
 				require.NoError(t, err, "CreateScheduledQuery should succeed")
 				require.NotNil(t, createOut.Arn)
 
 				arn := aws.ToString(createOut.Arn)
 
 				// Describe the created scheduled query.
-				descOut, err := client.DescribeScheduledQuery(ctx, &timestreamquerysvc.DescribeScheduledQueryInput{
-					ScheduledQueryArn: aws.String(arn),
-				})
+				descOut, err := client.DescribeScheduledQuery(
+					ctx,
+					&timestreamquerysvc.DescribeScheduledQueryInput{
+						ScheduledQueryArn: aws.String(arn),
+					},
+				)
 				require.NoError(t, err, "DescribeScheduledQuery should succeed")
 				assert.Equal(t, "tf-tsq-verify", aws.ToString(descOut.ScheduledQuery.Name))
 
 				// Delete the scheduled query.
-				_, err = client.DeleteScheduledQuery(ctx, &timestreamquerysvc.DeleteScheduledQueryInput{
-					ScheduledQueryArn: aws.String(arn),
-				})
+				_, err = client.DeleteScheduledQuery(
+					ctx,
+					&timestreamquerysvc.DeleteScheduledQueryInput{
+						ScheduledQueryArn: aws.String(arn),
+					},
+				)
 				require.NoError(t, err, "DeleteScheduledQuery should succeed")
 
 				// Verify the list is empty again.
-				listAfter, err := client.ListScheduledQueries(ctx, &timestreamquerysvc.ListScheduledQueriesInput{})
+				listAfter, err := client.ListScheduledQueries(
+					ctx,
+					&timestreamquerysvc.ListScheduledQueriesInput{},
+				)
 				require.NoError(t, err, "ListScheduledQueries after delete should succeed")
 				assert.Empty(t, listAfter.ScheduledQueries)
 			},
@@ -6493,25 +7073,32 @@ func TestTerraform_Transfer(t *testing.T) {
 func TestTerraform_VerifiedPermissions(t *testing.T) {
 	t.Parallel()
 
-	runTfTestWithEndpoint(t, "verifiedpermissions/success", func(t *testing.T, ctx context.Context) {
-		t.Helper()
+	runTfTestWithEndpoint(
+		t,
+		"verifiedpermissions/success",
+		func(t *testing.T, ctx context.Context) {
+			t.Helper()
 
-		client := createVerifiedPermissionsClient(t)
+			client := createVerifiedPermissionsClient(t)
 
-		// List policy stores - should have at least one from Terraform provisioning.
-		listOut, err := client.ListPolicyStores(ctx, &verifiedpermissionssvc.ListPolicyStoresInput{})
-		require.NoError(t, err, "ListPolicyStores should succeed")
-		assert.NotEmpty(t, listOut.PolicyStores, "expected at least one policy store")
+			// List policy stores - should have at least one from Terraform provisioning.
+			listOut, err := client.ListPolicyStores(
+				ctx,
+				&verifiedpermissionssvc.ListPolicyStoresInput{},
+			)
+			require.NoError(t, err, "ListPolicyStores should succeed")
+			assert.NotEmpty(t, listOut.PolicyStores, "expected at least one policy store")
 
-		policyStoreID := *listOut.PolicyStores[0].PolicyStoreId
+			policyStoreID := *listOut.PolicyStores[0].PolicyStoreId
 
-		// Get the policy store.
-		getOut, err := client.GetPolicyStore(ctx, &verifiedpermissionssvc.GetPolicyStoreInput{
-			PolicyStoreId: &policyStoreID,
-		})
-		require.NoError(t, err, "GetPolicyStore should succeed")
-		assert.Equal(t, policyStoreID, *getOut.PolicyStoreId)
-	})
+			// Get the policy store.
+			getOut, err := client.GetPolicyStore(ctx, &verifiedpermissionssvc.GetPolicyStoreInput{
+				PolicyStoreId: &policyStoreID,
+			})
+			require.NoError(t, err, "GetPolicyStore should succeed")
+			assert.Equal(t, policyStoreID, *getOut.PolicyStoreId)
+		},
+	)
 }
 
 // TestTerraform_Xray provisions an X-Ray group via Terraform and verifies the service responds.
@@ -6567,7 +7154,13 @@ func TestTerraform_Wafv2(t *testing.T) {
 				respBody, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 
-				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+				assert.Equal(
+					t,
+					http.StatusOK,
+					resp.StatusCode,
+					"expected 200 OK, body: %s",
+					string(respBody),
+				)
 
 				var result map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &result))
@@ -6648,7 +7241,12 @@ func TestTerraform_S3Tables(t *testing.T) {
 					}
 				}
 
-				require.NotEmpty(t, bucketARN, "expected to find table bucket %q in list", bucketName)
+				require.NotEmpty(
+					t,
+					bucketARN,
+					"expected to find table bucket %q in list",
+					bucketName,
+				)
 
 				// GetTableBucket should return the bucket.
 				getOut, err := client.GetTableBucket(ctx, &s3tablessvc.GetTableBucketInput{
@@ -6702,7 +7300,11 @@ func TestTerraform_ECR(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeRepositories should succeed after terraform apply")
 				require.Len(t, out.Repositories, 1)
-				assert.Equal(t, vars["RepoName"].(string), aws.ToString(out.Repositories[0].RepositoryName))
+				assert.Equal(
+					t,
+					vars["RepoName"].(string),
+					aws.ToString(out.Repositories[0].RepositoryName),
+				)
 			},
 		},
 	}
@@ -6878,18 +7480,24 @@ func TestTerraform_CachingMessagingComprehensive(t *testing.T) {
 				// Verify ElastiCache replication group was created.
 				ecClient := createElastiCacheClient(t)
 				rgID := prefix + "-rg"
-				rgOut, err := ecClient.DescribeReplicationGroups(ctx, &elasticachesvc.DescribeReplicationGroupsInput{
-					ReplicationGroupId: aws.String(rgID),
-				})
+				rgOut, err := ecClient.DescribeReplicationGroups(
+					ctx,
+					&elasticachesvc.DescribeReplicationGroupsInput{
+						ReplicationGroupId: aws.String(rgID),
+					},
+				)
 				require.NoError(t, err, "DescribeReplicationGroups should succeed")
 				require.Len(t, rgOut.ReplicationGroups, 1)
 				assert.Equal(t, rgID, aws.ToString(rgOut.ReplicationGroups[0].ReplicationGroupId))
 
 				// Verify ElastiCache snapshot was created.
 				snapName := prefix + "-snap"
-				snapOut, err := ecClient.DescribeSnapshots(ctx, &elasticachesvc.DescribeSnapshotsInput{
-					SnapshotName: aws.String(snapName),
-				})
+				snapOut, err := ecClient.DescribeSnapshots(
+					ctx,
+					&elasticachesvc.DescribeSnapshotsInput{
+						SnapshotName: aws.String(snapName),
+					},
+				)
 				require.NoError(t, err, "DescribeSnapshots should succeed")
 				require.Len(t, snapOut.Snapshots, 1)
 				assert.Equal(t, snapName, aws.ToString(snapOut.Snapshots[0].SnapshotName))
@@ -6920,10 +7528,22 @@ func TestTerraform_CachingMessagingComprehensive(t *testing.T) {
 				for _, cl := range kafkaOut.ClusterInfoList {
 					if aws.ToString(cl.ClusterName) == kafkaName {
 						foundKafka = true
-						require.NotNil(t, cl.ClientAuthentication, "ClientAuthentication should be set")
+						require.NotNil(
+							t,
+							cl.ClientAuthentication,
+							"ClientAuthentication should be set",
+						)
 						require.NotNil(t, cl.ClientAuthentication.Sasl, "SASL should be set")
-						require.NotNil(t, cl.ClientAuthentication.Sasl.Iam, "IAM SASL should be set")
-						assert.True(t, aws.ToBool(cl.ClientAuthentication.Sasl.Iam.Enabled), "IAM SASL should be enabled")
+						require.NotNil(
+							t,
+							cl.ClientAuthentication.Sasl.Iam,
+							"IAM SASL should be set",
+						)
+						assert.True(
+							t,
+							aws.ToBool(cl.ClientAuthentication.Sasl.Iam.Enabled),
+							"IAM SASL should be enabled",
+						)
 
 						break
 					}

@@ -16,21 +16,23 @@ import (
 )
 
 const (
-	openSearchPathPrefix           = "/2021-01-01/opensearch/domain"
-	openSearchTagsPath             = "/2021-01-01/tags"
-	openSearchTagsRemoval          = "/2021-01-01/tags-removal"
-	openSearchCCPath               = "/2021-01-01/opensearch/cc"
-	openSearchDirectQueryPath      = "/2021-01-01/opensearch/directQueryDataSource"
-	openSearchPackagesPath         = "/2021-01-01/packages"
-	openSearchServiceSwPath        = "/2021-01-01/opensearch/serviceSoftwareUpdate"
-	openSearchApplicationPath      = "/2021-01-01/opensearch/application"
-	openSearchVersionsPath         = "/2021-01-01/opensearch/versions"
-	openSearchInstanceTypesPath    = "/2021-01-01/opensearch/instanceTypeDetails"
-	openSearchCompatiblePath       = "/2021-01-01/opensearch/compatibleVersions"
-	openSearchVpcEndpointsPath     = "/2021-01-01/opensearch/vpcEndpoints"
-	openSearchScheduledActionsPath = "/2021-01-01/opensearch/scheduledActions"
-	openSearchReservedPath         = "/2021-01-01/opensearch/reservedInstances"
-	openSearchUpgradePath          = "/2021-01-01/opensearch/upgradeDomain"
+	openSearchPathPrefix             = "/2021-01-01/opensearch/domain"
+	openSearchTagsPath               = "/2021-01-01/tags"
+	openSearchTagsRemoval            = "/2021-01-01/tags-removal"
+	openSearchCCPath                 = "/2021-01-01/opensearch/cc"
+	openSearchDirectQueryPath        = "/2021-01-01/opensearch/directQueryDataSource"
+	openSearchPackagesPath           = "/2021-01-01/packages"
+	openSearchServiceSwPath          = "/2021-01-01/opensearch/serviceSoftwareUpdate"
+	openSearchApplicationPath        = "/2021-01-01/opensearch/application"
+	openSearchVersionsPath           = "/2021-01-01/opensearch/versions"
+	openSearchInstanceTypesPath      = "/2021-01-01/opensearch/instanceTypeDetails"
+	openSearchCompatiblePath         = "/2021-01-01/opensearch/compatibleVersions"
+	openSearchVpcEndpointsPath       = "/2021-01-01/opensearch/vpcEndpoints"
+	openSearchScheduledActionsPath   = "/2021-01-01/opensearch/scheduledActions"
+	openSearchReservedPath           = "/2021-01-01/opensearch/reservedInstances"
+	openSearchUpgradePath            = "/2021-01-01/opensearch/upgradeDomain"
+	openSearchInstanceTypeLimitsPath = "/2021-01-01/opensearch/instanceTypeLimits"
+	openSearchServiceName            = "OpenSearch"
 	// pkgPathParts is the number of path segments after the associate prefix (PackageID/DomainName).
 	pkgPathParts = 2
 	// opUnknown is the sentinel returned when no operation can be determined from a request.
@@ -62,31 +64,50 @@ func NewHandler(backend StorageBackend) *Handler {
 }
 
 // Name returns the service name.
-func (h *Handler) Name() string { return "OpenSearch" }
+func (h *Handler) Name() string { return openSearchServiceName }
 
 // MatchPriority returns the routing priority.
 func (h *Handler) MatchPriority() int { return service.PriorityPathSubdomain }
 
+// openSearchPathPrefixes holds all path prefixes handled by the OpenSearch service.
+//
+//nolint:gochecknoglobals // intentional package-level prefix table
+var openSearchPathPrefixes = []string{
+	openSearchPathPrefix,
+	openSearchCCPath,
+	openSearchDirectQueryPath,
+	openSearchPackagesPath,
+	openSearchServiceSwPath,
+	openSearchApplicationPath,
+	openSearchVersionsPath,
+	openSearchInstanceTypesPath,
+	openSearchCompatiblePath,
+	openSearchVpcEndpointsPath,
+	openSearchScheduledActionsPath,
+	openSearchReservedPath,
+	openSearchUpgradePath,
+	openSearchInstanceTypeLimitsPath,
+}
+
+// isOpenSearchPath returns true when the given path belongs to the OpenSearch service.
+func isOpenSearchPath(path string) bool {
+	if path == openSearchTagsPath || path == openSearchTagsRemoval {
+		return true
+	}
+
+	for _, prefix := range openSearchPathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // RouteMatcher returns a matcher that selects OpenSearch requests by path prefix.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		path := c.Request().URL.Path
-
-		return strings.HasPrefix(path, openSearchPathPrefix) ||
-			strings.HasPrefix(path, openSearchCCPath) ||
-			strings.HasPrefix(path, openSearchDirectQueryPath) ||
-			strings.HasPrefix(path, openSearchPackagesPath) ||
-			strings.HasPrefix(path, openSearchServiceSwPath) ||
-			strings.HasPrefix(path, openSearchApplicationPath) ||
-			strings.HasPrefix(path, openSearchVersionsPath) ||
-			strings.HasPrefix(path, openSearchInstanceTypesPath) ||
-			strings.HasPrefix(path, openSearchCompatiblePath) ||
-			strings.HasPrefix(path, openSearchVpcEndpointsPath) ||
-			strings.HasPrefix(path, openSearchScheduledActionsPath) ||
-			strings.HasPrefix(path, openSearchReservedPath) ||
-			strings.HasPrefix(path, openSearchUpgradePath) ||
-			path == openSearchTagsPath ||
-			path == openSearchTagsRemoval
+		return isOpenSearchPath(c.Request().URL.Path)
 	}
 }
 
@@ -472,6 +493,8 @@ func (h *Handler) dispatchNonDomainRoutes(w http.ResponseWriter, r *http.Request
 		h.handleScheduledActionsRoutes(w, r)
 	case strings.HasPrefix(path, openSearchReservedPath):
 		h.handleReservedInstancesRoutes(w, r)
+	case strings.HasPrefix(path, openSearchInstanceTypeLimitsPath):
+		h.handleInstanceTypeLimitsRoutes(w, r)
 	case strings.HasPrefix(path, openSearchUpgradePath):
 		h.handleUpgradeDomainRoutes(w, r)
 	default:
@@ -1729,6 +1752,45 @@ func (h *Handler) handleVersionsRoutes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleInstanceTypeLimitsRoutes handles DescribeInstanceTypeLimits requests.
+// Path: GET /2021-01-01/opensearch/instanceTypeLimits/{EngineVersion}/{InstanceType}.
+func (h *Handler) handleInstanceTypeLimitsRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+
+		return
+	}
+
+	// Path: /2021-01-01/opensearch/instanceTypeLimits/{EngineVersion}/{InstanceType}
+	rest := strings.TrimPrefix(r.URL.Path, openSearchInstanceTypeLimitsPath)
+	rest = strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split into 2: engineVersion, instanceType
+
+	engineVersion := ""
+	instanceType := ""
+
+	if len(parts) >= 1 {
+		engineVersion = parts[0]
+	}
+
+	if len(parts) >= 2 { //nolint:mnd // 2 path segments: engineVersion and instanceType
+		instanceType = parts[1]
+	}
+
+	limits, err := h.Backend.DescribeInstanceTypeLimits(instanceType, engineVersion)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		"LimitsByRole": map[string]any{
+			"data": limits,
+		},
+	})
+}
+
 // handleInstanceTypeDetailsRoutes handles GET /2021-01-01/opensearch/instanceTypeDetails → ListInstanceTypeDetails.
 func (h *Handler) handleInstanceTypeDetailsRoutes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -1868,7 +1930,13 @@ func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.R
 	switch {
 	case strings.HasSuffix(trimmed, "/autoTunes"):
 		// DescribeDomainAutoTunes
-		h.writeJSON(r, w, map[string]any{"AutoTunes": []any{}})
+		domainName, _ := strings.CutSuffix(trimmed, "/autoTunes")
+		autoTunes, err := h.Backend.GetAutoTune(domainName)
+		if err != nil {
+			autoTunes = []*AutoTune{}
+		}
+
+		h.writeJSON(r, w, map[string]any{"AutoTunes": autoTunes})
 	case strings.HasSuffix(trimmed, "/progress"):
 		// DescribeDomainChangeProgress
 		h.writeJSON(r, w, map[string]any{"ChangeProgressStatus": map[string]any{
@@ -1888,10 +1956,27 @@ func (h *Handler) dispatchDomainGetStatusRoutes(w http.ResponseWriter, r *http.R
 		}})
 	case strings.HasSuffix(trimmed, "/upgradeHistory"):
 		// GetUpgradeHistory
-		h.writeJSON(r, w, map[string]any{"UpgradeHistories": []any{}})
+		domainName, _ := strings.CutSuffix(trimmed, "/upgradeHistory")
+		history, err := h.Backend.GetUpgradeHistory(domainName)
+		if err != nil {
+			history = []*UpgradeHistory{}
+		}
+
+		h.writeJSON(r, w, map[string]any{"UpgradeHistories": history})
 	case strings.HasSuffix(trimmed, "/upgrades"):
 		// GetUpgradeStatus
-		h.writeJSON(r, w, map[string]any{"UpgradeName": "stub", "StepStatus": "SUCCEEDED", "UpgradeStep": "UPGRADE"})
+		domainName, _ := strings.CutSuffix(trimmed, "/upgrades")
+		upgradeName, upgradeStatus, upgradeStep, err := h.Backend.GetUpgradeStatus(domainName)
+
+		if err != nil {
+			upgradeName, upgradeStatus, upgradeStep = "INITIAL", upgradeStatusSucceeded, upgradeStepUpgrade
+		}
+
+		h.writeJSON(r, w, map[string]any{
+			"UpgradeName": upgradeName,
+			"StepStatus":  upgradeStatus,
+			"UpgradeStep": upgradeStep,
+		})
 	case strings.HasSuffix(trimmed, "/vpcEndpoints"):
 		// ListVpcEndpointsForDomain
 		h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": []any{}})

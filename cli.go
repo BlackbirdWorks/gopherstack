@@ -93,6 +93,7 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -2605,6 +2606,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&wafv2backend.Provider{},
 		&xraybackend.Provider{},
 		&s3tablesbackend.Provider{},
+		&databrewbackend.Provider{},
 	}
 }
 

@@ -397,43 +397,94 @@ func (h *Handler) handleCreatePartitionIndex(
 
 // createRegistryInput holds input for CreateRegistry.
 type createRegistryInput struct {
-	RegistryName string `json:"RegistryName"`
+	Tags         map[string]string `json:"Tags"`
+	RegistryName string            `json:"RegistryName"`
+	Description  string            `json:"Description"`
 }
 
 // createRegistryOutput holds the result for CreateRegistry.
 type createRegistryOutput struct {
-	RegistryName string `json:"RegistryName"`
-	RegistryArn  string `json:"RegistryArn"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+	RegistryName string            `json:"RegistryName"`
+	RegistryArn  string            `json:"RegistryArn"`
+	Status       string            `json:"Status"`
 }
 
 func (h *Handler) handleCreateRegistry(
 	_ context.Context,
 	in *createRegistryInput,
 ) (*createRegistryOutput, error) {
+	reg, err := h.Backend.CreateRegistry(in.RegistryName, in.Description, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createRegistryOutput{
-		RegistryName: in.RegistryName,
-		RegistryArn:  "arn:aws:glue:us-east-1:000000000000:registry/" + in.RegistryName,
+		RegistryName: reg.Name,
+		RegistryArn:  reg.ARN,
+		Status:       reg.Status,
+		Tags:         reg.Tags,
 	}, nil
 }
 
 // createSchemaInput holds input for CreateSchema.
 type createSchemaInput struct {
-	SchemaName string `json:"SchemaName"`
+	RegistryID    *registryIDInput  `json:"RegistryId"`
+	Tags          map[string]string `json:"Tags"`
+	SchemaName    string            `json:"SchemaName"`
+	DataFormat    string            `json:"DataFormat"`
+	Compatibility string            `json:"Compatibility"`
+	Description   string            `json:"Description"`
+}
+
+// registryIDInput holds registry identification fields.
+type registryIDInput struct {
+	RegistryName string `json:"RegistryName"`
+	RegistryArn  string `json:"RegistryArn"`
 }
 
 // createSchemaOutput holds the result for CreateSchema.
 type createSchemaOutput struct {
-	SchemaName string `json:"SchemaName"`
-	SchemaArn  string `json:"SchemaArn"`
+	Tags          map[string]string `json:"Tags,omitempty"`
+	RegistryName  string            `json:"RegistryName"`
+	RegistryArn   string            `json:"RegistryArn"`
+	SchemaName    string            `json:"SchemaName"`
+	SchemaArn     string            `json:"SchemaArn"`
+	DataFormat    string            `json:"DataFormat"`
+	Compatibility string            `json:"Compatibility"`
+	SchemaStatus  string            `json:"SchemaStatus"`
 }
 
 func (h *Handler) handleCreateSchema(
 	_ context.Context,
 	in *createSchemaInput,
 ) (*createSchemaOutput, error) {
+	registryName := ""
+	if in.RegistryID != nil {
+		registryName = in.RegistryID.RegistryName
+	}
+
+	s, err := h.Backend.CreateSchema(
+		registryName,
+		in.SchemaName,
+		in.DataFormat,
+		in.Compatibility,
+		in.Description,
+		in.Tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &createSchemaOutput{
-		SchemaName: in.SchemaName,
-		SchemaArn:  "arn:aws:glue:us-east-1:000000000000:schema/" + in.SchemaName,
+		RegistryName:  s.RegistryName,
+		RegistryArn:   s.RegistryARN,
+		SchemaName:    s.SchemaName,
+		SchemaArn:     s.SchemaARN,
+		DataFormat:    s.DataFormat,
+		Compatibility: s.Compatibility,
+		SchemaStatus:  s.SchemaStatus,
+		Tags:          s.Tags,
 	}, nil
 }
 
@@ -808,7 +859,7 @@ func (h *Handler) handleDeletePartitionIndex(
 
 // deleteRegistryInput holds input for DeleteRegistry.
 type deleteRegistryInput struct {
-	RegistryID any `json:"RegistryId"`
+	RegistryID *registryIDInput `json:"RegistryId"`
 }
 
 // deleteRegistryOutput holds the result for DeleteRegistry.
@@ -820,9 +871,18 @@ type deleteRegistryOutput struct {
 
 func (h *Handler) handleDeleteRegistry(
 	_ context.Context,
-	_ *deleteRegistryInput,
+	in *deleteRegistryInput,
 ) (*deleteRegistryOutput, error) {
-	return &deleteRegistryOutput{Status: stateDeleting}, nil
+	name := ""
+	if in.RegistryID != nil {
+		name = in.RegistryID.RegistryName
+	}
+
+	if err := h.Backend.DeleteRegistry(name); err != nil {
+		return nil, err
+	}
+
+	return &deleteRegistryOutput{RegistryName: name, Status: stateDeleting}, nil
 }
 
 // deleteResourcePolicyInput holds input for DeleteResourcePolicy.
@@ -835,8 +895,17 @@ func (h *Handler) handleDeleteResourcePolicy(
 	return &emptyOutput{}, nil
 }
 
+// schemaIDInput identifies a schema by registry + schema name or by ARN.
+type schemaIDInput struct {
+	RegistryName string `json:"RegistryName"`
+	SchemaName   string `json:"SchemaName"`
+	SchemaArn    string `json:"SchemaArn"`
+}
+
 // deleteSchemaInput holds input for DeleteSchema.
-type deleteSchemaInput struct{}
+type deleteSchemaInput struct {
+	SchemaID *schemaIDInput `json:"SchemaId"`
+}
 
 // deleteSchemaOutput holds the result for DeleteSchema.
 type deleteSchemaOutput struct {
@@ -847,9 +916,19 @@ type deleteSchemaOutput struct {
 
 func (h *Handler) handleDeleteSchema(
 	_ context.Context,
-	_ *deleteSchemaInput,
+	in *deleteSchemaInput,
 ) (*deleteSchemaOutput, error) {
-	return &deleteSchemaOutput{Status: stateDeleting}, nil
+	registryName, schemaName := "", ""
+	if in.SchemaID != nil {
+		registryName = in.SchemaID.RegistryName
+		schemaName = in.SchemaID.SchemaName
+	}
+
+	if err := h.Backend.DeleteSchema(registryName, schemaName); err != nil {
+		return nil, err
+	}
+
+	return &deleteSchemaOutput{SchemaName: schemaName, Status: stateDeleting}, nil
 }
 
 // deleteSchemaVersionsInput holds input for DeleteSchemaVersions.
@@ -1251,18 +1330,22 @@ func (h *Handler) handleGetColumnStatisticsTaskSettings(
 }
 
 // getCrawlerMetricsInput holds input for GetCrawlerMetrics.
-type getCrawlerMetricsInput struct{}
+type getCrawlerMetricsInput struct {
+	CrawlerNameList []string `json:"CrawlerNameList"`
+}
 
 // getCrawlerMetricsOutput holds the result for GetCrawlerMetrics.
 type getCrawlerMetricsOutput struct {
-	CrawlerMetricsList []any `json:"CrawlerMetricsList"`
+	CrawlerMetricsList []*CrawlerMetrics `json:"CrawlerMetricsList"`
 }
 
 func (h *Handler) handleGetCrawlerMetrics(
 	_ context.Context,
-	_ *getCrawlerMetricsInput,
+	in *getCrawlerMetricsInput,
 ) (*getCrawlerMetricsOutput, error) {
-	return &getCrawlerMetricsOutput{CrawlerMetricsList: []any{}}, nil
+	metrics := h.Backend.GetCrawlerMetrics(in.CrawlerNameList)
+
+	return &getCrawlerMetricsOutput{CrawlerMetricsList: metrics}, nil
 }
 
 // getCustomEntityTypeInput holds input for GetCustomEntityType.
@@ -1653,20 +1736,44 @@ func (h *Handler) handleGetPlan(_ context.Context, _ *getPlanInput) (*getPlanOut
 }
 
 // getRegistryInput holds input for GetRegistry.
-type getRegistryInput struct{}
+type getRegistryInput struct {
+	RegistryID *registryIDInput `json:"RegistryId"`
+}
 
 // getRegistryOutput holds the result for GetRegistry.
 type getRegistryOutput struct {
-	RegistryName string `json:"RegistryName"`
-	RegistryArn  string `json:"RegistryArn"`
-	Status       string `json:"Status"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+	RegistryName string            `json:"RegistryName"`
+	RegistryArn  string            `json:"RegistryArn"`
+	Description  string            `json:"Description,omitempty"`
+	Status       string            `json:"Status"`
+	CreatedTime  float64           `json:"CreatedTime,omitempty"`
+	UpdatedTime  float64           `json:"UpdatedTime,omitempty"`
 }
 
 func (h *Handler) handleGetRegistry(
 	_ context.Context,
-	_ *getRegistryInput,
+	in *getRegistryInput,
 ) (*getRegistryOutput, error) {
-	return &getRegistryOutput{Status: stateAvailable}, nil
+	name := ""
+	if in.RegistryID != nil {
+		name = in.RegistryID.RegistryName
+	}
+
+	reg, err := h.Backend.DescribeRegistry(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getRegistryOutput{
+		RegistryName: reg.Name,
+		RegistryArn:  reg.ARN,
+		Status:       reg.Status,
+		Description:  reg.Description,
+		CreatedTime:  reg.CreatedTime,
+		UpdatedTime:  reg.UpdatedTime,
+		Tags:         reg.Tags,
+	}, nil
 }
 
 // getResourcePoliciesInput holds input for GetResourcePolicies.
@@ -1700,19 +1807,48 @@ func (h *Handler) handleGetResourcePolicy(
 }
 
 // getSchemaInput holds input for GetSchema.
-type getSchemaInput struct{}
+type getSchemaInput struct {
+	SchemaID *schemaIDInput `json:"SchemaId"`
+}
 
 // getSchemaOutput holds the result for GetSchema.
 type getSchemaOutput struct {
-	SchemaName    string `json:"SchemaName"`
-	SchemaArn     string `json:"SchemaArn"`
-	DataFormat    string `json:"DataFormat"`
-	Compatibility string `json:"Compatibility"`
-	SchemaStatus  string `json:"SchemaStatus"`
+	RegistryName  string  `json:"RegistryName"`
+	RegistryArn   string  `json:"RegistryArn"`
+	SchemaName    string  `json:"SchemaName"`
+	SchemaArn     string  `json:"SchemaArn"`
+	DataFormat    string  `json:"DataFormat"`
+	Compatibility string  `json:"Compatibility"`
+	SchemaStatus  string  `json:"SchemaStatus"`
+	Description   string  `json:"Description,omitempty"`
+	CreatedTime   float64 `json:"CreatedTime,omitempty"`
+	UpdatedTime   float64 `json:"UpdatedTime,omitempty"`
 }
 
-func (h *Handler) handleGetSchema(_ context.Context, _ *getSchemaInput) (*getSchemaOutput, error) {
-	return &getSchemaOutput{SchemaStatus: stateAvailable}, nil
+func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSchemaOutput, error) {
+	registryName, schemaName := "", ""
+	if in.SchemaID != nil {
+		registryName = in.SchemaID.RegistryName
+		schemaName = in.SchemaID.SchemaName
+	}
+
+	s, err := h.Backend.DescribeSchema(registryName, schemaName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getSchemaOutput{
+		RegistryName:  s.RegistryName,
+		RegistryArn:   s.RegistryARN,
+		SchemaName:    s.SchemaName,
+		SchemaArn:     s.SchemaARN,
+		DataFormat:    s.DataFormat,
+		Compatibility: s.Compatibility,
+		SchemaStatus:  s.SchemaStatus,
+		Description:   s.Description,
+		CreatedTime:   s.CreatedTime,
+		UpdatedTime:   s.UpdatedTime,
+	}, nil
 }
 
 // getSchemaByDefinitionInput holds input for GetSchemaByDefinition.
@@ -1734,20 +1870,55 @@ func (h *Handler) handleGetSchemaByDefinition(
 }
 
 // getSchemaVersionInput holds input for GetSchemaVersion.
-type getSchemaVersionInput struct{}
+type getSchemaVersionInput struct {
+	SchemaID            *schemaIDInput `json:"SchemaId"`
+	SchemaVersionNumber *struct {
+		VersionNumber int64 `json:"VersionNumber"`
+		LatestVersion bool  `json:"LatestVersion"`
+	} `json:"SchemaVersionNumber"`
+	SchemaVersionID string `json:"SchemaVersionId"`
+}
 
 // getSchemaVersionOutput holds the result for GetSchemaVersion.
 type getSchemaVersionOutput struct {
-	SchemaVersionID string `json:"SchemaVersionId"`
-	SchemaArn       string `json:"SchemaArn"`
-	Status          string `json:"Status"`
+	SchemaVersionID  string  `json:"SchemaVersionId"`
+	SchemaArn        string  `json:"SchemaArn"`
+	SchemaDefinition string  `json:"SchemaDefinition,omitempty"`
+	DataFormat       string  `json:"DataFormat,omitempty"`
+	Status           string  `json:"Status"`
+	VersionNumber    int64   `json:"VersionNumber"`
+	CreatedTime      float64 `json:"CreatedTime,omitempty"`
 }
 
 func (h *Handler) handleGetSchemaVersion(
 	_ context.Context,
-	_ *getSchemaVersionInput,
+	in *getSchemaVersionInput,
 ) (*getSchemaVersionOutput, error) {
-	return &getSchemaVersionOutput{Status: stateAvailable}, nil
+	registryName, schemaName := "", ""
+	if in.SchemaID != nil {
+		registryName = in.SchemaID.RegistryName
+		schemaName = in.SchemaID.SchemaName
+	}
+
+	versionNumber := int64(1)
+	if in.SchemaVersionNumber != nil && in.SchemaVersionNumber.VersionNumber > 0 {
+		versionNumber = in.SchemaVersionNumber.VersionNumber
+	}
+
+	sv, err := h.Backend.GetSchemaVersion(registryName, schemaName, versionNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getSchemaVersionOutput{
+		SchemaVersionID:  sv.SchemaVersionID,
+		SchemaArn:        sv.SchemaARN,
+		SchemaDefinition: sv.SchemaDefinition,
+		DataFormat:       sv.DataFormat,
+		Status:           sv.Status,
+		VersionNumber:    sv.VersionNumber,
+		CreatedTime:      sv.CreatedTime,
+	}, nil
 }
 
 // getSchemaVersionsDiffInput holds input for GetSchemaVersionsDiff.
@@ -1856,9 +2027,14 @@ type getTableVersionOutput struct {
 
 func (h *Handler) handleGetTableVersion(
 	_ context.Context,
-	_ *getTableVersionInput,
+	in *getTableVersionInput,
 ) (*getTableVersionOutput, error) {
-	return &getTableVersionOutput{}, nil
+	tv, err := h.Backend.GetTableVersion(in.DatabaseName, in.TableName, in.VersionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getTableVersionOutput{TableVersion: tv}, nil
 }
 
 // getTableVersionsInput holds input for GetTableVersions.
@@ -1874,9 +2050,11 @@ type getTableVersionsOutput struct {
 
 func (h *Handler) handleGetTableVersions(
 	_ context.Context,
-	_ *getTableVersionsInput,
+	in *getTableVersionsInput,
 ) (*getTableVersionsOutput, error) {
-	return &getTableVersionsOutput{TableVersions: []*TableVersion{}}, nil
+	versions := h.Backend.GetTableVersions(in.DatabaseName, in.TableName)
+
+	return &getTableVersionsOutput{TableVersions: versions}, nil
 }
 
 // getTriggerInput holds input for GetTrigger.
@@ -2359,44 +2537,68 @@ type listRegistriesInput struct{}
 
 // listRegistriesOutput holds the result for ListRegistries.
 type listRegistriesOutput struct {
-	Registries []any `json:"Registries"`
+	Registries []*Registry `json:"Registries"`
 }
 
 func (h *Handler) handleListRegistries(
 	_ context.Context,
 	_ *listRegistriesInput,
 ) (*listRegistriesOutput, error) {
-	return &listRegistriesOutput{Registries: []any{}}, nil
+	regs := h.Backend.ListRegistries()
+
+	return &listRegistriesOutput{Registries: regs}, nil
 }
 
 // listSchemaVersionsInput holds input for ListSchemaVersions.
-type listSchemaVersionsInput struct{}
+type listSchemaVersionsInput struct {
+	SchemaID *schemaIDInput `json:"SchemaId"`
+}
 
 // listSchemaVersionsOutput holds the result for ListSchemaVersions.
 type listSchemaVersionsOutput struct {
-	SchemaVersions []any `json:"SchemaVersions"`
+	SchemaVersions []*SchemaVersion `json:"SchemaVersions"`
 }
 
 func (h *Handler) handleListSchemaVersions(
 	_ context.Context,
-	_ *listSchemaVersionsInput,
+	in *listSchemaVersionsInput,
 ) (*listSchemaVersionsOutput, error) {
-	return &listSchemaVersionsOutput{SchemaVersions: []any{}}, nil
+	registryName, schemaName := "", ""
+	if in.SchemaID != nil {
+		registryName = in.SchemaID.RegistryName
+		schemaName = in.SchemaID.SchemaName
+	}
+
+	versions := h.Backend.ListSchemaVersions(registryName, schemaName)
+	if versions == nil {
+		versions = []*SchemaVersion{}
+	}
+
+	return &listSchemaVersionsOutput{SchemaVersions: versions}, nil
 }
 
 // listSchemasInput holds input for ListSchemas.
-type listSchemasInput struct{}
+type listSchemasInput struct {
+	RegistryID *registryIDInput `json:"RegistryId"`
+}
 
 // listSchemasOutput holds the result for ListSchemas.
 type listSchemasOutput struct {
-	Schemas []any `json:"Schemas"`
+	Schemas []*Schema `json:"Schemas"`
 }
 
 func (h *Handler) handleListSchemas(
 	_ context.Context,
-	_ *listSchemasInput,
+	in *listSchemasInput,
 ) (*listSchemasOutput, error) {
-	return &listSchemasOutput{Schemas: []any{}}, nil
+	registryName := ""
+	if in.RegistryID != nil {
+		registryName = in.RegistryID.RegistryName
+	}
+
+	schemas := h.Backend.ListSchemas(registryName)
+
+	return &listSchemasOutput{Schemas: schemas}, nil
 }
 
 // listSessionsInput holds input for ListSessions.
@@ -2610,20 +2812,40 @@ func (h *Handler) handleRegisterConnectionType(
 }
 
 // registerSchemaVersionInput holds input for RegisterSchemaVersion.
-type registerSchemaVersionInput struct{}
+type registerSchemaVersionInput struct {
+	SchemaID         *schemaIDInput `json:"SchemaId"`
+	SchemaDefinition string         `json:"SchemaDefinition"`
+}
 
 // registerSchemaVersionOutput holds the result for RegisterSchemaVersion.
 type registerSchemaVersionOutput struct {
 	SchemaVersionID string `json:"SchemaVersionId"`
+	SchemaArn       string `json:"SchemaArn"`
 	Status          string `json:"Status"`
 	VersionNumber   int64  `json:"VersionNumber"`
 }
 
 func (h *Handler) handleRegisterSchemaVersion(
 	_ context.Context,
-	_ *registerSchemaVersionInput,
+	in *registerSchemaVersionInput,
 ) (*registerSchemaVersionOutput, error) {
-	return &registerSchemaVersionOutput{Status: stateAvailable}, nil
+	registryName, schemaName := "", ""
+	if in.SchemaID != nil {
+		registryName = in.SchemaID.RegistryName
+		schemaName = in.SchemaID.SchemaName
+	}
+
+	sv, err := h.Backend.RegisterSchemaVersion(registryName, schemaName, in.SchemaDefinition)
+	if err != nil {
+		return nil, err
+	}
+
+	return &registerSchemaVersionOutput{
+		SchemaVersionID: sv.SchemaVersionID,
+		SchemaArn:       sv.SchemaARN,
+		Status:          sv.Status,
+		VersionNumber:   sv.VersionNumber,
+	}, nil
 }
 
 // removeSchemaVersionMetadataInput holds input for RemoveSchemaVersionMetadata.
@@ -3151,7 +3373,10 @@ func (h *Handler) handleUpdatePartition(
 }
 
 // updateRegistryInput holds input for UpdateRegistry.
-type updateRegistryInput struct{}
+type updateRegistryInput struct {
+	RegistryID  *registryIDInput `json:"RegistryId"`
+	Description string           `json:"Description"`
+}
 
 // updateRegistryOutput holds the result for UpdateRegistry.
 type updateRegistryOutput struct {
@@ -3161,13 +3386,26 @@ type updateRegistryOutput struct {
 
 func (h *Handler) handleUpdateRegistry(
 	_ context.Context,
-	_ *updateRegistryInput,
+	in *updateRegistryInput,
 ) (*updateRegistryOutput, error) {
-	return &updateRegistryOutput{}, nil
+	name := ""
+	if in.RegistryID != nil {
+		name = in.RegistryID.RegistryName
+	}
+
+	if err := h.Backend.UpdateRegistry(name, in.Description); err != nil {
+		return nil, err
+	}
+
+	return &updateRegistryOutput{RegistryName: name}, nil
 }
 
 // updateSchemaInput holds input for UpdateSchema.
-type updateSchemaInput struct{}
+type updateSchemaInput struct {
+	SchemaID      *schemaIDInput `json:"SchemaId"`
+	Compatibility string         `json:"Compatibility"`
+	Description   string         `json:"Description"`
+}
 
 // updateSchemaOutput holds the result for UpdateSchema.
 type updateSchemaOutput struct {
@@ -3178,9 +3416,19 @@ type updateSchemaOutput struct {
 
 func (h *Handler) handleUpdateSchema(
 	_ context.Context,
-	_ *updateSchemaInput,
+	in *updateSchemaInput,
 ) (*updateSchemaOutput, error) {
-	return &updateSchemaOutput{}, nil
+	registryName, schemaName := "", ""
+	if in.SchemaID != nil {
+		registryName = in.SchemaID.RegistryName
+		schemaName = in.SchemaID.SchemaName
+	}
+
+	if err := h.Backend.UpdateSchema(registryName, schemaName, in.Compatibility, in.Description); err != nil {
+		return nil, err
+	}
+
+	return &updateSchemaOutput{SchemaName: schemaName, RegistryName: registryName}, nil
 }
 
 // updateSourceControlFromJobInput holds input for UpdateSourceControlFromJob.
