@@ -1879,12 +1879,6 @@ func (b *InMemoryBackend) UpdateTableStorageOptimizer(
 	return "Optimizer updated successfully"
 }
 
-// SearchDatabasesByLFTags returns an empty list (in-memory stub).
-func (b *InMemoryBackend) SearchDatabasesByLFTags(_ []LFTag, _ string, _ int, _ string) ([]TaggedDatabase, string) {
-	return []TaggedDatabase{}, ""
-}
+// SearchDatabasesByLFTags is implemented in backend_comprehensive.go.
 
-// SearchTablesByLFTags returns an empty list (in-memory stub).
-func (b *InMemoryBackend) SearchTablesByLFTags(_ []LFTag, _ string, _ int, _ string) ([]TaggedTable, string) {
-	return []TaggedTable{}, ""
-}
+// SearchTablesByLFTags is implemented in backend_comprehensive.go.

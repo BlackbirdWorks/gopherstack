@@ -140,17 +140,15 @@ type FeatureDefinition struct {
 }
 
 // FeatureGroup represents a SageMaker Feature Store feature group.
-//
-//nolint:govet // field order follows JSON API field order; GC pointer bitmap savings are negligible
 type FeatureGroup struct {
+	CreationTime                time.Time           `json:"CreationTime"`
+	Tags                        map[string]string   `json:"Tags,omitempty"`
 	FeatureGroupName            string              `json:"FeatureGroupName"`
 	FeatureGroupArn             string              `json:"FeatureGroupArn"`
 	RecordIdentifierFeatureName string              `json:"RecordIdentifierFeatureName,omitempty"`
 	EventTimeFeatureName        string              `json:"EventTimeFeatureName,omitempty"`
 	FeatureGroupStatus          string              `json:"FeatureGroupStatus"`
-	Tags                        map[string]string   `json:"Tags,omitempty"`
 	FeatureDefinitions          []FeatureDefinition `json:"FeatureDefinitions,omitempty"`
-	CreationTime                time.Time           `json:"CreationTime"`
 }
 
 func cloneFeatureGroup(fg *FeatureGroup) *FeatureGroup {
@@ -836,7 +834,7 @@ func (b *InMemoryBackend) StartPipelineExecution(pipelineName string) (*Pipeline
 	pe := &PipelineExecution{
 		PipelineArn:             p.PipelineArn,
 		PipelineExecutionArn:    execArn,
-		PipelineExecutionStatus: "Succeeded",
+		PipelineExecutionStatus: pipelineStatusSucceeded,
 		StartTime:               time.Now(),
 	}
 	b.pipelineExecutions[execArn] = pe

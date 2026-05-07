@@ -21,6 +21,13 @@ import (
 const (
 	statusDisabled     = "disabled"
 	keyResourceCluster = "cluster"
+
+	// Operation name constants shared across handler files.
+	opCreateUsageLimit      = "CreateUsageLimit"
+	opDeleteUsageLimit      = "DeleteUsageLimit"
+	opCreateScheduledAction = "CreateScheduledAction"
+	opDeleteScheduledAction = "DeleteScheduledAction"
+	opUnknown               = "Unknown"
 )
 
 const (
@@ -86,7 +93,7 @@ func supportedOpsGroup1() []string {
 		"CreateSnapshotCopyGrant",
 		"CreateSnapshotSchedule",
 		"CreateTags",
-		"CreateUsageLimit",
+		opCreateUsageLimit,
 		"DeauthorizeDataShare",
 		"DeleteAuthenticationProfile",
 		"DeleteCluster",
@@ -100,7 +107,7 @@ func supportedOpsGroup1() []string {
 		"DeleteSnapshotCopyGrant",
 		"DeleteSnapshotSchedule",
 		"DeleteTags",
-		"DeleteUsageLimit",
+		opDeleteUsageLimit,
 		"DescribeAccountAttributes",
 		"DescribeAuthenticationProfiles",
 		"DescribeClusterParameterGroups",
@@ -181,14 +188,14 @@ func supportedOpsGroup2() []string {
 		"CreateHsmConfiguration",
 		"CreateIntegration",
 		"CreateRedshiftIdcApplication",
-		"CreateScheduledAction",
+		opCreateScheduledAction,
 		"DeleteCustomDomainAssociation",
 		"DeleteEndpointAccess",
 		"DeleteHsmClientCertificate",
 		"DeleteHsmConfiguration",
 		"DeleteIntegration",
 		"DeleteRedshiftIdcApplication",
-		"DeleteScheduledAction",
+		opDeleteScheduledAction,
 		"DeregisterNamespace",
 		"DescribeClusterDbRevisions",
 		"DescribeCustomDomainAssociations",
@@ -258,11 +265,11 @@ func (h *Handler) MatchPriority() int { return service.PriorityFormRedshift }
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	r := c.Request()
 	if err := r.ParseForm(); err != nil {
-		return "Unknown"
+		return opUnknown
 	}
 	action := r.Form.Get("Action")
 	if action == "" {
-		return "Unknown"
+		return opUnknown
 	}
 
 	return action
@@ -329,7 +336,7 @@ func (h *Handler) buildOpsGroup1() map[string]redshiftActionFn {
 		"CreateSnapshotCopyGrant":              h.handleCreateSnapshotCopyGrant,
 		"CreateSnapshotSchedule":               h.handleCreateSnapshotSchedule,
 		"CreateTags":                           h.handleCreateTags,
-		"CreateUsageLimit":                     h.handleCreateUsageLimit,
+		opCreateUsageLimit:                     h.handleCreateUsageLimit,
 		"DeauthorizeDataShare":                 h.handleDeauthorizeDataShare,
 		"DeleteAuthenticationProfile":          h.handleDeleteAuthenticationProfile,
 		"DeleteCluster":                        h.handleDeleteCluster,
@@ -343,7 +350,7 @@ func (h *Handler) buildOpsGroup1() map[string]redshiftActionFn {
 		"DeleteSnapshotCopyGrant":              h.handleDeleteSnapshotCopyGrant,
 		"DeleteSnapshotSchedule":               h.handleDeleteSnapshotSchedule,
 		"DeleteTags":                           h.handleDeleteTags,
-		"DeleteUsageLimit":                     h.handleDeleteUsageLimit,
+		opDeleteUsageLimit:                     h.handleDeleteUsageLimit,
 		"DescribeAccountAttributes":            h.handleDescribeAccountAttributes,
 		"DescribeAuthenticationProfiles":       h.handleDescribeAuthenticationProfiles,
 		"DescribeClusterParameterGroups":       h.handleDescribeClusterParameterGroups,

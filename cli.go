@@ -249,6 +249,7 @@ type CLI struct {
 	acmHandler                    service.Registerable
 	acmpcaHandler                 service.Registerable
 	redshiftHandler               service.Registerable
+	redshiftServerlessHandler     service.Registerable
 	rdsHandler                    service.Registerable
 	awsconfigHandler              service.Registerable
 	sagemakerRuntimeHandler       service.Registerable
@@ -274,6 +275,7 @@ type CLI struct {
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
 	bedrockHandler                service.Registerable
+	bedrockAgentsHandler          service.Registerable
 	bedrockruntimeHandler         service.Registerable
 	ceHandler                     service.Registerable
 	cloudcontrolHandler           service.Registerable
@@ -1056,6 +1058,11 @@ func (c *CLI) GetACMPCAHandler() service.Registerable { return c.acmpcaHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetRedshiftHandler() service.Registerable { return c.redshiftHandler }
 
+// GetRedshiftServerlessHandler returns the Redshift Serverless handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRedshiftServerlessHandler() service.Registerable { return c.redshiftServerlessHandler }
+
 // GetRDSHandler returns the RDS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1432,6 +1439,11 @@ func (c *CLI) GetBatchHandler() service.Registerable { return c.batchHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBedrockHandler() service.Registerable { return c.bedrockHandler }
+
+// GetBedrockAgentsHandler returns the Bedrock Agents handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetBedrockAgentsHandler() service.Registerable { return c.bedrockAgentsHandler }
 
 // GetBedrockRuntimeHandler returns the Bedrock Runtime handler.
 //
@@ -2192,6 +2204,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.acmHandler = byName["ACM"]
 	cli.acmpcaHandler = byName["ACMPCA"]
 	cli.redshiftHandler = byName["Redshift"]
+	cli.redshiftServerlessHandler = byName["RedshiftServerless"]
 	cli.awsconfigHandler = byName["AWSConfig"]
 	cli.s3controlHandler = byName["S3Control"]
 	cli.resourcegroupsHandler = byName["ResourceGroups"]
@@ -2232,6 +2245,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.applicationautoscalingHandler = byName["ApplicationAutoscaling"]
 	cli.batchHandler = byName["Batch"]
 	cli.bedrockHandler = byName["Bedrock"]
+	cli.bedrockAgentsHandler = byName["BedrockAgents"]
 	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
@@ -2493,6 +2507,7 @@ func getServiceProviders() []service.Provider {
 		&acmbackend.Provider{},
 		&acmpcabackend.Provider{},
 		&redshiftbackend.Provider{},
+		&redshiftbackend.ServerlessProvider{},
 		&awsconfigbackend.Provider{},
 		&s3controlbackend.Provider{},
 		&resourcegroupsbackend.Provider{},
@@ -2526,6 +2541,7 @@ func getServiceProviders() []service.Provider {
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
 		&bedrockbackend.Provider{},
+		&bedrockbackend.AgentsProvider{},
 		&bedrockruntimebackend.Provider{},
 		&cebackend.Provider{},
 		&cloudcontrolbackend.Provider{},

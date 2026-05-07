@@ -298,8 +298,11 @@ type InMemoryBackend struct {
 	userProfiles               map[userProfileKey]*UserProfile       // key: domainID+name
 	apps                       map[appKey]*App                       // key: domainID+userProfile+appType+appName
 	featureGroups              map[string]*FeatureGroup              // key: featureGroupName
+	featureRecords             map[string]*FeatureRecord             // key: groupName|recordID
+	featureMetadata            map[string]*FeatureMetadata           // key: groupName/featureName
 	pipelines                  map[string]*Pipeline                  // key: pipelineName
 	pipelineExecutions         map[string]*PipelineExecution         // key: executionArn
+	pipelineExecSteps          map[string]*PipelineExecutionStep     // key: execArn|stepName
 	experiments                map[string]*Experiment                // key: experimentName
 	trials                     map[string]*Trial                     // key: trialName
 	trialComponents            map[string]*TrialComponent            // key: trialComponentName
@@ -337,8 +340,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		userProfiles:               make(map[userProfileKey]*UserProfile),
 		apps:                       make(map[appKey]*App),
 		featureGroups:              make(map[string]*FeatureGroup),
+		featureRecords:             make(map[string]*FeatureRecord),
+		featureMetadata:            make(map[string]*FeatureMetadata),
 		pipelines:                  make(map[string]*Pipeline),
 		pipelineExecutions:         make(map[string]*PipelineExecution),
+		pipelineExecSteps:          make(map[string]*PipelineExecutionStep),
 		experiments:                make(map[string]*Experiment),
 		trials:                     make(map[string]*Trial),
 		trialComponents:            make(map[string]*TrialComponent),
@@ -385,8 +391,11 @@ func (b *InMemoryBackend) Reset() {
 	b.userProfiles = make(map[userProfileKey]*UserProfile)
 	b.apps = make(map[appKey]*App)
 	b.featureGroups = make(map[string]*FeatureGroup)
+	b.featureRecords = make(map[string]*FeatureRecord)
+	b.featureMetadata = make(map[string]*FeatureMetadata)
 	b.pipelines = make(map[string]*Pipeline)
 	b.pipelineExecutions = make(map[string]*PipelineExecution)
+	b.pipelineExecSteps = make(map[string]*PipelineExecutionStep)
 	b.experiments = make(map[string]*Experiment)
 	b.trials = make(map[string]*Trial)
 	b.trialComponents = make(map[string]*TrialComponent)
