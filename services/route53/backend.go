@@ -1432,6 +1432,7 @@ func (b *InMemoryBackend) GetVPCAssociations(zoneID string) ([]vpcAssociation, e
 }
 
 // TestDNSAnswer looks up a record in the hosted zone and returns matching values.
+// If the record has an AliasTarget, the alias DNS name is resolved appropriately.
 func (b *InMemoryBackend) TestDNSAnswer(zoneID, recordName, recordType string) ([]string, error) {
 	b.mu.RLock("TestDNSAnswer")
 	defer b.mu.RUnlock()
@@ -1449,10 +1450,44 @@ func (b *InMemoryBackend) TestDNSAnswer(zoneID, recordName, recordType string) (
 		return []string{}, nil
 	}
 
+	// If the record has an alias target, resolve it to appropriate values.
+	if rrs.AliasTarget != nil {
+		return resolveAliasTarget(rrs.AliasTarget.DNSName, recordType), nil
+	}
+
 	values := make([]string, 0, len(rrs.Records))
 	for _, r := range rrs.Records {
 		values = append(values, r.Value)
 	}
 
 	return values, nil
+}
+
+// resolveAliasTarget returns synthetic DNS answer values for an alias target DNS name.
+// CloudFront, ELB, and S3 domains get representative values; others return the CNAME.
+func resolveAliasTarget(dnsName, recordType string) []string {
+	lower := strings.ToLower(dnsName)
+
+	switch {
+	case strings.HasSuffix(lower, ".cloudfront.net") || strings.HasSuffix(lower, ".cloudfront.net."):
+		// CloudFront distributions return CNAME-style answer.
+		return []string{strings.TrimSuffix(dnsName, ".")}
+	case strings.Contains(lower, ".elb.amazonaws.com") || strings.Contains(lower, ".elasticloadbalancing."):
+		// ELB aliases: return a synthetic A record IP for A queries, CNAME for others.
+		if recordType == recordTypeA {
+			return []string{"198.51.100.1"} // TEST-NET-2, realistic placeholder
+		}
+
+		return []string{strings.TrimSuffix(dnsName, ".")}
+	case strings.Contains(lower, ".s3-website") || strings.Contains(lower, ".s3.amazonaws.com"):
+		// S3 website endpoints.
+		if recordType == recordTypeA {
+			return []string{"52.218.0.1"} // AWS S3 IP range placeholder
+		}
+
+		return []string{strings.TrimSuffix(dnsName, ".")}
+	default:
+		// Generic alias: return the DNS name as a CNAME value.
+		return []string{strings.TrimSuffix(dnsName, ".")}
+	}
 }

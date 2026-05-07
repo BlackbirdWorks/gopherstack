@@ -154,8 +154,16 @@ type ConnectionGroup struct {
 
 // ContinuousDeploymentPolicy represents a CloudFront continuous deployment policy.
 type ContinuousDeploymentPolicy struct {
-	ID      string `json:"id"`
-	Enabled bool   `json:"enabled"`
+	StagingDistributionDNS string `json:"stagingDistributionDns,omitempty"`
+	ID                     string `json:"id"`
+	ETag                   string `json:"eTag"`
+	Enabled                bool   `json:"enabled"`
+}
+
+// FunctionAssociation represents the association of a CloudFront function with an event type.
+type FunctionAssociation struct {
+	FunctionARN string `json:"functionArn"`
+	EventType   string `json:"eventType"` // viewer-request, viewer-response, etc.
 }
 
 // OriginAccessControl represents a CloudFront Origin Access Control (OAC).
@@ -293,6 +301,7 @@ type InMemoryBackend struct {
 	keyValueStores                    map[string]*KeyValueStore
 	keyValueStoreByName               map[string]string // name → ID
 	vpcOrigins                        map[string]*VpcOrigin
+	distributionFunctionAssociations  map[string][]FunctionAssociation // distribution ID → associations
 	mu                                *lockmetrics.RWMutex
 	accountID                         string
 	region                            string
@@ -336,6 +345,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		keyValueStores:                    make(map[string]*KeyValueStore),
 		keyValueStoreByName:               make(map[string]string),
 		vpcOrigins:                        make(map[string]*VpcOrigin),
+		distributionFunctionAssociations:  make(map[string][]FunctionAssociation),
 		mu:                                lockmetrics.New("cloudfront"),
 		accountID:                         accountID,
 		region:                            region,
@@ -382,6 +392,7 @@ func (b *InMemoryBackend) Reset() {
 	b.keyValueStores = make(map[string]*KeyValueStore)
 	b.keyValueStoreByName = make(map[string]string)
 	b.vpcOrigins = make(map[string]*VpcOrigin)
+	b.distributionFunctionAssociations = make(map[string][]FunctionAssociation)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -984,19 +995,132 @@ func (b *InMemoryBackend) CreateConnectionGroup(name, comment string) (*Connecti
 // CreateContinuousDeploymentPolicy creates a new continuous deployment policy.
 func (b *InMemoryBackend) CreateContinuousDeploymentPolicy(
 	enabled bool,
+	stagingDNS string,
 ) (*ContinuousDeploymentPolicy, error) {
 	b.mu.Lock("CreateContinuousDeploymentPolicy")
 	defer b.mu.Unlock()
 
 	id := generateID()
 	policy := &ContinuousDeploymentPolicy{
-		ID:      id,
-		Enabled: enabled,
+		ID:                     id,
+		ETag:                   uuid.NewString(),
+		Enabled:                enabled,
+		StagingDistributionDNS: stagingDNS,
 	}
 	b.continuousDeploymentPolicies[id] = policy
 	cp := *policy
 
 	return &cp, nil
+}
+
+// GetContinuousDeploymentPolicy returns a continuous deployment policy by ID.
+func (b *InMemoryBackend) GetContinuousDeploymentPolicy(id string) (*ContinuousDeploymentPolicy, error) {
+	b.mu.RLock("GetContinuousDeploymentPolicy")
+	defer b.mu.RUnlock()
+
+	policy, ok := b.continuousDeploymentPolicies[id]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: continuous deployment policy %s not found",
+			ErrContinuousDeploymentPolicyNotFound,
+			id,
+		)
+	}
+
+	cp := *policy
+
+	return &cp, nil
+}
+
+// ListContinuousDeploymentPolicies returns all continuous deployment policies sorted by ID.
+func (b *InMemoryBackend) ListContinuousDeploymentPolicies() []*ContinuousDeploymentPolicy {
+	b.mu.RLock("ListContinuousDeploymentPolicies")
+	defer b.mu.RUnlock()
+
+	list := make([]*ContinuousDeploymentPolicy, 0, len(b.continuousDeploymentPolicies))
+	for _, policy := range b.continuousDeploymentPolicies {
+		cp := *policy
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// UpdateContinuousDeploymentPolicy updates an existing continuous deployment policy.
+func (b *InMemoryBackend) UpdateContinuousDeploymentPolicy(
+	id string,
+	enabled bool,
+	stagingDNS string,
+) (*ContinuousDeploymentPolicy, error) {
+	b.mu.Lock("UpdateContinuousDeploymentPolicy")
+	defer b.mu.Unlock()
+
+	policy, ok := b.continuousDeploymentPolicies[id]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: continuous deployment policy %s not found",
+			ErrContinuousDeploymentPolicyNotFound,
+			id,
+		)
+	}
+
+	policy.Enabled = enabled
+	policy.StagingDistributionDNS = stagingDNS
+	policy.ETag = uuid.NewString()
+	cp := *policy
+
+	return &cp, nil
+}
+
+// DeleteContinuousDeploymentPolicy deletes a continuous deployment policy by ID.
+func (b *InMemoryBackend) DeleteContinuousDeploymentPolicy(id string) error {
+	b.mu.Lock("DeleteContinuousDeploymentPolicy")
+	defer b.mu.Unlock()
+
+	if _, ok := b.continuousDeploymentPolicies[id]; !ok {
+		return fmt.Errorf("%w: continuous deployment policy %s not found", ErrContinuousDeploymentPolicyNotFound, id)
+	}
+
+	delete(b.continuousDeploymentPolicies, id)
+
+	return nil
+}
+
+// SetDistributionFunctionAssociations replaces function associations for a distribution.
+func (b *InMemoryBackend) SetDistributionFunctionAssociations(
+	distributionID string,
+	associations []FunctionAssociation,
+) error {
+	b.mu.Lock("SetDistributionFunctionAssociations")
+	defer b.mu.Unlock()
+
+	if _, ok := b.distributions[distributionID]; !ok {
+		return fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
+	}
+
+	cp := make([]FunctionAssociation, len(associations))
+	copy(cp, associations)
+	b.distributionFunctionAssociations[distributionID] = cp
+
+	return nil
+}
+
+// GetDistributionFunctionAssociations returns function associations for a distribution.
+func (b *InMemoryBackend) GetDistributionFunctionAssociations(distributionID string) ([]FunctionAssociation, error) {
+	b.mu.RLock("GetDistributionFunctionAssociations")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.distributions[distributionID]; !ok {
+		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
+	}
+
+	src := b.distributionFunctionAssociations[distributionID]
+	cp := make([]FunctionAssociation, len(src))
+	copy(cp, src)
+
+	return cp, nil
 }
 
 func (b *InMemoryBackend) copyDistribution(d *Distribution) *Distribution {
