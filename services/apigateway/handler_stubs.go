@@ -4,15 +4,15 @@ package apigateway
 // not yet fully implemented.  Each stub returns a minimal valid response so the
 // operation is visible in GetSupportedOperations and the SDK completeness test passes.
 
-import "net/http"
+import (
+	"encoding/json"
+	"maps"
+	"net/http"
+)
 
 const (
 	// vpcLinkStatusAvailable is the status for an available VPC Link.
 	vpcLinkStatusAvailable = "AVAILABLE"
-	// stubClientCertIDKey is the JSON key for client certificate ID responses.
-	stubClientCertIDKey = "clientCertificateId"
-	// stubDefaultGWResponseType is the default gateway response type for stubs.
-	stubDefaultGWResponseType = "DEFAULT_4XX"
 	// stubImportedAPIName is the placeholder name for imported REST APIs.
 	stubImportedAPIName = "imported-api"
 	// stubImportedAPIID is the placeholder ID for imported REST APIs.
@@ -42,18 +42,6 @@ const (
 	opUpdateUsage                       = "UpdateUsage"
 	opUpdateVpcLink                     = "UpdateVpcLink"
 )
-
-// vpcLinkStub is a minimal VPC Link representation.
-type vpcLinkStub struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
-}
-
-// vpcLinksStub is a minimal list of VPC Links.
-type vpcLinksStub struct {
-	Items []vpcLinkStub `json:"item"`
-}
 
 // domainNameAccessAssociationStub is a minimal domain name access association.
 type domainNameAccessAssociationStub struct {
@@ -91,76 +79,168 @@ type documentationPartsImportStub struct {
 	Warnings []string `json:"warnings"`
 }
 
-// stubActions returns the actionFn map for stub operations.
-func (h *Handler) stubActions() map[string]actionFn {
+// vpcLinkActions returns real stateful action handlers for VPC Link operations.
+func (h *Handler) vpcLinkActions() map[string]actionFn {
 	return map[string]actionFn{
-		// VPC Links
-		opCreateVpcLink: func(_ []byte) (int, any, error) {
-			return http.StatusCreated, &vpcLinkStub{Status: vpcLinkStatusAvailable}, nil
+		opCreateVpcLink: func(b []byte) (int, any, error) {
+			var input CreateVpcLinkInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			link, err := h.Backend.CreateVpcLink(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, link, nil
 		},
-		opDeleteVpcLink: func(_ []byte) (int, any, error) {
+		opDeleteVpcLink: func(b []byte) (int, any, error) {
+			var input deleteVpcLinkInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			if err := h.Backend.DeleteVpcLink(input.VpcLinkID); err != nil {
+				return 0, nil, err
+			}
+
 			return http.StatusAccepted, nil, nil
 		},
-		opGetVpcLink: func(_ []byte) (int, any, error) {
-			return http.StatusOK, &vpcLinkStub{Status: vpcLinkStatusAvailable}, nil
+		opGetVpcLink: func(b []byte) (int, any, error) {
+			var input getVpcLinkInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			link, err := h.Backend.GetVpcLink(input.VpcLinkID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, link, nil
 		},
 		opGetVpcLinks: func(_ []byte) (int, any, error) {
-			return http.StatusOK, &vpcLinksStub{Items: []vpcLinkStub{}}, nil
+			links, err := h.Backend.GetVpcLinks()
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{keyItem: links}, nil
 		},
-		opUpdateVpcLink: func(_ []byte) (int, any, error) {
-			return http.StatusOK, &vpcLinkStub{Status: vpcLinkStatusAvailable}, nil
-		},
-		// Domain name access associations
-		opDeleteDomainNameAccessAssociation: func(_ []byte) (int, any, error) {
-			return http.StatusAccepted, nil, nil
-		},
-		opGetDomainNameAccessAssociations: func(_ []byte) (int, any, error) {
-			return http.StatusOK, &domainNameAccessAssociationsStub{Items: []domainNameAccessAssociationStub{}}, nil
-		},
-		opRejectDomainNameAccessAssociation: func(_ []byte) (int, any, error) {
-			return http.StatusAccepted, nil, nil
-		},
-		// SDK export/generate
-		opGetExport: func(_ []byte) (int, any, error) {
-			return http.StatusOK, map[string]any{"contentType": "application/json", "body": "{}"}, nil
-		},
-		opGetSdk: func(_ []byte) (int, any, error) {
-			return http.StatusOK, map[string]any{"contentType": "application/zip", "body": ""}, nil
-		},
-		opGetSdkType: func(_ []byte) (int, any, error) {
-			return http.StatusOK, &sdkTypeStub{ID: "javascript", FriendlyName: "JavaScript"}, nil
-		},
-		opGetSdkTypes: func(_ []byte) (int, any, error) {
-			return http.StatusOK, &sdkTypesStub{Items: []sdkTypeStub{
-				{ID: "javascript", FriendlyName: "JavaScript"},
-				{ID: "android", FriendlyName: "Android"},
-				{ID: "swift", FriendlyName: "Swift (iOS)"},
-			}}, nil
-		},
-		// Import operations
-		opImportAPIKeys: func(_ []byte) (int, any, error) {
-			return http.StatusCreated, &apiKeysImportStub{IDs: []string{}, Warnings: []string{}}, nil
-		},
-		opImportDocumentationParts: func(_ []byte) (int, any, error) {
-			return http.StatusOK, &documentationPartsImportStub{IDs: []string{}, Warnings: []string{}}, nil
-		},
-		opImportRestAPI: func(_ []byte) (int, any, error) {
-			return http.StatusCreated, map[string]any{"id": stubImportedAPIID, keyAPIName: stubImportedAPIName}, nil
-		},
-		opPutRestAPI: func(_ []byte) (int, any, error) {
-			return http.StatusOK, map[string]any{"id": stubImportedAPIID, keyAPIName: stubImportedAPIName}, nil
-		},
-		// Client certificate update
-		opUpdateClientCertificate: func(_ []byte) (int, any, error) {
-			return http.StatusOK, map[string]any{stubClientCertIDKey: "stub", "description": ""}, nil
-		},
-		// Gateway response update
-		opUpdateGatewayResponse: func(_ []byte) (int, any, error) {
-			return http.StatusOK, map[string]any{"responseType": stubDefaultGWResponseType, "statusCode": "400"}, nil
-		},
-		// Usage update
-		opUpdateUsage: func(_ []byte) (int, any, error) {
-			return http.StatusOK, map[string]any{"usagePlanId": "", "items": map[string]any{}}, nil
+		opUpdateVpcLink: func(b []byte) (int, any, error) {
+			var input UpdateVpcLinkInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			link, err := h.Backend.UpdateVpcLink(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, link, nil
 		},
 	}
+}
+
+// exportAndCertActions returns real stateful handlers for export, client cert update,
+// and gateway response update operations.
+func (h *Handler) exportAndCertActions() map[string]actionFn {
+	return map[string]actionFn{
+		opGetExport: func(b []byte) (int, any, error) {
+			var input getExportInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			export, err := h.Backend.GetExport(input.RestAPIID, input.StageName, input.ExportType)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, export, nil
+		},
+		opUpdateClientCertificate: func(b []byte) (int, any, error) {
+			var input UpdateClientCertificateInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			cert, err := h.Backend.UpdateClientCertificate(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, cert, nil
+		},
+		opUpdateGatewayResponse: func(b []byte) (int, any, error) {
+			var input PutGatewayResponseInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+
+			gr, err := h.Backend.PutGatewayResponse(input)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, gr, nil
+		},
+	}
+}
+
+// stubActions returns the actionFn map for stub operations.
+func (h *Handler) stubActions() map[string]actionFn {
+	actions := make(map[string]actionFn)
+
+	maps.Copy(actions, h.vpcLinkActions())
+	maps.Copy(actions, h.exportAndCertActions())
+
+	// Domain name access associations
+	actions[opDeleteDomainNameAccessAssociation] = func(_ []byte) (int, any, error) {
+		return http.StatusAccepted, nil, nil
+	}
+	actions[opGetDomainNameAccessAssociations] = func(_ []byte) (int, any, error) {
+		return http.StatusOK, &domainNameAccessAssociationsStub{Items: []domainNameAccessAssociationStub{}}, nil
+	}
+	actions[opRejectDomainNameAccessAssociation] = func(_ []byte) (int, any, error) {
+		return http.StatusAccepted, nil, nil
+	}
+
+	// SDK operations
+	actions[opGetSdk] = func(_ []byte) (int, any, error) {
+		return http.StatusOK, map[string]any{"contentType": "application/zip", "body": ""}, nil
+	}
+	actions[opGetSdkType] = func(_ []byte) (int, any, error) {
+		return http.StatusOK, &sdkTypeStub{ID: "javascript", FriendlyName: "JavaScript"}, nil
+	}
+	actions[opGetSdkTypes] = func(_ []byte) (int, any, error) {
+		return http.StatusOK, &sdkTypesStub{Items: []sdkTypeStub{
+			{ID: "javascript", FriendlyName: "JavaScript"},
+			{ID: "android", FriendlyName: "Android"},
+			{ID: "swift", FriendlyName: "Swift (iOS)"},
+		}}, nil
+	}
+
+	// Import operations
+	actions[opImportAPIKeys] = func(_ []byte) (int, any, error) {
+		return http.StatusCreated, &apiKeysImportStub{IDs: []string{}, Warnings: []string{}}, nil
+	}
+	actions[opImportDocumentationParts] = func(_ []byte) (int, any, error) {
+		return http.StatusOK, &documentationPartsImportStub{IDs: []string{}, Warnings: []string{}}, nil
+	}
+	actions[opImportRestAPI] = func(_ []byte) (int, any, error) {
+		return http.StatusCreated, map[string]any{"id": stubImportedAPIID, keyAPIName: stubImportedAPIName}, nil
+	}
+	actions[opPutRestAPI] = func(_ []byte) (int, any, error) {
+		return http.StatusOK, map[string]any{"id": stubImportedAPIID, keyAPIName: stubImportedAPIName}, nil
+	}
+
+	// Usage update
+	actions[opUpdateUsage] = func(_ []byte) (int, any, error) {
+		return http.StatusOK, map[string]any{"usagePlanId": "", "items": map[string]any{}}, nil
+	}
+
+	return actions
 }
