@@ -85,6 +85,8 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 func (h *Handler) Name() string { return "CognitoIDP" }
 
 // GetSupportedOperations returns the list of supported operations.
+//
+//nolint:funlen // large service with many supported operations
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateUserPool",

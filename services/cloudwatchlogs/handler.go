@@ -365,6 +365,8 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 func (h *Handler) Name() string { return "CloudWatchLogs" }
 
 // GetSupportedOperations returns all mocked CloudWatch Logs operations.
+//
+//nolint:funlen // large service with many supported operations
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateLogGroup",
