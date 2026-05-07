@@ -1,6 +1,7 @@
 package eks
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -39,6 +40,7 @@ type Cluster struct {
 	Name            string     `json:"name"`
 	ARN             string     `json:"arn"`
 	Endpoint        string     `json:"endpoint,omitempty"`
+	OIDCIssuer      string     `json:"oidcIssuer,omitempty"`
 	Version         string     `json:"version"`
 	Status          string     `json:"status"`
 	RoleARN         string     `json:"roleArn,omitempty"`
@@ -52,22 +54,23 @@ type Cluster struct {
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via TagResource / CreateNodegroup.
 type Nodegroup struct {
-	CreatedAt     time.Time  `json:"createdAt"`
-	Tags          *tags.Tags `json:"tags,omitempty"`
-	CapacityType  string     `json:"capacityType,omitempty"`
-	Region        string     `json:"region"`
-	ARN           string     `json:"nodegroupArn"`
-	NodeRole      string     `json:"nodeRole,omitempty"`
-	Status        string     `json:"status"`
-	AMIType       string     `json:"amiType,omitempty"`
-	NodegroupName string     `json:"nodegroupName"`
-	ClusterName   string     `json:"clusterName"`
-	Version       string     `json:"version,omitempty"`
-	AccountID     string     `json:"accountId"`
-	InstanceTypes []string   `json:"instanceTypes,omitempty"`
-	DesiredSize   int32      `json:"desiredSize"`
-	MinSize       int32      `json:"minSize"`
-	MaxSize       int32      `json:"maxSize"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	Tags           *tags.Tags `json:"tags,omitempty"`
+	CapacityType   string     `json:"capacityType,omitempty"`
+	Region         string     `json:"region"`
+	ARN            string     `json:"nodegroupArn"`
+	NodeRole       string     `json:"nodeRole,omitempty"`
+	Status         string     `json:"status"`
+	AMIType        string     `json:"amiType,omitempty"`
+	NodegroupName  string     `json:"nodegroupName"`
+	ClusterName    string     `json:"clusterName"`
+	Version        string     `json:"version,omitempty"`
+	ReleaseVersion string     `json:"releaseVersion,omitempty"`
+	AccountID      string     `json:"accountId"`
+	InstanceTypes  []string   `json:"instanceTypes,omitempty"`
+	DesiredSize    int32      `json:"desiredSize"`
+	MinSize        int32      `json:"minSize"`
+	MaxSize        int32      `json:"maxSize"`
 }
 
 // InMemoryBackend is the in-memory store for EKS resources.
@@ -237,6 +240,7 @@ func (b *InMemoryBackend) CreateCluster(name, version, roleARN string, kv map[st
 		RoleARN:         roleARN,
 		Status:          statusActive,
 		Endpoint:        fmt.Sprintf("https://%s.%s.eks.amazonaws.com", stableID(name), b.region),
+		OIDCIssuer:      fmt.Sprintf("https://oidc.eks.%s.amazonaws.com/id/%s", b.region, randomHex16()),
 		PlatformVersion: "eks.1",
 		AccountID:       b.accountID,
 		Region:          b.region,
@@ -358,7 +362,7 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 
 // CreateNodegroup creates a new node group in a cluster.
 func (b *InMemoryBackend) CreateNodegroup(
-	clusterName, nodegroupName, nodeRole, amiType, capacityType, version string,
+	clusterName, nodegroupName, nodeRole, amiType, capacityType, version, releaseVersion string,
 	instanceTypes []string,
 	desiredSize, minSize, maxSize int32,
 	kv map[string]string,
@@ -406,22 +410,23 @@ func (b *InMemoryBackend) CreateNodegroup(
 	}
 
 	ng := &Nodegroup{
-		NodegroupName: nodegroupName,
-		ClusterName:   clusterName,
-		ARN:           ngARN,
-		NodeRole:      nodeRole,
-		Status:        statusActive,
-		AMIType:       amiType,
-		CapacityType:  capacityType,
-		InstanceTypes: instanceTypes,
-		Version:       version,
-		DesiredSize:   desiredSize,
-		MinSize:       minSize,
-		MaxSize:       maxSize,
-		AccountID:     b.accountID,
-		Region:        b.region,
-		CreatedAt:     time.Now().UTC(),
-		Tags:          t,
+		NodegroupName:  nodegroupName,
+		ClusterName:    clusterName,
+		ARN:            ngARN,
+		NodeRole:       nodeRole,
+		Status:         statusActive,
+		AMIType:        amiType,
+		CapacityType:   capacityType,
+		InstanceTypes:  instanceTypes,
+		Version:        version,
+		ReleaseVersion: releaseVersion,
+		DesiredSize:    desiredSize,
+		MinSize:        minSize,
+		MaxSize:        maxSize,
+		AccountID:      b.accountID,
+		Region:         b.region,
+		CreatedAt:      time.Now().UTC(),
+		Tags:           t,
 	}
 	b.nodegroups[clusterName][nodegroupName] = ng
 	cp := *ng
@@ -815,4 +820,18 @@ func stableID(input string) string {
 	sum := sha256.Sum256([]byte(input))
 
 	return hex.EncodeToString(sum[:])[:8]
+}
+
+// oidcIDBytes is the number of random bytes needed to produce a 16-char hex OIDC ID.
+const oidcIDBytes = 8
+
+// randomHex16 returns a random 16-character lowercase hex string for OIDC IDs.
+func randomHex16() string {
+	buf := make([]byte, oidcIDBytes)
+	if _, err := rand.Read(buf); err != nil {
+		// Fallback: use time-based value (safe for non-cryptographic use).
+		return fmt.Sprintf("%016x", time.Now().UnixNano())
+	}
+
+	return hex.EncodeToString(buf)
 }

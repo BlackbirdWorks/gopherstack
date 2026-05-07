@@ -931,6 +931,13 @@ func clusterToJSON(c *Cluster) map[string]any {
 	if c.RoleARN != "" {
 		m["roleArn"] = c.RoleARN
 	}
+	if c.OIDCIssuer != "" {
+		m["identity"] = map[string]any{
+			"oidc": map[string]string{
+				"issuer": c.OIDCIssuer,
+			},
+		}
+	}
 
 	return m
 }
@@ -963,6 +970,9 @@ func nodegroupToJSON(ng *Nodegroup) map[string]any {
 	}
 	if ng.Version != "" {
 		m[keyVersion] = ng.Version
+	}
+	if ng.ReleaseVersion != "" {
+		m["releaseVersion"] = ng.ReleaseVersion
 	}
 
 	return m
@@ -1036,14 +1046,15 @@ type scalingConfigJSON struct {
 }
 
 type createNodegroupBody struct {
-	Tags          map[string]string `json:"tags"`
-	NodegroupName string            `json:"nodegroupName"`
-	NodeRole      string            `json:"nodeRole"`
-	AMIType       string            `json:"amiType"`
-	CapacityType  string            `json:"capacityType"`
-	Version       string            `json:"version"`
-	InstanceTypes []string          `json:"instanceTypes"`
-	ScalingConfig scalingConfigJSON `json:"scalingConfig"`
+	Tags           map[string]string `json:"tags"`
+	NodegroupName  string            `json:"nodegroupName"`
+	NodeRole       string            `json:"nodeRole"`
+	AMIType        string            `json:"amiType"`
+	CapacityType   string            `json:"capacityType"`
+	Version        string            `json:"version"`
+	ReleaseVersion string            `json:"releaseVersion"`
+	InstanceTypes  []string          `json:"instanceTypes"`
+	ScalingConfig  scalingConfigJSON `json:"scalingConfig"`
 }
 
 func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, body []byte) error {
@@ -1058,7 +1069,7 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 
 	ng, err := h.Backend.CreateNodegroup(
 		clusterName, in.NodegroupName, in.NodeRole,
-		in.AMIType, in.CapacityType, in.Version,
+		in.AMIType, in.CapacityType, in.Version, in.ReleaseVersion,
 		in.InstanceTypes,
 		in.ScalingConfig.DesiredSize, in.ScalingConfig.MinSize, in.ScalingConfig.MaxSize,
 		in.Tags,
