@@ -453,46 +453,35 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, action string,
 // errUnknownACMAction is returned by dispatchJSON for unrecognised action names.
 var errUnknownACMAction = errors.New("unknown ACM action")
 
-// dispatchJSON routes a JSON-protocol ACM action to the appropriate handler.
+// acmDispatchTable maps ACM action names to their JSON handler functions.
 //
-//nolint:cyclop // dispatch table for 16 operations is inherently wide
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var acmDispatchTable = map[string]func(*Handler, []byte) (any, error){
+	"RequestCertificate":        (*Handler).jsonRequestCertificate,
+	"DescribeCertificate":       (*Handler).jsonDescribeCertificate,
+	"ListCertificates":          (*Handler).jsonListCertificates,
+	"DeleteCertificate":         (*Handler).jsonDeleteCertificate,
+	"ListTagsForCertificate":    (*Handler).jsonListTagsForCertificate,
+	"AddTagsToCertificate":      (*Handler).jsonAddTagsToCertificate,
+	"RemoveTagsFromCertificate": (*Handler).jsonRemoveTagsFromCertificate,
+	"ImportCertificate":         (*Handler).jsonImportCertificate,
+	"RenewCertificate":          (*Handler).jsonRenewCertificate,
+	"ExportCertificate":         (*Handler).jsonExportCertificate,
+	"GetCertificate":            (*Handler).jsonGetCertificate,
+	"GetAccountConfiguration":   (*Handler).jsonGetAccountConfiguration,
+	"PutAccountConfiguration":   (*Handler).jsonPutAccountConfiguration,
+	"ResendValidationEmail":     (*Handler).jsonResendValidationEmail,
+	"RevokeCertificate":         (*Handler).jsonRevokeCertificate,
+	"UpdateCertificateOptions":  (*Handler).jsonUpdateCertificateOptions,
+}
+
+// dispatchJSON routes a JSON-protocol ACM action to the appropriate handler.
 func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
-	switch action {
-	case "RequestCertificate":
-		return h.jsonRequestCertificate(body)
-	case "DescribeCertificate":
-		return h.jsonDescribeCertificate(body)
-	case "ListCertificates":
-		return h.jsonListCertificates(body)
-	case "DeleteCertificate":
-		return h.jsonDeleteCertificate(body)
-	case "ListTagsForCertificate":
-		return h.jsonListTagsForCertificate(body)
-	case "AddTagsToCertificate":
-		return h.jsonAddTagsToCertificate(body)
-	case "RemoveTagsFromCertificate":
-		return h.jsonRemoveTagsFromCertificate(body)
-	case "ImportCertificate":
-		return h.jsonImportCertificate(body)
-	case "RenewCertificate":
-		return h.jsonRenewCertificate(body)
-	case "ExportCertificate":
-		return h.jsonExportCertificate(body)
-	case "GetCertificate":
-		return h.jsonGetCertificate(body)
-	case "GetAccountConfiguration":
-		return h.jsonGetAccountConfiguration(body)
-	case "PutAccountConfiguration":
-		return h.jsonPutAccountConfiguration(body)
-	case "ResendValidationEmail":
-		return h.jsonResendValidationEmail(body)
-	case "RevokeCertificate":
-		return h.jsonRevokeCertificate(body)
-	case "UpdateCertificateOptions":
-		return h.jsonUpdateCertificateOptions(body)
-	default:
-		return nil, errUnknownACMAction
+	if fn, ok := acmDispatchTable[action]; ok {
+		return fn(h, body)
 	}
+
+	return nil, errUnknownACMAction
 }
 
 func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {

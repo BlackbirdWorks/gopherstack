@@ -304,52 +304,37 @@ type deleteGroupRequest struct {
 // Dispatch
 // ----------------------------------------
 
-//nolint:cyclop // dispatch table has necessary branches for each operation
-func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
-	switch op {
+// identityStoreDispatch maps operation names to their handler functions.
+//
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var identityStoreDispatch = map[string]func(*Handler, *echo.Context, []byte) error{
 	// User operations
-	case "CreateUser":
-		return h.handleCreateUser(c, body)
-	case "DescribeUser":
-		return h.handleDescribeUser(c, body)
-	case "ListUsers":
-		return h.handleListUsers(c, body)
-	case "UpdateUser":
-		return h.handleUpdateUser(c, body)
-	case "DeleteUser":
-		return h.handleDeleteUser(c, body)
-	case "GetUserId":
-		return h.handleGetUserID(c, body)
-
+	"CreateUser":   (*Handler).handleCreateUser,
+	"DescribeUser": (*Handler).handleDescribeUser,
+	"ListUsers":    (*Handler).handleListUsers,
+	"UpdateUser":   (*Handler).handleUpdateUser,
+	"DeleteUser":   (*Handler).handleDeleteUser,
+	"GetUserId":    (*Handler).handleGetUserID,
 	// Group operations
-	case "CreateGroup":
-		return h.handleCreateGroup(c, body)
-	case "DescribeGroup":
-		return h.handleDescribeGroup(c, body)
-	case "ListGroups":
-		return h.handleListGroups(c, body)
-	case "UpdateGroup":
-		return h.handleUpdateGroup(c, body)
-	case "DeleteGroup":
-		return h.handleDeleteGroup(c, body)
-	case "GetGroupId":
-		return h.handleGetGroupID(c, body)
-
+	"CreateGroup":   (*Handler).handleCreateGroup,
+	"DescribeGroup": (*Handler).handleDescribeGroup,
+	"ListGroups":    (*Handler).handleListGroups,
+	"UpdateGroup":   (*Handler).handleUpdateGroup,
+	"DeleteGroup":   (*Handler).handleDeleteGroup,
+	"GetGroupId":    (*Handler).handleGetGroupID,
 	// Membership operations
-	case "CreateGroupMembership":
-		return h.handleCreateGroupMembership(c, body)
-	case "DescribeGroupMembership":
-		return h.handleDescribeGroupMembership(c, body)
-	case "ListGroupMemberships":
-		return h.handleListGroupMemberships(c, body)
-	case "DeleteGroupMembership":
-		return h.handleDeleteGroupMembership(c, body)
-	case "GetGroupMembershipId":
-		return h.handleGetGroupMembershipID(c, body)
-	case "ListGroupMembershipsForMember":
-		return h.handleListGroupMembershipsForMember(c, body)
-	case isMemberInGroupsOp:
-		return h.handleIsMemberInGroups(c, body)
+	"CreateGroupMembership":         (*Handler).handleCreateGroupMembership,
+	"DescribeGroupMembership":       (*Handler).handleDescribeGroupMembership,
+	"ListGroupMemberships":          (*Handler).handleListGroupMemberships,
+	"DeleteGroupMembership":         (*Handler).handleDeleteGroupMembership,
+	"GetGroupMembershipId":          (*Handler).handleGetGroupMembershipID,
+	"ListGroupMembershipsForMember": (*Handler).handleListGroupMembershipsForMember,
+	isMemberInGroupsOp:              (*Handler).handleIsMemberInGroups,
+}
+
+func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
+	if fn, ok := identityStoreDispatch[op]; ok {
+		return fn(h, c, body)
 	}
 
 	return h.writeError(c, http.StatusBadRequest, "UnrecognizedClientException",

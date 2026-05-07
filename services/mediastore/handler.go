@@ -155,53 +155,37 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-// dispatch routes to the appropriate handler based on the operation name.
+// mediastoreDispatch maps operation names to their handler functions.
 //
-//nolint:cyclop // switch-based operation dispatch; each case is a single delegation.
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var mediastoreDispatch = map[string]func(*Handler, *echo.Context, []byte) error{
+	"CreateContainer":       (*Handler).handleCreateContainer,
+	"DeleteContainer":       (*Handler).handleDeleteContainer,
+	"DescribeContainer":     (*Handler).handleDescribeContainer,
+	"ListContainers":        (*Handler).handleListContainers,
+	"PutContainerPolicy":    (*Handler).handlePutContainerPolicy,
+	"GetContainerPolicy":    (*Handler).handleGetContainerPolicy,
+	"DeleteContainerPolicy": (*Handler).handleDeleteContainerPolicy,
+	"PutCorsPolicy":         (*Handler).handlePutCorsPolicy,
+	"GetCorsPolicy":         (*Handler).handleGetCorsPolicy,
+	"DeleteCorsPolicy":      (*Handler).handleDeleteCorsPolicy,
+	"PutLifecyclePolicy":    (*Handler).handlePutLifecyclePolicy,
+	"GetLifecyclePolicy":    (*Handler).handleGetLifecyclePolicy,
+	"DeleteLifecyclePolicy": (*Handler).handleDeleteLifecyclePolicy,
+	"PutMetricPolicy":       (*Handler).handlePutMetricPolicy,
+	"GetMetricPolicy":       (*Handler).handleGetMetricPolicy,
+	"DeleteMetricPolicy":    (*Handler).handleDeleteMetricPolicy,
+	"StartAccessLogging":    (*Handler).handleStartAccessLogging,
+	"StopAccessLogging":     (*Handler).handleStopAccessLogging,
+	"TagResource":           (*Handler).handleTagResource,
+	"UntagResource":         (*Handler).handleUntagResource,
+	"ListTagsForResource":   (*Handler).handleListTagsForResource,
+}
+
+// dispatch routes to the appropriate handler based on the operation name.
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "CreateContainer":
-		return h.handleCreateContainer(c, body)
-	case "DeleteContainer":
-		return h.handleDeleteContainer(c, body)
-	case "DescribeContainer":
-		return h.handleDescribeContainer(c, body)
-	case "ListContainers":
-		return h.handleListContainers(c, body)
-	case "PutContainerPolicy":
-		return h.handlePutContainerPolicy(c, body)
-	case "GetContainerPolicy":
-		return h.handleGetContainerPolicy(c, body)
-	case "DeleteContainerPolicy":
-		return h.handleDeleteContainerPolicy(c, body)
-	case "PutCorsPolicy":
-		return h.handlePutCorsPolicy(c, body)
-	case "GetCorsPolicy":
-		return h.handleGetCorsPolicy(c, body)
-	case "DeleteCorsPolicy":
-		return h.handleDeleteCorsPolicy(c, body)
-	case "PutLifecyclePolicy":
-		return h.handlePutLifecyclePolicy(c, body)
-	case "GetLifecyclePolicy":
-		return h.handleGetLifecyclePolicy(c, body)
-	case "DeleteLifecyclePolicy":
-		return h.handleDeleteLifecyclePolicy(c, body)
-	case "PutMetricPolicy":
-		return h.handlePutMetricPolicy(c, body)
-	case "GetMetricPolicy":
-		return h.handleGetMetricPolicy(c, body)
-	case "DeleteMetricPolicy":
-		return h.handleDeleteMetricPolicy(c, body)
-	case "StartAccessLogging":
-		return h.handleStartAccessLogging(c, body)
-	case "StopAccessLogging":
-		return h.handleStopAccessLogging(c, body)
-	case "TagResource":
-		return h.handleTagResource(c, body)
-	case "UntagResource":
-		return h.handleUntagResource(c, body)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(c, body)
+	if fn, ok := mediastoreDispatch[op]; ok {
+		return fn(h, c, body)
 	}
 
 	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)

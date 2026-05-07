@@ -306,44 +306,69 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-//nolint:cyclop // dispatch table for 16 REST operations is inherently wide
-func (h *Handler) dispatch(c *echo.Context, route emrRoute, body []byte) error {
-	switch route.operation {
-	case opCreateApplication:
+// emrDispatchFn is the function signature for EMR Serverless dispatch handlers.
+type emrDispatchFn func(*Handler, *echo.Context, emrRoute, []byte) error
+
+// emrDispatchTable maps operation names to their handler wrappers.
+//
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var emrDispatchTable = map[string]emrDispatchFn{
+	opCreateApplication: func(h *Handler, c *echo.Context, _ emrRoute, body []byte) error {
 		return h.handleCreateApplication(c, body)
-	case opGetApplication:
-		return h.handleGetApplication(c, route.applicationID)
-	case opListApplications:
+	},
+	opGetApplication: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleGetApplication(c, r.applicationID)
+	},
+	opListApplications: func(h *Handler, c *echo.Context, _ emrRoute, _ []byte) error {
 		return h.handleListApplications(c)
-	case opUpdateApplication:
-		return h.handleUpdateApplication(c, route.applicationID, body)
-	case opDeleteApplication:
-		return h.handleDeleteApplication(c, route.applicationID)
-	case opStartApplication:
-		return h.handleStartApplication(c, route.applicationID)
-	case opStopApplication:
-		return h.handleStopApplication(c, route.applicationID)
-	case opStartJobRun:
-		return h.handleStartJobRun(c, route.applicationID, body)
-	case opGetJobRun:
-		return h.handleGetJobRun(c, route.applicationID, route.jobRunID)
-	case opListJobRuns:
-		return h.handleListJobRuns(c, route.applicationID)
-	case opCancelJobRun:
-		return h.handleCancelJobRun(c, route.applicationID, route.jobRunID)
-	case opGetDashboardForJobRun:
-		return h.handleGetDashboardForJobRun(c, route.applicationID, route.jobRunID)
-	case opListJobRunAttempts:
-		return h.handleListJobRunAttempts(c, route.applicationID, route.jobRunID)
-	case opListTagsForResource:
-		return h.handleListTagsForResource(c, route.resourceARN)
-	case opTagResource:
-		return h.handleTagResource(c, route.resourceARN, body)
-	case opUntagResource:
-		return h.handleUntagResource(c, route.resourceARN, c.Request().URL.Query())
-	default:
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
+	},
+	opUpdateApplication: func(h *Handler, c *echo.Context, r emrRoute, body []byte) error {
+		return h.handleUpdateApplication(c, r.applicationID, body)
+	},
+	opDeleteApplication: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleDeleteApplication(c, r.applicationID)
+	},
+	opStartApplication: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleStartApplication(c, r.applicationID)
+	},
+	opStopApplication: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleStopApplication(c, r.applicationID)
+	},
+	opStartJobRun: func(h *Handler, c *echo.Context, r emrRoute, body []byte) error {
+		return h.handleStartJobRun(c, r.applicationID, body)
+	},
+	opGetJobRun: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleGetJobRun(c, r.applicationID, r.jobRunID)
+	},
+	opListJobRuns: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleListJobRuns(c, r.applicationID)
+	},
+	opCancelJobRun: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleCancelJobRun(c, r.applicationID, r.jobRunID)
+	},
+	opGetDashboardForJobRun: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleGetDashboardForJobRun(c, r.applicationID, r.jobRunID)
+	},
+	opListJobRunAttempts: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleListJobRunAttempts(c, r.applicationID, r.jobRunID)
+	},
+	opListTagsForResource: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleListTagsForResource(c, r.resourceARN)
+	},
+	opTagResource: func(h *Handler, c *echo.Context, r emrRoute, body []byte) error {
+		return h.handleTagResource(c, r.resourceARN, body)
+	},
+	opUntagResource: func(h *Handler, c *echo.Context, r emrRoute, _ []byte) error {
+		return h.handleUntagResource(c, r.resourceARN, c.Request().URL.Query())
+	},
+}
+
+func (h *Handler) dispatch(c *echo.Context, route emrRoute, body []byte) error {
+	if fn, ok := emrDispatchTable[route.operation]; ok {
+		return fn(h, c, route, body)
 	}
+
+	return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {

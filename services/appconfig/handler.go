@@ -618,141 +618,169 @@ func parseHostedVersionRoute(method, appID, profileID string, parts []string) ap
 	}
 }
 
-// Handler returns the Echo handler function for AppConfig operations.
+// appConfigDispatchFn is the function signature for AppConfig dispatch handlers.
+type appConfigDispatchFn func(*Handler, *echo.Context, appConfigRoute) error
+
+// appConfigDispatch maps operation names to their handler wrappers.
 //
-//nolint:cyclop,gocyclo,funlen // dispatch table requires multiple branches
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var appConfigDispatch = map[string]appConfigDispatchFn{
+	opCreateApplication: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleCreateApplication(c)
+	},
+	opGetApplication: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetApplication(c, r.applicationID)
+	},
+	opListApplications: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleListApplications(c)
+	},
+	opUpdateApplication: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleUpdateApplication(c, r.applicationID)
+	},
+	opDeleteApplication: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleDeleteApplication(c, r.applicationID)
+	},
+	opCreateEnvironment: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleCreateEnvironment(c, r.applicationID)
+	},
+	opGetEnvironment: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetEnvironment(c, r.applicationID, r.environmentID)
+	},
+	opListEnvironments: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleListEnvironments(c, r.applicationID)
+	},
+	opUpdateEnvironment: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleUpdateEnvironment(c, r.applicationID, r.environmentID)
+	},
+	opDeleteEnvironment: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleDeleteEnvironment(c, r.applicationID, r.environmentID)
+	},
+	opCreateConfigurationProfile: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleCreateConfigurationProfile(c, r.applicationID)
+	},
+	opGetConfigurationProfile: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetConfigurationProfile(c, r.applicationID, r.profileID)
+	},
+	opListConfigurationProfiles: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleListConfigurationProfiles(c, r.applicationID)
+	},
+	opUpdateConfigurationProfile: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleUpdateConfigurationProfile(c, r.applicationID, r.profileID)
+	},
+	opDeleteConfigurationProfile: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleDeleteConfigurationProfile(c, r.applicationID, r.profileID)
+	},
+	opCreateHostedConfigurationVersion: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleCreateHostedConfigurationVersion(c, r.applicationID, r.profileID)
+	},
+	opGetHostedConfigurationVersion: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetHostedConfigurationVersion(c, r.applicationID, r.profileID, r.versionNumber)
+	},
+	opListHostedConfigurationVersions: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleListHostedConfigurationVersions(c, r.applicationID, r.profileID)
+	},
+	opDeleteHostedConfigurationVersion: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleDeleteHostedConfigurationVersion(c, r.applicationID, r.profileID, r.versionNumber)
+	},
+	opCreateDeploymentStrategy: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleCreateDeploymentStrategy(c)
+	},
+	opGetDeploymentStrategy: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetDeploymentStrategy(c, r.strategyID)
+	},
+	opListDeploymentStrategies: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleListDeploymentStrategies(c)
+	},
+	opUpdateDeploymentStrategy: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleUpdateDeploymentStrategy(c, r.strategyID)
+	},
+	opDeleteDeploymentStrategy: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleDeleteDeploymentStrategy(c, r.strategyID)
+	},
+	opStartDeployment: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleStartDeployment(c, r.applicationID, r.environmentID)
+	},
+	opGetDeployment: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetDeployment(c, r.applicationID, r.environmentID, r.deploymentNum)
+	},
+	opListDeployments: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleListDeployments(c, r.applicationID, r.environmentID)
+	},
+	opStopDeployment: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleStopDeployment(c, r.applicationID, r.environmentID, r.deploymentNum)
+	},
+	opListTagsForResource: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleListTagsForResource(c, r.resourceArn)
+	},
+	opTagResource: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleTagResource(c, r.resourceArn)
+	},
+	opUntagResource: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleUntagResource(c, r.resourceArn)
+	},
+	opCreateExtension: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleCreateExtension(c)
+	},
+	opGetExtension: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetExtension(c, r.extensionID)
+	},
+	opListExtensions: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleListExtensions(c)
+	},
+	opUpdateExtension: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleUpdateExtension(c, r.extensionID)
+	},
+	opDeleteExtension: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleDeleteExtension(c, r.extensionID)
+	},
+	opCreateExtensionAssociation: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleCreateExtensionAssociation(c)
+	},
+	opGetExtensionAssociation: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetExtensionAssociation(c, r.extensionAssociationID)
+	},
+	opListExtensionAssociations: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleListExtensionAssociations(c)
+	},
+	opUpdateExtensionAssociation: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleUpdateExtensionAssociation(c, r.extensionAssociationID)
+	},
+	opDeleteExtensionAssociation: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleDeleteExtensionAssociation(c, r.extensionAssociationID)
+	},
+	opGetAccountSettings: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleGetAccountSettings(c)
+	},
+	opUpdateAccountSettings: func(h *Handler, c *echo.Context, _ appConfigRoute) error {
+		return h.handleUpdateAccountSettings(c)
+	},
+	opGetConfiguration: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleGetConfiguration(c, r.applicationID, r.environmentID, r.configurationID)
+	},
+	opValidateConfiguration: func(h *Handler, c *echo.Context, r appConfigRoute) error {
+		return h.handleValidateConfiguration(c, r.applicationID, r.profileID)
+	},
+}
+
+// Handler returns the Echo handler function for AppConfig operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		log := logger.Load(c.Request().Context())
 		route := parseAppConfigPath(c.Request().Method, c.Request().URL.Path)
 
-		switch route.operation {
-		case opCreateApplication:
-			return h.handleCreateApplication(c)
-		case opGetApplication:
-			return h.handleGetApplication(c, route.applicationID)
-		case opListApplications:
-			return h.handleListApplications(c)
-		case opUpdateApplication:
-			return h.handleUpdateApplication(c, route.applicationID)
-		case opDeleteApplication:
-			return h.handleDeleteApplication(c, route.applicationID)
-		case opCreateEnvironment:
-			return h.handleCreateEnvironment(c, route.applicationID)
-		case opGetEnvironment:
-			return h.handleGetEnvironment(c, route.applicationID, route.environmentID)
-		case opListEnvironments:
-			return h.handleListEnvironments(c, route.applicationID)
-		case opUpdateEnvironment:
-			return h.handleUpdateEnvironment(c, route.applicationID, route.environmentID)
-		case opDeleteEnvironment:
-			return h.handleDeleteEnvironment(c, route.applicationID, route.environmentID)
-		case opCreateConfigurationProfile:
-			return h.handleCreateConfigurationProfile(c, route.applicationID)
-		case opGetConfigurationProfile:
-			return h.handleGetConfigurationProfile(c, route.applicationID, route.profileID)
-		case opListConfigurationProfiles:
-			return h.handleListConfigurationProfiles(c, route.applicationID)
-		case opUpdateConfigurationProfile:
-			return h.handleUpdateConfigurationProfile(c, route.applicationID, route.profileID)
-		case opDeleteConfigurationProfile:
-			return h.handleDeleteConfigurationProfile(c, route.applicationID, route.profileID)
-		case opCreateHostedConfigurationVersion:
-			return h.handleCreateHostedConfigurationVersion(c, route.applicationID, route.profileID)
-		case opGetHostedConfigurationVersion:
-			return h.handleGetHostedConfigurationVersion(
-				c,
-				route.applicationID,
-				route.profileID,
-				route.versionNumber,
-			)
-		case opListHostedConfigurationVersions:
-			return h.handleListHostedConfigurationVersions(c, route.applicationID, route.profileID)
-		case opDeleteHostedConfigurationVersion:
-			return h.handleDeleteHostedConfigurationVersion(
-				c,
-				route.applicationID,
-				route.profileID,
-				route.versionNumber,
-			)
-		case opCreateDeploymentStrategy:
-			return h.handleCreateDeploymentStrategy(c)
-		case opGetDeploymentStrategy:
-			return h.handleGetDeploymentStrategy(c, route.strategyID)
-		case opListDeploymentStrategies:
-			return h.handleListDeploymentStrategies(c)
-		case opUpdateDeploymentStrategy:
-			return h.handleUpdateDeploymentStrategy(c, route.strategyID)
-		case opDeleteDeploymentStrategy:
-			return h.handleDeleteDeploymentStrategy(c, route.strategyID)
-		case opStartDeployment:
-			return h.handleStartDeployment(c, route.applicationID, route.environmentID)
-		case opGetDeployment:
-			return h.handleGetDeployment(
-				c,
-				route.applicationID,
-				route.environmentID,
-				route.deploymentNum,
-			)
-		case opListDeployments:
-			return h.handleListDeployments(c, route.applicationID, route.environmentID)
-		case opStopDeployment:
-			return h.handleStopDeployment(
-				c,
-				route.applicationID,
-				route.environmentID,
-				route.deploymentNum,
-			)
-		case opListTagsForResource:
-			return h.handleListTagsForResource(c, route.resourceArn)
-		case opTagResource:
-			return h.handleTagResource(c, route.resourceArn)
-		case opUntagResource:
-			return h.handleUntagResource(c, route.resourceArn)
-		case opCreateExtension:
-			return h.handleCreateExtension(c)
-		case opGetExtension:
-			return h.handleGetExtension(c, route.extensionID)
-		case opListExtensions:
-			return h.handleListExtensions(c)
-		case opUpdateExtension:
-			return h.handleUpdateExtension(c, route.extensionID)
-		case opDeleteExtension:
-			return h.handleDeleteExtension(c, route.extensionID)
-		case opCreateExtensionAssociation:
-			return h.handleCreateExtensionAssociation(c)
-		case opGetExtensionAssociation:
-			return h.handleGetExtensionAssociation(c, route.extensionAssociationID)
-		case opListExtensionAssociations:
-			return h.handleListExtensionAssociations(c)
-		case opUpdateExtensionAssociation:
-			return h.handleUpdateExtensionAssociation(c, route.extensionAssociationID)
-		case opDeleteExtensionAssociation:
-			return h.handleDeleteExtensionAssociation(c, route.extensionAssociationID)
-		case opGetAccountSettings:
-			return h.handleGetAccountSettings(c)
-		case opUpdateAccountSettings:
-			return h.handleUpdateAccountSettings(c)
-		case opGetConfiguration:
-			return h.handleGetConfiguration(
-				c,
-				route.applicationID,
-				route.environmentID,
-				route.configurationID,
-			)
-		case opValidateConfiguration:
-			return h.handleValidateConfiguration(c, route.applicationID, route.profileID)
-		default:
-			log.Warn(
-				"appconfig: unmatched route",
-				"method",
-				c.Request().Method,
-				"path",
-				c.Request().URL.Path,
-			)
-
-			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
+		if fn, ok := appConfigDispatch[route.operation]; ok {
+			return fn(h, c, route)
 		}
+
+		log.Warn(
+			"appconfig: unmatched route",
+			"method",
+			c.Request().Method,
+			"path",
+			c.Request().URL.Path,
+		)
+
+		return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
 	}
 }
 
