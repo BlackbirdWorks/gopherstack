@@ -966,8 +966,11 @@ func TestTerraform_DynamoDBComprehensive(t *testing.T) {
 				)
 				require.NotNil(t, descOut.Table.StreamSpecification)
 				assert.True(t, aws.ToBool(descOut.Table.StreamSpecification.StreamEnabled))
-				assert.Equal(t, ddbtypes.StreamViewTypeNewAndOldImages,
-					descOut.Table.StreamSpecification.StreamViewType)
+				assert.Equal(
+					t,
+					ddbtypes.StreamViewTypeNewAndOldImages,
+					descOut.Table.StreamSpecification.StreamViewType,
+				)
 
 				// TTL should be enabled on the streams table.
 				ttlOut, err := client.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
@@ -6311,7 +6314,7 @@ func TestTerraform_QLDBSession(t *testing.T) {
 				assert.NotEmpty(
 					t,
 					aws.ToString(
-						out.StartSession.SessionToken, //nolint:staticcheck // deprecated SDK
+						out.StartSession.SessionToken, //nolint:staticcheck // StartSession.SessionToken is deprecated
 					),
 					"session token should not be empty",
 				)
