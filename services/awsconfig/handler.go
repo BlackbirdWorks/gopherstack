@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -570,14 +571,29 @@ type getComplianceDetailsByConfigRuleOutput struct {
 	EvaluationResults []evaluationResult `json:"EvaluationResults"`
 }
 
-// handleGetComplianceDetailsByConfigRule returns an empty compliance details list.
-// Real AWS returns evaluation results per resource; this stub returns an empty list.
+// handleGetComplianceDetailsByConfigRule returns compliance evaluation results for a config rule.
+// After StartConfigRulesEvaluation has been called, rules are marked COMPLIANT.
 func (h *Handler) handleGetComplianceDetailsByConfigRule(
 	_ context.Context,
-	_ *getComplianceDetailsByConfigRuleInput,
+	in *getComplianceDetailsByConfigRuleInput,
 ) (*getComplianceDetailsByConfigRuleOutput, error) {
+	complianceType := h.Backend.GetConfigRuleComplianceType(in.ConfigRuleName)
+	if complianceType == "" {
+		return &getComplianceDetailsByConfigRuleOutput{
+			EvaluationResults: []evaluationResult{},
+		}, nil
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
 	return &getComplianceDetailsByConfigRuleOutput{
-		EvaluationResults: []evaluationResult{},
+		EvaluationResults: []evaluationResult{
+			{
+				ComplianceType:        complianceType,
+				ResultRecordedTime:    now,
+				ConfigRuleInvokedTime: now,
+			},
+		},
 	}, nil
 }
 

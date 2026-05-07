@@ -537,6 +537,12 @@ func (b *InMemoryBackend) AdminCreateUser(
 	attrs := make(map[string]string, len(userAttributes))
 	maps.Copy(attrs, userAttributes)
 
+	// Simulate email-based temporary password delivery: store the temp password
+	// in a synthetic attribute so integrations can retrieve it without SMTP.
+	if tempPassword != "" {
+		attrs["custom:temporaryPassword"] = tempPassword
+	}
+
 	user := &User{
 		Sub:          uuid.New().String(),
 		Username:     username,

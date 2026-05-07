@@ -1431,7 +1431,25 @@ func (b *InMemoryBackend) GetVPCAssociations(zoneID string) ([]vpcAssociation, e
 	return result, nil
 }
 
+// rrsValues extracts the DNS values from a resource record set.
+// For alias targets, it returns the alias DNS name as a synthetic value.
+func rrsValues(rrs *ResourceRecordSet) []string {
+	if rrs.AliasTarget != nil {
+		return []string{strings.TrimSuffix(rrs.AliasTarget.DNSName, ".")}
+	}
+
+	values := make([]string, 0, len(rrs.Records))
+	for _, r := range rrs.Records {
+		values = append(values, r.Value)
+	}
+
+	return values
+}
+
 // TestDNSAnswer looks up a record in the hosted zone and returns matching values.
+// When routing-policy records (latency, geolocation, weighted, failover) exist for the
+// name/type, it selects the best match by routing policy rather than requiring a bare
+// (non-SetIdentifier) key.
 func (b *InMemoryBackend) TestDNSAnswer(zoneID, recordName, recordType string) ([]string, error) {
 	b.mu.RLock("TestDNSAnswer")
 	defer b.mu.RUnlock()
@@ -1444,15 +1462,38 @@ func (b *InMemoryBackend) TestDNSAnswer(zoneID, recordName, recordType string) (
 	name := normaliseName(recordName)
 	key := recordSetKey(name, recordType, "")
 
-	rrs, ok := zd.records[key]
-	if !ok {
+	// Try simple (non-routing-policy) lookup first.
+	if rrs, found := zd.records[key]; found {
+		return rrsValues(rrs), nil
+	}
+
+	// Fall back to routing-policy records: collect all records for name/type that
+	// have a SetIdentifier (latency, geolocation, weighted, failover routing).
+	prefix := strings.ToLower(strings.TrimSuffix(name, ".")) + "|" + strings.ToUpper(recordType) + "|"
+	var candidates []*ResourceRecordSet
+
+	for k, rrs := range zd.records {
+		if strings.HasPrefix(k, prefix) && rrs.SetIdentifier != "" {
+			candidates = append(candidates, rrs)
+		}
+	}
+
+	if len(candidates) == 0 {
 		return []string{}, nil
 	}
 
-	values := make([]string, 0, len(rrs.Records))
-	for _, r := range rrs.Records {
-		values = append(values, r.Value)
+	// Sort candidates deterministically by SetIdentifier for stable test results.
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].SetIdentifier < candidates[j].SetIdentifier
+	})
+
+	// For failover routing: prefer PRIMARY if available.
+	for _, rrs := range candidates {
+		if rrs.Failover == FailoverPrimary {
+			return rrsValues(rrs), nil
+		}
 	}
 
-	return values, nil
+	// Default: return first candidate (deterministic by SetIdentifier sort).
+	return rrsValues(candidates[0]), nil
 }
