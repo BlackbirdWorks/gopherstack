@@ -512,9 +512,10 @@ func (b *InMemoryBackend) DescribeKey(input *DescribeKeyInput) (*DescribeKeyOutp
 		return nil, err
 	}
 
-	return &DescribeKeyOutput{
-		KeyMetadata: keyToMetadata(key),
-	}, nil
+	meta := keyToMetadata(key)
+	meta.MultiRegionConfiguration = b.buildMultiRegionConfig(key)
+
+	return &DescribeKeyOutput{KeyMetadata: meta}, nil
 }
 
 // ListKeys returns a paginated list of all keys.
@@ -601,6 +602,10 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 		return nil, err
 	}
 
+	if err = b.validateGrantTokenConstraints(input.GrantTokens, input.EncryptionContext); err != nil {
+		return nil, err
+	}
+
 	blob, err := b.encryptPayload(input.Plaintext, key.KeyID, input.EncryptionContext, km)
 	if err != nil {
 		return nil, err
@@ -681,6 +686,10 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 
 	km, err := b.requireKeyMaterial(key.KeyID)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = b.validateGrantTokenConstraints(input.GrantTokens, input.EncryptionContext); err != nil {
 		return nil, err
 	}
 
@@ -1669,6 +1678,88 @@ func applyMultiRegionType(k *Key, meta *KeyMetadata) {
 	}
 }
 
+// buildMultiRegionConfig constructs the MultiRegionConfiguration for a key, following
+// the same PRIMARY/REPLICA logic used by AWS DescribeKey. Returns nil for non-multi-region keys.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) buildMultiRegionConfig(key *Key) *MultiRegionConfiguration {
+	if !key.MultiRegion {
+		return nil
+	}
+
+	keyRegion := extractRegionFromARN(key.Arn)
+
+	if key.PrimaryRegion == "" || key.PrimaryRegion == keyRegion {
+		return b.buildPrimaryMultiRegionConfig(key, keyRegion)
+	}
+
+	return b.buildReplicaMultiRegionConfig(key)
+}
+
+// buildPrimaryMultiRegionConfig returns the MultiRegionConfiguration for a primary key.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) buildPrimaryMultiRegionConfig(key *Key, keyRegion string) *MultiRegionConfiguration {
+	cfg := &MultiRegionConfiguration{
+		MultiRegionKeyType: "PRIMARY",
+		PrimaryKey:         &MultiRegionKeyRef{Arn: key.Arn, Region: keyRegion},
+	}
+
+	for _, replicaID := range key.ReplicaKeyIDs {
+		if rk, ok := b.keys[replicaID]; ok {
+			cfg.ReplicaKeys = append(cfg.ReplicaKeys, MultiRegionKeyRef{
+				Arn:    rk.Arn,
+				Region: extractRegionFromARN(rk.Arn),
+			})
+		}
+	}
+
+	return cfg
+}
+
+// buildReplicaMultiRegionConfig returns the MultiRegionConfiguration for a replica key by
+// scanning keys to locate the primary. Must be called with at least a read lock held.
+func (b *InMemoryBackend) buildReplicaMultiRegionConfig(key *Key) *MultiRegionConfiguration {
+	cfg := &MultiRegionConfiguration{
+		MultiRegionKeyType: "REPLICA",
+	}
+
+	primaryKey := b.findPrimaryKeyForReplica(key)
+	if primaryKey != nil {
+		cfg.PrimaryKey = &MultiRegionKeyRef{
+			Arn:    primaryKey.Arn,
+			Region: key.PrimaryRegion,
+		}
+
+		for _, replicaID := range primaryKey.ReplicaKeyIDs {
+			if rk, ok := b.keys[replicaID]; ok {
+				cfg.ReplicaKeys = append(cfg.ReplicaKeys, MultiRegionKeyRef{
+					Arn:    rk.Arn,
+					Region: extractRegionFromARN(rk.Arn),
+				})
+			}
+		}
+	} else {
+		cfg.PrimaryKey = &MultiRegionKeyRef{Region: key.PrimaryRegion}
+	}
+
+	return cfg
+}
+
+// findPrimaryKeyForReplica locates the primary key that lists replicaKey.KeyID in its
+// ReplicaKeyIDs. Must be called with at least a read lock held.
+func (b *InMemoryBackend) findPrimaryKeyForReplica(replicaKey *Key) *Key {
+	for _, k := range b.keys {
+		if !k.MultiRegion || extractRegionFromARN(k.Arn) != replicaKey.PrimaryRegion {
+			continue
+		}
+
+		if slices.Contains(k.ReplicaKeyIDs, replicaKey.KeyID) {
+			return k
+		}
+	}
+
+	return nil
+}
+
 // applyAlgorithmFields sets the algorithm lists on meta based on key usage and spec.
 func applyAlgorithmFields(k *Key, meta *KeyMetadata) {
 	switch k.KeyUsage {
@@ -1786,11 +1877,77 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 		Operations:        input.Operations,
 		Name:              input.Name,
 		GrantToken:        grantToken,
+		Constraints:       input.Constraints,
 		CreationDate:      UnixTimeFloat(time.Now()),
 	}
 	b.grants[grantID] = grant
 
 	return &CreateGrantOutput{GrantID: grantID, GrantToken: grantToken}, nil
+}
+
+// grantConstraintsSatisfied reports whether the provided encryption context satisfies
+// the grant's constraints. A nil Constraints field always passes.
+func grantConstraintsSatisfied(c *GrantConstraints, encCtx map[string]string) bool {
+	if c == nil {
+		return true
+	}
+
+	if len(c.EncryptionContextEquals) > 0 {
+		if len(encCtx) != len(c.EncryptionContextEquals) {
+			return false
+		}
+
+		for k, v := range c.EncryptionContextEquals {
+			if encCtx[k] != v {
+				return false
+			}
+		}
+	}
+
+	for k, v := range c.EncryptionContextSubset {
+		if encCtx[k] != v {
+			return false
+		}
+	}
+
+	return true
+}
+
+// findGrantByToken returns the first grant whose GrantToken matches any of the provided tokens.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) findGrantByToken(grantTokens []string) *Grant {
+	for _, token := range grantTokens {
+		for _, g := range b.grants {
+			if g.GrantToken == token {
+				return g
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateGrantTokenConstraints checks that, if a grant token is provided, the encryption
+// context satisfies the grant's constraints. No-op when grantTokens is empty.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) validateGrantTokenConstraints(grantTokens []string, encCtx map[string]string) error {
+	if len(grantTokens) == 0 {
+		return nil
+	}
+
+	grant := b.findGrantByToken(grantTokens)
+	if grant == nil {
+		return nil
+	}
+
+	if !grantConstraintsSatisfied(grant.Constraints, encCtx) {
+		return fmt.Errorf(
+			"%w: encryption context does not satisfy grant constraints",
+			ErrKeyInvalidState,
+		)
+	}
+
+	return nil
 }
 
 // ListGrants returns the grants for a specified key with optional pagination and GrantId filter.
@@ -2372,6 +2529,10 @@ func (b *InMemoryBackend) ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyO
 	}
 
 	b.keys[replica.KeyID] = replica
+
+	// Record the replica key ID on the source (primary) key so DescribeKey can
+	// return the full MultiRegionConfiguration.
+	sourceKey.ReplicaKeyIDs = append(sourceKey.ReplicaKeyIDs, replica.KeyID)
 
 	return &ReplicateKeyOutput{ReplicaKeyMetadata: keyToMetadata(replica)}, nil
 }
