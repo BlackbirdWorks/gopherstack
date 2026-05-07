@@ -6,6 +6,8 @@ package iotwireless
 // unmarshal the response.
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -266,33 +268,83 @@ type testWirelessDeviceResponse struct {
 // --- Stub handlers ---
 
 func (h *Handler) createMulticastGroup(c *echo.Context) error {
+	var req struct {
+		Tags        map[string]string `json:"Tags"`
+		Name        string            `json:"Name"`
+		Description string            `json:"Description"`
+	}
+
+	body, _ := io.ReadAll(c.Request().Body)
+	_ = json.Unmarshal(body, &req)
+
+	mg, err := h.Backend.CreateMulticastGroup(h.AccountID, h.DefaultRegion, req.Name, req.Description, req.Tags)
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
 	return writeJSON(c, http.StatusCreated, createMulticastGroupResponse{
-		Arn: stubMulticastArn,
-		ID:  stubMulticastGroupID,
+		Arn: mg.ARN,
+		ID:  mg.ID,
 	})
 }
 
-func (h *Handler) getMulticastGroup(c *echo.Context, _ string) error {
+func (h *Handler) getMulticastGroup(c *echo.Context, id string) error {
+	mg, err := h.Backend.GetMulticastGroup(h.AccountID, h.DefaultRegion, id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
 	return writeJSON(c, http.StatusOK, getMulticastGroupResponse{
-		Arn:    stubMulticastArn,
-		ID:     stubMulticastGroupID,
-		Name:   stubName,
-		Status: "Pending",
+		Arn:    mg.ARN,
+		ID:     mg.ID,
+		Name:   mg.Name,
+		Status: mg.Status,
 	})
 }
 
 func (h *Handler) listMulticastGroups(c *echo.Context) error {
+	groups := h.Backend.ListMulticastGroups(h.AccountID, h.DefaultRegion)
+	entries := make([]multicastGroupEntry, 0, len(groups))
+
+	for _, mg := range groups {
+		entries = append(entries, multicastGroupEntry{
+			Arn:  mg.ARN,
+			ID:   mg.ID,
+			Name: mg.Name,
+		})
+	}
+
 	return writeJSON(c, http.StatusOK, listMulticastGroupsResponse{
-		MulticastGroupList: []multicastGroupEntry{},
+		MulticastGroupList: entries,
 	})
 }
 
-func (h *Handler) deleteMulticastGroup(c *echo.Context, _ string) error {
-	return stubNoContent(c)
+func (h *Handler) deleteMulticastGroup(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteMulticastGroup(h.AccountID, h.DefaultRegion, id); err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
 }
 
-func (h *Handler) updateMulticastGroup(c *echo.Context, _ string) error {
-	return stubNoContent(c)
+func (h *Handler) updateMulticastGroup(c *echo.Context, id string) error {
+	var req struct {
+		Name        string `json:"Name"`
+		Description string `json:"Description"`
+	}
+
+	body, _ := io.ReadAll(c.Request().Body)
+	_ = json.Unmarshal(body, &req)
+
+	if err := h.Backend.UpdateMulticastGroup(h.AccountID, h.DefaultRegion, id, req.Name, req.Description); err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
 }
 
 func (h *Handler) getMulticastGroupSession(c *echo.Context, _ string) error {
@@ -339,36 +391,117 @@ func (h *Handler) startFuotaTask(c *echo.Context, _ string) error {
 	return stubNoContent(c)
 }
 
-func (h *Handler) updateFuotaTask(c *echo.Context, _ string) error {
-	return stubNoContent(c)
+func (h *Handler) updateFuotaTask(c *echo.Context, id string) error {
+	var req struct {
+		Name        string `json:"Name"`
+		Description string `json:"Description"`
+	}
+
+	body, _ := io.ReadAll(c.Request().Body)
+	_ = json.Unmarshal(body, &req)
+
+	if err := h.Backend.UpdateFuotaTask(h.AccountID, h.DefaultRegion, id, req.Name, req.Description); err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
 }
 
 func (h *Handler) createNetworkAnalyzerConfiguration(c *echo.Context) error {
+	var req struct {
+		Tags             map[string]string `json:"Tags"`
+		Description      string            `json:"Description"`
+		Name             string            `json:"Name"`
+		WirelessDevices  []string          `json:"WirelessDevices"`
+		WirelessGateways []string          `json:"WirelessGateways"`
+	}
+
+	body, _ := io.ReadAll(c.Request().Body)
+	_ = json.Unmarshal(body, &req)
+
+	nc, err := h.Backend.CreateNetworkAnalyzerConfig(
+		h.AccountID, h.DefaultRegion,
+		req.Name, req.Description,
+		req.WirelessDevices, req.WirelessGateways,
+		req.Tags,
+	)
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
 	return writeJSON(c, http.StatusCreated, createNetworkAnalyzerConfigurationResponse{
-		Arn:  stubNetworkAnalArn,
-		Name: stubName,
+		Arn:  nc.ARN,
+		Name: nc.Name,
 	})
 }
 
-func (h *Handler) getNetworkAnalyzerConfiguration(c *echo.Context, _ string) error {
+func (h *Handler) getNetworkAnalyzerConfiguration(c *echo.Context, name string) error {
+	nc, err := h.Backend.GetNetworkAnalyzerConfig(h.AccountID, h.DefaultRegion, name)
+	if err != nil {
+		return handleError(c, err)
+	}
+
 	return writeJSON(c, http.StatusOK, getNetworkAnalyzerConfigurationResponse{
-		Arn:  stubNetworkAnalArn,
-		Name: stubName,
+		Arn:              nc.ARN,
+		Name:             nc.Name,
+		Description:      nc.Description,
+		WirelessDevices:  nc.WirelessDevices,
+		WirelessGateways: nc.WirelessGateways,
 	})
 }
 
 func (h *Handler) listNetworkAnalyzerConfigurations(c *echo.Context) error {
+	configs := h.Backend.ListNetworkAnalyzerConfigs(h.AccountID, h.DefaultRegion)
+
+	entries := make([]struct {
+		Arn  string `json:"Arn"`
+		Name string `json:"Name"`
+	}, 0, len(configs))
+
+	for _, nc := range configs {
+		entries = append(entries, struct {
+			Arn  string `json:"Arn"`
+			Name string `json:"Name"`
+		}{Arn: nc.ARN, Name: nc.Name})
+	}
+
 	return writeJSON(c, http.StatusOK, listNetworkAnalyzerConfigurationsResponse{
-		NetworkAnalyzerConfigurationList: nil,
+		NetworkAnalyzerConfigurationList: entries,
 	})
 }
 
-func (h *Handler) deleteNetworkAnalyzerConfiguration(c *echo.Context, _ string) error {
-	return stubNoContent(c)
+func (h *Handler) deleteNetworkAnalyzerConfiguration(c *echo.Context, name string) error {
+	if err := h.Backend.DeleteNetworkAnalyzerConfig(h.AccountID, h.DefaultRegion, name); err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
 }
 
-func (h *Handler) updateNetworkAnalyzerConfiguration(c *echo.Context, _ string) error {
-	return stubNoContent(c)
+func (h *Handler) updateNetworkAnalyzerConfiguration(c *echo.Context, name string) error {
+	var req struct {
+		Description      string   `json:"Description"`
+		WirelessDevices  []string `json:"WirelessDevices"`
+		WirelessGateways []string `json:"WirelessGateways"`
+	}
+
+	body, _ := io.ReadAll(c.Request().Body)
+	_ = json.Unmarshal(body, &req)
+
+	if err := h.Backend.UpdateNetworkAnalyzerConfig(
+		h.AccountID, h.DefaultRegion, name,
+		req.Description, req.WirelessDevices, req.WirelessGateways,
+	); err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
 }
 
 func (h *Handler) getEventConfigurationByResourceTypes(c *echo.Context) error {
@@ -537,8 +670,22 @@ func (h *Handler) disassociateWirelessGatewayFromThing(c *echo.Context, _ string
 	return stubNoContent(c)
 }
 
-func (h *Handler) updateWirelessGateway(c *echo.Context, _ string) error {
-	return stubNoContent(c)
+func (h *Handler) updateWirelessGateway(c *echo.Context, id string) error {
+	var req struct {
+		Name        string `json:"Name"`
+		Description string `json:"Description"`
+	}
+
+	body, _ := io.ReadAll(c.Request().Body)
+	_ = json.Unmarshal(body, &req)
+
+	if err := h.Backend.UpdateWirelessGateway(h.AccountID, h.DefaultRegion, id, req.Name, req.Description); err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
 }
 
 func (h *Handler) getWirelessDeviceStatistics(c *echo.Context, _ string) error {
@@ -639,8 +786,27 @@ func (h *Handler) updatePartnerAccount(c *echo.Context, _ string) error {
 	return stubNoContent(c)
 }
 
-func (h *Handler) updateDestination(c *echo.Context, _ string) error {
-	return stubNoContent(c)
+func (h *Handler) updateDestination(c *echo.Context, name string) error {
+	var req struct {
+		Expression     string `json:"Expression"`
+		ExpressionType string `json:"ExpressionType"`
+		RoleArn        string `json:"RoleArn"`
+		Description    string `json:"Description"`
+	}
+
+	body, _ := io.ReadAll(c.Request().Body)
+	_ = json.Unmarshal(body, &req)
+
+	if err := h.Backend.UpdateDestination(
+		h.AccountID, h.DefaultRegion, name,
+		req.Expression, req.ExpressionType, req.RoleArn, req.Description,
+	); err != nil {
+		return handleError(c, err)
+	}
+
+	c.Response().WriteHeader(http.StatusNoContent)
+
+	return nil
 }
 
 func (h *Handler) getServiceEndpoint(c *echo.Context) error {
