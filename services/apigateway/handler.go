@@ -731,6 +731,26 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetClientCertificates,
 		opDeleteClientCertificate,
 		opGetUsage,
+		// Stub implementations.
+		opCreateVpcLink,
+		opDeleteDomainNameAccessAssociation,
+		opDeleteVpcLink,
+		opGetDomainNameAccessAssociations,
+		opGetExport,
+		opGetSdk,
+		opGetSdkType,
+		opGetSdkTypes,
+		opGetVpcLink,
+		opGetVpcLinks,
+		opImportAPIKeys,
+		opImportDocumentationParts,
+		opImportRestAPI,
+		opPutRestAPI,
+		opRejectDomainNameAccessAssociation,
+		opUpdateClientCertificate,
+		opUpdateGatewayResponse,
+		opUpdateUsage,
+		opUpdateVpcLink,
 	}
 }
 
@@ -2111,6 +2131,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.newResourceActions())
 	maps.Copy(table, h.getDeleteUpdateActions())
 	maps.Copy(table, h.updatePatchActions())
+	maps.Copy(table, h.stubActions())
 
 	return table
 }

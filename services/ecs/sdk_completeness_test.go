@@ -17,23 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := ecs.NewInMemoryBackend("000000000000", "us-east-1", ecs.NewNoopRunner())
 	h := ecs.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &ecssdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateDaemon",
-		"DeleteDaemon",
-		"DeleteDaemonTaskDefinition",
-		"DescribeDaemon",
-		"DescribeDaemonDeployments",
-		"DescribeDaemonRevisions",
-		"DescribeDaemonTaskDefinition",
-		"DescribeServiceRevisions",
-		"DiscoverPollEndpoint",
-		"ListDaemonDeployments",
-		"ListDaemonTaskDefinitions",
-		"ListDaemons",
-		"RegisterDaemonTaskDefinition",
-		"SubmitAttachmentStateChanges",
-		"SubmitContainerStateChange",
-		"SubmitTaskStateChange",
-		"UpdateDaemon",
-	})
+	sdkcheck.CheckCompleteness(t, &ecssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

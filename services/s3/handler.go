@@ -151,6 +151,8 @@ func (h *S3Handler) setOperation(ctx context.Context, op string) {
 }
 
 // GetSupportedOperations returns a list of supported S3 operations.
+//
+//nolint:funlen // enumerating all supported ops necessarily results in a long function
 func (h *S3Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateBucket",
@@ -247,6 +249,23 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"GetBucketMetricsConfiguration",
 		"DeleteBucketMetricsConfiguration",
 		"ListBucketMetricsConfigurations",
+		// Stub implementations.
+		"GetBucketAbac",
+		"GetBucketAccelerateConfiguration",
+		"GetBucketPolicyStatus",
+		"GetBucketRequestPayment",
+		"GetObjectAttributes",
+		"GetObjectTorrent",
+		"ListDirectoryBuckets",
+		"PutBucketAbac",
+		"PutBucketAccelerateConfiguration",
+		"PutBucketRequestPayment",
+		"RenameObject",
+		"RestoreObject",
+		"UpdateBucketMetadataInventoryTableConfiguration",
+		"UpdateBucketMetadataJournalTableConfiguration",
+		"UpdateObjectEncryption",
+		"WriteGetObjectResponse",
 	}
 }
 
@@ -322,7 +341,21 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 
 		if bucketName == "" {
 			if requestWithCtx.Method != http.MethodGet {
+				// WriteGetObjectResponse: POST /?writeGetObjectResponse
+				if requestWithCtx.Method == http.MethodPost && isWriteGetObjectResponseRequest(requestWithCtx) {
+					h.handleWriteGetObjectResponse(ctx, sw, requestWithCtx)
+
+					return nil
+				}
+
 				WriteError(ctx, sw, requestWithCtx, ErrMethodNotAllowed)
+
+				return nil
+			}
+
+			// ListDirectoryBuckets: GET /?list-type=directory
+			if isListDirectoryBucketsRequest(requestWithCtx) {
+				h.handleListDirectoryBuckets(ctx, sw, requestWithCtx)
 
 				return nil
 			}

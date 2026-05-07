@@ -2,7 +2,19 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 import { onMount } from 'svelte';
 import { getRDSClient } from '$lib/aws-client';
-import { DescribeDBInstancesCommand, DeleteDBInstanceCommand, DescribeDBSnapshotsCommand, DescribeDBClustersCommand, type DBInstance, type DBSnapshot, type DBCluster } from '@aws-sdk/client-rds';
+import {
+	DescribeDBInstancesCommand,
+	DeleteDBInstanceCommand,
+	DescribeDBSnapshotsCommand,
+	DescribeDBClustersCommand,
+	DescribeDBParameterGroupsCommand,
+	DescribeDBSubnetGroupsCommand,
+	type DBInstance,
+	type DBSnapshot,
+	type DBCluster,
+	type DBParameterGroup,
+	type DBSubnetGroup
+} from '@aws-sdk/client-rds';
 import { toast } from 'svelte-sonner';
 import {
 	Database,
@@ -19,7 +31,9 @@ import {
 	ChevronDown,
 	ChevronUp,
 	Camera,
-	Layers
+	Layers,
+	Sliders,
+	Network
 } from 'lucide-svelte';
 
 const rds = getRDSClient();
@@ -33,7 +47,9 @@ let snapshotSearch = $state('');
 let engineFilter = $state('all');
 let showCreateModal = $state(false);
 let expandedInstance = $state<string | null>(null);
-let activeTab = $state<'instances' | 'snapshots' | 'clusters'>('instances');
+let activeTab = $state<'instances' | 'snapshots' | 'clusters' | 'paramgroups' | 'subnetgroups'>('instances');
+let paramGroups = $state<DBParameterGroup[]>([]);
+let subnetGroups = $state<DBSubnetGroup[]>([]);
 
 onMount(async () => {
 	await loadInstances();
@@ -75,17 +91,45 @@ async function loadClusters() {
 	}
 }
 
+async function loadParamGroups() {
+	try {
+		loading = true;
+		const data = await rds.send(new DescribeDBParameterGroupsCommand({}));
+		paramGroups = data.DBParameterGroups || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load parameter groups');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadSubnetGroups() {
+	try {
+		loading = true;
+		const data = await rds.send(new DescribeDBSubnetGroupsCommand({}));
+		subnetGroups = data.DBSubnetGroups || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load subnet groups');
+	} finally {
+		loading = false;
+	}
+}
+
 async function selectTab(t: typeof activeTab) {
 	activeTab = t;
 	if (t === 'instances' && instances.length === 0) await loadInstances();
 	else if (t === 'snapshots') await loadSnapshots();
 	else if (t === 'clusters') await loadClusters();
+	else if (t === 'paramgroups') await loadParamGroups();
+	else if (t === 'subnetgroups') await loadSubnetGroups();
 }
 
 async function refresh() {
 	if (activeTab === 'instances') { instances = []; await loadInstances(); }
 	else if (activeTab === 'snapshots') { snapshots = []; await loadSnapshots(); }
-	else { clusters = []; await loadClusters(); }
+	else if (activeTab === 'clusters') { clusters = []; await loadClusters(); }
+	else if (activeTab === 'paramgroups') { paramGroups = []; await loadParamGroups(); }
+	else { subnetGroups = []; await loadSubnetGroups(); }
 }
 
 async function deleteInstance(id: string) {
@@ -218,6 +262,12 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 			</button>
 			<button onclick={() => selectTab('clusters')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'clusters' ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
 				<Layers class="w-4 h-4" /> Aurora Clusters {#if clusters.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{clusters.length}</span>{/if}
+			</button>
+			<button onclick={() => selectTab('paramgroups')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'paramgroups' ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<Sliders class="w-4 h-4" /> Parameter Groups {#if paramGroups.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{paramGroups.length}</span>{/if}
+			</button>
+			<button onclick={() => selectTab('subnetgroups')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors {activeTab === 'subnetgroups' ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
+				<HardDrive class="w-4 h-4" /> Subnet Groups {#if subnetGroups.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{subnetGroups.length}</span>{/if}
 			</button>
 		</nav>
 	</div>
@@ -487,6 +537,80 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 								</td>
 								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{cluster.DBClusterMembers?.length ?? 0}</td>
 								<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate">{cluster.Endpoint || '—'}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Parameter Groups Tab -->
+	{#if activeTab === 'paramgroups'}
+		{#if loading}
+			<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>
+		{:else if paramGroups.length === 0}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+				<Sliders class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+				<p class="text-slate-500 dark:text-slate-400">No parameter groups found</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-slate-50 dark:bg-slate-700">
+						<tr>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Family</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Description</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">ARN</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+						{#each paramGroups as pg}
+							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{pg.DBParameterGroupName || '—'}</td>
+								<td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{pg.DBParameterGroupFamily || '—'}</td>
+								<td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 max-w-xs truncate">{pg.Description || '—'}</td>
+								<td class="px-4 py-3 font-mono text-xs text-slate-400 max-w-xs truncate">{pg.DBParameterGroupArn || '—'}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Subnet Groups Tab -->
+	{#if activeTab === 'subnetgroups'}
+		{#if loading}
+			<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>
+		{:else if subnetGroups.length === 0}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+				<Network class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+				<p class="text-slate-500 dark:text-slate-400">No subnet groups found</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-slate-50 dark:bg-slate-700">
+						<tr>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Subnets</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Description</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+						{#each subnetGroups as sg}
+							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{sg.DBSubnetGroupName || '—'}</td>
+								<td class="px-4 py-3 font-mono text-xs text-slate-500">{sg.VpcId || '—'}</td>
+								<td class="px-4 py-3">
+									<span class="px-2 py-0.5 rounded-full text-xs {sg.SubnetGroupStatus === 'Complete' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'}">{sg.SubnetGroupStatus || '—'}</span>
+								</td>
+								<td class="px-4 py-3 text-xs text-slate-500">{(sg.Subnets || []).length} subnet{(sg.Subnets || []).length !== 1 ? 's' : ''}</td>
+								<td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 max-w-xs truncate">{sg.DBSubnetGroupDescription || '—'}</td>
 							</tr>
 						{/each}
 					</tbody>

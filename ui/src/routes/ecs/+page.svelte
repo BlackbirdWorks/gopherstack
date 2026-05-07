@@ -492,7 +492,10 @@ let taskDefFamilies = $derived(() => {
 									<div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors">
 										<div class="flex items-center justify-between">
 											<p class="font-semibold text-slate-900 dark:text-white text-sm">{name}</p>
-											<span class="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium">Active</span>
+											<div class="flex items-center gap-2">
+												<span class="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium">Active</span>
+												<span class="text-xs text-slate-400 italic">No recent events</span>
+											</div>
 										</div>
 										<p class="text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 truncate">{service}</p>
 									</div>
@@ -524,9 +527,12 @@ let taskDefFamilies = $derived(() => {
 										</div>
 										<div class="flex items-center justify-between mt-1">
 											<p class="text-xs text-slate-400 dark:text-slate-500 font-mono truncate">{task}</p>
-											<button onclick={() => copyToClipboard(task)} class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-2">
-												<span class="text-xs">Copy</span>
-											</button>
+											<div class="flex items-center gap-2 ml-2">
+												<a href="https://console.aws.amazon.com/cloudwatch/home#logsV2:log-groups" target="_blank" rel="noopener noreferrer" class="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300">View Logs ↗</a>
+												<button onclick={() => copyToClipboard(task)} class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+													<span class="text-xs">Copy</span>
+												</button>
+											</div>
 										</div>
 									</div>
 								{/each}

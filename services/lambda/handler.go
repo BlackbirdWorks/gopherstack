@@ -53,6 +53,12 @@ const lambda2024RecursionPathPrefix = "/2024-08-28/functions"
 // lambda2023ScalingPathPrefix is the path prefix for function scaling config endpoints.
 const lambda2023ScalingPathPrefix = "/2023-10-26/functions"
 
+// lambda2014AsyncPathPrefix is the path prefix for the legacy InvokeAsync endpoint.
+const lambda2014AsyncPathPrefix = "/2014-11-13/functions"
+
+// lambda2021StreamingPathPrefix is the path prefix for InvokeWithResponseStream.
+const lambda2021StreamingPathPrefix = "/2021-11-15/functions"
+
 // lambdaFunctionPrefixes holds all the date-versioned /functions path prefixes that
 // Gopherstack normalises to lambdaPathPrefix for route matching.
 //
@@ -62,6 +68,8 @@ var lambdaFunctionPrefixes = []string{
 	lambda2017PathPrefix,
 	lambda2019PathPrefix,
 	lambda2020PathPrefix,
+	lambda2014AsyncPathPrefix,
+	lambda2021StreamingPathPrefix,
 }
 
 // esmPathPrefix is the path prefix for Lambda event source mapping endpoints.
@@ -140,6 +148,12 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodGet, hasSuffixCodeSigningConfig, "GetFunctionCodeSigningConfig"},
 	{http.MethodPut, hasSuffixCodeSigningConfig, "PutFunctionCodeSigningConfig"},
 	{http.MethodDelete, hasSuffixCodeSigningConfig, "DeleteFunctionCodeSigningConfig"},
+	// SDK "Invoke" alias routes (same endpoint as InvokeFunction).
+	{http.MethodPost, hasSuffixInvocations, "Invoke"},
+	// InvokeAsync: POST /2014-11-13/functions/{name}/invoke-async/
+	{http.MethodPost, hasSuffixInvokeAsync, "InvokeAsync"},
+	// InvokeWithResponseStream: POST /2021-11-15/functions/{name}/response-streaming-invocations
+	{http.MethodPost, hasSuffixResponseStream, "InvokeWithResponseStream"},
 }
 
 func isEmptyRest(rest string) bool            { return rest == "" }
@@ -160,8 +174,12 @@ func hasSuffixEventInvokeConfigs(rest string) bool {
 func hasSuffixCodeSigningConfig(rest string) bool {
 	return strings.HasSuffix(rest, "/code-signing-config")
 }
-func hasSuffixPolicy(rest string) bool   { return strings.HasSuffix(rest, "/policy") }
-func hasSuffixVersions(rest string) bool { return strings.HasSuffix(rest, "/versions") }
+func hasSuffixPolicy(rest string) bool      { return strings.HasSuffix(rest, "/policy") }
+func hasSuffixVersions(rest string) bool    { return strings.HasSuffix(rest, "/versions") }
+func hasSuffixInvokeAsync(rest string) bool { return strings.HasSuffix(rest, "/invoke-async/") }
+func hasSuffixResponseStream(rest string) bool {
+	return strings.HasSuffix(rest, "/response-streaming-invocations")
+}
 func hasSuffixAliasPath(rest string) bool {
 	trimmed := strings.TrimPrefix(rest, "/")
 	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // split into name + "aliases" + optional alias name
@@ -320,6 +338,21 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateFunctionConfiguration",
 		"UpdateFunctionEventInvokeConfig",
 		"UpdateFunctionUrlConfig",
+		// Durable execution stubs (Lambda Workflows).
+		"GetDurableExecution",
+		"GetDurableExecutionHistory",
+		"GetDurableExecutionState",
+		"ListDurableExecutionsByFunction",
+		"SendDurableExecutionCallbackFailure",
+		"SendDurableExecutionCallbackHeartbeat",
+		"SendDurableExecutionCallbackSuccess",
+		"StopDurableExecution",
+		// Capacity provider — function version listing.
+		"ListFunctionVersionsByCapacityProvider",
+		// SDK "Invoke" alias + async/streaming variants.
+		"Invoke",
+		"InvokeAsync",
+		"InvokeWithResponseStream",
 	}
 }
 
@@ -354,6 +387,8 @@ var lambdaPathPrefixes = []string{
 	lambda2021RuntimeMgmtPathPrefix,
 	lambda2023ScalingPathPrefix,
 	lambda2024RecursionPathPrefix,
+	lambda2014AsyncPathPrefix,
+	lambda2021StreamingPathPrefix,
 	esmPathPrefix,
 	lambdaTagsPathPrefix,
 	lambdaLayersPathPrefix,
@@ -654,6 +689,24 @@ func (h *Handler) buildFunctionCRUDRoutes() []handlerEntry {
 				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/invocations")
 
 				return h.handleInvoke(c, name)
+			},
+		},
+		{
+			method: http.MethodPost,
+			match:  hasSuffixInvokeAsync,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/invoke-async/")
+
+				return h.handleInvokeAsync(c, name)
+			},
+		},
+		{
+			method: http.MethodPost,
+			match:  hasSuffixResponseStream,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/response-streaming-invocations")
+
+				return h.handleInvokeWithResponseStream(c, name)
 			},
 		},
 	}
@@ -3029,8 +3082,13 @@ func (h *Handler) handleCapacityProviderRoute(c *echo.Context, path, method stri
 		}
 	}
 
+	// /2025-11-30/capacity-providers/{name}/function-versions → ListFunctionVersionsByCapacityProvider
+	if strings.HasSuffix(rest, "/function-versions") && method == http.MethodGet {
+		return h.handleListFunctionVersionsByCapacityProvider(c)
+	}
+
 	// /2025-11-30/capacity-providers/{name} → Get / Delete / Update
-	name := rest
+	name := strings.SplitN(rest, "/", 2)[0] //nolint:mnd // split name from sub-path
 
 	switch method {
 	case http.MethodGet:
@@ -3147,6 +3205,37 @@ func (h *Handler) handleDurableExecRoute(c *echo.Context, path, method string) e
 	// CheckpointDurableExecution: POST /2025-12-01/durable-executions/{arn}/checkpoint
 	if method == http.MethodPost && strings.HasSuffix(path, "/checkpoint") {
 		return c.JSON(http.StatusOK, &CheckpointDurableExecutionOutput{})
+	}
+
+	// StopDurableExecution: DELETE /2025-12-01/durable-executions/{arn}
+	if method == http.MethodDelete {
+		return h.handleStopDurableExecution(c)
+	}
+
+	// GET routes.
+	if method == http.MethodGet {
+		switch {
+		case path == lambdaDurableExecPathPrefix || path == lambdaDurableExecPathPrefix+"/":
+			return h.handleListDurableExecutionsByFunction(c)
+		case strings.HasSuffix(path, "/history"):
+			return h.handleGetDurableExecutionHistory(c)
+		case strings.HasSuffix(path, "/state"):
+			return h.handleGetDurableExecutionState(c)
+		default:
+			return h.handleGetDurableExecution(c)
+		}
+	}
+
+	// POST sub-routes (callbacks).
+	if method == http.MethodPost {
+		switch {
+		case strings.HasSuffix(path, "/callback/failure"):
+			return h.handleSendDurableExecutionCallbackFailure(c)
+		case strings.HasSuffix(path, "/callback/heartbeat"):
+			return h.handleSendDurableExecutionCallbackHeartbeat(c)
+		case strings.HasSuffix(path, "/callback/success"):
+			return h.handleSendDurableExecutionCallbackSuccess(c)
+		}
 	}
 
 	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")

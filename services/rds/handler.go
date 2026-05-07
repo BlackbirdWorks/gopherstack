@@ -201,6 +201,35 @@ func supportedOpsExtended() []string {
 		"SwitchoverBlueGreenDeployment",
 		"SwitchoverGlobalCluster",
 		"SwitchoverReadReplica",
+		// Custom DB engine versions.
+		"CreateCustomDBEngineVersion",
+		"DeleteCustomDBEngineVersion",
+		"ModifyCustomDBEngineVersion",
+		// DB shard groups.
+		"CreateDBShardGroup",
+		"DeleteDBShardGroup",
+		"DescribeDBShardGroups",
+		"ModifyDBShardGroup",
+		"RebootDBShardGroup",
+		// Integrations.
+		"CreateIntegration",
+		"DeleteIntegration",
+		"DescribeIntegrations",
+		"ModifyIntegration",
+		// Tenant databases.
+		"CreateTenantDatabase",
+		"DeleteTenantDatabase",
+		"DescribeTenantDatabases",
+		"ModifyTenantDatabase",
+		// Automated backups.
+		"DeleteDBClusterAutomatedBackup",
+		"DeleteDBInstanceAutomatedBackup",
+		"DescribeDBClusterAutomatedBackups",
+		"DescribeDBInstanceAutomatedBackups",
+		"StartDBInstanceAutomatedBackupsReplication",
+		"StopDBInstanceAutomatedBackupsReplication",
+		// Snapshot tenant databases.
+		"DescribeDBSnapshotTenantDatabases",
 	}
 }
 

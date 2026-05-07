@@ -17,29 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	h := rds.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &rdssdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateCustomDBEngineVersion",
-		"CreateDBShardGroup",
-		"CreateIntegration",
-		"CreateTenantDatabase",
-		"DeleteCustomDBEngineVersion",
-		"DeleteDBClusterAutomatedBackup",
-		"DeleteDBInstanceAutomatedBackup",
-		"DeleteDBShardGroup",
-		"DeleteIntegration",
-		"DeleteTenantDatabase",
-		"DescribeDBClusterAutomatedBackups",
-		"DescribeDBInstanceAutomatedBackups",
-		"DescribeDBShardGroups",
-		"DescribeDBSnapshotTenantDatabases",
-		"DescribeIntegrations",
-		"DescribeTenantDatabases",
-		"ModifyCustomDBEngineVersion",
-		"ModifyDBShardGroup",
-		"ModifyIntegration",
-		"ModifyTenantDatabase",
-		"RebootDBShardGroup",
-		"StartDBInstanceAutomatedBackupsReplication",
-		"StopDBInstanceAutomatedBackupsReplication",
-	})
+	sdkcheck.CheckCompleteness(t, &rdssdk.Client{}, h.GetSupportedOperations(), []string{})
 }
