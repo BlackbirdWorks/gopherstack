@@ -46,9 +46,22 @@ type StorageBackend interface {
 
 	// Query logging operations
 	CreateQueryLoggingConfig(hostedZoneID, logGroupArn string) (*QueryLoggingConfig, error)
+	GetQueryLoggingConfig(id string) (*QueryLoggingConfig, error)
+	DeleteQueryLoggingConfig(id string) error
+	ListQueryLoggingConfigs(hostedZoneID string) ([]*QueryLoggingConfig, error)
 
 	// Delegation set operations
 	CreateReusableDelegationSet(callerRef, hostedZoneID string) (*ReusableDelegationSet, error)
+	GetReusableDelegationSet(id string) (*ReusableDelegationSet, error)
+	DeleteReusableDelegationSet(id string) error
+	ListReusableDelegationSets() ([]*ReusableDelegationSet, error)
+
+	// VPC disassociation
+	DisassociateVPCFromHostedZone(zoneID, vpcID string) error
+	GetVPCAssociations(zoneID string) ([]vpcAssociation, error)
+
+	// DNS query simulation
+	TestDNSAnswer(zoneID, recordName, recordType string) ([]string, error)
 
 	// Traffic policy operations
 	CreateTrafficPolicy(name, document, comment string) (*TrafficPolicy, error)
