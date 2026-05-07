@@ -57,6 +57,7 @@ func minimalSpotFleetForm() string {
 // ---- RequestSpotFleet ----
 
 func TestHandlerRequestSpotFleet(t *testing.T) {
+	t.Parallel()
 	h := newEC2SpotFleetHandler()
 	rec := spotFleetForm(t, h, minimalSpotFleetForm())
 
@@ -72,6 +73,7 @@ func TestHandlerRequestSpotFleet(t *testing.T) {
 }
 
 func TestHandlerRequestSpotFleet_NoLaunchSpecs(t *testing.T) {
+	t.Parallel()
 	h := newEC2SpotFleetHandler()
 	vals := url.Values{}
 	vals.Set("Version", "2016-11-15")
@@ -85,6 +87,7 @@ func TestHandlerRequestSpotFleet_NoLaunchSpecs(t *testing.T) {
 // ---- DescribeSpotFleetRequests ----
 
 func TestHandlerDescribeSpotFleetRequests_Empty(t *testing.T) {
+	t.Parallel()
 	h := newEC2SpotFleetHandler()
 	vals := url.Values{}
 	vals.Set("Version", "2016-11-15")
@@ -104,6 +107,7 @@ func TestHandlerDescribeSpotFleetRequests_Empty(t *testing.T) {
 }
 
 func TestHandlerDescribeSpotFleetRequests_AfterCreate(t *testing.T) {
+	t.Parallel()
 	h := newEC2SpotFleetHandler()
 
 	// Create a fleet.
@@ -140,6 +144,7 @@ func TestHandlerDescribeSpotFleetRequests_AfterCreate(t *testing.T) {
 // ---- CancelSpotFleetRequests ----
 
 func TestHandlerCancelSpotFleetRequests(t *testing.T) {
+	t.Parallel()
 	h := newEC2SpotFleetHandler()
 
 	createRec := spotFleetForm(t, h, minimalSpotFleetForm())
@@ -163,6 +168,7 @@ func TestHandlerCancelSpotFleetRequests(t *testing.T) {
 // ---- ModifySpotFleetRequest ----
 
 func TestHandlerModifySpotFleetRequest(t *testing.T) {
+	t.Parallel()
 	h := newEC2SpotFleetHandler()
 
 	createRec := spotFleetForm(t, h, minimalSpotFleetForm())
@@ -192,6 +198,7 @@ func TestHandlerModifySpotFleetRequest(t *testing.T) {
 // ---- DescribeSpotFleetInstances ----
 
 func TestHandlerDescribeSpotFleetInstances(t *testing.T) {
+	t.Parallel()
 	h := newEC2SpotFleetHandler()
 
 	createRec := spotFleetForm(t, h, minimalSpotFleetForm())
@@ -224,6 +231,7 @@ func TestHandlerDescribeSpotFleetInstances(t *testing.T) {
 // ---- DescribeSpotFleetRequestHistory ----
 
 func TestHandlerDescribeSpotFleetRequestHistory(t *testing.T) {
+	t.Parallel()
 	h := newEC2SpotFleetHandler()
 
 	createRec := spotFleetForm(t, h, minimalSpotFleetForm())

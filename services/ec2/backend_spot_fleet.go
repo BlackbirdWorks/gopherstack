@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -64,30 +65,30 @@ type SpotFleetLaunchSpecification struct {
 
 // SpotFleetRequestConfig is the configuration submitted with RequestSpotFleet.
 type SpotFleetRequestConfig struct {
+	ValidFrom                        time.Time                      `json:"validFrom"`
+	ValidUntil                       time.Time                      `json:"validUntil"`
 	SpotPrice                        string                         `json:"spotPrice"`
-	TargetCapacity                   int                            `json:"targetCapacity"`
 	AllocationStrategy               string                         `json:"allocationStrategy"`
 	ExcessCapacityTerminationPolicy  string                         `json:"excessCapacityTerminationPolicy"`
 	IamFleetRole                     string                         `json:"iamFleetRole"`
-	LaunchSpecifications             []SpotFleetLaunchSpecification `json:"launchSpecifications"`
-	ValidFrom                        time.Time                      `json:"validFrom"`
-	ValidUntil                       time.Time                      `json:"validUntil"`
-	TerminateInstancesWithExpiration bool                           `json:"terminateInstancesWithExpiration"`
 	Type                             string                         `json:"type"`
+	LaunchSpecifications             []SpotFleetLaunchSpecification `json:"launchSpecifications"`
+	TargetCapacity                   int                            `json:"targetCapacity"`
+	TerminateInstancesWithExpiration bool                           `json:"terminateInstancesWithExpiration"`
 	ReplaceUnhealthyInstances        bool                           `json:"replaceUnhealthyInstances"`
 }
 
 // SpotFleetRequest represents a Spot Fleet request.
 type SpotFleetRequest struct {
 	CreateTime                time.Time              `json:"createTime"`
-	SpotFleetRequestConfig    SpotFleetRequestConfig `json:"spotFleetRequestConfig"`
+	Tags                      map[string]string      `json:"tags"`
 	SpotFleetRequestID        string                 `json:"spotFleetRequestId"`
 	SpotFleetRequestState     string                 `json:"spotFleetRequestState"`
 	ActivityStatus            string                 `json:"activityStatus"`
-	Tags                      map[string]string      `json:"tags"`
+	InstanceIDs               []string               `json:"instanceIds"`
+	SpotFleetRequestConfig    SpotFleetRequestConfig `json:"spotFleetRequestConfig"`
 	FulfilledCapacity         float64                `json:"fulfilledCapacity"`
 	OnDemandFulfilledCapacity float64                `json:"onDemandFulfilledCapacity"`
-	InstanceIDs               []string               `json:"instanceIds"`
 }
 
 // SpotFleetHistoryRecord is a history event for a spot fleet.
@@ -239,9 +240,7 @@ func (b *InMemoryBackend) RequestSpotFleet(
 	cp := *fleet
 	cp.InstanceIDs = append([]string(nil), fleet.InstanceIDs...)
 	cp.Tags = make(map[string]string)
-	for k, v := range fleet.Tags {
-		cp.Tags[k] = v
-	}
+	maps.Copy(cp.Tags, fleet.Tags)
 
 	return &cp, nil
 }
@@ -273,9 +272,7 @@ func (b *InMemoryBackend) DescribeSpotFleetRequests(
 		cp := *fleet
 		cp.InstanceIDs = append([]string(nil), fleet.InstanceIDs...)
 		cp.Tags = make(map[string]string)
-		for k, v := range fleet.Tags {
-			cp.Tags[k] = v
-		}
+		maps.Copy(cp.Tags, fleet.Tags)
 
 		results = append(results, &cp)
 	}
@@ -323,6 +320,7 @@ func (b *InMemoryBackend) CancelSpotFleetRequests(
 				PreviousSpotFleetRequestState: SpotFleetStateCancelled,
 				Error:                         "SpotFleetRequestIdNotFound",
 			})
+
 			continue
 		}
 
@@ -527,9 +525,7 @@ func (b *InMemoryBackend) ModifySpotFleetRequest(
 	cp := *fleet
 	cp.InstanceIDs = append([]string(nil), fleet.InstanceIDs...)
 	cp.Tags = make(map[string]string)
-	for k, v := range fleet.Tags {
-		cp.Tags[k] = v
-	}
+	maps.Copy(cp.Tags, fleet.Tags)
 
 	return &cp, nil
 }

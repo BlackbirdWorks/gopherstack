@@ -29,11 +29,12 @@ func validSpotFleetConfig() ec2.SpotFleetRequestConfig {
 // ---- RequestSpotFleet ----
 
 func TestRequestSpotFleet_Success(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
 	assert.NotEmpty(t, fleet.SpotFleetRequestID)
-	assert.True(t, len(fleet.SpotFleetRequestID) > 4)
+	assert.Greater(t, len(fleet.SpotFleetRequestID), 4)
 	assert.Equal(t, ec2.SpotFleetStateActive, fleet.SpotFleetRequestState)
 	assert.Equal(t, ec2.SpotFleetActivityFulfilled, fleet.ActivityStatus)
 	assert.Equal(t, 3, fleet.SpotFleetRequestConfig.TargetCapacity)
@@ -42,6 +43,7 @@ func TestRequestSpotFleet_Success(t *testing.T) {
 }
 
 func TestRequestSpotFleet_DefaultAllocationStrategy(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -49,6 +51,7 @@ func TestRequestSpotFleet_DefaultAllocationStrategy(t *testing.T) {
 }
 
 func TestRequestSpotFleet_WeightedCapacity(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	config := ec2.SpotFleetRequestConfig{
 		TargetCapacity: 4,
@@ -68,6 +71,7 @@ func TestRequestSpotFleet_WeightedCapacity(t *testing.T) {
 }
 
 func TestRequestSpotFleet_ZeroCapacity(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	config := validSpotFleetConfig()
 	config.TargetCapacity = 0
@@ -77,6 +81,7 @@ func TestRequestSpotFleet_ZeroCapacity(t *testing.T) {
 }
 
 func TestRequestSpotFleet_NegativeCapacity(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	config := validSpotFleetConfig()
 	config.TargetCapacity = -1
@@ -85,6 +90,7 @@ func TestRequestSpotFleet_NegativeCapacity(t *testing.T) {
 }
 
 func TestRequestSpotFleet_NoLaunchSpecs(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	config := ec2.SpotFleetRequestConfig{
 		TargetCapacity:       2,
@@ -95,6 +101,7 @@ func TestRequestSpotFleet_NoLaunchSpecs(t *testing.T) {
 }
 
 func TestRequestSpotFleet_InstancesRunning(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -111,6 +118,7 @@ func TestRequestSpotFleet_InstancesRunning(t *testing.T) {
 // ---- DescribeSpotFleetRequests ----
 
 func TestDescribeSpotFleetRequests_All(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	_, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -123,6 +131,7 @@ func TestDescribeSpotFleetRequests_All(t *testing.T) {
 }
 
 func TestDescribeSpotFleetRequests_ByID(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet1, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -136,6 +145,7 @@ func TestDescribeSpotFleetRequests_ByID(t *testing.T) {
 }
 
 func TestDescribeSpotFleetRequests_NotFound(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	_, err := b.DescribeSpotFleetRequests([]string{"sfr-doesnotexist"})
 	require.Error(t, err)
@@ -144,6 +154,7 @@ func TestDescribeSpotFleetRequests_NotFound(t *testing.T) {
 // ---- CancelSpotFleetRequests ----
 
 func TestCancelSpotFleetRequests_NoTerminate(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -162,6 +173,7 @@ func TestCancelSpotFleetRequests_NoTerminate(t *testing.T) {
 }
 
 func TestCancelSpotFleetRequests_WithTerminate(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -179,6 +191,7 @@ func TestCancelSpotFleetRequests_WithTerminate(t *testing.T) {
 }
 
 func TestCancelSpotFleetRequests_Empty(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	_, err := b.CancelSpotFleetRequests(nil, false)
 	require.Error(t, err)
@@ -187,6 +200,7 @@ func TestCancelSpotFleetRequests_Empty(t *testing.T) {
 // ---- ModifySpotFleetRequest ----
 
 func TestModifySpotFleetRequest_ScaleUp(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -199,6 +213,7 @@ func TestModifySpotFleetRequest_ScaleUp(t *testing.T) {
 }
 
 func TestModifySpotFleetRequest_ScaleDown(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -210,12 +225,14 @@ func TestModifySpotFleetRequest_ScaleDown(t *testing.T) {
 }
 
 func TestModifySpotFleetRequest_NotFound(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	_, err := b.ModifySpotFleetRequest("sfr-doesnotexist", 5, "")
 	require.Error(t, err)
 }
 
 func TestModifySpotFleetRequest_NotActive(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -231,6 +248,7 @@ func TestModifySpotFleetRequest_NotActive(t *testing.T) {
 // ---- DescribeSpotFleetInstances ----
 
 func TestDescribeSpotFleetInstances(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -247,6 +265,7 @@ func TestDescribeSpotFleetInstances(t *testing.T) {
 }
 
 func TestDescribeSpotFleetInstances_NotFound(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	_, err := b.DescribeSpotFleetInstances("sfr-doesnotexist")
 	require.Error(t, err)
@@ -255,6 +274,7 @@ func TestDescribeSpotFleetInstances_NotFound(t *testing.T) {
 // ---- DescribeSpotFleetRequestHistory ----
 
 func TestDescribeSpotFleetRequestHistory(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
@@ -266,6 +286,7 @@ func TestDescribeSpotFleetRequestHistory(t *testing.T) {
 }
 
 func TestDescribeSpotFleetRequestHistory_Empty_After_Time(t *testing.T) {
+	t.Parallel()
 	b := newSpotFleetBackend()
 	fleet, err := b.RequestSpotFleet(validSpotFleetConfig())
 	require.NoError(t, err)
