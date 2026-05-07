@@ -97,29 +97,66 @@ type EncryptionConfig struct {
 type S3DestinationDescription struct {
 	BufferingHints          *BufferingHints          `json:"BufferingHints,omitempty"`
 	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration,omitempty"`
+	S3BackupDescription     *S3BackupDescription     `json:"S3BackupDescription,omitempty"`
 	BucketARN               string                   `json:"BucketARN,omitempty"`
 	RoleARN                 string                   `json:"RoleARN,omitempty"`
 	Prefix                  string                   `json:"Prefix,omitempty"`
 	ErrorOutputPrefix       string                   `json:"ErrorOutputPrefix,omitempty"`
 	CompressionFormat       string                   `json:"CompressionFormat,omitempty"`
 	DestinationID           string                   `json:"DestinationId,omitempty"`
+	S3BackupMode            string                   `json:"S3BackupMode,omitempty"`
+}
+
+// S3BackupDescription holds the S3 backup destination configuration.
+type S3BackupDescription struct {
+	BufferingHints    *BufferingHints `json:"BufferingHints,omitempty"`
+	BucketARN         string          `json:"BucketARN,omitempty"`
+	RoleARN           string          `json:"RoleARN,omitempty"`
+	Prefix            string          `json:"Prefix,omitempty"`
+	CompressionFormat string          `json:"CompressionFormat,omitempty"`
+}
+
+// HTTPEndpointDestinationDescription holds the HTTP endpoint destination config.
+type HTTPEndpointDestinationDescription struct {
+	ProcessingConfiguration *ProcessingConfiguration   `json:"ProcessingConfiguration,omitempty"`
+	EndpointConfiguration   *HTTPEndpointConfiguration `json:"EndpointConfiguration,omitempty"`
+	S3BackupMode            string                     `json:"S3BackupMode,omitempty"`
+	S3BackupDescription     *S3BackupDescription       `json:"S3BackupDescription,omitempty"`
+	DestinationID           string                     `json:"DestinationId,omitempty"`
+}
+
+// HTTPEndpointConfiguration holds the HTTP endpoint URL and name.
+type HTTPEndpointConfiguration struct {
+	URL       string `json:"Url,omitempty"`
+	Name      string `json:"Name,omitempty"`
+	AccessKey string `json:"AccessKey,omitempty"`
+}
+
+// DeliveryMetrics tracks delivery statistics for a stream.
+type DeliveryMetrics struct {
+	TotalRecords  int64 `json:"TotalRecords"`
+	FailedRecords int64 `json:"FailedRecords"`
+	TotalBytes    int64 `json:"TotalBytes"`
 }
 
 // DeliveryStream represents a Kinesis Firehose delivery stream.
 type DeliveryStream struct {
-	lastFlush          time.Time
-	Tags               *tags.Tags                `json:"tags,omitempty"`
-	S3Destination      *S3DestinationDescription `json:"s3Destination,omitempty"`
-	Encryption         *EncryptionConfig         `json:"encryption,omitempty"`
-	Name               string                    `json:"name"`
-	ARN                string                    `json:"arn"`
-	DeliveryStreamType string                    `json:"deliveryStreamType,omitempty"`
-	VersionID          string                    `json:"versionID,omitempty"`
-	Status             string                    `json:"status"`
-	AccountID          string                    `json:"accountID"`
-	Region             string                    `json:"region"`
-	Records            [][]byte                  `json:"records,omitempty"`
-	bufferSizeBytes    int
+	lastFlush               time.Time
+	Tags                    *tags.Tags                          `json:"tags,omitempty"`
+	S3Destination           *S3DestinationDescription           `json:"s3Destination,omitempty"`
+	HTTPEndpointDestination *HTTPEndpointDestinationDescription `json:"httpEndpointDestination,omitempty"`
+	Encryption              *EncryptionConfig                   `json:"encryption,omitempty"`
+	DeliveryStreamType      string                              `json:"deliveryStreamType,omitempty"`
+	Name                    string                              `json:"name"`
+	ARN                     string                              `json:"arn"`
+	VersionID               string                              `json:"versionID,omitempty"`
+	Status                  string                              `json:"status"`
+	AccountID               string                              `json:"accountID"`
+	Region                  string                              `json:"region"`
+	Records                 [][]byte                            `json:"records,omitempty"`
+	BackupRecords           [][]byte                            `json:"backupRecords,omitempty"`
+	Metrics                 DeliveryMetrics                     `json:"metrics"`
+	bufferSizeBytes         int
 }
 
 // InMemoryBackend is the in-memory store for Firehose resources.
@@ -175,8 +212,9 @@ func (b *InMemoryBackend) SetLambdaBackend(lambda LambdaInvoker) {
 
 // CreateDeliveryStreamInput holds the input for creating a delivery stream.
 type CreateDeliveryStreamInput struct {
-	S3Destination *S3DestinationDescription
-	Name          string
+	S3Destination           *S3DestinationDescription
+	HTTPEndpointDestination *HTTPEndpointDestinationDescription
+	Name                    string
 }
 
 // CreateDeliveryStream creates a new delivery stream.
@@ -198,17 +236,19 @@ func (b *InMemoryBackend) CreateDeliveryStream(input CreateDeliveryStreamInput) 
 
 	streamARN := arn.Build("firehose", b.region, b.accountID, "deliverystream/"+input.Name)
 	s := &DeliveryStream{
-		Name:               input.Name,
-		ARN:                streamARN,
-		DeliveryStreamType: "DirectPut",
-		VersionID:          "1",
-		Status:             "ACTIVE",
-		Records:            [][]byte{},
-		Tags:               tags.New("firehose." + input.Name + ".tags"),
-		AccountID:          b.accountID,
-		Region:             b.region,
-		S3Destination:      input.S3Destination,
-		lastFlush:          time.Now(),
+		Name:                    input.Name,
+		ARN:                     streamARN,
+		DeliveryStreamType:      "DirectPut",
+		VersionID:               "1",
+		Status:                  "ACTIVE",
+		Records:                 [][]byte{},
+		BackupRecords:           [][]byte{},
+		Tags:                    tags.New("firehose." + input.Name + ".tags"),
+		AccountID:               b.accountID,
+		Region:                  b.region,
+		S3Destination:           input.S3Destination,
+		HTTPEndpointDestination: input.HTTPEndpointDestination,
+		lastFlush:               time.Now(),
 	}
 	b.streams[input.Name] = s
 
@@ -280,6 +320,12 @@ func (b *InMemoryBackend) PutRecord(streamName string, data []byte) error {
 
 	s.Records = append(s.Records, data)
 	s.bufferSizeBytes += len(data)
+	s.Metrics.TotalRecords++
+	s.Metrics.TotalBytes += int64(len(data))
+	// If backup mode is enabled, also store a copy in backup records.
+	if b.isBackupEnabledLocked(s) {
+		s.BackupRecords = append(s.BackupRecords, data)
+	}
 	snap := b.extractForFlushLocked(s)
 	b.mu.Unlock()
 
@@ -313,9 +359,15 @@ func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (i
 		return 0, fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
 	}
 
+	backupEnabled := b.isBackupEnabledLocked(s)
 	for _, rec := range records {
 		s.Records = append(s.Records, rec)
 		s.bufferSizeBytes += len(rec)
+		s.Metrics.TotalRecords++
+		s.Metrics.TotalBytes += int64(len(rec))
+		if backupEnabled {
+			s.BackupRecords = append(s.BackupRecords, rec)
+		}
 	}
 
 	snap := b.extractForFlushLocked(s)
@@ -401,6 +453,19 @@ func (b *InMemoryBackend) intervalFlusher(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// isBackupEnabledLocked returns true when S3 backup mode is enabled for the stream.
+// Must be called with the write lock held.
+func (b *InMemoryBackend) isBackupEnabledLocked(s *DeliveryStream) bool {
+	if s.S3Destination != nil && strings.EqualFold(s.S3Destination.S3BackupMode, "Enabled") {
+		return true
+	}
+	if s.HTTPEndpointDestination != nil && strings.EqualFold(s.HTTPEndpointDestination.S3BackupMode, "Enabled") {
+		return true
+	}
+
+	return false
 }
 
 // shouldFlushLocked returns true when a size-based flush should happen.
@@ -790,12 +855,18 @@ func streamCopy(s *DeliveryStream) *DeliveryStream {
 		cp.S3Destination = &dest
 	}
 
+	if s.HTTPEndpointDestination != nil {
+		ep := *s.HTTPEndpointDestination
+		cp.HTTPEndpointDestination = &ep
+	}
+
 	if s.Encryption != nil {
 		enc := *s.Encryption
 		cp.Encryption = &enc
 	}
 
 	cp.Records = nil
+	cp.BackupRecords = nil
 
 	return &cp
 }

@@ -216,18 +216,45 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 type s3DestinationInput struct {
 	BufferingHints          *BufferingHints          `json:"BufferingHints"`
 	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration"`
+	S3BackupConfiguration   *s3BackupInput           `json:"S3BackupConfiguration"`
 	BucketARN               string                   `json:"BucketARN"`
 	RoleARN                 string                   `json:"RoleARN"`
 	Prefix                  string                   `json:"Prefix"`
 	ErrorOutputPrefix       string                   `json:"ErrorOutputPrefix"`
 	CompressionFormat       string                   `json:"CompressionFormat"`
+	S3BackupMode            string                   `json:"S3BackupMode"`
+}
+
+// s3BackupInput holds the S3 backup destination configuration.
+type s3BackupInput struct {
+	BufferingHints    *BufferingHints `json:"BufferingHints"`
+	BucketARN         string          `json:"BucketARN"`
+	RoleARN           string          `json:"RoleARN"`
+	Prefix            string          `json:"Prefix"`
+	CompressionFormat string          `json:"CompressionFormat"`
+}
+
+// httpEndpointDestinationInput holds HTTP endpoint destination configuration.
+type httpEndpointDestinationInput struct {
+	EndpointConfiguration   *httpEndpointConfigurationInput `json:"EndpointConfiguration"`
+	ProcessingConfiguration *ProcessingConfiguration        `json:"ProcessingConfiguration"`
+	S3BackupConfiguration   *s3BackupInput                  `json:"S3BackupConfiguration"`
+	S3BackupMode            string                          `json:"S3BackupMode"`
+}
+
+// httpEndpointConfigurationInput holds the HTTP endpoint URL and name.
+type httpEndpointConfigurationInput struct {
+	URL       string `json:"Url"`
+	Name      string `json:"Name"`
+	AccessKey string `json:"AccessKey"`
 }
 
 type createDeliveryStreamInput struct {
-	S3DestinationConfiguration         *s3DestinationInput `json:"S3DestinationConfiguration"`
-	ExtendedS3DestinationConfiguration *s3DestinationInput `json:"ExtendedS3DestinationConfiguration"`
-	DeliveryStreamName                 string              `json:"DeliveryStreamName"`
-	Tags                               []svcTags.KV        `json:"Tags"`
+	S3DestinationConfiguration           *s3DestinationInput           `json:"S3DestinationConfiguration"`
+	ExtendedS3DestinationConfiguration   *s3DestinationInput           `json:"ExtendedS3DestinationConfiguration"`
+	HTTPEndpointDestinationConfiguration *httpEndpointDestinationInput `json:"HTTPEndpointDestinationConfiguration"`
+	DeliveryStreamName                   string                        `json:"DeliveryStreamName"`
+	Tags                                 []svcTags.KV                  `json:"Tags"`
 }
 
 type createDeliveryStreamOutput struct {
@@ -239,6 +266,7 @@ func (h *Handler) handleCreateDeliveryStream(
 	in *createDeliveryStreamInput,
 ) (*createDeliveryStreamOutput, error) {
 	var dest *S3DestinationDescription
+	var httpDest *HTTPEndpointDestinationDescription
 
 	// ExtendedS3 takes precedence over plain S3.
 	raw := in.ExtendedS3DestinationConfiguration
@@ -255,12 +283,47 @@ func (h *Handler) handleCreateDeliveryStream(
 			CompressionFormat:       raw.CompressionFormat,
 			BufferingHints:          raw.BufferingHints,
 			ProcessingConfiguration: raw.ProcessingConfiguration,
+			S3BackupMode:            raw.S3BackupMode,
+		}
+		if raw.S3BackupConfiguration != nil {
+			dest.S3BackupDescription = &S3BackupDescription{
+				BucketARN:         raw.S3BackupConfiguration.BucketARN,
+				RoleARN:           raw.S3BackupConfiguration.RoleARN,
+				Prefix:            raw.S3BackupConfiguration.Prefix,
+				CompressionFormat: raw.S3BackupConfiguration.CompressionFormat,
+				BufferingHints:    raw.S3BackupConfiguration.BufferingHints,
+			}
+		}
+	}
+
+	if in.HTTPEndpointDestinationConfiguration != nil {
+		ep := in.HTTPEndpointDestinationConfiguration
+		httpDest = &HTTPEndpointDestinationDescription{
+			ProcessingConfiguration: ep.ProcessingConfiguration,
+			S3BackupMode:            ep.S3BackupMode,
+		}
+		if ep.EndpointConfiguration != nil {
+			httpDest.EndpointConfiguration = &HTTPEndpointConfiguration{
+				URL:       ep.EndpointConfiguration.URL,
+				Name:      ep.EndpointConfiguration.Name,
+				AccessKey: ep.EndpointConfiguration.AccessKey,
+			}
+		}
+		if ep.S3BackupConfiguration != nil {
+			httpDest.S3BackupDescription = &S3BackupDescription{
+				BucketARN:         ep.S3BackupConfiguration.BucketARN,
+				RoleARN:           ep.S3BackupConfiguration.RoleARN,
+				Prefix:            ep.S3BackupConfiguration.Prefix,
+				CompressionFormat: ep.S3BackupConfiguration.CompressionFormat,
+				BufferingHints:    ep.S3BackupConfiguration.BufferingHints,
+			}
 		}
 	}
 
 	s, err := h.Backend.CreateDeliveryStream(CreateDeliveryStreamInput{
-		Name:          in.DeliveryStreamName,
-		S3Destination: dest,
+		Name:                    in.DeliveryStreamName,
+		S3Destination:           dest,
+		HTTPEndpointDestination: httpDest,
 	})
 	if err != nil {
 		return nil, err
@@ -292,13 +355,14 @@ func (h *Handler) handleDeleteDeliveryStream(
 }
 
 type deliveryStreamDescriptionFields struct {
-	EncryptionConfiguration   *EncryptionConfig          `json:"EncryptionConfiguration,omitempty"`
-	DeliveryStreamName        string                     `json:"DeliveryStreamName"`
-	DeliveryStreamARN         string                     `json:"DeliveryStreamARN"`
-	DeliveryStreamStatus      string                     `json:"DeliveryStreamStatus"`
-	DeliveryStreamType        string                     `json:"DeliveryStreamType,omitempty"`
-	VersionID                 string                     `json:"VersionId,omitempty"`
-	S3DestinationDescriptions []S3DestinationDescription `json:"S3DestinationDescriptions,omitempty"`
+	EncryptionConfiguration             *EncryptionConfig                    `json:"EncryptionConfiguration,omitempty"`
+	DeliveryStreamName                  string                               `json:"DeliveryStreamName"`
+	DeliveryStreamARN                   string                               `json:"DeliveryStreamARN"`
+	DeliveryStreamStatus                string                               `json:"DeliveryStreamStatus"`
+	DeliveryStreamType                  string                               `json:"DeliveryStreamType,omitempty"`
+	VersionID                           string                               `json:"VersionId,omitempty"`
+	S3DestinationDescriptions           []S3DestinationDescription           `json:"S3DestinationDescriptions,omitempty"`
+	HTTPEndpointDestinationDescriptions []HTTPEndpointDestinationDescription `json:"HTTPEndpointDestinationDescriptions,omitempty"` //nolint:lll // AWS field name must match the API spec
 }
 
 type describeDeliveryStreamOutput struct {
@@ -325,6 +389,10 @@ func (h *Handler) handleDescribeDeliveryStream(
 
 	if s.S3Destination != nil {
 		desc.S3DestinationDescriptions = []S3DestinationDescription{*s.S3Destination}
+	}
+
+	if s.HTTPEndpointDestination != nil {
+		desc.HTTPEndpointDestinationDescriptions = []HTTPEndpointDestinationDescription{*s.HTTPEndpointDestination}
 	}
 
 	return &describeDeliveryStreamOutput{DeliveryStreamDescription: desc}, nil
@@ -508,6 +576,16 @@ func (h *Handler) handleUpdateDestination(
 			CompressionFormat:       raw.CompressionFormat,
 			BufferingHints:          raw.BufferingHints,
 			ProcessingConfiguration: raw.ProcessingConfiguration,
+			S3BackupMode:            raw.S3BackupMode,
+		}
+		if raw.S3BackupConfiguration != nil {
+			dest.S3BackupDescription = &S3BackupDescription{
+				BucketARN:         raw.S3BackupConfiguration.BucketARN,
+				RoleARN:           raw.S3BackupConfiguration.RoleARN,
+				Prefix:            raw.S3BackupConfiguration.Prefix,
+				CompressionFormat: raw.S3BackupConfiguration.CompressionFormat,
+				BufferingHints:    raw.S3BackupConfiguration.BufferingHints,
+			}
 		}
 	}
 
