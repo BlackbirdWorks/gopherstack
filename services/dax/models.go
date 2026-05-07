@@ -21,8 +21,8 @@ const (
 // Endpoint represents a DAX cluster endpoint.
 type Endpoint struct {
 	Address string `json:"address"`
-	Port    int    `json:"port"`
 	URL     string `json:"url"`
+	Port    int    `json:"port"`
 }
 
 // Node represents a single DAX node in a cluster.
@@ -58,29 +58,29 @@ type SubnetGroup struct {
 // Cluster represents an Amazon DAX cluster.
 type Cluster struct {
 	CreateTime                 time.Time            `json:"createTime"`
-	Endpoint                   *Endpoint            `json:"endpoint,omitempty"`
-	ParameterGroup             ParameterGroupStatus `json:"parameterGroup"`
-	SSEDescription             SSEDescription       `json:"sseDescription"`
-	Nodes                      []Node               `json:"nodes"`
-	SecurityGroupIDs           []string             `json:"securityGroupIds"`
-	SubnetGroupName            string               `json:"subnetGroupName"`
 	Tags                       map[string]string    `json:"tags"`
+	Endpoint                   *Endpoint            `json:"endpoint,omitempty"`
+	Status                     string               `json:"status"`
+	Description                string               `json:"description"`
+	IamRoleArn                 string               `json:"iamRoleArn"`
+	SubnetGroupName            string               `json:"subnetGroupName"`
+	SSEDescription             SSEDescription       `json:"sseDescription"`
 	ClusterName                string               `json:"clusterName"`
 	ClusterArn                 string               `json:"clusterArn"`
-	Description                string               `json:"description"`
-	NodeType                   string               `json:"nodeType"`
-	Status                     string               `json:"status"`
 	PreferredMaintenanceWindow string               `json:"preferredMaintenanceWindow"`
-	IamRoleArn                 string               `json:"iamRoleArn"`
+	NodeType                   string               `json:"nodeType"`
+	ParameterGroup             ParameterGroupStatus `json:"parameterGroup"`
+	Nodes                      []Node               `json:"nodes"`
+	SecurityGroupIDs           []string             `json:"securityGroupIds"`
 	ActiveNodes                int                  `json:"activeNodes"`
 	TotalNodes                 int                  `json:"totalNodes"`
 }
 
 // ParameterGroup represents a DAX parameter group.
 type ParameterGroup struct {
+	Parameters         map[string]string `json:"parameters"`
 	ParameterGroupName string            `json:"parameterGroupName"`
 	Description        string            `json:"description"`
-	Parameters         map[string]string `json:"parameters"`
 }
 
 // CreateClusterInput holds parameters for creating a DAX cluster.
@@ -90,22 +90,22 @@ type CreateClusterInput struct {
 	ClusterName                string
 	Description                string
 	IamRoleArn                 string
-	ReplicationFactor          int
-	AvailabilityZones          []string
 	SubnetGroupName            string
-	SecurityGroupIDs           []string
 	PreferredMaintenanceWindow string
 	ParameterGroupName         string
+	AvailabilityZones          []string
+	SecurityGroupIDs           []string
+	ReplicationFactor          int
 	SSESpecificationEnabled    bool
 }
 
 // UpdateClusterInput holds parameters for updating a DAX cluster.
 type UpdateClusterInput struct {
-	SecurityGroupIDs           []string
 	ClusterName                string
 	Description                string
 	PreferredMaintenanceWindow string
 	ParameterGroupName         string
 	NotificationTopicArn       string
 	NotificationTopicStatus    string
+	SecurityGroupIDs           []string
 }

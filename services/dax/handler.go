@@ -167,31 +167,31 @@ type createClusterRequest struct {
 	ClusterName                string            `json:"ClusterName"`
 	Description                string            `json:"Description"`
 	IamRoleArn                 string            `json:"IamRoleArn"`
-	ReplicationFactor          int               `json:"ReplicationFactor"`
-	AvailabilityZones          []string          `json:"AvailabilityZones"`
 	SubnetGroupName            string            `json:"SubnetGroupName"`
-	SecurityGroupIDs           []string          `json:"SecurityGroupIds"`
 	PreferredMaintenanceWindow string            `json:"PreferredMaintenanceWindow"`
 	ParameterGroupName         string            `json:"ParameterGroupName"`
+	AvailabilityZones          []string          `json:"AvailabilityZones"`
+	SecurityGroupIDs           []string          `json:"SecurityGroupIds"`
+	ReplicationFactor          int               `json:"ReplicationFactor"`
 	SSESpecification           struct {
 		Enabled bool `json:"Enabled"`
 	} `json:"SSESpecification"`
 }
 
 type describeClustersRequest struct {
+	NextToken    string   `json:"NextToken"`
 	ClusterNames []string `json:"ClusterNames"`
 	MaxResults   int      `json:"MaxResults"`
-	NextToken    string   `json:"NextToken"`
 }
 
 type updateClusterRequest struct {
-	SecurityGroupIDs           []string `json:"SecurityGroupIds"`
 	ClusterName                string   `json:"ClusterName"`
 	Description                string   `json:"Description"`
 	PreferredMaintenanceWindow string   `json:"PreferredMaintenanceWindow"`
 	ParameterGroupName         string   `json:"ParameterGroupName"`
 	NotificationTopicArn       string   `json:"NotificationTopicArn"`
 	NotificationTopicStatus    string   `json:"NotificationTopicStatus"`
+	SecurityGroupIDs           []string `json:"SecurityGroupIds"`
 }
 
 type deleteClusterRequest struct {
@@ -219,9 +219,9 @@ type createParameterGroupRequest struct {
 }
 
 type describeParameterGroupsRequest struct {
+	NextToken           string   `json:"NextToken"`
 	ParameterGroupNames []string `json:"ParameterGroupNames"`
 	MaxResults          int      `json:"MaxResults"`
-	NextToken           string   `json:"NextToken"`
 }
 
 type deleteParameterGroupRequest struct {
@@ -235,9 +235,9 @@ type createSubnetGroupRequest struct {
 }
 
 type describeSubnetGroupsRequest struct {
+	NextToken        string   `json:"NextToken"`
 	SubnetGroupNames []string `json:"SubnetGroupNames"`
 	MaxResults       int      `json:"MaxResults"`
-	NextToken        string   `json:"NextToken"`
 }
 
 type deleteSubnetGroupRequest struct {
@@ -252,14 +252,9 @@ type tagItem struct {
 // ---- cluster response helpers ----
 
 type clusterResponse struct {
-	ActiveNodes                int                 `json:"ActiveNodes"`
-	TotalNodes                 int                 `json:"TotalNodes"`
-	Endpoint                   *endpointResponse   `json:"ClusterDiscoveryEndpoint,omitempty"`
 	ParameterGroup             *paramGroupStatus   `json:"ParameterGroup,omitempty"`
 	SSEDescription             *sseDescResponse    `json:"SSEDescription,omitempty"`
-	Nodes                      []nodeResponse      `json:"Nodes,omitempty"`
-	SecurityGroups             []securityGroupResp `json:"SecurityGroups,omitempty"`
-	Tags                       []tagItem           `json:"Tags,omitempty"`
+	Endpoint                   *endpointResponse   `json:"ClusterDiscoveryEndpoint,omitempty"`
 	ClusterName                string              `json:"ClusterName"`
 	ClusterArn                 string              `json:"ClusterArn"`
 	Description                string              `json:"Description,omitempty"`
@@ -268,12 +263,17 @@ type clusterResponse struct {
 	SubnetGroup                string              `json:"SubnetGroup,omitempty"`
 	IamRoleArn                 string              `json:"IamRoleArn,omitempty"`
 	PreferredMaintenanceWindow string              `json:"PreferredMaintenanceWindow,omitempty"`
+	Nodes                      []nodeResponse      `json:"Nodes,omitempty"`
+	SecurityGroups             []securityGroupResp `json:"SecurityGroups,omitempty"`
+	Tags                       []tagItem           `json:"Tags,omitempty"`
+	TotalNodes                 int                 `json:"TotalNodes"`
+	ActiveNodes                int                 `json:"ActiveNodes"`
 }
 
 type endpointResponse struct {
 	Address string `json:"Address"`
-	Port    int    `json:"Port"`
 	URL     string `json:"URL,omitempty"`
+	Port    int    `json:"Port"`
 }
 
 type nodeResponse struct {
