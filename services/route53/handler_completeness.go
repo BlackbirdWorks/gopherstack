@@ -42,6 +42,7 @@ const (
 
 // routeCompleteness handles previously-notImplemented Route53 paths.
 // Returns (true, err) if the path was handled, (false, nil) if not.
+//nolint:gocognit // routes across many completeness sub-paths
 func (h *Handler) routeCompleteness(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case path == route53TestDNSAnswerPath && method == http.MethodGet:
