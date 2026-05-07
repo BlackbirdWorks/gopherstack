@@ -213,6 +213,19 @@ type StorageBackend interface {
 
 	// Usage operations.
 	GetUsage(input GetUsageInput) (*UsageData, error)
+
+	// VPC Link operations.
+	CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, error)
+	GetVpcLink(id string) (*VpcLink, error)
+	GetVpcLinks() ([]VpcLink, error)
+	DeleteVpcLink(id string) error
+	UpdateVpcLink(input UpdateVpcLinkInput) (*VpcLink, error)
+
+	// Client certificate update.
+	UpdateClientCertificate(input UpdateClientCertificateInput) (*ClientCertificate, error)
+
+	// OpenAPI export.
+	GetExport(restAPIID, stageName, exportType string) (map[string]any, error)
 }
 
 const apiIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -315,6 +328,7 @@ type InMemoryBackend struct {
 	usagePlanKeys                map[string]map[string]*UsagePlanKey // usagePlanID → keyID → key
 	gatewayResponses             map[string]*GatewayResponse         // key: restAPIID + "#" + responseType
 	clientCertificates           map[string]*ClientCertificate       // key: clientCertificateID
+	vpcLinks                     map[string]*VpcLink
 	mu                           *lockmetrics.RWMutex
 }
 
@@ -338,6 +352,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		usagePlanKeys:                make(map[string]map[string]*UsagePlanKey),
 		gatewayResponses:             make(map[string]*GatewayResponse),
 		clientCertificates:           make(map[string]*ClientCertificate),
+		vpcLinks:                     make(map[string]*VpcLink),
 		mu:                           lockmetrics.New("apigateway"),
 	}
 }
@@ -1370,6 +1385,9 @@ func (b *InMemoryBackend) Reset() {
 	b.domainNameAccessAssociations = make(map[string]*DomainNameAccessAssociation)
 	b.usagePlans = make(map[string]*UsagePlan)
 	b.usagePlanKeys = make(map[string]map[string]*UsagePlanKey)
+	b.vpcLinks = make(map[string]*VpcLink)
+	b.clientCertificates = make(map[string]*ClientCertificate)
+	b.gatewayResponses = make(map[string]*GatewayResponse)
 }
 
 // CreateAPIKey creates a new API key with an optional auto-generated value.
@@ -3001,4 +3019,164 @@ func (b *InMemoryBackend) GetUsage(input GetUsageInput) (*UsageData, error) {
 		EndDate:     input.EndDate,
 		Items:       map[string][]any{},
 	}, nil
+}
+
+// UpdateClientCertificate updates the description of a client certificate.
+func (b *InMemoryBackend) UpdateClientCertificate(input UpdateClientCertificateInput) (*ClientCertificate, error) {
+	b.mu.Lock("UpdateClientCertificate")
+	defer b.mu.Unlock()
+
+	cert, ok := b.clientCertificates[input.ClientCertificateID]
+	if !ok {
+		return nil, fmt.Errorf("%w: client certificate %s not found", ErrNotFound, input.ClientCertificateID)
+	}
+
+	cert.Description = input.Description
+
+	return cert, nil
+}
+
+// CreateVpcLink creates a new VPC link.
+func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
+	}
+
+	id := randomID(apiIDLength)
+
+	link := &VpcLink{
+		ID:          id,
+		Name:        input.Name,
+		Description: input.Description,
+		Status:      vpcLinkStatusAvailable,
+		TargetARNs:  input.TargetARNs,
+		Tags:        input.Tags,
+	}
+
+	b.mu.Lock("CreateVpcLink")
+	defer b.mu.Unlock()
+
+	b.vpcLinks[id] = link
+
+	return link, nil
+}
+
+// GetVpcLink retrieves a VPC link by ID.
+func (b *InMemoryBackend) GetVpcLink(id string) (*VpcLink, error) {
+	b.mu.RLock("GetVpcLink")
+	defer b.mu.RUnlock()
+
+	link, ok := b.vpcLinks[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: VPC link %s not found", ErrNotFound, id)
+	}
+
+	return link, nil
+}
+
+// GetVpcLinks retrieves all VPC links.
+func (b *InMemoryBackend) GetVpcLinks() ([]VpcLink, error) {
+	b.mu.RLock("GetVpcLinks")
+	defer b.mu.RUnlock()
+
+	result := make([]VpcLink, 0, len(b.vpcLinks))
+	for _, link := range b.vpcLinks {
+		result = append(result, *link)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
+
+	return result, nil
+}
+
+// DeleteVpcLink removes a VPC link.
+func (b *InMemoryBackend) DeleteVpcLink(id string) error {
+	b.mu.Lock("DeleteVpcLink")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vpcLinks[id]; !ok {
+		return fmt.Errorf("%w: VPC link %s not found", ErrNotFound, id)
+	}
+
+	delete(b.vpcLinks, id)
+
+	return nil
+}
+
+// UpdateVpcLink updates the name or description of a VPC link.
+func (b *InMemoryBackend) UpdateVpcLink(input UpdateVpcLinkInput) (*VpcLink, error) {
+	b.mu.Lock("UpdateVpcLink")
+	defer b.mu.Unlock()
+
+	link, ok := b.vpcLinks[input.VpcLinkID]
+	if !ok {
+		return nil, fmt.Errorf("%w: VPC link %s not found", ErrNotFound, input.VpcLinkID)
+	}
+
+	if input.Name != "" {
+		link.Name = input.Name
+	}
+
+	if input.Description != "" {
+		link.Description = input.Description
+	}
+
+	return link, nil
+}
+
+// GetExport generates an OpenAPI 2.0 (Swagger) export of the REST API.
+func (b *InMemoryBackend) GetExport(restAPIID, stageName, exportType string) (map[string]any, error) {
+	b.mu.RLock("GetExport")
+	defer b.mu.RUnlock()
+
+	data, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	paths := make(map[string]any)
+
+	for _, res := range data.resources {
+		if res.Path == "/" {
+			continue
+		}
+
+		pathItem := make(map[string]any)
+
+		for httpMethod, method := range res.ResourceMethods {
+			op := map[string]any{
+				"produces":  []string{"application/json"},
+				"responses": map[string]any{"200": map[string]any{"description": "200 response"}},
+			}
+
+			if method.APIKeyRequired {
+				op["security"] = []map[string]any{{"api_key": []string{}}}
+			}
+
+			pathItem[strings.ToLower(httpMethod)] = op
+		}
+
+		if len(pathItem) > 0 {
+			paths[res.Path] = pathItem
+		}
+	}
+
+	swaggerVersion := "2.0"
+	if exportType == "oas30" {
+		swaggerVersion = "3.0.1"
+	}
+
+	export := map[string]any{
+		"swagger": swaggerVersion,
+		"info": map[string]any{
+			"title":   data.api.Name,
+			"version": "1.0",
+		},
+		"basePath": "/" + stageName,
+		"paths":    paths,
+	}
+
+	return export, nil
 }

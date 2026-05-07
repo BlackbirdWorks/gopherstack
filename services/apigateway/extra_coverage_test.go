@@ -463,6 +463,34 @@ func (n *noopBackend) GetUsage(_ apigateway.GetUsageInput) (*apigateway.UsageDat
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) CreateVpcLink(_ apigateway.CreateVpcLinkInput) (*apigateway.VpcLink, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetVpcLink(_ string) (*apigateway.VpcLink, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetVpcLinks() ([]apigateway.VpcLink, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) DeleteVpcLink(_ string) error { return errNoopNotImplemented }
+
+func (n *noopBackend) UpdateVpcLink(_ apigateway.UpdateVpcLinkInput) (*apigateway.VpcLink, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) UpdateClientCertificate(
+	_ apigateway.UpdateClientCertificateInput,
+) (*apigateway.ClientCertificate, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetExport(_ string, _ string, _ string) (map[string]any, error) {
+	return nil, errNoopNotImplemented
+}
+
 // restRequest sends a REST-style request (no X-Amz-Target header) to the handler.
 func restRequest(t *testing.T, handler *apigateway.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()

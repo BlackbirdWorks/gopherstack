@@ -582,6 +582,20 @@ type testInvokeMethodHandlerInput struct {
 	TestInvokeMethodInput
 }
 
+type getVpcLinkInput struct {
+	VpcLinkID string `json:"vpcLinkId"`
+}
+
+type deleteVpcLinkInput struct {
+	VpcLinkID string `json:"vpcLinkId"`
+}
+
+type getExportInput struct {
+	RestAPIID  string `json:"restApiId"`
+	StageName  string `json:"stageName"`
+	ExportType string `json:"exportType"`
+}
+
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend    StorageBackend

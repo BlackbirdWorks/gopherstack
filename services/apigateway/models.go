@@ -628,3 +628,34 @@ type ImportRestAPIInput struct {
 	Body           []byte `json:"body,omitempty"`
 	FailOnWarnings bool   `json:"failOnWarnings,omitempty"`
 }
+
+// VpcLink represents a VPC Link for private integrations.
+type VpcLink struct {
+	Tags        map[string]string `json:"tags,omitempty"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Status      string            `json:"status"`
+	TargetARNs  []string          `json:"targetArns,omitempty"`
+}
+
+// CreateVpcLinkInput is the input for CreateVpcLink.
+type CreateVpcLinkInput struct {
+	Tags        map[string]string `json:"tags,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	TargetARNs  []string          `json:"targetArns,omitempty"`
+}
+
+// UpdateVpcLinkInput is the input for UpdateVpcLink.
+type UpdateVpcLinkInput struct {
+	VpcLinkID   string `json:"vpcLinkId"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// UpdateClientCertificateInput is the input for UpdateClientCertificate.
+type UpdateClientCertificateInput struct {
+	ClientCertificateID string `json:"clientCertificateId"`
+	Description         string `json:"description,omitempty"`
+}
