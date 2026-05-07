@@ -97,11 +97,15 @@ type VirtualMFADevice struct {
 	SerialNumber         string    `json:"SerialNumber"`
 	VirtualMFADeviceName string    `json:"VirtualMFADeviceName"`
 	Path                 string    `json:"Path"`
+	Base32StringSeed     string    `json:"Base32StringSeed,omitempty"`
+	QRCodePNG            string    `json:"QRCodePNG,omitempty"`
 }
 
 // VirtualMFADeviceXML is the XML representation of a virtual MFA device.
 type VirtualMFADeviceXML struct {
-	SerialNumber string `xml:"SerialNumber"`
+	SerialNumber     string `xml:"SerialNumber"`
+	Base32StringSeed string `xml:"Base32StringSeed,omitempty"`
+	QRCodePNG        string `xml:"QRCodePNG,omitempty"`
 }
 
 // CreateVirtualMFADeviceResult wraps the created MFA device.

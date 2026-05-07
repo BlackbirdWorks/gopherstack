@@ -213,12 +213,22 @@ type GetLoginProfileResponse struct {
 
 // ---- Miscellaneous types ----
 
-// GetServiceLastAccessedDetailsResult contains the job status and empty services list.
+// ServiceLastAccessedDetailXML is the XML representation of a single service last accessed entry.
+type ServiceLastAccessedDetailXML struct {
+	ServiceName                string `xml:"ServiceName"`
+	ServiceNamespace           string `xml:"ServiceNamespace"`
+	LastAuthenticated          string `xml:"LastAuthenticated,omitempty"`
+	LastAuthenticatedArn       string `xml:"LastAuthenticatedArn,omitempty"`
+	TotalAuthenticatedEntities int    `xml:"TotalAuthenticatedEntities"`
+}
+
+// GetServiceLastAccessedDetailsResult contains the job status and services list.
 type GetServiceLastAccessedDetailsResult struct {
-	JobStatus         string `xml:"JobStatus"`
-	JobCreationDate   string `xml:"JobCreationDate"`
-	JobCompletionDate string `xml:"JobCompletionDate"`
-	IsTruncated       bool   `xml:"IsTruncated"`
+	JobStatus            string                         `xml:"JobStatus"`
+	JobCreationDate      string                         `xml:"JobCreationDate"`
+	JobCompletionDate    string                         `xml:"JobCompletionDate"`
+	ServicesLastAccessed []ServiceLastAccessedDetailXML `xml:"ServicesLastAccessed>member"`
+	IsTruncated          bool                           `xml:"IsTruncated"`
 }
 
 // GetServiceLastAccessedDetailsResponse is the XML response for GetServiceLastAccessedDetails.

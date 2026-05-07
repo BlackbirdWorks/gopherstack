@@ -196,8 +196,31 @@ type StorageBackend interface {
 
 	// Virtual MFA Devices
 	CreateVirtualMFADevice(virtualMFADeviceName, path string) (*VirtualMFADevice, error)
+	CreateVirtualMFADeviceFull(virtualMFADeviceName, path string) (*VirtualMFADevice, error)
 	ListVirtualMFADevices(marker string, maxItems int) (page.Page[VirtualMFADevice], error)
 	DeleteVirtualMFADevice(serialNumber string) error
+	EnableMFADevice(userName, serialNumber, authCode1, authCode2 string) error
+	DeactivateMFADevice(userName, serialNumber string) error
+	GetMFADeviceOwner(serialNumber string) string
+	ListMFADevicesForUser(userName string) ([]VirtualMFADevice, error)
+
+	// SSH Public Keys
+	UploadSSHPublicKey(userName, body string) (*SSHPublicKey, error)
+	GetSSHPublicKey(userName, keyID string) (*SSHPublicKey, error)
+	ListSSHPublicKeys(userName string, marker string, maxItems int) (page.Page[SSHPublicKey], error)
+	UpdateSSHPublicKey(userName, keyID, status string) error
+	DeleteSSHPublicKey(userName, keyID string) error
+
+	// Access Advisor
+	GenerateServiceLastAccessedDetailsForEntity(entityARN string) string
+	GetServiceLastAccessedDetails(jobID string) (status string, details []ServiceLastAccessedDetail, err error)
+	RecordServiceAccess(entityARN, serviceNamespace, serviceName string)
+
+	// Reset service-specific credential password
+	ResetServiceSpecificCredentialFull(userName, credentialID string) (*ServiceSpecificCredential, error)
+
+	// OIDC provider existence check (implements sts.OIDCLookup)
+	OIDCProviderExists(issuerURL string) bool
 
 	// Delegation Requests
 	CreateDelegationRequest(targetAccountID string) (*DelegationRequest, error)
@@ -261,11 +284,11 @@ const accessKeyStatusActive = "Active"
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	roleByARN            map[string]string
-	mu                   *lockmetrics.RWMutex
+	roles                map[string]Role
+	delegationRequests   map[string]DelegationRequest
 	policies             map[string]Policy
 	policyByARN          map[string]string
-	groups               map[string]Group
+	roleByARN            map[string]string
 	accessKeys           map[string]AccessKey
 	instanceProfiles     map[string]InstanceProfile
 	samlProviders        map[string]SAMLProvider
@@ -273,9 +296,9 @@ type InMemoryBackend struct {
 	groupPolicies        map[string][]string
 	userPolicies         map[string][]string
 	policyAttachments    map[string]policyAttachmentRefs
+	mu                   *lockmetrics.RWMutex
 	loginProfiles        map[string]LoginProfile
-	passwordPolicy       *PasswordPolicy
-	roles                map[string]Role
+	groups               map[string]Group
 	oidcProviders        map[string]OIDCProvider
 	userInlinePolicies   map[string]map[string]string
 	roleInlinePolicies   map[string]map[string]string
@@ -284,8 +307,9 @@ type InMemoryBackend struct {
 	policyVersions       map[string][]StoredPolicyVersion
 	serviceSpecificCreds map[string]ServiceSpecificCredential
 	virtualMFADevices    map[string]VirtualMFADevice
-	delegationRequests   map[string]DelegationRequest
+	passwordPolicy       *PasswordPolicy
 	users                map[string]User
+	comprehensive        *comprehensiveBackend
 	accountID            string
 	accountAliases       []string
 }
@@ -330,6 +354,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		delegationRequests:   make(map[string]DelegationRequest),
 		accountID:            accountID,
 		mu:                   lockmetrics.New("iam"),
+		comprehensive:        newComprehensiveBackend(),
 	}
 }
 
@@ -2022,6 +2047,7 @@ func (b *InMemoryBackend) Reset() {
 	b.serviceSpecificCreds = make(map[string]ServiceSpecificCredential)
 	b.virtualMFADevices = make(map[string]VirtualMFADevice)
 	b.delegationRequests = make(map[string]DelegationRequest)
+	b.ResetComprehensiveBackend()
 }
 
 // Purge removes all resources older than the given cutoff time.

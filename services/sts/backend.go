@@ -168,6 +168,13 @@ type RoleLookup interface {
 	GetRoleByArn(arn string) (*RoleMeta, error)
 }
 
+// OIDCLookup is implemented by services (e.g. IAM) that can validate OIDC providers
+// for AssumeRoleWithWebIdentity.
+type OIDCLookup interface {
+	// OIDCProviderExists returns true if an OIDC provider with the given issuer URL exists.
+	OIDCProviderExists(issuerURL string) bool
+}
+
 // RoleMeta carries the role properties that STS needs during AssumeRole.
 type RoleMeta struct {
 	// TrustPolicy is the raw JSON of the role's trust (assume-role) policy document.
@@ -190,6 +197,7 @@ type trustStatement struct {
 // InMemoryBackend is a stateful in-memory STS backend.
 type InMemoryBackend struct {
 	roleLookup RoleLookup
+	oidcLookup OIDCLookup
 	sessions   map[string]*SessionInfo
 	accountID  string
 	mu         sync.Mutex
@@ -231,6 +239,15 @@ func (b *InMemoryBackend) SetRoleLookup(rl RoleLookup) {
 	defer b.mu.Unlock()
 
 	b.roleLookup = rl
+}
+
+// SetOIDCLookup wires an optional OIDC-lookup implementation (e.g. the IAM backend)
+// so that AssumeRoleWithWebIdentity can validate that the OIDC provider exists.
+func (b *InMemoryBackend) SetOIDCLookup(ol OIDCLookup) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.oidcLookup = ol
 }
 
 // AccountID returns the AWS account ID configured for this backend.
@@ -595,12 +612,46 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 		)
 	}
 
+	// Validate OIDC provider when a lookup is configured.
+	if err := b.validateOIDCProvider(input.WebIdentityToken, input.ProviderID); err != nil {
+		return nil, err
+	}
+
 	creds, err := generateCredentialSet()
 	if err != nil {
 		return nil, err
 	}
 
 	return b.buildWebIdentityResponse(input, creds, duration), nil
+}
+
+// validateOIDCProvider checks that the issuer from the token (or providerID override)
+// corresponds to an existing OIDC provider in the IAM backend.
+// When no OIDCLookup is configured the check is skipped (permissive mock behaviour).
+func (b *InMemoryBackend) validateOIDCProvider(token, providerID string) error {
+	b.mu.Lock()
+	ol := b.oidcLookup
+	b.mu.Unlock()
+
+	if ol == nil {
+		return nil
+	}
+
+	issuer := providerID
+	if issuer == "" {
+		issuer = extractWebIdentityIssuer(token)
+	}
+
+	if issuer == "" {
+		// No issuer to validate against; allow the call.
+		return nil
+	}
+
+	if !ol.OIDCProviderExists(issuer) {
+		return fmt.Errorf("%w: OIDC provider for issuer %q not found in IAM", ErrAccessDenied, issuer)
+	}
+
+	return nil
 }
 
 // buildWebIdentityResponse constructs the AssumeRoleWithWebIdentity response and persists the session.
