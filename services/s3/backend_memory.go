@@ -776,11 +776,11 @@ func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
 	}
 
 	if ver.LegalHold {
-		return ErrObjectLocked
+		return ErrInvalidObjectState
 	}
 
 	if ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil) {
-		return ErrObjectLocked
+		return ErrInvalidObjectState
 	}
 
 	return nil

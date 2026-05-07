@@ -278,7 +278,7 @@ func (h *S3Handler) routeBucketGet(
 		return
 	}
 
-	if h.routeBucketGetStubs(ctx, w, r) {
+	if h.routeBucketGetStubs(ctx, w, r, bucket) {
 		return
 	}
 
@@ -367,6 +367,7 @@ func (h *S3Handler) routeBucketGetStubs(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
+	bucket string,
 ) bool {
 	q := r.URL.Query()
 
@@ -382,7 +383,7 @@ func (h *S3Handler) routeBucketGetStubs(
 		return true
 	}
 
-	return h.routeBucketGetStubsExtra(ctx, w, r)
+	return h.routeBucketGetStubsExtra(ctx, w, r, bucket)
 }
 
 func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *http.Request) {

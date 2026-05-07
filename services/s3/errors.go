@@ -32,6 +32,7 @@ var (
 	ErrNoWebsiteConfig            = errors.New("NoSuchWebsiteConfiguration")
 	ErrNoEncryptionConfig         = errors.New("ServerSideEncryptionConfigurationNotFoundError")
 	ErrObjectLocked               = errors.New("AccessDenied")
+	ErrInvalidObjectState         = errors.New("InvalidObjectState")
 	ErrNoSuchObjectLockConfig     = awserr.New("NoSuchObjectLockConfiguration", awserr.ErrNotFound)
 	ErrNoPublicAccessBlock        = errors.New("NoSuchPublicAccessBlockConfiguration")
 	ErrNoOwnershipControls        = errors.New("OwnershipControlsNotFoundError")
@@ -115,6 +116,11 @@ func coreErrorTable() []s3ErrorEntry {
 			http.StatusNotImplemented,
 		}},
 		{ErrObjectLocked, s3ErrorInfo{"AccessDenied", "Access Denied", http.StatusForbidden}},
+		{ErrInvalidObjectState, s3ErrorInfo{
+			"InvalidObjectState",
+			"The operation is not valid for the object's storage class or lock state.",
+			http.StatusConflict,
+		}},
 		{ErrBadChecksum, s3ErrorInfo{
 			"BadDigest",
 			"The Content-MD5 or checksum you specified did not match what we received.",

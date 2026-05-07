@@ -1788,12 +1788,12 @@ func TestObjectLock_LegalHold_BlocksDelete(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Attempt delete — expect 403
+	// Attempt delete — expect 409 InvalidObjectState (object under legal hold)
 	req = httptest.NewRequest(http.MethodDelete, "/lh-bucket/mykey", nil)
 	rec = httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	assert.Contains(t, rec.Body.String(), "AccessDenied")
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidObjectState")
 
 	// Remove legal hold
 	lhXML = `<LegalHold xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>OFF</Status></LegalHold>`
@@ -1825,12 +1825,12 @@ func TestObjectLock_Retention_BlocksDelete(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Attempt delete — expect 403
+	// Attempt delete — expect 409 InvalidObjectState (object under retention)
 	req = httptest.NewRequest(http.MethodDelete, "/ret-bucket/mykey", nil)
 	rec = httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	assert.Contains(t, rec.Body.String(), "AccessDenied")
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidObjectState")
 }
 
 func TestObjectLock_GetLegalHold(t *testing.T) {

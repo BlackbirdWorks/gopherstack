@@ -5,8 +5,12 @@ package s3
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
@@ -50,6 +54,7 @@ func (h *S3Handler) routeBucketGetStubsExtra(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
+	bucket string,
 ) bool {
 	q := r.URL.Query()
 
@@ -62,9 +67,7 @@ func (h *S3Handler) routeBucketGetStubsExtra(
 		return true
 
 	case q.Has("policyStatus"):
-		h.setOperation(ctx, "GetBucketPolicyStatus")
-		httputils.WriteXML(ctx, w, http.StatusOK,
-			s3PolicyStatus{Xmlns: xmlNamespaceS3, IsPublic: sqlValFalse})
+		h.handleGetBucketPolicyStatus(ctx, w, r, bucket)
 
 		return true
 
@@ -74,6 +77,108 @@ func (h *S3Handler) routeBucketGetStubsExtra(
 			s3AbacConfiguration{Xmlns: xmlNamespaceS3})
 
 		return true
+	}
+
+	return false
+}
+
+// policyStatement is a single statement in a bucket policy JSON document.
+type policyStatement struct {
+	Principal any    `json:"Principal"`
+	Action    any    `json:"Action"`
+	Effect    string `json:"Effect"`
+}
+
+// policyDoc is the minimal structure needed to evaluate public access.
+type policyDoc struct {
+	Statement []policyStatement `json:"Statement"`
+}
+
+// handleGetBucketPolicyStatus implements GetBucketPolicyStatus.
+// It returns IsPublic=true when the bucket policy grants s3:GetObject to "*".
+func (h *S3Handler) handleGetBucketPolicyStatus(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "GetBucketPolicyStatus")
+
+	isPublic := sqlValFalse
+
+	policy, err := h.Backend.GetBucketPolicy(ctx, bucket)
+	if err != nil && !errors.Is(err, ErrNoBucketPolicy) {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	if policy != "" && policyGrantsPublicGetObject(policy) {
+		isPublic = sqlValTrue
+	}
+
+	httputils.WriteXML(ctx, w, http.StatusOK,
+		s3PolicyStatus{Xmlns: xmlNamespaceS3, IsPublic: isPublic})
+}
+
+// policyGrantsPublicGetObject returns true if the JSON policy document
+// contains an Allow statement that grants s3:GetObject to the wildcard principal "*".
+func policyGrantsPublicGetObject(policyJSON string) bool {
+	var doc policyDoc
+	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+		return false
+	}
+
+	for _, stmt := range doc.Statement {
+		if stmt.Effect != "Allow" {
+			continue
+		}
+
+		if !principalIsWildcard(stmt.Principal) {
+			continue
+		}
+
+		if actionIncludesGetObject(stmt.Action) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// principalIsWildcard returns true when the policy principal is "*" (any principal).
+func principalIsWildcard(principal any) bool {
+	switch v := principal.(type) {
+	case string:
+		return v == "*"
+	case map[string]any:
+		if aws, ok := v["AWS"]; ok {
+			return principalIsWildcard(aws)
+		}
+	case []any:
+		return slices.ContainsFunc(v, principalIsWildcard)
+	}
+
+	return false
+}
+
+// actionIncludesGetObject returns true when the action list includes s3:GetObject or s3:*.
+func actionIncludesGetObject(action any) bool {
+	check := func(s string) bool {
+		s = strings.ToLower(s)
+
+		return s == "s3:getobject" || s == "s3:*" || s == "*"
+	}
+
+	switch v := action.(type) {
+	case string:
+		return check(v)
+	case []any:
+		return slices.ContainsFunc(v, func(item any) bool {
+			s, ok := item.(string)
+
+			return ok && check(s)
+		})
 	}
 
 	return false

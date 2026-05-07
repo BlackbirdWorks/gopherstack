@@ -576,7 +576,7 @@ func (h *S3Handler) deleteObject(
 		return
 	}
 
-	if errors.Is(err, ErrObjectLocked) {
+	if errors.Is(err, ErrObjectLocked) || errors.Is(err, ErrInvalidObjectState) {
 		WriteError(ctx, w, r, err)
 
 		return
