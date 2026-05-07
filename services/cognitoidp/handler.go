@@ -797,8 +797,41 @@ type authResult struct {
 }
 
 type authOutput struct {
-	AuthenticationResult *authResult `json:"AuthenticationResult,omitempty"`
-	ChallengeName        *string     `json:"ChallengeName,omitempty"`
+	AuthenticationResult *authResult       `json:"AuthenticationResult,omitempty"`
+	ChallengeName        *string           `json:"ChallengeName,omitempty"`
+	Session              *string           `json:"Session,omitempty"`
+	ChallengeParameters  map[string]string `json:"ChallengeParameters,omitempty"`
+}
+
+// challengeName is the Cognito challenge name for software token MFA.
+const challengeName = "SOFTWARE_TOKEN_MFA"
+
+// authResultFromTokenResult converts a TokenResult to an authResult.
+func authResultFromTokenResult(tokens *TokenResult) *authResult {
+	return &authResult{
+		AccessToken:  tokens.AccessToken,
+		IDToken:      tokens.IDToken,
+		RefreshToken: tokens.RefreshToken,
+		TokenType:    authTypeBearer,
+		ExpiresIn:    tokens.ExpiresIn,
+	}
+}
+
+// authOutputFromResult converts an AuthResult to an authOutput.
+func authOutputFromResult(result *AuthResult) *authOutput {
+	if result.MFASession != "" {
+		name := challengeName
+
+		return &authOutput{
+			ChallengeName:       &name,
+			Session:             &result.MFASession,
+			ChallengeParameters: map[string]string{},
+		}
+	}
+
+	return &authOutput{
+		AuthenticationResult: authResultFromTokenResult(result.Tokens),
+	}
 }
 
 func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOutput, error) {
@@ -811,10 +844,10 @@ func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOut
 
 		return &authOutput{
 			AuthenticationResult: &authResult{
-				AccessToken: tokens.AccessToken,
-				IDToken:     tokens.IDToken,
 				// AWS does not rotate the refresh token on every refresh by default;
 				// we return the new token to keep the mock consistent with rotation.
+				AccessToken:  tokens.AccessToken,
+				IDToken:      tokens.IDToken,
 				RefreshToken: tokens.RefreshToken,
 				TokenType:    authTypeBearer,
 				ExpiresIn:    tokens.ExpiresIn,
@@ -825,20 +858,12 @@ func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOut
 	username := in.AuthParameters["USERNAME"]
 	password := in.AuthParameters["PASSWORD"]
 
-	tokens, err := h.Backend.InitiateAuth(in.ClientID, in.AuthFlow, username, password)
+	result, err := h.Backend.InitiateAuth(in.ClientID, in.AuthFlow, username, password)
 	if err != nil {
 		return nil, err
 	}
 
-	return &authOutput{
-		AuthenticationResult: &authResult{
-			AccessToken:  tokens.AccessToken,
-			IDToken:      tokens.IDToken,
-			RefreshToken: tokens.RefreshToken,
-			TokenType:    authTypeBearer,
-			ExpiresIn:    tokens.ExpiresIn,
-		},
-	}, nil
+	return authOutputFromResult(result), nil
 }
 
 func (h *Handler) handleAdminInitiateAuth(_ context.Context, in *authInput) (*authOutput, error) {
@@ -863,20 +888,12 @@ func (h *Handler) handleAdminInitiateAuth(_ context.Context, in *authInput) (*au
 	username := in.AuthParameters["USERNAME"]
 	password := in.AuthParameters["PASSWORD"]
 
-	tokens, err := h.Backend.AdminInitiateAuth(in.UserPoolID, in.ClientID, in.AuthFlow, username, password)
+	result, err := h.Backend.AdminInitiateAuth(in.UserPoolID, in.ClientID, in.AuthFlow, username, password)
 	if err != nil {
 		return nil, err
 	}
 
-	return &authOutput{
-		AuthenticationResult: &authResult{
-			AccessToken:  tokens.AccessToken,
-			IDToken:      tokens.IDToken,
-			RefreshToken: tokens.RefreshToken,
-			TokenType:    authTypeBearer,
-			ExpiresIn:    tokens.ExpiresIn,
-		},
-	}, nil
+	return authOutputFromResult(result), nil
 }
 
 type adminCreateUserInput struct {

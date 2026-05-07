@@ -564,10 +564,11 @@ func TestInMemoryBackend_InitiateAuth(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.NotEmpty(t, tokens.AccessToken)
-			assert.NotEmpty(t, tokens.IDToken)
-			assert.NotEmpty(t, tokens.RefreshToken)
-			assert.Equal(t, int32(3600), tokens.ExpiresIn)
+			require.NotNil(t, tokens.Tokens)
+			assert.NotEmpty(t, tokens.Tokens.AccessToken)
+			assert.NotEmpty(t, tokens.Tokens.IDToken)
+			assert.NotEmpty(t, tokens.Tokens.RefreshToken)
+			assert.Equal(t, int32(3600), tokens.Tokens.ExpiresIn)
 		})
 	}
 }
@@ -654,7 +655,8 @@ func TestInMemoryBackend_AdminInitiateAuth(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.NotEmpty(t, tokens.AccessToken)
+			require.NotNil(t, tokens.Tokens)
+			assert.NotEmpty(t, tokens.Tokens.AccessToken)
 		})
 	}
 }
@@ -1227,7 +1229,8 @@ func TestInMemoryBackend_DeleteRefreshTokensForClientCleansUserIndex(t *testing.
 	_ = b.AdminSetUserPassword(p.ID, "alice", "Perm1Pass!", true)
 	auth, err := b.AdminInitiateAuth(p.ID, c.ClientID, "ADMIN_USER_PASSWORD_AUTH", "alice", "Perm1Pass!")
 	require.NoError(t, err)
-	require.NotEmpty(t, auth.RefreshToken)
+	require.NotNil(t, auth.Tokens)
+	require.NotEmpty(t, auth.Tokens.RefreshToken)
 
 	assert.Equal(t, 1, b.RefreshTokenCount())
 

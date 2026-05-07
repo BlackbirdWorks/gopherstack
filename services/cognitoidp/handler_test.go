@@ -1146,13 +1146,14 @@ func TestCognitoIDP_DeleteUserPool_CleansRefreshTokens(t *testing.T) {
 
 	tokens, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "alice", "Password123!")
 	require.NoError(t, err)
-	require.NotEmpty(t, tokens.RefreshToken)
+	require.NotNil(t, tokens.Tokens)
+	require.NotEmpty(t, tokens.Tokens.RefreshToken)
 
 	// Deleting the pool should clean up the refresh token.
 	require.NoError(t, b.DeleteUserPool(pool.ID))
 
 	// Attempting to use the refresh token should fail now (token cleaned up).
-	_, err = b.InitiateAuthRefreshToken(client.ClientID, tokens.RefreshToken)
+	_, err = b.InitiateAuthRefreshToken(client.ClientID, tokens.Tokens.RefreshToken)
 	require.Error(t, err, "refresh token should have been cleaned up on pool deletion")
 }
 
@@ -1174,13 +1175,14 @@ func TestCognitoIDP_DeleteUserPoolClient_CleansRefreshTokens(t *testing.T) {
 
 	tokens, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "bob", "Password456!")
 	require.NoError(t, err)
-	require.NotEmpty(t, tokens.RefreshToken)
+	require.NotNil(t, tokens.Tokens)
+	require.NotEmpty(t, tokens.Tokens.RefreshToken)
 
 	// Deleting the client should clean up the refresh token.
 	require.NoError(t, b.DeleteUserPoolClient(pool.ID, client.ClientID))
 
 	// Attempting to use the refresh token should fail now (token cleaned up).
-	_, err = b.InitiateAuthRefreshToken(client.ClientID, tokens.RefreshToken)
+	_, err = b.InitiateAuthRefreshToken(client.ClientID, tokens.Tokens.RefreshToken)
 	require.Error(t, err, "refresh token should have been cleaned up on client deletion")
 }
 
