@@ -37,6 +37,56 @@ type StorageBackend interface {
 	CancelAuditMitigationActionsTask(input *CancelAuditMitigationActionsTaskInput) error
 	CancelAuditTask(input *CancelAuditTaskInput) error
 	ListThingPrincipals(thingName string) ([]string, error)
+
+	// ThingType operations.
+	CreateThingType(input *CreateThingTypeInput) (*ThingType, error)
+	DescribeThingType(thingTypeName string) (*ThingType, error)
+	ListThingTypes() []*ThingType
+	DeprecateThingType(thingTypeName string) error
+	DeleteThingType(thingTypeName string) error
+
+	// ThingGroup operations.
+	CreateThingGroup(input *CreateThingGroupInput) (*ThingGroup, error)
+	DescribeThingGroup(thingGroupName string) (*ThingGroup, error)
+	ListThingGroups() []*ThingGroup
+	UpdateThingGroup(input *UpdateThingGroupInput) error
+	DeleteThingGroup(thingGroupName string) error
+	RemoveThingFromThingGroup(input *RemoveThingFromThingGroupInput) error
+	ListThingsInThingGroup(input *ListThingsInThingGroupInput) ([]string, error)
+
+	// Certificate operations.
+	CreateCertificateFromCsr(input *CreateCertificateFromCsrInput) (*Certificate, error)
+	RegisterCertificate(input *RegisterCertificateInput) (*Certificate, error)
+	RegisterCertificateWithoutCA(input *RegisterCertificateInput) (*Certificate, error)
+	DescribeCertificate(certificateID string) (*Certificate, error)
+	ListCertificates() []*Certificate
+	UpdateCertificate(input *UpdateCertificateInput) error
+	DeleteCertificate(certificateID string) error
+
+	// Policy attachment operations.
+	DetachPolicy(input *DetachPolicyInput) error
+	ListAttachedPolicies(input *ListAttachedPoliciesInput) ([]*Policy, error)
+
+	// PolicyVersion operations.
+	CreatePolicyVersion(input *CreatePolicyVersionInput) (*PolicyVersion, error)
+	GetPolicyVersion(policyName, versionID string) (*PolicyVersion, error)
+	ListPolicyVersions(policyName string) ([]*PolicyVersion, error)
+	DeletePolicyVersion(policyName, versionID string) error
+	SetDefaultPolicyVersion(policyName, versionID string) error
+
+	// TopicRuleDestination operations.
+	CreateTopicRuleDestination(input *CreateTopicRuleDestinationInput) (*TopicRuleDestination, error)
+	GetTopicRuleDestination(arn string) (*TopicRuleDestination, error)
+	ListTopicRuleDestinations() []*TopicRuleDestination
+	UpdateTopicRuleDestination(input *UpdateTopicRuleDestinationInput) error
+	DeleteTopicRuleDestination(arn string) error
+
+	// CertificateProvider operations.
+	CreateCertificateProvider(input *CreateCertificateProviderInput) (*CertificateProvider, error)
+	DescribeCertificateProvider(name string) (*CertificateProvider, error)
+	ListCertificateProviders() []*CertificateProvider
+	UpdateCertificateProvider(input *UpdateCertificateProviderInput) error
+	DeleteCertificateProvider(name string) error
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

@@ -11,7 +11,7 @@ func (h *Handler) handleStub(c *echo.Context, operation string) error {
 	return c.String(http.StatusNotImplemented, operation+" not implemented")
 }
 
-// Stub operation name constants — all 152 ops from sdk_completeness_test.go notImplemented list.
+// Stub operation name constants — remaining unimplemented ops.
 const (
 	opCancelCertificateTransfer             = "CancelCertificateTransfer"
 	opCancelDetectMitigationActionsTask     = "CancelDetectMitigationActionsTask"
@@ -22,8 +22,6 @@ const (
 	opCreateAuditSuppression                = "CreateAuditSuppression"
 	opCreateAuthorizer                      = "CreateAuthorizer"
 	opCreateBillingGroup                    = "CreateBillingGroup"
-	opCreateCertificateFromCsr              = "CreateCertificateFromCsr"
-	opCreateCertificateProvider             = "CreateCertificateProvider"
 	opCreateCommand                         = "CreateCommand"
 	opCreateCustomMetric                    = "CreateCustomMetric"
 	opCreateDimension                       = "CreateDimension"
@@ -37,7 +35,6 @@ const (
 	opCreateOTAUpdate                       = "CreateOTAUpdate"
 	opCreatePackage                         = "CreatePackage"
 	opCreatePackageVersion                  = "CreatePackageVersion"
-	opCreatePolicyVersion                   = "CreatePolicyVersion"
 	opCreateProvisioningClaim               = "CreateProvisioningClaim"
 	opCreateProvisioningTemplate            = "CreateProvisioningTemplate"
 	opCreateProvisioningTemplateVersion     = "CreateProvisioningTemplateVersion"
@@ -45,16 +42,11 @@ const (
 	opCreateScheduledAudit                  = "CreateScheduledAudit"
 	opCreateSecurityProfile                 = "CreateSecurityProfile"
 	opCreateStream                          = "CreateStream"
-	opCreateThingGroup                      = "CreateThingGroup"
-	opCreateThingType                       = "CreateThingType"
-	opCreateTopicRuleDestination            = "CreateTopicRuleDestination"
 	opDeleteAccountAuditConfiguration       = "DeleteAccountAuditConfiguration"
 	opDeleteAuditSuppression                = "DeleteAuditSuppression"
 	opDeleteAuthorizer                      = "DeleteAuthorizer"
 	opDeleteBillingGroup                    = "DeleteBillingGroup"
 	opDeleteCACertificate                   = "DeleteCACertificate"
-	opDeleteCertificate                     = "DeleteCertificate"
-	opDeleteCertificateProvider             = "DeleteCertificateProvider"
 	opDeleteCommand                         = "DeleteCommand"
 	opDeleteCommandExecution                = "DeleteCommandExecution"
 	opDeleteCustomMetric                    = "DeleteCustomMetric"
@@ -69,7 +61,6 @@ const (
 	opDeleteOTAUpdate                       = "DeleteOTAUpdate"
 	opDeletePackage                         = "DeletePackage"
 	opDeletePackageVersion                  = "DeletePackageVersion"
-	opDeletePolicyVersion                   = "DeletePolicyVersion"
 	opDeleteProvisioningTemplate            = "DeleteProvisioningTemplate"
 	opDeleteProvisioningTemplateVersion     = "DeleteProvisioningTemplateVersion"
 	opDeleteRegistrationCode                = "DeleteRegistrationCode"
@@ -77,11 +68,7 @@ const (
 	opDeleteScheduledAudit                  = "DeleteScheduledAudit"
 	opDeleteSecurityProfile                 = "DeleteSecurityProfile"
 	opDeleteStream                          = "DeleteStream"
-	opDeleteThingGroup                      = "DeleteThingGroup"
-	opDeleteThingType                       = "DeleteThingType"
-	opDeleteTopicRuleDestination            = "DeleteTopicRuleDestination"
 	opDeleteV2LoggingLevel                  = "DeleteV2LoggingLevel"
-	opDeprecateThingType                    = "DeprecateThingType"
 	opDescribeAccountAuditConfiguration     = "DescribeAccountAuditConfiguration"
 	opDescribeAuditFinding                  = "DescribeAuditFinding"
 	opDescribeAuditMitigationActionsTask    = "DescribeAuditMitigationActionsTask"
@@ -90,8 +77,6 @@ const (
 	opDescribeAuthorizer                    = "DescribeAuthorizer"
 	opDescribeBillingGroup                  = "DescribeBillingGroup"
 	opDescribeCACertificate                 = "DescribeCACertificate"
-	opDescribeCertificate                   = "DescribeCertificate"
-	opDescribeCertificateProvider           = "DescribeCertificateProvider"
 	opDescribeCustomMetric                  = "DescribeCustomMetric"
 	opDescribeDefaultAuthorizer             = "DescribeDefaultAuthorizer"
 	opDescribeDetectMitigationActionsTask   = "DescribeDetectMitigationActionsTask"
@@ -112,10 +97,7 @@ const (
 	opDescribeScheduledAudit                = "DescribeScheduledAudit"
 	opDescribeSecurityProfile               = "DescribeSecurityProfile"
 	opDescribeStream                        = "DescribeStream"
-	opDescribeThingGroup                    = "DescribeThingGroup"
 	opDescribeThingRegistrationTask         = "DescribeThingRegistrationTask"
-	opDescribeThingType                     = "DescribeThingType"
-	opDetachPolicy                          = "DetachPolicy"
 	opDetachPrincipalPolicy                 = "DetachPrincipalPolicy"
 	opDetachSecurityProfile                 = "DetachSecurityProfile"
 	opDetachThingPrincipal                  = "DetachThingPrincipal"
@@ -134,14 +116,11 @@ const (
 	opGetPackageConfiguration               = "GetPackageConfiguration"
 	opGetPackageVersion                     = "GetPackageVersion"
 	opGetPercentiles                        = "GetPercentiles"
-	opGetPolicyVersion                      = "GetPolicyVersion"
 	opGetRegistrationCode                   = "GetRegistrationCode"
 	opGetStatistics                         = "GetStatistics"
 	opGetThingConnectivityData              = "GetThingConnectivityData"
-	opGetTopicRuleDestination               = "GetTopicRuleDestination"
 	opGetV2LoggingOptions                   = "GetV2LoggingOptions"
 	opListActiveViolations                  = "ListActiveViolations"
-	opListAttachedPolicies                  = "ListAttachedPolicies"
 	opListAuditFindings                     = "ListAuditFindings"
 	opListAuditMitigationActionsExecutions  = "ListAuditMitigationActionsExecutions"
 	opListAuditMitigationActionsTasks       = "ListAuditMitigationActionsTasks"
@@ -150,8 +129,6 @@ const (
 	opListAuthorizers                       = "ListAuthorizers"
 	opListBillingGroups                     = "ListBillingGroups"
 	opListCACertificates                    = "ListCACertificates"
-	opListCertificateProviders              = "ListCertificateProviders"
-	opListCertificates                      = "ListCertificates"
 	opListCertificatesByCA                  = "ListCertificatesByCA"
 	opListCommandExecutions                 = "ListCommandExecutions"
 	opListCommands                          = "ListCommands"
@@ -174,7 +151,6 @@ const (
 	opListPackageVersions                   = "ListPackageVersions"
 	opListPackages                          = "ListPackages"
 	opListPolicyPrincipals                  = "ListPolicyPrincipals"
-	opListPolicyVersions                    = "ListPolicyVersions"
 	opListPrincipalPolicies                 = "ListPrincipalPolicies"
 	opListPrincipalThings                   = "ListPrincipalThings"
 	opListPrincipalThingsV2                 = "ListPrincipalThingsV2"
@@ -190,28 +166,20 @@ const (
 	opListTagsForResource                   = "ListTagsForResource"
 	opListTargetsForPolicy                  = "ListTargetsForPolicy"
 	opListTargetsForSecurityProfile         = "ListTargetsForSecurityProfile"
-	opListThingGroups                       = "ListThingGroups"
 	opListThingGroupsForThing               = "ListThingGroupsForThing"
 	opListThingPrincipalsV2                 = "ListThingPrincipalsV2"
 	opListThingRegistrationTaskReports      = "ListThingRegistrationTaskReports"
 	opListThingRegistrationTasks            = "ListThingRegistrationTasks"
-	opListThingTypes                        = "ListThingTypes"
 	opListThingsInBillingGroup              = "ListThingsInBillingGroup"
-	opListThingsInThingGroup                = "ListThingsInThingGroup"
-	opListTopicRuleDestinations             = "ListTopicRuleDestinations"
 	opListV2LoggingLevels                   = "ListV2LoggingLevels"
 	opListViolationEvents                   = "ListViolationEvents"
 	opPutVerificationStateOnViolation       = "PutVerificationStateOnViolation"
 	opRegisterCACertificate                 = "RegisterCACertificate"
-	opRegisterCertificate                   = "RegisterCertificate"
-	opRegisterCertificateWithoutCA          = "RegisterCertificateWithoutCA"
 	opRegisterThing                         = "RegisterThing"
 	opRejectCertificateTransfer             = "RejectCertificateTransfer"
 	opRemoveThingFromBillingGroup           = "RemoveThingFromBillingGroup"
-	opRemoveThingFromThingGroup             = "RemoveThingFromThingGroup"
 	opSearchIndex                           = "SearchIndex"
 	opSetDefaultAuthorizer                  = "SetDefaultAuthorizer"
-	opSetDefaultPolicyVersion               = "SetDefaultPolicyVersion"
 	opSetLoggingOptions                     = "SetLoggingOptions"
 	opSetV2LoggingLevel                     = "SetV2LoggingLevel"
 	opSetV2LoggingOptions                   = "SetV2LoggingOptions"
@@ -230,8 +198,6 @@ const (
 	opUpdateAuthorizer                      = "UpdateAuthorizer"
 	opUpdateBillingGroup                    = "UpdateBillingGroup"
 	opUpdateCACertificate                   = "UpdateCACertificate"
-	opUpdateCertificate                     = "UpdateCertificate"
-	opUpdateCertificateProvider             = "UpdateCertificateProvider"
 	opUpdateCommand                         = "UpdateCommand"
 	opUpdateCustomMetric                    = "UpdateCustomMetric"
 	opUpdateDimension                       = "UpdateDimension"
@@ -251,14 +217,12 @@ const (
 	opUpdateScheduledAudit                  = "UpdateScheduledAudit"
 	opUpdateSecurityProfile                 = "UpdateSecurityProfile"
 	opUpdateStream                          = "UpdateStream"
-	opUpdateThingGroup                      = "UpdateThingGroup"
 	opUpdateThingGroupsForThing             = "UpdateThingGroupsForThing"
 	opUpdateThingType                       = "UpdateThingType"
-	opUpdateTopicRuleDestination            = "UpdateTopicRuleDestination"
 	opValidateSecurityProfileBehaviors      = "ValidateSecurityProfileBehaviors"
 )
 
-// allStubOps returns all stub operation names (152 missing SDK ops).
+// allStubOps returns remaining stub operation names.
 //
 //nolint:funlen // large but mechanical list of SDK operation names
 func allStubOps() []string {
@@ -272,8 +236,6 @@ func allStubOps() []string {
 		opCreateAuditSuppression,
 		opCreateAuthorizer,
 		opCreateBillingGroup,
-		opCreateCertificateFromCsr,
-		opCreateCertificateProvider,
 		opCreateCommand,
 		opCreateCustomMetric,
 		opCreateDimension,
@@ -287,7 +249,6 @@ func allStubOps() []string {
 		opCreateOTAUpdate,
 		opCreatePackage,
 		opCreatePackageVersion,
-		opCreatePolicyVersion,
 		opCreateProvisioningClaim,
 		opCreateProvisioningTemplate,
 		opCreateProvisioningTemplateVersion,
@@ -295,16 +256,11 @@ func allStubOps() []string {
 		opCreateScheduledAudit,
 		opCreateSecurityProfile,
 		opCreateStream,
-		opCreateThingGroup,
-		opCreateThingType,
-		opCreateTopicRuleDestination,
 		opDeleteAccountAuditConfiguration,
 		opDeleteAuditSuppression,
 		opDeleteAuthorizer,
 		opDeleteBillingGroup,
 		opDeleteCACertificate,
-		opDeleteCertificate,
-		opDeleteCertificateProvider,
 		opDeleteCommand,
 		opDeleteCommandExecution,
 		opDeleteCustomMetric,
@@ -319,7 +275,6 @@ func allStubOps() []string {
 		opDeleteOTAUpdate,
 		opDeletePackage,
 		opDeletePackageVersion,
-		opDeletePolicyVersion,
 		opDeleteProvisioningTemplate,
 		opDeleteProvisioningTemplateVersion,
 		opDeleteRegistrationCode,
@@ -327,11 +282,7 @@ func allStubOps() []string {
 		opDeleteScheduledAudit,
 		opDeleteSecurityProfile,
 		opDeleteStream,
-		opDeleteThingGroup,
-		opDeleteThingType,
-		opDeleteTopicRuleDestination,
 		opDeleteV2LoggingLevel,
-		opDeprecateThingType,
 		opDescribeAccountAuditConfiguration,
 		opDescribeAuditFinding,
 		opDescribeAuditMitigationActionsTask,
@@ -340,8 +291,6 @@ func allStubOps() []string {
 		opDescribeAuthorizer,
 		opDescribeBillingGroup,
 		opDescribeCACertificate,
-		opDescribeCertificate,
-		opDescribeCertificateProvider,
 		opDescribeCustomMetric,
 		opDescribeDefaultAuthorizer,
 		opDescribeDetectMitigationActionsTask,
@@ -362,10 +311,7 @@ func allStubOps() []string {
 		opDescribeScheduledAudit,
 		opDescribeSecurityProfile,
 		opDescribeStream,
-		opDescribeThingGroup,
 		opDescribeThingRegistrationTask,
-		opDescribeThingType,
-		opDetachPolicy,
 		opDetachPrincipalPolicy,
 		opDetachSecurityProfile,
 		opDetachThingPrincipal,
@@ -384,14 +330,11 @@ func allStubOps() []string {
 		opGetPackageConfiguration,
 		opGetPackageVersion,
 		opGetPercentiles,
-		opGetPolicyVersion,
 		opGetRegistrationCode,
 		opGetStatistics,
 		opGetThingConnectivityData,
-		opGetTopicRuleDestination,
 		opGetV2LoggingOptions,
 		opListActiveViolations,
-		opListAttachedPolicies,
 		opListAuditFindings,
 		opListAuditMitigationActionsExecutions,
 		opListAuditMitigationActionsTasks,
@@ -400,8 +343,6 @@ func allStubOps() []string {
 		opListAuthorizers,
 		opListBillingGroups,
 		opListCACertificates,
-		opListCertificateProviders,
-		opListCertificates,
 		opListCertificatesByCA,
 		opListCommandExecutions,
 		opListCommands,
@@ -424,7 +365,6 @@ func allStubOps() []string {
 		opListPackageVersions,
 		opListPackages,
 		opListPolicyPrincipals,
-		opListPolicyVersions,
 		opListPrincipalPolicies,
 		opListPrincipalThings,
 		opListPrincipalThingsV2,
@@ -440,28 +380,20 @@ func allStubOps() []string {
 		opListTagsForResource,
 		opListTargetsForPolicy,
 		opListTargetsForSecurityProfile,
-		opListThingGroups,
 		opListThingGroupsForThing,
 		opListThingPrincipalsV2,
 		opListThingRegistrationTaskReports,
 		opListThingRegistrationTasks,
-		opListThingTypes,
 		opListThingsInBillingGroup,
-		opListThingsInThingGroup,
-		opListTopicRuleDestinations,
 		opListV2LoggingLevels,
 		opListViolationEvents,
 		opPutVerificationStateOnViolation,
 		opRegisterCACertificate,
-		opRegisterCertificate,
-		opRegisterCertificateWithoutCA,
 		opRegisterThing,
 		opRejectCertificateTransfer,
 		opRemoveThingFromBillingGroup,
-		opRemoveThingFromThingGroup,
 		opSearchIndex,
 		opSetDefaultAuthorizer,
-		opSetDefaultPolicyVersion,
 		opSetLoggingOptions,
 		opSetV2LoggingLevel,
 		opSetV2LoggingOptions,
@@ -480,8 +412,6 @@ func allStubOps() []string {
 		opUpdateAuthorizer,
 		opUpdateBillingGroup,
 		opUpdateCACertificate,
-		opUpdateCertificate,
-		opUpdateCertificateProvider,
 		opUpdateCommand,
 		opUpdateCustomMetric,
 		opUpdateDimension,
@@ -501,10 +431,8 @@ func allStubOps() []string {
 		opUpdateScheduledAudit,
 		opUpdateSecurityProfile,
 		opUpdateStream,
-		opUpdateThingGroup,
 		opUpdateThingGroupsForThing,
 		opUpdateThingType,
-		opUpdateTopicRuleDestination,
 		opValidateSecurityProfileBehaviors,
 	}
 }
@@ -523,8 +451,6 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opCreateAuditSuppression,
 		opCreateAuthorizer,
 		opCreateBillingGroup,
-		opCreateCertificateFromCsr,
-		opCreateCertificateProvider,
 		opCreateCommand,
 		opCreateCustomMetric,
 		opCreateDimension,
@@ -538,7 +464,6 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opCreateOTAUpdate,
 		opCreatePackage,
 		opCreatePackageVersion,
-		opCreatePolicyVersion,
 		opCreateProvisioningClaim,
 		opCreateProvisioningTemplate,
 		opCreateProvisioningTemplateVersion,
@@ -546,16 +471,11 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opCreateScheduledAudit,
 		opCreateSecurityProfile,
 		opCreateStream,
-		opCreateThingGroup,
-		opCreateThingType,
-		opCreateTopicRuleDestination,
 		opDeleteAccountAuditConfiguration,
 		opDeleteAuditSuppression,
 		opDeleteAuthorizer,
 		opDeleteBillingGroup,
 		opDeleteCACertificate,
-		opDeleteCertificate,
-		opDeleteCertificateProvider,
 		opDeleteCommand,
 		opDeleteCommandExecution,
 		opDeleteCustomMetric,
@@ -570,7 +490,6 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opDeleteOTAUpdate,
 		opDeletePackage,
 		opDeletePackageVersion,
-		opDeletePolicyVersion,
 		opDeleteProvisioningTemplate,
 		opDeleteProvisioningTemplateVersion,
 		opDeleteRegistrationCode,
@@ -578,11 +497,7 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opDeleteScheduledAudit,
 		opDeleteSecurityProfile,
 		opDeleteStream,
-		opDeleteThingGroup,
-		opDeleteThingType,
-		opDeleteTopicRuleDestination,
 		opDeleteV2LoggingLevel,
-		opDeprecateThingType,
 		opDescribeAccountAuditConfiguration,
 		opDescribeAuditFinding,
 		opDescribeAuditMitigationActionsTask,
@@ -591,8 +506,6 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opDescribeAuthorizer,
 		opDescribeBillingGroup,
 		opDescribeCACertificate,
-		opDescribeCertificate,
-		opDescribeCertificateProvider,
 		opDescribeCustomMetric,
 		opDescribeDefaultAuthorizer,
 		opDescribeDetectMitigationActionsTask,
@@ -613,10 +526,7 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opDescribeScheduledAudit,
 		opDescribeSecurityProfile,
 		opDescribeStream,
-		opDescribeThingGroup,
 		opDescribeThingRegistrationTask,
-		opDescribeThingType,
-		opDetachPolicy,
 		opDetachPrincipalPolicy,
 		opDetachSecurityProfile,
 		opDetachThingPrincipal,
@@ -635,14 +545,11 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opGetPackageConfiguration,
 		opGetPackageVersion,
 		opGetPercentiles,
-		opGetPolicyVersion,
 		opGetRegistrationCode,
 		opGetStatistics,
 		opGetThingConnectivityData,
-		opGetTopicRuleDestination,
 		opGetV2LoggingOptions,
 		opListActiveViolations,
-		opListAttachedPolicies,
 		opListAuditFindings,
 		opListAuditMitigationActionsExecutions,
 		opListAuditMitigationActionsTasks,
@@ -651,8 +558,6 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opListAuthorizers,
 		opListBillingGroups,
 		opListCACertificates,
-		opListCertificateProviders,
-		opListCertificates,
 		opListCertificatesByCA,
 		opListCommandExecutions,
 		opListCommands,
@@ -675,7 +580,6 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opListPackageVersions,
 		opListPackages,
 		opListPolicyPrincipals,
-		opListPolicyVersions,
 		opListPrincipalPolicies,
 		opListPrincipalThings,
 		opListPrincipalThingsV2,
@@ -691,28 +595,20 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opListTagsForResource,
 		opListTargetsForPolicy,
 		opListTargetsForSecurityProfile,
-		opListThingGroups,
 		opListThingGroupsForThing,
 		opListThingPrincipalsV2,
 		opListThingRegistrationTaskReports,
 		opListThingRegistrationTasks,
-		opListThingTypes,
 		opListThingsInBillingGroup,
-		opListThingsInThingGroup,
-		opListTopicRuleDestinations,
 		opListV2LoggingLevels,
 		opListViolationEvents,
 		opPutVerificationStateOnViolation,
 		opRegisterCACertificate,
-		opRegisterCertificate,
-		opRegisterCertificateWithoutCA,
 		opRegisterThing,
 		opRejectCertificateTransfer,
 		opRemoveThingFromBillingGroup,
-		opRemoveThingFromThingGroup,
 		opSearchIndex,
 		opSetDefaultAuthorizer,
-		opSetDefaultPolicyVersion,
 		opSetLoggingOptions,
 		opSetV2LoggingLevel,
 		opSetV2LoggingOptions,
@@ -731,8 +627,6 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opUpdateAuthorizer,
 		opUpdateBillingGroup,
 		opUpdateCACertificate,
-		opUpdateCertificate,
-		opUpdateCertificateProvider,
 		opUpdateCommand,
 		opUpdateCustomMetric,
 		opUpdateDimension,
@@ -752,10 +646,8 @@ func (h *Handler) dispatchStubOp(c *echo.Context, op string) (bool, error) {
 		opUpdateScheduledAudit,
 		opUpdateSecurityProfile,
 		opUpdateStream,
-		opUpdateThingGroup,
 		opUpdateThingGroupsForThing,
 		opUpdateThingType,
-		opUpdateTopicRuleDestination,
 		opValidateSecurityProfileBehaviors:
 		return true, h.handleStub(c, op)
 	}
