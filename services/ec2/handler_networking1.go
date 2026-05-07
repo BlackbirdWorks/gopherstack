@@ -253,7 +253,7 @@ func (h *Handler) handleDeleteTransitGatewayVpcAttachment(vals url.Values, reqID
 		RequestID: reqID,
 		Attachment: tgwVpcAttachmentItem{
 			TransitGatewayAttachmentID: id,
-			State:                      "deleted",
+			State:                      stateDeleted,
 		},
 	}, nil
 }
