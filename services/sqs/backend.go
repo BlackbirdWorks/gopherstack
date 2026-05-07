@@ -1076,10 +1076,30 @@ func expireRetainedMessages(q *Queue, now time.Time) {
 	q.messages = fresh
 }
 
+// buildBlockedGroups returns the set of FIFO message group IDs that currently
+// have at least one in-flight message. Messages in a blocked group must not be
+// delivered until all earlier in-flight messages for that group are deleted,
+// ensuring strict per-group ordering.
+func buildBlockedGroups(inflight []*InFlightMessage) map[string]bool {
+	blocked := make(map[string]bool)
+	for _, inf := range inflight {
+		if inf.Msg.MessageGroupID != "" {
+			blocked[inf.Msg.MessageGroupID] = true
+		}
+	}
+
+	return blocked
+}
+
 // pickMessages moves up to maxMessages visible (non-delayed) messages from the
 // queue to in-flight and returns them. Messages whose VisibleAt is in the future
 // are skipped and remain in the queue. The accountID is used to populate the
 // SenderId system attribute on first-time receive.
+//
+// For FIFO queues, messages with the same MessageGroupId are returned in
+// insertion order. A group is blocked if it already has an in-flight message,
+// ensuring strict per-group ordering while allowing different groups to be
+// returned in parallel.
 func pickMessages(q *Queue, accountID string, maxMessages, vt int, now time.Time) []*Message {
 	// No capacity hint — user-derived values like maxMessages in the
 	// capacity slot trigger CodeQL.
@@ -1087,38 +1107,79 @@ func pickMessages(q *Queue, accountID string, maxMessages, vt int, now time.Time
 	result := make([]*Message, 0)
 	remaining := make([]*Message, 0, len(q.messages))
 
+	// For FIFO queues, collect the set of message groups that currently have
+	// in-flight messages. Messages belonging to a blocked group must not be
+	// delivered until all earlier in-flight messages for that group are deleted.
+	var blockedGroups map[string]bool
+	if q.IsFIFO {
+		blockedGroups = buildBlockedGroups(q.inFlightMessages)
+	}
+
 	for _, msg := range q.messages {
-		if len(result) < maxMessages && !now.Before(msg.VisibleAt) {
-			receipt := uuid.New().String()
-			msg.ReceiptHandle = receipt
-			msg.ApproximateReceiveCount++
-			msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
-
-			// Set ApproximateFirstReceiveTimestamp and SenderId on the first receive.
-			if msg.ApproximateFirstReceiveTimestamp == 0 {
-				msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
-				msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(
-					msg.ApproximateFirstReceiveTimestamp,
-					10,
-				)
-				msg.Attributes[attrSenderID] = accountID
-			}
-
-			inf := &InFlightMessage{
-				VisibleAt:     now.Add(time.Duration(vt) * time.Second),
-				ReceiptHandle: receipt,
-				Msg:           msg,
-			}
-			q.inFlightMessages = append(q.inFlightMessages, inf)
-			result = append(result, msg)
-		} else {
-			remaining = append(remaining, msg)
+		if pickMessage(q, msg, accountID, maxMessages, vt, now, blockedGroups, &result) {
+			continue
 		}
+
+		remaining = append(remaining, msg)
 	}
 
 	q.messages = remaining
 
 	return result
+}
+
+// pickMessage attempts to pick a single message for delivery. It returns true
+// if the message was either picked for delivery or explicitly skipped (blocked
+// FIFO group). It returns false when the message should remain in the queue
+// because either the result set is full or the message is not yet visible.
+func pickMessage(
+	q *Queue,
+	msg *Message,
+	accountID string,
+	maxMessages, vt int,
+	now time.Time,
+	blockedGroups map[string]bool,
+	result *[]*Message,
+) bool {
+	// For FIFO queues, skip messages whose group is currently blocked.
+	if q.IsFIFO && msg.MessageGroupID != "" && blockedGroups[msg.MessageGroupID] {
+		return false // leave in remaining
+	}
+
+	if len(*result) >= maxMessages || now.Before(msg.VisibleAt) {
+		return false
+	}
+
+	receipt := uuid.New().String()
+	msg.ReceiptHandle = receipt
+	msg.ApproximateReceiveCount++
+	msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
+
+	// Set ApproximateFirstReceiveTimestamp and SenderId on the first receive.
+	if msg.ApproximateFirstReceiveTimestamp == 0 {
+		msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
+		msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(
+			msg.ApproximateFirstReceiveTimestamp,
+			10,
+		)
+		msg.Attributes[attrSenderID] = accountID
+	}
+
+	inf := &InFlightMessage{
+		VisibleAt:     now.Add(time.Duration(vt) * time.Second),
+		ReceiptHandle: receipt,
+		Msg:           msg,
+	}
+	q.inFlightMessages = append(q.inFlightMessages, inf)
+	*result = append(*result, msg)
+
+	// Block further messages from this group in this receive call so that
+	// we only deliver the earliest message per group at a time.
+	if q.IsFIFO && msg.MessageGroupID != "" {
+		blockedGroups[msg.MessageGroupID] = true
+	}
+
+	return true
 }
 
 // DeleteMessage removes an in-flight message by its receipt handle.
