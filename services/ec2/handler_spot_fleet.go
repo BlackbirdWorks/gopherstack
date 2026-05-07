@@ -295,12 +295,12 @@ type spotFleetLaunchSpecSet struct {
 
 type spotFleetConfigItem struct {
 	SpotPrice                       string                 `xml:"spotPrice,omitempty"`
-	TargetCapacity                  int                    `xml:"targetCapacity"`
 	AllocationStrategy              string                 `xml:"allocationStrategy,omitempty"`
 	ExcessCapacityTerminationPolicy string                 `xml:"excessCapacityTerminationPolicy,omitempty"`
 	IamFleetRole                    string                 `xml:"iamFleetRole,omitempty"`
 	Type                            string                 `xml:"type,omitempty"`
 	LaunchSpecifications            spotFleetLaunchSpecSet `xml:"launchSpecificationsSet"`
+	TargetCapacity                  int                    `xml:"targetCapacity"`
 }
 
 type spotFleetRequestConfigSetItem struct {
@@ -308,8 +308,8 @@ type spotFleetRequestConfigSetItem struct {
 	SpotFleetRequestState  string              `xml:"spotFleetRequestState"`
 	ActivityStatus         string              `xml:"activityStatus,omitempty"`
 	CreateTime             string              `xml:"createTime"`
-	SpotFleetRequestConfig spotFleetConfigItem `xml:"spotFleetRequestConfig"`
 	FulfilledCapacity      string              `xml:"fulfilledCapacity,omitempty"`
+	SpotFleetRequestConfig spotFleetConfigItem `xml:"spotFleetRequestConfig"`
 }
 
 type spotFleetRequestConfigSet struct {
