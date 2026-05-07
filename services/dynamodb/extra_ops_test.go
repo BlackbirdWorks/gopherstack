@@ -424,8 +424,17 @@ func TestDynamoDB_DeleteResourcePolicy(t *testing.T) {
 	backend := dynamodb.NewInMemoryDB()
 	handler := dynamodb.NewHandler(backend)
 
-	code, _ := invokeOp(t, handler, "DeleteResourcePolicy", map[string]any{
-		"ResourceArn": "arn:aws:dynamodb:us-east-1:123456789012:table/MyTable",
+	createTableHelper(t, backend, "MyTable", "pk")
+
+	// Get the table ARN from DescribeTable.
+	code, resp := invokeOp(t, handler, "DescribeTable", map[string]any{"TableName": "MyTable"})
+	require.Equal(t, http.StatusOK, code)
+	tableDesc, _ := resp["Table"].(map[string]any)
+	tableARN, _ := tableDesc["TableArn"].(string)
+	require.NotEmpty(t, tableARN)
+
+	code, _ = invokeOp(t, handler, "DeleteResourcePolicy", map[string]any{
+		"ResourceArn": tableARN,
 	})
 	assert.Equal(t, http.StatusOK, code)
 }
@@ -642,76 +651,96 @@ func TestDynamoDB_ListGlobalTables(t *testing.T) {
 	assert.Nil(t, cursor)
 }
 
+// getTestTableARN creates a table and returns its ARN.
+func getTestTableARN(
+	t *testing.T,
+	backend *dynamodb.InMemoryDB,
+	handler *dynamodb.DynamoDBHandler,
+	tableName string,
+) string {
+	t.Helper()
+
+	createTableHelper(t, backend, tableName, "pk")
+
+	code, resp := invokeOp(t, handler, "DescribeTable", map[string]any{"TableName": tableName})
+	require.Equal(t, http.StatusOK, code)
+
+	tableDesc, _ := resp["Table"].(map[string]any)
+	tableARN, _ := tableDesc["TableArn"].(string)
+	require.NotEmpty(t, tableARN)
+
+	return tableARN
+}
+
 func TestDynamoDB_ResourcePolicy(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body             any
-		name             string
-		action           string
-		wantBodyContains string
-		wantStatus       int
-	}{
-		{
-			name:       "GetResourcePolicy_success",
-			action:     "GetResourcePolicy",
-			body:       map[string]any{"ResourceArn": "arn:aws:dynamodb:us-east-1:123:table/MyTable"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:             "GetResourcePolicy_missing_arn",
-			action:           "GetResourcePolicy",
-			body:             map[string]any{"ResourceArn": ""},
-			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: "ValidationException",
-		},
-		{
-			name:   "PutResourcePolicy_success",
-			action: "PutResourcePolicy",
-			body: map[string]any{
-				"ResourceArn": "arn:aws:dynamodb:us-east-1:123:table/MyTable",
-				"Policy":      `{"Version":"2012-10-17","Statement":[]}`,
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:             "PutResourcePolicy_missing_policy",
-			action:           "PutResourcePolicy",
-			body:             map[string]any{"ResourceArn": "arn:aws:dynamodb:us-east-1:123:table/MyTable"},
-			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: "ValidationException",
-		},
-		{
-			name:       "DeleteResourcePolicy_success",
-			action:     "DeleteResourcePolicy",
-			body:       map[string]any{"ResourceArn": "arn:aws:dynamodb:us-east-1:123:table/MyTable"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:             "DeleteResourcePolicy_missing_arn",
-			action:           "DeleteResourcePolicy",
-			body:             map[string]any{"ResourceArn": ""},
-			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: "ValidationException",
-		},
-	}
+	t.Run("GetResourcePolicy_success", func(t *testing.T) {
+		t.Parallel()
+		backend := dynamodb.NewInMemoryDB()
+		handler := dynamodb.NewHandler(backend)
+		tableARN := getTestTableARN(t, backend, handler, "RPGetTable")
+		code, _ := invokeOp(t, handler, "GetResourcePolicy", map[string]any{"ResourceArn": tableARN})
+		assert.Equal(t, http.StatusOK, code)
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("GetResourcePolicy_missing_arn", func(t *testing.T) {
+		t.Parallel()
+		backend := dynamodb.NewInMemoryDB()
+		handler := dynamodb.NewHandler(backend)
+		code, resp := invokeOp(t, handler, "GetResourcePolicy", map[string]any{"ResourceArn": ""})
+		assert.Equal(t, http.StatusBadRequest, code)
+		bodyBytes, _ := json.Marshal(resp)
+		assert.Contains(t, string(bodyBytes), "ValidationException")
+	})
 
-			backend := dynamodb.NewInMemoryDB()
-			handler := dynamodb.NewHandler(backend)
-
-			code, resp := invokeOp(t, handler, tt.action, tt.body)
-			assert.Equal(t, tt.wantStatus, code)
-
-			if tt.wantBodyContains != "" {
-				bodyBytes, _ := json.Marshal(resp)
-				assert.Contains(t, string(bodyBytes), tt.wantBodyContains)
-			}
+	t.Run("PutResourcePolicy_success", func(t *testing.T) {
+		t.Parallel()
+		backend := dynamodb.NewInMemoryDB()
+		handler := dynamodb.NewHandler(backend)
+		tableARN := getTestTableARN(t, backend, handler, "RPPutTable")
+		code, _ := invokeOp(t, handler, "PutResourcePolicy", map[string]any{
+			"ResourceArn": tableARN,
+			"Policy":      `{"Version":"2012-10-17","Statement":[]}`,
 		})
-	}
+		assert.Equal(t, http.StatusOK, code)
+
+		// Verify round-trip: GetResourcePolicy returns the stored policy.
+		code2, resp2 := invokeOp(t, handler, "GetResourcePolicy", map[string]any{"ResourceArn": tableARN})
+		assert.Equal(t, http.StatusOK, code2)
+		bodyBytes, _ := json.Marshal(resp2)
+		assert.Contains(t, string(bodyBytes), "2012-10-17")
+	})
+
+	t.Run("PutResourcePolicy_missing_policy", func(t *testing.T) {
+		t.Parallel()
+		backend := dynamodb.NewInMemoryDB()
+		handler := dynamodb.NewHandler(backend)
+		tableARN := getTestTableARN(t, backend, handler, "RPMissingPolicyTable")
+		code, resp := invokeOp(t, handler, "PutResourcePolicy", map[string]any{"ResourceArn": tableARN})
+		assert.Equal(t, http.StatusBadRequest, code)
+		bodyBytes, _ := json.Marshal(resp)
+		assert.Contains(t, string(bodyBytes), "ValidationException")
+	})
+
+	t.Run("DeleteResourcePolicy_success", func(t *testing.T) {
+		t.Parallel()
+		backend := dynamodb.NewInMemoryDB()
+		handler := dynamodb.NewHandler(backend)
+		tableARN := getTestTableARN(t, backend, handler, "RPDeleteTable")
+		code, _ := invokeOp(t, handler, "DeleteResourcePolicy", map[string]any{"ResourceArn": tableARN})
+		assert.Equal(t, http.StatusOK, code)
+	})
+
+	t.Run("DeleteResourcePolicy_missing_arn", func(t *testing.T) {
+		t.Parallel()
+		backend := dynamodb.NewInMemoryDB()
+		handler := dynamodb.NewHandler(backend)
+		code, resp := invokeOp(t, handler, "DeleteResourcePolicy", map[string]any{"ResourceArn": ""})
+		assert.Equal(t, http.StatusBadRequest, code)
+		bodyBytes, _ := json.Marshal(resp)
+		assert.Contains(t, string(bodyBytes), "ValidationException")
+	})
 }
 
 func TestDynamoDB_GlobalTable_PersistenceRoundTrip(t *testing.T) {

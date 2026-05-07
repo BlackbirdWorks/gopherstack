@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
@@ -787,8 +788,7 @@ func derefOrEmpty(s *string) string {
 
 // --- GetResourcePolicy ---
 
-// GetResourcePolicy is a stub that returns an empty policy.
-// The in-memory backend does not track resource policies.
+// GetResourcePolicy returns the resource-based policy stored on the table.
 func (db *InMemoryDB) GetResourcePolicy(
 	_ context.Context,
 	input *dynamodb.GetResourcePolicyInput,
@@ -797,13 +797,28 @@ func (db *InMemoryDB) GetResourcePolicy(
 		return nil, NewValidationException("ResourceArn is required")
 	}
 
-	return &dynamodb.GetResourcePolicyOutput{}, nil
+	table := db.getTableByARN(*input.ResourceArn)
+	if table == nil {
+		return nil, NewResourceNotFoundException("Table not found for ARN: " + *input.ResourceArn)
+	}
+
+	table.mu.RLock("GetResourcePolicy")
+	policy := table.ResourcePolicy
+	table.mu.RUnlock()
+
+	if policy == "" {
+		return &dynamodb.GetResourcePolicyOutput{}, nil
+	}
+
+	return &dynamodb.GetResourcePolicyOutput{
+		Policy:     aws.String(policy),
+		RevisionId: aws.String("1"),
+	}, nil
 }
 
 // --- PutResourcePolicy ---
 
-// PutResourcePolicy is a stub that accepts any policy document.
-// The in-memory backend does not enforce or store resource policies.
+// PutResourcePolicy stores a resource-based policy on the table.
 func (db *InMemoryDB) PutResourcePolicy(
 	_ context.Context,
 	input *dynamodb.PutResourcePolicyInput,
@@ -816,13 +831,23 @@ func (db *InMemoryDB) PutResourcePolicy(
 		return nil, NewValidationException("Policy is required")
 	}
 
-	return &dynamodb.PutResourcePolicyOutput{}, nil
+	table := db.getTableByARN(*input.ResourceArn)
+	if table == nil {
+		return nil, NewResourceNotFoundException("Table not found for ARN: " + *input.ResourceArn)
+	}
+
+	table.mu.Lock("PutResourcePolicy")
+	table.ResourcePolicy = *input.Policy
+	table.mu.Unlock()
+
+	return &dynamodb.PutResourcePolicyOutput{
+		RevisionId: aws.String("1"),
+	}, nil
 }
 
 // --- DeleteResourcePolicy ---
 
-// DeleteResourcePolicy is a stub that returns an empty revision ID.
-// The in-memory backend does not track resource policies.
+// DeleteResourcePolicy removes the resource-based policy from the table.
 func (db *InMemoryDB) DeleteResourcePolicy(
 	_ context.Context,
 	input *dynamodb.DeleteResourcePolicyInput,
@@ -831,7 +856,35 @@ func (db *InMemoryDB) DeleteResourcePolicy(
 		return nil, NewValidationException("ResourceArn is required")
 	}
 
-	return &dynamodb.DeleteResourcePolicyOutput{}, nil
+	table := db.getTableByARN(*input.ResourceArn)
+	if table == nil {
+		return nil, NewResourceNotFoundException("Table not found for ARN: " + *input.ResourceArn)
+	}
+
+	table.mu.Lock("DeleteResourcePolicy")
+	table.ResourcePolicy = ""
+	table.mu.Unlock()
+
+	return &dynamodb.DeleteResourcePolicyOutput{
+		RevisionId: aws.String("1"),
+	}, nil
+}
+
+// getTableByARN looks up a table by its ARN across all regions.
+// Returns nil if not found.
+func (db *InMemoryDB) getTableByARN(resourceARN string) *Table {
+	db.mu.RLock("getTableByARN")
+	defer db.mu.RUnlock()
+
+	for _, regionTables := range db.Tables {
+		for _, table := range regionTables {
+			if table.TableArn == resourceARN {
+				return table
+			}
+		}
+	}
+
+	return nil
 }
 
 // --- DescribeImport ---

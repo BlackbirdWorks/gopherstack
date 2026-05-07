@@ -213,6 +213,67 @@ func TestUpdateTable(t *testing.T) {
 			},
 		},
 		{
+			name: "table_class_switch_to_infrequent_access",
+			setup: func(t *testing.T) *ddb.InMemoryDB {
+				t.Helper()
+
+				return newTestDB(t, "class-table")
+			},
+			input: &dynamodb.UpdateTableInput{
+				TableName:  aws.String("class-table"),
+				TableClass: types.TableClassStandardInfrequentAccess,
+			},
+			verify: func(t *testing.T, db *ddb.InMemoryDB, _ *dynamodb.UpdateTableOutput) {
+				t.Helper()
+
+				desc, err := db.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
+					TableName: aws.String("class-table"),
+				})
+				require.NoError(t, err)
+				require.NotNil(t, desc.Table.TableClassSummary)
+				assert.Equal(t, types.TableClassStandardInfrequentAccess, desc.Table.TableClassSummary.TableClass)
+			},
+		},
+		{
+			name: "table_class_switch_back_to_standard",
+			setup: func(t *testing.T) *ddb.InMemoryDB {
+				t.Helper()
+
+				db := ddb.NewInMemoryDB()
+				_, err := db.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+					TableName: aws.String("class-table2"),
+					KeySchema: []types.KeySchemaElement{
+						{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+					},
+					AttributeDefinitions: []types.AttributeDefinition{
+						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+					},
+					TableClass: types.TableClassStandardInfrequentAccess,
+					ProvisionedThroughput: &types.ProvisionedThroughput{
+						ReadCapacityUnits:  aws.Int64(5),
+						WriteCapacityUnits: aws.Int64(5),
+					},
+				})
+				require.NoError(t, err)
+
+				return db
+			},
+			input: &dynamodb.UpdateTableInput{
+				TableName:  aws.String("class-table2"),
+				TableClass: types.TableClassStandard,
+			},
+			verify: func(t *testing.T, db *ddb.InMemoryDB, _ *dynamodb.UpdateTableOutput) {
+				t.Helper()
+
+				desc, err := db.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
+					TableName: aws.String("class-table2"),
+				})
+				require.NoError(t, err)
+				require.NotNil(t, desc.Table.TableClassSummary)
+				assert.Equal(t, types.TableClassStandard, desc.Table.TableClassSummary.TableClass)
+			},
+		},
+		{
 			name: "not_found",
 			setup: func(t *testing.T) *ddb.InMemoryDB {
 				t.Helper()
