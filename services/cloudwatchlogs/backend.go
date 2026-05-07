@@ -140,6 +140,22 @@ func (f SubscriptionDelivererFunc) DeliverLogEvents(ctx context.Context, destina
 	return f(ctx, destinationArn, payload)
 }
 
+// MetricEmitter emits a CloudWatch metric data point.
+// It is implemented by the CloudWatch backend and injected into InMemoryBackend
+// so that metric filter matches on PutLogEvents can be forwarded to CloudWatch.
+type MetricEmitter interface {
+	// EmitMetric records a single metric data point with the given namespace, name, value, and unit.
+	EmitMetric(namespace, name string, value float64, unit string) error
+}
+
+// MetricEmitterFunc is a function adapter for MetricEmitter.
+type MetricEmitterFunc func(namespace, name string, value float64, unit string) error
+
+// EmitMetric implements MetricEmitter.
+func (f MetricEmitterFunc) EmitMetric(namespace, name string, value float64, unit string) error {
+	return f(namespace, name, value, unit)
+}
+
 // StorageBackend is the interface for a CloudWatch Logs in-memory store.
 type StorageBackend interface {
 	CreateLogGroup(name string) (*LogGroup, error)
@@ -289,6 +305,7 @@ type storedQuery struct {
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	deliverer           SubscriptionDeliverer
+	metricEmitter       MetricEmitter
 	ctx                 context.Context
 	accountPolicies     map[string]*AccountPolicy
 	groups              map[string]*LogGroup
@@ -391,6 +408,13 @@ func (b *InMemoryBackend) SetSubscriptionDeliverer(d SubscriptionDeliverer) {
 	b.mu.Lock("SetSubscriptionDeliverer")
 	defer b.mu.Unlock()
 	b.deliverer = d
+}
+
+// SetMetricEmitter sets the emitter used to forward metric filter matches to CloudWatch.
+func (b *InMemoryBackend) SetMetricEmitter(e MetricEmitter) {
+	b.mu.Lock("SetMetricEmitter")
+	defer b.mu.Unlock()
+	b.metricEmitter = e
 }
 
 // SetQueryTTL overrides the TTL used to evict queries by age.
@@ -696,7 +720,16 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 	eventsForDelivery := append([]InputLogEvent(nil), events...)
 	filtersForDelivery := cloneSubscriptionFilters(filters)
 
+	// Collect metric filter matches while holding the lock.
+	metricMatches := b.matchingMetricFilters(groupName, events)
+	emitter := b.metricEmitter
+
 	b.mu.Unlock()
+
+	// Emit CloudWatch metrics for matched metric filters (no lock held).
+	if len(metricMatches) > 0 && emitter != nil {
+		b.emitMetricFilterMatches(emitter, metricMatches)
+	}
 
 	if len(filters) > 0 && deliverer != nil {
 		b.wg.Go(func() {
@@ -1012,6 +1045,65 @@ func (b *InMemoryBackend) matchingFilters(groupName string, events []InputLogEve
 	}
 
 	return matched
+}
+
+// metricFilterMatch holds a metric filter and the count of events that matched it.
+type metricFilterMatch struct {
+	filter     *MetricFilter
+	matchCount int
+}
+
+// matchingMetricFilters returns metric filters for groupName whose pattern matches at least one
+// of the given events, along with the per-filter match count.
+// Must be called while holding the write lock.
+func (b *InMemoryBackend) matchingMetricFilters(groupName string, events []InputLogEvent) []metricFilterMatch {
+	mfMap := b.metricFilters[groupName]
+	if len(mfMap) == 0 {
+		return nil
+	}
+
+	var matched []metricFilterMatch
+	for _, f := range mfMap {
+		compiled := b.getCompiledPattern(f.FilterPattern)
+		count := 0
+		for _, ev := range events {
+			if compiled == nil || compiled.matches(ev.Message) {
+				count++
+			}
+		}
+		if count > 0 {
+			cp := *f
+			matched = append(matched, metricFilterMatch{filter: &cp, matchCount: count})
+		}
+	}
+
+	return matched
+}
+
+// emitMetricFilterMatches calls the MetricEmitter for each matched metric filter transformation.
+// One data point is emitted per matched event per transformation.
+func (b *InMemoryBackend) emitMetricFilterMatches(emitter MetricEmitter, matches []metricFilterMatch) {
+	for _, m := range matches {
+		for _, t := range m.filter.MetricTransformations {
+			val, parseErr := strconv.ParseFloat(t.MetricValue, 64)
+			if parseErr != nil {
+				// Non-numeric MetricValue (e.g. "$field") falls back to defaultValue or 1.0.
+				val = 1.0
+				if t.DefaultValue != nil {
+					val = *t.DefaultValue
+				}
+			}
+			for range m.matchCount {
+				if emitErr := emitter.EmitMetric(t.MetricNamespace, t.MetricName, val, ""); emitErr != nil {
+					logger.Load(context.Background()).Warn("cloudwatchlogs: metric filter emit failed",
+						"namespace", t.MetricNamespace,
+						"metric", t.MetricName,
+						"err", emitErr,
+					)
+				}
+			}
+		}
+	}
 }
 
 // getCompiledPattern returns a cached compiled filter pattern, compiling and caching it on first use.

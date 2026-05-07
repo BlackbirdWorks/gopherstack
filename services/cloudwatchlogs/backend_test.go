@@ -3825,3 +3825,74 @@ func TestCloudWatchLogsBackend_BoundedMaps(t *testing.T) {
 		require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 	})
 }
+
+func TestCloudWatchLogsBackend_MetricFilterEmission(t *testing.T) {
+	t.Parallel()
+
+	type emittedMetric struct {
+		namespace string
+		name      string
+		value     float64
+	}
+
+	var mu sync.Mutex
+	var emitted []emittedMetric
+
+	emitter := cloudwatchlogs.MetricEmitterFunc(func(namespace, name string, value float64, _ string) error {
+		mu.Lock()
+		emitted = append(emitted, emittedMetric{namespace: namespace, name: name, value: value})
+		mu.Unlock()
+
+		return nil
+	})
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	b.SetMetricEmitter(emitter)
+
+	_, err := b.CreateLogGroup("grp")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream("grp", "stream")
+	require.NoError(t, err)
+
+	err = b.PutMetricFilter("grp", "errors", "ERROR", []cloudwatchlogs.MetricTransformation{
+		{MetricNamespace: "MyApp", MetricName: "ErrorCount", MetricValue: "1"},
+	})
+	require.NoError(t, err)
+
+	// Two events: one matches the filter pattern, one does not.
+	_, err = b.PutLogEvents("grp", "stream", []cloudwatchlogs.InputLogEvent{
+		{Message: "ERROR: something went wrong", Timestamp: time.Now().UnixMilli()},
+		{Message: "INFO: all good", Timestamp: time.Now().UnixMilli()},
+	})
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	require.Len(t, emitted, 1, "expected exactly one metric emission for the ERROR event")
+	assert.Equal(t, "MyApp", emitted[0].namespace)
+	assert.Equal(t, "ErrorCount", emitted[0].name)
+	assert.InDelta(t, 1.0, emitted[0].value, 0.001)
+}
+
+func TestCloudWatchLogsBackend_MetricFilterEmission_NoEmitterNoPanic(t *testing.T) {
+	t.Parallel()
+
+	// No emitter set — PutLogEvents should succeed silently.
+	b := cloudwatchlogs.NewInMemoryBackend()
+
+	_, err := b.CreateLogGroup("grp")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream("grp", "stream")
+	require.NoError(t, err)
+
+	err = b.PutMetricFilter("grp", "errors", "ERROR", []cloudwatchlogs.MetricTransformation{
+		{MetricNamespace: "MyApp", MetricName: "ErrorCount", MetricValue: "1"},
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutLogEvents("grp", "stream", []cloudwatchlogs.InputLogEvent{
+		{Message: "ERROR: kaboom", Timestamp: time.Now().UnixMilli()},
+	})
+	require.NoError(t, err)
+}
