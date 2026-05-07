@@ -20,6 +20,7 @@ import (
 
 const (
 	statusTrainedInsufficient = "TRAINED_INSUFFICIENT_DATA"
+	metricDataStatusComplete  = "Complete"
 )
 
 const (
@@ -520,6 +521,23 @@ func (b *InMemoryBackend) GetMetricData(
 // resolveMetricStat fetches and aggregates data for a single MetricStat query.
 // Caller must hold b.mu (at least read lock).
 func (b *InMemoryBackend) resolveMetricStat(q MetricDataQuery, startTime, endTime time.Time) MetricDataResult {
+	// Cross-account queries reference metrics from another AWS account.
+	// Return empty data gracefully — cross-account is not supported locally.
+	if q.AccountID != "" && q.AccountID != b.accountID {
+		label := q.Label
+		if label == "" {
+			label = q.MetricStat.MetricName
+		}
+
+		return MetricDataResult{
+			ID:         q.ID,
+			Label:      label,
+			Timestamps: []time.Time{},
+			Values:     []float64{},
+			StatusCode: metricDataStatusComplete,
+		}
+	}
+
 	ns := q.MetricStat.Namespace
 	metricName := q.MetricStat.MetricName
 	period := q.MetricStat.Period
@@ -574,7 +592,7 @@ func (b *InMemoryBackend) resolveMetricStat(q MetricDataQuery, startTime, endTim
 		Label:      label,
 		Timestamps: timestamps,
 		Values:     values,
-		StatusCode: "Complete",
+		StatusCode: metricDataStatusComplete,
 	}
 }
 

@@ -304,40 +304,41 @@ type storedQuery struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	deliverer           SubscriptionDeliverer
-	metricEmitter       MetricEmitter
-	ctx                 context.Context
-	accountPolicies     map[string]*AccountPolicy
-	groups              map[string]*LogGroup
-	workerSem           chan struct{}
-	streams             map[string]map[string]*LogStream
-	events              map[string]map[string][]*OutputLogEvent
-	subscriptionFilters map[string][]*SubscriptionFilter
-	queries             map[string]*storedQuery
-	parsedQueries       map[string]*insightsQuery
-	compiledPatterns    map[string]*compiledFilterPattern
-	exportTasks         map[string]*ExportTask
-	importTasks         map[string]*ImportTask
-	deliveries          map[string]*Delivery
-	logAnomalyDetectors map[string]*LogAnomalyDetector
-	scheduledQueries    map[string]*ScheduledQuery
-	s3TableIntegrations map[string]string
-	mu                  *lockmetrics.RWMutex
-	kmsKeys             map[string]string
-	metricFilters       map[string]map[string]*MetricFilter
-	queryDefinitions    map[string]*QueryDefinition
-	cancel              context.CancelFunc
-	region              string
-	accountID           string
-	queriesOrder        []string
-	parsedQueriesOrder  []string
-	wg                  sync.WaitGroup
-	queryTTL            time.Duration
-	maxQueries          int
-	maxParsedQueries    int
-	deliveryTimeout     time.Duration
-	compiledPatternsMu  sync.RWMutex
-	settings            Settings
+	deliverer              SubscriptionDeliverer
+	metricEmitter          MetricEmitter
+	ctx                    context.Context
+	accountPolicies        map[string]*AccountPolicy
+	groups                 map[string]*LogGroup
+	workerSem              chan struct{}
+	streams                map[string]map[string]*LogStream
+	events                 map[string]map[string][]*OutputLogEvent
+	subscriptionFilters    map[string][]*SubscriptionFilter
+	queries                map[string]*storedQuery
+	parsedQueries          map[string]*insightsQuery
+	compiledPatterns       map[string]*compiledFilterPattern
+	exportTasks            map[string]*ExportTask
+	importTasks            map[string]*ImportTask
+	deliveries             map[string]*Delivery
+	logAnomalyDetectors    map[string]*LogAnomalyDetector
+	scheduledQueries       map[string]*ScheduledQuery
+	s3TableIntegrations    map[string]string
+	mu                     *lockmetrics.RWMutex
+	kmsKeys                map[string]string
+	metricFilters          map[string]map[string]*MetricFilter
+	queryDefinitions       map[string]*QueryDefinition
+	dataProtectionPolicies map[string]string // logGroupName -> policyDocument JSON
+	cancel                 context.CancelFunc
+	region                 string
+	accountID              string
+	queriesOrder           []string
+	parsedQueriesOrder     []string
+	wg                     sync.WaitGroup
+	queryTTL               time.Duration
+	maxQueries             int
+	maxParsedQueries       int
+	deliveryTimeout        time.Duration
+	compiledPatternsMu     sync.RWMutex
+	settings               Settings
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -362,33 +363,34 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	ctx, cancel := context.WithCancel(svcCtx)
 
 	return &InMemoryBackend{
-		accountID:           accountID,
-		region:              region,
-		groups:              make(map[string]*LogGroup),
-		streams:             make(map[string]map[string]*LogStream),
-		events:              make(map[string]map[string][]*OutputLogEvent),
-		subscriptionFilters: make(map[string][]*SubscriptionFilter),
-		queries:             make(map[string]*storedQuery),
-		parsedQueries:       make(map[string]*insightsQuery),
-		compiledPatterns:    make(map[string]*compiledFilterPattern),
-		exportTasks:         make(map[string]*ExportTask),
-		importTasks:         make(map[string]*ImportTask),
-		deliveries:          make(map[string]*Delivery),
-		logAnomalyDetectors: make(map[string]*LogAnomalyDetector),
-		scheduledQueries:    make(map[string]*ScheduledQuery),
-		accountPolicies:     make(map[string]*AccountPolicy),
-		kmsKeys:             make(map[string]string),
-		s3TableIntegrations: make(map[string]string),
-		metricFilters:       make(map[string]map[string]*MetricFilter),
-		queryDefinitions:    make(map[string]*QueryDefinition),
-		mu:                  lockmetrics.New("cloudwatchlogs"),
-		queryTTL:            defaultQueryTTL,
-		maxQueries:          defaultMaxQueries,
-		maxParsedQueries:    defaultParsedQueryCacheSize,
-		ctx:                 ctx,
-		cancel:              cancel,
-		workerSem:           make(chan struct{}, defaultDeliveryWorkers),
-		deliveryTimeout:     defaultDeliveryTimeout,
+		accountID:              accountID,
+		region:                 region,
+		groups:                 make(map[string]*LogGroup),
+		streams:                make(map[string]map[string]*LogStream),
+		events:                 make(map[string]map[string][]*OutputLogEvent),
+		subscriptionFilters:    make(map[string][]*SubscriptionFilter),
+		queries:                make(map[string]*storedQuery),
+		parsedQueries:          make(map[string]*insightsQuery),
+		compiledPatterns:       make(map[string]*compiledFilterPattern),
+		exportTasks:            make(map[string]*ExportTask),
+		importTasks:            make(map[string]*ImportTask),
+		deliveries:             make(map[string]*Delivery),
+		logAnomalyDetectors:    make(map[string]*LogAnomalyDetector),
+		scheduledQueries:       make(map[string]*ScheduledQuery),
+		accountPolicies:        make(map[string]*AccountPolicy),
+		kmsKeys:                make(map[string]string),
+		s3TableIntegrations:    make(map[string]string),
+		metricFilters:          make(map[string]map[string]*MetricFilter),
+		queryDefinitions:       make(map[string]*QueryDefinition),
+		dataProtectionPolicies: make(map[string]string),
+		mu:                     lockmetrics.New("cloudwatchlogs"),
+		queryTTL:               defaultQueryTTL,
+		maxQueries:             defaultMaxQueries,
+		maxParsedQueries:       defaultParsedQueryCacheSize,
+		ctx:                    ctx,
+		cancel:                 cancel,
+		workerSem:              make(chan struct{}, defaultDeliveryWorkers),
+		deliveryTimeout:        defaultDeliveryTimeout,
 		settings: Settings{
 			MaxRetentionDays: defaultMaxRetentionDays,
 			JanitorInterval:  time.Minute,
@@ -1734,10 +1736,50 @@ func (b *InMemoryBackend) Reset() {
 	b.s3TableIntegrations = make(map[string]string)
 	b.metricFilters = make(map[string]map[string]*MetricFilter)
 	b.queryDefinitions = make(map[string]*QueryDefinition)
+	b.dataProtectionPolicies = make(map[string]string)
 
 	b.compiledPatternsMu.Lock()
 	b.compiledPatterns = make(map[string]*compiledFilterPattern)
 	b.compiledPatternsMu.Unlock()
+}
+
+// PutDataProtectionPolicy stores a data protection policy for a log group.
+// policyDocument is stored as-is and returned verbatim by GetDataProtectionPolicy.
+func (b *InMemoryBackend) PutDataProtectionPolicy(logGroupIdentifier, policyDocument string) error {
+	if logGroupIdentifier == "" {
+		return fmt.Errorf("%w: logGroupIdentifier is required", ErrValidation)
+	}
+
+	b.mu.Lock("PutDataProtectionPolicy")
+	defer b.mu.Unlock()
+
+	b.dataProtectionPolicies[logGroupIdentifier] = policyDocument
+
+	return nil
+}
+
+// GetDataProtectionPolicy returns the data protection policy for a log group.
+// Returns an empty policy document if none has been set.
+func (b *InMemoryBackend) GetDataProtectionPolicy(logGroupIdentifier string) (string, error) {
+	b.mu.RLock("GetDataProtectionPolicy")
+	defer b.mu.RUnlock()
+
+	policy, ok := b.dataProtectionPolicies[logGroupIdentifier]
+	if !ok {
+		return "{}", nil
+	}
+
+	return policy, nil
+}
+
+// DeleteDataProtectionPolicy removes the data protection policy for a log group.
+func (b *InMemoryBackend) DeleteDataProtectionPolicy(logGroupIdentifier string) error {
+	b.mu.Lock("DeleteDataProtectionPolicy")
+	defer b.mu.Unlock()
+
+	delete(b.dataProtectionPolicies, logGroupIdentifier)
+
+	return nil
 }
 
 // AssociateKmsKey associates a KMS key with a log group or query results resource.

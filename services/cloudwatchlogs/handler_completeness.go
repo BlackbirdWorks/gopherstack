@@ -1,5 +1,10 @@
 package cloudwatchlogs
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 const (
 	completenessKeyLogGroupIdentifier = "logGroupIdentifier"
 	completenessKeyPolicyDocument     = "policyDocument"
@@ -59,7 +64,22 @@ func (h *Handler) completenessActions() map[string]actionFn {
 
 // ----- Stubs -----
 
-func (h *Handler) handleDeleteDataProtectionPolicy(_ []byte) (any, error) {
+type deleteDataProtectionPolicyInput struct {
+	LogGroupIdentifier string `json:"logGroupIdentifier"`
+}
+
+func (h *Handler) handleDeleteDataProtectionPolicy(body []byte) (any, error) {
+	var in deleteDataProtectionPolicyInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+	}
+
+	if dp, ok := h.Backend.(*InMemoryBackend); ok {
+		if err := dp.DeleteDataProtectionPolicy(in.LogGroupIdentifier); err != nil {
+			return nil, err
+		}
+	}
+
 	return struct{}{}, nil
 }
 
@@ -131,10 +151,28 @@ func (h *Handler) handleDisassociateSourceFromS3TableIntegration(_ []byte) (any,
 	return struct{}{}, nil
 }
 
-func (h *Handler) handleGetDataProtectionPolicy(_ []byte) (any, error) {
+type getDataProtectionPolicyInput struct {
+	LogGroupIdentifier string `json:"logGroupIdentifier"`
+}
+
+func (h *Handler) handleGetDataProtectionPolicy(body []byte) (any, error) {
+	var in getDataProtectionPolicyInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+	}
+
+	policyDoc := "{}"
+	if dp, ok := h.Backend.(*InMemoryBackend); ok {
+		p, err := dp.GetDataProtectionPolicy(in.LogGroupIdentifier)
+		if err != nil {
+			return nil, err
+		}
+		policyDoc = p
+	}
+
 	return map[string]any{
-		completenessKeyLogGroupIdentifier: "",
-		completenessKeyPolicyDocument:     "{}",
+		completenessKeyLogGroupIdentifier: in.LogGroupIdentifier,
+		completenessKeyPolicyDocument:     policyDoc,
 	}, nil
 }
 
@@ -189,10 +227,26 @@ func (h *Handler) handlePutBearerTokenAuthentication(_ []byte) (any, error) {
 	return struct{}{}, nil
 }
 
-func (h *Handler) handlePutDataProtectionPolicy(_ []byte) (any, error) {
+type putDataProtectionPolicyInput struct {
+	LogGroupIdentifier string `json:"logGroupIdentifier"`
+	PolicyDocument     string `json:"policyDocument"`
+}
+
+func (h *Handler) handlePutDataProtectionPolicy(body []byte) (any, error) {
+	var in putDataProtectionPolicyInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+	}
+
+	if dp, ok := h.Backend.(*InMemoryBackend); ok {
+		if err := dp.PutDataProtectionPolicy(in.LogGroupIdentifier, in.PolicyDocument); err != nil {
+			return nil, err
+		}
+	}
+
 	return map[string]any{
-		completenessKeyLogGroupIdentifier: "",
-		completenessKeyPolicyDocument:     "{}",
+		completenessKeyLogGroupIdentifier: in.LogGroupIdentifier,
+		completenessKeyPolicyDocument:     in.PolicyDocument,
 	}, nil
 }
 

@@ -67,7 +67,7 @@ func evalExpression(q MetricDataQuery, resolved map[string]MetricDataResult) Met
 	result := MetricDataResult{
 		ID:         q.ID,
 		Label:      q.Label,
-		StatusCode: "Complete",
+		StatusCode: metricDataStatusComplete,
 	}
 
 	if result.Label == "" {
