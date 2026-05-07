@@ -304,56 +304,101 @@ type deleteGroupRequest struct {
 // Dispatch
 // ----------------------------------------
 
-//nolint:cyclop // dispatch table has necessary branches for each operation
+// dispatch routes to the appropriate handler based on the operation name.
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
-	switch op {
-	// User operations
-	case "CreateUser":
-		return h.handleCreateUser(c, body)
-	case "DescribeUser":
-		return h.handleDescribeUser(c, body)
-	case "ListUsers":
-		return h.handleListUsers(c, body)
-	case "UpdateUser":
-		return h.handleUpdateUser(c, body)
-	case "DeleteUser":
-		return h.handleDeleteUser(c, body)
-	case "GetUserId":
-		return h.handleGetUserID(c, body)
-
-	// Group operations
-	case "CreateGroup":
-		return h.handleCreateGroup(c, body)
-	case "DescribeGroup":
-		return h.handleDescribeGroup(c, body)
-	case "ListGroups":
-		return h.handleListGroups(c, body)
-	case "UpdateGroup":
-		return h.handleUpdateGroup(c, body)
-	case "DeleteGroup":
-		return h.handleDeleteGroup(c, body)
-	case "GetGroupId":
-		return h.handleGetGroupID(c, body)
-
-	// Membership operations
-	case "CreateGroupMembership":
-		return h.handleCreateGroupMembership(c, body)
-	case "DescribeGroupMembership":
-		return h.handleDescribeGroupMembership(c, body)
-	case "ListGroupMemberships":
-		return h.handleListGroupMemberships(c, body)
-	case "DeleteGroupMembership":
-		return h.handleDeleteGroupMembership(c, body)
-	case "GetGroupMembershipId":
-		return h.handleGetGroupMembershipID(c, body)
-	case "ListGroupMembershipsForMember":
-		return h.handleListGroupMembershipsForMember(c, body)
-	case isMemberInGroupsOp:
-		return h.handleIsMemberInGroups(c, body)
+	if ok, err := h.dispatchUserOps(c, op, body); ok {
+		return err
+	}
+	if ok, err := h.dispatchGroupOps(c, op, body); ok {
+		return err
+	}
+	if ok, err := h.dispatchMembershipOps(c, op, body); ok {
+		return err
 	}
 
 	return h.writeError(c, http.StatusBadRequest, "UnrecognizedClientException",
 		"operation "+op+" is not supported")
+}
+
+// dispatchUserOps handles user operations.
+func (h *Handler) dispatchUserOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateUser":
+
+		return true, h.handleCreateUser(c, body)
+	case "DescribeUser":
+
+		return true, h.handleDescribeUser(c, body)
+	case "ListUsers":
+
+		return true, h.handleListUsers(c, body)
+	case "UpdateUser":
+
+		return true, h.handleUpdateUser(c, body)
+	case "DeleteUser":
+
+		return true, h.handleDeleteUser(c, body)
+	case "GetUserId":
+
+		return true, h.handleGetUserID(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchGroupOps handles group operations.
+func (h *Handler) dispatchGroupOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateGroup":
+
+		return true, h.handleCreateGroup(c, body)
+	case "DescribeGroup":
+
+		return true, h.handleDescribeGroup(c, body)
+	case "ListGroups":
+
+		return true, h.handleListGroups(c, body)
+	case "UpdateGroup":
+
+		return true, h.handleUpdateGroup(c, body)
+	case "DeleteGroup":
+
+		return true, h.handleDeleteGroup(c, body)
+	case "GetGroupId":
+
+		return true, h.handleGetGroupID(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchMembershipOps handles group membership operations.
+func (h *Handler) dispatchMembershipOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateGroupMembership":
+
+		return true, h.handleCreateGroupMembership(c, body)
+	case "DescribeGroupMembership":
+
+		return true, h.handleDescribeGroupMembership(c, body)
+	case "ListGroupMemberships":
+
+		return true, h.handleListGroupMemberships(c, body)
+	case "DeleteGroupMembership":
+
+		return true, h.handleDeleteGroupMembership(c, body)
+	case "GetGroupMembershipId":
+
+		return true, h.handleGetGroupMembershipID(c, body)
+	case "ListGroupMembershipsForMember":
+
+		return true, h.handleListGroupMembershipsForMember(c, body)
+	case isMemberInGroupsOp:
+
+		return true, h.handleIsMemberInGroups(c, body)
+	}
+
+	return false, nil
 }
 
 // ----------------------------------------
@@ -835,14 +880,19 @@ func (h *Handler) handleIsMemberInGroups(c *echo.Context, body []byte) error {
 func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrUserNotFound):
+
 		return h.writeResourceError(c, "ResourceNotFoundException", err.Error(), "USER")
 	case errors.Is(err, ErrGroupNotFound):
+
 		return h.writeResourceError(c, "ResourceNotFoundException", err.Error(), "GROUP")
 	case errors.Is(err, ErrMembershipNotFound):
+
 		return h.writeResourceError(c, "ResourceNotFoundException", err.Error(), "GROUP_MEMBERSHIP")
 	case errors.Is(err, ErrConflict):
+
 		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error())
 	case errors.Is(err, ErrValidation):
+
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 

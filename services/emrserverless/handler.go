@@ -157,12 +157,16 @@ func parseEMRPath(method, rawPath string) emrRoute {
 
 	switch len(parts) {
 	case pathPartsApplication:
+
 		return parseSingleAppRoute(method, parts[0])
 	case pathPartsWithSub:
+
 		return parseAppSubRoute(method, parts[0], parts[1])
 	case pathPartsWithJobRun:
+
 		return parseJobRunRoute(method, parts[0], parts[1], parts[2])
 	case pathPartsWithJobRunSub:
+
 		return parseJobRunSubRoute(method, parts[0], parts[1], parts[2], parts[3])
 	}
 
@@ -172,10 +176,13 @@ func parseEMRPath(method, rawPath string) emrRoute {
 func parseTagRoute(method, resourceARN string) emrRoute {
 	switch method {
 	case http.MethodGet:
+
 		return emrRoute{operation: opListTagsForResource, resourceARN: resourceARN}
 	case http.MethodPost:
+
 		return emrRoute{operation: opTagResource, resourceARN: resourceARN}
 	case http.MethodDelete:
+
 		return emrRoute{operation: opUntagResource, resourceARN: resourceARN}
 	}
 
@@ -185,8 +192,10 @@ func parseTagRoute(method, resourceARN string) emrRoute {
 func parseApplicationsCollection(method string) emrRoute {
 	switch method {
 	case http.MethodPost:
+
 		return emrRoute{operation: opCreateApplication}
 	case http.MethodGet:
+
 		return emrRoute{operation: opListApplications}
 	}
 
@@ -196,10 +205,13 @@ func parseApplicationsCollection(method string) emrRoute {
 func parseSingleAppRoute(method, appID string) emrRoute {
 	switch method {
 	case http.MethodGet:
+
 		return emrRoute{operation: opGetApplication, applicationID: appID}
 	case http.MethodPatch:
+
 		return emrRoute{operation: opUpdateApplication, applicationID: appID}
 	case http.MethodDelete:
+
 		return emrRoute{operation: opDeleteApplication, applicationID: appID}
 	}
 
@@ -219,8 +231,10 @@ func parseAppSubRoute(method, appID, sub string) emrRoute {
 	case pathJobRuns:
 		switch method {
 		case http.MethodPost:
+
 			return emrRoute{operation: opStartJobRun, applicationID: appID}
 		case http.MethodGet:
+
 			return emrRoute{operation: opListJobRuns, applicationID: appID}
 		}
 	}
@@ -235,8 +249,10 @@ func parseJobRunRoute(method, appID, sub, jobRunID string) emrRoute {
 
 	switch method {
 	case http.MethodGet:
+
 		return emrRoute{operation: opGetJobRun, applicationID: appID, jobRunID: jobRunID}
 	case http.MethodDelete:
+
 		return emrRoute{operation: opCancelJobRun, applicationID: appID, jobRunID: jobRunID}
 	}
 
@@ -254,8 +270,10 @@ func parseJobRunSubRoute(method, appID, sub, jobRunID, action string) emrRoute {
 
 	switch action {
 	case "dashboard":
+
 		return emrRoute{operation: opGetDashboardForJobRun, applicationID: appID, jobRunID: jobRunID}
 	case "attempts":
+
 		return emrRoute{operation: opListJobRunAttempts, applicationID: appID, jobRunID: jobRunID}
 	}
 
@@ -306,57 +324,98 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-//nolint:cyclop // dispatch table for 16 REST operations is inherently wide
+// dispatch routes to the appropriate handler based on the parsed route.
 func (h *Handler) dispatch(c *echo.Context, route emrRoute, body []byte) error {
+	if ok, err := h.dispatchApplicationOps(c, route, body); ok {
+		return err
+	}
+	if ok, err := h.dispatchJobRunOps(c, route, body); ok {
+		return err
+	}
+
+	return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
+}
+
+// dispatchApplicationOps handles application lifecycle operations.
+func (h *Handler) dispatchApplicationOps(c *echo.Context, route emrRoute, body []byte) (bool, error) {
 	switch route.operation {
 	case opCreateApplication:
-		return h.handleCreateApplication(c, body)
+
+		return true, h.handleCreateApplication(c, body)
 	case opGetApplication:
-		return h.handleGetApplication(c, route.applicationID)
+
+		return true, h.handleGetApplication(c, route.applicationID)
 	case opListApplications:
-		return h.handleListApplications(c)
+
+		return true, h.handleListApplications(c)
 	case opUpdateApplication:
-		return h.handleUpdateApplication(c, route.applicationID, body)
+
+		return true, h.handleUpdateApplication(c, route.applicationID, body)
 	case opDeleteApplication:
-		return h.handleDeleteApplication(c, route.applicationID)
+
+		return true, h.handleDeleteApplication(c, route.applicationID)
 	case opStartApplication:
-		return h.handleStartApplication(c, route.applicationID)
+
+		return true, h.handleStartApplication(c, route.applicationID)
 	case opStopApplication:
-		return h.handleStopApplication(c, route.applicationID)
-	case opStartJobRun:
-		return h.handleStartJobRun(c, route.applicationID, body)
-	case opGetJobRun:
-		return h.handleGetJobRun(c, route.applicationID, route.jobRunID)
-	case opListJobRuns:
-		return h.handleListJobRuns(c, route.applicationID)
-	case opCancelJobRun:
-		return h.handleCancelJobRun(c, route.applicationID, route.jobRunID)
-	case opGetDashboardForJobRun:
-		return h.handleGetDashboardForJobRun(c, route.applicationID, route.jobRunID)
-	case opListJobRunAttempts:
-		return h.handleListJobRunAttempts(c, route.applicationID, route.jobRunID)
-	case opListTagsForResource:
-		return h.handleListTagsForResource(c, route.resourceARN)
-	case opTagResource:
-		return h.handleTagResource(c, route.resourceARN, body)
-	case opUntagResource:
-		return h.handleUntagResource(c, route.resourceARN, c.Request().URL.Query())
-	default:
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
+
+		return true, h.handleStopApplication(c, route.applicationID)
 	}
+
+	return false, nil
+}
+
+// dispatchJobRunOps handles job run and tagging operations.
+func (h *Handler) dispatchJobRunOps(c *echo.Context, route emrRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case opStartJobRun:
+
+		return true, h.handleStartJobRun(c, route.applicationID, body)
+	case opGetJobRun:
+
+		return true, h.handleGetJobRun(c, route.applicationID, route.jobRunID)
+	case opListJobRuns:
+
+		return true, h.handleListJobRuns(c, route.applicationID)
+	case opCancelJobRun:
+
+		return true, h.handleCancelJobRun(c, route.applicationID, route.jobRunID)
+	case opGetDashboardForJobRun:
+
+		return true, h.handleGetDashboardForJobRun(c, route.applicationID, route.jobRunID)
+	case opListJobRunAttempts:
+
+		return true, h.handleListJobRunAttempts(c, route.applicationID, route.jobRunID)
+	case opListTagsForResource:
+
+		return true, h.handleListTagsForResource(c, route.resourceARN)
+	case opTagResource:
+
+		return true, h.handleTagResource(c, route.resourceARN, body)
+	case opUntagResource:
+
+		return true, h.handleUntagResource(c, route.resourceARN, c.Request().URL.Query())
+	}
+
+	return false, nil
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
+
 		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
+
 		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
 	case errors.Is(err, ErrValidation):
+
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	case errors.Is(err, ErrInvalidState):
+
 		return c.JSON(http.StatusBadRequest, errResp("RequestFailedException", err.Error()))
 	default:
+
 		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 	}
 }

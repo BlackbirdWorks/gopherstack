@@ -44,48 +44,13 @@ const (
 
 // routeCompleteness handles previously-notImplemented Route53 paths.
 // Returns (true, err) if the path was handled, (false, nil) if not.
-//
-//nolint:gocognit,gocyclo,cyclop // routes many completeness sub-paths
 func (h *Handler) routeCompleteness(c *echo.Context, path, method string) (bool, error) {
-	switch {
-	case path == route53TestDNSAnswerPath && method == http.MethodGet:
-		return true, h.testDNSAnswer(c)
-	case path == route53CheckerIPRangesPath && method == http.MethodGet:
-		return true, h.getCheckerIPRanges(c)
-	case path == route53GeoLocationPath && method == http.MethodGet:
-		return true, h.getGeoLocation(c)
-	case path == route53GeoLocationsPath && method == http.MethodGet:
-		return true, h.listGeoLocations(c)
-	case path == route53HealthCheckCountPath && method == http.MethodGet:
-		return true, h.getHealthCheckCount(c)
-	case path == route53HostedZoneCountPath && method == http.MethodGet:
-		return true, h.getHostedZoneCount(c)
-	case path == route53HostedZonesByNamePath && method == http.MethodGet:
-		return true, h.listHostedZonesByName(c)
-	case path == route53HostedZonesByVPCPath && method == http.MethodGet:
-		return true, h.listHostedZonesByVPC(c)
-	case path == route53TPInstancesByHZPath && method == http.MethodGet:
-		return true, h.listTrafficPolicyInstancesByHostedZone(c)
-	case path == route53TPInstancesByPolicyPath && method == http.MethodGet:
-		return true, h.listTrafficPolicyInstancesByPolicy(c)
-	case strings.HasPrefix(path, route53AccountLimitPrefix) && method == http.MethodGet:
-		return true, h.getAccountLimit(c, path)
-	case strings.HasPrefix(path, route53HostedZoneLimitPrefix) && method == http.MethodGet:
-		return true, h.getHostedZoneLimit(c, path)
-	case strings.HasPrefix(path, route53ReusableDSLimitPrefix) && method == http.MethodGet:
-		return true, h.getReusableDelegationSetLimit(c, path)
-	case strings.HasSuffix(path, route53AuthorizeVPCSuffix) && method == http.MethodGet:
-		return true, h.listVPCAssociationAuthorizations(c, path)
-	case strings.HasSuffix(path, route53AuthorizeVPCSuffix) && method == http.MethodPost:
-		return true, h.createVPCAssociationAuthorization(c, path)
-	case strings.HasSuffix(path, route53DeauthorizeVPCSuffix) && method == http.MethodPost:
-		return true, h.deleteVPCAssociationAuthorization(c, path)
-	case strings.HasSuffix(path, route53DisassociateVPCSuffix) && method == http.MethodPost:
-		return true, h.disassociateVPCFromHostedZone(c, path)
-	case strings.HasSuffix(path, route53FeaturesSuffix) && method == http.MethodPost:
-		return true, h.updateHostedZoneFeatures(c, path)
-	case strings.HasSuffix(path, route53LastFailureReasonSuffix) && method == http.MethodGet:
-		return true, h.getHealthCheckLastFailureReason(c, path)
+	if ok, err := h.routeCompletenessCore(c, path, method); ok {
+		return true, err
+	}
+
+	if ok, err := h.routeCompletenessVPC(c, path, method); ok {
+		return true, err
 	}
 
 	if ok, err := h.routeCompletenessTP(c, path, method); ok {
@@ -98,6 +63,81 @@ func (h *Handler) routeCompleteness(c *echo.Context, path, method string) (bool,
 
 	if ok, err := h.routeCompletenessQueryLogging(c, path, method); ok {
 		return true, err
+	}
+
+	return false, nil
+}
+
+// routeCompletenessCore handles basic info and limit endpoints.
+func (h *Handler) routeCompletenessCore(c *echo.Context, path, method string) (bool, error) {
+	if ok, err := h.routeCompletenessInfo(c, path, method); ok {
+		return true, err
+	}
+
+	return h.routeCompletenessLimits(c, path, method)
+}
+
+// routeCompletenessInfo handles DNS answer, geo, health-check, and hosted-zone info endpoints.
+func (h *Handler) routeCompletenessInfo(c *echo.Context, path, method string) (bool, error) {
+	if method != http.MethodGet {
+		return false, nil
+	}
+
+	switch path {
+	case route53TestDNSAnswerPath:
+		return true, h.testDNSAnswer(c)
+	case route53CheckerIPRangesPath:
+		return true, h.getCheckerIPRanges(c)
+	case route53GeoLocationPath:
+		return true, h.getGeoLocation(c)
+	case route53GeoLocationsPath:
+		return true, h.listGeoLocations(c)
+	case route53HealthCheckCountPath:
+		return true, h.getHealthCheckCount(c)
+	case route53HostedZoneCountPath:
+		return true, h.getHostedZoneCount(c)
+	case route53HostedZonesByNamePath:
+		return true, h.listHostedZonesByName(c)
+	case route53HostedZonesByVPCPath:
+		return true, h.listHostedZonesByVPC(c)
+	case route53TPInstancesByHZPath:
+		return true, h.listTrafficPolicyInstancesByHostedZone(c)
+	case route53TPInstancesByPolicyPath:
+		return true, h.listTrafficPolicyInstancesByPolicy(c)
+	}
+
+	return false, nil
+}
+
+// routeCompletenessLimits handles limit and last-failure-reason endpoints.
+func (h *Handler) routeCompletenessLimits(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	case strings.HasPrefix(path, route53AccountLimitPrefix) && method == http.MethodGet:
+		return true, h.getAccountLimit(c, path)
+	case strings.HasPrefix(path, route53HostedZoneLimitPrefix) && method == http.MethodGet:
+		return true, h.getHostedZoneLimit(c, path)
+	case strings.HasPrefix(path, route53ReusableDSLimitPrefix) && method == http.MethodGet:
+		return true, h.getReusableDelegationSetLimit(c, path)
+	case strings.HasSuffix(path, route53LastFailureReasonSuffix) && method == http.MethodGet:
+		return true, h.getHealthCheckLastFailureReason(c, path)
+	}
+
+	return false, nil
+}
+
+// routeCompletenessVPC handles VPC association and disassociation endpoints.
+func (h *Handler) routeCompletenessVPC(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	case strings.HasSuffix(path, route53AuthorizeVPCSuffix) && method == http.MethodGet:
+		return true, h.listVPCAssociationAuthorizations(c, path)
+	case strings.HasSuffix(path, route53AuthorizeVPCSuffix) && method == http.MethodPost:
+		return true, h.createVPCAssociationAuthorization(c, path)
+	case strings.HasSuffix(path, route53DeauthorizeVPCSuffix) && method == http.MethodPost:
+		return true, h.deleteVPCAssociationAuthorization(c, path)
+	case strings.HasSuffix(path, route53DisassociateVPCSuffix) && method == http.MethodPost:
+		return true, h.disassociateVPCFromHostedZone(c, path)
+	case strings.HasSuffix(path, route53FeaturesSuffix) && method == http.MethodPost:
+		return true, h.updateHostedZoneFeatures(c, path)
 	}
 
 	return false, nil

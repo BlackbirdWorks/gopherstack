@@ -280,11 +280,16 @@ func extractCreateDeleteOp(path string) string {
 }
 
 // extractGetListOp maps get/list paths to operation names.
-//
-//nolint:cyclop // large switch needed to map all RAM list/get paths to op names
-func extractGetListOp(
-	path string,
-) string {
+func extractGetListOp(path string) string {
+	if op := extractGetOps(path); op != "" {
+		return op
+	}
+
+	return extractListOps(path)
+}
+
+// extractGetOps maps GET-style paths to operation names.
+func extractGetOps(path string) string {
 	switch {
 	case strings.HasPrefix(path, "/getpermission"):
 		return opGetPermission
@@ -306,6 +311,14 @@ func extractGetListOp(
 		return opListPermissions
 	case strings.HasPrefix(path, "/listprincipals"):
 		return opListPrincipals
+	}
+
+	return ""
+}
+
+// extractListOps maps list/promote/replace/tag paths to operation names.
+func extractListOps(path string) string {
+	switch {
 	case strings.HasPrefix(path, "/listreplacepermissionassociationswork"):
 		return opListReplacePermissionAssociationsWork
 	case strings.HasPrefix(path, "/listresourcesharepermissions"):
@@ -328,9 +341,9 @@ func extractGetListOp(
 		return opTagResource
 	case strings.HasPrefix(path, "/untagresource"):
 		return opUntagResource
-	default:
-		return ""
 	}
+
+	return ""
 }
 
 // extractAssociationOperation maps associate/disassociate RAM paths to their operation names.

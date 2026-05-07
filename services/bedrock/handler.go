@@ -35,6 +35,12 @@ const (
 	marketplaceEndpointsPrefix   = "/marketplace-model/endpoints"
 	loggingConfigPath            = "/logging/modelinvocations"
 
+	// Stub response key constants.
+	keyJobArn          = "jobArn"
+	keyStatus          = "status"
+	keyDeploymentArn   = "deploymentArn"
+	jobStatusCompleted = "Completed"
+
 	// Stub operation paths.
 	modelCopyJobsPrefix           = "/model-copy-jobs"
 	modelImportJobsPrefix         = "/model-import-jobs"
@@ -186,38 +192,57 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches Bedrock requests.
-//
-//nolint:cyclop // extended path list for stub operations is inherently wide
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		path := c.Request().URL.Path
-
-		return strings.HasPrefix(path, guardrailsPrefix) ||
-			strings.HasPrefix(path, foundationModelsPrefix) ||
-			strings.HasPrefix(path, provisionedModelThroughput) ||
-			strings.HasPrefix(path, evaluationJobsPrefix) ||
-			strings.HasPrefix(path, automatedReasoningPrefix) ||
-			strings.HasPrefix(path, modelCustomizationJobsPrefix) ||
-			strings.HasPrefix(path, inferenceProfilesPrefix) ||
-			strings.HasPrefix(path, marketplaceEndpointsPrefix) ||
-			strings.HasPrefix(path, customModelsPrefix) ||
-			strings.HasPrefix(path, modelCopyJobsPrefix) ||
-			strings.HasPrefix(path, modelImportJobsPrefix) ||
-			strings.HasPrefix(path, modelInvocationJobsPrefix) ||
-			strings.HasPrefix(path, promptRoutersPrefix) ||
-			strings.HasPrefix(path, importedModelsPrefix) ||
-			strings.HasPrefix(path, foundationModelAvailPath) ||
-			strings.HasPrefix(path, foundationModelAgreementsPath) ||
-			strings.HasPrefix(path, customModelDeployments2Path) ||
-			path == useCaseForModelAccessPath ||
-			path == enforcedGuardrailsPath ||
-			path == loggingConfigPath ||
-			path == customModelDeploymentsPath ||
-			path == foundationModelAgreement ||
-			path == listTagsForResourcePath ||
-			path == tagResourcePath ||
-			path == untagResourcePath
+		return matchBedrockPath(c.Request().URL.Path)
 	}
+}
+
+// matchBedrockPath returns true if the path matches a known Bedrock API path.
+func matchBedrockPath(path string) bool {
+	return matchBedrockPrefixPaths(path) || matchBedrockExactPaths(path)
+}
+
+// matchBedrockPrefixPaths returns true if path has a known Bedrock prefix.
+func matchBedrockPrefixPaths(path string) bool {
+	return matchBedrockCorePrefixes(path) || matchBedrockExtPrefixes(path)
+}
+
+// matchBedrockCorePrefixes checks the core Bedrock resource prefixes.
+func matchBedrockCorePrefixes(path string) bool {
+	return strings.HasPrefix(path, guardrailsPrefix) ||
+		strings.HasPrefix(path, foundationModelsPrefix) ||
+		strings.HasPrefix(path, provisionedModelThroughput) ||
+		strings.HasPrefix(path, evaluationJobsPrefix) ||
+		strings.HasPrefix(path, automatedReasoningPrefix) ||
+		strings.HasPrefix(path, modelCustomizationJobsPrefix) ||
+		strings.HasPrefix(path, inferenceProfilesPrefix) ||
+		strings.HasPrefix(path, marketplaceEndpointsPrefix) ||
+		strings.HasPrefix(path, customModelsPrefix)
+}
+
+// matchBedrockExtPrefixes checks the extended Bedrock resource prefixes.
+func matchBedrockExtPrefixes(path string) bool {
+	return strings.HasPrefix(path, modelCopyJobsPrefix) ||
+		strings.HasPrefix(path, modelImportJobsPrefix) ||
+		strings.HasPrefix(path, modelInvocationJobsPrefix) ||
+		strings.HasPrefix(path, promptRoutersPrefix) ||
+		strings.HasPrefix(path, importedModelsPrefix) ||
+		strings.HasPrefix(path, foundationModelAvailPath) ||
+		strings.HasPrefix(path, foundationModelAgreementsPath) ||
+		strings.HasPrefix(path, customModelDeployments2Path)
+}
+
+// matchBedrockExactPaths returns true if path exactly matches a known Bedrock path.
+func matchBedrockExactPaths(path string) bool {
+	return path == useCaseForModelAccessPath ||
+		path == enforcedGuardrailsPath ||
+		path == loggingConfigPath ||
+		path == customModelDeploymentsPath ||
+		path == foundationModelAgreement ||
+		path == listTagsForResourcePath ||
+		path == tagResourcePath ||
+		path == untagResourcePath
 }
 
 // MatchPriority returns the routing priority.
@@ -512,123 +537,157 @@ func (h *Handler) dispatchExtended(c *echo.Context, path, method string, body []
 }
 
 // routeStubOps handles stub operations that return minimal valid responses.
-//
-//nolint:cyclop,funlen,gocognit,gocyclo,goconst // large dispatch table for stub operations
 func (h *Handler) routeStubOps(c *echo.Context, path, method string) (bool, error) {
+	if ok, err := h.routeStubJobOps(c, path, method); ok {
+		return true, err
+	}
+
+	if ok, err := h.routeStubModelOps(c, path, method); ok {
+		return true, err
+	}
+
+	return h.routeStubMiscOps(c, path, method)
+}
+
+// routeStubJobOps handles model copy, import, and invocation job stubs.
+func (h *Handler) routeStubJobOps(c *echo.Context, path, method string) (bool, error) {
+	if ok, err := h.routeStubCopyImportOps(c, path, method); ok {
+		return true, err
+	}
+
+	return h.routeStubInvocationOps(c, path, method)
+}
+
+// routeStubCopyImportOps handles model copy and import job stubs.
+func (h *Handler) routeStubCopyImportOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
-	// Model copy jobs.
 	case path == modelCopyJobsPrefix && method == http.MethodPost:
-		return true, c.JSON(
-			http.StatusCreated,
-			map[string]any{"jobArn": "arn:aws:bedrock:us-east-1:000000000000:model-copy-job/stub"},
-		)
+		return true, c.JSON(http.StatusCreated,
+			map[string]any{keyJobArn: "arn:aws:bedrock:us-east-1:000000000000:model-copy-job/stub"})
 	case path == modelCopyJobsPrefix && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK, map[string]any{"modelCopyJobSummaries": []any{}})
 	case strings.HasPrefix(path, modelCopyJobsPrefix+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"jobArn": path, "status": "Completed"})
-
-	// Model import jobs.
+		return true, c.JSON(http.StatusOK, map[string]any{keyJobArn: path, keyStatus: jobStatusCompleted})
 	case path == modelImportJobsPrefix && method == http.MethodPost:
-		return true, c.JSON(
-			http.StatusCreated,
-			map[string]any{
-				"jobArn": "arn:aws:bedrock:us-east-1:000000000000:model-import-job/stub",
-			},
-		)
+		return true, c.JSON(http.StatusCreated,
+			map[string]any{keyJobArn: "arn:aws:bedrock:us-east-1:000000000000:model-import-job/stub"})
 	case path == modelImportJobsPrefix && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK, map[string]any{"modelImportJobSummaries": []any{}})
 	case strings.HasPrefix(path, modelImportJobsPrefix+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"jobArn": path, "status": "Completed"})
+		return true, c.JSON(http.StatusOK, map[string]any{keyJobArn: path, keyStatus: jobStatusCompleted})
+	}
 
-	// Model invocation jobs.
+	return false, nil
+}
+
+// routeStubInvocationOps handles model invocation job stubs.
+func (h *Handler) routeStubInvocationOps(c *echo.Context, path, method string) (bool, error) {
+	switch {
 	case path == modelInvocationJobsPrefix && method == http.MethodPost:
-		return true, c.JSON(
-			http.StatusCreated,
-			map[string]any{
-				"jobArn": "arn:aws:bedrock:us-east-1:000000000000:model-invocation-job/stub",
-			},
-		)
+		return true, c.JSON(http.StatusCreated,
+			map[string]any{keyJobArn: "arn:aws:bedrock:us-east-1:000000000000:model-invocation-job/stub"})
 	case path == modelInvocationJobsPrefix && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK, map[string]any{"invocationJobSummaries": []any{}})
 	case strings.HasPrefix(path, modelInvocationJobsPrefix+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"jobArn": path, "status": "Completed"})
+		return true, c.JSON(http.StatusOK, map[string]any{keyJobArn: path, keyStatus: jobStatusCompleted})
 	case strings.HasPrefix(path, modelInvocationJobsPrefix+"/") && method == http.MethodDelete:
 		return true, c.NoContent(http.StatusNoContent)
+	}
 
-	// Prompt routers.
+	return false, nil
+}
+
+// routeStubModelOps handles prompt router, imported model, and foundation model stubs.
+func (h *Handler) routeStubModelOps(c *echo.Context, path, method string) (bool, error) {
+	if ok, err := h.routeStubPromptRouterOps(c, path, method); ok {
+		return true, err
+	}
+
+	return h.routeStubFoundationModelOps(c, path, method)
+}
+
+// routeStubPromptRouterOps handles prompt router and imported model stubs.
+func (h *Handler) routeStubPromptRouterOps(c *echo.Context, path, method string) (bool, error) {
+	switch {
 	case path == promptRoutersPrefix && method == http.MethodPost:
-		return true, c.JSON(
-			http.StatusCreated,
-			map[string]any{
-				"promptRouterArn": "arn:aws:bedrock:us-east-1:000000000000:prompt-router/stub",
-			},
-		)
+		return true, c.JSON(http.StatusCreated,
+			map[string]any{"promptRouterArn": "arn:aws:bedrock:us-east-1:000000000000:prompt-router/stub"})
 	case path == promptRoutersPrefix && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK, map[string]any{"promptRouters": []any{}})
 	case strings.HasPrefix(path, promptRoutersPrefix+"/") && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK, map[string]any{"promptRouterArn": path})
 	case strings.HasPrefix(path, promptRoutersPrefix+"/") && method == http.MethodDelete:
 		return true, c.NoContent(http.StatusNoContent)
-
-	// Imported models.
 	case path == importedModelsPrefix && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK, map[string]any{"modelSummaries": []any{}})
 	case strings.HasPrefix(path, importedModelsPrefix+"/") && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK, map[string]any{"modelArn": path})
 	case strings.HasPrefix(path, importedModelsPrefix+"/") && method == http.MethodDelete:
 		return true, c.NoContent(http.StatusNoContent)
+	}
 
-	// Foundation model availability & agreements.
+	return false, nil
+}
+
+// routeStubFoundationModelOps handles foundation model availability and agreement stubs.
+func (h *Handler) routeStubFoundationModelOps(c *echo.Context, path, method string) (bool, error) {
+	switch {
 	case strings.HasPrefix(path, foundationModelAvailPath+"/") && method == http.MethodGet:
-		return true, c.JSON(
-			http.StatusOK,
-			map[string]any{"agreementAvailability": map[string]string{"status": "AVAILABLE"}},
-		)
+		return true, c.JSON(http.StatusOK,
+			map[string]any{"agreementAvailability": map[string]string{"status": "AVAILABLE"}})
 	case path == foundationModelAgreementsPath && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK, map[string]any{"modelAgreementOffers": []any{}})
 	case strings.HasPrefix(path, "/delete-foundation-model-agreement") && method == http.MethodDelete:
 		return true, c.NoContent(http.StatusNoContent)
+	}
 
-	// Custom model deployments.
+	return false, nil
+}
+
+// routeStubMiscOps handles custom model deployment, use case, and enforced guardrail stubs.
+func (h *Handler) routeStubMiscOps(c *echo.Context, path, method string) (bool, error) {
+	if ok, err := h.routeStubDeploymentOps(c, path, method); ok {
+		return true, err
+	}
+
+	return h.routeStubAccessOps(c, path, method)
+}
+
+// routeStubDeploymentOps handles custom model deployment stubs.
+func (h *Handler) routeStubDeploymentOps(c *echo.Context, path, method string) (bool, error) {
+	switch {
 	case path == customModelDeployments2Path && method == http.MethodGet:
 		return true, c.JSON(http.StatusOK, map[string]any{"deploymentSummaries": []any{}})
 	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK, map[string]any{"deploymentArn": path})
+		return true, c.JSON(http.StatusOK, map[string]any{keyDeploymentArn: path})
 	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodPost:
-		return true, c.JSON(
-			http.StatusCreated,
-			map[string]any{
-				"deploymentArn": "arn:aws:bedrock:us-east-1:000000000000:custom-model-deployment/stub",
-			},
-		)
+		return true, c.JSON(http.StatusCreated,
+			map[string]any{keyDeploymentArn: "arn:aws:bedrock:us-east-1:000000000000:custom-model-deployment/stub"})
 	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodPatch:
-		return true, c.JSON(http.StatusOK, map[string]any{"deploymentArn": path})
+		return true, c.JSON(http.StatusOK, map[string]any{keyDeploymentArn: path})
 	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodDelete:
 		return true, c.NoContent(http.StatusNoContent)
+	}
 
-	// Use case for model access.
+	return false, nil
+}
+
+// routeStubAccessOps handles use case for model access and enforced guardrail stubs.
+func (h *Handler) routeStubAccessOps(c *echo.Context, path, method string) (bool, error) {
+	switch {
 	case path == useCaseForModelAccessPath && method == http.MethodGet:
-		return true, c.JSON(
-			http.StatusOK,
-			map[string]any{"useCaseType": "", "useCaseDescription": ""},
-		)
+		return true, c.JSON(http.StatusOK, map[string]any{"useCaseType": "", "useCaseDescription": ""})
 	case path == useCaseForModelAccessPath && method == http.MethodPut:
 		return true, c.NoContent(http.StatusNoContent)
-
-	// Enforced guardrail configuration.
 	case path == enforcedGuardrailsPath && method == http.MethodGet:
-		return true, c.JSON(
-			http.StatusOK,
-			map[string]any{"enforcedGuardrailConfigurations": []any{}},
-		)
+		return true, c.JSON(http.StatusOK, map[string]any{"enforcedGuardrailConfigurations": []any{}})
 	case path == enforcedGuardrailsPath && method == http.MethodPut:
 		return true, c.NoContent(http.StatusNoContent)
 	case path == enforcedGuardrailsPath && method == http.MethodDelete:
 		return true, c.NoContent(http.StatusNoContent)
-
-	default:
-		return false, nil
 	}
+
+	return false, nil
 }
 
 func (h *Handler) routeGuardrail(c *echo.Context, path, method string, body []byte) (bool, error) {

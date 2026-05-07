@@ -322,9 +322,16 @@ func parseDomainRepoPath(method, path string) codeartifactRoute {
 }
 
 // parsePackageOpPath handles package, package-group, and package-version routes.
-//
-//nolint:cyclop // large switch-case dispatch is inherently high cyclomatic complexity
 func parsePackageOpPath(method, path string) codeartifactRoute {
+	if r := parsePackageGroupVersionOps(method, path); r.operation != opUnknown {
+		return r
+	}
+
+	return parsePackageVersionAssetOps(path)
+}
+
+// parsePackageGroupVersionOps handles package group, package CRUD, and package version operations.
+func parsePackageGroupVersionOps(method, path string) codeartifactRoute {
 	switch path {
 	case pathV1PackageGroup:
 		return parsePackageGroupRoute(method)
@@ -348,6 +355,14 @@ func parsePackageOpPath(method, path string) codeartifactRoute {
 		return codeartifactRoute{operation: opUpdatePackageVersionsStatus}
 	case pathV1PackageVersionsPublish:
 		return codeartifactRoute{operation: opPublishPackageVersion}
+	}
+
+	return codeartifactRoute{operation: opUnknown}
+}
+
+// parsePackageVersionAssetOps handles package version asset and package-group association operations.
+func parsePackageVersionAssetOps(path string) codeartifactRoute {
+	switch path {
 	case pathV1PackageVersionAsset:
 		return codeartifactRoute{operation: opGetPackageVersionAsset}
 	case pathV1PackageVersionReadme:

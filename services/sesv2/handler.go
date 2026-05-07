@@ -382,55 +382,53 @@ func parseSESv2Path(method, path string) (string, string) {
 }
 
 // parseMiscPaths handles the newer SES v2 path prefixes.
-//
-//nolint:cyclop // routes many sub-path categories
-func parseMiscPaths(
-	method string,
-	segments []string,
-) (string, string) {
+func parseMiscPaths(method string, segments []string) (string, string) {
+	if op, id := parseMiscPathsSpecial(method, segments); op != unknownAction {
+		return op, id
+	}
+
+	return parseExtendedPaths(method, segments)
+}
+
+// parseMiscPathsSpecial handles paths with special POST-create logic before extended dispatch.
+func parseMiscPathsSpecial(method string, segments []string) (string, string) {
 	switch segments[0] {
 	case "metrics":
 		return parseMetricsPath(method, segments)
 	case "export-jobs":
-		// POST /v2/email/export-jobs handled by extended parser; legacy cancel path handled below
-		if op, res := parseExportJobsPath(method, segments); op != unknownAction {
-			return op, res
-		}
-
-		return parseExtendedPaths(method, segments)
+		return parseExportJobsPath(method, segments)
 	case "contact-lists":
-		if method == http.MethodPost && len(segments) == 1 {
-			return opCreateContactList, ""
-		}
-
-		if method == http.MethodPost && len(segments) == 3 && segments[2] == segContacts {
-			return opCreateContact, segments[1]
-		}
-
-		return parseExtendedPaths(method, segments)
+		return parseContactListSpecialPath(method, segments)
 	case "custom-verification-email-templates":
 		if method == http.MethodPost && len(segments) == 1 {
 			return opCreateCustomVerificationEmailTemplate, ""
 		}
-
-		return parseExtendedPaths(method, segments)
 	case "dedicated-ip-pools":
 		if method == http.MethodPost && len(segments) == 1 {
 			return opCreateDedicatedIPPool, ""
 		}
-
-		return parseExtendedPaths(method, segments)
 	case "deliverability-dashboard":
 		return parseDeliverabilityDashboardPath(method, segments)
 	case "templates":
 		if method == http.MethodPost && len(segments) == 1 {
 			return opCreateEmailTemplate, ""
 		}
-
-		return parseExtendedPaths(method, segments)
-	default:
-		return parseExtendedPaths(method, segments)
 	}
+
+	return unknownAction, ""
+}
+
+// parseContactListSpecialPath handles contact list POST-create paths.
+func parseContactListSpecialPath(method string, segments []string) (string, string) {
+	if method == http.MethodPost && len(segments) == 1 {
+		return opCreateContactList, ""
+	}
+
+	if method == http.MethodPost && len(segments) == 3 && segments[2] == segContacts {
+		return opCreateContact, segments[1]
+	}
+
+	return unknownAction, ""
 }
 
 const metricsPathSegments = 2
