@@ -31,6 +31,11 @@ resource "aws_elasticache_replication_group" "redis" {
   }
 }
 
+resource "aws_elasticache_snapshot" "rg_snapshot" {
+  name                 = "{{.Prefix}}-snap"
+  replication_group_id = aws_elasticache_replication_group.redis.id
+}
+
 resource "aws_elasticache_user" "app" {
   user_id       = "{{.Prefix}}-user"
   user_name     = "appuser"
