@@ -117,6 +117,7 @@ type Table struct {
 	TableID                   string                                  `json:"TableID"`
 	Name                      string                                  `json:"Name"`
 	BillingMode               string                                  `json:"BillingMode,omitempty"`
+	ResourcePolicy            string                                  `json:"ResourcePolicy,omitempty"`
 	Replicas                  []models.ReplicaDescription             `json:"Replicas,omitempty"`
 	Items                     []map[string]any                        `json:"Items"`
 	GlobalSecondaryIndexes    []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`

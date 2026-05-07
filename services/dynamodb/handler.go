@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
@@ -1357,6 +1358,7 @@ type resourcePolicyInput struct {
 }
 
 type resourcePolicyOutput struct {
+	Policy     string `json:"Policy,omitempty"`
 	RevisionID string `json:"RevisionId,omitempty"`
 }
 
@@ -1837,14 +1839,20 @@ func (h *DynamoDBHandler) handleGetResourcePolicy(ctx context.Context, body []by
 		return nil, err
 	}
 
-	_, err := h.Backend.GetResourcePolicy(ctx, &sdkDDB.GetResourcePolicyInput{
+	out, err := h.Backend.GetResourcePolicy(ctx, &sdkDDB.GetResourcePolicyInput{
 		ResourceArn: &req.ResourceArn,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &resourcePolicyOutput{}, nil
+	resp := &resourcePolicyOutput{}
+	if out != nil {
+		resp.Policy = aws.ToString(out.Policy)
+		resp.RevisionID = aws.ToString(out.RevisionId)
+	}
+
+	return resp, nil
 }
 
 func (h *DynamoDBHandler) handlePutResourcePolicy(ctx context.Context, body []byte) (any, error) {
@@ -1853,7 +1861,7 @@ func (h *DynamoDBHandler) handlePutResourcePolicy(ctx context.Context, body []by
 		return nil, err
 	}
 
-	_, err := h.Backend.PutResourcePolicy(ctx, &sdkDDB.PutResourcePolicyInput{
+	out, err := h.Backend.PutResourcePolicy(ctx, &sdkDDB.PutResourcePolicyInput{
 		ResourceArn: &req.ResourceArn,
 		Policy:      &req.Policy,
 	})
@@ -1861,7 +1869,12 @@ func (h *DynamoDBHandler) handlePutResourcePolicy(ctx context.Context, body []by
 		return nil, err
 	}
 
-	return &resourcePolicyOutput{}, nil
+	resp := &resourcePolicyOutput{}
+	if out != nil {
+		resp.RevisionID = aws.ToString(out.RevisionId)
+	}
+
+	return resp, nil
 }
 
 // buildGlobalTableDescriptionWire converts the SDK GlobalTableDescription to the wire format.

@@ -672,6 +672,10 @@ func (db *InMemoryDB) UpdateTable(
 			table.DeletionProtectionEnabled = *input.DeletionProtectionEnabled
 		}
 
+		if input.TableClass != "" {
+			table.TableClass = string(input.TableClass)
+		}
+
 		rcu = int64(table.ProvisionedThroughput.ReadCapacityUnits)
 		wcu = int64(table.ProvisionedThroughput.WriteCapacityUnits)
 		out = buildUpdateTableOutput(input, table)
