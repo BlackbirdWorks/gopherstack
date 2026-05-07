@@ -783,7 +783,7 @@ func (b *InMemoryBackend) CreateLegalHold(title, description string) (*LegalHold
 		LegalHoldArn: lhARN,
 		Title:        title,
 		Description:  description,
-		Status:       "ACTIVE",
+		Status:       statusActive,
 		CreationDate: time.Now().UTC(),
 	}
 	b.legalHolds[id] = lh

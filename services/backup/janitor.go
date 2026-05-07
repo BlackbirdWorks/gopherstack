@@ -18,7 +18,7 @@ const (
 
 // isTerminalJob reports whether the given backup job state is terminal.
 func isTerminalJob(state string) bool {
-	return state == "COMPLETED" || state == "FAILED" || state == "EXPIRED" || state == "ABORTED"
+	return state == statusCompleted || state == "FAILED" || state == "EXPIRED" || state == "ABORTED"
 }
 
 // Janitor is the Backup background worker that evicts completed backup jobs

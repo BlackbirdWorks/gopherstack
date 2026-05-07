@@ -34,6 +34,18 @@ const (
 	inferenceProfilesPrefix      = "/inference-profiles"
 	marketplaceEndpointsPrefix   = "/marketplace-model/endpoints"
 	loggingConfigPath            = "/logging/modelinvocations"
+
+	// Stub operation paths.
+	modelCopyJobsPrefix           = "/model-copy-jobs"
+	modelImportJobsPrefix         = "/model-import-jobs"
+	modelInvocationJobsPrefix     = "/model-invocation-jobs"
+	promptRoutersPrefix           = "/prompt-routers"
+	importedModelsPrefix          = "/imported-models"
+	foundationModelAvailPath      = "/foundation-model-availability"
+	foundationModelAgreementsPath = "/foundation-model-agreement-offers"
+	customModelDeployments2Path   = "/custom-model-deployments"
+	useCaseForModelAccessPath     = "/usecase-for-model-access"
+	enforcedGuardrailsPath        = "/enforced-guardrail-configuration"
 )
 
 // isoTime is a [time.Time] that marshals as RFC3339.
@@ -108,6 +120,59 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateGuardrail",
 		"UpdateMarketplaceModelEndpoint",
 		"UpdateProvisionedModelThroughput",
+		// Stub operations.
+		"CreateModelCopyJob",
+		"CreateModelImportJob",
+		"CreateModelInvocationJob",
+		"CreatePromptRouter",
+		"DeleteAutomatedReasoningPolicy",
+		"DeleteAutomatedReasoningPolicyBuildWorkflow",
+		"DeleteAutomatedReasoningPolicyTestCase",
+		"DeleteCustomModelDeployment",
+		"DeleteEnforcedGuardrailConfiguration",
+		"DeleteFoundationModelAgreement",
+		"DeleteImportedModel",
+		"DeletePromptRouter",
+		"ExportAutomatedReasoningPolicyVersion",
+		"GetAutomatedReasoningPolicy",
+		"GetAutomatedReasoningPolicyAnnotations",
+		"GetAutomatedReasoningPolicyBuildWorkflow",
+		"GetAutomatedReasoningPolicyBuildWorkflowResultAssets",
+		"GetAutomatedReasoningPolicyNextScenario",
+		"GetAutomatedReasoningPolicyTestCase",
+		"GetAutomatedReasoningPolicyTestResult",
+		"GetCustomModelDeployment",
+		"GetEvaluationJob",
+		"GetFoundationModelAvailability",
+		"GetImportedModel",
+		"GetModelCopyJob",
+		"GetModelImportJob",
+		"GetModelInvocationJob",
+		"GetPromptRouter",
+		"GetUseCaseForModelAccess",
+		"ListAutomatedReasoningPolicies",
+		"ListAutomatedReasoningPolicyBuildWorkflows",
+		"ListAutomatedReasoningPolicyTestCases",
+		"ListAutomatedReasoningPolicyTestResults",
+		"ListCustomModelDeployments",
+		"ListEnforcedGuardrailsConfiguration",
+		"ListEvaluationJobs",
+		"ListFoundationModelAgreementOffers",
+		"ListImportedModels",
+		"ListModelCopyJobs",
+		"ListModelImportJobs",
+		"ListModelInvocationJobs",
+		"ListPromptRouters",
+		"PutEnforcedGuardrailConfiguration",
+		"PutUseCaseForModelAccess",
+		"StartAutomatedReasoningPolicyBuildWorkflow",
+		"StartAutomatedReasoningPolicyTestWorkflow",
+		"StopEvaluationJob",
+		"StopModelInvocationJob",
+		"UpdateAutomatedReasoningPolicy",
+		"UpdateAutomatedReasoningPolicyAnnotations",
+		"UpdateAutomatedReasoningPolicyTestCase",
+		"UpdateCustomModelDeployment",
 	}
 }
 
@@ -121,6 +186,8 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches Bedrock requests.
+//
+//nolint:cyclop // extended path list for stub operations is inherently wide
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
@@ -134,6 +201,16 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, inferenceProfilesPrefix) ||
 			strings.HasPrefix(path, marketplaceEndpointsPrefix) ||
 			strings.HasPrefix(path, customModelsPrefix) ||
+			strings.HasPrefix(path, modelCopyJobsPrefix) ||
+			strings.HasPrefix(path, modelImportJobsPrefix) ||
+			strings.HasPrefix(path, modelInvocationJobsPrefix) ||
+			strings.HasPrefix(path, promptRoutersPrefix) ||
+			strings.HasPrefix(path, importedModelsPrefix) ||
+			strings.HasPrefix(path, foundationModelAvailPath) ||
+			strings.HasPrefix(path, foundationModelAgreementsPath) ||
+			strings.HasPrefix(path, customModelDeployments2Path) ||
+			path == useCaseForModelAccessPath ||
+			path == enforcedGuardrailsPath ||
 			path == loggingConfigPath ||
 			path == customModelDeploymentsPath ||
 			path == foundationModelAgreement ||
@@ -368,7 +445,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			if err != nil {
 				log.ErrorContext(r.Context(), "bedrock: failed to read request body", "error", err)
 
-				return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+				return c.JSON(
+					http.StatusInternalServerError,
+					errorResponse("InternalFailure", "internal server error"),
+				)
 			}
 		}
 
@@ -421,7 +501,134 @@ func (h *Handler) dispatchExtended(c *echo.Context, path, method string, body []
 		return err
 	}
 
-	return c.JSON(http.StatusNotFound, errorResponse("UnknownOperationException", "unknown operation: "+path))
+	if ok, err := h.routeStubOps(c, path, method); ok {
+		return err
+	}
+
+	return c.JSON(
+		http.StatusNotFound,
+		errorResponse("UnknownOperationException", "unknown operation: "+path),
+	)
+}
+
+// routeStubOps handles stub operations that return minimal valid responses.
+//
+//nolint:cyclop,funlen,gocognit,gocyclo,goconst // large dispatch table for stub operations
+func (h *Handler) routeStubOps(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	// Model copy jobs.
+	case path == modelCopyJobsPrefix && method == http.MethodPost:
+		return true, c.JSON(
+			http.StatusCreated,
+			map[string]any{"jobArn": "arn:aws:bedrock:us-east-1:000000000000:model-copy-job/stub"},
+		)
+	case path == modelCopyJobsPrefix && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"modelCopyJobSummaries": []any{}})
+	case strings.HasPrefix(path, modelCopyJobsPrefix+"/") && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"jobArn": path, "status": "Completed"})
+
+	// Model import jobs.
+	case path == modelImportJobsPrefix && method == http.MethodPost:
+		return true, c.JSON(
+			http.StatusCreated,
+			map[string]any{
+				"jobArn": "arn:aws:bedrock:us-east-1:000000000000:model-import-job/stub",
+			},
+		)
+	case path == modelImportJobsPrefix && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"modelImportJobSummaries": []any{}})
+	case strings.HasPrefix(path, modelImportJobsPrefix+"/") && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"jobArn": path, "status": "Completed"})
+
+	// Model invocation jobs.
+	case path == modelInvocationJobsPrefix && method == http.MethodPost:
+		return true, c.JSON(
+			http.StatusCreated,
+			map[string]any{
+				"jobArn": "arn:aws:bedrock:us-east-1:000000000000:model-invocation-job/stub",
+			},
+		)
+	case path == modelInvocationJobsPrefix && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"invocationJobSummaries": []any{}})
+	case strings.HasPrefix(path, modelInvocationJobsPrefix+"/") && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"jobArn": path, "status": "Completed"})
+	case strings.HasPrefix(path, modelInvocationJobsPrefix+"/") && method == http.MethodDelete:
+		return true, c.NoContent(http.StatusNoContent)
+
+	// Prompt routers.
+	case path == promptRoutersPrefix && method == http.MethodPost:
+		return true, c.JSON(
+			http.StatusCreated,
+			map[string]any{
+				"promptRouterArn": "arn:aws:bedrock:us-east-1:000000000000:prompt-router/stub",
+			},
+		)
+	case path == promptRoutersPrefix && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"promptRouters": []any{}})
+	case strings.HasPrefix(path, promptRoutersPrefix+"/") && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"promptRouterArn": path})
+	case strings.HasPrefix(path, promptRoutersPrefix+"/") && method == http.MethodDelete:
+		return true, c.NoContent(http.StatusNoContent)
+
+	// Imported models.
+	case path == importedModelsPrefix && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"modelSummaries": []any{}})
+	case strings.HasPrefix(path, importedModelsPrefix+"/") && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"modelArn": path})
+	case strings.HasPrefix(path, importedModelsPrefix+"/") && method == http.MethodDelete:
+		return true, c.NoContent(http.StatusNoContent)
+
+	// Foundation model availability & agreements.
+	case strings.HasPrefix(path, foundationModelAvailPath+"/") && method == http.MethodGet:
+		return true, c.JSON(
+			http.StatusOK,
+			map[string]any{"agreementAvailability": map[string]string{"status": "AVAILABLE"}},
+		)
+	case path == foundationModelAgreementsPath && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"modelAgreementOffers": []any{}})
+	case strings.HasPrefix(path, "/delete-foundation-model-agreement") && method == http.MethodDelete:
+		return true, c.NoContent(http.StatusNoContent)
+
+	// Custom model deployments.
+	case path == customModelDeployments2Path && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"deploymentSummaries": []any{}})
+	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodGet:
+		return true, c.JSON(http.StatusOK, map[string]any{"deploymentArn": path})
+	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodPost:
+		return true, c.JSON(
+			http.StatusCreated,
+			map[string]any{
+				"deploymentArn": "arn:aws:bedrock:us-east-1:000000000000:custom-model-deployment/stub",
+			},
+		)
+	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodPatch:
+		return true, c.JSON(http.StatusOK, map[string]any{"deploymentArn": path})
+	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodDelete:
+		return true, c.NoContent(http.StatusNoContent)
+
+	// Use case for model access.
+	case path == useCaseForModelAccessPath && method == http.MethodGet:
+		return true, c.JSON(
+			http.StatusOK,
+			map[string]any{"useCaseType": "", "useCaseDescription": ""},
+		)
+	case path == useCaseForModelAccessPath && method == http.MethodPut:
+		return true, c.NoContent(http.StatusNoContent)
+
+	// Enforced guardrail configuration.
+	case path == enforcedGuardrailsPath && method == http.MethodGet:
+		return true, c.JSON(
+			http.StatusOK,
+			map[string]any{"enforcedGuardrailConfigurations": []any{}},
+		)
+	case path == enforcedGuardrailsPath && method == http.MethodPut:
+		return true, c.NoContent(http.StatusNoContent)
+	case path == enforcedGuardrailsPath && method == http.MethodDelete:
+		return true, c.NoContent(http.StatusNoContent)
+
+	default:
+		return false, nil
+	}
 }
 
 func (h *Handler) routeGuardrail(c *echo.Context, path, method string, body []byte) (bool, error) {
@@ -494,7 +701,11 @@ func (h *Handler) routeTag(c *echo.Context, path, method string, body []byte) (b
 	}
 }
 
-func (h *Handler) routeEvaluationJob(c *echo.Context, path, method string, body []byte) (bool, error) {
+func (h *Handler) routeEvaluationJob(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
 	switch {
 	case path == evaluationJobsBatchDelete && method == http.MethodPost:
 		return true, h.handleBatchDeleteEvaluationJob(c, body)
@@ -524,7 +735,11 @@ func (h *Handler) routeARP(c *echo.Context, path, method string, body []byte) (b
 	}
 }
 
-func (h *Handler) routeCustomModel(c *echo.Context, path, method string, body []byte) (bool, error) {
+func (h *Handler) routeCustomModel(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
 	if method != http.MethodPost {
 		return false, nil
 	}
@@ -602,7 +817,10 @@ type createGuardrailOutput struct {
 func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
 	in, err := parseBody[createGuardrailInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	g, opErr := h.Backend.CreateGuardrail(
@@ -716,7 +934,10 @@ type updateGuardrailOutput struct {
 func (h *Handler) handleUpdateGuardrail(c *echo.Context, id string, body []byte) error {
 	in, err := parseBody[updateGuardrailInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	g, opErr := h.Backend.UpdateGuardrail(
@@ -778,7 +999,10 @@ func (h *Handler) handleListFoundationModels(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, listFoundationModelsOutput{ModelSummaries: summaries, NextToken: outToken})
+	return c.JSON(
+		http.StatusOK,
+		listFoundationModelsOutput{ModelSummaries: summaries, NextToken: outToken},
+	)
 }
 
 type getFoundationModelOutput struct {
@@ -820,7 +1044,10 @@ type createProvisionedModelThroughputOutput struct {
 func (h *Handler) handleCreateProvisionedModelThroughput(c *echo.Context, body []byte) error {
 	in, err := parseBody[createProvisionedModelThroughputInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	pmt, opErr := h.Backend.CreateProvisionedModelThroughput(
@@ -894,7 +1121,10 @@ func (h *Handler) handleListProvisionedModelThroughputs(c *echo.Context) error {
 
 	return c.JSON(
 		http.StatusOK,
-		listProvisionedModelThroughputsOutput{ProvisionedModelSummaries: summaries, NextToken: outToken},
+		listProvisionedModelThroughputsOutput{
+			ProvisionedModelSummaries: summaries,
+			NextToken:                 outToken,
+		},
 	)
 }
 
@@ -903,10 +1133,17 @@ type updateProvisionedModelThroughputInput struct {
 	ModelID    string `json:"modelId"`
 }
 
-func (h *Handler) handleUpdateProvisionedModelThroughput(c *echo.Context, id string, body []byte) error {
+func (h *Handler) handleUpdateProvisionedModelThroughput(
+	c *echo.Context,
+	id string,
+	body []byte,
+) error {
 	in, err := parseBody[updateProvisionedModelThroughputInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	_, opErr := h.Backend.UpdateProvisionedModelThroughput(id, in.ModelID, in.ModelUnits)
@@ -938,7 +1175,10 @@ type listTagsForResourceOutput struct {
 func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error {
 	in, err := parseBody[listTagsForResourceInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	tags, opErr := h.Backend.ListTagsForResource(in.ResourceARN)
@@ -961,7 +1201,10 @@ type tagResourceInput struct {
 func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	in, err := parseBody[tagResourceInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	if opErr := h.Backend.TagResource(in.ResourceARN, in.Tags); opErr != nil {
@@ -979,7 +1222,10 @@ type untagResourceInput struct {
 func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 	in, err := parseBody[untagResourceInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	if opErr := h.Backend.UntagResource(in.ResourceARN, in.TagKeys); opErr != nil {
@@ -1003,7 +1249,10 @@ type createEvaluationJobOutput struct {
 func (h *Handler) handleCreateEvaluationJob(c *echo.Context, body []byte) error {
 	in, err := parseBody[createEvaluationJobInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	job, opErr := h.Backend.CreateEvaluationJob(in.JobName, in.Tags)
@@ -1026,7 +1275,10 @@ type batchDeleteEvaluationJobOutput struct {
 func (h *Handler) handleBatchDeleteEvaluationJob(c *echo.Context, body []byte) error {
 	in, err := parseBody[batchDeleteEvaluationJobInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	errs, deleted, opErr := h.Backend.BatchDeleteEvaluationJob(in.JobIdentifiers)
@@ -1034,7 +1286,10 @@ func (h *Handler) handleBatchDeleteEvaluationJob(c *echo.Context, body []byte) e
 		return h.writeError(c, opErr)
 	}
 
-	return c.JSON(http.StatusOK, batchDeleteEvaluationJobOutput{Errors: errs, EvaluationJobs: deleted})
+	return c.JSON(
+		http.StatusOK,
+		batchDeleteEvaluationJobOutput{Errors: errs, EvaluationJobs: deleted},
+	)
 }
 
 // --- AutomatedReasoningPolicy handlers ---
@@ -1056,7 +1311,10 @@ type createAutomatedReasoningPolicyOutput struct {
 func (h *Handler) handleCreateAutomatedReasoningPolicy(c *echo.Context, body []byte) error {
 	in, err := parseBody[createAutomatedReasoningPolicyInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	policy, opErr := h.Backend.CreateAutomatedReasoningPolicy(in.Name, in.Description, in.Tags)
@@ -1075,7 +1333,10 @@ func (h *Handler) handleCreateAutomatedReasoningPolicy(c *echo.Context, body []b
 
 // handleCancelAutomatedReasoningPolicyBuildWorkflow cancels a build workflow.
 // Path: /automated-reasoning-policies/{policyArn}/build-workflows/{buildWorkflowId}/cancel.
-func (h *Handler) handleCancelAutomatedReasoningPolicyBuildWorkflow(c *echo.Context, path string) error {
+func (h *Handler) handleCancelAutomatedReasoningPolicyBuildWorkflow(
+	c *echo.Context,
+	path string,
+) error {
 	policyARN, workflowID := extractARPBuildWorkflowIDs(path)
 
 	if opErr := h.Backend.CancelAutomatedReasoningPolicyBuildWorkflow(policyARN, workflowID); opErr != nil {
@@ -1125,16 +1386,26 @@ type createAutomatedReasoningPolicyVersionInput struct {
 
 // handleCreateAutomatedReasoningPolicyVersion creates a policy version.
 // Path: /automated-reasoning-policies/{policyArn}/versions.
-func (h *Handler) handleCreateAutomatedReasoningPolicyVersion(c *echo.Context, path string, body []byte) error {
+func (h *Handler) handleCreateAutomatedReasoningPolicyVersion(
+	c *echo.Context,
+	path string,
+	body []byte,
+) error {
 	in, err := parseBody[createAutomatedReasoningPolicyVersionInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	policyARN := decodePath(strings.TrimSuffix(rest, "/versions"))
 
-	version, opErr := h.Backend.CreateAutomatedReasoningPolicyVersion(policyARN, in.LastUpdatedDefinitionHash)
+	version, opErr := h.Backend.CreateAutomatedReasoningPolicyVersion(
+		policyARN,
+		in.LastUpdatedDefinitionHash,
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -1162,7 +1433,10 @@ type createCustomModelOutput struct {
 func (h *Handler) handleCreateCustomModel(c *echo.Context, body []byte) error {
 	in, err := parseBody[createCustomModelInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	model, opErr := h.Backend.CreateCustomModel(in.ModelName, in.Tags)
@@ -1188,10 +1462,17 @@ type createCustomModelDeploymentOutput struct {
 func (h *Handler) handleCreateCustomModelDeployment(c *echo.Context, body []byte) error {
 	in, err := parseBody[createCustomModelDeploymentInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
-	deployment, opErr := h.Backend.CreateCustomModelDeployment(in.ModelArn, in.ModelDeploymentName, in.Tags)
+	deployment, opErr := h.Backend.CreateCustomModelDeployment(
+		in.ModelArn,
+		in.ModelDeploymentName,
+		in.Tags,
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -1215,7 +1496,10 @@ type createFoundationModelAgreementOutput struct {
 func (h *Handler) handleCreateFoundationModelAgreement(c *echo.Context, body []byte) error {
 	in, err := parseBody[createFoundationModelAgreementInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	agreement, opErr := h.Backend.CreateFoundationModelAgreement(in.ModelID)
@@ -1361,7 +1645,11 @@ func (h *Handler) routeCustomModelList(c *echo.Context, path, method string) (bo
 	}
 }
 
-func (h *Handler) routeCustomizationJob(c *echo.Context, path, method string, body []byte) (bool, error) {
+func (h *Handler) routeCustomizationJob(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
 	isSubPath := strings.HasPrefix(path, modelCustomizationJobsPrefix+"/")
 	isStop := isSubPath && strings.HasSuffix(path, "/stop")
 
@@ -1384,7 +1672,11 @@ func (h *Handler) routeCustomizationJob(c *echo.Context, path, method string, bo
 	}
 }
 
-func (h *Handler) routeInferenceProfile(c *echo.Context, path, method string, body []byte) (bool, error) {
+func (h *Handler) routeInferenceProfile(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
 	switch {
 	case path == inferenceProfilesPrefix && method == http.MethodPost:
 		return true, h.handleCreateInferenceProfile(c, body)
@@ -1403,7 +1695,11 @@ func (h *Handler) routeInferenceProfile(c *echo.Context, path, method string, bo
 	}
 }
 
-func (h *Handler) routeMarketplaceEndpoint(c *echo.Context, path, method string, body []byte) (bool, error) {
+func (h *Handler) routeMarketplaceEndpoint(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
 	if path == marketplaceEndpointsPrefix {
 		return h.routeMarketplaceEndpointRoot(c, method, body)
 	}
@@ -1451,7 +1747,11 @@ func (h *Handler) routeMarketplaceEndpointSub(c *echo.Context, path, method stri
 	}
 }
 
-func (h *Handler) routeLoggingConfig(c *echo.Context, path, method string, body []byte) (bool, error) {
+func (h *Handler) routeLoggingConfig(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
 	if path != loggingConfigPath {
 		return false, nil
 	}
@@ -1509,7 +1809,10 @@ func (h *Handler) handleListCustomModels(c *echo.Context) error {
 		summaries = append(summaries, customModelToOutput(m))
 	}
 
-	return c.JSON(http.StatusOK, listCustomModelsOutput{ModelSummaries: summaries, NextToken: outToken})
+	return c.JSON(
+		http.StatusOK,
+		listCustomModelsOutput{ModelSummaries: summaries, NextToken: outToken},
+	)
 }
 
 func (h *Handler) handleDeleteCustomModel(c *echo.Context, id string) error {
@@ -1536,7 +1839,10 @@ type createModelCustomizationJobOutput struct {
 func (h *Handler) handleCreateModelCustomizationJob(c *echo.Context, body []byte) error {
 	in, err := parseBody[createModelCustomizationJobInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	job, opErr := h.Backend.CreateModelCustomizationJob(
@@ -1628,10 +1934,17 @@ type createInferenceProfileOutput struct {
 func (h *Handler) handleCreateInferenceProfile(c *echo.Context, body []byte) error {
 	in, err := parseBody[createInferenceProfileInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
-	profile, opErr := h.Backend.CreateInferenceProfile(in.InferenceProfileName, in.Description, in.Tags)
+	profile, opErr := h.Backend.CreateInferenceProfile(
+		in.InferenceProfileName,
+		in.Description,
+		in.Tags,
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -1738,10 +2051,17 @@ func marketplaceEndpointToOutput(ep *MarketplaceModelEndpoint) marketplaceEndpoi
 func (h *Handler) handleCreateMarketplaceModelEndpoint(c *echo.Context, body []byte) error {
 	in, err := parseBody[createMarketplaceModelEndpointInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
-	ep, opErr := h.Backend.CreateMarketplaceModelEndpoint(in.EndpointName, in.ModelSourceIdentifier, in.Tags)
+	ep, opErr := h.Backend.CreateMarketplaceModelEndpoint(
+		in.EndpointName,
+		in.ModelSourceIdentifier,
+		in.Tags,
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -1828,7 +2148,10 @@ func (h *Handler) handleGetModelInvocationLoggingConfiguration(c *echo.Context) 
 func (h *Handler) handlePutModelInvocationLoggingConfiguration(c *echo.Context, body []byte) error {
 	in, err := parseBody[ModelInvocationLoggingConfiguration](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	h.Backend.PutModelInvocationLoggingConfiguration(in)
@@ -1847,7 +2170,10 @@ func (h *Handler) handleDeleteModelInvocationLoggingConfiguration(c *echo.Contex
 func (h *Handler) handleCreateGuardrailVersion(c *echo.Context, id string, body []byte) error {
 	in, err := parseBody[createGuardrailVersionInput](body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
 	}
 
 	gv, opErr := h.Backend.CreateGuardrailVersion(id, in.Description)

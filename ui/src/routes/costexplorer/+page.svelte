@@ -12,6 +12,8 @@
 		GetAnomalySubscriptionsCommand,
 		CreateAnomalySubscriptionCommand,
 		DeleteAnomalySubscriptionCommand,
+		GetCostForecastCommand,
+		GetReservationPurchaseRecommendationCommand,
 		type AnomalyMonitor,
 		type Anomaly,
 		type AnomalySubscription,
@@ -27,14 +29,32 @@
 		Plus,
 		Trash2,
 		Eye,
-		Filter
+		Filter,
+		TrendingUp,
+		Server
 	} from 'lucide-svelte';
 
 	const ce = getCostExplorerClient();
 
-	type Tab = 'categories' | 'monitors' | 'subscriptions' | 'anomalies';
+	type Tab = 'categories' | 'monitors' | 'subscriptions' | 'anomalies' | 'forecasting' | 'reservations';
 
 	let activeTab = $state<Tab>('categories');
+
+	// Forecasting
+	let forecastStart = $state(new Date().toISOString().slice(0, 10));
+	let forecastEnd = $state(new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10));
+	let forecastMetric = $state<'BLENDED_COST' | 'UNBLENDED_COST' | 'AMORTIZED_COST' | 'NET_AMORTIZED_COST'>('BLENDED_COST');
+	let forecastGranularity = $state<'DAILY' | 'MONTHLY'>('MONTHLY');
+	let forecastResult = $state<{ Total?: { Amount?: string; Unit?: string } } | null>(null);
+	let loadingForecast = $state(false);
+
+	// Reservations
+	let reservationService = $state('Amazon EC2');
+	let reservationLookback = $state<'SEVEN_DAYS' | 'THIRTY_DAYS' | 'SIXTY_DAYS'>('THIRTY_DAYS');
+	let reservationTerm = $state<'ONE_YEAR' | 'THREE_YEARS'>('ONE_YEAR');
+	let reservationPayment = $state<'NO_UPFRONT' | 'PARTIAL_UPFRONT' | 'ALL_UPFRONT'>('NO_UPFRONT');
+	let reservationRecommendations = $state<unknown[]>([]);
+	let loadingReservations = $state(false);
 	let loading = $state(false);
 
 	// Cost Categories
@@ -237,12 +257,51 @@
 		}
 	}
 
+	async function loadForecast() {
+		loadingForecast = true;
+		try {
+			const res = await ce.send(
+				new GetCostForecastCommand({
+					TimePeriod: { Start: forecastStart, End: forecastEnd },
+					Metric: forecastMetric,
+					Granularity: forecastGranularity
+				})
+			);
+			forecastResult = res.Total ? { Total: res.Total } : { Total: { Amount: '0.00', Unit: 'USD' } };
+		} catch (e) {
+			toast.error(`Failed to load forecast: ${e}`);
+		} finally {
+			loadingForecast = false;
+		}
+	}
+
+	async function loadReservations() {
+		loadingReservations = true;
+		try {
+			const res = await ce.send(
+				new GetReservationPurchaseRecommendationCommand({
+					Service: reservationService,
+					LookbackPeriodInDays: reservationLookback,
+					TermInYears: reservationTerm,
+					PaymentOption: reservationPayment
+				})
+			);
+			reservationRecommendations = res.Recommendations ?? [];
+		} catch (e) {
+			toast.error(`Failed to load recommendations: ${e}`);
+		} finally {
+			loadingReservations = false;
+		}
+	}
+
 	async function switchTab(tab: Tab) {
 		activeTab = tab;
 		if (tab === 'categories') await loadCategories();
 		else if (tab === 'monitors') await loadMonitors();
 		else if (tab === 'subscriptions') await loadSubscriptions();
 		else if (tab === 'anomalies') await loadAnomalies();
+		else if (tab === 'forecasting') await loadForecast();
+		else if (tab === 'reservations') await loadReservations();
 	}
 
 	onMount(() => {
@@ -267,7 +326,9 @@
 			{ id: 'categories' as const, label: 'Cost Categories', icon: List },
 			{ id: 'monitors' as const, label: 'Anomaly Monitors', icon: AlertTriangle },
 			{ id: 'subscriptions' as const, label: 'Subscriptions', icon: Bell },
-			{ id: 'anomalies' as const, label: 'Anomalies', icon: Eye }
+			{ id: 'anomalies' as const, label: 'Anomalies', icon: Eye },
+			{ id: 'forecasting' as const, label: 'Forecasting', icon: TrendingUp },
+			{ id: 'reservations' as const, label: 'Reservations', icon: Server }
 		] as tab}
 			<button
 				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 {activeTab ===
@@ -626,6 +687,176 @@
 										{/if}
 									</td>
 									<td class="px-4 py-2 text-muted-foreground">{a.Feedback?.FeedbackType ?? '—'}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Forecasting Tab -->
+	{#if activeTab === 'forecasting'}
+		<div class="space-y-4">
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold">Cost Forecast</h2>
+			</div>
+			<div class="border rounded-lg p-4 space-y-4 bg-muted/30">
+				<h3 class="text-sm font-semibold flex items-center gap-2">
+					<TrendingUp class="h-4 w-4" /> Forecast Parameters
+				</h3>
+				<div class="grid grid-cols-2 gap-3">
+					<div class="space-y-1">
+						<label class="text-xs text-muted-foreground">Start Date</label>
+						<input
+							type="date"
+							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
+							bind:value={forecastStart}
+						/>
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs text-muted-foreground">End Date</label>
+						<input
+							type="date"
+							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
+							bind:value={forecastEnd}
+						/>
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs text-muted-foreground">Metric</label>
+						<select
+							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
+							bind:value={forecastMetric}
+						>
+							<option value="BLENDED_COST">Blended Cost</option>
+							<option value="UNBLENDED_COST">Unblended Cost</option>
+							<option value="AMORTIZED_COST">Amortized Cost</option>
+							<option value="NET_AMORTIZED_COST">Net Amortized Cost</option>
+						</select>
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs text-muted-foreground">Granularity</label>
+						<select
+							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
+							bind:value={forecastGranularity}
+						>
+							<option value="DAILY">Daily</option>
+							<option value="MONTHLY">Monthly</option>
+						</select>
+					</div>
+				</div>
+				<button
+					class="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+					onclick={loadForecast}
+					disabled={loadingForecast}
+				>
+					{loadingForecast ? 'Loading...' : 'Get Forecast'}
+				</button>
+			</div>
+			{#if forecastResult}
+				<div class="border rounded-lg p-4 bg-muted/10">
+					<h3 class="text-sm font-semibold mb-3">Forecast Result</h3>
+					<div class="text-2xl font-bold text-primary">
+						{forecastResult.Total?.Unit ?? 'USD'}
+						{forecastResult.Total?.Amount ?? '0.00'}
+					</div>
+					<p class="text-xs text-muted-foreground mt-1">
+						Total forecasted cost for {forecastStart} to {forecastEnd}
+					</p>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Reservations Tab -->
+	{#if activeTab === 'reservations'}
+		<div class="space-y-4">
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold">Reservation Purchase Recommendations</h2>
+			</div>
+			<div class="border rounded-lg p-4 space-y-4 bg-muted/30">
+				<h3 class="text-sm font-semibold flex items-center gap-2">
+					<Server class="h-4 w-4" /> Recommendation Parameters
+				</h3>
+				<div class="grid grid-cols-2 gap-3">
+					<div class="space-y-1">
+						<label class="text-xs text-muted-foreground">Service</label>
+						<select
+							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
+							bind:value={reservationService}
+						>
+							<option value="Amazon EC2">Amazon EC2</option>
+							<option value="Amazon RDS">Amazon RDS</option>
+							<option value="Amazon ElastiCache">Amazon ElastiCache</option>
+							<option value="Amazon Redshift">Amazon Redshift</option>
+							<option value="Amazon OpenSearch">Amazon OpenSearch</option>
+						</select>
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs text-muted-foreground">Lookback Period</label>
+						<select
+							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
+							bind:value={reservationLookback}
+						>
+							<option value="SEVEN_DAYS">7 Days</option>
+							<option value="THIRTY_DAYS">30 Days</option>
+							<option value="SIXTY_DAYS">60 Days</option>
+						</select>
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs text-muted-foreground">Term</label>
+						<select
+							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
+							bind:value={reservationTerm}
+						>
+							<option value="ONE_YEAR">1 Year</option>
+							<option value="THREE_YEARS">3 Years</option>
+						</select>
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs text-muted-foreground">Payment Option</label>
+						<select
+							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
+							bind:value={reservationPayment}
+						>
+							<option value="NO_UPFRONT">No Upfront</option>
+							<option value="PARTIAL_UPFRONT">Partial Upfront</option>
+							<option value="ALL_UPFRONT">All Upfront</option>
+						</select>
+					</div>
+				</div>
+				<button
+					class="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+					onclick={loadReservations}
+					disabled={loadingReservations}
+				>
+					{loadingReservations ? 'Loading...' : 'Get Recommendations'}
+				</button>
+			</div>
+			{#if reservationRecommendations.length === 0}
+				<p class="text-sm text-muted-foreground text-center py-8">
+					No reservation recommendations found. Click "Get Recommendations" to fetch.
+				</p>
+			{:else}
+				<div class="border rounded-lg overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-muted/50">
+							<tr>
+								<th class="text-left px-4 py-2 font-medium">Account Scope</th>
+								<th class="text-left px-4 py-2 font-medium">Term</th>
+								<th class="text-left px-4 py-2 font-medium">Payment Option</th>
+								<th class="text-left px-4 py-2 font-medium">Recommendations</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each reservationRecommendations as rec}
+								{@const r = rec as Record<string, unknown>}
+								<tr class="border-t hover:bg-muted/30">
+									<td class="px-4 py-2">{String(r['AccountScope'] ?? '—')}</td>
+									<td class="px-4 py-2">{String(r['TermInYears'] ?? '—')}</td>
+									<td class="px-4 py-2">{String(r['PaymentOption'] ?? '—')}</td>
+									<td class="px-4 py-2">{((r['RecommendationDetails'] as unknown[]) ?? []).length} items</td>
 								</tr>
 							{/each}
 						</tbody>
