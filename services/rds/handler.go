@@ -231,6 +231,8 @@ func supportedOpsExtended() []string {
 		"StopDBInstanceAutomatedBackupsReplication",
 		// Snapshot tenant databases.
 		"DescribeDBSnapshotTenantDatabases",
+		// Performance Insights.
+		"GetPerformanceInsightsMetrics",
 	}
 }
 
@@ -677,6 +679,7 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
 		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
+		DBParameterGroupName:             vals.Get("DBParameterGroupName"),
 	}
 
 	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, allocatedStorage, opts)
@@ -1576,7 +1579,8 @@ func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error)
 func (h *Handler) handleCreateDBInstanceReadReplica(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	sourceID := vals.Get("SourceDBInstanceIdentifier")
-	inst, err := h.Backend.CreateDBInstanceReadReplica(id, sourceID)
+	sourceRegion := vals.Get("SourceRegion")
+	inst, err := h.Backend.CreateDBInstanceReadReplica(id, sourceID, sourceRegion)
 	if err != nil {
 		return nil, err
 	}

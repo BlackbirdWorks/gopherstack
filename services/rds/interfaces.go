@@ -22,8 +22,9 @@ type StorageBackend interface {
 	StartDBInstance(id string) (*DBInstance, error)
 	StopDBInstance(id string) (*DBInstance, error)
 	RebootDBInstance(id string) (*DBInstance, error)
-	CreateDBInstanceReadReplica(id, sourceID string) (*DBInstance, error)
+	CreateDBInstanceReadReplica(id, sourceID, sourceRegion string) (*DBInstance, error)
 	PromoteReadReplica(id string) (*DBInstance, error)
+	DescribeDBInstanceAutomatedBackups(instanceID string) []DBInstanceAutomatedBackup
 	DescribeValidDBInstanceModifications(id string) (*DBInstance, error)
 
 	// DB snapshot operations
