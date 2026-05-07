@@ -565,6 +565,11 @@ func (h *Handler) handleGetAuthorizationToken(
 	expiresAt := time.Now().Add(tokenTTL).Unix()
 
 	proxyEndpoint := h.Backend.ProxyEndpoint()
+	if proxyEndpoint != "" &&
+		!strings.HasPrefix(proxyEndpoint, "https://") &&
+		!strings.HasPrefix(proxyEndpoint, "http://") {
+		proxyEndpoint = "https://" + proxyEndpoint
+	}
 
 	return &getAuthorizationTokenOutput{
 		AuthorizationData: []authorizationDataView{

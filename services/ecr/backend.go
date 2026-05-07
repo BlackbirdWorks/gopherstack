@@ -18,6 +18,7 @@ const (
 	scanTypeBasic       = "BASIC"
 	scanStatusComplete  = "COMPLETE"
 	imageStatusActive   = "ACTIVE"
+	msgNoScanFindings   = "The scan completed successfully with no findings."
 )
 
 var (
@@ -1042,14 +1043,11 @@ func (b *InMemoryBackend) StartLifecyclePolicyPreview(
 		policyText = b.lifecyclePolicies[repositoryName]
 	}
 
-	images := make([]ImageIdentifier, 0, len(b.images[repositoryName]))
-	for _, img := range b.images[repositoryName] {
-		images = append(images, img.ImageID)
-	}
+	expired := evaluateLifecyclePolicy(policyText, b.images[repositoryName])
 
 	preview := &LifecyclePolicyPreviewResult{
 		LifecyclePolicyText: policyText,
-		PreviewResults:      images,
+		PreviewResults:      expired,
 		RepositoryName:      repositoryName,
 		RegistryID:          b.accountID,
 		Status:              scanStatusComplete,
@@ -1396,7 +1394,7 @@ func (b *InMemoryBackend) DescribeImageScanFindings(
 			RepositoryName:        repositoryName,
 			RegistryID:            b.accountID,
 			Status:                scanStatusComplete,
-			Description:           "The scan completed successfully with no findings.",
+			Description:           msgNoScanFindings,
 			CompletedAt:           time.Now(),
 		}
 	}
@@ -1423,15 +1421,7 @@ func (b *InMemoryBackend) StartImageScan(
 		b.imageScanFindings[repositoryName] = make(map[string]*ImageScanFindingsResult)
 	}
 
-	result := &ImageScanFindingsResult{
-		FindingSeverityCounts: map[string]int32{},
-		ImageID:               img.ImageID,
-		RepositoryName:        repositoryName,
-		RegistryID:            b.accountID,
-		Status:                scanStatusComplete,
-		Description:           "The scan completed successfully with no findings.",
-		CompletedAt:           time.Now(),
-	}
+	result := generateMockScanFindings(img.ImageDigest, repositoryName, b.accountID, img.ImageID)
 	b.imageScanFindings[repositoryName][img.ImageDigest] = result
 
 	return &ImageScanStartResult{
