@@ -351,6 +351,19 @@ func (rc *ResourceCreator) createIAMEC2Resource(
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
+	if physID, ok, err := rc.createIAMCoreResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return physID, true, err
+	}
+
+	return rc.createEC2CoreResource(logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createIAMCoreResource handles AWS::IAM::* resource creation.
+func (rc *ResourceCreator) createIAMCoreResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
 	switch resourceType {
 	case resTypeIAMRole:
 		physID, err := rc.createIAMRole(logicalID, props, params, physicalIDs)
@@ -368,6 +381,26 @@ func (rc *ResourceCreator) createIAMEC2Resource(
 		physID, err := rc.createIAMInstanceProfile(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
+	case "AWS::IAM::User":
+		physID, err := rc.createIAMUser(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::IAM::Group":
+		physID, err := rc.createIAMGroup(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// createEC2CoreResource handles AWS::EC2::* resource creation.
+func (rc *ResourceCreator) createEC2CoreResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
 	case "AWS::EC2::SecurityGroup":
 		physID, err := rc.createEC2SecurityGroup(logicalID, props, params, physicalIDs)
 
@@ -390,6 +423,18 @@ func (rc *ResourceCreator) createIAMEC2Resource(
 		return physID, true, err
 	case "AWS::EC2::Route":
 		physID, err := rc.createEC2Route(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case resTypeEC2Instance:
+		physID, err := rc.createEC2Instance(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EC2::VPCGatewayAttachment":
+		physID, err := rc.createEC2VPCGatewayAttachment(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EC2::SubnetRouteTableAssociation":
+		physID, err := rc.createEC2SubnetRouteTableAssociation(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
 	default:
@@ -735,6 +780,40 @@ func (rc *ResourceCreator) createPhase3DataResource(
 	case "AWS::CloudWatch::Dashboard":
 		return rc.createCloudWatchDashboard(logicalID, props, params, physicalIDs)
 	default:
+		return rc.createPhase4Resource(logicalID, resourceType, props, params, physicalIDs)
+	}
+}
+
+// createPhase4Resource handles ELBv2, WAFv2, Backup, and RDS cluster resource creation.
+func (rc *ResourceCreator) createPhase4Resource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
+	case "AWS::ElasticLoadBalancingV2::LoadBalancer":
+		return rc.createELBv2LoadBalancer(logicalID, props, params, physicalIDs)
+	case "AWS::ElasticLoadBalancingV2::TargetGroup":
+		return rc.createELBv2TargetGroup(logicalID, props, params, physicalIDs)
+	case "AWS::ElasticLoadBalancingV2::Listener":
+		return rc.createELBv2Listener(logicalID, props, params, physicalIDs)
+	case "AWS::WAFv2::WebACL":
+		return rc.createWAFv2WebACL(logicalID, props, params, physicalIDs)
+	case "AWS::WAFv2::IPSet":
+		return rc.createWAFv2IPSet(logicalID, props, params, physicalIDs)
+	case "AWS::WAFv2::RuleGroup":
+		return rc.createWAFv2RuleGroup(logicalID, props, params, physicalIDs)
+	case "AWS::Backup::BackupVault":
+		return rc.createBackupVault(logicalID, props, params, physicalIDs)
+	case "AWS::Backup::BackupPlan":
+		return rc.createBackupPlan(logicalID, props, params, physicalIDs)
+	case "AWS::Backup::BackupSelection":
+		return rc.createBackupSelection(logicalID, props, params, physicalIDs)
+	case "AWS::RDS::DBCluster":
+		return rc.createRDSDBCluster(logicalID, props, params, physicalIDs)
+	case "AWS::RDS::DBClusterParameterGroup":
+		return rc.createRDSDBClusterParameterGroup(logicalID, props, params, physicalIDs)
+	default:
 		return logicalID + "-stub", nil
 	}
 }
@@ -852,6 +931,15 @@ func (rc *ResourceCreator) deleteServiceResource(ctx context.Context, resourceTy
 
 // deleteIAMEC2Resource handles IAM and EC2 resource deletions.
 func (rc *ResourceCreator) deleteIAMEC2Resource(resourceType, physicalID string) (bool, error) {
+	if handled, err := rc.deleteIAMCoreResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	return rc.deleteEC2CoreResource(resourceType, physicalID)
+}
+
+// deleteIAMCoreResource handles AWS::IAM::* resource deletions.
+func (rc *ResourceCreator) deleteIAMCoreResource(resourceType, physicalID string) (bool, error) {
 	switch resourceType {
 	case resTypeIAMRole:
 		return true, rc.deleteIAMRole(physicalID)
@@ -859,6 +947,18 @@ func (rc *ResourceCreator) deleteIAMEC2Resource(resourceType, physicalID string)
 		return true, rc.deleteIAMPolicy(physicalID)
 	case "AWS::IAM::InstanceProfile":
 		return true, rc.deleteIAMInstanceProfile(physicalID)
+	case "AWS::IAM::User":
+		return true, rc.deleteIAMUser(physicalID)
+	case "AWS::IAM::Group":
+		return true, rc.deleteIAMGroup(physicalID)
+	default:
+		return false, nil
+	}
+}
+
+// deleteEC2CoreResource handles AWS::EC2::* resource deletions.
+func (rc *ResourceCreator) deleteEC2CoreResource(resourceType, physicalID string) (bool, error) {
+	switch resourceType {
 	case "AWS::EC2::SecurityGroup":
 		return true, rc.deleteEC2SecurityGroup(physicalID)
 	case resTypeEC2VPC:
@@ -871,6 +971,12 @@ func (rc *ResourceCreator) deleteIAMEC2Resource(resourceType, physicalID string)
 		return true, rc.deleteEC2RouteTable(physicalID)
 	case "AWS::EC2::Route":
 		return true, nil // routes are deleted with their route table
+	case resTypeEC2Instance:
+		return true, rc.deleteEC2Instance(physicalID)
+	case "AWS::EC2::VPCGatewayAttachment":
+		return true, rc.deleteEC2VPCGatewayAttachment(physicalID)
+	case "AWS::EC2::SubnetRouteTableAssociation":
+		return true, rc.deleteEC2SubnetRouteTableAssociation(physicalID)
 	default:
 		return false, nil
 	}

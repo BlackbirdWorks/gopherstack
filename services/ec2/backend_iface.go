@@ -481,6 +481,71 @@ type Backend interface {
 	// GetLaunchTemplateData returns synthesized launch template data from an instance.
 	GetLaunchTemplateData(instanceID string) (*LaunchTemplate, error)
 
+	// ---- Egress-only Internet Gateway ----
+
+	// CreateEgressOnlyInternetGateway creates a new egress-only internet gateway.
+	CreateEgressOnlyInternetGateway(vpcID string) (*EgressOnlyInternetGateway, error)
+
+	// DescribeEgressOnlyInternetGateways returns egress-only internet gateways, optionally filtered by IDs.
+	DescribeEgressOnlyInternetGateways(ids []string) []*EgressOnlyInternetGateway
+
+	// DeleteEgressOnlyInternetGateway removes an egress-only internet gateway.
+	DeleteEgressOnlyInternetGateway(id string) error
+
+	// ---- IAM Instance Profile Associations ----
+
+	// AssociateIamInstanceProfile associates an IAM instance profile with an instance.
+	AssociateIamInstanceProfile(instanceID, profileARN string) (*IamInstanceProfileAssociation, error)
+
+	// DisassociateIamInstanceProfile removes an IAM instance profile association.
+	DisassociateIamInstanceProfile(associationID string) (*IamInstanceProfileAssociation, error)
+
+	// DescribeIamInstanceProfileAssociations returns IAM instance profile associations.
+	DescribeIamInstanceProfileAssociations(associationIDs []string, instanceID string) []*IamInstanceProfileAssociation
+
+	// ReplaceIamInstanceProfileAssociation replaces the IAM instance profile on an existing association.
+	ReplaceIamInstanceProfileAssociation(associationID, profileARN string) (*IamInstanceProfileAssociation, error)
+
+	// ---- Route Table extras ----
+
+	// ReplaceRouteTableAssociation replaces an existing route table association with a new route table.
+	ReplaceRouteTableAssociation(associationID, newRouteTableID string) (string, error)
+
+	// ---- VPC CIDR ----
+
+	// AssociateVpcCidrBlock associates a secondary CIDR block with a VPC.
+	AssociateVpcCidrBlock(vpcID, cidrBlock string) (*VpcCidrBlockAssociation, error)
+
+	// ---- Transit Gateway Route Tables ----
+
+	// CreateTransitGatewayRouteTable creates a new TGW route table.
+	CreateTransitGatewayRouteTable(tgwID string) (*TransitGatewayRouteTable, error)
+
+	// DescribeTransitGatewayRouteTables returns TGW route tables, optionally filtered by IDs.
+	DescribeTransitGatewayRouteTables(ids []string) []*TransitGatewayRouteTable
+
+	// DeleteTransitGatewayRouteTable removes a TGW route table.
+	DeleteTransitGatewayRouteTable(id string) error
+
+	// ---- Transit Gateway Routes ----
+
+	// CreateTransitGatewayRoute adds a static route to a TGW route table.
+	CreateTransitGatewayRoute(routeTableID, destinationCIDR, attachmentID string) (*TransitGatewayRoute, error)
+
+	// DeleteTransitGatewayRoute removes a static route from a TGW route table.
+	DeleteTransitGatewayRoute(routeTableID, destinationCIDR string) error
+
+	// ReplaceTransitGatewayRoute replaces or upserts a route in a TGW route table.
+	ReplaceTransitGatewayRoute(routeTableID, destinationCIDR, attachmentID string) (*TransitGatewayRoute, error)
+
+	// ---- Transit Gateway Route Table Associations ----
+
+	// AssociateTransitGatewayRouteTable associates a TGW attachment with a route table.
+	AssociateTransitGatewayRouteTable(routeTableID, attachmentID string) (*TransitGatewayRouteTableAssociation, error)
+
+	// DisassociateTransitGatewayRouteTable removes an association between a TGW attachment and route table.
+	DisassociateTransitGatewayRouteTable(routeTableID, attachmentID string) error
+
 	// ---- reset ----
 
 	// Reset clears all resource state, returning the backend to its initial state.
