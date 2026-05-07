@@ -697,3 +697,35 @@ type CreatePatchBaselineInput struct {
 type CreatePatchBaselineOutput struct {
 	BaselineID string `json:"BaselineId"`
 }
+
+// MaintenanceWindowTarget represents a registered target for a maintenance window.
+type MaintenanceWindowTarget struct {
+	WindowID       string         `json:"WindowId"`
+	WindowTargetID string         `json:"WindowTargetId"`
+	ResourceType   string         `json:"ResourceType"`
+	OwnerInfo      string         `json:"OwnerInfo,omitempty"`
+	Name           string         `json:"Name,omitempty"`
+	Description    string         `json:"Description,omitempty"`
+	Targets        []WindowTarget `json:"Targets,omitempty"`
+}
+
+// MaintenanceWindowTask represents a registered task for a maintenance window.
+type MaintenanceWindowTask struct {
+	WindowID     string `json:"WindowId"`
+	WindowTaskID string `json:"WindowTaskId"`
+	TaskArn      string `json:"TaskArn"`
+	TaskType     string `json:"TaskType"`
+	Name         string `json:"Name,omitempty"`
+	Description  string `json:"Description,omitempty"`
+	Priority     int32  `json:"Priority,omitempty"`
+}
+
+// Session represents an SSM Session Manager session.
+type Session struct {
+	SessionID  string  `json:"SessionId"`
+	Target     string  `json:"Target"`
+	Status     string  `json:"Status"`
+	StreamURL  string  `json:"StreamUrl"`
+	TokenValue string  `json:"TokenValue"`
+	StartDate  float64 `json:"StartDate"`
+}

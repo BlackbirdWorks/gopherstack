@@ -155,6 +155,10 @@ func decryptValue(ciphertext string) (string, error) {
 type InMemoryBackend struct {
 	activations                map[string]Activation
 	maintenanceWindows         map[string]MaintenanceWindow
+	maintenanceWindowTargets   map[string]MaintenanceWindowTarget
+	maintenanceWindowTasks     map[string]MaintenanceWindowTask
+	sessions                   map[string]Session
+	patchGroupToBaseline       map[string]string
 	tags                       map[string]*tags.Tags
 	associations               map[string]Association
 	documentVersions           map[string][]DocumentVersion
@@ -188,6 +192,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 		activations:                make(map[string]Activation),
 		associations:               make(map[string]Association),
 		maintenanceWindows:         make(map[string]MaintenanceWindow),
+		maintenanceWindowTargets:   make(map[string]MaintenanceWindowTarget),
+		maintenanceWindowTasks:     make(map[string]MaintenanceWindowTask),
+		sessions:                   make(map[string]Session),
+		patchGroupToBaseline:       make(map[string]string),
 		opsItems:                   make(map[string]OpsItem),
 		opsItemRelatedItems:        make(map[string][]OpsItemRelatedItem),
 		opsMetadata:                make(map[string]OpsMetadata),
@@ -1274,6 +1282,10 @@ func (b *InMemoryBackend) Reset() {
 	b.activations = make(map[string]Activation)
 	b.associations = make(map[string]Association)
 	b.maintenanceWindows = make(map[string]MaintenanceWindow)
+	b.maintenanceWindowTargets = make(map[string]MaintenanceWindowTarget)
+	b.maintenanceWindowTasks = make(map[string]MaintenanceWindowTask)
+	b.sessions = make(map[string]Session)
+	b.patchGroupToBaseline = make(map[string]string)
 	b.opsItems = make(map[string]OpsItem)
 	b.opsItemRelatedItems = make(map[string][]OpsItemRelatedItem)
 	b.opsMetadata = make(map[string]OpsMetadata)
@@ -1287,6 +1299,11 @@ const (
 	activationCodeChars        = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	activationCodeLen          = 20
 	windowIDPrefix             = "mw-"
+	windowTargetIDPrefix       = "mwt-"
+	windowTaskIDPrefix         = "mwtask-"
+	sessionIDPrefix            = "session-"
+	sessionStatusConnected     = "Connected"
+	sessionStatusTerminated    = "Terminated"
 	activationIDPrefix         = "act-"
 	baselineIDPrefix           = "pb-"
 	opsItemIDPrefix            = "oi-"
