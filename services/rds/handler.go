@@ -50,6 +50,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	ops := make([]string, 0, len(supportedOpsBase())+len(supportedOpsExtended()))
 	ops = append(ops, supportedOpsBase()...)
 	ops = append(ops, supportedOpsExtended()...)
+	sort.Strings(ops)
 
 	return ops
 }
@@ -240,7 +241,9 @@ func (h *Handler) ChaosServiceName() string { return "rds" }
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this RDS instance handles.
-func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
+func (h *Handler) ChaosRegions() []string {
+	return []string{}
+}
 
 // RouteMatcher returns a function that matches RDS requests.
 func (h *Handler) RouteMatcher() service.Matcher {

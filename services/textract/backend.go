@@ -515,7 +515,7 @@ func (b *InMemoryBackend) GetExpenseAnalysis(jobID string) (*ExpenseJob, error) 
 		return nil, fmt.Errorf("%w: expense job %s not found", ErrJobNotFound, jobID)
 	}
 
-	return job, nil
+	return cloneExpenseJob(job), nil
 }
 
 // StartLendingAnalysis creates an async lending analysis job.
