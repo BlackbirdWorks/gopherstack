@@ -116,6 +116,40 @@ type StorageBackend interface {
 	AddJobRunInternal(run *JobRun)
 	AddDataQualityRulesetInternal(r *DataQualityRuleset)
 	AddDataQualityEvalRunInternal(run *DataQualityEvaluationRun)
+
+	// Trigger operations.
+	CreateTrigger(t Trigger, tags map[string]string) (*Trigger, error)
+	GetTrigger(name string) (*Trigger, error)
+	GetTriggers() []*Trigger
+	BatchGetTriggers(names []string) ([]*Trigger, []string)
+	UpdateTrigger(name string, update Trigger) error
+	DeleteTrigger(name string) error
+	StartTrigger(name string) error
+	StopTrigger(name string) error
+
+	// Workflow operations.
+	CreateWorkflow(w Workflow, tags map[string]string) (*Workflow, error)
+	GetWorkflow(name string) (*Workflow, error)
+	GetWorkflows() []string
+	BatchGetWorkflows(names []string) ([]*Workflow, []string)
+	UpdateWorkflow(name string, update Workflow) error
+	DeleteWorkflow(name string) error
+	StartWorkflowRun(name string) (*WorkflowRun, error)
+	GetWorkflowRun(workflowName, runID string) (*WorkflowRun, error)
+	GetWorkflowRuns(workflowName string) ([]*WorkflowRun, error)
+
+	// Classifier operations.
+	CreateClassifier(c Classifier) error
+	GetClassifier(name string) (*Classifier, error)
+	GetClassifiers() []*Classifier
+	UpdateClassifier(c Classifier) error
+	DeleteClassifier(name string) error
+
+	// DevEndpoint full CRUD.
+	CreateDevEndpoint(name string) (*DevEndpoint, error)
+	GetDevEndpoint(name string) (*DevEndpoint, error)
+	GetAllDevEndpoints() []*DevEndpoint
+	DeleteDevEndpoint(name string) error
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

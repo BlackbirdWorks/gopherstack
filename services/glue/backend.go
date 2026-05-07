@@ -312,6 +312,10 @@ type InMemoryBackend struct {
 	jobBookmarks        map[string]*JobBookmark              // key: jobName
 	dataQualityRulesets map[string]*DataQualityRuleset       // key: name
 	dataQualityEvalRuns map[string]*DataQualityEvaluationRun // key: runId
+	triggers            map[string]*Trigger                  // key: triggerName
+	workflows           map[string]*Workflow                 // key: workflowName
+	workflowRuns        map[string][]*WorkflowRun            // key: workflowName
+	classifiers         map[string]*Classifier               // key: classifierName
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
@@ -335,6 +339,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		jobBookmarks:        make(map[string]*JobBookmark),
 		dataQualityRulesets: make(map[string]*DataQualityRuleset),
 		dataQualityEvalRuns: make(map[string]*DataQualityEvaluationRun),
+		triggers:            make(map[string]*Trigger),
+		workflows:           make(map[string]*Workflow),
+		workflowRuns:        make(map[string][]*WorkflowRun),
+		classifiers:         make(map[string]*Classifier),
 		mu:                  lockmetrics.New("glue"),
 		accountID:           accountID,
 		region:              region,
@@ -361,6 +369,10 @@ func (b *InMemoryBackend) Reset() {
 	b.jobBookmarks = make(map[string]*JobBookmark)
 	b.dataQualityRulesets = make(map[string]*DataQualityRuleset)
 	b.dataQualityEvalRuns = make(map[string]*DataQualityEvaluationRun)
+	b.triggers = make(map[string]*Trigger)
+	b.workflows = make(map[string]*Workflow)
+	b.workflowRuns = make(map[string][]*WorkflowRun)
+	b.classifiers = make(map[string]*Classifier)
 }
 
 // Region returns the backend region.

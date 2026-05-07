@@ -25,7 +25,10 @@ type batchGetJobsOutput struct {
 	JobsNotFound []string `json:"JobsNotFound"`
 }
 
-func (h *Handler) handleBatchGetJobs(_ context.Context, in *batchGetJobsInput) (*batchGetJobsOutput, error) {
+func (h *Handler) handleBatchGetJobs(
+	_ context.Context,
+	in *batchGetJobsInput,
+) (*batchGetJobsOutput, error) {
 	var found []*Job
 	var missing []string
 
@@ -84,12 +87,17 @@ type batchGetTriggersInput struct {
 
 // batchGetTriggersOutput holds the result for BatchGetTriggers.
 type batchGetTriggersOutput struct {
-	Triggers         []any    `json:"Triggers"`
-	TriggersNotFound []string `json:"TriggersNotFound"`
+	Triggers         []*Trigger `json:"Triggers"`
+	TriggersNotFound []string   `json:"TriggersNotFound"`
 }
 
-func (h *Handler) handleBatchGetTriggers(_ context.Context, _ *batchGetTriggersInput) (*batchGetTriggersOutput, error) {
-	return &batchGetTriggersOutput{Triggers: []any{}, TriggersNotFound: []string{}}, nil
+func (h *Handler) handleBatchGetTriggers(
+	_ context.Context,
+	in *batchGetTriggersInput,
+) (*batchGetTriggersOutput, error) {
+	found, missing := h.Backend.BatchGetTriggers(in.TriggerNames)
+
+	return &batchGetTriggersOutput{Triggers: found, TriggersNotFound: missing}, nil
 }
 
 // batchGetWorkflowsInput holds input for BatchGetWorkflows.
@@ -99,15 +107,17 @@ type batchGetWorkflowsInput struct {
 
 // batchGetWorkflowsOutput holds the result for BatchGetWorkflows.
 type batchGetWorkflowsOutput struct {
-	Workflows        []any    `json:"Workflows"`
-	MissingWorkflows []string `json:"MissingWorkflows"`
+	Workflows        []*Workflow `json:"Workflows"`
+	MissingWorkflows []string    `json:"MissingWorkflows"`
 }
 
 func (h *Handler) handleBatchGetWorkflows(
 	_ context.Context,
-	_ *batchGetWorkflowsInput,
+	in *batchGetWorkflowsInput,
 ) (*batchGetWorkflowsOutput, error) {
-	return &batchGetWorkflowsOutput{Workflows: []any{}, MissingWorkflows: []string{}}, nil
+	found, missing := h.Backend.BatchGetWorkflows(in.Names)
+
+	return &batchGetWorkflowsOutput{Workflows: found, MissingWorkflows: missing}, nil
 }
 
 // batchPutDataQualityStatisticAnnotationInput holds input for BatchPutDataQualityStatisticAnnotation.
@@ -153,14 +163,20 @@ func (h *Handler) handleCancelDataQualityRuleRecommendationRun(
 // cancelMLTaskRunInput holds input for CancelMLTaskRun.
 type cancelMLTaskRunInput struct{}
 
-func (h *Handler) handleCancelMLTaskRun(_ context.Context, _ *cancelMLTaskRunInput) (*emptyOutput, error) {
+func (h *Handler) handleCancelMLTaskRun(
+	_ context.Context,
+	_ *cancelMLTaskRunInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
 // cancelStatementInput holds input for CancelStatement.
 type cancelStatementInput struct{}
 
-func (h *Handler) handleCancelStatement(_ context.Context, _ *cancelStatementInput) (*emptyOutput, error) {
+func (h *Handler) handleCancelStatement(
+	_ context.Context,
+	_ *cancelStatementInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -190,21 +206,45 @@ type createBlueprintOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleCreateBlueprint(_ context.Context, in *createBlueprintInput) (*createBlueprintOutput, error) {
+func (h *Handler) handleCreateBlueprint(
+	_ context.Context,
+	in *createBlueprintInput,
+) (*createBlueprintOutput, error) {
 	return &createBlueprintOutput{Name: in.Name}, nil
 }
 
 // createCatalogInput holds input for CreateCatalog.
 type createCatalogInput struct{}
 
-func (h *Handler) handleCreateCatalog(_ context.Context, _ *createCatalogInput) (*emptyOutput, error) {
+func (h *Handler) handleCreateCatalog(
+	_ context.Context,
+	_ *createCatalogInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
 // createClassifierInput holds input for CreateClassifier.
-type createClassifierInput struct{}
+type createClassifierInput struct {
+	GrokClassifier *GrokClassifier `json:"GrokClassifier,omitempty"`
+	XMLClassifier  *XMLClassifier  `json:"XMLClassifier,omitempty"`
+	JSONClassifier *JSONClassifier `json:"JSONClassifier,omitempty"`
+	CsvClassifier  *CsvClassifier  `json:"CsvClassifier,omitempty"`
+}
 
-func (h *Handler) handleCreateClassifier(_ context.Context, _ *createClassifierInput) (*emptyOutput, error) {
+func (h *Handler) handleCreateClassifier(
+	_ context.Context,
+	in *createClassifierInput,
+) (*emptyOutput, error) {
+	c := Classifier{
+		GrokClassifier: in.GrokClassifier,
+		XMLClassifier:  in.XMLClassifier,
+		JSONClassifier: in.JSONClassifier,
+		CsvClassifier:  in.CsvClassifier,
+	}
+	if err := h.Backend.CreateClassifier(c); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, nil
 }
 
@@ -250,7 +290,12 @@ func (h *Handler) handleCreateDevEndpoint(
 	_ context.Context,
 	in *createDevEndpointInput,
 ) (*createDevEndpointOutput, error) {
-	return &createDevEndpointOutput{EndpointName: in.EndpointName, Status: stateProvisioning}, nil
+	dep, err := h.Backend.CreateDevEndpoint(in.EndpointName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createDevEndpointOutput{EndpointName: dep.EndpointName, Status: dep.Status}, nil
 }
 
 // createGlueIdentityCenterConfigurationInput holds input for CreateGlueIdentityCenterConfiguration.
@@ -324,8 +369,15 @@ type createPartitionInput struct {
 	PartitionInput PartitionInput `json:"PartitionInput"`
 }
 
-func (h *Handler) handleCreatePartition(_ context.Context, in *createPartitionInput) (*emptyOutput, error) {
-	_, errs := h.Backend.BatchCreatePartition(in.DatabaseName, in.TableName, []PartitionInput{in.PartitionInput})
+func (h *Handler) handleCreatePartition(
+	_ context.Context,
+	in *createPartitionInput,
+) (*emptyOutput, error) {
+	_, errs := h.Backend.BatchCreatePartition(
+		in.DatabaseName,
+		in.TableName,
+		[]PartitionInput{in.PartitionInput},
+	)
 	if len(errs) > 0 {
 		return nil, awserrFromDetail(errs[0].ErrorDetail)
 	}
@@ -336,7 +388,10 @@ func (h *Handler) handleCreatePartition(_ context.Context, in *createPartitionIn
 // createPartitionIndexInput holds input for CreatePartitionIndex.
 type createPartitionIndexInput struct{}
 
-func (h *Handler) handleCreatePartitionIndex(_ context.Context, _ *createPartitionIndexInput) (*emptyOutput, error) {
+func (h *Handler) handleCreatePartitionIndex(
+	_ context.Context,
+	_ *createPartitionIndexInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -351,7 +406,10 @@ type createRegistryOutput struct {
 	RegistryArn  string `json:"RegistryArn"`
 }
 
-func (h *Handler) handleCreateRegistry(_ context.Context, in *createRegistryInput) (*createRegistryOutput, error) {
+func (h *Handler) handleCreateRegistry(
+	_ context.Context,
+	in *createRegistryInput,
+) (*createRegistryOutput, error) {
 	return &createRegistryOutput{
 		RegistryName: in.RegistryName,
 		RegistryArn:  "arn:aws:glue:us-east-1:000000000000:registry/" + in.RegistryName,
@@ -369,7 +427,10 @@ type createSchemaOutput struct {
 	SchemaArn  string `json:"SchemaArn"`
 }
 
-func (h *Handler) handleCreateSchema(_ context.Context, in *createSchemaInput) (*createSchemaOutput, error) {
+func (h *Handler) handleCreateSchema(
+	_ context.Context,
+	in *createSchemaInput,
+) (*createSchemaOutput, error) {
 	return &createSchemaOutput{
 		SchemaName: in.SchemaName,
 		SchemaArn:  "arn:aws:glue:us-east-1:000000000000:schema/" + in.SchemaName,
@@ -385,7 +446,10 @@ type createScriptOutput struct {
 	ScalaCode    string `json:"ScalaCode"`
 }
 
-func (h *Handler) handleCreateScript(_ context.Context, _ *createScriptInput) (*createScriptOutput, error) {
+func (h *Handler) handleCreateScript(
+	_ context.Context,
+	_ *createScriptInput,
+) (*createScriptOutput, error) {
 	return &createScriptOutput{PythonScript: "", ScalaCode: ""}, nil
 }
 
@@ -417,20 +481,33 @@ type createSessionOutput struct {
 	Session any `json:"Session"`
 }
 
-func (h *Handler) handleCreateSession(_ context.Context, in *createSessionInput) (*createSessionOutput, error) {
-	return &createSessionOutput{Session: map[string]string{"Id": in.ID, "Status": stateProvisioning}}, nil
+func (h *Handler) handleCreateSession(
+	_ context.Context,
+	in *createSessionInput,
+) (*createSessionOutput, error) {
+	return &createSessionOutput{
+		Session: map[string]string{"Id": in.ID, "Status": stateProvisioning},
+	}, nil
 }
 
 // createTableOptimizerInput holds input for CreateTableOptimizer.
 type createTableOptimizerInput struct{}
 
-func (h *Handler) handleCreateTableOptimizer(_ context.Context, _ *createTableOptimizerInput) (*emptyOutput, error) {
+func (h *Handler) handleCreateTableOptimizer(
+	_ context.Context,
+	_ *createTableOptimizerInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
 // createTriggerInput holds input for CreateTrigger.
 type createTriggerInput struct {
-	Name string `json:"Name"`
+	Tags      map[string]string `json:"Tags,omitempty"`
+	Predicate *TriggerPredicate `json:"Predicate,omitempty"`
+	Schedule  string            `json:"Schedule,omitempty"`
+	Name      string            `json:"Name"`
+	Type      string            `json:"Type,omitempty"`
+	Actions   []TriggerAction   `json:"Actions,omitempty"`
 }
 
 // createTriggerOutput holds the result for CreateTrigger.
@@ -438,8 +515,24 @@ type createTriggerOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleCreateTrigger(_ context.Context, in *createTriggerInput) (*createTriggerOutput, error) {
-	return &createTriggerOutput{Name: in.Name}, nil
+func (h *Handler) handleCreateTrigger(
+	_ context.Context,
+	in *createTriggerInput,
+) (*createTriggerOutput, error) {
+	t := Trigger{
+		Name:      in.Name,
+		Type:      in.Type,
+		Schedule:  in.Schedule,
+		Actions:   in.Actions,
+		Predicate: in.Predicate,
+	}
+
+	created, err := h.Backend.CreateTrigger(t, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createTriggerOutput{Name: created.Name}, nil
 }
 
 // createUsageProfileInput holds input for CreateUsageProfile.
@@ -471,7 +564,10 @@ func (h *Handler) handleCreateUserDefinedFunction(
 
 // createWorkflowInput holds input for CreateWorkflow.
 type createWorkflowInput struct {
-	Name string `json:"Name"`
+	Tags                 map[string]string `json:"Tags,omitempty"`
+	DefaultRunProperties map[string]string `json:"DefaultRunProperties,omitempty"`
+	Name                 string            `json:"Name"`
+	Description          string            `json:"Description,omitempty"`
 }
 
 // createWorkflowOutput holds the result for CreateWorkflow.
@@ -479,8 +575,22 @@ type createWorkflowOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleCreateWorkflow(_ context.Context, in *createWorkflowInput) (*createWorkflowOutput, error) {
-	return &createWorkflowOutput{Name: in.Name}, nil
+func (h *Handler) handleCreateWorkflow(
+	_ context.Context,
+	in *createWorkflowInput,
+) (*createWorkflowOutput, error) {
+	w := Workflow{
+		Name:                 in.Name,
+		Description:          in.Description,
+		DefaultRunProperties: in.DefaultRunProperties,
+	}
+
+	created, err := h.Backend.CreateWorkflow(w, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createWorkflowOutput{Name: created.Name}, nil
 }
 
 // deleteBlueprintInput holds input for DeleteBlueprint.
@@ -493,21 +603,36 @@ type deleteBlueprintOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleDeleteBlueprint(_ context.Context, in *deleteBlueprintInput) (*deleteBlueprintOutput, error) {
+func (h *Handler) handleDeleteBlueprint(
+	_ context.Context,
+	in *deleteBlueprintInput,
+) (*deleteBlueprintOutput, error) {
 	return &deleteBlueprintOutput{Name: in.Name}, nil
 }
 
 // deleteCatalogInput holds input for DeleteCatalog.
 type deleteCatalogInput struct{}
 
-func (h *Handler) handleDeleteCatalog(_ context.Context, _ *deleteCatalogInput) (*emptyOutput, error) {
+func (h *Handler) handleDeleteCatalog(
+	_ context.Context,
+	_ *deleteCatalogInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
 // deleteClassifierInput holds input for DeleteClassifier.
-type deleteClassifierInput struct{}
+type deleteClassifierInput struct {
+	Name string `json:"Name"`
+}
 
-func (h *Handler) handleDeleteClassifier(_ context.Context, _ *deleteClassifierInput) (*emptyOutput, error) {
+func (h *Handler) handleDeleteClassifier(
+	_ context.Context,
+	in *deleteClassifierInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteClassifier(in.Name); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, nil
 }
 
@@ -544,7 +669,10 @@ func (h *Handler) handleDeleteColumnStatisticsTaskSettings(
 // deleteConnectionTypeInput holds input for DeleteConnectionType.
 type deleteConnectionTypeInput struct{}
 
-func (h *Handler) handleDeleteConnectionType(_ context.Context, _ *deleteConnectionTypeInput) (*emptyOutput, error) {
+func (h *Handler) handleDeleteConnectionType(
+	_ context.Context,
+	_ *deleteConnectionTypeInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -566,9 +694,18 @@ func (h *Handler) handleDeleteCustomEntityType(
 }
 
 // deleteDevEndpointInput holds input for DeleteDevEndpoint.
-type deleteDevEndpointInput struct{}
+type deleteDevEndpointInput struct {
+	EndpointName string `json:"EndpointName"`
+}
 
-func (h *Handler) handleDeleteDevEndpoint(_ context.Context, _ *deleteDevEndpointInput) (*emptyOutput, error) {
+func (h *Handler) handleDeleteDevEndpoint(
+	_ context.Context,
+	in *deleteDevEndpointInput,
+) (*emptyOutput, error) {
+	if err := h.Backend.DeleteDevEndpoint(in.EndpointName); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, nil
 }
 
@@ -643,7 +780,10 @@ type deletePartitionInput struct {
 	PartitionValues []string `json:"PartitionValues"`
 }
 
-func (h *Handler) handleDeletePartition(_ context.Context, in *deletePartitionInput) (*emptyOutput, error) {
+func (h *Handler) handleDeletePartition(
+	_ context.Context,
+	in *deletePartitionInput,
+) (*emptyOutput, error) {
 	errs := h.Backend.BatchDeletePartition(
 		in.DatabaseName,
 		in.TableName,
@@ -659,7 +799,10 @@ func (h *Handler) handleDeletePartition(_ context.Context, in *deletePartitionIn
 // deletePartitionIndexInput holds input for DeletePartitionIndex.
 type deletePartitionIndexInput struct{}
 
-func (h *Handler) handleDeletePartitionIndex(_ context.Context, _ *deletePartitionIndexInput) (*emptyOutput, error) {
+func (h *Handler) handleDeletePartitionIndex(
+	_ context.Context,
+	_ *deletePartitionIndexInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -675,14 +818,20 @@ type deleteRegistryOutput struct {
 	Status       string `json:"Status"`
 }
 
-func (h *Handler) handleDeleteRegistry(_ context.Context, _ *deleteRegistryInput) (*deleteRegistryOutput, error) {
+func (h *Handler) handleDeleteRegistry(
+	_ context.Context,
+	_ *deleteRegistryInput,
+) (*deleteRegistryOutput, error) {
 	return &deleteRegistryOutput{Status: stateDeleting}, nil
 }
 
 // deleteResourcePolicyInput holds input for DeleteResourcePolicy.
 type deleteResourcePolicyInput struct{}
 
-func (h *Handler) handleDeleteResourcePolicy(_ context.Context, _ *deleteResourcePolicyInput) (*emptyOutput, error) {
+func (h *Handler) handleDeleteResourcePolicy(
+	_ context.Context,
+	_ *deleteResourcePolicyInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -696,7 +845,10 @@ type deleteSchemaOutput struct {
 	Status     string `json:"Status"`
 }
 
-func (h *Handler) handleDeleteSchema(_ context.Context, _ *deleteSchemaInput) (*deleteSchemaOutput, error) {
+func (h *Handler) handleDeleteSchema(
+	_ context.Context,
+	_ *deleteSchemaInput,
+) (*deleteSchemaOutput, error) {
 	return &deleteSchemaOutput{Status: stateDeleting}, nil
 }
 
@@ -735,21 +887,30 @@ type deleteSessionOutput struct {
 	ID string `json:"Id"`
 }
 
-func (h *Handler) handleDeleteSession(_ context.Context, in *deleteSessionInput) (*deleteSessionOutput, error) {
+func (h *Handler) handleDeleteSession(
+	_ context.Context,
+	in *deleteSessionInput,
+) (*deleteSessionOutput, error) {
 	return &deleteSessionOutput{ID: in.ID}, nil
 }
 
 // deleteTableOptimizerInput holds input for DeleteTableOptimizer.
 type deleteTableOptimizerInput struct{}
 
-func (h *Handler) handleDeleteTableOptimizer(_ context.Context, _ *deleteTableOptimizerInput) (*emptyOutput, error) {
+func (h *Handler) handleDeleteTableOptimizer(
+	_ context.Context,
+	_ *deleteTableOptimizerInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
 // deleteTableVersionInput holds input for DeleteTableVersion.
 type deleteTableVersionInput struct{}
 
-func (h *Handler) handleDeleteTableVersion(_ context.Context, _ *deleteTableVersionInput) (*emptyOutput, error) {
+func (h *Handler) handleDeleteTableVersion(
+	_ context.Context,
+	_ *deleteTableVersionInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -763,14 +924,24 @@ type deleteTriggerOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleDeleteTrigger(_ context.Context, in *deleteTriggerInput) (*deleteTriggerOutput, error) {
+func (h *Handler) handleDeleteTrigger(
+	_ context.Context,
+	in *deleteTriggerInput,
+) (*deleteTriggerOutput, error) {
+	if err := h.Backend.DeleteTrigger(in.Name); err != nil {
+		return nil, err
+	}
+
 	return &deleteTriggerOutput{Name: in.Name}, nil
 }
 
 // deleteUsageProfileInput holds input for DeleteUsageProfile.
 type deleteUsageProfileInput struct{}
 
-func (h *Handler) handleDeleteUsageProfile(_ context.Context, _ *deleteUsageProfileInput) (*emptyOutput, error) {
+func (h *Handler) handleDeleteUsageProfile(
+	_ context.Context,
+	_ *deleteUsageProfileInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -794,7 +965,14 @@ type deleteWorkflowOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleDeleteWorkflow(_ context.Context, in *deleteWorkflowInput) (*deleteWorkflowOutput, error) {
+func (h *Handler) handleDeleteWorkflow(
+	_ context.Context,
+	in *deleteWorkflowInput,
+) (*deleteWorkflowOutput, error) {
+	if err := h.Backend.DeleteWorkflow(in.Name); err != nil {
+		return nil, err
+	}
+
 	return &deleteWorkflowOutput{Name: in.Name}, nil
 }
 
@@ -821,7 +999,10 @@ type describeEntityOutput struct {
 	Fields []any `json:"Fields"`
 }
 
-func (h *Handler) handleDescribeEntity(_ context.Context, _ *describeEntityInput) (*describeEntityOutput, error) {
+func (h *Handler) handleDescribeEntity(
+	_ context.Context,
+	_ *describeEntityInput,
+) (*describeEntityOutput, error) {
 	return &describeEntityOutput{Fields: []any{}}, nil
 }
 
@@ -865,7 +1046,10 @@ type getBlueprintOutput struct {
 	Blueprint *Blueprint `json:"Blueprint"`
 }
 
-func (h *Handler) handleGetBlueprint(_ context.Context, in *getBlueprintInput) (*getBlueprintOutput, error) {
+func (h *Handler) handleGetBlueprint(
+	_ context.Context,
+	in *getBlueprintInput,
+) (*getBlueprintOutput, error) {
 	found, _ := h.Backend.BatchGetBlueprints([]string{in.Name})
 	if len(found) > 0 {
 		return &getBlueprintOutput{Blueprint: found[0]}, nil
@@ -882,7 +1066,10 @@ type getBlueprintRunOutput struct {
 	Run any `json:"Run"`
 }
 
-func (h *Handler) handleGetBlueprintRun(_ context.Context, _ *getBlueprintRunInput) (*getBlueprintRunOutput, error) {
+func (h *Handler) handleGetBlueprintRun(
+	_ context.Context,
+	_ *getBlueprintRunInput,
+) (*getBlueprintRunOutput, error) {
 	return &getBlueprintRunOutput{}, nil
 }
 
@@ -894,7 +1081,10 @@ type getBlueprintRunsOutput struct {
 	Runs []any `json:"Runs"`
 }
 
-func (h *Handler) handleGetBlueprintRuns(_ context.Context, _ *getBlueprintRunsInput) (*getBlueprintRunsOutput, error) {
+func (h *Handler) handleGetBlueprintRuns(
+	_ context.Context,
+	_ *getBlueprintRunsInput,
+) (*getBlueprintRunsOutput, error) {
 	return &getBlueprintRunsOutput{Runs: []any{}}, nil
 }
 
@@ -906,7 +1096,10 @@ type getCatalogOutput struct {
 	Catalog any `json:"Catalog"`
 }
 
-func (h *Handler) handleGetCatalog(_ context.Context, _ *getCatalogInput) (*getCatalogOutput, error) {
+func (h *Handler) handleGetCatalog(
+	_ context.Context,
+	_ *getCatalogInput,
+) (*getCatalogOutput, error) {
 	return &getCatalogOutput{}, nil
 }
 
@@ -933,20 +1126,33 @@ type getCatalogsOutput struct {
 	CatalogList []any `json:"CatalogList"`
 }
 
-func (h *Handler) handleGetCatalogs(_ context.Context, _ *getCatalogsInput) (*getCatalogsOutput, error) {
+func (h *Handler) handleGetCatalogs(
+	_ context.Context,
+	_ *getCatalogsInput,
+) (*getCatalogsOutput, error) {
 	return &getCatalogsOutput{CatalogList: []any{}}, nil
 }
 
 // getClassifierInput holds input for GetClassifier.
-type getClassifierInput struct{}
+type getClassifierInput struct {
+	Name string `json:"Name"`
+}
 
 // getClassifierOutput holds the result for GetClassifier.
 type getClassifierOutput struct {
-	Classifier any `json:"Classifier"`
+	Classifier *Classifier `json:"Classifier"`
 }
 
-func (h *Handler) handleGetClassifier(_ context.Context, _ *getClassifierInput) (*getClassifierOutput, error) {
-	return &getClassifierOutput{}, nil
+func (h *Handler) handleGetClassifier(
+	_ context.Context,
+	in *getClassifierInput,
+) (*getClassifierOutput, error) {
+	c, err := h.Backend.GetClassifier(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getClassifierOutput{Classifier: c}, nil
 }
 
 // getClassifiersInput holds input for GetClassifiers.
@@ -954,11 +1160,14 @@ type getClassifiersInput struct{}
 
 // getClassifiersOutput holds the result for GetClassifiers.
 type getClassifiersOutput struct {
-	Classifiers []any `json:"Classifiers"`
+	Classifiers []*Classifier `json:"Classifiers"`
 }
 
-func (h *Handler) handleGetClassifiers(_ context.Context, _ *getClassifiersInput) (*getClassifiersOutput, error) {
-	return &getClassifiersOutput{Classifiers: []any{}}, nil
+func (h *Handler) handleGetClassifiers(
+	_ context.Context,
+	_ *getClassifiersInput,
+) (*getClassifiersOutput, error) {
+	return &getClassifiersOutput{Classifiers: h.Backend.GetClassifiers()}, nil
 }
 
 // getColumnStatisticsForPartitionInput holds input for GetColumnStatisticsForPartition.
@@ -974,7 +1183,10 @@ func (h *Handler) handleGetColumnStatisticsForPartition(
 	_ context.Context,
 	_ *getColumnStatisticsForPartitionInput,
 ) (*getColumnStatisticsForPartitionOutput, error) {
-	return &getColumnStatisticsForPartitionOutput{ColumnStatisticsList: []any{}, Errors: []any{}}, nil
+	return &getColumnStatisticsForPartitionOutput{
+		ColumnStatisticsList: []any{},
+		Errors:               []any{},
+	}, nil
 }
 
 // getColumnStatisticsForTableInput holds input for GetColumnStatisticsForTable.
@@ -1093,7 +1305,9 @@ func (h *Handler) handleGetDataCatalogEncryptionSettings(
 	_ context.Context,
 	_ *getDataCatalogEncryptionSettingsInput,
 ) (*getDataCatalogEncryptionSettingsOutput, error) {
-	return &getDataCatalogEncryptionSettingsOutput{DataCatalogEncryptionSettings: map[string]any{}}, nil
+	return &getDataCatalogEncryptionSettingsOutput{
+		DataCatalogEncryptionSettings: map[string]any{},
+	}, nil
 }
 
 // getDataQualityModelInput holds input for GetDataQualityModel.
@@ -1174,7 +1388,10 @@ type getDataflowGraphOutput struct {
 	DagEdges []any `json:"DagEdges"`
 }
 
-func (h *Handler) handleGetDataflowGraph(_ context.Context, _ *getDataflowGraphInput) (*getDataflowGraphOutput, error) {
+func (h *Handler) handleGetDataflowGraph(
+	_ context.Context,
+	_ *getDataflowGraphInput,
+) (*getDataflowGraphOutput, error) {
 	return &getDataflowGraphOutput{DagNodes: []any{}, DagEdges: []any{}}, nil
 }
 
@@ -1188,13 +1405,16 @@ type getDevEndpointOutput struct {
 	DevEndpoint *DevEndpoint `json:"DevEndpoint"`
 }
 
-func (h *Handler) handleGetDevEndpoint(_ context.Context, in *getDevEndpointInput) (*getDevEndpointOutput, error) {
-	found, _ := h.Backend.BatchGetDevEndpoints([]string{in.EndpointName})
-	if len(found) > 0 {
-		return &getDevEndpointOutput{DevEndpoint: found[0]}, nil
+func (h *Handler) handleGetDevEndpoint(
+	_ context.Context,
+	in *getDevEndpointInput,
+) (*getDevEndpointOutput, error) {
+	dep, err := h.Backend.GetDevEndpoint(in.EndpointName)
+	if err != nil {
+		return nil, err
 	}
 
-	return &getDevEndpointOutput{DevEndpoint: &DevEndpoint{EndpointName: in.EndpointName, Status: stateReady}}, nil
+	return &getDevEndpointOutput{DevEndpoint: dep}, nil
 }
 
 // getDevEndpointsInput holds input for GetDevEndpoints.
@@ -1205,10 +1425,11 @@ type getDevEndpointsOutput struct {
 	DevEndpoints []*DevEndpoint `json:"DevEndpoints"`
 }
 
-func (h *Handler) handleGetDevEndpoints(_ context.Context, _ *getDevEndpointsInput) (*getDevEndpointsOutput, error) {
-	found, _ := h.Backend.BatchGetDevEndpoints([]string{})
-
-	return &getDevEndpointsOutput{DevEndpoints: found}, nil
+func (h *Handler) handleGetDevEndpoints(
+	_ context.Context,
+	_ *getDevEndpointsInput,
+) (*getDevEndpointsOutput, error) {
+	return &getDevEndpointsOutput{DevEndpoints: h.Backend.GetAllDevEndpoints()}, nil
 }
 
 // getEntityRecordsInput holds input for GetEntityRecords.
@@ -1219,7 +1440,10 @@ type getEntityRecordsOutput struct {
 	Records []any `json:"Records"`
 }
 
-func (h *Handler) handleGetEntityRecords(_ context.Context, _ *getEntityRecordsInput) (*getEntityRecordsOutput, error) {
+func (h *Handler) handleGetEntityRecords(
+	_ context.Context,
+	_ *getEntityRecordsInput,
+) (*getEntityRecordsOutput, error) {
 	return &getEntityRecordsOutput{Records: []any{}}, nil
 }
 
@@ -1279,7 +1503,10 @@ type getMLTaskRunOutput struct {
 	Status      string `json:"Status"`
 }
 
-func (h *Handler) handleGetMLTaskRun(_ context.Context, _ *getMLTaskRunInput) (*getMLTaskRunOutput, error) {
+func (h *Handler) handleGetMLTaskRun(
+	_ context.Context,
+	_ *getMLTaskRunInput,
+) (*getMLTaskRunOutput, error) {
 	return &getMLTaskRunOutput{Status: stateSucceeded}, nil
 }
 
@@ -1291,7 +1518,10 @@ type getMLTaskRunsOutput struct {
 	TaskRuns []any `json:"TaskRuns"`
 }
 
-func (h *Handler) handleGetMLTaskRuns(_ context.Context, _ *getMLTaskRunsInput) (*getMLTaskRunsOutput, error) {
+func (h *Handler) handleGetMLTaskRuns(
+	_ context.Context,
+	_ *getMLTaskRunsInput,
+) (*getMLTaskRunsOutput, error) {
 	return &getMLTaskRunsOutput{TaskRuns: []any{}}, nil
 }
 
@@ -1304,7 +1534,10 @@ type getMLTransformOutput struct {
 	Status      string `json:"Status"`
 }
 
-func (h *Handler) handleGetMLTransform(_ context.Context, _ *getMLTransformInput) (*getMLTransformOutput, error) {
+func (h *Handler) handleGetMLTransform(
+	_ context.Context,
+	_ *getMLTransformInput,
+) (*getMLTransformOutput, error) {
 	return &getMLTransformOutput{Status: stateReady}, nil
 }
 
@@ -1316,7 +1549,10 @@ type getMLTransformsOutput struct {
 	Transforms []any `json:"Transforms"`
 }
 
-func (h *Handler) handleGetMLTransforms(_ context.Context, _ *getMLTransformsInput) (*getMLTransformsOutput, error) {
+func (h *Handler) handleGetMLTransforms(
+	_ context.Context,
+	_ *getMLTransformsInput,
+) (*getMLTransformsOutput, error) {
 	return &getMLTransformsOutput{Transforms: []any{}}, nil
 }
 
@@ -1328,7 +1564,10 @@ type getMappingOutput struct {
 	Mapping []any `json:"Mapping"`
 }
 
-func (h *Handler) handleGetMapping(_ context.Context, _ *getMappingInput) (*getMappingOutput, error) {
+func (h *Handler) handleGetMapping(
+	_ context.Context,
+	_ *getMappingInput,
+) (*getMappingOutput, error) {
 	return &getMappingOutput{Mapping: []any{}}, nil
 }
 
@@ -1360,7 +1599,10 @@ type getPartitionOutput struct {
 	Partition *Partition `json:"Partition"`
 }
 
-func (h *Handler) handleGetPartition(_ context.Context, _ *getPartitionInput) (*getPartitionOutput, error) {
+func (h *Handler) handleGetPartition(
+	_ context.Context,
+	_ *getPartitionInput,
+) (*getPartitionOutput, error) {
 	return &getPartitionOutput{}, nil
 }
 
@@ -1390,7 +1632,10 @@ type getPartitionsOutput struct {
 	Partitions []*Partition `json:"Partitions"`
 }
 
-func (h *Handler) handleGetPartitions(_ context.Context, _ *getPartitionsInput) (*getPartitionsOutput, error) {
+func (h *Handler) handleGetPartitions(
+	_ context.Context,
+	_ *getPartitionsInput,
+) (*getPartitionsOutput, error) {
 	return &getPartitionsOutput{Partitions: []*Partition{}}, nil
 }
 
@@ -1417,7 +1662,10 @@ type getRegistryOutput struct {
 	Status       string `json:"Status"`
 }
 
-func (h *Handler) handleGetRegistry(_ context.Context, _ *getRegistryInput) (*getRegistryOutput, error) {
+func (h *Handler) handleGetRegistry(
+	_ context.Context,
+	_ *getRegistryInput,
+) (*getRegistryOutput, error) {
 	return &getRegistryOutput{Status: stateAvailable}, nil
 }
 
@@ -1495,7 +1743,10 @@ type getSchemaVersionOutput struct {
 	Status          string `json:"Status"`
 }
 
-func (h *Handler) handleGetSchemaVersion(_ context.Context, _ *getSchemaVersionInput) (*getSchemaVersionOutput, error) {
+func (h *Handler) handleGetSchemaVersion(
+	_ context.Context,
+	_ *getSchemaVersionInput,
+) (*getSchemaVersionOutput, error) {
 	return &getSchemaVersionOutput{Status: stateAvailable}, nil
 }
 
@@ -1554,7 +1805,10 @@ type getSessionOutput struct {
 	Session any `json:"Session"`
 }
 
-func (h *Handler) handleGetSession(_ context.Context, in *getSessionInput) (*getSessionOutput, error) {
+func (h *Handler) handleGetSession(
+	_ context.Context,
+	in *getSessionInput,
+) (*getSessionOutput, error) {
 	return &getSessionOutput{Session: map[string]string{"Id": in.ID, "Status": stateReady}}, nil
 }
 
@@ -1566,7 +1820,10 @@ type getStatementOutput struct {
 	Statement any `json:"Statement"`
 }
 
-func (h *Handler) handleGetStatement(_ context.Context, _ *getStatementInput) (*getStatementOutput, error) {
+func (h *Handler) handleGetStatement(
+	_ context.Context,
+	_ *getStatementInput,
+) (*getStatementOutput, error) {
 	return &getStatementOutput{}, nil
 }
 
@@ -1597,7 +1854,10 @@ type getTableVersionOutput struct {
 	TableVersion *TableVersion `json:"TableVersion"`
 }
 
-func (h *Handler) handleGetTableVersion(_ context.Context, _ *getTableVersionInput) (*getTableVersionOutput, error) {
+func (h *Handler) handleGetTableVersion(
+	_ context.Context,
+	_ *getTableVersionInput,
+) (*getTableVersionOutput, error) {
 	return &getTableVersionOutput{}, nil
 }
 
@@ -1612,7 +1872,10 @@ type getTableVersionsOutput struct {
 	TableVersions []*TableVersion `json:"TableVersions"`
 }
 
-func (h *Handler) handleGetTableVersions(_ context.Context, _ *getTableVersionsInput) (*getTableVersionsOutput, error) {
+func (h *Handler) handleGetTableVersions(
+	_ context.Context,
+	_ *getTableVersionsInput,
+) (*getTableVersionsOutput, error) {
 	return &getTableVersionsOutput{TableVersions: []*TableVersion{}}, nil
 }
 
@@ -1623,11 +1886,19 @@ type getTriggerInput struct {
 
 // getTriggerOutput holds the result for GetTrigger.
 type getTriggerOutput struct {
-	Trigger any `json:"Trigger"`
+	Trigger *Trigger `json:"Trigger"`
 }
 
-func (h *Handler) handleGetTrigger(_ context.Context, _ *getTriggerInput) (*getTriggerOutput, error) {
-	return &getTriggerOutput{}, nil
+func (h *Handler) handleGetTrigger(
+	_ context.Context,
+	in *getTriggerInput,
+) (*getTriggerOutput, error) {
+	t, err := h.Backend.GetTrigger(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getTriggerOutput{Trigger: t}, nil
 }
 
 // getTriggersInput holds input for GetTriggers.
@@ -1635,11 +1906,14 @@ type getTriggersInput struct{}
 
 // getTriggersOutput holds the result for GetTriggers.
 type getTriggersOutput struct {
-	Triggers []any `json:"Triggers"`
+	Triggers []*Trigger `json:"Triggers"`
 }
 
-func (h *Handler) handleGetTriggers(_ context.Context, _ *getTriggersInput) (*getTriggersOutput, error) {
-	return &getTriggersOutput{Triggers: []any{}}, nil
+func (h *Handler) handleGetTriggers(
+	_ context.Context,
+	_ *getTriggersInput,
+) (*getTriggersOutput, error) {
+	return &getTriggersOutput{Triggers: h.Backend.GetTriggers()}, nil
 }
 
 // getUnfilteredPartitionMetadataInput holds input for GetUnfilteredPartitionMetadata.
@@ -1701,7 +1975,10 @@ type getUsageProfileOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleGetUsageProfile(_ context.Context, in *getUsageProfileInput) (*getUsageProfileOutput, error) {
+func (h *Handler) handleGetUsageProfile(
+	_ context.Context,
+	in *getUsageProfileInput,
+) (*getUsageProfileOutput, error) {
 	return &getUsageProfileOutput{Name: in.Name}, nil
 }
 
@@ -1742,23 +2019,42 @@ type getWorkflowInput struct {
 
 // getWorkflowOutput holds the result for GetWorkflow.
 type getWorkflowOutput struct {
-	Workflow any `json:"Workflow"`
+	Workflow *Workflow `json:"Workflow"`
 }
 
-func (h *Handler) handleGetWorkflow(_ context.Context, _ *getWorkflowInput) (*getWorkflowOutput, error) {
-	return &getWorkflowOutput{}, nil
+func (h *Handler) handleGetWorkflow(
+	_ context.Context,
+	in *getWorkflowInput,
+) (*getWorkflowOutput, error) {
+	w, err := h.Backend.GetWorkflow(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getWorkflowOutput{Workflow: w}, nil
 }
 
 // getWorkflowRunInput holds input for GetWorkflowRun.
-type getWorkflowRunInput struct{}
+type getWorkflowRunInput struct {
+	Name  string `json:"Name"`
+	RunID string `json:"RunId"`
+}
 
 // getWorkflowRunOutput holds the result for GetWorkflowRun.
 type getWorkflowRunOutput struct {
-	Run any `json:"Run"`
+	Run *WorkflowRun `json:"Run"`
 }
 
-func (h *Handler) handleGetWorkflowRun(_ context.Context, _ *getWorkflowRunInput) (*getWorkflowRunOutput, error) {
-	return &getWorkflowRunOutput{}, nil
+func (h *Handler) handleGetWorkflowRun(
+	_ context.Context,
+	in *getWorkflowRunInput,
+) (*getWorkflowRunOutput, error) {
+	run, err := h.Backend.GetWorkflowRun(in.Name, in.RunID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getWorkflowRunOutput{Run: run}, nil
 }
 
 // getWorkflowRunPropertiesInput holds input for GetWorkflowRunProperties.
@@ -1777,21 +2073,34 @@ func (h *Handler) handleGetWorkflowRunProperties(
 }
 
 // getWorkflowRunsInput holds input for GetWorkflowRuns.
-type getWorkflowRunsInput struct{}
+type getWorkflowRunsInput struct {
+	Name string `json:"Name"`
+}
 
 // getWorkflowRunsOutput holds the result for GetWorkflowRuns.
 type getWorkflowRunsOutput struct {
-	Runs []any `json:"Runs"`
+	Runs []*WorkflowRun `json:"Runs"`
 }
 
-func (h *Handler) handleGetWorkflowRuns(_ context.Context, _ *getWorkflowRunsInput) (*getWorkflowRunsOutput, error) {
-	return &getWorkflowRunsOutput{Runs: []any{}}, nil
+func (h *Handler) handleGetWorkflowRuns(
+	_ context.Context,
+	in *getWorkflowRunsInput,
+) (*getWorkflowRunsOutput, error) {
+	runs, err := h.Backend.GetWorkflowRuns(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getWorkflowRunsOutput{Runs: runs}, nil
 }
 
 // importCatalogToGlueInput holds input for ImportCatalogToGlue.
 type importCatalogToGlueInput struct{}
 
-func (h *Handler) handleImportCatalogToGlue(_ context.Context, _ *importCatalogToGlueInput) (*emptyOutput, error) {
+func (h *Handler) handleImportCatalogToGlue(
+	_ context.Context,
+	_ *importCatalogToGlueInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -1803,7 +2112,10 @@ type listBlueprintsOutput struct {
 	Blueprints []string `json:"Blueprints"`
 }
 
-func (h *Handler) handleListBlueprints(_ context.Context, _ *listBlueprintsInput) (*listBlueprintsOutput, error) {
+func (h *Handler) handleListBlueprints(
+	_ context.Context,
+	_ *listBlueprintsInput,
+) (*listBlueprintsOutput, error) {
 	return &listBlueprintsOutput{Blueprints: []string{}}, nil
 }
 
@@ -1845,7 +2157,10 @@ type listCrawlsOutput struct {
 	Crawls []any `json:"Crawls"`
 }
 
-func (h *Handler) handleListCrawls(_ context.Context, _ *listCrawlsInput) (*listCrawlsOutput, error) {
+func (h *Handler) handleListCrawls(
+	_ context.Context,
+	_ *listCrawlsInput,
+) (*listCrawlsOutput, error) {
 	return &listCrawlsOutput{Crawls: []any{}}, nil
 }
 
@@ -1947,8 +2262,17 @@ type listDevEndpointsOutput struct {
 	DevEndpointNames []string `json:"DevEndpointNames"`
 }
 
-func (h *Handler) handleListDevEndpoints(_ context.Context, _ *listDevEndpointsInput) (*listDevEndpointsOutput, error) {
-	return &listDevEndpointsOutput{DevEndpointNames: []string{}}, nil
+func (h *Handler) handleListDevEndpoints(
+	_ context.Context,
+	_ *listDevEndpointsInput,
+) (*listDevEndpointsOutput, error) {
+	deps := h.Backend.GetAllDevEndpoints()
+	names := make([]string, 0, len(deps))
+	for _, d := range deps {
+		names = append(names, d.EndpointName)
+	}
+
+	return &listDevEndpointsOutput{DevEndpointNames: names}, nil
 }
 
 // listEntitiesInput holds input for ListEntities.
@@ -1959,7 +2283,10 @@ type listEntitiesOutput struct {
 	Entities []any `json:"Entities"`
 }
 
-func (h *Handler) handleListEntities(_ context.Context, _ *listEntitiesInput) (*listEntitiesOutput, error) {
+func (h *Handler) handleListEntities(
+	_ context.Context,
+	_ *listEntitiesInput,
+) (*listEntitiesOutput, error) {
 	return &listEntitiesOutput{Entities: []any{}}, nil
 }
 
@@ -2005,7 +2332,10 @@ type listMLTransformsOutput struct {
 	TransformIDs []string `json:"TransformIds"`
 }
 
-func (h *Handler) handleListMLTransforms(_ context.Context, _ *listMLTransformsInput) (*listMLTransformsOutput, error) {
+func (h *Handler) handleListMLTransforms(
+	_ context.Context,
+	_ *listMLTransformsInput,
+) (*listMLTransformsOutput, error) {
 	return &listMLTransformsOutput{TransformIDs: []string{}}, nil
 }
 
@@ -2032,7 +2362,10 @@ type listRegistriesOutput struct {
 	Registries []any `json:"Registries"`
 }
 
-func (h *Handler) handleListRegistries(_ context.Context, _ *listRegistriesInput) (*listRegistriesOutput, error) {
+func (h *Handler) handleListRegistries(
+	_ context.Context,
+	_ *listRegistriesInput,
+) (*listRegistriesOutput, error) {
 	return &listRegistriesOutput{Registries: []any{}}, nil
 }
 
@@ -2059,7 +2392,10 @@ type listSchemasOutput struct {
 	Schemas []any `json:"Schemas"`
 }
 
-func (h *Handler) handleListSchemas(_ context.Context, _ *listSchemasInput) (*listSchemasOutput, error) {
+func (h *Handler) handleListSchemas(
+	_ context.Context,
+	_ *listSchemasInput,
+) (*listSchemasOutput, error) {
 	return &listSchemasOutput{Schemas: []any{}}, nil
 }
 
@@ -2072,7 +2408,10 @@ type listSessionsOutput struct {
 	Sessions []any    `json:"Sessions"`
 }
 
-func (h *Handler) handleListSessions(_ context.Context, _ *listSessionsInput) (*listSessionsOutput, error) {
+func (h *Handler) handleListSessions(
+	_ context.Context,
+	_ *listSessionsInput,
+) (*listSessionsOutput, error) {
 	return &listSessionsOutput{IDs: []string{}, Sessions: []any{}}, nil
 }
 
@@ -2084,7 +2423,10 @@ type listStatementsOutput struct {
 	Statements []any `json:"Statements"`
 }
 
-func (h *Handler) handleListStatements(_ context.Context, _ *listStatementsInput) (*listStatementsOutput, error) {
+func (h *Handler) handleListStatements(
+	_ context.Context,
+	_ *listStatementsInput,
+) (*listStatementsOutput, error) {
 	return &listStatementsOutput{Statements: []any{}}, nil
 }
 
@@ -2111,8 +2453,17 @@ type listTriggersOutput struct {
 	TriggerNames []string `json:"TriggerNames"`
 }
 
-func (h *Handler) handleListTriggers(_ context.Context, _ *listTriggersInput) (*listTriggersOutput, error) {
-	return &listTriggersOutput{TriggerNames: []string{}}, nil
+func (h *Handler) handleListTriggers(
+	_ context.Context,
+	_ *listTriggersInput,
+) (*listTriggersOutput, error) {
+	triggers := h.Backend.GetTriggers()
+	names := make([]string, 0, len(triggers))
+	for _, t := range triggers {
+		names = append(names, t.Name)
+	}
+
+	return &listTriggersOutput{TriggerNames: names}, nil
 }
 
 // listUsageProfilesInput holds input for ListUsageProfiles.
@@ -2138,8 +2489,11 @@ type listWorkflowsOutput struct {
 	Workflows []string `json:"Workflows"`
 }
 
-func (h *Handler) handleListWorkflows(_ context.Context, _ *listWorkflowsInput) (*listWorkflowsOutput, error) {
-	return &listWorkflowsOutput{Workflows: []string{}}, nil
+func (h *Handler) handleListWorkflows(
+	_ context.Context,
+	_ *listWorkflowsInput,
+) (*listWorkflowsOutput, error) {
+	return &listWorkflowsOutput{Workflows: h.Backend.GetWorkflows()}, nil
 }
 
 // modifyIntegrationInput holds input for ModifyIntegration.
@@ -2314,7 +2668,10 @@ type runStatementOutput struct {
 	ID int32 `json:"Id"`
 }
 
-func (h *Handler) handleRunStatement(_ context.Context, _ *runStatementInput) (*runStatementOutput, error) {
+func (h *Handler) handleRunStatement(
+	_ context.Context,
+	_ *runStatementInput,
+) (*runStatementOutput, error) {
 	return &runStatementOutput{ID: 1}, nil
 }
 
@@ -2326,7 +2683,10 @@ type searchTablesOutput struct {
 	TableList []*Table `json:"TableList"`
 }
 
-func (h *Handler) handleSearchTables(_ context.Context, _ *searchTablesInput) (*searchTablesOutput, error) {
+func (h *Handler) handleSearchTables(
+	_ context.Context,
+	_ *searchTablesInput,
+) (*searchTablesOutput, error) {
 	return &searchTablesOutput{TableList: []*Table{}}, nil
 }
 
@@ -2470,7 +2830,14 @@ type startTriggerOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleStartTrigger(_ context.Context, in *startTriggerInput) (*startTriggerOutput, error) {
+func (h *Handler) handleStartTrigger(
+	_ context.Context,
+	in *startTriggerInput,
+) (*startTriggerOutput, error) {
+	if err := h.Backend.StartTrigger(in.Name); err != nil {
+		return nil, err
+	}
+
 	return &startTriggerOutput{Name: in.Name}, nil
 }
 
@@ -2484,8 +2851,16 @@ type startWorkflowRunOutput struct {
 	RunID string `json:"RunId"`
 }
 
-func (h *Handler) handleStartWorkflowRun(_ context.Context, _ *startWorkflowRunInput) (*startWorkflowRunOutput, error) {
-	return &startWorkflowRunOutput{RunID: "workflow-run-stub"}, nil
+func (h *Handler) handleStartWorkflowRun(
+	_ context.Context,
+	in *startWorkflowRunInput,
+) (*startWorkflowRunOutput, error) {
+	run, err := h.Backend.StartWorkflowRun(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startWorkflowRunOutput{RunID: run.RunID}, nil
 }
 
 // stopColumnStatisticsTaskRunInput holds input for StopColumnStatisticsTaskRun.
@@ -2528,7 +2903,10 @@ type stopSessionOutput struct {
 	ID string `json:"Id"`
 }
 
-func (h *Handler) handleStopSession(_ context.Context, in *stopSessionInput) (*stopSessionOutput, error) {
+func (h *Handler) handleStopSession(
+	_ context.Context,
+	in *stopSessionInput,
+) (*stopSessionOutput, error) {
 	return &stopSessionOutput{ID: in.ID}, nil
 }
 
@@ -2542,14 +2920,24 @@ type stopTriggerOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleStopTrigger(_ context.Context, in *stopTriggerInput) (*stopTriggerOutput, error) {
+func (h *Handler) handleStopTrigger(
+	_ context.Context,
+	in *stopTriggerInput,
+) (*stopTriggerOutput, error) {
+	if err := h.Backend.StopTrigger(in.Name); err != nil {
+		return nil, err
+	}
+
 	return &stopTriggerOutput{Name: in.Name}, nil
 }
 
 // stopWorkflowRunInput holds input for StopWorkflowRun.
 type stopWorkflowRunInput struct{}
 
-func (h *Handler) handleStopWorkflowRun(_ context.Context, _ *stopWorkflowRunInput) (*emptyOutput, error) {
+func (h *Handler) handleStopWorkflowRun(
+	_ context.Context,
+	_ *stopWorkflowRunInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -2561,7 +2949,10 @@ type testConnectionOutput struct {
 	Status string `json:"Status"`
 }
 
-func (h *Handler) handleTestConnection(_ context.Context, _ *testConnectionInput) (*testConnectionOutput, error) {
+func (h *Handler) handleTestConnection(
+	_ context.Context,
+	_ *testConnectionInput,
+) (*testConnectionOutput, error) {
 	return &testConnectionOutput{Status: stateSucceeded}, nil
 }
 
@@ -2575,21 +2966,45 @@ type updateBlueprintOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleUpdateBlueprint(_ context.Context, in *updateBlueprintInput) (*updateBlueprintOutput, error) {
+func (h *Handler) handleUpdateBlueprint(
+	_ context.Context,
+	in *updateBlueprintInput,
+) (*updateBlueprintOutput, error) {
 	return &updateBlueprintOutput{Name: in.Name}, nil
 }
 
 // updateCatalogInput holds input for UpdateCatalog.
 type updateCatalogInput struct{}
 
-func (h *Handler) handleUpdateCatalog(_ context.Context, _ *updateCatalogInput) (*emptyOutput, error) {
+func (h *Handler) handleUpdateCatalog(
+	_ context.Context,
+	_ *updateCatalogInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
 // updateClassifierInput holds input for UpdateClassifier.
-type updateClassifierInput struct{}
+type updateClassifierInput struct {
+	GrokClassifier *GrokClassifier `json:"GrokClassifier,omitempty"`
+	XMLClassifier  *XMLClassifier  `json:"XMLClassifier,omitempty"`
+	JSONClassifier *JSONClassifier `json:"JSONClassifier,omitempty"`
+	CsvClassifier  *CsvClassifier  `json:"CsvClassifier,omitempty"`
+}
 
-func (h *Handler) handleUpdateClassifier(_ context.Context, _ *updateClassifierInput) (*emptyOutput, error) {
+func (h *Handler) handleUpdateClassifier(
+	_ context.Context,
+	in *updateClassifierInput,
+) (*emptyOutput, error) {
+	c := Classifier{
+		GrokClassifier: in.GrokClassifier,
+		XMLClassifier:  in.XMLClassifier,
+		JSONClassifier: in.JSONClassifier,
+		CsvClassifier:  in.CsvClassifier,
+	}
+	if err := h.Backend.UpdateClassifier(c); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, nil
 }
 
@@ -2639,14 +3054,20 @@ type updateConnectionInput struct {
 	ConnectionInput connectionInput `json:"ConnectionInput"`
 }
 
-func (h *Handler) handleUpdateConnection(_ context.Context, _ *updateConnectionInput) (*emptyOutput, error) {
+func (h *Handler) handleUpdateConnection(
+	_ context.Context,
+	_ *updateConnectionInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
 // updateDevEndpointInput holds input for UpdateDevEndpoint.
 type updateDevEndpointInput struct{}
 
-func (h *Handler) handleUpdateDevEndpoint(_ context.Context, _ *updateDevEndpointInput) (*emptyOutput, error) {
+func (h *Handler) handleUpdateDevEndpoint(
+	_ context.Context,
+	_ *updateDevEndpointInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -2722,7 +3143,10 @@ func (h *Handler) handleUpdateMLTransform(
 // updatePartitionInput holds input for UpdatePartition.
 type updatePartitionInput struct{}
 
-func (h *Handler) handleUpdatePartition(_ context.Context, _ *updatePartitionInput) (*emptyOutput, error) {
+func (h *Handler) handleUpdatePartition(
+	_ context.Context,
+	_ *updatePartitionInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
@@ -2735,7 +3159,10 @@ type updateRegistryOutput struct {
 	RegistryArn  string `json:"RegistryArn"`
 }
 
-func (h *Handler) handleUpdateRegistry(_ context.Context, _ *updateRegistryInput) (*updateRegistryOutput, error) {
+func (h *Handler) handleUpdateRegistry(
+	_ context.Context,
+	_ *updateRegistryInput,
+) (*updateRegistryOutput, error) {
 	return &updateRegistryOutput{}, nil
 }
 
@@ -2749,7 +3176,10 @@ type updateSchemaOutput struct {
 	RegistryName string `json:"RegistryName"`
 }
 
-func (h *Handler) handleUpdateSchema(_ context.Context, _ *updateSchemaInput) (*updateSchemaOutput, error) {
+func (h *Handler) handleUpdateSchema(
+	_ context.Context,
+	_ *updateSchemaInput,
+) (*updateSchemaOutput, error) {
 	return &updateSchemaOutput{}, nil
 }
 
@@ -2773,22 +3203,50 @@ func (h *Handler) handleUpdateSourceControlFromJob(
 // updateTableOptimizerInput holds input for UpdateTableOptimizer.
 type updateTableOptimizerInput struct{}
 
-func (h *Handler) handleUpdateTableOptimizer(_ context.Context, _ *updateTableOptimizerInput) (*emptyOutput, error) {
+func (h *Handler) handleUpdateTableOptimizer(
+	_ context.Context,
+	_ *updateTableOptimizerInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
 // updateTriggerInput holds input for UpdateTrigger.
 type updateTriggerInput struct {
-	Name string `json:"Name"`
+	Name          string        `json:"Name"`
+	TriggerUpdate triggerUpdate `json:"TriggerUpdate"`
+}
+
+// triggerUpdate holds the mutable fields for UpdateTrigger.
+type triggerUpdate struct {
+	Predicate *TriggerPredicate `json:"Predicate,omitempty"`
+	Schedule  string            `json:"Schedule,omitempty"`
+	Actions   []TriggerAction   `json:"Actions,omitempty"`
 }
 
 // updateTriggerOutput holds the result for UpdateTrigger.
 type updateTriggerOutput struct {
-	Trigger any `json:"Trigger"`
+	Trigger *Trigger `json:"Trigger"`
 }
 
-func (h *Handler) handleUpdateTrigger(_ context.Context, in *updateTriggerInput) (*updateTriggerOutput, error) {
-	return &updateTriggerOutput{Trigger: map[string]string{"Name": in.Name}}, nil
+func (h *Handler) handleUpdateTrigger(
+	_ context.Context,
+	in *updateTriggerInput,
+) (*updateTriggerOutput, error) {
+	update := Trigger{
+		Schedule:  in.TriggerUpdate.Schedule,
+		Actions:   in.TriggerUpdate.Actions,
+		Predicate: in.TriggerUpdate.Predicate,
+	}
+	if err := h.Backend.UpdateTrigger(in.Name, update); err != nil {
+		return nil, err
+	}
+
+	t, err := h.Backend.GetTrigger(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateTriggerOutput{Trigger: t}, nil
 }
 
 // updateUsageProfileInput holds input for UpdateUsageProfile.
@@ -2820,7 +3278,9 @@ func (h *Handler) handleUpdateUserDefinedFunction(
 
 // updateWorkflowInput holds input for UpdateWorkflow.
 type updateWorkflowInput struct {
-	Name string `json:"Name"`
+	DefaultRunProperties map[string]string `json:"DefaultRunProperties,omitempty"`
+	Name                 string            `json:"Name"`
+	Description          string            `json:"Description,omitempty"`
 }
 
 // updateWorkflowOutput holds the result for UpdateWorkflow.
@@ -2828,6 +3288,17 @@ type updateWorkflowOutput struct {
 	Name string `json:"Name"`
 }
 
-func (h *Handler) handleUpdateWorkflow(_ context.Context, in *updateWorkflowInput) (*updateWorkflowOutput, error) {
+func (h *Handler) handleUpdateWorkflow(
+	_ context.Context,
+	in *updateWorkflowInput,
+) (*updateWorkflowOutput, error) {
+	update := Workflow{
+		Description:          in.Description,
+		DefaultRunProperties: in.DefaultRunProperties,
+	}
+	if err := h.Backend.UpdateWorkflow(in.Name, update); err != nil {
+		return nil, err
+	}
+
 	return &updateWorkflowOutput{Name: in.Name}, nil
 }
