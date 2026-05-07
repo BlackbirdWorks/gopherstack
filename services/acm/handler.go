@@ -52,24 +52,33 @@ type resourceRecord struct {
 	Value string `json:"Value"`
 }
 
+// renewalSummaryDetail is the wire format for the RenewalSummary field in DescribeCertificate.
+type renewalSummaryDetail struct {
+	RenewalStatus           string                   `json:"RenewalStatus"`
+	DomainValidationOptions []domainValidationOption `json:"DomainValidationOptions,omitempty"`
+}
+
 type certificateDetail struct {
-	RevokedAt               *int64                   `json:"RevokedAt,omitempty"`
-	IssuedAt                *int64                   `json:"IssuedAt,omitempty"`
-	ImportedAt              *int64                   `json:"ImportedAt,omitempty"`
-	CertificateArn          string                   `json:"CertificateArn"`
-	DomainName              string                   `json:"DomainName"`
-	Serial                  string                   `json:"Serial,omitempty"`
-	Subject                 string                   `json:"Subject,omitempty"`
-	Issuer                  string                   `json:"Issuer,omitempty"`
-	KeyAlgorithm            string                   `json:"KeyAlgorithm,omitempty"`
-	SignatureAlgorithm      string                   `json:"SignatureAlgorithm,omitempty"`
-	Status                  string                   `json:"Status"`
-	Type                    string                   `json:"Type"`
-	RevocationReason        string                   `json:"RevocationReason,omitempty"`
-	RenewalEligibility      string                   `json:"RenewalEligibility,omitempty"`
-	FailureReason           string                   `json:"FailureReason,omitempty"`
-	Options                 *certificateOptions      `json:"Options,omitempty"`
-	SubjectAlternativeNames []string                 `json:"SubjectAlternativeNames,omitempty"`
+	RevokedAt               *int64                `json:"RevokedAt,omitempty"`
+	IssuedAt                *int64                `json:"IssuedAt,omitempty"`
+	ImportedAt              *int64                `json:"ImportedAt,omitempty"`
+	RenewalSummary          *renewalSummaryDetail `json:"RenewalSummary,omitempty"`
+	CertificateArn          string                `json:"CertificateArn"`
+	DomainName              string                `json:"DomainName"`
+	Serial                  string                `json:"Serial,omitempty"`
+	Subject                 string                `json:"Subject,omitempty"`
+	Issuer                  string                `json:"Issuer,omitempty"`
+	KeyAlgorithm            string                `json:"KeyAlgorithm,omitempty"`
+	SignatureAlgorithm      string                `json:"SignatureAlgorithm,omitempty"`
+	Status                  string                `json:"Status"`
+	Type                    string                `json:"Type"`
+	RevocationReason        string                `json:"RevocationReason,omitempty"`
+	RenewalEligibility      string                `json:"RenewalEligibility,omitempty"`
+	FailureReason           string                `json:"FailureReason,omitempty"`
+	Options                 *certificateOptions   `json:"Options,omitempty"`
+	SubjectAlternativeNames []string              `json:"SubjectAlternativeNames,omitempty"`
+	// DomainValidationOptions uses a concrete slice type here to satisfy the JSON
+	// marshaller; the field name matches the AWS wire format.
 	DomainValidationOptions []domainValidationOption `json:"DomainValidationOptions"`
 	InUseBy                 []string                 `json:"InUseBy,omitempty"`
 	KeyUsage                []keyUsageDetail         `json:"KeyUsage,omitempty"`
@@ -564,34 +573,57 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 		extKeyUsages = append(extKeyUsages, extKeyUsageDetail{Name: eku})
 	}
 
-	return &describeCertificateOutput{
-		Certificate: certificateDetail{
-			CertificateArn:          cert.ARN,
-			DomainName:              cert.DomainName,
-			Serial:                  cert.Serial,
-			Subject:                 cert.Subject,
-			Issuer:                  cert.Issuer,
-			KeyAlgorithm:            cert.KeyAlgorithm,
-			SignatureAlgorithm:      cert.SignatureAlgorithm,
-			Status:                  cert.Status,
-			Type:                    cert.Type,
-			RenewalEligibility:      cert.RenewalEligibility,
-			RevocationReason:        cert.RevocationReason,
-			FailureReason:           cert.FailureReason,
-			CreatedAt:               cert.CreatedAt.Unix(),
-			NotBefore:               cert.NotBefore.Unix(),
-			NotAfter:                cert.NotAfter.Unix(),
-			SubjectAlternativeNames: cert.SubjectAlternativeNames,
-			DomainValidationOptions: dvoList,
-			Options:                 describeCertOptions(cert),
-			RevokedAt:               certTimeUnix(cert.RevokedAt),
-			IssuedAt:                certTimeUnix(cert.IssuedAt),
-			ImportedAt:              certTimeUnix(cert.ImportedAt),
-			InUseBy:                 cert.InUseBy,
-			KeyUsage:                keyUsages,
-			ExtendedKeyUsage:        extKeyUsages,
-		},
-	}, nil
+	detail := certificateDetail{
+		CertificateArn:          cert.ARN,
+		DomainName:              cert.DomainName,
+		Serial:                  cert.Serial,
+		Subject:                 cert.Subject,
+		Issuer:                  cert.Issuer,
+		KeyAlgorithm:            cert.KeyAlgorithm,
+		SignatureAlgorithm:      cert.SignatureAlgorithm,
+		Status:                  cert.Status,
+		Type:                    cert.Type,
+		RenewalEligibility:      cert.RenewalEligibility,
+		RevocationReason:        cert.RevocationReason,
+		FailureReason:           cert.FailureReason,
+		CreatedAt:               cert.CreatedAt.Unix(),
+		NotBefore:               cert.NotBefore.Unix(),
+		NotAfter:                cert.NotAfter.Unix(),
+		SubjectAlternativeNames: cert.SubjectAlternativeNames,
+		DomainValidationOptions: dvoList,
+		Options:                 describeCertOptions(cert),
+		RevokedAt:               certTimeUnix(cert.RevokedAt),
+		IssuedAt:                certTimeUnix(cert.IssuedAt),
+		ImportedAt:              certTimeUnix(cert.ImportedAt),
+		InUseBy:                 cert.InUseBy,
+		KeyUsage:                keyUsages,
+		ExtendedKeyUsage:        extKeyUsages,
+	}
+
+	if cert.RenewalSummary != nil {
+		rsDVOs := make([]domainValidationOption, 0, len(cert.RenewalSummary.DomainValidationOptions))
+		for _, dvo := range cert.RenewalSummary.DomainValidationOptions {
+			opt := domainValidationOption{
+				DomainName:       dvo.DomainName,
+				ValidationDomain: dvo.ValidationDomain,
+				ValidationStatus: dvo.ValidationStatus,
+				ValidationMethod: dvo.ValidationMethod,
+			}
+			if dvo.ResourceRecord != nil {
+				rr := *dvo.ResourceRecord
+				opt.ResourceRecord = &resourceRecord{Name: rr.Name, Type: rr.Type, Value: rr.Value}
+			}
+
+			rsDVOs = append(rsDVOs, opt)
+		}
+
+		detail.RenewalSummary = &renewalSummaryDetail{
+			RenewalStatus:           cert.RenewalSummary.RenewalStatus,
+			DomainValidationOptions: rsDVOs,
+		}
+	}
+
+	return &describeCertificateOutput{Certificate: detail}, nil
 }
 
 // jsonListCertificates handles the ListCertificates operation.
