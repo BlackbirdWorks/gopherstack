@@ -504,8 +504,7 @@ func (b *InMemoryBackend) StartExpenseAnalysis(documentURI string) (*ExpenseJob,
 }
 
 // GetExpenseAnalysis retrieves the results of an expense analysis job.
-// It returns a direct pointer to the stored job (lazy/CoW — no allocation on read path).
-// Callers MUST NOT mutate the returned value.
+// It returns a deep clone so callers may safely mutate the returned value.
 func (b *InMemoryBackend) GetExpenseAnalysis(jobID string) (*ExpenseJob, error) {
 	b.mu.RLock("GetExpenseAnalysis")
 	defer b.mu.RUnlock()
@@ -515,7 +514,7 @@ func (b *InMemoryBackend) GetExpenseAnalysis(jobID string) (*ExpenseJob, error) 
 		return nil, fmt.Errorf("%w: expense job %s not found", ErrJobNotFound, jobID)
 	}
 
-	return job, nil
+	return cloneExpenseJob(job), nil
 }
 
 // StartLendingAnalysis creates an async lending analysis job.
