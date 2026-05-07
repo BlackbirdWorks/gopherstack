@@ -424,5 +424,5 @@ func TestECR_GetAuthorizationToken_ProxyEndpointFromBackend(t *testing.T) {
 
 	authData := resp["authorizationData"].([]any)
 	entry := authData[0].(map[string]any)
-	assert.Equal(t, "stub:5000", entry["proxyEndpoint"])
+	assert.Equal(t, "https://stub:5000", entry["proxyEndpoint"])
 }
