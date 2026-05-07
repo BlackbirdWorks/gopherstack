@@ -81,9 +81,12 @@ func (h *Handler) Name() string {
 }
 
 // GetSupportedOperations returns the list of supported EC2 operations.
+//
+//nolint:funlen
 func (h *Handler) GetSupportedOperations() []string {
 	extOps := append(deepDiveSupportedOperations(), refinement2SupportedOperations()...)
 	extOps = append(extOps, refinement3SupportedOperations()...)
+	extOps = append(extOps, stubSupportedOperations()...)
 
 	return append([]string{
 		"RunInstances",
@@ -403,6 +406,7 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerAcceptAndAdvancedOps(h, ops)
 	registerRefinement2Ops(h, ops)
 	registerRefinement3Ops(h, ops)
+	registerStubOps(h, ops)
 
 	return ops
 }

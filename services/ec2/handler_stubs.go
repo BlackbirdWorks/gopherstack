@@ -1,0 +1,5733 @@
+package ec2
+
+import (
+	"encoding/xml"
+	"net/url"
+)
+
+// stubResponse is a minimal success response for stub EC2 operations.
+type stubResponse struct {
+	XMLName   xml.Name `xml:"StubResponse"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+//nolint:funlen
+func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
+	ops["AllocateIpamPoolCidr"] = h.handleStubAllocateIpamPoolCidr
+	ops["ApplySecurityGroupsToClientVpnTargetNetwork"] = h.handleStubApplySecurityGroupsToClientVpnTargetNetwork
+	ops["AssignPrivateNatGatewayAddress"] = h.handleStubAssignPrivateNatGatewayAddress
+	ops["AssociateCapacityReservationBillingOwner"] = h.handleStubAssociateCapacityReservationBillingOwner
+	ops["AssociateClientVpnTargetNetwork"] = h.handleStubAssociateClientVpnTargetNetwork
+	ops["AssociateDhcpOptions"] = h.handleStubAssociateDhcpOptions
+	ops["AssociateEnclaveCertificateIamRole"] = h.handleStubAssociateEnclaveCertificateIamRole
+	ops["AssociateIamInstanceProfile"] = h.handleStubAssociateIamInstanceProfile
+	ops["AssociateInstanceEventWindow"] = h.handleStubAssociateInstanceEventWindow
+	ops["AssociateIpamByoasn"] = h.handleStubAssociateIpamByoasn
+	ops["AssociateIpamResourceDiscovery"] = h.handleStubAssociateIpamResourceDiscovery
+	ops["AssociateNatGatewayAddress"] = h.handleStubAssociateNatGatewayAddress
+	ops["AssociateRouteServer"] = h.handleStubAssociateRouteServer
+	ops["AssociateSecurityGroupVpc"] = h.handleStubAssociateSecurityGroupVpc
+	ops["AssociateSubnetCidrBlock"] = h.handleStubAssociateSubnetCidrBlock
+	ops["AssociateTransitGatewayMulticastDomain"] = h.handleStubAssociateTransitGatewayMulticastDomain
+	ops["AssociateTransitGatewayPolicyTable"] = h.handleStubAssociateTransitGatewayPolicyTable
+	ops["AssociateTransitGatewayRouteTable"] = h.handleStubAssociateTransitGatewayRouteTable
+	ops["AssociateTrunkInterface"] = h.handleStubAssociateTrunkInterface
+	ops["AssociateVpcCidrBlock"] = h.handleStubAssociateVpcCidrBlock
+	ops["AttachClassicLinkVpc"] = h.handleStubAttachClassicLinkVpc
+	ops["AttachVerifiedAccessTrustProvider"] = h.handleStubAttachVerifiedAccessTrustProvider
+	ops["AttachVpnGateway"] = h.handleStubAttachVpnGateway
+	ops["AuthorizeClientVpnIngress"] = h.handleStubAuthorizeClientVpnIngress
+	ops["BundleInstance"] = h.handleStubBundleInstance
+	ops["CancelBundleTask"] = h.handleStubCancelBundleTask
+	ops["CancelCapacityReservation"] = h.handleStubCancelCapacityReservation
+	ops["CancelCapacityReservationFleets"] = h.handleStubCancelCapacityReservationFleets
+	ops["CancelConversionTask"] = h.handleStubCancelConversionTask
+	ops["CancelDeclarativePoliciesReport"] = h.handleStubCancelDeclarativePoliciesReport
+	ops["CancelExportTask"] = h.handleStubCancelExportTask
+	ops["CancelImageLaunchPermission"] = h.handleStubCancelImageLaunchPermission
+	ops["CancelImportTask"] = h.handleStubCancelImportTask
+	ops["CancelReservedInstancesListing"] = h.handleStubCancelReservedInstancesListing
+	ops["CancelSpotFleetRequests"] = h.handleStubCancelSpotFleetRequests
+	ops["ConfirmProductInstance"] = h.handleStubConfirmProductInstance
+	ops["CopyFpgaImage"] = h.handleStubCopyFpgaImage
+	ops["CopySnapshot"] = h.handleStubCopySnapshot
+	ops["CopyVolumes"] = h.handleStubCopyVolumes
+	ops["CreateCapacityManagerDataExport"] = h.handleStubCreateCapacityManagerDataExport
+	ops["CreateCapacityReservation"] = h.handleStubCreateCapacityReservation
+	ops["CreateCapacityReservationBySplitting"] = h.handleStubCreateCapacityReservationBySplitting
+	ops["CreateCapacityReservationFleet"] = h.handleStubCreateCapacityReservationFleet
+	ops["CreateCarrierGateway"] = h.handleStubCreateCarrierGateway
+	ops["CreateClientVpnEndpoint"] = h.handleStubCreateClientVpnEndpoint
+	ops["CreateClientVpnRoute"] = h.handleStubCreateClientVpnRoute
+	ops["CreateCoipCidr"] = h.handleStubCreateCoipCidr
+	ops["CreateCoipPool"] = h.handleStubCreateCoipPool
+	ops["CreateCustomerGateway"] = h.handleStubCreateCustomerGateway
+	ops["CreateDefaultSubnet"] = h.handleStubCreateDefaultSubnet
+	ops["CreateDefaultVpc"] = h.handleStubCreateDefaultVpc
+	ops["CreateDelegateMacVolumeOwnershipTask"] = h.handleStubCreateDelegateMacVolumeOwnershipTask
+	ops["CreateDhcpOptions"] = h.handleStubCreateDhcpOptions
+	ops["CreateEgressOnlyInternetGateway"] = h.handleStubCreateEgressOnlyInternetGateway
+	ops["CreateFleet"] = h.handleStubCreateFleet
+	ops["CreateFlowLogs"] = h.handleStubCreateFlowLogs
+	ops["CreateFpgaImage"] = h.handleStubCreateFpgaImage
+	ops["CreateImageUsageReport"] = h.handleStubCreateImageUsageReport
+	ops["CreateInstanceConnectEndpoint"] = h.handleStubCreateInstanceConnectEndpoint
+	ops["CreateInstanceEventWindow"] = h.handleStubCreateInstanceEventWindow
+	ops["CreateInstanceExportTask"] = h.handleStubCreateInstanceExportTask
+	ops["CreateInterruptibleCapacityReservationAllocation"] = h.handleStubCreateInterruptibleCapacityReservationAllocation
+	ops["CreateIpam"] = h.handleStubCreateIpam
+	ops["CreateIpamExternalResourceVerificationToken"] = h.handleStubCreateIpamExternalResourceVerificationToken
+	ops["CreateIpamPolicy"] = h.handleStubCreateIpamPolicy
+	ops["CreateIpamPool"] = h.handleStubCreateIpamPool
+	ops["CreateIpamPrefixListResolver"] = h.handleStubCreateIpamPrefixListResolver
+	ops["CreateIpamPrefixListResolverTarget"] = h.handleStubCreateIpamPrefixListResolverTarget
+	ops["CreateIpamResourceDiscovery"] = h.handleStubCreateIpamResourceDiscovery
+	ops["CreateIpamScope"] = h.handleStubCreateIpamScope
+	ops["CreateLaunchTemplateVersion"] = h.handleStubCreateLaunchTemplateVersion
+	ops["CreateLocalGatewayRoute"] = h.handleStubCreateLocalGatewayRoute
+	ops["CreateLocalGatewayRouteTable"] = h.handleStubCreateLocalGatewayRouteTable
+	ops["CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] =
+		h.handleStubCreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation
+	ops["CreateLocalGatewayRouteTableVpcAssociation"] = h.handleStubCreateLocalGatewayRouteTableVpcAssociation
+	ops["CreateLocalGatewayVirtualInterface"] = h.handleStubCreateLocalGatewayVirtualInterface
+	ops["CreateLocalGatewayVirtualInterfaceGroup"] = h.handleStubCreateLocalGatewayVirtualInterfaceGroup
+	ops["CreateMacSystemIntegrityProtectionModificationTask"] =
+		h.handleStubCreateMacSystemIntegrityProtectionModificationTask
+	ops["CreateManagedPrefixList"] = h.handleStubCreateManagedPrefixList
+	ops["CreateNetworkInsightsAccessScope"] = h.handleStubCreateNetworkInsightsAccessScope
+	ops["CreateNetworkInsightsPath"] = h.handleStubCreateNetworkInsightsPath
+	ops["CreateNetworkInterfacePermission"] = h.handleStubCreateNetworkInterfacePermission
+	ops["CreateReplaceRootVolumeTask"] = h.handleStubCreateReplaceRootVolumeTask
+	ops["CreateReservedInstancesListing"] = h.handleStubCreateReservedInstancesListing
+	ops["CreateRestoreImageTask"] = h.handleStubCreateRestoreImageTask
+	ops["CreateRouteServer"] = h.handleStubCreateRouteServer
+	ops["CreateRouteServerEndpoint"] = h.handleStubCreateRouteServerEndpoint
+	ops["CreateRouteServerPeer"] = h.handleStubCreateRouteServerPeer
+	ops["CreateSecondaryNetwork"] = h.handleStubCreateSecondaryNetwork
+	ops["CreateSecondarySubnet"] = h.handleStubCreateSecondarySubnet
+	ops["CreateSnapshots"] = h.handleStubCreateSnapshots
+	ops["CreateSpotDatafeedSubscription"] = h.handleStubCreateSpotDatafeedSubscription
+	ops["CreateStoreImageTask"] = h.handleStubCreateStoreImageTask
+	ops["CreateSubnetCidrReservation"] = h.handleStubCreateSubnetCidrReservation
+	ops["CreateTrafficMirrorFilter"] = h.handleStubCreateTrafficMirrorFilter
+	ops["CreateTrafficMirrorFilterRule"] = h.handleStubCreateTrafficMirrorFilterRule
+	ops["CreateTrafficMirrorSession"] = h.handleStubCreateTrafficMirrorSession
+	ops["CreateTrafficMirrorTarget"] = h.handleStubCreateTrafficMirrorTarget
+	ops["CreateTransitGatewayConnect"] = h.handleStubCreateTransitGatewayConnect
+	ops["CreateTransitGatewayConnectPeer"] = h.handleStubCreateTransitGatewayConnectPeer
+	ops["CreateTransitGatewayMeteringPolicy"] = h.handleStubCreateTransitGatewayMeteringPolicy
+	ops["CreateTransitGatewayMeteringPolicyEntry"] = h.handleStubCreateTransitGatewayMeteringPolicyEntry
+	ops["CreateTransitGatewayMulticastDomain"] = h.handleStubCreateTransitGatewayMulticastDomain
+	ops["CreateTransitGatewayPeeringAttachment"] = h.handleStubCreateTransitGatewayPeeringAttachment
+	ops["CreateTransitGatewayPolicyTable"] = h.handleStubCreateTransitGatewayPolicyTable
+	ops["CreateTransitGatewayPrefixListReference"] = h.handleStubCreateTransitGatewayPrefixListReference
+	ops["CreateTransitGatewayRoute"] = h.handleStubCreateTransitGatewayRoute
+	ops["CreateTransitGatewayRouteTable"] = h.handleStubCreateTransitGatewayRouteTable
+	ops["CreateTransitGatewayRouteTableAnnouncement"] = h.handleStubCreateTransitGatewayRouteTableAnnouncement
+	ops["CreateTransitGatewayVpcAttachment"] = h.handleStubCreateTransitGatewayVpcAttachment
+	ops["CreateVerifiedAccessEndpoint"] = h.handleStubCreateVerifiedAccessEndpoint
+	ops["CreateVerifiedAccessGroup"] = h.handleStubCreateVerifiedAccessGroup
+	ops["CreateVerifiedAccessInstance"] = h.handleStubCreateVerifiedAccessInstance
+	ops["CreateVerifiedAccessTrustProvider"] = h.handleStubCreateVerifiedAccessTrustProvider
+	ops["CreateVpcBlockPublicAccessExclusion"] = h.handleStubCreateVpcBlockPublicAccessExclusion
+	ops["CreateVpcEncryptionControl"] = h.handleStubCreateVpcEncryptionControl
+	ops["CreateVpcEndpointConnectionNotification"] = h.handleStubCreateVpcEndpointConnectionNotification
+	ops["CreateVpcEndpointServiceConfiguration"] = h.handleStubCreateVpcEndpointServiceConfiguration
+	ops["CreateVpnConcentrator"] = h.handleStubCreateVpnConcentrator
+	ops["CreateVpnConnection"] = h.handleStubCreateVpnConnection
+	ops["CreateVpnConnectionRoute"] = h.handleStubCreateVpnConnectionRoute
+	ops["CreateVpnGateway"] = h.handleStubCreateVpnGateway
+	ops["DeleteCapacityManagerDataExport"] = h.handleStubDeleteCapacityManagerDataExport
+	ops["DeleteCarrierGateway"] = h.handleStubDeleteCarrierGateway
+	ops["DeleteClientVpnEndpoint"] = h.handleStubDeleteClientVpnEndpoint
+	ops["DeleteClientVpnRoute"] = h.handleStubDeleteClientVpnRoute
+	ops["DeleteCoipCidr"] = h.handleStubDeleteCoipCidr
+	ops["DeleteCoipPool"] = h.handleStubDeleteCoipPool
+	ops["DeleteCustomerGateway"] = h.handleStubDeleteCustomerGateway
+	ops["DeleteDhcpOptions"] = h.handleStubDeleteDhcpOptions
+	ops["DeleteEgressOnlyInternetGateway"] = h.handleStubDeleteEgressOnlyInternetGateway
+	ops["DeleteFleets"] = h.handleStubDeleteFleets
+	ops["DeleteFlowLogs"] = h.handleStubDeleteFlowLogs
+	ops["DeleteFpgaImage"] = h.handleStubDeleteFpgaImage
+	ops["DeleteImageUsageReport"] = h.handleStubDeleteImageUsageReport
+	ops["DeleteInstanceConnectEndpoint"] = h.handleStubDeleteInstanceConnectEndpoint
+	ops["DeleteInstanceEventWindow"] = h.handleStubDeleteInstanceEventWindow
+	ops["DeleteIpam"] = h.handleStubDeleteIpam
+	ops["DeleteIpamExternalResourceVerificationToken"] = h.handleStubDeleteIpamExternalResourceVerificationToken
+	ops["DeleteIpamPolicy"] = h.handleStubDeleteIpamPolicy
+	ops["DeleteIpamPool"] = h.handleStubDeleteIpamPool
+	ops["DeleteIpamPrefixListResolver"] = h.handleStubDeleteIpamPrefixListResolver
+	ops["DeleteIpamPrefixListResolverTarget"] = h.handleStubDeleteIpamPrefixListResolverTarget
+	ops["DeleteIpamResourceDiscovery"] = h.handleStubDeleteIpamResourceDiscovery
+	ops["DeleteIpamScope"] = h.handleStubDeleteIpamScope
+	ops["DeleteLaunchTemplateVersions"] = h.handleStubDeleteLaunchTemplateVersions
+	ops["DeleteLocalGatewayRoute"] = h.handleStubDeleteLocalGatewayRoute
+	ops["DeleteLocalGatewayRouteTable"] = h.handleStubDeleteLocalGatewayRouteTable
+	ops["DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation"] =
+		h.handleStubDeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation
+	ops["DeleteLocalGatewayRouteTableVpcAssociation"] = h.handleStubDeleteLocalGatewayRouteTableVpcAssociation
+	ops["DeleteLocalGatewayVirtualInterface"] = h.handleStubDeleteLocalGatewayVirtualInterface
+	ops["DeleteLocalGatewayVirtualInterfaceGroup"] = h.handleStubDeleteLocalGatewayVirtualInterfaceGroup
+	ops["DeleteManagedPrefixList"] = h.handleStubDeleteManagedPrefixList
+	ops["DeleteNetworkInsightsAccessScope"] = h.handleStubDeleteNetworkInsightsAccessScope
+	ops["DeleteNetworkInsightsAccessScopeAnalysis"] = h.handleStubDeleteNetworkInsightsAccessScopeAnalysis
+	ops["DeleteNetworkInsightsAnalysis"] = h.handleStubDeleteNetworkInsightsAnalysis
+	ops["DeleteNetworkInsightsPath"] = h.handleStubDeleteNetworkInsightsPath
+	ops["DeleteNetworkInterfacePermission"] = h.handleStubDeleteNetworkInterfacePermission
+	ops["DeleteQueuedReservedInstances"] = h.handleStubDeleteQueuedReservedInstances
+	ops["DeleteRouteServer"] = h.handleStubDeleteRouteServer
+	ops["DeleteRouteServerEndpoint"] = h.handleStubDeleteRouteServerEndpoint
+	ops["DeleteRouteServerPeer"] = h.handleStubDeleteRouteServerPeer
+	ops["DeleteSecondaryNetwork"] = h.handleStubDeleteSecondaryNetwork
+	ops["DeleteSecondarySubnet"] = h.handleStubDeleteSecondarySubnet
+	ops["DeleteSpotDatafeedSubscription"] = h.handleStubDeleteSpotDatafeedSubscription
+	ops["DeleteSubnetCidrReservation"] = h.handleStubDeleteSubnetCidrReservation
+	ops["DeleteTrafficMirrorFilter"] = h.handleStubDeleteTrafficMirrorFilter
+	ops["DeleteTrafficMirrorFilterRule"] = h.handleStubDeleteTrafficMirrorFilterRule
+	ops["DeleteTrafficMirrorSession"] = h.handleStubDeleteTrafficMirrorSession
+	ops["DeleteTrafficMirrorTarget"] = h.handleStubDeleteTrafficMirrorTarget
+	ops["DeleteTransitGatewayConnect"] = h.handleStubDeleteTransitGatewayConnect
+	ops["DeleteTransitGatewayConnectPeer"] = h.handleStubDeleteTransitGatewayConnectPeer
+	ops["DeleteTransitGatewayMeteringPolicy"] = h.handleStubDeleteTransitGatewayMeteringPolicy
+	ops["DeleteTransitGatewayMeteringPolicyEntry"] = h.handleStubDeleteTransitGatewayMeteringPolicyEntry
+	ops["DeleteTransitGatewayMulticastDomain"] = h.handleStubDeleteTransitGatewayMulticastDomain
+	ops["DeleteTransitGatewayPeeringAttachment"] = h.handleStubDeleteTransitGatewayPeeringAttachment
+	ops["DeleteTransitGatewayPolicyTable"] = h.handleStubDeleteTransitGatewayPolicyTable
+	ops["DeleteTransitGatewayPrefixListReference"] = h.handleStubDeleteTransitGatewayPrefixListReference
+	ops["DeleteTransitGatewayRoute"] = h.handleStubDeleteTransitGatewayRoute
+	ops["DeleteTransitGatewayRouteTable"] = h.handleStubDeleteTransitGatewayRouteTable
+	ops["DeleteTransitGatewayRouteTableAnnouncement"] = h.handleStubDeleteTransitGatewayRouteTableAnnouncement
+	ops["DeleteTransitGatewayVpcAttachment"] = h.handleStubDeleteTransitGatewayVpcAttachment
+	ops["DeleteVerifiedAccessEndpoint"] = h.handleStubDeleteVerifiedAccessEndpoint
+	ops["DeleteVerifiedAccessGroup"] = h.handleStubDeleteVerifiedAccessGroup
+	ops["DeleteVerifiedAccessInstance"] = h.handleStubDeleteVerifiedAccessInstance
+	ops["DeleteVerifiedAccessTrustProvider"] = h.handleStubDeleteVerifiedAccessTrustProvider
+	ops["DeleteVpcBlockPublicAccessExclusion"] = h.handleStubDeleteVpcBlockPublicAccessExclusion
+	ops["DeleteVpcEncryptionControl"] = h.handleStubDeleteVpcEncryptionControl
+	ops["DeleteVpcEndpointConnectionNotifications"] = h.handleStubDeleteVpcEndpointConnectionNotifications
+	ops["DeleteVpcEndpointServiceConfigurations"] = h.handleStubDeleteVpcEndpointServiceConfigurations
+	ops["DeleteVpnConcentrator"] = h.handleStubDeleteVpnConcentrator
+	ops["DeleteVpnConnection"] = h.handleStubDeleteVpnConnection
+	ops["DeleteVpnConnectionRoute"] = h.handleStubDeleteVpnConnectionRoute
+	ops["DeleteVpnGateway"] = h.handleStubDeleteVpnGateway
+	ops["DeprovisionByoipCidr"] = h.handleStubDeprovisionByoipCidr
+	ops["DeprovisionIpamByoasn"] = h.handleStubDeprovisionIpamByoasn
+	ops["DeprovisionIpamPoolCidr"] = h.handleStubDeprovisionIpamPoolCidr
+	ops["DeregisterInstanceEventNotificationAttributes"] = h.handleStubDeregisterInstanceEventNotificationAttributes
+	ops["DeregisterTransitGatewayMulticastGroupMembers"] = h.handleStubDeregisterTransitGatewayMulticastGroupMembers
+	ops["DeregisterTransitGatewayMulticastGroupSources"] = h.handleStubDeregisterTransitGatewayMulticastGroupSources
+	ops["DescribeAccountAttributes"] = h.handleStubDescribeAccountAttributes
+	ops["DescribeAddressTransfers"] = h.handleStubDescribeAddressTransfers
+	ops["DescribeAddressesAttribute"] = h.handleStubDescribeAddressesAttribute
+	ops["DescribeAggregateIdFormat"] = h.handleStubDescribeAggregateIDFormat
+	ops["DescribeAwsNetworkPerformanceMetricSubscriptions"] = h.handleStubDescribeAwsNetworkPerformanceMetricSubscriptions
+	ops["DescribeBundleTasks"] = h.handleStubDescribeBundleTasks
+	ops["DescribeCapacityBlockExtensionHistory"] = h.handleStubDescribeCapacityBlockExtensionHistory
+	ops["DescribeCapacityBlockExtensionOfferings"] = h.handleStubDescribeCapacityBlockExtensionOfferings
+	ops["DescribeCapacityBlockOfferings"] = h.handleStubDescribeCapacityBlockOfferings
+	ops["DescribeCapacityBlockStatus"] = h.handleStubDescribeCapacityBlockStatus
+	ops["DescribeCapacityBlocks"] = h.handleStubDescribeCapacityBlocks
+	ops["DescribeCapacityManagerDataExports"] = h.handleStubDescribeCapacityManagerDataExports
+	ops["DescribeCapacityReservationBillingRequests"] = h.handleStubDescribeCapacityReservationBillingRequests
+	ops["DescribeCapacityReservationFleets"] = h.handleStubDescribeCapacityReservationFleets
+	ops["DescribeCapacityReservationTopology"] = h.handleStubDescribeCapacityReservationTopology
+	ops["DescribeCarrierGateways"] = h.handleStubDescribeCarrierGateways
+	ops["DescribeClassicLinkInstances"] = h.handleStubDescribeClassicLinkInstances
+	ops["DescribeClientVpnAuthorizationRules"] = h.handleStubDescribeClientVpnAuthorizationRules
+	ops["DescribeClientVpnConnections"] = h.handleStubDescribeClientVpnConnections
+	ops["DescribeClientVpnEndpoints"] = h.handleStubDescribeClientVpnEndpoints
+	ops["DescribeClientVpnRoutes"] = h.handleStubDescribeClientVpnRoutes
+	ops["DescribeClientVpnTargetNetworks"] = h.handleStubDescribeClientVpnTargetNetworks
+	ops["DescribeCoipPools"] = h.handleStubDescribeCoipPools
+	ops["DescribeConversionTasks"] = h.handleStubDescribeConversionTasks
+	ops["DescribeCustomerGateways"] = h.handleStubDescribeCustomerGateways
+	ops["DescribeDeclarativePoliciesReports"] = h.handleStubDescribeDeclarativePoliciesReports
+	ops["DescribeDhcpOptions"] = h.handleStubDescribeDhcpOptions
+	ops["DescribeEgressOnlyInternetGateways"] = h.handleStubDescribeEgressOnlyInternetGateways
+	ops["DescribeElasticGpus"] = h.handleStubDescribeElasticGpus
+	ops["DescribeExportImageTasks"] = h.handleStubDescribeExportImageTasks
+	ops["DescribeExportTasks"] = h.handleStubDescribeExportTasks
+	ops["DescribeFastLaunchImages"] = h.handleStubDescribeFastLaunchImages
+	ops["DescribeFastSnapshotRestores"] = h.handleStubDescribeFastSnapshotRestores
+	ops["DescribeFleetHistory"] = h.handleStubDescribeFleetHistory
+	ops["DescribeFleetInstances"] = h.handleStubDescribeFleetInstances
+	ops["DescribeFleets"] = h.handleStubDescribeFleets
+	ops["DescribeFlowLogs"] = h.handleStubDescribeFlowLogs
+	ops["DescribeFpgaImageAttribute"] = h.handleStubDescribeFpgaImageAttribute
+	ops["DescribeFpgaImages"] = h.handleStubDescribeFpgaImages
+	ops["DescribeHostReservationOfferings"] = h.handleStubDescribeHostReservationOfferings
+	ops["DescribeHostReservations"] = h.handleStubDescribeHostReservations
+	ops["DescribeIamInstanceProfileAssociations"] = h.handleStubDescribeIamInstanceProfileAssociations
+	ops["DescribeIdFormat"] = h.handleStubDescribeIDFormat
+	ops["DescribeIdentityIdFormat"] = h.handleStubDescribeIdentityIDFormat
+	ops["DescribeImageReferences"] = h.handleStubDescribeImageReferences
+	ops["DescribeImageUsageReportEntries"] = h.handleStubDescribeImageUsageReportEntries
+	ops["DescribeImportImageTasks"] = h.handleStubDescribeImportImageTasks
+	ops["DescribeImportSnapshotTasks"] = h.handleStubDescribeImportSnapshotTasks
+	ops["DescribeInstanceConnectEndpoints"] = h.handleStubDescribeInstanceConnectEndpoints
+	ops["DescribeInstanceCreditSpecifications"] = h.handleStubDescribeInstanceCreditSpecifications
+	ops["DescribeInstanceEventNotificationAttributes"] = h.handleStubDescribeInstanceEventNotificationAttributes
+	ops["DescribeInstanceEventWindows"] = h.handleStubDescribeInstanceEventWindows
+	ops["DescribeInstanceImageMetadata"] = h.handleStubDescribeInstanceImageMetadata
+	ops["DescribeInstanceSqlHaHistoryStates"] = h.handleStubDescribeInstanceSQLHaHistoryStates
+	ops["DescribeInstanceSqlHaStates"] = h.handleStubDescribeInstanceSQLHaStates
+	ops["DescribeInstanceTopology"] = h.handleStubDescribeInstanceTopology
+	ops["DescribeIpamByoasn"] = h.handleStubDescribeIpamByoasn
+	ops["DescribeIpamExternalResourceVerificationTokens"] = h.handleStubDescribeIpamExternalResourceVerificationTokens
+	ops["DescribeIpamPolicies"] = h.handleStubDescribeIpamPolicies
+	ops["DescribeIpamPools"] = h.handleStubDescribeIpamPools
+	ops["DescribeIpamPrefixListResolverTargets"] = h.handleStubDescribeIpamPrefixListResolverTargets
+	ops["DescribeIpamPrefixListResolvers"] = h.handleStubDescribeIpamPrefixListResolvers
+	ops["DescribeIpamResourceDiscoveries"] = h.handleStubDescribeIpamResourceDiscoveries
+	ops["DescribeIpamResourceDiscoveryAssociations"] = h.handleStubDescribeIpamResourceDiscoveryAssociations
+	ops["DescribeIpamScopes"] = h.handleStubDescribeIpamScopes
+	ops["DescribeIpams"] = h.handleStubDescribeIpams
+	ops["DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations"] =
+		h.handleStubDescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations
+	ops["DescribeLocalGatewayRouteTableVpcAssociations"] = h.handleStubDescribeLocalGatewayRouteTableVpcAssociations
+	ops["DescribeLocalGatewayRouteTables"] = h.handleStubDescribeLocalGatewayRouteTables
+	ops["DescribeLocalGatewayVirtualInterfaceGroups"] = h.handleStubDescribeLocalGatewayVirtualInterfaceGroups
+	ops["DescribeLocalGatewayVirtualInterfaces"] = h.handleStubDescribeLocalGatewayVirtualInterfaces
+	ops["DescribeLocalGateways"] = h.handleStubDescribeLocalGateways
+	ops["DescribeLockedSnapshots"] = h.handleStubDescribeLockedSnapshots
+	ops["DescribeMacHosts"] = h.handleStubDescribeMacHosts
+	ops["DescribeMacModificationTasks"] = h.handleStubDescribeMacModificationTasks
+	ops["DescribeManagedPrefixLists"] = h.handleStubDescribeManagedPrefixLists
+	ops["DescribeMovingAddresses"] = h.handleStubDescribeMovingAddresses
+	ops["DescribeNetworkInsightsAccessScopeAnalyses"] = h.handleStubDescribeNetworkInsightsAccessScopeAnalyses
+	ops["DescribeNetworkInsightsAccessScopes"] = h.handleStubDescribeNetworkInsightsAccessScopes
+	ops["DescribeNetworkInsightsAnalyses"] = h.handleStubDescribeNetworkInsightsAnalyses
+	ops["DescribeNetworkInsightsPaths"] = h.handleStubDescribeNetworkInsightsPaths
+	ops["DescribeNetworkInterfaceAttribute"] = h.handleStubDescribeNetworkInterfaceAttribute
+	ops["DescribeNetworkInterfacePermissions"] = h.handleStubDescribeNetworkInterfacePermissions
+	ops["DescribeOutpostLags"] = h.handleStubDescribeOutpostLags
+	ops["DescribePrefixLists"] = h.handleStubDescribePrefixLists
+	ops["DescribePrincipalIdFormat"] = h.handleStubDescribePrincipalIDFormat
+	ops["DescribeReplaceRootVolumeTasks"] = h.handleStubDescribeReplaceRootVolumeTasks
+	ops["DescribeReservedInstances"] = h.handleStubDescribeReservedInstances
+	ops["DescribeReservedInstancesListings"] = h.handleStubDescribeReservedInstancesListings
+	ops["DescribeReservedInstancesModifications"] = h.handleStubDescribeReservedInstancesModifications
+	ops["DescribeReservedInstancesOfferings"] = h.handleStubDescribeReservedInstancesOfferings
+	ops["DescribeRouteServerEndpoints"] = h.handleStubDescribeRouteServerEndpoints
+	ops["DescribeRouteServerPeers"] = h.handleStubDescribeRouteServerPeers
+	ops["DescribeRouteServers"] = h.handleStubDescribeRouteServers
+	ops["DescribeScheduledInstanceAvailability"] = h.handleStubDescribeScheduledInstanceAvailability
+	ops["DescribeScheduledInstances"] = h.handleStubDescribeScheduledInstances
+	ops["DescribeSecondaryInterfaces"] = h.handleStubDescribeSecondaryInterfaces
+	ops["DescribeSecondaryNetworks"] = h.handleStubDescribeSecondaryNetworks
+	ops["DescribeSecondarySubnets"] = h.handleStubDescribeSecondarySubnets
+	ops["DescribeSecurityGroupReferences"] = h.handleStubDescribeSecurityGroupReferences
+	ops["DescribeSecurityGroupVpcAssociations"] = h.handleStubDescribeSecurityGroupVpcAssociations
+	ops["DescribeServiceLinkVirtualInterfaces"] = h.handleStubDescribeServiceLinkVirtualInterfaces
+	ops["DescribeSnapshotTierStatus"] = h.handleStubDescribeSnapshotTierStatus
+	ops["DescribeSpotDatafeedSubscription"] = h.handleStubDescribeSpotDatafeedSubscription
+	ops["DescribeSpotFleetInstances"] = h.handleStubDescribeSpotFleetInstances
+	ops["DescribeSpotFleetRequestHistory"] = h.handleStubDescribeSpotFleetRequestHistory
+	ops["DescribeSpotFleetRequests"] = h.handleStubDescribeSpotFleetRequests
+	ops["DescribeStaleSecurityGroups"] = h.handleStubDescribeStaleSecurityGroups
+	ops["DescribeStoreImageTasks"] = h.handleStubDescribeStoreImageTasks
+	ops["DescribeTrafficMirrorFilterRules"] = h.handleStubDescribeTrafficMirrorFilterRules
+	ops["DescribeTrafficMirrorFilters"] = h.handleStubDescribeTrafficMirrorFilters
+	ops["DescribeTrafficMirrorSessions"] = h.handleStubDescribeTrafficMirrorSessions
+	ops["DescribeTrafficMirrorTargets"] = h.handleStubDescribeTrafficMirrorTargets
+	ops["DescribeTransitGatewayAttachments"] = h.handleStubDescribeTransitGatewayAttachments
+	ops["DescribeTransitGatewayConnectPeers"] = h.handleStubDescribeTransitGatewayConnectPeers
+	ops["DescribeTransitGatewayConnects"] = h.handleStubDescribeTransitGatewayConnects
+	ops["DescribeTransitGatewayMeteringPolicies"] = h.handleStubDescribeTransitGatewayMeteringPolicies
+	ops["DescribeTransitGatewayMulticastDomains"] = h.handleStubDescribeTransitGatewayMulticastDomains
+	ops["DescribeTransitGatewayPeeringAttachments"] = h.handleStubDescribeTransitGatewayPeeringAttachments
+	ops["DescribeTransitGatewayPolicyTables"] = h.handleStubDescribeTransitGatewayPolicyTables
+	ops["DescribeTransitGatewayRouteTableAnnouncements"] = h.handleStubDescribeTransitGatewayRouteTableAnnouncements
+	ops["DescribeTransitGatewayRouteTables"] = h.handleStubDescribeTransitGatewayRouteTables
+	ops["DescribeTransitGatewayVpcAttachments"] = h.handleStubDescribeTransitGatewayVpcAttachments
+	ops["DescribeTrunkInterfaceAssociations"] = h.handleStubDescribeTrunkInterfaceAssociations
+	ops["DescribeVerifiedAccessEndpoints"] = h.handleStubDescribeVerifiedAccessEndpoints
+	ops["DescribeVerifiedAccessGroups"] = h.handleStubDescribeVerifiedAccessGroups
+	ops["DescribeVerifiedAccessInstanceLoggingConfigurations"] =
+		h.handleStubDescribeVerifiedAccessInstanceLoggingConfigurations
+	ops["DescribeVerifiedAccessInstances"] = h.handleStubDescribeVerifiedAccessInstances
+	ops["DescribeVerifiedAccessTrustProviders"] = h.handleStubDescribeVerifiedAccessTrustProviders
+	ops["DescribeVolumeStatus"] = h.handleStubDescribeVolumeStatus
+	ops["DescribeVolumesModifications"] = h.handleStubDescribeVolumesModifications
+	ops["DescribeVpcBlockPublicAccessExclusions"] = h.handleStubDescribeVpcBlockPublicAccessExclusions
+	ops["DescribeVpcBlockPublicAccessOptions"] = h.handleStubDescribeVpcBlockPublicAccessOptions
+	ops["DescribeVpcClassicLink"] = h.handleStubDescribeVpcClassicLink
+	ops["DescribeVpcClassicLinkDnsSupport"] = h.handleStubDescribeVpcClassicLinkDNSSupport
+	ops["DescribeVpcEncryptionControls"] = h.handleStubDescribeVpcEncryptionControls
+	ops["DescribeVpcEndpointAssociations"] = h.handleStubDescribeVpcEndpointAssociations
+	ops["DescribeVpcEndpointConnectionNotifications"] = h.handleStubDescribeVpcEndpointConnectionNotifications
+	ops["DescribeVpcEndpointConnections"] = h.handleStubDescribeVpcEndpointConnections
+	ops["DescribeVpcEndpointServiceConfigurations"] = h.handleStubDescribeVpcEndpointServiceConfigurations
+	ops["DescribeVpcEndpointServicePermissions"] = h.handleStubDescribeVpcEndpointServicePermissions
+	ops["DescribeVpnConcentrators"] = h.handleStubDescribeVpnConcentrators
+	ops["DescribeVpnConnections"] = h.handleStubDescribeVpnConnections
+	ops["DescribeVpnGateways"] = h.handleStubDescribeVpnGateways
+	ops["DetachClassicLinkVpc"] = h.handleStubDetachClassicLinkVpc
+	ops["DetachVerifiedAccessTrustProvider"] = h.handleStubDetachVerifiedAccessTrustProvider
+	ops["DetachVpnGateway"] = h.handleStubDetachVpnGateway
+	ops["DisableAddressTransfer"] = h.handleStubDisableAddressTransfer
+	ops["DisableAllowedImagesSettings"] = h.handleStubDisableAllowedImagesSettings
+	ops["DisableAwsNetworkPerformanceMetricSubscription"] = h.handleStubDisableAwsNetworkPerformanceMetricSubscription
+	ops["DisableCapacityManager"] = h.handleStubDisableCapacityManager
+	ops["DisableEbsEncryptionByDefault"] = h.handleStubDisableEbsEncryptionByDefault
+	ops["DisableFastLaunch"] = h.handleStubDisableFastLaunch
+	ops["DisableFastSnapshotRestores"] = h.handleStubDisableFastSnapshotRestores
+	ops["DisableImage"] = h.handleStubDisableImage
+	ops["DisableImageBlockPublicAccess"] = h.handleStubDisableImageBlockPublicAccess
+	ops["DisableImageDeprecation"] = h.handleStubDisableImageDeprecation
+	ops["DisableImageDeregistrationProtection"] = h.handleStubDisableImageDeregistrationProtection
+	ops["DisableInstanceSqlHaStandbyDetections"] = h.handleStubDisableInstanceSQLHaStandbyDetections
+	ops["DisableIpamOrganizationAdminAccount"] = h.handleStubDisableIpamOrganizationAdminAccount
+	ops["DisableIpamPolicy"] = h.handleStubDisableIpamPolicy
+	ops["DisableRouteServerPropagation"] = h.handleStubDisableRouteServerPropagation
+	ops["DisableSerialConsoleAccess"] = h.handleStubDisableSerialConsoleAccess
+	ops["DisableSnapshotBlockPublicAccess"] = h.handleStubDisableSnapshotBlockPublicAccess
+	ops["DisableTransitGatewayRouteTablePropagation"] = h.handleStubDisableTransitGatewayRouteTablePropagation
+	ops["DisableVgwRoutePropagation"] = h.handleStubDisableVgwRoutePropagation
+	ops["DisableVpcClassicLink"] = h.handleStubDisableVpcClassicLink
+	ops["DisableVpcClassicLinkDnsSupport"] = h.handleStubDisableVpcClassicLinkDNSSupport
+	ops["DisassociateCapacityReservationBillingOwner"] = h.handleStubDisassociateCapacityReservationBillingOwner
+	ops["DisassociateClientVpnTargetNetwork"] = h.handleStubDisassociateClientVpnTargetNetwork
+	ops["DisassociateEnclaveCertificateIamRole"] = h.handleStubDisassociateEnclaveCertificateIamRole
+	ops["DisassociateIamInstanceProfile"] = h.handleStubDisassociateIamInstanceProfile
+	ops["DisassociateInstanceEventWindow"] = h.handleStubDisassociateInstanceEventWindow
+	ops["DisassociateIpamByoasn"] = h.handleStubDisassociateIpamByoasn
+	ops["DisassociateIpamResourceDiscovery"] = h.handleStubDisassociateIpamResourceDiscovery
+	ops["DisassociateNatGatewayAddress"] = h.handleStubDisassociateNatGatewayAddress
+	ops["DisassociateRouteServer"] = h.handleStubDisassociateRouteServer
+	ops["DisassociateSecurityGroupVpc"] = h.handleStubDisassociateSecurityGroupVpc
+	ops["DisassociateSubnetCidrBlock"] = h.handleStubDisassociateSubnetCidrBlock
+	ops["DisassociateTransitGatewayMulticastDomain"] = h.handleStubDisassociateTransitGatewayMulticastDomain
+	ops["DisassociateTransitGatewayPolicyTable"] = h.handleStubDisassociateTransitGatewayPolicyTable
+	ops["DisassociateTransitGatewayRouteTable"] = h.handleStubDisassociateTransitGatewayRouteTable
+	ops["DisassociateTrunkInterface"] = h.handleStubDisassociateTrunkInterface
+	ops["DisassociateVpcCidrBlock"] = h.handleStubDisassociateVpcCidrBlock
+	ops["EnableAddressTransfer"] = h.handleStubEnableAddressTransfer
+	ops["EnableAllowedImagesSettings"] = h.handleStubEnableAllowedImagesSettings
+	ops["EnableAwsNetworkPerformanceMetricSubscription"] = h.handleStubEnableAwsNetworkPerformanceMetricSubscription
+	ops["EnableCapacityManager"] = h.handleStubEnableCapacityManager
+	ops["EnableEbsEncryptionByDefault"] = h.handleStubEnableEbsEncryptionByDefault
+	ops["EnableFastLaunch"] = h.handleStubEnableFastLaunch
+	ops["EnableFastSnapshotRestores"] = h.handleStubEnableFastSnapshotRestores
+	ops["EnableImage"] = h.handleStubEnableImage
+	ops["EnableImageBlockPublicAccess"] = h.handleStubEnableImageBlockPublicAccess
+	ops["EnableImageDeprecation"] = h.handleStubEnableImageDeprecation
+	ops["EnableImageDeregistrationProtection"] = h.handleStubEnableImageDeregistrationProtection
+	ops["EnableInstanceSqlHaStandbyDetections"] = h.handleStubEnableInstanceSQLHaStandbyDetections
+	ops["EnableIpamOrganizationAdminAccount"] = h.handleStubEnableIpamOrganizationAdminAccount
+	ops["EnableIpamPolicy"] = h.handleStubEnableIpamPolicy
+	ops["EnableReachabilityAnalyzerOrganizationSharing"] = h.handleStubEnableReachabilityAnalyzerOrganizationSharing
+	ops["EnableRouteServerPropagation"] = h.handleStubEnableRouteServerPropagation
+	ops["EnableSerialConsoleAccess"] = h.handleStubEnableSerialConsoleAccess
+	ops["EnableSnapshotBlockPublicAccess"] = h.handleStubEnableSnapshotBlockPublicAccess
+	ops["EnableTransitGatewayRouteTablePropagation"] = h.handleStubEnableTransitGatewayRouteTablePropagation
+	ops["EnableVgwRoutePropagation"] = h.handleStubEnableVgwRoutePropagation
+	ops["EnableVolumeIO"] = h.handleStubEnableVolumeIO
+	ops["EnableVpcClassicLink"] = h.handleStubEnableVpcClassicLink
+	ops["EnableVpcClassicLinkDnsSupport"] = h.handleStubEnableVpcClassicLinkDNSSupport
+	ops["ExportClientVpnClientCertificateRevocationList"] = h.handleStubExportClientVpnClientCertificateRevocationList
+	ops["ExportClientVpnClientConfiguration"] = h.handleStubExportClientVpnClientConfiguration
+	ops["ExportImage"] = h.handleStubExportImage
+	ops["ExportTransitGatewayRoutes"] = h.handleStubExportTransitGatewayRoutes
+	ops["ExportVerifiedAccessInstanceClientConfiguration"] = h.handleStubExportVerifiedAccessInstanceClientConfiguration
+	ops["GetActiveVpnTunnelStatus"] = h.handleStubGetActiveVpnTunnelStatus
+	ops["GetAllowedImagesSettings"] = h.handleStubGetAllowedImagesSettings
+	ops["GetAssociatedEnclaveCertificateIamRoles"] = h.handleStubGetAssociatedEnclaveCertificateIamRoles
+	ops["GetAwsNetworkPerformanceData"] = h.handleStubGetAwsNetworkPerformanceData
+	ops["GetCapacityManagerAttributes"] = h.handleStubGetCapacityManagerAttributes
+	ops["GetCapacityManagerMetricData"] = h.handleStubGetCapacityManagerMetricData
+	ops["GetCapacityManagerMetricDimensions"] = h.handleStubGetCapacityManagerMetricDimensions
+	ops["GetCapacityReservationUsage"] = h.handleStubGetCapacityReservationUsage
+	ops["GetCoipPoolUsage"] = h.handleStubGetCoipPoolUsage
+	ops["GetConsoleOutput"] = h.handleStubGetConsoleOutput
+	ops["GetConsoleScreenshot"] = h.handleStubGetConsoleScreenshot
+	ops["GetDeclarativePoliciesReportSummary"] = h.handleStubGetDeclarativePoliciesReportSummary
+	ops["GetDefaultCreditSpecification"] = h.handleStubGetDefaultCreditSpecification
+	ops["GetEbsDefaultKmsKeyId"] = h.handleStubGetEbsDefaultKmsKeyID
+	ops["GetEbsEncryptionByDefault"] = h.handleStubGetEbsEncryptionByDefault
+	ops["GetEnabledIpamPolicy"] = h.handleStubGetEnabledIpamPolicy
+	ops["GetFlowLogsIntegrationTemplate"] = h.handleStubGetFlowLogsIntegrationTemplate
+	ops["GetGroupsForCapacityReservation"] = h.handleStubGetGroupsForCapacityReservation
+	ops["GetHostReservationPurchasePreview"] = h.handleStubGetHostReservationPurchasePreview
+	ops["GetImageAncestry"] = h.handleStubGetImageAncestry
+	ops["GetImageBlockPublicAccessState"] = h.handleStubGetImageBlockPublicAccessState
+	ops["GetInstanceMetadataDefaults"] = h.handleStubGetInstanceMetadataDefaults
+	ops["GetInstanceTpmEkPub"] = h.handleStubGetInstanceTpmEkPub
+	ops["GetInstanceTypesFromInstanceRequirements"] = h.handleStubGetInstanceTypesFromInstanceRequirements
+	ops["GetInstanceUefiData"] = h.handleStubGetInstanceUefiData
+	ops["GetIpamAddressHistory"] = h.handleStubGetIpamAddressHistory
+	ops["GetIpamDiscoveredAccounts"] = h.handleStubGetIpamDiscoveredAccounts
+	ops["GetIpamDiscoveredPublicAddresses"] = h.handleStubGetIpamDiscoveredPublicAddresses
+	ops["GetIpamDiscoveredResourceCidrs"] = h.handleStubGetIpamDiscoveredResourceCidrs
+	ops["GetIpamPolicyAllocationRules"] = h.handleStubGetIpamPolicyAllocationRules
+	ops["GetIpamPolicyOrganizationTargets"] = h.handleStubGetIpamPolicyOrganizationTargets
+	ops["GetIpamPoolAllocations"] = h.handleStubGetIpamPoolAllocations
+	ops["GetIpamPoolCidrs"] = h.handleStubGetIpamPoolCidrs
+	ops["GetIpamPrefixListResolverRules"] = h.handleStubGetIpamPrefixListResolverRules
+	ops["GetIpamPrefixListResolverVersionEntries"] = h.handleStubGetIpamPrefixListResolverVersionEntries
+	ops["GetIpamPrefixListResolverVersions"] = h.handleStubGetIpamPrefixListResolverVersions
+	ops["GetIpamResourceCidrs"] = h.handleStubGetIpamResourceCidrs
+	ops["GetLaunchTemplateData"] = h.handleStubGetLaunchTemplateData
+	ops["GetManagedPrefixListAssociations"] = h.handleStubGetManagedPrefixListAssociations
+	ops["GetManagedPrefixListEntries"] = h.handleStubGetManagedPrefixListEntries
+	ops["GetNetworkInsightsAccessScopeAnalysisFindings"] = h.handleStubGetNetworkInsightsAccessScopeAnalysisFindings
+	ops["GetNetworkInsightsAccessScopeContent"] = h.handleStubGetNetworkInsightsAccessScopeContent
+	ops["GetPasswordData"] = h.handleStubGetPasswordData
+	ops["GetReservedInstancesExchangeQuote"] = h.handleStubGetReservedInstancesExchangeQuote
+	ops["GetRouteServerAssociations"] = h.handleStubGetRouteServerAssociations
+	ops["GetRouteServerPropagations"] = h.handleStubGetRouteServerPropagations
+	ops["GetRouteServerRoutingDatabase"] = h.handleStubGetRouteServerRoutingDatabase
+	ops["GetSecurityGroupsForVpc"] = h.handleStubGetSecurityGroupsForVpc
+	ops["GetSerialConsoleAccessStatus"] = h.handleStubGetSerialConsoleAccessStatus
+	ops["GetSnapshotBlockPublicAccessState"] = h.handleStubGetSnapshotBlockPublicAccessState
+	ops["GetSpotPlacementScores"] = h.handleStubGetSpotPlacementScores
+	ops["GetSubnetCidrReservations"] = h.handleStubGetSubnetCidrReservations
+	ops["GetTransitGatewayAttachmentPropagations"] = h.handleStubGetTransitGatewayAttachmentPropagations
+	ops["GetTransitGatewayMeteringPolicyEntries"] = h.handleStubGetTransitGatewayMeteringPolicyEntries
+	ops["GetTransitGatewayMulticastDomainAssociations"] = h.handleStubGetTransitGatewayMulticastDomainAssociations
+	ops["GetTransitGatewayPolicyTableAssociations"] = h.handleStubGetTransitGatewayPolicyTableAssociations
+	ops["GetTransitGatewayPolicyTableEntries"] = h.handleStubGetTransitGatewayPolicyTableEntries
+	ops["GetTransitGatewayPrefixListReferences"] = h.handleStubGetTransitGatewayPrefixListReferences
+	ops["GetTransitGatewayRouteTableAssociations"] = h.handleStubGetTransitGatewayRouteTableAssociations
+	ops["GetTransitGatewayRouteTablePropagations"] = h.handleStubGetTransitGatewayRouteTablePropagations
+	ops["GetVerifiedAccessEndpointPolicy"] = h.handleStubGetVerifiedAccessEndpointPolicy
+	ops["GetVerifiedAccessEndpointTargets"] = h.handleStubGetVerifiedAccessEndpointTargets
+	ops["GetVerifiedAccessGroupPolicy"] = h.handleStubGetVerifiedAccessGroupPolicy
+	ops["GetVpcResourcesBlockingEncryptionEnforcement"] = h.handleStubGetVpcResourcesBlockingEncryptionEnforcement
+	ops["GetVpnConnectionDeviceSampleConfiguration"] = h.handleStubGetVpnConnectionDeviceSampleConfiguration
+	ops["GetVpnConnectionDeviceTypes"] = h.handleStubGetVpnConnectionDeviceTypes
+	ops["GetVpnTunnelReplacementStatus"] = h.handleStubGetVpnTunnelReplacementStatus
+	ops["ImportClientVpnClientCertificateRevocationList"] = h.handleStubImportClientVpnClientCertificateRevocationList
+	ops["ImportImage"] = h.handleStubImportImage
+	ops["ImportInstance"] = h.handleStubImportInstance
+	ops["ImportSnapshot"] = h.handleStubImportSnapshot
+	ops["ImportVolume"] = h.handleStubImportVolume
+	ops["ListImagesInRecycleBin"] = h.handleStubListImagesInRecycleBin
+	ops["ListSnapshotsInRecycleBin"] = h.handleStubListSnapshotsInRecycleBin
+	ops["ListVolumesInRecycleBin"] = h.handleStubListVolumesInRecycleBin
+	ops["LockSnapshot"] = h.handleStubLockSnapshot
+	ops["ModifyAddressAttribute"] = h.handleStubModifyAddressAttribute
+	ops["ModifyAvailabilityZoneGroup"] = h.handleStubModifyAvailabilityZoneGroup
+	ops["ModifyCapacityReservation"] = h.handleStubModifyCapacityReservation
+	ops["ModifyCapacityReservationFleet"] = h.handleStubModifyCapacityReservationFleet
+	ops["ModifyClientVpnEndpoint"] = h.handleStubModifyClientVpnEndpoint
+	ops["ModifyDefaultCreditSpecification"] = h.handleStubModifyDefaultCreditSpecification
+	ops["ModifyEbsDefaultKmsKeyId"] = h.handleStubModifyEbsDefaultKmsKeyID
+	ops["ModifyFleet"] = h.handleStubModifyFleet
+	ops["ModifyFpgaImageAttribute"] = h.handleStubModifyFpgaImageAttribute
+	ops["ModifyHosts"] = h.handleStubModifyHosts
+	ops["ModifyIdFormat"] = h.handleStubModifyIDFormat
+	ops["ModifyIdentityIdFormat"] = h.handleStubModifyIdentityIDFormat
+	ops["ModifyImageAttribute"] = h.handleStubModifyImageAttribute
+	ops["ModifyInstanceCapacityReservationAttributes"] = h.handleStubModifyInstanceCapacityReservationAttributes
+	ops["ModifyInstanceConnectEndpoint"] = h.handleStubModifyInstanceConnectEndpoint
+	ops["ModifyInstanceCpuOptions"] = h.handleStubModifyInstanceCPUOptions
+	ops["ModifyInstanceCreditSpecification"] = h.handleStubModifyInstanceCreditSpecification
+	ops["ModifyInstanceEventStartTime"] = h.handleStubModifyInstanceEventStartTime
+	ops["ModifyInstanceEventWindow"] = h.handleStubModifyInstanceEventWindow
+	ops["ModifyInstanceMaintenanceOptions"] = h.handleStubModifyInstanceMaintenanceOptions
+	ops["ModifyInstanceMetadataDefaults"] = h.handleStubModifyInstanceMetadataDefaults
+	ops["ModifyInstanceMetadataOptions"] = h.handleStubModifyInstanceMetadataOptions
+	ops["ModifyInstanceNetworkPerformanceOptions"] = h.handleStubModifyInstanceNetworkPerformanceOptions
+	ops["ModifyInstancePlacement"] = h.handleStubModifyInstancePlacement
+	ops["ModifyIpam"] = h.handleStubModifyIpam
+	ops["ModifyIpamPolicyAllocationRules"] = h.handleStubModifyIpamPolicyAllocationRules
+	ops["ModifyIpamPool"] = h.handleStubModifyIpamPool
+	ops["ModifyIpamPrefixListResolver"] = h.handleStubModifyIpamPrefixListResolver
+	ops["ModifyIpamPrefixListResolverTarget"] = h.handleStubModifyIpamPrefixListResolverTarget
+	ops["ModifyIpamResourceCidr"] = h.handleStubModifyIpamResourceCidr
+	ops["ModifyIpamResourceDiscovery"] = h.handleStubModifyIpamResourceDiscovery
+	ops["ModifyIpamScope"] = h.handleStubModifyIpamScope
+	ops["ModifyLaunchTemplate"] = h.handleStubModifyLaunchTemplate
+	ops["ModifyLocalGatewayRoute"] = h.handleStubModifyLocalGatewayRoute
+	ops["ModifyManagedPrefixList"] = h.handleStubModifyManagedPrefixList
+	ops["ModifyPrivateDnsNameOptions"] = h.handleStubModifyPrivateDNSNameOptions
+	ops["ModifyPublicIpDnsNameOptions"] = h.handleStubModifyPublicIPDNSNameOptions
+	ops["ModifyReservedInstances"] = h.handleStubModifyReservedInstances
+	ops["ModifyRouteServer"] = h.handleStubModifyRouteServer
+	ops["ModifySnapshotTier"] = h.handleStubModifySnapshotTier
+	ops["ModifySpotFleetRequest"] = h.handleStubModifySpotFleetRequest
+	ops["ModifyTrafficMirrorFilterNetworkServices"] = h.handleStubModifyTrafficMirrorFilterNetworkServices
+	ops["ModifyTrafficMirrorFilterRule"] = h.handleStubModifyTrafficMirrorFilterRule
+	ops["ModifyTrafficMirrorSession"] = h.handleStubModifyTrafficMirrorSession
+	ops["ModifyTransitGateway"] = h.handleStubModifyTransitGateway
+	ops["ModifyTransitGatewayMeteringPolicy"] = h.handleStubModifyTransitGatewayMeteringPolicy
+	ops["ModifyTransitGatewayPrefixListReference"] = h.handleStubModifyTransitGatewayPrefixListReference
+	ops["ModifyTransitGatewayVpcAttachment"] = h.handleStubModifyTransitGatewayVpcAttachment
+	ops["ModifyVerifiedAccessEndpoint"] = h.handleStubModifyVerifiedAccessEndpoint
+	ops["ModifyVerifiedAccessEndpointPolicy"] = h.handleStubModifyVerifiedAccessEndpointPolicy
+	ops["ModifyVerifiedAccessGroup"] = h.handleStubModifyVerifiedAccessGroup
+	ops["ModifyVerifiedAccessGroupPolicy"] = h.handleStubModifyVerifiedAccessGroupPolicy
+	ops["ModifyVerifiedAccessInstance"] = h.handleStubModifyVerifiedAccessInstance
+	ops["ModifyVerifiedAccessInstanceLoggingConfiguration"] = h.handleStubModifyVerifiedAccessInstanceLoggingConfiguration
+	ops["ModifyVerifiedAccessTrustProvider"] = h.handleStubModifyVerifiedAccessTrustProvider
+	ops["ModifyVolume"] = h.handleStubModifyVolume
+	ops["ModifyVpcBlockPublicAccessExclusion"] = h.handleStubModifyVpcBlockPublicAccessExclusion
+	ops["ModifyVpcBlockPublicAccessOptions"] = h.handleStubModifyVpcBlockPublicAccessOptions
+	ops["ModifyVpcEncryptionControl"] = h.handleStubModifyVpcEncryptionControl
+	ops["ModifyVpcEndpoint"] = h.handleStubModifyVpcEndpoint
+	ops["ModifyVpcEndpointConnectionNotification"] = h.handleStubModifyVpcEndpointConnectionNotification
+	ops["ModifyVpcEndpointServiceConfiguration"] = h.handleStubModifyVpcEndpointServiceConfiguration
+	ops["ModifyVpcEndpointServicePayerResponsibility"] = h.handleStubModifyVpcEndpointServicePayerResponsibility
+	ops["ModifyVpcEndpointServicePermissions"] = h.handleStubModifyVpcEndpointServicePermissions
+	ops["ModifyVpcPeeringConnectionOptions"] = h.handleStubModifyVpcPeeringConnectionOptions
+	ops["ModifyVpcTenancy"] = h.handleStubModifyVpcTenancy
+	ops["ModifyVpnConnection"] = h.handleStubModifyVpnConnection
+	ops["ModifyVpnConnectionOptions"] = h.handleStubModifyVpnConnectionOptions
+	ops["ModifyVpnTunnelCertificate"] = h.handleStubModifyVpnTunnelCertificate
+	ops["ModifyVpnTunnelOptions"] = h.handleStubModifyVpnTunnelOptions
+	ops["MonitorInstances"] = h.handleStubMonitorInstances
+	ops["MoveAddressToVpc"] = h.handleStubMoveAddressToVpc
+	ops["MoveByoipCidrToIpam"] = h.handleStubMoveByoipCidrToIpam
+	ops["MoveCapacityReservationInstances"] = h.handleStubMoveCapacityReservationInstances
+	ops["ProvisionByoipCidr"] = h.handleStubProvisionByoipCidr
+	ops["ProvisionIpamByoasn"] = h.handleStubProvisionIpamByoasn
+	ops["ProvisionIpamPoolCidr"] = h.handleStubProvisionIpamPoolCidr
+	ops["PurchaseCapacityBlock"] = h.handleStubPurchaseCapacityBlock
+	ops["PurchaseCapacityBlockExtension"] = h.handleStubPurchaseCapacityBlockExtension
+	ops["PurchaseHostReservation"] = h.handleStubPurchaseHostReservation
+	ops["PurchaseReservedInstancesOffering"] = h.handleStubPurchaseReservedInstancesOffering
+	ops["PurchaseScheduledInstances"] = h.handleStubPurchaseScheduledInstances
+	ops["RegisterImage"] = h.handleStubRegisterImage
+	ops["RegisterInstanceEventNotificationAttributes"] = h.handleStubRegisterInstanceEventNotificationAttributes
+	ops["RegisterTransitGatewayMulticastGroupMembers"] = h.handleStubRegisterTransitGatewayMulticastGroupMembers
+	ops["RegisterTransitGatewayMulticastGroupSources"] = h.handleStubRegisterTransitGatewayMulticastGroupSources
+	ops["RejectCapacityReservationBillingOwnership"] = h.handleStubRejectCapacityReservationBillingOwnership
+	ops["RejectTransitGatewayMulticastDomainAssociations"] = h.handleStubRejectTransitGatewayMulticastDomainAssociations
+	ops["RejectTransitGatewayPeeringAttachment"] = h.handleStubRejectTransitGatewayPeeringAttachment
+	ops["RejectTransitGatewayVpcAttachment"] = h.handleStubRejectTransitGatewayVpcAttachment
+	ops["RejectVpcEndpointConnections"] = h.handleStubRejectVpcEndpointConnections
+	ops["RejectVpcPeeringConnection"] = h.handleStubRejectVpcPeeringConnection
+	ops["ReleaseHosts"] = h.handleStubReleaseHosts
+	ops["ReleaseIpamPoolAllocation"] = h.handleStubReleaseIpamPoolAllocation
+	ops["ReplaceIamInstanceProfileAssociation"] = h.handleStubReplaceIamInstanceProfileAssociation
+	ops["ReplaceImageCriteriaInAllowedImagesSettings"] = h.handleStubReplaceImageCriteriaInAllowedImagesSettings
+	ops["ReplaceRoute"] = h.handleStubReplaceRoute
+	ops["ReplaceRouteTableAssociation"] = h.handleStubReplaceRouteTableAssociation
+	ops["ReplaceTransitGatewayRoute"] = h.handleStubReplaceTransitGatewayRoute
+	ops["ReplaceVpnTunnel"] = h.handleStubReplaceVpnTunnel
+	ops["ReportInstanceStatus"] = h.handleStubReportInstanceStatus
+	ops["RequestSpotFleet"] = h.handleStubRequestSpotFleet
+	ops["ResetAddressAttribute"] = h.handleStubResetAddressAttribute
+	ops["ResetEbsDefaultKmsKeyId"] = h.handleStubResetEbsDefaultKmsKeyID
+	ops["ResetFpgaImageAttribute"] = h.handleStubResetFpgaImageAttribute
+	ops["ResetImageAttribute"] = h.handleStubResetImageAttribute
+	ops["ResetNetworkInterfaceAttribute"] = h.handleStubResetNetworkInterfaceAttribute
+	ops["ResetSnapshotAttribute"] = h.handleStubResetSnapshotAttribute
+	ops["RestoreAddressToClassic"] = h.handleStubRestoreAddressToClassic
+	ops["RestoreImageFromRecycleBin"] = h.handleStubRestoreImageFromRecycleBin
+	ops["RestoreManagedPrefixListVersion"] = h.handleStubRestoreManagedPrefixListVersion
+	ops["RestoreSnapshotFromRecycleBin"] = h.handleStubRestoreSnapshotFromRecycleBin
+	ops["RestoreSnapshotTier"] = h.handleStubRestoreSnapshotTier
+	ops["RestoreVolumeFromRecycleBin"] = h.handleStubRestoreVolumeFromRecycleBin
+	ops["RevokeClientVpnIngress"] = h.handleStubRevokeClientVpnIngress
+	ops["RunScheduledInstances"] = h.handleStubRunScheduledInstances
+	ops["SearchLocalGatewayRoutes"] = h.handleStubSearchLocalGatewayRoutes
+	ops["SearchTransitGatewayMulticastGroups"] = h.handleStubSearchTransitGatewayMulticastGroups
+	ops["SearchTransitGatewayRoutes"] = h.handleStubSearchTransitGatewayRoutes
+	ops["SendDiagnosticInterrupt"] = h.handleStubSendDiagnosticInterrupt
+	ops["StartDeclarativePoliciesReport"] = h.handleStubStartDeclarativePoliciesReport
+	ops["StartNetworkInsightsAccessScopeAnalysis"] = h.handleStubStartNetworkInsightsAccessScopeAnalysis
+	ops["StartNetworkInsightsAnalysis"] = h.handleStubStartNetworkInsightsAnalysis
+	ops["StartVpcEndpointServicePrivateDnsVerification"] = h.handleStubStartVpcEndpointServicePrivateDNSVerification
+	ops["TerminateClientVpnConnections"] = h.handleStubTerminateClientVpnConnections
+	ops["UnassignPrivateNatGatewayAddress"] = h.handleStubUnassignPrivateNatGatewayAddress
+	ops["UnlockSnapshot"] = h.handleStubUnlockSnapshot
+	ops["UnmonitorInstances"] = h.handleStubUnmonitorInstances
+	ops["UpdateCapacityManagerOrganizationsAccess"] = h.handleStubUpdateCapacityManagerOrganizationsAccess
+	ops["UpdateInterruptibleCapacityReservationAllocation"] = h.handleStubUpdateInterruptibleCapacityReservationAllocation
+	ops["UpdateSecurityGroupRuleDescriptionsEgress"] = h.handleStubUpdateSecurityGroupRuleDescriptionsEgress
+	ops["UpdateSecurityGroupRuleDescriptionsIngress"] = h.handleStubUpdateSecurityGroupRuleDescriptionsIngress
+	ops["WithdrawByoipCidr"] = h.handleStubWithdrawByoipCidr
+	ops["AssignIpv6Addresses"] = h.handleStubAssignIpv6Addresses
+	ops["CreatePublicIpv4Pool"] = h.handleStubCreatePublicIpv4Pool
+	ops["DeletePublicIpv4Pool"] = h.handleStubDeletePublicIpv4Pool
+	ops["DeprovisionPublicIpv4PoolCidr"] = h.handleStubDeprovisionPublicIpv4PoolCidr
+	ops["DescribeIpv6Pools"] = h.handleStubDescribeIpv6Pools
+	ops["DescribePublicIpv4Pools"] = h.handleStubDescribePublicIpv4Pools
+	ops["GetAssociatedIpv6PoolCidrs"] = h.handleStubGetAssociatedIpv6PoolCidrs
+	ops["ProvisionPublicIpv4PoolCidr"] = h.handleStubProvisionPublicIpv4PoolCidr
+	ops["UnassignIpv6Addresses"] = h.handleStubUnassignIpv6Addresses
+}
+
+//nolint:funlen
+func stubSupportedOperations() []string {
+	return []string{
+		"AllocateIpamPoolCidr",
+		"ApplySecurityGroupsToClientVpnTargetNetwork",
+		"AssignPrivateNatGatewayAddress",
+		"AssociateCapacityReservationBillingOwner",
+		"AssociateClientVpnTargetNetwork",
+		"AssociateDhcpOptions",
+		"AssociateEnclaveCertificateIamRole",
+		"AssociateIamInstanceProfile",
+		"AssociateInstanceEventWindow",
+		"AssociateIpamByoasn",
+		"AssociateIpamResourceDiscovery",
+		"AssociateNatGatewayAddress",
+		"AssociateRouteServer",
+		"AssociateSecurityGroupVpc",
+		"AssociateSubnetCidrBlock",
+		"AssociateTransitGatewayMulticastDomain",
+		"AssociateTransitGatewayPolicyTable",
+		"AssociateTransitGatewayRouteTable",
+		"AssociateTrunkInterface",
+		"AssociateVpcCidrBlock",
+		"AttachClassicLinkVpc",
+		"AttachVerifiedAccessTrustProvider",
+		"AttachVpnGateway",
+		"AuthorizeClientVpnIngress",
+		"BundleInstance",
+		"CancelBundleTask",
+		"CancelCapacityReservation",
+		"CancelCapacityReservationFleets",
+		"CancelConversionTask",
+		"CancelDeclarativePoliciesReport",
+		"CancelExportTask",
+		"CancelImageLaunchPermission",
+		"CancelImportTask",
+		"CancelReservedInstancesListing",
+		"CancelSpotFleetRequests",
+		"ConfirmProductInstance",
+		"CopyFpgaImage",
+		"CopySnapshot",
+		"CopyVolumes",
+		"CreateCapacityManagerDataExport",
+		"CreateCapacityReservation",
+		"CreateCapacityReservationBySplitting",
+		"CreateCapacityReservationFleet",
+		"CreateCarrierGateway",
+		"CreateClientVpnEndpoint",
+		"CreateClientVpnRoute",
+		"CreateCoipCidr",
+		"CreateCoipPool",
+		"CreateCustomerGateway",
+		"CreateDefaultSubnet",
+		"CreateDefaultVpc",
+		"CreateDelegateMacVolumeOwnershipTask",
+		"CreateDhcpOptions",
+		"CreateEgressOnlyInternetGateway",
+		"CreateFleet",
+		"CreateFlowLogs",
+		"CreateFpgaImage",
+		"CreateImageUsageReport",
+		"CreateInstanceConnectEndpoint",
+		"CreateInstanceEventWindow",
+		"CreateInstanceExportTask",
+		"CreateInterruptibleCapacityReservationAllocation",
+		"CreateIpam",
+		"CreateIpamExternalResourceVerificationToken",
+		"CreateIpamPolicy",
+		"CreateIpamPool",
+		"CreateIpamPrefixListResolver",
+		"CreateIpamPrefixListResolverTarget",
+		"CreateIpamResourceDiscovery",
+		"CreateIpamScope",
+		"CreateLaunchTemplateVersion",
+		"CreateLocalGatewayRoute",
+		"CreateLocalGatewayRouteTable",
+		"CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
+		"CreateLocalGatewayRouteTableVpcAssociation",
+		"CreateLocalGatewayVirtualInterface",
+		"CreateLocalGatewayVirtualInterfaceGroup",
+		"CreateMacSystemIntegrityProtectionModificationTask",
+		"CreateManagedPrefixList",
+		"CreateNetworkInsightsAccessScope",
+		"CreateNetworkInsightsPath",
+		"CreateNetworkInterfacePermission",
+		"CreateReplaceRootVolumeTask",
+		"CreateReservedInstancesListing",
+		"CreateRestoreImageTask",
+		"CreateRouteServer",
+		"CreateRouteServerEndpoint",
+		"CreateRouteServerPeer",
+		"CreateSecondaryNetwork",
+		"CreateSecondarySubnet",
+		"CreateSnapshots",
+		"CreateSpotDatafeedSubscription",
+		"CreateStoreImageTask",
+		"CreateSubnetCidrReservation",
+		"CreateTrafficMirrorFilter",
+		"CreateTrafficMirrorFilterRule",
+		"CreateTrafficMirrorSession",
+		"CreateTrafficMirrorTarget",
+		"CreateTransitGatewayConnect",
+		"CreateTransitGatewayConnectPeer",
+		"CreateTransitGatewayMeteringPolicy",
+		"CreateTransitGatewayMeteringPolicyEntry",
+		"CreateTransitGatewayMulticastDomain",
+		"CreateTransitGatewayPeeringAttachment",
+		"CreateTransitGatewayPolicyTable",
+		"CreateTransitGatewayPrefixListReference",
+		"CreateTransitGatewayRoute",
+		"CreateTransitGatewayRouteTable",
+		"CreateTransitGatewayRouteTableAnnouncement",
+		"CreateTransitGatewayVpcAttachment",
+		"CreateVerifiedAccessEndpoint",
+		"CreateVerifiedAccessGroup",
+		"CreateVerifiedAccessInstance",
+		"CreateVerifiedAccessTrustProvider",
+		"CreateVpcBlockPublicAccessExclusion",
+		"CreateVpcEncryptionControl",
+		"CreateVpcEndpointConnectionNotification",
+		"CreateVpcEndpointServiceConfiguration",
+		"CreateVpnConcentrator",
+		"CreateVpnConnection",
+		"CreateVpnConnectionRoute",
+		"CreateVpnGateway",
+		"DeleteCapacityManagerDataExport",
+		"DeleteCarrierGateway",
+		"DeleteClientVpnEndpoint",
+		"DeleteClientVpnRoute",
+		"DeleteCoipCidr",
+		"DeleteCoipPool",
+		"DeleteCustomerGateway",
+		"DeleteDhcpOptions",
+		"DeleteEgressOnlyInternetGateway",
+		"DeleteFleets",
+		"DeleteFlowLogs",
+		"DeleteFpgaImage",
+		"DeleteImageUsageReport",
+		"DeleteInstanceConnectEndpoint",
+		"DeleteInstanceEventWindow",
+		"DeleteIpam",
+		"DeleteIpamExternalResourceVerificationToken",
+		"DeleteIpamPolicy",
+		"DeleteIpamPool",
+		"DeleteIpamPrefixListResolver",
+		"DeleteIpamPrefixListResolverTarget",
+		"DeleteIpamResourceDiscovery",
+		"DeleteIpamScope",
+		"DeleteLaunchTemplateVersions",
+		"DeleteLocalGatewayRoute",
+		"DeleteLocalGatewayRouteTable",
+		"DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
+		"DeleteLocalGatewayRouteTableVpcAssociation",
+		"DeleteLocalGatewayVirtualInterface",
+		"DeleteLocalGatewayVirtualInterfaceGroup",
+		"DeleteManagedPrefixList",
+		"DeleteNetworkInsightsAccessScope",
+		"DeleteNetworkInsightsAccessScopeAnalysis",
+		"DeleteNetworkInsightsAnalysis",
+		"DeleteNetworkInsightsPath",
+		"DeleteNetworkInterfacePermission",
+		"DeleteQueuedReservedInstances",
+		"DeleteRouteServer",
+		"DeleteRouteServerEndpoint",
+		"DeleteRouteServerPeer",
+		"DeleteSecondaryNetwork",
+		"DeleteSecondarySubnet",
+		"DeleteSpotDatafeedSubscription",
+		"DeleteSubnetCidrReservation",
+		"DeleteTrafficMirrorFilter",
+		"DeleteTrafficMirrorFilterRule",
+		"DeleteTrafficMirrorSession",
+		"DeleteTrafficMirrorTarget",
+		"DeleteTransitGatewayConnect",
+		"DeleteTransitGatewayConnectPeer",
+		"DeleteTransitGatewayMeteringPolicy",
+		"DeleteTransitGatewayMeteringPolicyEntry",
+		"DeleteTransitGatewayMulticastDomain",
+		"DeleteTransitGatewayPeeringAttachment",
+		"DeleteTransitGatewayPolicyTable",
+		"DeleteTransitGatewayPrefixListReference",
+		"DeleteTransitGatewayRoute",
+		"DeleteTransitGatewayRouteTable",
+		"DeleteTransitGatewayRouteTableAnnouncement",
+		"DeleteTransitGatewayVpcAttachment",
+		"DeleteVerifiedAccessEndpoint",
+		"DeleteVerifiedAccessGroup",
+		"DeleteVerifiedAccessInstance",
+		"DeleteVerifiedAccessTrustProvider",
+		"DeleteVpcBlockPublicAccessExclusion",
+		"DeleteVpcEncryptionControl",
+		"DeleteVpcEndpointConnectionNotifications",
+		"DeleteVpcEndpointServiceConfigurations",
+		"DeleteVpnConcentrator",
+		"DeleteVpnConnection",
+		"DeleteVpnConnectionRoute",
+		"DeleteVpnGateway",
+		"DeprovisionByoipCidr",
+		"DeprovisionIpamByoasn",
+		"DeprovisionIpamPoolCidr",
+		"DeregisterInstanceEventNotificationAttributes",
+		"DeregisterTransitGatewayMulticastGroupMembers",
+		"DeregisterTransitGatewayMulticastGroupSources",
+		"DescribeAccountAttributes",
+		"DescribeAddressTransfers",
+		"DescribeAddressesAttribute",
+		"DescribeAggregateIdFormat",
+		"DescribeAwsNetworkPerformanceMetricSubscriptions",
+		"DescribeBundleTasks",
+		"DescribeCapacityBlockExtensionHistory",
+		"DescribeCapacityBlockExtensionOfferings",
+		"DescribeCapacityBlockOfferings",
+		"DescribeCapacityBlockStatus",
+		"DescribeCapacityBlocks",
+		"DescribeCapacityManagerDataExports",
+		"DescribeCapacityReservationBillingRequests",
+		"DescribeCapacityReservationFleets",
+		"DescribeCapacityReservationTopology",
+		"DescribeCarrierGateways",
+		"DescribeClassicLinkInstances",
+		"DescribeClientVpnAuthorizationRules",
+		"DescribeClientVpnConnections",
+		"DescribeClientVpnEndpoints",
+		"DescribeClientVpnRoutes",
+		"DescribeClientVpnTargetNetworks",
+		"DescribeCoipPools",
+		"DescribeConversionTasks",
+		"DescribeCustomerGateways",
+		"DescribeDeclarativePoliciesReports",
+		"DescribeDhcpOptions",
+		"DescribeEgressOnlyInternetGateways",
+		"DescribeElasticGpus",
+		"DescribeExportImageTasks",
+		"DescribeExportTasks",
+		"DescribeFastLaunchImages",
+		"DescribeFastSnapshotRestores",
+		"DescribeFleetHistory",
+		"DescribeFleetInstances",
+		"DescribeFleets",
+		"DescribeFlowLogs",
+		"DescribeFpgaImageAttribute",
+		"DescribeFpgaImages",
+		"DescribeHostReservationOfferings",
+		"DescribeHostReservations",
+		"DescribeIamInstanceProfileAssociations",
+		"DescribeIdFormat",
+		"DescribeIdentityIdFormat",
+		"DescribeImageReferences",
+		"DescribeImageUsageReportEntries",
+		"DescribeImportImageTasks",
+		"DescribeImportSnapshotTasks",
+		"DescribeInstanceConnectEndpoints",
+		"DescribeInstanceCreditSpecifications",
+		"DescribeInstanceEventNotificationAttributes",
+		"DescribeInstanceEventWindows",
+		"DescribeInstanceImageMetadata",
+		"DescribeInstanceSqlHaHistoryStates",
+		"DescribeInstanceSqlHaStates",
+		"DescribeInstanceTopology",
+		"DescribeIpamByoasn",
+		"DescribeIpamExternalResourceVerificationTokens",
+		"DescribeIpamPolicies",
+		"DescribeIpamPools",
+		"DescribeIpamPrefixListResolverTargets",
+		"DescribeIpamPrefixListResolvers",
+		"DescribeIpamResourceDiscoveries",
+		"DescribeIpamResourceDiscoveryAssociations",
+		"DescribeIpamScopes",
+		"DescribeIpams",
+		"DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations",
+		"DescribeLocalGatewayRouteTableVpcAssociations",
+		"DescribeLocalGatewayRouteTables",
+		"DescribeLocalGatewayVirtualInterfaceGroups",
+		"DescribeLocalGatewayVirtualInterfaces",
+		"DescribeLocalGateways",
+		"DescribeLockedSnapshots",
+		"DescribeMacHosts",
+		"DescribeMacModificationTasks",
+		"DescribeManagedPrefixLists",
+		"DescribeMovingAddresses",
+		"DescribeNetworkInsightsAccessScopeAnalyses",
+		"DescribeNetworkInsightsAccessScopes",
+		"DescribeNetworkInsightsAnalyses",
+		"DescribeNetworkInsightsPaths",
+		"DescribeNetworkInterfaceAttribute",
+		"DescribeNetworkInterfacePermissions",
+		"DescribeOutpostLags",
+		"DescribePrefixLists",
+		"DescribePrincipalIdFormat",
+		"DescribeReplaceRootVolumeTasks",
+		"DescribeReservedInstances",
+		"DescribeReservedInstancesListings",
+		"DescribeReservedInstancesModifications",
+		"DescribeReservedInstancesOfferings",
+		"DescribeRouteServerEndpoints",
+		"DescribeRouteServerPeers",
+		"DescribeRouteServers",
+		"DescribeScheduledInstanceAvailability",
+		"DescribeScheduledInstances",
+		"DescribeSecondaryInterfaces",
+		"DescribeSecondaryNetworks",
+		"DescribeSecondarySubnets",
+		"DescribeSecurityGroupReferences",
+		"DescribeSecurityGroupVpcAssociations",
+		"DescribeServiceLinkVirtualInterfaces",
+		"DescribeSnapshotTierStatus",
+		"DescribeSpotDatafeedSubscription",
+		"DescribeSpotFleetInstances",
+		"DescribeSpotFleetRequestHistory",
+		"DescribeSpotFleetRequests",
+		"DescribeStaleSecurityGroups",
+		"DescribeStoreImageTasks",
+		"DescribeTrafficMirrorFilterRules",
+		"DescribeTrafficMirrorFilters",
+		"DescribeTrafficMirrorSessions",
+		"DescribeTrafficMirrorTargets",
+		"DescribeTransitGatewayAttachments",
+		"DescribeTransitGatewayConnectPeers",
+		"DescribeTransitGatewayConnects",
+		"DescribeTransitGatewayMeteringPolicies",
+		"DescribeTransitGatewayMulticastDomains",
+		"DescribeTransitGatewayPeeringAttachments",
+		"DescribeTransitGatewayPolicyTables",
+		"DescribeTransitGatewayRouteTableAnnouncements",
+		"DescribeTransitGatewayRouteTables",
+		"DescribeTransitGatewayVpcAttachments",
+		"DescribeTrunkInterfaceAssociations",
+		"DescribeVerifiedAccessEndpoints",
+		"DescribeVerifiedAccessGroups",
+		"DescribeVerifiedAccessInstanceLoggingConfigurations",
+		"DescribeVerifiedAccessInstances",
+		"DescribeVerifiedAccessTrustProviders",
+		"DescribeVolumeStatus",
+		"DescribeVolumesModifications",
+		"DescribeVpcBlockPublicAccessExclusions",
+		"DescribeVpcBlockPublicAccessOptions",
+		"DescribeVpcClassicLink",
+		"DescribeVpcClassicLinkDnsSupport",
+		"DescribeVpcEncryptionControls",
+		"DescribeVpcEndpointAssociations",
+		"DescribeVpcEndpointConnectionNotifications",
+		"DescribeVpcEndpointConnections",
+		"DescribeVpcEndpointServiceConfigurations",
+		"DescribeVpcEndpointServicePermissions",
+		"DescribeVpnConcentrators",
+		"DescribeVpnConnections",
+		"DescribeVpnGateways",
+		"DetachClassicLinkVpc",
+		"DetachVerifiedAccessTrustProvider",
+		"DetachVpnGateway",
+		"DisableAddressTransfer",
+		"DisableAllowedImagesSettings",
+		"DisableAwsNetworkPerformanceMetricSubscription",
+		"DisableCapacityManager",
+		"DisableEbsEncryptionByDefault",
+		"DisableFastLaunch",
+		"DisableFastSnapshotRestores",
+		"DisableImage",
+		"DisableImageBlockPublicAccess",
+		"DisableImageDeprecation",
+		"DisableImageDeregistrationProtection",
+		"DisableInstanceSqlHaStandbyDetections",
+		"DisableIpamOrganizationAdminAccount",
+		"DisableIpamPolicy",
+		"DisableRouteServerPropagation",
+		"DisableSerialConsoleAccess",
+		"DisableSnapshotBlockPublicAccess",
+		"DisableTransitGatewayRouteTablePropagation",
+		"DisableVgwRoutePropagation",
+		"DisableVpcClassicLink",
+		"DisableVpcClassicLinkDnsSupport",
+		"DisassociateCapacityReservationBillingOwner",
+		"DisassociateClientVpnTargetNetwork",
+		"DisassociateEnclaveCertificateIamRole",
+		"DisassociateIamInstanceProfile",
+		"DisassociateInstanceEventWindow",
+		"DisassociateIpamByoasn",
+		"DisassociateIpamResourceDiscovery",
+		"DisassociateNatGatewayAddress",
+		"DisassociateRouteServer",
+		"DisassociateSecurityGroupVpc",
+		"DisassociateSubnetCidrBlock",
+		"DisassociateTransitGatewayMulticastDomain",
+		"DisassociateTransitGatewayPolicyTable",
+		"DisassociateTransitGatewayRouteTable",
+		"DisassociateTrunkInterface",
+		"DisassociateVpcCidrBlock",
+		"EnableAddressTransfer",
+		"EnableAllowedImagesSettings",
+		"EnableAwsNetworkPerformanceMetricSubscription",
+		"EnableCapacityManager",
+		"EnableEbsEncryptionByDefault",
+		"EnableFastLaunch",
+		"EnableFastSnapshotRestores",
+		"EnableImage",
+		"EnableImageBlockPublicAccess",
+		"EnableImageDeprecation",
+		"EnableImageDeregistrationProtection",
+		"EnableInstanceSqlHaStandbyDetections",
+		"EnableIpamOrganizationAdminAccount",
+		"EnableIpamPolicy",
+		"EnableReachabilityAnalyzerOrganizationSharing",
+		"EnableRouteServerPropagation",
+		"EnableSerialConsoleAccess",
+		"EnableSnapshotBlockPublicAccess",
+		"EnableTransitGatewayRouteTablePropagation",
+		"EnableVgwRoutePropagation",
+		"EnableVolumeIO",
+		"EnableVpcClassicLink",
+		"EnableVpcClassicLinkDnsSupport",
+		"ExportClientVpnClientCertificateRevocationList",
+		"ExportClientVpnClientConfiguration",
+		"ExportImage",
+		"ExportTransitGatewayRoutes",
+		"ExportVerifiedAccessInstanceClientConfiguration",
+		"GetActiveVpnTunnelStatus",
+		"GetAllowedImagesSettings",
+		"GetAssociatedEnclaveCertificateIamRoles",
+		"GetAwsNetworkPerformanceData",
+		"GetCapacityManagerAttributes",
+		"GetCapacityManagerMetricData",
+		"GetCapacityManagerMetricDimensions",
+		"GetCapacityReservationUsage",
+		"GetCoipPoolUsage",
+		"GetConsoleOutput",
+		"GetConsoleScreenshot",
+		"GetDeclarativePoliciesReportSummary",
+		"GetDefaultCreditSpecification",
+		"GetEbsDefaultKmsKeyId",
+		"GetEbsEncryptionByDefault",
+		"GetEnabledIpamPolicy",
+		"GetFlowLogsIntegrationTemplate",
+		"GetGroupsForCapacityReservation",
+		"GetHostReservationPurchasePreview",
+		"GetImageAncestry",
+		"GetImageBlockPublicAccessState",
+		"GetInstanceMetadataDefaults",
+		"GetInstanceTpmEkPub",
+		"GetInstanceTypesFromInstanceRequirements",
+		"GetInstanceUefiData",
+		"GetIpamAddressHistory",
+		"GetIpamDiscoveredAccounts",
+		"GetIpamDiscoveredPublicAddresses",
+		"GetIpamDiscoveredResourceCidrs",
+		"GetIpamPolicyAllocationRules",
+		"GetIpamPolicyOrganizationTargets",
+		"GetIpamPoolAllocations",
+		"GetIpamPoolCidrs",
+		"GetIpamPrefixListResolverRules",
+		"GetIpamPrefixListResolverVersionEntries",
+		"GetIpamPrefixListResolverVersions",
+		"GetIpamResourceCidrs",
+		"GetLaunchTemplateData",
+		"GetManagedPrefixListAssociations",
+		"GetManagedPrefixListEntries",
+		"GetNetworkInsightsAccessScopeAnalysisFindings",
+		"GetNetworkInsightsAccessScopeContent",
+		"GetPasswordData",
+		"GetReservedInstancesExchangeQuote",
+		"GetRouteServerAssociations",
+		"GetRouteServerPropagations",
+		"GetRouteServerRoutingDatabase",
+		"GetSecurityGroupsForVpc",
+		"GetSerialConsoleAccessStatus",
+		"GetSnapshotBlockPublicAccessState",
+		"GetSpotPlacementScores",
+		"GetSubnetCidrReservations",
+		"GetTransitGatewayAttachmentPropagations",
+		"GetTransitGatewayMeteringPolicyEntries",
+		"GetTransitGatewayMulticastDomainAssociations",
+		"GetTransitGatewayPolicyTableAssociations",
+		"GetTransitGatewayPolicyTableEntries",
+		"GetTransitGatewayPrefixListReferences",
+		"GetTransitGatewayRouteTableAssociations",
+		"GetTransitGatewayRouteTablePropagations",
+		"GetVerifiedAccessEndpointPolicy",
+		"GetVerifiedAccessEndpointTargets",
+		"GetVerifiedAccessGroupPolicy",
+		"GetVpcResourcesBlockingEncryptionEnforcement",
+		"GetVpnConnectionDeviceSampleConfiguration",
+		"GetVpnConnectionDeviceTypes",
+		"GetVpnTunnelReplacementStatus",
+		"ImportClientVpnClientCertificateRevocationList",
+		"ImportImage",
+		"ImportInstance",
+		"ImportSnapshot",
+		"ImportVolume",
+		"ListImagesInRecycleBin",
+		"ListSnapshotsInRecycleBin",
+		"ListVolumesInRecycleBin",
+		"LockSnapshot",
+		"ModifyAddressAttribute",
+		"ModifyAvailabilityZoneGroup",
+		"ModifyCapacityReservation",
+		"ModifyCapacityReservationFleet",
+		"ModifyClientVpnEndpoint",
+		"ModifyDefaultCreditSpecification",
+		"ModifyEbsDefaultKmsKeyId",
+		"ModifyFleet",
+		"ModifyFpgaImageAttribute",
+		"ModifyHosts",
+		"ModifyIdFormat",
+		"ModifyIdentityIdFormat",
+		"ModifyImageAttribute",
+		"ModifyInstanceCapacityReservationAttributes",
+		"ModifyInstanceConnectEndpoint",
+		"ModifyInstanceCpuOptions",
+		"ModifyInstanceCreditSpecification",
+		"ModifyInstanceEventStartTime",
+		"ModifyInstanceEventWindow",
+		"ModifyInstanceMaintenanceOptions",
+		"ModifyInstanceMetadataDefaults",
+		"ModifyInstanceMetadataOptions",
+		"ModifyInstanceNetworkPerformanceOptions",
+		"ModifyInstancePlacement",
+		"ModifyIpam",
+		"ModifyIpamPolicyAllocationRules",
+		"ModifyIpamPool",
+		"ModifyIpamPrefixListResolver",
+		"ModifyIpamPrefixListResolverTarget",
+		"ModifyIpamResourceCidr",
+		"ModifyIpamResourceDiscovery",
+		"ModifyIpamScope",
+		"ModifyLaunchTemplate",
+		"ModifyLocalGatewayRoute",
+		"ModifyManagedPrefixList",
+		"ModifyPrivateDnsNameOptions",
+		"ModifyPublicIpDnsNameOptions",
+		"ModifyReservedInstances",
+		"ModifyRouteServer",
+		"ModifySnapshotTier",
+		"ModifySpotFleetRequest",
+		"ModifyTrafficMirrorFilterNetworkServices",
+		"ModifyTrafficMirrorFilterRule",
+		"ModifyTrafficMirrorSession",
+		"ModifyTransitGateway",
+		"ModifyTransitGatewayMeteringPolicy",
+		"ModifyTransitGatewayPrefixListReference",
+		"ModifyTransitGatewayVpcAttachment",
+		"ModifyVerifiedAccessEndpoint",
+		"ModifyVerifiedAccessEndpointPolicy",
+		"ModifyVerifiedAccessGroup",
+		"ModifyVerifiedAccessGroupPolicy",
+		"ModifyVerifiedAccessInstance",
+		"ModifyVerifiedAccessInstanceLoggingConfiguration",
+		"ModifyVerifiedAccessTrustProvider",
+		"ModifyVolume",
+		"ModifyVpcBlockPublicAccessExclusion",
+		"ModifyVpcBlockPublicAccessOptions",
+		"ModifyVpcEncryptionControl",
+		"ModifyVpcEndpoint",
+		"ModifyVpcEndpointConnectionNotification",
+		"ModifyVpcEndpointServiceConfiguration",
+		"ModifyVpcEndpointServicePayerResponsibility",
+		"ModifyVpcEndpointServicePermissions",
+		"ModifyVpcPeeringConnectionOptions",
+		"ModifyVpcTenancy",
+		"ModifyVpnConnection",
+		"ModifyVpnConnectionOptions",
+		"ModifyVpnTunnelCertificate",
+		"ModifyVpnTunnelOptions",
+		"MonitorInstances",
+		"MoveAddressToVpc",
+		"MoveByoipCidrToIpam",
+		"MoveCapacityReservationInstances",
+		"ProvisionByoipCidr",
+		"ProvisionIpamByoasn",
+		"ProvisionIpamPoolCidr",
+		"PurchaseCapacityBlock",
+		"PurchaseCapacityBlockExtension",
+		"PurchaseHostReservation",
+		"PurchaseReservedInstancesOffering",
+		"PurchaseScheduledInstances",
+		"RegisterImage",
+		"RegisterInstanceEventNotificationAttributes",
+		"RegisterTransitGatewayMulticastGroupMembers",
+		"RegisterTransitGatewayMulticastGroupSources",
+		"RejectCapacityReservationBillingOwnership",
+		"RejectTransitGatewayMulticastDomainAssociations",
+		"RejectTransitGatewayPeeringAttachment",
+		"RejectTransitGatewayVpcAttachment",
+		"RejectVpcEndpointConnections",
+		"RejectVpcPeeringConnection",
+		"ReleaseHosts",
+		"ReleaseIpamPoolAllocation",
+		"ReplaceIamInstanceProfileAssociation",
+		"ReplaceImageCriteriaInAllowedImagesSettings",
+		"ReplaceRoute",
+		"ReplaceRouteTableAssociation",
+		"ReplaceTransitGatewayRoute",
+		"ReplaceVpnTunnel",
+		"ReportInstanceStatus",
+		"RequestSpotFleet",
+		"ResetAddressAttribute",
+		"ResetEbsDefaultKmsKeyId",
+		"ResetFpgaImageAttribute",
+		"ResetImageAttribute",
+		"ResetNetworkInterfaceAttribute",
+		"ResetSnapshotAttribute",
+		"RestoreAddressToClassic",
+		"RestoreImageFromRecycleBin",
+		"RestoreManagedPrefixListVersion",
+		"RestoreSnapshotFromRecycleBin",
+		"RestoreSnapshotTier",
+		"RestoreVolumeFromRecycleBin",
+		"RevokeClientVpnIngress",
+		"RunScheduledInstances",
+		"SearchLocalGatewayRoutes",
+		"SearchTransitGatewayMulticastGroups",
+		"SearchTransitGatewayRoutes",
+		"SendDiagnosticInterrupt",
+		"StartDeclarativePoliciesReport",
+		"StartNetworkInsightsAccessScopeAnalysis",
+		"StartNetworkInsightsAnalysis",
+		"StartVpcEndpointServicePrivateDnsVerification",
+		"TerminateClientVpnConnections",
+		"UnassignPrivateNatGatewayAddress",
+		"UnlockSnapshot",
+		"UnmonitorInstances",
+		"UpdateCapacityManagerOrganizationsAccess",
+		"UpdateInterruptibleCapacityReservationAllocation",
+		"UpdateSecurityGroupRuleDescriptionsEgress",
+		"UpdateSecurityGroupRuleDescriptionsIngress",
+		"WithdrawByoipCidr",
+		"AssignIpv6Addresses",
+		"CreatePublicIpv4Pool",
+		"DeletePublicIpv4Pool",
+		"DeprovisionPublicIpv4PoolCidr",
+		"DescribeIpv6Pools",
+		"DescribePublicIpv4Pools",
+		"GetAssociatedIpv6PoolCidrs",
+		"ProvisionPublicIpv4PoolCidr",
+		"UnassignIpv6Addresses",
+	}
+}
+
+func (h *Handler) handleStubAllocateIpamPoolCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "AllocateIpamPoolCidrResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubApplySecurityGroupsToClientVpnTargetNetwork(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ApplySecurityGroupsToClientVpnTargetNetworkResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssignPrivateNatGatewayAddress(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssignPrivateNatGatewayAddressResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateCapacityReservationBillingOwner(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateCapacityReservationBillingOwnerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateClientVpnTargetNetwork(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateClientVpnTargetNetworkResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateDhcpOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "AssociateDhcpOptionsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubAssociateEnclaveCertificateIamRole(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateEnclaveCertificateIamRoleResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateIamInstanceProfile(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateIamInstanceProfileResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateInstanceEventWindowResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateIpamByoasn(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "AssociateIpamByoasnResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubAssociateIpamResourceDiscovery(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateIpamResourceDiscoveryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateNatGatewayAddress(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateNatGatewayAddressResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateRouteServer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "AssociateRouteServerResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubAssociateSecurityGroupVpc(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateSecurityGroupVpcResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateSubnetCidrBlock(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateSubnetCidrBlockResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateTransitGatewayMulticastDomain(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateTransitGatewayMulticastDomainResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateTransitGatewayPolicyTable(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateTransitGatewayPolicyTableResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateTransitGatewayRouteTable(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateTransitGatewayRouteTableResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateTrunkInterface(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AssociateTrunkInterfaceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAssociateVpcCidrBlock(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "AssociateVpcCidrBlockResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubAttachClassicLinkVpc(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "AttachClassicLinkVpcResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubAttachVerifiedAccessTrustProvider(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AttachVerifiedAccessTrustProviderResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubAttachVpnGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "AttachVpnGatewayResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubAuthorizeClientVpnIngress(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "AuthorizeClientVpnIngressResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubBundleInstance(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "BundleInstanceResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCancelBundleTask(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CancelBundleTaskResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCancelCapacityReservation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CancelCapacityReservationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCancelCapacityReservationFleets(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CancelCapacityReservationFleetsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCancelConversionTask(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CancelConversionTaskResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCancelDeclarativePoliciesReport(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CancelDeclarativePoliciesReportResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCancelExportTask(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CancelExportTaskResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCancelImageLaunchPermission(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CancelImageLaunchPermissionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCancelImportTask(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CancelImportTaskResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCancelReservedInstancesListing(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CancelReservedInstancesListingResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCancelSpotFleetRequests(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CancelSpotFleetRequestsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubConfirmProductInstance(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ConfirmProductInstanceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCopyFpgaImage(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CopyFpgaImageResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCopySnapshot(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CopySnapshotResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCopyVolumes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CopyVolumesResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateCapacityManagerDataExport(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateCapacityManagerDataExportResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateCapacityReservation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateCapacityReservationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateCapacityReservationBySplitting(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateCapacityReservationBySplittingResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateCapacityReservationFleet(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateCapacityReservationFleetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateCarrierGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateCarrierGatewayResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateClientVpnEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateClientVpnEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateClientVpnRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateClientVpnRouteResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateCoipCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateCoipCidrResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateCoipPool(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateCoipPoolResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateCustomerGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateCustomerGatewayResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateDefaultSubnet(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateDefaultSubnetResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateDefaultVpc(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateDefaultVpcResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateDelegateMacVolumeOwnershipTaskResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateDhcpOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateDhcpOptionsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateEgressOnlyInternetGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateEgressOnlyInternetGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateFleet(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateFleetResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateFlowLogs(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateFlowLogsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateFpgaImage(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateFpgaImageResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateImageUsageReport(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateImageUsageReportResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateInstanceConnectEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateInstanceConnectEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateInstanceEventWindowResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateInstanceExportTask(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateInstanceExportTaskResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateInterruptibleCapacityReservationAllocation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateInterruptibleCapacityReservationAllocationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateIpam(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateIpamResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateIpamExternalResourceVerificationToken(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateIpamExternalResourceVerificationTokenResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateIpamPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateIpamPolicyResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateIpamPool(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateIpamPoolResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateIpamPrefixListResolver(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateIpamPrefixListResolverResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateIpamPrefixListResolverTarget(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateIpamPrefixListResolverTargetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateIpamResourceDiscovery(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateIpamResourceDiscoveryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateIpamScope(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateIpamScopeResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateLaunchTemplateVersion(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateLaunchTemplateVersionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateLocalGatewayRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateLocalGatewayRouteTable(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateLocalGatewayRouteTableResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation(
+	_ url.Values,
+	reqID string,
+) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateLocalGatewayRouteTableVpcAssociation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateLocalGatewayRouteTableVpcAssociationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateLocalGatewayVirtualInterface(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateLocalGatewayVirtualInterfaceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateLocalGatewayVirtualInterfaceGroup(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateLocalGatewayVirtualInterfaceGroupResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateMacSystemIntegrityProtectionModificationTask(
+	_ url.Values,
+	reqID string,
+) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateMacSystemIntegrityProtectionModificationTaskResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateManagedPrefixList(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateManagedPrefixListResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateNetworkInsightsAccessScope(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateNetworkInsightsAccessScopeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateNetworkInsightsPath(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateNetworkInsightsPathResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateNetworkInterfacePermission(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateNetworkInterfacePermissionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateReplaceRootVolumeTask(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateReplaceRootVolumeTaskResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateReservedInstancesListing(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateReservedInstancesListingResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateRestoreImageTask(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateRestoreImageTaskResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateRouteServer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateRouteServerResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateRouteServerEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateRouteServerEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateRouteServerPeer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateRouteServerPeerResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateSecondaryNetwork(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateSecondaryNetworkResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateSecondarySubnet(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateSecondarySubnetResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateSnapshots(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateSnapshotsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateSpotDatafeedSubscription(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateSpotDatafeedSubscriptionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateStoreImageTask(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateStoreImageTaskResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateSubnetCidrReservation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateSubnetCidrReservationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTrafficMirrorFilter(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTrafficMirrorFilterResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTrafficMirrorFilterRule(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTrafficMirrorFilterRuleResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTrafficMirrorSession(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTrafficMirrorSessionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTrafficMirrorTarget(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTrafficMirrorTargetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayConnect(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayConnectResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayConnectPeer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayConnectPeerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayMeteringPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayMeteringPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayMeteringPolicyEntry(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayMeteringPolicyEntryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayMulticastDomain(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayMulticastDomainResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayPeeringAttachment(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayPeeringAttachmentResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayPolicyTable(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayPolicyTableResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayPrefixListReference(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayPrefixListReferenceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayRouteTable(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayRouteTableResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayRouteTableAnnouncement(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayRouteTableAnnouncementResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateTransitGatewayVpcAttachment(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateTransitGatewayVpcAttachmentResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateVerifiedAccessEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVerifiedAccessEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateVerifiedAccessGroup(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVerifiedAccessGroupResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateVerifiedAccessInstance(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVerifiedAccessInstanceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateVerifiedAccessTrustProvider(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVerifiedAccessTrustProviderResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateVpcBlockPublicAccessExclusion(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVpcBlockPublicAccessExclusionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateVpcEncryptionControl(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVpcEncryptionControlResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateVpcEndpointConnectionNotification(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVpcEndpointConnectionNotificationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateVpcEndpointServiceConfiguration(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVpcEndpointServiceConfigurationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateVpnConcentrator(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateVpnConcentratorResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateVpnConnection(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateVpnConnectionResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreateVpnConnectionRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "CreateVpnConnectionRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubCreateVpnGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreateVpnGatewayResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteCapacityManagerDataExport(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteCapacityManagerDataExportResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteCarrierGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteCarrierGatewayResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteClientVpnEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteClientVpnEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteClientVpnRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteClientVpnRouteResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteCoipCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteCoipCidrResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteCoipPool(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteCoipPoolResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteCustomerGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteCustomerGatewayResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteDhcpOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteDhcpOptionsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteEgressOnlyInternetGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteEgressOnlyInternetGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteFleets(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteFleetsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteFlowLogs(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteFlowLogsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteFpgaImage(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteFpgaImageResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteImageUsageReport(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteImageUsageReportResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteInstanceConnectEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteInstanceConnectEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteInstanceEventWindow(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteInstanceEventWindowResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteIpam(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteIpamResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteIpamExternalResourceVerificationToken(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteIpamExternalResourceVerificationTokenResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteIpamPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteIpamPolicyResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteIpamPool(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteIpamPoolResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteIpamPrefixListResolver(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteIpamPrefixListResolverResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteIpamPrefixListResolverTarget(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteIpamPrefixListResolverTargetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteIpamResourceDiscovery(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteIpamResourceDiscoveryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteIpamScope(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteIpamScopeResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteLaunchTemplateVersions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteLaunchTemplateVersionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteLocalGatewayRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteLocalGatewayRouteTable(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteLocalGatewayRouteTableResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation(
+	_ url.Values,
+	reqID string,
+) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteLocalGatewayRouteTableVpcAssociation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteLocalGatewayRouteTableVpcAssociationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteLocalGatewayVirtualInterface(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteLocalGatewayVirtualInterfaceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteLocalGatewayVirtualInterfaceGroup(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteLocalGatewayVirtualInterfaceGroupResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteManagedPrefixList(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteManagedPrefixListResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteNetworkInsightsAccessScope(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAccessScopeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteNetworkInsightsAccessScopeAnalysis(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAccessScopeAnalysisResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteNetworkInsightsAnalysis(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAnalysisResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteNetworkInsightsPath(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteNetworkInsightsPathResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteNetworkInterfacePermission(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteNetworkInterfacePermissionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteQueuedReservedInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteQueuedReservedInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteRouteServer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteRouteServerResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteRouteServerEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteRouteServerEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteRouteServerPeer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteRouteServerPeerResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteSecondaryNetwork(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteSecondaryNetworkResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteSecondarySubnet(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteSecondarySubnetResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteSpotDatafeedSubscription(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteSpotDatafeedSubscriptionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteSubnetCidrReservation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteSubnetCidrReservationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTrafficMirrorFilter(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTrafficMirrorFilterResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTrafficMirrorFilterRule(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTrafficMirrorFilterRuleResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTrafficMirrorSession(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTrafficMirrorSessionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTrafficMirrorTarget(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTrafficMirrorTargetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayConnect(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayConnectResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayConnectPeer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayConnectPeerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayMeteringPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayMeteringPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayMeteringPolicyEntry(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayMeteringPolicyEntryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayMulticastDomain(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayMulticastDomainResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayPeeringAttachment(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayPeeringAttachmentResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayPolicyTable(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayPolicyTableResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayPrefixListReference(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayPrefixListReferenceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayRouteTable(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayRouteTableResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayRouteTableAnnouncement(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayRouteTableAnnouncementResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteTransitGatewayVpcAttachment(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteTransitGatewayVpcAttachmentResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteVerifiedAccessEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVerifiedAccessEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteVerifiedAccessGroup(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVerifiedAccessGroupResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteVerifiedAccessInstance(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVerifiedAccessInstanceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteVerifiedAccessTrustProvider(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVerifiedAccessTrustProviderResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteVpcBlockPublicAccessExclusion(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVpcBlockPublicAccessExclusionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteVpcEncryptionControl(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVpcEncryptionControlResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteVpcEndpointConnectionNotifications(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVpcEndpointConnectionNotificationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteVpcEndpointServiceConfigurations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVpcEndpointServiceConfigurationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteVpnConcentrator(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteVpnConcentratorResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteVpnConnection(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteVpnConnectionResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeleteVpnConnectionRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteVpnConnectionRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeleteVpnGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeleteVpnGatewayResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeprovisionByoipCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeprovisionByoipCidrResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeprovisionIpamByoasn(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeprovisionIpamByoasnResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeprovisionIpamPoolCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeprovisionIpamPoolCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeregisterInstanceEventNotificationAttributes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeregisterInstanceEventNotificationAttributesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeregisterTransitGatewayMulticastGroupMembers(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeregisterTransitGatewayMulticastGroupMembersResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDeregisterTransitGatewayMulticastGroupSources(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeregisterTransitGatewayMulticastGroupSourcesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeAccountAttributes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeAccountAttributesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeAddressTransfers(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeAddressTransfersResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeAddressesAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeAddressesAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeAggregateIDFormat(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeAggregateIdFormatResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeAwsNetworkPerformanceMetricSubscriptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeAwsNetworkPerformanceMetricSubscriptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeBundleTasks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeBundleTasksResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeCapacityBlockExtensionHistory(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCapacityBlockExtensionHistoryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCapacityBlockExtensionOfferings(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCapacityBlockExtensionOfferingsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCapacityBlockOfferings(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCapacityBlockOfferingsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCapacityBlockStatus(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCapacityBlockStatusResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCapacityBlocks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCapacityBlocksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCapacityManagerDataExports(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCapacityManagerDataExportsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCapacityReservationBillingRequests(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCapacityReservationBillingRequestsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCapacityReservationFleets(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCapacityReservationFleetsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCapacityReservationTopology(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCapacityReservationTopologyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCarrierGateways(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCarrierGatewaysResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeClassicLinkInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeClassicLinkInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeClientVpnAuthorizationRules(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeClientVpnAuthorizationRulesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeClientVpnConnections(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeClientVpnConnectionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeClientVpnEndpoints(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeClientVpnEndpointsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeClientVpnRoutes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeClientVpnRoutesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeClientVpnTargetNetworks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeClientVpnTargetNetworksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCoipPools(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeCoipPoolsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeConversionTasks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeConversionTasksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeCustomerGateways(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeCustomerGatewaysResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeDeclarativePoliciesReports(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeDeclarativePoliciesReportsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeDhcpOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeDhcpOptionsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeEgressOnlyInternetGateways(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeEgressOnlyInternetGatewaysResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeElasticGpus(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeElasticGpusResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeExportImageTasks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeExportImageTasksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeExportTasks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeExportTasksResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeFastLaunchImages(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeFastLaunchImagesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeFastSnapshotRestores(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeFastSnapshotRestoresResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeFleetHistory(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeFleetHistoryResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeFleetInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeFleetInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeFleets(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeFleetsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeFlowLogs(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeFlowLogsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeFpgaImageAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeFpgaImages(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeFpgaImagesResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeHostReservationOfferings(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeHostReservationOfferingsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeHostReservations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeHostReservationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeIamInstanceProfileAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIamInstanceProfileAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeIDFormat(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeIdFormatResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeIdentityIDFormat(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIdentityIdFormatResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeImageReferences(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeImageReferencesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeImageUsageReportEntries(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeImageUsageReportEntriesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeImportImageTasks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeImportImageTasksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeImportSnapshotTasks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeImportSnapshotTasksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeInstanceConnectEndpoints(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeInstanceConnectEndpointsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeInstanceCreditSpecifications(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeInstanceCreditSpecificationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeInstanceEventNotificationAttributes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeInstanceEventNotificationAttributesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeInstanceEventWindows(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeInstanceEventWindowsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeInstanceImageMetadata(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeInstanceImageMetadataResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeInstanceSQLHaHistoryStates(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeInstanceSqlHaHistoryStatesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeInstanceSQLHaStates(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeInstanceSqlHaStatesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeInstanceTopology(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeInstanceTopologyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeIpamByoasn(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpamByoasnResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeIpamExternalResourceVerificationTokens(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpamExternalResourceVerificationTokensResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeIpamPolicies(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpamPoliciesResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeIpamPools(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpamPoolsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeIpamPrefixListResolverTargets(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpamPrefixListResolverTargetsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeIpamPrefixListResolvers(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpamPrefixListResolversResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeIpamResourceDiscoveries(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpamResourceDiscoveriesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeIpamResourceDiscoveryAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeIpamResourceDiscoveryAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeIpamScopes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpamScopesResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeIpams(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpamsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeLocalGatewayRouteTableVpcAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeLocalGatewayRouteTableVpcAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeLocalGatewayRouteTables(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeLocalGatewayRouteTablesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeLocalGatewayVirtualInterfaceGroups(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeLocalGatewayVirtualInterfaceGroupsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeLocalGatewayVirtualInterfaces(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeLocalGatewayVirtualInterfacesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeLocalGateways(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeLocalGatewaysResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeLockedSnapshots(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeLockedSnapshotsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeMacHosts(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeMacHostsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeMacModificationTasks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeMacModificationTasksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeManagedPrefixLists(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeManagedPrefixListsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeMovingAddresses(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeMovingAddressesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeNetworkInsightsAccessScopeAnalyses(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeNetworkInsightsAccessScopeAnalysesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeNetworkInsightsAccessScopes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeNetworkInsightsAccessScopesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeNetworkInsightsAnalyses(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeNetworkInsightsAnalysesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeNetworkInsightsPaths(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeNetworkInsightsPathsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeNetworkInterfaceAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeNetworkInterfaceAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeNetworkInterfacePermissions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeNetworkInterfacePermissionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeOutpostLags(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeOutpostLagsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribePrefixLists(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribePrefixListsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribePrincipalIDFormat(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribePrincipalIdFormatResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeReplaceRootVolumeTasks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeReplaceRootVolumeTasksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeReservedInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeReservedInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeReservedInstancesListings(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeReservedInstancesListingsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeReservedInstancesModifications(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeReservedInstancesModificationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeReservedInstancesOfferings(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeReservedInstancesOfferingsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeRouteServerEndpoints(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeRouteServerEndpointsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeRouteServerPeers(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeRouteServerPeersResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeRouteServers(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeRouteServersResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeScheduledInstanceAvailability(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeScheduledInstanceAvailabilityResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeScheduledInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeScheduledInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeSecondaryInterfaces(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeSecondaryInterfacesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeSecondaryNetworks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeSecondaryNetworksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeSecondarySubnets(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeSecondarySubnetsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeSecurityGroupReferences(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeSecurityGroupReferencesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeSecurityGroupVpcAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeSecurityGroupVpcAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeServiceLinkVirtualInterfaces(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeServiceLinkVirtualInterfacesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeSnapshotTierStatus(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeSnapshotTierStatusResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeSpotDatafeedSubscription(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeSpotDatafeedSubscriptionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeSpotFleetInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeSpotFleetInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeSpotFleetRequestHistory(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeSpotFleetRequestHistoryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeSpotFleetRequests(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeSpotFleetRequestsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeStaleSecurityGroups(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeStaleSecurityGroupsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeStoreImageTasks(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeStoreImageTasksResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTrafficMirrorFilterRules(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTrafficMirrorFilterRulesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTrafficMirrorFilters(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTrafficMirrorFiltersResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTrafficMirrorSessions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTrafficMirrorSessionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTrafficMirrorTargets(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTrafficMirrorTargetsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayAttachments(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayAttachmentsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayConnectPeers(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayConnectPeersResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayConnects(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayConnectsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayMeteringPolicies(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayMeteringPoliciesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayMulticastDomains(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayMulticastDomainsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayPeeringAttachments(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayPeeringAttachmentsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayPolicyTables(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayPolicyTablesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayRouteTableAnnouncements(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayRouteTableAnnouncementsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayRouteTables(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayRouteTablesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTransitGatewayVpcAttachments(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTransitGatewayVpcAttachmentsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeTrunkInterfaceAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeTrunkInterfaceAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVerifiedAccessEndpoints(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVerifiedAccessEndpointsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVerifiedAccessGroups(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVerifiedAccessGroupsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVerifiedAccessInstanceLoggingConfigurations(
+	_ url.Values,
+	reqID string,
+) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVerifiedAccessInstanceLoggingConfigurationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVerifiedAccessInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVerifiedAccessInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVerifiedAccessTrustProviders(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVerifiedAccessTrustProvidersResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVolumeStatus(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeVolumeStatusResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribeVolumesModifications(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVolumesModificationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpcBlockPublicAccessExclusions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpcBlockPublicAccessExclusionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpcBlockPublicAccessOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpcBlockPublicAccessOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpcClassicLink(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpcClassicLinkResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpcClassicLinkDNSSupport(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpcClassicLinkDnsSupportResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpcEncryptionControls(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpcEncryptionControlsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpcEndpointAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpcEndpointAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpcEndpointConnectionNotifications(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpcEndpointConnectionNotificationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpcEndpointConnections(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpcEndpointConnectionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpcEndpointServiceConfigurations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpcEndpointServiceConfigurationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpcEndpointServicePermissions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpcEndpointServicePermissionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpnConcentrators(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpnConcentratorsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpnConnections(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribeVpnConnectionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeVpnGateways(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeVpnGatewaysResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDetachClassicLinkVpc(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DetachClassicLinkVpcResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDetachVerifiedAccessTrustProvider(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DetachVerifiedAccessTrustProviderResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDetachVpnGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DetachVpnGatewayResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDisableAddressTransfer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableAddressTransferResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableAllowedImagesSettings(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableAllowedImagesSettingsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableAwsNetworkPerformanceMetricSubscription(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableAwsNetworkPerformanceMetricSubscriptionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableCapacityManager(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableCapacityManagerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableEbsEncryptionByDefault(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableEbsEncryptionByDefaultResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableFastLaunch(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DisableFastLaunchResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDisableFastSnapshotRestores(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableFastSnapshotRestoresResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableImage(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DisableImageResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDisableImageBlockPublicAccess(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableImageBlockPublicAccessResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableImageDeprecation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableImageDeprecationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableImageDeregistrationProtection(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableImageDeregistrationProtectionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableInstanceSQLHaStandbyDetections(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableInstanceSqlHaStandbyDetectionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableIpamOrganizationAdminAccount(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableIpamOrganizationAdminAccountResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableIpamPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DisableIpamPolicyResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDisableRouteServerPropagation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableRouteServerPropagationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableSerialConsoleAccess(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableSerialConsoleAccessResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableSnapshotBlockPublicAccess(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableSnapshotBlockPublicAccessResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableTransitGatewayRouteTablePropagation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableTransitGatewayRouteTablePropagationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableVgwRoutePropagation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableVgwRoutePropagationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisableVpcClassicLink(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DisableVpcClassicLinkResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDisableVpcClassicLinkDNSSupport(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableVpcClassicLinkDnsSupportResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateCapacityReservationBillingOwner(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateCapacityReservationBillingOwnerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateClientVpnTargetNetwork(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateClientVpnTargetNetworkResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateEnclaveCertificateIamRole(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateEnclaveCertificateIamRoleResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateIamInstanceProfile(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateIamInstanceProfileResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateInstanceEventWindow(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateInstanceEventWindowResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateIpamByoasn(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateIpamByoasnResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateIpamResourceDiscovery(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateIpamResourceDiscoveryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateNatGatewayAddress(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateNatGatewayAddressResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateRouteServer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateRouteServerResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateSecurityGroupVpc(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateSecurityGroupVpcResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateSubnetCidrBlock(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateSubnetCidrBlockResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateTransitGatewayMulticastDomain(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateTransitGatewayMulticastDomainResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateTransitGatewayPolicyTable(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateTransitGatewayPolicyTableResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateTransitGatewayRouteTable(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateTransitGatewayRouteTableResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateTrunkInterface(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateTrunkInterfaceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDisassociateVpcCidrBlock(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisassociateVpcCidrBlockResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableAddressTransfer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "EnableAddressTransferResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubEnableAllowedImagesSettings(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableAllowedImagesSettingsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableAwsNetworkPerformanceMetricSubscription(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableAwsNetworkPerformanceMetricSubscriptionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableCapacityManager(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "EnableCapacityManagerResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubEnableEbsEncryptionByDefault(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableEbsEncryptionByDefaultResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableFastLaunch(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "EnableFastLaunchResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubEnableFastSnapshotRestores(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableFastSnapshotRestoresResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableImage(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "EnableImageResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubEnableImageBlockPublicAccess(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableImageBlockPublicAccessResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableImageDeprecation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableImageDeprecationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableImageDeregistrationProtection(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableImageDeregistrationProtectionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableInstanceSQLHaStandbyDetections(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableInstanceSqlHaStandbyDetectionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableIpamOrganizationAdminAccount(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableIpamOrganizationAdminAccountResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableIpamPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "EnableIpamPolicyResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubEnableReachabilityAnalyzerOrganizationSharing(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableReachabilityAnalyzerOrganizationSharingResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableRouteServerPropagation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableRouteServerPropagationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableSerialConsoleAccess(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableSerialConsoleAccessResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableSnapshotBlockPublicAccess(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableSnapshotBlockPublicAccessResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableTransitGatewayRouteTablePropagation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableTransitGatewayRouteTablePropagationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableVgwRoutePropagation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableVgwRoutePropagationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubEnableVolumeIO(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "EnableVolumeIOResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubEnableVpcClassicLink(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "EnableVpcClassicLinkResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubEnableVpcClassicLinkDNSSupport(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableVpcClassicLinkDnsSupportResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubExportClientVpnClientCertificateRevocationList(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ExportClientVpnClientCertificateRevocationListResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubExportClientVpnClientConfiguration(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ExportClientVpnClientConfigurationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubExportImage(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ExportImageResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubExportTransitGatewayRoutes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ExportTransitGatewayRoutesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubExportVerifiedAccessInstanceClientConfiguration(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ExportVerifiedAccessInstanceClientConfigurationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetActiveVpnTunnelStatus(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetActiveVpnTunnelStatusResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetAllowedImagesSettings(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetAllowedImagesSettingsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetAssociatedEnclaveCertificateIamRoles(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetAssociatedEnclaveCertificateIamRolesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetAwsNetworkPerformanceData(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetAwsNetworkPerformanceDataResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetCapacityManagerAttributes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetCapacityManagerAttributesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetCapacityManagerMetricData(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetCapacityManagerMetricDataResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetCapacityManagerMetricDimensions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetCapacityManagerMetricDimensionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetCapacityReservationUsage(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetCapacityReservationUsageResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetCoipPoolUsage(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetCoipPoolUsageResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetConsoleOutput(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetConsoleOutputResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetConsoleScreenshot(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetConsoleScreenshotResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetDeclarativePoliciesReportSummary(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetDeclarativePoliciesReportSummaryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetDefaultCreditSpecification(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetDefaultCreditSpecificationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetEbsDefaultKmsKeyID(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetEbsDefaultKmsKeyIdResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetEbsEncryptionByDefault(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetEbsEncryptionByDefaultResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetEnabledIpamPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetEnabledIpamPolicyResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetFlowLogsIntegrationTemplate(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetFlowLogsIntegrationTemplateResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetGroupsForCapacityReservation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetGroupsForCapacityReservationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetHostReservationPurchasePreview(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetHostReservationPurchasePreviewResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetImageAncestry(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetImageAncestryResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetImageBlockPublicAccessState(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetImageBlockPublicAccessStateResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetInstanceMetadataDefaults(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetInstanceMetadataDefaultsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetInstanceTpmEkPub(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetInstanceTpmEkPubResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetInstanceTypesFromInstanceRequirements(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetInstanceTypesFromInstanceRequirementsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetInstanceUefiData(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetInstanceUefiDataResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetIpamAddressHistory(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetIpamAddressHistoryResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetIpamDiscoveredAccounts(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamDiscoveredAccountsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetIpamDiscoveredPublicAddresses(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamDiscoveredPublicAddressesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetIpamDiscoveredResourceCidrs(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamDiscoveredResourceCidrsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetIpamPolicyAllocationRules(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamPolicyAllocationRulesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetIpamPolicyOrganizationTargets(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamPolicyOrganizationTargetsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetIpamPoolAllocations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamPoolAllocationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetIpamPoolCidrs(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetIpamPoolCidrsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetIpamPrefixListResolverRules(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamPrefixListResolverRulesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetIpamPrefixListResolverVersionEntries(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamPrefixListResolverVersionEntriesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetIpamPrefixListResolverVersions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetIpamPrefixListResolverVersionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetIpamResourceCidrs(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetIpamResourceCidrsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetLaunchTemplateData(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetLaunchTemplateDataResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetManagedPrefixListAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetManagedPrefixListAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetManagedPrefixListEntries(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetManagedPrefixListEntriesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetNetworkInsightsAccessScopeAnalysisFindings(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetNetworkInsightsAccessScopeAnalysisFindingsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetNetworkInsightsAccessScopeContent(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetNetworkInsightsAccessScopeContentResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetPasswordData(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "GetPasswordDataResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubGetReservedInstancesExchangeQuote(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetReservedInstancesExchangeQuoteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetRouteServerAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetRouteServerAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetRouteServerPropagations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetRouteServerPropagationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetRouteServerRoutingDatabase(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetRouteServerRoutingDatabaseResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetSecurityGroupsForVpc(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetSecurityGroupsForVpcResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetSerialConsoleAccessStatus(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetSerialConsoleAccessStatusResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetSnapshotBlockPublicAccessState(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetSnapshotBlockPublicAccessStateResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetSpotPlacementScores(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetSpotPlacementScoresResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetSubnetCidrReservations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetSubnetCidrReservationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetTransitGatewayAttachmentPropagations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetTransitGatewayAttachmentPropagationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetTransitGatewayMeteringPolicyEntries(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetTransitGatewayMeteringPolicyEntriesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetTransitGatewayMulticastDomainAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetTransitGatewayMulticastDomainAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetTransitGatewayPolicyTableAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetTransitGatewayPolicyTableAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetTransitGatewayPolicyTableEntries(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetTransitGatewayPolicyTableEntriesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetTransitGatewayPrefixListReferences(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetTransitGatewayPrefixListReferencesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetTransitGatewayRouteTableAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetTransitGatewayRouteTableAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetTransitGatewayRouteTablePropagations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetTransitGatewayRouteTablePropagationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetVerifiedAccessEndpointPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetVerifiedAccessEndpointPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetVerifiedAccessEndpointTargets(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetVerifiedAccessEndpointTargetsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetVerifiedAccessGroupPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetVerifiedAccessGroupPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetVpcResourcesBlockingEncryptionEnforcement(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetVpcResourcesBlockingEncryptionEnforcementResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetVpnConnectionDeviceSampleConfiguration(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetVpnConnectionDeviceSampleConfigurationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetVpnConnectionDeviceTypes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetVpnConnectionDeviceTypesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetVpnTunnelReplacementStatus(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetVpnTunnelReplacementStatusResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubImportClientVpnClientCertificateRevocationList(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ImportClientVpnClientCertificateRevocationListResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubImportImage(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ImportImageResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubImportInstance(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ImportInstanceResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubImportSnapshot(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ImportSnapshotResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubImportVolume(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ImportVolumeResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubListImagesInRecycleBin(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ListImagesInRecycleBinResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubListSnapshotsInRecycleBin(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ListSnapshotsInRecycleBinResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubListVolumesInRecycleBin(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ListVolumesInRecycleBinResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubLockSnapshot(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "LockSnapshotResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyAddressAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyAddressAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyAvailabilityZoneGroup(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyAvailabilityZoneGroupResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyCapacityReservation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyCapacityReservationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyCapacityReservationFleet(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyCapacityReservationFleetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyClientVpnEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyClientVpnEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyDefaultCreditSpecification(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyDefaultCreditSpecificationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyEbsDefaultKmsKeyID(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyEbsDefaultKmsKeyIdResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyFleet(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyFleetResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyFpgaImageAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyHosts(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyHostsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyIDFormat(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyIdFormatResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyIdentityIDFormat(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyIdentityIdFormatResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyImageAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyImageAttributeResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyInstanceCapacityReservationAttributes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstanceCapacityReservationAttributesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyInstanceConnectEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstanceConnectEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyInstanceCPUOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstanceCpuOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyInstanceCreditSpecification(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstanceCreditSpecificationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyInstanceEventStartTime(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstanceEventStartTimeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyInstanceEventWindow(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstanceEventWindowResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyInstanceMaintenanceOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstanceMaintenanceOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyInstanceMetadataDefaults(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstanceMetadataDefaultsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyInstanceMetadataOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstanceMetadataOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyInstanceNetworkPerformanceOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstanceNetworkPerformanceOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyInstancePlacement(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyInstancePlacementResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyIpam(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyIpamResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyIpamPolicyAllocationRules(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyIpamPolicyAllocationRulesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyIpamPool(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyIpamPoolResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyIpamPrefixListResolver(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyIpamPrefixListResolverResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyIpamPrefixListResolverTarget(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyIpamPrefixListResolverTargetResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyIpamResourceCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyIpamResourceCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyIpamResourceDiscovery(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyIpamResourceDiscoveryResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyIpamScope(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyIpamScopeResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyLaunchTemplate(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyLaunchTemplateResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyLocalGatewayRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyLocalGatewayRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyManagedPrefixList(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyManagedPrefixListResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyPrivateDNSNameOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyPrivateDnsNameOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyPublicIPDNSNameOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyPublicIpDnsNameOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyReservedInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyReservedInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyRouteServer(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyRouteServerResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifySnapshotTier(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifySnapshotTierResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifySpotFleetRequest(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifySpotFleetRequestResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyTrafficMirrorFilterNetworkServices(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyTrafficMirrorFilterNetworkServicesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyTrafficMirrorFilterRule(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyTrafficMirrorFilterRuleResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyTrafficMirrorSession(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyTrafficMirrorSessionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyTransitGateway(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyTransitGatewayResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyTransitGatewayMeteringPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyTransitGatewayMeteringPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyTransitGatewayPrefixListReference(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyTransitGatewayPrefixListReferenceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyTransitGatewayVpcAttachment(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyTransitGatewayVpcAttachmentResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVerifiedAccessEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVerifiedAccessEndpointResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVerifiedAccessEndpointPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVerifiedAccessEndpointPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVerifiedAccessGroup(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVerifiedAccessGroupResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVerifiedAccessGroupPolicy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVerifiedAccessGroupPolicyResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVerifiedAccessInstance(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVerifiedAccessInstanceResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVerifiedAccessInstanceLoggingConfiguration(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVerifiedAccessInstanceLoggingConfigurationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVerifiedAccessTrustProvider(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVerifiedAccessTrustProviderResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVolume(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyVolumeResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyVpcBlockPublicAccessExclusion(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpcBlockPublicAccessExclusionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVpcBlockPublicAccessOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpcBlockPublicAccessOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVpcEncryptionControl(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpcEncryptionControlResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVpcEndpoint(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyVpcEndpointResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyVpcEndpointConnectionNotification(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpcEndpointConnectionNotificationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVpcEndpointServiceConfiguration(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpcEndpointServiceConfigurationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVpcEndpointServicePayerResponsibility(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpcEndpointServicePayerResponsibilityResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVpcEndpointServicePermissions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpcEndpointServicePermissionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVpcPeeringConnectionOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpcPeeringConnectionOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVpcTenancy(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyVpcTenancyResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyVpnConnection(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ModifyVpnConnectionResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubModifyVpnConnectionOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpnConnectionOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVpnTunnelCertificate(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpnTunnelCertificateResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubModifyVpnTunnelOptions(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ModifyVpnTunnelOptionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubMonitorInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "MonitorInstancesResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubMoveAddressToVpc(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "MoveAddressToVpcResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubMoveByoipCidrToIpam(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "MoveByoipCidrToIpamResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubMoveCapacityReservationInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "MoveCapacityReservationInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubProvisionByoipCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ProvisionByoipCidrResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubProvisionIpamByoasn(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ProvisionIpamByoasnResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubProvisionIpamPoolCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ProvisionIpamPoolCidrResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubPurchaseCapacityBlock(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "PurchaseCapacityBlockResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubPurchaseCapacityBlockExtension(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "PurchaseCapacityBlockExtensionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubPurchaseHostReservation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "PurchaseHostReservationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubPurchaseReservedInstancesOffering(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "PurchaseReservedInstancesOfferingResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubPurchaseScheduledInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "PurchaseScheduledInstancesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRegisterImage(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "RegisterImageResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubRegisterInstanceEventNotificationAttributes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RegisterInstanceEventNotificationAttributesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRegisterTransitGatewayMulticastGroupMembers(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RegisterTransitGatewayMulticastGroupMembersResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRegisterTransitGatewayMulticastGroupSources(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RegisterTransitGatewayMulticastGroupSourcesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRejectCapacityReservationBillingOwnership(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RejectCapacityReservationBillingOwnershipResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRejectTransitGatewayMulticastDomainAssociations(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RejectTransitGatewayMulticastDomainAssociationsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRejectTransitGatewayPeeringAttachment(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RejectTransitGatewayPeeringAttachmentResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRejectTransitGatewayVpcAttachment(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RejectTransitGatewayVpcAttachmentResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRejectVpcEndpointConnections(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RejectVpcEndpointConnectionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRejectVpcPeeringConnection(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RejectVpcPeeringConnectionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubReleaseHosts(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ReleaseHostsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubReleaseIpamPoolAllocation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ReleaseIpamPoolAllocationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubReplaceIamInstanceProfileAssociation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ReplaceIamInstanceProfileAssociationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubReplaceImageCriteriaInAllowedImagesSettings(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ReplaceImageCriteriaInAllowedImagesSettingsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubReplaceRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ReplaceRouteResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubReplaceRouteTableAssociation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ReplaceRouteTableAssociationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubReplaceTransitGatewayRoute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ReplaceTransitGatewayRouteResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubReplaceVpnTunnel(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ReplaceVpnTunnelResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubReportInstanceStatus(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ReportInstanceStatusResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubRequestSpotFleet(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "RequestSpotFleetResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubResetAddressAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ResetAddressAttributeResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubResetEbsDefaultKmsKeyID(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ResetEbsDefaultKmsKeyIdResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubResetFpgaImageAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ResetFpgaImageAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubResetImageAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "ResetImageAttributeResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubResetNetworkInterfaceAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ResetNetworkInterfaceAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubResetSnapshotAttribute(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ResetSnapshotAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRestoreAddressToClassic(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RestoreAddressToClassicResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRestoreImageFromRecycleBin(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RestoreImageFromRecycleBinResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRestoreManagedPrefixListVersion(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RestoreManagedPrefixListVersionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRestoreSnapshotFromRecycleBin(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RestoreSnapshotFromRecycleBinResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRestoreSnapshotTier(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "RestoreSnapshotTierResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubRestoreVolumeFromRecycleBin(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RestoreVolumeFromRecycleBinResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRevokeClientVpnIngress(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RevokeClientVpnIngressResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubRunScheduledInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "RunScheduledInstancesResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubSearchLocalGatewayRoutes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "SearchLocalGatewayRoutesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubSearchTransitGatewayMulticastGroups(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "SearchTransitGatewayMulticastGroupsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubSearchTransitGatewayRoutes(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "SearchTransitGatewayRoutesResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubSendDiagnosticInterrupt(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "SendDiagnosticInterruptResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubStartDeclarativePoliciesReport(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "StartDeclarativePoliciesReportResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubStartNetworkInsightsAccessScopeAnalysis(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "StartNetworkInsightsAccessScopeAnalysisResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubStartNetworkInsightsAnalysis(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "StartNetworkInsightsAnalysisResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubStartVpcEndpointServicePrivateDNSVerification(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "StartVpcEndpointServicePrivateDnsVerificationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubTerminateClientVpnConnections(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "TerminateClientVpnConnectionsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubUnassignPrivateNatGatewayAddress(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "UnassignPrivateNatGatewayAddressResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubUnlockSnapshot(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "UnlockSnapshotResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubUnmonitorInstances(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "UnmonitorInstancesResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubUpdateCapacityManagerOrganizationsAccess(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "UpdateCapacityManagerOrganizationsAccessResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubUpdateInterruptibleCapacityReservationAllocation(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "UpdateInterruptibleCapacityReservationAllocationResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubUpdateSecurityGroupRuleDescriptionsEgress(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "UpdateSecurityGroupRuleDescriptionsEgressResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubUpdateSecurityGroupRuleDescriptionsIngress(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "UpdateSecurityGroupRuleDescriptionsIngressResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubWithdrawByoipCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "WithdrawByoipCidrResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+// ---- Additional IPv4/IPv6 stub handlers (SDK naming uses Ipv4/Ipv6) ----
+
+func (h *Handler) handleStubAssignIpv6Addresses(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "AssignIpv6AddressesResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubCreatePublicIpv4Pool(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "CreatePublicIpv4PoolResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeletePublicIpv4Pool(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DeletePublicIpv4PoolResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDeprovisionPublicIpv4PoolCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeprovisionPublicIpv4PoolCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubDescribeIpv6Pools(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "DescribeIpv6PoolsResponse"}, RequestID: reqID, Return: true}, nil
+}
+
+func (h *Handler) handleStubDescribePublicIpv4Pools(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DescribePublicIpv4PoolsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubGetAssociatedIpv6PoolCidrs(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "GetAssociatedIpv6PoolCidrsResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubProvisionPublicIpv4PoolCidr(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ProvisionPublicIpv4PoolCidrResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleStubUnassignIpv6Addresses(_ url.Values, reqID string) (any, error) {
+	return &stubResponse{XMLName: xml.Name{Local: "UnassignIpv6AddressesResponse"}, RequestID: reqID, Return: true}, nil
+}
