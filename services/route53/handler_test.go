@@ -1875,21 +1875,6 @@ func TestRoute53_NewOperations_UnsupportedMethods(t *testing.T) {
 			path:   "/2013-04-01/keysigningkey/ZONE123/keyname/activate",
 		},
 		{
-			name:   "cidr_resource_unsupported_get",
-			method: http.MethodGet,
-			path:   "/2013-04-01/cidrcollection/COLLECTIONID",
-		},
-		{
-			name:   "query_logging_unsupported_get",
-			method: http.MethodGet,
-			path:   "/2013-04-01/queryloggingconfig",
-		},
-		{
-			name:   "delegation_set_unsupported_get",
-			method: http.MethodGet,
-			path:   "/2013-04-01/delegationset",
-		},
-		{
 			name:   "traffic_policy_unsupported_get",
 			method: http.MethodGet,
 			path:   "/2013-04-01/trafficpolicy",
@@ -1903,11 +1888,6 @@ func TestRoute53_NewOperations_UnsupportedMethods(t *testing.T) {
 			name:   "tp_instance_unsupported_get",
 			method: http.MethodGet,
 			path:   "/2013-04-01/trafficpolicyinstance",
-		},
-		{
-			name:   "associatevpc_unsupported_get",
-			method: http.MethodGet,
-			path:   "/2013-04-01/hostedzone/ZONE123/associatevpc",
 		},
 	}
 

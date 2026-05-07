@@ -431,6 +431,51 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetScheduledQueryHistory",
 		"UpdateAnomaly",
 		"ListLogGroups",
+		// Completeness pass — previously notImplemented
+		"DeleteDataProtectionPolicy",
+		"DeleteDeliveryDestination",
+		"DeleteDeliveryDestinationPolicy",
+		"DeleteDeliverySource",
+		"DeleteDestination",
+		"DeleteIndexPolicy",
+		"DeleteIntegration",
+		"DeleteResourcePolicy",
+		"DeleteTransformer",
+		"DescribeConfigurationTemplates",
+		"DescribeDeliveryDestinations",
+		"DescribeDeliverySources",
+		"DescribeDestinations",
+		"DescribeFieldIndexes",
+		"DescribeImportTaskBatches",
+		"DescribeIndexPolicies",
+		"DescribeResourcePolicies",
+		"DisassociateSourceFromS3TableIntegration",
+		"GetDataProtectionPolicy",
+		"GetDeliveryDestination",
+		"GetDeliveryDestinationPolicy",
+		"GetDeliverySource",
+		"GetIntegration",
+		"GetLogFields",
+		"GetLogObject",
+		"GetTransformer",
+		"ListAggregateLogGroupSummaries",
+		"ListIntegrations",
+		"ListSourcesForS3TableIntegration",
+		"PutBearerTokenAuthentication",
+		"PutDataProtectionPolicy",
+		"PutDeliveryDestination",
+		"PutDeliveryDestinationPolicy",
+		"PutDeliverySource",
+		"PutDestination",
+		"PutDestinationPolicy",
+		"PutIndexPolicy",
+		"PutIntegration",
+		"PutLogGroupDeletionProtection",
+		"PutResourcePolicy",
+		"PutTransformer",
+		"StartLiveTail",
+		"TestTransformer",
+		"UpdateDeliveryConfiguration",
 	}
 }
 
@@ -1848,6 +1893,7 @@ func (h *Handler) buildOps() map[string]actionFn {
 	maps.Copy(table, h.subscriptionFilterActions())
 	maps.Copy(table, h.insightsActions())
 	maps.Copy(table, h.newOperationsActions())
+	maps.Copy(table, h.completenessActions())
 
 	return table
 }

@@ -240,7 +240,7 @@ func (h *Handler) iamMiscDispatchTable() map[string]iamActionFn {
 			return &GetServiceLastAccessedDetailsResponse{
 				Xmlns: iamXMLNS,
 				GetServiceLastAccessedDetailsResult: GetServiceLastAccessedDetailsResult{
-					JobStatus:         "COMPLETED",
+					JobStatus:         jobStatusCompleted,
 					JobCreationDate:   now,
 					JobCompletionDate: now,
 					IsTruncated:       false,
