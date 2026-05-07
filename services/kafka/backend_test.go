@@ -62,7 +62,7 @@ func TestBackend_CreateCluster(t *testing.T) {
 
 			// Pre-create if testing duplicate
 			if tt.wantErr {
-				_, err := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				_, err := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 				require.NoError(t, err)
 			}
 
@@ -71,6 +71,7 @@ func TestBackend_CreateCluster(t *testing.T) {
 				"2.8.0",
 				3,
 				kafka.BrokerNodeGroupInfo{},
+				nil,
 				map[string]string{"env": "test"},
 			)
 
@@ -100,7 +101,7 @@ func TestBackend_DescribeCluster(t *testing.T) {
 		{
 			name: "existing_cluster",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, err := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, err := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 				if err != nil {
 					return ""
 				}
@@ -154,8 +155,8 @@ func TestBackend_ListClusters(t *testing.T) {
 		{
 			name: "multiple",
 			setup: func(b *kafka.InMemoryBackend) {
-				_, _ = b.CreateCluster("cluster-a", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
-				_, _ = b.CreateCluster("cluster-b", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				_, _ = b.CreateCluster("cluster-a", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				_, _ = b.CreateCluster("cluster-b", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 			},
 			wantCount: 2,
 		},
@@ -185,7 +186,7 @@ func TestBackend_DeleteCluster(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 
 				return c.ClusterArn
 			},
@@ -334,7 +335,7 @@ func TestBackend_TagOperations(t *testing.T) {
 		{
 			name: "tag_and_untag_cluster",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("tagged-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("tagged-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 
 				return c.ClusterArn
 			},
@@ -409,7 +410,7 @@ func TestBackend_BatchAssociateScramSecret(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 
 				return c.ClusterArn
 			},
@@ -458,7 +459,7 @@ func TestBackend_BatchDisassociateScramSecret(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 				_, _ = b.BatchAssociateScramSecret(
 					c.ClusterArn,
 					[]string{"arn:aws:secretsmanager:us-east-1:000000000000:secret/my-secret"},
@@ -608,7 +609,7 @@ func TestBackend_CreateTopic(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 
 				return c.ClusterArn
 			},
@@ -617,7 +618,7 @@ func TestBackend_CreateTopic(t *testing.T) {
 		{
 			name: "duplicate_topic",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 				_, _ = b.CreateTopic(c.ClusterArn, "my-topic", 1, 3, nil)
 
 				return c.ClusterArn
@@ -668,7 +669,7 @@ func TestBackend_DeleteTopic(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) (string, string) {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 				_, _ = b.CreateTopic(c.ClusterArn, "my-topic", 1, 3, nil)
 
 				return c.ClusterArn, "my-topic"
@@ -677,7 +678,7 @@ func TestBackend_DeleteTopic(t *testing.T) {
 		{
 			name: "topic_not_found",
 			setup: func(b *kafka.InMemoryBackend) (string, string) {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 
 				return c.ClusterArn, "nonexistent-topic"
 			},
@@ -723,7 +724,7 @@ func TestBackend_CreateVpcConnection(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 
 				return c.ClusterArn
 			},
@@ -771,7 +772,7 @@ func TestBackend_DeleteVpcConnection(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 				conn, _ := b.CreateVpcConnection(c.ClusterArn, "vpc-12345", "SASL_IAM", nil)
 
 				return conn.VpcConnectionArn
@@ -817,7 +818,7 @@ func TestBackend_DeleteClusterPolicy(t *testing.T) {
 		{
 			name: "success_no_policy",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 
 				return c.ClusterArn
 			},
@@ -862,7 +863,7 @@ func TestBackend_DescribeClusterOperation(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil)
+				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
 				op := b.AddClusterOperationInternal(c.ClusterArn, "UPDATE_BROKER_COUNT")
 
 				return op.ClusterOperationArn

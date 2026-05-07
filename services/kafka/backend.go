@@ -77,16 +77,44 @@ type ConfigurationInfo struct {
 	Revision int64  `json:"revision"`
 }
 
+// ClientAuthentication holds MSK cluster authentication configuration.
+type ClientAuthentication struct {
+	Sasl *SaslSettings `json:"sasl,omitempty"`
+	TLS  *TLSSettings  `json:"tls,omitempty"`
+}
+
+// SaslSettings holds SASL authentication settings.
+type SaslSettings struct {
+	Scram *SaslScram `json:"scram,omitempty"`
+	Iam   *SaslIam   `json:"iam,omitempty"`
+}
+
+// SaslScram holds SASL/SCRAM settings.
+type SaslScram struct {
+	Enabled bool `json:"enabled"`
+}
+
+// SaslIam holds SASL/IAM settings.
+type SaslIam struct {
+	Enabled bool `json:"enabled"`
+}
+
+// TLSSettings holds TLS authentication settings.
+type TLSSettings struct {
+	Enabled bool `json:"enabled"`
+}
+
 // Cluster represents an MSK cluster.
 type Cluster struct {
-	Tags                map[string]string   `json:"-"`
-	ClusterArn          string              `json:"clusterArn"`
-	ClusterName         string              `json:"clusterName"`
-	KafkaVersion        string              `json:"kafkaVersion"`
-	State               string              `json:"state"`
-	CurrentVersion      string              `json:"currentVersion"`
-	BrokerNodeGroupInfo BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
-	NumberOfBrokerNodes int32               `json:"numberOfBrokerNodes"`
+	Tags                 map[string]string     `json:"-"`
+	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
+	ClusterArn           string                `json:"clusterArn"`
+	ClusterName          string                `json:"clusterName"`
+	KafkaVersion         string                `json:"kafkaVersion"`
+	State                string                `json:"state"`
+	CurrentVersion       string                `json:"currentVersion"`
+	BrokerNodeGroupInfo  BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
+	NumberOfBrokerNodes  int32                 `json:"numberOfBrokerNodes"`
 }
 
 // Configuration represents an MSK configuration.
@@ -214,6 +242,7 @@ func (b *InMemoryBackend) CreateCluster(
 	name, kafkaVersion string,
 	numBrokers int32,
 	brokerInfo BrokerNodeGroupInfo,
+	clientAuth *ClientAuthentication,
 	tags map[string]string,
 ) (*Cluster, error) {
 	if name == "" {
@@ -231,14 +260,15 @@ func (b *InMemoryBackend) CreateCluster(
 
 	clusterArn := b.clusterARN(name)
 	cluster := &Cluster{
-		ClusterArn:          clusterArn,
-		ClusterName:         name,
-		KafkaVersion:        kafkaVersion,
-		NumberOfBrokerNodes: numBrokers,
-		BrokerNodeGroupInfo: brokerInfo,
-		State:               ClusterStateActive,
-		CurrentVersion:      "K3AEGXETSR30VB",
-		Tags:                nonNilTagsCopy(tags),
+		ClusterArn:           clusterArn,
+		ClusterName:          name,
+		KafkaVersion:         kafkaVersion,
+		NumberOfBrokerNodes:  numBrokers,
+		BrokerNodeGroupInfo:  brokerInfo,
+		ClientAuthentication: clientAuth,
+		State:                ClusterStateActive,
+		CurrentVersion:       "K3AEGXETSR30VB",
+		Tags:                 nonNilTagsCopy(tags),
 	}
 	b.clusters[clusterArn] = cluster
 
@@ -1560,7 +1590,50 @@ func cloneCluster(c *Cluster) *Cluster {
 		}
 	}
 
+	clone.ClientAuthentication = cloneClientAuth(c.ClientAuthentication)
+
 	return clone
+}
+
+// cloneClientAuth deep-copies a ClientAuthentication value.
+func cloneClientAuth(auth *ClientAuthentication) *ClientAuthentication {
+	if auth == nil {
+		return nil
+	}
+
+	authCopy := *auth
+
+	if auth.Sasl != nil {
+		authCopy.Sasl = cloneSasl(auth.Sasl)
+	}
+
+	if auth.TLS != nil {
+		tlsCopy := *auth.TLS
+		authCopy.TLS = &tlsCopy
+	}
+
+	return &authCopy
+}
+
+// cloneSasl deep-copies a SaslSettings value.
+func cloneSasl(s *SaslSettings) *SaslSettings {
+	if s == nil {
+		return nil
+	}
+
+	c := *s
+
+	if s.Scram != nil {
+		scramCopy := *s.Scram
+		c.Scram = &scramCopy
+	}
+
+	if s.Iam != nil {
+		iamCopy := *s.Iam
+		c.Iam = &iamCopy
+	}
+
+	return &c
 }
 
 // cloneConfiguration creates a deep copy of a Configuration.

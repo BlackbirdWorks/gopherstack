@@ -947,11 +947,12 @@ func (h *Handler) dispatchUpdateOps(
 // ----------------------------------------
 
 type createClusterInput struct {
-	Tags                map[string]string   `json:"tags,omitempty"`
-	ClusterName         string              `json:"clusterName"`
-	KafkaVersion        string              `json:"kafkaVersion"`
-	BrokerNodeGroupInfo BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
-	NumberOfBrokerNodes int32               `json:"numberOfBrokerNodes"`
+	Tags                 map[string]string     `json:"tags,omitempty"`
+	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
+	ClusterName          string                `json:"clusterName"`
+	KafkaVersion         string                `json:"kafkaVersion"`
+	BrokerNodeGroupInfo  BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
+	NumberOfBrokerNodes  int32                 `json:"numberOfBrokerNodes"`
 }
 
 type createClusterOutput struct {
@@ -967,15 +968,16 @@ type brokerSoftwareInfo struct {
 
 // clusterInfoV1 is the V1 cluster response shape (DescribeCluster / ListClusters).
 type clusterInfoV1 struct {
-	Tags                      map[string]string   `json:"tags,omitempty"`
-	CurrentBrokerSoftwareInfo *brokerSoftwareInfo `json:"currentBrokerSoftwareInfo,omitempty"`
-	ClusterArn                string              `json:"clusterArn"`
-	ClusterName               string              `json:"clusterName"`
-	KafkaVersion              string              `json:"kafkaVersion"`
-	State                     string              `json:"state"`
-	CurrentVersion            string              `json:"currentVersion"`
-	BrokerNodeGroupInfo       BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
-	NumberOfBrokerNodes       int32               `json:"numberOfBrokerNodes"`
+	Tags                      map[string]string     `json:"tags,omitempty"`
+	CurrentBrokerSoftwareInfo *brokerSoftwareInfo   `json:"currentBrokerSoftwareInfo,omitempty"`
+	ClientAuthentication      *ClientAuthentication `json:"clientAuthentication,omitempty"`
+	ClusterArn                string                `json:"clusterArn"`
+	ClusterName               string                `json:"clusterName"`
+	KafkaVersion              string                `json:"kafkaVersion"`
+	State                     string                `json:"state"`
+	CurrentVersion            string                `json:"currentVersion"`
+	BrokerNodeGroupInfo       BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
+	NumberOfBrokerNodes       int32                 `json:"numberOfBrokerNodes"`
 }
 
 type describeClusterOutput struct {
@@ -987,11 +989,12 @@ type listClustersOutput struct {
 }
 
 type provisionedClusterInfo struct {
-	CurrentBrokerSoftwareInfo *brokerSoftwareInfo `json:"currentBrokerSoftwareInfo,omitempty"`
-	KafkaVersion              string              `json:"kafkaVersion"`
-	State                     string              `json:"state"`
-	BrokerNodeGroupInfo       BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
-	NumberOfBrokerNodes       int32               `json:"numberOfBrokerNodes"`
+	CurrentBrokerSoftwareInfo *brokerSoftwareInfo   `json:"currentBrokerSoftwareInfo,omitempty"`
+	ClientAuthentication      *ClientAuthentication `json:"clientAuthentication,omitempty"`
+	KafkaVersion              string                `json:"kafkaVersion"`
+	State                     string                `json:"state"`
+	BrokerNodeGroupInfo       BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
+	NumberOfBrokerNodes       int32                 `json:"numberOfBrokerNodes"`
 }
 
 type clusterInfoV2 struct {
@@ -1024,9 +1027,10 @@ type createClusterV2Input struct {
 }
 
 type provisionedInput struct {
-	KafkaVersion        string              `json:"kafkaVersion"`
-	BrokerNodeGroupInfo BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
-	NumberOfBrokerNodes int32               `json:"numberOfBrokerNodes"`
+	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
+	KafkaVersion         string                `json:"kafkaVersion"`
+	BrokerNodeGroupInfo  BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
+	NumberOfBrokerNodes  int32                 `json:"numberOfBrokerNodes"`
 }
 
 type createClusterV2Output struct {
@@ -1084,6 +1088,7 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		in.KafkaVersion,
 		in.NumberOfBrokerNodes,
 		in.BrokerNodeGroupInfo,
+		in.ClientAuthentication,
 		in.Tags,
 	)
 	if err != nil {
@@ -1120,11 +1125,17 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 		numBrokers = in.Provisioned.NumberOfBrokerNodes
 	}
 
+	var clientAuth *ClientAuthentication
+	if in.Provisioned != nil {
+		clientAuth = in.Provisioned.ClientAuthentication
+	}
+
 	cluster, err := h.Backend.CreateCluster(
 		in.ClusterName,
 		kafkaVersion,
 		numBrokers,
 		brokerInfo,
+		clientAuth,
 		in.Tags,
 	)
 	if err != nil {
@@ -1217,6 +1228,7 @@ func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
 		CurrentVersion:            cl.CurrentVersion,
 		BrokerNodeGroupInfo:       cl.BrokerNodeGroupInfo,
 		NumberOfBrokerNodes:       cl.NumberOfBrokerNodes,
+		ClientAuthentication:      cl.ClientAuthentication,
 		Tags:                      maps.Clone(cl.Tags),
 		CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
 	}
@@ -1236,6 +1248,7 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 			KafkaVersion:              cl.KafkaVersion,
 			NumberOfBrokerNodes:       cl.NumberOfBrokerNodes,
 			State:                     cl.State,
+			ClientAuthentication:      cl.ClientAuthentication,
 			CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
 		},
 	}

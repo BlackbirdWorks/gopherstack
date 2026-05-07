@@ -8,6 +8,7 @@ type StorageBackend interface {
 		name, kafkaVersion string,
 		numBrokers int32,
 		brokerInfo BrokerNodeGroupInfo,
+		clientAuth *ClientAuthentication,
 		tags map[string]string,
 	) (*Cluster, error)
 	DescribeCluster(clusterArn string) (*Cluster, error)
