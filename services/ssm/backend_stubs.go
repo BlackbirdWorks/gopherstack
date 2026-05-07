@@ -4,6 +4,8 @@ import (
 	"maps"
 	"strconv"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // backend_stubs.go provides stub implementations for the 123 SSM operations
@@ -20,10 +22,16 @@ type StubOutput struct{}
 type CreateResourceDataSyncInput struct{}
 
 // DeleteActivationInput is the request for DeleteActivation.
-type DeleteActivationInput struct{}
+type DeleteActivationInput struct {
+	ActivationID string `json:"ActivationId"`
+}
 
 // DeleteAssociationInput is the request for DeleteAssociation.
-type DeleteAssociationInput struct{}
+type DeleteAssociationInput struct {
+	AssociationID string `json:"AssociationId,omitempty"`
+	Name          string `json:"Name,omitempty"`
+	InstanceID    string `json:"InstanceId,omitempty"`
+}
 
 // DeleteInventoryInput is the request for DeleteInventory.
 type DeleteInventoryInput struct{}
@@ -58,13 +66,22 @@ type DeleteResourcePolicyInput struct{}
 type DeregisterManagedInstanceInput struct{}
 
 // DeregisterPatchBaselineForPatchGroupInput is the request for DeregisterPatchBaselineForPatchGroup.
-type DeregisterPatchBaselineForPatchGroupInput struct{}
+type DeregisterPatchBaselineForPatchGroupInput struct {
+	BaselineID string `json:"BaselineId"`
+	PatchGroup string `json:"PatchGroup"`
+}
 
 // DeregisterTargetFromMaintenanceWindowInput is the request for DeregisterTargetFromMaintenanceWindow.
-type DeregisterTargetFromMaintenanceWindowInput struct{}
+type DeregisterTargetFromMaintenanceWindowInput struct {
+	WindowID       string `json:"WindowId"`
+	WindowTargetID string `json:"WindowTargetId"`
+}
 
 // DeregisterTaskFromMaintenanceWindowInput is the request for DeregisterTaskFromMaintenanceWindow.
-type DeregisterTaskFromMaintenanceWindowInput struct{}
+type DeregisterTaskFromMaintenanceWindowInput struct {
+	WindowID     string `json:"WindowId"`
+	WindowTaskID string `json:"WindowTaskId"`
+}
 
 // DescribeActivationsInput is the request for DescribeActivations.
 type DescribeActivationsInput struct{}
@@ -75,10 +92,16 @@ type DescribeActivationsOutput struct {
 }
 
 // DescribeAssociationInput is the request for DescribeAssociation.
-type DescribeAssociationInput struct{}
+type DescribeAssociationInput struct {
+	AssociationID string `json:"AssociationId,omitempty"`
+	Name          string `json:"Name,omitempty"`
+	InstanceID    string `json:"InstanceId,omitempty"`
+}
 
 // DescribeAssociationOutput is the response for DescribeAssociation.
-type DescribeAssociationOutput struct{}
+type DescribeAssociationOutput struct {
+	AssociationDescription Association `json:"AssociationDescription"`
+}
 
 // DescribeAssociationExecutionTargetsInput is the request for DescribeAssociationExecutionTargets.
 type DescribeAssociationExecutionTargetsInput struct{}
@@ -189,16 +212,24 @@ type DescribeMaintenanceWindowScheduleInput struct{}
 type DescribeMaintenanceWindowScheduleOutput struct{}
 
 // DescribeMaintenanceWindowTargetsInput is the request payload.
-type DescribeMaintenanceWindowTargetsInput struct{}
+type DescribeMaintenanceWindowTargetsInput struct {
+	WindowID string `json:"WindowId"`
+}
 
 // DescribeMaintenanceWindowTargetsOutput is the response payload.
-type DescribeMaintenanceWindowTargetsOutput struct{}
+type DescribeMaintenanceWindowTargetsOutput struct {
+	Targets []MaintenanceWindowTarget `json:"Targets"`
+}
 
 // DescribeMaintenanceWindowTasksInput is the request payload.
-type DescribeMaintenanceWindowTasksInput struct{}
+type DescribeMaintenanceWindowTasksInput struct {
+	WindowID string `json:"WindowId"`
+}
 
 // DescribeMaintenanceWindowTasksOutput is the response payload.
-type DescribeMaintenanceWindowTasksOutput struct{}
+type DescribeMaintenanceWindowTasksOutput struct {
+	Tasks []MaintenanceWindowTask `json:"Tasks"`
+}
 
 // DescribeMaintenanceWindowsInput is the request payload for DescribeMaintenanceWindows.
 type DescribeMaintenanceWindowsInput struct {
@@ -544,22 +575,52 @@ type RegisterDefaultPatchBaselineInput struct{}
 type RegisterDefaultPatchBaselineOutput struct{}
 
 // RegisterPatchBaselineForPatchGroupInput is the request payload.
-type RegisterPatchBaselineForPatchGroupInput struct{}
+type RegisterPatchBaselineForPatchGroupInput struct {
+	BaselineID string `json:"BaselineId"`
+	PatchGroup string `json:"PatchGroup"`
+}
 
 // RegisterPatchBaselineForPatchGroupOutput is the response payload.
-type RegisterPatchBaselineForPatchGroupOutput struct{}
+type RegisterPatchBaselineForPatchGroupOutput struct {
+	BaselineID string `json:"BaselineId"`
+	PatchGroup string `json:"PatchGroup"`
+}
+
+// WindowTarget is a target specification for maintenance window tasks.
+type WindowTarget struct {
+	Key    string   `json:"Key"`
+	Values []string `json:"Values"`
+}
 
 // RegisterTargetWithMaintenanceWindowInput is the request payload.
-type RegisterTargetWithMaintenanceWindowInput struct{}
+type RegisterTargetWithMaintenanceWindowInput struct {
+	WindowID     string         `json:"WindowId"`
+	ResourceType string         `json:"ResourceType"`
+	OwnerInfo    string         `json:"OwnerInfo,omitempty"`
+	Name         string         `json:"Name,omitempty"`
+	Description  string         `json:"Description,omitempty"`
+	Targets      []WindowTarget `json:"Targets"`
+}
 
 // RegisterTargetWithMaintenanceWindowOutput is the response payload.
-type RegisterTargetWithMaintenanceWindowOutput struct{}
+type RegisterTargetWithMaintenanceWindowOutput struct {
+	WindowTargetID string `json:"WindowTargetId"`
+}
 
 // RegisterTaskWithMaintenanceWindowInput is the request payload.
-type RegisterTaskWithMaintenanceWindowInput struct{}
+type RegisterTaskWithMaintenanceWindowInput struct {
+	WindowID    string `json:"WindowId"`
+	TaskArn     string `json:"TaskArn"`
+	TaskType    string `json:"TaskType"`
+	Name        string `json:"Name,omitempty"`
+	Description string `json:"Description,omitempty"`
+	Priority    int32  `json:"Priority,omitempty"`
+}
 
 // RegisterTaskWithMaintenanceWindowOutput is the response payload.
-type RegisterTaskWithMaintenanceWindowOutput struct{}
+type RegisterTaskWithMaintenanceWindowOutput struct {
+	WindowTaskID string `json:"WindowTaskId"`
+}
 
 // ResetServiceSettingInput is the request payload.
 type ResetServiceSettingInput struct{}
@@ -604,19 +665,31 @@ type StartExecutionPreviewInput struct{}
 type StartExecutionPreviewOutput struct{}
 
 // StartSessionInput is the request payload.
-type StartSessionInput struct{}
+type StartSessionInput struct {
+	Target       string `json:"Target"`
+	DocumentName string `json:"DocumentName,omitempty"`
+	Reason       string `json:"Reason,omitempty"`
+}
 
 // StartSessionOutput is the response payload.
-type StartSessionOutput struct{}
+type StartSessionOutput struct {
+	SessionID  string `json:"SessionId"`
+	StreamURL  string `json:"StreamUrl"`
+	TokenValue string `json:"TokenValue"`
+}
 
 // StopAutomationExecutionInput is the request payload.
 type StopAutomationExecutionInput struct{}
 
 // TerminateSessionInput is the request payload.
-type TerminateSessionInput struct{}
+type TerminateSessionInput struct {
+	SessionID string `json:"SessionId"`
+}
 
 // TerminateSessionOutput is the response payload.
-type TerminateSessionOutput struct{}
+type TerminateSessionOutput struct {
+	SessionID string `json:"SessionId"`
+}
 
 // UnlabelParameterVersionInput is the request payload.
 type UnlabelParameterVersionInput struct{}
@@ -625,10 +698,18 @@ type UnlabelParameterVersionInput struct{}
 type UnlabelParameterVersionOutput struct{}
 
 // UpdateAssociationInput is the request payload.
-type UpdateAssociationInput struct{}
+type UpdateAssociationInput struct {
+	AssociationID   string              `json:"AssociationId"`
+	AssociationName string              `json:"AssociationName,omitempty"`
+	DocumentVersion string              `json:"DocumentVersion,omitempty"`
+	Parameters      map[string][]string `json:"Parameters,omitempty"`
+	Targets         []AssociationTarget `json:"Targets,omitempty"`
+}
 
 // UpdateAssociationOutput is the response payload.
-type UpdateAssociationOutput struct{}
+type UpdateAssociationOutput struct {
+	AssociationDescription Association `json:"AssociationDescription"`
+}
 
 // UpdateAssociationStatusInput is the request payload.
 type UpdateAssociationStatusInput struct{}
@@ -722,13 +803,32 @@ func (b *InMemoryBackend) CreateResourceDataSync(_ *CreateResourceDataSyncInput)
 	return &StubOutput{}, nil
 }
 
-// DeleteActivation is a stub implementation.
-func (b *InMemoryBackend) DeleteActivation(_ *DeleteActivationInput) (*StubOutput, error) {
+// DeleteActivation removes a stored activation by ID.
+func (b *InMemoryBackend) DeleteActivation(input *DeleteActivationInput) (*StubOutput, error) {
+	b.mu.Lock("DeleteActivation")
+	defer b.mu.Unlock()
+
+	if _, exists := b.activations[input.ActivationID]; !exists {
+		return nil, ErrActivationNotFound
+	}
+
+	delete(b.activations, input.ActivationID)
+	delete(b.miscResourceTags, input.ActivationID)
+
 	return &StubOutput{}, nil
 }
 
-// DeleteAssociation is a stub implementation.
-func (b *InMemoryBackend) DeleteAssociation(_ *DeleteAssociationInput) (*StubOutput, error) {
+// DeleteAssociation removes a stored association by ID.
+func (b *InMemoryBackend) DeleteAssociation(input *DeleteAssociationInput) (*StubOutput, error) {
+	b.mu.Lock("DeleteAssociation")
+	defer b.mu.Unlock()
+
+	if _, exists := b.associations[input.AssociationID]; !exists {
+		return nil, ErrAssociationNotFound
+	}
+
+	delete(b.associations, input.AssociationID)
+
 	return &StubOutput{}, nil
 }
 
@@ -811,24 +911,47 @@ func (b *InMemoryBackend) DeregisterManagedInstance(_ *DeregisterManagedInstance
 	return &StubOutput{}, nil
 }
 
-// DeregisterPatchBaselineForPatchGroup is a stub implementation.
+// DeregisterPatchBaselineForPatchGroup removes a patch group association.
 func (b *InMemoryBackend) DeregisterPatchBaselineForPatchGroup(
-	_ *DeregisterPatchBaselineForPatchGroupInput,
+	input *DeregisterPatchBaselineForPatchGroupInput,
 ) (*StubOutput, error) {
+	b.mu.Lock("DeregisterPatchBaselineForPatchGroup")
+	defer b.mu.Unlock()
+
+	delete(b.patchGroupToBaseline, input.PatchGroup)
+
 	return &StubOutput{}, nil
 }
 
-// DeregisterTargetFromMaintenanceWindow is a stub implementation.
+// DeregisterTargetFromMaintenanceWindow removes a target from a maintenance window.
 func (b *InMemoryBackend) DeregisterTargetFromMaintenanceWindow(
-	_ *DeregisterTargetFromMaintenanceWindowInput,
+	input *DeregisterTargetFromMaintenanceWindowInput,
 ) (*StubOutput, error) {
+	b.mu.Lock("DeregisterTargetFromMaintenanceWindow")
+	defer b.mu.Unlock()
+
+	if _, exists := b.maintenanceWindowTargets[input.WindowTargetID]; !exists {
+		return nil, ErrMaintenanceWindowNotFound
+	}
+
+	delete(b.maintenanceWindowTargets, input.WindowTargetID)
+
 	return &StubOutput{}, nil
 }
 
-// DeregisterTaskFromMaintenanceWindow is a stub implementation.
+// DeregisterTaskFromMaintenanceWindow removes a task from a maintenance window.
 func (b *InMemoryBackend) DeregisterTaskFromMaintenanceWindow(
-	_ *DeregisterTaskFromMaintenanceWindowInput,
+	input *DeregisterTaskFromMaintenanceWindowInput,
 ) (*StubOutput, error) {
+	b.mu.Lock("DeregisterTaskFromMaintenanceWindow")
+	defer b.mu.Unlock()
+
+	if _, exists := b.maintenanceWindowTasks[input.WindowTaskID]; !exists {
+		return nil, ErrMaintenanceWindowNotFound
+	}
+
+	delete(b.maintenanceWindowTasks, input.WindowTaskID)
+
 	return &StubOutput{}, nil
 }
 
@@ -845,9 +968,19 @@ func (b *InMemoryBackend) DescribeActivations(_ *DescribeActivationsInput) (*Des
 	return &DescribeActivationsOutput{ActivationList: list}, nil
 }
 
-// DescribeAssociation is a stub implementation.
-func (b *InMemoryBackend) DescribeAssociation(_ *DescribeAssociationInput) (*DescribeAssociationOutput, error) {
-	return &DescribeAssociationOutput{}, nil
+// DescribeAssociation retrieves an association by name or ID.
+func (b *InMemoryBackend) DescribeAssociation(input *DescribeAssociationInput) (*DescribeAssociationOutput, error) {
+	b.mu.RLock("DescribeAssociation")
+	defer b.mu.RUnlock()
+
+	for _, assoc := range b.associations {
+		if (input.AssociationID != "" && assoc.AssociationID == input.AssociationID) ||
+			(input.Name != "" && assoc.Name == input.Name && (input.InstanceID == "" || assoc.InstanceID == input.InstanceID)) {
+			return &DescribeAssociationOutput{AssociationDescription: assoc}, nil
+		}
+	}
+
+	return nil, ErrAssociationNotFound
 }
 
 // DescribeAssociationExecutionTargets is a stub implementation.
@@ -976,18 +1109,46 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowSchedule(
 	return &DescribeMaintenanceWindowScheduleOutput{}, nil
 }
 
-// DescribeMaintenanceWindowTargets is a stub implementation.
+// DescribeMaintenanceWindowTargets lists targets registered with a maintenance window.
 func (b *InMemoryBackend) DescribeMaintenanceWindowTargets(
-	_ *DescribeMaintenanceWindowTargetsInput,
+	input *DescribeMaintenanceWindowTargetsInput,
 ) (*DescribeMaintenanceWindowTargetsOutput, error) {
-	return &DescribeMaintenanceWindowTargetsOutput{}, nil
+	b.mu.RLock("DescribeMaintenanceWindowTargets")
+	defer b.mu.RUnlock()
+
+	var targets []MaintenanceWindowTarget
+	for _, t := range b.maintenanceWindowTargets {
+		if t.WindowID == input.WindowID {
+			targets = append(targets, t)
+		}
+	}
+
+	if targets == nil {
+		targets = []MaintenanceWindowTarget{}
+	}
+
+	return &DescribeMaintenanceWindowTargetsOutput{Targets: targets}, nil
 }
 
-// DescribeMaintenanceWindowTasks is a stub implementation.
+// DescribeMaintenanceWindowTasks lists tasks registered with a maintenance window.
 func (b *InMemoryBackend) DescribeMaintenanceWindowTasks(
-	_ *DescribeMaintenanceWindowTasksInput,
+	input *DescribeMaintenanceWindowTasksInput,
 ) (*DescribeMaintenanceWindowTasksOutput, error) {
-	return &DescribeMaintenanceWindowTasksOutput{}, nil
+	b.mu.RLock("DescribeMaintenanceWindowTasks")
+	defer b.mu.RUnlock()
+
+	var tasks []MaintenanceWindowTask
+	for _, t := range b.maintenanceWindowTasks {
+		if t.WindowID == input.WindowID {
+			tasks = append(tasks, t)
+		}
+	}
+
+	if tasks == nil {
+		tasks = []MaintenanceWindowTask{}
+	}
+
+	return &DescribeMaintenanceWindowTasksOutput{Tasks: tasks}, nil
 }
 
 // DescribeMaintenanceWindows lists maintenance windows.
@@ -1431,25 +1592,77 @@ func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
 	return &RegisterDefaultPatchBaselineOutput{}, nil
 }
 
-// RegisterPatchBaselineForPatchGroup is a stub implementation.
+// RegisterPatchBaselineForPatchGroup associates a baseline with a patch group.
 func (b *InMemoryBackend) RegisterPatchBaselineForPatchGroup(
-	_ *RegisterPatchBaselineForPatchGroupInput,
+	input *RegisterPatchBaselineForPatchGroupInput,
 ) (*RegisterPatchBaselineForPatchGroupOutput, error) {
-	return &RegisterPatchBaselineForPatchGroupOutput{}, nil
+	b.mu.Lock("RegisterPatchBaselineForPatchGroup")
+	defer b.mu.Unlock()
+
+	if _, exists := b.patchBaselines[input.BaselineID]; !exists {
+		return nil, ErrPatchBaselineNotFound
+	}
+
+	b.patchGroupToBaseline[input.PatchGroup] = input.BaselineID
+
+	return &RegisterPatchBaselineForPatchGroupOutput{
+		BaselineID: input.BaselineID,
+		PatchGroup: input.PatchGroup,
+	}, nil
 }
 
-// RegisterTargetWithMaintenanceWindow is a stub implementation.
+// RegisterTargetWithMaintenanceWindow registers a target with a maintenance window.
 func (b *InMemoryBackend) RegisterTargetWithMaintenanceWindow(
-	_ *RegisterTargetWithMaintenanceWindowInput,
+	input *RegisterTargetWithMaintenanceWindowInput,
 ) (*RegisterTargetWithMaintenanceWindowOutput, error) {
-	return &RegisterTargetWithMaintenanceWindowOutput{}, nil
+	b.mu.Lock("RegisterTargetWithMaintenanceWindow")
+	defer b.mu.Unlock()
+
+	if _, exists := b.maintenanceWindows[input.WindowID]; !exists {
+		return nil, ErrMaintenanceWindowNotFound
+	}
+
+	targetID := windowTargetIDPrefix + uuid.NewString()
+	target := MaintenanceWindowTarget{
+		WindowID:       input.WindowID,
+		WindowTargetID: targetID,
+		ResourceType:   input.ResourceType,
+		Targets:        input.Targets,
+		OwnerInfo:      input.OwnerInfo,
+		Description:    input.Description,
+		Name:           input.Name,
+	}
+
+	b.maintenanceWindowTargets[targetID] = target
+
+	return &RegisterTargetWithMaintenanceWindowOutput{WindowTargetID: targetID}, nil
 }
 
-// RegisterTaskWithMaintenanceWindow is a stub implementation.
+// RegisterTaskWithMaintenanceWindow registers a task with a maintenance window.
 func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
-	_ *RegisterTaskWithMaintenanceWindowInput,
+	input *RegisterTaskWithMaintenanceWindowInput,
 ) (*RegisterTaskWithMaintenanceWindowOutput, error) {
-	return &RegisterTaskWithMaintenanceWindowOutput{}, nil
+	b.mu.Lock("RegisterTaskWithMaintenanceWindow")
+	defer b.mu.Unlock()
+
+	if _, exists := b.maintenanceWindows[input.WindowID]; !exists {
+		return nil, ErrMaintenanceWindowNotFound
+	}
+
+	taskID := windowTaskIDPrefix + uuid.NewString()
+	task := MaintenanceWindowTask{
+		WindowID:     input.WindowID,
+		WindowTaskID: taskID,
+		TaskArn:      input.TaskArn,
+		TaskType:     input.TaskType,
+		Priority:     input.Priority,
+		Name:         input.Name,
+		Description:  input.Description,
+	}
+
+	b.maintenanceWindowTasks[taskID] = task
+
+	return &RegisterTaskWithMaintenanceWindowOutput{WindowTaskID: taskID}, nil
 }
 
 // ResetServiceSetting is a stub implementation.
@@ -1496,9 +1709,29 @@ func (b *InMemoryBackend) StartExecutionPreview(_ *StartExecutionPreviewInput) (
 	return &StartExecutionPreviewOutput{}, nil
 }
 
-// StartSession is a stub implementation.
-func (b *InMemoryBackend) StartSession(_ *StartSessionInput) (*StartSessionOutput, error) {
-	return &StartSessionOutput{}, nil
+// StartSession creates a new SSM Session Manager session.
+func (b *InMemoryBackend) StartSession(input *StartSessionInput) (*StartSessionOutput, error) {
+	b.mu.Lock("StartSession")
+	defer b.mu.Unlock()
+
+	sessionID := sessionIDPrefix + uuid.NewString()
+
+	sess := Session{
+		SessionID:  sessionID,
+		Target:     input.Target,
+		Status:     sessionStatusConnected,
+		StartDate:  UnixTimeFloat(timeNow()),
+		StreamURL:  "wss://gopherstack-ssm-session/" + sessionID,
+		TokenValue: uuid.NewString(),
+	}
+
+	b.sessions[sessionID] = sess
+
+	return &StartSessionOutput{
+		SessionID:  sessionID,
+		StreamURL:  sess.StreamURL,
+		TokenValue: sess.TokenValue,
+	}, nil
 }
 
 // StopAutomationExecution is a stub implementation.
@@ -1506,9 +1739,20 @@ func (b *InMemoryBackend) StopAutomationExecution(_ *StopAutomationExecutionInpu
 	return &StubOutput{}, nil
 }
 
-// TerminateSession is a stub implementation.
-func (b *InMemoryBackend) TerminateSession(_ *TerminateSessionInput) (*TerminateSessionOutput, error) {
-	return &TerminateSessionOutput{}, nil
+// TerminateSession terminates an active SSM session.
+func (b *InMemoryBackend) TerminateSession(input *TerminateSessionInput) (*TerminateSessionOutput, error) {
+	b.mu.Lock("TerminateSession")
+	defer b.mu.Unlock()
+
+	sess, exists := b.sessions[input.SessionID]
+	if !exists {
+		return &TerminateSessionOutput{SessionID: input.SessionID}, nil
+	}
+
+	sess.Status = sessionStatusTerminated
+	b.sessions[input.SessionID] = sess
+
+	return &TerminateSessionOutput{SessionID: input.SessionID}, nil
 }
 
 // UnlabelParameterVersion is a stub implementation.
@@ -1518,9 +1762,36 @@ func (b *InMemoryBackend) UnlabelParameterVersion(
 	return &UnlabelParameterVersionOutput{}, nil
 }
 
-// UpdateAssociation is a stub implementation.
-func (b *InMemoryBackend) UpdateAssociation(_ *UpdateAssociationInput) (*UpdateAssociationOutput, error) {
-	return &UpdateAssociationOutput{}, nil
+// UpdateAssociation updates an existing association.
+func (b *InMemoryBackend) UpdateAssociation(input *UpdateAssociationInput) (*UpdateAssociationOutput, error) {
+	b.mu.Lock("UpdateAssociation")
+	defer b.mu.Unlock()
+
+	assoc, exists := b.associations[input.AssociationID]
+	if !exists {
+		return nil, ErrAssociationNotFound
+	}
+
+	if input.AssociationName != "" {
+		assoc.AssociationName = input.AssociationName
+	}
+
+	if input.DocumentVersion != "" {
+		assoc.DocumentVersion = input.DocumentVersion
+	}
+
+	if input.Parameters != nil {
+		assoc.Parameters = copyAssocParameters(input.Parameters)
+	}
+
+	if input.Targets != nil {
+		assoc.Targets = copyAssocTargets(input.Targets)
+	}
+
+	assoc.LastUpdateAssociationDate = UnixTimeFloat(timeNow())
+	b.associations[input.AssociationID] = assoc
+
+	return &UpdateAssociationOutput{AssociationDescription: assoc}, nil
 }
 
 // UpdateAssociationStatus is a stub implementation.
