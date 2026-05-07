@@ -1,0 +1,672 @@
+package redshift
+
+import (
+	"encoding/xml"
+	"net/url"
+)
+
+const (
+	// endpointStatusActive is the status for an active Redshift endpoint access.
+	endpointStatusActive = "active"
+	// redshiftDefaultPort is the default Redshift cluster port.
+	redshiftDefaultPort = 5439
+	// minClusterNodes is the minimum number of nodes for a node config option stub.
+	minClusterNodes = 2
+)
+
+// buildOpsCompleteness returns stub dispatch entries for all previously
+// notImplemented Redshift operations.
+func (h *Handler) buildOpsCompleteness() map[string]redshiftActionFn {
+	return map[string]redshiftActionFn{
+		"CreateCustomDomainAssociation":    h.handleCreateCustomDomainAssociation,
+		"CreateEndpointAccess":             h.handleCreateEndpointAccess,
+		"CreateHsmClientCertificate":       h.handleCreateHsmClientCertificate,
+		"CreateHsmConfiguration":           h.handleCreateHsmConfiguration,
+		"CreateIntegration":                h.handleCreateIntegration,
+		"CreateRedshiftIdcApplication":     h.handleCreateRedshiftIdcApplication,
+		"CreateScheduledAction":            h.handleCreateScheduledAction,
+		"DeleteCustomDomainAssociation":    h.handleDeleteCustomDomainAssociation,
+		"DeleteEndpointAccess":             h.handleDeleteEndpointAccess,
+		"DeleteHsmClientCertificate":       h.handleDeleteHsmClientCertificate,
+		"DeleteHsmConfiguration":           h.handleDeleteHsmConfiguration,
+		"DeleteIntegration":                h.handleDeleteIntegration,
+		"DeleteRedshiftIdcApplication":     h.handleDeleteRedshiftIdcApplication,
+		"DeleteScheduledAction":            h.handleDeleteScheduledAction,
+		"DeregisterNamespace":              h.handleDeregisterNamespace,
+		"DescribeClusterDbRevisions":       h.handleDescribeClusterDBRevisions,
+		"DescribeCustomDomainAssociations": h.handleDescribeCustomDomainAssociations,
+		"DescribeEndpointAccess":           h.handleDescribeEndpointAccess,
+		"DescribeHsmClientCertificates":    h.handleDescribeHsmClientCertificates,
+		"DescribeHsmConfigurations":        h.handleDescribeHsmConfigurations,
+		"DescribeInboundIntegrations":      h.handleDescribeInboundIntegrations,
+		"DescribeIntegrations":             h.handleDescribeIntegrations,
+		"DescribeNodeConfigurationOptions": h.handleDescribeNodeConfigurationOptions,
+		"DescribeRedshiftIdcApplications":  h.handleDescribeRedshiftIdcApplications,
+		"DescribeScheduledActions":         h.handleDescribeScheduledActions,
+		"GetIdentityCenterAuthToken":       h.handleGetIdentityCenterAuthToken,
+		"ListRecommendations":              h.handleListRecommendations,
+		"ModifyAquaConfiguration":          h.handleModifyAquaConfiguration,
+		"ModifyClusterDbRevision":          h.handleModifyClusterDBRevision,
+		"ModifyCustomDomainAssociation":    h.handleModifyCustomDomainAssociation,
+		"ModifyEndpointAccess":             h.handleModifyEndpointAccess,
+		"ModifyIntegration":                h.handleModifyIntegration,
+		"ModifyLakehouseConfiguration":     h.handleModifyLakehouseConfiguration,
+		"ModifyRedshiftIdcApplication":     h.handleModifyRedshiftIdcApplication,
+		"ModifyScheduledAction":            h.handleModifyScheduledAction,
+		"RegisterNamespace":                h.handleRegisterNamespace,
+		"RestoreTableFromClusterSnapshot":  h.handleRestoreTableFromClusterSnapshot,
+	}
+}
+
+// ----- Custom Domain Association -----
+
+type createCustomDomainAssociationResult struct {
+	CustomDomainName           string `xml:"CustomDomainName"`
+	CustomDomainCertificateArn string `xml:"CustomDomainCertificateArn"`
+	ClusterIdentifier          string `xml:"ClusterIdentifier"`
+}
+
+type createCustomDomainAssociationResponse struct {
+	XMLName xml.Name                            `xml:"CreateCustomDomainAssociationResponse"`
+	Xmlns   string                              `xml:"xmlns,attr"`
+	Result  createCustomDomainAssociationResult `xml:"CreateCustomDomainAssociationResult"`
+}
+
+func (h *Handler) handleCreateCustomDomainAssociation(vals url.Values) (any, error) {
+	return &createCustomDomainAssociationResponse{
+		Xmlns: redshiftXMLNS,
+		Result: createCustomDomainAssociationResult{
+			ClusterIdentifier:          vals.Get("ClusterIdentifier"),
+			CustomDomainName:           vals.Get("CustomDomainName"),
+			CustomDomainCertificateArn: vals.Get("CustomDomainCertificateArn"),
+		},
+	}, nil
+}
+
+type deleteCustomDomainAssociationResponse struct {
+	XMLName xml.Name `xml:"DeleteCustomDomainAssociationResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+func (h *Handler) handleDeleteCustomDomainAssociation(_ url.Values) (any, error) {
+	return &deleteCustomDomainAssociationResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type customDomainAssociation struct {
+	ClusterIdentifier          string `xml:"ClusterIdentifier"`
+	CustomDomainName           string `xml:"CustomDomainName"`
+	CustomDomainCertificateArn string `xml:"CustomDomainCertificateArn"`
+}
+
+type describeCustomDomainAssociationsResponse struct {
+	XMLName xml.Name `xml:"DescribeCustomDomainAssociationsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		CustomDomainAssociations []customDomainAssociation `xml:"CustomDomainAssociations>CustomDomainAssociation"`
+	} `xml:"DescribeCustomDomainAssociationsResult"`
+}
+
+func (h *Handler) handleDescribeCustomDomainAssociations(_ url.Values) (any, error) {
+	return &describeCustomDomainAssociationsResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type modifyCustomDomainAssociationResponse struct {
+	XMLName xml.Name `xml:"ModifyCustomDomainAssociationResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		ClusterIdentifier          string `xml:"ClusterIdentifier"`
+		CustomDomainName           string `xml:"CustomDomainName"`
+		CustomDomainCertificateArn string `xml:"CustomDomainCertificateArn"`
+	} `xml:"ModifyCustomDomainAssociationResult"`
+}
+
+func (h *Handler) handleModifyCustomDomainAssociation(vals url.Values) (any, error) {
+	resp := &modifyCustomDomainAssociationResponse{Xmlns: redshiftXMLNS}
+	resp.Result.ClusterIdentifier = vals.Get("ClusterIdentifier")
+	resp.Result.CustomDomainName = vals.Get("CustomDomainName")
+	resp.Result.CustomDomainCertificateArn = vals.Get("CustomDomainCertificateArn")
+
+	return resp, nil
+}
+
+// ----- Endpoint Access -----
+
+type endpointAccessXML struct {
+	ClusterIdentifier  string `xml:"ClusterIdentifier"`
+	EndpointName       string `xml:"EndpointName"`
+	EndpointStatus     string `xml:"EndpointStatus"`
+	EndpointCreateTime string `xml:"EndpointCreateTime,omitempty"`
+	Port               int    `xml:"Port,omitempty"`
+}
+
+type createEndpointAccessResponse struct {
+	XMLName xml.Name          `xml:"CreateEndpointAccessResponse"`
+	Xmlns   string            `xml:"xmlns,attr"`
+	Result  endpointAccessXML `xml:"CreateEndpointAccessResult"`
+}
+
+func (h *Handler) handleCreateEndpointAccess(vals url.Values) (any, error) {
+	return &createEndpointAccessResponse{
+		Xmlns: redshiftXMLNS,
+		Result: endpointAccessXML{
+			ClusterIdentifier: vals.Get("ClusterIdentifier"),
+			EndpointName:      vals.Get("EndpointName"),
+			EndpointStatus:    endpointStatusActive,
+			Port:              redshiftDefaultPort,
+		},
+	}, nil
+}
+
+type deleteEndpointAccessResponse struct {
+	XMLName xml.Name          `xml:"DeleteEndpointAccessResponse"`
+	Xmlns   string            `xml:"xmlns,attr"`
+	Result  endpointAccessXML `xml:"DeleteEndpointAccessResult"`
+}
+
+func (h *Handler) handleDeleteEndpointAccess(vals url.Values) (any, error) {
+	return &deleteEndpointAccessResponse{
+		Xmlns: redshiftXMLNS,
+		Result: endpointAccessXML{
+			ClusterIdentifier: vals.Get("ClusterIdentifier"),
+			EndpointName:      vals.Get("EndpointName"),
+			EndpointStatus:    "deleting",
+		},
+	}, nil
+}
+
+type describeEndpointAccessResponse struct {
+	XMLName xml.Name `xml:"DescribeEndpointAccessResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		EndpointAccessList []endpointAccessXML `xml:"EndpointAccessList>member"`
+	} `xml:"DescribeEndpointAccessResult"`
+}
+
+func (h *Handler) handleDescribeEndpointAccess(_ url.Values) (any, error) {
+	return &describeEndpointAccessResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type modifyEndpointAccessResponse struct {
+	XMLName xml.Name          `xml:"ModifyEndpointAccessResponse"`
+	Xmlns   string            `xml:"xmlns,attr"`
+	Result  endpointAccessXML `xml:"ModifyEndpointAccessResult"`
+}
+
+func (h *Handler) handleModifyEndpointAccess(vals url.Values) (any, error) {
+	return &modifyEndpointAccessResponse{
+		Xmlns: redshiftXMLNS,
+		Result: endpointAccessXML{
+			ClusterIdentifier: vals.Get("ClusterIdentifier"),
+			EndpointName:      vals.Get("EndpointName"),
+			EndpointStatus:    endpointStatusActive,
+		},
+	}, nil
+}
+
+// ----- HSM -----
+
+type hsmClientCertificateXML struct {
+	HsmClientCertificateIdentifier string `xml:"HsmClientCertificateIdentifier"`
+	HsmClientCertificatePublicKey  string `xml:"HsmClientCertificatePublicKey"`
+}
+
+type createHsmClientCertificateResponse struct {
+	XMLName xml.Name                `xml:"CreateHsmClientCertificateResponse"`
+	Xmlns   string                  `xml:"xmlns,attr"`
+	Result  hsmClientCertificateXML `xml:"CreateHsmClientCertificateResult"`
+}
+
+func (h *Handler) handleCreateHsmClientCertificate(vals url.Values) (any, error) {
+	return &createHsmClientCertificateResponse{
+		Xmlns: redshiftXMLNS,
+		Result: hsmClientCertificateXML{
+			HsmClientCertificateIdentifier: vals.Get("HsmClientCertificateIdentifier"),
+			HsmClientCertificatePublicKey:  "stub-public-key",
+		},
+	}, nil
+}
+
+type deleteHsmClientCertificateResponse struct {
+	XMLName xml.Name `xml:"DeleteHsmClientCertificateResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+func (h *Handler) handleDeleteHsmClientCertificate(_ url.Values) (any, error) {
+	return &deleteHsmClientCertificateResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type describeHsmClientCertificatesResponse struct {
+	XMLName xml.Name `xml:"DescribeHsmClientCertificatesResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		HsmClientCertificates []hsmClientCertificateXML `xml:"HsmClientCertificates>HsmClientCertificate"`
+	} `xml:"DescribeHsmClientCertificatesResult"`
+}
+
+func (h *Handler) handleDescribeHsmClientCertificates(_ url.Values) (any, error) {
+	return &describeHsmClientCertificatesResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type hsmConfigurationXML struct {
+	HsmConfigurationIdentifier string `xml:"HsmConfigurationIdentifier"`
+	Description                string `xml:"Description"`
+	HsmIPAddress               string `xml:"HsmIPAddress"`
+	HsmPartitionName           string `xml:"HsmPartitionName"`
+}
+
+type createHsmConfigurationResponse struct {
+	XMLName xml.Name            `xml:"CreateHsmConfigurationResponse"`
+	Xmlns   string              `xml:"xmlns,attr"`
+	Result  hsmConfigurationXML `xml:"CreateHsmConfigurationResult"`
+}
+
+func (h *Handler) handleCreateHsmConfiguration(vals url.Values) (any, error) {
+	return &createHsmConfigurationResponse{
+		Xmlns: redshiftXMLNS,
+		Result: hsmConfigurationXML{
+			HsmConfigurationIdentifier: vals.Get("HsmConfigurationIdentifier"),
+			Description:                vals.Get("Description"),
+			HsmIPAddress:               vals.Get("HsmIPAddress"),
+			HsmPartitionName:           vals.Get("HsmPartitionName"),
+		},
+	}, nil
+}
+
+type deleteHsmConfigurationResponse struct {
+	XMLName xml.Name `xml:"DeleteHsmConfigurationResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+func (h *Handler) handleDeleteHsmConfiguration(_ url.Values) (any, error) {
+	return &deleteHsmConfigurationResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type describeHsmConfigurationsResponse struct {
+	XMLName xml.Name `xml:"DescribeHsmConfigurationsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		HsmConfigurations []hsmConfigurationXML `xml:"HsmConfigurations>HsmConfiguration"`
+	} `xml:"DescribeHsmConfigurationsResult"`
+}
+
+func (h *Handler) handleDescribeHsmConfigurations(_ url.Values) (any, error) {
+	return &describeHsmConfigurationsResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+// ----- Integrations -----
+
+type integrationXML struct {
+	IntegrationArn  string `xml:"IntegrationArn"`
+	IntegrationName string `xml:"IntegrationName"`
+	Status          string `xml:"Status"`
+}
+
+type createIntegrationResponse struct {
+	XMLName xml.Name       `xml:"CreateIntegrationResponse"`
+	Xmlns   string         `xml:"xmlns,attr"`
+	Result  integrationXML `xml:"CreateIntegrationResult"`
+}
+
+func (h *Handler) handleCreateIntegration(vals url.Values) (any, error) {
+	return &createIntegrationResponse{
+		Xmlns: redshiftXMLNS,
+		Result: integrationXML{
+			IntegrationArn:  "arn:aws:redshift:us-east-1:123456789012:integration:" + vals.Get("IntegrationName"),
+			IntegrationName: vals.Get("IntegrationName"),
+			Status:          endpointStatusActive,
+		},
+	}, nil
+}
+
+type deleteIntegrationResponse struct {
+	XMLName xml.Name `xml:"DeleteIntegrationResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+func (h *Handler) handleDeleteIntegration(_ url.Values) (any, error) {
+	return &deleteIntegrationResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type describeIntegrationsResponse struct {
+	XMLName xml.Name `xml:"DescribeIntegrationsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		Integrations []integrationXML `xml:"Integrations>Integration"`
+	} `xml:"DescribeIntegrationsResult"`
+}
+
+func (h *Handler) handleDescribeIntegrations(_ url.Values) (any, error) {
+	return &describeIntegrationsResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type describeInboundIntegrationsResponse struct {
+	XMLName xml.Name `xml:"DescribeInboundIntegrationsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		InboundIntegrations []integrationXML `xml:"InboundIntegrations>InboundIntegration"`
+	} `xml:"DescribeInboundIntegrationsResult"`
+}
+
+func (h *Handler) handleDescribeInboundIntegrations(_ url.Values) (any, error) {
+	return &describeInboundIntegrationsResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type modifyIntegrationResponse struct {
+	XMLName xml.Name       `xml:"ModifyIntegrationResponse"`
+	Xmlns   string         `xml:"xmlns,attr"`
+	Result  integrationXML `xml:"ModifyIntegrationResult"`
+}
+
+func (h *Handler) handleModifyIntegration(vals url.Values) (any, error) {
+	return &modifyIntegrationResponse{
+		Xmlns: redshiftXMLNS,
+		Result: integrationXML{
+			IntegrationArn:  vals.Get("IntegrationArn"),
+			IntegrationName: vals.Get("IntegrationName"),
+			Status:          endpointStatusActive,
+		},
+	}, nil
+}
+
+// ----- Redshift IDC Application -----
+
+type redshiftIdcAppXML struct {
+	RedshiftIdcApplicationArn  string `xml:"RedshiftIdcApplicationArn"`
+	RedshiftIdcApplicationName string `xml:"RedshiftIdcApplicationName"`
+}
+
+type createRedshiftIdcApplicationResponse struct {
+	XMLName xml.Name          `xml:"CreateRedshiftIdcApplicationResponse"`
+	Xmlns   string            `xml:"xmlns,attr"`
+	Result  redshiftIdcAppXML `xml:"CreateRedshiftIdcApplicationResult"`
+}
+
+func (h *Handler) handleCreateRedshiftIdcApplication(vals url.Values) (any, error) {
+	return &createRedshiftIdcApplicationResponse{
+		Xmlns: redshiftXMLNS,
+		Result: redshiftIdcAppXML{
+			RedshiftIdcApplicationArn: "arn:aws:redshift:us-east-1:123456789012:redshiftidcapplication:" + vals.Get(
+				"RedshiftIdcApplicationName",
+			),
+			RedshiftIdcApplicationName: vals.Get("RedshiftIdcApplicationName"),
+		},
+	}, nil
+}
+
+type deleteRedshiftIdcApplicationResponse struct {
+	XMLName xml.Name `xml:"DeleteRedshiftIdcApplicationResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+func (h *Handler) handleDeleteRedshiftIdcApplication(_ url.Values) (any, error) {
+	return &deleteRedshiftIdcApplicationResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type describeRedshiftIdcApplicationsResponse struct {
+	XMLName xml.Name `xml:"DescribeRedshiftIdcApplicationsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		RedshiftIdcApplications []redshiftIdcAppXML `xml:"RedshiftIdcApplications>RedshiftIdcApplication"`
+	} `xml:"DescribeRedshiftIdcApplicationsResult"`
+}
+
+func (h *Handler) handleDescribeRedshiftIdcApplications(_ url.Values) (any, error) {
+	return &describeRedshiftIdcApplicationsResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type modifyRedshiftIdcApplicationResponse struct {
+	XMLName xml.Name          `xml:"ModifyRedshiftIdcApplicationResponse"`
+	Xmlns   string            `xml:"xmlns,attr"`
+	Result  redshiftIdcAppXML `xml:"ModifyRedshiftIdcApplicationResult"`
+}
+
+func (h *Handler) handleModifyRedshiftIdcApplication(vals url.Values) (any, error) {
+	return &modifyRedshiftIdcApplicationResponse{
+		Xmlns: redshiftXMLNS,
+		Result: redshiftIdcAppXML{
+			RedshiftIdcApplicationArn:  vals.Get("RedshiftIdcApplicationArn"),
+			RedshiftIdcApplicationName: vals.Get("RedshiftIdcApplicationName"),
+		},
+	}, nil
+}
+
+// ----- Scheduled Actions -----
+
+type scheduledActionXML struct {
+	ScheduledActionName string `xml:"ScheduledActionName"`
+	Schedule            string `xml:"Schedule"`
+	State               string `xml:"State"`
+}
+
+type createScheduledActionResponse struct {
+	XMLName xml.Name           `xml:"CreateScheduledActionResponse"`
+	Xmlns   string             `xml:"xmlns,attr"`
+	Result  scheduledActionXML `xml:"CreateScheduledActionResult"`
+}
+
+func (h *Handler) handleCreateScheduledAction(vals url.Values) (any, error) {
+	return &createScheduledActionResponse{
+		Xmlns: redshiftXMLNS,
+		Result: scheduledActionXML{
+			ScheduledActionName: vals.Get("ScheduledActionName"),
+			Schedule:            vals.Get("Schedule"),
+			State:               "ACTIVE",
+		},
+	}, nil
+}
+
+type deleteScheduledActionResponse struct {
+	XMLName xml.Name `xml:"DeleteScheduledActionResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+func (h *Handler) handleDeleteScheduledAction(_ url.Values) (any, error) {
+	return &deleteScheduledActionResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type describeScheduledActionsResponse struct {
+	XMLName xml.Name `xml:"DescribeScheduledActionsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		ScheduledActions []scheduledActionXML `xml:"ScheduledActions>ScheduledAction"`
+	} `xml:"DescribeScheduledActionsResult"`
+}
+
+func (h *Handler) handleDescribeScheduledActions(_ url.Values) (any, error) {
+	return &describeScheduledActionsResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type modifyScheduledActionResponse struct {
+	XMLName xml.Name           `xml:"ModifyScheduledActionResponse"`
+	Xmlns   string             `xml:"xmlns,attr"`
+	Result  scheduledActionXML `xml:"ModifyScheduledActionResult"`
+}
+
+func (h *Handler) handleModifyScheduledAction(vals url.Values) (any, error) {
+	return &modifyScheduledActionResponse{
+		Xmlns: redshiftXMLNS,
+		Result: scheduledActionXML{
+			ScheduledActionName: vals.Get("ScheduledActionName"),
+			Schedule:            vals.Get("Schedule"),
+			State:               "ACTIVE",
+		},
+	}, nil
+}
+
+// ----- Misc stubs -----
+
+type deregisterNamespaceResponse struct {
+	XMLName xml.Name `xml:"DeregisterNamespaceResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+func (h *Handler) handleDeregisterNamespace(_ url.Values) (any, error) {
+	return &deregisterNamespaceResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type registerNamespaceResponse struct {
+	XMLName xml.Name `xml:"RegisterNamespaceResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+func (h *Handler) handleRegisterNamespace(_ url.Values) (any, error) {
+	return &registerNamespaceResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type clusterDBRevisionXML struct {
+	ClusterIdentifier       string `xml:"ClusterIdentifier"`
+	CurrentDatabaseRevision string `xml:"CurrentDatabaseRevision"`
+}
+
+type describeClusterDBRevisionsResponse struct {
+	XMLName xml.Name `xml:"DescribeClusterDBRevisionsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		ClusterDBRevisions []clusterDBRevisionXML `xml:"ClusterDBRevisions>ClusterDbRevision"`
+	} `xml:"DescribeClusterDBRevisionsResult"`
+}
+
+func (h *Handler) handleDescribeClusterDBRevisions(vals url.Values) (any, error) {
+	id := vals.Get("ClusterIdentifier")
+	resp := &describeClusterDBRevisionsResponse{Xmlns: redshiftXMLNS}
+
+	if id != "" {
+		resp.Result.ClusterDBRevisions = []clusterDBRevisionXML{
+			{ClusterIdentifier: id, CurrentDatabaseRevision: "1"},
+		}
+	}
+
+	return resp, nil
+}
+
+type modifyClusterDBRevisionResponse struct {
+	XMLName xml.Name   `xml:"ModifyClusterDbRevisionResponse"`
+	Xmlns   string     `xml:"xmlns,attr"`
+	Result  xmlCluster `xml:"ModifyClusterDbRevisionResult"`
+}
+
+func (h *Handler) handleModifyClusterDBRevision(vals url.Values) (any, error) {
+	id := vals.Get("ClusterIdentifier")
+	cluster, err := h.Backend.DescribeClusters(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(cluster) == 0 {
+		return &modifyClusterDBRevisionResponse{Xmlns: redshiftXMLNS}, nil
+	}
+
+	return &modifyClusterDBRevisionResponse{
+		Xmlns:  redshiftXMLNS,
+		Result: toXMLCluster(&cluster[0]),
+	}, nil
+}
+
+type nodeConfigOptionXML struct {
+	NodeType                        string  `xml:"NodeType"`
+	NumberOfNodes                   int     `xml:"NumberOfNodes"`
+	EstimatedDiskUtilizationPercent float64 `xml:"EstimatedDiskUtilizationPercent"`
+}
+
+type describeNodeConfigurationOptionsResponse struct {
+	XMLName xml.Name `xml:"DescribeNodeConfigurationOptionsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		NodeConfigurationOptionList []nodeConfigOptionXML `xml:"NodeConfigurationOptionList>NodeConfigurationOption"`
+	} `xml:"DescribeNodeConfigurationOptionsResult"`
+}
+
+func (h *Handler) handleDescribeNodeConfigurationOptions(_ url.Values) (any, error) {
+	return &describeNodeConfigurationOptionsResponse{
+		Xmlns: redshiftXMLNS,
+		Result: struct {
+			NodeConfigurationOptionList []nodeConfigOptionXML `xml:"NodeConfigurationOptionList>NodeConfigurationOption"`
+		}{
+			NodeConfigurationOptionList: []nodeConfigOptionXML{
+				{NodeType: "ra3.xlplus", NumberOfNodes: minClusterNodes, EstimatedDiskUtilizationPercent: 0},
+			},
+		},
+	}, nil
+}
+
+type identityCenterAuthTokenResponse struct {
+	XMLName xml.Name `xml:"GetIdentityCenterAuthTokenResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		AuthToken           string `xml:"AuthToken"`
+		AuthTokenExpiration string `xml:"AuthTokenExpiration"`
+	} `xml:"GetIdentityCenterAuthTokenResult"`
+}
+
+func (h *Handler) handleGetIdentityCenterAuthToken(_ url.Values) (any, error) {
+	resp := &identityCenterAuthTokenResponse{Xmlns: redshiftXMLNS}
+	resp.Result.AuthToken = "stub-auth-token"
+	resp.Result.AuthTokenExpiration = "2099-01-01T00:00:00Z"
+
+	return resp, nil
+}
+
+type recommendationXML struct {
+	RecommendationID  string `xml:"RecommendationId"`
+	ClusterIdentifier string `xml:"ClusterIdentifier"`
+	Title             string `xml:"Title"`
+}
+
+type listRecommendationsResponse struct {
+	XMLName xml.Name `xml:"ListRecommendationsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		Recommendations []recommendationXML `xml:"Recommendations>Recommendation"`
+	} `xml:"ListRecommendationsResult"`
+}
+
+func (h *Handler) handleListRecommendations(_ url.Values) (any, error) {
+	return &listRecommendationsResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type aquaConfigurationResponse struct {
+	XMLName xml.Name `xml:"ModifyAquaConfigurationResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		AquaConfiguration struct {
+			AquaConfigurationStatus string `xml:"AquaConfigurationStatus"`
+			AquaStatus              string `xml:"AquaStatus"`
+		} `xml:"AquaConfiguration"`
+	} `xml:"ModifyAquaConfigurationResult"`
+}
+
+func (h *Handler) handleModifyAquaConfiguration(_ url.Values) (any, error) {
+	resp := &aquaConfigurationResponse{Xmlns: redshiftXMLNS}
+	resp.Result.AquaConfiguration.AquaConfigurationStatus = "auto"
+	resp.Result.AquaConfiguration.AquaStatus = "disabled"
+
+	return resp, nil
+}
+
+type modifyLakehouseConfigurationResponse struct {
+	XMLName xml.Name `xml:"ModifyLakehouseConfigurationResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+func (h *Handler) handleModifyLakehouseConfiguration(_ url.Values) (any, error) {
+	return &modifyLakehouseConfigurationResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+type restoreTableFromClusterSnapshotResponse struct {
+	XMLName xml.Name `xml:"RestoreTableFromClusterSnapshotResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		TableRestoreStatus struct {
+			TableRestoreRequestID string `xml:"TableRestoreRequestId"`
+			Status                string `xml:"Status"`
+		} `xml:"TableRestoreStatus"`
+	} `xml:"RestoreTableFromClusterSnapshotResult"`
+}
+
+func (h *Handler) handleRestoreTableFromClusterSnapshot(_ url.Values) (any, error) {
+	resp := &restoreTableFromClusterSnapshotResponse{Xmlns: redshiftXMLNS}
+	resp.Result.TableRestoreStatus.TableRestoreRequestID = "stub-restore-id"
+	resp.Result.TableRestoreStatus.Status = "IN_PROGRESS"
+
+	return resp, nil
+}

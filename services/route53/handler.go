@@ -172,6 +172,39 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTrafficPolicyInstances",
 		"ListTrafficPolicyVersions",
 		"UpdateHealthCheck",
+		// Completeness pass — previously notImplemented
+		"CreateVPCAssociationAuthorization",
+		"DeleteQueryLoggingConfig",
+		"DeleteReusableDelegationSet",
+		"DeleteVPCAssociationAuthorization",
+		"DisassociateVPCFromHostedZone",
+		"GetAccountLimit",
+		"GetChange",
+		"GetCheckerIpRanges",
+		"GetGeoLocation",
+		"GetHealthCheckCount",
+		"GetHealthCheckLastFailureReason",
+		"GetHostedZoneCount",
+		"GetHostedZoneLimit",
+		"GetQueryLoggingConfig",
+		"GetReusableDelegationSet",
+		"GetReusableDelegationSetLimit",
+		"ListCidrBlocks",
+		"ListCidrLocations",
+		"ListGeoLocations",
+		"ListHostedZonesByName",
+		"ListHostedZonesByVPC",
+		"ListQueryLoggingConfigs",
+		"ListReusableDelegationSets",
+		"ListTagsForResources",
+		"ListTrafficPolicyInstancesByHostedZone",
+		"ListTrafficPolicyInstancesByPolicy",
+		"ListVPCAssociationAuthorizations",
+		"TestDNSAnswer",
+		"UpdateHostedZoneComment",
+		"UpdateHostedZoneFeatures",
+		"UpdateTrafficPolicyComment",
+		"UpdateTrafficPolicyInstance",
 	}
 }
 
@@ -534,6 +567,10 @@ func (h *Handler) routeNewOps(c *echo.Context, path, method string) error {
 		return err
 	}
 
+	if ok, err := h.routeCompleteness(c, path, method); ok {
+		return err
+	}
+
 	switch path {
 	case route53QueryLoggingRoot:
 		return h.routeQueryLogging(c, method)
@@ -570,6 +607,10 @@ func (h *Handler) routeNewOpsTP(c *echo.Context, path, method string) (bool, err
 		return true, h.routeTrafficPolicyRoot(c, method)
 	case strings.HasPrefix(path, route53TrafficPolicyPrefix):
 		return true, h.routeTrafficPolicyVersion(c, path, method)
+	case path == route53TPInstancesByHZPath:
+		return true, h.listTrafficPolicyInstancesByHostedZone(c)
+	case path == route53TPInstancesByPolicyPath:
+		return true, h.listTrafficPolicyInstancesByPolicy(c)
 	case path == route53TPInstancesRoot:
 		return true, h.routeTPInstancesRoot(c, method)
 	case path == route53TPInstanceCount:
@@ -609,12 +650,27 @@ func (h *Handler) routeHostedZone(c *echo.Context, path, method string) error {
 	}
 
 	if strings.HasSuffix(path, route53AssociateVPCSuffix) {
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
 			return h.associateVPCWithHostedZone(c, path)
+		case http.MethodGet:
+			return h.listVPCAssociationAuthorizations(c, path)
+		default:
+			return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+				"unsupported method on associatevpc")
 		}
+	}
 
-		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
-			"unsupported method on associatevpc")
+	if strings.HasSuffix(path, route53DeauthorizeVPCSuffix) && method == http.MethodPost {
+		return h.deleteVPCAssociationAuthorization(c, path)
+	}
+
+	if strings.HasSuffix(path, route53DisassociateVPCSuffix) && method == http.MethodPost {
+		return h.disassociateVPCFromHostedZone(c, path)
+	}
+
+	if strings.HasSuffix(path, route53FeaturesSuffix) && method == http.MethodPost {
+		return h.updateHostedZoneFeatures(c, path)
 	}
 
 	if ok, err := h.routeHostedZoneDNSSEC(c, path, method); ok {
@@ -626,6 +682,9 @@ func (h *Handler) routeHostedZone(c *echo.Context, path, method string) error {
 		return h.deleteHostedZone(c)
 	case http.MethodGet:
 		return h.getHostedZone(c)
+	case http.MethodPost:
+		// UpdateHostedZoneComment — POST /2013-04-01/hostedzone/{Id}
+		return h.updateHostedZoneComment(c, path)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			"unsupported method on hosted zone")
@@ -670,6 +729,11 @@ func (h *Handler) routeHostedZoneDNSSEC(c *echo.Context, path, method string) (b
 }
 
 func (h *Handler) routeTags(c *echo.Context, path, method string) error {
+	// POST /2013-04-01/tags (no resource type suffix) → ListTagsForResources
+	if method == http.MethodPost && path == route53TagsPrefix[:len(route53TagsPrefix)-1] {
+		return h.listTagsForResources(c)
+	}
+
 	switch method {
 	case http.MethodGet:
 		return h.listTagsForResource(c, path)
@@ -1980,25 +2044,39 @@ func (h *Handler) routeCidrCollection(c *echo.Context, path, method string) erro
 		return h.changeCidrCollection(c, path)
 	case http.MethodDelete:
 		return h.deleteCidrCollection(c, path)
+	case http.MethodGet:
+		// ListCidrLocations → GET /cidrcollection/{Id}
+		// ListCidrBlocks → GET /cidrcollection/{Id}/cidrblocks
+		if strings.HasSuffix(path, "/cidrblocks") {
+			return h.listCidrBlocks(c, path)
+		}
+
+		return h.listCidrLocations(c, path)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on cidrcollection")
 	}
 }
 
 func (h *Handler) routeQueryLogging(c *echo.Context, method string) error {
-	if method == http.MethodPost {
+	switch method {
+	case http.MethodPost:
 		return h.createQueryLoggingConfig(c)
+	case http.MethodGet:
+		return h.listQueryLoggingConfigs(c)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /queryloggingconfig")
 	}
-
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /queryloggingconfig")
 }
 
 func (h *Handler) routeDelegationSetRoot(c *echo.Context, method string) error {
-	if method == http.MethodPost {
+	switch method {
+	case http.MethodPost:
 		return h.createReusableDelegationSet(c)
+	case http.MethodGet:
+		return h.listReusableDelegationSets(c)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /delegationset")
 	}
-
-	return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on /delegationset")
 }
 
 func (h *Handler) routeTrafficPolicyRoot(c *echo.Context, method string) error {
@@ -2029,6 +2107,8 @@ func (h *Handler) routeTrafficPolicyVersion(c *echo.Context, path, method string
 			return h.getTrafficPolicy(c, id, version)
 		case http.MethodDelete:
 			return h.deleteTrafficPolicy(c, id, version)
+		case http.MethodPost:
+			return h.updateTrafficPolicyComment(c, path)
 		default:
 			return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 				"unsupported method on traffic policy version")
@@ -2094,6 +2174,8 @@ func (h *Handler) routeTPInstance(c *echo.Context, path, method string) error {
 		return h.getTrafficPolicyInstance(c, id)
 	case http.MethodDelete:
 		return h.deleteTrafficPolicyInstance(c, id)
+	case http.MethodPost:
+		return h.updateTrafficPolicyInstance(c, path)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation", "unsupported method on traffic policy instance")
 	}

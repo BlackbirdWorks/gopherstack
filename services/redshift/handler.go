@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -50,13 +51,14 @@ func (h *Handler) Reset() {
 // Name returns the service name.
 func (h *Handler) Name() string { return "Redshift" }
 
-// GetSupportedOperations returns supported Redshift operations.
+// GetSupportedOperations returns supported Redshift operations (sorted).
 func (h *Handler) GetSupportedOperations() []string {
 	g1 := supportedOpsGroup1()
 	g2 := supportedOpsGroup2()
 	ops := make([]string, 0, len(g1)+len(g2))
 	ops = append(ops, g1...)
 	ops = append(ops, g2...)
+	sort.Strings(ops)
 
 	return ops
 }
@@ -172,6 +174,44 @@ func supportedOpsGroup2() []string {
 		"RevokeSnapshotAccess",
 		"RotateEncryptionKey",
 		"UpdatePartnerStatus",
+		// Completeness pass — previously notImplemented
+		"CreateCustomDomainAssociation",
+		"CreateEndpointAccess",
+		"CreateHsmClientCertificate",
+		"CreateHsmConfiguration",
+		"CreateIntegration",
+		"CreateRedshiftIdcApplication",
+		"CreateScheduledAction",
+		"DeleteCustomDomainAssociation",
+		"DeleteEndpointAccess",
+		"DeleteHsmClientCertificate",
+		"DeleteHsmConfiguration",
+		"DeleteIntegration",
+		"DeleteRedshiftIdcApplication",
+		"DeleteScheduledAction",
+		"DeregisterNamespace",
+		"DescribeClusterDbRevisions",
+		"DescribeCustomDomainAssociations",
+		"DescribeEndpointAccess",
+		"DescribeHsmClientCertificates",
+		"DescribeHsmConfigurations",
+		"DescribeInboundIntegrations",
+		"DescribeIntegrations",
+		"DescribeNodeConfigurationOptions",
+		"DescribeRedshiftIdcApplications",
+		"DescribeScheduledActions",
+		"GetIdentityCenterAuthToken",
+		"ListRecommendations",
+		"ModifyAquaConfiguration",
+		"ModifyClusterDbRevision",
+		"ModifyCustomDomainAssociation",
+		"ModifyEndpointAccess",
+		"ModifyIntegration",
+		"ModifyLakehouseConfiguration",
+		"ModifyRedshiftIdcApplication",
+		"ModifyScheduledAction",
+		"RegisterNamespace",
+		"RestoreTableFromClusterSnapshot",
 	}
 }
 
@@ -261,6 +301,7 @@ type redshiftActionFn func(vals url.Values) (any, error)
 func (h *Handler) buildOps() map[string]redshiftActionFn {
 	ops := h.buildOpsGroup1()
 	maps.Copy(ops, h.buildOpsGroup2())
+	maps.Copy(ops, h.buildOpsCompleteness())
 
 	return ops
 }

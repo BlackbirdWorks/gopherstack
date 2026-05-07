@@ -140,6 +140,76 @@ func (h *Handler) GetSupportedOperations() []string {
 		"SetUserPoolMfaConfig",
 		"UpdateGroup",
 		"GetSigningCertificate",
+		// Completeness pass — previously notImplemented
+		"AdminGetDevice",
+		"AdminLinkProviderForUser",
+		"AdminListDevices",
+		"AdminListUserAuthEvents",
+		"AdminRespondToAuthChallenge",
+		"AdminSetUserMFAPreference",
+		"AdminSetUserSettings",
+		"AdminUpdateAuthEventFeedback",
+		"AdminUpdateDeviceStatus",
+		"AssociateSoftwareToken",
+		"CompleteWebAuthnRegistration",
+		"ConfirmDevice",
+		"CreateIdentityProvider",
+		"CreateManagedLoginBranding",
+		"CreateResourceServer",
+		"CreateTerms",
+		"CreateUserImportJob",
+		"CreateUserPoolDomain",
+		"DeleteIdentityProvider",
+		"DeleteManagedLoginBranding",
+		"DeleteResourceServer",
+		"DeleteTerms",
+		"DeleteUserPoolClientSecret",
+		"DeleteUserPoolDomain",
+		"DeleteWebAuthnCredential",
+		"DescribeIdentityProvider",
+		"DescribeManagedLoginBranding",
+		"DescribeManagedLoginBrandingByClient",
+		"DescribeResourceServer",
+		"DescribeRiskConfiguration",
+		"DescribeTerms",
+		"DescribeUserImportJob",
+		"DescribeUserPoolDomain",
+		"ForgetDevice",
+		"GetCSVHeader",
+		"GetDevice",
+		"GetIdentityProviderByIdentifier",
+		"GetLogDeliveryConfiguration",
+		"GetTokensFromRefreshToken",
+		"GetUICustomization",
+		"GetUserAttributeVerificationCode",
+		"GetUserAuthFactors",
+		"ListDevices",
+		"ListIdentityProviders",
+		"ListResourceServers",
+		"ListTagsForResource",
+		"ListTerms",
+		"ListUserImportJobs",
+		"ListUserPoolClientSecrets",
+		"ListWebAuthnCredentials",
+		"RespondToAuthChallenge",
+		"SetLogDeliveryConfiguration",
+		"SetRiskConfiguration",
+		"SetUICustomization",
+		"SetUserMFAPreference",
+		"SetUserSettings",
+		"StartUserImportJob",
+		"StartWebAuthnRegistration",
+		"StopUserImportJob",
+		"TagResource",
+		"UntagResource",
+		"UpdateAuthEventFeedback",
+		"UpdateDeviceStatus",
+		"UpdateIdentityProvider",
+		"UpdateManagedLoginBranding",
+		"UpdateResourceServer",
+		"UpdateTerms",
+		"UpdateUserPoolDomain",
+		"VerifySoftwareToken",
 	}
 }
 
@@ -234,7 +304,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
+	table := map[string]service.JSONOpFunc{
 		"CreateUserPool":              service.WrapOp(h.handleCreateUserPool),
 		"DescribeUserPool":            service.WrapOp(h.handleDescribeUserPool),
 		"ListUserPools":               service.WrapOp(h.handleListUserPools),
@@ -289,6 +359,9 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"UpdateGroup":                 service.WrapOp(h.handleUpdateGroup),
 		"GetSigningCertificate":       service.WrapOp(h.handleGetSigningCertificate),
 	}
+	maps.Copy(table, h.completenessDispatchTable())
+
+	return table
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {

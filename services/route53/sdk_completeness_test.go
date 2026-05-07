@@ -17,38 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := route53.NewInMemoryBackend()
 	h := route53.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &route53sdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateVPCAssociationAuthorization",
-		"DeleteQueryLoggingConfig",
-		"DeleteReusableDelegationSet",
-		"DeleteVPCAssociationAuthorization",
-		"DisassociateVPCFromHostedZone",
-		"GetAccountLimit",
-		"GetChange",
-		"GetCheckerIpRanges",
-		"GetGeoLocation",
-		"GetHealthCheckCount",
-		"GetHealthCheckLastFailureReason",
-		"GetHostedZoneCount",
-		"GetHostedZoneLimit",
-		"GetQueryLoggingConfig",
-		"GetReusableDelegationSet",
-		"GetReusableDelegationSetLimit",
-		"ListCidrBlocks",
-		"ListCidrLocations",
-		"ListGeoLocations",
-		"ListHostedZonesByName",
-		"ListHostedZonesByVPC",
-		"ListQueryLoggingConfigs",
-		"ListReusableDelegationSets",
-		"ListTagsForResources",
-		"ListTrafficPolicyInstancesByHostedZone",
-		"ListTrafficPolicyInstancesByPolicy",
-		"ListVPCAssociationAuthorizations",
-		"TestDNSAnswer",
-		"UpdateHostedZoneComment",
-		"UpdateHostedZoneFeatures",
-		"UpdateTrafficPolicyComment",
-		"UpdateTrafficPolicyInstance",
-	})
+	sdkcheck.CheckCompleteness(t, &route53sdk.Client{}, h.GetSupportedOperations(), []string{})
 }
