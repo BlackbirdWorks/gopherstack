@@ -94,32 +94,61 @@ func matchCompiledPattern(compiled *compiledPattern, event string) bool {
 // matchObject checks whether all fields in pattern are satisfied by the eventData object.
 func matchObject(pattern, eventData map[string]any) bool {
 	for key, patternVal := range pattern {
-		eventVal, exists := eventData[key]
-
-		switch pv := patternVal.(type) {
-		case map[string]any:
-			// Nested object: recurse.
-			ev, ok := eventVal.(map[string]any)
-			if !ok {
-				return false
-			}
-			if !matchObject(pv, ev) {
-				return false
-			}
-		case []any:
-			// Array of matchers/values.
-			if !matchArray(pv, eventVal, exists) {
-				return false
-			}
-		default:
-			// Scalar: exact match.
-			if eventVal != patternVal {
-				return false
-			}
+		if !matchObjectField(key, patternVal, eventData) {
+			return false
 		}
 	}
 
 	return true
+}
+
+// matchObjectField checks a single pattern field against the event data.
+func matchObjectField(key string, patternVal any, eventData map[string]any) bool {
+	// Handle $or combinator: value is an array of pattern objects, any must match.
+	if key == "$or" {
+		return matchOrCombinator(patternVal, eventData)
+	}
+
+	eventVal, exists := eventData[key]
+
+	switch pv := patternVal.(type) {
+	case map[string]any:
+		// Nested object: recurse.
+		ev, ok := eventVal.(map[string]any)
+		if !ok {
+			return false
+		}
+
+		return matchObject(pv, ev)
+	case []any:
+		// Array of matchers/values.
+		return matchArray(pv, eventVal, exists)
+	default:
+		// Scalar: exact match.
+		return eventVal == patternVal
+	}
+}
+
+// matchOrCombinator evaluates an $or combinator: the value must be an array of
+// pattern objects and at least one of them must fully match eventData.
+func matchOrCombinator(patternVal any, eventData map[string]any) bool {
+	alternatives, ok := patternVal.([]any)
+	if !ok {
+		return false
+	}
+
+	for _, alt := range alternatives {
+		altPattern, isMap := alt.(map[string]any)
+		if !isMap {
+			continue
+		}
+
+		if matchObject(altPattern, eventData) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // matchArray checks whether eventVal satisfies at least one matcher in the pattern array.
@@ -161,17 +190,8 @@ func matchSingleValue(matcher, eventVal any, exists bool) bool {
 }
 
 // matchSpecialMatcher handles special matcher objects like {"prefix": ...}, {"exists": ...}, etc.
+// It delegates string-only matchers to matchStringMatcher.
 func matchSpecialMatcher(m map[string]any, eventVal any, exists bool) bool {
-	if prefix, ok := m["prefix"]; ok {
-		ps, psOk := prefix.(string)
-		es, esOk := eventVal.(string)
-		if !psOk || !esOk {
-			return false
-		}
-
-		return strings.HasPrefix(es, ps)
-	}
-
 	if existsVal, ok := m["exists"]; ok {
 		want, _ := existsVal.(bool)
 
@@ -190,14 +210,47 @@ func matchSpecialMatcher(m map[string]any, eventVal any, exists bool) bool {
 		return matchCIDR(cidrVal, eventVal)
 	}
 
+	return matchStringMatcher(m, eventVal)
+}
+
+// matchStringMatcher handles string-based matchers: prefix, suffix, wildcard, equals-ignore-case.
+func matchStringMatcher(m map[string]any, eventVal any) bool {
+	es, esOk := eventVal.(string)
+
+	if prefix, ok := m["prefix"]; ok {
+		ps, psOk := prefix.(string)
+		if !psOk || !esOk {
+			return false
+		}
+
+		return strings.HasPrefix(es, ps)
+	}
+
+	if suffix, ok := m["suffix"]; ok {
+		ss, ssOk := suffix.(string)
+		if !ssOk || !esOk {
+			return false
+		}
+
+		return strings.HasSuffix(es, ss)
+	}
+
 	if wildcardVal, ok := m["wildcard"]; ok {
 		ws, wsOk := wildcardVal.(string)
-		es, esOk := eventVal.(string)
 		if !wsOk || !esOk {
 			return false
 		}
 
 		return matchWildcard(ws, es)
+	}
+
+	if equalsIgnoreCase, ok := m["equals-ignore-case"]; ok {
+		cs, csOk := equalsIgnoreCase.(string)
+		if !csOk || !esOk {
+			return false
+		}
+
+		return strings.EqualFold(es, cs)
 	}
 
 	return false
