@@ -1769,7 +1769,7 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	_, err = b.CreateConnectionGroup("persist-conn-group", "comment")
 	require.NoError(t, err)
 
-	_, err = b.CreateContinuousDeploymentPolicy(true)
+	_, err = b.CreateContinuousDeploymentPolicy(true, "")
 	require.NoError(t, err)
 
 	h := cloudfront.NewHandler(b)
@@ -1930,7 +1930,7 @@ func TestNewOperations_BackendDirectly(t *testing.T) {
 			name: "create_continuous_deployment_policy_success",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				p, err := b.CreateContinuousDeploymentPolicy(true)
+				p, err := b.CreateContinuousDeploymentPolicy(true, "")
 				require.NoError(t, err)
 				assert.NotEmpty(t, p.ID)
 				assert.True(t, p.Enabled)

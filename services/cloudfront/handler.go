@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -141,6 +142,11 @@ const (
 )
 
 const (
+	opGetFunctionAssociations = "GetFunctionAssociations"
+	opSetFunctionAssociations = "SetFunctionAssociations"
+)
+
+const (
 	opAssociateAlias                          = "AssociateAlias"
 	opAssociateDistributionTenantWebACL       = "AssociateDistributionTenantWebACL"
 	opAssociateDistributionWebACL             = "AssociateDistributionWebACL"
@@ -225,6 +231,8 @@ func (h *Handler) Name() string { return "CloudFront" }
 //nolint:funlen // extended list for stub operations is inherently long
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		opGetFunctionAssociations,
+		opSetFunctionAssociations,
 		opAssociateAlias,
 		opAssociateDistributionTenantWebACL,
 		opAssociateDistributionWebACL,
@@ -1027,6 +1035,15 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		return opGetDistributionTenantByDomain, ""
 	case strings.HasPrefix(suffix, "trust-store/") && strings.Contains(suffix, "/by-trust-store/"):
 		return opListDistributionsByTrustStore, ""
+	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/function-associations"):
+		id := strings.TrimPrefix(suffix, "distribution/")
+		id = strings.TrimSuffix(id, "/function-associations")
+		switch method {
+		case http.MethodGet:
+			return opGetFunctionAssociations, id
+		case http.MethodPut:
+			return opSetFunctionAssociations, id
+		}
 	}
 
 	return "Unknown", ""
@@ -1340,6 +1357,12 @@ func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource strin
 		return h.handleUpdateVpcOrigin(c, resource)
 	case opDeleteVpcOrigin:
 		return h.handleDeleteVpcOrigin(c, resource)
+	case opGetContinuousDeploymentPolicy, opGetContinuousDeploymentPolicyConfig:
+		return h.handleGetContinuousDeploymentPolicy(c, resource)
+	case opUpdateContinuousDeploymentPolicy:
+		return h.handleUpdateContinuousDeploymentPolicy(c, resource)
+	case opDeleteContinuousDeploymentPolicy:
+		return h.handleDeleteContinuousDeploymentPolicy(c, resource)
 	default:
 		return errNotDispatched
 	}
@@ -1394,6 +1417,8 @@ func (h *Handler) dispatchListExtended(c *echo.Context, operation string) error 
 		return h.handleListKeyValueStores(c)
 	case opListVpcOrigins:
 		return h.handleListVpcOrigins(c)
+	case opListContinuousDeploymentPolicies:
+		return h.handleListContinuousDeploymentPolicies(c)
 	default:
 		return errNotDispatched
 	}
@@ -1421,6 +1446,10 @@ func (h *Handler) dispatchMisc(c *echo.Context, operation, resource string) erro
 		return h.handleTestFunction(c, resource)
 	case opUntagResource:
 		return h.handleUntagResource(c)
+	case opGetFunctionAssociations:
+		return h.handleGetFunctionAssociations(c, resource)
+	case opSetFunctionAssociations:
+		return h.handleSetFunctionAssociations(c, resource)
 	default:
 		return errNotDispatched
 	}
@@ -1610,19 +1639,7 @@ func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
 	case opListConnectionGroups:
 		return emptyList("ConnectionGroupList")
 
-	// Continuous deployment policy.
-	case opGetContinuousDeploymentPolicy, opGetContinuousDeploymentPolicyConfig:
-		return getStub("ContinuousDeploymentPolicy", "cdp-stub")
-	case opUpdateContinuousDeploymentPolicy:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><ContinuousDeploymentPolicy xmlns="`+cfNS+`"/>`,
-		)
-	case opDeleteContinuousDeploymentPolicy:
-		return noContent()
-	case opListContinuousDeploymentPolicies:
-		return emptyList("ContinuousDeploymentPolicyList")
+	// Continuous deployment policy — promoted to real handlers.
 
 	// Resource policy.
 	case opGetResourcePolicy:
@@ -1940,8 +1957,9 @@ type connectionGroupRequestXML struct {
 }
 
 type continuousDeploymentPolicyConfigXML struct {
-	XMLName xml.Name `xml:"ContinuousDeploymentPolicyConfig"`
-	Enabled bool     `xml:"Enabled"`
+	XMLName                xml.Name `xml:"ContinuousDeploymentPolicyConfig"`
+	StagingDistributionDNS string   `xml:"StagingDistributionDnsNames>DnsName,omitempty"`
+	Enabled                bool     `xml:"Enabled"`
 }
 
 func (h *Handler) handleAssociateAlias(c *echo.Context, distributionID string) error {
@@ -2207,23 +2225,165 @@ func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error 
 		}
 	}
 
-	policy, createErr := h.Backend.CreateContinuousDeploymentPolicy(req.Enabled)
+	policy, createErr := h.Backend.CreateContinuousDeploymentPolicy(req.Enabled, req.StagingDistributionDNS)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+	resp := continuousDeploymentPolicyXML(cfNS, policy)
+	c.Response().Header().Set("Location", cfPathPrefix+"continuous-deployment-policy/"+policy.ID)
+	c.Response().Header().Set("ETag", policy.ETag)
+
+	return xmlResp(c, http.StatusCreated, resp)
+}
+
+func continuousDeploymentPolicyXML(ns string, policy *ContinuousDeploymentPolicy) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ContinuousDeploymentPolicy xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<ContinuousDeploymentPolicyConfig>`+
 		`<Enabled>%v</Enabled>`+
 		`</ContinuousDeploymentPolicyConfig>`+
 		`</ContinuousDeploymentPolicy>`,
-		cfNS, policy.ID, policy.Enabled)
+		ns, policy.ID, policy.Enabled)
+}
 
-	c.Response().Header().Set("Location", cfPathPrefix+"continuous-deployment-policy/"+policy.ID)
+func (h *Handler) handleGetContinuousDeploymentPolicy(c *echo.Context, id string) error {
+	policy, err := h.Backend.GetContinuousDeploymentPolicy(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
 
-	return xmlResp(c, http.StatusCreated, resp)
+	c.Response().Header().Set("ETag", policy.ETag)
+
+	return xmlResp(c, http.StatusOK, continuousDeploymentPolicyXML(cfNS, policy))
+}
+
+func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req continuousDeploymentPolicyConfigXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid ContinuousDeploymentPolicyConfig XML"))
+		}
+	}
+
+	policy, updateErr := h.Backend.UpdateContinuousDeploymentPolicy(id, req.Enabled, req.StagingDistributionDNS)
+	if updateErr != nil {
+		return h.handleError(c, updateErr)
+	}
+
+	c.Response().Header().Set("ETag", policy.ETag)
+
+	return xmlResp(c, http.StatusOK, continuousDeploymentPolicyXML(cfNS, policy))
+}
+
+func (h *Handler) handleDeleteContinuousDeploymentPolicy(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteContinuousDeploymentPolicy(id); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleListContinuousDeploymentPolicies(c *echo.Context) error {
+	policies := h.Backend.ListContinuousDeploymentPolicies()
+
+	var sb strings.Builder
+
+	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	sb.WriteString(`<ContinuousDeploymentPolicyList xmlns="`)
+	sb.WriteString(cfNS)
+	sb.WriteString(`">`)
+	count := strconv.Itoa(len(policies))
+	sb.WriteString(`<MaxItems>`)
+	sb.WriteString(count)
+	sb.WriteString(`</MaxItems>`)
+	sb.WriteString(`<Quantity>`)
+	sb.WriteString(count)
+	sb.WriteString(`</Quantity>`)
+	sb.WriteString(`<IsTruncated>false</IsTruncated>`)
+	sb.WriteString(`<Items>`)
+
+	for _, p := range policies {
+		fmt.Fprintf(&sb,
+			`<ContinuousDeploymentPolicySummary><Id>%s</Id><Enabled>%v</Enabled></ContinuousDeploymentPolicySummary>`,
+			p.ID, p.Enabled,
+		)
+	}
+
+	sb.WriteString(`</Items>`)
+	sb.WriteString(`</ContinuousDeploymentPolicyList>`)
+
+	return xmlResp(c, http.StatusOK, sb.String())
+}
+
+// --- Function association handlers ---
+
+type functionAssociationXML struct {
+	FunctionARN string `xml:"FunctionARN"`
+	EventType   string `xml:"EventType"`
+}
+
+type functionAssociationsXML struct {
+	XMLName  xml.Name                 `xml:"FunctionAssociations"`
+	Items    []functionAssociationXML `xml:"Items>FunctionAssociation"`
+	Quantity int                      `xml:"Quantity"`
+}
+
+func (h *Handler) handleGetFunctionAssociations(c *echo.Context, distributionID string) error {
+	assocs, err := h.Backend.GetDistributionFunctionAssociations(distributionID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	items := make([]functionAssociationXML, 0, len(assocs))
+	for _, a := range assocs {
+		items = append(items, functionAssociationXML(a))
+	}
+
+	resp := functionAssociationsXML{
+		Quantity: len(items),
+		Items:    items,
+	}
+
+	body, err := xml.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return xmlResp(c, http.StatusInternalServerError, cfErrorXML("InternalError", err.Error()))
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(body))
+}
+
+func (h *Handler) handleSetFunctionAssociations(c *echo.Context, distributionID string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req functionAssociationsXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid FunctionAssociations XML"))
+		}
+	}
+
+	associations := make([]FunctionAssociation, 0, len(req.Items))
+	for _, item := range req.Items {
+		associations = append(associations, FunctionAssociation(item))
+	}
+
+	if setErr := h.Backend.SetDistributionFunctionAssociations(distributionID, associations); setErr != nil {
+		return h.handleError(c, setErr)
+	}
+
+	return c.NoContent(http.StatusOK)
 }
 
 // --- OAI handlers ---
