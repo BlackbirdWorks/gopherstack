@@ -59,12 +59,22 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 	if len(body) > 0 {
 		val, decErr := cbor.Decode(body)
 		if decErr != nil {
-			return h.cborError(c, http.StatusBadRequest, "SerializationException", "invalid CBOR body")
+			return h.cborError(
+				c,
+				http.StatusBadRequest,
+				"SerializationException",
+				"invalid CBOR body",
+			)
 		}
 
 		m, isCBORMap := val.(cbor.Map)
 		if !isCBORMap {
-			return h.cborError(c, http.StatusBadRequest, "SerializationException", "expected CBOR map")
+			return h.cborError(
+				c,
+				http.StatusBadRequest,
+				"SerializationException",
+				"expected CBOR map",
+			)
 		}
 
 		input = m
@@ -167,7 +177,11 @@ func (h *Handler) dispatchExtendedCBOR(op string, input cbor.Map, c *echo.Contex
 }
 
 // dispatchAnomalyMetricStreamCBOR routes anomaly detector and metric stream CBOR operations.
-func (h *Handler) dispatchAnomalyMetricStreamCBOR(op string, input cbor.Map, c *echo.Context) (bool, error) {
+func (h *Handler) dispatchAnomalyMetricStreamCBOR(
+	op string,
+	input cbor.Map,
+	c *echo.Context,
+) (bool, error) {
 	switch op {
 	case opPutAnomalyDetector:
 		return true, h.cborPutAnomalyDetector(input, c)
@@ -189,7 +203,11 @@ func (h *Handler) dispatchAnomalyMetricStreamCBOR(op string, input cbor.Map, c *
 }
 
 // dispatchInsightMetricFilterCBOR routes insight rule and metric filter CBOR operations.
-func (h *Handler) dispatchInsightMetricFilterCBOR(op string, input cbor.Map, c *echo.Context) error {
+func (h *Handler) dispatchInsightMetricFilterCBOR(
+	op string,
+	input cbor.Map,
+	c *echo.Context,
+) error {
 	switch op {
 	case opDeleteInsightRules:
 		return h.cborDeleteInsightRules(input, c)
@@ -376,7 +394,12 @@ func cborFromTime(t time.Time) cbor.Value {
 func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
 	namespace := cborStr(input, keyNamespace)
 	if namespace == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Namespace is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"Namespace is required",
+		)
 	}
 
 	var data []MetricDatum
@@ -424,8 +447,17 @@ func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error
 	}
 
 	statistics := cborStrList(input, "Statistics")
+	extendedStatistics := cborStrList(input, "ExtendedStatistics")
 
-	dps, err := h.Backend.GetMetricStatistics(namespace, metricName, startTime, endTime, period, statistics)
+	dps, err := h.Backend.GetMetricStatistics(
+		namespace,
+		metricName,
+		startTime,
+		endTime,
+		period,
+		statistics,
+		extendedStatistics,
+	)
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -592,7 +624,12 @@ func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")
 	if alarmName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmName is required",
+		)
 	}
 
 	actionsEnabled := true
@@ -777,9 +814,13 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 		"StateReason":        cbor.String(a.StateReason),
 		keyAlarmDescription:  cbor.String(a.AlarmDescription),
 		"Threshold":          cbor.Float64(a.Threshold),
-		"EvaluationPeriods":  cbor.Uint(uint64(a.EvaluationPeriods)), //nolint:gosec // EvaluationPeriods is positive
-		"Period":             cbor.Uint(uint64(a.Period)),            //nolint:gosec // Period is positive
-		"ActionsEnabled":     cbor.Bool(a.ActionsEnabled),
+		"EvaluationPeriods": cbor.Uint(
+			uint64(a.EvaluationPeriods), //nolint:gosec // EvaluationPeriods is positive
+		),
+		"Period": cbor.Uint(
+			uint64(a.Period), //nolint:gosec // Period is positive
+		),
+		"ActionsEnabled": cbor.Bool(a.ActionsEnabled),
 	}
 	if !a.StateTransitionedTimestamp.IsZero() {
 		m["StateTransitionedTimestamp"] = cborFromTime(a.StateTransitionedTimestamp)
@@ -856,11 +897,21 @@ func buildCompositeAlarmCBOR(a *CompositeAlarm) cbor.Map {
 func (h *Handler) cborPutCompositeAlarm(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")
 	if alarmName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmName is required",
+		)
 	}
 	alarmRule := cborStr(input, "AlarmRule")
 	if alarmRule == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmRule is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmRule is required",
+		)
 	}
 
 	actionsEnabled := true
@@ -894,7 +945,13 @@ func (h *Handler) cborDescribeAlarmsForMetric(input cbor.Map, c *echo.Context) e
 	nextToken := cborStr(input, "NextToken")
 	maxRecords := int(cborInt32(input, "MaxRecords"))
 
-	p, err := h.Backend.DescribeAlarmsForMetric(namespace, metricName, alarmNames, nextToken, maxRecords)
+	p, err := h.Backend.DescribeAlarmsForMetric(
+		namespace,
+		metricName,
+		alarmNames,
+		nextToken,
+		maxRecords,
+	)
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -928,7 +985,15 @@ func (h *Handler) cborDescribeAlarmHistory(input cbor.Map, c *echo.Context) erro
 		ed = cborTime(input, "EndDate")
 	}
 
-	p, err := h.Backend.DescribeAlarmHistory(alarmName, alarmType, historyItemType, nextToken, sd, ed, maxRecords)
+	p, err := h.Backend.DescribeAlarmHistory(
+		alarmName,
+		alarmType,
+		historyItemType,
+		nextToken,
+		sd,
+		ed,
+		maxRecords,
+	)
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -959,7 +1024,12 @@ func (h *Handler) cborDescribeAlarmHistory(input cbor.Map, c *echo.Context) erro
 func (h *Handler) cborSetAlarmState(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")
 	if alarmName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmName is required",
+		)
 	}
 
 	if err := h.Backend.SetAlarmState(
@@ -993,7 +1063,12 @@ func (h *Handler) cborDisableAlarmActions(input cbor.Map, c *echo.Context) error
 func (h *Handler) cborPutDashboard(input cbor.Map, c *echo.Context) error {
 	name := cborStr(input, "DashboardName")
 	if name == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "DashboardName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"DashboardName is required",
+		)
 	}
 
 	body := cborStr(input, "DashboardBody")
@@ -1008,7 +1083,12 @@ func (h *Handler) cborPutDashboard(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborGetDashboard(input cbor.Map, c *echo.Context) error {
 	name := cborStr(input, "DashboardName")
 	if name == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "DashboardName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"DashboardName is required",
+		)
 	}
 
 	entry, body, err := h.Backend.GetDashboard(name)
@@ -1038,7 +1118,9 @@ func (h *Handler) cborListDashboards(input cbor.Map, c *echo.Context) error {
 			"DashboardArn":  cbor.String(e.DashboardArn),
 			"DashboardName": cbor.String(e.DashboardName),
 			"LastModified":  cborFromTime(e.LastModified),
-			"Size":          cbor.Uint(uint64(e.Size)), //nolint:gosec // Size is always non-negative (len of body)
+			"Size": cbor.Uint(
+				uint64(e.Size), //nolint:gosec // Size is always non-negative (len of body)
+			),
 		})
 	}
 
@@ -1069,7 +1151,12 @@ func (h *Handler) cborDeleteDashboards(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborPutAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 	muteName := cborStr(input, "MuteName")
 	if muteName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"MuteName is required",
+		)
 	}
 
 	rawDuration := cborValInt64(input["MuteDuration"])
@@ -1104,7 +1191,12 @@ func (h *Handler) cborPutAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborUpdateAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 	muteName := cborStr(input, "MuteName")
 	if muteName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"MuteName is required",
+		)
 	}
 	if _, err := h.Backend.GetAlarmMuteRule(muteName); err != nil {
 		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
@@ -1116,7 +1208,12 @@ func (h *Handler) cborUpdateAlarmMuteRule(input cbor.Map, c *echo.Context) error
 func (h *Handler) cborGetAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 	muteName := cborStr(input, "MuteName")
 	if muteName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"MuteName is required",
+		)
 	}
 
 	rule, err := h.Backend.GetAlarmMuteRule(muteName)
@@ -1125,9 +1222,11 @@ func (h *Handler) cborGetAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 	}
 
 	muteRule := cbor.Map{
-		"MuteName":     cbor.String(rule.MuteName),
-		"Description":  cbor.String(rule.Description),
-		"MuteDuration": cbor.Uint(uint64(rule.MuteDuration)), //nolint:gosec // MuteDuration is always non-negative
+		"MuteName":    cbor.String(rule.MuteName),
+		"Description": cbor.String(rule.Description),
+		"MuteDuration": cbor.Uint(
+			uint64(rule.MuteDuration), //nolint:gosec // MuteDuration is always non-negative
+		),
 		"CreationTime": cborFromTime(rule.CreationTime),
 		"AlarmNames":   cborStringList(rule.AlarmNames),
 	}
@@ -1141,7 +1240,12 @@ func (h *Handler) cborGetAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborDeleteAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 	muteName := cborStr(input, "MuteName")
 	if muteName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"MuteName is required",
+		)
 	}
 
 	if err := h.Backend.DeleteAlarmMuteRule(muteName); err != nil {
@@ -1155,9 +1259,18 @@ func (h *Handler) cborPutInsightRule(input cbor.Map, c *echo.Context) error {
 	return h.cborPutInsightRuleWithName(cborStr(input, "RuleName"), input, c)
 }
 
-func (h *Handler) cborPutInsightRuleWithName(ruleName string, input cbor.Map, c *echo.Context) error {
+func (h *Handler) cborPutInsightRuleWithName(
+	ruleName string,
+	input cbor.Map,
+	c *echo.Context,
+) error {
 	if ruleName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"RuleName is required",
+		)
 	}
 
 	if err := h.Backend.PutInsightRule(&InsightRule{
@@ -1174,7 +1287,12 @@ func (h *Handler) cborPutInsightRuleWithName(ruleName string, input cbor.Map, c 
 func (h *Handler) cborUpdateInsightRule(input cbor.Map, c *echo.Context) error {
 	ruleName := cborStr(input, "RuleName")
 	if ruleName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"RuleName is required",
+		)
 	}
 	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
 		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
@@ -1237,7 +1355,12 @@ func (h *Handler) cborPutAnomalyDetector(input cbor.Map, c *echo.Context) error 
 	}
 
 	if namespace == "" || metricName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "Namespace and MetricName are required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"Namespace and MetricName are required",
+		)
 	}
 
 	if err := h.Backend.PutAnomalyDetector(&AnomalyDetector{
@@ -1397,7 +1520,12 @@ func (h *Handler) cborDeleteMetricStream(input cbor.Map, c *echo.Context) error 
 func (h *Handler) cborDeleteInsightRules(input cbor.Map, c *echo.Context) error {
 	ruleNames := cborStringSlice(input["RuleNames"])
 	if len(ruleNames) == 0 {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"RuleNames is required",
+		)
 	}
 
 	failures, err := h.Backend.DeleteInsightRules(ruleNames)
@@ -1448,7 +1576,12 @@ func (h *Handler) cborDescribeInsightRules(input cbor.Map, c *echo.Context) erro
 func (h *Handler) cborDisableInsightRules(input cbor.Map, c *echo.Context) error {
 	ruleNames := cborStringSlice(input["RuleNames"])
 	if len(ruleNames) == 0 {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"RuleNames is required",
+		)
 	}
 
 	failures, err := h.Backend.DisableInsightRules(ruleNames)
@@ -1462,7 +1595,12 @@ func (h *Handler) cborDisableInsightRules(input cbor.Map, c *echo.Context) error
 func (h *Handler) cborEnableInsightRules(input cbor.Map, c *echo.Context) error {
 	ruleNames := cborStringSlice(input["RuleNames"])
 	if len(ruleNames) == 0 {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"RuleNames is required",
+		)
 	}
 
 	failures, err := h.Backend.EnableInsightRules(ruleNames)
@@ -1476,7 +1614,12 @@ func (h *Handler) cborEnableInsightRules(input cbor.Map, c *echo.Context) error 
 func (h *Handler) cborGetInsightRuleReport(input cbor.Map, c *echo.Context) error {
 	ruleName := cborStr(input, "RuleName")
 	if ruleName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"RuleName is required",
+		)
 	}
 	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
 		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
@@ -1490,11 +1633,21 @@ func (h *Handler) cborGetInsightRuleReport(input cbor.Map, c *echo.Context) erro
 func (h *Handler) cborPutMetricFilter(input cbor.Map, c *echo.Context) error {
 	filterName := cborStr(input, "FilterName")
 	if filterName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "FilterName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"FilterName is required",
+		)
 	}
 	logGroupName := cborStr(input, "LogGroupName")
 	if logGroupName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "LogGroupName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"LogGroupName is required",
+		)
 	}
 
 	filter := &MetricFilter{
@@ -1507,13 +1660,16 @@ func (h *Handler) cborPutMetricFilter(input cbor.Map, c *echo.Context) error {
 		if mtsList, isList := mtsRaw.(cbor.List); isList {
 			for _, mtRaw := range mtsList {
 				if mt, isMap := mtRaw.(cbor.Map); isMap {
-					filter.MetricTransformations = append(filter.MetricTransformations, MetricTransformation{
-						MetricName:      cborStr(mt, keyMetricName),
-						MetricNamespace: cborStr(mt, "MetricNamespace"),
-						MetricValue:     cborStr(mt, "MetricValue"),
-						Unit:            cborStr(mt, "Unit"),
-						DefaultValue:    cborFloat(mt, "DefaultValue"),
-					})
+					filter.MetricTransformations = append(
+						filter.MetricTransformations,
+						MetricTransformation{
+							MetricName:      cborStr(mt, keyMetricName),
+							MetricNamespace: cborStr(mt, "MetricNamespace"),
+							MetricValue:     cborStr(mt, "MetricValue"),
+							Unit:            cborStr(mt, "Unit"),
+							DefaultValue:    cborFloat(mt, "DefaultValue"),
+						},
+					)
 				}
 			}
 		}
@@ -1574,11 +1730,21 @@ func (h *Handler) cborDescribeMetricFilters(input cbor.Map, c *echo.Context) err
 func (h *Handler) cborDeleteMetricFilter(input cbor.Map, c *echo.Context) error {
 	filterName := cborStr(input, "FilterName")
 	if filterName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "FilterName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"FilterName is required",
+		)
 	}
 	logGroupName := cborStr(input, "LogGroupName")
 	if logGroupName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "LogGroupName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"LogGroupName is required",
+		)
 	}
 
 	if err := h.Backend.DeleteMetricFilter(filterName, logGroupName); err != nil {
@@ -1594,7 +1760,12 @@ func (h *Handler) cborTestMetricFilter(_ *echo.Context) error { return nil }
 func (h *Handler) cborDescribeAlarmContributors(input cbor.Map, c *echo.Context) error {
 	alarmName := cborStr(input, "AlarmName")
 	if alarmName == "" {
-		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+		return h.cborError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmName is required",
+		)
 	}
 	nextToken := cborStr(input, "NextToken")
 

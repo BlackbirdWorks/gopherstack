@@ -32,13 +32,14 @@ type Dimension struct {
 
 // Datapoint holds aggregated stats for GetMetricStatistics.
 type Datapoint struct {
-	Timestamp   time.Time `json:"Timestamp"`
-	Average     *float64  `json:"Average,omitempty"`
-	Sum         *float64  `json:"Sum,omitempty"`
-	Minimum     *float64  `json:"Minimum,omitempty"`
-	Maximum     *float64  `json:"Maximum,omitempty"`
-	SampleCount *float64  `json:"SampleCount,omitempty"`
-	Unit        string    `json:"Unit,omitempty"`
+	Average            *float64           `json:"Average,omitempty"`
+	Sum                *float64           `json:"Sum,omitempty"`
+	Minimum            *float64           `json:"Minimum,omitempty"`
+	Maximum            *float64           `json:"Maximum,omitempty"`
+	SampleCount        *float64           `json:"SampleCount,omitempty"`
+	ExtendedStatistics map[string]float64 `json:"ExtendedStatistics,omitempty"`
+	Timestamp          time.Time          `json:"Timestamp"`
+	Unit               string             `json:"Unit,omitempty"`
 }
 
 // MetricAlarm represents a CloudWatch metric alarm.

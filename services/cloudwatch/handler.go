@@ -351,7 +351,12 @@ func (h *Handler) handleFormRequest(c *echo.Context, r *http.Request) error {
 
 	// ParseForm is idempotent; RouteMatcher may have already called it.
 	if err := r.ParseForm(); err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot parse form body")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"cannot parse form body",
+		)
 	}
 	action := r.Form.Get("Action")
 	c.Response().Header().Set("Content-Type", "text/xml")
@@ -415,7 +420,11 @@ func (h *Handler) dispatchFormAction(action string, form url.Values, c *echo.Con
 }
 
 // dispatchExtendedFormAction routes extended CloudWatch actions added after the initial implementation.
-func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *echo.Context) error {
+func (h *Handler) dispatchExtendedFormAction(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) error {
 	if handled, err := h.dispatchAnomalyInsightFormAction(action, form, c); handled {
 		return err
 	}
@@ -448,7 +457,11 @@ func (h *Handler) dispatchExtendedFormAction(action string, form url.Values, c *
 
 // dispatchAnomalyInsightFormAction routes anomaly-detector and insight-rule form actions.
 // Returns (true, err) when the action was handled, (false, nil) otherwise.
-func (h *Handler) dispatchAnomalyInsightFormAction(action string, form url.Values, c *echo.Context) (bool, error) {
+func (h *Handler) dispatchAnomalyInsightFormAction(
+	action string,
+	form url.Values,
+	c *echo.Context,
+) (bool, error) {
 	switch action {
 	case opPutAnomalyDetector:
 		return true, h.handlePutAnomalyDetector(form, c)
@@ -682,7 +695,10 @@ func parseDimensionsFromForm(form url.Values, prefix string) []Dimension {
 		if name == "" {
 			return dims
 		}
-		dims = append(dims, Dimension{Name: name, Value: form.Get(fmt.Sprintf("%smember.%d.Value", prefix, i))})
+		dims = append(
+			dims,
+			Dimension{Name: name, Value: form.Get(fmt.Sprintf("%smember.%d.Value", prefix, i))},
+		)
 	}
 }
 
@@ -722,8 +738,9 @@ func parseMetricDataQueriesFromForm(form url.Values) []MetricDataQuery {
 		}
 
 		queries = append(queries, MetricDataQuery{
-			ID:    id,
-			Label: form.Get(prefix + "Label"),
+			ID:         id,
+			Label:      form.Get(prefix + "Label"),
+			Expression: form.Get(prefix + "Expression"),
 			MetricStat: MetricStat{
 				Namespace:  form.Get(prefix + "MetricStat.Metric.Namespace"),
 				MetricName: form.Get(prefix + "MetricStat.Metric.MetricName"),
@@ -737,7 +754,12 @@ func parseMetricDataQueriesFromForm(form url.Values) []MetricDataQuery {
 func (h *Handler) handlePutMetricData(form url.Values, c *echo.Context) error {
 	namespace := form.Get("Namespace")
 	if namespace == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Namespace is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"Namespace is required",
+		)
 	}
 	data := parseMetricDataFromForm(form)
 	if err := h.Backend.PutMetricData(namespace, data); err != nil {
@@ -774,7 +796,16 @@ func (h *Handler) handleGetMetricStatistics(form url.Values, c *echo.Context) er
 	}
 
 	statistics := parseMemberList(form, "Statistics.")
-	dps, berr := h.Backend.GetMetricStatistics(namespace, metricName, startTime, endTime, int32(period), statistics)
+	extendedStatistics := parseMemberList(form, "ExtendedStatistics.")
+	dps, berr := h.Backend.GetMetricStatistics(
+		namespace,
+		metricName,
+		startTime,
+		endTime,
+		int32(period),
+		statistics,
+		extendedStatistics,
+	)
 	if berr != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", berr.Error())
 	}
@@ -848,7 +879,10 @@ func (h *Handler) handleListMetrics(form url.Values, c *echo.Context) error {
 		for _, d := range m.Dimensions {
 			dims = append(dims, dimXML(d))
 		}
-		members = append(members, metricXML{Namespace: m.Namespace, MetricName: m.MetricName, Dimensions: dims})
+		members = append(
+			members,
+			metricXML{Namespace: m.Namespace, MetricName: m.MetricName, Dimensions: dims},
+		)
 	}
 
 	type listResult struct {
@@ -872,7 +906,12 @@ func (h *Handler) handleListMetrics(form url.Values, c *echo.Context) error {
 func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 	alarmName := form.Get("AlarmName")
 	if alarmName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmName is required",
+		)
 	}
 
 	threshold, _ := strconv.ParseFloat(form.Get("Threshold"), 64)
@@ -944,7 +983,8 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 		x.StateTransitionedTimestamp = a.StateTransitionedTimestamp.UTC().Format(time.RFC3339)
 	}
 	if !a.AlarmConfigurationUpdatedTimestamp.IsZero() {
-		x.AlarmConfigurationUpdatedTimestamp = a.AlarmConfigurationUpdatedTimestamp.UTC().Format(time.RFC3339)
+		x.AlarmConfigurationUpdatedTimestamp = a.AlarmConfigurationUpdatedTimestamp.UTC().
+			Format(time.RFC3339)
 	}
 	for _, d := range a.Dimensions {
 		x.Dimensions = append(x.Dimensions, struct {
@@ -1155,11 +1195,21 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 func (h *Handler) handlePutCompositeAlarm(form url.Values, c *echo.Context) error {
 	alarmName := form.Get("AlarmName")
 	if alarmName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmName is required",
+		)
 	}
 	alarmRule := form.Get("AlarmRule")
 	if alarmRule == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmRule is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmRule is required",
+		)
 	}
 
 	actionsEnabled := form.Get("ActionsEnabled") != "false"
@@ -1193,7 +1243,13 @@ func (h *Handler) handleDescribeAlarmsForMetric(form url.Values, c *echo.Context
 	nextToken := form.Get("NextToken")
 	maxRecords, _ := strconv.Atoi(form.Get("MaxRecords"))
 
-	p, err := h.Backend.DescribeAlarmsForMetric(namespace, metricName, alarmNames, nextToken, maxRecords)
+	p, err := h.Backend.DescribeAlarmsForMetric(
+		namespace,
+		metricName,
+		alarmNames,
+		nextToken,
+		maxRecords,
+	)
 	if err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1290,7 +1346,12 @@ func (h *Handler) handleDescribeAlarmHistory(form url.Values, c *echo.Context) e
 func (h *Handler) handleSetAlarmState(form url.Values, c *echo.Context) error {
 	alarmName := form.Get("AlarmName")
 	if alarmName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmName is required",
+		)
 	}
 	stateValue := form.Get("StateValue")
 	stateReason := form.Get("StateReason")
@@ -1341,7 +1402,12 @@ func (h *Handler) handleDisableAlarmActions(form url.Values, c *echo.Context) er
 func (h *Handler) handlePutDashboard(form url.Values, c *echo.Context) error {
 	name := form.Get("DashboardName")
 	if name == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterInput", "DashboardName is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterInput",
+			"DashboardName is required",
+		)
 	}
 	body := form.Get("DashboardBody")
 
@@ -1362,7 +1428,12 @@ func (h *Handler) handlePutDashboard(form url.Values, c *echo.Context) error {
 func (h *Handler) handleGetDashboard(form url.Values, c *echo.Context) error {
 	name := form.Get("DashboardName")
 	if name == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterInput", "DashboardName is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterInput",
+			"DashboardName is required",
+		)
 	}
 
 	entry, body, err := h.Backend.GetDashboard(name)
@@ -1506,7 +1577,12 @@ func (h *Handler) putAlarmMuteRuleFromForm(form url.Values, c *echo.Context) err
 	if rawDuration := form.Get("MuteDuration"); rawDuration != "" {
 		parsedDuration, err := strconv.ParseInt(rawDuration, 10, 64)
 		if err != nil {
-			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteDuration must be an integer")
+			return h.xmlError(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameterValue",
+				"MuteDuration must be an integer",
+			)
 		}
 		if parsedDuration < 0 || parsedDuration > math.MaxInt32 {
 			return h.xmlError(
@@ -1530,7 +1606,12 @@ func (h *Handler) putAlarmMuteRuleFromForm(form url.Values, c *echo.Context) err
 	if rawStart := form.Get("MuteStartTime"); rawStart != "" {
 		start, err := time.Parse(time.RFC3339, rawStart)
 		if err != nil {
-			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteStartTime must be RFC3339")
+			return h.xmlError(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameterValue",
+				"MuteStartTime must be RFC3339",
+			)
 		}
 		rule.MuteStartTime = start.UTC()
 	}
@@ -1661,7 +1742,12 @@ func (h *Handler) handleDeleteAnomalyDetector(form url.Values, c *echo.Context) 
 	}
 
 	if namespace == "" || metricName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Namespace and MetricName are required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"Namespace and MetricName are required",
+		)
 	}
 
 	if err := h.Backend.DeleteAnomalyDetector(namespace, metricName, stat); err != nil {
@@ -1772,7 +1858,12 @@ func (h *Handler) handleUpdateInsightRule(form url.Values, c *echo.Context) erro
 func (h *Handler) handleDeleteInsightRules(form url.Values, c *echo.Context) error {
 	ruleNames := parseMemberList(form, "RuleNames.")
 	if len(ruleNames) == 0 {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"RuleNames is required",
+		)
 	}
 
 	failures, err := h.Backend.DeleteInsightRules(ruleNames)
@@ -1837,7 +1928,12 @@ func (h *Handler) handleDescribeInsightRules(form url.Values, c *echo.Context) e
 func (h *Handler) handleDisableInsightRules(form url.Values, c *echo.Context) error {
 	ruleNames := parseMemberList(form, "RuleNames.")
 	if len(ruleNames) == 0 {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"RuleNames is required",
+		)
 	}
 
 	failures, err := h.Backend.DisableInsightRules(ruleNames)
@@ -1862,7 +1958,12 @@ func (h *Handler) handleDisableInsightRules(form url.Values, c *echo.Context) er
 func (h *Handler) handleEnableInsightRules(form url.Values, c *echo.Context) error {
 	ruleNames := parseMemberList(form, "RuleNames.")
 	if len(ruleNames) == 0 {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "RuleNames is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"RuleNames is required",
+		)
 	}
 
 	failures, err := h.Backend.EnableInsightRules(ruleNames)
@@ -1961,7 +2062,12 @@ func (h *Handler) handleDeleteMetricStream(form url.Values, c *echo.Context) err
 func (h *Handler) handleDescribeAlarmContributors(form url.Values, c *echo.Context) error {
 	alarmName := form.Get("AlarmName")
 	if alarmName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmName is required",
+		)
 	}
 
 	nextToken := form.Get("NextToken")
@@ -2034,7 +2140,12 @@ func (h *Handler) handlePutAnomalyDetector(form url.Values, c *echo.Context) err
 	}
 
 	if namespace == "" || metricName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Namespace and MetricName are required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"Namespace and MetricName are required",
+		)
 	}
 
 	if err := h.Backend.PutAnomalyDetector(&AnomalyDetector{
@@ -2151,11 +2262,21 @@ func (h *Handler) handleGetMetricStream(form url.Values, c *echo.Context) error 
 func (h *Handler) handlePutMetricFilter(form url.Values, c *echo.Context) error {
 	filterName := form.Get("FilterName")
 	if filterName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "FilterName is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"FilterName is required",
+		)
 	}
 	logGroupName := form.Get("LogGroupName")
 	if logGroupName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "LogGroupName is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"LogGroupName is required",
+		)
 	}
 
 	filter := &MetricFilter{
@@ -2238,11 +2359,21 @@ func (h *Handler) handleDescribeMetricFilters(form url.Values, c *echo.Context) 
 func (h *Handler) handleDeleteMetricFilter(form url.Values, c *echo.Context) error {
 	filterName := form.Get("FilterName")
 	if filterName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "FilterName is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"FilterName is required",
+		)
 	}
 	logGroupName := form.Get("LogGroupName")
 	if logGroupName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "LogGroupName is required")
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"LogGroupName is required",
+		)
 	}
 
 	if err := h.Backend.DeleteMetricFilter(filterName, logGroupName); err != nil {
@@ -2345,8 +2476,12 @@ func (h *Handler) handlePutManagedInsightRules(_ url.Values, c *echo.Context) er
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
-func (h *Handler) handleStartMetricStreams(_ url.Values, c *echo.Context) error {
-	// StartMetricStreams starts streaming of metrics. In-process simulation is a no-op.
+func (h *Handler) handleStartMetricStreams(form url.Values, c *echo.Context) error {
+	names := parseMemberList(form, "Names.")
+	if err := h.Backend.StartMetricStreams(names); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
 	type response struct {
 		XMLName   xml.Name `xml:"StartMetricStreamsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
@@ -2356,8 +2491,12 @@ func (h *Handler) handleStartMetricStreams(_ url.Values, c *echo.Context) error 
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
-func (h *Handler) handleStopMetricStreams(_ url.Values, c *echo.Context) error {
-	// StopMetricStreams stops streaming of metrics. In-process simulation is a no-op.
+func (h *Handler) handleStopMetricStreams(form url.Values, c *echo.Context) error {
+	names := parseMemberList(form, "Names.")
+	if err := h.Backend.StopMetricStreams(names); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
 	type response struct {
 		XMLName   xml.Name `xml:"StopMetricStreamsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
