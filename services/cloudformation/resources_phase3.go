@@ -942,7 +942,7 @@ func (rc *ResourceCreator) createMSKCluster(
 		brokerInfo.InstanceType = "kafka.m5.large"
 	}
 
-	cluster, err := rc.backends.Kafka.Backend.CreateCluster(name, kafkaVersion, numBrokers, brokerInfo, nil)
+	cluster, err := rc.backends.Kafka.Backend.CreateCluster(name, kafkaVersion, numBrokers, brokerInfo, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("create MSK cluster %s: %w", name, err)
 	}
