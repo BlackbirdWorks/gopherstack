@@ -1,11 +1,25 @@
 package rds
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+const proxyRandSuffixBytes = 4
+
+// proxyRandSuffix generates an 8-character random hex suffix for proxy endpoints.
+func proxyRandSuffix() string {
+	buf := make([]byte, proxyRandSuffixBytes)
+	if _, err := rand.Read(buf); err != nil {
+		return "00000000"
+	}
+
+	return hex.EncodeToString(buf)
+}
 
 // ---- DB Proxy types ----
 
@@ -123,7 +137,7 @@ func (b *InMemoryBackend) CreateDBProxy(name, engineFamily, roleARN string, auth
 		DBProxyName:       name,
 		DBProxyARN:        fmt.Sprintf("arn:aws:rds:%s:%s:db-proxy:prx-%s", b.region, b.accountID, name),
 		Status:            instanceStatusAvailable,
-		Endpoint:          fmt.Sprintf("%s.proxy-abcd1234.%s.rds.amazonaws.com", name, b.region),
+		Endpoint:          fmt.Sprintf("%s.proxy-%s.%s.rds.amazonaws.com", name, proxyRandSuffix(), b.region),
 		EngineFamily:      engineFamily,
 		RoleARN:           roleARN,
 		Auth:              auth,
@@ -407,7 +421,10 @@ func (b *InMemoryBackend) CreateDBProxyEndpoint(
 		DBProxyEndpointARN:  fmt.Sprintf("arn:aws:rds:%s:%s:db-proxy-endpoint:%s", b.region, b.accountID, endpointName),
 		DBProxyName:         proxyName,
 		Status:              instanceStatusAvailable,
-		Endpoint:            fmt.Sprintf("%s.endpoint.proxy-abcd1234.%s.rds.amazonaws.com", endpointName, b.region),
+		Endpoint: fmt.Sprintf(
+			"%s.endpoint.proxy-%s.%s.rds.amazonaws.com",
+			endpointName, proxyRandSuffix(), b.region,
+		),
 		TargetRole:          targetRole,
 		VpcSubnetIDs:        vpcSubnetIDs,
 		VpcSecurityGroupIDs: vpcSGIDs,
