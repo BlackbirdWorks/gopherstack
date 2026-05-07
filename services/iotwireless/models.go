@@ -65,3 +65,24 @@ type FuotaTask struct {
 	FirmwareUpdateImage string            `json:"firmwareUpdateImage,omitempty"`
 	FirmwareUpdateRole  string            `json:"firmwareUpdateRole,omitempty"`
 }
+
+// MulticastGroup represents an IoT Wireless multicast group.
+type MulticastGroup struct {
+	CreatedAt   time.Time         `json:"createdAt"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	Name        string            `json:"name"`
+	ID          string            `json:"id"`
+	ARN         string            `json:"arn"`
+	Description string            `json:"description,omitempty"`
+	Status      string            `json:"status"`
+}
+
+// NetworkAnalyzerConfig represents an IoT Wireless network analyzer configuration.
+type NetworkAnalyzerConfig struct {
+	Tags             map[string]string `json:"tags,omitempty"`
+	Name             string            `json:"name"`
+	ARN              string            `json:"arn"`
+	Description      string            `json:"description,omitempty"`
+	WirelessDevices  []string          `json:"wirelessDevices,omitempty"`
+	WirelessGateways []string          `json:"wirelessGateways,omitempty"`
+}

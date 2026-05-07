@@ -26,6 +26,10 @@ var (
 	ErrDeviceProfileNotFound = errors.New("ResourceNotFoundException: Device profile not found")
 	// ErrFuotaTaskNotFound is returned when a FUOTA task does not exist.
 	ErrFuotaTaskNotFound = errors.New("ResourceNotFoundException: FUOTA task not found")
+	// ErrMulticastGroupNotFound is returned when a multicast group does not exist.
+	ErrMulticastGroupNotFound = errors.New("ResourceNotFoundException: Multicast group not found")
+	// ErrNetworkAnalyzerConfigNotFound is returned when a network analyzer configuration does not exist.
+	ErrNetworkAnalyzerConfigNotFound = errors.New("ResourceNotFoundException: Network analyzer configuration not found")
 	// ErrValidation is returned when a request contains invalid parameters.
 	ErrValidation = errors.New("ValidationException: invalid request parameters")
 )
@@ -72,6 +76,30 @@ type StorageBackend interface {
 	GetFuotaTask(accountID, region, id string) (*FuotaTask, error)
 	ListFuotaTasks(accountID, region string) []*FuotaTask
 	DeleteFuotaTask(accountID, region, id string) error
+	UpdateFuotaTask(accountID, region, id, name, description string) error
+
+	UpdateWirelessGateway(accountID, region, id, name, description string) error
+
+	UpdateDestination(accountID, region, name, expression, expressionType, roleArn, description string) error
+
+	CreateMulticastGroup(accountID, region, name, description string, tags map[string]string) (*MulticastGroup, error)
+	GetMulticastGroup(accountID, region, id string) (*MulticastGroup, error)
+	ListMulticastGroups(accountID, region string) []*MulticastGroup
+	DeleteMulticastGroup(accountID, region, id string) error
+	UpdateMulticastGroup(accountID, region, id, name, description string) error
+
+	CreateNetworkAnalyzerConfig(
+		accountID, region, name, description string,
+		wirelessDevices, wirelessGateways []string,
+		tags map[string]string,
+	) (*NetworkAnalyzerConfig, error)
+	GetNetworkAnalyzerConfig(accountID, region, name string) (*NetworkAnalyzerConfig, error)
+	ListNetworkAnalyzerConfigs(accountID, region string) []*NetworkAnalyzerConfig
+	DeleteNetworkAnalyzerConfig(accountID, region, name string) error
+	UpdateNetworkAnalyzerConfig(
+		accountID, region, name, description string,
+		wirelessDevices, wirelessGateways []string,
+	) error
 
 	AssociateAwsAccountWithPartnerAccount(
 		accountID, region, partnerAccountID string,
@@ -108,6 +136,8 @@ type InMemoryBackend struct {
 	destinations           map[resourceKey]*Destination
 	deviceProfiles         map[resourceKey]*DeviceProfile
 	fuotaTasks             map[resourceKey]*FuotaTask
+	multicastGroups        map[resourceKey]*MulticastGroup
+	networkAnalyzerConfigs map[resourceKey]*NetworkAnalyzerConfig
 	resourceTags           map[string]map[string]string
 	partnerAccounts        map[string]string // partnerAccountID -> arn
 	fuotaTaskMulticast     map[string]string // fuotaTaskID -> multicastGroupID
@@ -129,6 +159,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		destinations:           make(map[resourceKey]*Destination),
 		deviceProfiles:         make(map[resourceKey]*DeviceProfile),
 		fuotaTasks:             make(map[resourceKey]*FuotaTask),
+		multicastGroups:        make(map[resourceKey]*MulticastGroup),
+		networkAnalyzerConfigs: make(map[resourceKey]*NetworkAnalyzerConfig),
 		resourceTags:           make(map[string]map[string]string),
 		partnerAccounts:        make(map[string]string),
 		fuotaTaskMulticast:     make(map[string]string),
@@ -184,6 +216,8 @@ func (b *InMemoryBackend) Reset() {
 	b.destinations = make(map[resourceKey]*Destination)
 	b.deviceProfiles = make(map[resourceKey]*DeviceProfile)
 	b.fuotaTasks = make(map[resourceKey]*FuotaTask)
+	b.multicastGroups = make(map[resourceKey]*MulticastGroup)
+	b.networkAnalyzerConfigs = make(map[resourceKey]*NetworkAnalyzerConfig)
 	b.resourceTags = make(map[string]map[string]string)
 	b.partnerAccounts = make(map[string]string)
 	b.fuotaTaskMulticast = make(map[string]string)
@@ -801,6 +835,325 @@ func (b *InMemoryBackend) DeleteFuotaTask(accountID, region, id string) error {
 
 	delete(b.resourceTags, ft.ARN)
 	delete(b.fuotaTasks, key)
+
+	return nil
+}
+
+// UpdateFuotaTask updates mutable fields on an existing FUOTA task.
+func (b *InMemoryBackend) UpdateFuotaTask(accountID, region, id, name, description string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+
+	ft, ok := b.fuotaTasks[key]
+	if !ok {
+		return ErrFuotaTaskNotFound
+	}
+
+	if name != "" {
+		ft.Name = name
+	}
+
+	ft.Description = description
+
+	return nil
+}
+
+// UpdateWirelessGateway updates mutable fields on an existing wireless gateway.
+func (b *InMemoryBackend) UpdateWirelessGateway(accountID, region, id, name, description string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+
+	gw, ok := b.gateways[key]
+	if !ok {
+		return ErrGatewayNotFound
+	}
+
+	if name != "" {
+		gw.Name = name
+	}
+
+	gw.Description = description
+
+	return nil
+}
+
+// UpdateDestination updates mutable fields on an existing destination.
+func (b *InMemoryBackend) UpdateDestination(
+	accountID, region, name, expression, expressionType, roleArn, description string,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: name}
+
+	dest, ok := b.destinations[key]
+	if !ok {
+		return ErrDestinationNotFound
+	}
+
+	if expression != "" {
+		dest.Expression = expression
+	}
+
+	if expressionType != "" {
+		dest.ExpressionType = expressionType
+	}
+
+	if roleArn != "" {
+		dest.RoleArn = roleArn
+	}
+
+	dest.Description = description
+
+	return nil
+}
+
+func multicastGroupARN(region, accountID, id string) string {
+	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:MulticastGroup/%s", region, accountID, id)
+}
+
+func networkAnalyzerConfigARN(region, accountID, name string) string {
+	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:NetworkAnalyzerConfiguration/%s", region, accountID, name)
+}
+
+func copyMulticastGroup(mg *MulticastGroup) *MulticastGroup {
+	cp := *mg
+	cp.Tags = make(map[string]string, len(mg.Tags))
+	maps.Copy(cp.Tags, mg.Tags)
+
+	return &cp
+}
+
+func copyNetworkAnalyzerConfig(nc *NetworkAnalyzerConfig) *NetworkAnalyzerConfig {
+	cp := *nc
+	cp.Tags = make(map[string]string, len(nc.Tags))
+	maps.Copy(cp.Tags, nc.Tags)
+
+	if nc.WirelessDevices != nil {
+		cp.WirelessDevices = make([]string, len(nc.WirelessDevices))
+		copy(cp.WirelessDevices, nc.WirelessDevices)
+	}
+
+	if nc.WirelessGateways != nil {
+		cp.WirelessGateways = make([]string, len(nc.WirelessGateways))
+		copy(cp.WirelessGateways, nc.WirelessGateways)
+	}
+
+	return &cp
+}
+
+// CreateMulticastGroup creates a new multicast group.
+func (b *InMemoryBackend) CreateMulticastGroup(
+	accountID, region, name, description string,
+	tags map[string]string,
+) (*MulticastGroup, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()
+	arn := multicastGroupARN(region, accountID, id)
+
+	mg := &MulticastGroup{
+		ID:          id,
+		ARN:         arn,
+		Name:        name,
+		Description: description,
+		Status:      "Pending",
+		Tags:        newTagsCopy(tags),
+		CreatedAt:   time.Now(),
+	}
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+	b.multicastGroups[key] = mg
+	b.storeResourceTagsLocked(arn, tags)
+
+	return copyMulticastGroup(mg), nil
+}
+
+// GetMulticastGroup returns a multicast group by ID.
+func (b *InMemoryBackend) GetMulticastGroup(accountID, region, id string) (*MulticastGroup, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+
+	mg, ok := b.multicastGroups[key]
+	if !ok {
+		return nil, ErrMulticastGroupNotFound
+	}
+
+	return copyMulticastGroup(mg), nil
+}
+
+// ListMulticastGroups returns all multicast groups for the given account and region,
+// sorted by name for deterministic output.
+func (b *InMemoryBackend) ListMulticastGroups(accountID, region string) []*MulticastGroup {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*MulticastGroup, 0)
+
+	for k, mg := range b.multicastGroups {
+		if k.AccountID == accountID && k.Region == region {
+			result = append(result, copyMulticastGroup(mg))
+		}
+	}
+
+	slices.SortFunc(result, func(a, b *MulticastGroup) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	return result
+}
+
+// DeleteMulticastGroup deletes a multicast group by ID.
+func (b *InMemoryBackend) DeleteMulticastGroup(accountID, region, id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+
+	mg, ok := b.multicastGroups[key]
+	if !ok {
+		return ErrMulticastGroupNotFound
+	}
+
+	delete(b.resourceTags, mg.ARN)
+	delete(b.multicastGroups, key)
+
+	return nil
+}
+
+// UpdateMulticastGroup updates mutable fields on an existing multicast group.
+func (b *InMemoryBackend) UpdateMulticastGroup(accountID, region, id, name, description string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+
+	mg, ok := b.multicastGroups[key]
+	if !ok {
+		return ErrMulticastGroupNotFound
+	}
+
+	if name != "" {
+		mg.Name = name
+	}
+
+	mg.Description = description
+
+	return nil
+}
+
+// CreateNetworkAnalyzerConfig creates a new network analyzer configuration.
+func (b *InMemoryBackend) CreateNetworkAnalyzerConfig(
+	accountID, region, name, description string,
+	wirelessDevices, wirelessGateways []string,
+	tags map[string]string,
+) (*NetworkAnalyzerConfig, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	arn := networkAnalyzerConfigARN(region, accountID, name)
+
+	nc := &NetworkAnalyzerConfig{
+		Name:             name,
+		ARN:              arn,
+		Description:      description,
+		WirelessDevices:  append([]string(nil), wirelessDevices...),
+		WirelessGateways: append([]string(nil), wirelessGateways...),
+		Tags:             newTagsCopy(tags),
+	}
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: name}
+	b.networkAnalyzerConfigs[key] = nc
+	b.storeResourceTagsLocked(arn, tags)
+
+	return copyNetworkAnalyzerConfig(nc), nil
+}
+
+// GetNetworkAnalyzerConfig returns a network analyzer configuration by name.
+func (b *InMemoryBackend) GetNetworkAnalyzerConfig(accountID, region, name string) (*NetworkAnalyzerConfig, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: name}
+
+	nc, ok := b.networkAnalyzerConfigs[key]
+	if !ok {
+		return nil, ErrNetworkAnalyzerConfigNotFound
+	}
+
+	return copyNetworkAnalyzerConfig(nc), nil
+}
+
+// ListNetworkAnalyzerConfigs returns all network analyzer configurations for the given account and region,
+// sorted by name for deterministic output.
+func (b *InMemoryBackend) ListNetworkAnalyzerConfigs(accountID, region string) []*NetworkAnalyzerConfig {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*NetworkAnalyzerConfig, 0)
+
+	for k, nc := range b.networkAnalyzerConfigs {
+		if k.AccountID == accountID && k.Region == region {
+			result = append(result, copyNetworkAnalyzerConfig(nc))
+		}
+	}
+
+	slices.SortFunc(result, func(a, b *NetworkAnalyzerConfig) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	return result
+}
+
+// DeleteNetworkAnalyzerConfig deletes a network analyzer configuration by name.
+func (b *InMemoryBackend) DeleteNetworkAnalyzerConfig(accountID, region, name string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: name}
+
+	nc, ok := b.networkAnalyzerConfigs[key]
+	if !ok {
+		return ErrNetworkAnalyzerConfigNotFound
+	}
+
+	delete(b.resourceTags, nc.ARN)
+	delete(b.networkAnalyzerConfigs, key)
+
+	return nil
+}
+
+// UpdateNetworkAnalyzerConfig updates mutable fields on an existing network analyzer configuration.
+func (b *InMemoryBackend) UpdateNetworkAnalyzerConfig(
+	accountID, region, name, description string,
+	wirelessDevices, wirelessGateways []string,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := resourceKey{AccountID: accountID, Region: region, ID: name}
+
+	nc, ok := b.networkAnalyzerConfigs[key]
+	if !ok {
+		return ErrNetworkAnalyzerConfigNotFound
+	}
+
+	nc.Description = description
+
+	if wirelessDevices != nil {
+		nc.WirelessDevices = append([]string(nil), wirelessDevices...)
+	}
+
+	if wirelessGateways != nil {
+		nc.WirelessGateways = append([]string(nil), wirelessGateways...)
+	}
 
 	return nil
 }

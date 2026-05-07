@@ -1538,7 +1538,9 @@ func isNotFound(err error) bool {
 		errors.Is(err, ErrServiceProfileNotFound) ||
 		errors.Is(err, ErrDestinationNotFound) ||
 		errors.Is(err, ErrDeviceProfileNotFound) ||
-		errors.Is(err, ErrFuotaTaskNotFound)
+		errors.Is(err, ErrFuotaTaskNotFound) ||
+		errors.Is(err, ErrMulticastGroupNotFound) ||
+		errors.Is(err, ErrNetworkAnalyzerConfigNotFound)
 }
 
 // handleError writes an appropriate HTTP error response for a backend error.
