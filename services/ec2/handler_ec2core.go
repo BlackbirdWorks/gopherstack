@@ -77,8 +77,8 @@ type egressOnlyIGWItem struct {
 }
 
 type createEgressOnlyInternetGatewayResponse struct {
-	XMLName                xml.Name          `xml:"CreateEgressOnlyInternetGatewayResponse"`
-	RequestID              string            `xml:"requestId"`
+	XMLName                   xml.Name          `xml:"CreateEgressOnlyInternetGatewayResponse"`
+	RequestID                 string            `xml:"requestId"`
 	EgressOnlyInternetGateway egressOnlyIGWItem `xml:"egressOnlyInternetGateway"`
 }
 
@@ -91,9 +91,9 @@ type describeEgressOnlyInternetGatewaysResponse struct {
 }
 
 type deleteEgressOnlyInternetGatewayResponse struct {
-	XMLName   xml.Name `xml:"DeleteEgressOnlyInternetGatewayResponse"`
-	RequestID string   `xml:"requestId"`
-	ReturnCode bool    `xml:"returnCode"`
+	XMLName    xml.Name `xml:"DeleteEgressOnlyInternetGatewayResponse"`
+	RequestID  string   `xml:"requestId"`
+	ReturnCode bool     `xml:"returnCode"`
 }
 
 type iamProfileSpec struct {
@@ -136,46 +136,46 @@ type replaceIamInstanceProfileAssociationResponse struct {
 }
 
 type replaceRouteTableAssociationResponse struct {
-	XMLName       xml.Name `xml:"ReplaceRouteTableAssociationResponse"`
-	RequestID     string   `xml:"requestId"`
-	NewAssocID    string   `xml:"newAssociationId"`
+	XMLName    xml.Name `xml:"ReplaceRouteTableAssociationResponse"`
+	RequestID  string   `xml:"requestId"`
+	NewAssocID string   `xml:"newAssociationId"`
 }
 
 type associateVpcCidrBlockResponse struct {
-	XMLName     xml.Name `xml:"AssociateVpcCidrBlockResponse"`
-	RequestID   string   `xml:"requestId"`
-	VpcID       string   `xml:"vpcId"`
-	AssocID     string   `xml:"ipv4CidrBlockAssociation>associationId"`
-	CidrBlock   string   `xml:"ipv4CidrBlockAssociation>cidrBlock"`
-	State       string   `xml:"ipv4CidrBlockAssociation>cidrBlockState>state"`
+	XMLName   xml.Name `xml:"AssociateVpcCidrBlockResponse"`
+	RequestID string   `xml:"requestId"`
+	VpcID     string   `xml:"vpcId"`
+	AssocID   string   `xml:"ipv4CidrBlockAssociation>associationId"`
+	CidrBlock string   `xml:"ipv4CidrBlockAssociation>cidrBlock"`
+	State     string   `xml:"ipv4CidrBlockAssociation>cidrBlockState>state"`
 }
 
 type tgwRouteTableItem struct {
-	TransitGatewayRouteTableID string `xml:"transitGatewayRouteTableId"`
-	TransitGatewayID           string `xml:"transitGatewayId"`
-	State                      string `xml:"state"`
-	DefaultAssociationRouteTable bool `xml:"defaultAssociationRouteTable"`
-	DefaultPropagationRouteTable bool `xml:"defaultPropagationRouteTable"`
+	TransitGatewayRouteTableID   string `xml:"transitGatewayRouteTableId"`
+	TransitGatewayID             string `xml:"transitGatewayId"`
+	State                        string `xml:"state"`
 	CreationTime                 string `xml:"creationTime"`
+	DefaultAssociationRouteTable bool   `xml:"defaultAssociationRouteTable"`
+	DefaultPropagationRouteTable bool   `xml:"defaultPropagationRouteTable"`
 }
 
 type createTransitGatewayRouteTableResponse struct {
-	XMLName              xml.Name          `xml:"CreateTransitGatewayRouteTableResponse"`
-	RequestID            string            `xml:"requestId"`
+	XMLName                  xml.Name          `xml:"CreateTransitGatewayRouteTableResponse"`
+	RequestID                string            `xml:"requestId"`
 	TransitGatewayRouteTable tgwRouteTableItem `xml:"transitGatewayRouteTable"`
 }
 
 type describeTransitGatewayRouteTablesResponse struct {
-	XMLName xml.Name `xml:"DescribeTransitGatewayRouteTablesResponse"`
-	RequestID string `xml:"requestId"`
+	XMLName                   xml.Name `xml:"DescribeTransitGatewayRouteTablesResponse"`
+	RequestID                 string   `xml:"requestId"`
 	TransitGatewayRouteTables struct {
 		Items []tgwRouteTableItem `xml:"item"`
 	} `xml:"transitGatewayRouteTables"`
 }
 
 type deleteTransitGatewayRouteTableResponse struct {
-	XMLName              xml.Name          `xml:"DeleteTransitGatewayRouteTableResponse"`
-	RequestID            string            `xml:"requestId"`
+	XMLName                  xml.Name          `xml:"DeleteTransitGatewayRouteTableResponse"`
+	RequestID                string            `xml:"requestId"`
 	TransitGatewayRouteTable tgwRouteTableItem `xml:"transitGatewayRouteTable"`
 }
 
@@ -185,28 +185,28 @@ type tgwRouteAttachmentItem struct {
 }
 
 type tgwRouteItem struct {
-	DestinationCidrBlock string                   `xml:"destinationCidrBlock"`
-	State                string                   `xml:"state"`
-	Type                 string                   `xml:"type"`
+	DestinationCidrBlock      string                   `xml:"destinationCidrBlock"`
+	State                     string                   `xml:"state"`
+	Type                      string                   `xml:"type"`
 	TransitGatewayAttachments []tgwRouteAttachmentItem `xml:"transitGatewayAttachments>item"`
 }
 
 type createTransitGatewayRouteResponse struct {
-	XMLName xml.Name     `xml:"CreateTransitGatewayRouteResponse"`
-	RequestID string     `xml:"requestId"`
-	Route   tgwRouteItem `xml:"route"`
+	XMLName   xml.Name     `xml:"CreateTransitGatewayRouteResponse"`
+	RequestID string       `xml:"requestId"`
+	Route     tgwRouteItem `xml:"route"`
 }
 
 type deleteTransitGatewayRouteResponse struct {
-	XMLName xml.Name     `xml:"DeleteTransitGatewayRouteResponse"`
-	RequestID string     `xml:"requestId"`
-	Route   tgwRouteItem `xml:"route"`
+	XMLName   xml.Name     `xml:"DeleteTransitGatewayRouteResponse"`
+	RequestID string       `xml:"requestId"`
+	Route     tgwRouteItem `xml:"route"`
 }
 
 type replaceTransitGatewayRouteResponse struct {
-	XMLName xml.Name     `xml:"ReplaceTransitGatewayRouteResponse"`
-	RequestID string     `xml:"requestId"`
-	Route   tgwRouteItem `xml:"route"`
+	XMLName   xml.Name     `xml:"ReplaceTransitGatewayRouteResponse"`
+	RequestID string       `xml:"requestId"`
+	Route     tgwRouteItem `xml:"route"`
 }
 
 type tgwRTAssociationItem struct {
@@ -463,7 +463,7 @@ func (h *Handler) handleDeleteTransitGatewayRouteTable(vals url.Values, reqID st
 
 	if len(existing) > 0 {
 		item = tgwRTToItem(existing[0])
-		item.State = "deleted"
+		item.State = tgwRouteStateDeleted
 	}
 
 	return &deleteTransitGatewayRouteTableResponse{
@@ -512,8 +512,8 @@ func (h *Handler) handleDeleteTransitGatewayRoute(vals url.Values, reqID string)
 	route := &TransitGatewayRoute{
 		DestinationCidrBlock:       cidr,
 		TransitGatewayRouteTableID: rtID,
-		State:                      "deleted",
-		Type:                       "static",
+		State:                      tgwRouteStateDeleted,
+		Type:                       tgwRouteTypeStatic,
 	}
 
 	if err := h.Backend.DeleteTransitGatewayRoute(rtID, cidr); err != nil {

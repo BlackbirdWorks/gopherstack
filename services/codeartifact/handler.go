@@ -321,53 +321,44 @@ func parseDomainRepoPath(method, path string) codeartifactRoute {
 	return codeartifactRoute{operation: opUnknown}
 }
 
-// parsePackageOpPath handles package, package-group, and package-version routes.
+// packageOpStaticRoutes maps static paths (no method dispatch) to their operations.
 //
-//nolint:cyclop // large switch-case dispatch is inherently high cyclomatic complexity
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var packageOpStaticRoutes = map[string]string{
+	pathV1PackageGroups:                   opListPackageGroups,
+	pathV1Packages:                        opListPackages,
+	pathV1PackageVersion:                  opDescribePackageVersion,
+	pathV1PackageVersions:                 opListPackageVersions,
+	pathV1PackageVersionsCopy:             opCopyPackageVersions,
+	pathV1PackageVersionsDelete:           opDeletePackageVersions,
+	pathV1PackageVersionsDispose:          opDisposePackageVersions,
+	pathV1PackageVersionsUpdateStatus:     opUpdatePackageVersionsStatus,
+	pathV1PackageVersionsPublish:          opPublishPackageVersion,
+	pathV1PackageVersionAsset:             opGetPackageVersionAsset,
+	pathV1PackageVersionReadme:            opGetPackageVersionReadme,
+	pathV1PackageVersionAssets:            opListPackageVersionAssets,
+	pathV1PackageVersionDependencies:      opListPackageVersionDependencies,
+	pathV1PackageOriginConfiguration:      opPutPackageOriginConfiguration,
+	pathV1PackageGroupAssociatedPackages:  opListAssociatedPackages,
+	pathV1PackageGroupAllowedRepos:        opListAllowedRepositoriesForGroup,
+	pathV1PackageGroupOriginConfiguration: opUpdatePackageGroupOriginConfiguration,
+	pathV1SubPackageGroups:                opListSubPackageGroups,
+	pathV1AssociatedPackageGroup:          opGetAssociatedPackageGroup,
+}
+
+// parsePackageOpPath handles package, package-group, and package-version routes.
 func parsePackageOpPath(method, path string) codeartifactRoute {
+	// Method-dispatched paths first.
 	switch path {
 	case pathV1PackageGroup:
 		return parsePackageGroupRoute(method)
-	case pathV1PackageGroups:
-		return codeartifactRoute{operation: opListPackageGroups}
 	case pathV1Package:
 		return parsePackageRoute(method)
-	case pathV1Packages:
-		return codeartifactRoute{operation: opListPackages}
-	case pathV1PackageVersion:
-		return codeartifactRoute{operation: opDescribePackageVersion}
-	case pathV1PackageVersions:
-		return codeartifactRoute{operation: opListPackageVersions}
-	case pathV1PackageVersionsCopy:
-		return codeartifactRoute{operation: opCopyPackageVersions}
-	case pathV1PackageVersionsDelete:
-		return codeartifactRoute{operation: opDeletePackageVersions}
-	case pathV1PackageVersionsDispose:
-		return codeartifactRoute{operation: opDisposePackageVersions}
-	case pathV1PackageVersionsUpdateStatus:
-		return codeartifactRoute{operation: opUpdatePackageVersionsStatus}
-	case pathV1PackageVersionsPublish:
-		return codeartifactRoute{operation: opPublishPackageVersion}
-	case pathV1PackageVersionAsset:
-		return codeartifactRoute{operation: opGetPackageVersionAsset}
-	case pathV1PackageVersionReadme:
-		return codeartifactRoute{operation: opGetPackageVersionReadme}
-	case pathV1PackageVersionAssets:
-		return codeartifactRoute{operation: opListPackageVersionAssets}
-	case pathV1PackageVersionDependencies:
-		return codeartifactRoute{operation: opListPackageVersionDependencies}
-	case pathV1PackageOriginConfiguration:
-		return codeartifactRoute{operation: opPutPackageOriginConfiguration}
-	case pathV1PackageGroupAssociatedPackages:
-		return codeartifactRoute{operation: opListAssociatedPackages}
-	case pathV1PackageGroupAllowedRepos:
-		return codeartifactRoute{operation: opListAllowedRepositoriesForGroup}
-	case pathV1PackageGroupOriginConfiguration:
-		return codeartifactRoute{operation: opUpdatePackageGroupOriginConfiguration}
-	case pathV1SubPackageGroups:
-		return codeartifactRoute{operation: opListSubPackageGroups}
-	case pathV1AssociatedPackageGroup:
-		return codeartifactRoute{operation: opGetAssociatedPackageGroup}
+	}
+
+	// Static path → operation mapping.
+	if op, ok := packageOpStaticRoutes[path]; ok {
+		return codeartifactRoute{operation: op}
 	}
 
 	return codeartifactRoute{operation: opUnknown}

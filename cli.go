@@ -645,7 +645,14 @@ func (c *CLI) UpdateSettings(s dashboard.Settings) {
 	c.applyServiceSettings(s)
 
 	if c.globalConfig != nil {
-		c.globalConfig.Update(s.AccountID, s.Region, s.LatencyMs, s.JanitorTimeout, s.EnforceIAM, s.AutoPurgeTTL)
+		c.globalConfig.Update(
+			s.AccountID,
+			s.Region,
+			s.LatencyMs,
+			s.JanitorTimeout,
+			s.EnforceIAM,
+			s.AutoPurgeTTL,
+		)
 	}
 }
 
@@ -1651,14 +1658,27 @@ func applyExplicitOverrides(original, loaded CLI) CLI {
 
 // setupPortAllocator creates a port allocator from the given range.
 // Returns nil when the range is invalid (allocator disabled).
-func setupPortAllocator(ctx context.Context, log *slog.Logger, start, end int) *portalloc.Allocator {
+func setupPortAllocator(
+	ctx context.Context,
+	log *slog.Logger,
+	start, end int,
+) *portalloc.Allocator {
 	alloc, err := portalloc.New(start, end)
 	if err != nil {
 		log.WarnContext(ctx, "Port allocator disabled (invalid range)", "error", err)
 
 		return nil
 	}
-	log.InfoContext(ctx, "Port allocator ready", "start", start, "end", end, "available", alloc.Available())
+	log.InfoContext(
+		ctx,
+		"Port allocator ready",
+		"start",
+		start,
+		"end",
+		end,
+		"available",
+		alloc.Available(),
+	)
 
 	return alloc
 }
@@ -1819,7 +1839,11 @@ func createS3InitBuckets(ctx context.Context, cli *CLI, log *slog.Logger) {
 // AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are used when set, so that tooling that
 // configures these standard env vars (e.g. awslocal) works without credential remapping.
 // The server never validates incoming credentials, so the exact values do not matter.
-func buildInternalAWSConfig(ctx context.Context, region string, httpClient awscfg.HTTPClient) (aws.Config, error) {
+func buildInternalAWSConfig(
+	ctx context.Context,
+	region string,
+	httpClient awscfg.HTTPClient,
+) (aws.Config, error) {
 	keyID := os.Getenv("AWS_ACCESS_KEY_ID")
 	secret := os.Getenv("AWS_SECRET_ACCESS_KEY")
 
@@ -2290,6 +2314,8 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 }
 
 // initializeServices initializes all service providers.
+//
+//nolint:funlen // registers many services; splitting would obscure the dependency wiring
 func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
 	providers := getServiceProviders()
 	services := make([]service.Registerable, 0, len(providers))
@@ -2318,13 +2344,24 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	wireEventBridgeDelivery(byName["EventBridge"], byName["Lambda"], byName["SQS"], byName["SNS"])
 
 	// Wire S3 bucket notification delivery to SQS/SNS/Lambda targets.
-	wireS3Notifications(byName["S3"], byName["SQS"], byName["SNS"], byName["Lambda"], byName["EventBridge"])
+	wireS3Notifications(
+		byName["S3"],
+		byName["SQS"],
+		byName["SNS"],
+		byName["Lambda"],
+		byName["EventBridge"],
+	)
 
 	// Wire Step Functions → Lambda Task integration.
 	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
 
 	// Wire Step Functions → SQS/SNS/DynamoDB service integrations.
-	wireStepFunctionsServiceIntegrations(byName["StepFunctions"], byName["SQS"], byName["SNS"], byName["DynamoDB"])
+	wireStepFunctionsServiceIntegrations(
+		byName["StepFunctions"],
+		byName["SQS"],
+		byName["SNS"],
+		byName["DynamoDB"],
+	)
 
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(byName["APIGateway"], byName["Lambda"])
@@ -2345,7 +2382,12 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
 
 	// Wire CloudWatch Logs subscription filter delivery to Lambda, Kinesis, and Firehose.
-	wireCWLogsSubscriptionFilters(byName["CloudWatchLogs"], byName["Lambda"], byName["Kinesis"], byName["Firehose"])
+	wireCWLogsSubscriptionFilters(
+		byName["CloudWatchLogs"],
+		byName["Lambda"],
+		byName["Kinesis"],
+		byName["Firehose"],
+	)
 
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
@@ -2366,7 +2408,13 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
 
 	// Wire Scheduler runner → Lambda, SQS, SNS, and StepFunctions backends.
-	wireSchedulerRunner(byName["Scheduler"], byName["Lambda"], byName["SQS"], byName["SNS"], byName["StepFunctions"])
+	wireSchedulerRunner(
+		byName["Scheduler"],
+		byName["Lambda"],
+		byName["SQS"],
+		byName["SNS"],
+		byName["StepFunctions"],
+	)
 
 	// Wire Pipes runner → SQS (source), Lambda, and StepFunctions (targets).
 	wirePipesRunner(byName["Pipes"], byName["SQS"], byName["Lambda"], byName["StepFunctions"])
@@ -2565,7 +2613,12 @@ func getMostRecentServiceProviders() []service.Provider {
 // so a slow or deadlocked backend cannot stall the entire purge cycle.
 // startPurgeWorker periodically checks for and deletes resources older than the configured TTL.
 // It dynamically reads the TTL from the global configuration, allowing runtime updates.
-func startPurgeWorker(ctx context.Context, log *slog.Logger, gcfg *config.GlobalConfig, svcs []service.Registerable) {
+func startPurgeWorker(
+	ctx context.Context,
+	log *slog.Logger,
+	gcfg *config.GlobalConfig,
+	svcs []service.Registerable,
+) {
 	const (
 		purgeTimeout  = 30 * time.Second
 		checkInterval = 10 * time.Second
@@ -2682,7 +2735,10 @@ func shutdownServices(ctx context.Context, services []service.Registerable) {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		log.WarnContext(ctx, "service shutdown timed out; some background goroutines may still be running")
+		log.WarnContext(
+			ctx,
+			"service shutdown timed out; some background goroutines may still be running",
+		)
 	}
 }
 
@@ -2752,7 +2808,10 @@ type sqsSenderAdapter struct {
 	backend *sqsbackend.InMemoryBackend
 }
 
-func (a *sqsSenderAdapter) SendMessageToQueue(_ context.Context, queueARN, messageBody string) error {
+func (a *sqsSenderAdapter) SendMessageToQueue(
+	_ context.Context,
+	queueARN, messageBody string,
+) error {
 	// Convert SQS ARN to queue name (last segment after ':').
 	queueURL := arnToSQSQueueURL(queueARN)
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
@@ -2808,7 +2867,9 @@ func wireS3Notifications(s3Reg, sqsReg, snsReg, lambdaReg, ebReg service.Registe
 		}
 	}
 
-	s3H.SetNotificationDispatcher(s3backend.NewNotificationDispatcher(targets, config.DefaultRegion))
+	s3H.SetNotificationDispatcher(
+		s3backend.NewNotificationDispatcher(targets, config.DefaultRegion),
+	)
 }
 
 // s3SNSPublisherAdapter adapts the SNS backend to the s3.SNSPublisher interface.
@@ -2816,7 +2877,10 @@ type s3SNSPublisherAdapter struct {
 	backend *snsbackend.InMemoryBackend
 }
 
-func (a *s3SNSPublisherAdapter) PublishToTopic(_ context.Context, topicARN, message, _ string) error {
+func (a *s3SNSPublisherAdapter) PublishToTopic(
+	_ context.Context,
+	topicARN, message, _ string,
+) error {
 	_, err := a.backend.Publish(topicARN, message, "", "", nil)
 
 	return err
@@ -2827,7 +2891,10 @@ type s3EventBridgeAdapter struct {
 	backend *ebbackend.InMemoryBackend
 }
 
-func (a *s3EventBridgeAdapter) PublishS3Event(_ context.Context, source, detailType, detail string) {
+func (a *s3EventBridgeAdapter) PublishS3Event(
+	_ context.Context,
+	source, detailType, detail string,
+) {
 	a.backend.PutEvents([]ebbackend.EventEntry{
 		{Source: source, DetailType: detailType, Detail: detail},
 	})
@@ -2921,7 +2988,9 @@ type kinesisReaderAdapter struct {
 }
 
 func (a *kinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) {
-	out, err := a.backend.DescribeStream(&kinesisbackend.DescribeStreamInput{StreamName: streamName})
+	out, err := a.backend.DescribeStream(
+		&kinesisbackend.DescribeStreamInput{StreamName: streamName},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -3017,7 +3086,10 @@ type sqsReaderAdapter struct {
 	backend *sqsbackend.InMemoryBackend
 }
 
-func (a *sqsReaderAdapter) ReceiveMessagesLocal(queueARN string, maxMessages int) ([]*lambdabackend.SQSMessage, error) {
+func (a *sqsReaderAdapter) ReceiveMessagesLocal(
+	queueARN string,
+	maxMessages int,
+) ([]*lambdabackend.SQSMessage, error) {
 	url := arnToSQSQueueURL(queueARN)
 
 	msgs, err := a.backend.ReceiveMessagesLocal(url, maxMessages)
@@ -3074,12 +3146,17 @@ type ddbStreamsReaderAdapter struct {
 // It must match the value defined in services/dynamodb/streams_ops.go (streamShardID).
 const ddbStreamsShardID = "shardId-00000000000000000001-00000001"
 
-func (a *ddbStreamsReaderAdapter) GetStreamShardIterator(streamARN, iteratorType string) (string, error) {
-	out, err := a.backend.GetShardIterator(context.Background(), &awsddbstreams.GetShardIteratorInput{
-		StreamArn:         aws.String(streamARN),
-		ShardId:           aws.String(ddbStreamsShardID),
-		ShardIteratorType: ddbstreamstypes.ShardIteratorType(iteratorType),
-	})
+func (a *ddbStreamsReaderAdapter) GetStreamShardIterator(
+	streamARN, iteratorType string,
+) (string, error) {
+	out, err := a.backend.GetShardIterator(
+		context.Background(),
+		&awsddbstreams.GetShardIteratorInput{
+			StreamArn:         aws.String(streamARN),
+			ShardId:           aws.String(ddbStreamsShardID),
+			ShardIteratorType: ddbstreamstypes.ShardIteratorType(iteratorType),
+		},
+	)
 	if err != nil {
 		return "", err
 	}
@@ -3127,7 +3204,10 @@ func (a *ddbStreamsReaderAdapter) GetStreamRecords(
 
 // populateDDBStreamRecord fills in the DynamoDB-specific fields of a DynamoDBStreamRecord
 // from the SDK StreamRecord payload.
-func populateDDBStreamRecord(rec *lambdabackend.DynamoDBStreamRecord, ddb *ddbstreamstypes.StreamRecord) {
+func populateDDBStreamRecord(
+	rec *lambdabackend.DynamoDBStreamRecord,
+	ddb *ddbstreamstypes.StreamRecord,
+) {
 	if ddb == nil {
 		return
 	}
@@ -3312,7 +3392,9 @@ func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []str
 
 // wireCWLogsSubscriptionFilters wires the CloudWatch Logs subscription filter delivery
 // to Lambda, Kinesis, and Firehose backends.
-func wireCWLogsSubscriptionFilters(cwlogsReg, lambdaReg, kinesisReg, firehoseReg service.Registerable) {
+func wireCWLogsSubscriptionFilters(
+	cwlogsReg, lambdaReg, kinesisReg, firehoseReg service.Registerable,
+) {
 	cwlogsH, ok := cwlogsReg.(*cwlogsbackend.Handler)
 	if !ok {
 		return
@@ -3380,7 +3462,12 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 		}
 		// resource is "function:<name>" or just "<name>"
 		funcName := strings.TrimPrefix(resource, "function:")
-		_, _, err := d.lambda.InvokeFunction(ctx, funcName, lambdabackend.InvocationTypeEvent, payload)
+		_, _, err := d.lambda.InvokeFunction(
+			ctx,
+			funcName,
+			lambdabackend.InvocationTypeEvent,
+			payload,
+		)
 
 		return err
 	case "kinesis":
@@ -3407,42 +3494,6 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 	}
 
 	return nil
-}
-
-// wireCWLogsMetricEmitter connects the CloudWatch Logs backend to the CloudWatch Metrics backend
-// so that metric filter matches on PutLogEvents are forwarded as CloudWatch metric data points.
-func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
-	cwlogsH, ok := cwlogsReg.(*cwlogsbackend.Handler)
-	if !ok {
-		return
-	}
-
-	cwlogsBk, bkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend)
-	if !bkOk {
-		return
-	}
-
-	cwH, cwOk := cwReg.(*cwbackend.Handler)
-	if !cwOk {
-		return
-	}
-
-	cwBk, cwBkOk := cwH.Backend.(*cwbackend.InMemoryBackend)
-	if !cwBkOk {
-		return
-	}
-
-	cwlogsBk.SetMetricEmitter(cwlogsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
-		return cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-			{
-				MetricName: name,
-				Namespace:  namespace,
-				Value:      value,
-				Unit:       unit,
-				Timestamp:  time.Now(),
-			},
-		})
-	}))
 }
 
 // wireIAMToSTS connects the IAM backend to STS so that AssumeRole can validate
@@ -3642,12 +3693,21 @@ func (a *dynamoDBAdapter) PutItemRaw(
 	return err
 }
 
-func (d *iotRuleDispatcher) InvokeLambda(ctx context.Context, functionARN string, payload []byte) error {
+func (d *iotRuleDispatcher) InvokeLambda(
+	ctx context.Context,
+	functionARN string,
+	payload []byte,
+) error {
 	if d.lambda == nil {
 		return nil
 	}
 
-	_, _, err := d.lambda.InvokeFunction(ctx, functionARN, lambdabackend.InvocationTypeEvent, payload)
+	_, _, err := d.lambda.InvokeFunction(
+		ctx,
+		functionARN,
+		lambdabackend.InvocationTypeEvent,
+		payload,
+	)
 
 	return err
 }
@@ -3734,7 +3794,10 @@ func wireResourceGroupsTagging(
 	wireTaggingSM(bk, smReg)
 }
 
-func wireTaggingDDB(bk resourcegroupstaggingapibackend.StorageBackend, ddbReg service.Registerable) {
+func wireTaggingDDB(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	ddbReg service.Registerable,
+) {
 	ddbH, ok := ddbReg.(*ddbbackend.DynamoDBHandler)
 	if !ok {
 		return
@@ -3785,7 +3848,10 @@ func wireTaggingDDB(bk resourcegroupstaggingapibackend.StorageBackend, ddbReg se
 	)
 }
 
-func wireTaggingSQS(bk resourcegroupstaggingapibackend.StorageBackend, sqsReg service.Registerable) {
+func wireTaggingSQS(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	sqsReg service.Registerable,
+) {
 	sqsH, ok := sqsReg.(*sqsbackend.Handler)
 	if !ok {
 		return
@@ -3816,7 +3882,10 @@ func wireTaggingSQS(bk resourcegroupstaggingapibackend.StorageBackend, sqsReg se
 	)
 }
 
-func wireTaggingSNS(bk resourcegroupstaggingapibackend.StorageBackend, snsReg service.Registerable) {
+func wireTaggingSNS(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	snsReg service.Registerable,
+) {
 	snsH, ok := snsReg.(*snsbackend.Handler)
 	if !ok {
 		return
@@ -3847,7 +3916,10 @@ func wireTaggingSNS(bk resourcegroupstaggingapibackend.StorageBackend, snsReg se
 	)
 }
 
-func wireTaggingLambda(bk resourcegroupstaggingapibackend.StorageBackend, lambdaReg service.Registerable) {
+func wireTaggingLambda(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	lambdaReg service.Registerable,
+) {
 	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
 	if !ok {
 		return
@@ -3873,7 +3945,10 @@ func wireTaggingLambda(bk resourcegroupstaggingapibackend.StorageBackend, lambda
 	)
 }
 
-func wireTaggingKMS(bk resourcegroupstaggingapibackend.StorageBackend, kmsReg service.Registerable) {
+func wireTaggingKMS(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	kmsReg service.Registerable,
+) {
 	kmsH, ok := kmsReg.(*kmsbackend.Handler)
 	if !ok {
 		return
@@ -4032,7 +4107,15 @@ func setupChaosAndRegistry(
 	chaosGroup := e.Group("/_gopherstack/chaos")
 	wireFISFaultStore(cli.fisHandler, faultStore)
 
-	registry, err := setupRegistry(e, log, services, cli.LatencyMs, cli.EnforceIAM, cli.GetGlobalConfig(), faultStore)
+	registry, err := setupRegistry(
+		e,
+		log,
+		services,
+		cli.LatencyMs,
+		cli.EnforceIAM,
+		cli.GetGlobalConfig(),
+		faultStore,
+	)
 	if err != nil {
 		return err
 	}
@@ -4123,7 +4206,9 @@ func buildActionExtractors(services []service.Registerable) []iambackend.ActionE
 
 // buildResourcePolicyProviders builds a list of ResourcePolicyProvider adapters
 // from the registered service backends that support resource-based policies.
-func buildResourcePolicyProviders(services []service.Registerable) []iambackend.ResourcePolicyProvider {
+func buildResourcePolicyProviders(
+	services []service.Registerable,
+) []iambackend.ResourcePolicyProvider {
 	var providers []iambackend.ResourcePolicyProvider
 
 	for _, svc := range services {
@@ -4149,7 +4234,9 @@ type s3PolicyBackend interface {
 
 // sqsPolicyBackend is the minimal SQS backend interface needed for queue policies.
 type sqsPolicyBackend interface {
-	GetQueueAttributes(input *sqsbackend.GetQueueAttributesInput) (*sqsbackend.GetQueueAttributesOutput, error)
+	GetQueueAttributes(
+		input *sqsbackend.GetQueueAttributesInput,
+	) (*sqsbackend.GetQueueAttributesOutput, error)
 }
 
 // s3PolicyAdapter wraps an S3 backend to implement ResourcePolicyProvider.
@@ -4158,7 +4245,10 @@ type s3PolicyAdapter struct {
 	backend s3PolicyBackend
 }
 
-func (a *s3PolicyAdapter) GetResourcePolicy(ctx context.Context, resourceARN string) (string, error) {
+func (a *s3PolicyAdapter) GetResourcePolicy(
+	ctx context.Context,
+	resourceARN string,
+) (string, error) {
 	const prefix = "arn:aws:s3:::"
 	if !strings.HasPrefix(resourceARN, prefix) {
 		return "", nil
@@ -4180,7 +4270,10 @@ type sqsPolicyAdapter struct {
 	backend sqsPolicyBackend
 }
 
-func (a *sqsPolicyAdapter) GetResourcePolicy(_ context.Context, resourceARN string) (string, error) {
+func (a *sqsPolicyAdapter) GetResourcePolicy(
+	_ context.Context,
+	resourceARN string,
+) (string, error) {
 	const prefix = "arn:aws:sqs:"
 	if !strings.HasPrefix(resourceARN, prefix) {
 		return "", nil
@@ -4396,7 +4489,12 @@ func extractServiceName(c *echo.Context, services []service.Registerable) string
 }
 
 // setupPersistence registers all persistable services with the manager and optionally restores state.
-func setupPersistence(ctx context.Context, m *persistence.Manager, services []service.Registerable, restore bool) {
+func setupPersistence(
+	ctx context.Context,
+	m *persistence.Manager,
+	services []service.Registerable,
+	restore bool,
+) {
 	type persistable interface {
 		Snapshot() []byte
 		Restore([]byte) error
@@ -4507,10 +4605,17 @@ func seedAppConfigDataDemoProfiles(ctx context.Context, h service.Registerable, 
 
 // seedBedrockRuntimeDemoInvocations seeds demo invocations for visual dashboard inspection.
 // BedrockRuntime has no AWS SDK write API, so invocations are seeded directly via the backend.
-func seedBedrockRuntimeDemoInvocations(ctx context.Context, h service.Registerable, log *slog.Logger) {
+func seedBedrockRuntimeDemoInvocations(
+	ctx context.Context,
+	h service.Registerable,
+	log *slog.Logger,
+) {
 	brtHandler, ok := h.(*bedrockruntimebackend.Handler)
 	if !ok || brtHandler == nil {
-		log.DebugContext(ctx, "BedrockRuntime handler not available; skipping demo invocation seeding")
+		log.DebugContext(
+			ctx,
+			"BedrockRuntime handler not available; skipping demo invocation seeding",
+		)
 
 		return
 	}
@@ -4544,7 +4649,10 @@ func seedRoute53ResolverDemoData(ctx context.Context, h service.Registerable, lo
 
 	b, ok2 := r53rHandler.Backend.(*route53resolverbackend.InMemoryBackend)
 	if !ok2 || b == nil {
-		log.DebugContext(ctx, "Route53Resolver backend type assertion failed; skipping demo seeding")
+		log.DebugContext(
+			ctx,
+			"Route53Resolver backend type assertion failed; skipping demo seeding",
+		)
 
 		return
 	}
@@ -4574,7 +4682,10 @@ func seedRoute53ResolverDemoData(ctx context.Context, h service.Registerable, lo
 			route53resolverbackend.FirewallPriorityDefault,
 		)
 	}
-	b.AddQueryLogConfigInternal("vpc-query-logs", "arn:aws:logs:us-east-1:000000000000:log-group:/resolver/queries")
+	b.AddQueryLogConfigInternal(
+		"vpc-query-logs",
+		"arn:aws:logs:us-east-1:000000000000:log-group:/resolver/queries",
+	)
 
 	log.InfoContext(ctx, "Seeded Route53Resolver demo data")
 }
@@ -4666,7 +4777,14 @@ func seedEMRServerlessDemoData(ctx context.Context, h service.Registerable, log 
 
 	const seededApps, seededJobRuns = 2, 4
 
-	log.InfoContext(ctx, "Seeded EMR Serverless demo data", "applications", seededApps, "jobRuns", seededJobRuns)
+	log.InfoContext(
+		ctx,
+		"Seeded EMR Serverless demo data",
+		"applications",
+		seededApps,
+		"jobRuns",
+		seededJobRuns,
+	)
 }
 
 // in HTTP handlers, logs the panic and stack trace via slog, and returns an
@@ -4720,7 +4838,10 @@ func (e recoveredPanicError) Error() string {
 
 // persistenceMiddleware returns an Echo middleware that schedules a debounced snapshot
 // after each mutating request.
-func persistenceMiddleware(m *persistence.Manager, services []service.Registerable) echo.MiddlewareFunc {
+func persistenceMiddleware(
+	m *persistence.Manager,
+	services []service.Registerable,
+) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			handlerErr := next(c)

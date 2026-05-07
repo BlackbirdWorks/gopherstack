@@ -279,58 +279,46 @@ func extractCreateDeleteOp(path string) string {
 	}
 }
 
-// extractGetListOp maps get/list paths to operation names.
+// ramGetListRoutes maps path prefixes to operation names for RAM get/list paths.
+// Longer prefixes must appear before shorter ones that share a prefix.
 //
-//nolint:cyclop // large switch needed to map all RAM list/get paths to op names
-func extractGetListOp(
-	path string,
-) string {
-	switch {
-	case strings.HasPrefix(path, "/getpermission"):
-		return opGetPermission
-	case strings.HasPrefix(path, "/getresourcepolicies"):
-		return opGetResourcePolicies
-	case strings.HasPrefix(path, "/getresourceshareassociations"):
-		return opGetResourceShareAssociations
-	case strings.HasPrefix(path, "/getresourceshareinvitations"):
-		return opGetResourceShareInvitations
-	case strings.HasPrefix(path, "/getresourceshares"):
-		return opGetResourceShares
-	case strings.HasPrefix(path, "/listpendinginvitationresources"):
-		return opListPendingInvitationResources
-	case strings.HasPrefix(path, "/listpermissionassociations"):
-		return opListPermissionAssociations
-	case strings.HasPrefix(path, "/listpermissionversions"):
-		return opListPermissionVersions
-	case strings.HasPrefix(path, "/listpermissions"):
-		return opListPermissions
-	case strings.HasPrefix(path, "/listprincipals"):
-		return opListPrincipals
-	case strings.HasPrefix(path, "/listreplacepermissionassociationswork"):
-		return opListReplacePermissionAssociationsWork
-	case strings.HasPrefix(path, "/listresourcesharepermissions"):
-		return opListResourceSharePermissions
-	case strings.HasPrefix(path, "/listresourcetypes"):
-		return opListResourceTypes
-	case strings.HasPrefix(path, "/listresources"):
-		return opListResources
-	case strings.HasPrefix(path, "/listsourceassociations"):
-		return opListSourceAssociations
-	case strings.HasPrefix(path, "/promotepermissioncreatedfrompolicy"):
-		return opPromotePermissionCreatedFromPolicy
-	case strings.HasPrefix(path, "/promoteresourcesharecreatedfrompolicy"):
-		return opPromoteResourceShareCreatedFromPolicy
-	case strings.HasPrefix(path, "/replacepermissionassociations"):
-		return opReplacePermissionAssociations
-	case strings.HasPrefix(path, "/listtagsforresource"):
-		return opListTagsForResource
-	case strings.HasPrefix(path, "/tagresource"):
-		return opTagResource
-	case strings.HasPrefix(path, "/untagresource"):
-		return opUntagResource
-	default:
-		return ""
+//nolint:gochecknoglobals // read-only route table initialized once at startup
+var ramGetListRoutes = []struct {
+	prefix string
+	op     string
+}{
+	{"/getpermission", opGetPermission},
+	{"/getresourcepolicies", opGetResourcePolicies},
+	{"/getresourceshareassociations", opGetResourceShareAssociations},
+	{"/getresourceshareinvitations", opGetResourceShareInvitations},
+	{"/getresourceshares", opGetResourceShares},
+	{"/listpendinginvitationresources", opListPendingInvitationResources},
+	{"/listpermissionassociations", opListPermissionAssociations},
+	{"/listpermissionversions", opListPermissionVersions},
+	{"/listpermissions", opListPermissions},
+	{"/listprincipals", opListPrincipals},
+	{"/listreplacepermissionassociationswork", opListReplacePermissionAssociationsWork},
+	{"/listresourcesharepermissions", opListResourceSharePermissions},
+	{"/listresourcetypes", opListResourceTypes},
+	{"/listresources", opListResources},
+	{"/listsourceassociations", opListSourceAssociations},
+	{"/promotepermissioncreatedfrompolicy", opPromotePermissionCreatedFromPolicy},
+	{"/promoteresourcesharecreatedfrompolicy", opPromoteResourceShareCreatedFromPolicy},
+	{"/replacepermissionassociations", opReplacePermissionAssociations},
+	{"/listtagsforresource", opListTagsForResource},
+	{"/tagresource", opTagResource},
+	{"/untagresource", opUntagResource},
+}
+
+// extractGetListOp maps get/list paths to operation names.
+func extractGetListOp(path string) string {
+	for _, r := range ramGetListRoutes {
+		if strings.HasPrefix(path, r.prefix) {
+			return r.op
+		}
 	}
+
+	return ""
 }
 
 // extractAssociationOperation maps associate/disassociate RAM paths to their operation names.

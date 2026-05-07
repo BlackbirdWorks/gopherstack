@@ -206,57 +206,39 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
 }
 
-// dispatchCoreOps handles the original core operations.
+// memorydbCoreOps maps operation names to handler functions for core MemoryDB operations.
 //
-//nolint:cyclop // switch-based operation dispatch; each case is a single delegation.
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var memorydbCoreOps = map[string]func(*Handler, *echo.Context, []byte) error{
+	"CreateCluster":           (*Handler).handleCreateCluster,
+	"DescribeClusters":        (*Handler).handleDescribeClusters,
+	"DeleteCluster":           (*Handler).handleDeleteCluster,
+	"UpdateCluster":           (*Handler).handleUpdateCluster,
+	"CreateACL":               (*Handler).handleCreateACL,
+	"DescribeACLs":            (*Handler).handleDescribeACLs,
+	"DeleteACL":               (*Handler).handleDeleteACL,
+	"UpdateACL":               (*Handler).handleUpdateACL,
+	"CreateSubnetGroup":       (*Handler).handleCreateSubnetGroup,
+	"DescribeSubnetGroups":    (*Handler).handleDescribeSubnetGroups,
+	"DeleteSubnetGroup":       (*Handler).handleDeleteSubnetGroup,
+	"UpdateSubnetGroup":       (*Handler).handleUpdateSubnetGroup,
+	"CreateUser":              (*Handler).handleCreateUser,
+	"DescribeUsers":           (*Handler).handleDescribeUsers,
+	"DeleteUser":              (*Handler).handleDeleteUser,
+	"UpdateUser":              (*Handler).handleUpdateUser,
+	"CreateParameterGroup":    (*Handler).handleCreateParameterGroup,
+	"DescribeParameterGroups": (*Handler).handleDescribeParameterGroups,
+	"DeleteParameterGroup":    (*Handler).handleDeleteParameterGroup,
+	"UpdateParameterGroup":    (*Handler).handleUpdateParameterGroup,
+	"ListTags":                (*Handler).handleListTags,
+	"TagResource":             (*Handler).handleTagResource,
+	"UntagResource":           (*Handler).handleUntagResource,
+}
+
+// dispatchCoreOps handles the original core operations.
 func (h *Handler) dispatchCoreOps(c *echo.Context, op string, body []byte) (bool, error) {
-	switch op {
-	case "CreateCluster":
-		return true, h.handleCreateCluster(c, body)
-	case "DescribeClusters":
-		return true, h.handleDescribeClusters(c, body)
-	case "DeleteCluster":
-		return true, h.handleDeleteCluster(c, body)
-	case "UpdateCluster":
-		return true, h.handleUpdateCluster(c, body)
-	case "CreateACL":
-		return true, h.handleCreateACL(c, body)
-	case "DescribeACLs":
-		return true, h.handleDescribeACLs(c, body)
-	case "DeleteACL":
-		return true, h.handleDeleteACL(c, body)
-	case "UpdateACL":
-		return true, h.handleUpdateACL(c, body)
-	case "CreateSubnetGroup":
-		return true, h.handleCreateSubnetGroup(c, body)
-	case "DescribeSubnetGroups":
-		return true, h.handleDescribeSubnetGroups(c, body)
-	case "DeleteSubnetGroup":
-		return true, h.handleDeleteSubnetGroup(c, body)
-	case "UpdateSubnetGroup":
-		return true, h.handleUpdateSubnetGroup(c, body)
-	case "CreateUser":
-		return true, h.handleCreateUser(c, body)
-	case "DescribeUsers":
-		return true, h.handleDescribeUsers(c, body)
-	case "DeleteUser":
-		return true, h.handleDeleteUser(c, body)
-	case "UpdateUser":
-		return true, h.handleUpdateUser(c, body)
-	case "CreateParameterGroup":
-		return true, h.handleCreateParameterGroup(c, body)
-	case "DescribeParameterGroups":
-		return true, h.handleDescribeParameterGroups(c, body)
-	case "DeleteParameterGroup":
-		return true, h.handleDeleteParameterGroup(c, body)
-	case "UpdateParameterGroup":
-		return true, h.handleUpdateParameterGroup(c, body)
-	case "ListTags":
-		return true, h.handleListTags(c, body)
-	case "TagResource":
-		return true, h.handleTagResource(c, body)
-	case "UntagResource":
-		return true, h.handleUntagResource(c, body)
+	if fn, ok := memorydbCoreOps[op]; ok {
+		return true, fn(h, c, body)
 	}
 
 	return false, nil

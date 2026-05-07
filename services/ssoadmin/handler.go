@@ -204,219 +204,114 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// ssoAdminOps maps all SSO Admin operation names to their handler functions.
+//
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var ssoAdminOps = map[string]func(*Handler, *echo.Context, []byte) error{
+	// Instance operations
+	"ListInstances":    (*Handler).handleListInstances,
+	"CreateInstance":   (*Handler).handleCreateInstance,
+	"DescribeInstance": (*Handler).handleDescribeInstance,
+	"DeleteInstance":   (*Handler).handleDeleteInstance,
+	// Permission Set operations
+	"CreatePermissionSet":   (*Handler).handleCreatePermissionSet,
+	"DescribePermissionSet": (*Handler).handleDescribePermissionSet,
+	"ListPermissionSets":    (*Handler).handleListPermissionSets,
+	"DeletePermissionSet":   (*Handler).handleDeletePermissionSet,
+	"UpdatePermissionSet":   (*Handler).handleUpdatePermissionSet,
+	// Account Assignment operations
+	"CreateAccountAssignment":                 (*Handler).handleCreateAccountAssignment,
+	"DescribeAccountAssignmentCreationStatus": (*Handler).handleDescribeAccountAssignmentCreationStatus,
+	"DeleteAccountAssignment":                 (*Handler).handleDeleteAccountAssignment,
+	"DescribeAccountAssignmentDeletionStatus": (*Handler).handleDescribeAccountAssignmentDeletionStatus,
+	"ListAccountAssignments":                  (*Handler).handleListAccountAssignments,
+	// Policy operations
+	"AttachManagedPolicyToPermissionSet":      (*Handler).handleAttachManagedPolicyToPermissionSet,
+	"DetachManagedPolicyFromPermissionSet":    (*Handler).handleDetachManagedPolicyFromPermissionSet,
+	"ListManagedPoliciesInPermissionSet":      (*Handler).handleListManagedPoliciesInPermissionSet,
+	"PutInlinePolicyToPermissionSet":          (*Handler).handlePutInlinePolicyToPermissionSet,
+	"GetInlinePolicyForPermissionSet":         (*Handler).handleGetInlinePolicyForPermissionSet,
+	"DeleteInlinePolicyFromPermissionSet":     (*Handler).handleDeleteInlinePolicyFromPermissionSet,
+	"ProvisionPermissionSet":                  (*Handler).handleProvisionPermissionSet,
+	"DescribePermissionSetProvisioningStatus": (*Handler).handleDescribePermissionSetProvisioningStatus,
+	// Tag operations
+	"TagResource":         (*Handler).handleTagResource,
+	"UntagResource":       (*Handler).handleUntagResource,
+	"ListTagsForResource": (*Handler).handleListTagsForResource,
+	// Region operations
+	"AddRegion":      (*Handler).handleAddRegion,
+	"RemoveRegion":   (*Handler).handleRemoveRegion,
+	"ListRegions":    (*Handler).handleListRegions,
+	"DescribeRegion": (*Handler).handleDescribeRegion,
+	// Customer managed policy operations
+	"AttachCustomerManagedPolicyReferenceToPermissionSet":   (*Handler).handleAttachCustomerManagedPolicyReferenceToPermissionSet,   //nolint:lll // key+value identifier is too long to shorten further
+	"DetachCustomerManagedPolicyReferenceFromPermissionSet": (*Handler).handleDetachCustomerManagedPolicyReferenceFromPermissionSet, //nolint:lll // key+value identifier is too long to shorten further
+	"ListCustomerManagedPolicyReferencesInPermissionSet":    (*Handler).handleListCustomerManagedPolicyReferencesInPermissionSet,    //nolint:lll // key+value identifier is too long to shorten further
+	// Application operations
+	"CreateApplication":           (*Handler).handleCreateApplication,
+	"DeleteApplication":           (*Handler).handleDeleteApplication,
+	"DescribeApplication":         (*Handler).handleDescribeApplication,
+	"UpdateApplication":           (*Handler).handleUpdateApplication,
+	"ListApplications":            (*Handler).handleListApplications,
+	"ListApplicationProviders":    (*Handler).handleListApplicationProviders,
+	"DescribeApplicationProvider": (*Handler).handleDescribeApplicationProvider,
+	// Application assignment operations
+	"CreateApplicationAssignment":            (*Handler).handleCreateApplicationAssignment,
+	"DeleteApplicationAssignment":            (*Handler).handleDeleteApplicationAssignment,
+	"DescribeApplicationAssignment":          (*Handler).handleDescribeApplicationAssignment,
+	"ListApplicationAssignments":             (*Handler).handleListApplicationAssignments,
+	"ListApplicationAssignmentsForPrincipal": (*Handler).handleListApplicationAssignmentsForPrincipal,
+	// Application access scope operations
+	"PutApplicationAccessScope":    (*Handler).handlePutApplicationAccessScope,
+	"DeleteApplicationAccessScope": (*Handler).handleDeleteApplicationAccessScope,
+	"ListApplicationAccessScopes":  (*Handler).handleListApplicationAccessScopes,
+	"GetApplicationAccessScope":    (*Handler).handleGetApplicationAccessScope,
+	// Application authentication method operations
+	"PutApplicationAuthenticationMethod":    (*Handler).handlePutApplicationAuthenticationMethod,
+	"DeleteApplicationAuthenticationMethod": (*Handler).handleDeleteApplicationAuthenticationMethod,
+	"ListApplicationAuthenticationMethods":  (*Handler).handleListApplicationAuthenticationMethods,
+	"GetApplicationAuthenticationMethod":    (*Handler).handleGetApplicationAuthenticationMethod,
+	// Application grant operations
+	"PutApplicationGrant":    (*Handler).handlePutApplicationGrant,
+	"DeleteApplicationGrant": (*Handler).handleDeleteApplicationGrant,
+	"ListApplicationGrants":  (*Handler).handleListApplicationGrants,
+	"GetApplicationGrant":    (*Handler).handleGetApplicationGrant,
+	// Application session/assignment configuration operations
+	"PutApplicationSessionConfiguration":    (*Handler).handlePutApplicationSessionConfiguration,
+	"GetApplicationSessionConfiguration":    (*Handler).handleGetApplicationSessionConfiguration,
+	"PutApplicationAssignmentConfiguration": (*Handler).handlePutApplicationAssignmentConfiguration,
+	"GetApplicationAssignmentConfiguration": (*Handler).handleGetApplicationAssignmentConfiguration,
+	// IACAC operations
+	"CreateInstanceAccessControlAttributeConfiguration":   (*Handler).handleCreateInstanceAccessControlAttributeConfiguration,   //nolint:lll // key+value identifier is too long to shorten further
+	"DeleteInstanceAccessControlAttributeConfiguration":   (*Handler).handleDeleteInstanceAccessControlAttributeConfiguration,   //nolint:lll // key+value identifier is too long to shorten further
+	"DescribeInstanceAccessControlAttributeConfiguration": (*Handler).handleDescribeInstanceAccessControlAttributeConfiguration, //nolint:lll // key+value identifier is too long to shorten further
+	"UpdateInstanceAccessControlAttributeConfiguration":   (*Handler).handleUpdateInstanceAccessControlAttributeConfiguration,   //nolint:lll // key+value identifier is too long to shorten further
+	// Trusted Token Issuer operations
+	"CreateTrustedTokenIssuer":   (*Handler).handleCreateTrustedTokenIssuer,
+	"DeleteTrustedTokenIssuer":   (*Handler).handleDeleteTrustedTokenIssuer,
+	"DescribeTrustedTokenIssuer": (*Handler).handleDescribeTrustedTokenIssuer,
+	"UpdateTrustedTokenIssuer":   (*Handler).handleUpdateTrustedTokenIssuer,
+	"ListTrustedTokenIssuers":    (*Handler).handleListTrustedTokenIssuers,
+	// Permissions boundary operations
+	"PutPermissionsBoundaryToPermissionSet":      (*Handler).handlePutPermissionsBoundaryToPermissionSet,
+	"GetPermissionsBoundaryForPermissionSet":     (*Handler).handleGetPermissionsBoundaryForPermissionSet,
+	"DeletePermissionsBoundaryFromPermissionSet": (*Handler).handleDeletePermissionsBoundaryFromPermissionSet,
+	// Other account/permission set operations
+	"ListAccountAssignmentCreationStatus":     (*Handler).handleListAccountAssignmentCreationStatus,
+	"ListAccountAssignmentDeletionStatus":     (*Handler).handleListAccountAssignmentDeletionStatus,
+	"ListAccountAssignmentsForPrincipal":      (*Handler).handleListAccountAssignmentsForPrincipal,
+	"ListPermissionSetsProvisionedToAccount":  (*Handler).handleListPermissionSetsProvisionedToAccount,
+	"ListAccountsForProvisionedPermissionSet": (*Handler).handleListAccountsForProvisionedPermissionSet,
+	"ListPermissionSetProvisioningStatus":     (*Handler).handleListPermissionSetProvisioningStatus,
+	"UpdateInstance":                          (*Handler).handleUpdateInstance,
+}
+
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "ListInstances":
-		return h.handleListInstances(c, body)
-	case "CreateInstance":
-		return h.handleCreateInstance(c, body)
-	case "DescribeInstance":
-		return h.handleDescribeInstance(c, body)
-	case "DeleteInstance":
-		return h.handleDeleteInstance(c, body)
-	case "CreatePermissionSet":
-		return h.handleCreatePermissionSet(c, body)
-	case "DescribePermissionSet":
-		return h.handleDescribePermissionSet(c, body)
-	case "ListPermissionSets":
-		return h.handleListPermissionSets(c, body)
-	case "DeletePermissionSet":
-		return h.handleDeletePermissionSet(c, body)
-	case "UpdatePermissionSet":
-		return h.handleUpdatePermissionSet(c, body)
-	default:
-		return h.dispatchAssignmentAndPolicy(c, op, body)
+	if fn, ok := ssoAdminOps[op]; ok {
+		return fn(h, c, body)
 	}
-}
 
-//nolint:cyclop // intentional large switch for assignment and policy operations
-func (h *Handler) dispatchAssignmentAndPolicy(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "CreateAccountAssignment":
-		return h.handleCreateAccountAssignment(c, body)
-	case "DescribeAccountAssignmentCreationStatus":
-		return h.handleDescribeAccountAssignmentCreationStatus(c, body)
-	case "DeleteAccountAssignment":
-		return h.handleDeleteAccountAssignment(c, body)
-	case "DescribeAccountAssignmentDeletionStatus":
-		return h.handleDescribeAccountAssignmentDeletionStatus(c, body)
-	case "ListAccountAssignments":
-		return h.handleListAccountAssignments(c, body)
-	case "AttachManagedPolicyToPermissionSet":
-		return h.handleAttachManagedPolicyToPermissionSet(c, body)
-	case "DetachManagedPolicyFromPermissionSet":
-		return h.handleDetachManagedPolicyFromPermissionSet(c, body)
-	case "ListManagedPoliciesInPermissionSet":
-		return h.handleListManagedPoliciesInPermissionSet(c, body)
-	case "PutInlinePolicyToPermissionSet":
-		return h.handlePutInlinePolicyToPermissionSet(c, body)
-	case "GetInlinePolicyForPermissionSet":
-		return h.handleGetInlinePolicyForPermissionSet(c, body)
-	case "DeleteInlinePolicyFromPermissionSet":
-		return h.handleDeleteInlinePolicyFromPermissionSet(c, body)
-	case "ProvisionPermissionSet":
-		return h.handleProvisionPermissionSet(c, body)
-	case "DescribePermissionSetProvisioningStatus":
-		return h.handleDescribePermissionSetProvisioningStatus(c, body)
-	case "TagResource":
-		return h.handleTagResource(c, body)
-	case "UntagResource":
-		return h.handleUntagResource(c, body)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(c, body)
-	default:
-		return h.dispatchNewOps(c, op, body)
-	}
-}
-
-func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "AddRegion":
-		return h.handleAddRegion(c, body)
-	case "AttachCustomerManagedPolicyReferenceToPermissionSet":
-		return h.handleAttachCustomerManagedPolicyReferenceToPermissionSet(c, body)
-	case "CreateApplication":
-		return h.handleCreateApplication(c, body)
-	case "CreateApplicationAssignment":
-		return h.handleCreateApplicationAssignment(c, body)
-	case "CreateInstanceAccessControlAttributeConfiguration":
-		return h.handleCreateInstanceAccessControlAttributeConfiguration(c, body)
-	case "CreateTrustedTokenIssuer":
-		return h.handleCreateTrustedTokenIssuer(c, body)
-	case "DeleteApplication":
-		return h.handleDeleteApplication(c, body)
-	case "DeleteApplicationAccessScope":
-		return h.handleDeleteApplicationAccessScope(c, body)
-	case "DeleteApplicationAssignment":
-		return h.handleDeleteApplicationAssignment(c, body)
-	case "DeleteApplicationAuthenticationMethod":
-		return h.handleDeleteApplicationAuthenticationMethod(c, body)
-	case "DetachCustomerManagedPolicyReferenceFromPermissionSet":
-		return h.handleDetachCustomerManagedPolicyReferenceFromPermissionSet(c, body)
-	default:
-		return h.dispatchNewestOps(c, op, body)
-	}
-}
-
-func (h *Handler) dispatchNewestOps(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "DeleteApplicationGrant":
-		return h.handleDeleteApplicationGrant(c, body)
-	case "DeleteInstanceAccessControlAttributeConfiguration":
-		return h.handleDeleteInstanceAccessControlAttributeConfiguration(c, body)
-	case "DeleteTrustedTokenIssuer":
-		return h.handleDeleteTrustedTokenIssuer(c, body)
-	case "DescribeApplication":
-		return h.handleDescribeApplication(c, body)
-	case "DescribeApplicationAssignment":
-		return h.handleDescribeApplicationAssignment(c, body)
-	case "DescribeApplicationProvider":
-		return h.handleDescribeApplicationProvider(c, body)
-	case "DescribeInstanceAccessControlAttributeConfiguration":
-		return h.handleDescribeInstanceAccessControlAttributeConfiguration(c, body)
-	case "DescribeTrustedTokenIssuer":
-		return h.handleDescribeTrustedTokenIssuer(c, body)
-	case "GetPermissionsBoundaryForPermissionSet":
-		return h.handleGetPermissionsBoundaryForPermissionSet(c, body)
-	case "ListAccountAssignmentCreationStatus":
-		return h.handleListAccountAssignmentCreationStatus(c, body)
-	case "ListAccountAssignmentDeletionStatus":
-		return h.handleListAccountAssignmentDeletionStatus(c, body)
-	case "ListAccountAssignmentsForPrincipal":
-		return h.handleListAccountAssignmentsForPrincipal(c, body)
-	case "ListPermissionSetsProvisionedToAccount":
-		return h.handleListPermissionSetsProvisionedToAccount(c, body)
-	default:
-		return h.dispatchNewestAppOps(c, op, body)
-	}
-}
-
-func (h *Handler) dispatchNewestAppOps(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "ListApplicationAccessScopes":
-		return h.handleListApplicationAccessScopes(c, body)
-	case "ListApplicationAssignments":
-		return h.handleListApplicationAssignments(c, body)
-	case "ListApplicationAuthenticationMethods":
-		return h.handleListApplicationAuthenticationMethods(c, body)
-	case "ListApplicationGrants":
-		return h.handleListApplicationGrants(c, body)
-	case "ListApplicationProviders":
-		return h.handleListApplicationProviders(c, body)
-	case "ListApplications":
-		return h.handleListApplications(c, body)
-	default:
-		return h.dispatchNewestConfigOps(c, op, body)
-	}
-}
-
-func (h *Handler) dispatchNewestConfigOps(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "DeletePermissionsBoundaryFromPermissionSet":
-		return h.handleDeletePermissionsBoundaryFromPermissionSet(c, body)
-	case "GetApplicationAssignmentConfiguration":
-		return h.handleGetApplicationAssignmentConfiguration(c, body)
-	case "GetApplicationSessionConfiguration":
-		return h.handleGetApplicationSessionConfiguration(c, body)
-	case "ListCustomerManagedPolicyReferencesInPermissionSet":
-		return h.handleListCustomerManagedPolicyReferencesInPermissionSet(c, body)
-	case "ListPermissionSetProvisioningStatus":
-		return h.handleListPermissionSetProvisioningStatus(c, body)
-	case "ListRegions":
-		return h.handleListRegions(c, body)
-	case "ListTrustedTokenIssuers":
-		return h.handleListTrustedTokenIssuers(c, body)
-	case "PutApplicationAccessScope":
-		return h.handlePutApplicationAccessScope(c, body)
-	case "PutApplicationAssignmentConfiguration":
-		return h.handlePutApplicationAssignmentConfiguration(c, body)
-	default:
-		return h.dispatchUpdateOps(c, op, body)
-	}
-}
-
-func (h *Handler) dispatchUpdateOps(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "PutApplicationAuthenticationMethod":
-		return h.handlePutApplicationAuthenticationMethod(c, body)
-	case "PutApplicationGrant":
-		return h.handlePutApplicationGrant(c, body)
-	case "PutApplicationSessionConfiguration":
-		return h.handlePutApplicationSessionConfiguration(c, body)
-	case "PutPermissionsBoundaryToPermissionSet":
-		return h.handlePutPermissionsBoundaryToPermissionSet(c, body)
-	case "RemoveRegion":
-		return h.handleRemoveRegion(c, body)
-	case "UpdateApplication":
-		return h.handleUpdateApplication(c, body)
-	case "UpdateInstance":
-		return h.handleUpdateInstance(c, body)
-	case "UpdateInstanceAccessControlAttributeConfiguration":
-		return h.handleUpdateInstanceAccessControlAttributeConfiguration(c, body)
-	case "UpdateTrustedTokenIssuer":
-		return h.handleUpdateTrustedTokenIssuer(c, body)
-	default:
-		return h.dispatchRefinement3Ops(c, op, body)
-	}
-}
-
-func (h *Handler) dispatchRefinement3Ops(c *echo.Context, op string, body []byte) error {
-	switch op {
-	case "GetApplicationAccessScope":
-		return h.handleGetApplicationAccessScope(c, body)
-	case "GetApplicationAuthenticationMethod":
-		return h.handleGetApplicationAuthenticationMethod(c, body)
-	case "GetApplicationGrant":
-		return h.handleGetApplicationGrant(c, body)
-	case "ListAccountsForProvisionedPermissionSet":
-		return h.handleListAccountsForProvisionedPermissionSet(c, body)
-	case "ListApplicationAssignmentsForPrincipal":
-		return h.handleListApplicationAssignmentsForPrincipal(c, body)
-	case "DescribeRegion":
-		return h.handleDescribeRegion(c, body)
-	default:
-		return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
-	}
+	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
 }
 
 // --- request/response types ---
