@@ -1172,6 +1172,14 @@ func (h *Handler) dispatch(c *echo.Context, operation, resource string) error {
 var errNotDispatched = errors.New("not dispatched")
 
 func (h *Handler) dispatchCreate(c *echo.Context, operation string) error {
+	if err := h.dispatchCreateCore(c, operation); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchCreateExtended(c, operation)
+}
+
+func (h *Handler) dispatchCreateCore(c *echo.Context, operation string) error {
 	switch operation {
 	case opCreateAnycastIPList:
 		return h.handleCreateAnycastIPList(c)
@@ -1200,9 +1208,30 @@ func (h *Handler) dispatchCreate(c *echo.Context, operation string) error {
 	}
 }
 
+func (h *Handler) dispatchCreateExtended(c *echo.Context, operation string) error {
+	switch operation {
+	case opCreateFieldLevelEncryptionConfig:
+		return h.handleCreateFieldLevelEncryption(c)
+	case opCreateFieldLevelEncryptionProfile:
+		return h.handleCreateFieldLevelEncryptionProfile(c)
+	case opCreatePublicKey:
+		return h.handleCreatePublicKey(c)
+	case opCreateKeyGroup:
+		return h.handleCreateKeyGroup(c)
+	case opCreateRealtimeLogConfig:
+		return h.handleCreateRealtimeLogConfig(c)
+	case opCreateKeyValueStore:
+		return h.handleCreateKeyValueStore(c)
+	case opCreateVpcOrigin:
+		return h.handleCreateVpcOrigin(c)
+	default:
+		return errNotDispatched
+	}
+}
+
 // dispatchGetOrMutate handles all GET, PUT, and DELETE operations.
 //
-//nolint:cyclop,funlen // combined GET/mutate dispatch table is inherently wide
+//nolint:cyclop,funlen,gocyclo // combined GET/mutate dispatch table is inherently wide
 func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource string) error {
 	switch operation {
 	case opGetCachePolicy:
@@ -1261,12 +1290,70 @@ func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource strin
 		return h.handleUpdateOriginRequestPolicy(c, resource)
 	case opUpdateResponseHeadersPolicy:
 		return h.handleUpdateResponseHeadersPolicy(c, resource)
+	case opGetFieldLevelEncryption:
+		return h.handleGetFieldLevelEncryption(c, resource)
+	case opGetFieldLevelEncryptionConfig:
+		return h.handleGetFieldLevelEncryption(c, resource)
+	case opUpdateFieldLevelEncryptionConfig:
+		return h.handleUpdateFieldLevelEncryption(c, resource)
+	case opDeleteFieldLevelEncryptionConfig:
+		return h.handleDeleteFieldLevelEncryption(c, resource)
+	case opGetFieldLevelEncryptionProfile:
+		return h.handleGetFieldLevelEncryptionProfile(c, resource)
+	case opGetFieldLevelEncryptionProfileConfig:
+		return h.handleGetFieldLevelEncryptionProfile(c, resource)
+	case opUpdateFieldLevelEncryptionProfile:
+		return h.handleUpdateFieldLevelEncryptionProfile(c, resource)
+	case opDeleteFieldLevelEncryptionProfile:
+		return h.handleDeleteFieldLevelEncryptionProfile(c, resource)
+	case opGetPublicKey:
+		return h.handleGetPublicKey(c, resource)
+	case opGetPublicKeyConfig:
+		return h.handleGetPublicKey(c, resource)
+	case opUpdatePublicKey:
+		return h.handleUpdatePublicKey(c, resource)
+	case opDeletePublicKey:
+		return h.handleDeletePublicKey(c, resource)
+	case opGetKeyGroup:
+		return h.handleGetKeyGroup(c, resource)
+	case opGetKeyGroupConfig:
+		return h.handleGetKeyGroup(c, resource)
+	case opUpdateKeyGroup:
+		return h.handleUpdateKeyGroup(c, resource)
+	case opDeleteKeyGroup:
+		return h.handleDeleteKeyGroup(c, resource)
+	case opGetRealtimeLogConfig:
+		return h.handleGetRealtimeLogConfig(c, resource)
+	case opUpdateRealtimeLogConfig:
+		return h.handleUpdateRealtimeLogConfig(c, resource)
+	case opDeleteRealtimeLogConfig:
+		return h.handleDeleteRealtimeLogConfig(c, resource)
+	case opDescribeKeyValueStore:
+		return h.handleGetKeyValueStore(c, resource)
+	case opUpdateKeyValueStore:
+		return h.handleGetKeyValueStore(c, resource)
+	case opDeleteKeyValueStore:
+		return h.handleDeleteKeyValueStore(c, resource)
+	case opGetVpcOrigin:
+		return h.handleGetVpcOrigin(c, resource)
+	case opUpdateVpcOrigin:
+		return h.handleUpdateVpcOrigin(c, resource)
+	case opDeleteVpcOrigin:
+		return h.handleDeleteVpcOrigin(c, resource)
 	default:
 		return errNotDispatched
 	}
 }
 
 func (h *Handler) dispatchList(c *echo.Context, operation, resource string) error {
+	if err := h.dispatchListCore(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchListExtended(c, operation)
+}
+
+func (h *Handler) dispatchListCore(c *echo.Context, operation, resource string) error {
 	switch operation {
 	case opListCachePolicies:
 		return h.handleListCachePolicies(c)
@@ -1286,6 +1373,27 @@ func (h *Handler) dispatchList(c *echo.Context, operation, resource string) erro
 		return h.handleListResponseHeadersPolicies(c)
 	case opListTagsForResource:
 		return h.handleListTagsForResource(c)
+	default:
+		return errNotDispatched
+	}
+}
+
+func (h *Handler) dispatchListExtended(c *echo.Context, operation string) error {
+	switch operation {
+	case opListFieldLevelEncryptionConfigs:
+		return h.handleListFieldLevelEncryptions(c)
+	case opListFieldLevelEncryptionProfiles:
+		return h.handleListFieldLevelEncryptionProfiles(c)
+	case opListPublicKeys:
+		return h.handleListPublicKeys(c)
+	case opListKeyGroups:
+		return h.handleListKeyGroups(c)
+	case opListRealtimeLogConfigs:
+		return h.handleListRealtimeLogConfigs(c)
+	case opListKeyValueStores:
+		return h.handleListKeyValueStores(c)
+	case opListVpcOrigins:
+		return h.handleListVpcOrigins(c)
 	default:
 		return errNotDispatched
 	}
@@ -1327,7 +1435,7 @@ func cfStubXMLList(ns, listTag string) string {
 
 // dispatchStubs handles all stub CloudFront operations with minimal valid responses.
 //
-//nolint:funlen,cyclop,gocyclo,nlreturn // large dispatch table for stub operations
+//nolint:funlen,cyclop,gocyclo // large dispatch table for stub operations
 func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
 	emptyItems := `<?xml version="1.0" encoding="UTF-8"?><Items xmlns="` + cfNS + `"/>`
 	noContent := func() error { return c.NoContent(http.StatusNoContent) }
@@ -1409,106 +1517,8 @@ func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
 			`<?xml version="1.0" encoding="UTF-8"?><Distribution xmlns="`+cfNS+`"/>`,
 		)
 
-	// Field level encryption.
-	case opCreateFieldLevelEncryptionConfig:
-		return created("FieldLevelEncryption", "fle-stub")
-	case opGetFieldLevelEncryption, opGetFieldLevelEncryptionConfig:
-		return getStub("FieldLevelEncryption", "fle-stub")
-	case opUpdateFieldLevelEncryptionConfig:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><FieldLevelEncryption xmlns="`+cfNS+`"/>`,
-		)
-	case opDeleteFieldLevelEncryptionConfig:
-		return noContent()
-	case opListFieldLevelEncryptionConfigs:
-		return emptyList("FieldLevelEncryptionList")
-	case opCreateFieldLevelEncryptionProfile:
-		return created("FieldLevelEncryptionProfile", "flep-stub")
-	case opGetFieldLevelEncryptionProfile, opGetFieldLevelEncryptionProfileConfig:
-		return getStub("FieldLevelEncryptionProfile", "flep-stub")
-	case opUpdateFieldLevelEncryptionProfile:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><FieldLevelEncryptionProfile xmlns="`+cfNS+`"/>`,
-		)
-	case opDeleteFieldLevelEncryptionProfile:
-		return noContent()
-	case opListFieldLevelEncryptionProfiles:
-		return emptyList("FieldLevelEncryptionProfileList")
-
-	// Key group.
-	case opCreateKeyGroup:
-		return created("KeyGroup", "kg-stub")
-	case opGetKeyGroup, opGetKeyGroupConfig:
-		return getStub("KeyGroup", "kg-stub")
-	case opUpdateKeyGroup:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><KeyGroup xmlns="`+cfNS+`"/>`,
-		)
-	case opDeleteKeyGroup:
-		return noContent()
-	case opListKeyGroups:
-		return emptyList("KeyGroupList")
-
-	// Key value store.
-	case opCreateKeyValueStore:
-		return created("KeyValueStore", "kvs-stub")
-	case opDescribeKeyValueStore:
-		return getStub("KeyValueStore", "kvs-stub")
-	case opUpdateKeyValueStore:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><KeyValueStore xmlns="`+cfNS+`"/>`,
-		)
-	case opDeleteKeyValueStore:
-		return noContent()
-	case opListKeyValueStores:
-		return emptyList("KeyValueStoreList")
-
-	// Public key.
-	case opCreatePublicKey:
-		return created("PublicKey", "pk-stub")
-	case opGetPublicKey, opGetPublicKeyConfig:
-		return getStub("PublicKey", "pk-stub")
-	case opUpdatePublicKey:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><PublicKey xmlns="`+cfNS+`"/>`,
-		)
-	case opDeletePublicKey:
-		return noContent()
-	case opListPublicKeys:
-		return emptyList("PublicKeyList")
-
-	// Realtime log config.
-	case opCreateRealtimeLogConfig:
-		rlcARN := `arn:aws:cloudfront::000000000000:realtime-log-config/stub`
-		rlcXML := `<?xml version="1.0" encoding="UTF-8"?><RealtimeLogConfig xmlns="` +
-			cfNS + `"><ARN>` + rlcARN + `</ARN></RealtimeLogConfig>`
-		return xmlResp(c, http.StatusCreated, rlcXML)
-	case opGetRealtimeLogConfig:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><RealtimeLogConfig xmlns="`+cfNS+`"/>`,
-		)
-	case opUpdateRealtimeLogConfig:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><RealtimeLogConfig xmlns="`+cfNS+`"/>`,
-		)
-	case opDeleteRealtimeLogConfig:
-		return noContent()
-	case opListRealtimeLogConfigs:
-		return emptyList("RealtimeLogConfigs")
+	// Field level encryption, key group, key value store, public key,
+	// realtime log config — promoted to real handlers; stubs removed.
 
 	// Streaming distribution.
 	case opCreateStreamingDistribution, opCreateStreamingDistributionWithTags:
@@ -1542,21 +1552,7 @@ func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
 	case opListTrustStores:
 		return emptyList("TrustStoreList")
 
-	// VPC origin.
-	case opCreateVpcOrigin:
-		return created("VpcOrigin", "vpc-origin-stub")
-	case opGetVpcOrigin:
-		return getStub("VpcOrigin", "vpc-origin-stub")
-	case opUpdateVpcOrigin:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><VpcOrigin xmlns="`+cfNS+`"/>`,
-		)
-	case opDeleteVpcOrigin:
-		return noContent()
-	case opListVpcOrigins:
-		return emptyList("VpcOriginList")
+	// VPC origin — promoted to real handlers; stubs removed.
 
 	// Anycast IP list.
 	case opGetAnycastIPList:
@@ -3632,4 +3628,904 @@ func orpResponseXML(p *OriginRequestPolicy) string {
 		`</OriginRequestPolicyConfig>`+
 		`</OriginRequestPolicy>`,
 		cfNS, p.ID, p.Name, p.Comment)
+}
+
+// --- Field Level Encryption handlers ---
+
+func fleResponseXML(fle *FieldLevelEncryption) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<FieldLevelEncryption xmlns="%s">`+
+		`<Id>%s</Id>`+
+		`<FieldLevelEncryptionConfig>`+
+		`<Comment>%s</Comment>`+
+		`</FieldLevelEncryptionConfig>`+
+		`</FieldLevelEncryption>`,
+		cfNS, fle.ID, fle.Comment)
+}
+
+func (h *Handler) handleCreateFieldLevelEncryption(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req struct {
+		Comment string `xml:"Comment"`
+		Name    string `xml:"QueryArgProfileConfig>QueryArgProfiles>Items>QueryArgProfile>Profile"`
+	}
+
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	name := req.Name
+	if name == "" {
+		name = generateID()
+	}
+
+	fle, createErr := h.Backend.CreateFieldLevelEncryption(name, req.Comment)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	c.Response().Header().Set("ETag", fle.ETag)
+	c.Response().Header().Set("Location", cfPathPrefix+"field-level-encryption/"+fle.ID)
+
+	return xmlResp(c, http.StatusCreated, fleResponseXML(fle))
+}
+
+func (h *Handler) handleGetFieldLevelEncryption(c *echo.Context, id string) error {
+	fle, err := h.Backend.GetFieldLevelEncryption(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	c.Response().Header().Set("ETag", fle.ETag)
+
+	return xmlResp(c, http.StatusOK, fleResponseXML(fle))
+}
+
+func (h *Handler) handleListFieldLevelEncryptions(c *echo.Context) error {
+	items := h.Backend.ListFieldLevelEncryptions()
+
+	type fleSummaryXML struct {
+		XMLName xml.Name `xml:"FieldLevelEncryptionSummary"`
+		ID      string   `xml:"Id"`
+		Comment string   `xml:"Comment"`
+	}
+
+	type fleListXML struct {
+		XMLName     xml.Name        `xml:"FieldLevelEncryptionList"`
+		XMLNS       string          `xml:"xmlns,attr"`
+		Items       []fleSummaryXML `xml:"Items>FieldLevelEncryptionSummary"`
+		MaxItems    int             `xml:"MaxItems"`
+		Quantity    int             `xml:"Quantity"`
+		IsTruncated bool            `xml:"IsTruncated"`
+	}
+
+	summaries := make([]fleSummaryXML, 0, len(items))
+	for _, fle := range items {
+		summaries = append(summaries, fleSummaryXML{ID: fle.ID, Comment: fle.Comment})
+	}
+
+	list := fleListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+
+	out, xmlErr := xml.Marshal(list)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+//nolint:dupl // update FLE and FLE profile share structure but operate on distinct resource types
+func (h *Handler) handleUpdateFieldLevelEncryption(c *echo.Context, id string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req struct {
+		Comment string `xml:"Comment"`
+		Name    string `xml:"QueryArgProfileConfig>QueryArgProfiles>Items>QueryArgProfile>Profile"`
+	}
+
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	current, getErr := h.Backend.GetFieldLevelEncryption(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	name := req.Name
+	if name == "" {
+		name = current.Name
+	}
+
+	fle, updateErr := h.Backend.UpdateFieldLevelEncryption(id, name, req.Comment)
+	if updateErr != nil {
+		return h.handleError(c, updateErr)
+	}
+
+	c.Response().Header().Set("ETag", fle.ETag)
+
+	return xmlResp(c, http.StatusOK, fleResponseXML(fle))
+}
+
+func (h *Handler) handleDeleteFieldLevelEncryption(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteFieldLevelEncryption(id); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- Field Level Encryption Profile handlers ---
+
+func fleProfileResponseXML(p *FieldLevelEncryptionProfile) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<FieldLevelEncryptionProfile xmlns="%s">`+
+		`<Id>%s</Id>`+
+		`<FieldLevelEncryptionProfileConfig>`+
+		`<Name>%s</Name>`+
+		`<Comment>%s</Comment>`+
+		`</FieldLevelEncryptionProfileConfig>`+
+		`</FieldLevelEncryptionProfile>`,
+		cfNS, p.ID, p.Name, p.Comment)
+}
+
+func (h *Handler) handleCreateFieldLevelEncryptionProfile(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req struct {
+		Name    string `xml:"Name"`
+		Comment string `xml:"Comment"`
+	}
+
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	if req.Name == "" {
+		req.Name = generateID()
+	}
+
+	p, createErr := h.Backend.CreateFieldLevelEncryptionProfile(req.Name, req.Comment)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	c.Response().Header().Set("ETag", p.ETag)
+	c.Response().Header().Set("Location", cfPathPrefix+"field-level-encryption-profile/"+p.ID)
+
+	return xmlResp(c, http.StatusCreated, fleProfileResponseXML(p))
+}
+
+func (h *Handler) handleGetFieldLevelEncryptionProfile(c *echo.Context, id string) error {
+	p, err := h.Backend.GetFieldLevelEncryptionProfile(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	c.Response().Header().Set("ETag", p.ETag)
+
+	return xmlResp(c, http.StatusOK, fleProfileResponseXML(p))
+}
+
+//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+func (h *Handler) handleListFieldLevelEncryptionProfiles(c *echo.Context) error {
+	items := h.Backend.ListFieldLevelEncryptionProfiles()
+
+	type flePSummaryXML struct {
+		XMLName xml.Name `xml:"FieldLevelEncryptionProfileSummary"`
+		ID      string   `xml:"Id"`
+		Name    string   `xml:"Name"`
+		Comment string   `xml:"Comment"`
+	}
+
+	type flePListXML struct {
+		XMLName     xml.Name         `xml:"FieldLevelEncryptionProfileList"`
+		XMLNS       string           `xml:"xmlns,attr"`
+		Items       []flePSummaryXML `xml:"Items>FieldLevelEncryptionProfileSummary"`
+		MaxItems    int              `xml:"MaxItems"`
+		Quantity    int              `xml:"Quantity"`
+		IsTruncated bool             `xml:"IsTruncated"`
+	}
+
+	summaries := make([]flePSummaryXML, 0, len(items))
+	for _, p := range items {
+		summaries = append(summaries, flePSummaryXML{ID: p.ID, Name: p.Name, Comment: p.Comment})
+	}
+
+	list := flePListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+
+	out, xmlErr := xml.Marshal(list)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+//nolint:dupl // update FLE profile and update FLE share structure but operate on distinct resource types
+func (h *Handler) handleUpdateFieldLevelEncryptionProfile(c *echo.Context, id string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req struct {
+		Name    string `xml:"Name"`
+		Comment string `xml:"Comment"`
+	}
+
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	current, getErr := h.Backend.GetFieldLevelEncryptionProfile(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	name := req.Name
+	if name == "" {
+		name = current.Name
+	}
+
+	p, updateErr := h.Backend.UpdateFieldLevelEncryptionProfile(id, name, req.Comment)
+	if updateErr != nil {
+		return h.handleError(c, updateErr)
+	}
+
+	c.Response().Header().Set("ETag", p.ETag)
+
+	return xmlResp(c, http.StatusOK, fleProfileResponseXML(p))
+}
+
+func (h *Handler) handleDeleteFieldLevelEncryptionProfile(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteFieldLevelEncryptionProfile(id); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- Public Key handlers ---
+
+func publicKeyResponseXML(pk *PublicKey) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<PublicKey xmlns="%s">`+
+		`<Id>%s</Id>`+
+		`<PublicKeyConfig>`+
+		`<CallerReference>%s</CallerReference>`+
+		`<Name>%s</Name>`+
+		`<Comment>%s</Comment>`+
+		`<EncodedKey>%s</EncodedKey>`+
+		`</PublicKeyConfig>`+
+		`</PublicKey>`,
+		cfNS, pk.ID, pk.CallerReference, pk.Name, pk.Comment, pk.EncodedKey)
+}
+
+type publicKeyConfigXML struct {
+	XMLName         xml.Name `xml:"PublicKeyConfig"`
+	CallerReference string   `xml:"CallerReference"`
+	Name            string   `xml:"Name"`
+	Comment         string   `xml:"Comment"`
+	EncodedKey      string   `xml:"EncodedKey"`
+}
+
+func (h *Handler) handleCreatePublicKey(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req publicKeyConfigXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	if req.Name == "" {
+		req.Name = generateID()
+	}
+
+	pk, createErr := h.Backend.CreatePublicKey(req.CallerReference, req.Name, req.Comment, req.EncodedKey)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	c.Response().Header().Set("ETag", pk.ETag)
+	c.Response().Header().Set("Location", cfPathPrefix+"public-key/"+pk.ID)
+
+	return xmlResp(c, http.StatusCreated, publicKeyResponseXML(pk))
+}
+
+func (h *Handler) handleGetPublicKey(c *echo.Context, id string) error {
+	pk, err := h.Backend.GetPublicKey(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	c.Response().Header().Set("ETag", pk.ETag)
+
+	return xmlResp(c, http.StatusOK, publicKeyResponseXML(pk))
+}
+
+//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+func (h *Handler) handleListPublicKeys(c *echo.Context) error {
+	items := h.Backend.ListPublicKeys()
+
+	type pkSummaryXML struct {
+		XMLName xml.Name `xml:"PublicKeySummary"`
+		ID      string   `xml:"Id"`
+		Name    string   `xml:"Name"`
+		Comment string   `xml:"Comment"`
+	}
+
+	type pkListXML struct {
+		XMLName     xml.Name       `xml:"PublicKeyList"`
+		XMLNS       string         `xml:"xmlns,attr"`
+		Items       []pkSummaryXML `xml:"Items>PublicKeySummary"`
+		MaxItems    int            `xml:"MaxItems"`
+		Quantity    int            `xml:"Quantity"`
+		IsTruncated bool           `xml:"IsTruncated"`
+	}
+
+	summaries := make([]pkSummaryXML, 0, len(items))
+	for _, pk := range items {
+		summaries = append(summaries, pkSummaryXML{ID: pk.ID, Name: pk.Name, Comment: pk.Comment})
+	}
+
+	list := pkListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+
+	out, xmlErr := xml.Marshal(list)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+func (h *Handler) handleUpdatePublicKey(c *echo.Context, id string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req publicKeyConfigXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	pk, updateErr := h.Backend.UpdatePublicKey(id, req.Comment)
+	if updateErr != nil {
+		return h.handleError(c, updateErr)
+	}
+
+	c.Response().Header().Set("ETag", pk.ETag)
+
+	return xmlResp(c, http.StatusOK, publicKeyResponseXML(pk))
+}
+
+func (h *Handler) handleDeletePublicKey(c *echo.Context, id string) error {
+	if err := h.Backend.DeletePublicKey(id); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- Key Group handlers ---
+
+func keyGroupResponseXML(kg *KeyGroup) string {
+	var sb strings.Builder
+	for _, item := range kg.Items {
+		sb.WriteString("<Key>")
+		sb.WriteString(item)
+		sb.WriteString("</Key>")
+	}
+	itemsXML := sb.String()
+
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<KeyGroup xmlns="%s">`+
+		`<Id>%s</Id>`+
+		`<KeyGroupConfig>`+
+		`<Name>%s</Name>`+
+		`<Comment>%s</Comment>`+
+		`<Items>%s</Items>`+
+		`</KeyGroupConfig>`+
+		`</KeyGroup>`,
+		cfNS, kg.ID, kg.Name, kg.Comment, itemsXML)
+}
+
+type keyGroupConfigXML struct {
+	XMLName xml.Name `xml:"KeyGroupConfig"`
+	Name    string   `xml:"Name"`
+	Comment string   `xml:"Comment"`
+	Items   []string `xml:"Items>PublicKey"`
+}
+
+func (h *Handler) handleCreateKeyGroup(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req keyGroupConfigXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	if req.Name == "" {
+		req.Name = generateID()
+	}
+
+	kg, createErr := h.Backend.CreateKeyGroup(req.Name, req.Comment, req.Items)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	c.Response().Header().Set("ETag", kg.ETag)
+	c.Response().Header().Set("Location", cfPathPrefix+"key-group/"+kg.ID)
+
+	return xmlResp(c, http.StatusCreated, keyGroupResponseXML(kg))
+}
+
+func (h *Handler) handleGetKeyGroup(c *echo.Context, id string) error {
+	kg, err := h.Backend.GetKeyGroup(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	c.Response().Header().Set("ETag", kg.ETag)
+
+	return xmlResp(c, http.StatusOK, keyGroupResponseXML(kg))
+}
+
+//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+func (h *Handler) handleListKeyGroups(c *echo.Context) error {
+	items := h.Backend.ListKeyGroups()
+
+	type kgSummaryXML struct {
+		XMLName xml.Name `xml:"KeyGroupSummary"`
+		ID      string   `xml:"Id"`
+		Name    string   `xml:"Name"`
+		Comment string   `xml:"Comment"`
+	}
+
+	type kgListXML struct {
+		XMLName     xml.Name       `xml:"KeyGroupList"`
+		XMLNS       string         `xml:"xmlns,attr"`
+		Items       []kgSummaryXML `xml:"Items>KeyGroupSummary"`
+		MaxItems    int            `xml:"MaxItems"`
+		Quantity    int            `xml:"Quantity"`
+		IsTruncated bool           `xml:"IsTruncated"`
+	}
+
+	summaries := make([]kgSummaryXML, 0, len(items))
+	for _, kg := range items {
+		summaries = append(summaries, kgSummaryXML{ID: kg.ID, Name: kg.Name, Comment: kg.Comment})
+	}
+
+	list := kgListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+
+	out, xmlErr := xml.Marshal(list)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+func (h *Handler) handleUpdateKeyGroup(c *echo.Context, id string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req keyGroupConfigXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	current, getErr := h.Backend.GetKeyGroup(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	if req.Name == "" {
+		req.Name = current.Name
+	}
+
+	kg, updateErr := h.Backend.UpdateKeyGroup(id, req.Name, req.Comment, req.Items)
+	if updateErr != nil {
+		return h.handleError(c, updateErr)
+	}
+
+	c.Response().Header().Set("ETag", kg.ETag)
+
+	return xmlResp(c, http.StatusOK, keyGroupResponseXML(kg))
+}
+
+func (h *Handler) handleDeleteKeyGroup(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteKeyGroup(id); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- Realtime Log Config handlers ---
+
+type realtimeLogConfigRequestXML struct {
+	XMLName      xml.Name `xml:"RealtimeLogConfig"`
+	Name         string   `xml:"Name"`
+	Fields       []string `xml:"Fields>Field"`
+	SamplingRate int64    `xml:"SamplingRate"`
+}
+
+func realtimeLogConfigResponseXML(cfg *RealtimeLogConfig) string {
+	var sb strings.Builder
+	for _, f := range cfg.Fields {
+		sb.WriteString("<Field>")
+		sb.WriteString(f)
+		sb.WriteString("</Field>")
+	}
+	fieldsXML := sb.String()
+
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<RealtimeLogConfig xmlns="%s">`+
+		`<ARN>%s</ARN>`+
+		`<Name>%s</Name>`+
+		`<SamplingRate>%d</SamplingRate>`+
+		`<Fields>%s</Fields>`+
+		`</RealtimeLogConfig>`,
+		cfNS, cfg.ARN, cfg.Name, cfg.SamplingRate, fieldsXML)
+}
+
+func (h *Handler) handleCreateRealtimeLogConfig(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req realtimeLogConfigRequestXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	if req.Name == "" {
+		req.Name = generateID()
+	}
+
+	cfg, createErr := h.Backend.CreateRealtimeLogConfig(req.Name, req.SamplingRate, req.Fields)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	return xmlResp(c, http.StatusCreated, realtimeLogConfigResponseXML(cfg))
+}
+
+func (h *Handler) handleGetRealtimeLogConfig(c *echo.Context, arn string) error {
+	cfg, err := h.Backend.GetRealtimeLogConfig(arn)
+	if err != nil {
+		cfg, err = h.Backend.GetRealtimeLogConfigByName(arn)
+		if err != nil {
+			return h.handleError(c, err)
+		}
+	}
+
+	return xmlResp(c, http.StatusOK, realtimeLogConfigResponseXML(cfg))
+}
+
+//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+func (h *Handler) handleListRealtimeLogConfigs(c *echo.Context) error {
+	items := h.Backend.ListRealtimeLogConfigs()
+
+	type rlcItemXML struct {
+		XMLName      xml.Name `xml:"member"`
+		ARN          string   `xml:"ARN"`
+		Name         string   `xml:"Name"`
+		SamplingRate int64    `xml:"SamplingRate"`
+	}
+
+	type rlcListXML struct {
+		XMLName     xml.Name     `xml:"RealtimeLogConfigs"`
+		XMLNS       string       `xml:"xmlns,attr"`
+		Items       []rlcItemXML `xml:"Items>member"`
+		MaxItems    int          `xml:"MaxItems"`
+		Quantity    int          `xml:"Quantity"`
+		IsTruncated bool         `xml:"IsTruncated"`
+	}
+
+	summaries := make([]rlcItemXML, 0, len(items))
+	for _, cfg := range items {
+		summaries = append(summaries, rlcItemXML{ARN: cfg.ARN, Name: cfg.Name, SamplingRate: cfg.SamplingRate})
+	}
+
+	list := rlcListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+
+	out, xmlErr := xml.Marshal(list)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+func (h *Handler) handleUpdateRealtimeLogConfig(c *echo.Context, arn string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req realtimeLogConfigRequestXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	cfg, getErr := h.Backend.GetRealtimeLogConfig(arn)
+	if getErr != nil {
+		cfg, getErr = h.Backend.GetRealtimeLogConfigByName(arn)
+		if getErr != nil {
+			return h.handleError(c, getErr)
+		}
+	}
+
+	updated, updateErr := h.Backend.UpdateRealtimeLogConfig(cfg.ARN, req.SamplingRate, req.Fields)
+	if updateErr != nil {
+		return h.handleError(c, updateErr)
+	}
+
+	return xmlResp(c, http.StatusOK, realtimeLogConfigResponseXML(updated))
+}
+
+func (h *Handler) handleDeleteRealtimeLogConfig(c *echo.Context, arn string) error {
+	if err := h.Backend.DeleteRealtimeLogConfig(arn); err != nil {
+		cfg, getErr := h.Backend.GetRealtimeLogConfigByName(arn)
+		if getErr != nil {
+			return h.handleError(c, err)
+		}
+
+		if delErr := h.Backend.DeleteRealtimeLogConfig(cfg.ARN); delErr != nil {
+			return h.handleError(c, delErr)
+		}
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- Key Value Store handlers ---
+
+func kvsResponseXML(kvs *KeyValueStore) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<KeyValueStore xmlns="%s">`+
+		`<Id>%s</Id>`+
+		`<ARN>%s</ARN>`+
+		`<Name>%s</Name>`+
+		`<Comment>%s</Comment>`+
+		`</KeyValueStore>`,
+		cfNS, kvs.ID, kvs.ARN, kvs.Name, kvs.Comment)
+}
+
+type keyValueStoreRequestXML struct {
+	XMLName xml.Name `xml:"KeyValueStoreRequest"`
+	Name    string   `xml:"Name"`
+	Comment string   `xml:"Comment"`
+}
+
+func (h *Handler) handleCreateKeyValueStore(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req keyValueStoreRequestXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	if req.Name == "" {
+		req.Name = generateID()
+	}
+
+	kvs, createErr := h.Backend.CreateKeyValueStore(req.Name, req.Comment)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	c.Response().Header().Set("ETag", kvs.ETag)
+	c.Response().Header().Set("Location", cfPathPrefix+"key-value-store/"+kvs.ID)
+
+	return xmlResp(c, http.StatusCreated, kvsResponseXML(kvs))
+}
+
+func (h *Handler) handleGetKeyValueStore(c *echo.Context, id string) error {
+	kvs, err := h.Backend.GetKeyValueStore(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	c.Response().Header().Set("ETag", kvs.ETag)
+
+	return xmlResp(c, http.StatusOK, kvsResponseXML(kvs))
+}
+
+func (h *Handler) handleListKeyValueStores(c *echo.Context) error {
+	items := h.Backend.ListKeyValueStores()
+
+	type kvsSummaryXML struct {
+		XMLName xml.Name `xml:"KeyValueStore"`
+		ID      string   `xml:"Id"`
+		ARN     string   `xml:"ARN"`
+		Name    string   `xml:"Name"`
+		Comment string   `xml:"Comment"`
+	}
+
+	type kvsListXML struct {
+		XMLName     xml.Name        `xml:"KeyValueStoreList"`
+		XMLNS       string          `xml:"xmlns,attr"`
+		Items       []kvsSummaryXML `xml:"Items>KeyValueStore"`
+		MaxItems    int             `xml:"MaxItems"`
+		Quantity    int             `xml:"Quantity"`
+		IsTruncated bool            `xml:"IsTruncated"`
+	}
+
+	summaries := make([]kvsSummaryXML, 0, len(items))
+	for _, kvs := range items {
+		summaries = append(summaries, kvsSummaryXML{ID: kvs.ID, ARN: kvs.ARN, Name: kvs.Name, Comment: kvs.Comment})
+	}
+
+	list := kvsListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+
+	out, xmlErr := xml.Marshal(list)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+func (h *Handler) handleDeleteKeyValueStore(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteKeyValueStore(id); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// --- VPC Origin handlers ---
+
+func vpcOriginResponseXML(origin *VpcOrigin) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<VpcOrigin xmlns="%s">`+
+		`<VpcOriginEndpointConfig>`+
+		`<Id>%s</Id>`+
+		`<ARN>%s</ARN>`+
+		`<Name>%s</Name>`+
+		`</VpcOriginEndpointConfig>`+
+		`</VpcOrigin>`,
+		cfNS, origin.ID, origin.ARN, origin.Name)
+}
+
+type vpcOriginRequestXML struct {
+	XMLName xml.Name `xml:"VpcOriginRequest"`
+	Name    string   `xml:"VpcOriginEndpointConfig>Name"`
+}
+
+func (h *Handler) handleCreateVpcOrigin(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req vpcOriginRequestXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	if req.Name == "" {
+		req.Name = generateID()
+	}
+
+	origin, createErr := h.Backend.CreateVpcOrigin(req.Name)
+	if createErr != nil {
+		return h.handleError(c, createErr)
+	}
+
+	c.Response().Header().Set("ETag", origin.ETag)
+	c.Response().Header().Set("Location", cfPathPrefix+"vpc-origin/"+origin.ID)
+
+	return xmlResp(c, http.StatusCreated, vpcOriginResponseXML(origin))
+}
+
+func (h *Handler) handleGetVpcOrigin(c *echo.Context, id string) error {
+	origin, err := h.Backend.GetVpcOrigin(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	c.Response().Header().Set("ETag", origin.ETag)
+
+	return xmlResp(c, http.StatusOK, vpcOriginResponseXML(origin))
+}
+
+//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+func (h *Handler) handleListVpcOrigins(c *echo.Context) error {
+	items := h.Backend.ListVpcOrigins()
+
+	type vpcSummaryXML struct {
+		XMLName xml.Name `xml:"VpcOriginSummary"`
+		ID      string   `xml:"Id"`
+		ARN     string   `xml:"ARN"`
+		Name    string   `xml:"Name"`
+	}
+
+	type vpcListXML struct {
+		XMLName     xml.Name        `xml:"VpcOriginList"`
+		XMLNS       string          `xml:"xmlns,attr"`
+		Items       []vpcSummaryXML `xml:"Items>VpcOriginSummary"`
+		MaxItems    int             `xml:"MaxItems"`
+		Quantity    int             `xml:"Quantity"`
+		IsTruncated bool            `xml:"IsTruncated"`
+	}
+
+	summaries := make([]vpcSummaryXML, 0, len(items))
+	for _, origin := range items {
+		summaries = append(summaries, vpcSummaryXML{ID: origin.ID, ARN: origin.ARN, Name: origin.Name})
+	}
+
+	list := vpcListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}
+
+	out, xmlErr := xml.Marshal(list)
+	if xmlErr != nil {
+		return h.handleError(c, xmlErr)
+	}
+
+	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
+}
+
+func (h *Handler) handleUpdateVpcOrigin(c *echo.Context, id string) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req vpcOriginRequestXML
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	current, getErr := h.Backend.GetVpcOrigin(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	name := req.Name
+	if name == "" {
+		name = current.Name
+	}
+
+	origin, updateErr := h.Backend.UpdateVpcOrigin(id, name)
+	if updateErr != nil {
+		return h.handleError(c, updateErr)
+	}
+
+	c.Response().Header().Set("ETag", origin.ETag)
+
+	return xmlResp(c, http.StatusOK, vpcOriginResponseXML(origin))
+}
+
+func (h *Handler) handleDeleteVpcOrigin(c *echo.Context, id string) error {
+	if err := h.Backend.DeleteVpcOrigin(id); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }

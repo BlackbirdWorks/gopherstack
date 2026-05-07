@@ -33,7 +33,10 @@ var (
 	// ErrConnectionGroupNotFound is returned when a connection group does not exist.
 	ErrConnectionGroupNotFound = awserr.New("NoSuchConnectionGroup", awserr.ErrNotFound)
 	// ErrContinuousDeploymentPolicyNotFound is returned when a continuous deployment policy does not exist.
-	ErrContinuousDeploymentPolicyNotFound = awserr.New("NoSuchContinuousDeploymentPolicy", awserr.ErrNotFound)
+	ErrContinuousDeploymentPolicyNotFound = awserr.New(
+		"NoSuchContinuousDeploymentPolicy",
+		awserr.ErrNotFound,
+	)
 	// ErrInvalidationNotFound is returned when a requested invalidation does not exist.
 	ErrInvalidationNotFound = awserr.New("NoSuchInvalidation", awserr.ErrNotFound)
 	// ErrOACNotFound is returned when a requested origin access control does not exist.
@@ -48,6 +51,20 @@ var (
 	ErrValidation = awserr.New("InvalidArgument", awserr.ErrInvalidParameter)
 	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
 	ErrAlreadyExists = awserr.New("DistributionAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrFLENotFound is returned when a requested field level encryption config does not exist.
+	ErrFLENotFound = awserr.New("NoSuchFieldLevelEncryptionConfig", awserr.ErrNotFound)
+	// ErrFLEProfileNotFound is returned when a requested field level encryption profile does not exist.
+	ErrFLEProfileNotFound = awserr.New("NoSuchFieldLevelEncryptionProfile", awserr.ErrNotFound)
+	// ErrPublicKeyNotFound is returned when a requested public key does not exist.
+	ErrPublicKeyNotFound = awserr.New("NoSuchPublicKey", awserr.ErrNotFound)
+	// ErrKeyGroupNotFound is returned when a requested key group does not exist.
+	ErrKeyGroupNotFound = awserr.New("NoSuchResource", awserr.ErrNotFound)
+	// ErrRealtimeLogConfigNotFound is returned when a requested realtime log config does not exist.
+	ErrRealtimeLogConfigNotFound = awserr.New("NoSuchRealtimeLogConfig", awserr.ErrNotFound)
+	// ErrKeyValueStoreNotFound is returned when a requested key value store does not exist.
+	ErrKeyValueStoreNotFound = awserr.New("EntityNotFound", awserr.ErrNotFound)
+	// ErrVpcOriginNotFound is returned when a requested VPC origin does not exist.
+	ErrVpcOriginNotFound = awserr.New("NoSuchVpcOrigin", awserr.ErrNotFound)
 )
 
 const (
@@ -179,63 +196,149 @@ type OriginRequestPolicy struct {
 	ETag    string `json:"eTag"`
 }
 
+// FieldLevelEncryption represents a CloudFront Field Level Encryption config.
+type FieldLevelEncryption struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Comment string `json:"comment,omitempty"`
+	ETag    string `json:"eTag"`
+}
+
+// FieldLevelEncryptionProfile represents a CloudFront Field Level Encryption Profile.
+type FieldLevelEncryptionProfile struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Comment string `json:"comment,omitempty"`
+	ETag    string `json:"eTag"`
+}
+
+// PublicKey represents a CloudFront Public Key.
+type PublicKey struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Comment         string `json:"comment,omitempty"`
+	EncodedKey      string `json:"encodedKey"`
+	CallerReference string `json:"callerReference"`
+	ETag            string `json:"eTag"`
+}
+
+// KeyGroup represents a CloudFront Key Group.
+type KeyGroup struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Comment string   `json:"comment,omitempty"`
+	ETag    string   `json:"eTag"`
+	Items   []string `json:"items"`
+}
+
+// RealtimeLogConfig represents a CloudFront Realtime Log Config.
+type RealtimeLogConfig struct {
+	ARN          string   `json:"arn"`
+	Name         string   `json:"name"`
+	Fields       []string `json:"fields"`
+	SamplingRate int64    `json:"samplingRate"`
+}
+
+// KeyValueStore represents a CloudFront Key Value Store.
+type KeyValueStore struct {
+	ID      string `json:"id"`
+	ARN     string `json:"arn"`
+	Name    string `json:"name"`
+	Comment string `json:"comment,omitempty"`
+	ETag    string `json:"eTag"`
+}
+
+// VpcOrigin represents a CloudFront VPC Origin.
+type VpcOrigin struct {
+	ID   string `json:"id"`
+	ARN  string `json:"arn"`
+	Name string `json:"name"`
+	ETag string `json:"eTag"`
+}
+
 // InMemoryBackend stores CloudFront resources in memory.
 type InMemoryBackend struct {
-	distributions                map[string]*Distribution
-	distributionARNs             map[string]string          // ARN → distribution ID (O(1) tag lookups)
-	distributionCallerRefs       map[string]string          // CallerReference → distribution ID (idempotency)
-	distributionAliases          map[string][]string        // distribution ID → aliases
-	distributionWebACLs          map[string]string          // distribution ID → web ACL ID
-	distributionTenantWebACLs    map[string]string          // tenant ID → web ACL ID
-	invalidations                map[string][]*Invalidation // distribution ID → []Invalidation
-	oais                         map[string]*OriginAccessIdentity
-	oaiCallerRefs                map[string]string // CallerReference → OAI ID (idempotency)
-	anycastIPLists               map[string]*AnycastIPList
-	cachePolicies                map[string]*CachePolicy
-	cachePolicyByName            map[string]string // name → policy ID (uniqueness)
-	connectionFunctions          map[string]*ConnectionFunction
-	connectionGroups             map[string]*ConnectionGroup
-	continuousDeploymentPolicies map[string]*ContinuousDeploymentPolicy
-	originAccessControls         map[string]*OriginAccessControl
-	originAccessControlByName    map[string]string // name → OAC ID (uniqueness)
-	responseHeadersPolicies      map[string]*ResponseHeadersPolicy
-	responseHeadersPolicyByName  map[string]string    // name → policy ID (uniqueness)
-	functions                    map[string]*Function // name → function
-	originRequestPolicies        map[string]*OriginRequestPolicy
-	originRequestPolicyByName    map[string]string // name → policy ID (uniqueness)
-	mu                           *lockmetrics.RWMutex
-	accountID                    string
-	region                       string
+	distributions                     map[string]*Distribution
+	distributionARNs                  map[string]string          // ARN → distribution ID (O(1) tag lookups)
+	distributionCallerRefs            map[string]string          // CallerReference → distribution ID (idempotency)
+	distributionAliases               map[string][]string        // distribution ID → aliases
+	distributionWebACLs               map[string]string          // distribution ID → web ACL ID
+	distributionTenantWebACLs         map[string]string          // tenant ID → web ACL ID
+	invalidations                     map[string][]*Invalidation // distribution ID → []Invalidation
+	oais                              map[string]*OriginAccessIdentity
+	oaiCallerRefs                     map[string]string // CallerReference → OAI ID (idempotency)
+	anycastIPLists                    map[string]*AnycastIPList
+	cachePolicies                     map[string]*CachePolicy
+	cachePolicyByName                 map[string]string // name → policy ID (uniqueness)
+	connectionFunctions               map[string]*ConnectionFunction
+	connectionGroups                  map[string]*ConnectionGroup
+	continuousDeploymentPolicies      map[string]*ContinuousDeploymentPolicy
+	originAccessControls              map[string]*OriginAccessControl
+	originAccessControlByName         map[string]string // name → OAC ID (uniqueness)
+	responseHeadersPolicies           map[string]*ResponseHeadersPolicy
+	responseHeadersPolicyByName       map[string]string    // name → policy ID (uniqueness)
+	functions                         map[string]*Function // name → function
+	originRequestPolicies             map[string]*OriginRequestPolicy
+	originRequestPolicyByName         map[string]string // name → policy ID (uniqueness)
+	fieldLevelEncryptions             map[string]*FieldLevelEncryption
+	fieldLevelEncryptionByName        map[string]string // name → ID
+	fieldLevelEncryptionProfiles      map[string]*FieldLevelEncryptionProfile
+	fieldLevelEncryptionProfileByName map[string]string // name → ID
+	publicKeys                        map[string]*PublicKey
+	publicKeyByName                   map[string]string // name → ID
+	keyGroups                         map[string]*KeyGroup
+	keyGroupByName                    map[string]string             // name → ID
+	realtimeLogConfigs                map[string]*RealtimeLogConfig // ARN → config
+	realtimeLogConfigByName           map[string]string             // name → ARN
+	keyValueStores                    map[string]*KeyValueStore
+	keyValueStoreByName               map[string]string // name → ID
+	vpcOrigins                        map[string]*VpcOrigin
+	mu                                *lockmetrics.RWMutex
+	accountID                         string
+	region                            string
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		distributions:                make(map[string]*Distribution),
-		distributionARNs:             make(map[string]string),
-		distributionCallerRefs:       make(map[string]string),
-		distributionAliases:          make(map[string][]string),
-		distributionWebACLs:          make(map[string]string),
-		distributionTenantWebACLs:    make(map[string]string),
-		invalidations:                make(map[string][]*Invalidation),
-		oais:                         make(map[string]*OriginAccessIdentity),
-		oaiCallerRefs:                make(map[string]string),
-		anycastIPLists:               make(map[string]*AnycastIPList),
-		cachePolicies:                make(map[string]*CachePolicy),
-		cachePolicyByName:            make(map[string]string),
-		connectionFunctions:          make(map[string]*ConnectionFunction),
-		connectionGroups:             make(map[string]*ConnectionGroup),
-		continuousDeploymentPolicies: make(map[string]*ContinuousDeploymentPolicy),
-		originAccessControls:         make(map[string]*OriginAccessControl),
-		originAccessControlByName:    make(map[string]string),
-		responseHeadersPolicies:      make(map[string]*ResponseHeadersPolicy),
-		responseHeadersPolicyByName:  make(map[string]string),
-		functions:                    make(map[string]*Function),
-		originRequestPolicies:        make(map[string]*OriginRequestPolicy),
-		originRequestPolicyByName:    make(map[string]string),
-		mu:                           lockmetrics.New("cloudfront"),
-		accountID:                    accountID,
-		region:                       region,
+		distributions:                     make(map[string]*Distribution),
+		distributionARNs:                  make(map[string]string),
+		distributionCallerRefs:            make(map[string]string),
+		distributionAliases:               make(map[string][]string),
+		distributionWebACLs:               make(map[string]string),
+		distributionTenantWebACLs:         make(map[string]string),
+		invalidations:                     make(map[string][]*Invalidation),
+		oais:                              make(map[string]*OriginAccessIdentity),
+		oaiCallerRefs:                     make(map[string]string),
+		anycastIPLists:                    make(map[string]*AnycastIPList),
+		cachePolicies:                     make(map[string]*CachePolicy),
+		cachePolicyByName:                 make(map[string]string),
+		connectionFunctions:               make(map[string]*ConnectionFunction),
+		connectionGroups:                  make(map[string]*ConnectionGroup),
+		continuousDeploymentPolicies:      make(map[string]*ContinuousDeploymentPolicy),
+		originAccessControls:              make(map[string]*OriginAccessControl),
+		originAccessControlByName:         make(map[string]string),
+		responseHeadersPolicies:           make(map[string]*ResponseHeadersPolicy),
+		responseHeadersPolicyByName:       make(map[string]string),
+		functions:                         make(map[string]*Function),
+		originRequestPolicies:             make(map[string]*OriginRequestPolicy),
+		originRequestPolicyByName:         make(map[string]string),
+		fieldLevelEncryptions:             make(map[string]*FieldLevelEncryption),
+		fieldLevelEncryptionByName:        make(map[string]string),
+		fieldLevelEncryptionProfiles:      make(map[string]*FieldLevelEncryptionProfile),
+		fieldLevelEncryptionProfileByName: make(map[string]string),
+		publicKeys:                        make(map[string]*PublicKey),
+		publicKeyByName:                   make(map[string]string),
+		keyGroups:                         make(map[string]*KeyGroup),
+		keyGroupByName:                    make(map[string]string),
+		realtimeLogConfigs:                make(map[string]*RealtimeLogConfig),
+		realtimeLogConfigByName:           make(map[string]string),
+		keyValueStores:                    make(map[string]*KeyValueStore),
+		keyValueStoreByName:               make(map[string]string),
+		vpcOrigins:                        make(map[string]*VpcOrigin),
+		mu:                                lockmetrics.New("cloudfront"),
+		accountID:                         accountID,
+		region:                            region,
 	}
 }
 
@@ -266,6 +369,19 @@ func (b *InMemoryBackend) Reset() {
 	b.functions = make(map[string]*Function)
 	b.originRequestPolicies = make(map[string]*OriginRequestPolicy)
 	b.originRequestPolicyByName = make(map[string]string)
+	b.fieldLevelEncryptions = make(map[string]*FieldLevelEncryption)
+	b.fieldLevelEncryptionByName = make(map[string]string)
+	b.fieldLevelEncryptionProfiles = make(map[string]*FieldLevelEncryptionProfile)
+	b.fieldLevelEncryptionProfileByName = make(map[string]string)
+	b.publicKeys = make(map[string]*PublicKey)
+	b.publicKeyByName = make(map[string]string)
+	b.keyGroups = make(map[string]*KeyGroup)
+	b.keyGroupByName = make(map[string]string)
+	b.realtimeLogConfigs = make(map[string]*RealtimeLogConfig)
+	b.realtimeLogConfigByName = make(map[string]string)
+	b.keyValueStores = make(map[string]*KeyValueStore)
+	b.keyValueStoreByName = make(map[string]string)
+	b.vpcOrigins = make(map[string]*VpcOrigin)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -279,7 +395,11 @@ func (b *InMemoryBackend) distributionARN(id string) string {
 
 // oaiARN builds an ARN for an Origin Access Identity.
 func (b *InMemoryBackend) oaiARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:origin-access-identity/cloudfront/%s", b.accountID, id)
+	return fmt.Sprintf(
+		"arn:aws:cloudfront::%s:origin-access-identity/cloudfront/%s",
+		b.accountID,
+		id,
+	)
 }
 
 // anycastIPListARN builds an ARN for an Anycast IP list.
@@ -612,7 +732,9 @@ func (b *InMemoryBackend) ListInvalidations(distributionID string) ([]*Invalidat
 }
 
 // GetInvalidation returns a specific invalidation by distribution ID and invalidation ID.
-func (b *InMemoryBackend) GetInvalidation(distributionID, invalidationID string) (*Invalidation, error) {
+func (b *InMemoryBackend) GetInvalidation(
+	distributionID, invalidationID string,
+) (*Invalidation, error) {
 	b.mu.RLock("GetInvalidation")
 	defer b.mu.RUnlock()
 
@@ -789,7 +911,11 @@ func (b *InMemoryBackend) CreateCachePolicy(
 	}
 
 	if _, exists := b.cachePolicyByName[name]; exists {
-		return nil, fmt.Errorf("%w: cache policy with name %q already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: cache policy with name %q already exists",
+			ErrAlreadyExists,
+			name,
+		)
 	}
 
 	id := generateID()
@@ -810,7 +936,9 @@ func (b *InMemoryBackend) CreateCachePolicy(
 }
 
 // CreateConnectionFunction creates a new connection function.
-func (b *InMemoryBackend) CreateConnectionFunction(name, comment string) (*ConnectionFunction, error) {
+func (b *InMemoryBackend) CreateConnectionFunction(
+	name, comment string,
+) (*ConnectionFunction, error) {
 	b.mu.Lock("CreateConnectionFunction")
 	defer b.mu.Unlock()
 
@@ -854,7 +982,9 @@ func (b *InMemoryBackend) CreateConnectionGroup(name, comment string) (*Connecti
 }
 
 // CreateContinuousDeploymentPolicy creates a new continuous deployment policy.
-func (b *InMemoryBackend) CreateContinuousDeploymentPolicy(enabled bool) (*ContinuousDeploymentPolicy, error) {
+func (b *InMemoryBackend) CreateContinuousDeploymentPolicy(
+	enabled bool,
+) (*ContinuousDeploymentPolicy, error) {
 	b.mu.Lock("CreateContinuousDeploymentPolicy")
 	defer b.mu.Unlock()
 
@@ -947,7 +1077,11 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 	// If name changed, ensure uniqueness and update index.
 	if name != p.Name {
 		if _, exists := b.cachePolicyByName[name]; exists {
-			return nil, fmt.Errorf("%w: cache policy with name %q already exists", ErrAlreadyExists, name)
+			return nil, fmt.Errorf(
+				"%w: cache policy with name %q already exists",
+				ErrAlreadyExists,
+				name,
+			)
 		}
 
 		delete(b.cachePolicyByName, p.Name)
@@ -996,7 +1130,11 @@ func (b *InMemoryBackend) CreateOriginAccessControl(
 	}
 
 	if _, exists := b.originAccessControlByName[name]; exists {
-		return nil, fmt.Errorf("%w: origin access control with name %q already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: origin access control with name %q already exists",
+			ErrAlreadyExists,
+			name,
+		)
 	}
 
 	id := generateID()
@@ -1065,7 +1203,11 @@ func (b *InMemoryBackend) UpdateOriginAccessControl(
 
 	if name != oac.Name {
 		if _, exists := b.originAccessControlByName[name]; exists {
-			return nil, fmt.Errorf("%w: origin access control with name %q already exists", ErrAlreadyExists, name)
+			return nil, fmt.Errorf(
+				"%w: origin access control with name %q already exists",
+				ErrAlreadyExists,
+				name,
+			)
 		}
 
 		delete(b.originAccessControlByName, oac.Name)
@@ -1102,7 +1244,9 @@ func (b *InMemoryBackend) DeleteOriginAccessControl(id string) error {
 // --- Response Headers Policy CRUD ---
 
 // CreateResponseHeadersPolicy creates a new Response Headers Policy.
-func (b *InMemoryBackend) CreateResponseHeadersPolicy(name, comment string) (*ResponseHeadersPolicy, error) {
+func (b *InMemoryBackend) CreateResponseHeadersPolicy(
+	name, comment string,
+) (*ResponseHeadersPolicy, error) {
 	b.mu.Lock("CreateResponseHeadersPolicy")
 	defer b.mu.Unlock()
 
@@ -1111,7 +1255,11 @@ func (b *InMemoryBackend) CreateResponseHeadersPolicy(name, comment string) (*Re
 	}
 
 	if _, exists := b.responseHeadersPolicyByName[name]; exists {
-		return nil, fmt.Errorf("%w: response headers policy with name %q already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: response headers policy with name %q already exists",
+			ErrAlreadyExists,
+			name,
+		)
 	}
 
 	id := generateID()
@@ -1135,7 +1283,11 @@ func (b *InMemoryBackend) GetResponseHeadersPolicy(id string) (*ResponseHeadersP
 
 	p, ok := b.responseHeadersPolicies[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: response headers policy %s not found", ErrResponseHeadersPolicyNotFound, id)
+		return nil, fmt.Errorf(
+			"%w: response headers policy %s not found",
+			ErrResponseHeadersPolicyNotFound,
+			id,
+		)
 	}
 
 	cp := *p
@@ -1160,13 +1312,19 @@ func (b *InMemoryBackend) ListResponseHeadersPolicies() []*ResponseHeadersPolicy
 }
 
 // UpdateResponseHeadersPolicy updates an existing Response Headers Policy.
-func (b *InMemoryBackend) UpdateResponseHeadersPolicy(id, name, comment string) (*ResponseHeadersPolicy, error) {
+func (b *InMemoryBackend) UpdateResponseHeadersPolicy(
+	id, name, comment string,
+) (*ResponseHeadersPolicy, error) {
 	b.mu.Lock("UpdateResponseHeadersPolicy")
 	defer b.mu.Unlock()
 
 	p, ok := b.responseHeadersPolicies[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: response headers policy %s not found", ErrResponseHeadersPolicyNotFound, id)
+		return nil, fmt.Errorf(
+			"%w: response headers policy %s not found",
+			ErrResponseHeadersPolicyNotFound,
+			id,
+		)
 	}
 
 	if name == "" {
@@ -1175,7 +1333,11 @@ func (b *InMemoryBackend) UpdateResponseHeadersPolicy(id, name, comment string) 
 
 	if name != p.Name {
 		if _, exists := b.responseHeadersPolicyByName[name]; exists {
-			return nil, fmt.Errorf("%w: response headers policy with name %q already exists", ErrAlreadyExists, name)
+			return nil, fmt.Errorf(
+				"%w: response headers policy with name %q already exists",
+				ErrAlreadyExists,
+				name,
+			)
 		}
 
 		delete(b.responseHeadersPolicyByName, p.Name)
@@ -1197,7 +1359,11 @@ func (b *InMemoryBackend) DeleteResponseHeadersPolicy(id string) error {
 
 	p, ok := b.responseHeadersPolicies[id]
 	if !ok {
-		return fmt.Errorf("%w: response headers policy %s not found", ErrResponseHeadersPolicyNotFound, id)
+		return fmt.Errorf(
+			"%w: response headers policy %s not found",
+			ErrResponseHeadersPolicyNotFound,
+			id,
+		)
 	}
 
 	delete(b.responseHeadersPolicyByName, p.Name)
@@ -1209,7 +1375,9 @@ func (b *InMemoryBackend) DeleteResponseHeadersPolicy(id string) error {
 // --- CloudFront Function CRUD ---
 
 // CreateFunction creates a new CloudFront Function.
-func (b *InMemoryBackend) CreateFunction(name, comment, runtime, functionCode string) (*Function, error) {
+func (b *InMemoryBackend) CreateFunction(
+	name, comment, runtime, functionCode string,
+) (*Function, error) {
 	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 
@@ -1285,7 +1453,9 @@ func (b *InMemoryBackend) PublishFunction(name string) (*Function, error) {
 }
 
 // UpdateFunction updates an existing CloudFront Function.
-func (b *InMemoryBackend) UpdateFunction(name, comment, runtime, functionCode string) (*Function, error) {
+func (b *InMemoryBackend) UpdateFunction(
+	name, comment, runtime, functionCode string,
+) (*Function, error) {
 	b.mu.Lock("UpdateFunction")
 	defer b.mu.Unlock()
 
@@ -1321,7 +1491,9 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 // --- Origin Request Policy CRUD ---
 
 // CreateOriginRequestPolicy creates a new Origin Request Policy.
-func (b *InMemoryBackend) CreateOriginRequestPolicy(name, comment string) (*OriginRequestPolicy, error) {
+func (b *InMemoryBackend) CreateOriginRequestPolicy(
+	name, comment string,
+) (*OriginRequestPolicy, error) {
 	b.mu.Lock("CreateOriginRequestPolicy")
 	defer b.mu.Unlock()
 
@@ -1330,7 +1502,11 @@ func (b *InMemoryBackend) CreateOriginRequestPolicy(name, comment string) (*Orig
 	}
 
 	if _, exists := b.originRequestPolicyByName[name]; exists {
-		return nil, fmt.Errorf("%w: origin request policy with name %q already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: origin request policy with name %q already exists",
+			ErrAlreadyExists,
+			name,
+		)
 	}
 
 	id := generateID()
@@ -1354,7 +1530,11 @@ func (b *InMemoryBackend) GetOriginRequestPolicy(id string) (*OriginRequestPolic
 
 	p, ok := b.originRequestPolicies[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: origin request policy %s not found", ErrOriginRequestPolicyNotFound, id)
+		return nil, fmt.Errorf(
+			"%w: origin request policy %s not found",
+			ErrOriginRequestPolicyNotFound,
+			id,
+		)
 	}
 
 	cp := *p
@@ -1379,13 +1559,19 @@ func (b *InMemoryBackend) ListOriginRequestPolicies() []*OriginRequestPolicy {
 }
 
 // UpdateOriginRequestPolicy updates an existing Origin Request Policy.
-func (b *InMemoryBackend) UpdateOriginRequestPolicy(id, name, comment string) (*OriginRequestPolicy, error) {
+func (b *InMemoryBackend) UpdateOriginRequestPolicy(
+	id, name, comment string,
+) (*OriginRequestPolicy, error) {
 	b.mu.Lock("UpdateOriginRequestPolicy")
 	defer b.mu.Unlock()
 
 	p, ok := b.originRequestPolicies[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: origin request policy %s not found", ErrOriginRequestPolicyNotFound, id)
+		return nil, fmt.Errorf(
+			"%w: origin request policy %s not found",
+			ErrOriginRequestPolicyNotFound,
+			id,
+		)
 	}
 
 	if name == "" {
@@ -1394,7 +1580,11 @@ func (b *InMemoryBackend) UpdateOriginRequestPolicy(id, name, comment string) (*
 
 	if name != p.Name {
 		if _, exists := b.originRequestPolicyByName[name]; exists {
-			return nil, fmt.Errorf("%w: origin request policy with name %q already exists", ErrAlreadyExists, name)
+			return nil, fmt.Errorf(
+				"%w: origin request policy with name %q already exists",
+				ErrAlreadyExists,
+				name,
+			)
 		}
 
 		delete(b.originRequestPolicyByName, p.Name)
@@ -1416,11 +1606,791 @@ func (b *InMemoryBackend) DeleteOriginRequestPolicy(id string) error {
 
 	p, ok := b.originRequestPolicies[id]
 	if !ok {
-		return fmt.Errorf("%w: origin request policy %s not found", ErrOriginRequestPolicyNotFound, id)
+		return fmt.Errorf(
+			"%w: origin request policy %s not found",
+			ErrOriginRequestPolicyNotFound,
+			id,
+		)
 	}
 
 	delete(b.originRequestPolicyByName, p.Name)
 	delete(b.originRequestPolicies, id)
+
+	return nil
+}
+
+// --- Field Level Encryption CRUD ---
+
+// CreateFieldLevelEncryption creates a new Field Level Encryption config.
+func (b *InMemoryBackend) CreateFieldLevelEncryption(
+	name, comment string,
+) (*FieldLevelEncryption, error) {
+	b.mu.Lock("CreateFieldLevelEncryption")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if _, exists := b.fieldLevelEncryptionByName[name]; exists {
+		return nil, fmt.Errorf(
+			"%w: field level encryption with name %q already exists",
+			ErrAlreadyExists,
+			name,
+		)
+	}
+
+	id := generateID()
+	fle := &FieldLevelEncryption{
+		ID:      id,
+		Name:    name,
+		Comment: comment,
+		ETag:    uuid.NewString(),
+	}
+	b.fieldLevelEncryptions[id] = fle
+	b.fieldLevelEncryptionByName[name] = id
+	cp := *fle
+
+	return &cp, nil
+}
+
+// GetFieldLevelEncryption returns a Field Level Encryption config by ID.
+func (b *InMemoryBackend) GetFieldLevelEncryption(id string) (*FieldLevelEncryption, error) {
+	b.mu.RLock("GetFieldLevelEncryption")
+	defer b.mu.RUnlock()
+
+	fle, ok := b.fieldLevelEncryptions[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: field level encryption %s not found", ErrFLENotFound, id)
+	}
+
+	cp := *fle
+
+	return &cp, nil
+}
+
+// ListFieldLevelEncryptions returns all Field Level Encryption configs sorted by ID.
+func (b *InMemoryBackend) ListFieldLevelEncryptions() []*FieldLevelEncryption {
+	b.mu.RLock("ListFieldLevelEncryptions")
+	defer b.mu.RUnlock()
+
+	list := make([]*FieldLevelEncryption, 0, len(b.fieldLevelEncryptions))
+	for _, fle := range b.fieldLevelEncryptions {
+		cp := *fle
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// UpdateFieldLevelEncryption updates an existing Field Level Encryption config.
+func (b *InMemoryBackend) UpdateFieldLevelEncryption(
+	id, name, comment string,
+) (*FieldLevelEncryption, error) {
+	b.mu.Lock("UpdateFieldLevelEncryption")
+	defer b.mu.Unlock()
+
+	fle, ok := b.fieldLevelEncryptions[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: field level encryption %s not found", ErrFLENotFound, id)
+	}
+
+	if name != fle.Name {
+		if _, exists := b.fieldLevelEncryptionByName[name]; exists {
+			return nil, fmt.Errorf(
+				"%w: field level encryption with name %q already exists",
+				ErrAlreadyExists,
+				name,
+			)
+		}
+
+		delete(b.fieldLevelEncryptionByName, fle.Name)
+		b.fieldLevelEncryptionByName[name] = id
+	}
+
+	fle.Name = name
+	fle.Comment = comment
+	fle.ETag = uuid.NewString()
+	cp := *fle
+
+	return &cp, nil
+}
+
+// DeleteFieldLevelEncryption deletes a Field Level Encryption config by ID.
+func (b *InMemoryBackend) DeleteFieldLevelEncryption(id string) error {
+	b.mu.Lock("DeleteFieldLevelEncryption")
+	defer b.mu.Unlock()
+
+	fle, ok := b.fieldLevelEncryptions[id]
+	if !ok {
+		return fmt.Errorf("%w: field level encryption %s not found", ErrFLENotFound, id)
+	}
+
+	delete(b.fieldLevelEncryptionByName, fle.Name)
+	delete(b.fieldLevelEncryptions, id)
+
+	return nil
+}
+
+// --- Field Level Encryption Profile CRUD ---
+
+// CreateFieldLevelEncryptionProfile creates a new Field Level Encryption Profile.
+func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
+	name, comment string,
+) (*FieldLevelEncryptionProfile, error) {
+	b.mu.Lock("CreateFieldLevelEncryptionProfile")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if _, exists := b.fieldLevelEncryptionProfileByName[name]; exists {
+		return nil, fmt.Errorf(
+			"%w: field level encryption profile with name %q already exists",
+			ErrAlreadyExists,
+			name,
+		)
+	}
+
+	id := generateID()
+	p := &FieldLevelEncryptionProfile{
+		ID:      id,
+		Name:    name,
+		Comment: comment,
+		ETag:    uuid.NewString(),
+	}
+	b.fieldLevelEncryptionProfiles[id] = p
+	b.fieldLevelEncryptionProfileByName[name] = id
+	cp := *p
+
+	return &cp, nil
+}
+
+// GetFieldLevelEncryptionProfile returns a Field Level Encryption Profile by ID.
+func (b *InMemoryBackend) GetFieldLevelEncryptionProfile(
+	id string,
+) (*FieldLevelEncryptionProfile, error) {
+	b.mu.RLock("GetFieldLevelEncryptionProfile")
+	defer b.mu.RUnlock()
+
+	p, ok := b.fieldLevelEncryptionProfiles[id]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: field level encryption profile %s not found",
+			ErrFLEProfileNotFound,
+			id,
+		)
+	}
+
+	cp := *p
+
+	return &cp, nil
+}
+
+// ListFieldLevelEncryptionProfiles returns all FLE profiles sorted by ID.
+func (b *InMemoryBackend) ListFieldLevelEncryptionProfiles() []*FieldLevelEncryptionProfile {
+	b.mu.RLock("ListFieldLevelEncryptionProfiles")
+	defer b.mu.RUnlock()
+
+	list := make([]*FieldLevelEncryptionProfile, 0, len(b.fieldLevelEncryptionProfiles))
+	for _, p := range b.fieldLevelEncryptionProfiles {
+		cp := *p
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// UpdateFieldLevelEncryptionProfile updates an existing FLE profile.
+func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
+	id, name, comment string,
+) (*FieldLevelEncryptionProfile, error) {
+	b.mu.Lock("UpdateFieldLevelEncryptionProfile")
+	defer b.mu.Unlock()
+
+	p, ok := b.fieldLevelEncryptionProfiles[id]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: field level encryption profile %s not found",
+			ErrFLEProfileNotFound,
+			id,
+		)
+	}
+
+	if name != p.Name {
+		if _, exists := b.fieldLevelEncryptionProfileByName[name]; exists {
+			return nil, fmt.Errorf(
+				"%w: field level encryption profile with name %q already exists",
+				ErrAlreadyExists,
+				name,
+			)
+		}
+
+		delete(b.fieldLevelEncryptionProfileByName, p.Name)
+		b.fieldLevelEncryptionProfileByName[name] = id
+	}
+
+	p.Name = name
+	p.Comment = comment
+	p.ETag = uuid.NewString()
+	cp := *p
+
+	return &cp, nil
+}
+
+// DeleteFieldLevelEncryptionProfile deletes an FLE profile by ID.
+func (b *InMemoryBackend) DeleteFieldLevelEncryptionProfile(id string) error {
+	b.mu.Lock("DeleteFieldLevelEncryptionProfile")
+	defer b.mu.Unlock()
+
+	p, ok := b.fieldLevelEncryptionProfiles[id]
+	if !ok {
+		return fmt.Errorf(
+			"%w: field level encryption profile %s not found",
+			ErrFLEProfileNotFound,
+			id,
+		)
+	}
+
+	delete(b.fieldLevelEncryptionProfileByName, p.Name)
+	delete(b.fieldLevelEncryptionProfiles, id)
+
+	return nil
+}
+
+// --- Public Key CRUD ---
+
+// CreatePublicKey creates a new CloudFront Public Key.
+func (b *InMemoryBackend) CreatePublicKey(
+	callerRef, name, comment, encodedKey string,
+) (*PublicKey, error) {
+	b.mu.Lock("CreatePublicKey")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if _, exists := b.publicKeyByName[name]; exists {
+		return nil, fmt.Errorf("%w: public key with name %q already exists", ErrAlreadyExists, name)
+	}
+
+	id := generateID()
+	pk := &PublicKey{
+		ID:              id,
+		Name:            name,
+		Comment:         comment,
+		EncodedKey:      encodedKey,
+		CallerReference: callerRef,
+		ETag:            uuid.NewString(),
+	}
+	b.publicKeys[id] = pk
+	b.publicKeyByName[name] = id
+	cp := *pk
+
+	return &cp, nil
+}
+
+// GetPublicKey returns a CloudFront Public Key by ID.
+func (b *InMemoryBackend) GetPublicKey(id string) (*PublicKey, error) {
+	b.mu.RLock("GetPublicKey")
+	defer b.mu.RUnlock()
+
+	pk, ok := b.publicKeys[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, id)
+	}
+
+	cp := *pk
+
+	return &cp, nil
+}
+
+// ListPublicKeys returns all public keys sorted by ID.
+func (b *InMemoryBackend) ListPublicKeys() []*PublicKey {
+	b.mu.RLock("ListPublicKeys")
+	defer b.mu.RUnlock()
+
+	list := make([]*PublicKey, 0, len(b.publicKeys))
+	for _, pk := range b.publicKeys {
+		cp := *pk
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// UpdatePublicKey updates an existing Public Key comment.
+func (b *InMemoryBackend) UpdatePublicKey(id, comment string) (*PublicKey, error) {
+	b.mu.Lock("UpdatePublicKey")
+	defer b.mu.Unlock()
+
+	pk, ok := b.publicKeys[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, id)
+	}
+
+	pk.Comment = comment
+	pk.ETag = uuid.NewString()
+	cp := *pk
+
+	return &cp, nil
+}
+
+// DeletePublicKey deletes a Public Key by ID.
+func (b *InMemoryBackend) DeletePublicKey(id string) error {
+	b.mu.Lock("DeletePublicKey")
+	defer b.mu.Unlock()
+
+	pk, ok := b.publicKeys[id]
+	if !ok {
+		return fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, id)
+	}
+
+	delete(b.publicKeyByName, pk.Name)
+	delete(b.publicKeys, id)
+
+	return nil
+}
+
+// --- Key Group CRUD ---
+
+// CreateKeyGroup creates a new CloudFront Key Group.
+func (b *InMemoryBackend) CreateKeyGroup(name, comment string, items []string) (*KeyGroup, error) {
+	b.mu.Lock("CreateKeyGroup")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if _, exists := b.keyGroupByName[name]; exists {
+		return nil, fmt.Errorf("%w: key group with name %q already exists", ErrAlreadyExists, name)
+	}
+
+	id := generateID()
+	kg := &KeyGroup{
+		ID:      id,
+		Name:    name,
+		Comment: comment,
+		Items:   append([]string(nil), items...),
+		ETag:    uuid.NewString(),
+	}
+	b.keyGroups[id] = kg
+	b.keyGroupByName[name] = id
+
+	return b.copyKeyGroup(kg), nil
+}
+
+// GetKeyGroup returns a CloudFront Key Group by ID.
+func (b *InMemoryBackend) GetKeyGroup(id string) (*KeyGroup, error) {
+	b.mu.RLock("GetKeyGroup")
+	defer b.mu.RUnlock()
+
+	kg, ok := b.keyGroups[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: key group %s not found", ErrKeyGroupNotFound, id)
+	}
+
+	return b.copyKeyGroup(kg), nil
+}
+
+// ListKeyGroups returns all key groups sorted by ID.
+func (b *InMemoryBackend) ListKeyGroups() []*KeyGroup {
+	b.mu.RLock("ListKeyGroups")
+	defer b.mu.RUnlock()
+
+	list := make([]*KeyGroup, 0, len(b.keyGroups))
+	for _, kg := range b.keyGroups {
+		list = append(list, b.copyKeyGroup(kg))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// UpdateKeyGroup updates an existing Key Group.
+func (b *InMemoryBackend) UpdateKeyGroup(
+	id, name, comment string,
+	items []string,
+) (*KeyGroup, error) {
+	b.mu.Lock("UpdateKeyGroup")
+	defer b.mu.Unlock()
+
+	kg, ok := b.keyGroups[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: key group %s not found", ErrKeyGroupNotFound, id)
+	}
+
+	if name != kg.Name {
+		if _, exists := b.keyGroupByName[name]; exists {
+			return nil, fmt.Errorf(
+				"%w: key group with name %q already exists",
+				ErrAlreadyExists,
+				name,
+			)
+		}
+
+		delete(b.keyGroupByName, kg.Name)
+		b.keyGroupByName[name] = id
+	}
+
+	kg.Name = name
+	kg.Comment = comment
+	kg.Items = append([]string(nil), items...)
+	kg.ETag = uuid.NewString()
+
+	return b.copyKeyGroup(kg), nil
+}
+
+// DeleteKeyGroup deletes a Key Group by ID.
+func (b *InMemoryBackend) DeleteKeyGroup(id string) error {
+	b.mu.Lock("DeleteKeyGroup")
+	defer b.mu.Unlock()
+
+	kg, ok := b.keyGroups[id]
+	if !ok {
+		return fmt.Errorf("%w: key group %s not found", ErrKeyGroupNotFound, id)
+	}
+
+	delete(b.keyGroupByName, kg.Name)
+	delete(b.keyGroups, id)
+
+	return nil
+}
+
+func (b *InMemoryBackend) copyKeyGroup(kg *KeyGroup) *KeyGroup {
+	cp := *kg
+	cp.Items = append([]string(nil), kg.Items...)
+
+	return &cp
+}
+
+// --- Realtime Log Config CRUD ---
+
+// realtimeLogConfigARN builds an ARN for a Realtime Log Config.
+func (b *InMemoryBackend) realtimeLogConfigARN(name string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:realtime-log-config/%s", b.accountID, name)
+}
+
+// CreateRealtimeLogConfig creates a new Realtime Log Config.
+func (b *InMemoryBackend) CreateRealtimeLogConfig(
+	name string,
+	samplingRate int64,
+	fields []string,
+) (*RealtimeLogConfig, error) {
+	b.mu.Lock("CreateRealtimeLogConfig")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if _, exists := b.realtimeLogConfigByName[name]; exists {
+		return nil, fmt.Errorf(
+			"%w: realtime log config with name %q already exists",
+			ErrAlreadyExists,
+			name,
+		)
+	}
+
+	arn := b.realtimeLogConfigARN(name)
+	cfg := &RealtimeLogConfig{
+		ARN:          arn,
+		Name:         name,
+		SamplingRate: samplingRate,
+		Fields:       append([]string(nil), fields...),
+	}
+	b.realtimeLogConfigs[arn] = cfg
+	b.realtimeLogConfigByName[name] = arn
+
+	return b.copyRealtimeLogConfig(cfg), nil
+}
+
+// GetRealtimeLogConfig returns a Realtime Log Config by ARN.
+func (b *InMemoryBackend) GetRealtimeLogConfig(arn string) (*RealtimeLogConfig, error) {
+	b.mu.RLock("GetRealtimeLogConfig")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.realtimeLogConfigs[arn]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: realtime log config %s not found",
+			ErrRealtimeLogConfigNotFound,
+			arn,
+		)
+	}
+
+	return b.copyRealtimeLogConfig(cfg), nil
+}
+
+// GetRealtimeLogConfigByName returns a Realtime Log Config by name.
+func (b *InMemoryBackend) GetRealtimeLogConfigByName(name string) (*RealtimeLogConfig, error) {
+	b.mu.RLock("GetRealtimeLogConfigByName")
+	defer b.mu.RUnlock()
+
+	arn, ok := b.realtimeLogConfigByName[name]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: realtime log config %s not found",
+			ErrRealtimeLogConfigNotFound,
+			name,
+		)
+	}
+
+	return b.copyRealtimeLogConfig(b.realtimeLogConfigs[arn]), nil
+}
+
+// ListRealtimeLogConfigs returns all Realtime Log Configs sorted by name.
+func (b *InMemoryBackend) ListRealtimeLogConfigs() []*RealtimeLogConfig {
+	b.mu.RLock("ListRealtimeLogConfigs")
+	defer b.mu.RUnlock()
+
+	list := make([]*RealtimeLogConfig, 0, len(b.realtimeLogConfigs))
+	for _, cfg := range b.realtimeLogConfigs {
+		list = append(list, b.copyRealtimeLogConfig(cfg))
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// UpdateRealtimeLogConfig updates an existing Realtime Log Config.
+func (b *InMemoryBackend) UpdateRealtimeLogConfig(
+	arn string,
+	samplingRate int64,
+	fields []string,
+) (*RealtimeLogConfig, error) {
+	b.mu.Lock("UpdateRealtimeLogConfig")
+	defer b.mu.Unlock()
+
+	cfg, ok := b.realtimeLogConfigs[arn]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: realtime log config %s not found",
+			ErrRealtimeLogConfigNotFound,
+			arn,
+		)
+	}
+
+	cfg.SamplingRate = samplingRate
+	cfg.Fields = append([]string(nil), fields...)
+
+	return b.copyRealtimeLogConfig(cfg), nil
+}
+
+// DeleteRealtimeLogConfig deletes a Realtime Log Config by ARN.
+func (b *InMemoryBackend) DeleteRealtimeLogConfig(arn string) error {
+	b.mu.Lock("DeleteRealtimeLogConfig")
+	defer b.mu.Unlock()
+
+	cfg, ok := b.realtimeLogConfigs[arn]
+	if !ok {
+		return fmt.Errorf("%w: realtime log config %s not found", ErrRealtimeLogConfigNotFound, arn)
+	}
+
+	delete(b.realtimeLogConfigByName, cfg.Name)
+	delete(b.realtimeLogConfigs, arn)
+
+	return nil
+}
+
+func (b *InMemoryBackend) copyRealtimeLogConfig(cfg *RealtimeLogConfig) *RealtimeLogConfig {
+	cp := *cfg
+	cp.Fields = append([]string(nil), cfg.Fields...)
+
+	return &cp
+}
+
+// --- Key Value Store CRUD ---
+
+// keyValueStoreARN builds an ARN for a Key Value Store.
+func (b *InMemoryBackend) keyValueStoreARN(id string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:key-value-store/%s", b.accountID, id)
+}
+
+// CreateKeyValueStore creates a new CloudFront Key Value Store.
+func (b *InMemoryBackend) CreateKeyValueStore(name, comment string) (*KeyValueStore, error) {
+	b.mu.Lock("CreateKeyValueStore")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	if _, exists := b.keyValueStoreByName[name]; exists {
+		return nil, fmt.Errorf(
+			"%w: key value store with name %q already exists",
+			ErrAlreadyExists,
+			name,
+		)
+	}
+
+	id := uuid.NewString()
+	kvs := &KeyValueStore{
+		ID:      id,
+		ARN:     b.keyValueStoreARN(id),
+		Name:    name,
+		Comment: comment,
+		ETag:    uuid.NewString(),
+	}
+	b.keyValueStores[id] = kvs
+	b.keyValueStoreByName[name] = id
+	cp := *kvs
+
+	return &cp, nil
+}
+
+// GetKeyValueStore returns a Key Value Store by ID or ARN.
+func (b *InMemoryBackend) GetKeyValueStore(idOrARN string) (*KeyValueStore, error) {
+	b.mu.RLock("GetKeyValueStore")
+	defer b.mu.RUnlock()
+
+	if kvs, ok := b.keyValueStores[idOrARN]; ok {
+		cp := *kvs
+
+		return &cp, nil
+	}
+
+	for _, kvs := range b.keyValueStores {
+		if kvs.ARN == idOrARN {
+			cp := *kvs
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, idOrARN)
+}
+
+// ListKeyValueStores returns all Key Value Stores sorted by name.
+func (b *InMemoryBackend) ListKeyValueStores() []*KeyValueStore {
+	b.mu.RLock("ListKeyValueStores")
+	defer b.mu.RUnlock()
+
+	list := make([]*KeyValueStore, 0, len(b.keyValueStores))
+	for _, kvs := range b.keyValueStores {
+		cp := *kvs
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return list
+}
+
+// DeleteKeyValueStore deletes a Key Value Store by ID.
+func (b *InMemoryBackend) DeleteKeyValueStore(id string) error {
+	b.mu.Lock("DeleteKeyValueStore")
+	defer b.mu.Unlock()
+
+	kvs, ok := b.keyValueStores[id]
+	if !ok {
+		return fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, id)
+	}
+
+	delete(b.keyValueStoreByName, kvs.Name)
+	delete(b.keyValueStores, id)
+
+	return nil
+}
+
+// --- VPC Origin CRUD ---
+
+// vpcOriginARN builds an ARN for a VPC Origin.
+func (b *InMemoryBackend) vpcOriginARN(id string) string {
+	return fmt.Sprintf("arn:aws:cloudfront::%s:vpc-origin/%s", b.accountID, id)
+}
+
+// CreateVpcOrigin creates a new CloudFront VPC Origin.
+func (b *InMemoryBackend) CreateVpcOrigin(name string) (*VpcOrigin, error) {
+	b.mu.Lock("CreateVpcOrigin")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
+	}
+
+	id := generateID()
+	origin := &VpcOrigin{
+		ID:   id,
+		ARN:  b.vpcOriginARN(id),
+		Name: name,
+		ETag: uuid.NewString(),
+	}
+	b.vpcOrigins[id] = origin
+	cp := *origin
+
+	return &cp, nil
+}
+
+// GetVpcOrigin returns a VPC Origin by ID.
+func (b *InMemoryBackend) GetVpcOrigin(id string) (*VpcOrigin, error) {
+	b.mu.RLock("GetVpcOrigin")
+	defer b.mu.RUnlock()
+
+	origin, ok := b.vpcOrigins[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: vpc origin %s not found", ErrVpcOriginNotFound, id)
+	}
+
+	cp := *origin
+
+	return &cp, nil
+}
+
+// ListVpcOrigins returns all VPC Origins sorted by ID.
+func (b *InMemoryBackend) ListVpcOrigins() []*VpcOrigin {
+	b.mu.RLock("ListVpcOrigins")
+	defer b.mu.RUnlock()
+
+	list := make([]*VpcOrigin, 0, len(b.vpcOrigins))
+	for _, origin := range b.vpcOrigins {
+		cp := *origin
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+
+	return list
+}
+
+// UpdateVpcOrigin updates a VPC Origin.
+func (b *InMemoryBackend) UpdateVpcOrigin(id, name string) (*VpcOrigin, error) {
+	b.mu.Lock("UpdateVpcOrigin")
+	defer b.mu.Unlock()
+
+	origin, ok := b.vpcOrigins[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: vpc origin %s not found", ErrVpcOriginNotFound, id)
+	}
+
+	origin.Name = name
+	origin.ETag = uuid.NewString()
+	cp := *origin
+
+	return &cp, nil
+}
+
+// DeleteVpcOrigin deletes a VPC Origin by ID.
+func (b *InMemoryBackend) DeleteVpcOrigin(id string) error {
+	b.mu.Lock("DeleteVpcOrigin")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vpcOrigins[id]; !ok {
+		return fmt.Errorf("%w: vpc origin %s not found", ErrVpcOriginNotFound, id)
+	}
+
+	delete(b.vpcOrigins, id)
 
 	return nil
 }
