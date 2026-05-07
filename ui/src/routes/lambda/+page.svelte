@@ -7,8 +7,11 @@
 		InvokeCommand,
 		DeleteFunctionCommand,
 		CreateFunctionCommand,
+		ListLayersCommand,
+		UpdateFunctionConfigurationCommand,
 		type FunctionConfiguration,
-		type InvocationResponse
+		type InvocationResponse,
+		type LayersListItem
 	} from '@aws-sdk/client-lambda';
 	import { toast } from 'svelte-sonner';
 	import { 
@@ -35,6 +38,25 @@
 	let invoking = $state(false);
 	let invokeResponse = $state<InvocationResponse | null>(null);
 	let invokeType = $state<'RequestResponse' | 'Event' | 'DryRun'>('RequestResponse');
+
+	// Invocation History
+	interface InvocationRecord {
+		functionName: string;
+		timestamp: Date;
+		statusCode: number | undefined;
+		payload: string;
+	}
+	let invocationHistory = $state<InvocationRecord[]>([]);
+
+	// Layer Management
+	let layers = $state<LayersListItem[]>([]);
+	let layersLoading = $state(false);
+	let showLayerTab = $state(false);
+
+	// Env Var Editor
+	let editingEnvVars = $state(false);
+	let envVarDraft = $state<Record<string, string>>({});
+	let savingEnvVars = $state(false);
 
 	// Create Function Modal State
 	let showCreateModal = $state(false);
@@ -108,7 +130,16 @@
 				Payload: payload
 			}));
 			invokeResponse = res;
-			
+			invocationHistory = [
+				{
+					functionName: selectedFunction.FunctionName ?? '',
+					timestamp: new Date(),
+					statusCode: res.StatusCode,
+					payload: invokePayload.slice(0, 100)
+				},
+				...invocationHistory.slice(0, 19)
+			];
+
 			if (res.StatusCode === 200 || res.StatusCode === 202) {
 				toast.success(`Successfully invoked ${selectedFunction.FunctionName}`);
 			} else {
@@ -169,8 +200,44 @@
 		}
 	}
 
+	async function loadLayers() {
+		layersLoading = true;
+		try {
+			const res = await lambda.send(new ListLayersCommand({}));
+			layers = res.Layers ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load layers: ${(err as Error).message}`);
+		} finally {
+			layersLoading = false;
+		}
+	}
+
+	function startEditEnvVars() {
+		envVarDraft = { ...(selectedFunction?.Environment?.Variables) };
+		editingEnvVars = true;
+	}
+
+	async function saveEnvVars() {
+		if (!selectedFunction) return;
+		savingEnvVars = true;
+		try {
+			await lambda.send(new UpdateFunctionConfigurationCommand({
+				FunctionName: selectedFunction.FunctionName,
+				Environment: { Variables: envVarDraft }
+			}));
+			toast.success('Environment variables saved');
+			editingEnvVars = false;
+			await loadFunctions();
+		} catch (err: unknown) {
+			toast.error(`Save failed: ${(err as Error).message}`);
+		} finally {
+			savingEnvVars = false;
+		}
+	}
+
 	onMount(() => {
 		loadFunctions();
+		loadLayers();
 	});
 </script>
 
@@ -430,11 +497,45 @@
 
 						<!-- Env Vars -->
 						<div>
-							<h3 class="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
-								<Terminal class="w-3 h-3" />
-								Environment Variables
-							</h3>
-							{#if selectedFunction.Environment?.Variables}
+							<div class="flex items-center justify-between mb-3">
+								<h3 class="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+									<Terminal class="w-3 h-3" />
+									Environment Variables
+								</h3>
+								{#if !editingEnvVars}
+									<button onclick={startEditEnvVars} class="text-xs text-orange-500 hover:text-orange-700">Edit</button>
+								{/if}
+							</div>
+							{#if editingEnvVars}
+								<div class="space-y-2 max-h-48 overflow-y-auto pr-2">
+									{#each Object.entries(envVarDraft) as [k, v], i}
+										<div class="flex gap-1">
+											<input value={k} oninput={(e) => {
+												// eslint-disable-next-line @typescript-eslint/no-explicit-any
+												const newKey = (e.target as any).value;
+												const entries = Object.entries(envVarDraft);
+												entries[i] = [newKey, v];
+												envVarDraft = Object.fromEntries(entries);
+											}} class="flex-1 text-xs font-mono px-2 py-1 border rounded bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-600" placeholder="KEY" />
+											<input value={v} oninput={(e) => {
+												// eslint-disable-next-line @typescript-eslint/no-explicit-any
+												const newVal = (e.target as any).value;
+												const entries = Object.entries(envVarDraft);
+												entries[i] = [k, newVal];
+												envVarDraft = Object.fromEntries(entries);
+											}} class="flex-1 text-xs font-mono px-2 py-1 border rounded bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-600" placeholder="value" />
+											<button onclick={() => { const {[k]: _, ...rest} = envVarDraft; envVarDraft = rest; }} class="text-red-400 hover:text-red-600 px-1">×</button>
+										</div>
+									{/each}
+									<button onclick={() => { envVarDraft = { ...envVarDraft, '': '' }; }} class="text-xs text-orange-500 hover:text-orange-700">+ Add variable</button>
+								</div>
+								<div class="flex gap-2 mt-2">
+									<button onclick={saveEnvVars} disabled={savingEnvVars} class="flex-1 text-xs py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg disabled:opacity-50">
+										{savingEnvVars ? 'Saving…' : 'Save'}
+									</button>
+									<button onclick={() => editingEnvVars = false} class="flex-1 text-xs py-1.5 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+								</div>
+							{:else if selectedFunction.Environment?.Variables}
 								<div class="space-y-2 max-h-48 overflow-y-auto pr-2">
 									{#each Object.entries(selectedFunction.Environment.Variables) as [key, value]}
 										<div class="p-2 bg-slate-900/5 dark:bg-slate-900/40 rounded-lg border border-slate-200/50 dark:border-slate-700/50 flex flex-col">
@@ -444,7 +545,7 @@
 									{/each}
 								</div>
 							{:else}
-								<p class="text-xs text-slate-400 italic">No environment variables defined.</p>
+								<p class="text-xs text-slate-400 italic">No environment variables defined. <button class="text-orange-500 hover:underline" onclick={startEditEnvVars}>Add one</button></p>
 							{/if}
 						</div>
 
@@ -466,6 +567,58 @@
 				</div>
 			{/if}
 		</div>
+	</div>
+
+	<!-- Invocation History -->
+	{#if invocationHistory.length > 0}
+		<div class="bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-2xl shadow-xl p-6">
+			<h2 class="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+				<Terminal class="w-4 h-4" /> Invocation History
+			</h2>
+			<div class="space-y-2 max-h-48 overflow-y-auto">
+				{#each invocationHistory as inv}
+					<div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-900/40 rounded-lg border border-slate-200 dark:border-slate-700/50 text-xs">
+						<span class="font-medium text-slate-900 dark:text-white">{inv.functionName}</span>
+						<span class="font-mono text-slate-400">{inv.timestamp.toLocaleTimeString()}</span>
+						<span class="px-2 py-0.5 rounded-full {(inv.statusCode ?? 0) < 300 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}">{inv.statusCode ?? '—'}</span>
+					</div>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
+	<!-- Layer Management -->
+	<div class="bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-2xl shadow-xl p-6">
+		<div class="flex items-center justify-between mb-4">
+			<h2 class="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-2">
+				<Code class="w-4 h-4" /> Lambda Layers
+			</h2>
+			<button onclick={() => { showLayerTab = !showLayerTab; if (showLayerTab && layers.length === 0) loadLayers(); }} class="text-xs text-orange-500 hover:text-orange-700">
+				{showLayerTab ? 'Hide' : 'Show Layers'}
+			</button>
+		</div>
+		{#if showLayerTab}
+			{#if layersLoading}
+				<div class="text-center py-4"><div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-orange-500"></div></div>
+			{:else if layers.length === 0}
+				<p class="text-xs text-slate-400 italic text-center py-4">No layers found</p>
+			{:else}
+				<div class="space-y-2">
+					{#each layers as layer}
+						<div class="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-700/50">
+							<div class="flex items-center justify-between">
+								<span class="text-sm font-medium text-slate-900 dark:text-white">{layer.LayerName}</span>
+								<span class="text-xs text-slate-400">v{layer.LatestMatchingVersion?.Version}</span>
+							</div>
+							{#if layer.LatestMatchingVersion?.Description}
+								<p class="text-xs text-slate-500 mt-0.5">{layer.LatestMatchingVersion.Description}</p>
+							{/if}
+							<p class="text-xs text-slate-400 font-mono mt-1 truncate">{layer.LayerArn}</p>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		{/if}
 	</div>
 </div>
 

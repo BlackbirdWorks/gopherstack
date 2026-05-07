@@ -17,21 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	// NewHandler accepts nil because GetSupportedOperations does not use the backend.
 	h := lambda.NewHandler(nil)
-	sdkcheck.CheckCompleteness(t, &lambdasdk.Client{}, h.GetSupportedOperations(), []string{
-		// Durable execution (Lambda Workflows) — only checkpoint is implemented; others remain stubs.
-		"GetDurableExecution",
-		"GetDurableExecutionHistory",
-		"GetDurableExecutionState",
-		"ListDurableExecutionsByFunction",
-		"SendDurableExecutionCallbackFailure",
-		"SendDurableExecutionCallbackHeartbeat",
-		"SendDurableExecutionCallbackSuccess",
-		"StopDurableExecution",
-		// Capacity providers — listing by capacity provider not yet implemented.
-		"ListFunctionVersionsByCapacityProvider",
-		// Invoke — SDK exposes "Invoke"; gopherstack registers it as "InvokeFunction".
-		"Invoke",
-		"InvokeAsync",
-		"InvokeWithResponseStream",
-	})
+	sdkcheck.CheckCompleteness(t, &lambdasdk.Client{}, h.GetSupportedOperations(), []string{})
 }

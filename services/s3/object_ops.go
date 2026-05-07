@@ -76,6 +76,10 @@ func (h *S3Handler) routeObjectPut(
 		h.putObjectRetention(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("legal-hold"):
 		h.putObjectLegalHold(ctx, w, r, bucket, key)
+	case r.URL.Query().Has("rename"):
+		h.handleRenameObject(ctx, w, r)
+	case r.URL.Query().Has("encryption") && key != "":
+		h.handleUpdateObjectEncryption(ctx, w, r)
 	case r.Header.Get("X-Amz-Copy-Source") != "":
 		h.copyObject(ctx, w, r, bucket, key)
 	default:
@@ -100,6 +104,10 @@ func (h *S3Handler) routeObjectGet(
 		h.getObjectRetention(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("legal-hold"):
 		h.getObjectLegalHold(ctx, w, r, bucket, key)
+	case r.URL.Query().Has("attributes"):
+		h.handleGetObjectAttributes(ctx, w, r)
+	case r.URL.Query().Has("torrent"):
+		h.handleGetObjectTorrent(ctx, w, r)
 	default:
 		h.getObject(ctx, w, r, bucket, key)
 	}
@@ -132,6 +140,8 @@ func (h *S3Handler) routeObjectPost(
 		h.createMultipartUpload(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("uploadId"):
 		h.completeMultipartUpload(ctx, w, r, bucket, key)
+	case r.URL.Query().Has("restore"):
+		h.handleRestoreObject(ctx, w, r)
 	case r.URL.Query().Has("select"):
 		h.selectObjectContent(ctx, w, r, bucket, key)
 	default:

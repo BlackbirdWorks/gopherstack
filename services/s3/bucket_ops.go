@@ -157,6 +157,8 @@ func (h *S3Handler) routeBucketPut(
 
 // routeBucketPutExtra handles PUT sub-resources that are not in the primary switch.
 // Returns true if the request was handled.
+//
+//nolint:cyclop // dispatches many bucket PUT sub-resources; complexity is unavoidable
 func (h *S3Handler) routeBucketPutExtra(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -186,6 +188,16 @@ func (h *S3Handler) routeBucketPutExtra(
 		h.putBucketInventoryConfiguration(ctx, w, r, bucket)
 	case q.Has("metrics"):
 		h.putBucketMetricsConfiguration(ctx, w, r, bucket)
+	case q.Has("accelerate"):
+		h.handlePutBucketAccelerate(ctx, w, r)
+	case q.Has("abac"):
+		h.handlePutBucketAbac(ctx, w, r)
+	case q.Has("requestPayment"):
+		h.handlePutBucketRequestPayment(ctx, w, r)
+	case q.Has("metadataInventoryTableConfiguration"):
+		h.handleUpdateBucketMetadataInventoryTableConfig(ctx, w, r)
+	case q.Has("metadataJournalTableConfiguration"):
+		h.handleUpdateBucketMetadataJournalTableConfig(ctx, w, r)
 	default:
 		return false
 	}
@@ -358,19 +370,19 @@ func (h *S3Handler) routeBucketGetStubs(
 ) bool {
 	q := r.URL.Query()
 
-	if !q.Has("request-payment") {
-		return false
+	if q.Has("request-payment") {
+		h.setOperation(ctx, "GetBucketRequestPayment")
+		httputils.WriteXML(
+			ctx,
+			w,
+			http.StatusOK,
+			s3RequestPaymentConfiguration{Xmlns: xmlNamespaceS3, Payer: "BucketOwner"},
+		)
+
+		return true
 	}
 
-	h.setOperation(ctx, "GetBucketRequestPayment")
-	httputils.WriteXML(
-		ctx,
-		w,
-		http.StatusOK,
-		s3RequestPaymentConfiguration{Xmlns: xmlNamespaceS3, Payer: "BucketOwner"},
-	)
-
-	return true
+	return h.routeBucketGetStubsExtra(ctx, w, r)
 }
 
 func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *http.Request) {

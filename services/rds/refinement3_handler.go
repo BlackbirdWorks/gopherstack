@@ -57,7 +57,7 @@ func (h *Handler) dispatchExtended13(action string, vals url.Values) (any, error
 	case "ModifyActivityStream":
 		return h.handleModifyActivityStream(vals)
 	default:
-		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
+		return h.dispatchExtended14(action, vals)
 	}
 }
 

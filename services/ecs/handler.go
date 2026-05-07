@@ -113,6 +113,27 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"ListServiceDeployments",
 		"StopServiceDeployment",
+		// Daemon operations (stub implementations).
+		"CreateDaemon",
+		"DeleteDaemon",
+		"DeleteDaemonTaskDefinition",
+		"DescribeDaemon",
+		"DescribeDaemonDeployments",
+		"DescribeDaemonRevisions",
+		"DescribeDaemonTaskDefinition",
+		"ListDaemonDeployments",
+		"ListDaemonTaskDefinitions",
+		"ListDaemons",
+		"RegisterDaemonTaskDefinition",
+		"UpdateDaemon",
+		// Service revisions.
+		"DescribeServiceRevisions",
+		// Internal agent endpoint.
+		"DiscoverPollEndpoint",
+		// State change submissions (internal container agent protocol).
+		"SubmitAttachmentStateChanges",
+		"SubmitContainerStateChange",
+		"SubmitTaskStateChange",
 	}
 }
 
@@ -283,6 +304,26 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		// Service deployments
 		"ListServiceDeployments": service.WrapOp(h.handleListServiceDeployments),
 		"StopServiceDeployment":  service.WrapOp(h.handleStopServiceDeployment),
+		// Daemon stubs
+		"CreateDaemon":                 service.WrapOp(h.handleCreateDaemon),
+		"DeleteDaemon":                 service.WrapOp(h.handleDeleteDaemon),
+		"DeleteDaemonTaskDefinition":   service.WrapOp(h.handleDeleteDaemonTaskDefinition),
+		"DescribeDaemon":               service.WrapOp(h.handleDescribeDaemon),
+		"DescribeDaemonDeployments":    service.WrapOp(h.handleDescribeDaemonDeployments),
+		"DescribeDaemonRevisions":      service.WrapOp(h.handleDescribeDaemonRevisions),
+		"DescribeDaemonTaskDefinition": service.WrapOp(h.handleDescribeDaemonTaskDefinition),
+		"ListDaemonDeployments":        service.WrapOp(h.handleListDaemonDeployments),
+		"ListDaemonTaskDefinitions":    service.WrapOp(h.handleListDaemonTaskDefinitions),
+		"ListDaemons":                  service.WrapOp(h.handleListDaemons),
+		"RegisterDaemonTaskDefinition": service.WrapOp(h.handleRegisterDaemonTaskDefinition),
+		"UpdateDaemon":                 service.WrapOp(h.handleUpdateDaemon),
+		// Service revisions stub
+		"DescribeServiceRevisions": service.WrapOp(h.handleDescribeServiceRevisions),
+		// Internal agent endpoints
+		"DiscoverPollEndpoint":         service.WrapOp(h.handleDiscoverPollEndpoint),
+		"SubmitAttachmentStateChanges": service.WrapOp(h.handleSubmitAttachmentStateChanges),
+		"SubmitContainerStateChange":   service.WrapOp(h.handleSubmitContainerStateChange),
+		"SubmitTaskStateChange":        service.WrapOp(h.handleSubmitTaskStateChange),
 	}
 }
 

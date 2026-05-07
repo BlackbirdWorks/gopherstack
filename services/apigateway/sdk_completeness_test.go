@@ -17,25 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := apigateway.NewInMemoryBackend()
 	h := apigateway.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &apigatewaysdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateVpcLink",
-		"DeleteDomainNameAccessAssociation",
-		"DeleteVpcLink",
-		"GetDomainNameAccessAssociations",
-		"GetExport",
-		"GetSdk",
-		"GetSdkType",
-		"GetSdkTypes",
-		"GetVpcLink",
-		"GetVpcLinks",
-		"ImportApiKeys",
-		"ImportDocumentationParts",
-		"ImportRestApi",
-		"PutRestApi",
-		"RejectDomainNameAccessAssociation",
-		"UpdateClientCertificate",
-		"UpdateGatewayResponse",
-		"UpdateUsage",
-		"UpdateVpcLink",
-	})
+	sdkcheck.CheckCompleteness(t, &apigatewaysdk.Client{}, h.GetSupportedOperations(), []string{})
 }
