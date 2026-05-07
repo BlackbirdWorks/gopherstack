@@ -109,6 +109,7 @@ type StorageBackend interface {
 		startTime, endTime time.Time,
 		period int32,
 		statistics []string,
+		extendedStatistics []string,
 	) ([]Datapoint, error)
 	GetMetricData(queries []MetricDataQuery, startTime, endTime time.Time) ([]MetricDataResult, error)
 	ListMetrics(namespace, metricName, nextToken string, maxResults int) (page.Page[Metric], error)
@@ -165,6 +166,8 @@ type StorageBackend interface {
 		maxResults int,
 	) (page.Page[MetricFilter], error)
 	DeleteMetricFilter(filterName, logGroupName string) error
+	StartMetricStreams(names []string) error
+	StopMetricStreams(names []string) error
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -259,7 +262,28 @@ func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) er
 		}
 	}
 
+	// Record delivery to any running metric streams.
+	b.recordStreamDelivery(namespace, data)
+
 	return nil
+}
+
+// recordStreamDelivery notes that data was delivered to running metric streams.
+// This is a best-effort in-memory record; no actual Firehose call is made.
+// Caller must hold b.mu (write lock).
+func (b *InMemoryBackend) recordStreamDelivery(namespace string, data []MetricDatum) {
+	for _, s := range b.metricStreams {
+		if s.State != metricStreamStateRunning {
+			continue
+		}
+
+		// Record that this stream received data by updating its last-update timestamp.
+		// A real implementation would serialize data to the Firehose ARN.
+		if len(data) > 0 {
+			_ = namespace // namespace tracked for future filtering by IncludeFilters
+			s.LastUpdateDate = time.Now().UTC()
+		}
+	}
 }
 
 // SweepExpiredMetrics removes metric data points older than cwMetricRetentionDays.
@@ -400,11 +424,13 @@ func buildDatapoint(bk *metricBucket, statSet map[string]bool) Datapoint {
 }
 
 // GetMetricStatistics aggregates data for a metric over a time range into period-sized buckets.
+// extendedStatistics supports percentile expressions such as "p99", "p95", "p50".
 func (b *InMemoryBackend) GetMetricStatistics(
 	namespace, metricName string,
 	startTime, endTime time.Time,
 	period int32,
 	statistics []string,
+	extendedStatistics []string,
 ) ([]Datapoint, error) {
 	b.mu.RLock("GetMetricStatistics")
 	defer b.mu.RUnlock()
@@ -421,13 +447,27 @@ func (b *InMemoryBackend) GetMetricStatistics(
 		statSet[s] = true
 	}
 
+	// Build raw-values map per bucket for percentile computation.
+	var rawBuckets map[int64][]float64
+	if len(extendedStatistics) > 0 {
+		rawBuckets = collectRawBuckets(all, startTime, endTime, period)
+	}
+
 	datapoints := make([]Datapoint, 0, len(buckets))
-	for _, bk := range buckets {
+	for idx, bk := range buckets {
 		if bk.count == 0 {
 			continue
 		}
 
-		datapoints = append(datapoints, buildDatapoint(bk, statSet))
+		dp := buildDatapoint(bk, statSet)
+
+		if len(extendedStatistics) > 0 {
+			raw := rawBuckets[idx]
+			sort.Float64s(raw)
+			dp.ExtendedStatistics = computePercentiles(raw, extendedStatistics)
+		}
+
+		datapoints = append(datapoints, dp)
 	}
 
 	sort.Slice(datapoints, func(i, j int) bool {
@@ -438,7 +478,8 @@ func (b *InMemoryBackend) GetMetricStatistics(
 }
 
 // GetMetricData executes multiple metric queries and returns results.
-// Each query specifies a namespace, metric name, statistic, and period.
+// Queries with a MetricStat are resolved first; expression queries are evaluated
+// after all metric-stat results are available so expressions can reference them.
 func (b *InMemoryBackend) GetMetricData(
 	queries []MetricDataQuery,
 	startTime, endTime time.Time,
@@ -446,68 +487,95 @@ func (b *InMemoryBackend) GetMetricData(
 	b.mu.RLock("GetMetricData")
 	defer b.mu.RUnlock()
 
-	results := make([]MetricDataResult, 0, len(queries))
+	resolved := make(map[string]MetricDataResult, len(queries))
+	// Preserve original query order for the returned slice.
+	ordered := make([]string, 0, len(queries))
 
+	// First pass: resolve MetricStat queries.
 	for _, q := range queries {
-		ns := q.MetricStat.Namespace
-		metricName := q.MetricStat.MetricName
-		period := q.MetricStat.Period
-		stat := q.MetricStat.Stat
-
-		var all []MetricDatum
-		if nsMap, ok := b.metrics[ns]; ok {
-			all = nsMap[metricName]
+		ordered = append(ordered, q.ID)
+		if q.Expression != "" {
+			continue
 		}
+		resolved[q.ID] = b.resolveMetricStat(q, startTime, endTime)
+	}
 
-		buckets := populateBuckets(all, startTime, endTime, period)
-
-		statSet := map[string]bool{stat: true}
-		var timestamps []time.Time
-		var values []float64
-
-		for _, bk := range buckets {
-			if bk.count == 0 {
-				continue
-			}
-
-			dp := buildDatapoint(bk, statSet)
-			v := statValue(dp, stat)
-			timestamps = append(timestamps, dp.Timestamp)
-			values = append(values, v)
+	// Second pass: evaluate expression queries in declaration order so later
+	// expressions can reference results of earlier expressions.
+	for _, q := range queries {
+		if q.Expression == "" {
+			continue
 		}
+		resolved[q.ID] = evalExpression(q, resolved)
+	}
 
-		// Sort by timestamp ascending — AWS guarantees ascending order for GetMetricData.
-		if len(timestamps) > 1 {
-			type tsv struct {
-				ts  time.Time
-				val float64
-			}
-			pairs := make([]tsv, len(timestamps))
-			for i := range timestamps {
-				pairs[i] = tsv{timestamps[i], values[i]}
-			}
-			sort.Slice(pairs, func(i, j int) bool { return pairs[i].ts.Before(pairs[j].ts) })
-			for i := range pairs {
-				timestamps[i] = pairs[i].ts
-				values[i] = pairs[i].val
-			}
-		}
-
-		label := q.Label
-		if label == "" {
-			label = metricName
-		}
-
-		results = append(results, MetricDataResult{
-			ID:         q.ID,
-			Label:      label,
-			Timestamps: timestamps,
-			Values:     values,
-			StatusCode: "Complete",
-		})
+	results := make([]MetricDataResult, 0, len(queries))
+	for _, id := range ordered {
+		results = append(results, resolved[id])
 	}
 
 	return results, nil
+}
+
+// resolveMetricStat fetches and aggregates data for a single MetricStat query.
+// Caller must hold b.mu (at least read lock).
+func (b *InMemoryBackend) resolveMetricStat(q MetricDataQuery, startTime, endTime time.Time) MetricDataResult {
+	ns := q.MetricStat.Namespace
+	metricName := q.MetricStat.MetricName
+	period := q.MetricStat.Period
+	stat := q.MetricStat.Stat
+
+	var all []MetricDatum
+	if nsMap, ok := b.metrics[ns]; ok {
+		all = nsMap[metricName]
+	}
+
+	buckets := populateBuckets(all, startTime, endTime, period)
+
+	statSet := map[string]bool{stat: true}
+	var timestamps []time.Time
+	var values []float64
+
+	for _, bk := range buckets {
+		if bk.count == 0 {
+			continue
+		}
+
+		dp := buildDatapoint(bk, statSet)
+		v := statValue(dp, stat)
+		timestamps = append(timestamps, dp.Timestamp)
+		values = append(values, v)
+	}
+
+	// Sort by timestamp ascending — AWS guarantees ascending order for GetMetricData.
+	if len(timestamps) > 1 {
+		type tsv struct {
+			ts  time.Time
+			val float64
+		}
+		pairs := make([]tsv, len(timestamps))
+		for i := range timestamps {
+			pairs[i] = tsv{timestamps[i], values[i]}
+		}
+		sort.Slice(pairs, func(i, j int) bool { return pairs[i].ts.Before(pairs[j].ts) })
+		for i := range pairs {
+			timestamps[i] = pairs[i].ts
+			values[i] = pairs[i].val
+		}
+	}
+
+	label := q.Label
+	if label == "" {
+		label = metricName
+	}
+
+	return MetricDataResult{
+		ID:         q.ID,
+		Label:      label,
+		Timestamps: timestamps,
+		Values:     values,
+		StatusCode: "Complete",
+	}
 }
 
 // statValue extracts a single float value from a Datapoint based on the requested statistic.
@@ -1639,6 +1707,15 @@ func (b *InMemoryBackend) PutMetricStreamInternal(stream *MetricStream) {
 		cp.Arn = arn.Build("cloudwatch", b.region, b.accountID, "metric-stream/"+stream.Name)
 	}
 
+	// Preserve the existing state if not explicitly set so that Stop/Start calls are honoured.
+	if existing, ok := b.metricStreams[stream.Name]; ok && cp.State == "" {
+		cp.State = existing.State
+	}
+
+	if cp.State == "" {
+		cp.State = metricStreamStateRunning
+	}
+
 	b.metricStreams[stream.Name] = &cp
 }
 
@@ -1718,6 +1795,41 @@ func (b *InMemoryBackend) ListMetricStreams(nextToken string, maxResults int) (p
 	})
 
 	return page.New(result, nextToken, maxResults, cwDefaultListMetricStreamsLimit), nil
+}
+
+const metricStreamStateRunning = "RUNNING"
+const metricStreamStateStopped = "STOPPED"
+
+// StartMetricStreams sets the State of the named streams to RUNNING.
+// Names that do not exist are silently ignored (AWS behaviour).
+func (b *InMemoryBackend) StartMetricStreams(names []string) error {
+	b.mu.Lock("StartMetricStreams")
+	defer b.mu.Unlock()
+
+	for _, name := range names {
+		if s, ok := b.metricStreams[name]; ok {
+			s.State = metricStreamStateRunning
+			s.LastUpdateDate = time.Now().UTC()
+		}
+	}
+
+	return nil
+}
+
+// StopMetricStreams sets the State of the named streams to STOPPED.
+// Names that do not exist are silently ignored (AWS behaviour).
+func (b *InMemoryBackend) StopMetricStreams(names []string) error {
+	b.mu.Lock("StopMetricStreams")
+	defer b.mu.Unlock()
+
+	for _, name := range names {
+		if s, ok := b.metricStreams[name]; ok {
+			s.State = metricStreamStateStopped
+			s.LastUpdateDate = time.Now().UTC()
+		}
+	}
+
+	return nil
 }
 
 // metricFilterKey returns a stable map key for a metric filter.
