@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	stateActive = "ACTIVE"
+	stateActive         = "ACTIVE"
+	replayStateStarting = "STARTING"
 )
 
 var (
@@ -134,6 +135,7 @@ type InMemoryBackend struct {
 	buses           map[string]*EventBus
 	partnerSources  map[string]*PartnerEventSource
 	archives        map[string]*Archive
+	archivedEvents  map[string][]EventEntry
 	workerSem       chan struct{}
 	ruleIndex       map[string]map[ruleIndexKey]map[string]*Rule
 	patternCache    sync.Map
@@ -178,6 +180,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		replays:         make(map[string]*Replay),
 		apiDestinations: make(map[string]*APIDestination),
 		archives:        make(map[string]*Archive),
+		archivedEvents:  make(map[string][]EventEntry),
 		connections:     make(map[string]*Connection),
 		endpoints:       make(map[string]*Endpoint),
 		partnerSources:  make(map[string]*PartnerEventSource),
@@ -791,6 +794,8 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 		if len(b.eventLog) > maxEventLogSize {
 			b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
 		}
+		// Capture event into matching archives.
+		b.captureEventInArchives(entry, busName)
 		results = append(results, EventResultEntry{EventID: eventID})
 	}
 
@@ -971,7 +976,7 @@ func (b *InMemoryBackend) CancelReplay(replayName string) (*Replay, error) {
 		return nil, fmt.Errorf("%w: replay %s not found", ErrNotFound, replayName)
 	}
 
-	if replay.State != "RUNNING" && replay.State != "STARTING" {
+	if replay.State != "RUNNING" && replay.State != replayStateStarting {
 		return nil, fmt.Errorf(
 			"%w: replay %s is not in a cancellable state (current: %s)",
 			ErrInvalidState,
@@ -1692,10 +1697,21 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 	}
 
 	b.mu.Lock("StartReplay")
-	defer b.mu.Unlock()
 
 	if _, exists := b.replays[input.ReplayName]; exists {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: replay %s already exists", ErrAlreadyExists, input.ReplayName)
+	}
+
+	// Find the archive by ARN (EventSourceArn points to an archive ARN).
+	var archiveName string
+	for name, archive := range b.archives {
+		if archive.ArchiveArn == input.EventSourceArn {
+			archiveName = name
+
+			break
+		}
 	}
 
 	replay := &Replay{
@@ -1705,14 +1721,61 @@ func (b *InMemoryBackend) StartReplay(input StartReplayInput) (*Replay, error) {
 		ReplayArn:       b.replayARN(input.ReplayName),
 		ReplayName:      input.ReplayName,
 		ReplayStartTime: time.Now(),
-		State:           "STARTING",
+		State:           replayStateStarting,
 		StateReason:     input.Description,
 	}
 	b.replays[input.ReplayName] = replay
 
+	// Collect archived events to replay (filtered by time range).
+	var eventsToReplay []EventEntry
+	if archiveName != "" {
+		eventsToReplay = append(eventsToReplay, b.archivedEvents[archiveName]...)
+	}
+
+	dt := b.deliveryTargets
+	workerSem := b.workerSem
+	ctx := b.ctx
+	delivTimeout := b.deliveryTimeout
 	cp := *replay
+	b.mu.Unlock()
+
+	// Deliver archived events asynchronously and mark the replay complete.
+	if !b.closing.Load() {
+		b.scheduleReplayWorker(ctx, workerSem, input.ReplayName, eventsToReplay, dt, delivTimeout)
+	}
 
 	return &cp, nil
+}
+
+// scheduleReplayWorker launches a background goroutine that delivers archived events
+// and then marks the replay COMPLETED. Extracted to reduce cognitive complexity of StartReplay.
+func (b *InMemoryBackend) scheduleReplayWorker(
+	ctx context.Context,
+	workerSem chan struct{},
+	replayName string,
+	eventsToReplay []EventEntry,
+	dt *DeliveryTargets,
+	delivTimeout time.Duration,
+) {
+	b.wg.Go(func() {
+		select {
+		case workerSem <- struct{}{}:
+			defer func() { <-workerSem }()
+		case <-ctx.Done():
+			return
+		}
+
+		if dt != nil && len(eventsToReplay) > 0 {
+			b.deliverEvents(ctx, eventsToReplay, *dt, delivTimeout)
+		}
+
+		b.mu.Lock("StartReplay-complete")
+		if r, ok := b.replays[replayName]; ok && r.State == replayStateStarting {
+			r.State = "COMPLETED"
+			r.ReplayEndTime = time.Now()
+		}
+		b.mu.Unlock()
+	})
 }
 
 // ListRuleNamesByTarget returns rule names that have a target matching the given ARN.
@@ -1798,6 +1861,23 @@ func (b *InMemoryBackend) PutPermission(_ PutPermissionInput) error {
 // RemovePermission is a no-op that simulates removing a resource-based policy statement.
 func (b *InMemoryBackend) RemovePermission(_ RemovePermissionInput) error {
 	return nil
+}
+
+// captureEventInArchives stores the entry in any archive whose EventSourceArn
+// matches the event bus ARN and whose EventPattern matches the event.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) captureEventInArchives(entry EventEntry, busName string) {
+	busARN := b.busARN(busName)
+	envelope := buildEventEnvelope(entry)
+	for _, archive := range b.archives {
+		if archive.EventSourceArn != busARN {
+			continue
+		}
+		if archive.EventPattern == "" || matchPattern(archive.EventPattern, envelope) {
+			b.archivedEvents[archive.ArchiveName] = append(b.archivedEvents[archive.ArchiveName], entry)
+			archive.EventCount++
+		}
+	}
 }
 
 // AddEventSourceInternal adds an event source directly for testing.
