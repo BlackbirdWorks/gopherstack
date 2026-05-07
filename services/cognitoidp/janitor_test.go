@@ -55,7 +55,8 @@ func TestCognitoIDPJanitor_SweepOnce(t *testing.T) {
 			for range totalTokens {
 				tokens, authErr := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "janitor-user", "Password123!")
 				require.NoError(t, authErr)
-				refreshTokens = append(refreshTokens, tokens.RefreshToken)
+				require.NotNil(t, tokens.Tokens)
+				refreshTokens = append(refreshTokens, tokens.Tokens.RefreshToken)
 			}
 
 			for i := range tt.expiredCount {

@@ -166,9 +166,28 @@ type adminRespondToAuthChallengeOutput struct {
 
 func (h *Handler) handleAdminRespondToAuthChallenge(
 	_ context.Context,
-	_ *adminRespondToAuthChallengeInput,
+	in *adminRespondToAuthChallengeInput,
 ) (*adminRespondToAuthChallengeOutput, error) {
-	return &adminRespondToAuthChallengeOutput{}, nil
+	if in.ChallengeName != "SOFTWARE_TOKEN_MFA" {
+		return &adminRespondToAuthChallengeOutput{}, nil
+	}
+
+	totpCode := in.ChallengeResponses["SOFTWARE_TOKEN_MFA_CODE"]
+
+	tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, totpCode)
+	if err != nil {
+		return nil, err
+	}
+
+	return &adminRespondToAuthChallengeOutput{
+		AuthenticationResult: &authResult{
+			AccessToken:  tokens.AccessToken,
+			IDToken:      tokens.IDToken,
+			RefreshToken: tokens.RefreshToken,
+			TokenType:    authTypeBearer,
+			ExpiresIn:    tokens.ExpiresIn,
+		},
+	}, nil
 }
 
 type adminSetUserMFAPreferenceInput struct {
@@ -1266,9 +1285,28 @@ type respondToAuthChallengeOutput struct {
 
 func (h *Handler) handleRespondToAuthChallenge(
 	_ context.Context,
-	_ *respondToAuthChallengeInput,
+	in *respondToAuthChallengeInput,
 ) (*respondToAuthChallengeOutput, error) {
-	return &respondToAuthChallengeOutput{}, nil
+	if in.ChallengeName != "SOFTWARE_TOKEN_MFA" {
+		return &respondToAuthChallengeOutput{}, nil
+	}
+
+	totpCode := in.ChallengeResponses["SOFTWARE_TOKEN_MFA_CODE"]
+
+	tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, totpCode)
+	if err != nil {
+		return nil, err
+	}
+
+	return &respondToAuthChallengeOutput{
+		AuthenticationResult: &authResult{
+			AccessToken:  tokens.AccessToken,
+			IDToken:      tokens.IDToken,
+			RefreshToken: tokens.RefreshToken,
+			TokenType:    authTypeBearer,
+			ExpiresIn:    tokens.ExpiresIn,
+		},
+	}, nil
 }
 
 // ----- Verify Software Token -----

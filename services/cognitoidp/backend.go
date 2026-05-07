@@ -122,6 +122,8 @@ type InMemoryBackend struct {
 	refreshTokensByClient map[string]map[string]struct{}
 	// refreshTokensByUser maps poolID+":"+username → refreshToken set for efficient per-user token cleanup.
 	refreshTokensByUser map[string]map[string]struct{}
+	// mfaSessions maps session token → pending MFA challenge context.
+	mfaSessions map[string]*mfaSessionEntry
 	// groups maps poolID → groupName → Group
 	groups map[string]map[string]*Group
 	// groupMembers maps poolID → groupName → set of usernames
@@ -139,6 +141,27 @@ type refreshTokenEntry struct {
 	Username  string    `json:"username"`
 }
 
+// mfaSessionEntry holds the pending MFA challenge context.
+type mfaSessionEntry struct {
+	PoolID   string
+	ClientID string
+	Username string
+}
+
+// AuthResult is the result of a successful authentication or a pending MFA challenge.
+type AuthResult struct {
+	// Tokens is set when authentication is complete.
+	Tokens *TokenResult
+	// MFASession is set when MFA is required; the caller must respond to the challenge.
+	MFASession string
+}
+
+// mfaSessionLen is the character length of randomly generated MFA session tokens.
+const mfaSessionLen = 64
+
+// totpCodeLen is the expected length of a TOTP code.
+const totpCodeLen = 6
+
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	return &InMemoryBackend{
@@ -152,6 +175,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		refreshTokens:         make(map[string]*refreshTokenEntry),
 		refreshTokensByClient: make(map[string]map[string]struct{}),
 		refreshTokensByUser:   make(map[string]map[string]struct{}),
+		mfaSessions:           make(map[string]*mfaSessionEntry),
 		groups:                make(map[string]map[string]*Group),
 		groupMembers:          make(map[string]map[string]map[string]struct{}),
 		accountID:             accountID,
@@ -442,7 +466,7 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 }
 
 // InitiateAuth authenticates a user using the specified auth flow.
-func (b *InMemoryBackend) InitiateAuth(clientID, authFlow, username, password string) (*TokenResult, error) {
+func (b *InMemoryBackend) InitiateAuth(clientID, authFlow, username, password string) (*AuthResult, error) {
 	b.mu.Lock("InitiateAuth")
 	defer b.mu.Unlock()
 
@@ -457,7 +481,7 @@ func (b *InMemoryBackend) InitiateAuth(clientID, authFlow, username, password st
 // AdminInitiateAuth authenticates a user as an admin using the specified auth flow.
 func (b *InMemoryBackend) AdminInitiateAuth(
 	userPoolID, clientID, authFlow, username, password string,
-) (*TokenResult, error) {
+) (*AuthResult, error) {
 	b.mu.Lock("AdminInitiateAuth")
 	defer b.mu.Unlock()
 
@@ -827,13 +851,14 @@ func (b *InMemoryBackend) findUserByClientID(clientID, username string) (*User, 
 	return user, pool, nil
 }
 
-// authenticate validates a user's credentials and returns tokens. Caller must hold at least a read lock.
+// authenticate validates a user's credentials and returns tokens or an MFA challenge.
+// Caller must hold the write lock.
 func (b *InMemoryBackend) authenticate(
 	pool *UserPool,
 	clientID, authFlow string,
 	user *User,
 	password string,
-) (*TokenResult, error) {
+) (*AuthResult, error) {
 	switch authFlow {
 	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "USER_SRP_AUTH":
 		// fall through to password validation
@@ -857,6 +882,24 @@ func (b *InMemoryBackend) authenticate(
 		return nil, fmt.Errorf("%w: user must reset temporary password", ErrPasswordResetRequired)
 	}
 
+	// MFA enforcement: if the pool requires or offers MFA, issue a challenge instead of tokens.
+	mfaConfig := pool.MfaConfiguration
+	if mfaConfig == "ON" || mfaConfig == "OPTIONAL" {
+		sessionToken := randomAlphanumeric(mfaSessionLen)
+		b.mfaSessions[sessionToken] = &mfaSessionEntry{
+			PoolID:   pool.ID,
+			ClientID: clientID,
+			Username: user.Username,
+		}
+
+		return &AuthResult{MFASession: sessionToken}, nil
+	}
+
+	return b.issueTokensLocked(pool, clientID, user)
+}
+
+// issueTokensLocked issues tokens for a confirmed user. Caller must hold the write lock.
+func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, user *User) (*AuthResult, error) {
 	tokens, err := pool.issuer.Issue(clientID, user.Username, user.Sub)
 	if err != nil {
 		return nil, fmt.Errorf("issuing tokens: %w", err)
@@ -870,7 +913,7 @@ func (b *InMemoryBackend) authenticate(
 		ExpiresAt: time.Now().UTC().Add(defaultRefreshTokenTTL),
 	})
 
-	return tokens, nil
+	return &AuthResult{Tokens: tokens}, nil
 }
 
 // InitiateAuthRefreshToken exchanges a valid refresh token for new ID/Access tokens.
@@ -942,6 +985,57 @@ func (b *InMemoryBackend) RevokeToken(token, clientID string) error {
 	b.deleteRefreshTokenLocked(token)
 
 	return nil
+}
+
+// RespondToMFAChallenge validates an MFA session + TOTP code and issues tokens.
+// Any 6-digit code is accepted (simulation only — no real TOTP verification).
+func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, totpCode string) (*TokenResult, error) {
+	b.mu.Lock("RespondToMFAChallenge")
+	defer b.mu.Unlock()
+
+	if len(totpCode) != totpCodeLen {
+		return nil, fmt.Errorf("%w: TOTP code must be %d digits", ErrCodeMismatch, totpCodeLen)
+	}
+
+	for _, ch := range totpCode {
+		if ch < '0' || ch > '9' {
+			return nil, fmt.Errorf("%w: TOTP code must contain only digits", ErrCodeMismatch)
+		}
+	}
+
+	entry, ok := b.mfaSessions[session]
+	if !ok {
+		return nil, fmt.Errorf("%w: MFA session not found or expired", ErrNotAuthorized)
+	}
+
+	if entry.ClientID != clientID {
+		return nil, fmt.Errorf("%w: MFA session was issued for a different client", ErrNotAuthorized)
+	}
+
+	pool, ok := b.pools[entry.PoolID]
+	if !ok {
+		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
+	}
+
+	poolUsers, ok := b.users[entry.PoolID]
+	if !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, entry.PoolID)
+	}
+
+	user, ok := poolUsers[entry.Username]
+	if !ok {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
+	}
+
+	// Consume the session (one-time use).
+	delete(b.mfaSessions, session)
+
+	result, err := b.issueTokensLocked(pool, clientID, user)
+	if err != nil {
+		return nil, err
+	}
+
+	return result.Tokens, nil
 }
 
 // CreateGroup creates a group in a user pool.
