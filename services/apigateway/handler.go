@@ -1256,8 +1256,6 @@ func parseAPIGWUsagePlansDepth4(method string, segs []string) (string, map[strin
 // parseAPIGWRestAPIsPath handles /restapis/... paths.
 //
 // parseAPIGWRestAPIsPath handles /restapis/... paths.
-//
-//nolint:funlen // path routing table is inherently a multi-branch switch
 func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	apiID := ""
 	if n >= pathDepth2 {
@@ -1592,8 +1590,6 @@ func parseAPIGWRestAPIsDocDeep(method string, segs []string, n int, apiID string
 // parseAPIGWMethodPath handles paths under /restapis/{id}/resources/{resId}/methods/{httpMethod}.
 //
 // parseAPIGWMethodPath handles paths under /restapis/{id}/resources/{resId}/methods/{httpMethod}.
-//
-//nolint:nestif,funlen // method path routing table is inherently a multi-branch switch
 func parseAPIGWMethodPath(method string, segs []string) (string, map[string]string, bool) {
 	const (
 		idxID         = 1
@@ -2403,8 +2399,6 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 }
 
 // newResourceActions returns actions for creating new top-level resources.
-//
-//nolint:funlen // action table - one closure per op; complexity unavoidable
 func (h *Handler) newResourceActions() map[string]actionFn {
 	m := make(map[string]actionFn)
 	maps.Copy(m, h.newResourceActionsCore())
@@ -2658,8 +2652,6 @@ func (h *Handler) Reset() {
 }
 
 // getDeleteUpdateActions returns the action map for get, delete, and update operations.
-//
-//nolint:funlen // action table - one closure per op; complexity unavoidable
 func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 	m := make(map[string]actionFn)
 	maps.Copy(m, h.getDeleteUpdateActionsCore())
@@ -3140,8 +3132,6 @@ func (h *Handler) getDeleteUpdateActionsUsage2b() map[string]actionFn {
 }
 
 // updatePatchActions returns the action map for update and patch operations.
-//
-//nolint:funlen // action table - one closure per op; complexity unavoidable
 func (h *Handler) updatePatchActions() map[string]actionFn {
 	m := make(map[string]actionFn)
 	maps.Copy(m, h.updatePatchActionsCore())
