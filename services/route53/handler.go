@@ -636,42 +636,10 @@ func (h *Handler) routeHostedZoneRoot(c *echo.Context, method string) error {
 	}
 }
 
-//nolint:cyclop // routes many hosted zone sub-paths
+// routeHostedZone routes requests for a specific hosted zone by path suffix.
 func (h *Handler) routeHostedZone(c *echo.Context, path, method string) error {
-	if strings.HasSuffix(path, route53RRSetSuffix) {
-		switch method {
-		case http.MethodPost:
-			return h.changeResourceRecordSets(c)
-		case http.MethodGet:
-			return h.listResourceRecordSets(c)
-		default:
-			return xmlError(c, http.StatusNotFound, "NoSuchOperation",
-				"unsupported method on rrset")
-		}
-	}
-
-	if strings.HasSuffix(path, route53AssociateVPCSuffix) {
-		switch method {
-		case http.MethodPost:
-			return h.associateVPCWithHostedZone(c, path)
-		case http.MethodGet:
-			return h.listVPCAssociationAuthorizations(c, path)
-		default:
-			return xmlError(c, http.StatusNotFound, "NoSuchOperation",
-				"unsupported method on associatevpc")
-		}
-	}
-
-	if strings.HasSuffix(path, route53DeauthorizeVPCSuffix) && method == http.MethodPost {
-		return h.deleteVPCAssociationAuthorization(c, path)
-	}
-
-	if strings.HasSuffix(path, route53DisassociateVPCSuffix) && method == http.MethodPost {
-		return h.disassociateVPCFromHostedZone(c, path)
-	}
-
-	if strings.HasSuffix(path, route53FeaturesSuffix) && method == http.MethodPost {
-		return h.updateHostedZoneFeatures(c, path)
+	if ok, err := h.routeHostedZoneSuffix(c, path, method); ok {
+		return err
 	}
 
 	if ok, err := h.routeHostedZoneDNSSEC(c, path, method); ok {
@@ -684,11 +652,61 @@ func (h *Handler) routeHostedZone(c *echo.Context, path, method string) error {
 	case http.MethodGet:
 		return h.getHostedZone(c)
 	case http.MethodPost:
-		// UpdateHostedZoneComment — POST /2013-04-01/hostedzone/{Id}
 		return h.updateHostedZoneComment(c, path)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			"unsupported method on hosted zone")
+	}
+}
+
+// routeHostedZoneSuffix handles suffix-based sub-paths for a hosted zone.
+func (h *Handler) routeHostedZoneSuffix(c *echo.Context, path, method string) (bool, error) {
+	if strings.HasSuffix(path, route53RRSetSuffix) {
+		return true, h.routeRRSet(c, method)
+	}
+
+	if strings.HasSuffix(path, route53AssociateVPCSuffix) {
+		return true, h.routeAssociateVPC(c, path, method)
+	}
+
+	if strings.HasSuffix(path, route53DeauthorizeVPCSuffix) && method == http.MethodPost {
+		return true, h.deleteVPCAssociationAuthorization(c, path)
+	}
+
+	if strings.HasSuffix(path, route53DisassociateVPCSuffix) && method == http.MethodPost {
+		return true, h.disassociateVPCFromHostedZone(c, path)
+	}
+
+	if strings.HasSuffix(path, route53FeaturesSuffix) && method == http.MethodPost {
+		return true, h.updateHostedZoneFeatures(c, path)
+	}
+
+	return false, nil
+}
+
+// routeRRSet routes resource record set requests.
+func (h *Handler) routeRRSet(c *echo.Context, method string) error {
+	switch method {
+	case http.MethodPost:
+		return h.changeResourceRecordSets(c)
+	case http.MethodGet:
+		return h.listResourceRecordSets(c)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on rrset")
+	}
+}
+
+// routeAssociateVPC routes VPC association requests.
+func (h *Handler) routeAssociateVPC(c *echo.Context, path, method string) error {
+	switch method {
+	case http.MethodPost:
+		return h.associateVPCWithHostedZone(c, path)
+	case http.MethodGet:
+		return h.listVPCAssociationAuthorizations(c, path)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on associatevpc")
 	}
 }
 

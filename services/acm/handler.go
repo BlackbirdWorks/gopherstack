@@ -459,9 +459,15 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, action string,
 	return h.handleOpError(c, action, reqErr)
 }
 
-// errUnknownACMAction is returned by dispatchJSON for unrecognised action names.
-var errUnknownACMAction = errors.New("unknown ACM action")
+var (
+	// errUnknownACMAction is returned by dispatchJSON for unrecognised action names.
+	errUnknownACMAction = errors.New("unknown ACM action")
+	// errACMNotHandled is a sentinel used internally to signal that a dispatch
+	// helper did not recognise the action. It is never returned to callers.
+	errACMNotHandled = errors.New("acm: action not handled by this dispatcher")
+)
 
+<<<<<<< HEAD
 // acmDispatchTable maps ACM action names to their JSON handler functions.
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
@@ -491,6 +497,83 @@ func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
 	}
 
 	return nil, errUnknownACMAction
+=======
+// dispatchJSON routes a JSON-protocol ACM action to the appropriate handler.
+func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
+	if r, err := h.dispatchCertOps(action, body); !errors.Is(err, errACMNotHandled) {
+		return r, err
+	}
+
+	if r, err := h.dispatchCertTagOps(action, body); !errors.Is(err, errACMNotHandled) {
+		return r, err
+	}
+
+	return nil, errUnknownACMAction
+}
+
+// dispatchCertOps handles core certificate operations.
+func (h *Handler) dispatchCertOps(action string, body []byte) (any, error) {
+	switch action {
+	case "RequestCertificate":
+
+		return h.jsonRequestCertificate(body)
+	case "DescribeCertificate":
+
+		return h.jsonDescribeCertificate(body)
+	case "ListCertificates":
+
+		return h.jsonListCertificates(body)
+	case "DeleteCertificate":
+
+		return h.jsonDeleteCertificate(body)
+	case "ImportCertificate":
+
+		return h.jsonImportCertificate(body)
+	case "RenewCertificate":
+
+		return h.jsonRenewCertificate(body)
+	case "ExportCertificate":
+
+		return h.jsonExportCertificate(body)
+	case "GetCertificate":
+
+		return h.jsonGetCertificate(body)
+	case "UpdateCertificateOptions":
+
+		return h.jsonUpdateCertificateOptions(body)
+	}
+
+	return nil, errACMNotHandled
+}
+
+// dispatchCertTagOps handles certificate tag and account configuration operations.
+func (h *Handler) dispatchCertTagOps(action string, body []byte) (any, error) {
+	switch action {
+	case "ListTagsForCertificate":
+
+		return h.jsonListTagsForCertificate(body)
+	case "AddTagsToCertificate":
+
+		return h.jsonAddTagsToCertificate(body)
+	case "RemoveTagsFromCertificate":
+
+		return h.jsonRemoveTagsFromCertificate(body)
+	case "GetAccountConfiguration":
+
+		return h.jsonGetAccountConfiguration(body)
+	case "PutAccountConfiguration":
+
+		return h.jsonPutAccountConfiguration(body)
+	case "ResendValidationEmail":
+
+		return h.jsonResendValidationEmail(body)
+	case "RevokeCertificate":
+
+		return h.jsonRevokeCertificate(body)
+	}
+
+	return nil, errACMNotHandled
+>>>>>>> pr1617
 }
 
 func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {

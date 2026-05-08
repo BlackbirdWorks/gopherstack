@@ -307,11 +307,332 @@ var ssoAdminOps = map[string]func(*Handler, *echo.Context, []byte) error{
 }
 
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
+<<<<<<< HEAD
 	if fn, ok := ssoAdminOps[op]; ok {
 		return fn(h, c, body)
+=======
+	switch op {
+	case "ListInstances":
+
+		return h.handleListInstances(c, body)
+	case "CreateInstance":
+
+		return h.handleCreateInstance(c, body)
+	case "DescribeInstance":
+
+		return h.handleDescribeInstance(c, body)
+	case "DeleteInstance":
+
+		return h.handleDeleteInstance(c, body)
+	case "CreatePermissionSet":
+
+		return h.handleCreatePermissionSet(c, body)
+	case "DescribePermissionSet":
+
+		return h.handleDescribePermissionSet(c, body)
+	case "ListPermissionSets":
+
+		return h.handleListPermissionSets(c, body)
+	case "DeletePermissionSet":
+
+		return h.handleDeletePermissionSet(c, body)
+	case "UpdatePermissionSet":
+
+		return h.handleUpdatePermissionSet(c, body)
+	default:
+
+		return h.dispatchAssignmentAndPolicy(c, op, body)
+>>>>>>> pr1617
 	}
 
+<<<<<<< HEAD
 	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
+=======
+// dispatchAssignmentAndPolicy routes assignment and policy operations.
+func (h *Handler) dispatchAssignmentAndPolicy(c *echo.Context, op string, body []byte) error {
+	if ok, err := h.dispatchAssignmentOps(c, op, body); ok {
+		return err
+	}
+	if ok, err := h.dispatchPolicyTagOps(c, op, body); ok {
+		return err
+	}
+
+	return h.dispatchNewOps(c, op, body)
+}
+
+// dispatchAssignmentOps handles account assignment operations.
+func (h *Handler) dispatchAssignmentOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateAccountAssignment":
+
+		return true, h.handleCreateAccountAssignment(c, body)
+	case "DescribeAccountAssignmentCreationStatus":
+
+		return true, h.handleDescribeAccountAssignmentCreationStatus(c, body)
+	case "DeleteAccountAssignment":
+
+		return true, h.handleDeleteAccountAssignment(c, body)
+	case "DescribeAccountAssignmentDeletionStatus":
+
+		return true, h.handleDescribeAccountAssignmentDeletionStatus(c, body)
+	case "ListAccountAssignments":
+
+		return true, h.handleListAccountAssignments(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchPolicyTagOps handles policy management and tagging operations.
+func (h *Handler) dispatchPolicyTagOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "AttachManagedPolicyToPermissionSet":
+
+		return true, h.handleAttachManagedPolicyToPermissionSet(c, body)
+	case "DetachManagedPolicyFromPermissionSet":
+
+		return true, h.handleDetachManagedPolicyFromPermissionSet(c, body)
+	case "ListManagedPoliciesInPermissionSet":
+
+		return true, h.handleListManagedPoliciesInPermissionSet(c, body)
+	case "PutInlinePolicyToPermissionSet":
+
+		return true, h.handlePutInlinePolicyToPermissionSet(c, body)
+	case "GetInlinePolicyForPermissionSet":
+
+		return true, h.handleGetInlinePolicyForPermissionSet(c, body)
+	case "DeleteInlinePolicyFromPermissionSet":
+
+		return true, h.handleDeleteInlinePolicyFromPermissionSet(c, body)
+	case "ProvisionPermissionSet":
+
+		return true, h.handleProvisionPermissionSet(c, body)
+	case "DescribePermissionSetProvisioningStatus":
+
+		return true, h.handleDescribePermissionSetProvisioningStatus(c, body)
+	case "TagResource":
+
+		return true, h.handleTagResource(c, body)
+	case "UntagResource":
+
+		return true, h.handleUntagResource(c, body)
+	case "ListTagsForResource":
+
+		return true, h.handleListTagsForResource(c, body)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "AddRegion":
+
+		return h.handleAddRegion(c, body)
+	case "AttachCustomerManagedPolicyReferenceToPermissionSet":
+
+		return h.handleAttachCustomerManagedPolicyReferenceToPermissionSet(c, body)
+	case "CreateApplication":
+
+		return h.handleCreateApplication(c, body)
+	case "CreateApplicationAssignment":
+
+		return h.handleCreateApplicationAssignment(c, body)
+	case "CreateInstanceAccessControlAttributeConfiguration":
+
+		return h.handleCreateInstanceAccessControlAttributeConfiguration(c, body)
+	case "CreateTrustedTokenIssuer":
+
+		return h.handleCreateTrustedTokenIssuer(c, body)
+	case "DeleteApplication":
+
+		return h.handleDeleteApplication(c, body)
+	case "DeleteApplicationAccessScope":
+
+		return h.handleDeleteApplicationAccessScope(c, body)
+	case "DeleteApplicationAssignment":
+
+		return h.handleDeleteApplicationAssignment(c, body)
+	case "DeleteApplicationAuthenticationMethod":
+
+		return h.handleDeleteApplicationAuthenticationMethod(c, body)
+	case "DetachCustomerManagedPolicyReferenceFromPermissionSet":
+
+		return h.handleDetachCustomerManagedPolicyReferenceFromPermissionSet(c, body)
+	default:
+
+		return h.dispatchNewestOps(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchNewestOps(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "DeleteApplicationGrant":
+
+		return h.handleDeleteApplicationGrant(c, body)
+	case "DeleteInstanceAccessControlAttributeConfiguration":
+
+		return h.handleDeleteInstanceAccessControlAttributeConfiguration(c, body)
+	case "DeleteTrustedTokenIssuer":
+
+		return h.handleDeleteTrustedTokenIssuer(c, body)
+	case "DescribeApplication":
+
+		return h.handleDescribeApplication(c, body)
+	case "DescribeApplicationAssignment":
+
+		return h.handleDescribeApplicationAssignment(c, body)
+	case "DescribeApplicationProvider":
+
+		return h.handleDescribeApplicationProvider(c, body)
+	case "DescribeInstanceAccessControlAttributeConfiguration":
+
+		return h.handleDescribeInstanceAccessControlAttributeConfiguration(c, body)
+	case "DescribeTrustedTokenIssuer":
+
+		return h.handleDescribeTrustedTokenIssuer(c, body)
+	case "GetPermissionsBoundaryForPermissionSet":
+
+		return h.handleGetPermissionsBoundaryForPermissionSet(c, body)
+	case "ListAccountAssignmentCreationStatus":
+
+		return h.handleListAccountAssignmentCreationStatus(c, body)
+	case "ListAccountAssignmentDeletionStatus":
+
+		return h.handleListAccountAssignmentDeletionStatus(c, body)
+	case "ListAccountAssignmentsForPrincipal":
+
+		return h.handleListAccountAssignmentsForPrincipal(c, body)
+	case "ListPermissionSetsProvisionedToAccount":
+
+		return h.handleListPermissionSetsProvisionedToAccount(c, body)
+	default:
+
+		return h.dispatchNewestAppOps(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchNewestAppOps(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "ListApplicationAccessScopes":
+
+		return h.handleListApplicationAccessScopes(c, body)
+	case "ListApplicationAssignments":
+
+		return h.handleListApplicationAssignments(c, body)
+	case "ListApplicationAuthenticationMethods":
+
+		return h.handleListApplicationAuthenticationMethods(c, body)
+	case "ListApplicationGrants":
+
+		return h.handleListApplicationGrants(c, body)
+	case "ListApplicationProviders":
+
+		return h.handleListApplicationProviders(c, body)
+	case "ListApplications":
+
+		return h.handleListApplications(c, body)
+	default:
+
+		return h.dispatchNewestConfigOps(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchNewestConfigOps(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "DeletePermissionsBoundaryFromPermissionSet":
+
+		return h.handleDeletePermissionsBoundaryFromPermissionSet(c, body)
+	case "GetApplicationAssignmentConfiguration":
+
+		return h.handleGetApplicationAssignmentConfiguration(c, body)
+	case "GetApplicationSessionConfiguration":
+
+		return h.handleGetApplicationSessionConfiguration(c, body)
+	case "ListCustomerManagedPolicyReferencesInPermissionSet":
+
+		return h.handleListCustomerManagedPolicyReferencesInPermissionSet(c, body)
+	case "ListPermissionSetProvisioningStatus":
+
+		return h.handleListPermissionSetProvisioningStatus(c, body)
+	case "ListRegions":
+
+		return h.handleListRegions(c, body)
+	case "ListTrustedTokenIssuers":
+
+		return h.handleListTrustedTokenIssuers(c, body)
+	case "PutApplicationAccessScope":
+
+		return h.handlePutApplicationAccessScope(c, body)
+	case "PutApplicationAssignmentConfiguration":
+
+		return h.handlePutApplicationAssignmentConfiguration(c, body)
+	default:
+
+		return h.dispatchUpdateOps(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchUpdateOps(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "PutApplicationAuthenticationMethod":
+
+		return h.handlePutApplicationAuthenticationMethod(c, body)
+	case "PutApplicationGrant":
+
+		return h.handlePutApplicationGrant(c, body)
+	case "PutApplicationSessionConfiguration":
+
+		return h.handlePutApplicationSessionConfiguration(c, body)
+	case "PutPermissionsBoundaryToPermissionSet":
+
+		return h.handlePutPermissionsBoundaryToPermissionSet(c, body)
+	case "RemoveRegion":
+
+		return h.handleRemoveRegion(c, body)
+	case "UpdateApplication":
+
+		return h.handleUpdateApplication(c, body)
+	case "UpdateInstance":
+
+		return h.handleUpdateInstance(c, body)
+	case "UpdateInstanceAccessControlAttributeConfiguration":
+
+		return h.handleUpdateInstanceAccessControlAttributeConfiguration(c, body)
+	case "UpdateTrustedTokenIssuer":
+
+		return h.handleUpdateTrustedTokenIssuer(c, body)
+	default:
+
+		return h.dispatchRefinement3Ops(c, op, body)
+	}
+}
+
+func (h *Handler) dispatchRefinement3Ops(c *echo.Context, op string, body []byte) error {
+	switch op {
+	case "GetApplicationAccessScope":
+
+		return h.handleGetApplicationAccessScope(c, body)
+	case "GetApplicationAuthenticationMethod":
+
+		return h.handleGetApplicationAuthenticationMethod(c, body)
+	case "GetApplicationGrant":
+
+		return h.handleGetApplicationGrant(c, body)
+	case "ListAccountsForProvisionedPermissionSet":
+
+		return h.handleListAccountsForProvisionedPermissionSet(c, body)
+	case "ListApplicationAssignmentsForPrincipal":
+
+		return h.handleListApplicationAssignmentsForPrincipal(c, body)
+	case "DescribeRegion":
+
+		return h.handleDescribeRegion(c, body)
+	default:
+
+		return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
+	}
+>>>>>>> pr1617
 }
 
 // --- request/response types ---
@@ -1048,10 +1369,13 @@ func handleBackendError(c *echo.Context, err error, notFoundMsg string) error {
 
 	switch err.Error() {
 	case "ResourceNotFoundException":
+
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", notFoundMsg)
 	case "ConflictException":
+
 		return writeError(c, http.StatusConflict, "ConflictException", notFoundMsg)
 	default:
+
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 }

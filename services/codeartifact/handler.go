@@ -321,6 +321,7 @@ func parseDomainRepoPath(method, path string) codeartifactRoute {
 	return codeartifactRoute{operation: opUnknown}
 }
 
+<<<<<<< HEAD
 // packageOpStaticRoutes maps static paths (no method dispatch) to their operations.
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
@@ -349,16 +350,76 @@ var packageOpStaticRoutes = map[string]string{
 // parsePackageOpPath handles package, package-group, and package-version routes.
 func parsePackageOpPath(method, path string) codeartifactRoute {
 	// Method-dispatched paths first.
+=======
+// parsePackageOpPath handles package, package-group, and package-version routes.
+func parsePackageOpPath(method, path string) codeartifactRoute {
+	if r := parsePackageGroupVersionOps(method, path); r.operation != opUnknown {
+		return r
+	}
+
+	return parsePackageVersionAssetOps(path)
+}
+
+// parsePackageGroupVersionOps handles package group, package CRUD, and package version operations.
+func parsePackageGroupVersionOps(method, path string) codeartifactRoute {
+>>>>>>> pr1617
 	switch path {
 	case pathV1PackageGroup:
 		return parsePackageGroupRoute(method)
 	case pathV1Package:
 		return parsePackageRoute(method)
+<<<<<<< HEAD
 	}
 
 	// Static path → operation mapping.
 	if op, ok := packageOpStaticRoutes[path]; ok {
 		return codeartifactRoute{operation: op}
+=======
+	case pathV1Packages:
+		return codeartifactRoute{operation: opListPackages}
+	case pathV1PackageVersion:
+		return codeartifactRoute{operation: opDescribePackageVersion}
+	case pathV1PackageVersions:
+		return codeartifactRoute{operation: opListPackageVersions}
+	case pathV1PackageVersionsCopy:
+		return codeartifactRoute{operation: opCopyPackageVersions}
+	case pathV1PackageVersionsDelete:
+		return codeartifactRoute{operation: opDeletePackageVersions}
+	case pathV1PackageVersionsDispose:
+		return codeartifactRoute{operation: opDisposePackageVersions}
+	case pathV1PackageVersionsUpdateStatus:
+		return codeartifactRoute{operation: opUpdatePackageVersionsStatus}
+	case pathV1PackageVersionsPublish:
+		return codeartifactRoute{operation: opPublishPackageVersion}
+	}
+
+	return codeartifactRoute{operation: opUnknown}
+}
+
+// parsePackageVersionAssetOps handles package version asset and package-group association operations.
+func parsePackageVersionAssetOps(path string) codeartifactRoute {
+	switch path {
+	case pathV1PackageVersionAsset:
+		return codeartifactRoute{operation: opGetPackageVersionAsset}
+	case pathV1PackageVersionReadme:
+		return codeartifactRoute{operation: opGetPackageVersionReadme}
+	case pathV1PackageVersionAssets:
+		return codeartifactRoute{operation: opListPackageVersionAssets}
+	case pathV1PackageVersionDependencies:
+		return codeartifactRoute{operation: opListPackageVersionDependencies}
+	case pathV1PackageOriginConfiguration:
+		return codeartifactRoute{operation: opPutPackageOriginConfiguration}
+	case pathV1PackageGroupAssociatedPackages:
+		return codeartifactRoute{operation: opListAssociatedPackages}
+	case pathV1PackageGroupAllowedRepos:
+		return codeartifactRoute{operation: opListAllowedRepositoriesForGroup}
+	case pathV1PackageGroupOriginConfiguration:
+		return codeartifactRoute{operation: opUpdatePackageGroupOriginConfiguration}
+	case pathV1SubPackageGroups:
+		return codeartifactRoute{operation: opListSubPackageGroups}
+	case pathV1AssociatedPackageGroup:
+		return codeartifactRoute{operation: opGetAssociatedPackageGroup}
+>>>>>>> pr1617
 	}
 
 	return codeartifactRoute{operation: opUnknown}

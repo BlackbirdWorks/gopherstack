@@ -139,49 +139,97 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 func (h *Handler) MatchPriority() int { return pipesMatchPriority }
 
-//nolint:cyclop // function routes HTTP requests by method and path segments
+// ExtractOperation determines the operation name from the HTTP request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	method := c.Request().Method
 	path := c.Request().URL.Path
 
-	if strings.HasPrefix(path, pipesTagsPrefix) {
-		switch method {
-		case http.MethodGet:
-			return opListTagsForResource
-		case http.MethodPost:
-			return opTagResource
-		case http.MethodDelete:
-			return opUntagResource
-		}
+	if op := extractTagsOp(path, method); op != "" {
+		return op
 	}
 
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
-
-	switch {
-	case method == http.MethodGet && len(segments) >= 2 && segments[1] == pipeNameSegment &&
-		(len(segments) == 2 || (len(segments) == 3 && segments[2] == "")):
-		return opListPipes
-	case len(segments) == pipePathMinSegments && segments[0] == "v1" && segments[1] == pipeNameSegment:
-		switch method {
-		case http.MethodPost:
-			return opCreatePipe
-		case http.MethodGet:
-			return opDescribePipe
-		case http.MethodDelete:
-			return opDeletePipe
-		case http.MethodPut:
-			return opUpdatePipe
-		}
-	case len(segments) == 4 && segments[0] == "v1" && segments[1] == pipeNameSegment && method == http.MethodPost:
-		switch segments[3] {
-		case "start":
-			return opStartPipe
-		case "stop":
-			return opStopPipe
-		}
+	if op := extractPipeListOp(segments, method); op != "" {
+		return op
+	}
+	if op := extractPipeCRUDOp(segments, method); op != "" {
+		return op
+	}
+	if op := extractPipeActionOp(segments, method); op != "" {
+		return op
 	}
 
 	return "Unknown"
+}
+
+// extractTagsOp returns the tag operation for tags-prefix paths.
+func extractTagsOp(path, method string) string {
+	if !strings.HasPrefix(path, pipesTagsPrefix) {
+		return ""
+	}
+	switch method {
+	case http.MethodGet:
+
+		return opListTagsForResource
+	case http.MethodPost:
+
+		return opTagResource
+	case http.MethodDelete:
+
+		return opUntagResource
+	}
+
+	return ""
+}
+
+// extractPipeListOp returns the list-pipes operation when applicable.
+func extractPipeListOp(segments []string, method string) string {
+	if method == http.MethodGet && len(segments) >= 2 && segments[1] == pipeNameSegment &&
+		(len(segments) == 2 || (len(segments) == 3 && segments[2] == "")) {
+		return opListPipes
+	}
+
+	return ""
+}
+
+// extractPipeCRUDOp returns CRUD operations for /v1/pipes/{name} paths.
+func extractPipeCRUDOp(segments []string, method string) string {
+	if len(segments) != pipePathMinSegments || segments[0] != "v1" || segments[1] != pipeNameSegment {
+		return ""
+	}
+	switch method {
+	case http.MethodPost:
+
+		return opCreatePipe
+	case http.MethodGet:
+
+		return opDescribePipe
+	case http.MethodDelete:
+
+		return opDeletePipe
+	case http.MethodPut:
+
+		return opUpdatePipe
+	}
+
+	return ""
+}
+
+// extractPipeActionOp returns start/stop operations for /v1/pipes/{name}/{action} paths.
+func extractPipeActionOp(segments []string, method string) string {
+	if len(segments) != 4 || segments[0] != "v1" || segments[1] != pipeNameSegment || method != http.MethodPost {
+		return ""
+	}
+	switch segments[3] {
+	case "start":
+
+		return opStartPipe
+	case "stop":
+
+		return opStopPipe
+	}
+
+	return ""
 }
 
 func (h *Handler) ExtractResource(c *echo.Context) string {
@@ -234,26 +282,37 @@ func (h *Handler) dispatch(
 ) ([]byte, error) {
 	switch op {
 	case opCreatePipe:
+
 		return h.handleCreatePipe(ctx, path, body)
 	case opDescribePipe:
+
 		return h.handleDescribePipe(ctx, path)
 	case opListPipes:
+
 		return h.handleListPipes(ctx, query)
 	case opDeletePipe:
+
 		return h.handleDeletePipe(ctx, path)
 	case opUpdatePipe:
+
 		return h.handleUpdatePipe(ctx, path, body)
 	case opStartPipe:
+
 		return h.handleStartPipe(ctx, path)
 	case opStopPipe:
+
 		return h.handleStopPipe(ctx, path)
 	case opTagResource:
+
 		return h.handleTagResource(ctx, path, body)
 	case opUntagResource:
+
 		return h.handleUntagResource(ctx, path, query)
 	case opListTagsForResource:
+
 		return h.handleListTagsForResource(ctx, path)
 	default:
+
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
 	}
 }
@@ -286,8 +345,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
+
 		return c.JSON(
 			http.StatusInternalServerError,
 			map[string]string{keyMessageField: err.Error()},

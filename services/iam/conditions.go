@@ -50,6 +50,7 @@ func evalOperator(operator string, keyValues map[string]any, ctx ConditionContex
 func conditionValues(v any) []string {
 	switch val := v.(type) {
 	case string:
+
 		return []string{val}
 	case []any:
 		out := make([]string, 0, len(val))
@@ -72,10 +73,13 @@ func resolveContextKey(key string, ctx ConditionContext) string {
 
 	switch lower {
 	case "aws:sourceip":
+
 		return ctx.SourceIP
 	case "aws:username":
+
 		return ctx.Username
 	case "aws:userid":
+
 		return ctx.UserID
 	default:
 		if ctx.Extra != nil {
@@ -91,8 +95,6 @@ func resolveContextKey(key string, ctx ConditionContext) string {
 // evalSingleCondition evaluates one condition key against the resolved context
 // value and the required condition values, using the given IAM operator.
 // Returns true if the condition is satisfied.
-//
-//nolint:cyclop // operator dispatch is inherently branchy
 func evalSingleCondition(operator, ctxVal string, condVals []string) bool {
 	// IfExists suffix: if the key is missing (empty), condition is always true.
 	baseOp, ifExists := strings.CutSuffix(operator, "ifexists")
@@ -105,47 +107,81 @@ func evalSingleCondition(operator, ctxVal string, condVals []string) bool {
 		baseOp = operator
 	}
 
+	if result, ok := evalStringCondition(baseOp, ctxVal, condVals); ok {
+		return result
+	}
+	if result, ok := evalIPARNCondition(baseOp, ctxVal, condVals); ok {
+		return result
+	}
+	// Unknown operator — treat as not matching (conservative default).
+	return false
+}
+
+// evalStringCondition handles string and bool/null condition operators.
+func evalStringCondition(baseOp, ctxVal string, condVals []string) (bool, bool) {
 	switch baseOp {
 	case "stringequals":
-		return anyStringEquals(ctxVal, condVals)
+
+		return anyStringEquals(ctxVal, condVals), true
 	case "stringnotequals":
-		return !anyStringEquals(ctxVal, condVals)
+
+		return !anyStringEquals(ctxVal, condVals), true
 	case "stringequalsignorecase":
-		return anyStringEquals(strings.ToLower(ctxVal), toLower(condVals))
+
+		return anyStringEquals(strings.ToLower(ctxVal), toLower(condVals)), true
 	case "stringnotequalsignorecase":
-		return !anyStringEquals(strings.ToLower(ctxVal), toLower(condVals))
+
+		return !anyStringEquals(strings.ToLower(ctxVal), toLower(condVals)), true
 	case "stringlike":
-		return anyStringLike(ctxVal, condVals)
+
+		return anyStringLike(ctxVal, condVals), true
 	case "stringnotlike":
-		return !anyStringLike(ctxVal, condVals)
-	case "ipaddress":
-		return anyIPMatch(ctxVal, condVals)
-	case "notipaddress":
-		return !anyIPMatch(ctxVal, condVals)
-	case "arnequals", "arnlike":
-		return anyStringLike(strings.ToLower(ctxVal), toLower(condVals))
-	case "arnnotequals", "arnnotlike":
-		return !anyStringLike(strings.ToLower(ctxVal), toLower(condVals))
+
+		return !anyStringLike(ctxVal, condVals), true
 	case "bool":
-		return anyStringEquals(strings.ToLower(ctxVal), toLower(condVals))
+
+		return anyStringEquals(strings.ToLower(ctxVal), toLower(condVals)), true
 	case "null":
-		// Condition value is "true" (key must be absent) or "false" (key must be present).
-		isNull := ctxVal == ""
-		for _, v := range condVals {
-			if strings.EqualFold(v, "true") && isNull {
-				return true
-			}
 
-			if strings.EqualFold(v, "false") && !isNull {
-				return true
-			}
-		}
-
-		return false
-	default:
-		// Unknown operator — treat as not matching (conservative default).
-		return false
+		return evalNullCondition(ctxVal, condVals), true
 	}
+
+	return false, false
+}
+
+// evalNullCondition evaluates the "null" IAM condition operator.
+func evalNullCondition(ctxVal string, condVals []string) bool {
+	isNull := ctxVal == ""
+	for _, v := range condVals {
+		if strings.EqualFold(v, "true") && isNull {
+			return true
+		}
+		if strings.EqualFold(v, "false") && !isNull {
+			return true
+		}
+	}
+
+	return false
+}
+
+// evalIPARNCondition handles IP address and ARN condition operators.
+func evalIPARNCondition(baseOp, ctxVal string, condVals []string) (bool, bool) {
+	switch baseOp {
+	case "ipaddress":
+
+		return anyIPMatch(ctxVal, condVals), true
+	case "notipaddress":
+
+		return !anyIPMatch(ctxVal, condVals), true
+	case "arnequals", "arnlike":
+
+		return anyStringLike(strings.ToLower(ctxVal), toLower(condVals)), true
+	case "arnnotequals", "arnnotlike":
+
+		return !anyStringLike(strings.ToLower(ctxVal), toLower(condVals)), true
+	}
+
+	return false, false
 }
 
 // anyStringEquals returns true if ctxVal equals any value in condVals.

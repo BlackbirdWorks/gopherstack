@@ -25,114 +25,11 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-//
-//nolint:gocognit,cyclop,funlen // function copies independent map collections
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	snap := backendSnapshot{
-		Servers:       make(map[string]*Server, len(b.servers)),
-		Users:         make(map[string]map[string]*User, len(b.users)),
-		Accesses:      make(map[string]map[string]*Access, len(b.accesses)),
-		Agreements:    make(map[string]map[string]*Agreement, len(b.agreements)),
-		Connectors:    make(map[string]*Connector, len(b.connectors)),
-		Profiles:      make(map[string]*Profile, len(b.profiles)),
-		WebApps:       make(map[string]*WebApp, len(b.webApps)),
-		Workflows:     make(map[string]*Workflow, len(b.workflows)),
-		Certificates:  make(map[string]*Certificate, len(b.certificates)),
-		HostKeys:      make(map[string]map[string]*HostKey, len(b.hostKeys)),
-		SSHPublicKeys: make(map[string]map[string]map[string]*SSHPublicKey, len(b.sshPublicKeys)),
-		Executions:    make(map[string]map[string]*Execution, len(b.executions)),
-		TagsStore:     make(map[string]map[string]string, len(b.tagsStore)),
-	}
-
-	for k, v := range b.servers {
-		snap.Servers[k] = cloneServer(v)
-	}
-
-	for sid, userMap := range b.users {
-		m := make(map[string]*User, len(userMap))
-		for k, v := range userMap {
-			m[k] = cloneUser(v)
-		}
-		snap.Users[sid] = m
-	}
-
-	for sid, accessMap := range b.accesses {
-		m := make(map[string]*Access, len(accessMap))
-		for k, v := range accessMap {
-			m[k] = cloneAccess(v)
-		}
-		snap.Accesses[sid] = m
-	}
-
-	for sid, agMap := range b.agreements {
-		m := make(map[string]*Agreement, len(agMap))
-		for k, v := range agMap {
-			m[k] = cloneAgreement(v)
-		}
-		snap.Agreements[sid] = m
-	}
-
-	for k, v := range b.connectors {
-		snap.Connectors[k] = cloneConnector(v)
-	}
-
-	for k, v := range b.profiles {
-		snap.Profiles[k] = cloneProfile(v)
-	}
-
-	for k, v := range b.webApps {
-		snap.WebApps[k] = cloneWebApp(v)
-	}
-
-	for k, v := range b.workflows {
-		snap.Workflows[k] = cloneWorkflow(v)
-	}
-
-	for k, v := range b.certificates {
-		cp := *v
-		cp.Tags = make(map[string]string, len(v.Tags))
-		maps.Copy(cp.Tags, v.Tags)
-		snap.Certificates[k] = &cp
-	}
-
-	for sid, keyMap := range b.hostKeys {
-		m := make(map[string]*HostKey, len(keyMap))
-		for k, v := range keyMap {
-			m[k] = cloneHostKey(v)
-		}
-		snap.HostKeys[sid] = m
-	}
-
-	for sid, userMap := range b.sshPublicKeys {
-		um := make(map[string]map[string]*SSHPublicKey, len(userMap))
-		for userName, keyMap := range userMap {
-			km := make(map[string]*SSHPublicKey, len(keyMap))
-			for k, v := range keyMap {
-				cp := *v
-				km[k] = &cp
-			}
-			um[userName] = km
-		}
-		snap.SSHPublicKeys[sid] = um
-	}
-
-	for wid, execMap := range b.executions {
-		em := make(map[string]*Execution, len(execMap))
-		for k, v := range execMap {
-			cp := *v
-			em[k] = &cp
-		}
-		snap.Executions[wid] = em
-	}
-
-	for arn, tagMap := range b.tagsStore {
-		m := make(map[string]string, len(tagMap))
-		maps.Copy(m, tagMap)
-		snap.TagsStore[arn] = m
-	}
+	snap := b.buildSnapshot()
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -142,6 +39,125 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	return data
+}
+
+// buildSnapshot constructs the serialisable snapshot from backend state.
+func (b *InMemoryBackend) buildSnapshot() backendSnapshot {
+	snap := backendSnapshot{
+		Servers:       snapshotServers(b.servers),
+		Users:         snapshotNestedMap(b.users, cloneUser),
+		Accesses:      snapshotNestedMap(b.accesses, cloneAccess),
+		Agreements:    snapshotNestedMap(b.agreements, cloneAgreement),
+		Connectors:    snapshotFlatMap(b.connectors, cloneConnector),
+		Profiles:      snapshotFlatMap(b.profiles, cloneProfile),
+		WebApps:       snapshotFlatMap(b.webApps, cloneWebApp),
+		Workflows:     snapshotFlatMap(b.workflows, cloneWorkflow),
+		Certificates:  snapshotCertificates(b.certificates),
+		HostKeys:      snapshotNestedMap(b.hostKeys, cloneHostKey),
+		SSHPublicKeys: snapshotSSHPublicKeys(b.sshPublicKeys),
+		Executions:    snapshotExecutions(b.executions),
+		TagsStore:     snapshotTagsStore(b.tagsStore),
+	}
+
+	return snap
+}
+
+// snapshotServers clones the servers map.
+func snapshotServers(src map[string]*Server) map[string]*Server {
+	dst := make(map[string]*Server, len(src))
+	for k, v := range src {
+		dst[k] = cloneServer(v)
+	}
+
+	return dst
+}
+
+// snapshotFlatMap clones a flat map using the provided clone function.
+func snapshotFlatMap[V any](src map[string]*V, clone func(*V) *V) map[string]*V {
+	dst := make(map[string]*V, len(src))
+	for k, v := range src {
+		dst[k] = clone(v)
+	}
+
+	return dst
+}
+
+// snapshotNestedMap clones a two-level nested map using the provided clone function.
+func snapshotNestedMap[V any](
+	src map[string]map[string]*V,
+	clone func(*V) *V,
+) map[string]map[string]*V {
+	dst := make(map[string]map[string]*V, len(src))
+	for sid, inner := range src {
+		m := make(map[string]*V, len(inner))
+		for k, v := range inner {
+			m[k] = clone(v)
+		}
+		dst[sid] = m
+	}
+
+	return dst
+}
+
+// snapshotCertificates clones the certificates map including tag maps.
+func snapshotCertificates(src map[string]*Certificate) map[string]*Certificate {
+	dst := make(map[string]*Certificate, len(src))
+	for k, v := range src {
+		cp := *v
+		cp.Tags = make(map[string]string, len(v.Tags))
+		maps.Copy(cp.Tags, v.Tags)
+		dst[k] = &cp
+	}
+
+	return dst
+}
+
+// snapshotSSHPublicKeys clones the three-level SSH public key map.
+func snapshotSSHPublicKeys(
+	src map[string]map[string]map[string]*SSHPublicKey,
+) map[string]map[string]map[string]*SSHPublicKey {
+	dst := make(map[string]map[string]map[string]*SSHPublicKey, len(src))
+	for sid, userMap := range src {
+		um := make(map[string]map[string]*SSHPublicKey, len(userMap))
+		for userName, keyMap := range userMap {
+			km := make(map[string]*SSHPublicKey, len(keyMap))
+			for k, v := range keyMap {
+				cp := *v
+				km[k] = &cp
+			}
+			um[userName] = km
+		}
+		dst[sid] = um
+	}
+
+	return dst
+}
+
+// snapshotExecutions clones the two-level executions map.
+func snapshotExecutions(src map[string]map[string]*Execution) map[string]map[string]*Execution {
+	dst := make(map[string]map[string]*Execution, len(src))
+	for wid, execMap := range src {
+		em := make(map[string]*Execution, len(execMap))
+		for k, v := range execMap {
+			cp := *v
+			em[k] = &cp
+		}
+		dst[wid] = em
+	}
+
+	return dst
+}
+
+// snapshotTagsStore clones the tags store map.
+func snapshotTagsStore(src map[string]map[string]string) map[string]map[string]string {
+	dst := make(map[string]map[string]string, len(src))
+	for arn, tagMap := range src {
+		m := make(map[string]string, len(tagMap))
+		maps.Copy(m, tagMap)
+		dst[arn] = m
+	}
+
+	return dst
 }
 
 // Restore loads backend state from a JSON snapshot.

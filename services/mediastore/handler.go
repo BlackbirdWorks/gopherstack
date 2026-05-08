@@ -155,6 +155,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+<<<<<<< HEAD
 // mediastoreDispatch maps operation names to their handler functions.
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
@@ -186,9 +187,108 @@ var mediastoreDispatch = map[string]func(*Handler, *echo.Context, []byte) error{
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	if fn, ok := mediastoreDispatch[op]; ok {
 		return fn(h, c, body)
+=======
+// dispatch routes to the appropriate handler based on the operation name.
+func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
+	if ok, err := h.dispatchContainerOps(c, op, body); ok {
+		return err
+	}
+	if ok, err := h.dispatchPolicyOps(c, op, body); ok {
+		return err
+	}
+	if ok, err := h.dispatchLoggingTagOps(c, op, body); ok {
+		return err
+>>>>>>> pr1617
 	}
 
 	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
+}
+
+// dispatchContainerOps handles container lifecycle operations.
+func (h *Handler) dispatchContainerOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateContainer":
+
+		return true, h.handleCreateContainer(c, body)
+	case "DeleteContainer":
+
+		return true, h.handleDeleteContainer(c, body)
+	case "DescribeContainer":
+
+		return true, h.handleDescribeContainer(c, body)
+	case "ListContainers":
+
+		return true, h.handleListContainers(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchPolicyOps handles container policy operations.
+func (h *Handler) dispatchPolicyOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "PutContainerPolicy":
+
+		return true, h.handlePutContainerPolicy(c, body)
+	case "GetContainerPolicy":
+
+		return true, h.handleGetContainerPolicy(c, body)
+	case "DeleteContainerPolicy":
+
+		return true, h.handleDeleteContainerPolicy(c, body)
+	case "PutCorsPolicy":
+
+		return true, h.handlePutCorsPolicy(c, body)
+	case "GetCorsPolicy":
+
+		return true, h.handleGetCorsPolicy(c, body)
+	case "DeleteCorsPolicy":
+
+		return true, h.handleDeleteCorsPolicy(c, body)
+	case "PutLifecyclePolicy":
+
+		return true, h.handlePutLifecyclePolicy(c, body)
+	case "GetLifecyclePolicy":
+
+		return true, h.handleGetLifecyclePolicy(c, body)
+	case "DeleteLifecyclePolicy":
+
+		return true, h.handleDeleteLifecyclePolicy(c, body)
+	case "PutMetricPolicy":
+
+		return true, h.handlePutMetricPolicy(c, body)
+	case "GetMetricPolicy":
+
+		return true, h.handleGetMetricPolicy(c, body)
+	case "DeleteMetricPolicy":
+
+		return true, h.handleDeleteMetricPolicy(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchLoggingTagOps handles access logging and tagging operations.
+func (h *Handler) dispatchLoggingTagOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "StartAccessLogging":
+
+		return true, h.handleStartAccessLogging(c, body)
+	case "StopAccessLogging":
+
+		return true, h.handleStopAccessLogging(c, body)
+	case "TagResource":
+
+		return true, h.handleTagResource(c, body)
+	case "UntagResource":
+
+		return true, h.handleUntagResource(c, body)
+	case "ListTagsForResource":
+
+		return true, h.handleListTagsForResource(c, body)
+	}
+
+	return false, nil
 }
 
 func (h *Handler) handleCreateContainer(c *echo.Context, body []byte) error {
@@ -596,8 +696,10 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
+
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
+
 		return writeError(c, http.StatusConflict, "ContainerInUseException", err.Error())
 	case errors.Is(err, ErrInvalidContainerName),
 		errors.Is(err, ErrInvalidPolicy),
@@ -605,8 +707,10 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		errors.Is(err, ErrInvalidMetricPolicy),
 		errors.Is(err, ErrTooManyMetricRules),
 		errors.Is(err, ErrEmptyTagKey):
+
 		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	default:
+
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 }

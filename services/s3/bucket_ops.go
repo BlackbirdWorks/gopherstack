@@ -157,9 +157,21 @@ func (h *S3Handler) routeBucketPut(
 
 // routeBucketPutExtra handles PUT sub-resources that are not in the primary switch.
 // Returns true if the request was handled.
-//
-//nolint:cyclop // dispatches many bucket PUT sub-resources; complexity is unavoidable
 func (h *S3Handler) routeBucketPutExtra(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) bool {
+	if h.routeBucketPutStorage(ctx, w, r, bucket) {
+		return true
+	}
+
+	return h.routeBucketPutConfig(ctx, w, r, bucket)
+}
+
+// routeBucketPutStorage handles replication, encryption, access-control, and analytics PUT sub-resources.
+func (h *S3Handler) routeBucketPutStorage(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
@@ -184,6 +196,23 @@ func (h *S3Handler) routeBucketPutExtra(
 		h.putBucketAnalyticsConfiguration(ctx, w, r, bucket)
 	case q.Has("intelligent-tiering"):
 		h.putBucketIntelligentTieringConfiguration(ctx, w, r, bucket)
+	default:
+		return false
+	}
+
+	return true
+}
+
+// routeBucketPutConfig handles inventory, metrics, and miscellaneous PUT sub-resources.
+func (h *S3Handler) routeBucketPutConfig(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) bool {
+	q := r.URL.Query()
+
+	switch {
 	case q.Has("inventory"):
 		h.putBucketInventoryConfiguration(ctx, w, r, bucket)
 	case q.Has("metrics"):

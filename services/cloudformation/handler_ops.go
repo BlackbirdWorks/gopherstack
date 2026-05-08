@@ -25,8 +25,17 @@ func (h *Handler) dispatchOps(action string, form url.Values, c *echo.Context) (
 	return h.dispatchMiscOps(action, form, c)
 }
 
-//nolint:cyclop // routes across many resource types
+// dispatchStackSetOps handles StackSet lifecycle and instance operations.
 func (h *Handler) dispatchStackSetOps(action string, form url.Values, c *echo.Context) (bool, error) {
+	if handled, err := h.dispatchStackSetCRUDOps(action, form, c); handled {
+		return true, err
+	}
+
+	return h.dispatchStackSetInstanceOps(action, form, c)
+}
+
+// dispatchStackSetCRUDOps handles StackSet CRUD and basic instance operations.
+func (h *Handler) dispatchStackSetCRUDOps(action string, form url.Values, c *echo.Context) (bool, error) {
 	switch action {
 	case "CreateStackSet":
 		return true, h.handleCreateStackSet(form, c)
@@ -46,6 +55,14 @@ func (h *Handler) dispatchStackSetOps(action string, form url.Values, c *echo.Co
 		return true, h.handleUpdateStackInstances(form, c)
 	case "ListStackInstances":
 		return true, h.handleListStackInstances(form, c)
+	}
+
+	return false, nil
+}
+
+// dispatchStackSetInstanceOps handles StackSet instance detail and operation tracking.
+func (h *Handler) dispatchStackSetInstanceOps(action string, form url.Values, c *echo.Context) (bool, error) {
+	switch action {
 	case "DescribeStackInstance":
 		return true, h.handleDescribeStackInstance(form, c)
 	case "DetectStackSetDrift":
@@ -64,13 +81,22 @@ func (h *Handler) dispatchStackSetOps(action string, form url.Values, c *echo.Co
 		return true, h.handleImportStacksToStackSet(form, c)
 	case "ListStackInstanceResourceDrifts":
 		return true, h.handleListStackInstanceResourceDrifts(form, c)
-	default:
-		return false, nil
 	}
+
+	return false, nil
 }
 
-//nolint:cyclop // routes across many resource types
+// dispatchTemplateAndScanOps handles generated template and resource scan operations.
 func (h *Handler) dispatchTemplateAndScanOps(action string, form url.Values, c *echo.Context) (bool, error) {
+	if handled, err := h.dispatchGeneratedTemplateOps(action, form, c); handled {
+		return true, err
+	}
+
+	return h.dispatchResourceScanOps(action, form, c)
+}
+
+// dispatchGeneratedTemplateOps handles generated template CRUD operations.
+func (h *Handler) dispatchGeneratedTemplateOps(action string, form url.Values, c *echo.Context) (bool, error) {
 	switch action {
 	case "CreateGeneratedTemplate":
 		return true, h.handleCreateGeneratedTemplate(form, c)
@@ -84,6 +110,14 @@ func (h *Handler) dispatchTemplateAndScanOps(action string, form url.Values, c *
 		return true, h.handleGetGeneratedTemplate(form, c)
 	case "ListGeneratedTemplates":
 		return true, h.handleListGeneratedTemplates(form, c)
+	}
+
+	return false, nil
+}
+
+// dispatchResourceScanOps handles resource scan and stack refactor operations.
+func (h *Handler) dispatchResourceScanOps(action string, form url.Values, c *echo.Context) (bool, error) {
+	switch action {
 	case "StartResourceScan":
 		return true, h.handleStartResourceScan(form, c)
 	case "DescribeResourceScan":
@@ -104,13 +138,22 @@ func (h *Handler) dispatchTemplateAndScanOps(action string, form url.Values, c *
 		return true, h.handleListStackRefactors(form, c)
 	case "ListStackRefactorActions":
 		return true, h.handleListStackRefactorActions(form, c)
-	default:
-		return false, nil
 	}
+
+	return false, nil
 }
 
-//nolint:cyclop // routes across many resource types
+// dispatchTypeOps handles CloudFormation type/extension registration and management.
 func (h *Handler) dispatchTypeOps(action string, form url.Values, c *echo.Context) (bool, error) {
+	if handled, err := h.dispatchTypeRegistrationOps(action, form, c); handled {
+		return true, err
+	}
+
+	return h.dispatchTypeManagementOps(action, form, c)
+}
+
+// dispatchTypeRegistrationOps handles type registration and activation operations.
+func (h *Handler) dispatchTypeRegistrationOps(action string, form url.Values, c *echo.Context) (bool, error) {
 	switch action {
 	case "ActivateType":
 		return true, h.handleActivateType(form, c)
@@ -128,6 +171,16 @@ func (h *Handler) dispatchTypeOps(action string, form url.Values, c *echo.Contex
 		return true, h.handleSetTypeConfiguration(form, c)
 	case "BatchDescribeTypeConfigurations":
 		return true, h.handleBatchDescribeTypeConfigurations(form, c)
+	case "TestType":
+		return true, h.handleTestType(form, c)
+	}
+
+	return false, nil
+}
+
+// dispatchTypeManagementOps handles type listing, publishing, and access management.
+func (h *Handler) dispatchTypeManagementOps(action string, form url.Values, c *echo.Context) (bool, error) {
+	switch action {
 	case "ListTypes":
 		return true, h.handleListTypes(form, c)
 	case "ListTypeVersions":
@@ -136,8 +189,6 @@ func (h *Handler) dispatchTypeOps(action string, form url.Values, c *echo.Contex
 		return true, h.handleListTypeRegistrations(form, c)
 	case "DescribeTypeRegistration":
 		return true, h.handleDescribeTypeRegistration(form, c)
-	case "TestType":
-		return true, h.handleTestType(form, c)
 	case "RegisterPublisher":
 		return true, h.handleRegisterPublisher(form, c)
 	case "DescribePublisher":
@@ -148,9 +199,9 @@ func (h *Handler) dispatchTypeOps(action string, form url.Values, c *echo.Contex
 		return true, h.handleDeactivateOrganizationsAccess(c)
 	case "DescribeOrganizationsAccess":
 		return true, h.handleDescribeOrganizationsAccess(c)
-	default:
-		return false, nil
 	}
+
+	return false, nil
 }
 
 func (h *Handler) dispatchMiscOps(action string, form url.Values, c *echo.Context) (bool, error) {

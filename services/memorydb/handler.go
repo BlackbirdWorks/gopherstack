@@ -206,6 +206,7 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
 }
 
+<<<<<<< HEAD
 // memorydbCoreOps maps operation names to handler functions for core MemoryDB operations.
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
@@ -239,6 +240,108 @@ var memorydbCoreOps = map[string]func(*Handler, *echo.Context, []byte) error{
 func (h *Handler) dispatchCoreOps(c *echo.Context, op string, body []byte) (bool, error) {
 	if fn, ok := memorydbCoreOps[op]; ok {
 		return true, fn(h, c, body)
+=======
+// dispatchCoreOps handles the original core operations.
+func (h *Handler) dispatchCoreOps(c *echo.Context, op string, body []byte) (bool, error) {
+	if ok, err := h.dispatchClusterACLOps(c, op, body); ok {
+		return true, err
+	}
+	if ok, err := h.dispatchSubnetUserOps(c, op, body); ok {
+		return true, err
+	}
+
+	return h.dispatchParamTagOps(c, op, body)
+}
+
+// dispatchClusterACLOps handles cluster and ACL operations.
+func (h *Handler) dispatchClusterACLOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateCluster":
+
+		return true, h.handleCreateCluster(c, body)
+	case "DescribeClusters":
+
+		return true, h.handleDescribeClusters(c, body)
+	case "DeleteCluster":
+
+		return true, h.handleDeleteCluster(c, body)
+	case "UpdateCluster":
+
+		return true, h.handleUpdateCluster(c, body)
+	case "CreateACL":
+
+		return true, h.handleCreateACL(c, body)
+	case "DescribeACLs":
+
+		return true, h.handleDescribeACLs(c, body)
+	case "DeleteACL":
+
+		return true, h.handleDeleteACL(c, body)
+	case "UpdateACL":
+
+		return true, h.handleUpdateACL(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchSubnetUserOps handles subnet group and user operations.
+func (h *Handler) dispatchSubnetUserOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateSubnetGroup":
+
+		return true, h.handleCreateSubnetGroup(c, body)
+	case "DescribeSubnetGroups":
+
+		return true, h.handleDescribeSubnetGroups(c, body)
+	case "DeleteSubnetGroup":
+
+		return true, h.handleDeleteSubnetGroup(c, body)
+	case "UpdateSubnetGroup":
+
+		return true, h.handleUpdateSubnetGroup(c, body)
+	case "CreateUser":
+
+		return true, h.handleCreateUser(c, body)
+	case "DescribeUsers":
+
+		return true, h.handleDescribeUsers(c, body)
+	case "DeleteUser":
+
+		return true, h.handleDeleteUser(c, body)
+	case "UpdateUser":
+
+		return true, h.handleUpdateUser(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchParamTagOps handles parameter group and tag operations.
+func (h *Handler) dispatchParamTagOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case "CreateParameterGroup":
+
+		return true, h.handleCreateParameterGroup(c, body)
+	case "DescribeParameterGroups":
+
+		return true, h.handleDescribeParameterGroups(c, body)
+	case "DeleteParameterGroup":
+
+		return true, h.handleDeleteParameterGroup(c, body)
+	case "UpdateParameterGroup":
+
+		return true, h.handleUpdateParameterGroup(c, body)
+	case "ListTags":
+
+		return true, h.handleListTags(c, body)
+	case "TagResource":
+
+		return true, h.handleTagResource(c, body)
+	case "UntagResource":
+
+		return true, h.handleUntagResource(c, body)
+>>>>>>> pr1617
 	}
 
 	return false, nil
@@ -261,20 +364,28 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool,
 func (h *Handler) dispatchSnapshotAndEngineOps(c *echo.Context, op string, body []byte) (bool, error) {
 	switch op {
 	case "CreateSnapshot":
+
 		return true, h.handleCreateSnapshot(c, body)
 	case "DescribeSnapshots":
+
 		return true, h.handleDescribeSnapshots(c, body)
 	case "CopySnapshot":
+
 		return true, h.handleCopySnapshot(c, body)
 	case "DeleteSnapshot":
+
 		return true, h.handleDeleteSnapshot(c, body)
 	case "DescribeEngineVersions":
+
 		return true, h.handleDescribeEngineVersions(c, body)
 	case "DescribeEvents":
+
 		return true, h.handleDescribeEvents(c, body)
 	case "BatchUpdateCluster":
+
 		return true, h.handleBatchUpdateCluster(c, body)
 	case "DescribeServiceUpdates":
+
 		return true, h.handleDescribeServiceUpdates(c, body)
 	}
 
@@ -285,16 +396,22 @@ func (h *Handler) dispatchSnapshotAndEngineOps(c *echo.Context, op string, body 
 func (h *Handler) dispatchMultiRegionOps(c *echo.Context, op string, body []byte) (bool, error) {
 	switch op {
 	case "CreateMultiRegionCluster":
+
 		return true, h.handleCreateMultiRegionCluster(c, body)
 	case "DeleteMultiRegionCluster":
+
 		return true, h.handleDeleteMultiRegionCluster(c, body)
 	case "DescribeMultiRegionClusters":
+
 		return true, h.handleDescribeMultiRegionClusters(c, body)
 	case "DescribeMultiRegionParameterGroups":
+
 		return true, h.handleDescribeMultiRegionParameterGroups(c, body)
 	case "UpdateMultiRegionCluster":
+
 		return true, h.handleUpdateMultiRegionCluster(c, body)
 	case "ListAllowedMultiRegionClusterUpdates":
+
 		return true, h.handleListAllowedMultiRegionClusterUpdates(c, body)
 	}
 
@@ -305,20 +422,28 @@ func (h *Handler) dispatchMultiRegionOps(c *echo.Context, op string, body []byte
 func (h *Handler) dispatchParameterAndShardOps(c *echo.Context, op string, body []byte) (bool, error) {
 	switch op {
 	case "DescribeParameters":
+
 		return true, h.handleDescribeParameters(c, body)
 	case "ResetParameterGroup":
+
 		return true, h.handleResetParameterGroup(c, body)
 	case "FailoverShard":
+
 		return true, h.handleFailoverShard(c, body)
 	case "ListAllowedNodeTypeUpdates":
+
 		return true, h.handleListAllowedNodeTypeUpdates(c, body)
 	case "DescribeReservedNodes":
+
 		return true, h.handleDescribeReservedNodes(c, body)
 	case "DescribeReservedNodesOfferings":
+
 		return true, h.handleDescribeReservedNodesOfferings(c, body)
 	case "PurchaseReservedNodesOffering":
+
 		return true, h.handlePurchaseReservedNodesOffering(c, body)
 	case "DescribeMultiRegionParameters":
+
 		return true, h.handleDescribeMultiRegionParameters(c, body)
 	}
 
@@ -1409,14 +1534,19 @@ func findStartIndex[T any](items []T, token string, getName func(T) string) int 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
+
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
+
 		return writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	case errors.Is(err, awserr.ErrConflict):
+
 		return writeError(c, http.StatusConflict, "InvalidRequestException", err.Error())
 	default:
+
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 }
