@@ -304,7 +304,6 @@ type deleteGroupRequest struct {
 // Dispatch
 // ----------------------------------------
 
-<<<<<<< HEAD
 // identityStoreDispatch maps operation names to their handler functions.
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
@@ -336,18 +335,6 @@ var identityStoreDispatch = map[string]func(*Handler, *echo.Context, []byte) err
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	if fn, ok := identityStoreDispatch[op]; ok {
 		return fn(h, c, body)
-=======
-// dispatch routes to the appropriate handler based on the operation name.
-func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
-	if ok, err := h.dispatchUserOps(c, op, body); ok {
-		return err
-	}
-	if ok, err := h.dispatchGroupOps(c, op, body); ok {
-		return err
-	}
-	if ok, err := h.dispatchMembershipOps(c, op, body); ok {
-		return err
->>>>>>> pr1617
 	}
 
 	return h.writeError(c, http.StatusBadRequest, "UnrecognizedClientException",

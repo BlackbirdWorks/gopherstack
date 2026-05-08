@@ -139,7 +139,6 @@ func (h *Handler) dispatchAutomatedBackupOps(action string, vals url.Values) (an
 	case "DescribeDBSnapshotTenantDatabases":
 
 		return h.handleDescribeDBSnapshotTenantDatabases(vals)
-<<<<<<< HEAD
 	default:
 		return h.dispatchExtended15(action, vals)
 	}
@@ -153,8 +152,6 @@ func (h *Handler) dispatchExtended15(action string, vals url.Values) (any, error
 		return h.handleGetPerformanceInsightsMetrics(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
-=======
->>>>>>> pr1617
 	}
 
 	return nil, errRDSStubNotHandled

@@ -618,7 +618,6 @@ func parseHostedVersionRoute(method, appID, profileID string, parts []string) ap
 	}
 }
 
-<<<<<<< HEAD
 // appConfigDispatchFn is the function signature for AppConfig dispatch handlers.
 type appConfigDispatchFn func(*Handler, *echo.Context, appConfigRoute) error
 
@@ -763,34 +762,22 @@ var appConfigDispatch = map[string]appConfigDispatchFn{
 	},
 }
 
-=======
->>>>>>> pr1617
 // Handler returns the Echo handler function for AppConfig operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		log := logger.Load(c.Request().Context())
 		route := parseAppConfigPath(c.Request().Method, c.Request().URL.Path)
 
-<<<<<<< HEAD
 		if fn, ok := appConfigDispatch[route.operation]; ok {
 			return fn(h, c, route)
-=======
-		if ok, err := h.dispatchAppConfig(c, route); ok {
-			return err
->>>>>>> pr1617
 		}
 
 		log.Warn(
 			"appconfig: unmatched route",
-<<<<<<< HEAD
 			"method",
 			c.Request().Method,
 			"path",
 			c.Request().URL.Path,
-=======
-			"method", c.Request().Method,
-			"path", c.Request().URL.Path,
->>>>>>> pr1617
 		)
 
 		return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
