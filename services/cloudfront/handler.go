@@ -510,8 +510,8 @@ func parseCFDistributionCorePath(method, suffix, resourceParam string) (string, 
 		return op, id
 	}
 
-	if strings.HasPrefix(suffix, "distribution-tenant/") {
-		id := strings.TrimSuffix(strings.TrimPrefix(suffix, "distribution-tenant/"), "/associate-web-acl")
+	if rest, ok := strings.CutPrefix(suffix, "distribution-tenant/"); ok {
+		id := strings.TrimSuffix(rest, "/associate-web-acl")
 		if strings.HasSuffix(suffix, "/associate-web-acl") && method == http.MethodPut {
 			return opAssociateDistributionTenantWebACL, id
 		}
@@ -832,8 +832,7 @@ func parseCFResourcePath(method, suffix, resourceType,
 	}
 
 	inner := strings.TrimPrefix(suffix, prefix)
-	if strings.HasSuffix(inner, "/config") {
-		id := strings.TrimSuffix(inner, "/config")
+	if id, ok := strings.CutSuffix(inner, "/config"); ok {
 		if method == http.MethodGet {
 			return getConfigOp, id
 		}
@@ -1331,8 +1330,8 @@ func parseCFMiscPathByDistribution(method, suffix string) (string, string) {
 
 	if method == http.MethodGet {
 		for _, p := range prefixes {
-			if strings.HasPrefix(suffix, p.prefix) {
-				return p.op, strings.TrimPrefix(suffix, p.prefix)
+			if after, ok := strings.CutPrefix(suffix, p.prefix); ok {
+				return p.op, after
 			}
 		}
 	}
