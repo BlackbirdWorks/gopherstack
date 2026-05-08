@@ -1975,7 +1975,11 @@ func (b *InMemoryBackend) collectPrincipalPolicies(principalArn string) ([]strin
 			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 		}
 
-		return b.collectEntityPolicies(b.userPolicies[userName], b.userInlinePolicies[userName]), nil
+		// Collect direct user policies plus group-inherited policies.
+		docs := b.collectEntityPolicies(b.userPolicies[userName], b.userInlinePolicies[userName])
+		docs = append(docs, b.collectGroupPoliciesForUser(userName)...)
+
+		return docs, nil
 
 	case strings.Contains(principalArn, rolePrefix):
 		idx := strings.LastIndex(principalArn, rolePrefix)
@@ -2012,6 +2016,24 @@ func (b *InMemoryBackend) collectEntityPolicies(
 		if doc != "" {
 			docs = append(docs, doc)
 		}
+	}
+
+	return docs
+}
+
+// collectGroupPoliciesForUser returns all policy documents inherited via group membership.
+// Real AWS evaluates group-attached and group-inline policies as part of the principal's
+// effective permissions.  Must be called with b.mu read-lock held.
+func (b *InMemoryBackend) collectGroupPoliciesForUser(userName string) []string {
+	var docs []string
+
+	for groupName, members := range b.groupMembers {
+		if !slices.Contains(members, userName) {
+			continue
+		}
+
+		groupDocs := b.collectEntityPolicies(b.groupPolicies[groupName], b.groupInlinePolicies[groupName])
+		docs = append(docs, groupDocs...)
 	}
 
 	return docs
