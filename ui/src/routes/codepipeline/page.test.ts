@@ -151,7 +151,7 @@ describe("CodePipeline Page", () => {
 
     await waitFor(
       () => {
-        expect(mockSend).toHaveBeenCalledTimes(3);
+        expect(mockSend).toHaveBeenCalledTimes(4);
       },
       { timeout: 3000 },
     );
