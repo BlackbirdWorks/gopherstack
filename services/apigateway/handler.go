@@ -2408,6 +2408,7 @@ func (h *Handler) newResourceActions() map[string]actionFn {
 }
 
 // newResourceActionsCore returns actions for API key and usage plan creation.
+//
 //nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) newResourceActionsCore() map[string]actionFn {
 	return map[string]actionFn{
@@ -2477,6 +2478,7 @@ func (h *Handler) newResourceActionsExt() map[string]actionFn {
 }
 
 // newResourceActionsDomainName returns actions for domain name creation.
+//
 //nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) newResourceActionsDomainName() map[string]actionFn {
 	return map[string]actionFn{
@@ -2510,6 +2512,7 @@ func (h *Handler) newResourceActionsDomainName() map[string]actionFn {
 }
 
 // newResourceActionsModelStage returns actions for model, stage, and usage plan creation.
+//
 //nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) newResourceActionsModelStage() map[string]actionFn {
 	return map[string]actionFn{

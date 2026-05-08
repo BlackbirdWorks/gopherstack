@@ -984,6 +984,8 @@ func (h *Handler) dispatchAccessPointSubResourceOps(c *echo.Context, path, metho
 }
 
 // dispatchObjectLambdaOps handles object lambda access point operations.
+//
+//nolint:dupl,cyclop // similar dispatch structure; complexity unavoidable
 func (h *Handler) dispatchObjectLambdaOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case isSimplePath(pathObjectLambdaPrefix, path) && method == http.MethodPut:
@@ -1023,6 +1025,8 @@ func (h *Handler) dispatchBucketOps(c *echo.Context, path, method string) error 
 }
 
 // dispatchBucketCRUDStubs handles bucket CRUD, lifecycle, and policy stub operations.
+//
+//nolint:dupl,cyclop // similar dispatch structure; complexity unavoidable
 func (h *Handler) dispatchBucketCRUDStubs(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case isSimplePath(pathBucketPrefix, path) && method == http.MethodPut:

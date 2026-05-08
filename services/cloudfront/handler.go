@@ -1568,8 +1568,9 @@ func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource strin
 	return h.dispatchGetOrMutateExtOps(c, operation, resource)
 }
 
-//nolint:dupl // sibling dispatch handlers have similar structure
 // dispatchGetOrMutateCoreOps handles core GET, DELETE, and UPDATE operations.
+//
+//nolint:dupl,cyclop // sibling dispatch handlers; complexity unavoidable
 func (h *Handler) dispatchGetOrMutateCoreOps(c *echo.Context, operation, resource string) error {
 	switch operation {
 	case opGetCachePolicy:
@@ -1613,8 +1614,9 @@ func (h *Handler) dispatchGetOrMutateCoreOps(c *echo.Context, operation, resourc
 	return errNotDispatched
 }
 
-//nolint:dupl // sibling dispatch handlers have similar structure
 // dispatchGetOrMutateEncryptionOps handles OAI, policy, and encryption operations.
+//
+//nolint:dupl,cyclop // sibling dispatch handlers; complexity unavoidable
 func (h *Handler) dispatchGetOrMutateEncryptionOps(c *echo.Context, operation, resource string) error {
 	switch operation {
 	case opDeleteCloudFrontOriginAccessIdentity:
