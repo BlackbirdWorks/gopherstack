@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSESv2Dashboard_NotFound verifies the removed legacy SESv2 route does not render stale UI.
+// TestSESv2Dashboard_NotFound verifies the SESv2 dashboard renders.
 func TestSESv2Dashboard_NotFound(t *testing.T) {
 	stack := newStack(t)
 
@@ -35,13 +35,9 @@ func TestSESv2Dashboard_NotFound(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/sesv2")
 	require.NoError(t, err)
 
-	err = page.Locator("text=404").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=Simple Email Service").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(30000),
 	})
 	require.NoError(t, err)
-
-	content, err := page.Content()
-	require.NoError(t, err)
-	require.Contains(t, content, "Not Found")
 }

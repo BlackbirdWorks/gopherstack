@@ -1021,6 +1021,9 @@ func newCFNHandler(
 	kms *kmsbackend.Handler,
 	sm *smbackend.Handler,
 ) *cfnbackend.Handler {
+	elbv2Bk := elbv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	wafv2Bk := wafv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	backupBk := backupbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 	backends := &cfnbackend.ServiceBackends{
 		S3:             s3backend.NewHandler(s3Bk),
 		DynamoDB:       ddb,
@@ -1029,6 +1032,9 @@ func newCFNHandler(
 		SSM:            ssm,
 		KMS:            kms,
 		SecretsManager: sm,
+		ELBv2:          elbv2backend.NewHandler(elbv2Bk),
+		WAFv2:          wafv2backend.NewHandler(wafv2Bk),
+		Backup:         backupbackend.NewHandler(backupBk),
 		AccountID:      config.DefaultAccountID,
 		Region:         config.DefaultRegion,
 	}

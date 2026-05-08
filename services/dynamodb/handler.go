@@ -1239,11 +1239,11 @@ type globalTableReplicaWire struct {
 }
 
 type globalTableDescriptionWire struct {
-	CreationDateTime  float64                  `json:"CreationDateTime,omitempty"`
 	GlobalTableArn    string                   `json:"GlobalTableArn,omitempty"`
 	GlobalTableName   string                   `json:"GlobalTableName,omitempty"`
 	GlobalTableStatus string                   `json:"GlobalTableStatus,omitempty"`
 	ReplicationGroup  []globalTableReplicaWire `json:"ReplicationGroup,omitempty"`
+	CreationDateTime  float64                  `json:"CreationDateTime,omitempty"`
 }
 
 type createGlobalTableInput struct {
