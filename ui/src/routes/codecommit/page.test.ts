@@ -69,7 +69,7 @@ describe("CodeCommit Page", () => {
   it("shows Branches stat card", () => {
     mockSend.mockResolvedValue({ repositories: [] });
     render(CodeCommitPage);
-    expect(screen.getByText("Branches (selected)")).toBeInTheDocument();
+    expect(screen.getByText("Branches")).toBeInTheDocument();
   });
 
   it("shows detail placeholder when no repo selected", () => {
