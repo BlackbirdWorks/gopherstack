@@ -28,6 +28,7 @@ func TestKafkaDashboard(t *testing.T) {
 			InstanceType:  "kafka.m5.large",
 		},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 
