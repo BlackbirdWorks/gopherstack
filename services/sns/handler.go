@@ -51,12 +51,13 @@ func newFifoDeduplication() *fifoDeduplication {
 
 // check returns true if the dedup ID has already been seen within the TTL window,
 // and records it otherwise.
-func (d *fifoDeduplication) check(topicArn, dedupID string) bool {
+// isDuplicate returns true if dedupID was already seen within the TTL window.
+// It does NOT record the ID — call record() after a successful publish.
+func (d *fifoDeduplication) isDuplicate(topicArn, dedupID string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	now := time.Now()
-	key := topicArn + "/" + dedupID
 
 	// Evict expired entries opportunistically.
 	for k, exp := range d.entries {
@@ -65,13 +66,18 @@ func (d *fifoDeduplication) check(topicArn, dedupID string) bool {
 		}
 	}
 
-	if exp, found := d.entries[key]; found && now.Before(exp) {
-		return true
-	}
+	key := topicArn + "/" + dedupID
+	exp, found := d.entries[key]
 
-	d.entries[key] = now.Add(fifoDedupTTL)
+	return found && now.Before(exp)
+}
 
-	return false
+// record marks dedupID as seen for the given topic ARN.
+func (d *fifoDeduplication) record(topicArn, dedupID string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.entries[topicArn+"/"+dedupID] = time.Now().Add(fifoDedupTTL)
 }
 
 type Handler struct {
@@ -588,7 +594,7 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 
 			// Enforce MessageDeduplicationId with 5-minute TTL per AWS FIFO semantics.
 			dedupID := c.Request().FormValue("MessageDeduplicationId")
-			if dedupID != "" && h.dedup.check(topicArn, dedupID) {
+			if dedupID != "" && h.dedup.isDuplicate(topicArn, dedupID) {
 				// AWS returns the original MessageId on duplicates; we return a new one for simplicity.
 				return h.writeXML(c, PublishResponse{
 					PublishResult:    PublishResult{MessageID: uuid.New().String()},
@@ -600,6 +606,11 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		messageID, err = h.Backend.Publish(topicArn, message, subject, messageStructure, attrs)
 		if err != nil {
 			return h.handleBackendError(c, err)
+		}
+
+		// Record dedup ID only after successful publish.
+		if dedupID := c.Request().FormValue("MessageDeduplicationId"); dedupID != "" {
+			h.dedup.record(topicArn, dedupID)
 		}
 	case targetArn != "":
 		// TargetArn addresses a platform endpoint. In the mock, generate a message ID.
@@ -1537,4 +1548,9 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	// Clear FIFO deduplication cache.
+	h.dedup.mu.Lock()
+	h.dedup.entries = make(map[string]time.Time)
+	h.dedup.mu.Unlock()
 }

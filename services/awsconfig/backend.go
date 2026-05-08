@@ -539,6 +539,12 @@ func (b *InMemoryBackend) PutConfigRule(input *ConfigRule) error {
 	}
 
 	cp := *input
+	// Deep-copy Source to avoid shared pointer.
+	if input.Source != nil {
+		srcCopy := *input.Source
+		cp.Source = &srcCopy
+	}
+
 	b.configRules[input.ConfigRuleName] = &cp
 
 	return nil
@@ -592,6 +598,7 @@ func (b *InMemoryBackend) DeleteConfigRule(name string) error {
 	}
 
 	delete(b.configRules, name)
+	delete(b.ruleEvaluations, name)
 
 	return nil
 }
