@@ -2396,6 +2396,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	t // Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
 	twireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
 
+	t // Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	twireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
 
