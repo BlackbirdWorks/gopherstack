@@ -2347,6 +2347,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire CloudWatch Logs subscription filter delivery to Lambda, Kinesis, and Firehose.
 	wireCWLogsSubscriptionFilters(byName["CloudWatchLogs"], byName["Lambda"], byName["Kinesis"], byName["Firehose"])
 
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
 
@@ -3432,17 +3435,19 @@ func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
 		return
 	}
 
-	cwlogsBk.SetMetricEmitter(cwlogsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
-		return cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-			{
-				MetricName: name,
-				Namespace:  namespace,
-				Value:      value,
-				Unit:       unit,
-				Timestamp:  time.Now(),
-			},
-		})
-	}))
+	cwlogsBk.SetMetricEmitter(
+		cwlogsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
+			return cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+				{
+					MetricName: name,
+					Namespace:  namespace,
+					Value:      value,
+					Unit:       unit,
+					Timestamp:  time.Now(),
+				},
+			})
+		}),
+	)
 }
 
 // wireIAMToSTS connects the IAM backend to STS so that AssumeRole can validate
