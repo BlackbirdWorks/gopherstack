@@ -2393,6 +2393,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["Firehose"],
 	)
 
+	t // Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	twireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
 
@@ -3528,6 +3531,44 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 	}
 
 	return nil
+}
+
+// wireCWLogsMetricEmitter connects the CloudWatch Logs backend to the CloudWatch Metrics backend
+// so that metric filter matches on PutLogEvents are forwarded as CloudWatch metric data points.
+func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
+	cwlogsH, ok := cwlogsReg.(*cwlogsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cwlogsBk, bkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	cwH, cwOk := cwReg.(*cwbackend.Handler)
+	if !cwOk {
+		return
+	}
+
+	cwBk, cwBkOk := cwH.Backend.(*cwbackend.InMemoryBackend)
+	if !cwBkOk {
+		return
+	}
+
+	cwlogsBk.SetMetricEmitter(
+		cwlogsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
+			return cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+				{
+					MetricName: name,
+					Namespace:  namespace,
+					Value:      value,
+					Unit:       unit,
+					Timestamp:  time.Now(),
+				},
+			})
+		}),
+	)
 }
 
 // wireIAMToSTS connects the IAM backend to STS so that AssumeRole can validate
