@@ -1244,58 +1244,86 @@ func parseCFDistributionTenantInvalidation(method, suffix string) (string, strin
 
 // parseCFMiscPath handles miscellaneous CloudFront paths.
 func parseCFMiscPath(method, suffix string) (string, string) {
-	switch {
-	case suffix == "conflicting-alias" && method == http.MethodGet:
-		return opListConflictingAliases, ""
-	case suffix == "domain-conflict" && method == http.MethodPost:
-		return opListDomainConflicts, ""
-	case suffix == "domain-association" && method == http.MethodPost:
-		return opUpdateDomainAssociation, ""
-	case suffix == "verify-dns-configuration" && method == http.MethodPost:
-		return opVerifyDNSConfiguration, ""
-	case strings.HasPrefix(suffix, "distributions/by-cache-policy-id/") && method == http.MethodGet:
-		id := strings.TrimPrefix(suffix, "distributions/by-cache-policy-id/")
-		return opListDistributionsByCachePolicyID, id
-	case strings.HasPrefix(suffix, "distributions/by-origin-request-policy-id/") && method == http.MethodGet:
-		id := strings.TrimPrefix(suffix, "distributions/by-origin-request-policy-id/")
-		return opListDistributionsByOriginRequestPol, id
-	case strings.HasPrefix(suffix, "distributions/by-response-headers-policy-id/") && method == http.MethodGet:
-		id := strings.TrimPrefix(suffix, "distributions/by-response-headers-policy-id/")
-		return opListDistributionsByResponseHeadersPol, id
-	case strings.HasPrefix(suffix, "distributions/by-web-acl-id/") && method == http.MethodGet:
-		id := strings.TrimPrefix(suffix, "distributions/by-web-acl-id/")
-		return opListDistributionsByWebACLID, id
-	case strings.HasPrefix(suffix, "distributions/by-key-group/") && method == http.MethodGet:
-		id := strings.TrimPrefix(suffix, "distributions/by-key-group/")
-		return opListDistributionsByKeyGroup, id
-	case strings.HasPrefix(suffix, "distributions/by-realtime-log-config") && method == http.MethodGet:
-		return opListDistributionsByRealtimeLogConfig, ""
-	case strings.HasPrefix(suffix, "distributions/by-vpc-origin-id/") && method == http.MethodGet:
-		id := strings.TrimPrefix(suffix, "distributions/by-vpc-origin-id/")
-		return opListDistributionsByVpcOriginID, id
-	case strings.HasPrefix(suffix, "distributions/by-anycast-ip-list-id/") && method == http.MethodGet:
-		id := strings.TrimPrefix(suffix, "distributions/by-anycast-ip-list-id/")
-		return opListDistributionsByAnycastIPListID, id
-	case strings.HasPrefix(suffix, "distributions/by-connection-function/") && method == http.MethodGet:
-		id := strings.TrimPrefix(suffix, "distributions/by-connection-function/")
-		return opListDistributionsByConnectionFunction, id
-	case suffix == "distributions/by-connection-mode" && method == http.MethodGet:
-		return opListDistributionsByConnectionMode, ""
-	case suffix == "distribution-tenants/by-customization" && method == http.MethodGet:
-		return opListDistributionTenantsByCustom, ""
-	case strings.HasPrefix(suffix, "distribution-tenant/") && strings.HasSuffix(suffix, "/managed-certificate-details"):
+	if op := parseCFMiscPathSimple(method, suffix); op != "" {
+		return op, ""
+	}
+
+	return parseCFMiscPathByDistribution(method, suffix)
+}
+
+// parseCFMiscPathSimple handles simple exact-match miscellaneous paths.
+func parseCFMiscPathSimple(method, suffix string) string {
+	type exactMatch struct {
+		suffix string
+		method string
+		op     string
+	}
+
+	exact := []exactMatch{
+		{"conflicting-alias", http.MethodGet, opListConflictingAliases},
+		{"domain-conflict", http.MethodPost, opListDomainConflicts},
+		{"domain-association", http.MethodPost, opUpdateDomainAssociation},
+		{"verify-dns-configuration", http.MethodPost, opVerifyDNSConfiguration},
+		{"distributions/by-connection-mode", http.MethodGet, opListDistributionsByConnectionMode},
+		{"distribution-tenants/by-customization", http.MethodGet, opListDistributionTenantsByCustom},
+		{"connection-group-by-routing-endpoint", http.MethodGet, opGetConnectionGroupByRoutingEndpoint},
+		{"distribution-tenant-by-domain", http.MethodGet, opGetDistributionTenantByDomain},
+	}
+
+	for _, m := range exact {
+		if suffix == m.suffix && method == m.method {
+			return m.op
+		}
+	}
+
+	if strings.HasPrefix(suffix, "trust-store/") && strings.Contains(suffix, "/by-trust-store/") {
+		return opListDistributionsByTrustStore
+	}
+
+	if strings.HasPrefix(suffix, "distributions/by-realtime-log-config") && method == http.MethodGet {
+		return opListDistributionsByRealtimeLogConfig
+	}
+
+	return ""
+}
+
+// parseCFMiscPathByDistribution handles prefix-based distribution listing paths.
+func parseCFMiscPathByDistribution(method, suffix string) (string, string) {
+	type prefixOp struct {
+		prefix string
+		op     string
+	}
+
+	prefixes := []prefixOp{
+		{"distributions/by-cache-policy-id/", opListDistributionsByCachePolicyID},
+		{"distributions/by-origin-request-policy-id/", opListDistributionsByOriginRequestPol},
+		{"distributions/by-response-headers-policy-id/", opListDistributionsByResponseHeadersPol},
+		{"distributions/by-web-acl-id/", opListDistributionsByWebACLID},
+		{"distributions/by-key-group/", opListDistributionsByKeyGroup},
+		{"distributions/by-vpc-origin-id/", opListDistributionsByVpcOriginID},
+		{"distributions/by-anycast-ip-list-id/", opListDistributionsByAnycastIPListID},
+		{"distributions/by-connection-function/", opListDistributionsByConnectionFunction},
+	}
+
+	if method == http.MethodGet {
+		for _, p := range prefixes {
+			if strings.HasPrefix(suffix, p.prefix) {
+				return p.op, strings.TrimPrefix(suffix, p.prefix)
+			}
+		}
+	}
+
+	if strings.HasPrefix(suffix, "distribution-tenant/") && strings.HasSuffix(suffix, "/managed-certificate-details") {
 		id := strings.TrimPrefix(suffix, "distribution-tenant/")
 		id = strings.TrimSuffix(id, "/managed-certificate-details")
+
 		return opGetManagedCertificateDetails, id
-	case suffix == "connection-group-by-routing-endpoint" && method == http.MethodGet:
-		return opGetConnectionGroupByRoutingEndpoint, ""
-	case suffix == "distribution-tenant-by-domain" && method == http.MethodGet:
-		return opGetDistributionTenantByDomain, ""
-	case strings.HasPrefix(suffix, "trust-store/") && strings.Contains(suffix, "/by-trust-store/"):
-		return opListDistributionsByTrustStore, ""
-	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/function-associations"):
+	}
+
+	if strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/function-associations") {
 		id := strings.TrimPrefix(suffix, "distribution/")
 		id = strings.TrimSuffix(id, "/function-associations")
+
 		switch method {
 		case http.MethodGet:
 			return opGetFunctionAssociations, id
