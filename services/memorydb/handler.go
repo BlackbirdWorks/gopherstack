@@ -261,20 +261,28 @@ func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool,
 func (h *Handler) dispatchSnapshotAndEngineOps(c *echo.Context, op string, body []byte) (bool, error) {
 	switch op {
 	case "CreateSnapshot":
+
 		return true, h.handleCreateSnapshot(c, body)
 	case "DescribeSnapshots":
+
 		return true, h.handleDescribeSnapshots(c, body)
 	case "CopySnapshot":
+
 		return true, h.handleCopySnapshot(c, body)
 	case "DeleteSnapshot":
+
 		return true, h.handleDeleteSnapshot(c, body)
 	case "DescribeEngineVersions":
+
 		return true, h.handleDescribeEngineVersions(c, body)
 	case "DescribeEvents":
+
 		return true, h.handleDescribeEvents(c, body)
 	case "BatchUpdateCluster":
+
 		return true, h.handleBatchUpdateCluster(c, body)
 	case "DescribeServiceUpdates":
+
 		return true, h.handleDescribeServiceUpdates(c, body)
 	}
 
@@ -285,16 +293,22 @@ func (h *Handler) dispatchSnapshotAndEngineOps(c *echo.Context, op string, body 
 func (h *Handler) dispatchMultiRegionOps(c *echo.Context, op string, body []byte) (bool, error) {
 	switch op {
 	case "CreateMultiRegionCluster":
+
 		return true, h.handleCreateMultiRegionCluster(c, body)
 	case "DeleteMultiRegionCluster":
+
 		return true, h.handleDeleteMultiRegionCluster(c, body)
 	case "DescribeMultiRegionClusters":
+
 		return true, h.handleDescribeMultiRegionClusters(c, body)
 	case "DescribeMultiRegionParameterGroups":
+
 		return true, h.handleDescribeMultiRegionParameterGroups(c, body)
 	case "UpdateMultiRegionCluster":
+
 		return true, h.handleUpdateMultiRegionCluster(c, body)
 	case "ListAllowedMultiRegionClusterUpdates":
+
 		return true, h.handleListAllowedMultiRegionClusterUpdates(c, body)
 	}
 
@@ -305,20 +319,28 @@ func (h *Handler) dispatchMultiRegionOps(c *echo.Context, op string, body []byte
 func (h *Handler) dispatchParameterAndShardOps(c *echo.Context, op string, body []byte) (bool, error) {
 	switch op {
 	case "DescribeParameters":
+
 		return true, h.handleDescribeParameters(c, body)
 	case "ResetParameterGroup":
+
 		return true, h.handleResetParameterGroup(c, body)
 	case "FailoverShard":
+
 		return true, h.handleFailoverShard(c, body)
 	case "ListAllowedNodeTypeUpdates":
+
 		return true, h.handleListAllowedNodeTypeUpdates(c, body)
 	case "DescribeReservedNodes":
+
 		return true, h.handleDescribeReservedNodes(c, body)
 	case "DescribeReservedNodesOfferings":
+
 		return true, h.handleDescribeReservedNodesOfferings(c, body)
 	case "PurchaseReservedNodesOffering":
+
 		return true, h.handlePurchaseReservedNodesOffering(c, body)
 	case "DescribeMultiRegionParameters":
+
 		return true, h.handleDescribeMultiRegionParameters(c, body)
 	}
 
@@ -1409,14 +1431,19 @@ func findStartIndex[T any](items []T, token string, getName func(T) string) int 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
+
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
+
 		return writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
+
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	case errors.Is(err, awserr.ErrConflict):
+
 		return writeError(c, http.StatusConflict, "InvalidRequestException", err.Error())
 	default:
+
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 }

@@ -157,12 +157,16 @@ func parseEMRPath(method, rawPath string) emrRoute {
 
 	switch len(parts) {
 	case pathPartsApplication:
+
 		return parseSingleAppRoute(method, parts[0])
 	case pathPartsWithSub:
+
 		return parseAppSubRoute(method, parts[0], parts[1])
 	case pathPartsWithJobRun:
+
 		return parseJobRunRoute(method, parts[0], parts[1], parts[2])
 	case pathPartsWithJobRunSub:
+
 		return parseJobRunSubRoute(method, parts[0], parts[1], parts[2], parts[3])
 	}
 
@@ -172,10 +176,13 @@ func parseEMRPath(method, rawPath string) emrRoute {
 func parseTagRoute(method, resourceARN string) emrRoute {
 	switch method {
 	case http.MethodGet:
+
 		return emrRoute{operation: opListTagsForResource, resourceARN: resourceARN}
 	case http.MethodPost:
+
 		return emrRoute{operation: opTagResource, resourceARN: resourceARN}
 	case http.MethodDelete:
+
 		return emrRoute{operation: opUntagResource, resourceARN: resourceARN}
 	}
 
@@ -185,8 +192,10 @@ func parseTagRoute(method, resourceARN string) emrRoute {
 func parseApplicationsCollection(method string) emrRoute {
 	switch method {
 	case http.MethodPost:
+
 		return emrRoute{operation: opCreateApplication}
 	case http.MethodGet:
+
 		return emrRoute{operation: opListApplications}
 	}
 
@@ -196,10 +205,13 @@ func parseApplicationsCollection(method string) emrRoute {
 func parseSingleAppRoute(method, appID string) emrRoute {
 	switch method {
 	case http.MethodGet:
+
 		return emrRoute{operation: opGetApplication, applicationID: appID}
 	case http.MethodPatch:
+
 		return emrRoute{operation: opUpdateApplication, applicationID: appID}
 	case http.MethodDelete:
+
 		return emrRoute{operation: opDeleteApplication, applicationID: appID}
 	}
 
@@ -219,8 +231,10 @@ func parseAppSubRoute(method, appID, sub string) emrRoute {
 	case pathJobRuns:
 		switch method {
 		case http.MethodPost:
+
 			return emrRoute{operation: opStartJobRun, applicationID: appID}
 		case http.MethodGet:
+
 			return emrRoute{operation: opListJobRuns, applicationID: appID}
 		}
 	}
@@ -235,8 +249,10 @@ func parseJobRunRoute(method, appID, sub, jobRunID string) emrRoute {
 
 	switch method {
 	case http.MethodGet:
+
 		return emrRoute{operation: opGetJobRun, applicationID: appID, jobRunID: jobRunID}
 	case http.MethodDelete:
+
 		return emrRoute{operation: opCancelJobRun, applicationID: appID, jobRunID: jobRunID}
 	}
 
@@ -254,8 +270,10 @@ func parseJobRunSubRoute(method, appID, sub, jobRunID, action string) emrRoute {
 
 	switch action {
 	case "dashboard":
+
 		return emrRoute{operation: opGetDashboardForJobRun, applicationID: appID, jobRunID: jobRunID}
 	case "attempts":
+
 		return emrRoute{operation: opListJobRunAttempts, applicationID: appID, jobRunID: jobRunID}
 	}
 
@@ -374,14 +392,19 @@ func (h *Handler) dispatch(c *echo.Context, route emrRoute, body []byte) error {
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
+
 		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
+
 		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
 	case errors.Is(err, ErrValidation):
+
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	case errors.Is(err, ErrInvalidState):
+
 		return c.JSON(http.StatusBadRequest, errResp("RequestFailedException", err.Error()))
 	default:
+
 		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 	}
 }

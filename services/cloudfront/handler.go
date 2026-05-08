@@ -461,60 +461,75 @@ func xmlResp(c *echo.Context, status int, body string) error {
 
 // parseCFPath maps HTTP method + path to (operationName, resourceID).
 //
-//nolint:cyclop,funlen,gocognit,gocyclo,lll,nlreturn // dispatch table for many REST operations is inherently wide
+// parseCFPath maps an HTTP method + URL path to a CloudFront operation name and resource identifier.
+//
+//nolint:funlen,lll,nlreturn // dispatch table for many REST operations is inherently wide
 func parseCFPath(method, path, resourceParam string) (string, string) {
 	suffix := strings.TrimPrefix(path, cfPathPrefix)
 
+	if op, id := parseCFDistributionPath(method, suffix, resourceParam); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFPolicyPath(method, suffix); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFEncryptionKeyPath(method, suffix); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFConnectionPath(method, suffix, resourceParam); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFDistributionsByPath(method, suffix); op != "" {
+		return op, id
+	}
+
+	return parseCFPathCore(method, suffix, resourceParam)
+}
+
+// parseCFDistributionPath routes distribution and distribution-tenant paths.
+func parseCFDistributionPath(method, suffix, resourceParam string) (string, string) {
+	if op, id := parseCFDistributionCorePath(method, suffix, resourceParam); op != "" {
+		return op, id
+	}
+
+	return parseCFOAIPath(method, suffix)
+}
+
+// parseCFDistributionCorePath routes core distribution paths.
+// parseCFDistributionCorePath routes core distribution paths.
+func parseCFDistributionCorePath(method, suffix, resourceParam string) (string, string) {
+	if !strings.HasPrefix(suffix, "distribution") {
+		return "", ""
+	}
+
+	if op, id := parseCFDistributionRoot(method, suffix, resourceParam); op != "" {
+		return op, id
+	}
+
+	if strings.HasPrefix(suffix, "distribution-tenant/") {
+		id := strings.TrimSuffix(strings.TrimPrefix(suffix, "distribution-tenant/"), "/associate-web-acl")
+		if strings.HasSuffix(suffix, "/associate-web-acl") && method == http.MethodPut {
+			return opAssociateDistributionTenantWebACL, id
+		}
+
+		return "", ""
+	}
+
+	return parseCFDistributionSubPath(method, suffix)
+}
+
+// parseCFDistributionRoot handles the distribution collection and simple CRUD operations.
+func parseCFDistributionRoot(method, suffix, resourceParam string) (string, string) {
 	switch {
-	case suffix == sfxDistribution && method == http.MethodPost:
+	case suffix == sfxDistribution && method == http.MethodPost && resourceParam != "WithTags":
 		return opCreateDistribution, ""
 	case suffix == sfxDistribution && method == http.MethodGet:
 		return opListDistributions, ""
-	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "distribution/")
-		id = strings.TrimSuffix(id, "/config")
-		switch method {
-		case http.MethodGet:
-			return opGetDistributionConfig, id
-		case http.MethodPut:
-			return opUpdateDistribution, id
-		}
-	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/invalidation"):
-		id := strings.TrimPrefix(suffix, "distribution/")
-		id = strings.TrimSuffix(id, "/invalidation")
-		switch method {
-		case http.MethodPost:
-			return opCreateInvalidation, id
-		case http.MethodGet:
-			return opListInvalidations, id
-		}
-	case strings.HasPrefix(suffix, "distribution/") && strings.Contains(suffix, "/invalidation/"):
-		// distribution/{distID}/invalidation/{invID}
-		inner := strings.TrimPrefix(suffix, "distribution/")
-		before, _, ok := strings.Cut(inner, "/invalidation/")
-		if ok && method == http.MethodGet {
-			return opGetInvalidation, before
-		}
-	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/associate-alias"):
-		id := strings.TrimPrefix(suffix, "distribution/")
-		id = strings.TrimSuffix(id, "/associate-alias")
-		if method == http.MethodPut {
-			return opAssociateAlias, id
-		}
-	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/associate-web-acl"):
-		id := strings.TrimPrefix(suffix, "distribution/")
-		id = strings.TrimSuffix(id, "/associate-web-acl")
-		if method == http.MethodPut {
-			return opAssociateDistributionWebACL, id
-		}
-	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/copy"):
-		id := strings.TrimPrefix(suffix, "distribution/")
-		id = strings.TrimSuffix(id, "/copy")
-		if method == http.MethodPost {
-			return opCopyDistribution, id
-		}
-	case strings.HasPrefix(suffix, "distribution/") &&
-		!strings.Contains(strings.TrimPrefix(suffix, "distribution/"), "/"):
+	case strings.HasPrefix(suffix, "distribution/") && !strings.Contains(strings.TrimPrefix(suffix, "distribution/"), "/"):
 		id := strings.TrimPrefix(suffix, "distribution/")
 		switch method {
 		case http.MethodGet:
@@ -522,28 +537,95 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodDelete:
 			return opDeleteDistribution, id
 		}
-	case strings.HasPrefix(suffix, "distribution-tenant/") && strings.HasSuffix(suffix, "/associate-web-acl"):
-		id := strings.TrimPrefix(suffix, "distribution-tenant/")
-		id = strings.TrimSuffix(id, "/associate-web-acl")
-		if method == http.MethodPut {
-			return opAssociateDistributionTenantWebACL, id
+	}
+
+	return "", ""
+}
+
+// parseCFDistributionSubPath handles distribution sub-path operations (config, invalidation, etc.).
+func parseCFDistributionSubPath(method, suffix string) (string, string) {
+	if !strings.HasPrefix(suffix, "distribution/") {
+		return "", ""
+	}
+
+	inner := strings.TrimPrefix(suffix, "distribution/")
+
+	if op, id := parseCFDistributionConfigAndInvalidation(method, inner); op != "" {
+		return op, id
+	}
+
+	return parseCFDistributionAssocAndAction(method, inner)
+}
+
+// parseCFDistributionConfigAndInvalidation handles config and invalidation sub-paths.
+func parseCFDistributionConfigAndInvalidation(method, inner string) (string, string) {
+	switch {
+	case strings.HasSuffix(inner, "/config"):
+		id := strings.TrimSuffix(inner, "/config")
+		switch method {
+		case http.MethodGet:
+			return opGetDistributionConfig, id
+		case http.MethodPut:
+			return opUpdateDistribution, id
 		}
-	case suffix == "origin-access-identity/cloudfront" && method == http.MethodPost:
+	case strings.HasSuffix(inner, "/invalidation"):
+		id := strings.TrimSuffix(inner, "/invalidation")
+		switch method {
+		case http.MethodPost:
+			return opCreateInvalidation, id
+		case http.MethodGet:
+			return opListInvalidations, id
+		}
+	case strings.Contains(inner, "/invalidation/"):
+		before, _, ok := strings.Cut(inner, "/invalidation/")
+		if ok && method == http.MethodGet {
+			return opGetInvalidation, before
+		}
+	}
+
+	return "", ""
+}
+
+// parseCFDistributionAssocAndAction handles associate, copy, and other sub-paths.
+func parseCFDistributionAssocAndAction(method, inner string) (string, string) {
+	switch {
+	case strings.HasSuffix(inner, "/associate-alias"):
+		if method == http.MethodPut {
+			return opAssociateAlias, strings.TrimSuffix(inner, "/associate-alias")
+		}
+	case strings.HasSuffix(inner, "/associate-web-acl"):
+		if method == http.MethodPut {
+			return opAssociateDistributionWebACL, strings.TrimSuffix(inner, "/associate-web-acl")
+		}
+	case strings.HasSuffix(inner, "/copy"):
+		if method == http.MethodPost {
+			return opCopyDistribution, strings.TrimSuffix(inner, "/copy")
+		}
+	}
+
+	return "", ""
+}
+
+// parseCFOAIPath routes CloudFront Origin Access Identity paths.
+func parseCFOAIPath(method, suffix string) (string, string) {
+	const oaiPrefix = "origin-access-identity/cloudfront/"
+	const oaiRoot = "origin-access-identity/cloudfront"
+
+	switch {
+	case suffix == oaiRoot && method == http.MethodPost:
 		return opCreateCloudFrontOriginAccessIdentity, ""
-	case suffix == "origin-access-identity/cloudfront" && method == http.MethodGet:
+	case suffix == oaiRoot && method == http.MethodGet:
 		return opListCloudFrontOriginAccessIdentities, ""
-	case strings.HasPrefix(suffix, "origin-access-identity/cloudfront/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "origin-access-identity/cloudfront/")
-		id = strings.TrimSuffix(id, "/config")
-		if method == http.MethodGet {
+	case strings.HasPrefix(suffix, oaiPrefix) && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimSuffix(strings.TrimPrefix(suffix, oaiPrefix), "/config")
+		switch method {
+		case http.MethodGet:
 			return opGetCloudFrontOriginAccessIdentityConfig, id
-		}
-		if method == http.MethodPut {
+		case http.MethodPut:
 			return opUpdateCloudFrontOAI, id
 		}
-	case strings.HasPrefix(suffix, "origin-access-identity/cloudfront/") &&
-		!strings.Contains(strings.TrimPrefix(suffix, "origin-access-identity/cloudfront/"), "/"):
-		id := strings.TrimPrefix(suffix, "origin-access-identity/cloudfront/")
+	case strings.HasPrefix(suffix, oaiPrefix) && !strings.Contains(strings.TrimPrefix(suffix, oaiPrefix), "/"):
+		id := strings.TrimPrefix(suffix, oaiPrefix)
 		switch method {
 		case http.MethodGet:
 			return opGetCloudFrontOriginAccessIdentity, id
@@ -552,140 +634,474 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodDelete:
 			return opDeleteCloudFrontOriginAccessIdentity, id
 		}
-	case suffix == "anycast-ip-list" && method == http.MethodPost:
-		return opCreateAnycastIPList, ""
-	// --- Cache Policy ---
-	case suffix == "cache-policy" && method == http.MethodPost:
-		return opCreateCachePolicy, ""
-	case suffix == "cache-policy" && method == http.MethodGet:
-		return opListCachePolicies, ""
-	case strings.HasPrefix(suffix, "cache-policy/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "cache-policy/")
-		id = strings.TrimSuffix(id, "/config")
-		if method == http.MethodGet {
-			return opGetCachePolicyConfig, id
-		}
-	case strings.HasPrefix(suffix, "cache-policy/") &&
-		!strings.Contains(strings.TrimPrefix(suffix, "cache-policy/"), "/"):
-		id := strings.TrimPrefix(suffix, "cache-policy/")
-		switch method {
-		case http.MethodGet:
-			return opGetCachePolicy, id
-		case http.MethodPut:
-			return opUpdateCachePolicy, id
-		case http.MethodDelete:
-			return opDeleteCachePolicy, id
-		}
-	// --- Origin Access Control ---
-	case suffix == "origin-access-control" && method == http.MethodPost:
+	}
+
+	return "", ""
+}
+
+// parseCFPolicyPath routes cache policy, OAC, response headers policy, function, and origin request policy paths.
+func parseCFPolicyPath(method, suffix string) (string, string) {
+	if op, id := parseCFResourcePath(method, suffix, "cache-policy",
+		opCreateCachePolicy, opListCachePolicies, opGetCachePolicy, opUpdateCachePolicy, opDeleteCachePolicy,
+		opGetCachePolicyConfig, ""); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFOriginAccessControlPath(method, suffix); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFResourcePath(method, suffix, "response-headers-policy",
+		opCreateResponseHeadersPolicy, opListResponseHeadersPolicies, opGetResponseHeadersPolicy, opUpdateResponseHeadersPolicy, opDeleteResponseHeadersPolicy,
+		opGetResponseHeadersPolicyConfig, opUpdateResponseHeadersPolicy); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFOriginRequestPolicyPath(method, suffix); op != "" {
+		return op, id
+	}
+
+	return parseCFFunctionPath(method, suffix)
+}
+
+// parseCFOriginAccessControlPath routes OAC paths.
+func parseCFOriginAccessControlPath(method, suffix string) (string, string) {
+	const prefix = "origin-access-control/"
+	const root = "origin-access-control"
+
+	switch {
+	case suffix == root && method == http.MethodPost:
 		return opCreateOriginAccessControl, ""
-	case suffix == "origin-access-control" && method == http.MethodGet:
+	case suffix == root && method == http.MethodGet:
 		return opListOriginAccessControls, ""
-	case strings.HasPrefix(suffix, "origin-access-control/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "origin-access-control/")
-		id = strings.TrimSuffix(id, "/config")
+	case strings.HasPrefix(suffix, prefix) && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimSuffix(strings.TrimPrefix(suffix, prefix), "/config")
 		switch method {
 		case http.MethodGet:
 			return opGetOriginAccessControlConfig, id
 		case http.MethodPut:
 			return opUpdateOriginAccessControl, id
 		}
-	case strings.HasPrefix(suffix, "origin-access-control/") &&
-		!strings.Contains(strings.TrimPrefix(suffix, "origin-access-control/"), "/"):
-		id := strings.TrimPrefix(suffix, "origin-access-control/")
+	case strings.HasPrefix(suffix, prefix) && !strings.Contains(strings.TrimPrefix(suffix, prefix), "/"):
+		id := strings.TrimPrefix(suffix, prefix)
 		switch method {
 		case http.MethodGet:
 			return opGetOriginAccessControl, id
 		case http.MethodDelete:
 			return opDeleteOriginAccessControl, id
 		}
-	// --- Response Headers Policy ---
-	case suffix == "response-headers-policy" && method == http.MethodPost:
-		return opCreateResponseHeadersPolicy, ""
-	case suffix == "response-headers-policy" && method == http.MethodGet:
-		return opListResponseHeadersPolicies, ""
-	case strings.HasPrefix(suffix, "response-headers-policy/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "response-headers-policy/")
-		id = strings.TrimSuffix(id, "/config")
-		switch method {
-		case http.MethodGet:
-			return opGetResponseHeadersPolicyConfig, id
-		case http.MethodPut:
-			return opUpdateResponseHeadersPolicy, id
-		}
-	case strings.HasPrefix(suffix, "response-headers-policy/") &&
-		!strings.Contains(strings.TrimPrefix(suffix, "response-headers-policy/"), "/"):
-		id := strings.TrimPrefix(suffix, "response-headers-policy/")
-		switch method {
-		case http.MethodGet:
-			return opGetResponseHeadersPolicy, id
-		case http.MethodDelete:
-			return opDeleteResponseHeadersPolicy, id
-		}
-	// --- CloudFront Function ---
-	case suffix == "function" && method == http.MethodPost:
-		return opCreateFunction, ""
-	case suffix == "function" && method == http.MethodGet:
-		return opListFunctions, ""
-	case strings.HasPrefix(suffix, "function/") && strings.HasSuffix(suffix, "/publish"):
-		name := strings.TrimPrefix(suffix, "function/")
-		name = strings.TrimSuffix(name, "/publish")
-		if method == http.MethodPost {
-			return opPublishFunction, name
-		}
-	case strings.HasPrefix(suffix, "function/") && strings.HasSuffix(suffix, "/describe"):
-		name := strings.TrimPrefix(suffix, "function/")
-		name = strings.TrimSuffix(name, "/describe")
-		if method == http.MethodGet {
-			return opDescribeFunction, name
-		}
-	case strings.HasPrefix(suffix, "function/") && strings.HasSuffix(suffix, "/test"):
-		name := strings.TrimPrefix(suffix, "function/")
-		name = strings.TrimSuffix(name, "/test")
-		if method == http.MethodPost {
-			return opTestFunction, name
-		}
-	case strings.HasPrefix(suffix, "function/") && !strings.Contains(strings.TrimPrefix(suffix, "function/"), "/"):
-		name := strings.TrimPrefix(suffix, "function/")
-		switch method {
-		case http.MethodGet:
-			return opGetFunction, name
-		case http.MethodPut:
-			return opUpdateFunction, name
-		case http.MethodDelete:
-			return opDeleteFunction, name
-		}
-	// --- Origin Request Policy ---
-	case suffix == "origin-request-policy" && method == http.MethodPost:
+	}
+
+	return "", ""
+}
+
+// parseCFOriginRequestPolicyPath routes origin request policy paths.
+func parseCFOriginRequestPolicyPath(method, suffix string) (string, string) {
+	const prefix = "origin-request-policy/"
+	const root = "origin-request-policy"
+
+	switch {
+	case suffix == root && method == http.MethodPost:
 		return opCreateOriginRequestPolicy, ""
-	case suffix == "origin-request-policy" && method == http.MethodGet:
+	case suffix == root && method == http.MethodGet:
 		return opListOriginRequestPolicies, ""
-	case strings.HasPrefix(suffix, "origin-request-policy/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "origin-request-policy/")
-		id = strings.TrimSuffix(id, "/config")
+	case strings.HasPrefix(suffix, prefix) && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimSuffix(strings.TrimPrefix(suffix, prefix), "/config")
 		switch method {
 		case http.MethodGet:
 			return opGetOriginRequestPolicyConfig, id
 		case http.MethodPut:
 			return opUpdateOriginRequestPolicy, id
 		}
-	case strings.HasPrefix(suffix, "origin-request-policy/") &&
-		!strings.Contains(strings.TrimPrefix(suffix, "origin-request-policy/"), "/"):
-		id := strings.TrimPrefix(suffix, "origin-request-policy/")
+	case strings.HasPrefix(suffix, prefix) && !strings.Contains(strings.TrimPrefix(suffix, prefix), "/"):
+		id := strings.TrimPrefix(suffix, prefix)
 		switch method {
 		case http.MethodGet:
 			return opGetOriginRequestPolicy, id
 		case http.MethodDelete:
 			return opDeleteOriginRequestPolicy, id
 		}
-	// --- Connection / ContinuousDeployment / Tags ---
-	case suffix == "connection-function" && method == http.MethodPost:
-		return opCreateConnectionFunction, ""
-	case suffix == "connection-group" && method == http.MethodPost:
-		return opCreateConnectionGroup, ""
-	case suffix == "continuous-deployment-policy" && method == http.MethodPost:
-		return opCreateContinuousDeploymentPolicy, ""
-	case suffix == "tagging":
+	}
+
+	return "", ""
+}
+
+// parseCFFunctionPath routes CloudFront function paths.
+func parseCFFunctionPath(method, suffix string) (string, string) {
+	const prefix = "function/"
+	const root = "function"
+
+	if suffix == root {
+		switch method {
+		case http.MethodPost:
+			return opCreateFunction, ""
+		case http.MethodGet:
+			return opListFunctions, ""
+		}
+
+		return "", ""
+	}
+
+	if !strings.HasPrefix(suffix, prefix) {
+		return "", ""
+	}
+
+	inner := strings.TrimPrefix(suffix, prefix)
+	switch {
+	case strings.HasSuffix(inner, "/publish"):
+		name := strings.TrimSuffix(inner, "/publish")
+		if method == http.MethodPost {
+			return opPublishFunction, name
+		}
+	case strings.HasSuffix(inner, "/describe"):
+		name := strings.TrimSuffix(inner, "/describe")
+		if method == http.MethodGet {
+			return opDescribeFunction, name
+		}
+	case strings.HasSuffix(inner, "/test"):
+		name := strings.TrimSuffix(inner, "/test")
+		if method == http.MethodPost {
+			return opTestFunction, name
+		}
+	case !strings.Contains(inner, "/"):
+		switch method {
+		case http.MethodGet:
+			return opGetFunction, inner
+		case http.MethodPut:
+			return opUpdateFunction, inner
+		case http.MethodDelete:
+			return opDeleteFunction, inner
+		}
+	}
+
+	return "", ""
+}
+
+// parseCFEncryptionKeyPath routes field-level encryption, key group, key value store, public key,
+// realtime log config, streaming distribution, trust store, vpc origin, and anycast paths.
+func parseCFEncryptionKeyPath(method, suffix string) (string, string) {
+	if op, id := parseCFFieldLevelEncryptionPath(method, suffix); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFKeyAndLogPath(method, suffix); op != "" {
+		return op, id
+	}
+
+	return parseCFStreamingTrustVPCPath(method, suffix)
+}
+
+// parseCFFieldLevelEncryptionPath routes field-level encryption and profile paths.
+func parseCFFieldLevelEncryptionPath(method, suffix string) (string, string) {
+	if op, id := parseCFResourcePath(method, suffix, "field-level-encryption",
+		opCreateFieldLevelEncryptionConfig, opListFieldLevelEncryptionConfigs,
+		opGetFieldLevelEncryption, opUpdateFieldLevelEncryptionConfig, opDeleteFieldLevelEncryptionConfig,
+		opGetFieldLevelEncryptionConfig, ""); op != "" {
+		return op, id
+	}
+
+	return parseCFResourcePath(method, suffix, "field-level-encryption-profile",
+		opCreateFieldLevelEncryptionProfile, opListFieldLevelEncryptionProfiles,
+		opGetFieldLevelEncryptionProfile, opUpdateFieldLevelEncryptionProfile, opDeleteFieldLevelEncryptionProfile,
+		opGetFieldLevelEncryptionProfileConfig, "")
+}
+
+// parseCFResourcePath is a generic helper for simple resource CRUD + optional config.
+func parseCFResourcePath(method, suffix, resourceType,
+	createOp, listOp, getOp, updateOp, deleteOp, getConfigOp, updateConfigOp string,
+) (string, string) {
+	prefix := resourceType + "/"
+
+	if suffix == resourceType {
+		switch method {
+		case http.MethodPost:
+			return createOp, ""
+		case http.MethodGet:
+			return listOp, ""
+		}
+
+		return "", ""
+	}
+
+	if !strings.HasPrefix(suffix, prefix) {
+		return "", ""
+	}
+
+	inner := strings.TrimPrefix(suffix, prefix)
+	if strings.HasSuffix(inner, "/config") {
+		id := strings.TrimSuffix(inner, "/config")
+		if method == http.MethodGet {
+			return getConfigOp, id
+		}
+
+		if method == http.MethodPut && updateConfigOp != "" {
+			return updateConfigOp, id
+		}
+
+		return "", ""
+	}
+
+	if !strings.Contains(inner, "/") {
+		switch method {
+		case http.MethodGet:
+			return getOp, inner
+		case http.MethodPut:
+			return updateOp, inner
+		case http.MethodDelete:
+			return deleteOp, inner
+		}
+	}
+
+	return "", ""
+}
+
+// parseCFKeyAndLogPath routes key group, key value store, public key, and realtime log config paths.
+func parseCFKeyAndLogPath(method, suffix string) (string, string) {
+	if op, id := parseCFResourcePath(method, suffix, "key-group",
+		opCreateKeyGroup, opListKeyGroups, opGetKeyGroup, opUpdateKeyGroup, opDeleteKeyGroup,
+		opGetKeyGroupConfig, ""); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFResourcePath(method, suffix, "key-value-store",
+		opCreateKeyValueStore, opListKeyValueStores, opDescribeKeyValueStore, opUpdateKeyValueStore, opDeleteKeyValueStore,
+		"", ""); op != "" {
+		return op, id
+	}
+
+	return parseCFPublicKeyRealtimePath(method, suffix)
+}
+
+// parseCFPublicKeyRealtimePath routes public key and realtime log config paths.
+func parseCFPublicKeyRealtimePath(method, suffix string) (string, string) {
+	if op, id := parseCFResourcePath(method, suffix, "public-key",
+		opCreatePublicKey, opListPublicKeys, opGetPublicKey, opUpdatePublicKey, opDeletePublicKey,
+		opGetPublicKeyConfig, ""); op != "" {
+		return op, id
+	}
+
+	return parseCFResourcePath(method, suffix, "realtime-log-config",
+		opCreateRealtimeLogConfig, opListRealtimeLogConfigs, opGetRealtimeLogConfig, opUpdateRealtimeLogConfig, opDeleteRealtimeLogConfig,
+		"", "")
+}
+
+// parseCFStreamingTrustVPCPath routes streaming distribution, trust store, vpc origin, and anycast paths.
+func parseCFStreamingTrustVPCPath(method, suffix string) (string, string) {
+	if op, id := parseCFResourcePath(method, suffix, "streaming-distribution",
+		opCreateStreamingDistribution, opListStreamingDistributions,
+		opGetStreamingDistribution, opUpdateStreamingDistribution, opDeleteStreamingDistribution,
+		opGetStreamingDistributionConfig, ""); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFResourcePath(method, suffix, "trust-store",
+		opCreateTrustStore, opListTrustStores, opGetTrustStore, opUpdateTrustStore, opDeleteTrustStore,
+		"", ""); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFResourcePath(method, suffix, "vpc-origin",
+		opCreateVpcOrigin, opListVpcOrigins, opGetVpcOrigin, opUpdateVpcOrigin, opDeleteVpcOrigin,
+		"", ""); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFResourcePath(method, suffix, "anycast-ip-list",
+		"", opListAnycastIPLists, opGetAnycastIPList, opUpdateAnycastIPList, opDeleteAnycastIPList,
+		"", ""); op != "" {
+		return op, id
+	}
+
+	return "", ""
+}
+
+// parseCFConnectionPath routes connection function, group, and continuous deployment policy paths.
+func parseCFConnectionPath(method, suffix, resourceParam string) (string, string) {
+	if op, id := parseCFConnectionFunctionPath(method, suffix); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFConnectionGroupPath(method, suffix); op != "" {
+		return op, id
+	}
+
+	return parseCFContinuousDeploymentPath(method, suffix, resourceParam)
+}
+
+// parseCFConnectionFunctionPath routes connection function paths.
+func parseCFConnectionFunctionPath(method, suffix string) (string, string) {
+	const prefix = "connection-function/"
+	const root = "connection-function"
+
+	switch {
+	case suffix == root && method == http.MethodGet:
+		return opListConnectionFunctions, ""
+	case strings.HasPrefix(suffix, prefix) && strings.HasSuffix(suffix, "/describe"):
+		id := strings.TrimSuffix(strings.TrimPrefix(suffix, prefix), "/describe")
+
+		return opDescribeConnectionFunction, id
+	case strings.HasPrefix(suffix, prefix) && strings.HasSuffix(suffix, "/publish"):
+		id := strings.TrimSuffix(strings.TrimPrefix(suffix, prefix), "/publish")
+
+		return opPublishConnectionFunction, id
+	case strings.HasPrefix(suffix, prefix) && strings.HasSuffix(suffix, "/test"):
+		id := strings.TrimSuffix(strings.TrimPrefix(suffix, prefix), "/test")
+
+		return opTestConnectionFunction, id
+	case strings.HasPrefix(suffix, prefix) && !strings.Contains(strings.TrimPrefix(suffix, prefix), "/"):
+		id := strings.TrimPrefix(suffix, prefix)
+		switch method {
+		case http.MethodGet:
+			return opGetConnectionFunction, id
+		case http.MethodPut:
+			return opUpdateConnectionFunction, id
+		case http.MethodDelete:
+			return opDeleteConnectionFunction, id
+		}
+	}
+
+	return "", ""
+}
+
+// parseCFConnectionGroupPath routes connection group paths.
+func parseCFConnectionGroupPath(method, suffix string) (string, string) {
+	const prefix = "connection-group/"
+	const root = "connection-group"
+
+	switch {
+	case suffix == root && method == http.MethodGet:
+		return opListConnectionGroups, ""
+	case suffix == "connection-group-by-routing-endpoint" && method == http.MethodGet:
+		return opGetConnectionGroupByRoutingEndpoint, ""
+	case strings.HasPrefix(suffix, prefix) && !strings.Contains(strings.TrimPrefix(suffix, prefix), "/"):
+		id := strings.TrimPrefix(suffix, prefix)
+		switch method {
+		case http.MethodGet:
+			return opGetConnectionGroup, id
+		case http.MethodPut:
+			return opUpdateConnectionGroup, id
+		case http.MethodDelete:
+			return opDeleteConnectionGroup, id
+		}
+	}
+
+	return "", ""
+}
+
+// parseCFContinuousDeploymentPath routes continuous deployment policy and distribution-tenant extended paths.
+func parseCFContinuousDeploymentPath(method, suffix, resourceParam string) (string, string) {
+	const prefix = "continuous-deployment-policy/"
+	const root = "continuous-deployment-policy"
+
+	switch {
+	case suffix == root && method == http.MethodGet:
+		return opListContinuousDeploymentPolicies, ""
+	case strings.HasPrefix(suffix, prefix) && strings.HasSuffix(suffix, "/config"):
+		id := strings.TrimSuffix(strings.TrimPrefix(suffix, prefix), "/config")
+		if method == http.MethodGet {
+			return opGetContinuousDeploymentPolicyConfig, id
+		}
+	case strings.HasPrefix(suffix, prefix) && !strings.Contains(strings.TrimPrefix(suffix, prefix), "/"):
+		id := strings.TrimPrefix(suffix, prefix)
+		switch method {
+		case http.MethodGet:
+			return opGetContinuousDeploymentPolicy, id
+		case http.MethodPut:
+			return opUpdateContinuousDeploymentPolicy, id
+		case http.MethodDelete:
+			return opDeleteContinuousDeploymentPolicy, id
+		}
+	case suffix == "distribution-tenant-by-domain" && method == http.MethodGet:
+		return opGetDistributionTenantByDomain, ""
+	}
+
+	_ = resourceParam
+
+	return "", ""
+}
+
+// parseCFDistributionsByPath routes "distributions/by-*" paths.
+func parseCFDistributionsByPath(method, suffix string) (string, string) {
+	if method != http.MethodGet {
+		return "", ""
+	}
+
+	switch {
+	case strings.HasPrefix(suffix, "distributions/by-cache-policy-id/"):
+		return opListDistributionsByCachePolicyID, strings.TrimPrefix(suffix, "distributions/by-cache-policy-id/")
+	case strings.HasPrefix(suffix, "distributions/by-origin-request-policy-id/"):
+		return opListDistributionsByOriginRequestPol, strings.TrimPrefix(suffix, "distributions/by-origin-request-policy-id/")
+	case strings.HasPrefix(suffix, "distributions/by-response-headers-policy-id/"):
+		return opListDistributionsByResponseHeadersPol, strings.TrimPrefix(suffix, "distributions/by-response-headers-policy-id/")
+	case strings.HasPrefix(suffix, "distributions/by-web-acl-id/"):
+		return opListDistributionsByWebACLID, strings.TrimPrefix(suffix, "distributions/by-web-acl-id/")
+	case strings.HasPrefix(suffix, "distributions/by-key-group/"):
+		return opListDistributionsByKeyGroup, strings.TrimPrefix(suffix, "distributions/by-key-group/")
+	case strings.HasPrefix(suffix, "distributions/by-realtime-log-config"):
+		return opListDistributionsByRealtimeLogConfig, ""
+	case strings.HasPrefix(suffix, "distributions/by-vpc-origin-id/"):
+		return opListDistributionsByVpcOriginID, strings.TrimPrefix(suffix, "distributions/by-vpc-origin-id/")
+	case strings.HasPrefix(suffix, "distributions/by-anycast-ip-list-id/"):
+		return opListDistributionsByAnycastIPListID, strings.TrimPrefix(suffix, "distributions/by-anycast-ip-list-id/")
+	case strings.HasPrefix(suffix, "distributions/by-connection-function/"):
+		return opListDistributionsByConnectionFunction, strings.TrimPrefix(suffix, "distributions/by-connection-function/")
+	case suffix == "distributions/by-connection-mode":
+		return opListDistributionsByConnectionMode, ""
+	case suffix == "distribution-tenants/by-customization":
+		return opListDistributionTenantsByCustom, ""
+	case strings.HasPrefix(suffix, "trust-store/") && strings.Contains(suffix, "/by-trust-store/"):
+		return opListDistributionsByTrustStore, ""
+	}
+
+	return "", ""
+}
+
+// parseCFPathCore handles remaining distribution-tenant, create ops, tags, and resource policy paths.
+func parseCFPathCore(method, suffix, resourceParam string) (string, string) {
+	if op, id := parseCFCreateAndTagOps(method, suffix, resourceParam); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFDistributionTenantOps(method, suffix); op != "" {
+		return op, id
+	}
+
+	return parseCFDistributionExtPath(method, suffix)
+}
+
+// parseCFCreateAndTagOps handles create operations and tagging.
+func parseCFCreateAndTagOps(method, suffix, resourceParam string) (string, string) {
+	if op, id := parseCFCreateAndTagCoreOps(method, suffix, resourceParam); op != "" {
+		return op, id
+	}
+
+	if suffix == sfxResourcePolicy {
+		switch method {
+		case http.MethodGet:
+			return opGetResourcePolicy, resourceParam
+		case http.MethodPost:
+			return opPutResourcePolicy, resourceParam
+		case http.MethodDelete:
+			return opDeleteResourcePolicy, resourceParam
+		}
+	}
+
+	return "", ""
+}
+
+// parseCFCreateAndTagCoreOps handles create ops and tagging (without resource policy).
+// parseCFCreateAndTagCoreOps handles create ops and tagging (without resource policy).
+func parseCFCreateAndTagCoreOps(method, suffix, resourceParam string) (string, string) {
+	if op, id := parseCFTaggingOps(method, suffix, resourceParam); op != "" {
+		return op, id
+	}
+
+	return parseCFCreateOps(method, suffix, resourceParam)
+}
+
+// parseCFTaggingOps handles tagging and distribution-with-tags creation.
+func parseCFTaggingOps(method, suffix, resourceParam string) (string, string) {
+	if suffix == "tagging" {
 		switch method {
 		case http.MethodGet:
 			return opListTagsForResource, resourceParam
@@ -694,14 +1110,49 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodDelete:
 			return opUntagResource, resourceParam
 		}
-	// --- Stub operation paths ---
-	case suffix == sfxDistribution && method == http.MethodPost && resourceParam == "WithTags":
+	}
+
+	if suffix == sfxDistribution && method == http.MethodPost && resourceParam == "WithTags" {
 		return opCreateDistributionWithTags, ""
-	case suffix == "distribution-tenant" && method == http.MethodPost:
-		return opCreateDistributionTenant, ""
-	case suffix == "distribution-tenant" && method == http.MethodGet:
-		return opListDistributionTenants, ""
-	case strings.HasPrefix(suffix, "distribution-tenant/") && !strings.Contains(strings.TrimPrefix(suffix, "distribution-tenant/"), "/"):
+	}
+
+	return "", ""
+}
+
+// parseCFCreateOps handles simple POST create operations.
+func parseCFCreateOps(method, suffix, _ string) (string, string) {
+	if method != http.MethodPost {
+		return "", ""
+	}
+
+	switch suffix {
+	case "anycast-ip-list":
+		return opCreateAnycastIPList, ""
+	case "connection-function":
+		return opCreateConnectionFunction, ""
+	case "connection-group":
+		return opCreateConnectionGroup, ""
+	case "continuous-deployment-policy":
+		return opCreateContinuousDeploymentPolicy, ""
+	}
+
+	return "", ""
+}
+
+// parseCFDistributionTenantOps handles distribution-tenant CRUD operations.
+func parseCFDistributionTenantOps(method, suffix string) (string, string) {
+	switch suffix {
+	case "distribution-tenant":
+		switch method {
+		case http.MethodPost:
+			return opCreateDistributionTenant, ""
+		case http.MethodGet:
+			return opListDistributionTenants, ""
+		}
+	}
+
+	if strings.HasPrefix(suffix, "distribution-tenant/") &&
+		!strings.Contains(strings.TrimPrefix(suffix, "distribution-tenant/"), "/") {
 		id := strings.TrimPrefix(suffix, "distribution-tenant/")
 		switch method {
 		case http.MethodGet:
@@ -711,237 +1162,35 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodDelete:
 			return opDeleteDistributionTenant, id
 		}
-	case suffix == "field-level-encryption" && method == http.MethodPost:
-		return opCreateFieldLevelEncryptionConfig, ""
-	case suffix == "field-level-encryption" && method == http.MethodGet:
-		return opListFieldLevelEncryptionConfigs, ""
-	case strings.HasPrefix(suffix, "field-level-encryption/") && !strings.Contains(strings.TrimPrefix(suffix, "field-level-encryption/"), "/"):
-		id := strings.TrimPrefix(suffix, "field-level-encryption/")
-		switch method {
-		case http.MethodGet:
-			return opGetFieldLevelEncryption, id
-		case http.MethodPut:
-			return opUpdateFieldLevelEncryptionConfig, id
-		case http.MethodDelete:
-			return opDeleteFieldLevelEncryptionConfig, id
+	}
+
+	return "", ""
+}
+
+// parseCFDistributionExtPath handles extended distribution paths (monitoring, staging, tenant invalidations, etc.).
+func parseCFDistributionExtPath(method, suffix string) (string, string) {
+	if strings.HasPrefix(suffix, "distribution/") {
+		if op, id := parseCFDistributionMonitoringOps(method, suffix); op != "" {
+			return op, id
 		}
-	case strings.HasPrefix(suffix, "field-level-encryption/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "field-level-encryption/")
-		id = strings.TrimSuffix(id, "/config")
-		if method == http.MethodGet {
-			return opGetFieldLevelEncryptionConfig, id
+	}
+
+	if strings.HasPrefix(suffix, "distribution-tenant/") {
+		if op, id := parseCFDistributionTenantExtOps(method, suffix); op != "" {
+			return op, id
 		}
-	case suffix == "field-level-encryption-profile" && method == http.MethodPost:
-		return opCreateFieldLevelEncryptionProfile, ""
-	case suffix == "field-level-encryption-profile" && method == http.MethodGet:
-		return opListFieldLevelEncryptionProfiles, ""
-	case strings.HasPrefix(suffix, "field-level-encryption-profile/") && !strings.Contains(strings.TrimPrefix(suffix, "field-level-encryption-profile/"), "/"):
-		id := strings.TrimPrefix(suffix, "field-level-encryption-profile/")
-		switch method {
-		case http.MethodGet:
-			return opGetFieldLevelEncryptionProfile, id
-		case http.MethodPut:
-			return opUpdateFieldLevelEncryptionProfile, id
-		case http.MethodDelete:
-			return opDeleteFieldLevelEncryptionProfile, id
-		}
-	case strings.HasPrefix(suffix, "field-level-encryption-profile/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "field-level-encryption-profile/")
-		id = strings.TrimSuffix(id, "/config")
-		if method == http.MethodGet {
-			return opGetFieldLevelEncryptionProfileConfig, id
-		}
-	case suffix == "key-group" && method == http.MethodPost:
-		return opCreateKeyGroup, ""
-	case suffix == "key-group" && method == http.MethodGet:
-		return opListKeyGroups, ""
-	case strings.HasPrefix(suffix, "key-group/") && !strings.Contains(strings.TrimPrefix(suffix, "key-group/"), "/"):
-		id := strings.TrimPrefix(suffix, "key-group/")
-		switch method {
-		case http.MethodGet:
-			return opGetKeyGroup, id
-		case http.MethodPut:
-			return opUpdateKeyGroup, id
-		case http.MethodDelete:
-			return opDeleteKeyGroup, id
-		}
-	case strings.HasPrefix(suffix, "key-group/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "key-group/")
-		id = strings.TrimSuffix(id, "/config")
-		if method == http.MethodGet {
-			return opGetKeyGroupConfig, id
-		}
-	case suffix == "key-value-store" && method == http.MethodPost:
-		return opCreateKeyValueStore, ""
-	case suffix == "key-value-store" && method == http.MethodGet:
-		return opListKeyValueStores, ""
-	case strings.HasPrefix(suffix, "key-value-store/") && !strings.Contains(strings.TrimPrefix(suffix, "key-value-store/"), "/"):
-		id := strings.TrimPrefix(suffix, "key-value-store/")
-		switch method {
-		case http.MethodGet:
-			return opDescribeKeyValueStore, id
-		case http.MethodPut:
-			return opUpdateKeyValueStore, id
-		case http.MethodDelete:
-			return opDeleteKeyValueStore, id
-		}
-	case suffix == "public-key" && method == http.MethodPost:
-		return opCreatePublicKey, ""
-	case suffix == "public-key" && method == http.MethodGet:
-		return opListPublicKeys, ""
-	case strings.HasPrefix(suffix, "public-key/") && !strings.Contains(strings.TrimPrefix(suffix, "public-key/"), "/"):
-		id := strings.TrimPrefix(suffix, "public-key/")
-		switch method {
-		case http.MethodGet:
-			return opGetPublicKey, id
-		case http.MethodPut:
-			return opUpdatePublicKey, id
-		case http.MethodDelete:
-			return opDeletePublicKey, id
-		}
-	case strings.HasPrefix(suffix, "public-key/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "public-key/")
-		id = strings.TrimSuffix(id, "/config")
-		if method == http.MethodGet {
-			return opGetPublicKeyConfig, id
-		}
-	case suffix == "realtime-log-config" && method == http.MethodPost:
-		return opCreateRealtimeLogConfig, ""
-	case suffix == "realtime-log-config" && method == http.MethodGet:
-		return opListRealtimeLogConfigs, ""
-	case strings.HasPrefix(suffix, "realtime-log-config/") && !strings.Contains(strings.TrimPrefix(suffix, "realtime-log-config/"), "/"):
-		id := strings.TrimPrefix(suffix, "realtime-log-config/")
-		switch method {
-		case http.MethodGet:
-			return opGetRealtimeLogConfig, id
-		case http.MethodPut:
-			return opUpdateRealtimeLogConfig, id
-		case http.MethodDelete:
-			return opDeleteRealtimeLogConfig, id
-		}
-	case suffix == "streaming-distribution" && method == http.MethodPost:
-		return opCreateStreamingDistribution, ""
-	case suffix == "streaming-distribution" && method == http.MethodGet:
-		return opListStreamingDistributions, ""
-	case strings.HasPrefix(suffix, "streaming-distribution/") && !strings.Contains(strings.TrimPrefix(suffix, "streaming-distribution/"), "/"):
-		id := strings.TrimPrefix(suffix, "streaming-distribution/")
-		switch method {
-		case http.MethodGet:
-			return opGetStreamingDistribution, id
-		case http.MethodPut:
-			return opUpdateStreamingDistribution, id
-		case http.MethodDelete:
-			return opDeleteStreamingDistribution, id
-		}
-	case strings.HasPrefix(suffix, "streaming-distribution/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "streaming-distribution/")
-		id = strings.TrimSuffix(id, "/config")
-		if method == http.MethodGet {
-			return opGetStreamingDistributionConfig, id
-		}
-	case suffix == "trust-store" && method == http.MethodPost:
-		return opCreateTrustStore, ""
-	case suffix == "trust-store" && method == http.MethodGet:
-		return opListTrustStores, ""
-	case strings.HasPrefix(suffix, "trust-store/") && !strings.Contains(strings.TrimPrefix(suffix, "trust-store/"), "/"):
-		id := strings.TrimPrefix(suffix, "trust-store/")
-		switch method {
-		case http.MethodGet:
-			return opGetTrustStore, id
-		case http.MethodPut:
-			return opUpdateTrustStore, id
-		case http.MethodDelete:
-			return opDeleteTrustStore, id
-		}
-	case suffix == "vpc-origin" && method == http.MethodPost:
-		return opCreateVpcOrigin, ""
-	case suffix == "vpc-origin" && method == http.MethodGet:
-		return opListVpcOrigins, ""
-	case strings.HasPrefix(suffix, "vpc-origin/") && !strings.Contains(strings.TrimPrefix(suffix, "vpc-origin/"), "/"):
-		id := strings.TrimPrefix(suffix, "vpc-origin/")
-		switch method {
-		case http.MethodGet:
-			return opGetVpcOrigin, id
-		case http.MethodPut:
-			return opUpdateVpcOrigin, id
-		case http.MethodDelete:
-			return opDeleteVpcOrigin, id
-		}
-	case strings.HasPrefix(suffix, "anycast-ip-list/") && !strings.Contains(strings.TrimPrefix(suffix, "anycast-ip-list/"), "/"):
-		id := strings.TrimPrefix(suffix, "anycast-ip-list/")
-		switch method {
-		case http.MethodGet:
-			return opGetAnycastIPList, id
-		case http.MethodPut:
-			return opUpdateAnycastIPList, id
-		case http.MethodDelete:
-			return opDeleteAnycastIPList, id
-		}
-	case suffix == "anycast-ip-list" && method == http.MethodGet:
-		return opListAnycastIPLists, ""
-	case strings.HasPrefix(suffix, "connection-function/") && strings.HasSuffix(suffix, "/describe"):
-		id := strings.TrimPrefix(suffix, "connection-function/")
-		id = strings.TrimSuffix(id, "/describe")
-		return opDescribeConnectionFunction, id
-	case strings.HasPrefix(suffix, "connection-function/") && strings.HasSuffix(suffix, "/publish"):
-		id := strings.TrimPrefix(suffix, "connection-function/")
-		id = strings.TrimSuffix(id, "/publish")
-		return opPublishConnectionFunction, id
-	case strings.HasPrefix(suffix, "connection-function/") && strings.HasSuffix(suffix, "/test"):
-		id := strings.TrimPrefix(suffix, "connection-function/")
-		id = strings.TrimSuffix(id, "/test")
-		return opTestConnectionFunction, id
-	case strings.HasPrefix(suffix, "connection-function/") && !strings.Contains(strings.TrimPrefix(suffix, "connection-function/"), "/"):
-		id := strings.TrimPrefix(suffix, "connection-function/")
-		switch method {
-		case http.MethodGet:
-			return opGetConnectionFunction, id
-		case http.MethodPut:
-			return opUpdateConnectionFunction, id
-		case http.MethodDelete:
-			return opDeleteConnectionFunction, id
-		}
-	case suffix == "connection-function" && method == http.MethodGet:
-		return opListConnectionFunctions, ""
-	case suffix == "connection-group" && method == http.MethodGet:
-		return opListConnectionGroups, ""
-	case strings.HasPrefix(suffix, "connection-group/") && !strings.Contains(strings.TrimPrefix(suffix, "connection-group/"), "/"):
-		id := strings.TrimPrefix(suffix, "connection-group/")
-		switch method {
-		case http.MethodGet:
-			return opGetConnectionGroup, id
-		case http.MethodPut:
-			return opUpdateConnectionGroup, id
-		case http.MethodDelete:
-			return opDeleteConnectionGroup, id
-		}
-	case suffix == "continuous-deployment-policy" && method == http.MethodGet:
-		return opListContinuousDeploymentPolicies, ""
-	case strings.HasPrefix(suffix, "continuous-deployment-policy/") && strings.HasSuffix(suffix, "/config"):
-		id := strings.TrimPrefix(suffix, "continuous-deployment-policy/")
-		id = strings.TrimSuffix(id, "/config")
-		if method == http.MethodGet {
-			return opGetContinuousDeploymentPolicyConfig, id
-		}
-	case strings.HasPrefix(suffix, "continuous-deployment-policy/") && !strings.Contains(strings.TrimPrefix(suffix, "continuous-deployment-policy/"), "/"):
-		id := strings.TrimPrefix(suffix, "continuous-deployment-policy/")
-		switch method {
-		case http.MethodGet:
-			return opGetContinuousDeploymentPolicy, id
-		case http.MethodPut:
-			return opUpdateContinuousDeploymentPolicy, id
-		case http.MethodDelete:
-			return opDeleteContinuousDeploymentPolicy, id
-		}
-	case suffix == sfxResourcePolicy && method == http.MethodGet:
-		return opGetResourcePolicy, resourceParam
-	case suffix == sfxResourcePolicy && method == http.MethodPost:
-		return opPutResourcePolicy, resourceParam
-	case suffix == sfxResourcePolicy && method == http.MethodDelete:
-		return opDeleteResourcePolicy, resourceParam
-	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/monitoring-subscription"):
-		id := strings.TrimPrefix(suffix, "distribution/")
-		id = strings.TrimSuffix(id, "/monitoring-subscription")
+	}
+
+	return parseCFMiscPath(method, suffix)
+}
+
+// parseCFDistributionMonitoringOps handles distribution monitoring, staging, and disassociate paths.
+func parseCFDistributionMonitoringOps(method, suffix string) (string, string) {
+	inner := strings.TrimPrefix(suffix, "distribution/")
+
+	switch {
+	case strings.HasSuffix(inner, "/monitoring-subscription"):
+		id := strings.TrimSuffix(inner, "/monitoring-subscription")
 		switch method {
 		case http.MethodPost:
 			return opCreateMonitoringSubscription, id
@@ -950,43 +1199,52 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodDelete:
 			return opDeleteMonitoringSubscription, id
 		}
-	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/staging"):
-		id := strings.TrimPrefix(suffix, "distribution/")
-		id = strings.TrimSuffix(id, "/staging")
-		if method == http.MethodPut {
-			return opUpdateDistributionWithStagingConfig, id
-		}
-	case strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/disassociate-web-acl"):
-		id := strings.TrimPrefix(suffix, "distribution/")
-		id = strings.TrimSuffix(id, "/disassociate-web-acl")
-		if method == http.MethodPut {
-			return opDisassociateDistributionWebACL, id
-		}
-	case strings.HasPrefix(suffix, "distribution-tenant/") && strings.HasSuffix(suffix, "/disassociate-web-acl"):
-		id := strings.TrimPrefix(suffix, "distribution-tenant/")
-		id = strings.TrimSuffix(id, "/disassociate-web-acl")
-		if method == http.MethodPut {
-			return opDisassociateDistributionTenantWebACL, id
-		}
-	case strings.HasPrefix(suffix, "distribution-tenant/") && strings.Contains(suffix, "/invalidation"):
-		inner := strings.TrimPrefix(suffix, "distribution-tenant/")
-		if strings.HasSuffix(suffix, "/invalidation") && method == http.MethodPost {
-			id := strings.TrimSuffix(inner, "/invalidation")
-			return opCreateInvalidationForDistTenant, id
-		}
-		if strings.HasSuffix(suffix, "/invalidation") && method == http.MethodGet {
-			id := strings.TrimSuffix(inner, "/invalidation")
-			return opListInvalidationsForDistTenant, id
-		}
-		if before, after, ok := strings.Cut(inner, "/invalidation/"); ok &&
-			method == http.MethodGet {
-			_ = after
-			return opGetInvalidationForDistTenant, before
-		}
-	case strings.HasPrefix(suffix, "distribution/") && strings.Contains(suffix, "/list-by-"):
-		if method == http.MethodGet {
-			return opListDistributionsByOwnedResource, ""
-		}
+	case strings.HasSuffix(inner, "/staging") && method == http.MethodPut:
+		return opUpdateDistributionWithStagingConfig, strings.TrimSuffix(inner, "/staging")
+	case strings.HasSuffix(inner, "/disassociate-web-acl") && method == http.MethodPut:
+		return opDisassociateDistributionWebACL, strings.TrimSuffix(inner, "/disassociate-web-acl")
+	case strings.Contains(inner, "/list-by-") && method == http.MethodGet:
+		return opListDistributionsByOwnedResource, ""
+	}
+
+	return "", ""
+}
+
+// parseCFDistributionTenantExtOps handles distribution-tenant extended paths.
+func parseCFDistributionTenantExtOps(method, suffix string) (string, string) {
+	if strings.Contains(suffix, "/invalidation") {
+		return parseCFDistributionTenantInvalidation(method, suffix)
+	}
+
+	if strings.HasSuffix(suffix, "/managed-certificate-details") {
+		id := strings.TrimSuffix(strings.TrimPrefix(suffix, "distribution-tenant/"), "/managed-certificate-details")
+
+		return opGetManagedCertificateDetails, id
+	}
+
+	return "", ""
+}
+
+// parseCFDistributionTenantInvalidation handles distribution-tenant invalidation paths.
+func parseCFDistributionTenantInvalidation(method, suffix string) (string, string) {
+	inner := strings.TrimPrefix(suffix, "distribution-tenant/")
+	switch {
+	case strings.HasSuffix(suffix, "/invalidation") && method == http.MethodPost:
+		return opCreateInvalidationForDistTenant, strings.TrimSuffix(inner, "/invalidation")
+	case strings.HasSuffix(suffix, "/invalidation") && method == http.MethodGet:
+		return opListInvalidationsForDistTenant, strings.TrimSuffix(inner, "/invalidation")
+	}
+
+	if before, _, ok := strings.Cut(inner, "/invalidation/"); ok && method == http.MethodGet {
+		return opGetInvalidationForDistTenant, before
+	}
+
+	return "", ""
+}
+
+// parseCFMiscPath handles miscellaneous CloudFront paths.
+func parseCFMiscPath(method, suffix string) (string, string) {
+	switch {
 	case suffix == "conflicting-alias" && method == http.MethodGet:
 		return opListConflictingAliases, ""
 	case suffix == "domain-conflict" && method == http.MethodPost:
@@ -1248,8 +1506,21 @@ func (h *Handler) dispatchCreateExtended(c *echo.Context, operation string) erro
 
 // dispatchGetOrMutate handles all GET, PUT, and DELETE operations.
 //
-//nolint:cyclop,funlen,gocyclo // combined GET/mutate dispatch table is inherently wide
+
 func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource string) error {
+	if err := h.dispatchGetOrMutateCoreOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	if err := h.dispatchGetOrMutateEncryptionOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchGetOrMutateExtOps(c, operation, resource)
+}
+
+// dispatchGetOrMutateCoreOps handles core GET, DELETE, and UPDATE operations.
+func (h *Handler) dispatchGetOrMutateCoreOps(c *echo.Context, operation, resource string) error {
 	switch operation {
 	case opGetCachePolicy:
 		return h.handleGetCachePolicy(c, resource)
@@ -1287,6 +1558,14 @@ func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource strin
 		return h.handleDeleteFunction(c, resource)
 	case opDeleteOriginAccessControl:
 		return h.handleDeleteOriginAccessControl(c, resource)
+	}
+
+	return errNotDispatched
+}
+
+// dispatchGetOrMutateEncryptionOps handles OAI, policy, and encryption operations.
+func (h *Handler) dispatchGetOrMutateEncryptionOps(c *echo.Context, operation, resource string) error {
+	switch operation {
 	case opDeleteCloudFrontOriginAccessIdentity:
 		return h.handleDeleteOAI(c, resource)
 	case opDeleteOriginRequestPolicy:
@@ -1323,6 +1602,23 @@ func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource strin
 		return h.handleUpdateFieldLevelEncryptionProfile(c, resource)
 	case opDeleteFieldLevelEncryptionProfile:
 		return h.handleDeleteFieldLevelEncryptionProfile(c, resource)
+	}
+
+	return errNotDispatched
+}
+
+// dispatchGetOrMutateExtOps handles public key, key group, log config, key value store, and VPC origin operations.
+func (h *Handler) dispatchGetOrMutateExtOps(c *echo.Context, operation, resource string) error {
+	if err := h.dispatchPublicKeyAndGroupOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchLogStoreVPCOps(c, operation, resource)
+}
+
+// dispatchPublicKeyAndGroupOps handles public key and key group operations.
+func (h *Handler) dispatchPublicKeyAndGroupOps(c *echo.Context, operation, resource string) error {
+	switch operation {
 	case opGetPublicKey:
 		return h.handleGetPublicKey(c, resource)
 	case opGetPublicKeyConfig:
@@ -1339,6 +1635,14 @@ func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource strin
 		return h.handleUpdateKeyGroup(c, resource)
 	case opDeleteKeyGroup:
 		return h.handleDeleteKeyGroup(c, resource)
+	}
+
+	return errNotDispatched
+}
+
+// dispatchLogStoreVPCOps handles realtime log config, key value store, and VPC origin operations.
+func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource string) error {
+	switch operation {
 	case opGetRealtimeLogConfig:
 		return h.handleGetRealtimeLogConfig(c, resource)
 	case opUpdateRealtimeLogConfig:
@@ -1366,6 +1670,8 @@ func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource strin
 	default:
 		return errNotDispatched
 	}
+
+	return errNotDispatched
 }
 
 func (h *Handler) dispatchList(c *echo.Context, operation, resource string) error {
@@ -1462,178 +1768,191 @@ func cfStubXMLList(ns, listTag string) string {
 		listTag, ns, listTag)
 }
 
+// cfStubHelpers holds helper closures for generating CloudFront stub responses.
+type cfStubHelpers struct {
+	noContent func() error
+	emptyList func(tag string) error
+	created   func(tag, id string) error
+	getStub   func(tag, id string) error
+	xmlResp   func(body string) error
+}
+
 // dispatchStubs handles all stub CloudFront operations with minimal valid responses.
 //
-//nolint:funlen,cyclop,gocyclo // large dispatch table for stub operations
+
 func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
-	emptyItems := `<?xml version="1.0" encoding="UTF-8"?><Items xmlns="` + cfNS + `"/>`
-	noContent := func() error { return c.NoContent(http.StatusNoContent) }
-	emptyList := func(tag string) error { return xmlResp(c, http.StatusOK, cfStubXMLList(cfNS, tag)) }
-	created := func(tag, id string) error {
-		return xmlResp(c, http.StatusCreated, fmt.Sprintf(
-			`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
-			tag, cfNS, id, tag))
+	helpers := cfStubHelpers{
+		noContent: func() error { return c.NoContent(http.StatusNoContent) },
+		emptyList: func(tag string) error { return xmlResp(c, http.StatusOK, cfStubXMLList(cfNS, tag)) },
+		created: func(tag, id string) error {
+			return xmlResp(c, http.StatusCreated, fmt.Sprintf(
+				`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
+				tag, cfNS, id, tag))
+		},
+		getStub: func(tag, id string) error {
+			return xmlResp(c, http.StatusOK, fmt.Sprintf(
+				`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
+				tag, cfNS, id, tag))
+		},
+		xmlResp: func(body string) error { return xmlResp(c, http.StatusOK, body) },
 	}
-	getStub := func(tag, id string) error {
-		return xmlResp(c, http.StatusOK, fmt.Sprintf(
-			`<?xml version="1.0" encoding="UTF-8"?><%s xmlns="%s"><Id>%s</Id></%s>`,
-			tag, cfNS, id, tag))
+
+	if err := h.dispatchStubsDistributions(c, helpers, operation); !errors.Is(err, errNotDispatched) {
+		return err
 	}
-	_ = emptyItems
+
+	if err := h.dispatchStubsTrustAndMisc(c, helpers, operation); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchStubsConnectionAndPolicy(c, helpers, operation)
+}
+
+// dispatchStubsDistributions handles distribution tenant and monitoring stub responses.
+func (h *Handler) dispatchStubsDistributions(c *echo.Context, hlp cfStubHelpers, operation string) error {
+	if err := h.dispatchStubsDistributionTenant(c, hlp, operation); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchStubsMonitoringAndStreaming(c, hlp, operation)
+}
+
+// dispatchStubsDistributionTenant handles distribution tenant and web ACL stubs.
+func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, hlp cfStubHelpers, operation string) error {
+	noContent, emptyList, created := hlp.noContent, hlp.emptyList, hlp.created
+	_ = noContent
 
 	switch operation {
-	// Distribution variants.
 	case opCreateDistributionTenant:
 		return created("DistributionTenant", "tenant-stub")
 	case opCreateDistributionWithTags:
 		return created("Distribution", "dist-stub")
 	case opUpdateDistributionTenant:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><DistributionTenant xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><DistributionTenant xmlns="`+cfNS+`"/>`)
 	case opDeleteDistributionTenant:
 		return noContent()
 	case opGetDistributionTenant, opGetDistributionTenantByDomain:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><DistributionTenant xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><DistributionTenant xmlns="`+cfNS+`"/>`)
 	case opListDistributionTenants, opListDistributionTenantsByCustom:
 		return emptyList("DistributionTenantList")
 	case opUpdateDistributionWithStagingConfig:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><Distribution xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><Distribution xmlns="`+cfNS+`"/>`)
 	case opUpdateDomainAssociation:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><DomainAssociation xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><DomainAssociation xmlns="`+cfNS+`"/>`)
 	case opVerifyDNSConfiguration:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><VerifyDnsConfigurationResponse xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><VerifyDnsConfigurationResponse xmlns="`+cfNS+`"/>`)
+	}
 
-	// Monitoring subscription.
+	return errNotDispatched
+}
+
+// dispatchStubsMonitoringAndStreaming handles monitoring subscription and streaming distribution stubs.
+func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, hlp cfStubHelpers, operation string) error {
+	noContent, emptyList, created, getStub := hlp.noContent, hlp.emptyList, hlp.created, hlp.getStub
+	_ = created
+
+	switch operation {
 	case opCreateMonitoringSubscription:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`)
 	case opGetMonitoringSubscription:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`)
 	case opDeleteMonitoringSubscription:
 		return noContent()
-
-	// Disassociate WebACL.
 	case opDisassociateDistributionWebACL, opDisassociateDistributionTenantWebACL:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><Distribution xmlns="`+cfNS+`"/>`,
-		)
-
-	// Field level encryption, key group, key value store, public key,
-	// realtime log config — promoted to real handlers; stubs removed.
-
-	// Streaming distribution.
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><Distribution xmlns="`+cfNS+`"/>`)
 	case opCreateStreamingDistribution, opCreateStreamingDistributionWithTags:
 		return created("StreamingDistribution", "sdist-stub")
 	case opGetStreamingDistribution, opGetStreamingDistributionConfig:
 		return getStub("StreamingDistribution", "sdist-stub")
 	case opUpdateStreamingDistribution:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><StreamingDistribution xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><StreamingDistribution xmlns="`+cfNS+`"/>`)
 	case opDeleteStreamingDistribution:
 		return noContent()
 	case opListStreamingDistributions:
 		return emptyList("StreamingDistributionList")
+	}
 
-	// Trust store.
+	return errNotDispatched
+}
+
+// dispatchStubsTrustAndMisc handles trust store, anycast, and connection function stubs.
+func (h *Handler) dispatchStubsTrustAndMisc(c *echo.Context, hlp cfStubHelpers, operation string) error {
+	if err := h.dispatchStubsTrustAnycast(c, hlp, operation); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchStubsConnectionFunction(c, hlp, operation)
+}
+
+// dispatchStubsTrustAnycast handles trust store and anycast IP list stubs.
+func (h *Handler) dispatchStubsTrustAnycast(c *echo.Context, hlp cfStubHelpers, operation string) error {
+	noContent, emptyList, created, getStub := hlp.noContent, hlp.emptyList, hlp.created, hlp.getStub
+	_ = created
+
+	switch operation {
 	case opCreateTrustStore:
 		return created("TrustStore", "ts-stub")
 	case opGetTrustStore:
 		return getStub("TrustStore", "ts-stub")
 	case opUpdateTrustStore:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><TrustStore xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><TrustStore xmlns="`+cfNS+`"/>`)
 	case opDeleteTrustStore:
 		return noContent()
 	case opListTrustStores:
 		return emptyList("TrustStoreList")
-
-	// VPC origin — promoted to real handlers; stubs removed.
-
-	// Anycast IP list.
 	case opGetAnycastIPList:
 		return getStub("AnycastIpList", "anycast-stub")
 	case opUpdateAnycastIPList:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><AnycastIpList xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><AnycastIpList xmlns="`+cfNS+`"/>`)
 	case opDeleteAnycastIPList:
 		return noContent()
 	case opListAnycastIPLists:
 		return emptyList("AnycastIpLists")
+	}
 
-	// Connection function.
-	case opDescribeConnectionFunction:
-		return getStub("ConnectionFunction", "cf-stub")
-	case opGetConnectionFunction:
+	return errNotDispatched
+}
+
+// dispatchStubsConnectionFunction handles connection function and connection group stubs.
+func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, hlp cfStubHelpers, operation string) error {
+	noContent, emptyList, getStub := hlp.noContent, hlp.emptyList, hlp.getStub
+
+	switch operation {
+	case opDescribeConnectionFunction, opGetConnectionFunction:
 		return getStub("ConnectionFunction", "cf-stub")
 	case opUpdateConnectionFunction:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><ConnectionFunction xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ConnectionFunction xmlns="`+cfNS+`"/>`)
 	case opDeleteConnectionFunction:
 		return noContent()
 	case opListConnectionFunctions:
 		return emptyList("ConnectionFunctionList")
 	case opPublishConnectionFunction:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><ConnectionFunction xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ConnectionFunction xmlns="`+cfNS+`"/>`)
 	case opTestConnectionFunction:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><TestResult xmlns="`+cfNS+`"/>`,
-		)
-
-	// Connection group.
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><TestResult xmlns="`+cfNS+`"/>`)
 	case opGetConnectionGroup, opGetConnectionGroupByRoutingEndpoint:
 		return getStub("ConnectionGroup", "cg-stub")
+	}
+
+	return errNotDispatched
+}
+
+// dispatchStubsConnectionAndPolicy handles connection group, continuous deployment, resource policy, and misc stubs.
+func (h *Handler) dispatchStubsConnectionAndPolicy(c *echo.Context, hlp cfStubHelpers, operation string) error {
+	if err := h.dispatchStubsConnectionGroupAndCDP(c, hlp, operation); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchStubsResourcePolicyAndMisc(c, hlp, operation)
+}
+
+// dispatchStubsConnectionGroupAndCDP handles connection group and continuous deployment policy stubs.
+func (h *Handler) dispatchStubsConnectionGroupAndCDP(c *echo.Context, hlp cfStubHelpers, operation string) error {
+	noContent, emptyList := hlp.noContent, hlp.emptyList
+
+	switch operation {
 	case opUpdateConnectionGroup:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><ConnectionGroup xmlns="`+cfNS+`"/>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ConnectionGroup xmlns="`+cfNS+`"/>`)
 	case opDeleteConnectionGroup:
 		return noContent()
 	case opListConnectionGroups:
@@ -1643,17 +1962,22 @@ func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
 
 	// Resource policy.
 	case opGetResourcePolicy:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><ResourcePolicy xmlns="`+cfNS+`"><Policy>{}</Policy></ResourcePolicy>`,
-		)
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ResourcePolicy xmlns="`+cfNS+`"><Policy>{}</Policy></ResourcePolicy>`)
 	case opPutResourcePolicy:
 		return noContent()
 	case opDeleteResourcePolicy:
 		return noContent()
+	}
 
-	// List distributions by X.
+	return errNotDispatched
+}
+
+// dispatchStubsResourcePolicyAndMisc handles distribution list, invalidation, and managed certificate stubs.
+func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, hlp cfStubHelpers, operation string) error {
+	noContent, emptyList, created, getStub := hlp.noContent, hlp.emptyList, hlp.created, hlp.getStub
+	_ = noContent
+
+	switch operation {
 	case opListDistributionsByCachePolicyID, opListDistributionsByOriginRequestPol,
 		opListDistributionsByResponseHeadersPol, opListDistributionsByWebACLID,
 		opListDistributionsByKeyGroup, opListDistributionsByRealtimeLogConfig,
@@ -1661,35 +1985,20 @@ func (h *Handler) dispatchStubs(c *echo.Context, operation string) error {
 		opListDistributionsByConnectionFunction, opListDistributionsByConnectionMode,
 		opListDistributionsByTrustStore, opListDistributionsByOwnedResource:
 		return emptyList("DistributionList")
-
-	// Misc list operations.
 	case opListConflictingAliases:
 		return emptyList("ConflictingAliasesList")
 	case opListDomainConflicts:
 		return emptyList("DomainConflictList")
-
-	// Invalidation for distribution tenant.
 	case opCreateInvalidationForDistTenant:
 		return created("Invalidation", "inv-stub")
 	case opGetInvalidationForDistTenant:
 		return getStub("Invalidation", "inv-stub")
 	case opListInvalidationsForDistTenant:
 		return emptyList("InvalidationList")
-
-	// Managed certificate details.
 	case opGetManagedCertificateDetails:
-		return xmlResp(
-			c,
-			http.StatusOK,
-			`<?xml version="1.0" encoding="UTF-8"?><ManagedCertificateDetails xmlns="`+cfNS+`"/>`,
-		)
-
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ManagedCertificateDetails xmlns="`+cfNS+`"/>`)
 	default:
-		return xmlResp(
-			c,
-			http.StatusNotFound,
-			cfErrorXML("NoSuchOperation", "unknown operation: "+operation),
-		)
+		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOperation", "unknown operation: "+operation))
 	}
 }
 
