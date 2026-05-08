@@ -38,3 +38,4 @@ CLAUDE.md
 __pycache__/
 state.json
 CLAUDE.local.md
+e2e.test
