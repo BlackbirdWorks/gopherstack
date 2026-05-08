@@ -78,8 +78,27 @@ type moveTaskState struct {
 	maxPerSec     int32
 }
 
+// MetricEmitter emits a CloudWatch metric data point.
+// It is implemented by the CloudWatch backend and injected into InMemoryBackend
+// so that SQS operations can be forwarded to CloudWatch as metrics.
+type MetricEmitter interface {
+	EmitMetric(namespace, name string, value float64, unit string) error
+}
+
+// MetricEmitterFunc is a function adapter for MetricEmitter.
+type MetricEmitterFunc func(namespace, name string, value float64, unit string) error
+
+// EmitMetric implements MetricEmitter.
+func (f MetricEmitterFunc) EmitMetric(namespace, name string, value float64, unit string) error {
+	return f(namespace, name, value, unit)
+}
+
+// sqsMetricNamespace is the CloudWatch namespace used for SQS metrics.
+const sqsMetricNamespace = "AWS/SQS"
+
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	metricEmitter  MetricEmitter
 	queues         map[string]*Queue
 	moveTasks      map[string]*moveTaskState
 	snsUnsubscribe func()
@@ -87,6 +106,30 @@ type InMemoryBackend struct {
 	mu             *lockmetrics.RWMutex
 	accountID      string
 	region         string
+}
+
+// SetMetricEmitter sets the emitter used to forward SQS operation metrics to CloudWatch.
+func (b *InMemoryBackend) SetMetricEmitter(e MetricEmitter) {
+	b.mu.Lock("SetMetricEmitter")
+	defer b.mu.Unlock()
+
+	b.metricEmitter = e
+}
+
+// emitMetric emits a single metric to CloudWatch if a MetricEmitter is configured.
+// It reads the emitter under the lock, then calls it without holding the lock
+// to avoid a potential deadlock if the emitter itself takes a lock.
+func (b *InMemoryBackend) emitMetric(name string, value float64, unit string) {
+	b.mu.RLock("emitMetric")
+	e := b.metricEmitter
+	b.mu.RUnlock()
+
+	if e == nil {
+		return
+	}
+
+	// Emit without holding the lock.
+	_ = e.EmitMetric(sqsMetricNamespace, name, value, unit)
 }
 
 const sqsDefaultMaxResults = 1000
@@ -302,6 +345,7 @@ func isConfigurableQueueAttribute(name string) bool {
 		attrFifoQueue,
 		attrContentBasedDeduplication,
 		attrRedrivePolicy,
+		attrPolicy,
 		attrSqsManagedSseEnabled:
 		return true
 	}
@@ -751,12 +795,17 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	q.notify = make(chan struct{})
 	close(old)
 
-	return &SendMessageOutput{
+	out := &SendMessageOutput{
 		MessageID:              msgID,
 		MD5OfBody:              md5Body,
 		MD5OfMessageAttributes: md5Attrs,
 		SequenceNumber:         seqNum,
-	}, nil
+	}
+
+	// Emit CloudWatch metric for NumberOfMessagesSent (after releasing the lock).
+	go b.emitMetric("NumberOfMessagesSent", 1, "Count")
+
+	return out, nil
 }
 
 // validateMessageSize checks whether the message body exceeds the queue's MaximumMessageSize.
@@ -917,6 +966,9 @@ func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMe
 		}
 
 		if len(msgs) > 0 {
+			count := float64(len(msgs))
+			go b.emitMetric("NumberOfMessagesReceived", count, "Count")
+
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
 
@@ -1197,6 +1249,8 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 	for i, inf := range q.inFlightMessages {
 		if inf.ReceiptHandle == input.ReceiptHandle {
 			q.inFlightMessages = append(q.inFlightMessages[:i], q.inFlightMessages[i+1:]...)
+
+			go b.emitMetric("NumberOfMessagesDeleted", 1, "Count")
 
 			return nil
 		}
