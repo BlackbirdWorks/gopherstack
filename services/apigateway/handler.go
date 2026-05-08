@@ -2408,6 +2408,7 @@ func (h *Handler) newResourceActions() map[string]actionFn {
 }
 
 // newResourceActionsCore returns actions for API key and usage plan creation.
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) newResourceActionsCore() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateAPIKey: func(b []byte) (int, any, error) {
@@ -2476,6 +2477,7 @@ func (h *Handler) newResourceActionsExt() map[string]actionFn {
 }
 
 // newResourceActionsDomainName returns actions for domain name creation.
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) newResourceActionsDomainName() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateDomainName: func(b []byte) (int, any, error) {
@@ -2508,6 +2510,7 @@ func (h *Handler) newResourceActionsDomainName() map[string]actionFn {
 }
 
 // newResourceActionsModelStage returns actions for model, stage, and usage plan creation.
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) newResourceActionsModelStage() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateModel: func(b []byte) (int, any, error) {
@@ -2840,6 +2843,7 @@ func (h *Handler) getDeleteUpdateActionsExt() map[string]actionFn {
 	return m
 }
 
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) getDeleteUpdateActionsExt1() map[string]actionFn {
 	return map[string]actionFn{
 		opDeleteBasePathMapping: func(b []byte) (int, any, error) {
@@ -3080,6 +3084,7 @@ func (h *Handler) getDeleteUpdateActionsUsage2a() map[string]actionFn {
 	}
 }
 
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) getDeleteUpdateActionsUsage2b() map[string]actionFn {
 	return map[string]actionFn{
 		opDeleteDocumentationPart: func(b []byte) (int, any, error) {
@@ -3273,6 +3278,7 @@ func (h *Handler) updatePatchActionsDomain() map[string]actionFn {
 	return m
 }
 
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) updatePatchActionsDomain1() map[string]actionFn {
 	return map[string]actionFn{
 		opUpdateDomainName: func(b []byte) (int, any, error) {
@@ -3334,6 +3340,7 @@ func (h *Handler) updatePatchActionsDomain2() map[string]actionFn {
 	return m
 }
 
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) updatePatchActionsDomain2a() map[string]actionFn {
 	return map[string]actionFn{
 		opUpdateMethod: func(b []byte) (int, any, error) {
@@ -3363,6 +3370,7 @@ func (h *Handler) updatePatchActionsDomain2a() map[string]actionFn {
 	}
 }
 
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) updatePatchActionsDomain2b() map[string]actionFn {
 	return map[string]actionFn{
 		opUpdateIntegrationResponse: func(b []byte) (int, any, error) {
