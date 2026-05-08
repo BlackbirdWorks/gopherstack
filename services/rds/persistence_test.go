@@ -97,7 +97,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_cluster",
 			setup: func(b *rds.InMemoryBackend) string {
-				cluster, err := b.CreateDBCluster("test-cluster", "aurora-postgresql", "admin", "mydb", "", 0)
+				cluster, err := b.CreateDBCluster("test-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil)
 				if err != nil {
 					return ""
 				}
@@ -116,7 +116,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_cluster_snapshot",
 			setup: func(b *rds.InMemoryBackend) string {
-				_, err := b.CreateDBCluster("snap-cluster", "aurora-postgresql", "admin", "mydb", "", 0)
+				_, err := b.CreateDBCluster("snap-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil)
 				if err != nil {
 					return ""
 				}

@@ -262,7 +262,7 @@ func TestPromoteReadReplicaDBCluster(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0)
+				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0, nil)
 				require.NoError(t, err)
 			}
 			got, err := b.PromoteReadReplicaDBCluster(tt.clusterID)
@@ -656,7 +656,7 @@ func TestDescribeDBClusterSnapshotAttributes(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateDBCluster("my-cluster", "aurora-mysql", "admin", "", "", 0)
+				_, err := b.CreateDBCluster("my-cluster", "aurora-mysql", "admin", "", "", 0, nil)
 				require.NoError(t, err)
 				_, err = b.CreateDBClusterSnapshot(tt.snapshotID, "my-cluster")
 				require.NoError(t, err)
@@ -706,7 +706,7 @@ func TestModifyDBClusterSnapshotAttribute(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateDBCluster("my-cluster", "aurora-mysql", "admin", "", "", 0)
+				_, err := b.CreateDBCluster("my-cluster", "aurora-mysql", "admin", "", "", 0, nil)
 				require.NoError(t, err)
 				_, err = b.CreateDBClusterSnapshot(tt.snapshotID, "my-cluster")
 				require.NoError(t, err)
@@ -747,7 +747,7 @@ func TestDescribeDBClusterBacktracks(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0)
+				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0, nil)
 				require.NoError(t, err)
 			}
 			got, err := b.DescribeDBClusterBacktracks(tt.clusterID)
@@ -798,7 +798,7 @@ func TestEnableDisableHttpEndpoint(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if tt.clusterID != "" {
-				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0)
+				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0, nil)
 				require.NoError(t, err)
 			}
 			var err error
@@ -835,7 +835,7 @@ func TestModifyCurrentDBClusterCapacity(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0)
+				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0, nil)
 				require.NoError(t, err)
 			}
 			got, err := b.ModifyCurrentDBClusterCapacity(tt.clusterID, tt.capacity)
@@ -973,7 +973,7 @@ func TestRestoreDBClusterFromS3(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if tt.name == "already exists" {
-				_, err := b.CreateDBCluster(tt.clusterID, tt.engine, tt.masterUsername, "", "", 0)
+				_, err := b.CreateDBCluster(tt.clusterID, tt.engine, tt.masterUsername, "", "", 0, nil)
 				require.NoError(t, err)
 			}
 			got, err := b.RestoreDBClusterFromS3(tt.clusterID, tt.engine, tt.masterUsername, tt.s3Bucket)

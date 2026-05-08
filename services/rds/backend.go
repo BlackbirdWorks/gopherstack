@@ -76,6 +76,8 @@ var (
 	ErrBlueGreenDeploymentNotFound = errors.New("BlueGreenDeploymentNotFound")
 	// ErrBlueGreenDeploymentAlreadyExists is returned when a Blue/Green Deployment already exists.
 	ErrBlueGreenDeploymentAlreadyExists = errors.New("BlueGreenDeploymentAlreadyExists")
+	// ErrNoServerlessV2Config is a sentinel indicating no ServerlessV2ScalingConfiguration was provided.
+	ErrNoServerlessV2Config = errors.New("noServerlessV2Config")
 )
 
 const (
@@ -198,23 +200,30 @@ type OptionGroup struct {
 	Options                []OptionGroupOption `json:"options"`
 }
 
+// ServerlessV2ScalingConfiguration holds Aurora Serverless v2 capacity settings.
+type ServerlessV2ScalingConfiguration struct {
+	MinCapacity float64 `json:"minCapacity"`
+	MaxCapacity float64 `json:"maxCapacity"`
+}
+
 // DBCluster represents an Aurora-style RDS cluster.
 type DBCluster struct {
-	Endpoint                        string `json:"endpoint"`
-	ActivityStreamStatus            string `json:"activityStreamStatus"`
-	Status                          string `json:"status"`
-	MasterUsername                  string `json:"masterUsername"`
-	DatabaseName                    string `json:"databaseName"`
-	DBClusterParameterGroupName     string `json:"dbClusterParameterGroupName"`
-	Engine                          string `json:"engine"`
-	ActivityStreamAuditPolicy       string `json:"activityStreamAuditPolicy"`
-	DBClusterIdentifier             string `json:"dbClusterIdentifier"`
-	ActivityStreamKinesisStreamName string `json:"activityStreamKinesisStreamName"`
-	ActivityStreamKMSKeyID          string `json:"activityStreamKmsKeyId"`
-	ActivityStreamMode              string `json:"activityStreamMode"`
-	Port                            int    `json:"port"`
-	ServerlessCapacity              int    `json:"serverlessCapacity"`
-	HTTPEndpointEnabled             bool   `json:"httpEndpointEnabled"`
+	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration `json:"serverlessV2ScalingConfiguration,omitempty"`
+	Endpoint                        string                            `json:"endpoint"`
+	ActivityStreamStatus            string                            `json:"activityStreamStatus"`
+	Status                          string                            `json:"status"`
+	MasterUsername                  string                            `json:"masterUsername"`
+	DatabaseName                    string                            `json:"databaseName"`
+	DBClusterParameterGroupName     string                            `json:"dbClusterParameterGroupName"`
+	Engine                          string                            `json:"engine"`
+	ActivityStreamAuditPolicy       string                            `json:"activityStreamAuditPolicy"`
+	DBClusterIdentifier             string                            `json:"dbClusterIdentifier"`
+	ActivityStreamKinesisStreamName string                            `json:"activityStreamKinesisStreamName"`
+	ActivityStreamKMSKeyID          string                            `json:"activityStreamKmsKeyId"`
+	ActivityStreamMode              string                            `json:"activityStreamMode"`
+	Port                            int                               `json:"port"`
+	ServerlessCapacity              int                               `json:"serverlessCapacity"`
+	HTTPEndpointEnabled             bool                              `json:"httpEndpointEnabled"`
 }
 
 // DBClusterSnapshot represents an RDS cluster snapshot.
@@ -428,11 +437,28 @@ type DNSRegistrar interface {
 	Deregister(hostname string)
 }
 
+// DBInstanceAutomatedBackup represents an automated backup record for an RDS instance.
+type DBInstanceAutomatedBackup struct {
+	DBInstanceIdentifier  string `json:"dbInstanceIdentifier"`
+	DbiResourceID         string `json:"dbiResourceId"`
+	Engine                string `json:"engine"`
+	EngineVersion         string `json:"engineVersion"`
+	DBInstanceArn         string `json:"dbInstanceArn"`
+	Region                string `json:"region"`
+	Status                string `json:"status"`
+	AllocatedStorage      int    `json:"allocatedStorage"`
+	Port                  int    `json:"port"`
+	BackupRetentionPeriod int    `json:"backupRetentionPeriod"`
+	Encrypted             bool   `json:"encrypted"`
+}
+
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
 type DBInstanceOptions struct {
 	EngineVersion                    string
 	StorageType                      string
 	AvailabilityZone                 string
+	DBParameterGroupName             string
+	SourceRegion                     string
 	BackupRetentionPeriod            int
 	MultiAZ                          bool
 	StorageEncrypted                 bool
@@ -471,6 +497,7 @@ type InMemoryBackend struct {
 	proxyTargets              map[string][]DBProxyTarget
 	proxyEndpoints            map[string]*DBProxyEndpoint
 	fisFailoverFaults         map[string]time.Time
+	automatedBackups          map[string]*DBInstanceAutomatedBackup
 	stopCh                    chan struct{}
 	accountID                 string
 	region                    string
@@ -508,6 +535,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		proxyTargetGroups:         make(map[string]*DBProxyTargetGroup),
 		proxyTargets:              make(map[string][]DBProxyTarget),
 		proxyEndpoints:            make(map[string]*DBProxyEndpoint),
+		automatedBackups:          make(map[string]*DBInstanceAutomatedBackup),
 		stopCh:                    make(chan struct{}),
 		accountID:                 accountID,
 		region:                    region,
@@ -563,6 +591,7 @@ func (b *InMemoryBackend) Reset() {
 	b.proxyTargetGroups = make(map[string]*DBProxyTargetGroup)
 	b.proxyTargets = make(map[string][]DBProxyTarget)
 	b.proxyEndpoints = make(map[string]*DBProxyEndpoint)
+	b.automatedBackups = make(map[string]*DBInstanceAutomatedBackup)
 }
 
 // SetDNSRegistrar wires a DNS server so RDS instance hostnames are auto-registered.
@@ -691,6 +720,22 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 	b.instances[id] = inst
 	b.publishInstanceEventLocked(id, "DB instance created")
+	// Automatically register an automated backup if backups are enabled.
+	if opts.BackupRetentionPeriod > 0 {
+		b.automatedBackups[id] = &DBInstanceAutomatedBackup{
+			DBInstanceIdentifier:  id,
+			DbiResourceID:         id,
+			Engine:                engine,
+			EngineVersion:         opts.EngineVersion,
+			DBInstanceArn:         fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", b.region, b.accountID, id),
+			Region:                b.region,
+			Status:                instanceStatusAvailable,
+			AllocatedStorage:      allocatedStorage,
+			Port:                  port,
+			BackupRetentionPeriod: opts.BackupRetentionPeriod,
+			Encrypted:             opts.StorageEncrypted,
+		}
+	}
 	cp := *inst
 
 	b.mu.Unlock()
@@ -814,6 +859,17 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	}
 	if opts.DeletionProtection {
 		inst.DeletionProtection = opts.DeletionProtection
+	}
+	if opts.DBParameterGroupName != "" {
+		// Validate the parameter group exists if it was specified.
+		if _, pgExists := b.parameterGroups[opts.DBParameterGroupName]; !pgExists {
+			return nil, fmt.Errorf(
+				"%w: parameter group %s not found",
+				ErrParameterGroupNotFound,
+				opts.DBParameterGroupName,
+			)
+		}
+		inst.DBParameterGroupName = opts.DBParameterGroupName
 	}
 
 	inst.DBInstanceStatus = instanceStatusModifying
@@ -1489,6 +1545,7 @@ func (b *InMemoryBackend) ModifyOptionGroup(
 func (b *InMemoryBackend) CreateDBCluster(
 	id, engine, masterUser, dbName, paramGroupName string,
 	port int,
+	serverlessV2Cfg *ServerlessV2ScalingConfiguration,
 ) (*DBCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
@@ -1517,6 +1574,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 		DBClusterParameterGroupName: paramGroupName,
 		Endpoint:                    endpoint,
 		Port:                        port,
+		ServerlessV2ScalingConfig:   serverlessV2Cfg,
 	}
 	b.clusters[id] = cluster
 	cp := *cluster
@@ -1672,7 +1730,8 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID string) ([]DBClu
 }
 
 // CreateDBInstanceReadReplica creates a read replica of the given source instance.
-func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBInstance, error) {
+// sourceRegion is optional; when non-empty it indicates a cross-region replica.
+func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID, sourceRegion string) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -1682,22 +1741,44 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBI
 	if _, exists := b.instances[id]; exists {
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 	}
-	source, exists := b.instances[sourceID]
-	if !exists {
+
+	var (
+		instanceClass    string
+		engine           string
+		masterUser       string
+		port             int
+		allocatedStorage int
+	)
+
+	source, sourceExists := b.instances[sourceID]
+	switch {
+	case sourceExists:
+		instanceClass = source.DBInstanceClass
+		engine = source.Engine
+		masterUser = source.MasterUsername
+		port = source.Port
+		allocatedStorage = source.AllocatedStorage
+	case sourceRegion != "":
+		// Cross-region replica: source instance lives in another region.
+		// Use defaults; the caller should supply a valid ARN as sourceID.
+		engine = enginePostgres
+		port = defaultPort
+		allocatedStorage = defaultAllocatedStorage
+	default:
 		return nil, fmt.Errorf("%w: source instance %s not found", ErrInstanceNotFound, sourceID)
 	}
-	port := source.Port
+
 	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 	replica := &DBInstance{
 		DBInstanceIdentifier:              id,
 		DbiResourceID:                     id,
-		DBInstanceClass:                   source.DBInstanceClass,
-		Engine:                            source.Engine,
+		DBInstanceClass:                   instanceClass,
+		Engine:                            engine,
 		DBInstanceStatus:                  instanceStatusAvailable,
-		MasterUsername:                    source.MasterUsername,
+		MasterUsername:                    masterUser,
 		Endpoint:                          endpoint,
 		Port:                              port,
-		AllocatedStorage:                  source.AllocatedStorage,
+		AllocatedStorage:                  allocatedStorage,
 		ReplicaSourceDBInstanceIdentifier: sourceID,
 	}
 	b.instances[id] = replica
@@ -1708,6 +1789,23 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBI
 	cp := *replica
 
 	return &cp, nil
+}
+
+// DescribeDBInstanceAutomatedBackups returns automated backup records for instances.
+// If instanceID is non-empty, filters to that instance.
+func (b *InMemoryBackend) DescribeDBInstanceAutomatedBackups(instanceID string) []DBInstanceAutomatedBackup {
+	b.mu.RLock("DescribeDBInstanceAutomatedBackups")
+	defer b.mu.RUnlock()
+
+	result := make([]DBInstanceAutomatedBackup, 0, len(b.automatedBackups))
+	for _, ab := range b.automatedBackups {
+		if instanceID != "" && ab.DBInstanceIdentifier != instanceID {
+			continue
+		}
+		result = append(result, *ab)
+	}
+
+	return result
 }
 
 // PromoteReadReplica promotes a read replica to a standalone instance.

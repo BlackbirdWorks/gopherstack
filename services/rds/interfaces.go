@@ -22,8 +22,9 @@ type StorageBackend interface {
 	StartDBInstance(id string) (*DBInstance, error)
 	StopDBInstance(id string) (*DBInstance, error)
 	RebootDBInstance(id string) (*DBInstance, error)
-	CreateDBInstanceReadReplica(id, sourceID string) (*DBInstance, error)
+	CreateDBInstanceReadReplica(id, sourceID, sourceRegion string) (*DBInstance, error)
 	PromoteReadReplica(id string) (*DBInstance, error)
+	DescribeDBInstanceAutomatedBackups(instanceID string) []DBInstanceAutomatedBackup
 	DescribeValidDBInstanceModifications(id string) (*DBInstance, error)
 
 	// DB snapshot operations
@@ -56,7 +57,11 @@ type StorageBackend interface {
 	CopyOptionGroup(sourceGroupName, targetGroupName, targetDescription string) (*OptionGroup, error)
 
 	// DB cluster operations
-	CreateDBCluster(id, engine, masterUser, dbName, paramGroupName string, port int) (*DBCluster, error)
+	CreateDBCluster(
+		id, engine, masterUser, dbName, paramGroupName string,
+		port int,
+		serverlessV2Cfg *ServerlessV2ScalingConfiguration,
+	) (*DBCluster, error)
 	DescribeDBClusters(id string) ([]DBCluster, error)
 	DeleteDBCluster(id string) (*DBCluster, error)
 	ModifyDBCluster(id, paramGroupName string) (*DBCluster, error)
