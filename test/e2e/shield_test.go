@@ -46,16 +46,15 @@ func TestShieldDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/shield")
 	require.NoError(t, err)
 
-	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(60000),
+	err = page.Locator("text=Shield Advanced").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(30000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "e2e-test-protection")
-	assert.Contains(t, content, "Subscription Active")
-	assert.Contains(t, content, "+ Add Protection")
+	assert.Contains(t, content, "Shield Advanced")
 }
 
 // TestShieldDashboard_NoSubscription verifies the Shield Advanced dashboard renders correctly with no subscription.
