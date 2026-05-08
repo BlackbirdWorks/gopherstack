@@ -155,6 +155,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+<<<<<<< HEAD
 // mediastoreDispatch maps operation names to their handler functions.
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
@@ -186,6 +187,18 @@ var mediastoreDispatch = map[string]func(*Handler, *echo.Context, []byte) error{
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	if fn, ok := mediastoreDispatch[op]; ok {
 		return fn(h, c, body)
+=======
+// dispatch routes to the appropriate handler based on the operation name.
+func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
+	if ok, err := h.dispatchContainerOps(c, op, body); ok {
+		return err
+	}
+	if ok, err := h.dispatchPolicyOps(c, op, body); ok {
+		return err
+	}
+	if ok, err := h.dispatchLoggingTagOps(c, op, body); ok {
+		return err
+>>>>>>> pr1617
 	}
 
 	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)

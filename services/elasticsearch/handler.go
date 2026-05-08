@@ -112,31 +112,43 @@ func (h *Handler) Name() string { return "Elasticsearch" }
 func (h *Handler) MatchPriority() int { return service.PriorityPathSubdomain }
 
 // RouteMatcher returns a matcher that selects Elasticsearch requests by path prefix.
-func (h *Handler) RouteMatcher() service.Matcher { //nolint:cyclop // matches all Elasticsearch path prefixes
+func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		path := c.Request().URL.Path
-
-		return strings.HasPrefix(path, elasticsearchPathPrefix) ||
-			path == elasticsearchDomainInfo ||
-			path == elasticsearchTagsPath ||
-			path == elasticsearchTagsRemove ||
-			path == elasticsearchServiceRole ||
-			strings.HasPrefix(path, elasticsearchSoftwareUpdate) ||
-			strings.HasPrefix(path, elasticsearchCCSInbound) ||
-			path == elasticsearchCCSOutbound ||
-			path == elasticsearchVpcEndpoints ||
-			strings.HasPrefix(path, elasticsearchVpcEndpoints+"/") ||
-			strings.HasPrefix(path, elasticsearchPackages) ||
-			strings.HasPrefix(path, elasticsearchDomainPackages+"/") ||
-			strings.HasPrefix(path, elasticsearchUpgradeDomain) ||
-			path == elasticsearchCompatibleVersions ||
-			path == elasticsearchVersions ||
-			strings.HasPrefix(path, elasticsearchInstanceTypes) ||
-			strings.HasPrefix(path, elasticsearchInstanceTypeLimits) ||
-			path == elasticsearchReservedOfferings ||
-			path == elasticsearchReservedInstances ||
-			path == elasticsearchPurchaseReserved
+		return matchElasticsearchPath(c.Request().URL.Path)
 	}
+}
+
+// matchElasticsearchPath returns true if the path matches a known Elasticsearch API path.
+func matchElasticsearchPath(path string) bool {
+	return matchElasticsearchCorePaths(path) || matchElasticsearchExtPaths(path)
+}
+
+// matchElasticsearchCorePaths returns true if path matches core Elasticsearch paths.
+func matchElasticsearchCorePaths(path string) bool {
+	return strings.HasPrefix(path, elasticsearchPathPrefix) ||
+		path == elasticsearchDomainInfo ||
+		path == elasticsearchTagsPath ||
+		path == elasticsearchTagsRemove ||
+		path == elasticsearchServiceRole ||
+		strings.HasPrefix(path, elasticsearchSoftwareUpdate) ||
+		strings.HasPrefix(path, elasticsearchCCSInbound) ||
+		path == elasticsearchCCSOutbound ||
+		path == elasticsearchVpcEndpoints ||
+		strings.HasPrefix(path, elasticsearchVpcEndpoints+"/")
+}
+
+// matchElasticsearchExtPaths returns true if path matches extended Elasticsearch paths.
+func matchElasticsearchExtPaths(path string) bool {
+	return strings.HasPrefix(path, elasticsearchPackages) ||
+		strings.HasPrefix(path, elasticsearchDomainPackages+"/") ||
+		strings.HasPrefix(path, elasticsearchUpgradeDomain) ||
+		path == elasticsearchCompatibleVersions ||
+		path == elasticsearchVersions ||
+		strings.HasPrefix(path, elasticsearchInstanceTypes) ||
+		strings.HasPrefix(path, elasticsearchInstanceTypeLimits) ||
+		path == elasticsearchReservedOfferings ||
+		path == elasticsearchReservedInstances ||
+		path == elasticsearchPurchaseReserved
 }
 
 // GetSupportedOperations returns supported operations.
@@ -247,30 +259,69 @@ func extractTagAndServiceOperation(path, method string) string {
 }
 
 // extractCCSVpcPackageOperation handles CCS, VPC endpoint, and package paths.
-//
-//nolint:cyclop,gocognit,gocyclo,funlen // large switch covers all CCS/VPC/package routes
 func extractCCSVpcPackageOperation(path, method string) string {
+	if op := extractCCSOperation(path, method); op != "" {
+		return op
+	}
+
+	if op := extractVpcPackageOperation(path, method); op != "" {
+		return op
+	}
+
+	return extractUpgradeAndMiscOperation(path, method)
+}
+
+// extractCCSOperation handles Cross-Cluster Search operations.
+func extractCCSOperation(path, method string) string {
+	if strings.HasPrefix(path, elasticsearchCCSInbound+"/") {
+		return extractCCSInboundOp(path, method)
+	}
+
+	return extractCCSOutboundOp(path, method)
+}
+
+// extractCCSInboundOp handles inbound CCS operations.
+func extractCCSInboundOp(path, method string) string {
 	switch {
-	case strings.HasPrefix(path, elasticsearchCCSInbound+"/") &&
-		strings.HasSuffix(path, "/accept") &&
-		method == http.MethodPut:
+	case strings.HasSuffix(path, "/accept") && method == http.MethodPut:
 		return "AcceptInboundCrossClusterSearchConnection"
-	case strings.HasPrefix(path, elasticsearchCCSInbound+"/") &&
-		strings.HasSuffix(path, "/reject") &&
-		method == http.MethodPut:
+	case strings.HasSuffix(path, "/reject") && method == http.MethodPut:
 		return "RejectInboundCrossClusterSearchConnection"
-	case strings.HasPrefix(path, elasticsearchCCSInbound+"/") &&
-		method == http.MethodDelete:
+	case method == http.MethodDelete:
 		return "DeleteInboundCrossClusterSearchConnection"
+	}
+
+	return ""
+}
+
+// extractCCSOutboundOp handles outbound CCS operations.
+func extractCCSOutboundOp(path, method string) string {
+	switch {
 	case path == elasticsearchCCSInboundSearch && method == http.MethodPost:
 		return "DescribeInboundCrossClusterSearchConnections"
 	case path == elasticsearchCCSOutbound && method == http.MethodPost:
 		return "CreateOutboundCrossClusterSearchConnection"
-	case strings.HasPrefix(path, elasticsearchCCSOutbound+"/") &&
-		method == http.MethodDelete:
+	case strings.HasPrefix(path, elasticsearchCCSOutbound+"/") && method == http.MethodDelete:
 		return "DeleteOutboundCrossClusterSearchConnection"
 	case path == elasticsearchCCSOutboundSearch && method == http.MethodPost:
 		return "DescribeOutboundCrossClusterSearchConnections"
+	}
+
+	return ""
+}
+
+// extractVpcPackageOperation handles VPC endpoint and package operations.
+func extractVpcPackageOperation(path, method string) string {
+	if op := extractVpcEndpointOperation(path, method); op != "" {
+		return op
+	}
+
+	return extractPackageOperation(path, method)
+}
+
+// extractVpcEndpointOperation handles VPC endpoint operations.
+func extractVpcEndpointOperation(path, method string) string {
+	switch {
 	case path == elasticsearchVpcEndpoints && method == http.MethodPost:
 		return "CreateVpcEndpoint"
 	case path == elasticsearchVpcEndpoints && method == http.MethodGet:
@@ -279,9 +330,25 @@ func extractCCSVpcPackageOperation(path, method string) string {
 		return "DescribeVpcEndpoints"
 	case path == elasticsearchVpcEndpoints+"/update" && method == http.MethodPost:
 		return "UpdateVpcEndpoint"
-	case strings.HasPrefix(path, elasticsearchVpcEndpoints+"/") &&
-		method == http.MethodDelete:
+	case strings.HasPrefix(path, elasticsearchVpcEndpoints+"/") && method == http.MethodDelete:
 		return "DeleteVpcEndpoint"
+	}
+
+	return ""
+}
+
+// extractPackageOperation handles package operations.
+func extractPackageOperation(path, method string) string {
+	if op := extractPackageCRUDOp(path, method); op != "" {
+		return op
+	}
+
+	return extractPackageDomainOp(path, method)
+}
+
+// extractPackageCRUDOp handles package CRUD and association operations.
+func extractPackageCRUDOp(path, method string) string {
+	switch {
 	case strings.HasPrefix(path, elasticsearchPackages+"/associate/") && method == http.MethodPost:
 		return "AssociatePackage"
 	case strings.HasPrefix(path, elasticsearchPackages+"/dissociate/") && method == http.MethodPost:
@@ -292,6 +359,14 @@ func extractCCSVpcPackageOperation(path, method string) string {
 		return "DescribePackages"
 	case path == elasticsearchPackages+"/update" && method == http.MethodPost:
 		return "UpdatePackage"
+	}
+
+	return ""
+}
+
+// extractPackageDomainOp handles package history, domain listing, and domain-package operations.
+func extractPackageDomainOp(path, method string) string {
+	switch {
 	case strings.HasPrefix(path, elasticsearchPackages+"/") &&
 		strings.HasSuffix(path, "/history") &&
 		method == http.MethodGet:
@@ -300,13 +375,29 @@ func extractCCSVpcPackageOperation(path, method string) string {
 		strings.HasSuffix(path, "/domains") &&
 		method == http.MethodGet:
 		return "ListDomainsForPackage"
-	case strings.HasPrefix(path, elasticsearchPackages+"/") &&
-		method == http.MethodDelete:
+	case strings.HasPrefix(path, elasticsearchPackages+"/") && method == http.MethodDelete:
 		return "DeletePackage"
 	case strings.HasPrefix(path, elasticsearchDomainPackages+"/") &&
 		strings.HasSuffix(path, "/packages") &&
 		method == http.MethodGet:
 		return "ListPackagesForDomain"
+	}
+
+	return ""
+}
+
+// extractUpgradeAndMiscOperation handles upgrade, instance, reserved, and software update operations.
+func extractUpgradeAndMiscOperation(path, method string) string {
+	if op := extractVersionAndInstanceOp(path, method); op != "" {
+		return op
+	}
+
+	return extractUpgradeOp(path, method)
+}
+
+// extractVersionAndInstanceOp handles version, instance type, and reserved instance operations.
+func extractVersionAndInstanceOp(path, method string) string {
+	switch {
 	case path == elasticsearchCompatibleVersions && method == http.MethodGet:
 		return "GetCompatibleElasticsearchVersions"
 	case path == elasticsearchVersions && method == http.MethodGet:
@@ -321,6 +412,14 @@ func extractCCSVpcPackageOperation(path, method string) string {
 		return "DescribeReservedElasticsearchInstances"
 	case path == elasticsearchPurchaseReserved && method == http.MethodPost:
 		return "PurchaseReservedElasticsearchInstanceOffering"
+	}
+
+	return ""
+}
+
+// extractUpgradeOp handles upgrade and software update operations.
+func extractUpgradeOp(path, method string) string {
+	switch {
 	case path == elasticsearchUpgradeDomain && method == http.MethodPost:
 		return "UpgradeElasticsearchDomain"
 	case strings.HasPrefix(path, elasticsearchUpgradeDomain+"/") &&
@@ -353,7 +452,25 @@ func extractDomainOperation(rest, method string) string {
 }
 
 // extractSubDomainOperation resolves operations on specific domain paths (rest starts with "/").
-func extractSubDomainOperation(rest, method string) string { //nolint:cyclop // covers all domain sub-path operations
+func extractSubDomainOperation(rest, method string) string {
+	if op := extractSubDomainSuffixOp(rest, method); op != opUnknown {
+		return op
+	}
+
+	return extractSubDomainMethodOp(method)
+}
+
+// extractSubDomainSuffixOp matches sub-domain operations by path suffix.
+func extractSubDomainSuffixOp(rest, method string) string {
+	if op := extractSubDomainConfigOp(rest, method); op != opUnknown {
+		return op
+	}
+
+	return extractSubDomainListingOp(rest, method)
+}
+
+// extractSubDomainConfigOp handles config, cancel, and VPC authorization operations.
+func extractSubDomainConfigOp(rest, method string) string {
 	switch {
 	case strings.HasSuffix(rest, "/config/cancel") && method == http.MethodPost:
 		return "CancelDomainConfigChange"
@@ -365,6 +482,14 @@ func extractSubDomainOperation(rest, method string) string { //nolint:cyclop // 
 		return "UpdateElasticsearchDomainConfig"
 	case strings.HasSuffix(rest, "/config"):
 		return "DescribeElasticsearchDomainConfig"
+	}
+
+	return opUnknown
+}
+
+// extractSubDomainListingOp handles auto-tunes, progress, and VPC endpoint listing operations.
+func extractSubDomainListingOp(rest, method string) string {
+	switch {
 	case strings.HasSuffix(rest, "/autoTunes") && method == http.MethodGet:
 		return "DescribeDomainAutoTunes"
 	case strings.HasSuffix(rest, "/progress") && method == http.MethodGet:
@@ -373,9 +498,17 @@ func extractSubDomainOperation(rest, method string) string { //nolint:cyclop // 
 		return "ListVpcEndpointAccess"
 	case strings.HasSuffix(rest, "/vpcEndpoints") && method == http.MethodGet:
 		return "ListVpcEndpointsForDomain"
-	case method == http.MethodGet:
+	}
+
+	return opUnknown
+}
+
+// extractSubDomainMethodOp matches sub-domain operations by HTTP method alone.
+func extractSubDomainMethodOp(method string) string {
+	switch method {
+	case http.MethodGet:
 		return "DescribeElasticsearchDomain"
-	case method == http.MethodDelete:
+	case http.MethodDelete:
 		return "DeleteElasticsearchDomain"
 	}
 
@@ -511,11 +644,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // handlePrefixRoutes handles routes that require prefix matching with path params.
 // Returns true if the request was handled.
-//
-//nolint:cyclop,gocognit,gocyclo,funlen // large prefix router covers all dynamic routes
 func (h *Handler) handlePrefixRoutes(w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
 
+	if h.handleCCSPrefixRoutes(w, r, path) {
+		return true
+	}
+
+	if h.handlePackagePrefixRoutes(w, r, path) {
+		return true
+	}
+
+	return h.handleInstanceUpgradePrefixRoutes(w, r, path)
+}
+
+// handleCCSPrefixRoutes handles CCS and VPC endpoint prefix routes.
+func (h *Handler) handleCCSPrefixRoutes(w http.ResponseWriter, r *http.Request, path string) bool {
 	// CCS inbound routes (ordered most-specific first)
 	if strings.HasPrefix(path, elasticsearchCCSInbound+"/") {
 		switch {
@@ -534,21 +678,32 @@ func (h *Handler) handlePrefixRoutes(w http.ResponseWriter, r *http.Request) boo
 		}
 	}
 
-	// CCS outbound dynamic routes
 	if strings.HasPrefix(path, elasticsearchCCSOutbound+"/") && r.Method == http.MethodDelete {
 		h.handleDeleteOutboundCrossClusterSearchConnection(w, r)
 
 		return true
 	}
 
-	// VPC endpoint dynamic routes (check prefix with "/" to avoid matching fixed paths)
 	if strings.HasPrefix(path, elasticsearchVpcEndpoints+"/") && r.Method == http.MethodDelete {
 		h.handleDeleteVpcEndpoint(w, r)
 
 		return true
 	}
 
-	// Package routes (most-specific first to avoid prefix conflicts)
+	return false
+}
+
+// handlePackagePrefixRoutes handles package and domain-package prefix routes.
+func (h *Handler) handlePackagePrefixRoutes(w http.ResponseWriter, r *http.Request, path string) bool {
+	if h.handlePackageAssocDisassoc(w, r, path) {
+		return true
+	}
+
+	return h.handlePackageHistoryAndDelete(w, r, path)
+}
+
+// handlePackageAssocDisassoc handles package association and history listing operations.
+func (h *Handler) handlePackageAssocDisassoc(w http.ResponseWriter, r *http.Request, path string) bool {
 	switch {
 	case strings.HasPrefix(path, elasticsearchPackages+"/associate/") && r.Method == http.MethodPost:
 		h.handleAssociatePackage(w, r)
@@ -570,8 +725,14 @@ func (h *Handler) handlePrefixRoutes(w http.ResponseWriter, r *http.Request) boo
 		h.handleListDomainsForPackage(w, r)
 
 		return true
-	case strings.HasPrefix(path, elasticsearchPackages+"/") && r.Method == http.MethodDelete:
-		// Only handle if not a fixed route (/describe, /update are handled in ops table)
+	}
+
+	return false
+}
+
+// handlePackageHistoryAndDelete handles package delete and domain-package listing.
+func (h *Handler) handlePackageHistoryAndDelete(w http.ResponseWriter, r *http.Request, path string) bool {
+	if strings.HasPrefix(path, elasticsearchPackages+"/") && r.Method == http.MethodDelete {
 		rest := strings.TrimPrefix(path, elasticsearchPackages+"/")
 		if !strings.Contains(rest, "/") {
 			h.handleDeletePackage(w, r)
@@ -580,7 +741,6 @@ func (h *Handler) handlePrefixRoutes(w http.ResponseWriter, r *http.Request) boo
 		}
 	}
 
-	// Domain-scoped package routes (path prefix /2015-01-01/domain, not /2015-01-01/es/domain)
 	if strings.HasPrefix(path, elasticsearchDomainPackages+"/") &&
 		strings.HasSuffix(path, "/packages") &&
 		r.Method == http.MethodGet {
@@ -589,7 +749,11 @@ func (h *Handler) handlePrefixRoutes(w http.ResponseWriter, r *http.Request) boo
 		return true
 	}
 
-	// Instance types / limits (dynamic version segment)
+	return false
+}
+
+// handleInstanceUpgradePrefixRoutes handles instance type and upgrade prefix routes.
+func (h *Handler) handleInstanceUpgradePrefixRoutes(w http.ResponseWriter, r *http.Request, path string) bool {
 	if strings.HasPrefix(path, elasticsearchInstanceTypes+"/") && r.Method == http.MethodGet {
 		h.handleListElasticsearchInstanceTypes(w, r)
 
@@ -602,7 +766,6 @@ func (h *Handler) handlePrefixRoutes(w http.ResponseWriter, r *http.Request) boo
 		return true
 	}
 
-	// Upgrade domain history/status (dynamic domain name)
 	if strings.HasPrefix(path, elasticsearchUpgradeDomain+"/") {
 		switch {
 		case strings.HasSuffix(path, "/history") && r.Method == http.MethodGet:

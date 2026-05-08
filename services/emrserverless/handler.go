@@ -324,6 +324,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+<<<<<<< HEAD
 // emrDispatchFn is the function signature for EMR Serverless dispatch handlers.
 type emrDispatchFn func(*Handler, *echo.Context, emrRoute, []byte) error
 
@@ -387,6 +388,82 @@ func (h *Handler) dispatch(c *echo.Context, route emrRoute, body []byte) error {
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
+=======
+// dispatch routes to the appropriate handler based on the parsed route.
+func (h *Handler) dispatch(c *echo.Context, route emrRoute, body []byte) error {
+	if ok, err := h.dispatchApplicationOps(c, route, body); ok {
+		return err
+	}
+	if ok, err := h.dispatchJobRunOps(c, route, body); ok {
+		return err
+	}
+
+	return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
+}
+
+// dispatchApplicationOps handles application lifecycle operations.
+func (h *Handler) dispatchApplicationOps(c *echo.Context, route emrRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case opCreateApplication:
+
+		return true, h.handleCreateApplication(c, body)
+	case opGetApplication:
+
+		return true, h.handleGetApplication(c, route.applicationID)
+	case opListApplications:
+
+		return true, h.handleListApplications(c)
+	case opUpdateApplication:
+
+		return true, h.handleUpdateApplication(c, route.applicationID, body)
+	case opDeleteApplication:
+
+		return true, h.handleDeleteApplication(c, route.applicationID)
+	case opStartApplication:
+
+		return true, h.handleStartApplication(c, route.applicationID)
+	case opStopApplication:
+
+		return true, h.handleStopApplication(c, route.applicationID)
+	}
+
+	return false, nil
+}
+
+// dispatchJobRunOps handles job run and tagging operations.
+func (h *Handler) dispatchJobRunOps(c *echo.Context, route emrRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case opStartJobRun:
+
+		return true, h.handleStartJobRun(c, route.applicationID, body)
+	case opGetJobRun:
+
+		return true, h.handleGetJobRun(c, route.applicationID, route.jobRunID)
+	case opListJobRuns:
+
+		return true, h.handleListJobRuns(c, route.applicationID)
+	case opCancelJobRun:
+
+		return true, h.handleCancelJobRun(c, route.applicationID, route.jobRunID)
+	case opGetDashboardForJobRun:
+
+		return true, h.handleGetDashboardForJobRun(c, route.applicationID, route.jobRunID)
+	case opListJobRunAttempts:
+
+		return true, h.handleListJobRunAttempts(c, route.applicationID, route.jobRunID)
+	case opListTagsForResource:
+
+		return true, h.handleListTagsForResource(c, route.resourceARN)
+	case opTagResource:
+
+		return true, h.handleTagResource(c, route.resourceARN, body)
+	case opUntagResource:
+
+		return true, h.handleUntagResource(c, route.resourceARN, c.Request().URL.Query())
+	}
+
+	return false, nil
+>>>>>>> pr1617
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {

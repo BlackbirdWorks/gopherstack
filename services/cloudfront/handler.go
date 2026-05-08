@@ -1253,6 +1253,7 @@ func parseCFMiscPath(method, suffix string) (string, string) {
 		return opUpdateDomainAssociation, ""
 	case suffix == "verify-dns-configuration" && method == http.MethodPost:
 		return opVerifyDNSConfiguration, ""
+<<<<<<< HEAD
 	case strings.HasPrefix(suffix, "distributions/by-cache-policy-id/") && method == http.MethodGet:
 		id := strings.TrimPrefix(suffix, "distributions/by-cache-policy-id/")
 		return opListDistributionsByCachePolicyID, id
@@ -1302,6 +1303,8 @@ func parseCFMiscPath(method, suffix string) (string, string) {
 		case http.MethodPut:
 			return opSetFunctionAssociations, id
 		}
+=======
+>>>>>>> pr1617
 	}
 
 	return "Unknown", ""
@@ -1661,6 +1664,7 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 		return h.handleUpdateVpcOrigin(c, resource)
 	case opDeleteVpcOrigin:
 		return h.handleDeleteVpcOrigin(c, resource)
+<<<<<<< HEAD
 	case opGetContinuousDeploymentPolicy, opGetContinuousDeploymentPolicyConfig:
 		return h.handleGetContinuousDeploymentPolicy(c, resource)
 	case opUpdateContinuousDeploymentPolicy:
@@ -1669,6 +1673,8 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 		return h.handleDeleteContinuousDeploymentPolicy(c, resource)
 	default:
 		return errNotDispatched
+=======
+>>>>>>> pr1617
 	}
 
 	return errNotDispatched
@@ -1948,7 +1954,7 @@ func (h *Handler) dispatchStubsConnectionAndPolicy(c *echo.Context, hlp cfStubHe
 
 // dispatchStubsConnectionGroupAndCDP handles connection group and continuous deployment policy stubs.
 func (h *Handler) dispatchStubsConnectionGroupAndCDP(c *echo.Context, hlp cfStubHelpers, operation string) error {
-	noContent, emptyList := hlp.noContent, hlp.emptyList
+	noContent, emptyList, getStub := hlp.noContent, hlp.emptyList, hlp.getStub
 
 	switch operation {
 	case opUpdateConnectionGroup:
@@ -1957,10 +1963,21 @@ func (h *Handler) dispatchStubsConnectionGroupAndCDP(c *echo.Context, hlp cfStub
 		return noContent()
 	case opListConnectionGroups:
 		return emptyList("ConnectionGroupList")
+<<<<<<< HEAD
 
 	// Continuous deployment policy — promoted to real handlers.
 
 	// Resource policy.
+=======
+	case opGetContinuousDeploymentPolicy, opGetContinuousDeploymentPolicyConfig:
+		return getStub("ContinuousDeploymentPolicy", "cdp-stub")
+	case opUpdateContinuousDeploymentPolicy:
+		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ContinuousDeploymentPolicy xmlns="`+cfNS+`"/>`)
+	case opDeleteContinuousDeploymentPolicy:
+		return noContent()
+	case opListContinuousDeploymentPolicies:
+		return emptyList("ContinuousDeploymentPolicyList")
+>>>>>>> pr1617
 	case opGetResourcePolicy:
 		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ResourcePolicy xmlns="`+cfNS+`"><Policy>{}</Policy></ResourcePolicy>`)
 	case opPutResourcePolicy:

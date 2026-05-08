@@ -632,47 +632,76 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 }
 
 // ExtractResource extracts the primary resource identifier from the request body.
-func (h *Handler) ExtractResource( //nolint:cyclop // switch covers many operations
-	c *echo.Context,
-) string {
+func (h *Handler) ExtractResource(c *echo.Context) string {
 	action := h.ExtractOperation(c)
+	if r := extractCoreResourceField(c, action); r != "" {
+		return r
+	}
 
+	return extractExtendedResourceField(c, action)
+}
+
+// extractCoreResourceField extracts resource identifiers for core DMS operations.
+func extractCoreResourceField(c *echo.Context, action string) string {
 	switch action {
 	case opCreateReplicationInstance, opDescribeReplicationInstances, opDeleteReplicationInstance,
 		opModifyReplicationInstance, opRebootReplicationInstance:
+
 		return extractField(c, "ReplicationInstanceIdentifier", "ReplicationInstanceArn")
 	case opCreateEndpoint, opDescribeEndpoints, opDeleteEndpoint, opModifyEndpoint:
+
 		return extractField(c, "EndpointIdentifier", "EndpointArn")
 	case opCreateReplicationTask, opDescribeReplicationTasks,
 		opStartReplicationTask, opStopReplicationTask, opDeleteReplicationTask,
 		opModifyReplicationTask, opMoveReplicationTask:
+
 		return extractField(c, "ReplicationTaskIdentifier", "ReplicationTaskArn")
 	case opAddTagsToResource, opListTagsForResource, opRemoveTagsFromResource:
+
 		return extractField(c, "ResourceArn")
 	case opApplyPendingMaintenanceAction:
+
 		return extractField(c, "ReplicationInstanceArn")
 	case opCreateDataMigration, opDeleteDataMigration, opModifyDataMigration,
 		opStartDataMigration, opStopDataMigration:
+
 		return extractField(c, "DataMigrationName", "DataMigrationArn")
 	case opCreateDataProvider, opDeleteDataProvider, opModifyDataProvider:
+
 		return extractField(c, "DataProviderName", "DataProviderArn")
 	case opCreateEventSubscription, opDeleteEventSubscription, opModifyEventSubscription:
+
 		return extractField(c, "SubscriptionName")
+	}
+
+	return ""
+}
+
+// extractExtendedResourceField extracts resource identifiers for extended DMS operations.
+func extractExtendedResourceField(c *echo.Context, action string) string {
+	switch action {
 	case opCreateFleetAdvisorCollector, opDeleteFleetAdvisorCollector:
+
 		return extractField(c, "CollectorName")
 	case opCreateInstanceProfile, opDeleteInstanceProfile, opModifyInstanceProfile:
+
 		return extractField(c, "InstanceProfileName", "InstanceProfileArn")
 	case opCreateMigrationProject, opDeleteMigrationProject, opModifyMigrationProject:
+
 		return extractField(c, "MigrationProjectName", "MigrationProjectArn")
 	case opCreateReplicationConfig, opDeleteReplicationConfig, opModifyReplicationConfig:
+
 		return extractField(c, "ReplicationConfigIdentifier", "ReplicationConfigArn")
 	case opCreateReplicationSubnetGroup,
 		opDeleteReplicationSubnetGroup,
 		opModifyReplicationSubnetGroup:
+
 		return extractField(c, "ReplicationSubnetGroupIdentifier")
 	case opDeleteCertificate, opImportCertificate:
+
 		return extractField(c, "CertificateIdentifier", "CertificateArn")
 	case opTestConnection:
+
 		return extractField(c, "EndpointArn")
 	}
 
@@ -734,26 +763,31 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
+
 		return c.JSON(http.StatusNotFound, service.JSONErrorResponse{
 			Type:    "ResourceNotFoundFault",
 			Message: err.Error(),
 		})
 	case errors.Is(err, ErrAlreadyExists):
+
 		return c.JSON(http.StatusConflict, service.JSONErrorResponse{
 			Type:    "ResourceAlreadyExistsFault",
 			Message: err.Error(),
 		})
 	case errors.Is(err, ErrInvalidState), errors.Is(err, ErrValidation):
+
 		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
 			Type:    "InvalidResourceStateFault",
 			Message: err.Error(),
 		})
 	case errors.Is(err, errUnknownAction):
+
 		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
 			Type:    "UnknownOperationException",
 			Message: err.Error(),
 		})
 	default:
+
 		return c.JSON(http.StatusInternalServerError, service.JSONErrorResponse{
 			Type:    "InternalFailure",
 			Message: err.Error(),

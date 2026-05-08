@@ -671,62 +671,14 @@ func (h *Handler) handleGetTemplate(c *echo.Context, templateName, templateType 
 }
 
 // handleUpdateTemplate handles PUT for any template type.
-//
-//nolint:cyclop,gocognit // Fan-out by template type is inherently complex; each case is independent.
 func (h *Handler) handleUpdateTemplate(c *echo.Context, templateName, templateType string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
 	}
 
-	switch templateType {
-	case templateTypeEmail:
-		var req createEmailTemplateRequest
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
-		}
-
-		if _, updateErr := h.Backend.UpdateEmailTemplate(templateName, req); updateErr != nil {
-			return writeNotFoundOrInternal(c, updateErr)
-		}
-	case templateTypeInApp:
-		var req createInAppTemplateRequest
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
-		}
-
-		if _, updateErr := h.Backend.UpdateInAppTemplate(templateName, req); updateErr != nil {
-			return writeNotFoundOrInternal(c, updateErr)
-		}
-	case templateTypePush:
-		var req createPushTemplateRequest
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
-		}
-
-		if _, updateErr := h.Backend.UpdatePushTemplate(templateName, req); updateErr != nil {
-			return writeNotFoundOrInternal(c, updateErr)
-		}
-	case templateTypeSMS:
-		var req createSmsTemplateRequest
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
-		}
-
-		if _, updateErr := h.Backend.UpdateSmsTemplate(templateName, req); updateErr != nil {
-			return writeNotFoundOrInternal(c, updateErr)
-		}
-	case templateTypeVoice:
-		var req createVoiceTemplateRequest
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
-		}
-
-		if _, updateErr := h.Backend.UpdateVoiceTemplate(templateName, req); updateErr != nil {
-			return writeNotFoundOrInternal(c, updateErr)
-		}
-	default:
-		return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "unknown template type")
+	if updateErr := h.applyTemplateUpdate(c, body, templateName, templateType); updateErr != nil {
+		return updateErr
 	}
 
 	httputils.WriteJSON(
@@ -735,6 +687,94 @@ func (h *Handler) handleUpdateTemplate(c *echo.Context, templateName, templateTy
 		http.StatusAccepted,
 		messageBodyResponse{Message: acceptedMessage},
 	)
+
+	return nil
+}
+
+// applyTemplateUpdate applies the update for the given template type.
+func (h *Handler) applyTemplateUpdate(c *echo.Context, body []byte, templateName, templateType string) error {
+	switch templateType {
+	case templateTypeEmail:
+		return h.updateEmailTemplateFromBody(c, body, templateName)
+	case templateTypeInApp:
+		return h.updateInAppTemplateFromBody(c, body, templateName)
+	case templateTypePush:
+		return h.updatePushTemplateFromBody(c, body, templateName)
+	case templateTypeSMS:
+		return h.updateSMSTemplateFromBody(c, body, templateName)
+	case templateTypeVoice:
+		return h.updateVoiceTemplateFromBody(c, body, templateName)
+	}
+
+	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "unknown template type")
+}
+
+// updateEmailTemplateFromBody parses and applies an email template update.
+func (h *Handler) updateEmailTemplateFromBody(c *echo.Context, body []byte, name string) error {
+	var req createEmailTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if _, err := h.Backend.UpdateEmailTemplate(name, req); err != nil {
+		return writeNotFoundOrInternal(c, err)
+	}
+
+	return nil
+}
+
+// updateInAppTemplateFromBody parses and applies an in-app template update.
+func (h *Handler) updateInAppTemplateFromBody(c *echo.Context, body []byte, name string) error {
+	var req createInAppTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if _, err := h.Backend.UpdateInAppTemplate(name, req); err != nil {
+		return writeNotFoundOrInternal(c, err)
+	}
+
+	return nil
+}
+
+// updatePushTemplateFromBody parses and applies a push template update.
+func (h *Handler) updatePushTemplateFromBody(c *echo.Context, body []byte, name string) error {
+	var req createPushTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if _, err := h.Backend.UpdatePushTemplate(name, req); err != nil {
+		return writeNotFoundOrInternal(c, err)
+	}
+
+	return nil
+}
+
+// updateSMSTemplateFromBody parses and applies an SMS template update.
+func (h *Handler) updateSMSTemplateFromBody(c *echo.Context, body []byte, name string) error {
+	var req createSmsTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if _, err := h.Backend.UpdateSmsTemplate(name, req); err != nil {
+		return writeNotFoundOrInternal(c, err)
+	}
+
+	return nil
+}
+
+// updateVoiceTemplateFromBody parses and applies a voice template update.
+func (h *Handler) updateVoiceTemplateFromBody(c *echo.Context, body []byte, name string) error {
+	var req createVoiceTemplateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	}
+
+	if _, err := h.Backend.UpdateVoiceTemplate(name, req); err != nil {
+		return writeNotFoundOrInternal(c, err)
+	}
 
 	return nil
 }

@@ -333,79 +333,117 @@ func (e *Executor) executePass(state *State, input any) (string, any, error) {
 
 // executeWait handles Wait state.
 //
-//nolint:cyclop,gocognit // inherently complex due to multiple wait modes
+
+// executeWait handles Wait state.
 func (e *Executor) executeWait(ctx context.Context, state *State, input any) (string, any, error) {
-	var waitDuration time.Duration
-
-	switch {
-	case state.Seconds > 0:
-		waitDuration = time.Duration(state.Seconds) * time.Second
-
-	case state.SecondsPath != "":
-		val, err := applyPath(state.SecondsPath, input, e.jsonPathCache)
-		if err != nil {
-			return "", nil, fmt.Errorf("SecondsPath error: %w", err)
-		}
-
-		secs, ok := toFloat(val)
-		if !ok {
-			return "", nil, ErrSecondsPathNotNumber
-		}
-
-		if secs > 0 {
-			waitDuration = time.Duration(secs * float64(time.Second))
-		}
-
-	case state.Timestamp != "":
-		t, err := time.Parse(time.RFC3339, state.Timestamp)
-		if err != nil {
-			return "", nil, fmt.Errorf("timestamp parse error: %w", err)
-		}
-
-		if d := time.Until(t); d > 0 {
-			waitDuration = d
-		}
-
-	case state.TimestampPath != "":
-		val, err := applyPath(state.TimestampPath, input, e.jsonPathCache)
-		if err != nil {
-			return "", nil, fmt.Errorf("TimestampPath error: %w", err)
-		}
-
-		tsStr, ok := val.(string)
-		if !ok {
-			return "", nil, ErrTimestampPathNotString
-		}
-
-		t, err := time.Parse(time.RFC3339, tsStr)
-		if err != nil {
-			return "", nil, fmt.Errorf("TimestampPath value parse error: %w", err)
-		}
-
-		if d := time.Until(t); d > 0 {
-			waitDuration = d
-		}
+	waitDuration, err := e.resolveWaitDuration(state, input)
+	if err != nil {
+		return "", nil, err
 	}
 
 	if waitDuration > 0 {
-		timer := time.NewTimer(waitDuration)
-		defer func() {
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-		}()
-
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			return "", nil, ctx.Err()
+		if err := e.waitForDuration(ctx, waitDuration); err != nil {
+			return "", nil, err
 		}
 	}
 
 	return state.Next, input, nil
+}
+
+// resolveWaitDuration determines the wait duration from the state configuration.
+func (e *Executor) resolveWaitDuration(state *State, input any) (time.Duration, error) {
+	switch {
+	case state.Seconds > 0:
+		return time.Duration(state.Seconds) * time.Second, nil
+
+	case state.SecondsPath != "":
+		return e.resolveSecondsPath(state.SecondsPath, input)
+
+	case state.Timestamp != "":
+		return resolveTimestampDuration(state.Timestamp)
+
+	case state.TimestampPath != "":
+		return e.resolveTimestampPath(state.TimestampPath, input)
+	}
+
+	return 0, nil
+}
+
+// resolveSecondsPath resolves the wait duration from a path to a numeric value.
+func (e *Executor) resolveSecondsPath(path string, input any) (time.Duration, error) {
+	val, err := applyPath(path, input, e.jsonPathCache)
+	if err != nil {
+		return 0, fmt.Errorf("SecondsPath error: %w", err)
+	}
+
+	secs, ok := toFloat(val)
+	if !ok {
+		return 0, ErrSecondsPathNotNumber
+	}
+
+	if secs > 0 {
+		return time.Duration(secs * float64(time.Second)), nil
+	}
+
+	return 0, nil
+}
+
+// resolveTimestampDuration resolves the wait duration from a timestamp string.
+func resolveTimestampDuration(timestamp string) (time.Duration, error) {
+	t, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		return 0, fmt.Errorf("timestamp parse error: %w", err)
+	}
+
+	if d := time.Until(t); d > 0 {
+		return d, nil
+	}
+
+	return 0, nil
+}
+
+// resolveTimestampPath resolves the wait duration from a path to a timestamp string.
+func (e *Executor) resolveTimestampPath(path string, input any) (time.Duration, error) {
+	val, err := applyPath(path, input, e.jsonPathCache)
+	if err != nil {
+		return 0, fmt.Errorf("TimestampPath error: %w", err)
+	}
+
+	tsStr, ok := val.(string)
+	if !ok {
+		return 0, ErrTimestampPathNotString
+	}
+
+	t, err := time.Parse(time.RFC3339, tsStr)
+	if err != nil {
+		return 0, fmt.Errorf("TimestampPath value parse error: %w", err)
+	}
+
+	if d := time.Until(t); d > 0 {
+		return d, nil
+	}
+
+	return 0, nil
+}
+
+// waitForDuration waits for the specified duration or context cancellation.
+func (e *Executor) waitForDuration(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // executeChoice handles Choice state.
@@ -1419,41 +1457,42 @@ func matchVariableCondition(rule *ChoiceRule, varVal, input any, pathCache *sync
 }
 
 // matchStringCondition checks string comparison conditions.
-//
-//nolint:gocyclo,cyclop,gocognit,funlen // many string comparison operators
 func matchStringCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
-	if rule.StringEquals != nil {
-		s, ok := varVal.(string)
+	if result, matched := matchStringLiteralCondition(rule, varVal); matched {
+		return result, matched
+	}
 
+	return matchStringPathCondition(rule, varVal, input, pathCache)
+}
+
+// matchStringLiteralCondition checks direct string comparison conditions.
+func matchStringLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
+	s, ok := varVal.(string)
+
+	switch {
+	case rule.StringEquals != nil:
 		return ok && s == *rule.StringEquals, true
-	}
-
-	if rule.StringLessThan != nil {
-		s, ok := varVal.(string)
-
+	case rule.StringLessThan != nil:
 		return ok && s < *rule.StringLessThan, true
-	}
-
-	if rule.StringGreaterThan != nil {
-		s, ok := varVal.(string)
-
+	case rule.StringGreaterThan != nil:
 		return ok && s > *rule.StringGreaterThan, true
-	}
-
-	if rule.StringLessThanEquals != nil {
-		s, ok := varVal.(string)
-
+	case rule.StringLessThanEquals != nil:
 		return ok && s <= *rule.StringLessThanEquals, true
-	}
-
-	if rule.StringGreaterThanEquals != nil {
-		s, ok := varVal.(string)
-
+	case rule.StringGreaterThanEquals != nil:
 		return ok && s >= *rule.StringGreaterThanEquals, true
 	}
 
-	if rule.StringEqualsPath != nil {
-		ref, err := applyPath(*rule.StringEqualsPath, input, pathCache)
+	return false, false
+}
+
+// matchStringPathCondition checks path-based string comparison conditions.
+func matchStringPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+	comparePath := func(path *string, cmp func(s1, s2 string) bool) (bool, bool) {
+		if path == nil {
+			return false, false
+		}
+
+		ref, err := applyPath(*path, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1461,96 +1500,69 @@ func matchStringCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.M
 		s1, ok1 := varVal.(string)
 		s2, ok2 := ref.(string)
 
-		return ok1 && ok2 && s1 == s2, true
+		return ok1 && ok2 && cmp(s1, s2), true
 	}
 
-	if rule.StringLessThanPath != nil {
-		ref, err := applyPath(*rule.StringLessThanPath, input, pathCache)
-		if err != nil {
-			return false, true
-		}
-
-		s1, ok1 := varVal.(string)
-		s2, ok2 := ref.(string)
-
-		return ok1 && ok2 && s1 < s2, true
+	if r, m := comparePath(rule.StringEqualsPath, func(a, b string) bool { return a == b }); m {
+		return r, m
 	}
 
-	if rule.StringGreaterThanPath != nil {
-		ref, err := applyPath(*rule.StringGreaterThanPath, input, pathCache)
-		if err != nil {
-			return false, true
-		}
-
-		s1, ok1 := varVal.(string)
-		s2, ok2 := ref.(string)
-
-		return ok1 && ok2 && s1 > s2, true
+	if r, m := comparePath(rule.StringLessThanPath, func(a, b string) bool { return a < b }); m {
+		return r, m
 	}
 
-	if rule.StringLessThanEqualsPath != nil {
-		ref, err := applyPath(*rule.StringLessThanEqualsPath, input, pathCache)
-		if err != nil {
-			return false, true
-		}
-
-		s1, ok1 := varVal.(string)
-		s2, ok2 := ref.(string)
-
-		return ok1 && ok2 && s1 <= s2, true
+	if r, m := comparePath(rule.StringGreaterThanPath, func(a, b string) bool { return a > b }); m {
+		return r, m
 	}
 
-	if rule.StringGreaterThanEqualsPath != nil {
-		ref, err := applyPath(*rule.StringGreaterThanEqualsPath, input, pathCache)
-		if err != nil {
-			return false, true
-		}
+	if r, m := comparePath(rule.StringLessThanEqualsPath, func(a, b string) bool { return a <= b }); m {
+		return r, m
+	}
 
-		s1, ok1 := varVal.(string)
-		s2, ok2 := ref.(string)
-
-		return ok1 && ok2 && s1 >= s2, true
+	if r, m := comparePath(rule.StringGreaterThanEqualsPath, func(a, b string) bool { return a >= b }); m {
+		return r, m
 	}
 
 	return false, false
 }
 
 // matchNumericCondition checks numeric comparison conditions.
-//
-//nolint:gocyclo,cyclop,gocognit,funlen // many numeric comparison operators
 func matchNumericCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
-	if rule.NumericEquals != nil {
-		n, ok := toFloat(varVal)
+	if result, matched := matchNumericLiteralCondition(rule, varVal); matched {
+		return result, matched
+	}
 
+	return matchNumericPathCondition(rule, varVal, input, pathCache)
+}
+
+// matchNumericLiteralCondition checks direct numeric comparison conditions.
+func matchNumericLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
+	n, ok := toFloat(varVal)
+
+	switch {
+	case rule.NumericEquals != nil:
 		return ok && n == *rule.NumericEquals, true
-	}
-
-	if rule.NumericLessThan != nil {
-		n, ok := toFloat(varVal)
-
+	case rule.NumericLessThan != nil:
 		return ok && n < *rule.NumericLessThan, true
-	}
-
-	if rule.NumericGreaterThan != nil {
-		n, ok := toFloat(varVal)
-
+	case rule.NumericGreaterThan != nil:
 		return ok && n > *rule.NumericGreaterThan, true
-	}
-
-	if rule.NumericLessThanEquals != nil {
-		n, ok := toFloat(varVal)
-
+	case rule.NumericLessThanEquals != nil:
 		return ok && n <= *rule.NumericLessThanEquals, true
-	}
-
-	if rule.NumericGreaterThanEquals != nil {
-		n, ok := toFloat(varVal)
-
+	case rule.NumericGreaterThanEquals != nil:
 		return ok && n >= *rule.NumericGreaterThanEquals, true
 	}
 
-	if rule.NumericEqualsPath != nil {
-		ref, err := applyPath(*rule.NumericEqualsPath, input, pathCache)
+	return false, false
+}
+
+// matchNumericPathCondition checks path-based numeric comparison conditions.
+func matchNumericPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+	compareNumPath := func(path *string, cmp func(n1, n2 float64) bool) (bool, bool) {
+		if path == nil {
+			return false, false
+		}
+
+		ref, err := applyPath(*path, input, pathCache)
 		if err != nil {
 			return false, true
 		}
@@ -1558,55 +1570,27 @@ func matchNumericCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.
 		n1, ok1 := toFloat(varVal)
 		n2, ok2 := toFloat(ref)
 
-		return ok1 && ok2 && n1 == n2, true
+		return ok1 && ok2 && cmp(n1, n2), true
 	}
 
-	if rule.NumericLessThanPath != nil {
-		ref, err := applyPath(*rule.NumericLessThanPath, input, pathCache)
-		if err != nil {
-			return false, true
-		}
-
-		n1, ok1 := toFloat(varVal)
-		n2, ok2 := toFloat(ref)
-
-		return ok1 && ok2 && n1 < n2, true
+	if r, m := compareNumPath(rule.NumericEqualsPath, func(a, b float64) bool { return a == b }); m {
+		return r, m
 	}
 
-	if rule.NumericGreaterThanPath != nil {
-		ref, err := applyPath(*rule.NumericGreaterThanPath, input, pathCache)
-		if err != nil {
-			return false, true
-		}
-
-		n1, ok1 := toFloat(varVal)
-		n2, ok2 := toFloat(ref)
-
-		return ok1 && ok2 && n1 > n2, true
+	if r, m := compareNumPath(rule.NumericLessThanPath, func(a, b float64) bool { return a < b }); m {
+		return r, m
 	}
 
-	if rule.NumericLessThanEqualsPath != nil {
-		ref, err := applyPath(*rule.NumericLessThanEqualsPath, input, pathCache)
-		if err != nil {
-			return false, true
-		}
-
-		n1, ok1 := toFloat(varVal)
-		n2, ok2 := toFloat(ref)
-
-		return ok1 && ok2 && n1 <= n2, true
+	if r, m := compareNumPath(rule.NumericGreaterThanPath, func(a, b float64) bool { return a > b }); m {
+		return r, m
 	}
 
-	if rule.NumericGreaterThanEqualsPath != nil {
-		ref, err := applyPath(*rule.NumericGreaterThanEqualsPath, input, pathCache)
-		if err != nil {
-			return false, true
-		}
+	if r, m := compareNumPath(rule.NumericLessThanEqualsPath, func(a, b float64) bool { return a <= b }); m {
+		return r, m
+	}
 
-		n1, ok1 := toFloat(varVal)
-		n2, ok2 := toFloat(ref)
-
-		return ok1 && ok2 && n1 >= n2, true
+	if r, m := compareNumPath(rule.NumericGreaterThanEqualsPath, func(a, b float64) bool { return a >= b }); m {
+		return r, m
 	}
 
 	return false, false
@@ -1636,72 +1620,80 @@ func matchBooleanCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.
 }
 
 // matchTimestampCondition checks timestamp comparison conditions.
-//
-//nolint:cyclop // many timestamp comparison operators
 func matchTimestampCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
-	if rule.TimestampEquals != nil {
+	if result, matched := matchTimestampLiteralCondition(rule, varVal); matched {
+		return result, matched
+	}
+
+	return matchTimestampPathCondition(rule, varVal, input, pathCache)
+}
+
+// matchTimestampLiteralCondition checks direct timestamp comparison conditions.
+func matchTimestampLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
+	compareLiteral := func(tsPtr *string, cmp func(t1, t2 time.Time) bool) (bool, bool) {
+		if tsPtr == nil {
+			return false, false
+		}
+
 		t1, err1 := parseTimestamp(varVal)
-		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampEquals)
+		t2, err2 := time.Parse(time.RFC3339, *tsPtr)
 
-		return err1 == nil && err2 == nil && t1.Equal(t2), true
+		return err1 == nil && err2 == nil && cmp(t1, t2), true
 	}
 
-	if rule.TimestampLessThan != nil {
-		t1, err1 := parseTimestamp(varVal)
-		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampLessThan)
-
-		return err1 == nil && err2 == nil && t1.Before(t2), true
+	if r, m := compareLiteral(rule.TimestampEquals, time.Time.Equal); m {
+		return r, m
 	}
 
-	if rule.TimestampGreaterThan != nil {
-		t1, err1 := parseTimestamp(varVal)
-		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampGreaterThan)
-
-		return err1 == nil && err2 == nil && t1.After(t2), true
+	if r, m := compareLiteral(rule.TimestampLessThan, time.Time.Before); m {
+		return r, m
 	}
 
-	if rule.TimestampLessThanEquals != nil {
-		t1, err1 := parseTimestamp(varVal)
-		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampLessThanEquals)
-
-		return err1 == nil && err2 == nil && !t1.After(t2), true
+	if r, m := compareLiteral(rule.TimestampGreaterThan, time.Time.After); m {
+		return r, m
 	}
 
-	if rule.TimestampGreaterThanEquals != nil {
-		t1, err1 := parseTimestamp(varVal)
-		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampGreaterThanEquals)
-
-		return err1 == nil && err2 == nil && !t1.Before(t2), true
+	if r, m := compareLiteral(rule.TimestampLessThanEquals, func(t1, t2 time.Time) bool { return !t1.After(t2) }); m {
+		return r, m
 	}
 
-	if rule.TimestampEqualsPath != nil {
-		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampEqualsPath, input, pathCache)
-
-		return err == nil && t1.Equal(t2), true
+	if r, m := compareLiteral(rule.TimestampGreaterThanEquals, func(t1, t2 time.Time) bool { return !t1.Before(t2) }); m {
+		return r, m
 	}
 
-	if rule.TimestampLessThanPath != nil {
-		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampLessThanPath, input, pathCache)
+	return false, false
+}
 
-		return err == nil && t1.Before(t2), true
+// matchTimestampPathCondition checks path-based timestamp comparison conditions.
+func matchTimestampPathCondition(rule *ChoiceRule, varVal, input any, pathCache *sync.Map) (bool, bool) {
+	comparePath := func(path *string, cmp func(t1, t2 time.Time) bool) (bool, bool) {
+		if path == nil {
+			return false, false
+		}
+
+		t1, t2, err := resolveTimestampPath(varVal, *path, input, pathCache)
+
+		return err == nil && cmp(t1, t2), true
 	}
 
-	if rule.TimestampGreaterThanPath != nil {
-		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampGreaterThanPath, input, pathCache)
-
-		return err == nil && t1.After(t2), true
+	if r, m := comparePath(rule.TimestampEqualsPath, time.Time.Equal); m {
+		return r, m
 	}
 
-	if rule.TimestampLessThanEqualsPath != nil {
-		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampLessThanEqualsPath, input, pathCache)
-
-		return err == nil && !t1.After(t2), true
+	if r, m := comparePath(rule.TimestampLessThanPath, time.Time.Before); m {
+		return r, m
 	}
 
-	if rule.TimestampGreaterThanEqualsPath != nil {
-		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampGreaterThanEqualsPath, input, pathCache)
+	if r, m := comparePath(rule.TimestampGreaterThanPath, time.Time.After); m {
+		return r, m
+	}
 
-		return err == nil && !t1.Before(t2), true
+	if r, m := comparePath(rule.TimestampLessThanEqualsPath, func(t1, t2 time.Time) bool { return !t1.After(t2) }); m {
+		return r, m
+	}
+
+	if r, m := comparePath(rule.TimestampGreaterThanEqualsPath, func(t1, t2 time.Time) bool { return !t1.Before(t2) }); m {
+		return r, m
 	}
 
 	return false, false
@@ -1863,56 +1855,73 @@ func applyParametersTemplate(template json.RawMessage, input any) (any, error) {
 
 // evalTemplate recursively evaluates a template structure against the input context.
 //
-//nolint:gocognit // recursive template evaluation handles explicit type branches.
+
+// evalTemplate recursively evaluates a template against input.
 func evalTemplate(tmpl, input any) (any, error) {
 	switch v := tmpl.(type) {
 	case map[string]any:
-		result := make(map[string]any, len(v))
-
-		for key, val := range v {
-			if strings.HasSuffix(key, ".$") {
-				actualKey := key[:len(key)-2]
-
-				strVal, ok := val.(string)
-				if !ok {
-					return nil, fmt.Errorf("%w: %q", ErrReferenceKeyNotString, key)
-				}
-
-				evaluated, err := evaluateReference(strVal, input)
-				if err != nil {
-					return nil, fmt.Errorf("evaluating reference %q: %w", key, err)
-				}
-
-				result[actualKey] = evaluated
-			} else {
-				sub, err := evalTemplate(val, input)
-				if err != nil {
-					return nil, err
-				}
-
-				result[key] = sub
-			}
-		}
-
-		return result, nil
-
+		return evalTemplateMap(v, input)
 	case []any:
-		result := make([]any, len(v))
+		return evalTemplateSlice(v, input)
+	default:
+		return tmpl, nil
+	}
+}
 
-		for i, item := range v {
-			sub, err := evalTemplate(item, input)
+// evalTemplateMap evaluates a map template, resolving reference keys (ending in ".$").
+func evalTemplateMap(v map[string]any, input any) (map[string]any, error) {
+	result := make(map[string]any, len(v))
+
+	for key, val := range v {
+		if strings.HasSuffix(key, ".$") {
+			evaluated, err := evalTemplateRefKey(key, val, input)
 			if err != nil {
 				return nil, err
 			}
 
-			result[i] = sub
+			result[key[:len(key)-2]] = evaluated
+		} else {
+			sub, err := evalTemplate(val, input)
+			if err != nil {
+				return nil, err
+			}
+
+			result[key] = sub
+		}
+	}
+
+	return result, nil
+}
+
+// evalTemplateRefKey evaluates a reference key (ending in ".$").
+func evalTemplateRefKey(key string, val, input any) (any, error) {
+	strVal, ok := val.(string)
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrReferenceKeyNotString, key)
+	}
+
+	evaluated, err := evaluateReference(strVal, input)
+	if err != nil {
+		return nil, fmt.Errorf("evaluating reference %q: %w", key, err)
+	}
+
+	return evaluated, nil
+}
+
+// evalTemplateSlice evaluates a slice template.
+func evalTemplateSlice(v []any, input any) ([]any, error) {
+	result := make([]any, len(v))
+
+	for i, item := range v {
+		sub, err := evalTemplate(item, input)
+		if err != nil {
+			return nil, err
 		}
 
-		return result, nil
-
-	default:
-		return tmpl, nil
+		result[i] = sub
 	}
+
+	return result, nil
 }
 
 // evaluateReference resolves a JSONPath expression or intrinsic function call.

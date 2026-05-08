@@ -274,8 +274,9 @@ func (b *InMemoryBackend) GetResources(input *GetResourcesInput) (*GetResourcesO
 		return nil, fmt.Errorf("%w: TagFilters exceeds maximum of %d", ErrValidation, maxTagFilters)
 	}
 
-	b.mu.RLock("GetResources")
-	defer b.mu.RUnlock()
+	// Use a write lock because getResources may update the cache.
+	b.mu.Lock("GetResources")
+	defer b.mu.Unlock()
 
 	all := b.getResources(input.TagFilters, input.ResourceTypeFilters)
 	all = applyResourceTypeFilter(all, input.ResourceTypeFilters)

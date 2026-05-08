@@ -2,6 +2,7 @@ package sesv2
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -28,14 +29,33 @@ const (
 )
 
 // dispatchExtendedOps handles all 89 newly-added SES v2 operations.
-//
-//nolint:cyclop,gocyclo,funlen // large switch dispatch for all 89 new ops
-func (h *Handler) dispatchExtendedOps(
-	c *echo.Context,
-	op, resource string,
-) (any, error) {
+func (h *Handler) dispatchExtendedOps(c *echo.Context, op, resource string) (any, error) {
+	if r, err := h.dispatchAccountAndSuppressionOps(c, op, resource); !errors.Is(err, errOpNotHandled) {
+		return r, err
+	}
+
+	if r, err := h.dispatchContactAndVerificationOps(c, op, resource); !errors.Is(err, errOpNotHandled) {
+		return r, err
+	}
+
+	if r, err := h.dispatchDedicatedIPAndDeliverabilityOps(c, op, resource); !errors.Is(err, errOpNotHandled) {
+		return r, err
+	}
+
+	if r, err := h.dispatchTemplateAndJobOps(c, op, resource); !errors.Is(err, errOpNotHandled) {
+		return r, err
+	}
+
+	if r, err := h.dispatchIdentityAndConfigSetOps(c, op, resource); !errors.Is(err, errOpNotHandled) {
+		return r, err
+	}
+
+	return h.dispatchEndpointAndTenantOps(c, op, resource)
+}
+
+// dispatchAccountAndSuppressionOps handles account and suppression operations.
+func (h *Handler) dispatchAccountAndSuppressionOps(c *echo.Context, op, resource string) (any, error) {
 	switch op {
-	// account
 	case opGetAccount:
 		return h.handleGetAccount()
 	case opGetBlacklistReports:
@@ -50,7 +70,6 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handlePutAccountSuppressionAttributes()
 	case opPutAccountVdmAttributes:
 		return h.handlePutAccountVdmAttributes()
-	// suppressed destinations
 	case opPutSuppressedDestination:
 		return h.handlePutSuppressedDestination(c)
 	case opGetSuppressedDestination:
@@ -59,7 +78,14 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handleDeleteSuppressedDestination(resource)
 	case opListSuppressedDestinations:
 		return h.handleListSuppressedDestinations(c)
-	// contact lists / contacts
+	}
+
+	return nil, errOpNotHandled
+}
+
+// dispatchContactAndVerificationOps handles contact list, contact, and verification template operations.
+func (h *Handler) dispatchContactAndVerificationOps(c *echo.Context, op, resource string) (any, error) {
+	switch op {
 	case opGetContactList:
 		return h.handleGetContactList(resource)
 	case opDeleteContactList:
@@ -76,7 +102,6 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handleUpdateContact(c, resource)
 	case opListContacts:
 		return h.handleListContacts(c, resource)
-	// custom verification templates
 	case opGetCustomVerificationEmailTemplate:
 		return h.handleGetCustomVerificationEmailTemplate(resource)
 	case opDeleteCustomVerificationEmailTemplate:
@@ -87,7 +112,23 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handleListCustomVerificationEmailTemplates(c)
 	case opSendCustomVerificationEmail:
 		return h.handleSendCustomVerificationEmail(c)
-	// dedicated IP pools
+	}
+
+	return nil, errOpNotHandled
+}
+
+// dispatchDedicatedIPAndDeliverabilityOps handles dedicated IP pool and deliverability operations.
+func (h *Handler) dispatchDedicatedIPAndDeliverabilityOps(c *echo.Context, op, resource string) (any, error) {
+	if r, err := h.dispatchDedicatedIPOps(c, op, resource); !errors.Is(err, errOpNotHandled) {
+		return r, err
+	}
+
+	return h.dispatchDeliverabilityOps(c, op, resource)
+}
+
+// dispatchDedicatedIPOps handles dedicated IP pool operations.
+func (h *Handler) dispatchDedicatedIPOps(c *echo.Context, op, resource string) (any, error) {
+	switch op {
 	case opGetDedicatedIPPool:
 		return h.handleGetDedicatedIPPool(resource)
 	case opDeleteDedicatedIPPool:
@@ -104,7 +145,14 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handlePutDedicatedIPPoolScalingAttributes(c, resource)
 	case opPutDedicatedIPWarmupAttributes:
 		return h.handlePutDedicatedIPWarmupAttributes(resource)
-	// deliverability
+	}
+
+	return nil, errOpNotHandled
+}
+
+// dispatchDeliverabilityOps handles deliverability and insights operations.
+func (h *Handler) dispatchDeliverabilityOps(c *echo.Context, op, resource string) (any, error) {
+	switch op {
 	case opGetDeliverabilityDashboardOptions:
 		return h.handleGetDeliverabilityDashboardOptions()
 	case opPutDeliverabilityDashboardOption:
@@ -125,7 +173,14 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handleGetMessageInsights(resource)
 	case opListRecommendations:
 		return h.handleListRecommendations(c)
-	// email templates
+	}
+
+	return nil, errOpNotHandled
+}
+
+// dispatchTemplateAndJobOps handles email template, export/import job operations.
+func (h *Handler) dispatchTemplateAndJobOps(c *echo.Context, op, resource string) (any, error) {
+	switch op {
 	case opGetEmailTemplate:
 		return h.handleGetEmailTemplate(resource)
 	case opDeleteEmailTemplate:
@@ -136,7 +191,6 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handleListEmailTemplates(c)
 	case opTestRenderEmailTemplate:
 		return h.handleTestRenderEmailTemplate(c, resource)
-	// export / import jobs
 	case opCreateExportJob:
 		return h.handleCreateExportJob(c)
 	case opGetExportJob:
@@ -149,14 +203,31 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handleGetImportJob(resource)
 	case opListImportJobs:
 		return h.handleListImportJobs(c)
-	// email identity policies
+	case opSendBulkEmail:
+		return h.handleSendBulkEmail(c)
+	}
+
+	return nil, errOpNotHandled
+}
+
+// dispatchIdentityAndConfigSetOps handles email identity and config set operations.
+func (h *Handler) dispatchIdentityAndConfigSetOps(c *echo.Context, op, resource string) (any, error) {
+	if r, err := h.dispatchEmailIdentityOps(c, op, resource); !errors.Is(err, errOpNotHandled) {
+		return r, err
+	}
+
+	return h.dispatchConfigSetAttrOps(c, op, resource)
+}
+
+// dispatchEmailIdentityOps handles email identity policy and attribute operations.
+func (h *Handler) dispatchEmailIdentityOps(c *echo.Context, op, resource string) (any, error) {
+	switch op {
 	case opGetEmailIdentityPolicies:
 		return h.handleGetEmailIdentityPolicies(resource)
 	case opDeleteEmailIdentityPolicy:
 		return h.handleDeleteEmailIdentityPolicy(c, resource)
 	case opUpdateEmailIdentityPolicy:
 		return h.handleUpdateEmailIdentityPolicy(c, resource)
-	// email identity attributes
 	case opPutEmailIdentityConfigurationSetAttributes:
 		return h.handlePutEmailIdentityConfigurationSetAttributes()
 	case opPutEmailIdentityDkimAttributes:
@@ -167,14 +238,20 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handlePutEmailIdentityFeedbackAttributes()
 	case opPutEmailIdentityMailFromAttributes:
 		return h.handlePutEmailIdentityMailFromAttributes()
-	// configuration set event destinations
 	case opGetConfigurationSetEventDestinations:
 		return h.handleGetConfigurationSetEventDestinations(resource)
 	case opDeleteConfigurationSetEventDestination:
 		return h.handleDeleteConfigurationSetEventDestination(c, resource)
 	case opUpdateConfigurationSetEventDestination:
 		return h.handleUpdateConfigurationSetEventDestination(c, resource)
-	// configuration set attributes
+	}
+
+	return nil, errOpNotHandled
+}
+
+// dispatchConfigSetAttrOps handles configuration set attribute put operations.
+func (h *Handler) dispatchConfigSetAttrOps(_ *echo.Context, op, _ string) (any, error) {
+	switch op {
 	case opPutConfigurationSetArchivingOptions:
 		return h.handlePutConfigurationSetArchivingOptions()
 	case opPutConfigurationSetDeliveryOptions:
@@ -189,10 +266,23 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handlePutConfigurationSetTrackingOptions()
 	case opPutConfigurationSetVdmOptions:
 		return h.handlePutConfigurationSetVdmOptions()
-	// bulk email
-	case opSendBulkEmail:
-		return h.handleSendBulkEmail(c)
-	// multi-region endpoints
+	}
+
+	return nil, errOpNotHandled
+}
+
+// dispatchEndpointAndTenantOps handles multi-region endpoint, tenant, and reputation entity operations.
+func (h *Handler) dispatchEndpointAndTenantOps(c *echo.Context, op, resource string) (any, error) {
+	if r, err := h.dispatchEndpointTenantCRUDOps(c, op, resource); !errors.Is(err, errOpNotHandled) {
+		return r, err
+	}
+
+	return h.dispatchReputationEntityOps(c, op, resource)
+}
+
+// dispatchEndpointTenantCRUDOps handles multi-region endpoint and tenant operations.
+func (h *Handler) dispatchEndpointTenantCRUDOps(c *echo.Context, op, resource string) (any, error) {
+	switch op {
 	case opCreateMultiRegionEndpoint:
 		return h.handleCreateMultiRegionEndpoint(c)
 	case opGetMultiRegionEndpoint:
@@ -201,7 +291,6 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handleDeleteMultiRegionEndpoint(resource)
 	case opListMultiRegionEndpoints:
 		return h.handleListMultiRegionEndpoints(c)
-	// tenants
 	case opCreateTenant:
 		return h.handleCreateTenant(c)
 	case opGetTenant:
@@ -218,7 +307,14 @@ func (h *Handler) dispatchExtendedOps(
 		return h.handleListResourceTenants(c)
 	case opListTenantResources:
 		return h.handleListTenantResources(c, resource)
-	// reputation entities
+	}
+
+	return nil, errOpNotHandled
+}
+
+// dispatchReputationEntityOps handles reputation entity operations.
+func (h *Handler) dispatchReputationEntityOps(c *echo.Context, op, resource string) (any, error) {
+	switch op {
 	case opGetReputationEntity:
 		return h.handleGetReputationEntity(resource)
 	case opListReputationEntities:
@@ -238,11 +334,19 @@ func (h *Handler) dispatchExtendedOps(
 // It is called from parseMiscPaths when the first segment is not handled by the
 // original set of patterns.
 //
-//nolint:cyclop,gocyclo // top-level path router for all new paths
-func parseExtendedPaths(
-	method string,
-	segments []string,
-) (string, string) {
+
+// parseExtendedPaths parses paths for newly-added operations.
+func parseExtendedPaths(method string, segments []string) (string, string) {
+	if op, id := parseExtendedPathsCoreGroup(method, segments); op != unknownAction {
+		return op, id
+	}
+
+	return parseExtendedPathsExtGroup(method, segments)
+}
+
+// parseExtendedPathsCoreGroup handles core extended paths (account through recommendations).
+// parseExtendedPathsCoreGroup handles core extended paths (account through recommendations).
+func parseExtendedPathsCoreGroup(method string, segments []string) (string, string) {
 	switch segments[0] {
 	case "account":
 		return parseAccountPath(method, segments)
@@ -258,6 +362,14 @@ func parseExtendedPaths(
 		return parseDedicatedIPsPath(method, segments)
 	case "deliverability-dashboard":
 		return parseDeliverabilityExtPath(method, segments)
+	}
+
+	return parseExtendedInsightsPath(method, segments)
+}
+
+// parseExtendedInsightsPath handles insights and recommendations paths.
+func parseExtendedInsightsPath(method string, segments []string) (string, string) {
+	switch segments[0] {
 	case "email-insights":
 		if method == http.MethodGet && len(segments) == 2 {
 			return opGetEmailAddressInsights, segments[1]
@@ -270,6 +382,14 @@ func parseExtendedPaths(
 		if method == http.MethodGet && len(segments) == 1 {
 			return opListRecommendations, ""
 		}
+	}
+
+	return unknownAction, ""
+}
+
+// parseExtendedPathsExtGroup handles extended paths (templates through reputation entities).
+func parseExtendedPathsExtGroup(method string, segments []string) (string, string) {
+	switch segments[0] {
 	case "templates":
 		return parseTemplateExtPath(method, segments)
 	case "export-jobs":
@@ -277,24 +397,15 @@ func parseExtendedPaths(
 	case "import-jobs":
 		return parseImportJobPath(method, segments)
 	case "vdm-attributes":
-		if method == http.MethodGet {
-			return opGetAccount, ""
-		}
-		if method == http.MethodPut {
-			return opPutAccountVdmAttributes, ""
-		}
+		return parseVdmAttributesPath(method)
 	case "outbound-bulk-emails":
-		if method == http.MethodPost && len(segments) == 1 {
-			return opSendBulkEmail, ""
-		}
+		return parseOutboundBulkEmailsPath(method, segments)
 	case "multi-region-endpoints":
 		return parseMultiRegionEndpointPath(method, segments)
 	case "tenants":
 		return parseTenantPath(method, segments)
 	case "resource-tenants":
-		if method == http.MethodGet && len(segments) == 1 {
-			return opListResourceTenants, ""
-		}
+		return parseResourceTenantsPath(method, segments)
 	case "reputation-entities":
 		return parseReputationEntityPath(method, segments)
 	}
@@ -302,39 +413,71 @@ func parseExtendedPaths(
 	return unknownAction, ""
 }
 
-//nolint:gocognit // path branching inherently complex
-func parseAccountPath(
-	method string,
-	segments []string,
-) (string, string) {
-	if len(segments) == 1 {
-		if method == http.MethodGet {
-			return opGetAccount, ""
-		}
+// parseVdmAttributesPath routes VDM attributes paths.
+func parseVdmAttributesPath(method string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return opGetAccount, ""
+	case http.MethodPut:
+		return opPutAccountVdmAttributes, ""
 	}
 
-	if len(segments) == pathDepth2 { //nolint:nestif // URL path segment dispatching requires nested if
-		switch segments[1] {
-		case "dedicated-ip-warmup-attributes":
-			if method == http.MethodPut {
-				return opPutAccountDedicatedIPWarmupAttributes, ""
-			}
-		case "details":
-			if method == http.MethodPost {
-				return opPutAccountDetails, ""
-			}
-		case "sending-attributes":
-			if method == http.MethodPut {
-				return opPutAccountSendingAttributes, ""
-			}
-		case "suppression-attributes":
-			if method == http.MethodPut {
-				return opPutAccountSuppressionAttributes, ""
-			}
-		case "vdm-attributes":
-			if method == http.MethodPut {
-				return opPutAccountVdmAttributes, ""
-			}
+	return unknownAction, ""
+}
+
+// parseOutboundBulkEmailsPath routes outbound bulk email paths.
+func parseOutboundBulkEmailsPath(method string, segments []string) (string, string) {
+	if method == http.MethodPost && len(segments) == 1 {
+		return opSendBulkEmail, ""
+	}
+
+	return unknownAction, ""
+}
+
+// parseResourceTenantsPath routes resource-tenants paths.
+func parseResourceTenantsPath(method string, segments []string) (string, string) {
+	if method == http.MethodGet && len(segments) == 1 {
+		return opListResourceTenants, ""
+	}
+
+	return unknownAction, ""
+}
+
+// parseAccountPath routes account and account attribute paths.
+func parseAccountPath(method string, segments []string) (string, string) {
+	if len(segments) == 1 && method == http.MethodGet {
+		return opGetAccount, ""
+	}
+
+	if len(segments) != pathDepth2 {
+		return unknownAction, ""
+	}
+
+	return parseAccountAttrPath(method, segments[1])
+}
+
+// parseAccountAttrPath routes account attribute sub-paths.
+func parseAccountAttrPath(method, sub string) (string, string) {
+	switch sub {
+	case "dedicated-ip-warmup-attributes":
+		if method == http.MethodPut {
+			return opPutAccountDedicatedIPWarmupAttributes, ""
+		}
+	case "details":
+		if method == http.MethodPost {
+			return opPutAccountDetails, ""
+		}
+	case "sending-attributes":
+		if method == http.MethodPut {
+			return opPutAccountSendingAttributes, ""
+		}
+	case "suppression-attributes":
+		if method == http.MethodPut {
+			return opPutAccountSuppressionAttributes, ""
+		}
+	case "vdm-attributes":
+		if method == http.MethodPut {
+			return opPutAccountVdmAttributes, ""
 		}
 	}
 
@@ -356,28 +499,37 @@ func parseSuppressedDestinationPath(method string, segments []string) (string, s
 	return unknownAction, ""
 }
 
-//nolint:cyclop // path branching inherently complex
-func parseContactListExtPath(
-	method string,
-	segments []string,
-) (string, string) {
-	switch {
-	case len(segments) == 1 && method == http.MethodGet:
-		return opListContactLists, ""
-	case len(segments) == 2 && method == http.MethodGet:
-		return opGetContactList, segments[1]
-	case len(segments) == 2 && method == http.MethodDelete:
-		return opDeleteContactList, segments[1]
-	case len(segments) == 2 && method == http.MethodPut:
-		return opUpdateContactList, segments[1]
-	case len(segments) == 3 && segments[2] == segContacts && method == http.MethodGet:
-		return opListContacts, segments[1]
-	case len(segments) == 4 && segments[2] == segContacts && method == http.MethodGet:
-		return opGetContact, segments[1]
-	case len(segments) == 4 && segments[2] == segContacts && method == http.MethodDelete:
-		return opDeleteContact, segments[1]
-	case len(segments) == 4 && segments[2] == segContacts && method == http.MethodPut:
-		return opUpdateContact, segments[1]
+// parseContactListExtPath routes contact list and contact paths.
+func parseContactListExtPath(method string, segments []string) (string, string) {
+	switch len(segments) {
+	case 1:
+		if method == http.MethodGet {
+			return opListContactLists, ""
+		}
+	case 2:
+		switch method {
+		case http.MethodGet:
+			return opGetContactList, segments[1]
+		case http.MethodDelete:
+			return opDeleteContactList, segments[1]
+		case http.MethodPut:
+			return opUpdateContactList, segments[1]
+		}
+	case 3:
+		if segments[2] == segContacts && method == http.MethodGet {
+			return opListContacts, segments[1]
+		}
+	case 4:
+		if segments[2] == segContacts {
+			switch method {
+			case http.MethodGet:
+				return opGetContact, segments[1]
+			case http.MethodDelete:
+				return opDeleteContact, segments[1]
+			case http.MethodPut:
+				return opUpdateContact, segments[1]
+			}
+		}
 	}
 
 	return unknownAction, ""
@@ -428,11 +580,8 @@ func parseDedicatedIPsPath(method string, segments []string) (string, string) {
 	return unknownAction, ""
 }
 
-//nolint:cyclop,gocognit // path branching inherently complex
-func parseDeliverabilityExtPath(
-	method string,
-	segments []string,
-) (string, string) {
+// parseDeliverabilityExtPath routes deliverability dashboard paths.
+func parseDeliverabilityExtPath(method string, segments []string) (string, string) {
 	if len(segments) == 1 {
 		switch method {
 		case http.MethodGet:
@@ -440,42 +589,68 @@ func parseDeliverabilityExtPath(
 		case http.MethodPut:
 			return opPutDeliverabilityDashboardOption, ""
 		}
+
+		return unknownAction, ""
 	}
 
-	if len(segments) == metricsPathSegments && segments[1] == "test" && method == http.MethodPost {
+	if segments[1] == "test" && method == http.MethodPost {
 		return opCreateDeliverabilityTestReport, ""
 	}
 
-	if len(segments) >= pathDepth2 { //nolint:nestif // URL path segment dispatching requires nested if
-		switch segments[1] {
-		case "reports":
-			if len(segments) == 2 && method == http.MethodGet {
-				return opListDeliverabilityTestReports, ""
-			}
+	return parseDeliverabilitySubPath(method, segments)
+}
 
-			if len(segments) == 3 && method == http.MethodGet {
-				return opGetDeliverabilityTestReport, segments[2]
-			}
+// parseDeliverabilitySubPath routes deliverability report and campaign sub-paths.
+func parseDeliverabilitySubPath(method string, segments []string) (string, string) {
+	if len(segments) < 2 {
+		return unknownAction, ""
+	}
 
-		case "blacklist-report":
-			if method == http.MethodGet {
-				return opGetBlacklistReports, ""
-			}
-
-		case "statistics":
-			if method == http.MethodGet && len(segments) == 3 {
-				return opGetDomainStatisticsReport, segments[2]
-			}
-
-		case "campaigns":
-			if method == http.MethodGet && len(segments) == 3 {
-				return opListDomainDeliverabilityCampaigns, segments[2]
-			}
-
-			if method == http.MethodGet && len(segments) == 4 {
-				return opGetDomainDeliverabilityCampaign, segments[2]
-			}
+	switch segments[1] {
+	case "reports":
+		return parseDeliverabilityReportsPath(method, segments)
+	case "blacklist-report":
+		if method == http.MethodGet {
+			return opGetBlacklistReports, ""
 		}
+	case "statistics":
+		if method == http.MethodGet && len(segments) == 3 {
+			return opGetDomainStatisticsReport, segments[2]
+		}
+	case "campaigns":
+		return parseDeliverabilityDomainCampaignsPath(method, segments)
+	}
+
+	return unknownAction, ""
+}
+
+// parseDeliverabilityReportsPath routes deliverability test report paths.
+func parseDeliverabilityReportsPath(method string, segments []string) (string, string) {
+	if method != http.MethodGet {
+		return unknownAction, ""
+	}
+
+	switch len(segments) {
+	case 2:
+		return opListDeliverabilityTestReports, ""
+	case 3:
+		return opGetDeliverabilityTestReport, segments[2]
+	}
+
+	return unknownAction, ""
+}
+
+// parseDeliverabilityDomainCampaignsPath routes domain deliverability campaign paths.
+func parseDeliverabilityDomainCampaignsPath(method string, segments []string) (string, string) {
+	if method != http.MethodGet {
+		return unknownAction, ""
+	}
+
+	switch len(segments) {
+	case 3:
+		return opListDomainDeliverabilityCampaigns, segments[2]
+	case 4:
+		return opGetDomainDeliverabilityCampaign, segments[2]
 	}
 
 	return unknownAction, ""
@@ -541,26 +716,36 @@ func parseMultiRegionEndpointPath(method string, segments []string) (string, str
 	return unknownAction, ""
 }
 
-//nolint:cyclop // path branching inherently complex
-func parseTenantPath(
-	method string,
-	segments []string,
-) (string, string) {
-	switch {
-	case len(segments) == 1 && method == http.MethodGet:
-		return opListTenants, ""
-	case len(segments) == 1 && method == http.MethodPost:
-		return opCreateTenant, ""
-	case len(segments) == 2 && method == http.MethodGet:
-		return opGetTenant, segments[1]
-	case len(segments) == 2 && method == http.MethodDelete:
-		return opDeleteTenant, segments[1]
-	case len(segments) == 3 && segments[2] == segResources && method == http.MethodGet:
-		return opListTenantResources, segments[1]
-	case len(segments) == 3 && segments[2] == segResources && method == http.MethodPost:
-		return opCreateTenantResourceAssociation, segments[1]
-	case len(segments) == 4 && segments[2] == segResources && method == http.MethodDelete:
-		return opDeleteTenantResourceAssociation, segments[1]
+// parseTenantPath routes tenant paths.
+func parseTenantPath(method string, segments []string) (string, string) {
+	switch len(segments) {
+	case 1:
+		switch method {
+		case http.MethodGet:
+			return opListTenants, ""
+		case http.MethodPost:
+			return opCreateTenant, ""
+		}
+	case 2:
+		switch method {
+		case http.MethodGet:
+			return opGetTenant, segments[1]
+		case http.MethodDelete:
+			return opDeleteTenant, segments[1]
+		}
+	case 3:
+		if segments[2] == segResources {
+			switch method {
+			case http.MethodGet:
+				return opListTenantResources, segments[1]
+			case http.MethodPost:
+				return opCreateTenantResourceAssociation, segments[1]
+			}
+		}
+	case 4:
+		if segments[2] == segResources && method == http.MethodDelete {
+			return opDeleteTenantResourceAssociation, segments[1]
+		}
 	}
 
 	return unknownAction, ""
@@ -582,116 +767,141 @@ func parseReputationEntityPath(method string, segments []string) (string, string
 }
 
 // parseIdentityExtPath handles additional identity paths.
-//
-//nolint:cyclop // path branching inherently complex
-func parseIdentityExtPath(
-	method string,
-	segments []string,
-) (string, string) {
-	// /v2/email/identities/{identity}/policies — GET returns all policies
-	if len(segments) == 3 && segments[2] == segPolicies {
-		if method == http.MethodGet {
-			return opGetEmailIdentityPolicies, segments[1]
-		}
+func parseIdentityExtPath(method string, segments []string) (string, string) {
+	if len(segments) < 3 {
+		return unknownAction, ""
 	}
 
-	// /v2/email/identities/{identity}/policies/{policyName}
-	if len(segments) == 4 && segments[2] == segPolicies {
+	identity := segments[1]
+	sub := segments[2]
+
+	if op, id := parseIdentityPoliciesPath(method, segments, identity, sub); op != unknownAction {
+		return op, id
+	}
+
+	return parseIdentityAttributesPath(method, segments, identity, sub)
+}
+
+// parseIdentityPoliciesPath routes identity policy sub-paths.
+func parseIdentityPoliciesPath(method string, segments []string, identity, sub string) (string, string) {
+	if sub != segPolicies {
+		return unknownAction, ""
+	}
+
+	switch len(segments) {
+	case 3:
+		if method == http.MethodGet {
+			return opGetEmailIdentityPolicies, identity
+		}
+	case 4:
 		switch method {
 		case http.MethodDelete:
-			return opDeleteEmailIdentityPolicy, segments[1]
+			return opDeleteEmailIdentityPolicy, identity
 		case http.MethodPut:
-			return opUpdateEmailIdentityPolicy, segments[1]
+			return opUpdateEmailIdentityPolicy, identity
 		}
 	}
 
-	// /v2/email/identities/{identity}/configuration-set
-	if len(segments) == 3 && segments[2] == "configuration-set" && method == http.MethodPut {
-		return opPutEmailIdentityConfigurationSetAttributes, segments[1]
+	return unknownAction, ""
+}
+
+// parseIdentityAttributesPath routes identity attribute sub-paths.
+func parseIdentityAttributesPath(method string, segments []string, identity, sub string) (string, string) {
+	if method != http.MethodPut {
+		return unknownAction, ""
 	}
 
-	// /v2/email/identities/{identity}/dkim
-	if len(segments) == 3 && segments[2] == "dkim" {
-		if method == http.MethodPut {
-			return opPutEmailIdentityDkimAttributes, segments[1]
+	switch sub {
+	case "configuration-set":
+		if len(segments) == 3 {
+			return opPutEmailIdentityConfigurationSetAttributes, identity
 		}
-	}
-
-	// /v2/email/identities/{identity}/dkim/signing
-	if len(segments) == 4 && segments[2] == "dkim" && segments[3] == "signing" &&
-		method == http.MethodPut {
-		return opPutEmailIdentityDkimSigningAttributes, segments[1]
-	}
-
-	// /v2/email/identities/{identity}/feedback
-	if len(segments) == 3 && segments[2] == "feedback" && method == http.MethodPut {
-		return opPutEmailIdentityFeedbackAttributes, segments[1]
-	}
-
-	// /v2/email/identities/{identity}/mail-from
-	if len(segments) == 3 && segments[2] == "mail-from" && method == http.MethodPut {
-		return opPutEmailIdentityMailFromAttributes, segments[1]
+	case "dkim":
+		switch len(segments) {
+		case 3:
+			return opPutEmailIdentityDkimAttributes, identity
+		case 4:
+			if segments[3] == "signing" {
+				return opPutEmailIdentityDkimSigningAttributes, identity
+			}
+		}
+	case "feedback":
+		if len(segments) == 3 {
+			return opPutEmailIdentityFeedbackAttributes, identity
+		}
+	case "mail-from":
+		if len(segments) == 3 {
+			return opPutEmailIdentityMailFromAttributes, identity
+		}
 	}
 
 	return unknownAction, ""
 }
 
 // parseConfigSetExtPath handles additional configuration set paths.
-//
-//nolint:cyclop,gocognit // path branching inherently complex
-func parseConfigSetExtPath(
-	method string,
-	segments []string,
-) (string, string) {
-	// /v2/email/configuration-sets/{name}/event-destinations
-	if len(segments) == 3 && segments[2] == segEventDestinations {
-		if method == http.MethodGet {
-			return opGetConfigurationSetEventDestinations, segments[1]
-		}
+func parseConfigSetExtPath(method string, segments []string) (string, string) {
+	if len(segments) < 3 {
+		return unknownAction, ""
 	}
 
-	// /v2/email/configuration-sets/{name}/event-destinations/{destName}
-	if len(segments) == 4 && segments[2] == segEventDestinations {
+	name := segments[1]
+	sub := segments[2]
+
+	if op, id := parseConfigSetEventDestPath(method, segments, name, sub); op != unknownAction {
+		return op, id
+	}
+
+	if len(segments) == pathDepth3 {
+		return parseConfigSetAttrPath(method, name, sub)
+	}
+
+	return unknownAction, ""
+}
+
+// parseConfigSetEventDestPath routes configuration set event destination paths.
+func parseConfigSetEventDestPath(method string, segments []string, name, sub string) (string, string) {
+	if sub != segEventDestinations {
+		return unknownAction, ""
+	}
+
+	switch len(segments) {
+	case 3:
+		if method == http.MethodGet {
+			return opGetConfigurationSetEventDestinations, name
+		}
+	case 4:
 		switch method {
 		case http.MethodDelete:
-			return opDeleteConfigurationSetEventDestination, segments[1]
+			return opDeleteConfigurationSetEventDestination, name
 		case http.MethodPut:
-			return opUpdateConfigurationSetEventDestination, segments[1]
+			return opUpdateConfigurationSetEventDestination, name
 		}
 	}
 
-	// /v2/email/configuration-sets/{name}/{attribute}
-	if len(segments) == pathDepth3 { //nolint:nestif // URL path segment dispatching requires nested if
-		switch segments[2] {
-		case "archiving-options":
-			if method == http.MethodPut {
-				return opPutConfigurationSetArchivingOptions, segments[1]
-			}
-		case "delivery-options":
-			if method == http.MethodPut {
-				return opPutConfigurationSetDeliveryOptions, segments[1]
-			}
-		case "reputation-options":
-			if method == http.MethodPut {
-				return opPutConfigurationSetReputationOptions, segments[1]
-			}
-		case "sending-options":
-			if method == http.MethodPut {
-				return opPutConfigurationSetSendingOptions, segments[1]
-			}
-		case "suppression-options":
-			if method == http.MethodPut {
-				return opPutConfigurationSetSuppressionOptions, segments[1]
-			}
-		case "tracking-options":
-			if method == http.MethodPut {
-				return opPutConfigurationSetTrackingOptions, segments[1]
-			}
-		case "vdm-options":
-			if method == http.MethodPut {
-				return opPutConfigurationSetVdmOptions, segments[1]
-			}
-		}
+	return unknownAction, ""
+}
+
+// parseConfigSetAttrPath routes configuration set attribute put paths.
+func parseConfigSetAttrPath(method, name, sub string) (string, string) {
+	if method != http.MethodPut {
+		return unknownAction, ""
+	}
+
+	switch sub {
+	case "archiving-options":
+		return opPutConfigurationSetArchivingOptions, name
+	case "delivery-options":
+		return opPutConfigurationSetDeliveryOptions, name
+	case "reputation-options":
+		return opPutConfigurationSetReputationOptions, name
+	case "sending-options":
+		return opPutConfigurationSetSendingOptions, name
+	case "suppression-options":
+		return opPutConfigurationSetSuppressionOptions, name
+	case "tracking-options":
+		return opPutConfigurationSetTrackingOptions, name
+	case "vdm-options":
+		return opPutConfigurationSetVdmOptions, name
 	}
 
 	return unknownAction, ""

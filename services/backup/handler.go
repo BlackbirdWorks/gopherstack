@@ -627,13 +627,12 @@ func parseRecoveryPointSubRoute(method, vaultName, rpArn, sub string) backupRout
 	return backupRoute{operation: opUnknown}
 }
 
-//nolint:cyclop // plan sub-resources require branching
+// parsePlanRoute routes backup plan and selection paths.
 func parsePlanRoute(method, suffix string) backupRoute {
 	// suffix is "" or "/{id}" or "/{id}/selections[/{selId}]"
 	id := strings.TrimPrefix(suffix, "/")
 
-	switch {
-	case id == "":
+	if id == "" {
 		// /backup/plans
 		switch method {
 		case http.MethodPut:
@@ -641,46 +640,51 @@ func parsePlanRoute(method, suffix string) backupRoute {
 		case http.MethodGet:
 			return backupRoute{operation: opListBackupPlans}
 		}
-	case strings.Contains(id, "/"):
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if strings.Contains(id, "/") {
 		// /backup/plans/{id}/selections[/{selId}]
 		parts := strings.SplitN(id, "/", splitTwo)
-		planID := parts[0]
-		rest := parts[1]
 
-		switch {
-		case rest == "selections":
-			switch method {
-			case http.MethodPut:
-				return backupRoute{operation: opCreateBackupSelection, resource: planID}
-			case http.MethodGet:
-				return backupRoute{operation: opListBackupSelections, resource: planID}
-			}
-		case strings.HasPrefix(rest, "selections/"):
-			selID := strings.TrimPrefix(rest, "selections/")
-			if !strings.Contains(selID, "/") {
-				switch method {
-				case http.MethodGet:
-					return backupRoute{
-						operation: opGetBackupSelection,
-						resource:  planID + "|" + selID,
-					}
-				case http.MethodDelete:
-					return backupRoute{
-						operation: opDeleteBackupSelection,
-						resource:  planID + "|" + selID,
-					}
-				}
-			}
-		}
-	default:
-		// /backup/plans/{id}
+		return parsePlanSelectionRoute(method, parts[0], parts[1])
+	}
+
+	// /backup/plans/{id}
+	switch method {
+	case http.MethodGet:
+		return backupRoute{operation: opGetBackupPlan, resource: id}
+	case http.MethodPost:
+		return backupRoute{operation: opUpdateBackupPlan, resource: id}
+	case http.MethodDelete:
+		return backupRoute{operation: opDeleteBackupPlan, resource: id}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+// parsePlanSelectionRoute routes backup plan selection sub-paths.
+func parsePlanSelectionRoute(method, planID, rest string) backupRoute {
+	if rest == "selections" {
 		switch method {
+		case http.MethodPut:
+			return backupRoute{operation: opCreateBackupSelection, resource: planID}
 		case http.MethodGet:
-			return backupRoute{operation: opGetBackupPlan, resource: id}
-		case http.MethodPost:
-			return backupRoute{operation: opUpdateBackupPlan, resource: id}
-		case http.MethodDelete:
-			return backupRoute{operation: opDeleteBackupPlan, resource: id}
+			return backupRoute{operation: opListBackupSelections, resource: planID}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if selID, ok := strings.CutPrefix(rest, "selections/"); ok {
+		if !strings.Contains(selID, "/") {
+			switch method {
+			case http.MethodGet:
+				return backupRoute{operation: opGetBackupSelection, resource: planID + "|" + selID}
+			case http.MethodDelete:
+				return backupRoute{operation: opDeleteBackupSelection, resource: planID + "|" + selID}
+			}
 		}
 	}
 
@@ -930,49 +934,70 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-//nolint:cyclop // dispatch table for 24 REST operations is inherently wide
+// dispatch routes a parsed Backup route to the appropriate handler.
 func (h *Handler) dispatch(c *echo.Context, route backupRoute, body []byte) error {
 	if ok, result := h.dispatchNewOps(c, route, body); ok {
 		return result
 	}
 
+	if ok, result := h.dispatchVaultPlanOps(c, route, body); ok {
+		return result
+	}
+
+	if ok, result := h.dispatchJobTagOps(c, route, body); ok {
+		return result
+	}
+
+	return c.JSON(
+		http.StatusNotFound,
+		errResp("ResourceNotFoundException", "unknown operation: "+route.operation),
+	)
+}
+
+// dispatchVaultPlanOps handles backup vault and backup plan operations.
+func (h *Handler) dispatchVaultPlanOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
 	switch route.operation {
 	case opCreateBackupVault:
-		return h.handleCreateBackupVault(c, route.resource, body)
+		return true, h.handleCreateBackupVault(c, route.resource, body)
 	case opDescribeBackupVault:
-		return h.handleDescribeBackupVault(c, route.resource)
+		return true, h.handleDescribeBackupVault(c, route.resource)
 	case opListBackupVaults:
-		return h.handleListBackupVaults(c)
+		return true, h.handleListBackupVaults(c)
 	case opDeleteBackupVault:
-		return h.handleDeleteBackupVault(c, route.resource)
+		return true, h.handleDeleteBackupVault(c, route.resource)
 	case opCreateBackupPlan:
-		return h.handleCreateBackupPlan(c, body)
+		return true, h.handleCreateBackupPlan(c, body)
 	case opGetBackupPlan:
-		return h.handleGetBackupPlan(c, route.resource)
+		return true, h.handleGetBackupPlan(c, route.resource)
 	case opListBackupPlans:
-		return h.handleListBackupPlans(c)
+		return true, h.handleListBackupPlans(c)
 	case opUpdateBackupPlan:
-		return h.handleUpdateBackupPlan(c, route.resource, body)
+		return true, h.handleUpdateBackupPlan(c, route.resource, body)
 	case opDeleteBackupPlan:
-		return h.handleDeleteBackupPlan(c, route.resource)
-	case opStartBackupJob:
-		return h.handleStartBackupJob(c, body)
-	case opDescribeBackupJob:
-		return h.handleDescribeBackupJob(c, route.resource)
-	case opListBackupJobs:
-		return h.handleListBackupJobs(c)
-	case opTagResource:
-		return h.handleTagResource(c, route.resource, body)
-	case opUntagResource:
-		return h.handleUntagResource(c, route.resource, body)
-	case opListTags:
-		return h.handleListTags(c, route.resource)
-	default:
-		return c.JSON(
-			http.StatusNotFound,
-			errResp("ResourceNotFoundException", "unknown operation: "+route.operation),
-		)
+		return true, h.handleDeleteBackupPlan(c, route.resource)
 	}
+
+	return false, nil
+}
+
+// dispatchJobTagOps handles backup job and tagging operations.
+func (h *Handler) dispatchJobTagOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case opStartBackupJob:
+		return true, h.handleStartBackupJob(c, body)
+	case opDescribeBackupJob:
+		return true, h.handleDescribeBackupJob(c, route.resource)
+	case opListBackupJobs:
+		return true, h.handleListBackupJobs(c)
+	case opTagResource:
+		return true, h.handleTagResource(c, route.resource, body)
+	case opUntagResource:
+		return true, h.handleUntagResource(c, route.resource, body)
+	case opListTags:
+		return true, h.handleListTags(c, route.resource)
+	}
+
+	return false, nil
 }
 
 // dispatchNewOps dispatches additional Backup operations beyond the original set.
@@ -2867,9 +2892,28 @@ func (h *Handler) handleDeleteReportPlan(c *echo.Context, name string) error {
 }
 
 // dispatchStubOps handles stub operations that return minimal valid responses.
-//
-//nolint:cyclop,funlen,gocyclo // large dispatch table for stub operations
 func (h *Handler) dispatchStubOps(c *echo.Context, route backupRoute) (bool, error) {
+	if ok, err := h.dispatchStubSettingsAndJobs(c, route); ok {
+		return true, err
+	}
+
+	if ok, err := h.dispatchStubReportsAndHolds(c, route); ok {
+		return true, err
+	}
+
+	return h.dispatchStubPlanTemplatesAndTiering(c, route)
+}
+
+// dispatchStubSettingsAndJobs handles settings, protected resources, and restore/restore-job stubs.
+func (h *Handler) dispatchStubSettingsAndJobs(c *echo.Context, route backupRoute) (bool, error) {
+	if ok, err := h.dispatchStubSettingsOps(c, route); ok {
+		return true, err
+	}
+
+	return h.dispatchStubRestoreOps(c, route)
+}
+
+func (h *Handler) dispatchStubSettingsOps(c *echo.Context, route backupRoute) (bool, error) {
 	switch route.operation {
 	case opDescribeGlobalSettings:
 		return true, c.JSON(http.StatusOK, map[string]any{
@@ -2906,6 +2950,13 @@ func (h *Handler) dispatchStubOps(c *echo.Context, route backupRoute) (bool, err
 		return true, c.JSON(http.StatusOK, map[string]any{
 			"Results": []any{},
 		})
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchStubRestoreOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
 	case opDescribeRestoreJob:
 		return true, c.JSON(http.StatusOK, map[string]any{
 			keyRestoreJobID: route.resource,
@@ -2936,6 +2987,22 @@ func (h *Handler) dispatchStubOps(c *echo.Context, route backupRoute) (bool, err
 		return true, c.JSON(http.StatusOK, map[string]any{
 			keyRestoreJobID: "restore-" + route.resource,
 		})
+	}
+
+	return false, nil
+}
+
+// dispatchStubReportsAndHolds handles report, scan job, and legal hold stub responses.
+func (h *Handler) dispatchStubReportsAndHolds(c *echo.Context, route backupRoute) (bool, error) {
+	if ok, err := h.dispatchStubReportOps(c, route); ok {
+		return true, err
+	}
+
+	return h.dispatchStubLegalHoldOps(c, route)
+}
+
+func (h *Handler) dispatchStubReportOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
 	case opPutRestoreValidationResult:
 		return true, c.NoContent(http.StatusNoContent)
 	case opDescribeReportJob:
@@ -2970,6 +3037,13 @@ func (h *Handler) dispatchStubOps(c *echo.Context, route backupRoute) (bool, err
 		return true, c.JSON(http.StatusOK, map[string]any{
 			"ScanJobId": "scan-job-" + route.resource,
 		})
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchStubLegalHoldOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
 	case opGetLegalHold:
 		return true, c.JSON(http.StatusOK, map[string]any{
 			"LegalHoldId": route.resource,
@@ -3004,6 +3078,22 @@ func (h *Handler) dispatchStubOps(c *echo.Context, route backupRoute) (bool, err
 		return true, c.JSON(http.StatusOK, map[string]any{
 			"IndexedRecoveryPoints": []any{},
 		})
+	}
+
+	return false, nil
+}
+
+// dispatchStubPlanTemplatesAndTiering handles plan template, job, and tiering stub responses.
+func (h *Handler) dispatchStubPlanTemplatesAndTiering(c *echo.Context, route backupRoute) (bool, error) {
+	if ok, err := h.dispatchStubPlanTemplateOps(c, route); ok {
+		return true, err
+	}
+
+	return h.dispatchStubTieringOps(c, route)
+}
+
+func (h *Handler) dispatchStubPlanTemplateOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
 	case opExportBackupPlanTemplate:
 		return true, c.JSON(http.StatusOK, map[string]any{
 			"BackupPlanTemplateJson": "{}",
@@ -3043,6 +3133,13 @@ func (h *Handler) dispatchStubOps(c *echo.Context, route backupRoute) (bool, err
 			keyCopyJobID:   "copy-job-" + route.resource,
 			"CreationDate": time.Now().UTC().Format(time.RFC3339),
 		})
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchStubTieringOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
 	case opStopBackupJob:
 		return true, c.NoContent(http.StatusNoContent)
 	case opListRestoreAccessBackupVaults:

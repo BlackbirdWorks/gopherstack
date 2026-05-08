@@ -54,8 +54,6 @@ const intrinsicTwoArgs = 2
 
 // evaluateIntrinsicFunction evaluates an ASL intrinsic function call such as
 // States.Format, States.StringToJson, etc.
-//
-//nolint:cyclop // dispatches to 11 ASL intrinsic functions
 func evaluateIntrinsicFunction(expr string, input any) (any, error) {
 	parenIdx := strings.IndexByte(expr, '(')
 	if parenIdx < 0 || !strings.HasSuffix(strings.TrimSpace(expr), ")") {
@@ -71,6 +69,23 @@ func evaluateIntrinsicFunction(expr string, input any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", fnName, err)
 	}
 
+	if r, dispErr := evalStringArrayIntrinsic(fnName, args); !errors.Is(dispErr, errIntrinsicNotHandled) {
+		return r, dispErr
+	}
+
+	if r, dispErr := evalMathEncodingIntrinsic(fnName, args); !errors.Is(dispErr, errIntrinsicNotHandled) {
+		return r, dispErr
+	}
+
+	return nil, fmt.Errorf("%w: %q", ErrUnknownIntrinsicFunction, fnName)
+}
+
+// errIntrinsicNotHandled is a sentinel used internally to signal that a dispatch
+// helper did not recognise the function name. It is never returned to callers.
+var errIntrinsicNotHandled = errors.New("asl: intrinsic not handled by this dispatcher")
+
+// evalStringArrayIntrinsic handles string formatting and array intrinsic functions.
+func evalStringArrayIntrinsic(fnName string, args []any) (any, error) {
 	switch fnName {
 	case "States.Format":
 		return intrinsicFormat(args)
@@ -86,6 +101,14 @@ func evaluateIntrinsicFunction(expr string, input any) (any, error) {
 		return intrinsicArrayContains(args)
 	case "States.ArrayPartition":
 		return intrinsicArrayPartition(args)
+	}
+
+	return nil, errIntrinsicNotHandled
+}
+
+// evalMathEncodingIntrinsic handles math, base64, and hash intrinsic functions.
+func evalMathEncodingIntrinsic(fnName string, args []any) (any, error) {
+	switch fnName {
 	case "States.MathRandom":
 		return intrinsicMathRandom(args)
 	case "States.Base64Encode":
@@ -94,9 +117,9 @@ func evaluateIntrinsicFunction(expr string, input any) (any, error) {
 		return intrinsicBase64Decode(args)
 	case "States.Hash":
 		return intrinsicHash(args)
-	default:
-		return nil, fmt.Errorf("%w: %q", ErrUnknownIntrinsicFunction, fnName)
 	}
+
+	return nil, errIntrinsicNotHandled
 }
 
 // parseIntrinsicArgs tokenizes a comma-separated argument list, respecting
