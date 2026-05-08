@@ -463,7 +463,7 @@ func xmlResp(c *echo.Context, status int, body string) error {
 //
 // parseCFPath maps an HTTP method + URL path to a CloudFront operation name and resource identifier.
 //
-//nolint:funlen,lll,nlreturn // dispatch table for many REST operations is inherently wide
+//nolint:lll,nlreturn // dispatch table for many REST operations is inherently wide
 func parseCFPath(method, path, resourceParam string) (string, string) {
 	suffix := strings.TrimPrefix(path, cfPathPrefix)
 
