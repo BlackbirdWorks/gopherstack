@@ -319,12 +319,13 @@ type jsonSendMessageReq struct {
 }
 
 type jsonReceiveMessageReq struct {
-	VisibilityTimeout     *int     `json:"VisibilityTimeout"`
-	QueueURL              string   `json:"QueueUrl"`
-	AttributeNames        []string `json:"AttributeNames"`
-	MessageAttributeNames []string `json:"MessageAttributeNames"`
-	MaxNumberOfMessages   int      `json:"MaxNumberOfMessages"`
-	WaitTimeSeconds       int      `json:"WaitTimeSeconds"`
+	VisibilityTimeout           *int     `json:"VisibilityTimeout"`
+	QueueURL                    string   `json:"QueueUrl"`
+	AttributeNames              []string `json:"AttributeNames"`
+	MessageAttributeNames       []string `json:"MessageAttributeNames"`
+	MessageSystemAttributeNames []string `json:"MessageSystemAttributeNames"`
+	MaxNumberOfMessages         int      `json:"MaxNumberOfMessages"`
+	WaitTimeSeconds             int      `json:"WaitTimeSeconds"`
 }
 
 type jsonDeleteMessageReq struct {
@@ -653,12 +654,28 @@ func (h *Handler) handleReceiveMessage(
 		vt = *req.VisibilityTimeout
 	}
 
+	// Merge MessageSystemAttributeNames into AttributeNames for unified system attribute filtering.
+	// AWS treats them identically in the mock; this allows callers using the new parameter
+	// style to receive system attributes like ApproximateFirstReceiveTimestamp.
+	effectiveAttrNames := req.AttributeNames
+	if len(req.MessageSystemAttributeNames) > 0 {
+		seen := make(map[string]bool, len(effectiveAttrNames))
+		for _, n := range effectiveAttrNames {
+			seen[n] = true
+		}
+		for _, n := range req.MessageSystemAttributeNames {
+			if !seen[n] {
+				effectiveAttrNames = append(effectiveAttrNames, n)
+			}
+		}
+	}
+
 	out, err := h.Backend.ReceiveMessage(&ReceiveMessageInput{
 		QueueURL:              req.QueueURL,
 		MaxNumberOfMessages:   req.MaxNumberOfMessages,
 		VisibilityTimeout:     vt,
 		WaitTimeSeconds:       req.WaitTimeSeconds,
-		AttributeNames:        req.AttributeNames,
+		AttributeNames:        effectiveAttrNames,
 		MessageAttributeNames: req.MessageAttributeNames,
 	})
 	if err != nil {
@@ -678,7 +695,7 @@ func (h *Handler) handleReceiveMessage(
 			MD5OfBody:              msg.MD5OfBody,
 			MD5OfMessageAttributes: msg.MD5OfMessageAttributes,
 			Body:                   msg.Body,
-			Attributes:             filterSystemAttrs(attrs, req.AttributeNames),
+			Attributes:             filterSystemAttrs(attrs, effectiveAttrNames),
 			MessageAttributes:      filterJSONMsgAttrs(msg.MessageAttributes, req.MessageAttributeNames),
 		})
 	}

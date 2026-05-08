@@ -288,7 +288,8 @@ func parseOperations(s string) []string {
 // parseISODuration parses a subset of ISO 8601 duration strings (PTxHxMxS).
 // Returns 0 on empty or invalid input.
 //
-//nolint:cyclop,gocognit // ISO 8601 parsing inherently requires complex character-by-character logic
+// parseISODuration parses a subset of ISO 8601 duration strings (PTxHxMxS).
+// Returns 0 on empty or invalid input.
 func parseISODuration(s string) time.Duration {
 	if s == "" {
 		return 0
@@ -331,26 +332,32 @@ func parseISODuration(s string) time.Duration {
 				continue
 			}
 
-			switch ch {
-			case 'H':
-				total += time.Duration(val * float64(time.Hour))
-			case 'M':
-				if inTime {
-					total += time.Duration(val * float64(time.Minute))
-				} else {
-					// 'M' before 'T' means months — not representable as time.Duration;
-					// treat as 30 days for approximation.
-					total += time.Duration(val * daysPerMonth * float64(hoursPerDay*time.Hour))
-				}
-			case 'S':
-				total += time.Duration(val * float64(time.Second))
-			case 'D':
-				total += time.Duration(val * float64(hoursPerDay*time.Hour))
-			case 'W':
-				total += time.Duration(val * daysPerWeek * float64(hoursPerDay*time.Hour))
-			}
+			total += applyISOUnit(ch, val, inTime)
 		}
 	}
 
 	return total
+}
+
+// applyISOUnit converts an ISO 8601 duration unit character and value to a time.Duration.
+func applyISOUnit(ch rune, val float64, inTime bool) time.Duration {
+	switch ch {
+	case 'H':
+		return time.Duration(val * float64(time.Hour))
+	case 'M':
+		if inTime {
+			return time.Duration(val * float64(time.Minute))
+		}
+		// 'M' before 'T' means months — not representable as time.Duration;
+		// treat as 30 days for approximation.
+		return time.Duration(val * daysPerMonth * float64(hoursPerDay*time.Hour))
+	case 'S':
+		return time.Duration(val * float64(time.Second))
+	case 'D':
+		return time.Duration(val * float64(hoursPerDay*time.Hour))
+	case 'W':
+		return time.Duration(val * daysPerWeek * float64(hoursPerDay*time.Hour))
+	}
+
+	return 0
 }

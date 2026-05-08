@@ -324,8 +324,27 @@ func (b *InMemoryBackend) SelectAggregateResourceConfig() []any {
 // SelectResourceConfig returns an empty result.
 func (b *InMemoryBackend) SelectResourceConfig() []any { return []any{} }
 
-// StartConfigRulesEvaluation is a no-op stub.
-func (b *InMemoryBackend) StartConfigRulesEvaluation() error { return nil }
+// StartConfigRulesEvaluation triggers an evaluation run for all config rules.
+// It marks every rule as COMPLIANT so that GetComplianceDetailsByConfigRule can return results.
+func (b *InMemoryBackend) StartConfigRulesEvaluation() error {
+	b.mu.Lock("StartConfigRulesEvaluation")
+	defer b.mu.Unlock()
+
+	for name := range b.configRules {
+		b.ruleEvaluations[name] = "COMPLIANT"
+	}
+
+	return nil
+}
+
+// GetConfigRuleComplianceType returns the compliance type for a config rule after evaluation,
+// or empty string if no evaluation has run for that rule yet.
+func (b *InMemoryBackend) GetConfigRuleComplianceType(ruleName string) string {
+	b.mu.RLock("GetConfigRuleComplianceType")
+	defer b.mu.RUnlock()
+
+	return b.ruleEvaluations[ruleName]
+}
 
 // StartRemediationExecution is a no-op stub.
 func (b *InMemoryBackend) StartRemediationExecution() error { return nil }

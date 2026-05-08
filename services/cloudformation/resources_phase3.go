@@ -1402,6 +1402,8 @@ func (rc *ResourceCreator) deletePhase4Resource(physicalID, resourceType string)
 		return rc.deleteWAFv2WebACL(physicalID)
 	case "AWS::WAFv2::IPSet":
 		return rc.deleteWAFv2IPSet(physicalID)
+	case "AWS::WAFv2::RuleGroup":
+		return rc.deleteWAFv2RuleGroup(physicalID)
 	case "AWS::Backup::BackupVault":
 		return rc.deleteBackupVault(physicalID)
 	case "AWS::Backup::BackupPlan":

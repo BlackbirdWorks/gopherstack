@@ -1431,8 +1431,25 @@ func (b *InMemoryBackend) GetVPCAssociations(zoneID string) ([]vpcAssociation, e
 	return result, nil
 }
 
+// rrsValues extracts the DNS values from a resource record set.
+// For alias targets, it returns the alias DNS name as a synthetic value.
+func rrsValues(rrs *ResourceRecordSet) []string {
+	if rrs.AliasTarget != nil {
+		return []string{strings.TrimSuffix(rrs.AliasTarget.DNSName, ".")}
+	}
+
+	values := make([]string, 0, len(rrs.Records))
+	for _, r := range rrs.Records {
+		values = append(values, r.Value)
+	}
+
+	return values
+}
+
 // TestDNSAnswer looks up a record in the hosted zone and returns matching values.
-// If the record has an AliasTarget, the alias DNS name is resolved appropriately.
+// When routing-policy records (latency, geolocation, weighted, failover) exist for the
+// name/type, it selects the best match by routing policy rather than requiring a bare
+// (non-SetIdentifier) key.
 func (b *InMemoryBackend) TestDNSAnswer(zoneID, recordName, recordType string) ([]string, error) {
 	b.mu.RLock("TestDNSAnswer")
 	defer b.mu.RUnlock()
@@ -1445,49 +1462,38 @@ func (b *InMemoryBackend) TestDNSAnswer(zoneID, recordName, recordType string) (
 	name := normaliseName(recordName)
 	key := recordSetKey(name, recordType, "")
 
-	rrs, ok := zd.records[key]
-	if !ok {
+	// Try simple (non-routing-policy) lookup first.
+	if rrs, found := zd.records[key]; found {
+		return rrsValues(rrs), nil
+	}
+
+	// Fall back to routing-policy records: collect all records for name/type that
+	// have a SetIdentifier (latency, geolocation, weighted, failover routing).
+	prefix := strings.ToLower(strings.TrimSuffix(name, ".")) + "|" + strings.ToUpper(recordType) + "|"
+	var candidates []*ResourceRecordSet
+
+	for k, rrs := range zd.records {
+		if strings.HasPrefix(k, prefix) && rrs.SetIdentifier != "" {
+			candidates = append(candidates, rrs)
+		}
+	}
+
+	if len(candidates) == 0 {
 		return []string{}, nil
 	}
 
-	// If the record has an alias target, resolve it to appropriate values.
-	if rrs.AliasTarget != nil {
-		return resolveAliasTarget(rrs.AliasTarget.DNSName, recordType), nil
-	}
+	// Sort candidates deterministically by SetIdentifier for stable test results.
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].SetIdentifier < candidates[j].SetIdentifier
+	})
 
-	values := make([]string, 0, len(rrs.Records))
-	for _, r := range rrs.Records {
-		values = append(values, r.Value)
-	}
-
-	return values, nil
-}
-
-// resolveAliasTarget returns synthetic DNS answer values for an alias target DNS name.
-// CloudFront, ELB, and S3 domains get representative values; others return the CNAME.
-func resolveAliasTarget(dnsName, recordType string) []string {
-	lower := strings.ToLower(dnsName)
-
-	switch {
-	case strings.HasSuffix(lower, ".cloudfront.net") || strings.HasSuffix(lower, ".cloudfront.net."):
-		// CloudFront distributions return CNAME-style answer.
-		return []string{strings.TrimSuffix(dnsName, ".")}
-	case strings.Contains(lower, ".elb.amazonaws.com") || strings.Contains(lower, ".elasticloadbalancing."):
-		// ELB aliases: return a synthetic A record IP for A queries, CNAME for others.
-		if recordType == recordTypeA {
-			return []string{"198.51.100.1"} // TEST-NET-2, realistic placeholder
+	// For failover routing: prefer PRIMARY if available.
+	for _, rrs := range candidates {
+		if rrs.Failover == FailoverPrimary {
+			return rrsValues(rrs), nil
 		}
-
-		return []string{strings.TrimSuffix(dnsName, ".")}
-	case strings.Contains(lower, ".s3-website") || strings.Contains(lower, ".s3.amazonaws.com"):
-		// S3 website endpoints.
-		if recordType == recordTypeA {
-			return []string{"52.218.0.1"} // AWS S3 IP range placeholder
-		}
-
-		return []string{strings.TrimSuffix(dnsName, ".")}
-	default:
-		// Generic alias: return the DNS name as a CNAME value.
-		return []string{strings.TrimSuffix(dnsName, ".")}
 	}
+
+	// Default: return first candidate (deterministic by SetIdentifier sort).
+	return rrsValues(candidates[0]), nil
 }

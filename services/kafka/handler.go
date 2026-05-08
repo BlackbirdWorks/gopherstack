@@ -374,10 +374,30 @@ func parseClusterRootV1(method string) (string, string) {
 	return "", ""
 }
 
-//nolint:cyclop,gocognit,gocyclo,funlen // complexity is inherent to the number of path sub-patterns handled
+// parseClusterResourceV1 routes V1 cluster resource paths.
 func parseClusterResourceV1(method, remainder string) (string, string) {
 	decoded, _ := url.PathUnescape(remainder)
 
+	if op, id := parseClusterResourceV1Topics(method, decoded); op != "" {
+		return op, id
+	}
+
+	if op, id := parseClusterResourceV1Config(method, decoded); op != "" {
+		return op, id
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opDescribeCluster, decoded
+	case http.MethodDelete:
+		return opDeleteCluster, decoded
+	}
+
+	return "", ""
+}
+
+// parseClusterResourceV1Topics handles topic and scram secret sub-paths.
+func parseClusterResourceV1Topics(method, decoded string) (string, string) {
 	// /topic-partitions/{topicName}: must be checked before /topics suffix.
 	if idx := strings.Index(decoded, topicPartitionsSuffix+"/"); idx != -1 {
 		arnStr := decoded[:idx]
@@ -437,6 +457,11 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 		return "", ""
 	}
 
+	return "", ""
+}
+
+// parseClusterResourceV1Config handles policy, broker, VPC, and operations sub-paths.
+func parseClusterResourceV1Config(method, decoded string) (string, string) {
 	// /policy: DeleteClusterPolicy (DELETE), GetClusterPolicy (GET), PutClusterPolicy (PUT).
 	if strings.HasSuffix(decoded, policySuffix) {
 		arnStr := decoded[:len(decoded)-len(policySuffix)]
@@ -464,6 +489,15 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 		return "", ""
 	}
 
+	if op, id := parseClusterResourceV1Misc(method, decoded); op != "" {
+		return op, id
+	}
+
+	return "", ""
+}
+
+// parseClusterResourceV1Misc handles compatible versions, nodes, reboot, VPC, and operations paths.
+func parseClusterResourceV1Misc(method, decoded string) (string, string) {
 	// /compatible-kafka-versions: GetCompatibleKafkaVersions.
 	if strings.HasSuffix(decoded, compatibleVersionsSuffix) {
 		arnStr := decoded[:len(decoded)-len(compatibleVersionsSuffix)]
@@ -528,16 +562,6 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 		}
 
 		return "", ""
-	}
-
-	switch method {
-	case http.MethodGet:
-		return opDescribeCluster, decoded
-	case http.MethodDelete:
-		return opDeleteCluster, decoded
-	case http.MethodPut:
-		// PUT on a cluster ARN with update sub-ops handled inline — distinguish by query/body not path.
-		// These specific update endpoints use dedicated paths, so fallthrough to empty.
 	}
 
 	return "", ""
@@ -749,9 +773,16 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) er
 
 // dispatchCoreOps handles cluster, configuration, and tag operations.
 // Returns (true, err) if the operation was handled, (false, nil) otherwise.
-//
-//nolint:cyclop // dispatch switch complexity is inherent to the number of operations
 func (h *Handler) dispatchCoreOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	if ok, err := h.dispatchClusterOps(c, op, resource, body); ok {
+		return true, err
+	}
+
+	return h.dispatchConfigTagOps(c, op, resource, body)
+}
+
+// dispatchClusterOps handles cluster CRUD and bootstrap operations.
+func (h *Handler) dispatchClusterOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
 	case opCreateCluster:
 		return true, h.handleCreateCluster(c, body)
@@ -769,6 +800,14 @@ func (h *Handler) dispatchCoreOps(c *echo.Context, op, resource string, body []b
 		return true, h.handleDeleteCluster(c, resource)
 	case opGetBootstrapBrokers:
 		return true, h.handleGetBootstrapBrokers(c, resource)
+	}
+
+	return false, nil
+}
+
+// dispatchConfigTagOps handles configuration and tag operations.
+func (h *Handler) dispatchConfigTagOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
+	switch op {
 	case opCreateConfiguration:
 		return true, h.handleCreateConfiguration(c, body)
 	case opListConfigurations:
@@ -1051,6 +1090,20 @@ type createConfigurationOutput struct {
 	Name string `json:"name"`
 }
 
+type configurationRevision struct {
+	Description string `json:"description,omitempty"`
+	Revision    int64  `json:"revision"`
+}
+
+type describeConfigurationOutput struct {
+	Arn            string                `json:"arn"`
+	Name           string                `json:"name"`
+	Description    string                `json:"description,omitempty"`
+	State          string                `json:"state"`
+	LatestRevision configurationRevision `json:"latestRevision"`
+	KafkaVersions  []string              `json:"kafkaVersions,omitempty"`
+}
+
 type listConfigurationsOutput struct {
 	Configurations []*Configuration `json:"configurations"`
 }
@@ -1297,7 +1350,17 @@ func (h *Handler) handleDescribeConfiguration(c *echo.Context, configArn string)
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, config)
+	return c.JSON(http.StatusOK, describeConfigurationOutput{
+		Arn:           config.Arn,
+		Name:          config.Name,
+		Description:   config.Description,
+		KafkaVersions: config.KafkaVersions,
+		State:         "ACTIVE",
+		LatestRevision: configurationRevision{
+			Revision:    1,
+			Description: config.Description,
+		},
+	})
 }
 
 func (h *Handler) handleDeleteConfiguration(c *echo.Context, configArn string) error {

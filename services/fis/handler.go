@@ -90,7 +90,10 @@ func NewHandler(backend StorageBackend) *Handler {
 // WithJanitor attaches a background janitor to the handler.
 // If the backend is not an *InMemoryBackend, this is a no-op.
 // The optional taskTimeout bounds each sweep; 0 means no per-task timeout.
-func (h *Handler) WithJanitor(interval, experimentTTL time.Duration, taskTimeout ...time.Duration) *Handler {
+func (h *Handler) WithJanitor(
+	interval, experimentTTL time.Duration,
+	taskTimeout ...time.Duration,
+) *Handler {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
 		j := NewJanitor(mem, interval, experimentTTL)
 		if len(taskTimeout) > 0 {
@@ -238,7 +241,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "fis: failed to read request body", "error", err)
 
-			return h.writeError(c, http.StatusInternalServerError, "failed to read request body", "")
+			return h.writeError(
+				c,
+				http.StatusInternalServerError,
+				"failed to read request body",
+				"",
+			)
 		}
 
 		log.DebugContext(ctx, "fis request", "op", op, "id", id)
@@ -248,62 +256,90 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes a parsed FIS operation to the appropriate backend call.
-//
-//nolint:cyclop // dispatch table has necessary branches for each operation
 func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op, id string, body []byte) error {
 	if handled, err := h.dispatchTargetAccountOps(c, op, id, body); handled {
 		return err
 	}
 
-	switch op {
-	case opCreateExperimentTemplate:
-		return h.handleCreateExperimentTemplate(ctx, c, body)
-	case opGetExperimentTemplate:
-		return h.handleGetExperimentTemplate(c, id)
-	case opUpdateExperimentTemplate:
-		return h.handleUpdateExperimentTemplate(c, id, body)
-	case opDeleteExperimentTemplate:
-		return h.handleDeleteExperimentTemplate(c, id)
-	case opListExperimentTemplates:
-		return h.handleListExperimentTemplates(c)
-	case opStartExperiment:
-		return h.handleStartExperiment(ctx, c, body)
-	case opGetExperiment:
-		return h.handleGetExperiment(c, id)
-	case opStopExperiment:
-		return h.handleStopExperiment(c, id)
-	case opListExperiments:
-		return h.handleListExperiments(c)
-	case opListExperimentResolvedTargets:
-		return h.handleListExperimentResolvedTargets(c, id)
-	case opGetAction:
-		return h.handleGetAction(c, id)
-	case opListActions:
-		return h.handleListActions(c)
-	case opGetTargetResourceType:
-		rt, _ := url.PathUnescape(id)
+	if handled, err := h.dispatchExperimentOps(ctx, c, op, id, body); handled {
+		return err
+	}
 
-		return h.handleGetTargetResourceType(c, rt)
-	case opListTargetResourceTypes:
-		return h.handleListTargetResourceTypes(c)
-	case opTagResource:
-		return h.handleTagResource(c, id, body)
-	case opUntagResource:
-		return h.handleUntagResource(c, id, c.Request().URL.Query())
-	case opListTagsForResource:
-		return h.handleListTagsForResource(c, id)
-	case opGetSafetyLever:
-		return h.handleGetSafetyLever(c, id)
-	case opUpdateSafetyLeverState:
-		return h.handleUpdateSafetyLeverState(c, id, body)
+	if handled, err := h.dispatchActionTagOps(c, op, id, body); handled {
+		return err
 	}
 
 	return h.writeError(c, http.StatusNotFound, "unknown operation: "+op, "")
 }
 
+// dispatchExperimentOps handles experiment template and experiment operations.
+func (h *Handler) dispatchExperimentOps(
+	ctx context.Context,
+	c *echo.Context,
+	op, id string,
+	body []byte,
+) (bool, error) {
+	switch op {
+	case opCreateExperimentTemplate:
+		return true, h.handleCreateExperimentTemplate(ctx, c, body)
+	case opGetExperimentTemplate:
+		return true, h.handleGetExperimentTemplate(c, id)
+	case opUpdateExperimentTemplate:
+		return true, h.handleUpdateExperimentTemplate(c, id, body)
+	case opDeleteExperimentTemplate:
+		return true, h.handleDeleteExperimentTemplate(c, id)
+	case opListExperimentTemplates:
+		return true, h.handleListExperimentTemplates(c)
+	case opStartExperiment:
+		return true, h.handleStartExperiment(ctx, c, body)
+	case opGetExperiment:
+		return true, h.handleGetExperiment(c, id)
+	case opStopExperiment:
+		return true, h.handleStopExperiment(c, id)
+	case opListExperiments:
+		return true, h.handleListExperiments(c)
+	case opListExperimentResolvedTargets:
+		return true, h.handleListExperimentResolvedTargets(c, id)
+	}
+
+	return false, nil
+}
+
+// dispatchActionTagOps handles action, target resource type, tag, and safety lever operations.
+func (h *Handler) dispatchActionTagOps(c *echo.Context, op, id string, body []byte) (bool, error) {
+	switch op {
+	case opGetAction:
+		return true, h.handleGetAction(c, id)
+	case opListActions:
+		return true, h.handleListActions(c)
+	case opGetTargetResourceType:
+		rt, _ := url.PathUnescape(id)
+
+		return true, h.handleGetTargetResourceType(c, rt)
+	case opListTargetResourceTypes:
+		return true, h.handleListTargetResourceTypes(c)
+	case opTagResource:
+		return true, h.handleTagResource(c, id, body)
+	case opUntagResource:
+		return true, h.handleUntagResource(c, id, c.Request().URL.Query())
+	case opListTagsForResource:
+		return true, h.handleListTagsForResource(c, id)
+	case opGetSafetyLever:
+		return true, h.handleGetSafetyLever(c, id)
+	case opUpdateSafetyLeverState:
+		return true, h.handleUpdateSafetyLeverState(c, id, body)
+	}
+
+	return false, nil
+}
+
 // dispatchTargetAccountOps handles the target account configuration operations.
 // Returns (true, err) when the operation was handled, (false, nil) otherwise.
-func (h *Handler) dispatchTargetAccountOps(c *echo.Context, op, id string, body []byte) (bool, error) {
+func (h *Handler) dispatchTargetAccountOps(
+	c *echo.Context,
+	op, id string,
+	body []byte,
+) (bool, error) {
 	switch op {
 	case opCreateTargetAccountConfiguration:
 		return true, h.handleCreateTargetAccountConfiguration(c, id, body)
@@ -328,7 +364,11 @@ func (h *Handler) dispatchTargetAccountOps(c *echo.Context, op, id string, body 
 // ExperimentTemplate handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateExperimentTemplate(_ context.Context, c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateExperimentTemplate(
+	_ context.Context,
+	c *echo.Context,
+	body []byte,
+) error {
 	var input createExperimentTemplateRequest
 	if err := json.Unmarshal(body, &input); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error(), "")
@@ -621,15 +661,29 @@ func splitCompositeID(compositeID string) (string, string) {
 	return resourceID, accountID
 }
 
-func (h *Handler) handleCreateTargetAccountConfiguration(c *echo.Context, compositeID string, body []byte) error {
+func (h *Handler) handleCreateTargetAccountConfiguration(
+	c *echo.Context,
+	compositeID string,
+	body []byte,
+) error {
 	templateID, accountID := splitCompositeID(compositeID)
 
 	var input createTargetAccountConfigurationRequest
 	if err := json.Unmarshal(body, &input); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error(), compositeID)
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"invalid request body: "+err.Error(),
+			compositeID,
+		)
 	}
 
-	cfg, err := h.Backend.CreateTargetAccountConfiguration(templateID, accountID, input.RoleArn, input.Description)
+	cfg, err := h.Backend.CreateTargetAccountConfiguration(
+		templateID,
+		accountID,
+		input.RoleArn,
+		input.Description,
+	)
 	if err != nil {
 		return h.writeBackendError(c, err, compositeID)
 	}
@@ -639,7 +693,10 @@ func (h *Handler) handleCreateTargetAccountConfiguration(c *echo.Context, compos
 	})
 }
 
-func (h *Handler) handleDeleteTargetAccountConfiguration(c *echo.Context, compositeID string) error {
+func (h *Handler) handleDeleteTargetAccountConfiguration(
+	c *echo.Context,
+	compositeID string,
+) error {
 	templateID, accountID := splitCompositeID(compositeID)
 
 	cfg, err := h.Backend.DeleteTargetAccountConfiguration(templateID, accountID)
@@ -665,15 +722,29 @@ func (h *Handler) handleGetTargetAccountConfiguration(c *echo.Context, composite
 	})
 }
 
-func (h *Handler) handleUpdateTargetAccountConfiguration(c *echo.Context, compositeID string, body []byte) error {
+func (h *Handler) handleUpdateTargetAccountConfiguration(
+	c *echo.Context,
+	compositeID string,
+	body []byte,
+) error {
 	templateID, accountID := splitCompositeID(compositeID)
 
 	var input updateTargetAccountConfigurationRequest
 	if err := json.Unmarshal(body, &input); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error(), compositeID)
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"invalid request body: "+err.Error(),
+			compositeID,
+		)
 	}
 
-	cfg, err := h.Backend.UpdateTargetAccountConfiguration(templateID, accountID, input.RoleArn, input.Description)
+	cfg, err := h.Backend.UpdateTargetAccountConfiguration(
+		templateID,
+		accountID,
+		input.RoleArn,
+		input.Description,
+	)
 	if err != nil {
 		return h.writeBackendError(c, err, compositeID)
 	}
@@ -699,7 +770,10 @@ func (h *Handler) handleListTargetAccountConfigurations(c *echo.Context, templat
 	})
 }
 
-func (h *Handler) handleGetExperimentTargetAccountConfiguration(c *echo.Context, compositeID string) error {
+func (h *Handler) handleGetExperimentTargetAccountConfiguration(
+	c *echo.Context,
+	compositeID string,
+) error {
 	experimentID, accountID := splitCompositeID(compositeID)
 
 	cfg, err := h.Backend.GetExperimentTargetAccountConfiguration(experimentID, accountID)
@@ -712,7 +786,10 @@ func (h *Handler) handleGetExperimentTargetAccountConfiguration(c *echo.Context,
 	})
 }
 
-func (h *Handler) handleListExperimentTargetAccountConfigurations(c *echo.Context, experimentID string) error {
+func (h *Handler) handleListExperimentTargetAccountConfigurations(
+	c *echo.Context,
+	experimentID string,
+) error {
 	cfgs, err := h.Backend.ListExperimentTargetAccountConfigurations(experimentID)
 	if err != nil {
 		return h.writeBackendError(c, err, experimentID)
@@ -769,8 +846,6 @@ func (h *Handler) writeBackendError(c *echo.Context, err error, id string) error
 
 // parseFISPath maps an HTTP method + URL path to a FIS operation name and optional resource ID.
 // Returns ("", "") when no pattern matches.
-//
-//nolint:cyclop,gocognit,gocyclo,funlen // routing table per HTTP method + resource
 func parseFISPath(method, path string) (string, string) {
 	segs := pathSegments(path)
 	if len(segs) == 0 {
@@ -782,102 +857,172 @@ func parseFISPath(method, path string) (string, string) {
 
 	switch root {
 	case pathExperimentTemplates:
-		switch {
-		case method == http.MethodPost && !hasID:
-			return opCreateExperimentTemplate, ""
-		case method == http.MethodGet && !hasID:
-			return opListExperimentTemplates, ""
-		// Must check 4-segment paths before 3-segment paths and generic 2-segment paths.
-		case len(segs) >= 4 && segs[2] == pathTargetAccountConfigurations:
-			// /experimentTemplates/{tplId}/targetAccountConfigurations/{accountId}
-			compositeID := segs[1] + "/" + segs[3]
-			switch method {
-			case http.MethodPost:
-				return opCreateTargetAccountConfiguration, compositeID
-			case http.MethodGet:
-				return opGetTargetAccountConfiguration, compositeID
-			case http.MethodPatch:
-				return opUpdateTargetAccountConfiguration, compositeID
-			case http.MethodDelete:
-				return opDeleteTargetAccountConfiguration, compositeID
-			}
-		case len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations:
-			// /experimentTemplates/{tplId}/targetAccountConfigurations
-			if method == http.MethodGet {
-				return opListTargetAccountConfigurations, segs[1]
-			}
-		case method == http.MethodGet && hasID:
-			return opGetExperimentTemplate, segs[1]
-		case method == http.MethodPatch && hasID:
-			return opUpdateExperimentTemplate, segs[1]
-		case method == http.MethodDelete && hasID:
-			return opDeleteExperimentTemplate, segs[1]
-		}
-
+		return parseFISExperimentTemplatePath(method, segs, hasID)
 	case pathExperiments:
-		switch {
-		case method == http.MethodPost && !hasID:
-			return opStartExperiment, ""
-		case method == http.MethodGet && !hasID:
-			return opListExperiments, ""
-		// Must check 3+ segment paths before generic 2-segment GET.
-		case method == http.MethodGet && len(segs) >= 3 && segs[2] == subPathResolvedTargets:
-			return opListExperimentResolvedTargets, segs[1]
-		case len(segs) >= 4 && segs[2] == pathTargetAccountConfigurations:
-			// /experiments/{expId}/targetAccountConfigurations/{accountId}
-			if method == http.MethodGet {
-				return opGetExperimentTargetAccountConfiguration, segs[1] + "/" + segs[3]
-			}
-		case len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations:
-			// /experiments/{expId}/targetAccountConfigurations
-			if method == http.MethodGet {
-				return opListExperimentTargetAccountConfigurations, segs[1]
-			}
-		case method == http.MethodGet && hasID:
-			return opGetExperiment, segs[1]
-		case method == http.MethodDelete && hasID:
-			return opStopExperiment, segs[1]
-		}
-
+		return parseFISExperimentPath(method, segs, hasID)
 	case pathActions:
-		switch {
-		case method == http.MethodGet && !hasID:
-			return opListActions, ""
-		case method == http.MethodGet && hasID:
-			return opGetAction, segs[1]
-		}
-
+		return parseFISActionPath(method, segs, hasID)
 	case pathTargetResourceTypes:
-		switch {
-		case method == http.MethodGet && !hasID:
-			return opListTargetResourceTypes, ""
-		case method == http.MethodGet && hasID:
-			// Resource type may be URL-encoded (e.g. aws%3Aec2%3Ainstance); the caller decodes.
-			return opGetTargetResourceType, segs[1]
-		}
-
+		return parseFISTargetResourceTypePath(method, segs, hasID)
 	case pathTags:
-		if hasID {
-			arnStr := strings.Join(segs[1:], "/")
-			switch method {
-			case http.MethodGet:
-				return opListTagsForResource, arnStr
-			case http.MethodPost:
-				return opTagResource, arnStr
-			case http.MethodDelete:
-				return opUntagResource, arnStr
-			}
+		return parseFISTagPath(method, segs, hasID)
+	case pathSafetyLevers:
+		return parseFISSafetyLeverPath(method, segs, hasID)
+	}
+
+	return "", ""
+}
+
+// parseFISExperimentTemplatePath routes experiment template paths.
+func parseFISExperimentTemplatePath(method string, segs []string, hasID bool) (string, string) {
+	if !hasID {
+		if method == http.MethodPost {
+			return opCreateExperimentTemplate, ""
+		}
+		if method == http.MethodGet {
+			return opListExperimentTemplates, ""
 		}
 
-	case pathSafetyLevers:
-		if hasID {
-			switch method {
-			case http.MethodGet:
-				return opGetSafetyLever, segs[1]
-			case http.MethodPatch:
-				return opUpdateSafetyLeverState, segs[1]
-			}
+		return "", ""
+	}
+
+	if op, id := parseFISTemplateSubPath(method, segs); op != "" {
+		return op, id
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetExperimentTemplate, segs[1]
+	case http.MethodPatch:
+		return opUpdateExperimentTemplate, segs[1]
+	case http.MethodDelete:
+		return opDeleteExperimentTemplate, segs[1]
+	}
+
+	return "", ""
+}
+
+// parseFISTemplateSubPath routes sub-paths of experiment templates (target account configurations).
+func parseFISTemplateSubPath(method string, segs []string) (string, string) {
+	if len(segs) >= 4 && segs[2] == pathTargetAccountConfigurations {
+		compositeID := segs[1] + "/" + segs[3]
+		switch method {
+		case http.MethodPost:
+			return opCreateTargetAccountConfiguration, compositeID
+		case http.MethodGet:
+			return opGetTargetAccountConfiguration, compositeID
+		case http.MethodPatch:
+			return opUpdateTargetAccountConfiguration, compositeID
+		case http.MethodDelete:
+			return opDeleteTargetAccountConfiguration, compositeID
 		}
+	}
+
+	if len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations && method == http.MethodGet {
+		return opListTargetAccountConfigurations, segs[1]
+	}
+
+	return "", ""
+}
+
+// parseFISExperimentPath routes experiment paths.
+func parseFISExperimentPath(method string, segs []string, hasID bool) (string, string) {
+	if !hasID {
+		if method == http.MethodPost {
+			return opStartExperiment, ""
+		}
+		if method == http.MethodGet {
+			return opListExperiments, ""
+		}
+
+		return "", ""
+	}
+
+	if op, id := parseFISExperimentSubPath(method, segs); op != "" {
+		return op, id
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetExperiment, segs[1]
+	case http.MethodDelete:
+		return opStopExperiment, segs[1]
+	}
+
+	return "", ""
+}
+
+// parseFISExperimentSubPath routes sub-paths of experiments.
+func parseFISExperimentSubPath(method string, segs []string) (string, string) {
+	if method == http.MethodGet && len(segs) >= 3 && segs[2] == subPathResolvedTargets {
+		return opListExperimentResolvedTargets, segs[1]
+	}
+
+	if len(segs) >= 4 && segs[2] == pathTargetAccountConfigurations && method == http.MethodGet {
+		return opGetExperimentTargetAccountConfiguration, segs[1] + "/" + segs[3]
+	}
+
+	if len(segs) >= 3 && segs[2] == pathTargetAccountConfigurations && method == http.MethodGet {
+		return opListExperimentTargetAccountConfigurations, segs[1]
+	}
+
+	return "", ""
+}
+
+// parseFISActionPath routes action paths.
+func parseFISActionPath(method string, segs []string, hasID bool) (string, string) {
+	switch {
+	case method == http.MethodGet && !hasID:
+		return opListActions, ""
+	case method == http.MethodGet && hasID:
+		return opGetAction, segs[1]
+	}
+
+	return "", ""
+}
+
+// parseFISTargetResourceTypePath routes target resource type paths.
+func parseFISTargetResourceTypePath(method string, segs []string, hasID bool) (string, string) {
+	switch {
+	case method == http.MethodGet && !hasID:
+		return opListTargetResourceTypes, ""
+	case method == http.MethodGet && hasID:
+		return opGetTargetResourceType, segs[1]
+	}
+
+	return "", ""
+}
+
+// parseFISTagPath routes tag management paths.
+func parseFISTagPath(method string, segs []string, hasID bool) (string, string) {
+	if !hasID {
+		return "", ""
+	}
+
+	arnStr := strings.Join(segs[1:], "/")
+	switch method {
+	case http.MethodGet:
+		return opListTagsForResource, arnStr
+	case http.MethodPost:
+		return opTagResource, arnStr
+	case http.MethodDelete:
+		return opUntagResource, arnStr
+	}
+
+	return "", ""
+}
+
+// parseFISSafetyLeverPath routes safety lever paths.
+func parseFISSafetyLeverPath(method string, segs []string, hasID bool) (string, string) {
+	if !hasID {
+		return "", ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetSafetyLever, segs[1]
+	case http.MethodPatch:
+		return opUpdateSafetyLeverState, segs[1]
 	}
 
 	return "", ""
@@ -1006,14 +1151,20 @@ func toExperimentDTO(exp *Experiment) experimentDTO {
 		Arn:                  exp.Arn,
 		ExperimentTemplateID: exp.ExperimentTemplateID,
 		RoleArn:              exp.RoleArn,
-		Status:               experimentStatusDTO{Status: exp.Status.Status, Reason: exp.Status.Reason},
-		State:                experimentStatusDTO{Status: exp.Status.Status, Reason: exp.Status.Reason},
-		Targets:              targets,
-		Actions:              actions,
-		StopConditions:       stopConditions,
-		Tags:                 exp.Tags,
-		StartTime:            toUnix(exp.StartTime),
-		EndTime:              toUnixPtr(exp.EndTime),
+		Status: experimentStatusDTO{
+			Status: exp.Status.Status,
+			Reason: exp.Status.Reason,
+		},
+		State: experimentStatusDTO{
+			Status: exp.Status.Status,
+			Reason: exp.Status.Reason,
+		},
+		Targets:        targets,
+		Actions:        actions,
+		StopConditions: stopConditions,
+		Tags:           exp.Tags,
+		StartTime:      toUnix(exp.StartTime),
+		EndTime:        toUnixPtr(exp.EndTime),
 	}
 
 	if exp.LogConfiguration != nil {

@@ -66,8 +66,6 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-//
-//nolint:cyclop,gocognit // Restore must handle nil-guard for every map in the snapshot
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -78,41 +76,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.apis = make(map[string]*apiData, len(snap.APIs))
+	b.restoreAPIs(snap.APIs)
+	b.restoreMaps(snap)
 
-	for id, d := range snap.APIs {
-		if d.Resources == nil {
-			d.Resources = make(map[string]*Resource)
-		}
+	return nil
+}
 
-		if d.Deployments == nil {
-			d.Deployments = make(map[string]*Deployment)
-		}
+// restoreAPIs restores API data from the snapshot.
+func (b *InMemoryBackend) restoreAPIs(apis map[string]*apiDataSnapshot) {
+	b.apis = make(map[string]*apiData, len(apis))
 
-		if d.Stages == nil {
-			d.Stages = make(map[string]*Stage)
-		}
-
-		if d.Authorizers == nil {
-			d.Authorizers = make(map[string]*Authorizer)
-		}
-
-		if d.RequestValidators == nil {
-			d.RequestValidators = make(map[string]*RequestValidator)
-		}
-
-		if d.DocumentationParts == nil {
-			d.DocumentationParts = make(map[string]*DocumentationPart)
-		}
-
-		if d.DocumentationVersions == nil {
-			d.DocumentationVersions = make(map[string]*DocumentationVersion)
-		}
-
-		if d.Models == nil {
-			d.Models = make(map[string]*Model)
-		}
-
+	for id, d := range apis {
+		ensureAPIDataMaps(d)
 		b.apis[id] = &apiData{
 			api:                   d.API,
 			resources:             d.Resources,
@@ -125,7 +100,45 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			models:                d.Models,
 		}
 	}
+}
 
+// ensureAPIDataMaps initialises nil map fields in an API data snapshot.
+func ensureAPIDataMaps(d *apiDataSnapshot) {
+	if d.Resources == nil {
+		d.Resources = make(map[string]*Resource)
+	}
+
+	if d.Deployments == nil {
+		d.Deployments = make(map[string]*Deployment)
+	}
+
+	if d.Stages == nil {
+		d.Stages = make(map[string]*Stage)
+	}
+
+	if d.Authorizers == nil {
+		d.Authorizers = make(map[string]*Authorizer)
+	}
+
+	if d.RequestValidators == nil {
+		d.RequestValidators = make(map[string]*RequestValidator)
+	}
+
+	if d.DocumentationParts == nil {
+		d.DocumentationParts = make(map[string]*DocumentationPart)
+	}
+
+	if d.DocumentationVersions == nil {
+		d.DocumentationVersions = make(map[string]*DocumentationVersion)
+	}
+
+	if d.Models == nil {
+		d.Models = make(map[string]*Model)
+	}
+}
+
+// restoreMaps restores the flat map fields from the snapshot.
+func (b *InMemoryBackend) restoreMaps(snap backendSnapshot) {
 	if snap.APIKeys != nil {
 		b.apiKeys = snap.APIKeys
 	} else {
@@ -161,8 +174,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	} else {
 		b.usagePlanKeys = make(map[string]map[string]*UsagePlanKey)
 	}
-
-	return nil
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

@@ -1110,82 +1110,135 @@ func parseAPIGWAPIKeysPath(method string, segs []string, n int) (string, map[str
 
 // parseAPIGWDomainNamesPath handles /domainnames/... paths.
 //
-//nolint:cyclop // path routing table is inherently a multi-branch switch
+
+// parseAPIGWDomainNamesPath handles /domainnames/... paths.
 func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map[string]string, bool) {
-	switch {
-	// GET /domainnames → GetDomainNames
-	case n == 1 && method == http.MethodGet:
-		return opGetDomainNames, nil, true
-	// POST /domainnames → CreateDomainName
-	case n == 1 && method == http.MethodPost:
-		return opCreateDomainName, nil, true
-	// GET /domainnames/{name} → GetDomainName
-	case n == 2 && method == http.MethodGet:
-		return opGetDomainName, map[string]string{keyDomainName: segs[1]}, true
-	// DELETE /domainnames/{name} → DeleteDomainName
-	case n == 2 && method == http.MethodDelete:
-		return opDeleteDomainName, map[string]string{keyDomainName: segs[1]}, true
-	// PATCH /domainnames/{name} → UpdateDomainName
-	case n == 2 && method == http.MethodPatch:
-		return opUpdateDomainName, map[string]string{keyDomainName: segs[1]}, true
-	// GET /domainnames/{name}/basepathmappings → GetBasePathMappings
-	case n == 3 && segs[2] == apiGWSegBasePathMappings && method == http.MethodGet:
-		return opGetBasePathMappings, map[string]string{keyDomainName: segs[1]}, true
-	// POST /domainnames/{name}/basepathmappings → CreateBasePathMapping
-	case n == 3 && segs[2] == apiGWSegBasePathMappings && method == http.MethodPost:
-		return opCreateBasePathMapping, map[string]string{keyDomainName: segs[1]}, true
-	// GET /domainnames/{name}/basepathmappings/{basePath} → GetBasePathMapping
-	case n == 4 && segs[2] == apiGWSegBasePathMappings && method == http.MethodGet:
-		return opGetBasePathMapping, map[string]string{keyDomainName: segs[1], keyBasePath: segs[3]}, true
-	// PATCH /domainnames/{name}/basepathmappings/{basePath} → UpdateBasePathMapping
-	case n == 4 && segs[2] == apiGWSegBasePathMappings && method == http.MethodPatch:
-		return opUpdateBasePathMapping, map[string]string{keyDomainName: segs[1], keyBasePath: segs[3]}, true
-	// DELETE /domainnames/{name}/basepathmappings/{basePath} → DeleteBasePathMapping
-	case n == 4 && segs[2] == apiGWSegBasePathMappings && method == http.MethodDelete:
-		return opDeleteBasePathMapping, map[string]string{keyDomainName: segs[1], keyBasePath: segs[3]}, true
-	// POST /domainnames/{domainName}/accessassociations → CreateDomainNameAccessAssociation
-	case n == 3 && segs[2] == apiGWSegAccessAssociations && method == http.MethodPost:
-		return opCreateDomainNameAccessAssociation, map[string]string{keyDomainName: segs[1]}, true
+	switch n {
+	case 1:
+		switch method {
+		case http.MethodGet:
+			return opGetDomainNames, nil, true
+		case http.MethodPost:
+			return opCreateDomainName, nil, true
+		}
+	case 2:
+		switch method {
+		case http.MethodGet:
+			return opGetDomainName, map[string]string{keyDomainName: segs[1]}, true
+		case http.MethodDelete:
+			return opDeleteDomainName, map[string]string{keyDomainName: segs[1]}, true
+		case http.MethodPatch:
+			return opUpdateDomainName, map[string]string{keyDomainName: segs[1]}, true
+		}
+	case 3:
+		return parseAPIGWDomainNamesDepth3(method, segs)
+	case 4:
+		if segs[2] == apiGWSegBasePathMappings {
+			return parseAPIGWDomainNamesBasePathMapping(method, segs)
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWDomainNamesDepth3 handles /domainnames/{name}/{sub} paths.
+func parseAPIGWDomainNamesDepth3(method string, segs []string) (string, map[string]string, bool) {
+	switch segs[2] {
+	case apiGWSegBasePathMappings:
+		switch method {
+		case http.MethodGet:
+			return opGetBasePathMappings, map[string]string{keyDomainName: segs[1]}, true
+		case http.MethodPost:
+			return opCreateBasePathMapping, map[string]string{keyDomainName: segs[1]}, true
+		}
+	case apiGWSegAccessAssociations:
+		if method == http.MethodPost {
+			return opCreateDomainNameAccessAssociation, map[string]string{keyDomainName: segs[1]}, true
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWDomainNamesBasePathMapping handles /domainnames/{name}/basepathmappings/{basePath} paths.
+func parseAPIGWDomainNamesBasePathMapping(method string, segs []string) (string, map[string]string, bool) {
+	params := map[string]string{keyDomainName: segs[1], keyBasePath: segs[3]}
+
+	switch method {
+	case http.MethodGet:
+		return opGetBasePathMapping, params, true
+	case http.MethodPatch:
+		return opUpdateBasePathMapping, params, true
+	case http.MethodDelete:
+		return opDeleteBasePathMapping, params, true
 	}
 
 	return apiGWUnknownOp, nil, false
 }
 
 // parseAPIGWUsagePlansPath handles /usageplans/... paths.
-//
-//nolint:cyclop // path routing table is inherently a multi-branch switch
 func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[string]string, bool) {
-	switch {
-	// GET /usageplans → GetUsagePlans
-	case n == 1 && method == http.MethodGet:
-		return opGetUsagePlans, nil, true
-	// POST /usageplans → CreateUsagePlan
-	case n == 1 && method == http.MethodPost:
-		return opCreateUsagePlan, nil, true
-	// GET /usageplans/{id} → GetUsagePlan
-	case n == 2 && method == http.MethodGet:
-		return opGetUsagePlan, map[string]string{keyUsagePlanID: segs[1]}, true
-	// DELETE /usageplans/{id} → DeleteUsagePlan
-	case n == 2 && method == http.MethodDelete:
-		return opDeleteUsagePlan, map[string]string{keyUsagePlanID: segs[1]}, true
-	// PATCH /usageplans/{id} → UpdateUsagePlan
-	case n == 2 && method == http.MethodPatch:
-		return opUpdateUsagePlan, map[string]string{keyUsagePlanID: segs[1]}, true
-	// GET /usageplans/{id}/usage → GetUsage
-	case n == 3 && segs[2] == "usage" && method == http.MethodGet:
-		return opGetUsage, map[string]string{keyUsagePlanID: segs[1]}, true
-	// GET /usageplans/{id}/keys → GetUsagePlanKeys
-	case n == 3 && segs[2] == apiGWSegUsagePlanKeys && method == http.MethodGet:
-		return opGetUsagePlanKeys, map[string]string{keyUsagePlanID: segs[1]}, true
-	// POST /usageplans/{usagePlanId}/keys → CreateUsagePlanKey
-	case n == 3 && segs[2] == apiGWSegUsagePlanKeys && method == http.MethodPost:
-		return opCreateUsagePlanKey, map[string]string{keyUsagePlanID: segs[1]}, true
-	// GET /usageplans/{id}/keys/{keyId} → GetUsagePlanKey
-	case n == 4 && segs[2] == apiGWSegUsagePlanKeys && method == http.MethodGet:
-		return opGetUsagePlanKey, map[string]string{keyUsagePlanID: segs[1], "keyId": segs[3]}, true
-	// DELETE /usageplans/{id}/keys/{keyId} → DeleteUsagePlanKey
-	case n == 4 && segs[2] == apiGWSegUsagePlanKeys && method == http.MethodDelete:
-		return opDeleteUsagePlanKey, map[string]string{keyUsagePlanID: segs[1], "keyId": segs[3]}, true
+	switch n {
+	case 1:
+		switch method {
+		case http.MethodGet:
+			return opGetUsagePlans, nil, true
+		case http.MethodPost:
+			return opCreateUsagePlan, nil, true
+		}
+	case 2:
+		planParam := map[string]string{keyUsagePlanID: segs[1]}
+		switch method {
+		case http.MethodGet:
+			return opGetUsagePlan, planParam, true
+		case http.MethodDelete:
+			return opDeleteUsagePlan, planParam, true
+		case http.MethodPatch:
+			return opUpdateUsagePlan, planParam, true
+		}
+	case 3:
+		return parseAPIGWUsagePlansDepth3(method, segs)
+	case 4:
+		return parseAPIGWUsagePlansDepth4(method, segs)
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWUsagePlansDepth3 handles /usageplans/{id}/{sub} paths.
+func parseAPIGWUsagePlansDepth3(method string, segs []string) (string, map[string]string, bool) {
+	planParam := map[string]string{keyUsagePlanID: segs[1]}
+
+	switch segs[2] {
+	case "usage":
+		if method == http.MethodGet {
+			return opGetUsage, planParam, true
+		}
+	case apiGWSegUsagePlanKeys:
+		switch method {
+		case http.MethodGet:
+			return opGetUsagePlanKeys, planParam, true
+		case http.MethodPost:
+			return opCreateUsagePlanKey, planParam, true
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWUsagePlansDepth4 handles /usageplans/{id}/keys/{keyId} paths.
+func parseAPIGWUsagePlansDepth4(method string, segs []string) (string, map[string]string, bool) {
+	if segs[2] != apiGWSegUsagePlanKeys {
+		return apiGWUnknownOp, nil, false
+	}
+
+	params := map[string]string{keyUsagePlanID: segs[1], "keyId": segs[3]}
+
+	switch method {
+	case http.MethodGet:
+		return opGetUsagePlanKey, params, true
+	case http.MethodDelete:
+		return opDeleteUsagePlanKey, params, true
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1193,181 +1246,332 @@ func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[
 
 // parseAPIGWRestAPIsPath handles /restapis/... paths.
 //
-//nolint:cyclop,gocyclo,gocognit,funlen // path routing table is inherently a multi-branch switch
+// parseAPIGWRestAPIsPath handles /restapis/... paths.
+//
+//nolint:funlen // path routing table is inherently a multi-branch switch
 func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[string]string, bool) {
-	switch {
-	// POST /restapis → CreateRestApi
-	case n == 1 && method == http.MethodPost:
-		return opCreateRestAPI, nil, true
-	// GET /restapis → GetRestApis
-	case n == 1 && method == http.MethodGet:
-		return opGetRestApis, nil, true
-	// GET /restapis/{id} → GetRestApi
-	case n == 2 && method == http.MethodGet:
-		return opGetRestAPI, map[string]string{keyRestAPIID: segs[1]}, true
-	// DELETE /restapis/{id} → DeleteRestApi
-	case n == 2 && method == http.MethodDelete:
-		return opDeleteRestAPI, map[string]string{keyRestAPIID: segs[1]}, true
-	// PATCH /restapis/{id} → UpdateRestApi
-	case n == 2 && method == http.MethodPatch:
-		return opUpdateRestAPI, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/resources → GetResources
-	case n == 3 && segs[2] == apiGWSegResources && method == http.MethodGet:
-		return opGetResources, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/resources/{resId} → GetResource
-	case n == 4 && segs[2] == apiGWSegResources && method == http.MethodGet:
-		return opGetResource, map[string]string{keyRestAPIID: segs[1], keyResourceID: segs[3]}, true
-	// POST /restapis/{id}/resources/{parentId} → CreateResource
-	case n == 4 && segs[2] == apiGWSegResources && method == http.MethodPost:
-		return opCreateResource, map[string]string{keyRestAPIID: segs[1], "parentId": segs[3]}, true
-	// PATCH /restapis/{id}/resources/{resId} → UpdateResource
-	case n == 4 && segs[2] == apiGWSegResources && method == http.MethodPatch:
-		return opUpdateResource, map[string]string{keyRestAPIID: segs[1], keyResourceID: segs[3]}, true
-	// DELETE /restapis/{id}/resources/{resId} → DeleteResource
-	case n == 4 && segs[2] == apiGWSegResources && method == http.MethodDelete:
-		return opDeleteResource, map[string]string{keyRestAPIID: segs[1], keyResourceID: segs[3]}, true
-	// /restapis/{id}/resources/{resId}/methods/{httpMethod}[/integration]
-	case n >= 5 && segs[2] == apiGWSegResources && segs[4] == apiGWSegMethods:
+	apiID := ""
+	if n >= 2 {
+		apiID = segs[1]
+	}
+
+	switch n {
+	case 1:
+		switch method {
+		case http.MethodPost:
+			return opCreateRestAPI, nil, true
+		case http.MethodGet:
+			return opGetRestApis, nil, true
+		}
+	case 2:
+		return parseAPIGWRestAPIsDepth2(method, apiID)
+	case 3:
+		return parseAPIGWRestAPIsDepth3(method, segs, apiID)
+	case 4:
+		return parseAPIGWRestAPIsDepth4(method, segs, apiID)
+	default:
+		return parseAPIGWRestAPIsDeepPath(method, segs, n, apiID)
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsDepth2 handles /restapis/{id} paths.
+func parseAPIGWRestAPIsDepth2(method, apiID string) (string, map[string]string, bool) {
+	params := map[string]string{keyRestAPIID: apiID}
+	switch method {
+	case http.MethodGet:
+		return opGetRestAPI, params, true
+	case http.MethodDelete:
+		return opDeleteRestAPI, params, true
+	case http.MethodPatch:
+		return opUpdateRestAPI, params, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsDepth3 handles /restapis/{id}/{subresource} paths.
+func parseAPIGWRestAPIsDepth3(method string, segs []string, apiID string) (string, map[string]string, bool) {
+	apiParam := map[string]string{keyRestAPIID: apiID}
+
+	if op, params, ok := parseAPIGWRestAPIsDepth3Core(method, segs[2], apiParam); ok {
+		return op, params, ok
+	}
+
+	return parseAPIGWRestAPIsDepth3Extended(method, segs[2], apiParam)
+}
+
+// parseAPIGWRestAPIsDepth3Core handles resources, deployments, and stages depth-3 paths.
+func parseAPIGWRestAPIsDepth3Core(method, sub string, apiParam map[string]string) (string, map[string]string, bool) {
+	switch sub {
+	case apiGWSegResources:
+		if method == http.MethodGet {
+			return opGetResources, apiParam, true
+		}
+	case apiGWSegDeployment:
+		switch method {
+		case http.MethodPost:
+			return opCreateDeployment, apiParam, true
+		case http.MethodGet:
+			return opGetDeployments, apiParam, true
+		}
+	case apiGWSegStages:
+		switch method {
+		case http.MethodGet:
+			return opGetStages, apiParam, true
+		case http.MethodPost:
+			return opCreateStage, apiParam, true
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsDepth3Extended handles authorizers, validators, models, and gateway responses depth-3 paths.
+func parseAPIGWRestAPIsDepth3Extended(method, sub string, apiParam map[string]string) (string, map[string]string, bool) {
+	switch sub {
+	case apiGWSegAuthorizers:
+		switch method {
+		case http.MethodPost:
+			return opCreateAuthorizer, apiParam, true
+		case http.MethodGet:
+			return opGetAuthorizers, apiParam, true
+		}
+	case apiGWSegValidators:
+		switch method {
+		case http.MethodPost:
+			return opCreateRequestValidator, apiParam, true
+		case http.MethodGet:
+			return opGetRequestValidators, apiParam, true
+		}
+	case apiGWSegModels:
+		switch method {
+		case http.MethodPost:
+			return opCreateModel, apiParam, true
+		case http.MethodGet:
+			return opGetModels, apiParam, true
+		}
+	case apiGWSegGatewayResponses:
+		if method == http.MethodGet {
+			return opGetGatewayResponses, apiParam, true
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsDepth4 handles /restapis/{id}/{subresource}/{item} paths.
+func parseAPIGWRestAPIsDepth4(method string, segs []string, apiID string) (string, map[string]string, bool) {
+	if op, params, ok := parseAPIGWRestAPIsDepth4Core(method, segs, apiID); ok {
+		return op, params, ok
+	}
+
+	return parseAPIGWRestAPIsDepth4Extended(method, segs, apiID)
+}
+
+// parseAPIGWRestAPIsDepth4Core handles resources, deployments, and stages depth-4 paths.
+func parseAPIGWRestAPIsDepth4Core(method string, segs []string, apiID string) (string, map[string]string, bool) {
+	switch segs[2] {
+	case apiGWSegResources:
+		params := map[string]string{keyRestAPIID: apiID, keyResourceID: segs[3]}
+		switch method {
+		case http.MethodGet:
+			return opGetResource, params, true
+		case http.MethodPost:
+			return opCreateResource, map[string]string{keyRestAPIID: apiID, "parentId": segs[3]}, true
+		case http.MethodPatch:
+			return opUpdateResource, params, true
+		case http.MethodDelete:
+			return opDeleteResource, params, true
+		}
+	case apiGWSegDeployment:
+		params := map[string]string{keyRestAPIID: apiID, keyDeploymentID: segs[3]}
+		switch method {
+		case http.MethodGet:
+			return opGetDeployment, params, true
+		case http.MethodPatch:
+			return opUpdateDeployment, params, true
+		case http.MethodDelete:
+			return opDeleteDeployment, params, true
+		}
+	case apiGWSegStages:
+		params := map[string]string{keyRestAPIID: apiID, keyStageName: segs[3]}
+		switch method {
+		case http.MethodGet:
+			return opGetStage, params, true
+		case http.MethodDelete:
+			return opDeleteStage, params, true
+		case http.MethodPatch:
+			return opUpdateStage, params, true
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsDepth4Extended handles authorizers, validators, models, gateway responses, and doc depth-4 paths.
+func parseAPIGWRestAPIsDepth4Extended(method string, segs []string, apiID string) (string, map[string]string, bool) {
+	if op, params, ok := parseAPIGWRestAPIsDepth4AuthVal(method, segs, apiID); ok {
+		return op, params, ok
+	}
+
+	return parseAPIGWRestAPIsDepth4ModelGW(method, segs, apiID)
+}
+
+// parseAPIGWRestAPIsDepth4AuthVal handles authorizer and validator depth-4 paths.
+func parseAPIGWRestAPIsDepth4AuthVal(method string, segs []string, apiID string) (string, map[string]string, bool) {
+	switch segs[2] {
+	case apiGWSegAuthorizers:
+		params := map[string]string{keyRestAPIID: apiID, keyAuthorizerID: segs[3]}
+		switch method {
+		case http.MethodGet:
+			return opGetAuthorizer, params, true
+		case http.MethodPatch:
+			return opUpdateAuthorizer, params, true
+		case http.MethodDelete:
+			return opDeleteAuthorizer, params, true
+		}
+	case apiGWSegValidators:
+		params := map[string]string{keyRestAPIID: apiID, keyRequestValidatorID: segs[3]}
+		switch method {
+		case http.MethodGet:
+			return opGetRequestValidator, params, true
+		case http.MethodPatch:
+			return opUpdateRequestValidator, params, true
+		case http.MethodDelete:
+			return opDeleteRequestValidator, params, true
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsDepth4ModelGW handles model, gateway response, and documentation depth-4 paths.
+func parseAPIGWRestAPIsDepth4ModelGW(method string, segs []string, apiID string) (string, map[string]string, bool) {
+	switch segs[2] {
+	case apiGWSegModels:
+		params := map[string]string{keyRestAPIID: apiID, keyModelName: segs[3]}
+		switch method {
+		case http.MethodGet:
+			return opGetModel, params, true
+		case http.MethodDelete:
+			return opDeleteModel, params, true
+		case http.MethodPatch:
+			return opUpdateModel, params, true
+		}
+	case apiGWSegGatewayResponses:
+		params := map[string]string{keyRestAPIID: apiID, keyResponseType: segs[3]}
+		switch method {
+		case http.MethodGet:
+			return opGetGatewayResponse, params, true
+		case http.MethodPut:
+			return opPutGatewayResponse, params, true
+		case http.MethodDelete:
+			return opDeleteGatewayResponse, params, true
+		}
+	case apiGWSegDocumentation:
+		return parseAPIGWRestAPIsDocDepth4(method, segs, apiID)
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsDocDepth4 handles /restapis/{id}/documentation/{parts|versions} paths.
+func parseAPIGWRestAPIsDocDepth4(method string, segs []string, apiID string) (string, map[string]string, bool) {
+	apiParam := map[string]string{keyRestAPIID: apiID}
+
+	switch segs[3] {
+	case apiGWSegDocParts:
+		switch method {
+		case http.MethodPost:
+			return opCreateDocumentationPart, apiParam, true
+		case http.MethodGet:
+			return opGetDocumentationParts, apiParam, true
+		}
+	case apiGWSegDocVersions:
+		switch method {
+		case http.MethodPost:
+			return opCreateDocumentationVersion, apiParam, true
+		case http.MethodGet:
+			return opGetDocumentationVersions, apiParam, true
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsDeepPath handles /restapis/{id}/... paths with n≥5.
+func parseAPIGWRestAPIsDeepPath(method string, segs []string, n int, apiID string) (string, map[string]string, bool) {
+	if n >= 5 && segs[2] == apiGWSegResources && segs[4] == apiGWSegMethods {
 		return parseAPIGWMethodPath(method, segs)
-	// POST /restapis/{id}/deployments → CreateDeployment
-	case n == 3 && segs[2] == apiGWSegDeployment && method == http.MethodPost:
-		return opCreateDeployment, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/deployments → GetDeployments
-	case n == 3 && segs[2] == apiGWSegDeployment && method == http.MethodGet:
-		return opGetDeployments, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/deployments/{deplId} → GetDeployment
-	case n == 4 && segs[2] == apiGWSegDeployment && method == http.MethodGet:
-		return opGetDeployment, map[string]string{keyRestAPIID: segs[1], keyDeploymentID: segs[3]}, true
-	// PATCH /restapis/{id}/deployments/{deplId} → UpdateDeployment
-	case n == 4 && segs[2] == apiGWSegDeployment && method == http.MethodPatch:
-		return opUpdateDeployment, map[string]string{keyRestAPIID: segs[1], keyDeploymentID: segs[3]}, true
-	// DELETE /restapis/{id}/deployments/{deplId} → DeleteDeployment
-	case n == 4 && segs[2] == apiGWSegDeployment && method == http.MethodDelete:
-		return opDeleteDeployment, map[string]string{keyRestAPIID: segs[1], keyDeploymentID: segs[3]}, true
-	// GET /restapis/{id}/stages → GetStages
-	case n == 3 && segs[2] == apiGWSegStages && method == http.MethodGet:
-		return opGetStages, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/stages/{stageName} → GetStage
-	case n == 4 && segs[2] == apiGWSegStages && method == http.MethodGet:
-		return opGetStage, map[string]string{keyRestAPIID: segs[1], keyStageName: segs[3]}, true
-	// DELETE /restapis/{id}/stages/{stageName} → DeleteStage
-	case n == 4 && segs[2] == apiGWSegStages && method == http.MethodDelete:
-		return opDeleteStage, map[string]string{keyRestAPIID: segs[1], keyStageName: segs[3]}, true
-	// POST /restapis/{id}/authorizers → CreateAuthorizer
-	case n == 3 && segs[2] == apiGWSegAuthorizers && method == http.MethodPost:
-		return opCreateAuthorizer, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/authorizers → GetAuthorizers
-	case n == 3 && segs[2] == apiGWSegAuthorizers && method == http.MethodGet:
-		return opGetAuthorizers, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/authorizers/{authId} → GetAuthorizer
-	case n == 4 && segs[2] == apiGWSegAuthorizers && method == http.MethodGet:
-		return opGetAuthorizer, map[string]string{keyRestAPIID: segs[1], keyAuthorizerID: segs[3]}, true
-	// PATCH /restapis/{id}/authorizers/{authId} → UpdateAuthorizer
-	case n == 4 && segs[2] == apiGWSegAuthorizers && method == http.MethodPatch:
-		return opUpdateAuthorizer, map[string]string{keyRestAPIID: segs[1], keyAuthorizerID: segs[3]}, true
-	// DELETE /restapis/{id}/authorizers/{authId} → DeleteAuthorizer
-	case n == 4 && segs[2] == apiGWSegAuthorizers && method == http.MethodDelete:
-		return opDeleteAuthorizer, map[string]string{keyRestAPIID: segs[1], keyAuthorizerID: segs[3]}, true
-	// POST /restapis/{id}/requestvalidators → CreateRequestValidator
-	case n == 3 && segs[2] == apiGWSegValidators && method == http.MethodPost:
-		return opCreateRequestValidator, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/requestvalidators → GetRequestValidators
-	case n == 3 && segs[2] == apiGWSegValidators && method == http.MethodGet:
-		return opGetRequestValidators, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/requestvalidators/{id} → GetRequestValidator
-	case n == 4 && segs[2] == apiGWSegValidators && method == http.MethodGet:
-		return opGetRequestValidator, map[string]string{keyRestAPIID: segs[1], keyRequestValidatorID: segs[3]}, true
-	// PATCH /restapis/{id}/requestvalidators/{id} → UpdateRequestValidator
-	case n == 4 && segs[2] == apiGWSegValidators && method == http.MethodPatch:
-		return opUpdateRequestValidator, map[string]string{keyRestAPIID: segs[1], keyRequestValidatorID: segs[3]}, true
-	// DELETE /restapis/{id}/requestvalidators/{id} → DeleteRequestValidator
-	case n == 4 && segs[2] == apiGWSegValidators && method == http.MethodDelete:
-		return opDeleteRequestValidator, map[string]string{keyRestAPIID: segs[1], keyRequestValidatorID: segs[3]}, true
-	// POST /restapis/{id}/models → CreateModel
-	case n == 3 && segs[2] == apiGWSegModels && method == http.MethodPost:
-		return opCreateModel, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/models → GetModels
-	case n == 3 && segs[2] == apiGWSegModels && method == http.MethodGet:
-		return opGetModels, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/models/{modelName} → GetModel
-	case n == 4 && segs[2] == apiGWSegModels && method == http.MethodGet:
-		return opGetModel, map[string]string{keyRestAPIID: segs[1], keyModelName: segs[3]}, true
-	// DELETE /restapis/{id}/models/{modelName} → DeleteModel
-	case n == 4 && segs[2] == apiGWSegModels && method == http.MethodDelete:
-		return opDeleteModel, map[string]string{keyRestAPIID: segs[1], keyModelName: segs[3]}, true
-	// PATCH /restapis/{id}/models/{modelName} → UpdateModel
-	case n == 4 && segs[2] == apiGWSegModels && method == http.MethodPatch:
-		return opUpdateModel, map[string]string{keyRestAPIID: segs[1], keyModelName: segs[3]}, true
-	// POST /restapis/{id}/stages → CreateStage (standalone)
-	case n == 3 && segs[2] == apiGWSegStages && method == http.MethodPost:
-		return opCreateStage, map[string]string{keyRestAPIID: segs[1]}, true
-	// PATCH /restapis/{id}/stages/{stageName} → UpdateStage
-	case n == 4 && segs[2] == apiGWSegStages && method == http.MethodPatch:
-		return opUpdateStage, map[string]string{keyRestAPIID: segs[1], keyStageName: segs[3]}, true
-	// DELETE /restapis/{id}/stages/{stageName}/cache → FlushStageCache
-	case n == 5 && segs[2] == apiGWSegStages && segs[4] == "cache" && method == http.MethodDelete:
-		return opFlushStageCache, map[string]string{keyRestAPIID: segs[1], keyStageName: segs[3]}, true
-	// DELETE /restapis/{id}/stages/{stageName}/cache/authorizers → FlushStageAuthorizersCache
-	case n == 6 && segs[2] == apiGWSegStages && segs[4] == "cache" &&
-		segs[5] == "authorizers" && method == http.MethodDelete:
-		return opFlushStageAuthorizersCache, map[string]string{keyRestAPIID: segs[1], keyStageName: segs[3]}, true
-	// POST /restapis/{id}/documentation/parts → CreateDocumentationPart
-	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodPost:
-		return opCreateDocumentationPart, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/documentation/parts → GetDocumentationParts
-	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodGet:
-		return opGetDocumentationParts, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/documentation/parts/{docPartId} → GetDocumentationPart
-	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodGet:
-		return opGetDocumentationPart, map[string]string{keyRestAPIID: segs[1], keyDocPartID: segs[4]}, true
-	// DELETE /restapis/{id}/documentation/parts/{docPartId} → DeleteDocumentationPart
-	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodDelete:
-		return opDeleteDocumentationPart, map[string]string{keyRestAPIID: segs[1], keyDocPartID: segs[4]}, true
-	// POST /restapis/{id}/documentation/versions → CreateDocumentationVersion
-	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodPost:
-		return opCreateDocumentationVersion, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/documentation/versions → GetDocumentationVersions
-	case n == 4 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodGet:
-		return opGetDocumentationVersions, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/documentation/versions/{docVersion} → GetDocumentationVersion
-	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodGet:
-		return opGetDocumentationVersion, map[string]string{
-			keyRestAPIID:            segs[1],
-			keyDocumentationVersion: segs[4],
-		}, true
-	// DELETE /restapis/{id}/documentation/versions/{docVersion} → DeleteDocumentationVersion
-	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodDelete:
-		return opDeleteDocumentationVersion, map[string]string{
-			keyRestAPIID:            segs[1],
-			keyDocumentationVersion: segs[4],
-		}, true
-	// PATCH /restapis/{id}/documentation/parts/{docPartId} → UpdateDocumentationPart
-	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocParts && method == http.MethodPatch:
-		return opUpdateDocumentationPart, map[string]string{keyRestAPIID: segs[1], keyDocPartID: segs[4]}, true
-	// PATCH /restapis/{id}/documentation/versions/{docVersion} → UpdateDocumentationVersion
-	case n == 5 && segs[2] == apiGWSegDocumentation && segs[3] == apiGWSegDocVersions && method == http.MethodPatch:
-		return opUpdateDocumentationVersion, map[string]string{
-			keyRestAPIID:            segs[1],
-			keyDocumentationVersion: segs[4],
-		}, true
-	// GET /restapis/{id}/gatewayresponses → GetGatewayResponses
-	case n == 3 && segs[2] == apiGWSegGatewayResponses && method == http.MethodGet:
-		return opGetGatewayResponses, map[string]string{keyRestAPIID: segs[1]}, true
-	// GET /restapis/{id}/gatewayresponses/{responseType} → GetGatewayResponse
-	case n == 4 && segs[2] == apiGWSegGatewayResponses && method == http.MethodGet:
-		return opGetGatewayResponse, map[string]string{keyRestAPIID: segs[1], keyResponseType: segs[3]}, true
-	// PUT /restapis/{id}/gatewayresponses/{responseType} → PutGatewayResponse
-	case n == 4 && segs[2] == apiGWSegGatewayResponses && method == http.MethodPut:
-		return opPutGatewayResponse, map[string]string{keyRestAPIID: segs[1], keyResponseType: segs[3]}, true
-	// DELETE /restapis/{id}/gatewayresponses/{responseType} → DeleteGatewayResponse
-	case n == 4 && segs[2] == apiGWSegGatewayResponses && method == http.MethodDelete:
-		return opDeleteGatewayResponse, map[string]string{keyRestAPIID: segs[1], keyResponseType: segs[3]}, true
-	// GET /restapis/{id}/models/{modelName}/default_template → GetModelTemplate
-	case n == 5 && segs[2] == apiGWSegModels && segs[4] == "default_template" && method == http.MethodGet:
-		return opGetModelTemplate, map[string]string{keyRestAPIID: segs[1], keyModelName: segs[3]}, true
-	// POST /restapis/{id}/authorizers/{authId}/invocations → TestInvokeAuthorizer
-	case n == 5 && segs[2] == apiGWSegAuthorizers && segs[4] == "invocations" && method == http.MethodPost:
-		return opTestInvokeAuthorizer, map[string]string{keyRestAPIID: segs[1], keyAuthorizerID: segs[3]}, true
+	}
+
+	return parseAPIGWRestAPIsDepth5Plus(method, segs, n, apiID)
+}
+
+// parseAPIGWRestAPIsDepth5Plus handles depth-5+ paths (documentation, stage cache, model template).
+func parseAPIGWRestAPIsDepth5Plus(method string, segs []string, n int, apiID string) (string, map[string]string, bool) {
+	switch segs[2] {
+	case apiGWSegStages:
+		return parseAPIGWRestAPIsStageDeep(method, segs, n, apiID)
+	case apiGWSegDocumentation:
+		return parseAPIGWRestAPIsDocDeep(method, segs, n, apiID)
+	case apiGWSegModels:
+		if n == 5 && segs[4] == "default_template" && method == http.MethodGet {
+			return opGetModelTemplate, map[string]string{keyRestAPIID: apiID, keyModelName: segs[3]}, true
+		}
+	case apiGWSegAuthorizers:
+		if n == 5 && segs[4] == "invocations" && method == http.MethodPost {
+			return opTestInvokeAuthorizer, map[string]string{keyRestAPIID: apiID, keyAuthorizerID: segs[3]}, true
+		}
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsStageDeep handles depth-5+ stage paths (cache flush).
+func parseAPIGWRestAPIsStageDeep(method string, segs []string, n int, apiID string) (string, map[string]string, bool) {
+	stageParams := map[string]string{keyRestAPIID: apiID, keyStageName: segs[3]}
+
+	if n == 5 && segs[4] == "cache" && method == http.MethodDelete {
+		return opFlushStageCache, stageParams, true
+	}
+
+	if n == 6 && segs[4] == "cache" && segs[5] == "authorizers" && method == http.MethodDelete {
+		return opFlushStageAuthorizersCache, stageParams, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWRestAPIsDocDeep handles depth-5 documentation parts/versions paths.
+func parseAPIGWRestAPIsDocDeep(method string, segs []string, n int, apiID string) (string, map[string]string, bool) {
+	if n != 5 {
+		return apiGWUnknownOp, nil, false
+	}
+
+	switch segs[3] {
+	case apiGWSegDocParts:
+		params := map[string]string{keyRestAPIID: apiID, keyDocPartID: segs[4]}
+		switch method {
+		case http.MethodGet:
+			return opGetDocumentationPart, params, true
+		case http.MethodDelete:
+			return opDeleteDocumentationPart, params, true
+		case http.MethodPatch:
+			return opUpdateDocumentationPart, params, true
+		}
+	case apiGWSegDocVersions:
+		params := map[string]string{keyRestAPIID: apiID, keyDocumentationVersion: segs[4]}
+		switch method {
+		case http.MethodGet:
+			return opGetDocumentationVersion, params, true
+		case http.MethodDelete:
+			return opDeleteDocumentationVersion, params, true
+		case http.MethodPatch:
+			return opUpdateDocumentationVersion, params, true
+		}
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -1375,9 +1579,10 @@ func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[st
 
 // parseAPIGWMethodPath handles paths under /restapis/{id}/resources/{resId}/methods/{httpMethod}.
 //
-//nolint:cyclop,gocognit,nestif,gocyclo,funlen // method path routing table is inherently a multi-branch switch
+// parseAPIGWMethodPath handles paths under /restapis/{id}/resources/{resId}/methods/{httpMethod}.
+//
+//nolint:nestif,funlen // method path routing table is inherently a multi-branch switch
 func parseAPIGWMethodPath(method string, segs []string) (string, map[string]string, bool) {
-	// segs: [restapis, {id}, resources, {resId}, methods, {httpMethod}, ...]
 	const (
 		idxID         = 1
 		idxResourceID = 3
@@ -1399,67 +1604,102 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 		keyHTTPMethod: httpMethod,
 	}
 
-	// /restapis/{id}/resources/{resId}/methods/{httpMethod}/integration[/responses/{statusCode}]
-	if len(segs) > idxIntegSeg && segs[idxIntegSeg] == apiGWSegInteg {
-		// /restapis/{id}/resources/{resId}/methods/{httpMethod}/integration/responses/{statusCode}
-		if len(segs) > idxRespSeg && segs[idxRespSeg] == apiGWSegResponses {
-			if len(segs) <= idxRespSeg+1 {
-				return apiGWUnknownOp, nil, false
-			}
-			params := map[string]string{
-				keyRestAPIID:  apiID,
-				keyResourceID: resID,
-				keyHTTPMethod: httpMethod,
-				keyStatusCode: segs[idxRespSeg+1],
-			}
-			switch method {
-			case http.MethodPut:
-				return opPutIntegrationResponse, params, true
-			case http.MethodGet:
-				return opGetIntegrationResponse, params, true
-			case http.MethodDelete:
-				return opDeleteIntegrationResponse, params, true
-			}
-
-			return apiGWUnknownOp, nil, false
+	if len(segs) > idxIntegSeg {
+		if op, params, ok := parseAPIGWMethodSubPath(method, segs, idxIntegSeg, idxRespSeg, apiID, resID, httpMethod, baseParams); ok || op == apiGWUnknownOp {
+			return op, params, ok
 		}
-
-		switch method {
-		case http.MethodPut:
-			return opPutIntegration, baseParams, true
-		case http.MethodGet:
-			return opGetIntegration, baseParams, true
-		case http.MethodDelete:
-			return opDeleteIntegration, baseParams, true
-		}
-
-		return apiGWUnknownOp, nil, false
 	}
 
-	// /restapis/{id}/resources/{resId}/methods/{httpMethod}/responses/{statusCode}
-	if len(segs) > idxIntegSeg && segs[idxIntegSeg] == apiGWSegResponses {
-		if len(segs) <= idxIntegSeg+1 {
+	return parseAPIGWMethodBasePath(method, baseParams)
+}
+
+// parseAPIGWMethodSubPath routes method sub-paths (integration and responses).
+func parseAPIGWMethodSubPath(method string, segs []string, idxInteg, idxResp int, apiID, resID, httpMethod string, baseParams map[string]string) (string, map[string]string, bool) {
+	seg := segs[idxInteg]
+
+	switch seg {
+	case apiGWSegInteg:
+		return parseAPIGWIntegrationPath(method, segs, idxInteg, idxResp, apiID, resID, httpMethod, baseParams)
+	case apiGWSegResponses:
+		return parseAPIGWMethodResponsePath(method, segs, idxInteg, apiID, resID, httpMethod)
+	}
+
+	return "", nil, false
+}
+
+// parseAPIGWIntegrationPath routes integration paths.
+func parseAPIGWIntegrationPath(method string, segs []string, idxInteg, idxResp int, apiID, resID, httpMethod string, baseParams map[string]string) (string, map[string]string, bool) {
+	if len(segs) > idxResp && segs[idxResp] == apiGWSegResponses {
+		if len(segs) <= idxResp+1 {
 			return apiGWUnknownOp, nil, false
 		}
+
 		params := map[string]string{
 			keyRestAPIID:  apiID,
 			keyResourceID: resID,
 			keyHTTPMethod: httpMethod,
-			keyStatusCode: segs[idxIntegSeg+1],
+			keyStatusCode: segs[idxResp+1],
 		}
+
 		switch method {
 		case http.MethodPut:
-			return opPutMethodResponse, params, true
+			return opPutIntegrationResponse, params, true
 		case http.MethodGet:
-			return opGetMethodResponse, params, true
+			return opGetIntegrationResponse, params, true
 		case http.MethodDelete:
-			return opDeleteMethodResponse, params, true
+			return opDeleteIntegrationResponse, params, true
+		case http.MethodPatch:
+			return opUpdateIntegrationResponse, params, true
 		}
 
 		return apiGWUnknownOp, nil, false
 	}
 
-	// /restapis/{id}/resources/{resId}/methods/{httpMethod}
+	switch method {
+	case http.MethodPut:
+		return opPutIntegration, baseParams, true
+	case http.MethodGet:
+		return opGetIntegration, baseParams, true
+	case http.MethodDelete:
+		return opDeleteIntegration, baseParams, true
+	case http.MethodPatch:
+		return opUpdateIntegration, baseParams, true
+	}
+
+	_ = idxInteg
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWMethodResponsePath routes method response paths.
+func parseAPIGWMethodResponsePath(method string, segs []string, idxInteg int, apiID, resID, httpMethod string) (string, map[string]string, bool) {
+	if len(segs) <= idxInteg+1 {
+		return apiGWUnknownOp, nil, false
+	}
+
+	params := map[string]string{
+		keyRestAPIID:  apiID,
+		keyResourceID: resID,
+		keyHTTPMethod: httpMethod,
+		keyStatusCode: segs[idxInteg+1],
+	}
+
+	switch method {
+	case http.MethodPut:
+		return opPutMethodResponse, params, true
+	case http.MethodGet:
+		return opGetMethodResponse, params, true
+	case http.MethodDelete:
+		return opDeleteMethodResponse, params, true
+	case http.MethodPatch:
+		return opUpdateMethodResponse, params, true
+	}
+
+	return apiGWUnknownOp, nil, false
+}
+
+// parseAPIGWMethodBasePath routes the base method path (no sub-segment).
+func parseAPIGWMethodBasePath(method string, baseParams map[string]string) (string, map[string]string, bool) {
 	switch method {
 	case http.MethodPut:
 		return opPutMethod, baseParams, true
@@ -1471,40 +1711,6 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 		return opTestInvokeMethod, baseParams, true
 	case http.MethodPatch:
 		return opUpdateMethod, baseParams, true
-	}
-
-	// Integration PATCH
-	if len(segs) > idxIntegSeg && segs[idxIntegSeg] == apiGWSegInteg {
-		if method == http.MethodPatch {
-			if len(segs) > idxRespSeg && segs[idxRespSeg] == apiGWSegResponses {
-				if len(segs) > idxRespSeg+1 {
-					params := map[string]string{
-						keyRestAPIID:  apiID,
-						keyResourceID: resID,
-						keyHTTPMethod: httpMethod,
-						keyStatusCode: segs[idxRespSeg+1],
-					}
-
-					return opUpdateIntegrationResponse, params, true
-				}
-			} else {
-				return opUpdateIntegration, baseParams, true
-			}
-		}
-	}
-
-	// MethodResponse PATCH
-	if len(segs) > idxIntegSeg && segs[idxIntegSeg] == apiGWSegResponses {
-		if method == http.MethodPatch && len(segs) > idxIntegSeg+1 {
-			params := map[string]string{
-				keyRestAPIID:  apiID,
-				keyResourceID: resID,
-				keyHTTPMethod: httpMethod,
-				keyStatusCode: segs[idxIntegSeg+1],
-			}
-
-			return opUpdateMethodResponse, params, true
-		}
 	}
 
 	return apiGWUnknownOp, nil, false
@@ -2043,8 +2249,17 @@ func (h *Handler) integrationActions() map[string]actionFn {
 	}
 }
 
-//nolint:gocognit // deployment action map is explicit by design.
+// deploymentActions returns the action map for deployment and stage operations.
 func (h *Handler) deploymentActions() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.deploymentCRUDActions())
+	maps.Copy(m, h.stageActions())
+
+	return m
+}
+
+// deploymentCRUDActions returns actions for deployment CRUD operations.
+func (h *Handler) deploymentCRUDActions() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateDeployment: func(b []byte) (int, any, error) {
 			var input createDeploymentInput
@@ -2093,6 +2308,12 @@ func (h *Handler) deploymentActions() map[string]actionFn {
 
 			return http.StatusNoContent, map[string]any{}, nil
 		},
+	}
+}
+
+// stageActions returns actions for stage operations.
+func (h *Handler) stageActions() map[string]actionFn {
+	return map[string]actionFn{
 		opGetStages: func(b []byte) (int, any, error) {
 			var input getStagesInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2150,8 +2371,19 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	return table
 }
 
-//nolint:cyclop,funlen,gocognit // action table - one closure per op; complexity unavoidable
+// newResourceActions returns actions for creating new top-level resources.
+//
+//nolint:funlen // action table - one closure per op; complexity unavoidable
 func (h *Handler) newResourceActions() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.newResourceActionsCore())
+	maps.Copy(m, h.newResourceActionsExt())
+
+	return m
+}
+
+// newResourceActionsCore returns actions for API key and usage plan creation.
+func (h *Handler) newResourceActionsCore() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateAPIKey: func(b []byte) (int, any, error) {
 			var input CreateAPIKeyInput
@@ -2205,6 +2437,22 @@ func (h *Handler) newResourceActions() map[string]actionFn {
 
 			return http.StatusCreated, ver, nil
 		},
+	}
+}
+
+// newResourceActionsExt returns actions for domain name and usage plan key creation.
+// newResourceActionsExt returns actions for domain name and extended resource creation.
+func (h *Handler) newResourceActionsExt() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.newResourceActionsDomainName())
+	maps.Copy(m, h.newResourceActionsModelStage())
+
+	return m
+}
+
+// newResourceActionsDomainName returns actions for domain name creation.
+func (h *Handler) newResourceActionsDomainName() map[string]actionFn {
+	return map[string]actionFn{
 		opCreateDomainName: func(b []byte) (int, any, error) {
 			var input CreateDomainNameInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2231,6 +2479,12 @@ func (h *Handler) newResourceActions() map[string]actionFn {
 
 			return http.StatusCreated, assoc, nil
 		},
+	}
+}
+
+// newResourceActionsModelStage returns actions for model, stage, and usage plan creation.
+func (h *Handler) newResourceActionsModelStage() map[string]actionFn {
+	return map[string]actionFn{
 		opCreateModel: func(b []byte) (int, any, error) {
 			var input CreateModelInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2372,8 +2626,38 @@ func (h *Handler) Reset() {
 	}
 }
 
-//nolint:cyclop,funlen,gocognit,gocyclo // action table - one closure per op; complexity unavoidable
+// getDeleteUpdateActions returns the action map for get, delete, and update operations.
+//
+//nolint:funlen // action table - one closure per op; complexity unavoidable
 func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.getDeleteUpdateActionsCore())
+	maps.Copy(m, h.getDeleteUpdateActionsExt())
+	maps.Copy(m, h.getDeleteUpdateActionsUsage())
+
+	return m
+}
+
+// getDeleteUpdateActionsCore returns get/delete/update actions for REST API core resources.
+// getDeleteUpdateActionsCore returns get/delete/update actions for core REST API resources.
+func (h *Handler) getDeleteUpdateActionsCore() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.getDeleteUpdateActionsCore1())
+	maps.Copy(m, h.getDeleteUpdateActionsCore2())
+
+	return m
+}
+
+// getDeleteUpdateActionsCore1 returns actions for API key and REST API get/delete.
+func (h *Handler) getDeleteUpdateActionsCore1() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.getDeleteUpdateActionsCore1a())
+	maps.Copy(m, h.getDeleteUpdateActionsCore1b())
+
+	return m
+}
+
+func (h *Handler) getDeleteUpdateActionsCore1a() map[string]actionFn {
 	return map[string]actionFn{
 		opGetAPIKey: func(b []byte) (int, any, error) {
 			var input getAPIKeyInput
@@ -2418,6 +2702,11 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusAccepted, map[string]any{}, nil
 		},
+	}
+}
+
+func (h *Handler) getDeleteUpdateActionsCore1b() map[string]actionFn {
+	return map[string]actionFn{
 		opUpdateAPIKey: func(b []byte) (int, any, error) {
 			var input updateAPIKeyInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2430,6 +2719,19 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusOK, key, nil
 		},
+	}
+}
+
+func (h *Handler) getDeleteUpdateActionsCore2() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.getDeleteUpdateActionsCore2a())
+	maps.Copy(m, h.getDeleteUpdateActionsCore2b())
+
+	return m
+}
+
+func (h *Handler) getDeleteUpdateActionsCore2a() map[string]actionFn {
+	return map[string]actionFn{
 		opGetDomainName: func(b []byte) (int, any, error) {
 			var input getDomainNameInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2462,6 +2764,11 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusOK, map[string]any{keyItem: dns, keyPosition: position}, nil
 		},
+	}
+}
+
+func (h *Handler) getDeleteUpdateActionsCore2b() map[string]actionFn {
+	return map[string]actionFn{
 		opDeleteDomainName: func(b []byte) (int, any, error) {
 			var input deleteDomainNameInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2497,6 +2804,21 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusOK, map[string]any{keyItem: bpms}, nil
 		},
+	}
+}
+
+// getDeleteUpdateActionsExt returns get/delete/update actions for domain names and base path mappings.
+// getDeleteUpdateActionsExt returns get/delete/update actions for domain names and base path mappings.
+func (h *Handler) getDeleteUpdateActionsExt() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.getDeleteUpdateActionsExt1())
+	maps.Copy(m, h.getDeleteUpdateActionsExt2())
+
+	return m
+}
+
+func (h *Handler) getDeleteUpdateActionsExt1() map[string]actionFn {
+	return map[string]actionFn{
 		opDeleteBasePathMapping: func(b []byte) (int, any, error) {
 			var input deleteBasePathMappingInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2543,6 +2865,19 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusAccepted, map[string]any{}, nil
 		},
+	}
+}
+
+func (h *Handler) getDeleteUpdateActionsExt2() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.getDeleteUpdateActionsExt2a())
+	maps.Copy(m, h.getDeleteUpdateActionsExt2b())
+
+	return m
+}
+
+func (h *Handler) getDeleteUpdateActionsExt2a() map[string]actionFn {
+	return map[string]actionFn{
 		opUpdateModel: func(b []byte) (int, any, error) {
 			var input updateModelInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2567,6 +2902,11 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusOK, stage, nil
 		},
+	}
+}
+
+func (h *Handler) getDeleteUpdateActionsExt2b() map[string]actionFn {
+	return map[string]actionFn{
 		opFlushStageCache: func(b []byte) (int, any, error) {
 			var input flushStageCacheInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2616,6 +2956,21 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusOK, map[string]any{keyItem: ps, keyPosition: position}, nil
 		},
+	}
+}
+
+// getDeleteUpdateActionsUsage returns get/delete/update actions for usage plans and keys.
+// getDeleteUpdateActionsUsage returns get/delete/update actions for usage plans, keys, and documentation.
+func (h *Handler) getDeleteUpdateActionsUsage() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.getDeleteUpdateActionsUsage1())
+	maps.Copy(m, h.getDeleteUpdateActionsUsage2())
+
+	return m
+}
+
+func (h *Handler) getDeleteUpdateActionsUsage1() map[string]actionFn {
+	return map[string]actionFn{
 		opDeleteUsagePlan: func(b []byte) (int, any, error) {
 			var input deleteUsagePlanInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2662,6 +3017,19 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusAccepted, map[string]any{}, nil
 		},
+	}
+}
+
+func (h *Handler) getDeleteUpdateActionsUsage2() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.getDeleteUpdateActionsUsage2a())
+	maps.Copy(m, h.getDeleteUpdateActionsUsage2b())
+
+	return m
+}
+
+func (h *Handler) getDeleteUpdateActionsUsage2a() map[string]actionFn {
+	return map[string]actionFn{
 		opGetDocumentationPart: func(b []byte) (int, any, error) {
 			var input getDocumentationPartInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2686,6 +3054,11 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 
 			return http.StatusOK, map[string]any{keyItem: ps}, nil
 		},
+	}
+}
+
+func (h *Handler) getDeleteUpdateActionsUsage2b() map[string]actionFn {
+	return map[string]actionFn{
 		opDeleteDocumentationPart: func(b []byte) (int, any, error) {
 			var input deleteDocumentationPartInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2735,8 +3108,29 @@ func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 	}
 }
 
-//nolint:cyclop,gocognit,gocyclo,funlen // action table - one closure per op; complexity unavoidable
+// updatePatchActions returns the action map for update and patch operations.
+//
+//nolint:funlen // action table - one closure per op; complexity unavoidable
 func (h *Handler) updatePatchActions() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.updatePatchActionsCore())
+	maps.Copy(m, h.updatePatchActionsDomain())
+	maps.Copy(m, h.updatePatchActionsMisc())
+
+	return m
+}
+
+// updatePatchActionsCore returns update/patch actions for core REST API resources.
+// updatePatchActionsCore returns update/patch actions for core REST API resources.
+func (h *Handler) updatePatchActionsCore() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.updatePatchActionsCore1())
+	maps.Copy(m, h.updatePatchActionsCore2())
+
+	return m
+}
+
+func (h *Handler) updatePatchActionsCore1() map[string]actionFn {
 	return map[string]actionFn{
 		opUpdateRestAPI: func(b []byte) (int, any, error) {
 			var input updateRestAPIHandlerInput
@@ -2782,6 +3176,11 @@ func (h *Handler) updatePatchActions() map[string]actionFn {
 
 			return http.StatusOK, acct, nil
 		},
+	}
+}
+
+func (h *Handler) updatePatchActionsCore2() map[string]actionFn {
+	return map[string]actionFn{
 		opGetTags: func(b []byte) (int, any, error) {
 			var input getTagsInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2840,6 +3239,21 @@ func (h *Handler) updatePatchActions() map[string]actionFn {
 
 			return http.StatusOK, out, nil
 		},
+	}
+}
+
+// updatePatchActionsDomain returns update/patch actions for domain names and related resources.
+// updatePatchActionsDomain returns update/patch actions for domain names and related resources.
+func (h *Handler) updatePatchActionsDomain() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.updatePatchActionsDomain1())
+	maps.Copy(m, h.updatePatchActionsDomain2())
+
+	return m
+}
+
+func (h *Handler) updatePatchActionsDomain1() map[string]actionFn {
+	return map[string]actionFn{
 		opUpdateDomainName: func(b []byte) (int, any, error) {
 			var input UpdateDomainNameInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2888,6 +3302,19 @@ func (h *Handler) updatePatchActions() map[string]actionFn {
 
 			return http.StatusOK, out, nil
 		},
+	}
+}
+
+func (h *Handler) updatePatchActionsDomain2() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.updatePatchActionsDomain2a())
+	maps.Copy(m, h.updatePatchActionsDomain2b())
+
+	return m
+}
+
+func (h *Handler) updatePatchActionsDomain2a() map[string]actionFn {
+	return map[string]actionFn{
 		opUpdateMethod: func(b []byte) (int, any, error) {
 			var input UpdateMethodInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2912,6 +3339,11 @@ func (h *Handler) updatePatchActions() map[string]actionFn {
 
 			return http.StatusOK, out, nil
 		},
+	}
+}
+
+func (h *Handler) updatePatchActionsDomain2b() map[string]actionFn {
+	return map[string]actionFn{
 		opUpdateIntegrationResponse: func(b []byte) (int, any, error) {
 			var input UpdateIntegrationResponseInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -2960,6 +3392,21 @@ func (h *Handler) updatePatchActions() map[string]actionFn {
 
 			return http.StatusOK, out, nil
 		},
+	}
+}
+
+// updatePatchActionsMisc returns update/patch actions for models, usage plans, and other resources.
+// updatePatchActionsMisc returns update/patch actions for models, usage plans, and other resources.
+func (h *Handler) updatePatchActionsMisc() map[string]actionFn {
+	m := make(map[string]actionFn)
+	maps.Copy(m, h.updatePatchActionsMisc1())
+	maps.Copy(m, h.updatePatchActionsMisc2())
+
+	return m
+}
+
+func (h *Handler) updatePatchActionsMisc1() map[string]actionFn {
+	return map[string]actionFn{
 		opGetModelTemplate: func(b []byte) (int, any, error) {
 			var params struct {
 				RestAPIID string `json:"restApiId"`
@@ -3030,6 +3477,11 @@ func (h *Handler) updatePatchActions() map[string]actionFn {
 
 			return http.StatusAccepted, nil, nil
 		},
+	}
+}
+
+func (h *Handler) updatePatchActionsMisc2() map[string]actionFn {
+	return map[string]actionFn{
 		opGenerateClientCertificate: func(b []byte) (int, any, error) {
 			var input GenerateClientCertificateInput
 			if err := json.Unmarshal(b, &input); err != nil {

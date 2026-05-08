@@ -35,6 +35,21 @@ type StorageBackend interface {
 	// Application operations
 	CreateApplication(name string, appConfigs []AppConfig, dataSources []AppDataSource) (*Application, error)
 
+	// Upgrade operations
+	UpgradeDomain(domainName, upgradeName string) error
+	GetUpgradeHistory(domainName string) ([]*UpgradeHistory, error)
+	GetUpgradeStatus(domainName string) (upgradeName, upgradeStatus, upgradeStep string, err error)
+
+	// Auto-tune operations
+	SetAutoTune(domainName, desiredState string, schedules []AutoTuneMaintenanceSchedule) error
+	GetAutoTune(domainName string) ([]*AutoTune, error)
+
+	// Instance type limits
+	DescribeInstanceTypeLimits(instanceType, engineVersion string) (*InstanceTypeLimits, error)
+
+	// Engine-type filtered list
+	ListDomainNamesByEngine(engineType string) []string
+
 	// Lifecycle
 	Reset()
 	Region() string

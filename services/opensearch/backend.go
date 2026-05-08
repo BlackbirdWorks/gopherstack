@@ -141,6 +141,8 @@ type InMemoryBackend struct {
 	domains                map[string]*Domain
 	vpcAuthorizations      map[string][]AuthorizedPrincipal
 	applications           map[string]*Application
+	upgradeHistory         map[string][]*UpgradeHistory // key: upgradeHistoryKey(domainName)
+	autoTunes              map[string]*AutoTuneConfig   // key: autoTuneKey(domainName)
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -158,6 +160,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		packageAssociations:    make(map[string]map[string]bool),
 		vpcAuthorizations:      make(map[string][]AuthorizedPrincipal),
 		applications:           make(map[string]*Application),
+		upgradeHistory:         make(map[string][]*UpgradeHistory),
+		autoTunes:              make(map[string]*AutoTuneConfig),
 		accountID:              accountID,
 		region:                 region,
 		mu:                     lockmetrics.New("opensearch"),
@@ -196,7 +200,7 @@ func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig
 	}
 
 	if clusterConfig.InstanceType == "" {
-		clusterConfig.InstanceType = "t3.small.search"
+		clusterConfig.InstanceType = instanceTypeT3Small
 	}
 
 	d := &Domain{
@@ -632,6 +636,8 @@ func (b *InMemoryBackend) Reset() {
 	b.packageAssociations = make(map[string]map[string]bool)
 	b.vpcAuthorizations = make(map[string][]AuthorizedPrincipal)
 	b.applications = make(map[string]*Application)
+	b.upgradeHistory = make(map[string][]*UpgradeHistory)
+	b.autoTunes = make(map[string]*AutoTuneConfig)
 	b.appIDCounter = 0
 }
 
@@ -668,7 +674,7 @@ func (b *InMemoryBackend) AddDomainInternal(name, engineVersion string) {
 		EngineVersion: engineVersion,
 		Endpoint:      endpoint,
 		Status:        domainStatusActive,
-		ClusterConfig: ClusterConfig{InstanceType: "t3.small.search", InstanceCount: 1},
+		ClusterConfig: ClusterConfig{InstanceType: instanceTypeT3Small, InstanceCount: 1},
 		Tags:          tags.New("opensearch." + name + ".tags"),
 	}
 	b.arnIndex[domainARN] = name

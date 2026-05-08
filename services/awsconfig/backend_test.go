@@ -276,7 +276,7 @@ func TestAWSConfigBackend_DeleteConfigRule(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConfigRule("my-rule"))
+				require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "my-rule"}))
 			},
 			delName: "my-rule",
 		},
@@ -814,9 +814,9 @@ func TestAWSConfigBackend_DescribeConfigRules_WithStoredRules(t *testing.T) {
 			name: "returns_all_sorted",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConfigRule("rule-b"))
-				require.NoError(t, b.PutConfigRule("rule-a"))
-				require.NoError(t, b.PutConfigRule("rule-c"))
+				require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-b"}))
+				require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-a"}))
+				require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-c"}))
 			},
 			wantNames: []string{"rule-a", "rule-b", "rule-c"},
 		},
@@ -824,8 +824,8 @@ func TestAWSConfigBackend_DescribeConfigRules_WithStoredRules(t *testing.T) {
 			name: "filter_by_name",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConfigRule("rule-a"))
-				require.NoError(t, b.PutConfigRule("rule-b"))
+				require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-a"}))
+				require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-b"}))
 			},
 			filter:    []string{"rule-a"},
 			wantNames: []string{"rule-a"},

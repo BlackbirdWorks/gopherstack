@@ -249,62 +249,104 @@ func (h *Handler) RouteMatcher() service.Matcher {
 func (h *Handler) MatchPriority() int { return pinpointMatchPriority }
 
 // ExtractOperation extracts the operation name from the request path and method.
-//
-//nolint:cyclop,gocognit // Many op variants mapped from path/method; inevitable complexity.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	method := c.Request().Method
 	path := c.Request().URL.Path
 
+	if op := extractTagOrAppsOp(h, method, path); op != unknownOperation {
+		return op
+	}
+
+	return extractRecommenderTemplateOp(h, method, path)
+}
+
+// extractTagOrAppsOp handles tag and app operations.
+func extractTagOrAppsOp(h *Handler, method, path string) string {
 	switch {
 	case strings.HasPrefix(path, "/v1/tags/"):
 		return extractTagOperation(method)
 	case path == "/v1/apps" || path == "/v1/apps/":
-		if method == http.MethodPost {
-			return "CreateApp"
-		}
-
-		if method == http.MethodGet {
-			return "GetApps"
-		}
+		return extractAppsCollectionOp(method)
 	case strings.HasPrefix(path, "/v1/apps/"):
-		suffix := strings.TrimPrefix(path, "/v1/apps/")
-		if strings.Contains(suffix, "/") {
-			return h.extractAppSubOperation(method, suffix)
-		}
+		return extractAppsResourceOp(h, method, path)
+	}
 
-		switch method {
-		case http.MethodGet:
-			return "GetApp"
-		case http.MethodDelete:
-			return "DeleteApp"
-		}
+	return unknownOperation
+}
+
+// extractAppsCollectionOp returns the operation for the apps collection.
+func extractAppsCollectionOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "CreateApp"
+	case http.MethodGet:
+		return "GetApps"
+	}
+
+	return unknownOperation
+}
+
+// extractAppsResourceOp returns the operation for a specific app resource.
+func extractAppsResourceOp(h *Handler, method, path string) string {
+	suffix := strings.TrimPrefix(path, "/v1/apps/")
+	if strings.Contains(suffix, "/") {
+		return h.extractAppSubOperation(method, suffix)
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "GetApp"
+	case http.MethodDelete:
+		return "DeleteApp"
+	}
+
+	return unknownOperation
+}
+
+// extractRecommenderTemplateOp handles recommender and template operations.
+func extractRecommenderTemplateOp(h *Handler, method, path string) string {
+	switch {
 	case path == "/v1/recommenders" || path == "/v1/recommenders/":
-		if method == http.MethodPost {
-			return "CreateRecommenderConfiguration"
-		}
-
-		if method == http.MethodGet {
-			return "GetRecommenderConfigurations"
-		}
+		return extractRecommendersCollectionOp(method)
 	case strings.HasPrefix(path, "/v1/recommenders/"):
-		recommenderID := strings.TrimPrefix(path, "/v1/recommenders/")
-
-		if recommenderID != "" {
-			switch method {
-			case http.MethodGet:
-				return "GetRecommenderConfiguration"
-			case http.MethodPut:
-				return "UpdateRecommenderConfiguration"
-			case http.MethodDelete:
-				return "DeleteRecommenderConfiguration"
-			}
-		}
+		return extractRecommenderResourceOp(method, path)
 	case path == "/v1/templates" || path == "/v1/templates/":
 		return "ListTemplates"
 	case strings.HasPrefix(path, "/v1/templates/"):
 		return h.extractTemplateOperation(method, path)
 	case path == phoneValidatePath:
 		return "PhoneNumberValidate"
+	}
+
+	return unknownOperation
+}
+
+// extractRecommendersCollectionOp returns the operation for the recommenders collection.
+func extractRecommendersCollectionOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "CreateRecommenderConfiguration"
+	case http.MethodGet:
+		return "GetRecommenderConfigurations"
+	}
+
+	return unknownOperation
+}
+
+// extractRecommenderResourceOp returns the operation for a specific recommender resource.
+func extractRecommenderResourceOp(method, path string) string {
+	recommenderID := strings.TrimPrefix(path, "/v1/recommenders/")
+	if recommenderID == "" {
+		return unknownOperation
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "GetRecommenderConfiguration"
+	case http.MethodPut:
+		return "UpdateRecommenderConfiguration"
+	case http.MethodDelete:
+		return "DeleteRecommenderConfiguration"
 	}
 
 	return unknownOperation
@@ -326,7 +368,7 @@ func extractTagOperation(method string) string {
 
 // extractAppSubOperation resolves the operation name for paths under /v1/apps/{id}/.
 //
-//nolint:cyclop,gocognit,gocyclo,funlen // Fan-out over many sub-path patterns is inherently complex.
+
 func (h *Handler) extractAppSubOperation(method, suffix string) string {
 	parts := strings.SplitN(suffix, "/", appSubPathParts)
 	if len(parts) != appSubPathParts {
@@ -335,68 +377,120 @@ func (h *Handler) extractAppSubOperation(method, suffix string) string {
 
 	subPath := parts[1]
 
+	if op := h.extractAppCoreSubOp(method, subPath); op != unknownOperation {
+		return op
+	}
+
+	return h.extractAppExtSubOp(method, subPath)
+}
+
+// extractAppCoreSubOp resolves settings, campaign, journey, segment, and job operations.
+func (h *Handler) extractAppCoreSubOp(method, subPath string) string {
 	switch {
 	case subPath == "settings":
-		switch method {
-		case http.MethodGet:
-			return "GetApplicationSettings"
-		case http.MethodPut:
-			return "UpdateApplicationSettings"
-		}
+		return extractSettingsOp(method)
 	case subPath == "campaigns":
-		switch method {
-		case http.MethodPost:
-			return "CreateCampaign"
-		case http.MethodGet:
-			return "GetCampaigns"
-		}
+		return extractCampaignsOp(method)
 	case strings.HasPrefix(subPath, "campaigns/"):
 		return h.extractCampaignSubOp(method, strings.TrimPrefix(subPath, "campaigns/"))
 	case subPath == "journeys":
-		switch method {
-		case http.MethodPost:
-			return "CreateJourney"
-		case http.MethodGet:
-			return "ListJourneys"
-		}
+		return extractJourneysOp(method)
 	case strings.HasPrefix(subPath, "journeys/"):
 		return h.extractJourneySubOp(method, strings.TrimPrefix(subPath, "journeys/"))
 	case subPath == "segments":
-		switch method {
-		case http.MethodPost:
-			return "CreateSegment"
-		case http.MethodGet:
-			return "GetSegments"
-		}
+		return extractSegmentsOp(method)
 	case strings.HasPrefix(subPath, "segments/"):
 		return h.extractSegmentSubOp(method, strings.TrimPrefix(subPath, "segments/"))
 	case subPath == subPathJobsExport:
-		switch method {
-		case http.MethodPost:
-			return "CreateExportJob"
-		case http.MethodGet:
-			return "GetExportJobs"
-		}
+		return extractExportJobsOp(method)
 	case strings.HasPrefix(subPath, subPathJobsExport+"/"):
 		return "GetExportJob"
 	case subPath == subPathJobsImport:
-		switch method {
-		case http.MethodPost:
-			return "CreateImportJob"
-		case http.MethodGet:
-			return "GetImportJobs"
-		}
+		return extractImportJobsOp(method)
 	case strings.HasPrefix(subPath, subPathJobsImport+"/"):
 		return "GetImportJob"
+	}
+
+	return unknownOperation
+}
+
+// extractSettingsOp returns the settings operation name.
+func extractSettingsOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "GetApplicationSettings"
+	case http.MethodPut:
+		return "UpdateApplicationSettings"
+	}
+
+	return unknownOperation
+}
+
+// extractCampaignsOp returns the campaigns collection operation name.
+func extractCampaignsOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "CreateCampaign"
+	case http.MethodGet:
+		return "GetCampaigns"
+	}
+
+	return unknownOperation
+}
+
+// extractJourneysOp returns the journeys collection operation name.
+func extractJourneysOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "CreateJourney"
+	case http.MethodGet:
+		return "ListJourneys"
+	}
+
+	return unknownOperation
+}
+
+// extractSegmentsOp returns the segments collection operation name.
+func extractSegmentsOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "CreateSegment"
+	case http.MethodGet:
+		return "GetSegments"
+	}
+
+	return unknownOperation
+}
+
+// extractExportJobsOp returns the export jobs collection operation name.
+func extractExportJobsOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "CreateExportJob"
+	case http.MethodGet:
+		return "GetExportJobs"
+	}
+
+	return unknownOperation
+}
+
+// extractImportJobsOp returns the import jobs collection operation name.
+func extractImportJobsOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "CreateImportJob"
+	case http.MethodGet:
+		return "GetImportJobs"
+	}
+
+	return unknownOperation
+}
+
+// extractAppExtSubOp resolves messaging, KPI, channel, endpoint, and user operations.
+func (h *Handler) extractAppExtSubOp(method, subPath string) string {
+	switch {
 	case subPath == "eventstream":
-		switch method {
-		case http.MethodGet:
-			return "GetEventStream"
-		case http.MethodPost:
-			return "PutEventStream"
-		case http.MethodDelete:
-			return "DeleteEventStream"
-		}
+		return extractEventStreamOp(method)
 	case subPath == "messages":
 		return "SendMessages"
 	case subPath == "users-messages":
@@ -420,15 +514,36 @@ func (h *Handler) extractAppSubOperation(method, suffix string) string {
 	case strings.HasPrefix(subPath, "users/"):
 		userID := strings.TrimPrefix(subPath, "users/")
 		if userID != "" {
-			switch method {
-			case http.MethodGet:
-				return "GetUserEndpoints"
-			case http.MethodDelete:
-				return "DeleteUserEndpoints"
-			}
+			return extractUserEndpointsOp(method)
 		}
 	case strings.HasPrefix(subPath, "attributes/"):
 		return "RemoveAttributes"
+	}
+
+	return unknownOperation
+}
+
+// extractEventStreamOp returns the event stream operation name.
+func extractEventStreamOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "GetEventStream"
+	case http.MethodPost:
+		return "PutEventStream"
+	case http.MethodDelete:
+		return "DeleteEventStream"
+	}
+
+	return unknownOperation
+}
+
+// extractUserEndpointsOp returns the user endpoints operation name.
+func extractUserEndpointsOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return "GetUserEndpoints"
+	case http.MethodDelete:
+		return "DeleteUserEndpoints"
 	}
 
 	return unknownOperation
@@ -820,7 +935,7 @@ func (h *Handler) dispatchApp(c *echo.Context, appID string) error {
 
 // dispatchAppSubPath handles paths under /v1/apps/{appId}/ (e.g. settings).
 //
-//nolint:cyclop,funlen // Fan-out over many sub-path patterns; inevitable cyclomatic complexity.
+
 func (h *Handler) dispatchAppSubPath(c *echo.Context, suffix string) error {
 	parts := strings.SplitN(suffix, "/", appSubPathParts)
 	if len(parts) != appSubPathParts {
@@ -829,65 +944,86 @@ func (h *Handler) dispatchAppSubPath(c *echo.Context, suffix string) error {
 
 	appID, subPath := parts[0], parts[1]
 
-	switch {
-	case subPath == "settings":
-		return h.dispatchAppSettings(c, appID)
-	case subPath == "campaigns":
-		return h.dispatchCampaigns(c, appID)
-	case strings.HasPrefix(subPath, "campaigns/"):
-		return h.dispatchCampaignByID(c, appID, strings.TrimPrefix(subPath, "campaigns/"))
-	case subPath == "journeys":
-		return h.dispatchJourneys(c, appID)
-	case strings.HasPrefix(subPath, "journeys/"):
-		return h.dispatchJourneyByID(c, appID, strings.TrimPrefix(subPath, "journeys/"))
-	case subPath == "segments":
-		return h.dispatchSegments(c, appID)
-	case strings.HasPrefix(subPath, "segments/"):
-		return h.dispatchSegmentByID(c, appID, strings.TrimPrefix(subPath, "segments/"))
-	case subPath == subPathJobsExport:
-		return h.dispatchExportJobs(c, appID, "")
-	case strings.HasPrefix(subPath, subPathJobsExport+"/"):
-		return h.handleGetExportJob(c, appID, strings.TrimPrefix(subPath, "jobs/export/"))
-	case subPath == subPathJobsImport:
-		return h.dispatchImportJobs(c, appID, "")
-	case strings.HasPrefix(subPath, subPathJobsImport+"/"):
-		return h.handleGetImportJob(c, appID, strings.TrimPrefix(subPath, "jobs/import/"))
-	case subPath == "eventstream":
-		return h.dispatchEventStream(c, appID)
-	case subPath == "messages":
-		return h.handleSendMessages(c, appID)
-	case subPath == "users-messages":
-		return h.handleSendUsersMessages(c, appID)
-	case subPath == "otp":
-		return h.handleSendOTPMessage(c, appID)
-	case subPath == "verify-otp":
-		return h.handleVerifyOTPMessage(c, appID)
-	case subPath == "events":
-		return h.handlePutEvents(c, appID)
-	case strings.HasPrefix(subPath, "kpis/daterange/"):
-		return h.handleGetApplicationDateRangeKpi(c, appID, strings.TrimPrefix(subPath, "kpis/daterange/"))
-	case strings.HasPrefix(subPath, "channels/"):
-		channelType := strings.TrimPrefix(subPath, "channels/")
+	if handled, err := h.tryAppCoreSubPath(c, appID, subPath); handled {
+		return err
+	}
 
-		return h.dispatchChannelByType(c, appID, channelType)
-	case subPath == "channels":
-		return h.handleGetChannels(c, appID)
-	case strings.HasPrefix(subPath, "endpoints/"):
-		return h.dispatchEndpointByID(c, appID, strings.TrimPrefix(subPath, "endpoints/"))
-	case subPath == "endpoints":
-		if c.Request().Method == http.MethodPut {
-			return h.handleUpdateEndpointsBatch(c, appID)
-		}
-	case strings.HasPrefix(subPath, "users/"):
-		return h.dispatchUserByID(c, appID, strings.TrimPrefix(subPath, "users/"))
-	case strings.HasPrefix(subPath, "attributes/"):
-		attrType := strings.TrimPrefix(subPath, "attributes/")
-		if c.Request().Method == http.MethodPut {
-			return h.handleRemoveAttributes(c, appID, attrType)
-		}
+	if handled, err := h.tryAppExtSubPath(c, appID, subPath); handled {
+		return err
 	}
 
 	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
+}
+
+// tryAppCoreSubPath handles settings, campaigns, journeys, segments, and job paths.
+// Returns (true, err) if the path was handled.
+func (h *Handler) tryAppCoreSubPath(c *echo.Context, appID, subPath string) (bool, error) {
+	switch {
+	case subPath == "settings":
+		return true, h.dispatchAppSettings(c, appID)
+	case subPath == "campaigns":
+		return true, h.dispatchCampaigns(c, appID)
+	case strings.HasPrefix(subPath, "campaigns/"):
+		return true, h.dispatchCampaignByID(c, appID, strings.TrimPrefix(subPath, "campaigns/"))
+	case subPath == "journeys":
+		return true, h.dispatchJourneys(c, appID)
+	case strings.HasPrefix(subPath, "journeys/"):
+		return true, h.dispatchJourneyByID(c, appID, strings.TrimPrefix(subPath, "journeys/"))
+	case subPath == "segments":
+		return true, h.dispatchSegments(c, appID)
+	case strings.HasPrefix(subPath, "segments/"):
+		return true, h.dispatchSegmentByID(c, appID, strings.TrimPrefix(subPath, "segments/"))
+	case subPath == subPathJobsExport:
+		return true, h.dispatchExportJobs(c, appID, "")
+	case strings.HasPrefix(subPath, subPathJobsExport+"/"):
+		return true, h.handleGetExportJob(c, appID, strings.TrimPrefix(subPath, "jobs/export/"))
+	case subPath == subPathJobsImport:
+		return true, h.dispatchImportJobs(c, appID, "")
+	case strings.HasPrefix(subPath, subPathJobsImport+"/"):
+		return true, h.handleGetImportJob(c, appID, strings.TrimPrefix(subPath, "jobs/import/"))
+	case subPath == "eventstream":
+		return true, h.dispatchEventStream(c, appID)
+	}
+
+	return false, nil
+}
+
+// tryAppExtSubPath handles messaging, KPI, channel, endpoint, and user paths.
+// Returns (true, err) if the path was handled.
+func (h *Handler) tryAppExtSubPath(c *echo.Context, appID, subPath string) (bool, error) {
+	switch {
+	case subPath == "messages":
+		return true, h.handleSendMessages(c, appID)
+	case subPath == "users-messages":
+		return true, h.handleSendUsersMessages(c, appID)
+	case subPath == "otp":
+		return true, h.handleSendOTPMessage(c, appID)
+	case subPath == "verify-otp":
+		return true, h.handleVerifyOTPMessage(c, appID)
+	case subPath == "events":
+		return true, h.handlePutEvents(c, appID)
+	case strings.HasPrefix(subPath, "kpis/daterange/"):
+		return true, h.handleGetApplicationDateRangeKpi(c, appID, strings.TrimPrefix(subPath, "kpis/daterange/"))
+	case strings.HasPrefix(subPath, "channels/"):
+		return true, h.dispatchChannelByType(c, appID, strings.TrimPrefix(subPath, "channels/"))
+	case subPath == "channels":
+		return true, h.handleGetChannels(c, appID)
+	case strings.HasPrefix(subPath, "endpoints/"):
+		return true, h.dispatchEndpointByID(c, appID, strings.TrimPrefix(subPath, "endpoints/"))
+	case subPath == "endpoints":
+		if c.Request().Method == http.MethodPut {
+			return true, h.handleUpdateEndpointsBatch(c, appID)
+		}
+	case strings.HasPrefix(subPath, "users/"):
+		return true, h.dispatchUserByID(c, appID, strings.TrimPrefix(subPath, "users/"))
+	case strings.HasPrefix(subPath, "attributes/"):
+		attrType := strings.TrimPrefix(subPath, "attributes/")
+		if c.Request().Method == http.MethodPut {
+			return true, h.handleRemoveAttributes(c, appID, attrType)
+		}
+	}
+
+	return false, nil
 }
 
 // dispatchAppSettings handles GET/PUT /v1/apps/{appId}/settings.

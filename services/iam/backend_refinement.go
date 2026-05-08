@@ -192,15 +192,34 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 
 // DeletePolicyVersion deletes a non-default version of the managed policy.
 func (b *InMemoryBackend) DeletePolicyVersion(policyArn, versionID string) error {
-	if versionID == "v1" {
-		return fmt.Errorf("%w: cannot delete the default version v1", ErrDeleteConflict)
-	}
-
 	b.mu.Lock("DeletePolicyVersion")
 	defer b.mu.Unlock()
 
 	if _, exists := b.policyByARN[policyArn]; !exists {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	// v1 is stored implicitly. If being deleted, verify it is not the current default.
+	if versionID == "v1" {
+		nonV1IsDefault := false
+
+		for _, v := range b.policyVersions[policyArn] {
+			if v.IsDefaultVersion {
+				nonV1IsDefault = true
+
+				break
+			}
+		}
+
+		if !nonV1IsDefault {
+			// v1 is still the default; cannot delete.
+			return fmt.Errorf("%w: cannot delete the default version v1", ErrDeleteConflict)
+		}
+
+		// Mark v1 as deleted for this policy.
+		b.deletedV1Policies[policyArn] = true
+
+		return nil
 	}
 
 	versions := b.policyVersions[policyArn]

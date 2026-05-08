@@ -197,7 +197,7 @@ func TestInMemoryBackend_Snapshot_AllMaps(t *testing.T) {
 	require.NoError(t, b.PutConfigurationRecorder("rec", "arn:aws:iam::000:role/r"))
 	require.NoError(t, b.PutDeliveryChannel("chan", "bucket", ""))
 	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1"))
-	require.NoError(t, b.PutConfigRule("rule-x"))
+	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
 	require.NoError(t, b.PutConfigurationAggregator("agg-1"))
 	require.NoError(t, b.PutConformancePack("pack-1"))
 	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))

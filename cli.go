@@ -93,6 +93,7 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -2354,6 +2355,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
 	wireSNSToSQS(byName["SNS"], byName["SQS"])
 
+	// Wire SQS → CloudWatch metric emission for NumberOfMessagesSent/Received/Deleted.
+	wireSQSMetrics(byName["SQS"], byName["CloudWatch"])
+
 	// Wire EventBridge target fan-out: deliver events to Lambda, SQS, SNS targets.
 	wireEventBridgeDelivery(byName["EventBridge"], byName["Lambda"], byName["SQS"], byName["SNS"])
 
@@ -2402,6 +2406,57 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["Kinesis"],
 		byName["Firehose"],
 	)
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+
+	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
+	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
 
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
@@ -2621,6 +2676,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&wafv2backend.Provider{},
 		&xraybackend.Provider{},
 		&s3tablesbackend.Provider{},
+		&databrewbackend.Provider{},
 	}
 }
 
@@ -2780,6 +2836,35 @@ func wireSNSToSQS(snsReg, sqsReg service.Registerable) {
 	emitter := snsevents.NewInMemoryEmitter[*snsevents.SNSPublishedEvent]()
 	snsBk.SetPublishEmitter(emitter)
 	sqsBk.SubscribeToSNS(emitter)
+}
+
+// wireSQSMetrics wires the CloudWatch metric emitter into the SQS backend so that
+// SendMessage, ReceiveMessage, and DeleteMessage operations emit CloudWatch metrics.
+func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
+	sqsH, ok1 := sqsReg.(*sqsbackend.Handler)
+	cwH, ok2 := cwReg.(*cwbackend.Handler)
+
+	if !ok1 || !ok2 {
+		return
+	}
+
+	sqsBk, bk1Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend)
+	cwBk, bk2Ok := cwH.Backend.(*cwbackend.InMemoryBackend)
+
+	if !bk1Ok || !bk2Ok {
+		return
+	}
+
+	sqsBk.SetMetricEmitter(sqsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
+		return cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+			{
+				MetricName: name,
+				Value:      value,
+				Unit:       unit,
+				Timestamp:  time.Now(),
+			},
+		})
+	}))
 }
 
 // wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, and SNS backends.
@@ -3510,6 +3595,44 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 	}
 
 	return nil
+}
+
+// wireCWLogsMetricEmitter connects the CloudWatch Logs backend to the CloudWatch Metrics backend
+// so that metric filter matches on PutLogEvents are forwarded as CloudWatch metric data points.
+func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
+	cwlogsH, ok := cwlogsReg.(*cwlogsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cwlogsBk, bkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	cwH, cwOk := cwReg.(*cwbackend.Handler)
+	if !cwOk {
+		return
+	}
+
+	cwBk, cwBkOk := cwH.Backend.(*cwbackend.InMemoryBackend)
+	if !cwBkOk {
+		return
+	}
+
+	cwlogsBk.SetMetricEmitter(
+		cwlogsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
+			return cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+				{
+					MetricName: name,
+					Namespace:  namespace,
+					Value:      value,
+					Unit:       unit,
+					Timestamp:  time.Now(),
+				},
+			})
+		}),
+	)
 }
 
 // wireIAMToSTS connects the IAM backend to STS so that AssumeRole can validate
