@@ -1,5 +1,7 @@
 package ec2
 
+import "time"
+
 // Backend defines the interface for EC2 backend operations.
 // InMemoryBackend implements this interface; alternative providers (e.g. a
 // real-AWS pass-through or a test double) can do so too, making the Handler
@@ -632,6 +634,26 @@ type Backend interface {
 
 	// ReleaseIpamPoolAllocation releases an IPAM pool allocation.
 	ReleaseIpamPoolAllocation(poolID, allocationID string) error
+
+	// ---- spot fleet ----
+
+	// RequestSpotFleet creates a new Spot Fleet request and fulfills it.
+	RequestSpotFleet(config SpotFleetRequestConfig) (*SpotFleetRequest, error)
+
+	// DescribeSpotFleetRequests returns spot fleet requests, optionally filtered by IDs.
+	DescribeSpotFleetRequests(fleetIDs []string) ([]*SpotFleetRequest, error)
+
+	// CancelSpotFleetRequests cancels spot fleet requests.
+	CancelSpotFleetRequests(fleetIDs []string, terminateInstances bool) ([]SpotFleetCancelResult, error)
+
+	// ModifySpotFleetRequest updates the target capacity of a spot fleet request.
+	ModifySpotFleetRequest(fleetID string, targetCapacity int, excessTermination string) (*SpotFleetRequest, error)
+
+	// DescribeSpotFleetInstances returns the instances in a spot fleet.
+	DescribeSpotFleetInstances(fleetID string) ([]SpotFleetInstance, error)
+
+	// DescribeSpotFleetRequestHistory returns history records for a spot fleet.
+	DescribeSpotFleetRequestHistory(fleetID string, startTime time.Time) ([]SpotFleetHistoryRecord, error)
 
 	// ---- reset ----
 

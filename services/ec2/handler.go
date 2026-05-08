@@ -89,6 +89,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	extOps = append(extOps, networking1SupportedOperations()...)
 	extOps = append(extOps, advancedNetworkingSupportedOperations()...)
 	extOps = append(extOps, ec2CoreSupportedOperations()...)
+	extOps = append(extOps, spotFleetSupportedOperations()...)
 	extOps = append(extOps, stubSupportedOperations()...)
 
 	return append([]string{
@@ -414,6 +415,8 @@ func (h *Handler) buildOps() map[string]ec2ActionFn {
 	registerStubOps(h, ops)
 	// registerAdvancedNetworkingOps must run last to override stub entries.
 	registerAdvancedNetworkingOps(h, ops)
+	// registerSpotFleetOps overrides stub spot fleet handlers with real implementations.
+	registerSpotFleetOps(h, ops)
 
 	return ops
 }

@@ -1048,10 +1048,13 @@ func handleBackendError(c *echo.Context, err error, notFoundMsg string) error {
 
 	switch err.Error() {
 	case "ResourceNotFoundException":
+
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", notFoundMsg)
 	case "ConflictException":
+
 		return writeError(c, http.StatusConflict, "ConflictException", notFoundMsg)
 	default:
+
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 }

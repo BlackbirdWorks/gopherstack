@@ -26,7 +26,11 @@ type StorageBackend interface {
 	DeleteTable(dbName, tableName string) error
 
 	// Crawler operations.
-	CreateCrawler(name, role, dbName string, targets CrawlerTarget, tags map[string]string) (*Crawler, error)
+	CreateCrawler(
+		name, role, dbName string,
+		targets CrawlerTarget,
+		tags map[string]string,
+	) (*Crawler, error)
 	GetCrawler(name string) (*Crawler, error)
 	GetCrawlers() []*Crawler
 	ListCrawlers() []string
@@ -46,12 +50,19 @@ type StorageBackend interface {
 	GetTags(resourceARN string) (map[string]string, error)
 
 	// Partition operations.
-	BatchCreatePartition(dbName, tableName string, inputs []PartitionInput) ([]*Partition, []PartitionError)
+	BatchCreatePartition(
+		dbName, tableName string,
+		inputs []PartitionInput,
+	) ([]*Partition, []PartitionError)
 	BatchDeletePartition(dbName, tableName string, values []PartitionValueList) []PartitionError
 	BatchDeleteTableVersion(dbName, tableName string, versionIDs []string) []TableVersionError
 
 	// Connection operations.
-	CreateConnection(name, connType string, props map[string]string, tags map[string]string) (*Connection, error)
+	CreateConnection(
+		name, connType string,
+		props map[string]string,
+		tags map[string]string,
+	) (*Connection, error)
 	GetConnection(name string) (*Connection, error)
 	GetConnections() []*Connection
 	DeleteConnection(name string) error
@@ -103,7 +114,10 @@ type StorageBackend interface {
 	StopCrawlerSchedule(name string) error
 
 	// Data quality ruleset operations.
-	CreateDataQualityRuleset(name, ruleset string, tags map[string]string) (*DataQualityRuleset, error)
+	CreateDataQualityRuleset(
+		name, ruleset string,
+		tags map[string]string,
+	) (*DataQualityRuleset, error)
 	GetDataQualityRuleset(name string) (*DataQualityRuleset, error)
 	DeleteDataQualityRuleset(name string) error
 	UpdateDataQualityRuleset(name, ruleset string) error
@@ -150,6 +164,35 @@ type StorageBackend interface {
 	GetDevEndpoint(name string) (*DevEndpoint, error)
 	GetAllDevEndpoints() []*DevEndpoint
 	DeleteDevEndpoint(name string) error
+
+	// Schema Registry operations.
+	CreateRegistry(name, description string, tags map[string]string) (*Registry, error)
+	DescribeRegistry(name string) (*Registry, error)
+	ListRegistries() []*Registry
+	UpdateRegistry(name, description string) error
+	DeleteRegistry(name string) error
+
+	// Schema operations.
+	CreateSchema(
+		registryName, schemaName, dataFormat, compatibility, description string,
+		tags map[string]string,
+	) (*Schema, error)
+	DescribeSchema(registryName, schemaName string) (*Schema, error)
+	ListSchemas(registryName string) []*Schema
+	UpdateSchema(registryName, schemaName, compatibility, description string) error
+	DeleteSchema(registryName, schemaName string) error
+
+	// Schema Version operations.
+	RegisterSchemaVersion(registryName, schemaName, schemaDefinition string) (*SchemaVersion, error)
+	GetSchemaVersion(registryName, schemaName string, versionNumber int64) (*SchemaVersion, error)
+	ListSchemaVersions(registryName, schemaName string) []*SchemaVersion
+
+	// Crawler metrics.
+	GetCrawlerMetrics(crawlerNames []string) []*CrawlerMetrics
+
+	// Table version retrieval (read-only; versions are created via CreateTable/UpdateTable).
+	GetTableVersions(dbName, tableName string) []*TableVersion
+	GetTableVersion(dbName, tableName, versionID string) (*TableVersion, error)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

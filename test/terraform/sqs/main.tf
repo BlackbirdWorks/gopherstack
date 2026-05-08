@@ -92,6 +92,68 @@ resource "aws_sqs_queue" "delayed" {
 }
 
 # ---------------------------------------------------------------------------
+# FIFO queue with ContentBasedDeduplication
+# ---------------------------------------------------------------------------
+
+resource "aws_sqs_queue" "fifo" {
+  name                        = "gopherstack-test-fifo.fifo"
+  fifo_queue                  = true
+  content_based_deduplication = true
+  visibility_timeout_seconds  = 30
+
+  tags = {
+    Environment = "test"
+    ManagedBy   = "terraform"
+    Role        = "fifo"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Queue with KMS encryption (SQS-managed SSE)
+# ---------------------------------------------------------------------------
+
+resource "aws_sqs_queue" "encrypted" {
+  name                      = "gopherstack-test-encrypted"
+  sqs_managed_sse_enabled   = true
+  visibility_timeout_seconds = 30
+
+  tags = {
+    Environment = "test"
+    ManagedBy   = "terraform"
+    Role        = "encrypted"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Queue with access policy
+# ---------------------------------------------------------------------------
+
+resource "aws_sqs_queue" "with_policy" {
+  name = "gopherstack-test-policy"
+
+  tags = {
+    Environment = "test"
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_sqs_queue_policy" "with_policy" {
+  queue_url = aws_sqs_queue.with_policy.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { AWS = "*" }
+        Action    = "sqs:SendMessage"
+        Resource  = aws_sqs_queue.with_policy.arn
+      }
+    ]
+  })
+}
+
+# ---------------------------------------------------------------------------
 # Outputs
 # ---------------------------------------------------------------------------
 
@@ -118,4 +180,29 @@ output "dlq_arn" {
 output "delayed_queue_url" {
   value       = aws_sqs_queue.delayed.url
   description = "URL of the delayed queue"
+}
+
+output "fifo_queue_url" {
+  value       = aws_sqs_queue.fifo.url
+  description = "URL of the FIFO queue"
+}
+
+output "fifo_queue_arn" {
+  value       = aws_sqs_queue.fifo.arn
+  description = "ARN of the FIFO queue"
+}
+
+output "encrypted_queue_url" {
+  value       = aws_sqs_queue.encrypted.url
+  description = "URL of the SSE-encrypted queue"
+}
+
+output "policy_queue_url" {
+  value       = aws_sqs_queue.with_policy.url
+  description = "URL of the queue with access policy"
+}
+
+output "policy_queue_arn" {
+  value       = aws_sqs_queue.with_policy.arn
+  description = "ARN of the queue with access policy"
 }

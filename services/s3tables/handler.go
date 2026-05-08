@@ -272,7 +272,7 @@ func (h *Handler) routeRequest(r *http.Request) (string, dispatchFunc) {
 	return "", nil
 }
 
-//nolint:cyclop,gocognit,funlen // routing table is inherently switch-heavy
+// routeBuckets routes bucket-level operations.
 func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (string, dispatchFunc) {
 	switch len(segs) {
 	case 1:
@@ -290,52 +290,75 @@ func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (s
 			return "DeleteTableBucket", h.handleDeleteTableBucket
 		}
 	case 3: //nolint:mnd // bucket ARN + sub-resource
-		sub := segs[2]
-		switch sub {
-		case segMaintenance:
-			if method == http.MethodGet {
-				return "GetTableBucketMaintenanceConfiguration", h.handleGetTableBucketMaintenanceConfiguration
-			}
-		case segEncryption:
-			switch method {
-			case http.MethodGet:
-				return "GetTableBucketEncryption", h.handleGetTableBucketEncryption
-			case http.MethodPut:
-				return "PutTableBucketEncryption", h.handlePutTableBucketEncryption
-			case http.MethodDelete:
-				return "DeleteTableBucketEncryption", h.handleDeleteTableBucketEncryption
-			}
-		case segMetrics:
-			switch method {
-			case http.MethodGet:
-				return "GetTableBucketMetricsConfiguration", h.handleGetTableBucketMetricsConfiguration
-			case http.MethodPut:
-				return "PutTableBucketMetricsConfiguration", h.handlePutTableBucketMetricsConfiguration
-			case http.MethodDelete:
-				return "DeleteTableBucketMetricsConfiguration", h.handleDeleteTableBucketMetricsConfiguration
-			}
-		case segStorageClass:
-			switch method {
-			case http.MethodGet:
-				return "GetTableBucketStorageClass", h.handleGetTableBucketStorageClass
-			case http.MethodPut:
-				return "PutTableBucketStorageClass", h.handlePutTableBucketStorageClass
-			}
-		case "policy":
-			switch method {
-			case http.MethodGet:
-				return "GetTableBucketPolicy", h.handleGetTableBucketPolicy
-			case http.MethodPut:
-				return "PutTableBucketPolicy", h.handlePutTableBucketPolicy
-			case http.MethodDelete:
-				return "DeleteTableBucketPolicy", h.handleDeleteTableBucketPolicy
-			}
-		}
-
 		_ = r
+
+		return h.routeBucketSubResource(segs[2], method)
 	case 4: //nolint:mnd // bucket ARN + maintenance + config type
 		if segs[2] == segMaintenance && method == http.MethodPut {
 			return "PutTableBucketMaintenanceConfiguration", h.handlePutTableBucketMaintenanceConfiguration
+		}
+	}
+
+	return "", nil
+}
+
+// routeBucketSubResource routes bucket sub-resource operations.
+func (h *Handler) routeBucketSubResource(sub, method string) (string, dispatchFunc) {
+	if op, fn := h.routeBucketStorageOps(sub, method); op != "" {
+		return op, fn
+	}
+
+	return h.routeBucketPolicyOps(sub, method)
+}
+
+// routeBucketStorageOps handles bucket maintenance, encryption, and metrics sub-resources.
+func (h *Handler) routeBucketStorageOps(sub, method string) (string, dispatchFunc) {
+	switch sub {
+	case segMaintenance:
+		if method == http.MethodGet {
+			return "GetTableBucketMaintenanceConfiguration", h.handleGetTableBucketMaintenanceConfiguration
+		}
+	case segEncryption:
+		switch method {
+		case http.MethodGet:
+			return "GetTableBucketEncryption", h.handleGetTableBucketEncryption
+		case http.MethodPut:
+			return "PutTableBucketEncryption", h.handlePutTableBucketEncryption
+		case http.MethodDelete:
+			return "DeleteTableBucketEncryption", h.handleDeleteTableBucketEncryption
+		}
+	case segMetrics:
+		switch method {
+		case http.MethodGet:
+			return "GetTableBucketMetricsConfiguration", h.handleGetTableBucketMetricsConfiguration
+		case http.MethodPut:
+			return "PutTableBucketMetricsConfiguration", h.handlePutTableBucketMetricsConfiguration
+		case http.MethodDelete:
+			return "DeleteTableBucketMetricsConfiguration", h.handleDeleteTableBucketMetricsConfiguration
+		}
+	}
+
+	return "", nil
+}
+
+// routeBucketPolicyOps handles bucket storage class and policy sub-resources.
+func (h *Handler) routeBucketPolicyOps(sub, method string) (string, dispatchFunc) {
+	switch sub {
+	case segStorageClass:
+		switch method {
+		case http.MethodGet:
+			return "GetTableBucketStorageClass", h.handleGetTableBucketStorageClass
+		case http.MethodPut:
+			return "PutTableBucketStorageClass", h.handlePutTableBucketStorageClass
+		}
+	case "policy":
+		switch method {
+		case http.MethodGet:
+			return "GetTableBucketPolicy", h.handleGetTableBucketPolicy
+		case http.MethodPut:
+			return "PutTableBucketPolicy", h.handlePutTableBucketPolicy
+		case http.MethodDelete:
+			return "DeleteTableBucketPolicy", h.handleDeleteTableBucketPolicy
 		}
 	}
 
@@ -388,8 +411,17 @@ func (h *Handler) routeTables(segs []string, method string, r *http.Request) (st
 	return "", nil
 }
 
-//nolint:cyclop // routing table is inherently switch-heavy
+// routeTableSubResource routes table sub-resource operations.
 func (h *Handler) routeTableSubResource(sub, method string, _ *http.Request) (string, dispatchFunc) {
+	if op, fn := h.routeTableMetaOps(sub, method); op != "" {
+		return op, fn
+	}
+
+	return h.routeTableConfigOps(sub, method)
+}
+
+// routeTableMetaOps handles table rename, metadata location, and maintenance operations.
+func (h *Handler) routeTableMetaOps(sub, method string) (string, dispatchFunc) {
 	switch sub {
 	case "rename":
 		if method == http.MethodPut {
@@ -410,6 +442,14 @@ func (h *Handler) routeTableSubResource(sub, method string, _ *http.Request) (st
 		if method == http.MethodGet {
 			return "GetTableMaintenanceJobStatus", h.handleGetTableMaintenanceJobStatus
 		}
+	}
+
+	return "", nil
+}
+
+// routeTableConfigOps handles table encryption, storage class, and policy operations.
+func (h *Handler) routeTableConfigOps(sub, method string) (string, dispatchFunc) {
+	switch sub {
 	case segEncryption:
 		if method == http.MethodGet {
 			return "GetTableEncryption", h.handleGetTableEncryption

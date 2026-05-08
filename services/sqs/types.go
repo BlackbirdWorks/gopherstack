@@ -42,6 +42,7 @@ const (
 	attrFifoQueue                 = "FifoQueue"
 	attrContentBasedDeduplication = "ContentBasedDeduplication"
 	attrRedrivePolicy             = "RedrivePolicy"
+	attrPolicy                    = "Policy"
 	attrApproxMessagesDelayed     = "ApproximateNumberOfMessagesDelayed"
 	attrAll                       = "All"
 	attrSqsManagedSseEnabled      = "SqsManagedSseEnabled"

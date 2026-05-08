@@ -125,6 +125,8 @@ func (b *InMemoryBackend) resetAdvancedNetworkingMapsLocked() {
 	b.ipams = make(map[string]*Ipam)
 	b.ipamPools = make(map[string]*IpamPool)
 	b.ipamPoolAllocations = make(map[string]*IpamPoolAllocation)
+	b.spotFleets = make(map[string]*SpotFleetRequest)
+	b.spotFleetHistory = make(map[string][]SpotFleetHistoryRecord)
 }
 
 // ---- VPN Gateways ----

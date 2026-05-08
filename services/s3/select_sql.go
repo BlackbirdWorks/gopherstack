@@ -76,7 +76,7 @@ func (t *sqlTokeniser) peek() (sqlToken, error) {
 }
 
 // next returns the next token.
-func (t *sqlTokeniser) next() (sqlToken, error) { //nolint:cyclop // tokeniser switch inherently broad
+func (t *sqlTokeniser) next() (sqlToken, error) {
 	t.skipWhitespace()
 
 	if t.pos >= len(t.src) {
@@ -85,42 +85,65 @@ func (t *sqlTokeniser) next() (sqlToken, error) { //nolint:cyclop // tokeniser s
 
 	ch := t.src[t.pos]
 
-	switch {
-	case ch == '\'':
-		return t.readString()
-	case ch == '"':
-		return t.readQuotedIdent()
-	case ch == '*':
-		t.pos++
+	if ok, tok, err := t.nextQuoteOrPunct(ch); ok {
+		return tok, err
+	}
 
-		return sqlToken{typ: tokStar, val: "*"}, nil
-	case ch == ',':
-		t.pos++
-
-		return sqlToken{typ: tokComma, val: ","}, nil
-	case ch == '.':
-		t.pos++
-
-		return sqlToken{typ: tokDot, val: "."}, nil
-	case ch == '(':
-		t.pos++
-
-		return sqlToken{typ: tokLParen, val: "("}, nil
-	case ch == ')':
-		t.pos++
-
-		return sqlToken{typ: tokRParen, val: ")"}, nil
-	case ch == '=':
-		t.pos++
-
-		return sqlToken{typ: tokEq, val: "="}, nil
-	case unicode.IsDigit(rune(ch)) || (ch == '-' && t.pos+1 < len(t.src) && unicode.IsDigit(rune(t.src[t.pos+1]))):
+	if t.isNumberStart(ch) {
 		return t.readNumber()
-	case unicode.IsLetter(rune(ch)) || ch == '_':
+	}
+
+	if unicode.IsLetter(rune(ch)) || ch == '_' {
 		return t.readIdent()
 	}
 
 	return t.readOperator(ch)
+}
+
+// isNumberStart returns true if ch starts a numeric token.
+func (t *sqlTokeniser) isNumberStart(ch byte) bool {
+	return unicode.IsDigit(rune(ch)) ||
+		(ch == '-' && t.pos+1 < len(t.src) && unicode.IsDigit(rune(t.src[t.pos+1])))
+}
+
+// nextQuoteOrPunct handles quote characters and single-character punctuation tokens.
+func (t *sqlTokeniser) nextQuoteOrPunct(ch byte) (bool, sqlToken, error) {
+	switch ch {
+	case '\'':
+		tok, err := t.readString()
+
+		return true, tok, err
+	case '"':
+		tok, err := t.readQuotedIdent()
+
+		return true, tok, err
+	case '*':
+		t.pos++
+
+		return true, sqlToken{typ: tokStar, val: "*"}, nil
+	case ',':
+		t.pos++
+
+		return true, sqlToken{typ: tokComma, val: ","}, nil
+	case '.':
+		t.pos++
+
+		return true, sqlToken{typ: tokDot, val: "."}, nil
+	case '(':
+		t.pos++
+
+		return true, sqlToken{typ: tokLParen, val: "("}, nil
+	case ')':
+		t.pos++
+
+		return true, sqlToken{typ: tokRParen, val: ")"}, nil
+	case '=':
+		t.pos++
+
+		return true, sqlToken{typ: tokEq, val: "="}, nil
+	}
+
+	return false, sqlToken{}, nil
 }
 
 func (t *sqlTokeniser) skipWhitespace() {
@@ -264,7 +287,7 @@ func parseSQL(src string) (*sqlQuery, error) {
 	return newSQLParser(src).parse()
 }
 
-func (p *sqlParser) parse() (*sqlQuery, error) { //nolint:cyclop // SQL parsing inherently has many branches
+func (p *sqlParser) parse() (*sqlQuery, error) {
 	q := &sqlQuery{}
 
 	if err := p.expectKeyword("SELECT"); err != nil {
@@ -279,47 +302,70 @@ func (p *sqlParser) parse() (*sqlQuery, error) { //nolint:cyclop // SQL parsing 
 	q.columns = cols
 	q.selectAll = selectAll
 
-	if fromErr := p.expectKeyword("FROM"); fromErr != nil {
-		return nil, fromErr
-	}
-
-	// consume table name (s3object or similar)
-	if _, err = p.tok.next(); err != nil {
+	if err = p.parseFromClause(q); err != nil {
 		return nil, err
 	}
 
+	if err = p.parseWhereLimit(q); err != nil {
+		return nil, err
+	}
+
+	return q, nil
+}
+
+// parseFromClause consumes the FROM clause, table name, and optional alias.
+func (p *sqlParser) parseFromClause(q *sqlQuery) error {
+	if err := p.expectKeyword("FROM"); err != nil {
+		return err
+	}
+
+	// consume table name (s3object or similar)
+	if _, err := p.tok.next(); err != nil {
+		return err
+	}
+
 	// optional alias
-	if tok, peekErr := p.tok.peek(); peekErr == nil && tok.typ == tokIdent && !isKeyword(tok.val) {
+	tok, peekErr := p.tok.peek()
+	if peekErr == nil && tok.typ == tokIdent && !isKeyword(tok.val) {
 		if _, peekErr = p.tok.next(); peekErr != nil {
-			return nil, peekErr
+			return peekErr
 		}
 
 		q.tableAlias = tok.val
 	}
 
+	return nil
+}
+
+// parseWhereLimit consumes the optional WHERE and LIMIT clauses.
+func (p *sqlParser) parseWhereLimit(q *sqlQuery) error {
 	// optional WHERE
-	if tok, peekErr := p.tok.peek(); peekErr == nil && tok.typ == tokIdent && strings.EqualFold(tok.val, "WHERE") {
+	tok, peekErr := p.tok.peek()
+	if peekErr == nil && tok.typ == tokIdent && strings.EqualFold(tok.val, "WHERE") {
 		if _, peekErr = p.tok.next(); peekErr != nil {
-			return nil, peekErr
+			return peekErr
 		}
 
+		var err error
 		if q.condition, err = p.parseOr(); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	// optional LIMIT
-	if tok, peekErr := p.tok.peek(); peekErr == nil && tok.typ == tokIdent && strings.EqualFold(tok.val, "LIMIT") {
+	tok, peekErr = p.tok.peek()
+	if peekErr == nil && tok.typ == tokIdent && strings.EqualFold(tok.val, "LIMIT") {
 		if _, peekErr = p.tok.next(); peekErr != nil {
-			return nil, peekErr
+			return peekErr
 		}
 
+		var err error
 		if q.limit, err = p.parseLimit(); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	return q, nil
+	return nil
 }
 
 func (p *sqlParser) parseLimit() (int, error) {

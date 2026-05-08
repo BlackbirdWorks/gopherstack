@@ -6,6 +6,7 @@ package rds
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/url"
 )
@@ -29,62 +30,114 @@ const (
 	backupStatusReplicating = "replicating"
 )
 
+// errRDSStubNotHandled is a sentinel used internally to signal that a dispatch
+// helper did not recognise the action. It is never returned to callers.
+var errRDSStubNotHandled = errors.New("rds: action not handled by this dispatcher")
+
 // dispatchExtended14 routes the stub RDS operations added for SDK completeness.
-//
-//nolint:cyclop // dispatches many stub operations in one function
 func (h *Handler) dispatchExtended14(action string, vals url.Values) (any, error) {
+	if r, err := h.dispatchEngineShardOps(action, vals); !errors.Is(err, errRDSStubNotHandled) {
+		return r, err
+	}
+
+	if r, err := h.dispatchIntegrationTenantOps(action, vals); !errors.Is(err, errRDSStubNotHandled) {
+		return r, err
+	}
+
+	if r, err := h.dispatchAutomatedBackupOps(action, vals); !errors.Is(err, errRDSStubNotHandled) {
+		return r, err
+	}
+
+	return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
+}
+
+// dispatchEngineShardOps handles custom engine version and shard group operations.
+func (h *Handler) dispatchEngineShardOps(action string, vals url.Values) (any, error) {
 	switch action {
-	// Custom DB Engine Versions
 	case "CreateCustomDBEngineVersion":
+
 		return h.handleCreateCustomDBEngineVersion(vals)
 	case "DeleteCustomDBEngineVersion":
+
 		return h.handleDeleteCustomDBEngineVersion(vals)
 	case "ModifyCustomDBEngineVersion":
+
 		return h.handleModifyCustomDBEngineVersion(vals)
-	// DB Shard Groups
 	case "CreateDBShardGroup":
+
 		return h.handleCreateDBShardGroup(vals)
 	case "DeleteDBShardGroup":
+
 		return h.handleDeleteDBShardGroup(vals)
 	case "DescribeDBShardGroups":
+
 		return h.handleDescribeDBShardGroups(vals)
 	case "ModifyDBShardGroup":
+
 		return h.handleModifyDBShardGroup(vals)
 	case "RebootDBShardGroup":
+
 		return h.handleRebootDBShardGroup(vals)
-	// Integrations
+	}
+
+	return nil, errRDSStubNotHandled
+}
+
+// dispatchIntegrationTenantOps handles integration and tenant database operations.
+func (h *Handler) dispatchIntegrationTenantOps(action string, vals url.Values) (any, error) {
+	switch action {
 	case "CreateIntegration":
+
 		return h.handleCreateIntegration(vals)
 	case "DeleteIntegration":
+
 		return h.handleDeleteIntegration(vals)
 	case "DescribeIntegrations":
+
 		return h.handleDescribeIntegrations(vals)
 	case "ModifyIntegration":
+
 		return h.handleModifyIntegration(vals)
-	// Tenant Databases
 	case "CreateTenantDatabase":
+
 		return h.handleCreateTenantDatabase(vals)
 	case "DeleteTenantDatabase":
+
 		return h.handleDeleteTenantDatabase(vals)
 	case "DescribeTenantDatabases":
+
 		return h.handleDescribeTenantDatabases(vals)
 	case "ModifyTenantDatabase":
+
 		return h.handleModifyTenantDatabase(vals)
-	// Automated Backups
+	}
+
+	return nil, errRDSStubNotHandled
+}
+
+// dispatchAutomatedBackupOps handles automated backup and snapshot tenant database operations.
+func (h *Handler) dispatchAutomatedBackupOps(action string, vals url.Values) (any, error) {
+	switch action {
 	case "DeleteDBClusterAutomatedBackup":
+
 		return h.handleDeleteDBClusterAutomatedBackup(vals)
 	case "DeleteDBInstanceAutomatedBackup":
+
 		return h.handleDeleteDBInstanceAutomatedBackup(vals)
 	case "DescribeDBClusterAutomatedBackups":
+
 		return h.handleDescribeDBClusterAutomatedBackups(vals)
 	case "DescribeDBInstanceAutomatedBackups":
+
 		return h.handleDescribeDBInstanceAutomatedBackups(vals)
 	case "StartDBInstanceAutomatedBackupsReplication":
+
 		return h.handleStartDBInstanceAutomatedBackupsReplication(vals)
 	case "StopDBInstanceAutomatedBackupsReplication":
+
 		return h.handleStopDBInstanceAutomatedBackupsReplication(vals)
-	// Snapshot Tenant Databases
 	case "DescribeDBSnapshotTenantDatabases":
+
 		return h.handleDescribeDBSnapshotTenantDatabases(vals)
 	default:
 		return h.dispatchExtended15(action, vals)
@@ -100,6 +153,8 @@ func (h *Handler) dispatchExtended15(action string, vals url.Values) (any, error
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}
+
+	return nil, errRDSStubNotHandled
 }
 
 // ---- XML response types ----

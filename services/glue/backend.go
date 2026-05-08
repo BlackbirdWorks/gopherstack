@@ -316,6 +316,9 @@ type InMemoryBackend struct {
 	workflows           map[string]*Workflow                 // key: workflowName
 	workflowRuns        map[string][]*WorkflowRun            // key: workflowName
 	classifiers         map[string]*Classifier               // key: classifierName
+	registries          map[string]*Registry                 // key: registryName
+	schemas             map[string]*Schema                   // key: "registryName|schemaName"
+	schemaVersions      map[string][]*SchemaVersion          // key: schemaARN
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
@@ -343,6 +346,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		workflows:           make(map[string]*Workflow),
 		workflowRuns:        make(map[string][]*WorkflowRun),
 		classifiers:         make(map[string]*Classifier),
+		registries:          make(map[string]*Registry),
+		schemas:             make(map[string]*Schema),
+		schemaVersions:      make(map[string][]*SchemaVersion),
 		mu:                  lockmetrics.New("glue"),
 		accountID:           accountID,
 		region:              region,
@@ -373,6 +379,9 @@ func (b *InMemoryBackend) Reset() {
 	b.workflows = make(map[string]*Workflow)
 	b.workflowRuns = make(map[string][]*WorkflowRun)
 	b.classifiers = make(map[string]*Classifier)
+	b.registries = make(map[string]*Registry)
+	b.schemas = make(map[string]*Schema)
+	b.schemaVersions = make(map[string][]*SchemaVersion)
 }
 
 // Region returns the backend region.

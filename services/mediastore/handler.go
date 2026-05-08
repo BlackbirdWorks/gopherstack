@@ -21,6 +21,31 @@ const (
 	mediastoreTargetPrefix  = "MediaStore_20170901."
 )
 
+// MediaStore operation name constants.
+const (
+	opMSCreateContainer       = "CreateContainer"
+	opMSDeleteContainer       = "DeleteContainer"
+	opMSDescribeContainer     = "DescribeContainer"
+	opMSListContainers        = "ListContainers"
+	opMSPutContainerPolicy    = "PutContainerPolicy"
+	opMSGetContainerPolicy    = "GetContainerPolicy"
+	opMSDeleteContainerPolicy = "DeleteContainerPolicy"
+	opMSPutCorsPolicy         = "PutCorsPolicy"
+	opMSGetCorsPolicy         = "GetCorsPolicy"
+	opMSDeleteCorsPolicy      = "DeleteCorsPolicy"
+	opMSPutLifecyclePolicy    = "PutLifecyclePolicy"
+	opMSGetLifecyclePolicy    = "GetLifecyclePolicy"
+	opMSDeleteLifecyclePolicy = "DeleteLifecyclePolicy"
+	opMSPutMetricPolicy       = "PutMetricPolicy"
+	opMSGetMetricPolicy       = "GetMetricPolicy"
+	opMSDeleteMetricPolicy    = "DeleteMetricPolicy"
+	opMSStartAccessLogging    = "StartAccessLogging"
+	opMSStopAccessLogging     = "StopAccessLogging"
+	opMSTagResource           = "TagResource"
+	opMSUntagResource         = "UntagResource"
+	opMSListTagsForResource   = "ListTagsForResource"
+)
+
 // Handler is the HTTP handler for the AWS Elemental MediaStore JSON 1.1 API.
 type Handler struct {
 	Backend       StorageBackend
@@ -39,27 +64,27 @@ func (h *Handler) Name() string { return "MediaStore" }
 // GetSupportedOperations returns the list of supported MediaStore operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateContainer",
-		"DeleteContainer",
-		"DescribeContainer",
-		"ListContainers",
-		"PutContainerPolicy",
-		"GetContainerPolicy",
-		"DeleteContainerPolicy",
-		"PutCorsPolicy",
-		"GetCorsPolicy",
-		"DeleteCorsPolicy",
-		"PutLifecyclePolicy",
-		"GetLifecyclePolicy",
-		"DeleteLifecyclePolicy",
-		"PutMetricPolicy",
-		"GetMetricPolicy",
-		"DeleteMetricPolicy",
-		"StartAccessLogging",
-		"StopAccessLogging",
-		"TagResource",
-		"UntagResource",
-		"ListTagsForResource",
+		opMSCreateContainer,
+		opMSDeleteContainer,
+		opMSDescribeContainer,
+		opMSListContainers,
+		opMSPutContainerPolicy,
+		opMSGetContainerPolicy,
+		opMSDeleteContainerPolicy,
+		opMSPutCorsPolicy,
+		opMSGetCorsPolicy,
+		opMSDeleteCorsPolicy,
+		opMSPutLifecyclePolicy,
+		opMSGetLifecyclePolicy,
+		opMSDeleteLifecyclePolicy,
+		opMSPutMetricPolicy,
+		opMSGetMetricPolicy,
+		opMSDeleteMetricPolicy,
+		opMSStartAccessLogging,
+		opMSStopAccessLogging,
+		opMSTagResource,
+		opMSUntagResource,
+		opMSListTagsForResource,
 	}
 }
 
@@ -159,27 +184,27 @@ func (h *Handler) Handler() echo.HandlerFunc {
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
 var mediastoreDispatch = map[string]func(*Handler, *echo.Context, []byte) error{
-	"CreateContainer":       (*Handler).handleCreateContainer,
-	"DeleteContainer":       (*Handler).handleDeleteContainer,
-	"DescribeContainer":     (*Handler).handleDescribeContainer,
-	"ListContainers":        (*Handler).handleListContainers,
-	"PutContainerPolicy":    (*Handler).handlePutContainerPolicy,
-	"GetContainerPolicy":    (*Handler).handleGetContainerPolicy,
-	"DeleteContainerPolicy": (*Handler).handleDeleteContainerPolicy,
-	"PutCorsPolicy":         (*Handler).handlePutCorsPolicy,
-	"GetCorsPolicy":         (*Handler).handleGetCorsPolicy,
-	"DeleteCorsPolicy":      (*Handler).handleDeleteCorsPolicy,
-	"PutLifecyclePolicy":    (*Handler).handlePutLifecyclePolicy,
-	"GetLifecyclePolicy":    (*Handler).handleGetLifecyclePolicy,
-	"DeleteLifecyclePolicy": (*Handler).handleDeleteLifecyclePolicy,
-	"PutMetricPolicy":       (*Handler).handlePutMetricPolicy,
-	"GetMetricPolicy":       (*Handler).handleGetMetricPolicy,
-	"DeleteMetricPolicy":    (*Handler).handleDeleteMetricPolicy,
-	"StartAccessLogging":    (*Handler).handleStartAccessLogging,
-	"StopAccessLogging":     (*Handler).handleStopAccessLogging,
-	"TagResource":           (*Handler).handleTagResource,
-	"UntagResource":         (*Handler).handleUntagResource,
-	"ListTagsForResource":   (*Handler).handleListTagsForResource,
+	opMSCreateContainer:       (*Handler).handleCreateContainer,
+	opMSDeleteContainer:       (*Handler).handleDeleteContainer,
+	opMSDescribeContainer:     (*Handler).handleDescribeContainer,
+	opMSListContainers:        (*Handler).handleListContainers,
+	opMSPutContainerPolicy:    (*Handler).handlePutContainerPolicy,
+	opMSGetContainerPolicy:    (*Handler).handleGetContainerPolicy,
+	opMSDeleteContainerPolicy: (*Handler).handleDeleteContainerPolicy,
+	opMSPutCorsPolicy:         (*Handler).handlePutCorsPolicy,
+	opMSGetCorsPolicy:         (*Handler).handleGetCorsPolicy,
+	opMSDeleteCorsPolicy:      (*Handler).handleDeleteCorsPolicy,
+	opMSPutLifecyclePolicy:    (*Handler).handlePutLifecyclePolicy,
+	opMSGetLifecyclePolicy:    (*Handler).handleGetLifecyclePolicy,
+	opMSDeleteLifecyclePolicy: (*Handler).handleDeleteLifecyclePolicy,
+	opMSPutMetricPolicy:       (*Handler).handlePutMetricPolicy,
+	opMSGetMetricPolicy:       (*Handler).handleGetMetricPolicy,
+	opMSDeleteMetricPolicy:    (*Handler).handleDeleteMetricPolicy,
+	opMSStartAccessLogging:    (*Handler).handleStartAccessLogging,
+	opMSStopAccessLogging:     (*Handler).handleStopAccessLogging,
+	opMSTagResource:           (*Handler).handleTagResource,
+	opMSUntagResource:         (*Handler).handleUntagResource,
+	opMSListTagsForResource:   (*Handler).handleListTagsForResource,
 }
 
 // dispatch routes to the appropriate handler based on the operation name.
@@ -189,6 +214,93 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	}
 
 	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
+}
+
+// dispatchContainerOps handles container lifecycle operations.
+func (h *Handler) dispatchContainerOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case opMSCreateContainer:
+
+		return true, h.handleCreateContainer(c, body)
+	case opMSDeleteContainer:
+
+		return true, h.handleDeleteContainer(c, body)
+	case opMSDescribeContainer:
+
+		return true, h.handleDescribeContainer(c, body)
+	case opMSListContainers:
+
+		return true, h.handleListContainers(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchPolicyOps handles container policy operations.
+func (h *Handler) dispatchPolicyOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case opMSPutContainerPolicy:
+
+		return true, h.handlePutContainerPolicy(c, body)
+	case opMSGetContainerPolicy:
+
+		return true, h.handleGetContainerPolicy(c, body)
+	case opMSDeleteContainerPolicy:
+
+		return true, h.handleDeleteContainerPolicy(c, body)
+	case opMSPutCorsPolicy:
+
+		return true, h.handlePutCorsPolicy(c, body)
+	case opMSGetCorsPolicy:
+
+		return true, h.handleGetCorsPolicy(c, body)
+	case opMSDeleteCorsPolicy:
+
+		return true, h.handleDeleteCorsPolicy(c, body)
+	case opMSPutLifecyclePolicy:
+
+		return true, h.handlePutLifecyclePolicy(c, body)
+	case opMSGetLifecyclePolicy:
+
+		return true, h.handleGetLifecyclePolicy(c, body)
+	case opMSDeleteLifecyclePolicy:
+
+		return true, h.handleDeleteLifecyclePolicy(c, body)
+	case opMSPutMetricPolicy:
+
+		return true, h.handlePutMetricPolicy(c, body)
+	case opMSGetMetricPolicy:
+
+		return true, h.handleGetMetricPolicy(c, body)
+	case opMSDeleteMetricPolicy:
+
+		return true, h.handleDeleteMetricPolicy(c, body)
+	}
+
+	return false, nil
+}
+
+// dispatchLoggingTagOps handles access logging and tagging operations.
+func (h *Handler) dispatchLoggingTagOps(c *echo.Context, op string, body []byte) (bool, error) {
+	switch op {
+	case opMSStartAccessLogging:
+
+		return true, h.handleStartAccessLogging(c, body)
+	case opMSStopAccessLogging:
+
+		return true, h.handleStopAccessLogging(c, body)
+	case opMSTagResource:
+
+		return true, h.handleTagResource(c, body)
+	case opMSUntagResource:
+
+		return true, h.handleUntagResource(c, body)
+	case opMSListTagsForResource:
+
+		return true, h.handleListTagsForResource(c, body)
+	}
+
+	return false, nil
 }
 
 func (h *Handler) handleCreateContainer(c *echo.Context, body []byte) error {
@@ -596,8 +708,10 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
+
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
+
 		return writeError(c, http.StatusConflict, "ContainerInUseException", err.Error())
 	case errors.Is(err, ErrInvalidContainerName),
 		errors.Is(err, ErrInvalidPolicy),
@@ -605,8 +719,10 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		errors.Is(err, ErrInvalidMetricPolicy),
 		errors.Is(err, ErrTooManyMetricRules),
 		errors.Is(err, ErrEmptyTagKey):
+
 		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	default:
+
 		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 }

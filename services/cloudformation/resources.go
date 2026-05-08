@@ -60,8 +60,11 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
+	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
+	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
 const ()
@@ -119,8 +122,12 @@ type ServiceBackends struct {
 	EMR            *emrbackend.Handler
 	MemoryDB       *memorydb.Handler
 	BedrockRuntime *bedrockruntime.Handler
-	AccountID      string
-	Region         string
+	// Phase-4 backends
+	ELBv2     *elbv2backend.Handler
+	WAFv2     *wafv2backend.Handler
+	Backup    *backupbackend.Handler
+	AccountID string
+	Region    string
 }
 
 // ResourceCreator creates and deletes cloud resources.

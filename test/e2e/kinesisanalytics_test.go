@@ -41,5 +41,3 @@ func TestKinesisAnalyticsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
-
-// TestKinesisAnalyticsDashboard_Empty is no longer applicable (route removed).
