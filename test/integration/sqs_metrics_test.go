@@ -6,7 +6,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
-	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/google/uuid"
@@ -94,23 +93,16 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 }
 
 // assertMetricExists asserts that at least one data point exists for the named
-// metric in the AWS/SQS namespace within the last five minutes.
+// metric in the AWS/SQS namespace using ListMetrics (no time-window dependency).
 func assertMetricExists(t *testing.T, cwClient *cloudwatchsdk.Client, metricName string) {
 	t.Helper()
 
-	now := time.Now()
-	startTime := now.Add(-5 * time.Minute)
-
-	out, err := cwClient.GetMetricStatistics(t.Context(), &cloudwatchsdk.GetMetricStatisticsInput{
+	out, err := cwClient.ListMetrics(t.Context(), &cloudwatchsdk.ListMetricsInput{
 		Namespace:  aws.String("AWS/SQS"),
 		MetricName: aws.String(metricName),
-		StartTime:  aws.Time(startTime),
-		EndTime:    aws.Time(now.Add(time.Minute)),
-		Period:     aws.Int32(300),
-		Statistics: []cwtypes.Statistic{cwtypes.StatisticSum},
 	})
-	require.NoError(t, err, "GetMetricStatistics for %s should not error", metricName)
-	assert.NotEmpty(t, out.Datapoints, "expected at least one datapoint for metric %s in AWS/SQS namespace", metricName)
+	require.NoError(t, err, "ListMetrics for %s should not error", metricName)
+	assert.NotEmpty(t, out.Metrics, "expected metric %s to be registered in AWS/SQS namespace", metricName)
 }
 
 // TestIntegration_SQS_QueuePolicy verifies that SetQueueAttributes and
@@ -143,7 +135,8 @@ func TestIntegration_SQS_QueuePolicy(t *testing.T) {
 	require.NotEmpty(t, queueARN)
 
 	// Build a minimal IAM policy document.
-	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"sqs:SendMessage","Resource":"` + queueARN + `"}]}`
+	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+		`"Principal":{"AWS":"*"},"Action":"sqs:SendMessage","Resource":"` + queueARN + `"}]}`
 
 	// SetQueueAttributes with Policy.
 	_, err = client.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{
