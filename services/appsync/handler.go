@@ -185,12 +185,22 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 
 // RouteMatcher returns a function that matches AppSync management API and GraphQL requests.
+//
+// The /v2/apis path prefix is shared with API Gateway V2. Both services use the same
+// URL path but send distinct User-Agent values: the AppSync SDK includes "api/appsync/"
+// while the API Gateway V2 SDK includes "api/apigatewayv2/". When the path matches
+// /v2/apis, we only claim the request if the User-Agent indicates AppSync.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
+		if strings.HasPrefix(path, appsyncV2PathPrefix) {
+			ua := c.Request().Header.Get("User-Agent")
+
+			return strings.Contains(ua, "api/appsync")
+		}
+
 		return strings.HasPrefix(path, appsyncPathPrefix) ||
-			strings.HasPrefix(path, appsyncV2PathPrefix) ||
 			strings.HasPrefix(path, appsyncDomainPrefix) ||
 			strings.HasPrefix(path, appsyncSourcePrefix) ||
 			strings.HasPrefix(path, appsyncMergedPrefix) ||

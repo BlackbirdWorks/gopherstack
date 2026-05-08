@@ -462,9 +462,6 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, action string,
 var (
 	// errUnknownACMAction is returned by dispatchJSON for unrecognised action names.
 	errUnknownACMAction = errors.New("unknown ACM action")
-	// errACMNotHandled is a sentinel used internally to signal that a dispatch
-	// helper did not recognise the action. It is never returned to callers.
-	errACMNotHandled = errors.New("acm: action not handled by this dispatcher")
 )
 
 // acmDispatchTable maps ACM action names to their JSON handler functions.
