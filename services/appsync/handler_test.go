@@ -59,14 +59,36 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	e := echo.New()
 
 	tests := []struct {
-		name  string
-		path  string
-		match bool
+		name      string
+		path      string
+		userAgent string
+		match     bool
 	}{
 		{name: "matches_v1_apis", path: "/v1/apis", match: true},
 		{name: "matches_v1_apis_with_id", path: "/v1/apis/abc123", match: true},
 		{name: "no_match_other_path", path: "/restapis/foo", match: false},
 		{name: "no_match_root", path: "/", match: false},
+		// /v2/apis is shared with API Gateway V2; only match when User-Agent contains "api/appsync".
+		{
+			name:      "v2_apis_with_appsync_ua",
+			path:      "/v2/apis",
+			userAgent: "aws-sdk-go-v2/1.0 api/appsync/1.53.5",
+			match:     true,
+		},
+		{
+			name:      "v2_apis_with_apigwv2_ua",
+			path:      "/v2/apis",
+			userAgent: "aws-sdk-go-v2/1.0 api/apigatewayv2/1.33.7",
+			match:     false,
+		},
+		{name: "v2_apis_no_ua", path: "/v2/apis", userAgent: "", match: false},
+		{
+			name:      "v2_apis_with_id_appsync_ua",
+			path:      "/v2/apis/abc123",
+			userAgent: "aws-sdk-go-v2/1.0 api/appsync/1.53.5",
+			match:     true,
+		},
+		{name: "v2_apis_with_id_no_ua", path: "/v2/apis/abc123", userAgent: "", match: false},
 	}
 
 	for _, tt := range tests {
@@ -74,6 +96,9 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			t.Parallel()
 
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.userAgent != "" {
+				req.Header.Set("User-Agent", tt.userAgent)
+			}
 			c := e.NewContext(req, httptest.NewRecorder())
 			matcher := h.RouteMatcher()
 			assert.Equal(t, tt.match, matcher(c))

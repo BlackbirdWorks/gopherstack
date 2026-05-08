@@ -158,6 +158,15 @@ const (
 
 var errUnknownOperation = errors.New("UnknownOperationException")
 
+// path depth constants for URL segment counting.
+const (
+	pathDepth1 = 1
+	pathDepth2 = 2
+	pathDepth3 = 3
+	pathDepth4 = 4
+	pathDepth5 = 5
+)
+
 // path segment constants used in REST route matching.
 const (
 	apiGWUnknownOp             = "Unknown"
@@ -1052,10 +1061,10 @@ func parseAPIGWClientCertificatesPath(method string, segs []string, n int) (stri
 	case n == 1 && method == http.MethodPost:
 		return opGenerateClientCertificate, nil, true
 	// GET /clientcertificates/{id} → GetClientCertificate
-	case n == 2 && method == http.MethodGet:
+	case n == pathDepth2 && method == http.MethodGet:
 		return opGetClientCertificate, map[string]string{"clientCertificateId": segs[1]}, true
 	// DELETE /clientcertificates/{id} → DeleteClientCertificate
-	case n == 2 && method == http.MethodDelete:
+	case n == pathDepth2 && method == http.MethodDelete:
 		return opDeleteClientCertificate, map[string]string{"clientCertificateId": segs[1]}, true
 	}
 
@@ -1095,13 +1104,13 @@ func parseAPIGWAPIKeysPath(method string, segs []string, n int) (string, map[str
 	case n == 1 && method == http.MethodPost:
 		return opCreateAPIKey, nil, true
 	// GET /apikeys/{id} → GetApiKey
-	case n == 2 && method == http.MethodGet:
+	case n == pathDepth2 && method == http.MethodGet:
 		return opGetAPIKey, map[string]string{keyAPIKeyID: segs[1]}, true
 	// DELETE /apikeys/{id} → DeleteApiKey
-	case n == 2 && method == http.MethodDelete:
+	case n == pathDepth2 && method == http.MethodDelete:
 		return opDeleteAPIKey, map[string]string{keyAPIKeyID: segs[1]}, true
 	// PATCH /apikeys/{id} → UpdateApiKey
-	case n == 2 && method == http.MethodPatch:
+	case n == pathDepth2 && method == http.MethodPatch:
 		return opUpdateAPIKey, map[string]string{keyAPIKeyID: segs[1]}, true
 	}
 
@@ -1114,14 +1123,14 @@ func parseAPIGWAPIKeysPath(method string, segs []string, n int) (string, map[str
 // parseAPIGWDomainNamesPath handles /domainnames/... paths.
 func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	switch n {
-	case 1:
+	case pathDepth1:
 		switch method {
 		case http.MethodGet:
 			return opGetDomainNames, nil, true
 		case http.MethodPost:
 			return opCreateDomainName, nil, true
 		}
-	case 2:
+	case pathDepth2:
 		switch method {
 		case http.MethodGet:
 			return opGetDomainName, map[string]string{keyDomainName: segs[1]}, true
@@ -1130,9 +1139,9 @@ func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map
 		case http.MethodPatch:
 			return opUpdateDomainName, map[string]string{keyDomainName: segs[1]}, true
 		}
-	case 3:
+	case pathDepth3:
 		return parseAPIGWDomainNamesDepth3(method, segs)
-	case 4:
+	case pathDepth4:
 		if segs[2] == apiGWSegBasePathMappings {
 			return parseAPIGWDomainNamesBasePathMapping(method, segs)
 		}
@@ -1179,14 +1188,14 @@ func parseAPIGWDomainNamesBasePathMapping(method string, segs []string) (string,
 // parseAPIGWUsagePlansPath handles /usageplans/... paths.
 func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	switch n {
-	case 1:
+	case pathDepth1:
 		switch method {
 		case http.MethodGet:
 			return opGetUsagePlans, nil, true
 		case http.MethodPost:
 			return opCreateUsagePlan, nil, true
 		}
-	case 2:
+	case pathDepth2:
 		planParam := map[string]string{keyUsagePlanID: segs[1]}
 		switch method {
 		case http.MethodGet:
@@ -1196,9 +1205,9 @@ func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[
 		case http.MethodPatch:
 			return opUpdateUsagePlan, planParam, true
 		}
-	case 3:
+	case pathDepth3:
 		return parseAPIGWUsagePlansDepth3(method, segs)
-	case 4:
+	case pathDepth4:
 		return parseAPIGWUsagePlansDepth4(method, segs)
 	}
 
@@ -1247,27 +1256,25 @@ func parseAPIGWUsagePlansDepth4(method string, segs []string) (string, map[strin
 // parseAPIGWRestAPIsPath handles /restapis/... paths.
 //
 // parseAPIGWRestAPIsPath handles /restapis/... paths.
-//
-//nolint:funlen // path routing table is inherently a multi-branch switch
 func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	apiID := ""
-	if n >= 2 {
+	if n >= pathDepth2 {
 		apiID = segs[1]
 	}
 
 	switch n {
-	case 1:
+	case pathDepth1:
 		switch method {
 		case http.MethodPost:
 			return opCreateRestAPI, nil, true
 		case http.MethodGet:
 			return opGetRestApis, nil, true
 		}
-	case 2:
+	case pathDepth2:
 		return parseAPIGWRestAPIsDepth2(method, apiID)
-	case 3:
+	case pathDepth3:
 		return parseAPIGWRestAPIsDepth3(method, segs, apiID)
-	case 4:
+	case pathDepth4:
 		return parseAPIGWRestAPIsDepth4(method, segs, apiID)
 	default:
 		return parseAPIGWRestAPIsDeepPath(method, segs, n, apiID)
@@ -1550,7 +1557,7 @@ func parseAPIGWRestAPIsStageDeep(method string, segs []string, n int, apiID stri
 
 // parseAPIGWRestAPIsDocDeep handles depth-5 documentation parts/versions paths.
 func parseAPIGWRestAPIsDocDeep(method string, segs []string, n int, apiID string) (string, map[string]string, bool) {
-	if n != 5 {
+	if n != pathDepth5 {
 		return apiGWUnknownOp, nil, false
 	}
 
@@ -1583,8 +1590,6 @@ func parseAPIGWRestAPIsDocDeep(method string, segs []string, n int, apiID string
 // parseAPIGWMethodPath handles paths under /restapis/{id}/resources/{resId}/methods/{httpMethod}.
 //
 // parseAPIGWMethodPath handles paths under /restapis/{id}/resources/{resId}/methods/{httpMethod}.
-//
-//nolint:nestif,funlen // method path routing table is inherently a multi-branch switch
 func parseAPIGWMethodPath(method string, segs []string) (string, map[string]string, bool) {
 	const (
 		idxID         = 1
@@ -1608,8 +1613,9 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 	}
 
 	if len(segs) > idxIntegSeg {
-		if op, params, ok := parseAPIGWMethodSubPath(method, segs, idxIntegSeg, idxRespSeg, apiID, resID, httpMethod, baseParams); ok ||
-			op == apiGWUnknownOp {
+		op, params, ok := parseAPIGWMethodSubPath(
+			method, segs, idxIntegSeg, idxRespSeg, apiID, resID, httpMethod, baseParams)
+		if ok || op == apiGWUnknownOp {
 			return op, params, ok
 		}
 	}
@@ -2393,8 +2399,6 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 }
 
 // newResourceActions returns actions for creating new top-level resources.
-//
-//nolint:funlen // action table - one closure per op; complexity unavoidable
 func (h *Handler) newResourceActions() map[string]actionFn {
 	m := make(map[string]actionFn)
 	maps.Copy(m, h.newResourceActionsCore())
@@ -2404,6 +2408,8 @@ func (h *Handler) newResourceActions() map[string]actionFn {
 }
 
 // newResourceActionsCore returns actions for API key and usage plan creation.
+//
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) newResourceActionsCore() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateAPIKey: func(b []byte) (int, any, error) {
@@ -2472,6 +2478,8 @@ func (h *Handler) newResourceActionsExt() map[string]actionFn {
 }
 
 // newResourceActionsDomainName returns actions for domain name creation.
+//
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) newResourceActionsDomainName() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateDomainName: func(b []byte) (int, any, error) {
@@ -2504,6 +2512,8 @@ func (h *Handler) newResourceActionsDomainName() map[string]actionFn {
 }
 
 // newResourceActionsModelStage returns actions for model, stage, and usage plan creation.
+//
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) newResourceActionsModelStage() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateModel: func(b []byte) (int, any, error) {
@@ -2648,8 +2658,6 @@ func (h *Handler) Reset() {
 }
 
 // getDeleteUpdateActions returns the action map for get, delete, and update operations.
-//
-//nolint:funlen // action table - one closure per op; complexity unavoidable
 func (h *Handler) getDeleteUpdateActions() map[string]actionFn {
 	m := make(map[string]actionFn)
 	maps.Copy(m, h.getDeleteUpdateActionsCore())
@@ -2838,6 +2846,7 @@ func (h *Handler) getDeleteUpdateActionsExt() map[string]actionFn {
 	return m
 }
 
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) getDeleteUpdateActionsExt1() map[string]actionFn {
 	return map[string]actionFn{
 		opDeleteBasePathMapping: func(b []byte) (int, any, error) {
@@ -3078,6 +3087,7 @@ func (h *Handler) getDeleteUpdateActionsUsage2a() map[string]actionFn {
 	}
 }
 
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) getDeleteUpdateActionsUsage2b() map[string]actionFn {
 	return map[string]actionFn{
 		opDeleteDocumentationPart: func(b []byte) (int, any, error) {
@@ -3130,8 +3140,6 @@ func (h *Handler) getDeleteUpdateActionsUsage2b() map[string]actionFn {
 }
 
 // updatePatchActions returns the action map for update and patch operations.
-//
-//nolint:funlen // action table - one closure per op; complexity unavoidable
 func (h *Handler) updatePatchActions() map[string]actionFn {
 	m := make(map[string]actionFn)
 	maps.Copy(m, h.updatePatchActionsCore())
@@ -3273,6 +3281,7 @@ func (h *Handler) updatePatchActionsDomain() map[string]actionFn {
 	return m
 }
 
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) updatePatchActionsDomain1() map[string]actionFn {
 	return map[string]actionFn{
 		opUpdateDomainName: func(b []byte) (int, any, error) {
@@ -3334,6 +3343,7 @@ func (h *Handler) updatePatchActionsDomain2() map[string]actionFn {
 	return m
 }
 
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) updatePatchActionsDomain2a() map[string]actionFn {
 	return map[string]actionFn{
 		opUpdateMethod: func(b []byte) (int, any, error) {
@@ -3363,6 +3373,7 @@ func (h *Handler) updatePatchActionsDomain2a() map[string]actionFn {
 	}
 }
 
+//nolint:dupl // similar structure to sibling handler is unavoidable
 func (h *Handler) updatePatchActionsDomain2b() map[string]actionFn {
 	return map[string]actionFn{
 		opUpdateIntegrationResponse: func(b []byte) (int, any, error) {

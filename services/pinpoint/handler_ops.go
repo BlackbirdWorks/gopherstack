@@ -44,9 +44,7 @@ func (h *Handler) handleGetChannels(c *echo.Context, appID string) error {
 		}
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
-
-	return nil
+	return c.JSON(http.StatusOK, resp)
 }
 
 // handleUpdateChannel handles PUT /v1/apps/{appId}/channels/{channelType}.

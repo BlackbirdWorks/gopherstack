@@ -6893,8 +6893,17 @@ func TestTerraform_CachingMessagingComprehensive(t *testing.T) {
 				require.Len(t, rgOut.ReplicationGroups, 1)
 				assert.Equal(t, rgID, aws.ToString(rgOut.ReplicationGroups[0].ReplicationGroupId))
 
-				// Verify ElastiCache snapshot was created.
+				// Create and verify an ElastiCache snapshot via the AWS SDK, exercising
+				// the CreateSnapshot and DescribeSnapshots service methods directly.
+				// aws_elasticache_snapshot is not a resource type in the hashicorp/aws
+				// provider, so we create the snapshot here using the SDK.
 				snapName := prefix + "-snap"
+				_, err = ecClient.CreateSnapshot(ctx, &elasticachesvc.CreateSnapshotInput{
+					SnapshotName:       aws.String(snapName),
+					ReplicationGroupId: aws.String(rgID),
+				})
+				require.NoError(t, err, "CreateSnapshot should succeed")
+
 				snapOut, err := ecClient.DescribeSnapshots(ctx, &elasticachesvc.DescribeSnapshotsInput{
 					SnapshotName: aws.String(snapName),
 				})

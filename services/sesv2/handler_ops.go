@@ -26,6 +26,7 @@ const (
 	// path depth sentinels for segment-count comparisons.
 	pathDepth2 = 2
 	pathDepth3 = 3
+	pathDepth4 = 4
 )
 
 // dispatchExtendedOps handles all 89 newly-added SES v2 operations.
@@ -506,7 +507,7 @@ func parseContactListExtPath(method string, segments []string) (string, string) 
 		if method == http.MethodGet {
 			return opListContactLists, ""
 		}
-	case 2:
+	case pathDepth2:
 		switch method {
 		case http.MethodGet:
 			return opGetContactList, segments[1]
@@ -515,11 +516,11 @@ func parseContactListExtPath(method string, segments []string) (string, string) 
 		case http.MethodPut:
 			return opUpdateContactList, segments[1]
 		}
-	case 3:
+	case pathDepth3:
 		if segments[2] == segContacts && method == http.MethodGet {
 			return opListContacts, segments[1]
 		}
-	case 4:
+	case pathDepth4:
 		if segments[2] == segContacts {
 			switch method {
 			case http.MethodGet:
@@ -558,7 +559,7 @@ func parseDedicatedIPPoolExtPath(method string, segments []string) (string, stri
 		return opGetDedicatedIPPool, segments[1]
 	case len(segments) == 2 && method == http.MethodDelete:
 		return opDeleteDedicatedIPPool, segments[1]
-	case len(segments) == 3 && segments[2] == "scaling-attributes" && method == http.MethodPut:
+	case len(segments) == pathDepth3 && segments[2] == "scaling-attributes" && method == http.MethodPut:
 		return opPutDedicatedIPPoolScalingAttributes, segments[1]
 	}
 
@@ -571,9 +572,9 @@ func parseDedicatedIPsPath(method string, segments []string) (string, string) {
 		return opGetDedicatedIps, ""
 	case len(segments) == 2 && method == http.MethodGet:
 		return opGetDedicatedIP, segments[1]
-	case len(segments) == 3 && segments[2] == "pool" && method == http.MethodPut:
+	case len(segments) == pathDepth3 && segments[2] == "pool" && method == http.MethodPut:
 		return opPutDedicatedIPInPool, segments[1]
-	case len(segments) == 3 && segments[2] == "warmup" && method == http.MethodPut:
+	case len(segments) == pathDepth3 && segments[2] == "warmup" && method == http.MethodPut:
 		return opPutDedicatedIPWarmupAttributes, segments[1]
 	}
 
@@ -602,7 +603,7 @@ func parseDeliverabilityExtPath(method string, segments []string) (string, strin
 
 // parseDeliverabilitySubPath routes deliverability report and campaign sub-paths.
 func parseDeliverabilitySubPath(method string, segments []string) (string, string) {
-	if len(segments) < 2 {
+	if len(segments) < pathDepth2 {
 		return unknownAction, ""
 	}
 
@@ -614,7 +615,7 @@ func parseDeliverabilitySubPath(method string, segments []string) (string, strin
 			return opGetBlacklistReports, ""
 		}
 	case "statistics":
-		if method == http.MethodGet && len(segments) == 3 {
+		if method == http.MethodGet && len(segments) == pathDepth3 {
 			return opGetDomainStatisticsReport, segments[2]
 		}
 	case "campaigns":
@@ -631,9 +632,9 @@ func parseDeliverabilityReportsPath(method string, segments []string) (string, s
 	}
 
 	switch len(segments) {
-	case 2:
+	case pathDepth2:
 		return opListDeliverabilityTestReports, ""
-	case 3:
+	case pathDepth3:
 		return opGetDeliverabilityTestReport, segments[2]
 	}
 
@@ -647,9 +648,9 @@ func parseDeliverabilityDomainCampaignsPath(method string, segments []string) (s
 	}
 
 	switch len(segments) {
-	case 3:
+	case pathDepth3:
 		return opListDomainDeliverabilityCampaigns, segments[2]
-	case 4:
+	case pathDepth4:
 		return opGetDomainDeliverabilityCampaign, segments[2]
 	}
 
@@ -666,7 +667,7 @@ func parseTemplateExtPath(method string, segments []string) (string, string) {
 		return opDeleteEmailTemplate, segments[1]
 	case len(segments) == 2 && method == http.MethodPut:
 		return opUpdateEmailTemplate, segments[1]
-	case len(segments) == 3 && segments[2] == "render" && method == http.MethodPost:
+	case len(segments) == pathDepth3 && segments[2] == "render" && method == http.MethodPost:
 		return opTestRenderEmailTemplate, segments[1]
 	}
 
@@ -726,14 +727,14 @@ func parseTenantPath(method string, segments []string) (string, string) {
 		case http.MethodPost:
 			return opCreateTenant, ""
 		}
-	case 2:
+	case pathDepth2:
 		switch method {
 		case http.MethodGet:
 			return opGetTenant, segments[1]
 		case http.MethodDelete:
 			return opDeleteTenant, segments[1]
 		}
-	case 3:
+	case pathDepth3:
 		if segments[2] == segResources {
 			switch method {
 			case http.MethodGet:
@@ -742,7 +743,7 @@ func parseTenantPath(method string, segments []string) (string, string) {
 				return opCreateTenantResourceAssociation, segments[1]
 			}
 		}
-	case 4:
+	case pathDepth4:
 		if segments[2] == segResources && method == http.MethodDelete {
 			return opDeleteTenantResourceAssociation, segments[1]
 		}
@@ -757,9 +758,9 @@ func parseReputationEntityPath(method string, segments []string) (string, string
 		return opListReputationEntities, ""
 	case len(segments) == 2 && method == http.MethodGet:
 		return opGetReputationEntity, segments[1]
-	case len(segments) == 3 && segments[2] == "customer-managed-status" && method == http.MethodPut:
+	case len(segments) == pathDepth3 && segments[2] == "customer-managed-status" && method == http.MethodPut:
 		return opUpdateReputationEntityCustomerManagedStatus, segments[1]
-	case len(segments) == 3 && segments[2] == "policy" && method == http.MethodPut:
+	case len(segments) == pathDepth3 && segments[2] == "policy" && method == http.MethodPut:
 		return opUpdateReputationEntityPolicy, segments[1]
 	}
 
@@ -768,7 +769,7 @@ func parseReputationEntityPath(method string, segments []string) (string, string
 
 // parseIdentityExtPath handles additional identity paths.
 func parseIdentityExtPath(method string, segments []string) (string, string) {
-	if len(segments) < 3 {
+	if len(segments) < pathDepth3 {
 		return unknownAction, ""
 	}
 
@@ -789,11 +790,11 @@ func parseIdentityPoliciesPath(method string, segments []string, identity, sub s
 	}
 
 	switch len(segments) {
-	case 3:
+	case pathDepth3:
 		if method == http.MethodGet {
 			return opGetEmailIdentityPolicies, identity
 		}
-	case 4:
+	case pathDepth4:
 		switch method {
 		case http.MethodDelete:
 			return opDeleteEmailIdentityPolicy, identity
@@ -813,24 +814,24 @@ func parseIdentityAttributesPath(method string, segments []string, identity, sub
 
 	switch sub {
 	case "configuration-set":
-		if len(segments) == 3 {
+		if len(segments) == pathDepth3 {
 			return opPutEmailIdentityConfigurationSetAttributes, identity
 		}
 	case "dkim":
 		switch len(segments) {
-		case 3:
+		case pathDepth3:
 			return opPutEmailIdentityDkimAttributes, identity
-		case 4:
+		case pathDepth4:
 			if segments[3] == "signing" {
 				return opPutEmailIdentityDkimSigningAttributes, identity
 			}
 		}
 	case "feedback":
-		if len(segments) == 3 {
+		if len(segments) == pathDepth3 {
 			return opPutEmailIdentityFeedbackAttributes, identity
 		}
 	case "mail-from":
-		if len(segments) == 3 {
+		if len(segments) == pathDepth3 {
 			return opPutEmailIdentityMailFromAttributes, identity
 		}
 	}
@@ -840,7 +841,7 @@ func parseIdentityAttributesPath(method string, segments []string, identity, sub
 
 // parseConfigSetExtPath handles additional configuration set paths.
 func parseConfigSetExtPath(method string, segments []string) (string, string) {
-	if len(segments) < 3 {
+	if len(segments) < pathDepth3 {
 		return unknownAction, ""
 	}
 
@@ -865,11 +866,11 @@ func parseConfigSetEventDestPath(method string, segments []string, name, sub str
 	}
 
 	switch len(segments) {
-	case 3:
+	case pathDepth3:
 		if method == http.MethodGet {
 			return opGetConfigurationSetEventDestinations, name
 		}
-	case 4:
+	case pathDepth4:
 		switch method {
 		case http.MethodDelete:
 			return opDeleteConfigurationSetEventDestination, name

@@ -60,10 +60,10 @@ func newPipeBackend() *pipes.InMemoryBackend {
 func TestPipeSourceFiltering(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // field ordering for test readability
-		messages      []string
+	tests := []struct {
 		name          string
 		filterPattern string
+		messages      []string
 		wantDelivered int
 	}{
 		{

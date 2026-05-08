@@ -986,23 +986,50 @@ func (h *Handler) dispatchAccessPointSubResourceOps(c *echo.Context, path, metho
 // dispatchObjectLambdaOps handles object lambda access point operations.
 func (h *Handler) dispatchObjectLambdaOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
-	case isSimplePath(pathObjectLambdaPrefix, path) && method == http.MethodPut:
-		return true, h.handleCreateAccessPointForObjectLambda(c)
-	case isSimplePath(pathObjectLambdaPrefix, path) && method == http.MethodGet:
-		return true, h.handleStub(c, "GetAccessPointForObjectLambda")
-	case isSimplePath(pathObjectLambdaPrefix, path) && method == http.MethodDelete:
-		return true, h.handleStub(c, "DeleteAccessPointForObjectLambda")
-	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy") && method == http.MethodGet:
-		return true, h.handleStub(c, "GetAccessPointPolicyForObjectLambda")
-	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy") && method == http.MethodPut:
-		return true, h.handleStub(c, "PutAccessPointPolicyForObjectLambda")
-	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy") && method == http.MethodDelete:
-		return true, h.handleStub(c, "DeleteAccessPointPolicyForObjectLambda")
+	case isSimplePath(pathObjectLambdaPrefix, path):
+		return h.dispatchObjectLambdaRootMethod(c, method)
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policy"):
+		return h.dispatchObjectLambdaPolicyMethod(c, method)
 	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/policyStatus") && method == http.MethodGet:
 		return true, h.handleStub(c, "GetAccessPointPolicyStatusForObjectLambda")
-	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/configuration") && method == http.MethodGet:
+	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/configuration"):
+		return h.dispatchObjectLambdaConfigMethod(c, method)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchObjectLambdaRootMethod(c *echo.Context, method string) (bool, error) {
+	switch method {
+	case http.MethodPut:
+		return true, h.handleCreateAccessPointForObjectLambda(c)
+	case http.MethodGet:
+		return true, h.handleStub(c, "GetAccessPointForObjectLambda")
+	case http.MethodDelete:
+		return true, h.handleStub(c, "DeleteAccessPointForObjectLambda")
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchObjectLambdaPolicyMethod(c *echo.Context, method string) (bool, error) {
+	switch method {
+	case http.MethodGet:
+		return true, h.handleStub(c, "GetAccessPointPolicyForObjectLambda")
+	case http.MethodPut:
+		return true, h.handleStub(c, "PutAccessPointPolicyForObjectLambda")
+	case http.MethodDelete:
+		return true, h.handleStub(c, "DeleteAccessPointPolicyForObjectLambda")
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchObjectLambdaConfigMethod(c *echo.Context, method string) (bool, error) {
+	switch method {
+	case http.MethodGet:
 		return true, h.handleStub(c, "GetAccessPointConfigurationForObjectLambda")
-	case isPrefixSuffix(pathObjectLambdaPrefix, path, "/configuration") && method == http.MethodPut:
+	case http.MethodPut:
 		return true, h.handleStub(c, "PutAccessPointConfigurationForObjectLambda")
 	}
 
@@ -1025,23 +1052,50 @@ func (h *Handler) dispatchBucketOps(c *echo.Context, path, method string) error 
 // dispatchBucketCRUDStubs handles bucket CRUD, lifecycle, and policy stub operations.
 func (h *Handler) dispatchBucketCRUDStubs(c *echo.Context, path, method string) (bool, error) {
 	switch {
-	case isSimplePath(pathBucketPrefix, path) && method == http.MethodPut:
+	case isSimplePath(pathBucketPrefix, path):
+		return h.dispatchBucketBaseMethod(c, method)
+	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle"):
+		return h.dispatchBucketLifecycleMethod(c, method)
+	case isPrefixSuffix(pathBucketPrefix, path, "/policy"):
+		return h.dispatchBucketPolicyMethod(c, method)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchBucketBaseMethod(c *echo.Context, method string) (bool, error) {
+	switch method {
+	case http.MethodPut:
 		return true, h.handleCreateBucket(c)
-	case isSimplePath(pathBucketPrefix, path) && method == http.MethodGet:
+	case http.MethodGet:
 		return true, h.handleStub(c, "GetBucket")
-	case isSimplePath(pathBucketPrefix, path) && method == http.MethodDelete:
+	case http.MethodDelete:
 		return true, h.handleStub(c, "DeleteBucket")
-	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle") && method == http.MethodGet:
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchBucketLifecycleMethod(c *echo.Context, method string) (bool, error) {
+	switch method {
+	case http.MethodGet:
 		return true, h.handleStub(c, "GetBucketLifecycleConfiguration")
-	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle") && method == http.MethodPut:
+	case http.MethodPut:
 		return true, h.handleStub(c, "PutBucketLifecycleConfiguration")
-	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle") && method == http.MethodDelete:
+	case http.MethodDelete:
 		return true, h.handleStub(c, "DeleteBucketLifecycleConfiguration")
-	case isPrefixSuffix(pathBucketPrefix, path, "/policy") && method == http.MethodGet:
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchBucketPolicyMethod(c *echo.Context, method string) (bool, error) {
+	switch method {
+	case http.MethodGet:
 		return true, h.handleStub(c, "GetBucketPolicy")
-	case isPrefixSuffix(pathBucketPrefix, path, "/policy") && method == http.MethodPut:
+	case http.MethodPut:
 		return true, h.handleStub(c, "PutBucketPolicy")
-	case isPrefixSuffix(pathBucketPrefix, path, "/policy") && method == http.MethodDelete:
+	case http.MethodDelete:
 		return true, h.handleStub(c, "DeleteBucketPolicy")
 	}
 

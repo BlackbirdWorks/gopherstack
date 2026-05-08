@@ -342,8 +342,8 @@ func (e *Executor) executeWait(ctx context.Context, state *State, input any) (st
 	}
 
 	if waitDuration > 0 {
-		if err := e.waitForDuration(ctx, waitDuration); err != nil {
-			return "", nil, err
+		if waitErr := e.waitForDuration(ctx, waitDuration); waitErr != nil {
+			return "", nil, waitErr
 		}
 	}
 
@@ -1657,7 +1657,8 @@ func matchTimestampLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 		return r, m
 	}
 
-	if r, m := compareLiteral(rule.TimestampGreaterThanEquals, func(t1, t2 time.Time) bool { return !t1.Before(t2) }); m {
+	if r, m := compareLiteral(rule.TimestampGreaterThanEquals,
+		func(t1, t2 time.Time) bool { return !t1.Before(t2) }); m {
 		return r, m
 	}
 
@@ -1692,7 +1693,8 @@ func matchTimestampPathCondition(rule *ChoiceRule, varVal, input any, pathCache 
 		return r, m
 	}
 
-	if r, m := comparePath(rule.TimestampGreaterThanEqualsPath, func(t1, t2 time.Time) bool { return !t1.Before(t2) }); m {
+	if r, m := comparePath(rule.TimestampGreaterThanEqualsPath,
+		func(t1, t2 time.Time) bool { return !t1.Before(t2) }); m {
 		return r, m
 	}
 

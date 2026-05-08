@@ -2972,14 +2972,14 @@ type xmlTargetTrackingConfiguration struct {
 
 // xmlScalingPolicy is the XML type for a scaling policy.
 //
-//nolint:govet // fieldalignment: logical grouping prioritized over size optimization
+
 type xmlScalingPolicy struct {
+	TargetTrackingConfiguration *xmlTargetTrackingConfiguration `xml:"TargetTrackingConfiguration,omitempty"`
 	PolicyName                  string                          `xml:"PolicyName"`
 	PolicyARN                   string                          `xml:"PolicyARN"`
 	AutoScalingGroupName        string                          `xml:"AutoScalingGroupName"`
 	PolicyType                  string                          `xml:"PolicyType,omitempty"`
 	AdjustmentType              string                          `xml:"AdjustmentType,omitempty"`
-	TargetTrackingConfiguration *xmlTargetTrackingConfiguration `xml:"TargetTrackingConfiguration,omitempty"`
 	ScalingAdjustment           int32                           `xml:"ScalingAdjustment,omitempty"`
 	Cooldown                    int32                           `xml:"Cooldown,omitempty"`
 }
