@@ -35,7 +35,7 @@ func TestKinesisAnalyticsDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/kinesisanalytics")
 	require.NoError(t, err)
 
-	err = page.Locator("text=404").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=Kinesis Data Analytics").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(30000),
 	})

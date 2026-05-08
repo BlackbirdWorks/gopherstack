@@ -319,12 +319,17 @@ func TestIntegration_SQS_FIFODeduplication(t *testing.T) {
 				secondDedupID = uuid.NewString()
 			}
 
-			groupID := aws.String("group-" + uuid.NewString())
+			baseGroup := "group-" + uuid.NewString()
+			firstGroupID := aws.String(baseGroup)
+			secondGroupID := aws.String(baseGroup)
+			if tt.dedupID == "" {
+				secondGroupID = aws.String("group-" + uuid.NewString())
+			}
 
 			_, err = client.SendMessage(ctx, &sqs.SendMessageInput{
 				QueueUrl:               queueURL,
 				MessageBody:            aws.String(tt.firstBody),
-				MessageGroupId:         groupID,
+				MessageGroupId:         firstGroupID,
 				MessageDeduplicationId: aws.String(firstDedupID),
 			})
 			require.NoError(t, err)
@@ -332,7 +337,7 @@ func TestIntegration_SQS_FIFODeduplication(t *testing.T) {
 			_, err = client.SendMessage(ctx, &sqs.SendMessageInput{
 				QueueUrl:               queueURL,
 				MessageBody:            aws.String(tt.secondBody),
-				MessageGroupId:         groupID,
+				MessageGroupId:         secondGroupID,
 				MessageDeduplicationId: aws.String(secondDedupID),
 			})
 			require.NoError(t, err)
