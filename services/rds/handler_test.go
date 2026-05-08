@@ -1454,7 +1454,7 @@ func TestRDSBackend_FISFaultCleanedOnClusterDelete(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster("fault-cluster", "aurora-postgresql", "admin", "pass", "", 0)
+	_, err := b.CreateDBCluster("fault-cluster", "aurora-postgresql", "admin", "pass", "", 0, nil)
 	require.NoError(t, err)
 
 	// Inject an expired fault (simulates an active fault entry).

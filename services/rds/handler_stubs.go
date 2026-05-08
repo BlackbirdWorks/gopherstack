@@ -87,6 +87,17 @@ func (h *Handler) dispatchExtended14(action string, vals url.Values) (any, error
 	case "DescribeDBSnapshotTenantDatabases":
 		return h.handleDescribeDBSnapshotTenantDatabases(vals)
 	default:
+		return h.dispatchExtended15(action, vals)
+	}
+}
+
+// dispatchExtended15 routes Performance Insights and any future stub operations.
+func (h *Handler) dispatchExtended15(action string, vals url.Values) (any, error) {
+	switch action {
+	// Performance Insights
+	case "GetPerformanceInsightsMetrics":
+		return h.handleGetPerformanceInsightsMetrics(vals)
+	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}
 }
@@ -517,10 +528,20 @@ func (h *Handler) handleDeleteDBInstanceAutomatedBackup(vals url.Values) (any, e
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBInstanceAutomatedBackups(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeDBInstanceAutomatedBackups(vals url.Values) (any, error) {
+	instanceID := vals.Get("DBInstanceIdentifier")
+	backups := h.Backend.DescribeDBInstanceAutomatedBackups(instanceID)
+	members := make([]xmlDBInstanceAutomatedBackup, 0, len(backups))
+	for _, ab := range backups {
+		members = append(members, xmlDBInstanceAutomatedBackup{
+			DBInstanceIdentifier: ab.DBInstanceIdentifier,
+			Status:               ab.Status,
+		})
+	}
+
 	return &describeDBInstanceAutomatedBackupsResponse{
 		Xmlns:                      rdsXMLNS,
-		DBInstanceAutomatedBackups: xmlDBInstanceAutomatedBackupList{Members: []xmlDBInstanceAutomatedBackup{}},
+		DBInstanceAutomatedBackups: xmlDBInstanceAutomatedBackupList{Members: members},
 	}, nil
 }
 
@@ -552,5 +573,38 @@ func (h *Handler) handleDescribeDBSnapshotTenantDatabases(_ url.Values) (any, er
 	return &describeDBSnapshotTenantDatabasesResponse{
 		Xmlns:                     rdsXMLNS,
 		DBSnapshotTenantDatabases: xmlDBSnapshotTenantDatabaseList{Members: []xmlDBSnapshotTenantDatabase{}},
+	}, nil
+}
+
+// ---- Performance Insights (stub) ----
+
+type xmlDataPoint struct {
+	Timestamp string  `xml:"Timestamp"`
+	Value     float64 `xml:"Value"`
+}
+
+type xmlMetricKeyDataPoints struct {
+	Metric     string         `xml:"Key>Metric"`
+	DataPoints []xmlDataPoint `xml:"DataPoints>DataPoint"`
+}
+
+type xmlMetricKeyDataPointsList struct {
+	Members []xmlMetricKeyDataPoints `xml:"MetricKeyDataPoints"`
+}
+
+type getPerformanceInsightsMetricsResponse struct {
+	XMLName          xml.Name                   `xml:"GetPerformanceInsightsMetricsResponse"`
+	Xmlns            string                     `xml:"xmlns,attr"`
+	AlignedStartTime string                     `xml:"GetPerformanceInsightsMetricsResult>AlignedStartTime,omitempty"`
+	AlignedEndTime   string                     `xml:"GetPerformanceInsightsMetricsResult>AlignedEndTime,omitempty"`
+	MetricList       xmlMetricKeyDataPointsList `xml:"GetPerformanceInsightsMetricsResult>MetricList"`
+}
+
+// handleGetPerformanceInsightsMetrics returns an empty Performance Insights metric result.
+// Performance Insights is a separate AWS service; this stub satisfies SDK calls from the RDS endpoint.
+func (h *Handler) handleGetPerformanceInsightsMetrics(_ url.Values) (any, error) {
+	return &getPerformanceInsightsMetricsResponse{
+		Xmlns:      rdsXMLNS,
+		MetricList: xmlMetricKeyDataPointsList{Members: []xmlMetricKeyDataPoints{}},
 	}, nil
 }
