@@ -123,7 +123,6 @@ const (
 
 	// JSON response key constants.
 	keyAgentID         = "agentId"
-	keyStatus          = "status"
 	keyKnowledgeBaseID = "knowledgeBaseId"
 )
 
