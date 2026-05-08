@@ -21,7 +21,7 @@ describe("SSM Page", () => {
   it("renders page title", () => {
     mockSend.mockResolvedValue({ Parameters: [] });
     render(SSMPage);
-    expect(screen.getByText("SSM Parameter Store")).toBeInTheDocument();
+    expect(screen.getByText("AWS Systems Manager")).toBeInTheDocument();
   });
 
   it("shows Create Parameter button", () => {
