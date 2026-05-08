@@ -651,9 +651,13 @@ func parseCFPolicyPath(method, suffix string) (string, string) {
 		return op, id
 	}
 
-	if op, id := parseCFResourcePath(method, suffix, "response-headers-policy",
-		opCreateResponseHeadersPolicy, opListResponseHeadersPolicies, opGetResponseHeadersPolicy, opUpdateResponseHeadersPolicy, opDeleteResponseHeadersPolicy,
-		opGetResponseHeadersPolicyConfig, opUpdateResponseHeadersPolicy); op != "" {
+	if op, id := parseCFResourcePath(
+		method, suffix, "response-headers-policy",
+		opCreateResponseHeadersPolicy, opListResponseHeadersPolicies,
+		opGetResponseHeadersPolicy, opUpdateResponseHeadersPolicy,
+		opDeleteResponseHeadersPolicy, opGetResponseHeadersPolicyConfig,
+		opUpdateResponseHeadersPolicy,
+	); op != "" {
 		return op, id
 	}
 
@@ -863,9 +867,12 @@ func parseCFKeyAndLogPath(method, suffix string) (string, string) {
 		return op, id
 	}
 
-	if op, id := parseCFResourcePath(method, suffix, "key-value-store",
-		opCreateKeyValueStore, opListKeyValueStores, opDescribeKeyValueStore, opUpdateKeyValueStore, opDeleteKeyValueStore,
-		"", ""); op != "" {
+	if op, id := parseCFResourcePath(
+		method, suffix, "key-value-store",
+		opCreateKeyValueStore, opListKeyValueStores,
+		opDescribeKeyValueStore, opUpdateKeyValueStore,
+		opDeleteKeyValueStore, "", "",
+	); op != "" {
 		return op, id
 	}
 
@@ -880,9 +887,18 @@ func parseCFPublicKeyRealtimePath(method, suffix string) (string, string) {
 		return op, id
 	}
 
-	return parseCFResourcePath(method, suffix, "realtime-log-config",
-		opCreateRealtimeLogConfig, opListRealtimeLogConfigs, opGetRealtimeLogConfig, opUpdateRealtimeLogConfig, opDeleteRealtimeLogConfig,
-		"", "")
+	return parseCFResourcePath(
+		method,
+		suffix,
+		"realtime-log-config",
+		opCreateRealtimeLogConfig,
+		opListRealtimeLogConfigs,
+		opGetRealtimeLogConfig,
+		opUpdateRealtimeLogConfig,
+		opDeleteRealtimeLogConfig,
+		"",
+		"",
+	)
 }
 
 // parseCFStreamingTrustVPCPath routes streaming distribution, trust store, vpc origin, and anycast paths.
@@ -1030,9 +1046,15 @@ func parseCFDistributionsByPath(method, suffix string) (string, string) {
 	case strings.HasPrefix(suffix, "distributions/by-cache-policy-id/"):
 		return opListDistributionsByCachePolicyID, strings.TrimPrefix(suffix, "distributions/by-cache-policy-id/")
 	case strings.HasPrefix(suffix, "distributions/by-origin-request-policy-id/"):
-		return opListDistributionsByOriginRequestPol, strings.TrimPrefix(suffix, "distributions/by-origin-request-policy-id/")
+		return opListDistributionsByOriginRequestPol, strings.TrimPrefix(
+			suffix,
+			"distributions/by-origin-request-policy-id/",
+		)
 	case strings.HasPrefix(suffix, "distributions/by-response-headers-policy-id/"):
-		return opListDistributionsByResponseHeadersPol, strings.TrimPrefix(suffix, "distributions/by-response-headers-policy-id/")
+		return opListDistributionsByResponseHeadersPol, strings.TrimPrefix(
+			suffix,
+			"distributions/by-response-headers-policy-id/",
+		)
 	case strings.HasPrefix(suffix, "distributions/by-web-acl-id/"):
 		return opListDistributionsByWebACLID, strings.TrimPrefix(suffix, "distributions/by-web-acl-id/")
 	case strings.HasPrefix(suffix, "distributions/by-key-group/"):
@@ -1044,7 +1066,10 @@ func parseCFDistributionsByPath(method, suffix string) (string, string) {
 	case strings.HasPrefix(suffix, "distributions/by-anycast-ip-list-id/"):
 		return opListDistributionsByAnycastIPListID, strings.TrimPrefix(suffix, "distributions/by-anycast-ip-list-id/")
 	case strings.HasPrefix(suffix, "distributions/by-connection-function/"):
-		return opListDistributionsByConnectionFunction, strings.TrimPrefix(suffix, "distributions/by-connection-function/")
+		return opListDistributionsByConnectionFunction, strings.TrimPrefix(
+			suffix,
+			"distributions/by-connection-function/",
+		)
 	case suffix == "distributions/by-connection-mode":
 		return opListDistributionsByConnectionMode, ""
 	case suffix == "distribution-tenants/by-customization":
@@ -1697,8 +1722,6 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 	default:
 		return errNotDispatched
 	}
-
-	return errNotDispatched
 }
 
 func (h *Handler) dispatchList(c *echo.Context, operation, resource string) error {
@@ -1867,7 +1890,11 @@ func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, hlp cfStubHel
 	case opUpdateDomainAssociation:
 		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><DomainAssociation xmlns="`+cfNS+`"/>`)
 	case opVerifyDNSConfiguration:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><VerifyDnsConfigurationResponse xmlns="`+cfNS+`"/>`)
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><VerifyDnsConfigurationResponse xmlns="`+cfNS+`"/>`,
+		)
 	}
 
 	return errNotDispatched
@@ -1880,9 +1907,17 @@ func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, hlp cfStu
 
 	switch operation {
 	case opCreateMonitoringSubscription:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`)
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`,
+		)
 	case opGetMonitoringSubscription:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`)
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><MonitoringSubscription xmlns="`+cfNS+`"/>`,
+		)
 	case opDeleteMonitoringSubscription:
 		return noContent()
 	case opDisassociateDistributionWebACL, opDisassociateDistributionTenantWebACL:
@@ -1892,7 +1927,11 @@ func (h *Handler) dispatchStubsMonitoringAndStreaming(c *echo.Context, hlp cfStu
 	case opGetStreamingDistribution, opGetStreamingDistributionConfig:
 		return getStub("StreamingDistribution", "sdist-stub")
 	case opUpdateStreamingDistribution:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><StreamingDistribution xmlns="`+cfNS+`"/>`)
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><StreamingDistribution xmlns="`+cfNS+`"/>`,
+		)
 	case opDeleteStreamingDistribution:
 		return noContent()
 	case opListStreamingDistributions:
@@ -1989,7 +2028,11 @@ func (h *Handler) dispatchStubsConnectionGroupAndCDP(c *echo.Context, hlp cfStub
 
 	// Resource policy.
 	case opGetResourcePolicy:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ResourcePolicy xmlns="`+cfNS+`"><Policy>{}</Policy></ResourcePolicy>`)
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><ResourcePolicy xmlns="`+cfNS+`"><Policy>{}</Policy></ResourcePolicy>`,
+		)
 	case opPutResourcePolicy:
 		return noContent()
 	case opDeleteResourcePolicy:
@@ -2023,7 +2066,11 @@ func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, hlp cfStub
 	case opListInvalidationsForDistTenant:
 		return emptyList("InvalidationList")
 	case opGetManagedCertificateDetails:
-		return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?><ManagedCertificateDetails xmlns="`+cfNS+`"/>`)
+		return xmlResp(
+			c,
+			http.StatusOK,
+			`<?xml version="1.0" encoding="UTF-8"?><ManagedCertificateDetails xmlns="`+cfNS+`"/>`,
+		)
 	default:
 		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOperation", "unknown operation: "+operation))
 	}
