@@ -126,6 +126,7 @@ type StorageBackend interface {
 	CreateGroup(groupName, path string) (*Group, error)
 	DeleteGroup(groupName string) error
 	GetGroup(groupName string) (*Group, error)
+	GetGroupUsers(groupName string) ([]User, error)
 	ListGroups(marker string, maxItems int) (page.Page[Group], error)
 	AddUserToGroup(groupName, userName string) error
 	RemoveUserFromGroup(groupName, userName string) error
@@ -937,6 +938,27 @@ func (b *InMemoryBackend) GetGroup(groupName string) (*Group, error) {
 	}
 
 	return &g, nil
+}
+
+// GetGroupUsers returns the users that are members of the given group.
+func (b *InMemoryBackend) GetGroupUsers(groupName string) ([]User, error) {
+	b.mu.RLock("GetGroupUsers")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	members := b.groupMembers[groupName]
+	out := make([]User, 0, len(members))
+
+	for _, userName := range members {
+		if u, ok := b.users[userName]; ok {
+			out = append(out, u)
+		}
+	}
+
+	return out, nil
 }
 
 // AttachGroupPolicy attaches a policy to a group.

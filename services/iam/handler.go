@@ -1137,9 +1137,18 @@ func (h *Handler) iamGroupDispatchTable() map[string]iamActionFn {
 				return nil, err
 			}
 
+			members, _ := h.Backend.GetGroupUsers(vals.Get("GroupName"))
+			xmlUsers := make([]UserXML, 0, len(members))
+			for i := range members {
+				xmlUsers = append(xmlUsers, toUserXML(&members[i]))
+			}
+
 			return &GetGroupResponse{
-				Xmlns:            iamXMLNS,
-				GetGroupResult:   GetGroupResult{Group: toGroupXML(g)},
+				Xmlns: iamXMLNS,
+				GetGroupResult: GetGroupResult{
+					Group: toGroupXML(g),
+					Users: xmlUsers,
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},

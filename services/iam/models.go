@@ -343,7 +343,9 @@ type RemoveUserFromGroupResponse struct {
 
 // GetGroupResult wraps a single group.
 type GetGroupResult struct {
-	Group GroupXML `xml:"Group"`
+	Group     GroupXML  `xml:"Group"`
+	Users     []UserXML `xml:"Users>member"`
+	IsTruncated bool    `xml:"IsTruncated"`
 }
 
 // GetGroupResponse is the XML response for GetGroup.
