@@ -26,6 +26,28 @@ const (
 	isMemberInGroupsOp = "IsMemberInGroups"
 )
 
+// Operation name constants for Identity Store.
+const (
+	opCreateUser                    = "CreateUser"
+	opDescribeUser                  = "DescribeUser"
+	opListUsers                     = "ListUsers"
+	opUpdateUser                    = "UpdateUser"
+	opDeleteUser                    = "DeleteUser"
+	opGetUserID                     = "GetUserId"
+	opCreateGroup                   = "CreateGroup"
+	opDescribeGroup                 = "DescribeGroup"
+	opListGroups                    = "ListGroups"
+	opUpdateGroup                   = "UpdateGroup"
+	opDeleteGroup                   = "DeleteGroup"
+	opGetGroupID                    = "GetGroupId"
+	opCreateGroupMembership         = "CreateGroupMembership"
+	opDescribeGroupMembership       = "DescribeGroupMembership"
+	opListGroupMemberships          = "ListGroupMemberships"
+	opDeleteGroupMembership         = "DeleteGroupMembership"
+	opListGroupMembershipsForMember = "ListGroupMembershipsForMember"
+	opGetGroupMembershipID          = "GetGroupMembershipId"
+)
+
 // Handler is the Echo HTTP handler for the Identity Store REST API.
 type Handler struct {
 	Backend *InMemoryBackend
@@ -42,24 +64,24 @@ func (h *Handler) Name() string { return "IdentityStore" }
 // GetSupportedOperations returns the list of supported Identity Store operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateUser",
-		"DescribeUser",
-		"ListUsers",
-		"UpdateUser",
-		"DeleteUser",
-		"GetUserId",
-		"CreateGroup",
-		"DescribeGroup",
-		"ListGroups",
-		"UpdateGroup",
-		"DeleteGroup",
-		"GetGroupId",
-		"CreateGroupMembership",
-		"DescribeGroupMembership",
-		"ListGroupMemberships",
-		"DeleteGroupMembership",
-		"GetGroupMembershipId",
-		"ListGroupMembershipsForMember",
+		opCreateUser,
+		opDescribeUser,
+		opListUsers,
+		opUpdateUser,
+		opDeleteUser,
+		opGetUserID,
+		opCreateGroup,
+		opDescribeGroup,
+		opListGroups,
+		opUpdateGroup,
+		opDeleteGroup,
+		opGetGroupID,
+		opCreateGroupMembership,
+		opDescribeGroupMembership,
+		opListGroupMemberships,
+		opDeleteGroupMembership,
+		opGetGroupMembershipID,
+		opListGroupMembershipsForMember,
 		"IsMemberInGroups",
 	}
 }
@@ -309,26 +331,26 @@ type deleteGroupRequest struct {
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
 var identityStoreDispatch = map[string]func(*Handler, *echo.Context, []byte) error{
 	// User operations
-	"CreateUser":   (*Handler).handleCreateUser,
-	"DescribeUser": (*Handler).handleDescribeUser,
-	"ListUsers":    (*Handler).handleListUsers,
-	"UpdateUser":   (*Handler).handleUpdateUser,
-	"DeleteUser":   (*Handler).handleDeleteUser,
-	"GetUserId":    (*Handler).handleGetUserID,
+	opCreateUser:   (*Handler).handleCreateUser,
+	opDescribeUser: (*Handler).handleDescribeUser,
+	opListUsers:    (*Handler).handleListUsers,
+	opUpdateUser:   (*Handler).handleUpdateUser,
+	opDeleteUser:   (*Handler).handleDeleteUser,
+	opGetUserID:    (*Handler).handleGetUserID,
 	// Group operations
-	"CreateGroup":   (*Handler).handleCreateGroup,
-	"DescribeGroup": (*Handler).handleDescribeGroup,
-	"ListGroups":    (*Handler).handleListGroups,
-	"UpdateGroup":   (*Handler).handleUpdateGroup,
-	"DeleteGroup":   (*Handler).handleDeleteGroup,
-	"GetGroupId":    (*Handler).handleGetGroupID,
+	opCreateGroup:   (*Handler).handleCreateGroup,
+	opDescribeGroup: (*Handler).handleDescribeGroup,
+	opListGroups:    (*Handler).handleListGroups,
+	opUpdateGroup:   (*Handler).handleUpdateGroup,
+	opDeleteGroup:   (*Handler).handleDeleteGroup,
+	opGetGroupID:    (*Handler).handleGetGroupID,
 	// Membership operations
-	"CreateGroupMembership":         (*Handler).handleCreateGroupMembership,
-	"DescribeGroupMembership":       (*Handler).handleDescribeGroupMembership,
-	"ListGroupMemberships":          (*Handler).handleListGroupMemberships,
-	"DeleteGroupMembership":         (*Handler).handleDeleteGroupMembership,
-	"GetGroupMembershipId":          (*Handler).handleGetGroupMembershipID,
-	"ListGroupMembershipsForMember": (*Handler).handleListGroupMembershipsForMember,
+	opCreateGroupMembership:         (*Handler).handleCreateGroupMembership,
+	opDescribeGroupMembership:       (*Handler).handleDescribeGroupMembership,
+	opListGroupMemberships:          (*Handler).handleListGroupMemberships,
+	opDeleteGroupMembership:         (*Handler).handleDeleteGroupMembership,
+	opGetGroupMembershipID:          (*Handler).handleGetGroupMembershipID,
+	opListGroupMembershipsForMember: (*Handler).handleListGroupMembershipsForMember,
 	isMemberInGroupsOp:              (*Handler).handleIsMemberInGroups,
 }
 
@@ -339,87 +361,6 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 
 	return h.writeError(c, http.StatusBadRequest, "UnrecognizedClientException",
 		"operation "+op+" is not supported")
-}
-
-// dispatchUserOps handles user operations.
-func (h *Handler) dispatchUserOps(c *echo.Context, op string, body []byte) (bool, error) {
-	switch op {
-	case "CreateUser":
-
-		return true, h.handleCreateUser(c, body)
-	case "DescribeUser":
-
-		return true, h.handleDescribeUser(c, body)
-	case "ListUsers":
-
-		return true, h.handleListUsers(c, body)
-	case "UpdateUser":
-
-		return true, h.handleUpdateUser(c, body)
-	case "DeleteUser":
-
-		return true, h.handleDeleteUser(c, body)
-	case "GetUserId":
-
-		return true, h.handleGetUserID(c, body)
-	}
-
-	return false, nil
-}
-
-// dispatchGroupOps handles group operations.
-func (h *Handler) dispatchGroupOps(c *echo.Context, op string, body []byte) (bool, error) {
-	switch op {
-	case "CreateGroup":
-
-		return true, h.handleCreateGroup(c, body)
-	case "DescribeGroup":
-
-		return true, h.handleDescribeGroup(c, body)
-	case "ListGroups":
-
-		return true, h.handleListGroups(c, body)
-	case "UpdateGroup":
-
-		return true, h.handleUpdateGroup(c, body)
-	case "DeleteGroup":
-
-		return true, h.handleDeleteGroup(c, body)
-	case "GetGroupId":
-
-		return true, h.handleGetGroupID(c, body)
-	}
-
-	return false, nil
-}
-
-// dispatchMembershipOps handles group membership operations.
-func (h *Handler) dispatchMembershipOps(c *echo.Context, op string, body []byte) (bool, error) {
-	switch op {
-	case "CreateGroupMembership":
-
-		return true, h.handleCreateGroupMembership(c, body)
-	case "DescribeGroupMembership":
-
-		return true, h.handleDescribeGroupMembership(c, body)
-	case "ListGroupMemberships":
-
-		return true, h.handleListGroupMemberships(c, body)
-	case "DeleteGroupMembership":
-
-		return true, h.handleDeleteGroupMembership(c, body)
-	case "GetGroupMembershipId":
-
-		return true, h.handleGetGroupMembershipID(c, body)
-	case "ListGroupMembershipsForMember":
-
-		return true, h.handleListGroupMembershipsForMember(c, body)
-	case isMemberInGroupsOp:
-
-		return true, h.handleIsMemberInGroups(c, body)
-	}
-
-	return false, nil
 }
 
 // ----------------------------------------
