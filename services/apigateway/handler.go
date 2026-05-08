@@ -158,6 +158,15 @@ const (
 
 var errUnknownOperation = errors.New("UnknownOperationException")
 
+// path depth constants for URL segment counting.
+const (
+	pathDepth1 = 1
+	pathDepth2 = 2
+	pathDepth3 = 3
+	pathDepth4 = 4
+	pathDepth5 = 5
+)
+
 // path segment constants used in REST route matching.
 const (
 	apiGWUnknownOp             = "Unknown"
@@ -1052,10 +1061,10 @@ func parseAPIGWClientCertificatesPath(method string, segs []string, n int) (stri
 	case n == 1 && method == http.MethodPost:
 		return opGenerateClientCertificate, nil, true
 	// GET /clientcertificates/{id} → GetClientCertificate
-	case n == 2 && method == http.MethodGet:
+	case n == pathDepth2 && method == http.MethodGet:
 		return opGetClientCertificate, map[string]string{"clientCertificateId": segs[1]}, true
 	// DELETE /clientcertificates/{id} → DeleteClientCertificate
-	case n == 2 && method == http.MethodDelete:
+	case n == pathDepth2 && method == http.MethodDelete:
 		return opDeleteClientCertificate, map[string]string{"clientCertificateId": segs[1]}, true
 	}
 
@@ -1095,13 +1104,13 @@ func parseAPIGWAPIKeysPath(method string, segs []string, n int) (string, map[str
 	case n == 1 && method == http.MethodPost:
 		return opCreateAPIKey, nil, true
 	// GET /apikeys/{id} → GetApiKey
-	case n == 2 && method == http.MethodGet:
+	case n == pathDepth2 && method == http.MethodGet:
 		return opGetAPIKey, map[string]string{keyAPIKeyID: segs[1]}, true
 	// DELETE /apikeys/{id} → DeleteApiKey
-	case n == 2 && method == http.MethodDelete:
+	case n == pathDepth2 && method == http.MethodDelete:
 		return opDeleteAPIKey, map[string]string{keyAPIKeyID: segs[1]}, true
 	// PATCH /apikeys/{id} → UpdateApiKey
-	case n == 2 && method == http.MethodPatch:
+	case n == pathDepth2 && method == http.MethodPatch:
 		return opUpdateAPIKey, map[string]string{keyAPIKeyID: segs[1]}, true
 	}
 
@@ -1114,14 +1123,14 @@ func parseAPIGWAPIKeysPath(method string, segs []string, n int) (string, map[str
 // parseAPIGWDomainNamesPath handles /domainnames/... paths.
 func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	switch n {
-	case 1:
+	case pathDepth1:
 		switch method {
 		case http.MethodGet:
 			return opGetDomainNames, nil, true
 		case http.MethodPost:
 			return opCreateDomainName, nil, true
 		}
-	case 2:
+	case pathDepth2:
 		switch method {
 		case http.MethodGet:
 			return opGetDomainName, map[string]string{keyDomainName: segs[1]}, true
@@ -1130,9 +1139,9 @@ func parseAPIGWDomainNamesPath(method string, segs []string, n int) (string, map
 		case http.MethodPatch:
 			return opUpdateDomainName, map[string]string{keyDomainName: segs[1]}, true
 		}
-	case 3:
+	case pathDepth3:
 		return parseAPIGWDomainNamesDepth3(method, segs)
-	case 4:
+	case pathDepth4:
 		if segs[2] == apiGWSegBasePathMappings {
 			return parseAPIGWDomainNamesBasePathMapping(method, segs)
 		}
@@ -1179,14 +1188,14 @@ func parseAPIGWDomainNamesBasePathMapping(method string, segs []string) (string,
 // parseAPIGWUsagePlansPath handles /usageplans/... paths.
 func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	switch n {
-	case 1:
+	case pathDepth1:
 		switch method {
 		case http.MethodGet:
 			return opGetUsagePlans, nil, true
 		case http.MethodPost:
 			return opCreateUsagePlan, nil, true
 		}
-	case 2:
+	case pathDepth2:
 		planParam := map[string]string{keyUsagePlanID: segs[1]}
 		switch method {
 		case http.MethodGet:
@@ -1196,9 +1205,9 @@ func parseAPIGWUsagePlansPath(method string, segs []string, n int) (string, map[
 		case http.MethodPatch:
 			return opUpdateUsagePlan, planParam, true
 		}
-	case 3:
+	case pathDepth3:
 		return parseAPIGWUsagePlansDepth3(method, segs)
-	case 4:
+	case pathDepth4:
 		return parseAPIGWUsagePlansDepth4(method, segs)
 	}
 
@@ -1251,23 +1260,23 @@ func parseAPIGWUsagePlansDepth4(method string, segs []string) (string, map[strin
 //nolint:funlen // path routing table is inherently a multi-branch switch
 func parseAPIGWRestAPIsPath(method string, segs []string, n int) (string, map[string]string, bool) {
 	apiID := ""
-	if n >= 2 {
+	if n >= pathDepth2 {
 		apiID = segs[1]
 	}
 
 	switch n {
-	case 1:
+	case pathDepth1:
 		switch method {
 		case http.MethodPost:
 			return opCreateRestAPI, nil, true
 		case http.MethodGet:
 			return opGetRestApis, nil, true
 		}
-	case 2:
+	case pathDepth2:
 		return parseAPIGWRestAPIsDepth2(method, apiID)
-	case 3:
+	case pathDepth3:
 		return parseAPIGWRestAPIsDepth3(method, segs, apiID)
-	case 4:
+	case pathDepth4:
 		return parseAPIGWRestAPIsDepth4(method, segs, apiID)
 	default:
 		return parseAPIGWRestAPIsDeepPath(method, segs, n, apiID)
@@ -1550,7 +1559,7 @@ func parseAPIGWRestAPIsStageDeep(method string, segs []string, n int, apiID stri
 
 // parseAPIGWRestAPIsDocDeep handles depth-5 documentation parts/versions paths.
 func parseAPIGWRestAPIsDocDeep(method string, segs []string, n int, apiID string) (string, map[string]string, bool) {
-	if n != 5 {
+	if n != pathDepth5 {
 		return apiGWUnknownOp, nil, false
 	}
 
@@ -1608,8 +1617,9 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 	}
 
 	if len(segs) > idxIntegSeg {
-		if op, params, ok := parseAPIGWMethodSubPath(method, segs, idxIntegSeg, idxRespSeg, apiID, resID, httpMethod, baseParams); ok ||
-			op == apiGWUnknownOp {
+		op, params, ok := parseAPIGWMethodSubPath(
+			method, segs, idxIntegSeg, idxRespSeg, apiID, resID, httpMethod, baseParams)
+		if ok || op == apiGWUnknownOp {
 			return op, params, ok
 		}
 	}

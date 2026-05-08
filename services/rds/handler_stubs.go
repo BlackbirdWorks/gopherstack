@@ -153,8 +153,6 @@ func (h *Handler) dispatchExtended15(action string, vals url.Values) (any, error
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}
-
-	return nil, errRDSStubNotHandled
 }
 
 // ---- XML response types ----
