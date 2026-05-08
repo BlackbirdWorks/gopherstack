@@ -108,15 +108,15 @@ type RecordLifecycleActionHeartbeatInput struct {
 
 // pendingHookAction tracks an in-flight lifecycle action with its timer.
 //
-//nolint:govet // fieldalignment: logical grouping prioritized over size optimization
+
 type pendingHookAction struct {
+	timer         *time.Timer
 	Token         string
 	GroupName     string
 	HookName      string
 	InstanceID    string
 	DefaultResult string
 	timeout       time.Duration
-	timer         *time.Timer
 }
 
 // AutoScalingGroup represents an EC2 Auto Scaling group.

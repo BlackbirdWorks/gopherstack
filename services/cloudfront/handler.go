@@ -1569,9 +1569,18 @@ func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource strin
 }
 
 // dispatchGetOrMutateCoreOps handles core GET, DELETE, and UPDATE operations.
-//
-//nolint:dupl,cyclop // sibling dispatch handlers with unavoidably many operations
 func (h *Handler) dispatchGetOrMutateCoreOps(c *echo.Context, operation, resource string) error {
+	if err := h.dispatchGetDistributionAndCachePolicyOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchGetIdentityAndPolicyDeleteOps(c, operation, resource)
+}
+
+// dispatchGetDistributionAndCachePolicyOps handles get ops for distributions, cache policy, functions, OAI, and OAC.
+func (h *Handler) dispatchGetDistributionAndCachePolicyOps(
+	c *echo.Context, operation, resource string,
+) error {
 	switch operation {
 	case opGetCachePolicy:
 		return h.handleGetCachePolicy(c, resource)
@@ -1591,6 +1600,16 @@ func (h *Handler) dispatchGetOrMutateCoreOps(c *echo.Context, operation, resourc
 		return h.handleGetOriginAccessControlConfig(c, resource)
 	case opGetCloudFrontOriginAccessIdentity:
 		return h.handleGetOAI(c, resource)
+	}
+
+	return errNotDispatched
+}
+
+// dispatchGetIdentityAndPolicyDeleteOps handles get ops for OAI config / policies and all core delete ops.
+func (h *Handler) dispatchGetIdentityAndPolicyDeleteOps(
+	c *echo.Context, operation, resource string,
+) error {
+	switch operation {
 	case opGetCloudFrontOriginAccessIdentityConfig:
 		return h.handleGetOAIConfig(c, resource)
 	case opGetOriginRequestPolicy:
@@ -1615,9 +1634,18 @@ func (h *Handler) dispatchGetOrMutateCoreOps(c *echo.Context, operation, resourc
 }
 
 // dispatchGetOrMutateEncryptionOps handles OAI, policy, and encryption operations.
-//
-//nolint:dupl,cyclop // sibling dispatch handlers with unavoidably many operations
 func (h *Handler) dispatchGetOrMutateEncryptionOps(c *echo.Context, operation, resource string) error {
+	if err := h.dispatchUpdateDeletePolicyAndOAIOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+		return err
+	}
+
+	return h.dispatchFieldLevelEncryptionOps(c, operation, resource)
+}
+
+// dispatchUpdateDeletePolicyAndOAIOps handles update/delete operations for OAI, policies, distribution, and function.
+func (h *Handler) dispatchUpdateDeletePolicyAndOAIOps(
+	c *echo.Context, operation, resource string,
+) error {
 	switch operation {
 	case opDeleteCloudFrontOriginAccessIdentity:
 		return h.handleDeleteOAI(c, resource)
@@ -1639,6 +1667,16 @@ func (h *Handler) dispatchGetOrMutateEncryptionOps(c *echo.Context, operation, r
 		return h.handleUpdateOriginRequestPolicy(c, resource)
 	case opUpdateResponseHeadersPolicy:
 		return h.handleUpdateResponseHeadersPolicy(c, resource)
+	}
+
+	return errNotDispatched
+}
+
+// dispatchFieldLevelEncryptionOps handles field-level encryption config and profile operations.
+func (h *Handler) dispatchFieldLevelEncryptionOps(
+	c *echo.Context, operation, resource string,
+) error {
+	switch operation {
 	case opGetFieldLevelEncryption:
 		return h.handleGetFieldLevelEncryption(c, resource)
 	case opGetFieldLevelEncryptionConfig:
@@ -2080,6 +2118,15 @@ func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, hlp cfStub
 // notFoundCode returns the CloudFront error code for well-known not-found errors.
 // The second return value is false when err is not a known not-found error.
 func notFoundCode(err error) (string, bool) {
+	if code, ok := notFoundCodeCore(err); ok {
+		return code, true
+	}
+
+	return notFoundCodeExtended(err)
+}
+
+// notFoundCodeCore checks core distribution, OAI, and policy not-found errors.
+func notFoundCodeCore(err error) (string, bool) {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return "NoSuchDistribution", true
@@ -2105,6 +2152,28 @@ func notFoundCode(err error) (string, bool) {
 		return "NoSuchFunctionExists", true
 	case errors.Is(err, ErrOriginRequestPolicyNotFound):
 		return "NoSuchOriginRequestPolicy", true
+	}
+
+	return "", false
+}
+
+// notFoundCodeExtended checks FLE, public key, key group, realtime log, KVS, and VPC origin errors.
+func notFoundCodeExtended(err error) (string, bool) {
+	switch {
+	case errors.Is(err, ErrFLENotFound):
+		return "NoSuchFieldLevelEncryptionConfig", true
+	case errors.Is(err, ErrFLEProfileNotFound):
+		return "NoSuchFieldLevelEncryptionProfile", true
+	case errors.Is(err, ErrPublicKeyNotFound):
+		return "NoSuchPublicKey", true
+	case errors.Is(err, ErrKeyGroupNotFound):
+		return "NoSuchResource", true
+	case errors.Is(err, ErrRealtimeLogConfigNotFound):
+		return "NoSuchRealtimeLogConfig", true
+	case errors.Is(err, ErrKeyValueStoreNotFound):
+		return "EntityNotFound", true
+	case errors.Is(err, ErrVpcOriginNotFound):
+		return "NoSuchVpcOrigin", true
 	}
 
 	return "", false

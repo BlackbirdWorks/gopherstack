@@ -1328,11 +1328,11 @@ type getRightsizingRecommendationInput struct {
 	PageSize      int    `json:"PageSize"`
 }
 
-type getRightsizingRecommendationOutput struct { //nolint:govet // field order for JSON readability
-	RightsizingRecommendations []any  `json:"RightsizingRecommendations"`
-	NextPageToken              string `json:"NextPageToken,omitempty"`
+type getRightsizingRecommendationOutput struct {
 	Summary                    any    `json:"Summary,omitempty"`
 	Metadata                   any    `json:"Metadata,omitempty"`
+	NextPageToken              string `json:"NextPageToken,omitempty"`
+	RightsizingRecommendations []any  `json:"RightsizingRecommendations"`
 }
 
 func (h *Handler) handleGetRightsizingRecommendation(
@@ -1498,11 +1498,11 @@ func (h *Handler) handleListCostAllocationTagBackfillHistory(
 
 // --- ListCostAllocationTags stub ---
 
-type listCostAllocationTagsInput struct { //nolint:govet // field order for JSON readability
-	TagKeys    []string `json:"TagKeys"`
+type listCostAllocationTagsInput struct {
 	Status     string   `json:"Status"`
 	Type       string   `json:"Type"`
 	NextToken  string   `json:"NextToken"`
+	TagKeys    []string `json:"TagKeys"`
 	MaxResults int      `json:"MaxResults"`
 }
 

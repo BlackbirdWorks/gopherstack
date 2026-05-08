@@ -6,23 +6,31 @@ import (
 )
 
 type backendSnapshot struct {
-	Distributions                map[string]*Distribution               `json:"distributions"`
-	OAIs                         map[string]*OriginAccessIdentity       `json:"oais"`
-	Invalidations                map[string][]*Invalidation             `json:"invalidations,omitempty"`
-	AnycastIPLists               map[string]*AnycastIPList              `json:"anycastIPLists,omitempty"`
-	CachePolicies                map[string]*CachePolicy                `json:"cachePolicies,omitempty"`
-	ConnectionFunctions          map[string]*ConnectionFunction         `json:"connectionFunctions,omitempty"`
-	ConnectionGroups             map[string]*ConnectionGroup            `json:"connectionGroups,omitempty"`
-	ContinuousDeploymentPolicies map[string]*ContinuousDeploymentPolicy `json:"continuousDeploymentPolicies,omitempty"`
-	OriginAccessControls         map[string]*OriginAccessControl        `json:"originAccessControls,omitempty"`
-	ResponseHeadersPolicies      map[string]*ResponseHeadersPolicy      `json:"responseHeadersPolicies,omitempty"`
-	Functions                    map[string]*Function                   `json:"functions,omitempty"`
-	OriginRequestPolicies        map[string]*OriginRequestPolicy        `json:"originRequestPolicies,omitempty"`
-	DistributionAliases          map[string][]string                    `json:"distributionAliases,omitempty"`
-	DistributionWebACLs          map[string]string                      `json:"distributionWebACLs,omitempty"`
-	DistributionTenantWebACLs    map[string]string                      `json:"distributionTenantWebACLs,omitempty"`
-	AccountID                    string                                 `json:"accountId"`
-	Region                       string                                 `json:"region"`
+	Distributions                    map[string]*Distribution                `json:"distributions"`
+	OAIs                             map[string]*OriginAccessIdentity        `json:"oais"`
+	Invalidations                    map[string][]*Invalidation              `json:"invalidations,omitempty"`
+	AnycastIPLists                   map[string]*AnycastIPList               `json:"anycastIPLists,omitempty"`
+	CachePolicies                    map[string]*CachePolicy                 `json:"cachePolicies,omitempty"`
+	ConnectionFunctions              map[string]*ConnectionFunction          `json:"connectionFunctions,omitempty"`
+	ConnectionGroups                 map[string]*ConnectionGroup             `json:"connectionGroups,omitempty"`
+	ContinuousDeploymentPolicies     map[string]*ContinuousDeploymentPolicy  `json:"continuousDeploymentPolicies,omitempty"`
+	OriginAccessControls             map[string]*OriginAccessControl         `json:"originAccessControls,omitempty"`
+	ResponseHeadersPolicies          map[string]*ResponseHeadersPolicy       `json:"responseHeadersPolicies,omitempty"`
+	Functions                        map[string]*Function                    `json:"functions,omitempty"`
+	OriginRequestPolicies            map[string]*OriginRequestPolicy         `json:"originRequestPolicies,omitempty"`
+	FieldLevelEncryptions            map[string]*FieldLevelEncryption        `json:"fieldLevelEncryptions,omitempty"`
+	FieldLevelEncryptionProfiles     map[string]*FieldLevelEncryptionProfile `json:"fieldLevelEncryptionProfiles,omitempty"`
+	PublicKeys                       map[string]*PublicKey                   `json:"publicKeys,omitempty"`
+	KeyGroups                        map[string]*KeyGroup                    `json:"keyGroups,omitempty"`
+	RealtimeLogConfigs               map[string]*RealtimeLogConfig           `json:"realtimeLogConfigs,omitempty"`
+	KeyValueStores                   map[string]*KeyValueStore               `json:"keyValueStores,omitempty"`
+	VpcOrigins                       map[string]*VpcOrigin                   `json:"vpcOrigins,omitempty"`
+	DistributionFunctionAssociations map[string][]FunctionAssociation        `json:"distributionFunctionAssociations,omitempty"`
+	DistributionAliases              map[string][]string                     `json:"distributionAliases,omitempty"`
+	DistributionWebACLs              map[string]string                       `json:"distributionWebACLs,omitempty"`
+	DistributionTenantWebACLs        map[string]string                       `json:"distributionTenantWebACLs,omitempty"`
+	AccountID                        string                                  `json:"accountId"`
+	Region                           string                                  `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -31,23 +39,31 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Distributions:                b.distributions,
-		OAIs:                         b.oais,
-		Invalidations:                b.invalidations,
-		AnycastIPLists:               b.anycastIPLists,
-		CachePolicies:                b.cachePolicies,
-		ConnectionFunctions:          b.connectionFunctions,
-		ConnectionGroups:             b.connectionGroups,
-		ContinuousDeploymentPolicies: b.continuousDeploymentPolicies,
-		OriginAccessControls:         b.originAccessControls,
-		ResponseHeadersPolicies:      b.responseHeadersPolicies,
-		Functions:                    b.functions,
-		OriginRequestPolicies:        b.originRequestPolicies,
-		DistributionAliases:          b.distributionAliases,
-		DistributionWebACLs:          b.distributionWebACLs,
-		DistributionTenantWebACLs:    b.distributionTenantWebACLs,
-		AccountID:                    b.accountID,
-		Region:                       b.region,
+		Distributions:                    b.distributions,
+		OAIs:                             b.oais,
+		Invalidations:                    b.invalidations,
+		AnycastIPLists:                   b.anycastIPLists,
+		CachePolicies:                    b.cachePolicies,
+		ConnectionFunctions:              b.connectionFunctions,
+		ConnectionGroups:                 b.connectionGroups,
+		ContinuousDeploymentPolicies:     b.continuousDeploymentPolicies,
+		OriginAccessControls:             b.originAccessControls,
+		ResponseHeadersPolicies:          b.responseHeadersPolicies,
+		Functions:                        b.functions,
+		OriginRequestPolicies:            b.originRequestPolicies,
+		FieldLevelEncryptions:            b.fieldLevelEncryptions,
+		FieldLevelEncryptionProfiles:     b.fieldLevelEncryptionProfiles,
+		PublicKeys:                       b.publicKeys,
+		KeyGroups:                        b.keyGroups,
+		RealtimeLogConfigs:               b.realtimeLogConfigs,
+		KeyValueStores:                   b.keyValueStores,
+		VpcOrigins:                       b.vpcOrigins,
+		DistributionFunctionAssociations: b.distributionFunctionAssociations,
+		DistributionAliases:              b.distributionAliases,
+		DistributionWebACLs:              b.distributionWebACLs,
+		DistributionTenantWebACLs:        b.distributionTenantWebACLs,
+		AccountID:                        b.accountID,
+		Region:                           b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -64,13 +80,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 // Restore loads backend state from a JSON snapshot and rebuilds derived indexes.
 // backendIndexes holds the derived lookup indexes rebuilt from a snapshot.
 type backendIndexes struct {
-	distributionARNs            map[string]string
-	distributionCallerRefs      map[string]string
-	oaiCallerRefs               map[string]string
-	cachePolicyByName           map[string]string
-	originAccessControlByName   map[string]string
-	responseHeadersPolicyByName map[string]string
-	originRequestPolicyByName   map[string]string
+	distributionARNs                  map[string]string
+	distributionCallerRefs            map[string]string
+	oaiCallerRefs                     map[string]string
+	cachePolicyByName                 map[string]string
+	originAccessControlByName         map[string]string
+	responseHeadersPolicyByName       map[string]string
+	originRequestPolicyByName         map[string]string
+	fieldLevelEncryptionByName        map[string]string
+	fieldLevelEncryptionProfileByName map[string]string
+	publicKeyByName                   map[string]string
+	keyGroupByName                    map[string]string
+	realtimeLogConfigByName           map[string]string
+	keyValueStoreByName               map[string]string
 }
 
 // rebuildIndexes derives all secondary indexes from a snapshot.
@@ -117,14 +139,56 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 		orpByName[p.Name] = id
 	}
 
+	fleByName := make(map[string]string, len(snap.FieldLevelEncryptions))
+
+	for id, fle := range snap.FieldLevelEncryptions {
+		fleByName[fle.Name] = id
+	}
+
+	flePByName := make(map[string]string, len(snap.FieldLevelEncryptionProfiles))
+
+	for id, p := range snap.FieldLevelEncryptionProfiles {
+		flePByName[p.Name] = id
+	}
+
+	pkByName := make(map[string]string, len(snap.PublicKeys))
+
+	for id, pk := range snap.PublicKeys {
+		pkByName[pk.Name] = id
+	}
+
+	kgByName := make(map[string]string, len(snap.KeyGroups))
+
+	for id, kg := range snap.KeyGroups {
+		kgByName[kg.Name] = id
+	}
+
+	rlcByName := make(map[string]string, len(snap.RealtimeLogConfigs))
+
+	for arn, rlc := range snap.RealtimeLogConfigs {
+		rlcByName[rlc.Name] = arn
+	}
+
+	kvsByName := make(map[string]string, len(snap.KeyValueStores))
+
+	for id, kvs := range snap.KeyValueStores {
+		kvsByName[kvs.Name] = id
+	}
+
 	return backendIndexes{
-		distributionARNs:            arnIndex,
-		distributionCallerRefs:      callerRefIndex,
-		oaiCallerRefs:               oaiCallerRefIndex,
-		cachePolicyByName:           cachePolicyByName,
-		originAccessControlByName:   oacByName,
-		responseHeadersPolicyByName: rhpByName,
-		originRequestPolicyByName:   orpByName,
+		distributionARNs:                  arnIndex,
+		distributionCallerRefs:            callerRefIndex,
+		oaiCallerRefs:                     oaiCallerRefIndex,
+		cachePolicyByName:                 cachePolicyByName,
+		originAccessControlByName:         oacByName,
+		responseHeadersPolicyByName:       rhpByName,
+		originRequestPolicyByName:         orpByName,
+		fieldLevelEncryptionByName:        fleByName,
+		fieldLevelEncryptionProfileByName: flePByName,
+		publicKeyByName:                   pkByName,
+		keyGroupByName:                    kgByName,
+		realtimeLogConfigByName:           rlcByName,
+		keyValueStoreByName:               kvsByName,
 	}
 }
 
@@ -154,6 +218,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.responseHeadersPolicies = snap.ResponseHeadersPolicies
 	b.functions = snap.Functions
 	b.originRequestPolicies = snap.OriginRequestPolicies
+	b.fieldLevelEncryptions = snap.FieldLevelEncryptions
+	b.fieldLevelEncryptionProfiles = snap.FieldLevelEncryptionProfiles
+	b.publicKeys = snap.PublicKeys
+	b.keyGroups = snap.KeyGroups
+	b.realtimeLogConfigs = snap.RealtimeLogConfigs
+	b.keyValueStores = snap.KeyValueStores
+	b.vpcOrigins = snap.VpcOrigins
+	b.distributionFunctionAssociations = snap.DistributionFunctionAssociations
 	b.distributionAliases = snap.DistributionAliases
 	b.distributionWebACLs = snap.DistributionWebACLs
 	b.distributionTenantWebACLs = snap.DistributionTenantWebACLs
@@ -164,6 +236,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.originAccessControlByName = idx.originAccessControlByName
 	b.responseHeadersPolicyByName = idx.responseHeadersPolicyByName
 	b.originRequestPolicyByName = idx.originRequestPolicyByName
+	b.fieldLevelEncryptionByName = idx.fieldLevelEncryptionByName
+	b.fieldLevelEncryptionProfileByName = idx.fieldLevelEncryptionProfileByName
+	b.publicKeyByName = idx.publicKeyByName
+	b.keyGroupByName = idx.keyGroupByName
+	b.realtimeLogConfigByName = idx.realtimeLogConfigByName
+	b.keyValueStoreByName = idx.keyValueStoreByName
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -175,6 +253,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 func ensureNonNil(snap *backendSnapshot) {
 	ensureNonNilBaseEntities(snap)
 	ensureNonNilPolicies(snap)
+	ensureNonNilNewResources(snap)
 }
 
 func ensureNonNilBaseEntities(snap *backendSnapshot) {
@@ -238,6 +317,40 @@ func ensureNonNilPolicies(snap *backendSnapshot) {
 
 	if snap.OriginRequestPolicies == nil {
 		snap.OriginRequestPolicies = make(map[string]*OriginRequestPolicy)
+	}
+}
+
+func ensureNonNilNewResources(snap *backendSnapshot) {
+	if snap.FieldLevelEncryptions == nil {
+		snap.FieldLevelEncryptions = make(map[string]*FieldLevelEncryption)
+	}
+
+	if snap.FieldLevelEncryptionProfiles == nil {
+		snap.FieldLevelEncryptionProfiles = make(map[string]*FieldLevelEncryptionProfile)
+	}
+
+	if snap.PublicKeys == nil {
+		snap.PublicKeys = make(map[string]*PublicKey)
+	}
+
+	if snap.KeyGroups == nil {
+		snap.KeyGroups = make(map[string]*KeyGroup)
+	}
+
+	if snap.RealtimeLogConfigs == nil {
+		snap.RealtimeLogConfigs = make(map[string]*RealtimeLogConfig)
+	}
+
+	if snap.KeyValueStores == nil {
+		snap.KeyValueStores = make(map[string]*KeyValueStore)
+	}
+
+	if snap.VpcOrigins == nil {
+		snap.VpcOrigins = make(map[string]*VpcOrigin)
+	}
+
+	if snap.DistributionFunctionAssociations == nil {
+		snap.DistributionFunctionAssociations = make(map[string][]FunctionAssociation)
 	}
 }
 
