@@ -3,7 +3,11 @@ package cloudformation
 import (
 	"fmt"
 	"strings"
+
+	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 )
+
+const wafScopeRegional = "REGIONAL"
 
 // ---- EC2 Instance ----
 
@@ -208,122 +212,323 @@ func (rc *ResourceCreator) deleteIAMGroup(arn string) error {
 	return rc.backends.IAM.Backend.DeleteGroup(groupName)
 }
 
-// ---- ELBv2 LoadBalancer (stub — ELBv2 backend not yet in ServiceBackends) ----
+// ---- ELBv2 LoadBalancer ----
 
 func (rc *ResourceCreator) createELBv2LoadBalancer(
 	logicalID string,
-	_ map[string]any,
-	_, _ map[string]string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
 ) (string, error) {
-	return logicalID + "-stub", nil
+	if rc.backends.ELBv2 == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = strings.ToLower(logicalID)
+	}
+
+	lbType := strProp(props, "Type", params, physicalIDs)
+	if lbType == "" {
+		lbType = "application"
+	}
+
+	scheme := strProp(props, "Scheme", params, physicalIDs)
+
+	lb, err := rc.backends.ELBv2.Backend.CreateLoadBalancer(elbv2backend.CreateLoadBalancerInput{
+		Name:   name,
+		Type:   lbType,
+		Scheme: scheme,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create ELBv2 load balancer %s: %w", name, err)
+	}
+
+	return lb.LoadBalancerArn, nil
 }
 
-func (rc *ResourceCreator) deleteELBv2LoadBalancer(_ string) error {
-	return nil
+func (rc *ResourceCreator) deleteELBv2LoadBalancer(arn string) error {
+	if rc.backends.ELBv2 == nil {
+		return nil
+	}
+
+	return rc.backends.ELBv2.Backend.DeleteLoadBalancer(arn)
 }
 
-// ---- ELBv2 TargetGroup (stub) ----
+// ---- ELBv2 TargetGroup ----
 
 func (rc *ResourceCreator) createELBv2TargetGroup(
 	logicalID string,
-	_ map[string]any,
-	_, _ map[string]string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
 ) (string, error) {
-	return logicalID + "-stub", nil
+	if rc.backends.ELBv2 == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = strings.ToLower(logicalID)
+	}
+
+	tg, err := rc.backends.ELBv2.Backend.CreateTargetGroup(elbv2backend.CreateTargetGroupInput{
+		Name:       name,
+		Protocol:   strProp(props, "Protocol", params, physicalIDs),
+		VpcID:      strProp(props, "VpcId", params, physicalIDs),
+		TargetType: strProp(props, "TargetType", params, physicalIDs),
+	})
+	if err != nil {
+		return "", fmt.Errorf("create ELBv2 target group %s: %w", name, err)
+	}
+
+	return tg.TargetGroupArn, nil
 }
 
-func (rc *ResourceCreator) deleteELBv2TargetGroup(_ string) error {
-	return nil
+func (rc *ResourceCreator) deleteELBv2TargetGroup(arn string) error {
+	if rc.backends.ELBv2 == nil {
+		return nil
+	}
+
+	return rc.backends.ELBv2.Backend.DeleteTargetGroup(arn)
 }
 
-// ---- ELBv2 Listener (stub) ----
+// ---- ELBv2 Listener ----
 
 func (rc *ResourceCreator) createELBv2Listener(
 	logicalID string,
-	_ map[string]any,
-	_, _ map[string]string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
 ) (string, error) {
-	return logicalID + "-stub", nil
+	if rc.backends.ELBv2 == nil {
+		return logicalID + "-stub", nil
+	}
+
+	lbArn := strProp(props, "LoadBalancerArn", params, physicalIDs)
+	protocol := strProp(props, "Protocol", params, physicalIDs)
+
+	listener, err := rc.backends.ELBv2.Backend.CreateListener(elbv2backend.CreateListenerInput{
+		LoadBalancerArn: lbArn,
+		Protocol:        protocol,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create ELBv2 listener on %s: %w", lbArn, err)
+	}
+
+	return listener.ListenerArn, nil
 }
 
-func (rc *ResourceCreator) deleteELBv2Listener(_ string) error {
-	return nil
+func (rc *ResourceCreator) deleteELBv2Listener(arn string) error {
+	if rc.backends.ELBv2 == nil {
+		return nil
+	}
+
+	return rc.backends.ELBv2.Backend.DeleteListener(arn)
 }
 
-// ---- WAFv2 WebACL (stub — WAFv2 backend not yet in ServiceBackends) ----
+// ---- WAFv2 WebACL ----
 
 func (rc *ResourceCreator) createWAFv2WebACL(
 	logicalID string,
-	_ map[string]any,
-	_, _ map[string]string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
 ) (string, error) {
-	return logicalID + "-stub", nil
+	if rc.backends.WAFv2 == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
+	scope := strProp(props, "Scope", params, physicalIDs)
+	if scope == "" {
+		scope = wafScopeRegional
+	}
+
+	acl, err := rc.backends.WAFv2.Backend.CreateWebACL(name, scope, "", "ALLOW", "", nil)
+	if err != nil {
+		return "", fmt.Errorf("create WAFv2 WebACL %s: %w", name, err)
+	}
+
+	return acl.ID, nil
 }
 
-func (rc *ResourceCreator) deleteWAFv2WebACL(_ string) error {
-	return nil
+func (rc *ResourceCreator) deleteWAFv2WebACL(id string) error {
+	if rc.backends.WAFv2 == nil {
+		return nil
+	}
+
+	return rc.backends.WAFv2.Backend.DeleteWebACL(id)
 }
 
-// ---- WAFv2 IPSet (stub) ----
+// ---- WAFv2 IPSet ----
 
 func (rc *ResourceCreator) createWAFv2IPSet(
 	logicalID string,
-	_ map[string]any,
-	_, _ map[string]string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
 ) (string, error) {
-	return logicalID + "-stub", nil
+	if rc.backends.WAFv2 == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
+	scope := strProp(props, "Scope", params, physicalIDs)
+	if scope == "" {
+		scope = wafScopeRegional
+	}
+
+	ipVersion := strProp(props, "IPAddressVersion", params, physicalIDs)
+	if ipVersion == "" {
+		ipVersion = "IPV4"
+	}
+
+	ipset, err := rc.backends.WAFv2.Backend.CreateIPSet(name, scope, "", ipVersion, nil, nil)
+	if err != nil {
+		return "", fmt.Errorf("create WAFv2 IPSet %s: %w", name, err)
+	}
+
+	return ipset.ID, nil
 }
 
-func (rc *ResourceCreator) deleteWAFv2IPSet(_ string) error {
-	return nil
+func (rc *ResourceCreator) deleteWAFv2IPSet(id string) error {
+	if rc.backends.WAFv2 == nil {
+		return nil
+	}
+
+	return rc.backends.WAFv2.Backend.DeleteIPSet(id)
 }
 
-// ---- WAFv2 RuleGroup (stub) ----
+// ---- WAFv2 RuleGroup ----
 
 func (rc *ResourceCreator) createWAFv2RuleGroup(
 	logicalID string,
-	_ map[string]any,
-	_, _ map[string]string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
 ) (string, error) {
-	return logicalID + "-stub", nil
+	if rc.backends.WAFv2 == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
+	scope := strProp(props, "Scope", params, physicalIDs)
+	if scope == "" {
+		scope = wafScopeRegional
+	}
+
+	rg, err := rc.backends.WAFv2.Backend.CreateRuleGroup(name, scope, "", "", 0, nil, nil)
+	if err != nil {
+		return "", fmt.Errorf("create WAFv2 RuleGroup %s: %w", name, err)
+	}
+
+	return rg.ID, nil
 }
 
-// ---- Backup Vault (stub — Backup backend not yet in ServiceBackends) ----
+func (rc *ResourceCreator) deleteWAFv2RuleGroup(_ string) error {
+	return nil
+}
+
+// ---- Backup Vault ----
 
 func (rc *ResourceCreator) createBackupVault(
 	logicalID string,
-	_ map[string]any,
-	_, _ map[string]string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
 ) (string, error) {
-	return logicalID + "-stub", nil
+	if rc.backends.Backup == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "BackupVaultName", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
+	vault, err := rc.backends.Backup.Backend.CreateBackupVault(name, "", "", nil)
+	if err != nil {
+		return "", fmt.Errorf("create Backup Vault %s: %w", name, err)
+	}
+
+	return vault.BackupVaultArn, nil
 }
 
-func (rc *ResourceCreator) deleteBackupVault(_ string) error {
-	return nil
+func (rc *ResourceCreator) deleteBackupVault(arn string) error {
+	if rc.backends.Backup == nil {
+		return nil
+	}
+
+	name := resourceNameFromARN(arn)
+
+	return rc.backends.Backup.Backend.DeleteBackupVault(name)
 }
 
-// ---- Backup Plan (stub) ----
+// ---- Backup Plan ----
 
 func (rc *ResourceCreator) createBackupPlan(
 	logicalID string,
-	_ map[string]any,
+	props map[string]any,
 	_, _ map[string]string,
 ) (string, error) {
-	return logicalID + "-stub", nil
+	if rc.backends.Backup == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := logicalID
+	if planMap, ok := props["BackupPlan"].(map[string]any); ok {
+		if n, nOK := planMap["BackupPlanName"].(string); nOK && n != "" {
+			name = n
+		}
+	}
+
+	plan, err := rc.backends.Backup.Backend.CreateBackupPlan(name, nil, nil)
+	if err != nil {
+		return "", fmt.Errorf("create Backup Plan %s: %w", name, err)
+	}
+
+	return plan.BackupPlanID, nil
 }
 
-func (rc *ResourceCreator) deleteBackupPlan(_ string) error {
-	return nil
+func (rc *ResourceCreator) deleteBackupPlan(id string) error {
+	if rc.backends.Backup == nil {
+		return nil
+	}
+
+	return rc.backends.Backup.Backend.DeleteBackupPlan(id)
 }
 
-// ---- Backup Selection (stub) ----
+// ---- Backup Selection ----
 
 func (rc *ResourceCreator) createBackupSelection(
 	logicalID string,
-	_ map[string]any,
-	_, _ map[string]string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
 ) (string, error) {
-	return logicalID + "-stub", nil
+	if rc.backends.Backup == nil {
+		return logicalID + "-stub", nil
+	}
+
+	planID := strProp(props, "BackupPlanId", params, physicalIDs)
+	selectionName := strProp(props, "SelectionName", params, physicalIDs)
+	if selectionName == "" {
+		selectionName = logicalID
+	}
+
+	iamRoleArn := strProp(props, "IamRoleArn", params, physicalIDs)
+	sel, err := rc.backends.Backup.Backend.CreateBackupSelection(planID, selectionName, iamRoleArn)
+	if err != nil {
+		return "", fmt.Errorf("create Backup Selection %s: %w", selectionName, err)
+	}
+
+	return sel.SelectionID, nil
 }
 
 // ---- RDS DBCluster ----
