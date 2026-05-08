@@ -114,12 +114,15 @@ func (b *InMemoryBackend) ListPolicyVersions(policyArn string) ([]StoredPolicyVe
 	}
 
 	versions := make([]StoredPolicyVersion, 0, len(storedVersions)+1)
-	versions = append(versions, StoredPolicyVersion{
-		VersionID:        "v1",
-		PolicyDocument:   policy.PolicyDocument,
-		CreateDate:       policy.CreateDate,
-		IsDefaultVersion: isV1Default,
-	})
+
+	if !b.deletedV1Policies[policyArn] {
+		versions = append(versions, StoredPolicyVersion{
+			VersionID:        "v1",
+			PolicyDocument:   policy.PolicyDocument,
+			CreateDate:       policy.CreateDate,
+			IsDefaultVersion: isV1Default,
+		})
+	}
 
 	return append(versions, storedVersions...), nil
 }

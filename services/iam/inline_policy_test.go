@@ -1364,6 +1364,130 @@ func TestGetCredentialReport_Backend(t *testing.T) {
 	}
 }
 
+// TestSimulatePrincipalPolicy_GroupInheritance verifies that policies attached to an IAM group
+// are included when evaluating SimulatePrincipalPolicy for a group member.
+func TestSimulatePrincipalPolicy_GroupInheritance(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+
+	// Create group with an s3:* policy.
+	_, err := b.CreateGroup("engineers", "/")
+	require.NoError(t, err)
+
+	pol, err := b.CreatePolicy("GroupS3Policy", "/", allowS3WildcardPolicy)
+	require.NoError(t, err)
+
+	err = b.AttachGroupPolicy("engineers", pol.Arn)
+	require.NoError(t, err)
+
+	// Create user with no direct policies, add to group.
+	_, err = b.CreateUser("carol", "/", "")
+	require.NoError(t, err)
+
+	err = b.AddUserToGroup("engineers", "carol")
+	require.NoError(t, err)
+
+	// Simulate: s3:GetObject should be allowed via group membership.
+	results, err := b.SimulatePrincipalPolicy(
+		"arn:aws:iam::000000000000:user/carol",
+		[]string{"s3:GetObject"},
+		[]string{"*"},
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "allowed", results[0].Decision,
+		"group-attached policy should grant s3:GetObject to member user")
+
+	// After removing from group, the action should no longer be allowed.
+	err = b.RemoveUserFromGroup("engineers", "carol")
+	require.NoError(t, err)
+
+	results2, err := b.SimulatePrincipalPolicy(
+		"arn:aws:iam::000000000000:user/carol",
+		[]string{"s3:GetObject"},
+		[]string{"*"},
+	)
+	require.NoError(t, err)
+	require.Len(t, results2, 1)
+	assert.NotEqual(t, "allowed", results2[0].Decision,
+		"after group removal, s3:GetObject should no longer be allowed")
+}
+
+// TestSimulatePrincipalPolicy_GroupInlinePolicy verifies that group inline policies
+// are also inherited by group members during policy simulation.
+func TestSimulatePrincipalPolicy_GroupInlinePolicy(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+
+	_, err := b.CreateGroup("ops", "/")
+	require.NoError(t, err)
+
+	allowEC2Policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:*","Resource":"*"}]}`
+
+	// Attach an inline policy directly to the group.
+	err = b.PutGroupPolicy("ops", "ops-ec2-inline", allowEC2Policy)
+	require.NoError(t, err)
+
+	_, err = b.CreateUser("dave", "/", "")
+	require.NoError(t, err)
+
+	err = b.AddUserToGroup("ops", "dave")
+	require.NoError(t, err)
+
+	results, err := b.SimulatePrincipalPolicy(
+		"arn:aws:iam::000000000000:user/dave",
+		[]string{"ec2:DescribeInstances"},
+		[]string{"*"},
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "allowed", results[0].Decision,
+		"group inline policy should grant ec2 access to member user")
+}
+
+// TestSimulatePrincipalPolicy_MultipleResourcesAndActions verifies that the Cartesian product
+// of actions × resources is returned with the correct shape.
+func TestSimulatePrincipalPolicy_MultipleResourcesAndActions(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+
+	workerTrustDoc := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+
+	_, err := b.CreateRole("worker", "/", workerTrustDoc, "")
+	require.NoError(t, err)
+
+	allowS3Ec2Doc := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Action":["s3:*","ec2:*"],"Resource":"*"}]}`
+	pol, err := b.CreatePolicy("AllowS3Ec2", "/", allowS3Ec2Doc)
+	require.NoError(t, err)
+
+	err = b.AttachRolePolicy("worker", pol.Arn)
+	require.NoError(t, err)
+
+	actions := []string{"s3:GetObject", "s3:PutObject", "ec2:DescribeInstances"}
+	resources := []string{"arn:aws:s3:::my-bucket", "*"}
+
+	results, err := b.SimulatePrincipalPolicy(
+		"arn:aws:iam::000000000000:role/worker",
+		actions,
+		resources,
+	)
+	require.NoError(t, err)
+	assert.Len(t, results, len(actions)*len(resources),
+		"should return one result per action×resource pair")
+
+	for _, r := range results {
+		assert.NotEmpty(t, r.ActionName)
+		assert.NotEmpty(t, r.ResourceName)
+		assert.NotEmpty(t, r.Decision)
+		assert.Equal(t, "allowed", r.Decision, "all actions should be allowed by wildcard policy")
+	}
+}
+
 // splitLines splits a string on newlines, filtering empty lines.
 func splitLines(s string) []string {
 	var lines []string

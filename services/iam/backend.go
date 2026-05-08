@@ -126,6 +126,7 @@ type StorageBackend interface {
 	CreateGroup(groupName, path string) (*Group, error)
 	DeleteGroup(groupName string) error
 	GetGroup(groupName string) (*Group, error)
+	GetGroupUsers(groupName string) ([]User, error)
 	ListGroups(marker string, maxItems int) (page.Page[Group], error)
 	AddUserToGroup(groupName, userName string) error
 	RemoveUserFromGroup(groupName, userName string) error
@@ -305,6 +306,7 @@ type InMemoryBackend struct {
 	groupInlinePolicies  map[string]map[string]string
 	rolePolicies         map[string][]string
 	policyVersions       map[string][]StoredPolicyVersion
+	deletedV1Policies    map[string]bool // tracks policies where v1 has been explicitly deleted
 	serviceSpecificCreds map[string]ServiceSpecificCredential
 	virtualMFADevices    map[string]VirtualMFADevice
 	passwordPolicy       *PasswordPolicy
@@ -349,6 +351,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		policyAttachments:    make(map[string]policyAttachmentRefs),
 		accountAliases:       nil,
 		policyVersions:       make(map[string][]StoredPolicyVersion),
+		deletedV1Policies:    make(map[string]bool),
 		serviceSpecificCreds: make(map[string]ServiceSpecificCredential),
 		virtualMFADevices:    make(map[string]VirtualMFADevice),
 		delegationRequests:   make(map[string]DelegationRequest),
@@ -937,6 +940,27 @@ func (b *InMemoryBackend) GetGroup(groupName string) (*Group, error) {
 	}
 
 	return &g, nil
+}
+
+// GetGroupUsers returns the users that are members of the given group.
+func (b *InMemoryBackend) GetGroupUsers(groupName string) ([]User, error) {
+	b.mu.RLock("GetGroupUsers")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	members := b.groupMembers[groupName]
+	out := make([]User, 0, len(members))
+
+	for _, userName := range members {
+		if u, ok := b.users[userName]; ok {
+			out = append(out, u)
+		}
+	}
+
+	return out, nil
 }
 
 // AttachGroupPolicy attaches a policy to a group.
@@ -1975,7 +1999,11 @@ func (b *InMemoryBackend) collectPrincipalPolicies(principalArn string) ([]strin
 			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 		}
 
-		return b.collectEntityPolicies(b.userPolicies[userName], b.userInlinePolicies[userName]), nil
+		// Collect direct user policies plus group-inherited policies.
+		docs := b.collectEntityPolicies(b.userPolicies[userName], b.userInlinePolicies[userName])
+		docs = append(docs, b.collectGroupPoliciesForUser(userName)...)
+
+		return docs, nil
 
 	case strings.Contains(principalArn, rolePrefix):
 		idx := strings.LastIndex(principalArn, rolePrefix)
@@ -2012,6 +2040,24 @@ func (b *InMemoryBackend) collectEntityPolicies(
 		if doc != "" {
 			docs = append(docs, doc)
 		}
+	}
+
+	return docs
+}
+
+// collectGroupPoliciesForUser returns all policy documents inherited via group membership.
+// Real AWS evaluates group-attached and group-inline policies as part of the principal's
+// effective permissions.  Must be called with b.mu read-lock held.
+func (b *InMemoryBackend) collectGroupPoliciesForUser(userName string) []string {
+	var docs []string
+
+	for groupName, members := range b.groupMembers {
+		if !slices.Contains(members, userName) {
+			continue
+		}
+
+		groupDocs := b.collectEntityPolicies(b.groupPolicies[groupName], b.groupInlinePolicies[groupName])
+		docs = append(docs, groupDocs...)
 	}
 
 	return docs
