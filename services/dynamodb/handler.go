@@ -1239,7 +1239,7 @@ type globalTableReplicaWire struct {
 }
 
 type globalTableDescriptionWire struct {
-	CreationDateTime  string                   `json:"CreationDateTime,omitempty"`
+	CreationDateTime  float64                  `json:"CreationDateTime,omitempty"`
 	GlobalTableArn    string                   `json:"GlobalTableArn,omitempty"`
 	GlobalTableName   string                   `json:"GlobalTableName,omitempty"`
 	GlobalTableStatus string                   `json:"GlobalTableStatus,omitempty"`
@@ -1896,7 +1896,7 @@ func buildGlobalTableDescriptionWire(d *types.GlobalTableDescription) globalTabl
 	}
 
 	if d.CreationDateTime != nil {
-		wire.CreationDateTime = d.CreationDateTime.UTC().Format(time.RFC3339)
+		wire.CreationDateTime = float64(d.CreationDateTime.Unix())
 	}
 
 	return wire
