@@ -1051,6 +1051,20 @@ type createConfigurationOutput struct {
 	Name string `json:"name"`
 }
 
+type configurationRevision struct {
+	Description string `json:"description,omitempty"`
+	Revision    int64  `json:"revision"`
+}
+
+type describeConfigurationOutput struct {
+	Arn            string                `json:"arn"`
+	Name           string                `json:"name"`
+	Description    string                `json:"description,omitempty"`
+	State          string                `json:"state"`
+	LatestRevision configurationRevision `json:"latestRevision"`
+	KafkaVersions  []string              `json:"kafkaVersions,omitempty"`
+}
+
 type listConfigurationsOutput struct {
 	Configurations []*Configuration `json:"configurations"`
 }
@@ -1297,7 +1311,17 @@ func (h *Handler) handleDescribeConfiguration(c *echo.Context, configArn string)
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, config)
+	return c.JSON(http.StatusOK, describeConfigurationOutput{
+		Arn:           config.Arn,
+		Name:          config.Name,
+		Description:   config.Description,
+		KafkaVersions: config.KafkaVersions,
+		State:         "ACTIVE",
+		LatestRevision: configurationRevision{
+			Revision:    1,
+			Description: config.Description,
+		},
+	})
 }
 
 func (h *Handler) handleDeleteConfiguration(c *echo.Context, configArn string) error {
