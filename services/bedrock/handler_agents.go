@@ -94,6 +94,12 @@ func (h *AgentsHandler) Reset() {
 	h.Backend.kbByName = make(map[string]string)
 	h.Backend.dataSources = make(map[string]*DataSource)
 	h.Backend.ingestionJobs = make(map[string]*IngestionJob)
+	// Reset ID counters for deterministic IDs after reset.
+	h.Backend.agentCounter = 0
+	h.Backend.actionGroupCounter = 0
+	h.Backend.agentAliasCounter = 0
+	h.Backend.kbCounter = 0
+	h.Backend.dataSourceCounter = 0
 }
 
 // Route path constants.
@@ -409,8 +415,13 @@ func (h *AgentsHandler) dispatchActionGroupRoutes(
 	body []byte,
 ) error {
 	// suffix is like /action-groups or /action-groups/{agentVersion}/{id}
-	if suffix == "/action-groups" && method == http.MethodPost {
-		return h.handleCreateAgentActionGroup(c, agentID, body)
+	if suffix == "/action-groups" {
+		switch method {
+		case http.MethodPost:
+			return h.handleCreateAgentActionGroup(c, agentID, body)
+		case http.MethodGet:
+			return h.handleListAgentActionGroups(c, agentID)
+		}
 	}
 
 	if strings.HasPrefix(suffix, "/action-groups/") && method == http.MethodGet {

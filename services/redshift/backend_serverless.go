@@ -28,6 +28,8 @@ var (
 	ErrWorkgroupAlreadyExists = errors.New("ConflictException")
 	// ErrServerlessSnapshotNotFound is returned when a serverless snapshot does not exist.
 	ErrServerlessSnapshotNotFound = errors.New("ResourceNotFoundException")
+	// ErrServerlessConflict is returned when a serverless resource already exists.
+	ErrServerlessConflict = errors.New("ConflictException")
 	// ErrUsageLimitSLNotFound is returned when a serverless usage limit does not exist.
 	ErrUsageLimitSLNotFound = errors.New("ResourceNotFoundException")
 	// ErrScheduledActionSLNotFound is returned when a serverless scheduled action does not exist.
@@ -540,7 +542,7 @@ func (b *InMemoryBackend) CreateServerlessSnapshot(
 	if _, exists := b.slSnapshots[snapshotName]; exists {
 		return nil, fmt.Errorf(
 			"%w: snapshot %q already exists",
-			ErrServerlessSnapshotNotFound,
+			ErrServerlessConflict,
 			snapshotName,
 		)
 	}
@@ -823,7 +825,7 @@ func (b *InMemoryBackend) CreateServerlessScheduledAction(
 	if _, ok := b.slScheduledActions[scheduledActionName]; ok {
 		return nil, fmt.Errorf(
 			"%w: scheduled action %q already exists",
-			ErrScheduledActionSLNotFound,
+			ErrServerlessConflict,
 			scheduledActionName,
 		)
 	}

@@ -551,7 +551,7 @@ func (h *ServerlessHandler) handleGetCredentials(c *echo.Context, workgroupName 
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"dbPassword": secretKey,
-		"dbUser":     "IAMR:" + accessKeyID,
+		"dbUser":     accessKeyID, // backend already includes "IAMR:" prefix
 		"expiration": expiry,
 	})
 }
