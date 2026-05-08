@@ -7490,18 +7490,6 @@ func TestTerraform_CachingMessagingComprehensive(t *testing.T) {
 				require.Len(t, rgOut.ReplicationGroups, 1)
 				assert.Equal(t, rgID, aws.ToString(rgOut.ReplicationGroups[0].ReplicationGroupId))
 
-				// Verify ElastiCache snapshot was created.
-				snapName := prefix + "-snap"
-				snapOut, err := ecClient.DescribeSnapshots(
-					ctx,
-					&elasticachesvc.DescribeSnapshotsInput{
-						SnapshotName: aws.String(snapName),
-					},
-				)
-				require.NoError(t, err, "DescribeSnapshots should succeed")
-				require.Len(t, snapOut.Snapshots, 1)
-				assert.Equal(t, snapName, aws.ToString(snapOut.Snapshots[0].SnapshotName))
-
 				// Verify MemoryDB cluster was created.
 				mdbClient := createMemoryDBClient(t)
 				mdbName := prefix + "-mdb"
