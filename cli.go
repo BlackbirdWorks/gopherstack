@@ -2341,6 +2341,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
 	wireSNSToSQS(byName["SNS"], byName["SQS"])
 
+	// Wire SQS → CloudWatch metric emission for NumberOfMessagesSent/Received/Deleted.
+	wireSQSMetrics(byName["SQS"], byName["CloudWatch"])
+
 	// Wire EventBridge target fan-out: deliver events to Lambda, SQS, SNS targets.
 	wireEventBridgeDelivery(byName["EventBridge"], byName["Lambda"], byName["SQS"], byName["SNS"])
 
@@ -2766,6 +2769,35 @@ func wireSNSToSQS(snsReg, sqsReg service.Registerable) {
 	emitter := snsevents.NewInMemoryEmitter[*snsevents.SNSPublishedEvent]()
 	snsBk.SetPublishEmitter(emitter)
 	sqsBk.SubscribeToSNS(emitter)
+}
+
+// wireSQSMetrics wires the CloudWatch metric emitter into the SQS backend so that
+// SendMessage, ReceiveMessage, and DeleteMessage operations emit CloudWatch metrics.
+func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
+	sqsH, ok1 := sqsReg.(*sqsbackend.Handler)
+	cwH, ok2 := cwReg.(*cwbackend.Handler)
+
+	if !ok1 || !ok2 {
+		return
+	}
+
+	sqsBk, bk1Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend)
+	cwBk, bk2Ok := cwH.Backend.(*cwbackend.InMemoryBackend)
+
+	if !bk1Ok || !bk2Ok {
+		return
+	}
+
+	sqsBk.SetMetricEmitter(sqsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
+		return cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+			{
+				MetricName: name,
+				Value:      value,
+				Unit:       unit,
+				Timestamp:  time.Now(),
+			},
+		})
+	}))
 }
 
 // wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, and SNS backends.
