@@ -306,6 +306,7 @@ type InMemoryBackend struct {
 	groupInlinePolicies  map[string]map[string]string
 	rolePolicies         map[string][]string
 	policyVersions       map[string][]StoredPolicyVersion
+	deletedV1Policies    map[string]bool // tracks policies where v1 has been explicitly deleted
 	serviceSpecificCreds map[string]ServiceSpecificCredential
 	virtualMFADevices    map[string]VirtualMFADevice
 	passwordPolicy       *PasswordPolicy
@@ -350,6 +351,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		policyAttachments:    make(map[string]policyAttachmentRefs),
 		accountAliases:       nil,
 		policyVersions:       make(map[string][]StoredPolicyVersion),
+		deletedV1Policies:    make(map[string]bool),
 		serviceSpecificCreds: make(map[string]ServiceSpecificCredential),
 		virtualMFADevices:    make(map[string]VirtualMFADevice),
 		delegationRequests:   make(map[string]DelegationRequest),

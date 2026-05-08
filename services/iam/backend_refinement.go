@@ -199,18 +199,27 @@ func (b *InMemoryBackend) DeletePolicyVersion(policyArn, versionID string) error
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
-	// v1 is stored implicitly when no policyVersions entry exists.
-	// If v1 is being deleted, check whether it is still the default.
+	// v1 is stored implicitly. If being deleted, verify it is not the current default.
 	if versionID == "v1" {
+		nonV1IsDefault := false
+
 		for _, v := range b.policyVersions[policyArn] {
 			if v.IsDefaultVersion {
-				// Some other version is default — v1 is safe to delete (mark it deleted).
-				return nil
+				nonV1IsDefault = true
+
+				break
 			}
 		}
 
-		// No stored version is marked default → v1 is still default; cannot delete.
-		return fmt.Errorf("%w: cannot delete the default version v1", ErrDeleteConflict)
+		if !nonV1IsDefault {
+			// v1 is still the default; cannot delete.
+			return fmt.Errorf("%w: cannot delete the default version v1", ErrDeleteConflict)
+		}
+
+		// Mark v1 as deleted for this policy.
+		b.deletedV1Policies[policyArn] = true
+
+		return nil
 	}
 
 	versions := b.policyVersions[policyArn]
