@@ -286,9 +286,15 @@ type InMemoryBackend struct {
 	resourcePolicies    map[string]*ResourcePolicy
 	tableRestores       map[string]*TableRestoreStatus
 	snapshotCopyConfigs map[string]*SnapshotCopyConfig
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
+	// Serverless resources
+	slNamespaces       map[string]*Namespace
+	slWorkgroups       map[string]*Workgroup
+	slSnapshots        map[string]*ServerlessSnapshot
+	slUsageLimits      map[string]*ServerlessUsageLimit
+	slScheduledActions map[string]*ServerlessScheduledAction
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -314,6 +320,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		resourcePolicies:    make(map[string]*ResourcePolicy),
 		tableRestores:       make(map[string]*TableRestoreStatus),
 		snapshotCopyConfigs: make(map[string]*SnapshotCopyConfig),
+		slNamespaces:        make(map[string]*Namespace),
+		slWorkgroups:        make(map[string]*Workgroup),
+		slSnapshots:         make(map[string]*ServerlessSnapshot),
+		slUsageLimits:       make(map[string]*ServerlessUsageLimit),
+		slScheduledActions:  make(map[string]*ServerlessScheduledAction),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("redshift"),
@@ -349,6 +360,11 @@ func (b *InMemoryBackend) Reset() {
 	b.resourcePolicies = make(map[string]*ResourcePolicy)
 	b.tableRestores = make(map[string]*TableRestoreStatus)
 	b.snapshotCopyConfigs = make(map[string]*SnapshotCopyConfig)
+	b.slNamespaces = make(map[string]*Namespace)
+	b.slWorkgroups = make(map[string]*Workgroup)
+	b.slSnapshots = make(map[string]*ServerlessSnapshot)
+	b.slUsageLimits = make(map[string]*ServerlessUsageLimit)
+	b.slScheduledActions = make(map[string]*ServerlessScheduledAction)
 }
 
 // Region returns the AWS region this backend is configured for.

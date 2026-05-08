@@ -231,22 +231,38 @@ type InMemoryBackend struct {
 	customizationJobsByName     map[string]string // job name → ARN
 	inferenceProfilesByName     map[string]string // profile name → ARN
 	marketplaceEndpointsByName  map[string]string // endpoint name → ARN
-	mu                          *lockmetrics.RWMutex
-	accountID                   string
-	region                      string
-	foundationModels            []*FoundationModelSummary
-	guardrailCounter            int
-	guardrailVersionCounter     int
-	provisionedCounter          int
-	evaluationJobCounter        int
-	arpCounter                  int
-	arpWorkflowCounter          int
-	arpTestCaseCounter          int
-	customModelCounter          int
-	customModelDeployCounter    int
-	customizationJobCounter     int
-	inferenceProfileCounter     int
-	marketplaceEndpointCounter  int
+	// Agents
+	agents                     map[string]*Agent
+	agentsByName               map[string]string                         // agentName → agentID
+	agentActionGroups          map[string]*AgentActionGroup              // agentID/actionGroupID → group
+	agentAliases               map[string]*AgentAlias                    // agentID/aliasID → alias
+	agentKBAssociations        map[string]*AgentKnowledgeBaseAssociation // agentID/kbID → assoc
+	knowledgeBases             map[string]*KnowledgeBase                 // kbID → kb
+	kbByName                   map[string]string                         // kbName → kbID
+	dataSources                map[string]*DataSource                    // kbID/dsID → ds
+	ingestionJobs              map[string]*IngestionJob                  // kbID/dsID/jobID → job
+	mu                         *lockmetrics.RWMutex
+	accountID                  string
+	region                     string
+	foundationModels           []*FoundationModelSummary
+	guardrailCounter           int
+	guardrailVersionCounter    int
+	provisionedCounter         int
+	evaluationJobCounter       int
+	arpCounter                 int
+	arpWorkflowCounter         int
+	arpTestCaseCounter         int
+	customModelCounter         int
+	customModelDeployCounter   int
+	customizationJobCounter    int
+	inferenceProfileCounter    int
+	marketplaceEndpointCounter int
+	agentCounter               int
+	actionGroupCounter         int
+	agentAliasCounter          int
+	kbCounter                  int
+	dataSourceCounter          int
+	ingestionJobCounter        int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend pre-seeded with foundation models.
@@ -277,6 +293,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		customizationJobsByName:     make(map[string]string),
 		inferenceProfilesByName:     make(map[string]string),
 		marketplaceEndpointsByName:  make(map[string]string),
+		agents:                      make(map[string]*Agent),
+		agentsByName:                make(map[string]string),
+		agentActionGroups:           make(map[string]*AgentActionGroup),
+		agentAliases:                make(map[string]*AgentAlias),
+		agentKBAssociations:         make(map[string]*AgentKnowledgeBaseAssociation),
+		knowledgeBases:              make(map[string]*KnowledgeBase),
+		kbByName:                    make(map[string]string),
+		dataSources:                 make(map[string]*DataSource),
+		ingestionJobs:               make(map[string]*IngestionJob),
 		accountID:                   accountID,
 		region:                      region,
 		mu:                          lockmetrics.New("bedrock"),
@@ -291,6 +316,8 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // Reset clears all state, returning the backend to its initial seeded state.
 // The accountID, region, and seeded foundation models are preserved.
+//
+//nolint:funlen // Reset must clear all maps; the length is proportional to the number of resource types
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
@@ -321,6 +348,21 @@ func (b *InMemoryBackend) Reset() {
 	b.customizationJobsByName = make(map[string]string)
 	b.inferenceProfilesByName = make(map[string]string)
 	b.marketplaceEndpointsByName = make(map[string]string)
+	b.agents = make(map[string]*Agent)
+	b.agentsByName = make(map[string]string)
+	b.agentActionGroups = make(map[string]*AgentActionGroup)
+	b.agentAliases = make(map[string]*AgentAlias)
+	b.agentKBAssociations = make(map[string]*AgentKnowledgeBaseAssociation)
+	b.knowledgeBases = make(map[string]*KnowledgeBase)
+	b.kbByName = make(map[string]string)
+	b.dataSources = make(map[string]*DataSource)
+	b.ingestionJobs = make(map[string]*IngestionJob)
+	b.agentCounter = 0
+	b.actionGroupCounter = 0
+	b.agentAliasCounter = 0
+	b.kbCounter = 0
+	b.dataSourceCounter = 0
+	b.ingestionJobCounter = 0
 	b.guardrailCounter = 0
 	b.guardrailVersionCounter = 0
 	b.provisionedCounter = 0

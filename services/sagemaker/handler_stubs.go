@@ -849,7 +849,7 @@ func stubResponseFor(op string) ([]byte, bool) {
 
 	case "DescribePipelineExecution":
 		return mustMarshal(m{
-			keyPipelineExecutionArn: "", keyPipelineExecutionStatus: "Succeeded",
+			keyPipelineExecutionArn: "", keyPipelineExecutionStatus: pipelineStatusSucceeded,
 		}), true
 
 	case "DescribeProcessingJob":

@@ -316,7 +316,7 @@ func (b *InMemoryBackend) StopTrainingJob(name string) error {
 		return fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
 
-	tj.TrainingJobStatus = "Stopping"
+	tj.TrainingJobStatus = pipelineStatusStopping
 	tj.LastModifiedTime = time.Now()
 
 	return nil
@@ -578,7 +578,7 @@ func (b *InMemoryBackend) StopHyperParameterTuningJob(name string) error {
 		return fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
 	}
 
-	j.HyperParameterTuningJobStatus = "Stopping"
+	j.HyperParameterTuningJobStatus = pipelineStatusStopping
 	j.LastModifiedTime = time.Now()
 
 	return nil
