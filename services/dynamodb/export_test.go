@@ -421,6 +421,44 @@ func NthSmallestForTest(ts []time.Time, n int) time.Time {
 	return nthSmallest(ts, n)
 }
 
+// ---- accuracy_audit.go exports ----
+
+// ValidateEAVTypes exposes validateEAVTypes for external tests.
+func ValidateEAVTypes(eav map[string]any) error {
+	return validateEAVTypes(eav)
+}
+
+// ValidateAttributeNames exposes validateAttributeNames for external tests.
+func ValidateAttributeNames(item map[string]any) error {
+	return validateAttributeNames(item)
+}
+
+// IsItemExpiredWithGrace exposes isItemExpiredWithGrace for external tests.
+func IsItemExpiredWithGrace(item map[string]any, ttlAttr string, grace time.Duration) bool {
+	return isItemExpiredWithGrace(item, ttlAttr, grace)
+}
+
+// BuildConsumedCapacityWithIndexes exposes buildConsumedCapacityWithIndexes for external tests.
+func BuildConsumedCapacityWithIndexes(
+	tableName string,
+	req types.ReturnConsumedCapacity,
+	tableRCU, tableWCU float64,
+	gsiRCU, gsiWCU map[string]float64,
+	lsiRCU, lsiWCU map[string]float64,
+) *types.ConsumedCapacity {
+	return buildConsumedCapacityWithIndexes(tableName, req, tableRCU, tableWCU, gsiRCU, gsiWCU, lsiRCU, lsiWCU)
+}
+
+// ValidateTransactWriteItems exposes validateTransactWriteItems for external tests.
+func ValidateTransactWriteItems(items []types.TransactWriteItem, tables map[string]*Table) error {
+	return validateTransactWriteItems(items, tables)
+}
+
+// ValidateScanSegment exposes validateScanSegment for external tests.
+func ValidateScanSegment(segment, totalSegments int32) error {
+	return validateScanSegment(segment, totalSegments)
+}
+
 // HandleRequest exposes the handler's dispatch method for use in tests.
 // It calls the internal dispatch function and returns the result.
 func (h *DynamoDBHandler) HandleRequest(ctx context.Context, action string, body []byte) (any, error) {

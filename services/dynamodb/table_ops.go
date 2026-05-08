@@ -69,6 +69,15 @@ func (db *InMemoryDB) CreateTable(
 		return nil, err
 	}
 
+	// Enforce GSI/LSI count limits before constructing the table.
+	if err := validateGSICount(nil, len(input.GlobalSecondaryIndexes)); err != nil {
+		return nil, err
+	}
+
+	if err := validateLSICount(models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes)); err != nil {
+		return nil, err
+	}
+
 	newTable := newTableFromCreateInput(tableName, input)
 	newTable.TableID = uuid.New().String()
 	newTable.CreationDateTime = time.Now().UTC()
@@ -653,39 +662,10 @@ func (db *InMemoryDB) UpdateTable(
 		region       = getRegionFromContext(ctx, db)
 	)
 
-	if updateErr := func() error {
-		table.mu.Lock("UpdateTable")
-		defer table.mu.Unlock()
-
-		applyUpdateTableThroughput(table, input.ProvisionedThroughput)
-		applyUpdateTableAttrDefs(table, input.AttributeDefinitions)
-		if len(input.GlobalSecondaryIndexUpdates) > 0 {
-			db.applyGSIUpdates(table, input.GlobalSecondaryIndexUpdates)
-		}
-		oldStreamARN, newStreamARN = db.applyStreamSpec(table, tableName, input.StreamSpecification)
-
-		if replicaErr := applyReplicaUpdates(table, input.ReplicaUpdates); replicaErr != nil {
-			return NewValidationException(replicaErr.Error())
-		}
-
-		if input.DeletionProtectionEnabled != nil {
-			table.DeletionProtectionEnabled = *input.DeletionProtectionEnabled
-		}
-
-		if input.TableClass != "" {
-			table.TableClass = string(input.TableClass)
-		}
-
-		if input.BillingMode != "" {
-			table.BillingMode = string(input.BillingMode)
-		}
-
-		rcu = int64(table.ProvisionedThroughput.ReadCapacityUnits)
-		wcu = int64(table.ProvisionedThroughput.WriteCapacityUnits)
-		out = buildUpdateTableOutput(input, table)
-
-		return nil
-	}(); updateErr != nil {
+	if updateErr := db.applyUpdateTableLocked(
+		table, tableName, input,
+		&oldStreamARN, &newStreamARN, &rcu, &wcu, &out,
+	); updateErr != nil {
 		return nil, updateErr
 	}
 
@@ -714,6 +694,53 @@ func (db *InMemoryDB) UpdateTable(
 	}
 
 	return out, nil
+}
+
+// applyUpdateTableLocked applies all table mutations under table.mu. It is extracted from
+// UpdateTable to reduce cognitive complexity of the parent function.
+func (db *InMemoryDB) applyUpdateTableLocked(
+	table *Table,
+	tableName string,
+	input *dynamodb.UpdateTableInput,
+	oldStreamARN, newStreamARN *string,
+	rcu, wcu *int64,
+	out **dynamodb.UpdateTableOutput,
+) error {
+	table.mu.Lock("UpdateTable")
+	defer table.mu.Unlock()
+
+	applyUpdateTableThroughput(table, input.ProvisionedThroughput)
+	applyUpdateTableAttrDefs(table, input.AttributeDefinitions)
+
+	if len(input.GlobalSecondaryIndexUpdates) > 0 {
+		if gsiErr := db.applyGSIUpdates(table, input.GlobalSecondaryIndexUpdates); gsiErr != nil {
+			return gsiErr
+		}
+	}
+
+	*oldStreamARN, *newStreamARN = db.applyStreamSpec(table, tableName, input.StreamSpecification)
+
+	if replicaErr := applyReplicaUpdates(table, input.ReplicaUpdates); replicaErr != nil {
+		return NewValidationException(replicaErr.Error())
+	}
+
+	if input.DeletionProtectionEnabled != nil {
+		table.DeletionProtectionEnabled = *input.DeletionProtectionEnabled
+	}
+
+	if input.TableClass != "" {
+		table.TableClass = string(input.TableClass)
+	}
+
+	if input.BillingMode != "" {
+		table.BillingMode = string(input.BillingMode)
+	}
+
+	*rcu = int64(table.ProvisionedThroughput.ReadCapacityUnits)
+	*wcu = int64(table.ProvisionedThroughput.WriteCapacityUnits)
+	*out = buildUpdateTableOutput(input, table)
+
+	return nil
 }
 
 // applyReplicaTableEntries creates or removes physical Table entries for Global Tables v2
@@ -877,20 +904,29 @@ func applyUpdateTableAttrDefs(table *Table, sdkADs []types.AttributeDefinition) 
 }
 
 // applyGSIUpdates applies Create / Update / Delete GSI actions.
-func (db *InMemoryDB) applyGSIUpdates(table *Table, updates []types.GlobalSecondaryIndexUpdate) {
+// Returns the first error encountered (e.g. LimitExceededException).
+func (db *InMemoryDB) applyGSIUpdates(table *Table, updates []types.GlobalSecondaryIndexUpdate) error {
 	for _, u := range updates {
 		switch {
 		case u.Create != nil:
-			db.applyGSICreate(table, u.Create)
+			if err := db.applyGSICreate(table, u.Create); err != nil {
+				return err
+			}
 		case u.Update != nil:
 			db.applyGSIUpdate(table, u.Update)
 		case u.Delete != nil:
 			db.applyGSIDelete(table, u.Delete)
 		}
 	}
+
+	return nil
 }
 
-func (db *InMemoryDB) applyGSICreate(table *Table, c *types.CreateGlobalSecondaryIndexAction) {
+func (db *InMemoryDB) applyGSICreate(table *Table, c *types.CreateGlobalSecondaryIndexAction) error {
+	if err := validateGSICount(table.GlobalSecondaryIndexes, 1); err != nil {
+		return err
+	}
+
 	newGSI := models.GlobalSecondaryIndex{
 		IndexName:  aws.ToString(c.IndexName),
 		KeySchema:  models.FromSDKKeySchema(c.KeySchema),
@@ -937,6 +973,8 @@ func (db *InMemoryDB) applyGSICreate(table *Table, c *types.CreateGlobalSecondar
 	// definition is added. initializeIndexes() would clear the primary key index,
 	// forcing O(n) scans for all subsequent primary-key queries.
 	table.rebuildIndexes()
+
+	return nil
 }
 
 func (db *InMemoryDB) applyGSIUpdate(table *Table, u *types.UpdateGlobalSecondaryIndexAction) { // Changed to method

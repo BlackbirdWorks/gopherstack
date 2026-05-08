@@ -82,6 +82,11 @@ func (db *InMemoryDB) executeTransactWrite(
 		}
 	}()
 
+	// Pre-phase: validate duplicate keys and total size.
+	if dupErr := validateTransactWriteItems(input.TransactItems, tables); dupErr != nil {
+		return nil, dupErr
+	}
+
 	// Phase 1: Check conditions.
 	reasons := make([]CancellationReason, len(input.TransactItems))
 	for i := range reasons {
