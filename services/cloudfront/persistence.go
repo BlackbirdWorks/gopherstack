@@ -6,31 +6,38 @@ import (
 )
 
 type backendSnapshot struct {
-	Distributions                    map[string]*Distribution                `json:"distributions"`
-	OAIs                             map[string]*OriginAccessIdentity        `json:"oais"`
-	Invalidations                    map[string][]*Invalidation              `json:"invalidations,omitempty"`
-	AnycastIPLists                   map[string]*AnycastIPList               `json:"anycastIPLists,omitempty"`
-	CachePolicies                    map[string]*CachePolicy                 `json:"cachePolicies,omitempty"`
-	ConnectionFunctions              map[string]*ConnectionFunction          `json:"connectionFunctions,omitempty"`
-	ConnectionGroups                 map[string]*ConnectionGroup             `json:"connectionGroups,omitempty"`
-	ContinuousDeploymentPolicies     map[string]*ContinuousDeploymentPolicy  `json:"continuousDeploymentPolicies,omitempty"`
-	OriginAccessControls             map[string]*OriginAccessControl         `json:"originAccessControls,omitempty"`
-	ResponseHeadersPolicies          map[string]*ResponseHeadersPolicy       `json:"responseHeadersPolicies,omitempty"`
-	Functions                        map[string]*Function                    `json:"functions,omitempty"`
-	OriginRequestPolicies            map[string]*OriginRequestPolicy         `json:"originRequestPolicies,omitempty"`
-	FieldLevelEncryptions            map[string]*FieldLevelEncryption        `json:"fieldLevelEncryptions,omitempty"`
-	FieldLevelEncryptionProfiles     map[string]*FieldLevelEncryptionProfile `json:"fieldLevelEncryptionProfiles,omitempty"`
-	PublicKeys                       map[string]*PublicKey                   `json:"publicKeys,omitempty"`
-	KeyGroups                        map[string]*KeyGroup                    `json:"keyGroups,omitempty"`
-	RealtimeLogConfigs               map[string]*RealtimeLogConfig           `json:"realtimeLogConfigs,omitempty"`
-	KeyValueStores                   map[string]*KeyValueStore               `json:"keyValueStores,omitempty"`
-	VpcOrigins                       map[string]*VpcOrigin                   `json:"vpcOrigins,omitempty"`
-	DistributionFunctionAssociations map[string][]FunctionAssociation        `json:"distributionFunctionAssociations,omitempty"`
-	DistributionAliases              map[string][]string                     `json:"distributionAliases,omitempty"`
-	DistributionWebACLs              map[string]string                       `json:"distributionWebACLs,omitempty"`
-	DistributionTenantWebACLs        map[string]string                       `json:"distributionTenantWebACLs,omitempty"`
-	AccountID                        string                                  `json:"accountId"`
-	Region                           string                                  `json:"region"`
+	Distributions  map[string]*Distribution         `json:"distributions"`
+	OAIs           map[string]*OriginAccessIdentity `json:"oais"`
+	Invalidations  map[string][]*Invalidation       `json:"invalidations,omitempty"`
+	AnycastIPLists map[string]*AnycastIPList        `json:"anycastIPLists,omitempty"`
+
+	CachePolicies       map[string]*CachePolicy        `json:"cachePolicies,omitempty"`
+	ConnectionFunctions map[string]*ConnectionFunction `json:"connectionFunctions,omitempty"`
+	ConnectionGroups    map[string]*ConnectionGroup    `json:"connectionGroups,omitempty"`
+
+	ContinuousDeploymentPolicies map[string]*ContinuousDeploymentPolicy `json:"continuousDeploymentPolicies,omitempty"`
+
+	OriginAccessControls    map[string]*OriginAccessControl   `json:"originAccessControls,omitempty"`
+	ResponseHeadersPolicies map[string]*ResponseHeadersPolicy `json:"responseHeadersPolicies,omitempty"`
+	Functions               map[string]*Function              `json:"functions,omitempty"`
+	OriginRequestPolicies   map[string]*OriginRequestPolicy   `json:"originRequestPolicies,omitempty"`
+
+	FieldLevelEncryptions        map[string]*FieldLevelEncryption        `json:"fieldLevelEncryptions,omitempty"`
+	FieldLevelEncryptionProfiles map[string]*FieldLevelEncryptionProfile `json:"fieldLevelEncryptionProfiles,omitempty"`
+
+	PublicKeys         map[string]*PublicKey         `json:"publicKeys,omitempty"`
+	KeyGroups          map[string]*KeyGroup          `json:"keyGroups,omitempty"`
+	RealtimeLogConfigs map[string]*RealtimeLogConfig `json:"realtimeLogConfigs,omitempty"`
+	KeyValueStores     map[string]*KeyValueStore     `json:"keyValueStores,omitempty"`
+	VpcOrigins         map[string]*VpcOrigin         `json:"vpcOrigins,omitempty"`
+
+	DistributionFunctionAssociations map[string][]FunctionAssociation `json:"distributionFunctionAssociations,omitempty"`
+	DistributionAliases              map[string][]string              `json:"distributionAliases,omitempty"`
+	DistributionWebACLs              map[string]string                `json:"distributionWebACLs,omitempty"`
+	DistributionTenantWebACLs        map[string]string                `json:"distributionTenantWebACLs,omitempty"`
+
+	AccountID string `json:"accountId"`
+	Region    string `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
