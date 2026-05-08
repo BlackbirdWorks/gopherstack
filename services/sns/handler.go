@@ -592,14 +592,8 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 					"MessageGroupId is required for FIFO topics")
 			}
 
-			// Enforce MessageDeduplicationId with 5-minute TTL per AWS FIFO semantics.
-			dedupID := c.Request().FormValue("MessageDeduplicationId")
-			if dedupID != "" && h.dedup.isDuplicate(topicArn, dedupID) {
-				// AWS returns the original MessageId on duplicates; we return a new one for simplicity.
-				return h.writeXML(c, PublishResponse{
-					PublishResult:    PublishResult{MessageID: uuid.New().String()},
-					ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
-				})
+			if resp := h.checkFIFODedup(c, topicArn); resp != nil {
+				return resp
 			}
 		}
 
@@ -608,10 +602,7 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 			return h.handleBackendError(c, err)
 		}
 
-		// Record dedup ID only after successful publish.
-		if dedupID := c.Request().FormValue("MessageDeduplicationId"); dedupID != "" {
-			h.dedup.record(topicArn, dedupID)
-		}
+		h.recordFIFODedup(c, topicArn)
 	case targetArn != "":
 		// TargetArn addresses a platform endpoint. In the mock, generate a message ID.
 		messageID, err = h.Backend.PublishToTargetArn(targetArn, message, subject, attrs)
@@ -630,6 +621,26 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		PublishResult:    PublishResult{MessageID: messageID},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
+}
+
+// checkFIFODedup checks for a duplicate FIFO message. Returns a response if it's a duplicate.
+func (h *Handler) checkFIFODedup(c *echo.Context, topicArn string) error {
+	dedupID := c.Request().FormValue("MessageDeduplicationId")
+	if dedupID == "" || !h.dedup.isDuplicate(topicArn, dedupID) {
+		return nil
+	}
+
+	return h.writeXML(c, PublishResponse{
+		PublishResult:    PublishResult{MessageID: uuid.New().String()},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+// recordFIFODedup records the dedup ID after a successful publish.
+func (h *Handler) recordFIFODedup(c *echo.Context, topicArn string) {
+	if dedupID := c.Request().FormValue("MessageDeduplicationId"); dedupID != "" {
+		h.dedup.record(topicArn, dedupID)
+	}
 }
 
 func (h *Handler) handlePublishBatch(c *echo.Context) error {

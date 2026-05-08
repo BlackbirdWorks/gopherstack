@@ -733,8 +733,7 @@ func extractStorageLensConfigOp(path, method string) string {
 
 // extractStorageLensGroupOp handles storage lens group operations.
 func extractStorageLensGroupOp(path, method string) string {
-	switch path {
-	case pathStorageLensGroup:
+	if path == pathStorageLensGroup {
 		switch method {
 		case http.MethodPost:
 			return "CreateStorageLensGroup"
@@ -1268,8 +1267,7 @@ func (h *Handler) dispatchStorageLensConfigDispatch(c *echo.Context, path, metho
 
 // dispatchStorageLensGroupDispatch handles storage lens group dispatch.
 func (h *Handler) dispatchStorageLensGroupDispatch(c *echo.Context, path, method string) (bool, error) {
-	switch path {
-	case pathStorageLensGroup:
+	if path == pathStorageLensGroup {
 		switch method {
 		case http.MethodPost:
 			return true, h.handleCreateStorageLensGroup(c)

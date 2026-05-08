@@ -1329,7 +1329,10 @@ func parseAPIGWRestAPIsDepth3Core(method, sub string, apiParam map[string]string
 }
 
 // parseAPIGWRestAPIsDepth3Extended handles authorizers, validators, models, and gateway responses depth-3 paths.
-func parseAPIGWRestAPIsDepth3Extended(method, sub string, apiParam map[string]string) (string, map[string]string, bool) {
+func parseAPIGWRestAPIsDepth3Extended(
+	method, sub string,
+	apiParam map[string]string,
+) (string, map[string]string, bool) {
 	switch sub {
 	case apiGWSegAuthorizers:
 		switch method {
@@ -1605,7 +1608,8 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 	}
 
 	if len(segs) > idxIntegSeg {
-		if op, params, ok := parseAPIGWMethodSubPath(method, segs, idxIntegSeg, idxRespSeg, apiID, resID, httpMethod, baseParams); ok || op == apiGWUnknownOp {
+		if op, params, ok := parseAPIGWMethodSubPath(method, segs, idxIntegSeg, idxRespSeg, apiID, resID, httpMethod, baseParams); ok ||
+			op == apiGWUnknownOp {
 			return op, params, ok
 		}
 	}
@@ -1614,7 +1618,13 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 }
 
 // parseAPIGWMethodSubPath routes method sub-paths (integration and responses).
-func parseAPIGWMethodSubPath(method string, segs []string, idxInteg, idxResp int, apiID, resID, httpMethod string, baseParams map[string]string) (string, map[string]string, bool) {
+func parseAPIGWMethodSubPath(
+	method string,
+	segs []string,
+	idxInteg, idxResp int,
+	apiID, resID, httpMethod string,
+	baseParams map[string]string,
+) (string, map[string]string, bool) {
 	seg := segs[idxInteg]
 
 	switch seg {
@@ -1628,7 +1638,13 @@ func parseAPIGWMethodSubPath(method string, segs []string, idxInteg, idxResp int
 }
 
 // parseAPIGWIntegrationPath routes integration paths.
-func parseAPIGWIntegrationPath(method string, segs []string, idxInteg, idxResp int, apiID, resID, httpMethod string, baseParams map[string]string) (string, map[string]string, bool) {
+func parseAPIGWIntegrationPath(
+	method string,
+	segs []string,
+	idxInteg, idxResp int,
+	apiID, resID, httpMethod string,
+	baseParams map[string]string,
+) (string, map[string]string, bool) {
 	if len(segs) > idxResp && segs[idxResp] == apiGWSegResponses {
 		if len(segs) <= idxResp+1 {
 			return apiGWUnknownOp, nil, false
@@ -1672,7 +1688,12 @@ func parseAPIGWIntegrationPath(method string, segs []string, idxInteg, idxResp i
 }
 
 // parseAPIGWMethodResponsePath routes method response paths.
-func parseAPIGWMethodResponsePath(method string, segs []string, idxInteg int, apiID, resID, httpMethod string) (string, map[string]string, bool) {
+func parseAPIGWMethodResponsePath(
+	method string,
+	segs []string,
+	idxInteg int,
+	apiID, resID, httpMethod string,
+) (string, map[string]string, bool) {
 	if len(segs) <= idxInteg+1 {
 		return apiGWUnknownOp, nil, false
 	}

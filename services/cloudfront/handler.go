@@ -1141,8 +1141,7 @@ func parseCFCreateOps(method, suffix, _ string) (string, string) {
 
 // parseCFDistributionTenantOps handles distribution-tenant CRUD operations.
 func parseCFDistributionTenantOps(method, suffix string) (string, string) {
-	switch suffix {
-	case "distribution-tenant":
+	if suffix == "distribution-tenant" {
 		switch method {
 		case http.MethodPost:
 			return opCreateDistributionTenant, ""
