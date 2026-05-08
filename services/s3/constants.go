@@ -1,6 +1,7 @@
 package s3
 
 const (
+	errAccessDenied    = "AccessDenied"
 	xmlNamespaceS3     = "http://s3.amazonaws.com/doc/2006-03-01/"
 	gopherstackName    = "gopherstack"
 	errMalformedXML    = "MalformedXML"

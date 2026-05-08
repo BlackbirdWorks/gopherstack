@@ -31,7 +31,7 @@ var (
 	ErrNoObjectLockConfig         = errors.New("ObjectLockConfigurationNotFoundError")
 	ErrNoWebsiteConfig            = errors.New("NoSuchWebsiteConfiguration")
 	ErrNoEncryptionConfig         = errors.New("ServerSideEncryptionConfigurationNotFoundError")
-	ErrObjectLocked               = errors.New("AccessDenied")
+	ErrObjectLocked               = errors.New(errAccessDenied)
 	ErrInvalidObjectState         = errors.New("InvalidObjectState")
 	ErrNoSuchObjectLockConfig     = awserr.New("NoSuchObjectLockConfiguration", awserr.ErrNotFound)
 	ErrNoPublicAccessBlock        = errors.New("NoSuchPublicAccessBlockConfiguration")
@@ -47,6 +47,7 @@ var (
 	ErrBadChecksum                = errors.New("BadDigest")
 	ErrDeleteMarker               = errors.New("DeleteMarker")
 	ErrEntityTooSmall             = errors.New("EntityTooSmall")
+	ErrAccessDenied               = errors.New(errAccessDenied)
 )
 
 type s3ErrorInfo struct {
@@ -115,7 +116,7 @@ func coreErrorTable() []s3ErrorEntry {
 			"A header you provided implies functionality that is not implemented.",
 			http.StatusNotImplemented,
 		}},
-		{ErrObjectLocked, s3ErrorInfo{"AccessDenied", "Access Denied", http.StatusForbidden}},
+		{ErrObjectLocked, s3ErrorInfo{errAccessDenied, "Access Denied", http.StatusForbidden}},
 		{ErrInvalidObjectState, s3ErrorInfo{
 			"InvalidObjectState",
 			"The operation is not valid for the object's storage class or lock state.",
@@ -135,6 +136,11 @@ func coreErrorTable() []s3ErrorEntry {
 			"EntityTooSmall",
 			"Your proposed upload is smaller than the minimum allowed size.",
 			http.StatusBadRequest,
+		}},
+		{ErrAccessDenied, s3ErrorInfo{
+			errAccessDenied,
+			"Access Denied",
+			http.StatusForbidden,
 		}},
 	}
 }

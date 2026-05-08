@@ -330,6 +330,11 @@ func (h *S3Handler) listMultipartUploads(
 	httputils.WriteXML(ctx, w, http.StatusOK, result)
 }
 
+const (
+	defaultMaxParts = 1000
+	maxPartsLimit   = 1000
+)
+
 func (h *S3Handler) listParts(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -337,12 +342,30 @@ func (h *S3Handler) listParts(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "ListParts")
-	uploadID := r.URL.Query().Get("uploadId")
+	q := r.URL.Query()
+	uploadID := q.Get("uploadId")
+
+	maxParts := int32(defaultMaxParts)
+	if mp := q.Get("max-parts"); mp != "" {
+		if n, err := strconv.Atoi(mp); err == nil && n >= 0 && n <= maxPartsLimit {
+			maxParts = int32(n) //nolint:gosec // validated range
+		}
+	}
+
+	partNumberMarkerStr := q.Get("part-number-marker")
+	partNumberMarker := int32(0)
+	if partNumberMarkerStr != "" {
+		if n, err := strconv.Atoi(partNumberMarkerStr); err == nil && n >= 0 {
+			partNumberMarker = int32(n) //nolint:gosec // validated non-negative
+		}
+	}
 
 	out, err := h.Backend.ListParts(ctx, &s3.ListPartsInput{
-		Bucket:   aws.String(bucketName),
-		Key:      aws.String(key),
-		UploadId: aws.String(uploadID),
+		Bucket:           aws.String(bucketName),
+		Key:              aws.String(key),
+		UploadId:         aws.String(uploadID),
+		MaxParts:         aws.Int32(maxParts),
+		PartNumberMarker: aws.String(partNumberMarkerStr),
 	})
 	if errors.Is(err, ErrNoSuchUpload) {
 		WriteError(ctx, w, r, err)
@@ -357,12 +380,19 @@ func (h *S3Handler) listParts(
 	}
 
 	result := ListPartsResult{
-		Xmlns:       xmlNamespaceS3,
-		Bucket:      bucketName,
-		Key:         key,
-		UploadID:    uploadID,
-		MaxParts:    1000, //nolint:mnd // S3 default max parts per page
-		IsTruncated: false,
+		Xmlns:            xmlNamespaceS3,
+		Bucket:           bucketName,
+		Key:              key,
+		UploadID:         uploadID,
+		MaxParts:         int(maxParts),
+		PartNumberMarker: int(partNumberMarker),
+		IsTruncated:      aws.ToBool(out.IsTruncated),
+	}
+
+	if out.NextPartNumberMarker != nil && *out.NextPartNumberMarker != "" {
+		if nextPNM, parseErr := strconv.Atoi(*out.NextPartNumberMarker); parseErr == nil {
+			result.NextPartNumberMarker = nextPNM
+		}
 	}
 
 	for _, p := range out.Parts {
