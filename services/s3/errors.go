@@ -48,6 +48,7 @@ var (
 	ErrDeleteMarker               = errors.New("DeleteMarker")
 	ErrEntityTooSmall             = errors.New("EntityTooSmall")
 	ErrAccessDenied               = errors.New(errAccessDenied)
+	ErrKeyTooLongError            = errors.New("KeyTooLongError")
 )
 
 type s3ErrorInfo struct {
@@ -141,6 +142,11 @@ func coreErrorTable() []s3ErrorEntry {
 			errAccessDenied,
 			"Access Denied",
 			http.StatusForbidden,
+		}},
+		{ErrKeyTooLongError, s3ErrorInfo{
+			"KeyTooLongError",
+			"Your key is too long.",
+			http.StatusBadRequest,
 		}},
 	}
 }

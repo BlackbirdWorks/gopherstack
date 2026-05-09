@@ -1,7 +1,10 @@
 // Package s3 — accuracy.go implements AWS-accuracy improvements per issue #1676:
 // SSE-* header handling, CopyObject conditional headers, ListParts pagination,
 // multipart 5 MiB minimum enforcement, CRC64NVME checksum, x-amz-expected-bucket-owner,
-// and CopyObject metadata/tagging directives.
+// CopyObject metadata/tagging directives, GetObject response-content-* overrides,
+// CopyObject x-amz-copy-source-version-id, CreateMultipartUpload SSE propagation,
+// MalformedXML for CompleteMultipartUpload, object key/bucket name validation,
+// Content-MD5 validation, and ListObjectsV2 URL encoding.
 package s3
 
 import (
@@ -11,6 +14,7 @@ import (
 	"hash"
 	"maps"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -375,4 +379,121 @@ func checksumBytesToB64(h hash.Hash) string {
 	}
 
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+// ─── GetObject response-content-* query parameter overrides ──────────────────
+
+// applyResponseContentOverrides applies the AWS S3 response-content-* query
+// parameters that allow callers to override response headers on GetObject.
+// AWS supports: response-content-type, response-content-disposition,
+// response-content-encoding, response-cache-control, response-expires,
+// and response-content-language.
+func applyResponseContentOverrides(r *http.Request, w http.ResponseWriter) {
+	q := r.URL.Query()
+
+	if v := q.Get("response-content-type"); v != "" {
+		w.Header().Set("Content-Type", v)
+	}
+
+	if v := q.Get("response-content-disposition"); v != "" {
+		w.Header().Set("Content-Disposition", v)
+	}
+
+	if v := q.Get("response-content-encoding"); v != "" {
+		w.Header().Set("Content-Encoding", v)
+	}
+
+	if v := q.Get("response-cache-control"); v != "" {
+		w.Header().Set("Cache-Control", v)
+	}
+
+	if v := q.Get("response-expires"); v != "" {
+		w.Header().Set("Expires", v)
+	}
+
+	if v := q.Get("response-content-language"); v != "" {
+		w.Header().Set("Content-Language", v)
+	}
+}
+
+// ─── CopyObject x-amz-copy-source-version-id ─────────────────────────────────
+
+// setCopySourceVersionID writes the x-amz-copy-source-version-id response header
+// when the source object has a non-null version. AWS always includes this header
+// in CopyObject responses when the source bucket has versioning enabled.
+func setCopySourceVersionID(w http.ResponseWriter, srcVersionID string) {
+	if srcVersionID != "" && srcVersionID != NullVersion {
+		w.Header().Set("X-Amz-Copy-Source-Version-Id", srcVersionID)
+	}
+}
+
+// ─── CreateMultipartUpload SSE header propagation ────────────────────────────
+
+// setMultipartSSEResponseHeaders echoes the SSE algorithm and KMS key ID
+// in the CreateMultipartUpload response, matching real AWS behaviour.
+func setMultipartSSEResponseHeaders(w http.ResponseWriter, r *http.Request) {
+	if algo := r.Header.Get(headerSSEAlgorithm); algo != "" {
+		w.Header().Set(headerSSEAlgorithm, algo)
+	}
+
+	if keyID := r.Header.Get(headerSSEKMSKeyID); keyID != "" {
+		w.Header().Set(headerSSEKMSKeyID, keyID)
+	}
+
+	if ssecAlgo := r.Header.Get(headerSSECAlgorithm); ssecAlgo != "" {
+		w.Header().Set(headerSSECAlgorithm, ssecAlgo)
+	}
+
+	if ssecMD5 := r.Header.Get(headerSSECKeyMD5); ssecMD5 != "" {
+		w.Header().Set(headerSSECKeyMD5, ssecMD5)
+	}
+}
+
+// ─── ListObjectsV2 / ListObjects URL encoding ─────────────────────────────────
+
+// urlEncodeKey URL-encodes an S3 key when the encoding-type=url query parameter
+// is present. AWS requires this for keys containing special characters.
+func urlEncodeKey(key, encodingType string) string {
+	if strings.EqualFold(encodingType, "url") {
+		return url.QueryEscape(key)
+	}
+
+	return key
+}
+
+// ─── Object key length validation ────────────────────────────────────────────
+
+const maxObjectKeyBytes = 1024
+
+// validateObjectKeyLength returns ErrKeyTooLongError when the UTF-8 byte
+// length of key exceeds 1024 bytes, matching the AWS S3 key length limit.
+func validateObjectKeyLength(key string) error {
+	if len(key) > maxObjectKeyBytes {
+		return ErrKeyTooLongError
+	}
+
+	return nil
+}
+
+// ─── MalformedXML sentinel ────────────────────────────────────────────────────
+
+// ErrMalformedXML is returned when an XML request body cannot be decoded.
+// The error table maps it to HTTP 400 with code "MalformedXML".
+var ErrMalformedXML = errors.New(errMalformedXML)
+
+// ─── Content-MD5 baseline validation ─────────────────────────────────────────
+
+// parseContentMD5 decodes a base64 Content-MD5 header value and returns the
+// raw 16-byte MD5 digest.  Returns nil when the header is absent or malformed.
+func parseContentMD5(header string) []byte {
+	if header == "" {
+		return nil
+	}
+
+	b, err := base64.StdEncoding.DecodeString(header)
+	if err != nil || len(b) != md5.Size {
+		return nil
+	}
+
+	return b
 }
