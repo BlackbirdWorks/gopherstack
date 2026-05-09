@@ -96,7 +96,6 @@ const (
 	blueGreenDeploymentStatusAvailable = "available"
 	ipRangeStatusAuthorized            = "authorized"
 	instanceTransitionDelay            = 250 * time.Millisecond
-	monitoringIntervalFive             = 5
 	reconcilerDivisor                  = 5
 	maxEvents                          = 512
 
@@ -770,6 +769,61 @@ func (b *InMemoryBackend) publishInstanceEventLocked(id, msg string) {
 }
 
 // CreateDBInstance creates a new RDS DB instance.
+
+// normalizeDBInstanceDefaults fills in empty/zero values with AWS defaults.
+func normalizeDBInstanceDefaults(
+	engine, instanceClass string,
+	allocatedStorage int,
+	masterUser, region string,
+	opts *DBInstanceOptions,
+) (string, string, int, string) {
+	if engine == "" {
+		engine = "postgres"
+	}
+	if instanceClass == "" {
+		instanceClass = defaultInstanceClass
+	}
+	if allocatedStorage <= 0 {
+		allocatedStorage = defaultAllocatedStorage
+	}
+	if masterUser == "" {
+		masterUser = "admin"
+	}
+	if opts.StorageType == "" {
+		opts.StorageType = "gp2"
+	}
+	if opts.AvailabilityZone == "" {
+		opts.AvailabilityZone = region + "a"
+	}
+
+	return engine, instanceClass, allocatedStorage, masterUser
+}
+
+// maybeRegisterAutomatedBackup registers an automated backup entry if retention > 0.
+func (b *InMemoryBackend) maybeRegisterAutomatedBackup(
+	id, engine string,
+	port, allocatedStorage int,
+	opts DBInstanceOptions,
+) {
+	if opts.BackupRetentionPeriod <= 0 {
+		return
+	}
+
+	b.automatedBackups[id] = &DBInstanceAutomatedBackup{
+		DBInstanceIdentifier:  id,
+		DbiResourceID:         id,
+		Engine:                engine,
+		EngineVersion:         opts.EngineVersion,
+		DBInstanceArn:         fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", b.region, b.accountID, id),
+		Region:                b.region,
+		Status:                instanceStatusAvailable,
+		AllocatedStorage:      allocatedStorage,
+		Port:                  port,
+		BackupRetentionPeriod: opts.BackupRetentionPeriod,
+		Encrypted:             opts.StorageEncrypted,
+	}
+}
+
 func (b *InMemoryBackend) CreateDBInstance(
 	id, engine, instanceClass, dbName, masterUser, paramGroupName string,
 	allocatedStorage int,
@@ -788,24 +842,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 	}
 
-	if engine == "" {
-		engine = "postgres"
-	}
-	if instanceClass == "" {
-		instanceClass = defaultInstanceClass
-	}
-	if allocatedStorage <= 0 {
-		allocatedStorage = defaultAllocatedStorage
-	}
-	if masterUser == "" {
-		masterUser = "admin"
-	}
-	if opts.StorageType == "" {
-		opts.StorageType = "gp2"
-	}
-	if opts.AvailabilityZone == "" {
-		opts.AvailabilityZone = b.region + "a"
-	}
+	engine, instanceClass, allocatedStorage, masterUser = normalizeDBInstanceDefaults(
+		engine, instanceClass, allocatedStorage, masterUser, b.region, &opts,
+	)
 
 	port := enginePort(engine)
 	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
@@ -864,22 +903,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 			})
 		}
 	}
-	// Automatically register an automated backup if backups are enabled.
-	if opts.BackupRetentionPeriod > 0 {
-		b.automatedBackups[id] = &DBInstanceAutomatedBackup{
-			DBInstanceIdentifier:  id,
-			DbiResourceID:         id,
-			Engine:                engine,
-			EngineVersion:         opts.EngineVersion,
-			DBInstanceArn:         fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", b.region, b.accountID, id),
-			Region:                b.region,
-			Status:                instanceStatusAvailable,
-			AllocatedStorage:      allocatedStorage,
-			Port:                  port,
-			BackupRetentionPeriod: opts.BackupRetentionPeriod,
-			Encrypted:             opts.StorageEncrypted,
-		}
-	}
+	b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
 	cp := *inst
 
 	b.mu.Unlock()
@@ -979,20 +1003,82 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 }
 
 // ModifyDBInstance modifies properties of an existing DB instance.
-func (b *InMemoryBackend) ModifyDBInstance(
-	id, instanceClass string,
-	allocatedStorage int,
-	opts DBInstanceOptions,
-) (*DBInstance, error) {
-	b.mu.Lock("ModifyDBInstance")
-	b.reconcileInstancesLocked()
-	defer b.mu.Unlock()
 
-	inst, exists := b.instances[id]
-	if !exists {
-		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
+// applyDBInstanceModifications applies non-zero/non-empty field values from opts to inst.
+
+// applyParamGroupUpdate validates and applies a parameter group change.
+func (b *InMemoryBackend) applyParamGroupUpdate(inst *DBInstance, paramGroupName string) error {
+	if paramGroupName == "" {
+		return nil
 	}
 
+	if _, pgExists := b.parameterGroups[paramGroupName]; !pgExists {
+		return fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, paramGroupName)
+	}
+
+	inst.DBParameterGroupName = paramGroupName
+
+	return nil
+}
+
+// applyVpcSecurityGroups updates VPC security group memberships on an instance.
+func applyVpcSecurityGroups(inst *DBInstance, sgIDs []string) {
+	if len(sgIDs) == 0 {
+		return
+	}
+
+	vpcSGs := make([]VpcSecurityGroupMembership, 0, len(sgIDs))
+	for _, sgID := range sgIDs {
+		vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{VpcSecurityGroupID: sgID, Status: subscriptionStatusActive})
+	}
+
+	inst.VpcSecurityGroups = vpcSGs
+}
+
+// applyDBInstanceSchedulingOpts applies monitoring/maintenance window fields.
+func applyDBInstanceSchedulingOpts(inst *DBInstance, opts DBInstanceOptions) {
+	if opts.MonitoringInterval >= 0 && opts.MonitoringInterval != inst.MonitoringInterval {
+		inst.MonitoringInterval = opts.MonitoringInterval
+	}
+	if opts.MonitoringRoleArn != "" {
+		inst.MonitoringRoleArn = opts.MonitoringRoleArn
+	}
+	if opts.PreferredMaintenanceWindow != "" {
+		inst.PreferredMaintenanceWindow = opts.PreferredMaintenanceWindow
+	}
+	if opts.PreferredBackupWindow != "" {
+		inst.PreferredBackupWindow = opts.PreferredBackupWindow
+	}
+}
+
+// applyDBInstanceFlags applies boolean flag fields from opts to inst.
+func applyDBInstanceFlags(inst *DBInstance, opts DBInstanceOptions) {
+	if opts.MultiAZ {
+		inst.MultiAZ = opts.MultiAZ
+	}
+	if opts.IAMDatabaseAuthenticationEnabled {
+		inst.IAMDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
+	}
+	if opts.DeletionProtection {
+		inst.DeletionProtection = opts.DeletionProtection
+	}
+	if opts.CopyTagsToSnapshot {
+		inst.CopyTagsToSnapshot = opts.CopyTagsToSnapshot
+	}
+	if opts.PubliclyAccessible {
+		inst.PubliclyAccessible = opts.PubliclyAccessible
+	}
+	if opts.PerformanceInsightsEnabled {
+		inst.PerformanceInsightsEnabled = opts.PerformanceInsightsEnabled
+	}
+}
+
+func (b *InMemoryBackend) applyDBInstanceModifications(
+	inst *DBInstance,
+	instanceClass string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+) error {
 	if instanceClass != "" {
 		inst.DBInstanceClass = instanceClass
 	}
@@ -1005,25 +1091,9 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	if opts.BackupRetentionPeriod >= 0 {
 		inst.BackupRetentionPeriod = opts.BackupRetentionPeriod
 	}
-	if opts.MultiAZ {
-		inst.MultiAZ = opts.MultiAZ
-	}
-	if opts.IAMDatabaseAuthenticationEnabled {
-		inst.IAMDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
-	}
-	if opts.DeletionProtection {
-		inst.DeletionProtection = opts.DeletionProtection
-	}
-	if opts.DBParameterGroupName != "" {
-		// Validate the parameter group exists if it was specified.
-		if _, pgExists := b.parameterGroups[opts.DBParameterGroupName]; !pgExists {
-			return nil, fmt.Errorf(
-				"%w: parameter group %s not found",
-				ErrParameterGroupNotFound,
-				opts.DBParameterGroupName,
-			)
-		}
-		inst.DBParameterGroupName = opts.DBParameterGroupName
+	applyDBInstanceFlags(inst, opts)
+	if err := b.applyParamGroupUpdate(inst, opts.DBParameterGroupName); err != nil {
+		return err
 	}
 
 	if opts.OptionGroupName != "" {
@@ -1042,50 +1112,38 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		inst.LicenseModel = opts.LicenseModel
 	}
 
-	if opts.MonitoringInterval >= 0 && opts.MonitoringInterval != inst.MonitoringInterval {
-		inst.MonitoringInterval = opts.MonitoringInterval
-	}
+	applyDBInstanceSchedulingOpts(inst, opts)
 
-	if opts.MonitoringRoleArn != "" {
-		inst.MonitoringRoleArn = opts.MonitoringRoleArn
-	}
-
-	if opts.PreferredMaintenanceWindow != "" {
-		inst.PreferredMaintenanceWindow = opts.PreferredMaintenanceWindow
-	}
-
-	if opts.PreferredBackupWindow != "" {
-		inst.PreferredBackupWindow = opts.PreferredBackupWindow
-	}
-
-	if len(opts.VpcSecurityGroupIDs) > 0 {
-		vpcSGs := make([]VpcSecurityGroupMembership, 0, len(opts.VpcSecurityGroupIDs))
-		for _, sgID := range opts.VpcSecurityGroupIDs {
-			vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{VpcSecurityGroupID: sgID, Status: subscriptionStatusActive})
-		}
-		inst.VpcSecurityGroups = vpcSGs
-	}
+	applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
 
 	if len(opts.EnabledCloudwatchLogsExports) > 0 {
 		inst.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
-	}
-
-	if opts.CopyTagsToSnapshot {
-		inst.CopyTagsToSnapshot = opts.CopyTagsToSnapshot
 	}
 
 	if opts.EngineVersion != "" {
 		inst.EngineVersion = opts.EngineVersion
 	}
 
-	if opts.PubliclyAccessible {
-		inst.PubliclyAccessible = opts.PubliclyAccessible
+	return nil
+}
+
+func (b *InMemoryBackend) ModifyDBInstance(
+	id, instanceClass string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+) (*DBInstance, error) {
+	b.mu.Lock("ModifyDBInstance")
+	b.reconcileInstancesLocked()
+	defer b.mu.Unlock()
+
+	inst, exists := b.instances[id]
+	if !exists {
+		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 
-	if opts.PerformanceInsightsEnabled {
-		inst.PerformanceInsightsEnabled = opts.PerformanceInsightsEnabled
+	if err := b.applyDBInstanceModifications(inst, instanceClass, allocatedStorage, opts); err != nil {
+		return nil, err
 	}
-
 	inst.DBInstanceStatus = instanceStatusModifying
 	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
 	b.publishInstanceEventLocked(id, "DB instance modification started")

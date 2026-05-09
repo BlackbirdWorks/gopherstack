@@ -552,6 +552,61 @@ func (h *Handler) dispatchExtended6(action string, vals url.Values) (any, error)
 	}
 }
 
+// parseDBInstanceIntParams parses numeric form parameters for CreateDBInstance/ModifyDBInstance.
+func parseDBInstanceIntParams(
+	vals url.Values,
+) (int, int, int, int, int, error) {
+	var allocatedStorage, iops, storageThroughput, monitoringInterval int
+	backupRetention := 1
+
+	if raw := vals.Get("AllocatedStorage"); raw != "" {
+		v, e := strconv.Atoi(raw)
+		if e != nil {
+			return 0, 0, 0, 0, 0, fmt.Errorf("%w: invalid AllocatedStorage %q", ErrInvalidParameter, raw)
+		}
+		allocatedStorage = v
+	}
+
+	if raw := vals.Get("BackupRetentionPeriod"); raw != "" {
+		v, e := strconv.Atoi(raw)
+		if e != nil {
+			return 0, 0, 0, 0, 0, fmt.Errorf("%w: invalid BackupRetentionPeriod %q", ErrInvalidParameter, raw)
+		}
+
+		backupRetention = v
+	}
+
+	if raw := vals.Get("Iops"); raw != "" {
+		if v, e := strconv.Atoi(raw); e == nil {
+			iops = v
+		}
+	}
+
+	if raw := vals.Get("StorageThroughput"); raw != "" {
+		if v, e := strconv.Atoi(raw); e == nil {
+			storageThroughput = v
+		}
+	}
+
+	if raw := vals.Get("MonitoringInterval"); raw != "" {
+		v, e := strconv.Atoi(raw)
+		if e != nil {
+			return 0, 0, 0, 0, 0, fmt.Errorf("%w: invalid MonitoringInterval %q", ErrInvalidParameter, raw)
+		}
+
+		if !validMonitoringInterval(v) {
+			return 0, 0, 0, 0, 0, fmt.Errorf(
+				"%w: MonitoringInterval must be one of 0, 1, 5, 10, 15, 30, 60; got %d",
+				ErrInvalidParameter, v,
+			)
+		}
+
+		monitoringInterval = v
+	}
+
+	return allocatedStorage, backupRetention, iops, storageThroughput, monitoringInterval, nil
+}
+
 func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	engine := vals.Get("Engine")
@@ -560,58 +615,11 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	masterUser := vals.Get("MasterUsername")
 	paramGroupName := vals.Get("DBParameterGroupName")
 
-	rawStorage := vals.Get("AllocatedStorage")
-	allocatedStorage := 0
-
-	if rawStorage != "" {
-		var err error
-
-		allocatedStorage, err = strconv.Atoi(rawStorage)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid AllocatedStorage %q", ErrInvalidParameter, rawStorage)
-		}
-	}
-
-	backupRetention := 1
-
-	if rawBR := vals.Get("BackupRetentionPeriod"); rawBR != "" {
-		v, err := strconv.Atoi(rawBR)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid BackupRetentionPeriod %q", ErrInvalidParameter, rawBR)
-		}
-
-		backupRetention = v
-	}
-
-	iops := 0
-	if rawIops := vals.Get("Iops"); rawIops != "" {
-		if v, err := strconv.Atoi(rawIops); err == nil {
-			iops = v
-		}
-	}
-
-	storageThroughput := 0
-	if rawST := vals.Get("StorageThroughput"); rawST != "" {
-		if v, err := strconv.Atoi(rawST); err == nil {
-			storageThroughput = v
-		}
-	}
-
-	monitoringInterval := 0
-	if rawMI := vals.Get("MonitoringInterval"); rawMI != "" {
-		v, err := strconv.Atoi(rawMI)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid MonitoringInterval %q", ErrInvalidParameter, rawMI)
-		}
-
-		if !validMonitoringInterval(v) {
-			return nil, fmt.Errorf(
-				"%w: MonitoringInterval must be one of 0, 1, 5, 10, 15, 30, 60; got %d",
-				ErrInvalidParameter, v,
-			)
-		}
-
-		monitoringInterval = v
+	allocatedStorage, backupRetention, iops, storageThroughput, monitoringInterval, err := parseDBInstanceIntParams(
+		vals,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	if backupRetention < 0 || backupRetention > 35 {
@@ -712,58 +720,18 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
 
-	rawStorage := vals.Get("AllocatedStorage")
-	allocatedStorage := 0
-
-	if rawStorage != "" {
-		var err error
-
-		allocatedStorage, err = strconv.Atoi(rawStorage)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid AllocatedStorage %q", ErrInvalidParameter, rawStorage)
-		}
+	allocatedStorage, backupRetention, iops, storageThroughput, monitoringInterval, err := parseDBInstanceIntParams(
+		vals,
+	)
+	if err != nil {
+		return nil, err
 	}
-
-	backupRetention := -1
-
-	if rawBR := vals.Get("BackupRetentionPeriod"); rawBR != "" {
-		v, err := strconv.Atoi(rawBR)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid BackupRetentionPeriod %q", ErrInvalidParameter, rawBR)
-		}
-
-		backupRetention = v
+	// Modify uses -1 as sentinel for "not provided"
+	if vals.Get("BackupRetentionPeriod") == "" {
+		backupRetention = -1
 	}
-
-	iops := 0
-	if rawIops := vals.Get("Iops"); rawIops != "" {
-		if v, err := strconv.Atoi(rawIops); err == nil {
-			iops = v
-		}
-	}
-
-	storageThroughput := 0
-	if rawST := vals.Get("StorageThroughput"); rawST != "" {
-		if v, err := strconv.Atoi(rawST); err == nil {
-			storageThroughput = v
-		}
-	}
-
-	monitoringInterval := -1
-	if rawMI := vals.Get("MonitoringInterval"); rawMI != "" {
-		v, err := strconv.Atoi(rawMI)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid MonitoringInterval %q", ErrInvalidParameter, rawMI)
-		}
-
-		if !validMonitoringInterval(v) {
-			return nil, fmt.Errorf(
-				"%w: MonitoringInterval must be one of 0, 1, 5, 10, 15, 30, 60; got %d",
-				ErrInvalidParameter, v,
-			)
-		}
-
-		monitoringInterval = v
+	if vals.Get("MonitoringInterval") == "" {
+		monitoringInterval = -1
 	}
 
 	if backupRetention >= 0 && backupRetention > 35 {
@@ -1402,7 +1370,13 @@ func parseTagEntries(vals url.Values) []Tag {
 // validMonitoringInterval returns true if v is one of the AWS-allowed monitoring intervals.
 func validMonitoringInterval(v int) bool {
 	switch v {
-	case 0, 1, monitoringIntervalFive, 10, 15, 30, 60:
+	case 0,
+		1,
+		monitoringInterval5,
+		monitoringInterval10,
+		monitoringInterval15,
+		monitoringInterval30,
+		monitoringInterval60:
 		return true
 	}
 
