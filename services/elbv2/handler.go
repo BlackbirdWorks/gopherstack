@@ -362,18 +362,11 @@ func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, erro
 		return nil, err
 	}
 
-	members := make([]xmlLBAttribute, 0, len(lb.Attributes))
-	for k, v := range lb.Attributes {
-		members = append(members, xmlLBAttribute{Key: k, Value: v})
-	}
-
-	sort.Slice(members, func(i, j int) bool { return members[i].Key < members[j].Key })
+	members := sortedLBAttributes(lb.Attributes)
 
 	return &modifyLoadBalancerAttributesResponse{
-		Xmlns: elbv2XMLNS,
-		Result: modifyLoadBalancerAttributesResult{
-			Attributes: xmlLBAttributeList{Members: members},
-		},
+		Xmlns:            elbv2XMLNS,
+		Result:           modifyLoadBalancerAttributesResult{Attributes: xmlLBAttributeList{Members: members}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-lb-attrs"},
 	}, nil
 }
@@ -614,18 +607,11 @@ func (h *Handler) handleModifyTargetGroupAttributes(vals url.Values) (any, error
 		return nil, err
 	}
 
-	members := make([]xmlTGAttribute, 0, len(tg.TargetGroupAttributes))
-	for k, v := range tg.TargetGroupAttributes {
-		members = append(members, xmlTGAttribute{Key: k, Value: v})
-	}
-
-	sort.Slice(members, func(i, j int) bool { return members[i].Key < members[j].Key })
+	members := sortedTGAttributes(tg.TargetGroupAttributes)
 
 	return &modifyTargetGroupAttributesResponse{
-		Xmlns: elbv2XMLNS,
-		Result: modifyTargetGroupAttributesResult{
-			Attributes: xmlTGAttributeList{Members: members},
-		},
+		Xmlns:            elbv2XMLNS,
+		Result:           modifyTargetGroupAttributesResult{Attributes: xmlTGAttributeList{Members: members}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-tg-attrs"},
 	}, nil
 }
@@ -917,18 +903,11 @@ func (h *Handler) handleModifyListenerAttributes(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	members := make([]xmlListenerAttribute, 0, len(listener.Attributes))
-	for k, v := range listener.Attributes {
-		members = append(members, xmlListenerAttribute{Key: k, Value: v})
-	}
-
-	sort.Slice(members, func(i, j int) bool { return members[i].Key < members[j].Key })
+	members := sortedListenerAttributes(listener.Attributes)
 
 	return &modifyListenerAttributesResponse{
-		Xmlns: elbv2XMLNS,
-		Result: modifyListenerAttributesResult{
-			Attributes: xmlListenerAttributeList{Members: members},
-		},
+		Xmlns:            elbv2XMLNS,
+		Result:           modifyListenerAttributesResult{Attributes: xmlListenerAttributeList{Members: members}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-listener-attrs"},
 	}, nil
 }
@@ -3236,4 +3215,37 @@ type modifyIPPoolsResponse struct {
 	XMLName          xml.Name            `xml:"ModifyIpPoolsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// sortedLBAttributes converts a map to a sorted xmlLBAttribute slice.
+func sortedLBAttributes(m map[string]string) []xmlLBAttribute {
+	out := make([]xmlLBAttribute, 0, len(m))
+	for k, v := range m {
+		out = append(out, xmlLBAttribute{Key: k, Value: v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+
+	return out
+}
+
+// sortedTGAttributes converts a map to a sorted xmlTGAttribute slice.
+func sortedTGAttributes(m map[string]string) []xmlTGAttribute {
+	out := make([]xmlTGAttribute, 0, len(m))
+	for k, v := range m {
+		out = append(out, xmlTGAttribute{Key: k, Value: v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+
+	return out
+}
+
+// sortedListenerAttributes converts a map to a sorted xmlListenerAttribute slice.
+func sortedListenerAttributes(m map[string]string) []xmlListenerAttribute {
+	out := make([]xmlListenerAttribute, 0, len(m))
+	for k, v := range m {
+		out = append(out, xmlListenerAttribute{Key: k, Value: v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+
+	return out
 }
