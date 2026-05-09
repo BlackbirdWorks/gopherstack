@@ -603,9 +603,9 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		}
 	case "network":
 		defaultAttrs = map[string]string{
-			"access_logs.s3.enabled":              "false",
-			"deletion_protection.enabled":         "false",
-			"load_balancing.cross_zone.enabled":   "false",
+			"access_logs.s3.enabled":            "false",
+			"deletion_protection.enabled":       "false",
+			"load_balancing.cross_zone.enabled": "false",
 		}
 	default: // gateway
 		defaultAttrs = map[string]string{
@@ -2035,12 +2035,20 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 
 	for _, p := range priorities {
 		if p.Priority == "" || p.Priority == priorityDefault {
-			return nil, fmt.Errorf("%w: priority must be an integer between 1 and 50000, got %q", ErrInvalidParameter, p.Priority)
+			return nil, fmt.Errorf(
+				"%w: priority must be an integer between 1 and 50000, got %q",
+				ErrInvalidParameter,
+				p.Priority,
+			)
 		}
 
 		n, err := strconv.ParseInt(p.Priority, 10, 32)
 		if err != nil || n < 1 || n > 50000 {
-			return nil, fmt.Errorf("%w: priority must be an integer between 1 and 50000, got %q", ErrInvalidParameter, p.Priority)
+			return nil, fmt.Errorf(
+				"%w: priority must be an integer between 1 and 50000, got %q",
+				ErrInvalidParameter,
+				p.Priority,
+			)
 		}
 
 		if seen[p.Priority] {
@@ -2061,7 +2069,11 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 
 	for _, p := range priorities {
 		if existingPriorities[p.Priority] {
-			return nil, fmt.Errorf("%w: priority %s is already in use by another rule", ErrDuplicateRulePriority, p.Priority)
+			return nil, fmt.Errorf(
+				"%w: priority %s is already in use by another rule",
+				ErrDuplicateRulePriority,
+				p.Priority,
+			)
 		}
 	}
 

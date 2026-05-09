@@ -299,7 +299,7 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 
 	lb, err := h.Backend.CreateLoadBalancer(CreateLoadBalancerInput{
 		Name:              name,
-		Scheme:            vals.Get("Scheme"),
+		Scheme:            scheme,
 		Type:              vals.Get("Type"),
 		IPAddressType:     vals.Get("IpAddressType"),
 		AvailabilityZones: azs,
@@ -659,7 +659,9 @@ func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 	healthyThreshold, _ := parseInt32(vals.Get("HealthyThresholdCount"))
 	unhealthyThreshold, _ := parseInt32(vals.Get("UnhealthyThresholdCount"))
 
-	hcEnabled := vals.Get("HealthCheckEnabled") == "true"
+	hceStr := vals.Get("HealthCheckEnabled")
+	hcEnabled := hceStr == "true"
+	hcEnabledSet := hceStr != ""
 
 	tg, err := h.Backend.ModifyTargetGroup(ModifyTargetGroupInput{
 		TargetGroupArn:      tgArn,
@@ -671,6 +673,7 @@ func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 			GrpcCode: vals.Get("Matcher.GrpcCode"),
 		},
 		HealthCheckEnabled:         hcEnabled,
+		HealthCheckEnabledSet:      hcEnabledSet,
 		HealthCheckIntervalSeconds: hcInterval,
 		HealthCheckTimeoutSeconds:  hcTimeout,
 		HealthyThresholdCount:      healthyThreshold,
@@ -870,6 +873,11 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 		}
 	}
 
+	sslPolicy := vals.Get("SslPolicy")
+	if sslPolicy == "" && (protocol == "HTTPS" || protocol == "TLS") {
+		sslPolicy = "ELBSecurityPolicy-2016-08"
+	}
+
 	listener, createErr := h.Backend.CreateListener(CreateListenerInput{
 		LoadBalancerArn:      lbArn,
 		Protocol:             protocol,
@@ -877,7 +885,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 		DefaultActions:       actions,
 		Tags:                 tagKVs,
 		Certificates:         certs,
-		SSLPolicy:            vals.Get("SslPolicy"),
+		SSLPolicy:            sslPolicy,
 		AlpnPolicy:           vals.Get("AlpnPolicy.member.1"),
 		MutualAuthentication: mutualAuth,
 	})
@@ -2048,7 +2056,7 @@ func parseActions(vals url.Values, prefix string) []Action {
 		case "authenticate-cognito":
 			action.AuthenticateCognitoConfig = &AuthenticateCognitoConfig{
 				UserPoolArn:              vals.Get(p + ".AuthenticateCognitoConfig.UserPoolArn"),
-				UserPoolClientId:         vals.Get(p + ".AuthenticateCognitoConfig.UserPoolClientId"),
+				UserPoolClientID:         vals.Get(p + ".AuthenticateCognitoConfig.UserPoolClientId"),
 				UserPoolDomain:           vals.Get(p + ".AuthenticateCognitoConfig.UserPoolDomain"),
 				SessionCookieName:        vals.Get(p + ".AuthenticateCognitoConfig.SessionCookieName"),
 				Scope:                    vals.Get(p + ".AuthenticateCognitoConfig.Scope"),
@@ -2066,7 +2074,7 @@ func parseActions(vals url.Values, prefix string) []Action {
 				AuthorizationEndpoint:    vals.Get(p + ".AuthenticateOidcConfig.AuthorizationEndpoint"),
 				TokenEndpoint:            vals.Get(p + ".AuthenticateOidcConfig.TokenEndpoint"),
 				UserInfoEndpoint:         vals.Get(p + ".AuthenticateOidcConfig.UserInfoEndpoint"),
-				ClientId:                 vals.Get(p + ".AuthenticateOidcConfig.ClientId"),
+				ClientID:                 vals.Get(p + ".AuthenticateOidcConfig.ClientId"),
 				ClientSecret:             vals.Get(p + ".AuthenticateOidcConfig.ClientSecret"),
 				SessionCookieName:        vals.Get(p + ".AuthenticateOidcConfig.SessionCookieName"),
 				Scope:                    vals.Get(p + ".AuthenticateOidcConfig.Scope"),
@@ -2308,7 +2316,7 @@ func toXMLAction(a Action) xmlAction {
 	if a.AuthenticateCognitoConfig != nil {
 		xa.AuthenticateCognitoConfig = &xmlAuthenticateCognitoConfig{
 			UserPoolArn:              a.AuthenticateCognitoConfig.UserPoolArn,
-			UserPoolClientId:         a.AuthenticateCognitoConfig.UserPoolClientId,
+			UserPoolClientId:         a.AuthenticateCognitoConfig.UserPoolClientID,
 			UserPoolDomain:           a.AuthenticateCognitoConfig.UserPoolDomain,
 			SessionCookieName:        a.AuthenticateCognitoConfig.SessionCookieName,
 			Scope:                    a.AuthenticateCognitoConfig.Scope,
@@ -2323,7 +2331,7 @@ func toXMLAction(a Action) xmlAction {
 			AuthorizationEndpoint:    a.AuthenticateOidcConfig.AuthorizationEndpoint,
 			TokenEndpoint:            a.AuthenticateOidcConfig.TokenEndpoint,
 			UserInfoEndpoint:         a.AuthenticateOidcConfig.UserInfoEndpoint,
-			ClientId:                 a.AuthenticateOidcConfig.ClientId,
+			ClientId:                 a.AuthenticateOidcConfig.ClientID,
 			SessionCookieName:        a.AuthenticateOidcConfig.SessionCookieName,
 			Scope:                    a.AuthenticateOidcConfig.Scope,
 			OnUnauthenticatedRequest: a.AuthenticateOidcConfig.OnUnauthenticatedRequest,
