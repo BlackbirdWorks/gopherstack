@@ -13,3 +13,9 @@ Stop: "stop caveman" or "normal mode"
 Auto-Clarity: drop caveman for security warnings, irreversible actions, user confused. Resume after.
 
 Boundaries: code/commits/PRs written normal.
+
+## Dev MCP servers (read on session start)
+
+`.mcp.json` at repo root wires dev-only MCPs: `gopls` (Go symbols), `terraform` (provider docs), `playwright` (dashboard browser). Dev tooling only — never embedded in the gopherstack runtime binary.
+
+On session start: run `make dev-mcp-check`. If CLIs missing, run `make dev-mcp-install`. Details: `.agent/rules/dev-mcp.md`.
