@@ -143,6 +143,7 @@ type CustomDBEngineVersion struct {
 
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
+	InstanceCreateTime                time.Time                    `json:"instanceCreateTime"`
 	DBInstanceIdentifier              string                       `json:"dbInstanceIdentifier"`
 	DbiResourceID                     string                       `json:"dbiResourceID"`
 	DBInstanceClass                   string                       `json:"dbInstanceClass"`
@@ -186,20 +187,22 @@ type DBInstance struct {
 
 // DBSnapshot represents an RDS database snapshot.
 type DBSnapshot struct {
-	DBSnapshotIdentifier string `json:"dbSnapshotIdentifier"`
-	DBInstanceIdentifier string `json:"dbInstanceIdentifier"`
-	Engine               string `json:"engine"`
-	EngineVersion        string `json:"engineVersion"`
-	Status               string `json:"status"`
-	StorageType          string `json:"storageType"`
-	OptionGroupName      string `json:"optionGroupName"`
-	KmsKeyID             string `json:"kmsKeyID,omitempty"`
-	SourceRegion         string `json:"sourceRegion,omitempty"`
-	SnapshotType         string `json:"snapshotType,omitempty"`
-	AllocatedStorage     int    `json:"allocatedStorage"`
-	Port                 int    `json:"port"`
-	StorageEncrypted     bool   `json:"storageEncrypted"`
-	CopyTagsToSnapshot   bool   `json:"copyTagsToSnapshot,omitempty"`
+	SnapshotCreateTime   time.Time `json:"snapshotCreateTime"`
+	DBSnapshotIdentifier string    `json:"dbSnapshotIdentifier"`
+	DBInstanceIdentifier string    `json:"dbInstanceIdentifier"`
+	Engine               string    `json:"engine"`
+	EngineVersion        string    `json:"engineVersion"`
+	Status               string    `json:"status"`
+	StorageType          string    `json:"storageType"`
+	OptionGroupName      string    `json:"optionGroupName"`
+	KmsKeyID             string    `json:"kmsKeyID,omitempty"`
+	SourceRegion         string    `json:"sourceRegion,omitempty"`
+	SnapshotType         string    `json:"snapshotType,omitempty"`
+	AllocatedStorage     int       `json:"allocatedStorage"`
+	Port                 int       `json:"port"`
+	PercentProgress      int       `json:"percentProgress"`
+	StorageEncrypted     bool      `json:"storageEncrypted"`
+	CopyTagsToSnapshot   bool      `json:"copyTagsToSnapshot,omitempty"`
 }
 
 // DBSubnetGroup represents an RDS DB subnet group.
@@ -258,6 +261,7 @@ type ServerlessV2ScalingConfiguration struct {
 
 // DBCluster represents an Aurora-style RDS cluster.
 type DBCluster struct {
+	ClusterCreateTime               time.Time                         `json:"clusterCreateTime"`
 	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration `json:"serverlessV2ScalingConfiguration,omitempty"`
 	Endpoint                        string                            `json:"endpoint"`
 	ActivityStreamStatus            string                            `json:"activityStreamStatus"`
@@ -293,10 +297,14 @@ type DBCluster struct {
 
 // DBClusterSnapshot represents an RDS cluster snapshot.
 type DBClusterSnapshot struct {
-	DBClusterSnapshotIdentifier string `json:"dbClusterSnapshotIdentifier"`
-	DBClusterIdentifier         string `json:"dbClusterIdentifier"`
-	Engine                      string `json:"engine"`
-	Status                      string `json:"status"`
+	SnapshotCreateTime          time.Time `json:"snapshotCreateTime"`
+	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
+	DBClusterIdentifier         string    `json:"dbClusterIdentifier"`
+	Engine                      string    `json:"engine"`
+	EngineVersion               string    `json:"engineVersion,omitempty"`
+	Status                      string    `json:"status"`
+	PercentProgress             int       `json:"percentProgress"`
+	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
 }
 
 // DBClusterEndpoint represents a custom endpoint for an RDS cluster.
@@ -458,6 +466,7 @@ type EventSubscription struct {
 	Status           string   `json:"status"`
 	SourceType       string   `json:"sourceType"`
 	SourceIDs        []string `json:"sourceIds"`
+	EventCategories  []string `json:"eventCategories,omitempty"`
 	Enabled          bool     `json:"enabled"`
 }
 
@@ -540,9 +549,12 @@ type DBInstanceOptions struct {
 	StorageThroughput                int
 	MonitoringInterval               int
 	MultiAZ                          bool
+	MultiAZSet                       bool
 	StorageEncrypted                 bool
 	IAMDatabaseAuthenticationEnabled bool
+	IAMDatabaseAuthSet               bool
 	DeletionProtection               bool
+	DeletionProtectionSet            bool
 	CopyTagsToSnapshot               bool
 	AllowMajorVersionUpgrade         bool
 	ApplyImmediately                 bool
@@ -1052,14 +1064,22 @@ func applyDBInstanceSchedulingOpts(inst *DBInstance, opts DBInstanceOptions) {
 }
 
 // applyDBInstanceFlags applies boolean flag fields from opts to inst.
+// Fields with a corresponding *Set sentinel are applied unconditionally when the sentinel is true,
+// allowing callers to explicitly set the flag to false (e.g., disable DeletionProtection).
 func applyDBInstanceFlags(inst *DBInstance, opts DBInstanceOptions) {
-	if opts.MultiAZ {
+	if opts.MultiAZSet {
+		inst.MultiAZ = opts.MultiAZ
+	} else if opts.MultiAZ {
 		inst.MultiAZ = opts.MultiAZ
 	}
-	if opts.IAMDatabaseAuthenticationEnabled {
+	if opts.IAMDatabaseAuthSet {
+		inst.IAMDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
+	} else if opts.IAMDatabaseAuthenticationEnabled {
 		inst.IAMDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
 	}
-	if opts.DeletionProtection {
+	if opts.DeletionProtectionSet {
+		inst.DeletionProtection = opts.DeletionProtection
+	} else if opts.DeletionProtection {
 		inst.DeletionProtection = opts.DeletionProtection
 	}
 	if opts.CopyTagsToSnapshot {
