@@ -14,7 +14,7 @@ func TestRAM_ListPermissions(t *testing.T) {
 	h := newTestHandler(t)
 
 	// ListPermissions
-	rec := doRAMRequest(t, h, "/permissions", map[string]any{})
+	rec := doRAMRequest(t, h, "/listpermissions", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// ListPermissionVersions
