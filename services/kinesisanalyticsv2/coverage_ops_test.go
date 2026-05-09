@@ -14,9 +14,9 @@ func createKAV2App(t *testing.T, h *kinesisanalyticsv2.Handler, name string) str
 	t.Helper()
 
 	rec := doKAV2Request(t, h, "CreateApplication", map[string]any{
-		"ApplicationName":         name,
-		"RuntimeEnvironment":      "FLINK-1_15",
-		"ServiceExecutionRole":    "arn:aws:iam::123456789012:role/KinesisRole",
+		"ApplicationName":          name,
+		"RuntimeEnvironment":       "FLINK-1_15",
+		"ServiceExecutionRole":     "arn:aws:iam::123456789012:role/KinesisRole",
 		"ApplicationConfiguration": map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -55,9 +55,9 @@ func TestKAV2_DeleteAppReferenceDataSource(t *testing.T) {
 
 	// DeleteApplicationReferenceDataSource (exercises the code path)
 	rec := doKAV2Request(t, h, "DeleteApplicationReferenceDataSource", map[string]any{
-		"ApplicationName":         "ref-app",
+		"ApplicationName":             "ref-app",
 		"CurrentApplicationVersionId": 1,
-		"ReferenceId":             "ref-1",
+		"ReferenceId":                 "ref-1",
 	})
 	assert.Positive(t, rec.Code)
 }
