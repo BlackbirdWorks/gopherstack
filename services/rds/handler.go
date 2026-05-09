@@ -577,15 +577,51 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		backupRetention = v
 	}
 
+	iops := 0
+	if rawIops := vals.Get("Iops"); rawIops != "" {
+		if v, err := strconv.Atoi(rawIops); err == nil {
+			iops = v
+		}
+	}
+
+	storageThroughput := 0
+	if rawST := vals.Get("StorageThroughput"); rawST != "" {
+		if v, err := strconv.Atoi(rawST); err == nil {
+			storageThroughput = v
+		}
+	}
+
+	monitoringInterval := 0
+	if rawMI := vals.Get("MonitoringInterval"); rawMI != "" {
+		if v, err := strconv.Atoi(rawMI); err == nil {
+			monitoringInterval = v
+		}
+	}
+
+	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId")
+	logExports := parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member")
+
 	opts := DBInstanceOptions{
 		EngineVersion:                    vals.Get("EngineVersion"),
 		StorageType:                      vals.Get("StorageType"),
 		AvailabilityZone:                 vals.Get("AvailabilityZone"),
+		OptionGroupName:                  vals.Get("OptionGroupName"),
+		LicenseModel:                     vals.Get("LicenseModel"),
+		MonitoringRoleArn:                vals.Get("MonitoringRoleArn"),
+		PreferredMaintenanceWindow:       vals.Get("PreferredMaintenanceWindow"),
+		PreferredBackupWindow:            vals.Get("PreferredBackupWindow"),
+		KmsKeyId:                         vals.Get("KmsKeyId"),
 		BackupRetentionPeriod:            backupRetention,
+		Iops:                             iops,
+		StorageThroughput:                storageThroughput,
+		MonitoringInterval:               monitoringInterval,
 		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
 		StorageEncrypted:                 vals.Get("StorageEncrypted") == formTrue,
 		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
+		CopyTagsToSnapshot:               vals.Get("CopyTagsToSnapshot") == formTrue,
+		VpcSecurityGroupIds:              vpcSGIds,
+		EnabledCloudwatchLogsExports:     logExports,
 	}
 
 	inst, err := h.Backend.CreateDBInstance(
@@ -673,13 +709,50 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 		backupRetention = v
 	}
 
+	iops := 0
+	if rawIops := vals.Get("Iops"); rawIops != "" {
+		if v, err := strconv.Atoi(rawIops); err == nil {
+			iops = v
+		}
+	}
+
+	storageThroughput := 0
+	if rawST := vals.Get("StorageThroughput"); rawST != "" {
+		if v, err := strconv.Atoi(rawST); err == nil {
+			storageThroughput = v
+		}
+	}
+
+	monitoringInterval := -1
+	if rawMI := vals.Get("MonitoringInterval"); rawMI != "" {
+		if v, err := strconv.Atoi(rawMI); err == nil {
+			monitoringInterval = v
+		}
+	}
+
+	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId")
+	logExports := parseMultiValueParam(vals, "CloudwatchLogsExportConfiguration.EnableLogTypes.member")
+
 	opts := DBInstanceOptions{
 		StorageType:                      vals.Get("StorageType"),
+		OptionGroupName:                  vals.Get("OptionGroupName"),
+		LicenseModel:                     vals.Get("LicenseModel"),
+		MonitoringRoleArn:                vals.Get("MonitoringRoleArn"),
+		PreferredMaintenanceWindow:       vals.Get("PreferredMaintenanceWindow"),
+		PreferredBackupWindow:            vals.Get("PreferredBackupWindow"),
+		DBParameterGroupName:             vals.Get("DBParameterGroupName"),
 		BackupRetentionPeriod:            backupRetention,
+		Iops:                             iops,
+		StorageThroughput:                storageThroughput,
+		MonitoringInterval:               monitoringInterval,
 		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
 		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
-		DBParameterGroupName:             vals.Get("DBParameterGroupName"),
+		CopyTagsToSnapshot:               vals.Get("CopyTagsToSnapshot") == formTrue,
+		AllowMajorVersionUpgrade:         vals.Get("AllowMajorVersionUpgrade") == formTrue,
+		ApplyImmediately:                 vals.Get("ApplyImmediately") == formTrue,
+		VpcSecurityGroupIds:              vpcSGIds,
+		EnabledCloudwatchLogsExports:     logExports,
 	}
 
 	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, allocatedStorage, opts)
@@ -845,6 +918,8 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		Endpoint:                          inst.Endpoint,
 		Port:                              inst.Port,
 		AllocatedStorage:                  inst.AllocatedStorage,
+		Iops:                              inst.Iops,
+		StorageThroughput:                 inst.StorageThroughput,
 		VpcID:                             inst.VpcID,
 		DBSubnetGroupName:                 inst.DBSubnetGroupName,
 		ReplicaSourceDBInstanceIdentifier: inst.ReplicaSourceDBInstanceIdentifier,
@@ -855,12 +930,32 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		BackupRetentionPeriod:             inst.BackupRetentionPeriod,
 		IAMDatabaseAuthenticationEnabled:  inst.IAMDatabaseAuthenticationEnabled,
 		DeletionProtection:                inst.DeletionProtection,
+		LicenseModel:                      inst.LicenseModel,
+		MonitoringInterval:                inst.MonitoringInterval,
+		MonitoringRoleArn:                 inst.MonitoringRoleArn,
+		EnhancedMonitoringResourceArn:     inst.EnhancedMonitoringResourceArn,
+		PreferredMaintenanceWindow:        inst.PreferredMaintenanceWindow,
+		PreferredBackupWindow:             inst.PreferredBackupWindow,
+		KmsKeyId:                          inst.KmsKeyId,
+		CopyTagsToSnapshot:                inst.CopyTagsToSnapshot,
 	}
 
 	if inst.DBParameterGroupName != "" {
 		result.DBParameterGroups = &xmlDBParamGroupsWrapper{
 			Status: &xmlDBParamGroupStatus{DBParameterGroupName: inst.DBParameterGroupName},
 		}
+	}
+
+	if len(inst.VpcSecurityGroups) > 0 {
+		members := make([]xmlVpcSecurityGroupMembership, 0, len(inst.VpcSecurityGroups))
+		for _, sg := range inst.VpcSecurityGroups {
+			members = append(members, xmlVpcSecurityGroupMembership{
+				VpcSecurityGroupId: sg.VpcSecurityGroupId,
+				Status:             sg.Status,
+			})
+		}
+
+		result.VpcSecurityGroups = &xmlVpcSecurityGroupList{Members: members}
 	}
 
 	return result
@@ -876,6 +971,11 @@ func toXMLSnapshot(snap *DBSnapshot) xmlDBSnapshot {
 		AllocatedStorage:     snap.AllocatedStorage,
 		Port:                 snap.Port,
 		StorageType:          snap.StorageType,
+		OptionGroupName:      snap.OptionGroupName,
+		KmsKeyId:             snap.KmsKeyId,
+		SourceRegion:         snap.SourceRegion,
+		SnapshotType:         snap.SnapshotType,
+		CopyTagsToSnapshot:   snap.CopyTagsToSnapshot,
 		Encrypted:            snap.StorageEncrypted,
 	}
 }
@@ -1002,7 +1102,18 @@ type xmlDBParamGroupsWrapper struct {
 	Status *xmlDBParamGroupStatus `xml:"DBParameterGroupStatus,omitempty"`
 }
 
+type xmlVpcSecurityGroupMembership struct {
+	VpcSecurityGroupId string `xml:"VpcSecurityGroupId"`
+	Status             string `xml:"Status"`
+}
+
+type xmlVpcSecurityGroupList struct {
+	Members []xmlVpcSecurityGroupMembership `xml:"VpcSecurityGroupMembership"`
+}
+
 type xmlDBInstance struct {
+	DBParameterGroups                 *xmlDBParamGroupsWrapper `xml:"DBParameterGroups,omitempty"`
+	VpcSecurityGroups                 *xmlVpcSecurityGroupList `xml:"VpcSecurityGroups,omitempty"`
 	DBInstanceIdentifier              string                   `xml:"DBInstanceIdentifier"`
 	DbiResourceID                     string                   `xml:"DbiResourceId,omitempty"`
 	DBInstanceClass                   string                   `xml:"DBInstanceClass"`
@@ -1014,17 +1125,26 @@ type xmlDBInstance struct {
 	Endpoint                          string                   `xml:"Endpoint>Address"`
 	VpcID                             string                   `xml:"DBSubnetGroup>VpcId,omitempty"`
 	DBSubnetGroupName                 string                   `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
-	DBParameterGroups                 *xmlDBParamGroupsWrapper `xml:"DBParameterGroups,omitempty"`
 	ReplicaSourceDBInstanceIdentifier string                   `xml:"ReadReplicaSourceDBInstanceIdentifier,omitempty"`
 	StorageType                       string                   `xml:"StorageType,omitempty"`
 	AvailabilityZone                  string                   `xml:"AvailabilityZone,omitempty"`
+	LicenseModel                      string                   `xml:"LicenseModel,omitempty"`
+	MonitoringRoleArn                 string                   `xml:"MonitoringRoleArn,omitempty"`
+	EnhancedMonitoringResourceArn     string                   `xml:"EnhancedMonitoringResourceArn,omitempty"`
+	PreferredMaintenanceWindow        string                   `xml:"PreferredMaintenanceWindow,omitempty"`
+	PreferredBackupWindow             string                   `xml:"PreferredBackupWindow,omitempty"`
+	KmsKeyId                          string                   `xml:"KmsKeyId,omitempty"`
 	Port                              int                      `xml:"Endpoint>Port"`
 	AllocatedStorage                  int                      `xml:"AllocatedStorage"`
+	Iops                              int                      `xml:"Iops,omitempty"`
+	StorageThroughput                 int                      `xml:"StorageThroughput,omitempty"`
 	BackupRetentionPeriod             int                      `xml:"BackupRetentionPeriod,omitempty"`
+	MonitoringInterval                int                      `xml:"MonitoringInterval,omitempty"`
 	MultiAZ                           bool                     `xml:"MultiAZ"`
 	StorageEncrypted                  bool                     `xml:"StorageEncrypted"`
 	IAMDatabaseAuthenticationEnabled  bool                     `xml:"IAMDatabaseAuthenticationEnabled,omitempty"`
 	DeletionProtection                bool                     `xml:"DeletionProtection,omitempty"`
+	CopyTagsToSnapshot                bool                     `xml:"CopyTagsToSnapshot,omitempty"`
 }
 
 type xmlDBInstanceList struct {
@@ -1063,9 +1183,14 @@ type xmlDBSnapshot struct {
 	EngineVersion        string `xml:"EngineVersion,omitempty"`
 	Status               string `xml:"Status"`
 	StorageType          string `xml:"StorageType,omitempty"`
+	OptionGroupName      string `xml:"OptionGroupName,omitempty"`
+	KmsKeyId             string `xml:"KmsKeyId,omitempty"`
+	SourceRegion         string `xml:"SourceRegion,omitempty"`
+	SnapshotType         string `xml:"SnapshotType,omitempty"`
 	AllocatedStorage     int    `xml:"AllocatedStorage,omitempty"`
 	Port                 int    `xml:"Port,omitempty"`
 	Encrypted            bool   `xml:"Encrypted,omitempty"`
+	CopyTagsToSnapshot   bool   `xml:"CopyTagsToSnapshot,omitempty"`
 }
 
 type xmlDBSnapshotList struct {
@@ -1174,6 +1299,19 @@ func parseTagEntries(vals url.Values) []Tag {
 }
 
 // parseTagKeyMembers parses TagKeys.member.N form values.
+// parseMultiValueParam extracts indexed values from a form param prefix (e.g. "VpcSecurityGroupIds.VpcSecurityGroupId.N").
+func parseMultiValueParam(vals url.Values, prefix string) []string {
+	var result []string
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("%s.%d", prefix, i))
+		if v == "" {
+			break
+		}
+		result = append(result, v)
+	}
+	return result
+}
+
 func parseTagKeyMembers(vals url.Values) []string {
 	var keys []string
 	for i := 1; ; i++ {
@@ -1445,7 +1583,35 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		return nil, parseErr
 	}
 
-	cluster, err := h.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg)
+	backtrackWindow := int64(0)
+	if rawBW := vals.Get("BacktrackWindow"); rawBW != "" {
+		if v, err := strconv.ParseInt(rawBW, 10, 64); err == nil {
+			backtrackWindow = v
+		}
+	}
+
+	monitoringInterval := 0
+	if rawMI := vals.Get("MonitoringInterval"); rawMI != "" {
+		if v, err := strconv.Atoi(rawMI); err == nil {
+			monitoringInterval = v
+		}
+	}
+
+	clusterOpts := DBClusterOptions{
+		EngineVersion:                vals.Get("EngineVersion"),
+		KmsKeyId:                     vals.Get("KmsKeyId"),
+		PreferredBackupWindow:        vals.Get("PreferredBackupWindow"),
+		PreferredMaintenanceWindow:   vals.Get("PreferredMaintenanceWindow"),
+		MonitoringRoleArn:            vals.Get("MonitoringRoleArn"),
+		EnabledCloudwatchLogsExports: parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
+		BacktrackWindow:              backtrackWindow,
+		MonitoringInterval:           monitoringInterval,
+		MultiAZ:                      vals.Get("MultiAZ") == formTrue,
+		StorageEncrypted:             vals.Get("StorageEncrypted") == formTrue,
+		CopyTagsToSnapshot:           vals.Get("CopyTagsToSnapshot") == formTrue,
+	}
+
+	cluster, err := h.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg, clusterOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -1496,7 +1662,35 @@ func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
 func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
-	cluster, err := h.Backend.ModifyDBCluster(id, paramGroupName)
+
+	backtrackWindow := int64(0)
+	if rawBW := vals.Get("BacktrackWindow"); rawBW != "" {
+		if v, err := strconv.ParseInt(rawBW, 10, 64); err == nil {
+			backtrackWindow = v
+		}
+	}
+
+	monitoringInterval := -1
+	if rawMI := vals.Get("MonitoringInterval"); rawMI != "" {
+		if v, err := strconv.Atoi(rawMI); err == nil {
+			monitoringInterval = v
+		}
+	}
+
+	opts := DBClusterOptions{
+		EngineVersion:                vals.Get("EngineVersion"),
+		KmsKeyId:                     vals.Get("KmsKeyId"),
+		PreferredBackupWindow:        vals.Get("PreferredBackupWindow"),
+		PreferredMaintenanceWindow:   vals.Get("PreferredMaintenanceWindow"),
+		MonitoringRoleArn:            vals.Get("MonitoringRoleArn"),
+		EnabledCloudwatchLogsExports: parseMultiValueParam(vals, "CloudwatchLogsExportConfiguration.EnableLogTypes.member"),
+		BacktrackWindow:              backtrackWindow,
+		MonitoringInterval:           monitoringInterval,
+		MultiAZ:                      vals.Get("MultiAZ") == formTrue,
+		CopyTagsToSnapshot:           vals.Get("CopyTagsToSnapshot") == formTrue,
+	}
+
+	cluster, err := h.Backend.ModifyDBCluster(id, paramGroupName, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1950,6 +2144,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	x := xmlDBCluster{
 		DBClusterIdentifier:             c.DBClusterIdentifier,
 		Engine:                          c.Engine,
+		EngineVersion:                   c.EngineVersion,
 		Status:                          c.Status,
 		MasterUsername:                  c.MasterUsername,
 		DatabaseName:                    c.DatabaseName,
@@ -1960,12 +2155,36 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		ActivityStreamMode:              c.ActivityStreamMode,
 		ActivityStreamKMSKeyID:          c.ActivityStreamKMSKeyID,
 		ActivityStreamKinesisStreamName: c.ActivityStreamKinesisStreamName,
+		PreferredBackupWindow:           c.PreferredBackupWindow,
+		PreferredMaintenanceWindow:      c.PreferredMaintenanceWindow,
+		KmsKeyId:                        c.KmsKeyId,
+		MonitoringRoleArn:               c.MonitoringRoleArn,
+		BacktrackWindow:                 c.BacktrackWindow,
+		MonitoringInterval:              c.MonitoringInterval,
+		MultiAZ:                         c.MultiAZ,
+		StorageEncrypted:                c.StorageEncrypted,
+		CopyTagsToSnapshot:              c.CopyTagsToSnapshot,
 	}
+
 	if c.ServerlessV2ScalingConfig != nil {
 		x.ServerlessV2ScalingConfiguration = &xmlServerlessV2ScalingConfiguration{
 			MinCapacity: c.ServerlessV2ScalingConfig.MinCapacity,
 			MaxCapacity: c.ServerlessV2ScalingConfig.MaxCapacity,
 		}
+	}
+
+	if len(c.DBClusterMembers) > 0 {
+		members := make([]xmlDBClusterMember, 0, len(c.DBClusterMembers))
+		for _, m := range c.DBClusterMembers {
+			members = append(members, xmlDBClusterMember{
+				DBInstanceIdentifier:        m.DBInstanceIdentifier,
+				DBClusterParameterGroupName: m.DBClusterParameterGroupName,
+				PromotionTier:               m.PromotionTier,
+				IsClusterWriter:             m.IsClusterWriter,
+			})
+		}
+
+		x.DBClusterMembers = &xmlDBClusterMemberList{Members: members}
 	}
 
 	return x
@@ -2134,21 +2353,43 @@ type xmlServerlessV2ScalingConfiguration struct {
 // xmlServerlessV2Ref is a type alias to keep struct field definitions within line-length limits.
 type xmlServerlessV2Ref = xmlServerlessV2ScalingConfiguration
 
+type xmlDBClusterMember struct {
+	DBInstanceIdentifier        string `xml:"DBInstanceIdentifier"`
+	DBClusterParameterGroupName string `xml:"DBClusterParameterGroupName,omitempty"`
+	PromotionTier               int    `xml:"PromotionTier,omitempty"`
+	IsClusterWriter             bool   `xml:"IsClusterWriter"`
+}
+
+type xmlDBClusterMemberList struct {
+	Members []xmlDBClusterMember `xml:"DBClusterMember"`
+}
+
 type xmlDBCluster struct {
 	// ServerlessV2ScalingConfiguration holds Aurora Serverless v2 capacity settings.
-	ServerlessV2ScalingConfiguration *xmlServerlessV2Ref `xml:"ServerlessV2ScalingConfiguration,omitempty"`
-	DBClusterIdentifier              string              `xml:"DBClusterIdentifier"`
-	Engine                           string              `xml:"Engine"`
-	Status                           string              `xml:"Status"`
-	MasterUsername                   string              `xml:"MasterUsername"`
-	DatabaseName                     string              `xml:"DatabaseName,omitempty"`
-	DBClusterParameterGroupName      string              `xml:"DBClusterParameterGroup"`
-	Endpoint                         string              `xml:"Endpoint,omitempty"`
-	ActivityStreamStatus             string              `xml:"ActivityStreamStatus,omitempty"`
-	ActivityStreamMode               string              `xml:"ActivityStreamMode,omitempty"`
-	ActivityStreamKMSKeyID           string              `xml:"ActivityStreamKmsKeyId,omitempty"`
-	ActivityStreamKinesisStreamName  string              `xml:"ActivityStreamKinesisStreamName,omitempty"`
-	Port                             int                 `xml:"Port"`
+	ServerlessV2ScalingConfiguration *xmlServerlessV2Ref    `xml:"ServerlessV2ScalingConfiguration,omitempty"`
+	DBClusterMembers                 *xmlDBClusterMemberList `xml:"DBClusterMembers,omitempty"`
+	DBClusterIdentifier              string                 `xml:"DBClusterIdentifier"`
+	Engine                           string                 `xml:"Engine"`
+	EngineVersion                    string                 `xml:"EngineVersion,omitempty"`
+	Status                           string                 `xml:"Status"`
+	MasterUsername                   string                 `xml:"MasterUsername"`
+	DatabaseName                     string                 `xml:"DatabaseName,omitempty"`
+	DBClusterParameterGroupName      string                 `xml:"DBClusterParameterGroup"`
+	Endpoint                         string                 `xml:"Endpoint,omitempty"`
+	ActivityStreamStatus             string                 `xml:"ActivityStreamStatus,omitempty"`
+	ActivityStreamMode               string                 `xml:"ActivityStreamMode,omitempty"`
+	ActivityStreamKMSKeyID           string                 `xml:"ActivityStreamKmsKeyId,omitempty"`
+	ActivityStreamKinesisStreamName  string                 `xml:"ActivityStreamKinesisStreamName,omitempty"`
+	PreferredBackupWindow            string                 `xml:"PreferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow       string                 `xml:"PreferredMaintenanceWindow,omitempty"`
+	KmsKeyId                         string                 `xml:"KmsKeyId,omitempty"`
+	MonitoringRoleArn                string                 `xml:"MonitoringRoleArn,omitempty"`
+	Port                             int                    `xml:"Port"`
+	BacktrackWindow                  int64                  `xml:"BacktrackWindow,omitempty"`
+	MonitoringInterval               int                    `xml:"MonitoringInterval,omitempty"`
+	MultiAZ                          bool                   `xml:"MultiAZ,omitempty"`
+	StorageEncrypted                 bool                   `xml:"StorageEncrypted,omitempty"`
+	CopyTagsToSnapshot               bool                   `xml:"CopyTagsToSnapshot,omitempty"`
 }
 
 type xmlDBClusterList struct {
@@ -2303,13 +2544,25 @@ type downloadDBLogFilePortionResponse struct {
 	AdditionalDataPending bool     `xml:"DownloadDBLogFilePortionResult>AdditionalDataPending"`
 }
 
+type xmlGlobalClusterMember struct {
+	DBClusterArn          string `xml:"DBClusterArn"`
+	GlobalWriteForwarding bool   `xml:"GlobalWriteForwarding,omitempty"`
+	IsWriter              bool   `xml:"IsWriter"`
+}
+
+type xmlGlobalClusterMemberList struct {
+	Members []xmlGlobalClusterMember `xml:"GlobalClusterMember"`
+}
+
 type xmlGlobalCluster struct {
-	GlobalClusterIdentifier string `xml:"GlobalClusterIdentifier"`
-	Engine                  string `xml:"Engine,omitempty"`
-	EngineVersion           string `xml:"EngineVersion,omitempty"`
-	Status                  string `xml:"Status,omitempty"`
-	StorageEncrypted        bool   `xml:"StorageEncrypted,omitempty"`
-	DeletionProtection      bool   `xml:"DeletionProtection,omitempty"`
+	GlobalClusterMembers    *xmlGlobalClusterMemberList `xml:"GlobalClusterMembers,omitempty"`
+	GlobalClusterIdentifier string                      `xml:"GlobalClusterIdentifier"`
+	Engine                  string                      `xml:"Engine,omitempty"`
+	EngineVersion           string                      `xml:"EngineVersion,omitempty"`
+	Status                  string                      `xml:"Status,omitempty"`
+	PrimaryRegion           string                      `xml:"PrimaryRegion,omitempty"`
+	StorageEncrypted        bool                        `xml:"StorageEncrypted,omitempty"`
+	DeletionProtection      bool                        `xml:"DeletionProtection,omitempty"`
 }
 
 type xmlGlobalClusterList struct {
@@ -2574,7 +2827,13 @@ func (h *Handler) handleCopyDBSnapshot(vals url.Values) (any, error) {
 	sourceSnapshotID := vals.Get("SourceDBSnapshotIdentifier")
 	targetSnapshotID := vals.Get("TargetDBSnapshotIdentifier")
 
-	snap, err := h.Backend.CopyDBSnapshot(sourceSnapshotID, targetSnapshotID)
+	opts := CopyDBSnapshotOptions{
+		KmsKeyId:    vals.Get("KmsKeyId"),
+		SourceRegion: vals.Get("SourceRegion"),
+		CopyTags:    vals.Get("CopyTags") == formTrue,
+	}
+
+	snap, err := h.Backend.CopyDBSnapshot(sourceSnapshotID, targetSnapshotID, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -2670,14 +2929,30 @@ func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
 }
 
 func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
-	return xmlGlobalCluster{
+	x := xmlGlobalCluster{
 		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
 		Engine:                  gc.Engine,
 		EngineVersion:           gc.EngineVersion,
 		Status:                  gc.Status,
+		PrimaryRegion:           gc.PrimaryRegion,
 		StorageEncrypted:        gc.StorageEncrypted,
 		DeletionProtection:      gc.DeletionProtection,
 	}
+
+	if len(gc.GlobalClusterMembers) > 0 {
+		members := make([]xmlGlobalClusterMember, 0, len(gc.GlobalClusterMembers))
+		for _, m := range gc.GlobalClusterMembers {
+			members = append(members, xmlGlobalClusterMember{
+				DBClusterArn:          m.DBClusterArn,
+				GlobalWriteForwarding: m.GlobalWriteForwarding,
+				IsWriter:              m.IsWriter,
+			})
+		}
+
+		x.GlobalClusterMembers = &xmlGlobalClusterMemberList{Members: members}
+	}
+
+	return x
 }
 
 // ---- New operations: handlers ----

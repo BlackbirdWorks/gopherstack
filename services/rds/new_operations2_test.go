@@ -25,7 +25,7 @@ func TestRDSBackend_AddRoleToDBCluster(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil)
+				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
 			},
 			clusterID: "my-cluster",
 			roleARN:   "arn:aws:iam::000000000000:role/MyRole",
@@ -49,7 +49,7 @@ func TestRDSBackend_AddRoleToDBCluster(t *testing.T) {
 		{
 			name: "empty_role_arn",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil)
+				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil, rds.DBClusterOptions{})
 			},
 			clusterID: "my-cluster",
 			roleARN:   "",
@@ -59,7 +59,7 @@ func TestRDSBackend_AddRoleToDBCluster(t *testing.T) {
 		{
 			name: "idempotent_duplicate",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil)
+				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil, rds.DBClusterOptions{})
 				_ = b.AddRoleToDBCluster("my-cluster", "arn:aws:iam::000000000000:role/MyRole")
 			},
 			clusterID: "my-cluster",
@@ -255,7 +255,7 @@ func TestRDSBackend_ApplyPendingMaintenanceAction(t *testing.T) {
 		{
 			name: "success_for_cluster",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil)
+				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil, rds.DBClusterOptions{})
 			},
 			resourceID:  "my-cluster",
 			applyAction: "system-update",
@@ -410,7 +410,7 @@ func TestRDSBackend_BacktrackDBCluster(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil)
+				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil, rds.DBClusterOptions{})
 			},
 			clusterID:   "my-cluster",
 			backtrackTo: "2024-01-01T00:00:00Z",
@@ -1036,7 +1036,7 @@ func TestRDSBackend_Persistence_NewOps(t *testing.T) {
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateDBCluster("pg-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil)
+	_, err := b.CreateDBCluster("pg-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
 
 	err = b.AddRoleToDBCluster("pg-cluster", "arn:aws:iam::000000000000:role/MyRole")
