@@ -552,7 +552,7 @@ func (b *InMemoryBackend) PurchaseReservedDBInstancesOffering(
 		ProductDescription:            offering.ProductDescription,
 		OfferingType:                  offering.OfferingType,
 		MultiAZ:                       offering.MultiAZ,
-		State:                         "active",
+		State:                         subscriptionStatusActive,
 		CurrencyCode:                  offering.CurrencyCode,
 	}
 	b.reservedInstances[reservedDBInstanceID] = ri
