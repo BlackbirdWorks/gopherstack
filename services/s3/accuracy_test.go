@@ -936,6 +936,11 @@ func TestSSEC_GetObject_ValidHeaders_Returns200(t *testing.T) {
 
 	rec := doRequest(handler, http.MethodGet, "/ssec-get-valid/obj", nil, ssecHeaders(keyB64, keyMD5))
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// second object with a distinct key name ensures mustPutSSECObject's key param is exercised.
+	key2B64, key2MD5 := mustPutSSECObject(t, handler, "ssec-get-valid", "obj2", "world")
+	rec2 := doRequest(handler, http.MethodGet, "/ssec-get-valid/obj2", nil, ssecHeaders(key2B64, key2MD5))
+	assert.Equal(t, http.StatusOK, rec2.Code)
 }
 
 func TestSSEC_HeadObject_MissingHeaders_Returns400(t *testing.T) {

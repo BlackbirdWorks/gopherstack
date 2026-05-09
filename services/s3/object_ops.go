@@ -202,10 +202,10 @@ func (h *S3Handler) headObject(
 		return
 	}
 
-	if err := validateSSECOnRead(
+	if sseErr := validateSSECOnRead(
 		r, aws.ToString(out.SSECustomerAlgorithm), aws.ToString(out.SSECustomerKeyMD5),
-	); err != nil {
-		WriteError(ctx, w, r, err)
+	); sseErr != nil {
+		WriteError(ctx, w, r, sseErr)
 
 		return
 	}
@@ -551,8 +551,10 @@ func (h *S3Handler) getObject(
 	}
 	defer ver.Body.Close()
 
-	if err := validateSSECOnRead(r, aws.ToString(ver.SSECustomerAlgorithm), aws.ToString(ver.SSECustomerKeyMD5)); err != nil {
-		WriteError(ctx, w, r, err)
+	if sseErr := validateSSECOnRead(
+		r, aws.ToString(ver.SSECustomerAlgorithm), aws.ToString(ver.SSECustomerKeyMD5),
+	); sseErr != nil {
+		WriteError(ctx, w, r, sseErr)
 
 		return
 	}
