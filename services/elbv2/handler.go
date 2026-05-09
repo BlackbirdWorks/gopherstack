@@ -474,7 +474,7 @@ func (h *Handler) handleSetIPAddressType(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: IpAddressType is required", ErrInvalidParameter)
 	}
 
-	lb, err := h.Backend.SetIpAddressType(lbArn, ipType)
+	lb, err := h.Backend.SetIPAddressType(lbArn, ipType)
 	if err != nil {
 		return nil, err
 	}
@@ -496,31 +496,10 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 
 	// Lambda target groups do not require a port.
 	targetType := vals.Get("TargetType")
-	portStr := vals.Get("Port")
-	var port int32
 
-	if targetType != "lambda" {
-		if portStr == "" {
-			return nil, fmt.Errorf("%w: Port is required", ErrInvalidParameter)
-		}
-
-		p, pErr := parseInt32(portStr)
-		if pErr != nil {
-			return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
-		}
-
-		if vErr := validatePort(p); vErr != nil {
-			return nil, vErr
-		}
-
-		port = p
-	} else if portStr != "" {
-		p, pErr := parseInt32(portStr)
-		if pErr != nil {
-			return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
-		}
-
-		port = p
+	port, err := parseTGPort(targetType, vals.Get("Port"))
+	if err != nil {
+		return nil, err
 	}
 
 	tagKVs := parseTagKVs(vals)
@@ -855,11 +834,16 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 	if len(actions) == 0 {
 		return nil, fmt.Errorf("%w: DefaultActions must contain at least one action", ErrInvalidParameter)
 	}
+
+	if actErr := validateActionTypes(actions); actErr != nil {
+		return nil, actErr
+	}
+
 	tagKVs := parseTagKVs(vals)
 	certs := parseCerts(vals)
 
 	// Mark first cert as default for HTTPS/TLS listeners.
-	if (protocol == "HTTPS" || protocol == "TLS") && len(certs) > 0 {
+	if (protocol == protoHTTPS || protocol == protoTLS) && len(certs) > 0 {
 		certs[0].IsDefault = true
 	}
 
@@ -1067,6 +1051,10 @@ func (h *Handler) handleCreateRule(vals url.Values) (any, error) {
 	actions := parseActions(vals, "Actions.member")
 	if len(actions) == 0 {
 		return nil, fmt.Errorf("%w: Actions must contain at least one action", ErrInvalidParameter)
+	}
+
+	if actErr := validateActionTypes(actions); actErr != nil {
+		return nil, actErr
 	}
 
 	conditions, err := parseConditions(vals, "Conditions.member")
@@ -1908,6 +1896,31 @@ func parseInt32(s string) (int32, error) {
 	return int32(n), nil
 }
 
+// parseTGPort parses the Port form value for a CreateTargetGroup request.
+// Lambda target groups do not require a port; all other types do.
+func parseTGPort(targetType, portStr string) (int32, error) {
+	if targetType == targetTypeLambda {
+		if portStr == "" {
+			return 0, nil
+		}
+	} else if portStr == "" {
+		return 0, fmt.Errorf("%w: Port is required", ErrInvalidParameter)
+	}
+
+	p, err := parseInt32(portStr)
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+	}
+
+	if targetType != targetTypeLambda {
+		if vErr := validatePort(p); vErr != nil {
+			return 0, vErr
+		}
+	}
+
+	return p, nil
+}
+
 // parseOptionalInt32 parses an integer form field, returning an error only when
 // the field is present but cannot be parsed. An absent field returns (0, nil).
 func parseOptionalInt32(vals url.Values, key string) (int32, error) {
@@ -2036,6 +2049,16 @@ func parseActions(vals url.Values, prefix string) []Action {
 	return result
 }
 
+// isValidActionType returns true if the action type is a recognized ELBv2 value.
+func isValidActionType(t string) bool {
+	switch t {
+	case "forward", "redirect", "fixed-response", "authenticate-cognito", "authenticate-oidc":
+		return true
+	}
+
+	return false
+}
+
 // applyActionConfig populates action-type-specific config fields from form values.
 func applyActionConfig(vals url.Values, p, actionType string, action *Action) {
 	switch actionType {
@@ -2064,6 +2087,21 @@ func applyActionConfig(vals url.Values, p, actionType string, action *Action) {
 	case "authenticate-oidc":
 		applyAuthOidcConfig(vals, p, action)
 	}
+}
+
+// validateActionTypes returns an error if any action has an unknown type.
+func validateActionTypes(actions []Action) error {
+	for _, a := range actions {
+		if !isValidActionType(a.Type) {
+			return fmt.Errorf(
+				"%w: invalid action type %q; must be forward, redirect, fixed-response, authenticate-cognito, or authenticate-oidc",
+				ErrInvalidParameter,
+				a.Type,
+			)
+		}
+	}
+
+	return nil
 }
 
 func applyAuthCognitoConfig(vals url.Values, p string, action *Action) {

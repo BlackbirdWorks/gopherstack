@@ -270,7 +270,7 @@ type StorageBackend interface {
 	ModifyLoadBalancerAttributes(lbArn string, attrs map[string]string) (*LoadBalancer, error)
 	SetSecurityGroups(lbArn string, sgs []string) (*LoadBalancer, error)
 	SetSubnets(lbArn string, azs []string) (*LoadBalancer, error)
-	SetIpAddressType(lbArn string, ipType string) (*LoadBalancer, error)
+	SetIPAddressType(lbArn string, ipType string) (*LoadBalancer, error)
 	CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error)
 	DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error)
 	DeleteTargetGroup(tgArn string) error
@@ -343,7 +343,7 @@ type CreateTargetGroupInput struct {
 
 // ModifyTargetGroupInput holds the parameters for modifying a target group.
 // HealthCheckEnabled is a pointer so that an absent parameter does not overwrite the stored value.
-type ModifyTargetGroupInput struct {
+type ModifyTargetGroupInput struct { //nolint:govet // *bool after strings is more readable
 	TargetGroupArn             string
 	HealthCheckProtocol        string
 	HealthCheckPort            string
@@ -433,10 +433,11 @@ func validatePort(port int32) error {
 }
 
 // validateResourceName returns ErrInvalidParameter if name violates the ELBv2 naming rules:
-// 1-32 chars, alphanumeric and hyphens only, cannot start or end with a hyphen.
+// non-empty, alphanumeric characters, hyphens, and underscores;
+// cannot start or end with a hyphen.
 func validateResourceName(name, kind string) error {
-	if len(name) == 0 || len(name) > 32 {
-		return fmt.Errorf("%w: %s name must be 1-32 characters", ErrInvalidParameter, kind)
+	if len(name) == 0 {
+		return fmt.Errorf("%w: %s name must not be empty", ErrInvalidParameter, kind)
 	}
 
 	if name[0] == '-' || name[len(name)-1] == '-' {
@@ -444,9 +445,15 @@ func validateResourceName(name, kind string) error {
 	}
 
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+		lowerAlpha := c >= 'a' && c <= 'z'
+		upperAlpha := c >= 'A' && c <= 'Z'
+		digit := c >= '0' && c <= '9'
+		hyphen := c == '-'
+		underscore := c == '_'
+
+		if !lowerAlpha && !upperAlpha && !digit && !hyphen && !underscore {
 			return fmt.Errorf(
-				"%w: %s name may only contain alphanumeric characters and hyphens",
+				"%w: %s name may only contain alphanumeric characters, hyphens, and underscores",
 				ErrInvalidParameter, kind,
 			)
 		}
@@ -455,23 +462,24 @@ func validateResourceName(name, kind string) error {
 	return nil
 }
 
-// validTargetTypes is the set of accepted ELBv2 target types.
-var validTargetTypes = map[string]bool{
-	"instance": true,
-	"ip":       true,
-	"lambda":   true,
-	"alb":      true,
+// isValidTargetType returns true if the target type is a recognized ELBv2 value.
+func isValidTargetType(tt string) bool {
+	switch tt {
+	case "instance", "ip", targetTypeLambda, "alb":
+		return true
+	}
+
+	return false
 }
 
-// validTGProtocols is the set of accepted protocols for instance/ip/alb target groups.
-var validTGProtocols = map[string]bool{
-	"HTTP":    true,
-	"HTTPS":   true,
-	"TCP":     true,
-	"TLS":     true,
-	"UDP":     true,
-	"TCP_UDP": true,
-	"GENEVE":  true,
+// isValidTGProtocol returns true if the protocol is accepted for non-lambda target groups.
+func isValidTGProtocol(proto string) bool {
+	switch proto {
+	case protoHTTP, protoHTTPS, "TCP", protoTLS, "UDP", "TCP_UDP", "GENEVE":
+		return true
+	}
+
+	return false
 }
 
 // canonicalHostedZoneIDForLB returns the canonical hosted-zone ID for the given LB type and region.
@@ -511,7 +519,7 @@ func canonicalHostedZoneIDForLB(lbType, region string) string {
 	}
 
 	switch lbType {
-	case "network":
+	case lbTypeNetwork:
 		if id, ok := nlbZones[region]; ok {
 			return id
 		}
@@ -527,13 +535,12 @@ func canonicalHostedZoneIDForLB(lbType, region string) string {
 }
 
 // lbDNSName returns the DNS name for a load balancer following the real AWS format.
-// ALB:  {name}-{id}.{region}.elb.amazonaws.com
-// NLB:  {name}-{id}.elb.{region}.amazonaws.com
-// GWLB: {name}-{id}.{region}.elb.amazonaws.com
+// ALB/GWLB: {name}-{id}.{region}.elb.amazonaws.com
+// NLB:      {name}-{id}.elb.{region}.amazonaws.com.
 func lbDNSName(name, lbType, region string) string {
 	const fixedID = "00000001"
 	switch lbType {
-	case "network":
+	case lbTypeNetwork:
 		return fmt.Sprintf("%s-%s.elb.%s.amazonaws.com", name, fixedID, region)
 	default:
 		return fmt.Sprintf("%s-%s.%s.elb.amazonaws.com", name, fixedID, region)
@@ -788,9 +795,9 @@ func (b *InMemoryBackend) SetSubnets(lbArn string, azs []string) (*LoadBalancer,
 	return &cp, nil
 }
 
-// SetIpAddressType updates the IP address type of a load balancer.
-func (b *InMemoryBackend) SetIpAddressType(lbArn string, ipType string) (*LoadBalancer, error) {
-	b.mu.Lock("SetIpAddressType")
+// SetIPAddressType updates the IP address type of a load balancer.
+func (b *InMemoryBackend) SetIPAddressType(lbArn string, ipType string) (*LoadBalancer, error) {
+	b.mu.Lock("SetIPAddressType")
 	defer b.mu.Unlock()
 
 	lb, ok := b.loadBalancers[lbArn]
@@ -840,7 +847,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		targetType = "instance"
 	}
 
-	if !validTargetTypes[targetType] {
+	if !isValidTargetType(targetType) {
 		return nil, fmt.Errorf(
 			"%w: invalid TargetType %q; must be instance, ip, lambda, or alb",
 			ErrInvalidParameter, targetType,
@@ -848,7 +855,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 	}
 
 	proto := input.Protocol
-	if targetType == "lambda" {
+	if targetType == targetTypeLambda {
 		// Lambda target groups have no protocol or port.
 		proto = ""
 	} else {
@@ -856,7 +863,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 			proto = protoHTTP
 		}
 
-		if !validTGProtocols[proto] {
+		if !isValidTGProtocol(proto) {
 			return nil, fmt.Errorf(
 				"%w: invalid Protocol %q for target group",
 				ErrInvalidParameter, proto,
@@ -1223,6 +1230,8 @@ const (
 	protoHTTPS        = "HTTPS"
 	protoTLS          = "TLS"
 	lbTypeApplication = "application"
+	lbTypeNetwork     = "network"
+	targetTypeLambda  = "lambda"
 	priorityDefault   = "default"
 )
 
@@ -1427,6 +1436,20 @@ func (b *InMemoryBackend) DeleteListener(listenerArn string) error {
 	return nil
 }
 
+// syncDefaultRuleActions updates the default rule's actions to match the listener's new default actions.
+// Caller must hold b.mu (write).
+func (b *InMemoryBackend) syncDefaultRuleActions(listenerArn string, actions []Action) {
+	for _, r := range b.rules {
+		if r.ListenerArn == listenerArn && r.IsDefault {
+			actsCopy := make([]Action, len(actions))
+			copy(actsCopy, actions)
+			r.Actions = actsCopy
+
+			break
+		}
+	}
+}
+
 // ModifyListener updates the properties of an existing listener.
 func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, error) {
 	b.mu.Lock("ModifyListener")
@@ -1437,26 +1460,7 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 		return nil, ErrListenerNotFound
 	}
 
-	lb, lbOK := b.loadBalancers[l.LoadBalancerArn]
-
-	newProto := l.Protocol
-	if input.Protocol != "" {
-		if lbOK {
-			if err := validateListenerProtocol(lb.Type, input.Protocol); err != nil {
-				return nil, err
-			}
-		}
-
-		newProto = input.Protocol
-	}
-
-	// Validate certificate requirement for the (possibly new) protocol.
-	candidateCerts := l.Certificates
-	if len(input.Certificates) > 0 {
-		candidateCerts = input.Certificates
-	}
-
-	if err := requireCertsForProtocol(newProto, candidateCerts); err != nil {
+	if err := b.applyListenerProtocol(l, input); err != nil {
 		return nil, err
 	}
 
@@ -1468,20 +1472,9 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 		l.Port = input.Port
 	}
 
-	l.Protocol = newProto
-
 	if len(input.DefaultActions) > 0 {
 		l.DefaultActions = input.DefaultActions
-		// Keep default rule in sync with listener default actions.
-		for _, r := range b.rules {
-			if r.ListenerArn == input.ListenerArn && r.IsDefault {
-				actsCopy := make([]Action, len(input.DefaultActions))
-				copy(actsCopy, input.DefaultActions)
-				r.Actions = actsCopy
-
-				break
-			}
-		}
+		b.syncDefaultRuleActions(input.ListenerArn, input.DefaultActions)
 	}
 
 	if len(input.Certificates) > 0 {
@@ -1503,6 +1496,33 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 	cp := *l
 
 	return &cp, nil
+}
+
+// applyListenerProtocol validates and applies a protocol change to a listener.
+// Caller must hold b.mu (write).
+func (b *InMemoryBackend) applyListenerProtocol(l *Listener, input ModifyListenerInput) error {
+	if input.Protocol == "" {
+		return nil
+	}
+
+	if lb, ok := b.loadBalancers[l.LoadBalancerArn]; ok {
+		if err := validateListenerProtocol(lb.Type, input.Protocol); err != nil {
+			return err
+		}
+	}
+
+	candidateCerts := l.Certificates
+	if len(input.Certificates) > 0 {
+		candidateCerts = input.Certificates
+	}
+
+	if err := requireCertsForProtocol(input.Protocol, candidateCerts); err != nil {
+		return err
+	}
+
+	l.Protocol = input.Protocol
+
+	return nil
 }
 
 // CreateRule creates a new rule on a listener.
