@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -347,16 +348,20 @@ func (h *S3Handler) listParts(
 
 	maxParts := int32(defaultMaxParts)
 	if mp := q.Get("max-parts"); mp != "" {
-		if n, err := strconv.Atoi(mp); err == nil && n >= 0 && n <= maxPartsLimit {
-			maxParts = int32(n) //nolint:gosec // validated range
+		n, err := strconv.ParseInt(mp, 10, 32)
+		if err != nil || n < 1 || n > maxPartsLimit {
+			WriteError(ctx, w, r, ErrInvalidArgument)
+
+			return
 		}
+		maxParts = int32(n) //nolint:gosec // ParseInt with bitSize=32 guarantees int32 range
 	}
 
 	partNumberMarkerStr := q.Get("part-number-marker")
 	partNumberMarker := int32(0)
 	if partNumberMarkerStr != "" {
-		if n, err := strconv.Atoi(partNumberMarkerStr); err == nil && n >= 0 {
-			partNumberMarker = int32(n) //nolint:gosec // validated non-negative
+		if n, err := strconv.Atoi(partNumberMarkerStr); err == nil && n >= 0 && n <= math.MaxInt32 {
+			partNumberMarker = int32(n) //nolint:gosec // validated within int32 range
 		}
 	}
 

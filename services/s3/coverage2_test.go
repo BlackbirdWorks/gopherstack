@@ -587,7 +587,7 @@ func TestSSE_KMS_ResponseHeaders(t *testing.T) {
 
 // ─── validateSSECKey with empty MD5 ──────────────────────────────────────────
 
-func TestSSEC_NoMD5Header_StillAccepted(t *testing.T) {
+func TestSSEC_NoMD5Header_Rejected(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
@@ -596,7 +596,7 @@ func TestSSEC_NoMD5Header_StillAccepted(t *testing.T) {
 	key := make([]byte, 32)
 	keyB64 := base64.StdEncoding.EncodeToString(key)
 
-	// Send SSE-C key without the MD5 header.
+	// SSE-C algorithm/key/key-MD5 are required together per AWS spec.
 	rec := doRequest(handler, http.MethodPut, "/ssec-nomd5/obj",
 		strings.NewReader("data"),
 		map[string]string{
@@ -604,8 +604,7 @@ func TestSSEC_NoMD5Header_StillAccepted(t *testing.T) {
 			"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
 		})
 
-	// Should succeed: MD5 is optional.
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // ─── evaluateCopySourceConditionals — if-modified-since path ─────────────────

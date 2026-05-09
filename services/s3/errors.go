@@ -49,6 +49,7 @@ var (
 	ErrEntityTooSmall             = errors.New("EntityTooSmall")
 	ErrAccessDenied               = errors.New(errAccessDenied)
 	ErrKeyTooLongError            = errors.New("KeyTooLongError")
+	ErrSSECRequired               = errors.New("InvalidRequest")
 )
 
 type s3ErrorInfo struct {
@@ -146,6 +147,11 @@ func coreErrorTable() []s3ErrorEntry {
 		{ErrKeyTooLongError, s3ErrorInfo{
 			"KeyTooLongError",
 			"Your key is too long.",
+			http.StatusBadRequest,
+		}},
+		{ErrSSECRequired, s3ErrorInfo{
+			"InvalidRequest",
+			"The object was stored using a form of Server Side Encryption. The correct parameters must be provided to retrieve the object.",
 			http.StatusBadRequest,
 		}},
 	}

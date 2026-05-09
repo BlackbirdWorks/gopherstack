@@ -436,12 +436,13 @@ func (b *InMemoryBackend) PutObject(
 		"versionId", newVersionID)
 
 	return &s3.PutObjectOutput{
-		ETag:           aws.String(finalQuotedETag),
-		VersionId:      aws.String(newVersionID),
-		ChecksumCRC32:  checksums.crc32,
-		ChecksumCRC32C: checksums.crc32c,
-		ChecksumSHA1:   checksums.sha1,
-		ChecksumSHA256: checksums.sha256,
+		ETag:              aws.String(finalQuotedETag),
+		VersionId:         aws.String(newVersionID),
+		ChecksumCRC32:     checksums.crc32,
+		ChecksumCRC32C:    checksums.crc32c,
+		ChecksumSHA1:      checksums.sha1,
+		ChecksumSHA256:    checksums.sha256,
+		ChecksumCRC64NVME: checksums.crc64nvme,
 	}, nil
 }
 
@@ -2264,7 +2265,7 @@ func (b *InMemoryBackend) ListParts(
 	upload.mu.RUnlock()
 
 	partsCount := int32(len(parts)) //nolint:gosec // G115: bounded by maxParts
-	isTruncated := partsCount == maxParts && startIdx+len(parts) < len(partNumbers)
+	isTruncated := partsCount == maxParts && int(partsCount) < len(partNumbers)
 	var nextPartNumberMarker *string
 	if isTruncated && len(parts) > 0 {
 		last := parts[len(parts)-1]

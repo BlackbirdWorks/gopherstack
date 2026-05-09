@@ -11,6 +11,7 @@ import (
 	"crypto/md5" //nolint:gosec // G501: MD5 is required by the SSE-C key validation specification
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"hash"
 	"maps"
 	"net/http"
@@ -92,7 +93,7 @@ func validateSSECKey(rawKeyB64, suppliedMD5B64 string) error {
 	}
 
 	if suppliedMD5B64 == "" {
-		return nil
+		return ErrInvalidArgument
 	}
 
 	sum := md5.Sum(keyBytes) //nolint:gosec // MD5 required by SSE-C specification

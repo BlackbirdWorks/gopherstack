@@ -202,6 +202,21 @@ func (h *S3Handler) headObject(
 		return
 	}
 
+	if storedSSECAlg := aws.ToString(out.SSECustomerAlgorithm); storedSSECAlg != "" {
+		if r.Header.Get(headerSSECAlgorithm) == "" || r.Header.Get(headerSSECKeyMD5) == "" {
+			WriteError(ctx, w, r, ErrSSECRequired)
+
+			return
+		}
+
+		suppliedMD5 := r.Header.Get(headerSSECKeyMD5)
+		if storedMD5 := aws.ToString(out.SSECustomerKeyMD5); storedMD5 != "" && suppliedMD5 != storedMD5 {
+			WriteError(ctx, w, r, ErrBadChecksum)
+
+			return
+		}
+	}
+
 	if status, ok := checkConditionalHeaders(r, aws.ToString(out.ETag), aws.ToTime(out.LastModified)); !ok {
 		w.WriteHeader(status)
 
@@ -247,12 +262,13 @@ func (h *S3Handler) headObject(
 func (h *S3Handler) setPutObjectResponseHeaders(w http.ResponseWriter, ver *s3.PutObjectOutput) {
 	w.Header().Set("ETag", *ver.ETag)
 	details := objectCommonDetails{
-		ETag:           ver.ETag,
-		VersionID:      ver.VersionId,
-		ChecksumCRC32:  ver.ChecksumCRC32,
-		ChecksumCRC32C: ver.ChecksumCRC32C,
-		ChecksumSHA1:   ver.ChecksumSHA1,
-		ChecksumSHA256: ver.ChecksumSHA256,
+		ETag:              ver.ETag,
+		VersionID:         ver.VersionId,
+		ChecksumCRC32:     ver.ChecksumCRC32,
+		ChecksumCRC32C:    ver.ChecksumCRC32C,
+		ChecksumSHA1:      ver.ChecksumSHA1,
+		ChecksumSHA256:    ver.ChecksumSHA256,
+		ChecksumCRC64NVME: ver.ChecksumCRC64NVME,
 	}
 	h.setChecksumHeaders(w, details)
 	if ver.VersionId != nil && *ver.VersionId != NullVersion {
@@ -440,6 +456,17 @@ func (h *S3Handler) copyObject(
 
 	if taggingReplace {
 		putInput.Tagging = aws.String(tagging)
+	} else {
+		// COPY directive (default): preserve source tags on destination.
+		srcBucket, srcKey, _, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
+		if ok {
+			if tagOut, tagErr := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+				Bucket: aws.String(srcBucket),
+				Key:    aws.String(srcKey),
+			}); tagErr == nil && len(tagOut.TagSet) > 0 {
+				putInput.Tagging = aws.String(tagSetToQueryString(tagOut.TagSet))
+			}
+		}
 	}
 
 	destVer, err := h.Backend.PutObject(ctx, putInput)
@@ -530,6 +557,21 @@ func (h *S3Handler) getObject(
 		return
 	}
 	defer ver.Body.Close()
+
+	if storedSSECAlg := aws.ToString(ver.SSECustomerAlgorithm); storedSSECAlg != "" {
+		if r.Header.Get(headerSSECAlgorithm) == "" || r.Header.Get(headerSSECKeyMD5) == "" {
+			WriteError(ctx, w, r, ErrSSECRequired)
+
+			return
+		}
+
+		suppliedMD5 := r.Header.Get(headerSSECKeyMD5)
+		if storedMD5 := aws.ToString(ver.SSECustomerKeyMD5); storedMD5 != "" && suppliedMD5 != storedMD5 {
+			WriteError(ctx, w, r, ErrBadChecksum)
+
+			return
+		}
+	}
 
 	if status, ok := checkConditionalHeaders(r, aws.ToString(ver.ETag), aws.ToTime(ver.LastModified)); !ok {
 		w.WriteHeader(status)
@@ -1064,6 +1106,17 @@ func extractCRC64NVMEChecksum(r *http.Request) *string {
 }
 
 const copySourceMinParts = 2
+
+// tagSetToQueryString converts a tag set to the URL query-string format used by
+// PutObject's Tagging field (e.g., "key1=val1&key2=val2").
+func tagSetToQueryString(tags []types.Tag) string {
+	v := url.Values{}
+	for _, t := range tags {
+		v.Set(aws.ToString(t.Key), aws.ToString(t.Value))
+	}
+
+	return v.Encode()
+}
 
 func parseCopySource(src string) (string, string, string, bool) {
 	src = strings.TrimPrefix(src, "/")
