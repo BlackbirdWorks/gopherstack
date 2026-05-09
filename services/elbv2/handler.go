@@ -408,9 +408,21 @@ func (h *Handler) handleSetSecurityGroups(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
+	sgs := parseMembers(vals, "SecurityGroups.member")
+
+	lb, err := h.Backend.SetSecurityGroups(lbArn, sgs)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]xmlStringValue, 0, len(lb.SecurityGroups))
+	for _, sg := range lb.SecurityGroups {
+		members = append(members, xmlStringValue{Value: sg})
+	}
+
 	return &setSecurityGroupsResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setSecurityGroupsResult{SecurityGroupIDs: xmlStringList{Members: []xmlStringValue{}}},
+		Result:           setSecurityGroupsResult{SecurityGroupIDs: xmlStringList{Members: members}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-sgs"},
 	}, nil
 }
@@ -421,9 +433,32 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
+	// Accept both Subnets.member.N (subnet IDs) and SubnetMappings.member.N.SubnetId.
+	azs := parseMembers(vals, "Subnets.member")
+	if len(azs) == 0 {
+		for i := 1; ; i++ {
+			subnetID := vals.Get(fmt.Sprintf("SubnetMappings.member.%d.SubnetId", i))
+			if subnetID == "" {
+				break
+			}
+
+			azs = append(azs, subnetID)
+		}
+	}
+
+	lb, err := h.Backend.SetSubnets(lbArn, azs)
+	if err != nil {
+		return nil, err
+	}
+
+	azMembers := make([]xmlStringValue, 0, len(lb.AvailabilityZones))
+	for _, az := range lb.AvailabilityZones {
+		azMembers = append(azMembers, xmlStringValue{Value: az})
+	}
+
 	return &setSubnetsResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setSubnetsResult{AvailabilityZones: xmlStringList{Members: []xmlStringValue{}}},
+		Result:           setSubnetsResult{AvailabilityZones: xmlStringList{Members: azMembers}},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-subnets"},
 	}, nil
 }
@@ -434,9 +469,19 @@ func (h *Handler) handleSetIPAddressType(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
+	ipType := vals.Get("IpAddressType")
+	if ipType == "" {
+		return nil, fmt.Errorf("%w: IpAddressType is required", ErrInvalidParameter)
+	}
+
+	lb, err := h.Backend.SetIpAddressType(lbArn, ipType)
+	if err != nil {
+		return nil, err
+	}
+
 	return &setIPAddressTypeResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setIPAddressTypeResult{IPAddressType: vals.Get("IpAddressType")},
+		Result:           setIPAddressTypeResult{IPAddressType: lb.IPAddressType},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-ip-type"},
 	}, nil
 }
@@ -449,26 +494,56 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
+	// Lambda target groups do not require a port.
+	targetType := vals.Get("TargetType")
 	portStr := vals.Get("Port")
-	if portStr == "" {
-		return nil, fmt.Errorf("%w: Port is required", ErrInvalidParameter)
-	}
+	var port int32
 
-	port, err := parseInt32(portStr)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
-	}
+	if targetType != "lambda" {
+		if portStr == "" {
+			return nil, fmt.Errorf("%w: Port is required", ErrInvalidParameter)
+		}
 
-	if vErr := validatePort(port); vErr != nil {
-		return nil, vErr
+		p, pErr := parseInt32(portStr)
+		if pErr != nil {
+			return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+		}
+
+		if vErr := validatePort(p); vErr != nil {
+			return nil, vErr
+		}
+
+		port = p
+	} else if portStr != "" {
+		p, pErr := parseInt32(portStr)
+		if pErr != nil {
+			return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+		}
+
+		port = p
 	}
 
 	tagKVs := parseTagKVs(vals)
 
-	hcInterval, _ := parseInt32(vals.Get("HealthCheckIntervalSeconds"))
-	hcTimeout, _ := parseInt32(vals.Get("HealthCheckTimeoutSeconds"))
-	healthyThreshold, _ := parseInt32(vals.Get("HealthyThresholdCount"))
-	unhealthyThreshold, _ := parseInt32(vals.Get("UnhealthyThresholdCount"))
+	hcInterval, err := parseOptionalInt32(vals, "HealthCheckIntervalSeconds")
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid HealthCheckIntervalSeconds", ErrInvalidParameter)
+	}
+
+	hcTimeout, err := parseOptionalInt32(vals, "HealthCheckTimeoutSeconds")
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid HealthCheckTimeoutSeconds", ErrInvalidParameter)
+	}
+
+	healthyThreshold, err := parseOptionalInt32(vals, "HealthyThresholdCount")
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid HealthyThresholdCount", ErrInvalidParameter)
+	}
+
+	unhealthyThreshold, err := parseOptionalInt32(vals, "UnhealthyThresholdCount")
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid UnhealthyThresholdCount", ErrInvalidParameter)
+	}
 
 	hcEnabled := true
 	if hce := vals.Get("HealthCheckEnabled"); hce == attrValueFalse {
@@ -557,12 +632,32 @@ func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: TargetGroupArn is required", ErrInvalidParameter)
 	}
 
-	hcInterval, _ := parseInt32(vals.Get("HealthCheckIntervalSeconds"))
-	hcTimeout, _ := parseInt32(vals.Get("HealthCheckTimeoutSeconds"))
-	healthyThreshold, _ := parseInt32(vals.Get("HealthyThresholdCount"))
-	unhealthyThreshold, _ := parseInt32(vals.Get("UnhealthyThresholdCount"))
+	hcInterval, mErr := parseOptionalInt32(vals, "HealthCheckIntervalSeconds")
+	if mErr != nil {
+		return nil, fmt.Errorf("%w: invalid HealthCheckIntervalSeconds", ErrInvalidParameter)
+	}
 
-	hcEnabled := vals.Get("HealthCheckEnabled") == attrValueTrue
+	hcTimeout, mErr := parseOptionalInt32(vals, "HealthCheckTimeoutSeconds")
+	if mErr != nil {
+		return nil, fmt.Errorf("%w: invalid HealthCheckTimeoutSeconds", ErrInvalidParameter)
+	}
+
+	healthyThreshold, mErr := parseOptionalInt32(vals, "HealthyThresholdCount")
+	if mErr != nil {
+		return nil, fmt.Errorf("%w: invalid HealthyThresholdCount", ErrInvalidParameter)
+	}
+
+	unhealthyThreshold, mErr := parseOptionalInt32(vals, "UnhealthyThresholdCount")
+	if mErr != nil {
+		return nil, fmt.Errorf("%w: invalid UnhealthyThresholdCount", ErrInvalidParameter)
+	}
+
+	// HealthCheckEnabled is optional: only update the field when the parameter is present.
+	var hcEnabled *bool
+	if hce := vals.Get("HealthCheckEnabled"); hce != "" {
+		v := hce == attrValueTrue
+		hcEnabled = &v
+	}
 
 	tg, err := h.Backend.ModifyTargetGroup(ModifyTargetGroupInput{
 		TargetGroupArn:      tgArn,
@@ -690,6 +785,24 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 	targets, err := h.Backend.DescribeTargetHealth(tgArn)
 	if err != nil {
 		return nil, err
+	}
+
+	// When specific targets are requested, filter to only those targets.
+	requestedTargets := parseTargets(vals, "Targets.member")
+	if len(requestedTargets) > 0 {
+		filter := make(map[string]bool, len(requestedTargets))
+		for _, t := range requestedTargets {
+			filter[t.ID+":"+strconv.Itoa(int(t.Port))] = true
+		}
+
+		filtered := targets[:0]
+		for _, t := range targets {
+			if filter[t.Target.ID+":"+strconv.Itoa(int(t.Target.Port))] {
+				filtered = append(filtered, t)
+			}
+		}
+
+		targets = filtered
 	}
 
 	members := make([]xmlTargetHealthDescription, 0, len(targets))
@@ -945,6 +1058,10 @@ func (h *Handler) handleCreateRule(vals url.Values) (any, error) {
 	listenerArn := vals.Get("ListenerArn")
 	if listenerArn == "" {
 		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
+	}
+
+	if vals.Get("Priority") == "" {
+		return nil, fmt.Errorf("%w: Priority is required", ErrInvalidParameter)
 	}
 
 	actions := parseActions(vals, "Actions.member")
@@ -1779,6 +1896,22 @@ func marshalXML(v any) ([]byte, error) {
 // --- helper functions ---
 
 func parseInt32(s string) (int32, error) {
+	if s == "" {
+		return 0, nil
+	}
+
+	n, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return 0, err
+	}
+
+	return int32(n), nil
+}
+
+// parseOptionalInt32 parses an integer form field, returning an error only when
+// the field is present but cannot be parsed. An absent field returns (0, nil).
+func parseOptionalInt32(vals url.Values, key string) (int32, error) {
+	s := vals.Get(key)
 	if s == "" {
 		return 0, nil
 	}

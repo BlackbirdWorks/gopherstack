@@ -268,6 +268,9 @@ type StorageBackend interface {
 	DescribeLoadBalancers(arns []string, names []string) ([]LoadBalancer, error)
 	DeleteLoadBalancer(lbArn string) error
 	ModifyLoadBalancerAttributes(lbArn string, attrs map[string]string) (*LoadBalancer, error)
+	SetSecurityGroups(lbArn string, sgs []string) (*LoadBalancer, error)
+	SetSubnets(lbArn string, azs []string) (*LoadBalancer, error)
+	SetIpAddressType(lbArn string, ipType string) (*LoadBalancer, error)
 	CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error)
 	DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error)
 	DeleteTargetGroup(tgArn string) error
@@ -339,17 +342,18 @@ type CreateTargetGroupInput struct {
 }
 
 // ModifyTargetGroupInput holds the parameters for modifying a target group.
+// HealthCheckEnabled is a pointer so that an absent parameter does not overwrite the stored value.
 type ModifyTargetGroupInput struct {
 	TargetGroupArn             string
 	HealthCheckProtocol        string
 	HealthCheckPort            string
 	HealthCheckPath            string
 	Matcher                    Matcher
+	HealthCheckEnabled         *bool
 	HealthCheckIntervalSeconds int32
 	HealthCheckTimeoutSeconds  int32
 	HealthyThresholdCount      int32
 	UnhealthyThresholdCount    int32
-	HealthCheckEnabled         bool
 }
 
 // CreateListenerInput holds the parameters for creating a listener.
@@ -428,6 +432,114 @@ func validatePort(port int32) error {
 	return nil
 }
 
+// validateResourceName returns ErrInvalidParameter if name violates the ELBv2 naming rules:
+// 1-32 chars, alphanumeric and hyphens only, cannot start or end with a hyphen.
+func validateResourceName(name, kind string) error {
+	if len(name) == 0 || len(name) > 32 {
+		return fmt.Errorf("%w: %s name must be 1-32 characters", ErrInvalidParameter, kind)
+	}
+
+	if name[0] == '-' || name[len(name)-1] == '-' {
+		return fmt.Errorf("%w: %s name cannot start or end with a hyphen", ErrInvalidParameter, kind)
+	}
+
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+			return fmt.Errorf(
+				"%w: %s name may only contain alphanumeric characters and hyphens",
+				ErrInvalidParameter, kind,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validTargetTypes is the set of accepted ELBv2 target types.
+var validTargetTypes = map[string]bool{
+	"instance": true,
+	"ip":       true,
+	"lambda":   true,
+	"alb":      true,
+}
+
+// validTGProtocols is the set of accepted protocols for instance/ip/alb target groups.
+var validTGProtocols = map[string]bool{
+	"HTTP":    true,
+	"HTTPS":   true,
+	"TCP":     true,
+	"TLS":     true,
+	"UDP":     true,
+	"TCP_UDP": true,
+	"GENEVE":  true,
+}
+
+// canonicalHostedZoneIDForLB returns the canonical hosted-zone ID for the given LB type and region.
+// Returns a sensible default when the combination is not in the known map.
+func canonicalHostedZoneIDForLB(lbType, region string) string {
+	// ALB hosted zone IDs per region (partial list — falls back to us-east-1).
+	albZones := map[string]string{
+		"us-east-1":      "Z35SXDOTRQ7X7K",
+		"us-east-2":      "Z3AADJGX6KTTL2",
+		"us-west-1":      "Z368ELLRRE2KJ0",
+		"us-west-2":      "Z1H1FL5HABSF5",
+		"eu-west-1":      "Z32O12XQLNTSW2",
+		"eu-west-2":      "ZHURV8PSTC4K8",
+		"eu-central-1":   "Z215JYRZR1TBD5",
+		"ap-southeast-1": "Z1LMS91P8CMLE5",
+		"ap-southeast-2": "Z1GM3OXH4ZPM65",
+		"ap-northeast-1": "Z14GRHDCWA56QT",
+		"ap-south-1":     "ZP97RAFLXTNZK",
+		"sa-east-1":      "ZTK26PT1VY4CU",
+		"ca-central-1":   "ZQSVJUPU6J1EY",
+	}
+	// NLB hosted zone IDs per region.
+	nlbZones := map[string]string{
+		"us-east-1":      "Z26RNL4JYFTOTI",
+		"us-east-2":      "ZLMOA37VPKANP",
+		"us-west-1":      "Z24FKFUX50B4VW",
+		"us-west-2":      "Z18D5FSROUN65G",
+		"eu-west-1":      "Z2IFOLAFXWLO4F",
+		"eu-west-2":      "ZD4D7Y8KGAS4G",
+		"eu-central-1":   "Z3F0SRJ5LGBH90",
+		"ap-southeast-1": "ZKVM6ETL9YU8P",
+		"ap-southeast-2": "ZCT6FZBF4DROD",
+		"ap-northeast-1": "Z31USIVHYNEOWT",
+		"ap-south-1":     "ZVDDRBQ08TROA",
+		"sa-east-1":      "ZTK26PT1VY4CU",
+		"ca-central-1":   "Z2EPGBWURTVAEP",
+	}
+
+	switch lbType {
+	case "network":
+		if id, ok := nlbZones[region]; ok {
+			return id
+		}
+
+		return "Z26RNL4JYFTOTI"
+	default:
+		if id, ok := albZones[region]; ok {
+			return id
+		}
+
+		return "Z35SXDOTRQ7X7K"
+	}
+}
+
+// lbDNSName returns the DNS name for a load balancer following the real AWS format.
+// ALB:  {name}-{id}.{region}.elb.amazonaws.com
+// NLB:  {name}-{id}.elb.{region}.amazonaws.com
+// GWLB: {name}-{id}.{region}.elb.amazonaws.com
+func lbDNSName(name, lbType, region string) string {
+	const fixedID = "00000001"
+	switch lbType {
+	case "network":
+		return fmt.Sprintf("%s-%s.elb.%s.amazonaws.com", name, fixedID, region)
+	default:
+		return fmt.Sprintf("%s-%s.%s.elb.amazonaws.com", name, fixedID, region)
+	}
+}
+
 func (b *InMemoryBackend) lbARN(name string) string {
 	return arn.Build("elasticloadbalancing", b.region, b.accountID, "loadbalancer/app/"+name+"/0123456789abcdef")
 }
@@ -471,6 +583,10 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	if err := validateResourceName(input.Name, "load balancer"); err != nil {
+		return nil, err
 	}
 
 	for _, lb := range b.loadBalancers {
@@ -526,8 +642,8 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	lb := &LoadBalancer{
 		LoadBalancerArn:       lbArn,
 		LoadBalancerName:      input.Name,
-		DNSName:               fmt.Sprintf("%s-%s.%s.elb.amazonaws.com", input.Name, b.region, b.region),
-		CanonicalHostedZoneID: "Z35SXDOTRQ7X7K",
+		DNSName:               lbDNSName(input.Name, lbType, b.region),
+		CanonicalHostedZoneID: canonicalHostedZoneIDForLB(lbType, b.region),
 		CreatedTime:           time.Now().UTC(),
 		Scheme:                scheme,
 		Type:                  lbType,
@@ -640,6 +756,64 @@ func (b *InMemoryBackend) ModifyLoadBalancerAttributes(lbArn string, attrs map[s
 	return &cp, nil
 }
 
+// SetSecurityGroups updates the security groups associated with a load balancer.
+func (b *InMemoryBackend) SetSecurityGroups(lbArn string, sgs []string) (*LoadBalancer, error) {
+	b.mu.Lock("SetSecurityGroups")
+	defer b.mu.Unlock()
+
+	lb, ok := b.loadBalancers[lbArn]
+	if !ok {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	lb.SecurityGroups = sgs
+	cp := *lb
+
+	return &cp, nil
+}
+
+// SetSubnets updates the availability zones / subnets associated with a load balancer.
+func (b *InMemoryBackend) SetSubnets(lbArn string, azs []string) (*LoadBalancer, error) {
+	b.mu.Lock("SetSubnets")
+	defer b.mu.Unlock()
+
+	lb, ok := b.loadBalancers[lbArn]
+	if !ok {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	lb.AvailabilityZones = azs
+	cp := *lb
+
+	return &cp, nil
+}
+
+// SetIpAddressType updates the IP address type of a load balancer.
+func (b *InMemoryBackend) SetIpAddressType(lbArn string, ipType string) (*LoadBalancer, error) {
+	b.mu.Lock("SetIpAddressType")
+	defer b.mu.Unlock()
+
+	lb, ok := b.loadBalancers[lbArn]
+	if !ok {
+		return nil, ErrLoadBalancerNotFound
+	}
+
+	switch ipType {
+	case "ipv4", "dualstack", "dualstack-without-public-ipv4":
+		// valid
+	default:
+		return nil, fmt.Errorf(
+			"%w: invalid IpAddressType %q; must be ipv4, dualstack, or dualstack-without-public-ipv4",
+			ErrInvalidParameter, ipType,
+		)
+	}
+
+	lb.IPAddressType = ipType
+	cp := *lb
+
+	return &cp, nil
+}
+
 // CreateTargetGroup creates a new target group.
 func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error) {
 	b.mu.Lock("CreateTargetGroup")
@@ -647,6 +821,10 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	if err := validateResourceName(input.Name, "target group"); err != nil {
+		return nil, err
 	}
 
 	for _, tg := range b.targetGroups {
@@ -657,14 +835,33 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 
 	tgArn := b.tgARN(input.Name)
 
-	proto := input.Protocol
-	if proto == "" {
-		proto = protoHTTP
-	}
-
 	targetType := input.TargetType
 	if targetType == "" {
 		targetType = "instance"
+	}
+
+	if !validTargetTypes[targetType] {
+		return nil, fmt.Errorf(
+			"%w: invalid TargetType %q; must be instance, ip, lambda, or alb",
+			ErrInvalidParameter, targetType,
+		)
+	}
+
+	proto := input.Protocol
+	if targetType == "lambda" {
+		// Lambda target groups have no protocol or port.
+		proto = ""
+	} else {
+		if proto == "" {
+			proto = protoHTTP
+		}
+
+		if !validTGProtocols[proto] {
+			return nil, fmt.Errorf(
+				"%w: invalid Protocol %q for target group",
+				ErrInvalidParameter, proto,
+			)
+		}
 	}
 
 	t := tags.New("elbv2.tg." + input.Name + ".tags")
@@ -984,13 +1181,13 @@ func (b *InMemoryBackend) DeregisterTargets(tgArn string, targets []Target) erro
 
 	remove := make(map[string]bool)
 	for _, t := range targets {
-		remove[t.ID] = true
+		remove[t.ID+":"+strconv.Itoa(int(t.Port))] = true
 	}
 
 	remaining := make([]Target, 0, len(tg.Targets))
 
 	for _, t := range tg.Targets {
-		if !remove[t.ID] {
+		if !remove[t.ID+":"+strconv.Itoa(int(t.Port))] {
 			remaining = append(remaining, t)
 		}
 	}
@@ -1201,7 +1398,7 @@ func (b *InMemoryBackend) DescribeListeners(lbArn string, listenerArns []string)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].ListenerArn < result[j].ListenerArn
+		return result[i].Port < result[j].Port
 	})
 
 	return result, nil
@@ -1240,16 +1437,51 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 		return nil, ErrListenerNotFound
 	}
 
+	lb, lbOK := b.loadBalancers[l.LoadBalancerArn]
+
+	newProto := l.Protocol
 	if input.Protocol != "" {
-		l.Protocol = input.Protocol
+		if lbOK {
+			if err := validateListenerProtocol(lb.Type, input.Protocol); err != nil {
+				return nil, err
+			}
+		}
+
+		newProto = input.Protocol
 	}
 
-	if input.Port != 0 {
+	// Validate certificate requirement for the (possibly new) protocol.
+	candidateCerts := l.Certificates
+	if len(input.Certificates) > 0 {
+		candidateCerts = input.Certificates
+	}
+
+	if err := requireCertsForProtocol(newProto, candidateCerts); err != nil {
+		return nil, err
+	}
+
+	if input.Port != 0 && input.Port != l.Port {
+		if err := checkDuplicateListenerPort(b.listeners, l.LoadBalancerArn, input.Port); err != nil {
+			return nil, err
+		}
+
 		l.Port = input.Port
 	}
 
+	l.Protocol = newProto
+
 	if len(input.DefaultActions) > 0 {
 		l.DefaultActions = input.DefaultActions
+		// Keep default rule in sync with listener default actions.
+		for _, r := range b.rules {
+			if r.ListenerArn == input.ListenerArn && r.IsDefault {
+				actsCopy := make([]Action, len(input.DefaultActions))
+				copy(actsCopy, input.DefaultActions)
+				r.Actions = actsCopy
+
+				break
+			}
+		}
 	}
 
 	if len(input.Certificates) > 0 {
@@ -1801,14 +2033,22 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 		seen[p.Priority] = true
 	}
 
-	result := make([]Rule, 0, len(priorities))
-
+	// Validate all rules exist and none is a default rule (AWS does not allow reordering defaults).
 	for _, p := range priorities {
 		r, ok := b.rules[p.RuleArn]
 		if !ok {
 			return nil, ErrRuleNotFound
 		}
 
+		if r.IsDefault {
+			return nil, fmt.Errorf("%w: cannot set priority on the default rule", ErrOperationNotPermitted)
+		}
+	}
+
+	result := make([]Rule, 0, len(priorities))
+
+	for _, p := range priorities {
+		r := b.rules[p.RuleArn]
 		r.Priority = p.Priority
 		result = append(result, *r)
 	}
@@ -1842,6 +2082,10 @@ func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*Targ
 		tg.Matcher = input.Matcher
 	}
 
+	if input.HealthCheckEnabled != nil {
+		tg.HealthCheckEnabled = *input.HealthCheckEnabled
+	}
+
 	if input.HealthCheckIntervalSeconds != 0 {
 		tg.HealthCheckIntervalSeconds = input.HealthCheckIntervalSeconds
 	}
@@ -1858,7 +2102,6 @@ func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*Targ
 		tg.UnhealthyThresholdCount = input.UnhealthyThresholdCount
 	}
 
-	tg.HealthCheckEnabled = input.HealthCheckEnabled
 	cp := *tg
 
 	return &cp, nil
