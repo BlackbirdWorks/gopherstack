@@ -708,3 +708,823 @@ func TestCreateCustomDBEngineVersionDuplicateRejected(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+// TestReadReplicaIdentifiersInXML verifies ReadReplicaDBInstanceIdentifiers is emitted in XML.
+func TestReadReplicaIdentifiersInXML(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+	mustCreateAccuracyRDSInstance(t, h, "source-inst")
+
+	// Create a read replica.
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":                     {"CreateDBInstanceReadReplica"},
+		"Version":                    {"2014-10-31"},
+		"DBInstanceIdentifier":       {"replica-inst"},
+		"SourceDBInstanceIdentifier": {"source-inst"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Describe source - should show replica ID in ReadReplicaDBInstanceIdentifiers.
+	rec = doAccuracyRDS(t, h, url.Values{
+		"Action":               {"DescribeDBInstances"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"source-inst"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstances struct {
+				Members []struct {
+					ReadReplicaDBInstanceIdentifiers struct {
+						Members []string `xml:"ReadReplicaDBInstanceIdentifier"`
+					} `xml:"ReadReplicaDBInstanceIdentifiers"`
+				} `xml:"DBInstance"`
+			} `xml:"DBInstances"`
+		} `xml:"DescribeDBInstancesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	members := resp.Result.DBInstances.Members
+	require.Len(t, members, 1)
+	assert.Equal(t, []string{"replica-inst"}, members[0].ReadReplicaDBInstanceIdentifiers.Members)
+}
+
+// TestDeleteReplicaClearsSourceReadReplicaIdentifiers verifies deleting a replica removes it from the source.
+func TestDeleteReplicaClearsSourceReadReplicaIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+	mustCreateAccuracyRDSInstance(t, h, "src-del")
+
+	doAccuracyRDS(t, h, url.Values{
+		"Action":                     {"CreateDBInstanceReadReplica"},
+		"Version":                    {"2014-10-31"},
+		"DBInstanceIdentifier":       {"rep-del"},
+		"SourceDBInstanceIdentifier": {"src-del"},
+	})
+
+	// Delete the replica.
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"DeleteDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"rep-del"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Source should no longer list rep-del in ReadReplicaDBInstanceIdentifiers.
+	rec = doAccuracyRDS(t, h, url.Values{
+		"Action":               {"DescribeDBInstances"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"src-del"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstances struct {
+				Members []struct {
+					ReadReplicaDBInstanceIdentifiers struct {
+						Members []string `xml:"ReadReplicaDBInstanceIdentifier"`
+					} `xml:"ReadReplicaDBInstanceIdentifiers"`
+				} `xml:"DBInstance"`
+			} `xml:"DBInstances"`
+		} `xml:"DescribeDBInstancesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	members := resp.Result.DBInstances.Members
+	require.Len(t, members, 1)
+	assert.Empty(t, members[0].ReadReplicaDBInstanceIdentifiers.Members)
+}
+
+// TestPromoteReadReplicaClearsSourceList verifies PromoteReadReplica removes from source's list.
+func TestPromoteReadReplicaClearsSourceList(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+	mustCreateAccuracyRDSInstance(t, h, "src-promote")
+
+	doAccuracyRDS(t, h, url.Values{
+		"Action":                     {"CreateDBInstanceReadReplica"},
+		"Version":                    {"2014-10-31"},
+		"DBInstanceIdentifier":       {"rep-promote"},
+		"SourceDBInstanceIdentifier": {"src-promote"},
+	})
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"PromoteReadReplica"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"rep-promote"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doAccuracyRDS(t, h, url.Values{
+		"Action":               {"DescribeDBInstances"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"src-promote"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstances struct {
+				Members []struct {
+					ReadReplicaDBInstanceIdentifiers struct {
+						Members []string `xml:"ReadReplicaDBInstanceIdentifier"`
+					} `xml:"ReadReplicaDBInstanceIdentifiers"`
+				} `xml:"DBInstance"`
+			} `xml:"DBInstances"`
+		} `xml:"DescribeDBInstancesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	members := resp.Result.DBInstances.Members
+	require.Len(t, members, 1)
+	assert.Empty(t, members[0].ReadReplicaDBInstanceIdentifiers.Members)
+}
+
+// TestEnabledCloudwatchLogsExportsInInstanceXML verifies EnabledCloudwatchLogsExports is emitted for instances.
+func TestEnabledCloudwatchLogsExportsInInstanceXML(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":                               {"CreateDBInstance"},
+		"Version":                              {"2014-10-31"},
+		"DBInstanceIdentifier":                 {"logs-inst"},
+		"DBInstanceClass":                      {"db.t3.micro"},
+		"Engine":                               {"mysql"},
+		"MasterUsername":                       {"admin"},
+		"AllocatedStorage":                     {"20"},
+		"EnableCloudwatchLogsExports.member.1": {"error"},
+		"EnableCloudwatchLogsExports.member.2": {"slowquery"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstance struct {
+				EnabledCloudwatchLogsExports struct {
+					Members []string `xml:"member"`
+				} `xml:"EnabledCloudwatchLogsExports"`
+			} `xml:"DBInstance"`
+		} `xml:"CreateDBInstanceResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, []string{"error", "slowquery"}, resp.Result.DBInstance.EnabledCloudwatchLogsExports.Members)
+}
+
+// TestEnabledCloudwatchLogsExportsInClusterXML verifies EnabledCloudwatchLogsExports is emitted for clusters.
+func TestEnabledCloudwatchLogsExportsInClusterXML(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":                               {"CreateDBCluster"},
+		"Version":                              {"2014-10-31"},
+		"DBClusterIdentifier":                  {"logs-cluster"},
+		"Engine":                               {"aurora-mysql"},
+		"MasterUsername":                       {"admin"},
+		"EnableCloudwatchLogsExports.member.1": {"audit"},
+		"EnableCloudwatchLogsExports.member.2": {"error"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBCluster struct {
+				EnabledCloudwatchLogsExports struct {
+					Members []string `xml:"member"`
+				} `xml:"EnabledCloudwatchLogsExports"`
+			} `xml:"DBCluster"`
+		} `xml:"CreateDBClusterResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, []string{"audit", "error"}, resp.Result.DBCluster.EnabledCloudwatchLogsExports.Members)
+}
+
+// TestMonitoringIntervalValidation verifies invalid MonitoringInterval values are rejected.
+func TestMonitoringIntervalValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	// Valid values should succeed.
+	for _, v := range []string{"0", "1", "5", "10", "15", "30", "60"} {
+		rec := doAccuracyRDS(t, h, url.Values{
+			"Action":               {"CreateDBInstance"},
+			"Version":              {"2014-10-31"},
+			"DBInstanceIdentifier": {"mi-valid-" + v},
+			"DBInstanceClass":      {"db.t3.micro"},
+			"Engine":               {"postgres"},
+			"MasterUsername":       {"admin"},
+			"AllocatedStorage":     {"20"},
+			"MonitoringInterval":   {v},
+		})
+		assert.Equal(t, http.StatusOK, rec.Code, "expected OK for MonitoringInterval=%s", v)
+	}
+
+	// Invalid value should fail.
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"mi-invalid"},
+		"DBInstanceClass":      {"db.t3.micro"},
+		"Engine":               {"postgres"},
+		"MasterUsername":       {"admin"},
+		"AllocatedStorage":     {"20"},
+		"MonitoringInterval":   {"7"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestMonitoringIntervalValidationModify verifies MonitoringInterval validation in ModifyDBInstance.
+func TestMonitoringIntervalValidationModify(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+	mustCreateAccuracyRDSInstance(t, h, "mi-modify")
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"ModifyDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"mi-modify"},
+		"MonitoringInterval":   {"3"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestBackupRetentionPeriodValidation verifies out-of-range BackupRetentionPeriod is rejected.
+func TestBackupRetentionPeriodValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":                {"CreateDBInstance"},
+		"Version":               {"2014-10-31"},
+		"DBInstanceIdentifier":  {"brp-invalid"},
+		"DBInstanceClass":       {"db.t3.micro"},
+		"Engine":                {"postgres"},
+		"MasterUsername":        {"admin"},
+		"AllocatedStorage":      {"20"},
+		"BackupRetentionPeriod": {"36"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestBackupRetentionPeriodValidationModify verifies BackupRetentionPeriod > 35 rejected in modify.
+func TestBackupRetentionPeriodValidationModify(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+	mustCreateAccuracyRDSInstance(t, h, "brp-modify")
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":                {"ModifyDBInstance"},
+		"Version":               {"2014-10-31"},
+		"DBInstanceIdentifier":  {"brp-modify"},
+		"BackupRetentionPeriod": {"40"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestEngineVersionPersisted verifies EngineVersion is stored and returned.
+func TestEngineVersionPersisted(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"ev-inst"},
+		"DBInstanceClass":      {"db.t3.micro"},
+		"Engine":               {"postgres"},
+		"EngineVersion":        {"14.5"},
+		"MasterUsername":       {"admin"},
+		"AllocatedStorage":     {"20"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstance struct {
+				EngineVersion string `xml:"EngineVersion"`
+			} `xml:"DBInstance"`
+		} `xml:"CreateDBInstanceResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "14.5", resp.Result.DBInstance.EngineVersion)
+}
+
+// TestModifyDBInstanceUpdatesEngineVersion verifies EngineVersion is updated in ModifyDBInstance.
+func TestModifyDBInstanceUpdatesEngineVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"ev-modify"},
+		"DBInstanceClass":      {"db.t3.micro"},
+		"Engine":               {"postgres"},
+		"EngineVersion":        {"14.5"},
+		"MasterUsername":       {"admin"},
+		"AllocatedStorage":     {"20"},
+	})
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"ModifyDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"ev-modify"},
+		"EngineVersion":        {"15.0"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstance struct {
+				EngineVersion string `xml:"EngineVersion"`
+			} `xml:"DBInstance"`
+		} `xml:"ModifyDBInstanceResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "15.0", resp.Result.DBInstance.EngineVersion)
+}
+
+// TestReadReplicaInheritsEngineVersion verifies a read replica inherits the source's EngineVersion.
+func TestReadReplicaInheritsEngineVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"ev-source"},
+		"DBInstanceClass":      {"db.t3.micro"},
+		"Engine":               {"postgres"},
+		"EngineVersion":        {"15.1"},
+		"MasterUsername":       {"admin"},
+		"AllocatedStorage":     {"20"},
+	})
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":                     {"CreateDBInstanceReadReplica"},
+		"Version":                    {"2014-10-31"},
+		"DBInstanceIdentifier":       {"ev-replica"},
+		"SourceDBInstanceIdentifier": {"ev-source"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstance struct {
+				EngineVersion string `xml:"EngineVersion"`
+			} `xml:"DBInstance"`
+		} `xml:"CreateDBInstanceReadReplicaResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "15.1", resp.Result.DBInstance.EngineVersion)
+}
+
+// TestPubliclyAccessiblePersisted verifies PubliclyAccessible is stored and returned.
+func TestPubliclyAccessiblePersisted(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"pa-inst"},
+		"DBInstanceClass":      {"db.t3.micro"},
+		"Engine":               {"postgres"},
+		"MasterUsername":       {"admin"},
+		"AllocatedStorage":     {"20"},
+		"PubliclyAccessible":   {"true"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstance struct {
+				PubliclyAccessible bool `xml:"PubliclyAccessible"`
+			} `xml:"DBInstance"`
+		} `xml:"CreateDBInstanceResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp.Result.DBInstance.PubliclyAccessible)
+}
+
+// TestPerformanceInsightsEnabledPersisted verifies PerformanceInsightsEnabled is stored and returned.
+func TestPerformanceInsightsEnabledPersisted(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":                    {"CreateDBInstance"},
+		"Version":                   {"2014-10-31"},
+		"DBInstanceIdentifier":      {"pi-inst"},
+		"DBInstanceClass":           {"db.t3.micro"},
+		"Engine":                    {"postgres"},
+		"MasterUsername":            {"admin"},
+		"AllocatedStorage":          {"20"},
+		"EnablePerformanceInsights": {"true"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstance struct {
+				PerformanceInsightsEnabled bool `xml:"PerformanceInsightsEnabled"`
+			} `xml:"DBInstance"`
+		} `xml:"CreateDBInstanceResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp.Result.DBInstance.PerformanceInsightsEnabled)
+}
+
+// TestDBClusterIdentifierPersisted verifies DBClusterIdentifier is stored and returned on instance.
+func TestDBClusterIdentifierPersisted(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	// Create the cluster first.
+	doAccuracyRDS(t, h, url.Values{
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"my-aurora"},
+		"Engine":              {"aurora-postgresql"},
+		"MasterUsername":      {"admin"},
+	})
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"cluster-member"},
+		"DBInstanceClass":      {"db.r6g.large"},
+		"Engine":               {"aurora-postgresql"},
+		"MasterUsername":       {"admin"},
+		"AllocatedStorage":     {"0"},
+		"DBClusterIdentifier":  {"my-aurora"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstance struct {
+				DBClusterIdentifier string `xml:"DBClusterIdentifier"`
+			} `xml:"DBInstance"`
+		} `xml:"CreateDBInstanceResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "my-aurora", resp.Result.DBInstance.DBClusterIdentifier)
+}
+
+// TestCreateDBSnapshotCopiesKmsKeyId verifies KmsKeyId is copied from encrypted instances.
+func TestCreateDBSnapshotCopiesKmsKeyId(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"enc-inst"},
+		"DBInstanceClass":      {"db.t3.micro"},
+		"Engine":               {"postgres"},
+		"MasterUsername":       {"admin"},
+		"AllocatedStorage":     {"20"},
+		"StorageEncrypted":     {"true"},
+		"KmsKeyId":             {"arn:aws:kms:us-east-1:123:key/mykey"},
+	})
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBSnapshot"},
+		"Version":              {"2014-10-31"},
+		"DBSnapshotIdentifier": {"enc-snap"},
+		"DBInstanceIdentifier": {"enc-inst"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBSnapshot struct {
+				KmsKeyId     string `xml:"KmsKeyId"`
+				SnapshotType string `xml:"SnapshotType"`
+			} `xml:"DBSnapshot"`
+		} `xml:"CreateDBSnapshotResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/mykey", resp.Result.DBSnapshot.KmsKeyId)
+	assert.Equal(t, "manual", resp.Result.DBSnapshot.SnapshotType)
+}
+
+// TestCreateDBSnapshotNoKmsKeyIdForUnencrypted verifies KmsKeyId is not copied for unencrypted instances.
+func TestCreateDBSnapshotNoKmsKeyIdForUnencrypted(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+	mustCreateAccuracyRDSInstance(t, h, "unenc-inst")
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBSnapshot"},
+		"Version":              {"2014-10-31"},
+		"DBSnapshotIdentifier": {"unenc-snap"},
+		"DBInstanceIdentifier": {"unenc-inst"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBSnapshot struct {
+				KmsKeyId     string `xml:"KmsKeyId"`
+				SnapshotType string `xml:"SnapshotType"`
+			} `xml:"DBSnapshot"`
+		} `xml:"CreateDBSnapshotResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Empty(t, resp.Result.DBSnapshot.KmsKeyId)
+	assert.Equal(t, "manual", resp.Result.DBSnapshot.SnapshotType)
+}
+
+// TestDBClusterDeletionProtection verifies DeletionProtection is stored for clusters.
+func TestDBClusterDeletionProtection(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"dp-cluster"},
+		"Engine":              {"aurora-mysql"},
+		"MasterUsername":      {"admin"},
+		"DeletionProtection":  {"true"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBCluster struct {
+				DeletionProtection bool `xml:"DeletionProtection"`
+			} `xml:"DBCluster"`
+		} `xml:"CreateDBClusterResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp.Result.DBCluster.DeletionProtection)
+}
+
+// TestDBClusterAvailabilityZones verifies AvailabilityZones are stored and returned for clusters.
+func TestDBClusterAvailabilityZones(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":                               {"CreateDBCluster"},
+		"Version":                              {"2014-10-31"},
+		"DBClusterIdentifier":                  {"az-cluster"},
+		"Engine":                               {"aurora-postgresql"},
+		"MasterUsername":                       {"admin"},
+		"AvailabilityZones.AvailabilityZone.1": {"us-east-1a"},
+		"AvailabilityZones.AvailabilityZone.2": {"us-east-1b"},
+		"AvailabilityZones.AvailabilityZone.3": {"us-east-1c"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBCluster struct {
+				AvailabilityZones struct {
+					Members []string `xml:"AvailabilityZone"`
+				} `xml:"AvailabilityZones"`
+			} `xml:"DBCluster"`
+		} `xml:"CreateDBClusterResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t,
+		[]string{"us-east-1a", "us-east-1b", "us-east-1c"},
+		resp.Result.DBCluster.AvailabilityZones.Members,
+	)
+}
+
+// TestModifyDBClusterStorageEncryptedChanged verifies StorageEncrypted can be set via ModifyDBCluster.
+func TestModifyDBClusterStorageEncryptedChanged(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	doAccuracyRDS(t, h, url.Values{
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"enc-cluster"},
+		"Engine":              {"aurora-mysql"},
+		"MasterUsername":      {"admin"},
+	})
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":              {"ModifyDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"enc-cluster"},
+		"StorageEncrypted":    {"true"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBCluster struct {
+				StorageEncrypted bool `xml:"StorageEncrypted"`
+			} `xml:"DBCluster"`
+		} `xml:"ModifyDBClusterResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp.Result.DBCluster.StorageEncrypted)
+}
+
+// TestPendingModifiedValuesEmittedWhenModifying verifies PendingModifiedValues is emitted on modifying state.
+func TestPendingModifiedValuesEmittedWhenModifying(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+	mustCreateAccuracyRDSInstance(t, h, "pmv-inst")
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"ModifyDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"pmv-inst"},
+		"DBInstanceClass":      {"db.r6g.large"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// The response should have a PendingModifiedValues element since instance is now modifying.
+	body := rec.Body.String()
+	assert.Contains(t, body, "PendingModifiedValues")
+}
+
+// TestDBInstanceJoinsClusterMemberList verifies creating an instance with DBClusterIdentifier adds it to cluster members.
+func TestDBInstanceJoinsClusterMemberList(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	doAccuracyRDS(t, h, url.Values{
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"member-cluster"},
+		"Engine":              {"aurora-postgresql"},
+		"MasterUsername":      {"admin"},
+	})
+
+	doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"member-inst"},
+		"DBInstanceClass":      {"db.r6g.large"},
+		"Engine":               {"aurora-postgresql"},
+		"MasterUsername":       {"admin"},
+		"AllocatedStorage":     {"0"},
+		"DBClusterIdentifier":  {"member-cluster"},
+	})
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":              {"DescribeDBClusters"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"member-cluster"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBClusters struct {
+				Members []struct {
+					DBClusterMembers struct {
+						Members []struct {
+							DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
+						} `xml:"DBClusterMember"`
+					} `xml:"DBClusterMembers"`
+				} `xml:"DBCluster"`
+			} `xml:"DBClusters"`
+		} `xml:"DescribeDBClustersResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	clusters := resp.Result.DBClusters.Members
+	require.Len(t, clusters, 1)
+	members := clusters[0].DBClusterMembers.Members
+	require.Len(t, members, 1)
+	assert.Equal(t, "member-inst", members[0].DBInstanceIdentifier)
+}
+
+// TestCreateDBSnapshotOptionGroupName verifies OptionGroupName is copied to snapshot.
+func TestCreateDBSnapshotOptionGroupName(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	// Create option group.
+	doAccuracyRDS(t, h, url.Values{
+		"Action":                 {"CreateOptionGroup"},
+		"Version":                {"2014-10-31"},
+		"OptionGroupName":        {"myog"},
+		"EngineName":             {"postgres"},
+		"MajorEngineVersion":     {"14"},
+		"OptionGroupDescription": {"test"},
+	})
+
+	doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"og-inst"},
+		"DBInstanceClass":      {"db.t3.micro"},
+		"Engine":               {"postgres"},
+		"MasterUsername":       {"admin"},
+		"AllocatedStorage":     {"20"},
+		"OptionGroupName":      {"myog"},
+	})
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"CreateDBSnapshot"},
+		"Version":              {"2014-10-31"},
+		"DBSnapshotIdentifier": {"og-snap"},
+		"DBInstanceIdentifier": {"og-inst"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBSnapshot struct {
+				OptionGroupName string `xml:"OptionGroupName"`
+			} `xml:"DBSnapshot"`
+		} `xml:"CreateDBSnapshotResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "myog", resp.Result.DBSnapshot.OptionGroupName)
+}
+
+// TestModifyDBClusterDeletionProtection verifies DeletionProtection can be set via ModifyDBCluster.
+func TestModifyDBClusterDeletionProtection(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	doAccuracyRDS(t, h, url.Values{
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"modifydp-cluster"},
+		"Engine":              {"aurora-mysql"},
+		"MasterUsername":      {"admin"},
+	})
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":              {"ModifyDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"modifydp-cluster"},
+		"DeletionProtection":  {"true"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBCluster struct {
+				DeletionProtection bool `xml:"DeletionProtection"`
+			} `xml:"DBCluster"`
+		} `xml:"ModifyDBClusterResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp.Result.DBCluster.DeletionProtection)
+}
+
+// TestCloudwatchLogsExportsModifyInstance verifies CloudWatch log exports can be updated on an instance.
+func TestCloudwatchLogsExportsModifyInstance(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+	mustCreateAccuracyRDSInstance(t, h, "cwl-modify")
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":               {"ModifyDBInstance"},
+		"Version":              {"2014-10-31"},
+		"DBInstanceIdentifier": {"cwl-modify"},
+		"CloudwatchLogsExportConfiguration.EnableLogTypes.member.1": {"postgresql"},
+		"CloudwatchLogsExportConfiguration.EnableLogTypes.member.2": {"upgrade"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			DBInstance struct {
+				EnabledCloudwatchLogsExports struct {
+					Members []string `xml:"member"`
+				} `xml:"EnabledCloudwatchLogsExports"`
+			} `xml:"DBInstance"`
+		} `xml:"ModifyDBInstanceResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, []string{"postgresql", "upgrade"}, resp.Result.DBInstance.EnabledCloudwatchLogsExports.Members)
+}
