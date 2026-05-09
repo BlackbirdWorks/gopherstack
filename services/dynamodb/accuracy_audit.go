@@ -1025,53 +1025,6 @@ func validateProvisionedThroughput(pt *types.ProvisionedThroughput, billingMode 
 }
 
 // ============================================================
-// Section 26: GetItem / Query / Scan EAN+EAV validation
-// ============================================================
-
-// validateGetItemEAN runs ExpressionAttributeNames validation for read operations
-// (GetItem, Query, Scan) which only have ProjectionExpression.
-func validateReadExpressionAttributeNames(ean map[string]string, projExpr string) error {
-	if err := validateExpressionAttributeNames(ean); err != nil {
-		return err
-	}
-
-	return checkUnusedExpressionAttributeNames(ean, projExpr)
-}
-
-// ============================================================
-// Section 27: BatchWriteItem empty RequestItems rejection
-// ============================================================
-
-// validateBatchWriteNotEmpty returns a ValidationException when RequestItems is
-// nil or empty. AWS rejects empty batch writes.
-func validateBatchWriteNotEmpty(n int) error {
-	if n == 0 {
-		return NewValidationException(
-			"Value null at 'requestItems' failed to satisfy constraint: " +
-				"Member must not be null",
-		)
-	}
-
-	return nil
-}
-
-// ============================================================
-// Section 28: Query KeyConditionExpression required
-// ============================================================
-
-// validateQueryHasKeyCondition returns a ValidationException when
-// KeyConditionExpression is empty or missing. AWS requires it for Query.
-func validateQueryHasKeyCondition(expr string) error {
-	if strings.TrimSpace(expr) == "" {
-		return NewValidationException(
-			"KeyConditionExpression is required for Query",
-		)
-	}
-
-	return nil
-}
-
-// ============================================================
 // Section 29: Number string leading-zero rejection
 // ============================================================
 
