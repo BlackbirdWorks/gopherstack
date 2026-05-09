@@ -114,7 +114,7 @@ const (
 
 // VpcSecurityGroupMembership represents a VPC security group association.
 type VpcSecurityGroupMembership struct {
-	VpcSecurityGroupId string `json:"vpcSecurityGroupId"`
+	VpcSecurityGroupID string `json:"vpcSecurityGroupId"`
 	Status             string `json:"status"`
 }
 
@@ -143,9 +143,6 @@ type CustomDBEngineVersion struct {
 
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
-	VpcSecurityGroups                 []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
-	ReadReplicaIdentifiers            []string                     `json:"readReplicaIdentifiers,omitempty"`
-	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	DBInstanceIdentifier              string                       `json:"dbInstanceIdentifier"`
 	DbiResourceID                     string                       `json:"dbiResourceID"`
 	DBInstanceClass                   string                       `json:"dbInstanceClass"`
@@ -168,7 +165,10 @@ type DBInstance struct {
 	EnhancedMonitoringResourceArn     string                       `json:"enhancedMonitoringResourceArn,omitempty"`
 	PreferredMaintenanceWindow        string                       `json:"preferredMaintenanceWindow,omitempty"`
 	PreferredBackupWindow             string                       `json:"preferredBackupWindow,omitempty"`
-	KmsKeyId                          string                       `json:"kmsKeyId,omitempty"`
+	KmsKeyID                          string                       `json:"kmsKeyID,omitempty"`
+	VpcSecurityGroups                 []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
+	ReadReplicaIdentifiers            []string                     `json:"readReplicaIdentifiers,omitempty"`
+	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	Port                              int                          `json:"port"`
 	AllocatedStorage                  int                          `json:"allocatedStorage"`
 	Iops                              int                          `json:"iops,omitempty"`
@@ -193,7 +193,7 @@ type DBSnapshot struct {
 	Status               string `json:"status"`
 	StorageType          string `json:"storageType"`
 	OptionGroupName      string `json:"optionGroupName"`
-	KmsKeyId             string `json:"kmsKeyId,omitempty"`
+	KmsKeyID             string `json:"kmsKeyID,omitempty"`
 	SourceRegion         string `json:"sourceRegion,omitempty"`
 	SnapshotType         string `json:"snapshotType,omitempty"`
 	AllocatedStorage     int    `json:"allocatedStorage"`
@@ -259,10 +259,6 @@ type ServerlessV2ScalingConfiguration struct {
 // DBCluster represents an Aurora-style RDS cluster.
 type DBCluster struct {
 	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration `json:"serverlessV2ScalingConfiguration,omitempty"`
-	DBClusterMembers                []DBClusterMember                 `json:"dbClusterMembers,omitempty"`
-	ReaderAvailabilityZones         []string                          `json:"readerAvailabilityZones,omitempty"`
-	AvailabilityZones               []string                          `json:"availabilityZones,omitempty"`
-	EnabledCloudwatchLogsExports    []string                          `json:"enabledCloudwatchLogsExports,omitempty"`
 	Endpoint                        string                            `json:"endpoint"`
 	ActivityStreamStatus            string                            `json:"activityStreamStatus"`
 	Status                          string                            `json:"status"`
@@ -278,8 +274,12 @@ type DBCluster struct {
 	ActivityStreamMode              string                            `json:"activityStreamMode"`
 	PreferredBackupWindow           string                            `json:"preferredBackupWindow,omitempty"`
 	PreferredMaintenanceWindow      string                            `json:"preferredMaintenanceWindow,omitempty"`
-	KmsKeyId                        string                            `json:"kmsKeyId,omitempty"`
+	KmsKeyID                        string                            `json:"kmsKeyID,omitempty"`
 	MonitoringRoleArn               string                            `json:"monitoringRoleArn,omitempty"`
+	DBClusterMembers                []DBClusterMember                 `json:"dbClusterMembers,omitempty"`
+	ReaderAvailabilityZones         []string                          `json:"readerAvailabilityZones,omitempty"`
+	AvailabilityZones               []string                          `json:"availabilityZones,omitempty"`
+	EnabledCloudwatchLogsExports    []string                          `json:"enabledCloudwatchLogsExports,omitempty"`
 	Port                            int                               `json:"port"`
 	ServerlessCapacity              int                               `json:"serverlessCapacity"`
 	MonitoringInterval              int                               `json:"monitoringInterval,omitempty"`
@@ -318,13 +318,13 @@ type ExportTask struct {
 
 // GlobalCluster represents an RDS global cluster.
 type GlobalCluster struct {
-	GlobalClusterMembers    []GlobalClusterMember `json:"globalClusterMembers,omitempty"`
-	ClusterARNs             []string              `json:"clusterARNs"`
 	GlobalClusterIdentifier string                `json:"globalClusterIdentifier"`
 	Engine                  string                `json:"engine"`
 	EngineVersion           string                `json:"engineVersion"`
 	Status                  string                `json:"status"`
 	PrimaryRegion           string                `json:"primaryRegion,omitempty"`
+	GlobalClusterMembers    []GlobalClusterMember `json:"globalClusterMembers,omitempty"`
+	ClusterARNs             []string              `json:"clusterARNs"`
 	StorageEncrypted        bool                  `json:"storageEncrypted"`
 	DeletionProtection      bool                  `json:"deletionProtection"`
 }
@@ -531,9 +531,9 @@ type DBInstanceOptions struct {
 	MonitoringRoleArn                string
 	PreferredMaintenanceWindow       string
 	PreferredBackupWindow            string
-	KmsKeyId                         string
+	KmsKeyID                         string
 	DBClusterIdentifier              string
-	VpcSecurityGroupIds              []string
+	VpcSecurityGroupIDs              []string
 	EnabledCloudwatchLogsExports     []string
 	BackupRetentionPeriod            int
 	Iops                             int
@@ -552,7 +552,7 @@ type DBInstanceOptions struct {
 
 // CopyDBSnapshotOptions holds optional fields for CopyDBSnapshot.
 type CopyDBSnapshotOptions struct {
-	KmsKeyId     string
+	KmsKeyID     string
 	SourceRegion string
 	CopyTags     bool
 }
@@ -560,7 +560,7 @@ type CopyDBSnapshotOptions struct {
 // DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
 type DBClusterOptions struct {
 	EngineVersion                string
-	KmsKeyId                     string
+	KmsKeyID                     string
 	PreferredBackupWindow        string
 	PreferredMaintenanceWindow   string
 	MonitoringRoleArn            string
@@ -809,9 +809,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 	port := enginePort(engine)
 	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 
-	vpcSGs := make([]VpcSecurityGroupMembership, 0, len(opts.VpcSecurityGroupIds))
-	for _, sgID := range opts.VpcSecurityGroupIds {
-		vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{VpcSecurityGroupId: sgID, Status: "active"})
+	vpcSGs := make([]VpcSecurityGroupMembership, 0, len(opts.VpcSecurityGroupIDs))
+	for _, sgID := range opts.VpcSecurityGroupIDs {
+		vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{VpcSecurityGroupID: sgID, Status: subscriptionStatusActive})
 	}
 
 	inst := &DBInstance{
@@ -843,7 +843,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		MonitoringRoleArn:                opts.MonitoringRoleArn,
 		PreferredMaintenanceWindow:       opts.PreferredMaintenanceWindow,
 		PreferredBackupWindow:            opts.PreferredBackupWindow,
-		KmsKeyId:                         opts.KmsKeyId,
+		KmsKeyID:                         opts.KmsKeyID,
 		CopyTagsToSnapshot:               opts.CopyTagsToSnapshot,
 		EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
 		VpcSecurityGroups:                vpcSGs,
@@ -930,7 +930,7 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 
 	// Remove this instance from its source's ReadReplicaIdentifiers.
 	if inst.ReplicaSourceDBInstanceIdentifier != "" {
-		if src, exists := b.instances[inst.ReplicaSourceDBInstanceIdentifier]; exists {
+		if src, srcExists := b.instances[inst.ReplicaSourceDBInstanceIdentifier]; srcExists {
 			src.ReadReplicaIdentifiers = slices.DeleteFunc(src.ReadReplicaIdentifiers, func(s string) bool {
 				return s == id
 			})
@@ -1057,10 +1057,10 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		inst.PreferredBackupWindow = opts.PreferredBackupWindow
 	}
 
-	if len(opts.VpcSecurityGroupIds) > 0 {
-		vpcSGs := make([]VpcSecurityGroupMembership, 0, len(opts.VpcSecurityGroupIds))
-		for _, sgID := range opts.VpcSecurityGroupIds {
-			vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{VpcSecurityGroupId: sgID, Status: "active"})
+	if len(opts.VpcSecurityGroupIDs) > 0 {
+		vpcSGs := make([]VpcSecurityGroupMembership, 0, len(opts.VpcSecurityGroupIDs))
+		for _, sgID := range opts.VpcSecurityGroupIDs {
+			vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{VpcSecurityGroupID: sgID, Status: subscriptionStatusActive})
 		}
 		inst.VpcSecurityGroups = vpcSGs
 	}
@@ -1129,7 +1129,7 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 		OptionGroupName:      inst.OptionGroupName,
 	}
 	if inst.StorageEncrypted {
-		snap.KmsKeyId = inst.KmsKeyId
+		snap.KmsKeyID = inst.KmsKeyID
 	}
 	b.snapshots[snapshotID] = snap
 
@@ -1200,9 +1200,9 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 		return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, targetSnapshotID)
 	}
 
-	kmsKeyId := opts.KmsKeyId
-	if kmsKeyId == "" && src.StorageEncrypted {
-		kmsKeyId = src.KmsKeyId
+	kmsKeyID := opts.KmsKeyID
+	if kmsKeyID == "" && src.StorageEncrypted {
+		kmsKeyID = src.KmsKeyID
 	}
 
 	snap := &DBSnapshot{
@@ -1215,7 +1215,7 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 		Port:                 src.Port,
 		StorageType:          src.StorageType,
 		StorageEncrypted:     src.StorageEncrypted,
-		KmsKeyId:             kmsKeyId,
+		KmsKeyID:             kmsKeyID,
 		SourceRegion:         opts.SourceRegion,
 		OptionGroupName:      src.OptionGroupName,
 	}
@@ -1806,7 +1806,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 		Endpoint:                     endpoint,
 		Port:                         port,
 		ServerlessV2ScalingConfig:    serverlessV2Cfg,
-		KmsKeyId:                     opts.KmsKeyId,
+		KmsKeyID:                     opts.KmsKeyID,
 		PreferredBackupWindow:        opts.PreferredBackupWindow,
 		PreferredMaintenanceWindow:   opts.PreferredMaintenanceWindow,
 		MonitoringRoleArn:            opts.MonitoringRoleArn,
@@ -1878,8 +1878,8 @@ func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string, opts DBClus
 	if opts.EngineVersion != "" {
 		cluster.EngineVersion = opts.EngineVersion
 	}
-	if opts.KmsKeyId != "" {
-		cluster.KmsKeyId = opts.KmsKeyId
+	if opts.KmsKeyID != "" {
+		cluster.KmsKeyID = opts.KmsKeyID
 	}
 	if opts.PreferredBackupWindow != "" {
 		cluster.PreferredBackupWindow = opts.PreferredBackupWindow
@@ -2111,7 +2111,7 @@ func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 
 	// Remove promoted instance from source's ReadReplicaIdentifiers.
 	if inst.ReplicaSourceDBInstanceIdentifier != "" {
-		if src, exists := b.instances[inst.ReplicaSourceDBInstanceIdentifier]; exists {
+		if src, srcExists := b.instances[inst.ReplicaSourceDBInstanceIdentifier]; srcExists {
 			src.ReadReplicaIdentifiers = slices.DeleteFunc(src.ReadReplicaIdentifiers, func(s string) bool {
 				return s == id
 			})

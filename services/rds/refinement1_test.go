@@ -477,11 +477,29 @@ func TestFailoverDBCluster(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if tt.name == "success" {
-				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
+				_, err := b.CreateDBCluster(
+					tt.clusterID,
+					"aurora-mysql",
+					"admin",
+					"",
+					"",
+					0,
+					nil,
+					rds.DBClusterOptions{},
+				)
 				require.NoError(t, err)
 			}
 			if tt.name == "wrong status" {
-				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
+				_, err := b.CreateDBCluster(
+					tt.clusterID,
+					"aurora-mysql",
+					"admin",
+					"",
+					"",
+					0,
+					nil,
+					rds.DBClusterOptions{},
+				)
 				require.NoError(t, err)
 				_, err = b.StopDBCluster(tt.clusterID)
 				require.NoError(t, err)
@@ -515,7 +533,16 @@ func TestRebootDBCluster(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateDBCluster(tt.clusterID, "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
+				_, err := b.CreateDBCluster(
+					tt.clusterID,
+					"aurora-mysql",
+					"admin",
+					"",
+					"",
+					0,
+					nil,
+					rds.DBClusterOptions{},
+				)
 				require.NoError(t, err)
 			}
 			got, err := b.RebootDBCluster(tt.clusterID)
@@ -758,7 +785,16 @@ func TestModifyDBClusterEndpoint(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateDBCluster("my-cluster", "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
+				_, err := b.CreateDBCluster(
+					"my-cluster",
+					"aurora-mysql",
+					"admin",
+					"",
+					"",
+					0,
+					nil,
+					rds.DBClusterOptions{},
+				)
 				require.NoError(t, err)
 				_, err = b.CreateDBClusterEndpoint(tt.endpointID, "my-cluster", "WRITER")
 				require.NoError(t, err)

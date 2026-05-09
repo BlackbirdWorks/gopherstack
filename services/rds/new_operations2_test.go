@@ -25,7 +25,16 @@ func TestRDSBackend_AddRoleToDBCluster(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
+				_, _ = b.CreateDBCluster(
+					"my-cluster",
+					"aurora-postgresql",
+					"admin",
+					"mydb",
+					"",
+					0,
+					nil,
+					rds.DBClusterOptions{},
+				)
 			},
 			clusterID: "my-cluster",
 			roleARN:   "arn:aws:iam::000000000000:role/MyRole",

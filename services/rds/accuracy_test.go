@@ -18,6 +18,7 @@ import (
 
 func newAccuracyRDSHandler() *rds.Handler {
 	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
+
 	return rds.NewHandler(b)
 }
 
@@ -31,10 +32,11 @@ func doAccuracyRDS(t *testing.T, h *rds.Handler, vals url.Values) *httptest.Resp
 	c := e.NewContext(req, rec)
 	err := h.Handler()(c)
 	require.NoError(t, err)
+
 	return rec
 }
 
-func mustCreateAccuracyRDSInstance(t *testing.T, h *rds.Handler, id string) string {
+func mustCreateAccuracyRDSInstance(t *testing.T, h *rds.Handler, id string) {
 	t.Helper()
 	rec := doAccuracyRDS(t, h, url.Values{
 		"Action":               {"CreateDBInstance"},
@@ -46,7 +48,6 @@ func mustCreateAccuracyRDSInstance(t *testing.T, h *rds.Handler, id string) stri
 		"AllocatedStorage":     {"20"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
-	return id
 }
 
 // TestIopsAndStorageThroughputPersisted verifies Iops and StorageThroughput are stored and returned.
@@ -96,8 +97,8 @@ func TestVpcSecurityGroupsPersisted(t *testing.T) {
 		"Engine":               {"postgres"},
 		"MasterUsername":       {"admin"},
 		"AllocatedStorage":     {"20"},
-		"VpcSecurityGroupIds.VpcSecurityGroupId.1": {"sg-11111111"},
-		"VpcSecurityGroupIds.VpcSecurityGroupId.2": {"sg-22222222"},
+		"VpcSecurityGroupIds.VpcSecurityGroupID.1": {"sg-11111111"},
+		"VpcSecurityGroupIds.VpcSecurityGroupID.2": {"sg-22222222"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -106,7 +107,7 @@ func TestVpcSecurityGroupsPersisted(t *testing.T) {
 			DBInstance struct {
 				VpcSecurityGroups struct {
 					Members []struct {
-						VpcSecurityGroupId string `xml:"VpcSecurityGroupId"`
+						VpcSecurityGroupID string `xml:"VpcSecurityGroupId"`
 						Status             string `xml:"Status"`
 					} `xml:"VpcSecurityGroupMembership"`
 				} `xml:"VpcSecurityGroups"`
@@ -115,7 +116,7 @@ func TestVpcSecurityGroupsPersisted(t *testing.T) {
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Result.DBInstance.VpcSecurityGroups.Members, 2)
-	assert.Equal(t, "sg-11111111", resp.Result.DBInstance.VpcSecurityGroups.Members[0].VpcSecurityGroupId)
+	assert.Equal(t, "sg-11111111", resp.Result.DBInstance.VpcSecurityGroups.Members[0].VpcSecurityGroupID)
 	assert.Equal(t, "active", resp.Result.DBInstance.VpcSecurityGroups.Members[0].Status)
 }
 
@@ -170,8 +171,8 @@ func TestMonitoringFieldsPersisted(t *testing.T) {
 	var resp struct {
 		Result struct {
 			DBInstance struct {
-				MonitoringInterval int    `xml:"MonitoringInterval"`
 				MonitoringRoleArn  string `xml:"MonitoringRoleArn"`
+				MonitoringInterval int    `xml:"MonitoringInterval"`
 			} `xml:"DBInstance"`
 		} `xml:"CreateDBInstanceResult"`
 	}
@@ -257,29 +258,29 @@ func TestModifyDBInstanceNewFields(t *testing.T) {
 		"AllowMajorVersionUpgrade": {"true"},
 		"MonitoringInterval":       {"30"},
 		"MonitoringRoleArn":        {"arn:aws:iam::123456789012:role/rds-mon"},
-		"VpcSecurityGroupIds.VpcSecurityGroupId.1": {"sg-aaaaaaaa"},
+		"VpcSecurityGroupIds.VpcSecurityGroupID.1": {"sg-aaaaaaaa"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
 		Result struct {
 			DBInstance struct {
-				MonitoringInterval int `xml:"MonitoringInterval"`
-				VpcSecurityGroups  struct {
+				VpcSecurityGroups struct {
 					Members []struct {
-						VpcSecurityGroupId string `xml:"VpcSecurityGroupId"`
+						VpcSecurityGroupID string `xml:"VpcSecurityGroupId"`
 					} `xml:"VpcSecurityGroupMembership"`
 				} `xml:"VpcSecurityGroups"`
+				MonitoringInterval int `xml:"MonitoringInterval"`
 			} `xml:"DBInstance"`
 		} `xml:"ModifyDBInstanceResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, 30, resp.Result.DBInstance.MonitoringInterval)
 	require.Len(t, resp.Result.DBInstance.VpcSecurityGroups.Members, 1)
-	assert.Equal(t, "sg-aaaaaaaa", resp.Result.DBInstance.VpcSecurityGroups.Members[0].VpcSecurityGroupId)
+	assert.Equal(t, "sg-aaaaaaaa", resp.Result.DBInstance.VpcSecurityGroups.Members[0].VpcSecurityGroupID)
 }
 
-// TestCopyDBSnapshotWithKmsKeyId verifies KmsKeyId and SourceRegion are persisted on copy.
+// TestCopyDBSnapshotWithKmsKeyId verifies KmsKeyID and SourceRegion are persisted on copy.
 func TestCopyDBSnapshotWithKmsKeyId(t *testing.T) {
 	t.Parallel()
 
@@ -287,7 +288,7 @@ func TestCopyDBSnapshotWithKmsKeyId(t *testing.T) {
 
 	_, err := b.CreateDBInstance("snap-src-inst", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{
 		StorageEncrypted: true,
-		KmsKeyId:         "arn:aws:kms:us-east-1:123:key/original",
+		KmsKeyID:         "arn:aws:kms:us-east-1:123:key/original",
 	})
 	require.NoError(t, err)
 
@@ -297,11 +298,11 @@ func TestCopyDBSnapshotWithKmsKeyId(t *testing.T) {
 
 	// Copy with a new KMS key.
 	copied, err := b.CopyDBSnapshot("src-snap", "dst-snap", rds.CopyDBSnapshotOptions{
-		KmsKeyId:     "arn:aws:kms:us-east-1:123:key/new",
+		KmsKeyID:     "arn:aws:kms:us-east-1:123:key/new",
 		SourceRegion: "us-west-2",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/new", copied.KmsKeyId)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/new", copied.KmsKeyID)
 	assert.Equal(t, "us-west-2", copied.SourceRegion)
 }
 
@@ -508,9 +509,9 @@ func TestCreateDBClusterViaHandler(t *testing.T) {
 		Result struct {
 			DBCluster struct {
 				EngineVersion              string `xml:"EngineVersion"`
-				BacktrackWindow            int64  `xml:"BacktrackWindow"`
 				PreferredBackupWindow      string `xml:"PreferredBackupWindow"`
 				PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow"`
+				BacktrackWindow            int64  `xml:"BacktrackWindow"`
 				MultiAZ                    bool   `xml:"MultiAZ"`
 				StorageEncrypted           bool   `xml:"StorageEncrypted"`
 				CopyTagsToSnapshot         bool   `xml:"CopyTagsToSnapshot"`
@@ -543,7 +544,7 @@ func TestGlobalClusterPrimaryRegionAndMembers(t *testing.T) {
 	assert.Equal(t, "test-global", clusters[0].GlobalClusterIdentifier)
 }
 
-// TestSnapshotKmsKeyIdViaHandler verifies KmsKeyId is returned in snapshot response.
+// TestSnapshotKmsKeyIdViaHandler verifies KmsKeyID is returned in snapshot response.
 func TestSnapshotKmsKeyIdViaHandler(t *testing.T) {
 	t.Parallel()
 
@@ -551,7 +552,7 @@ func TestSnapshotKmsKeyIdViaHandler(t *testing.T) {
 
 	_, err := b.CreateDBInstance("kms-inst", "postgres", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{
 		StorageEncrypted: true,
-		KmsKeyId:         "arn:aws:kms:us-east-1:123:key/orig",
+		KmsKeyID:         "arn:aws:kms:us-east-1:123:key/orig",
 	})
 	require.NoError(t, err)
 
@@ -559,11 +560,11 @@ func TestSnapshotKmsKeyIdViaHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	copied, err := b.CopyDBSnapshot("kms-snap", "kms-snap-copy", rds.CopyDBSnapshotOptions{
-		KmsKeyId:     "arn:aws:kms:us-east-1:123:key/new-key",
+		KmsKeyID:     "arn:aws:kms:us-east-1:123:key/new-key",
 		SourceRegion: "us-west-2",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/new-key", copied.KmsKeyId)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/new-key", copied.KmsKeyID)
 	assert.Equal(t, "us-west-2", copied.SourceRegion)
 }
 
@@ -600,9 +601,9 @@ func TestModifyDBClusterViaHandler(t *testing.T) {
 		Result struct {
 			DBCluster struct {
 				EngineVersion              string `xml:"EngineVersion"`
-				BacktrackWindow            int64  `xml:"BacktrackWindow"`
 				PreferredBackupWindow      string `xml:"PreferredBackupWindow"`
 				PreferredMaintenanceWindow string `xml:"PreferredMaintenanceWindow"`
+				BacktrackWindow            int64  `xml:"BacktrackWindow"`
 				CopyTagsToSnapshot         bool   `xml:"CopyTagsToSnapshot"`
 			} `xml:"DBCluster"`
 		} `xml:"ModifyDBClusterResult"`
@@ -626,8 +627,8 @@ func TestVpcSecurityGroupsViaModify(t *testing.T) {
 		"Action":               {"ModifyDBInstance"},
 		"Version":              {"2014-10-31"},
 		"DBInstanceIdentifier": {"sg-modify-inst"},
-		"VpcSecurityGroupIds.VpcSecurityGroupId.1": {"sg-ffffffff"},
-		"VpcSecurityGroupIds.VpcSecurityGroupId.2": {"sg-eeeeeeee"},
+		"VpcSecurityGroupIds.VpcSecurityGroupID.1": {"sg-ffffffff"},
+		"VpcSecurityGroupIds.VpcSecurityGroupID.2": {"sg-eeeeeeee"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -636,7 +637,7 @@ func TestVpcSecurityGroupsViaModify(t *testing.T) {
 			DBInstance struct {
 				VpcSecurityGroups struct {
 					Members []struct {
-						VpcSecurityGroupId string `xml:"VpcSecurityGroupId"`
+						VpcSecurityGroupID string `xml:"VpcSecurityGroupId"`
 					} `xml:"VpcSecurityGroupMembership"`
 				} `xml:"VpcSecurityGroups"`
 			} `xml:"DBInstance"`
@@ -646,7 +647,7 @@ func TestVpcSecurityGroupsViaModify(t *testing.T) {
 	require.Len(t, resp.Result.DBInstance.VpcSecurityGroups.Members, 2)
 }
 
-// TestCopyDBSnapshotViaHandler verifies KmsKeyId in CopyDBSnapshot response.
+// TestCopyDBSnapshotViaHandler verifies KmsKeyID in CopyDBSnapshot response.
 func TestCopyDBSnapshotViaHandler(t *testing.T) {
 	t.Parallel()
 
@@ -676,13 +677,13 @@ func TestCopyDBSnapshotViaHandler(t *testing.T) {
 	var resp struct {
 		Result struct {
 			DBSnapshot struct {
-				KmsKeyId     string `xml:"KmsKeyId"`
+				KmsKeyID     string `xml:"KmsKeyId"`
 				SourceRegion string `xml:"SourceRegion"`
 			} `xml:"DBSnapshot"`
 		} `xml:"CopyDBSnapshotResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/copy-key", resp.Result.DBSnapshot.KmsKeyId)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/copy-key", resp.Result.DBSnapshot.KmsKeyID)
 	assert.Equal(t, "us-west-2", resp.Result.DBSnapshot.SourceRegion)
 }
 
@@ -1187,7 +1188,7 @@ func TestDBClusterIdentifierPersisted(t *testing.T) {
 	assert.Equal(t, "my-aurora", resp.Result.DBInstance.DBClusterIdentifier)
 }
 
-// TestCreateDBSnapshotCopiesKmsKeyId verifies KmsKeyId is copied from encrypted instances.
+// TestCreateDBSnapshotCopiesKmsKeyId verifies KmsKeyID is copied from encrypted instances.
 func TestCreateDBSnapshotCopiesKmsKeyId(t *testing.T) {
 	t.Parallel()
 
@@ -1216,17 +1217,17 @@ func TestCreateDBSnapshotCopiesKmsKeyId(t *testing.T) {
 	var resp struct {
 		Result struct {
 			DBSnapshot struct {
-				KmsKeyId     string `xml:"KmsKeyId"`
+				KmsKeyID     string `xml:"KmsKeyId"`
 				SnapshotType string `xml:"SnapshotType"`
 			} `xml:"DBSnapshot"`
 		} `xml:"CreateDBSnapshotResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/mykey", resp.Result.DBSnapshot.KmsKeyId)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/mykey", resp.Result.DBSnapshot.KmsKeyID)
 	assert.Equal(t, "manual", resp.Result.DBSnapshot.SnapshotType)
 }
 
-// TestCreateDBSnapshotNoKmsKeyIdForUnencrypted verifies KmsKeyId is not copied for unencrypted instances.
+// TestCreateDBSnapshotNoKmsKeyIdForUnencrypted verifies KmsKeyID is not copied for unencrypted instances.
 func TestCreateDBSnapshotNoKmsKeyIdForUnencrypted(t *testing.T) {
 	t.Parallel()
 
@@ -1244,13 +1245,13 @@ func TestCreateDBSnapshotNoKmsKeyIdForUnencrypted(t *testing.T) {
 	var resp struct {
 		Result struct {
 			DBSnapshot struct {
-				KmsKeyId     string `xml:"KmsKeyId"`
+				KmsKeyID     string `xml:"KmsKeyId"`
 				SnapshotType string `xml:"SnapshotType"`
 			} `xml:"DBSnapshot"`
 		} `xml:"CreateDBSnapshotResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Empty(t, resp.Result.DBSnapshot.KmsKeyId)
+	assert.Empty(t, resp.Result.DBSnapshot.KmsKeyID)
 	assert.Equal(t, "manual", resp.Result.DBSnapshot.SnapshotType)
 }
 
@@ -1368,7 +1369,8 @@ func TestPendingModifiedValuesEmittedWhenModifying(t *testing.T) {
 	assert.Contains(t, body, "PendingModifiedValues")
 }
 
-// TestDBInstanceJoinsClusterMemberList verifies creating an instance with DBClusterIdentifier adds it to cluster members.
+// TestDBInstanceJoinsClusterMemberList verifies creating an instance with DBClusterIdentifier
+// adds it to cluster members.
 func TestDBInstanceJoinsClusterMemberList(t *testing.T) {
 	t.Parallel()
 
