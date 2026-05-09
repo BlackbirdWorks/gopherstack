@@ -1941,7 +1941,7 @@ func parseActions(vals url.Values, prefix string) []Action {
 		case "authenticate-cognito":
 			action.AuthenticateCognitoConfig = &AuthenticateCognitoConfig{
 				UserPoolArn:              vals.Get(p + ".AuthenticateCognitoConfig.UserPoolArn"),
-				UserPoolClientId:         vals.Get(p + ".AuthenticateCognitoConfig.UserPoolClientId"),
+				UserPoolClientID:         vals.Get(p + ".AuthenticateCognitoConfig.UserPoolClientId"),
 				UserPoolDomain:           vals.Get(p + ".AuthenticateCognitoConfig.UserPoolDomain"),
 				SessionCookieName:        vals.Get(p + ".AuthenticateCognitoConfig.SessionCookieName"),
 				Scope:                    vals.Get(p + ".AuthenticateCognitoConfig.Scope"),
@@ -1959,7 +1959,7 @@ func parseActions(vals url.Values, prefix string) []Action {
 				AuthorizationEndpoint:    vals.Get(p + ".AuthenticateOidcConfig.AuthorizationEndpoint"),
 				TokenEndpoint:            vals.Get(p + ".AuthenticateOidcConfig.TokenEndpoint"),
 				UserInfoEndpoint:         vals.Get(p + ".AuthenticateOidcConfig.UserInfoEndpoint"),
-				ClientId:                 vals.Get(p + ".AuthenticateOidcConfig.ClientId"),
+				ClientID:                 vals.Get(p + ".AuthenticateOidcConfig.ClientId"),
 				ClientSecret:             vals.Get(p + ".AuthenticateOidcConfig.ClientSecret"),
 				SessionCookieName:        vals.Get(p + ".AuthenticateOidcConfig.SessionCookieName"),
 				Scope:                    vals.Get(p + ".AuthenticateOidcConfig.Scope"),
@@ -2201,7 +2201,7 @@ func toXMLAction(a Action) xmlAction {
 	if a.AuthenticateCognitoConfig != nil {
 		xa.AuthenticateCognitoConfig = &xmlAuthenticateCognitoConfig{
 			UserPoolArn:              a.AuthenticateCognitoConfig.UserPoolArn,
-			UserPoolClientId:         a.AuthenticateCognitoConfig.UserPoolClientId,
+			UserPoolClientID:         a.AuthenticateCognitoConfig.UserPoolClientID,
 			UserPoolDomain:           a.AuthenticateCognitoConfig.UserPoolDomain,
 			SessionCookieName:        a.AuthenticateCognitoConfig.SessionCookieName,
 			Scope:                    a.AuthenticateCognitoConfig.Scope,
@@ -2216,7 +2216,7 @@ func toXMLAction(a Action) xmlAction {
 			AuthorizationEndpoint:    a.AuthenticateOidcConfig.AuthorizationEndpoint,
 			TokenEndpoint:            a.AuthenticateOidcConfig.TokenEndpoint,
 			UserInfoEndpoint:         a.AuthenticateOidcConfig.UserInfoEndpoint,
-			ClientId:                 a.AuthenticateOidcConfig.ClientId,
+			ClientID:                 a.AuthenticateOidcConfig.ClientID,
 			SessionCookieName:        a.AuthenticateOidcConfig.SessionCookieName,
 			Scope:                    a.AuthenticateOidcConfig.Scope,
 			OnUnauthenticatedRequest: a.AuthenticateOidcConfig.OnUnauthenticatedRequest,
@@ -2642,7 +2642,7 @@ type xmlForwardConfig struct {
 // xmlAuthenticateCognitoConfig serialises AuthenticateCognitoConfig.
 type xmlAuthenticateCognitoConfig struct {
 	UserPoolArn              string `xml:"UserPoolArn"`
-	UserPoolClientId         string `xml:"UserPoolClientId"`
+	UserPoolClientID string `xml:"UserPoolClientId"`
 	UserPoolDomain           string `xml:"UserPoolDomain"`
 	SessionCookieName        string `xml:"SessionCookieName,omitempty"`
 	Scope                    string `xml:"Scope,omitempty"`
@@ -2656,7 +2656,7 @@ type xmlAuthenticateOidcConfig struct {
 	AuthorizationEndpoint    string `xml:"AuthorizationEndpoint"`
 	TokenEndpoint            string `xml:"TokenEndpoint"`
 	UserInfoEndpoint         string `xml:"UserInfoEndpoint"`
-	ClientId                 string `xml:"ClientId"`
+	ClientID                 string `xml:"ClientId"`
 	SessionCookieName        string `xml:"SessionCookieName,omitempty"`
 	Scope                    string `xml:"Scope,omitempty"`
 	OnUnauthenticatedRequest string `xml:"OnUnauthenticatedRequest,omitempty"`
