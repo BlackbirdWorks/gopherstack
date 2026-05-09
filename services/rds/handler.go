@@ -1611,7 +1611,16 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		CopyTagsToSnapshot:           vals.Get("CopyTagsToSnapshot") == formTrue,
 	}
 
-	cluster, err := h.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg, clusterOpts)
+	cluster, err := h.Backend.CreateDBCluster(
+		id,
+		engine,
+		masterUser,
+		dbName,
+		paramGroupName,
+		port,
+		serverlessV2Cfg,
+		clusterOpts,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1678,16 +1687,19 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 	}
 
 	opts := DBClusterOptions{
-		EngineVersion:                vals.Get("EngineVersion"),
-		KmsKeyId:                     vals.Get("KmsKeyId"),
-		PreferredBackupWindow:        vals.Get("PreferredBackupWindow"),
-		PreferredMaintenanceWindow:   vals.Get("PreferredMaintenanceWindow"),
-		MonitoringRoleArn:            vals.Get("MonitoringRoleArn"),
-		EnabledCloudwatchLogsExports: parseMultiValueParam(vals, "CloudwatchLogsExportConfiguration.EnableLogTypes.member"),
-		BacktrackWindow:              backtrackWindow,
-		MonitoringInterval:           monitoringInterval,
-		MultiAZ:                      vals.Get("MultiAZ") == formTrue,
-		CopyTagsToSnapshot:           vals.Get("CopyTagsToSnapshot") == formTrue,
+		EngineVersion:              vals.Get("EngineVersion"),
+		KmsKeyId:                   vals.Get("KmsKeyId"),
+		PreferredBackupWindow:      vals.Get("PreferredBackupWindow"),
+		PreferredMaintenanceWindow: vals.Get("PreferredMaintenanceWindow"),
+		MonitoringRoleArn:          vals.Get("MonitoringRoleArn"),
+		EnabledCloudwatchLogsExports: parseMultiValueParam(
+			vals,
+			"CloudwatchLogsExportConfiguration.EnableLogTypes.member",
+		),
+		BacktrackWindow:    backtrackWindow,
+		MonitoringInterval: monitoringInterval,
+		MultiAZ:            vals.Get("MultiAZ") == formTrue,
+		CopyTagsToSnapshot: vals.Get("CopyTagsToSnapshot") == formTrue,
 	}
 
 	cluster, err := h.Backend.ModifyDBCluster(id, paramGroupName, opts)
@@ -2366,30 +2378,30 @@ type xmlDBClusterMemberList struct {
 
 type xmlDBCluster struct {
 	// ServerlessV2ScalingConfiguration holds Aurora Serverless v2 capacity settings.
-	ServerlessV2ScalingConfiguration *xmlServerlessV2Ref    `xml:"ServerlessV2ScalingConfiguration,omitempty"`
+	ServerlessV2ScalingConfiguration *xmlServerlessV2Ref     `xml:"ServerlessV2ScalingConfiguration,omitempty"`
 	DBClusterMembers                 *xmlDBClusterMemberList `xml:"DBClusterMembers,omitempty"`
-	DBClusterIdentifier              string                 `xml:"DBClusterIdentifier"`
-	Engine                           string                 `xml:"Engine"`
-	EngineVersion                    string                 `xml:"EngineVersion,omitempty"`
-	Status                           string                 `xml:"Status"`
-	MasterUsername                   string                 `xml:"MasterUsername"`
-	DatabaseName                     string                 `xml:"DatabaseName,omitempty"`
-	DBClusterParameterGroupName      string                 `xml:"DBClusterParameterGroup"`
-	Endpoint                         string                 `xml:"Endpoint,omitempty"`
-	ActivityStreamStatus             string                 `xml:"ActivityStreamStatus,omitempty"`
-	ActivityStreamMode               string                 `xml:"ActivityStreamMode,omitempty"`
-	ActivityStreamKMSKeyID           string                 `xml:"ActivityStreamKmsKeyId,omitempty"`
-	ActivityStreamKinesisStreamName  string                 `xml:"ActivityStreamKinesisStreamName,omitempty"`
-	PreferredBackupWindow            string                 `xml:"PreferredBackupWindow,omitempty"`
-	PreferredMaintenanceWindow       string                 `xml:"PreferredMaintenanceWindow,omitempty"`
-	KmsKeyId                         string                 `xml:"KmsKeyId,omitempty"`
-	MonitoringRoleArn                string                 `xml:"MonitoringRoleArn,omitempty"`
-	Port                             int                    `xml:"Port"`
-	BacktrackWindow                  int64                  `xml:"BacktrackWindow,omitempty"`
-	MonitoringInterval               int                    `xml:"MonitoringInterval,omitempty"`
-	MultiAZ                          bool                   `xml:"MultiAZ,omitempty"`
-	StorageEncrypted                 bool                   `xml:"StorageEncrypted,omitempty"`
-	CopyTagsToSnapshot               bool                   `xml:"CopyTagsToSnapshot,omitempty"`
+	DBClusterIdentifier              string                  `xml:"DBClusterIdentifier"`
+	Engine                           string                  `xml:"Engine"`
+	EngineVersion                    string                  `xml:"EngineVersion,omitempty"`
+	Status                           string                  `xml:"Status"`
+	MasterUsername                   string                  `xml:"MasterUsername"`
+	DatabaseName                     string                  `xml:"DatabaseName,omitempty"`
+	DBClusterParameterGroupName      string                  `xml:"DBClusterParameterGroup"`
+	Endpoint                         string                  `xml:"Endpoint,omitempty"`
+	ActivityStreamStatus             string                  `xml:"ActivityStreamStatus,omitempty"`
+	ActivityStreamMode               string                  `xml:"ActivityStreamMode,omitempty"`
+	ActivityStreamKMSKeyID           string                  `xml:"ActivityStreamKmsKeyId,omitempty"`
+	ActivityStreamKinesisStreamName  string                  `xml:"ActivityStreamKinesisStreamName,omitempty"`
+	PreferredBackupWindow            string                  `xml:"PreferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow       string                  `xml:"PreferredMaintenanceWindow,omitempty"`
+	KmsKeyId                         string                  `xml:"KmsKeyId,omitempty"`
+	MonitoringRoleArn                string                  `xml:"MonitoringRoleArn,omitempty"`
+	Port                             int                     `xml:"Port"`
+	BacktrackWindow                  int64                   `xml:"BacktrackWindow,omitempty"`
+	MonitoringInterval               int                     `xml:"MonitoringInterval,omitempty"`
+	MultiAZ                          bool                    `xml:"MultiAZ,omitempty"`
+	StorageEncrypted                 bool                    `xml:"StorageEncrypted,omitempty"`
+	CopyTagsToSnapshot               bool                    `xml:"CopyTagsToSnapshot,omitempty"`
 }
 
 type xmlDBClusterList struct {
@@ -2828,9 +2840,9 @@ func (h *Handler) handleCopyDBSnapshot(vals url.Values) (any, error) {
 	targetSnapshotID := vals.Get("TargetDBSnapshotIdentifier")
 
 	opts := CopyDBSnapshotOptions{
-		KmsKeyId:    vals.Get("KmsKeyId"),
+		KmsKeyId:     vals.Get("KmsKeyId"),
 		SourceRegion: vals.Get("SourceRegion"),
-		CopyTags:    vals.Get("CopyTags") == formTrue,
+		CopyTags:     vals.Get("CopyTags") == formTrue,
 	}
 
 	snap, err := h.Backend.CopyDBSnapshot(sourceSnapshotID, targetSnapshotID, opts)

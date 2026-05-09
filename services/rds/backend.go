@@ -551,17 +551,17 @@ type CopyDBSnapshotOptions struct {
 
 // DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
 type DBClusterOptions struct {
-	EngineVersion              string
-	KmsKeyId                   string
-	PreferredBackupWindow      string
-	PreferredMaintenanceWindow string
-	MonitoringRoleArn          string
+	EngineVersion                string
+	KmsKeyId                     string
+	PreferredBackupWindow        string
+	PreferredMaintenanceWindow   string
+	MonitoringRoleArn            string
 	EnabledCloudwatchLogsExports []string
-	BacktrackWindow            int64
-	MonitoringInterval         int
-	MultiAZ                    bool
-	StorageEncrypted           bool
-	CopyTagsToSnapshot         bool
+	BacktrackWindow              int64
+	MonitoringInterval           int
+	MultiAZ                      bool
+	StorageEncrypted             bool
+	CopyTagsToSnapshot           bool
 }
 
 // InMemoryBackend is the in-memory store for RDS resources.
@@ -1127,7 +1127,10 @@ func (b *InMemoryBackend) DeleteDBSnapshot(snapshotID string) (*DBSnapshot, erro
 }
 
 // CopyDBSnapshot creates a copy of the given snapshot with a new identifier.
-func (b *InMemoryBackend) CopyDBSnapshot(sourceSnapshotID, targetSnapshotID string, opts CopyDBSnapshotOptions) (*DBSnapshot, error) {
+func (b *InMemoryBackend) CopyDBSnapshot(
+	sourceSnapshotID, targetSnapshotID string,
+	opts CopyDBSnapshotOptions,
+) (*DBSnapshot, error) {
 	if sourceSnapshotID == "" {
 		return nil, fmt.Errorf("%w: SourceDBSnapshotIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -2067,7 +2070,9 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 }
 
 // CreateCustomDBEngineVersion creates a custom DB engine version.
-func (b *InMemoryBackend) CreateCustomDBEngineVersion(engine, engineVersion, description string) (*CustomDBEngineVersion, error) {
+func (b *InMemoryBackend) CreateCustomDBEngineVersion(
+	engine, engineVersion, description string,
+) (*CustomDBEngineVersion, error) {
 	if engine == "" {
 		return nil, fmt.Errorf("%w: Engine is required", ErrInvalidParameter)
 	}
@@ -2080,7 +2085,12 @@ func (b *InMemoryBackend) CreateCustomDBEngineVersion(engine, engineVersion, des
 	defer b.mu.Unlock()
 
 	if _, exists := b.customEngineVersions[key]; exists {
-		return nil, fmt.Errorf("%w: custom engine version %s/%s already exists", ErrInstanceAlreadyExists, engine, engineVersion)
+		return nil, fmt.Errorf(
+			"%w: custom engine version %s/%s already exists",
+			ErrInstanceAlreadyExists,
+			engine,
+			engineVersion,
+		)
 	}
 
 	cev := &CustomDBEngineVersion{
@@ -2114,7 +2124,9 @@ func (b *InMemoryBackend) DeleteCustomDBEngineVersion(engine, engineVersion stri
 }
 
 // ModifyCustomDBEngineVersion modifies a custom DB engine version.
-func (b *InMemoryBackend) ModifyCustomDBEngineVersion(engine, engineVersion, description, status string) (*CustomDBEngineVersion, error) {
+func (b *InMemoryBackend) ModifyCustomDBEngineVersion(
+	engine, engineVersion, description, status string,
+) (*CustomDBEngineVersion, error) {
 	key := engine + ":" + engineVersion
 	b.mu.Lock("ModifyCustomDBEngineVersion")
 	defer b.mu.Unlock()
