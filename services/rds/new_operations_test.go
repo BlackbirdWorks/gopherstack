@@ -278,7 +278,7 @@ func TestRDSBackend_CopyDBSnapshot(t *testing.T) {
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
 
-			snap, err := b.CopyDBSnapshot(tt.sourceID, tt.targetID)
+			snap, err := b.CopyDBSnapshot(tt.sourceID, tt.targetID, rds.CopyDBSnapshotOptions{})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -825,7 +825,7 @@ func TestRDSBackend_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add cluster endpoint.
-	_, err = b1.CreateDBCluster("cluster1", "aurora", "admin", "mydb", "", 0, nil)
+	_, err = b1.CreateDBCluster("cluster1", "aurora", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
 	_, err = b1.CreateDBClusterEndpoint("ep1", "cluster1", "READER")
 	require.NoError(t, err)

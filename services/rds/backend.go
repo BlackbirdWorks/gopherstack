@@ -112,30 +112,76 @@ const (
 	opDescribeGlobalClusters = "DescribeGlobalClusters"
 )
 
+// VpcSecurityGroupMembership represents a VPC security group association.
+type VpcSecurityGroupMembership struct {
+	VpcSecurityGroupID string `json:"vpcSecurityGroupId"`
+	Status             string `json:"status"`
+}
+
+// DBClusterMember represents a member instance in a DB cluster.
+type DBClusterMember struct {
+	DBInstanceIdentifier        string `json:"dbInstanceIdentifier"`
+	DBClusterParameterGroupName string `json:"dbClusterParameterGroupName"`
+	PromotionTier               int    `json:"promotionTier"`
+	IsClusterWriter             bool   `json:"isClusterWriter"`
+}
+
+// GlobalClusterMember represents a member cluster in a global cluster.
+type GlobalClusterMember struct {
+	DBClusterArn          string `json:"dbClusterArn"`
+	GlobalWriteForwarding bool   `json:"globalWriteForwarding"`
+	IsWriter              bool   `json:"isWriter"`
+}
+
+// CustomDBEngineVersion represents a custom engine version for RDS.
+type CustomDBEngineVersion struct {
+	Engine        string `json:"engine"`
+	EngineVersion string `json:"engineVersion"`
+	Status        string `json:"status"`
+	Description   string `json:"description"`
+}
+
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
-	DBInstanceIdentifier              string `json:"dbInstanceIdentifier"`
-	DbiResourceID                     string `json:"dbiResourceID"`
-	DBInstanceClass                   string `json:"dbInstanceClass"`
-	Engine                            string `json:"engine"`
-	EngineVersion                     string `json:"engineVersion"`
-	DBInstanceStatus                  string `json:"dbInstanceStatus"`
-	MasterUsername                    string `json:"masterUsername"`
-	DBName                            string `json:"dbName"`
-	Endpoint                          string `json:"endpoint"`
-	VpcID                             string `json:"vpcID"`
-	DBSubnetGroupName                 string `json:"dbSubnetGroupName"`
-	DBParameterGroupName              string `json:"dbParameterGroupName"`
-	ReplicaSourceDBInstanceIdentifier string `json:"replicaSourceDBInstanceIdentifier"`
-	AvailabilityZone                  string `json:"availabilityZone"`
-	StorageType                       string `json:"storageType"`
-	Port                              int    `json:"port"`
-	AllocatedStorage                  int    `json:"allocatedStorage"`
-	BackupRetentionPeriod             int    `json:"backupRetentionPeriod"`
-	MultiAZ                           bool   `json:"multiAZ"`
-	StorageEncrypted                  bool   `json:"storageEncrypted"`
-	IAMDatabaseAuthenticationEnabled  bool   `json:"iamDatabaseAuthenticationEnabled"`
-	DeletionProtection                bool   `json:"deletionProtection"`
+	DBInstanceIdentifier              string                       `json:"dbInstanceIdentifier"`
+	DbiResourceID                     string                       `json:"dbiResourceID"`
+	DBInstanceClass                   string                       `json:"dbInstanceClass"`
+	DBClusterIdentifier               string                       `json:"dbClusterIdentifier,omitempty"`
+	Engine                            string                       `json:"engine"`
+	EngineVersion                     string                       `json:"engineVersion"`
+	DBInstanceStatus                  string                       `json:"dbInstanceStatus"`
+	MasterUsername                    string                       `json:"masterUsername"`
+	DBName                            string                       `json:"dbName"`
+	Endpoint                          string                       `json:"endpoint"`
+	VpcID                             string                       `json:"vpcID"`
+	DBSubnetGroupName                 string                       `json:"dbSubnetGroupName"`
+	DBParameterGroupName              string                       `json:"dbParameterGroupName"`
+	OptionGroupName                   string                       `json:"optionGroupName,omitempty"`
+	ReplicaSourceDBInstanceIdentifier string                       `json:"replicaSourceDBInstanceIdentifier"`
+	AvailabilityZone                  string                       `json:"availabilityZone"`
+	StorageType                       string                       `json:"storageType"`
+	LicenseModel                      string                       `json:"licenseModel,omitempty"`
+	MonitoringRoleArn                 string                       `json:"monitoringRoleArn,omitempty"`
+	EnhancedMonitoringResourceArn     string                       `json:"enhancedMonitoringResourceArn,omitempty"`
+	PreferredMaintenanceWindow        string                       `json:"preferredMaintenanceWindow,omitempty"`
+	PreferredBackupWindow             string                       `json:"preferredBackupWindow,omitempty"`
+	KmsKeyID                          string                       `json:"kmsKeyID,omitempty"`
+	VpcSecurityGroups                 []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
+	ReadReplicaIdentifiers            []string                     `json:"readReplicaIdentifiers,omitempty"`
+	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
+	Port                              int                          `json:"port"`
+	AllocatedStorage                  int                          `json:"allocatedStorage"`
+	Iops                              int                          `json:"iops,omitempty"`
+	StorageThroughput                 int                          `json:"storageThroughput,omitempty"`
+	BackupRetentionPeriod             int                          `json:"backupRetentionPeriod"`
+	MonitoringInterval                int                          `json:"monitoringInterval,omitempty"`
+	MultiAZ                           bool                         `json:"multiAZ"`
+	StorageEncrypted                  bool                         `json:"storageEncrypted"`
+	IAMDatabaseAuthenticationEnabled  bool                         `json:"iamDatabaseAuthenticationEnabled"`
+	DeletionProtection                bool                         `json:"deletionProtection"`
+	CopyTagsToSnapshot                bool                         `json:"copyTagsToSnapshot,omitempty"`
+	PubliclyAccessible                bool                         `json:"publiclyAccessible,omitempty"`
+	PerformanceInsightsEnabled        bool                         `json:"performanceInsightsEnabled,omitempty"`
 }
 
 // DBSnapshot represents an RDS database snapshot.
@@ -147,9 +193,13 @@ type DBSnapshot struct {
 	Status               string `json:"status"`
 	StorageType          string `json:"storageType"`
 	OptionGroupName      string `json:"optionGroupName"`
+	KmsKeyID             string `json:"kmsKeyID,omitempty"`
+	SourceRegion         string `json:"sourceRegion,omitempty"`
+	SnapshotType         string `json:"snapshotType,omitempty"`
 	AllocatedStorage     int    `json:"allocatedStorage"`
 	Port                 int    `json:"port"`
 	StorageEncrypted     bool   `json:"storageEncrypted"`
+	CopyTagsToSnapshot   bool   `json:"copyTagsToSnapshot,omitempty"`
 }
 
 // DBSubnetGroup represents an RDS DB subnet group.
@@ -216,14 +266,29 @@ type DBCluster struct {
 	DatabaseName                    string                            `json:"databaseName"`
 	DBClusterParameterGroupName     string                            `json:"dbClusterParameterGroupName"`
 	Engine                          string                            `json:"engine"`
+	EngineVersion                   string                            `json:"engineVersion,omitempty"`
 	ActivityStreamAuditPolicy       string                            `json:"activityStreamAuditPolicy"`
 	DBClusterIdentifier             string                            `json:"dbClusterIdentifier"`
 	ActivityStreamKinesisStreamName string                            `json:"activityStreamKinesisStreamName"`
 	ActivityStreamKMSKeyID          string                            `json:"activityStreamKmsKeyId"`
 	ActivityStreamMode              string                            `json:"activityStreamMode"`
+	PreferredBackupWindow           string                            `json:"preferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow      string                            `json:"preferredMaintenanceWindow,omitempty"`
+	KmsKeyID                        string                            `json:"kmsKeyID,omitempty"`
+	MonitoringRoleArn               string                            `json:"monitoringRoleArn,omitempty"`
+	DBClusterMembers                []DBClusterMember                 `json:"dbClusterMembers,omitempty"`
+	ReaderAvailabilityZones         []string                          `json:"readerAvailabilityZones,omitempty"`
+	AvailabilityZones               []string                          `json:"availabilityZones,omitempty"`
+	EnabledCloudwatchLogsExports    []string                          `json:"enabledCloudwatchLogsExports,omitempty"`
 	Port                            int                               `json:"port"`
 	ServerlessCapacity              int                               `json:"serverlessCapacity"`
+	MonitoringInterval              int                               `json:"monitoringInterval,omitempty"`
+	BacktrackWindow                 int64                             `json:"backtrackWindow,omitempty"`
 	HTTPEndpointEnabled             bool                              `json:"httpEndpointEnabled"`
+	MultiAZ                         bool                              `json:"multiAZ,omitempty"`
+	StorageEncrypted                bool                              `json:"storageEncrypted,omitempty"`
+	CopyTagsToSnapshot              bool                              `json:"copyTagsToSnapshot,omitempty"`
+	DeletionProtection              bool                              `json:"deletionProtection,omitempty"`
 }
 
 // DBClusterSnapshot represents an RDS cluster snapshot.
@@ -253,13 +318,15 @@ type ExportTask struct {
 
 // GlobalCluster represents an RDS global cluster.
 type GlobalCluster struct {
-	GlobalClusterIdentifier string   `json:"globalClusterIdentifier"`
-	Engine                  string   `json:"engine"`
-	EngineVersion           string   `json:"engineVersion"`
-	Status                  string   `json:"status"`
-	ClusterARNs             []string `json:"clusterARNs"`
-	StorageEncrypted        bool     `json:"storageEncrypted"`
-	DeletionProtection      bool     `json:"deletionProtection"`
+	GlobalClusterIdentifier string                `json:"globalClusterIdentifier"`
+	Engine                  string                `json:"engine"`
+	EngineVersion           string                `json:"engineVersion"`
+	Status                  string                `json:"status"`
+	PrimaryRegion           string                `json:"primaryRegion,omitempty"`
+	GlobalClusterMembers    []GlobalClusterMember `json:"globalClusterMembers,omitempty"`
+	ClusterARNs             []string              `json:"clusterARNs"`
+	StorageEncrypted        bool                  `json:"storageEncrypted"`
+	DeletionProtection      bool                  `json:"deletionProtection"`
 }
 
 // DBEngineVersion represents an available RDS engine version.
@@ -458,12 +525,54 @@ type DBInstanceOptions struct {
 	StorageType                      string
 	AvailabilityZone                 string
 	DBParameterGroupName             string
+	OptionGroupName                  string
 	SourceRegion                     string
+	LicenseModel                     string
+	MonitoringRoleArn                string
+	PreferredMaintenanceWindow       string
+	PreferredBackupWindow            string
+	KmsKeyID                         string
+	DBClusterIdentifier              string
+	VpcSecurityGroupIDs              []string
+	EnabledCloudwatchLogsExports     []string
 	BackupRetentionPeriod            int
+	Iops                             int
+	StorageThroughput                int
+	MonitoringInterval               int
 	MultiAZ                          bool
 	StorageEncrypted                 bool
 	IAMDatabaseAuthenticationEnabled bool
 	DeletionProtection               bool
+	CopyTagsToSnapshot               bool
+	AllowMajorVersionUpgrade         bool
+	ApplyImmediately                 bool
+	PubliclyAccessible               bool
+	PerformanceInsightsEnabled       bool
+}
+
+// CopyDBSnapshotOptions holds optional fields for CopyDBSnapshot.
+type CopyDBSnapshotOptions struct {
+	KmsKeyID     string
+	SourceRegion string
+	CopyTags     bool
+}
+
+// DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
+type DBClusterOptions struct {
+	EngineVersion                string
+	KmsKeyID                     string
+	PreferredBackupWindow        string
+	PreferredMaintenanceWindow   string
+	MonitoringRoleArn            string
+	EnabledCloudwatchLogsExports []string
+	AvailabilityZones            []string
+	BacktrackWindow              int64
+	MonitoringInterval           int
+	MultiAZ                      bool
+	StorageEncrypted             bool
+	StorageEncryptedChanged      bool
+	CopyTagsToSnapshot           bool
+	DeletionProtection           bool
 }
 
 // InMemoryBackend is the in-memory store for RDS resources.
@@ -496,6 +605,7 @@ type InMemoryBackend struct {
 	proxyTargetGroups         map[string]*DBProxyTargetGroup
 	proxyTargets              map[string][]DBProxyTarget
 	proxyEndpoints            map[string]*DBProxyEndpoint
+	customEngineVersions      map[string]*CustomDBEngineVersion
 	fisFailoverFaults         map[string]time.Time
 	automatedBackups          map[string]*DBInstanceAutomatedBackup
 	stopCh                    chan struct{}
@@ -536,6 +646,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		proxyTargets:              make(map[string][]DBProxyTarget),
 		proxyEndpoints:            make(map[string]*DBProxyEndpoint),
 		automatedBackups:          make(map[string]*DBInstanceAutomatedBackup),
+		customEngineVersions:      make(map[string]*CustomDBEngineVersion),
 		stopCh:                    make(chan struct{}),
 		accountID:                 accountID,
 		region:                    region,
@@ -592,6 +703,7 @@ func (b *InMemoryBackend) Reset() {
 	b.proxyTargets = make(map[string][]DBProxyTarget)
 	b.proxyEndpoints = make(map[string]*DBProxyEndpoint)
 	b.automatedBackups = make(map[string]*DBInstanceAutomatedBackup)
+	b.customEngineVersions = make(map[string]*CustomDBEngineVersion)
 }
 
 // SetDNSRegistrar wires a DNS server so RDS instance hostnames are auto-registered.
@@ -657,6 +769,61 @@ func (b *InMemoryBackend) publishInstanceEventLocked(id, msg string) {
 }
 
 // CreateDBInstance creates a new RDS DB instance.
+
+// normalizeDBInstanceDefaults fills in empty/zero values with AWS defaults.
+func normalizeDBInstanceDefaults(
+	engine, instanceClass string,
+	allocatedStorage int,
+	masterUser, region string,
+	opts *DBInstanceOptions,
+) (string, string, int, string) {
+	if engine == "" {
+		engine = "postgres"
+	}
+	if instanceClass == "" {
+		instanceClass = defaultInstanceClass
+	}
+	if allocatedStorage <= 0 {
+		allocatedStorage = defaultAllocatedStorage
+	}
+	if masterUser == "" {
+		masterUser = "admin"
+	}
+	if opts.StorageType == "" {
+		opts.StorageType = "gp2"
+	}
+	if opts.AvailabilityZone == "" {
+		opts.AvailabilityZone = region + "a"
+	}
+
+	return engine, instanceClass, allocatedStorage, masterUser
+}
+
+// maybeRegisterAutomatedBackup registers an automated backup entry if retention > 0.
+func (b *InMemoryBackend) maybeRegisterAutomatedBackup(
+	id, engine string,
+	port, allocatedStorage int,
+	opts DBInstanceOptions,
+) {
+	if opts.BackupRetentionPeriod <= 0 {
+		return
+	}
+
+	b.automatedBackups[id] = &DBInstanceAutomatedBackup{
+		DBInstanceIdentifier:  id,
+		DbiResourceID:         id,
+		Engine:                engine,
+		EngineVersion:         opts.EngineVersion,
+		DBInstanceArn:         fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", b.region, b.accountID, id),
+		Region:                b.region,
+		Status:                instanceStatusAvailable,
+		AllocatedStorage:      allocatedStorage,
+		Port:                  port,
+		BackupRetentionPeriod: opts.BackupRetentionPeriod,
+		Encrypted:             opts.StorageEncrypted,
+	}
+}
+
 func (b *InMemoryBackend) CreateDBInstance(
 	id, engine, instanceClass, dbName, masterUser, paramGroupName string,
 	allocatedStorage int,
@@ -675,32 +842,23 @@ func (b *InMemoryBackend) CreateDBInstance(
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 	}
 
-	if engine == "" {
-		engine = "postgres"
-	}
-	if instanceClass == "" {
-		instanceClass = defaultInstanceClass
-	}
-	if allocatedStorage <= 0 {
-		allocatedStorage = defaultAllocatedStorage
-	}
-	if masterUser == "" {
-		masterUser = "admin"
-	}
-	if opts.StorageType == "" {
-		opts.StorageType = "gp2"
-	}
-	if opts.AvailabilityZone == "" {
-		opts.AvailabilityZone = b.region + "a"
-	}
+	engine, instanceClass, allocatedStorage, masterUser = normalizeDBInstanceDefaults(
+		engine, instanceClass, allocatedStorage, masterUser, b.region, &opts,
+	)
 
 	port := enginePort(engine)
 	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
+
+	vpcSGs := make([]VpcSecurityGroupMembership, 0, len(opts.VpcSecurityGroupIDs))
+	for _, sgID := range opts.VpcSecurityGroupIDs {
+		vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{VpcSecurityGroupID: sgID, Status: subscriptionStatusActive})
+	}
 
 	inst := &DBInstance{
 		DBInstanceIdentifier:             id,
 		DbiResourceID:                    id,
 		DBInstanceClass:                  instanceClass,
+		DBClusterIdentifier:              opts.DBClusterIdentifier,
 		Engine:                           engine,
 		EngineVersion:                    opts.EngineVersion,
 		DBInstanceStatus:                 instanceStatusAvailable,
@@ -710,6 +868,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		Port:                             port,
 		AllocatedStorage:                 allocatedStorage,
 		DBParameterGroupName:             paramGroupName,
+		OptionGroupName:                  opts.OptionGroupName,
 		MultiAZ:                          opts.MultiAZ,
 		StorageType:                      opts.StorageType,
 		StorageEncrypted:                 opts.StorageEncrypted,
@@ -717,25 +876,34 @@ func (b *InMemoryBackend) CreateDBInstance(
 		BackupRetentionPeriod:            opts.BackupRetentionPeriod,
 		IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
 		DeletionProtection:               opts.DeletionProtection,
+		Iops:                             opts.Iops,
+		StorageThroughput:                opts.StorageThroughput,
+		LicenseModel:                     opts.LicenseModel,
+		MonitoringInterval:               opts.MonitoringInterval,
+		MonitoringRoleArn:                opts.MonitoringRoleArn,
+		PreferredMaintenanceWindow:       opts.PreferredMaintenanceWindow,
+		PreferredBackupWindow:            opts.PreferredBackupWindow,
+		KmsKeyID:                         opts.KmsKeyID,
+		CopyTagsToSnapshot:               opts.CopyTagsToSnapshot,
+		EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
+		VpcSecurityGroups:                vpcSGs,
+		ReadReplicaIdentifiers:           []string{},
+		PubliclyAccessible:               opts.PubliclyAccessible,
+		PerformanceInsightsEnabled:       opts.PerformanceInsightsEnabled,
 	}
 	b.instances[id] = inst
 	b.publishInstanceEventLocked(id, "DB instance created")
-	// Automatically register an automated backup if backups are enabled.
-	if opts.BackupRetentionPeriod > 0 {
-		b.automatedBackups[id] = &DBInstanceAutomatedBackup{
-			DBInstanceIdentifier:  id,
-			DbiResourceID:         id,
-			Engine:                engine,
-			EngineVersion:         opts.EngineVersion,
-			DBInstanceArn:         fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", b.region, b.accountID, id),
-			Region:                b.region,
-			Status:                instanceStatusAvailable,
-			AllocatedStorage:      allocatedStorage,
-			Port:                  port,
-			BackupRetentionPeriod: opts.BackupRetentionPeriod,
-			Encrypted:             opts.StorageEncrypted,
+
+	// If joining a cluster, add this instance to the cluster's member list.
+	if opts.DBClusterIdentifier != "" {
+		if cluster, exists := b.clusters[opts.DBClusterIdentifier]; exists {
+			cluster.DBClusterMembers = append(cluster.DBClusterMembers, DBClusterMember{
+				DBInstanceIdentifier: id,
+				IsClusterWriter:      len(cluster.DBClusterMembers) == 0,
+			})
 		}
 	}
+	b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
 	cp := *inst
 
 	b.mu.Unlock()
@@ -784,6 +952,16 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	b.publishInstanceEventLocked(id, "DB instance deletion started")
 	cp := *inst
 	b.publishInstanceEventLocked(id, "DB instance deleted")
+
+	// Remove this instance from its source's ReadReplicaIdentifiers.
+	if inst.ReplicaSourceDBInstanceIdentifier != "" {
+		if src, srcExists := b.instances[inst.ReplicaSourceDBInstanceIdentifier]; srcExists {
+			src.ReadReplicaIdentifiers = slices.DeleteFunc(src.ReadReplicaIdentifiers, func(s string) bool {
+				return s == id
+			})
+		}
+	}
+
 	delete(b.instances, id)
 	delete(b.tags, b.rdsARN("db", id))
 	delete(b.instanceRoles, id)
@@ -825,6 +1003,130 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 }
 
 // ModifyDBInstance modifies properties of an existing DB instance.
+
+// applyDBInstanceModifications applies non-zero/non-empty field values from opts to inst.
+
+// applyParamGroupUpdate validates and applies a parameter group change.
+func (b *InMemoryBackend) applyParamGroupUpdate(inst *DBInstance, paramGroupName string) error {
+	if paramGroupName == "" {
+		return nil
+	}
+
+	if _, pgExists := b.parameterGroups[paramGroupName]; !pgExists {
+		return fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, paramGroupName)
+	}
+
+	inst.DBParameterGroupName = paramGroupName
+
+	return nil
+}
+
+// applyVpcSecurityGroups updates VPC security group memberships on an instance.
+func applyVpcSecurityGroups(inst *DBInstance, sgIDs []string) {
+	if len(sgIDs) == 0 {
+		return
+	}
+
+	vpcSGs := make([]VpcSecurityGroupMembership, 0, len(sgIDs))
+	for _, sgID := range sgIDs {
+		vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{VpcSecurityGroupID: sgID, Status: subscriptionStatusActive})
+	}
+
+	inst.VpcSecurityGroups = vpcSGs
+}
+
+// applyDBInstanceSchedulingOpts applies monitoring/maintenance window fields.
+func applyDBInstanceSchedulingOpts(inst *DBInstance, opts DBInstanceOptions) {
+	if opts.MonitoringInterval >= 0 && opts.MonitoringInterval != inst.MonitoringInterval {
+		inst.MonitoringInterval = opts.MonitoringInterval
+	}
+	if opts.MonitoringRoleArn != "" {
+		inst.MonitoringRoleArn = opts.MonitoringRoleArn
+	}
+	if opts.PreferredMaintenanceWindow != "" {
+		inst.PreferredMaintenanceWindow = opts.PreferredMaintenanceWindow
+	}
+	if opts.PreferredBackupWindow != "" {
+		inst.PreferredBackupWindow = opts.PreferredBackupWindow
+	}
+}
+
+// applyDBInstanceFlags applies boolean flag fields from opts to inst.
+func applyDBInstanceFlags(inst *DBInstance, opts DBInstanceOptions) {
+	if opts.MultiAZ {
+		inst.MultiAZ = opts.MultiAZ
+	}
+	if opts.IAMDatabaseAuthenticationEnabled {
+		inst.IAMDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
+	}
+	if opts.DeletionProtection {
+		inst.DeletionProtection = opts.DeletionProtection
+	}
+	if opts.CopyTagsToSnapshot {
+		inst.CopyTagsToSnapshot = opts.CopyTagsToSnapshot
+	}
+	if opts.PubliclyAccessible {
+		inst.PubliclyAccessible = opts.PubliclyAccessible
+	}
+	if opts.PerformanceInsightsEnabled {
+		inst.PerformanceInsightsEnabled = opts.PerformanceInsightsEnabled
+	}
+}
+
+func (b *InMemoryBackend) applyDBInstanceModifications(
+	inst *DBInstance,
+	instanceClass string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+) error {
+	if instanceClass != "" {
+		inst.DBInstanceClass = instanceClass
+	}
+	if allocatedStorage > 0 {
+		inst.AllocatedStorage = allocatedStorage
+	}
+	if opts.StorageType != "" {
+		inst.StorageType = opts.StorageType
+	}
+	if opts.BackupRetentionPeriod >= 0 {
+		inst.BackupRetentionPeriod = opts.BackupRetentionPeriod
+	}
+	applyDBInstanceFlags(inst, opts)
+	if err := b.applyParamGroupUpdate(inst, opts.DBParameterGroupName); err != nil {
+		return err
+	}
+
+	if opts.OptionGroupName != "" {
+		inst.OptionGroupName = opts.OptionGroupName
+	}
+
+	if opts.Iops > 0 {
+		inst.Iops = opts.Iops
+	}
+
+	if opts.StorageThroughput > 0 {
+		inst.StorageThroughput = opts.StorageThroughput
+	}
+
+	if opts.LicenseModel != "" {
+		inst.LicenseModel = opts.LicenseModel
+	}
+
+	applyDBInstanceSchedulingOpts(inst, opts)
+
+	applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
+
+	if len(opts.EnabledCloudwatchLogsExports) > 0 {
+		inst.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
+	}
+
+	if opts.EngineVersion != "" {
+		inst.EngineVersion = opts.EngineVersion
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) ModifyDBInstance(
 	id, instanceClass string,
 	allocatedStorage int,
@@ -839,39 +1141,9 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 
-	if instanceClass != "" {
-		inst.DBInstanceClass = instanceClass
+	if err := b.applyDBInstanceModifications(inst, instanceClass, allocatedStorage, opts); err != nil {
+		return nil, err
 	}
-	if allocatedStorage > 0 {
-		inst.AllocatedStorage = allocatedStorage
-	}
-	if opts.StorageType != "" {
-		inst.StorageType = opts.StorageType
-	}
-	if opts.BackupRetentionPeriod >= 0 {
-		inst.BackupRetentionPeriod = opts.BackupRetentionPeriod
-	}
-	if opts.MultiAZ {
-		inst.MultiAZ = opts.MultiAZ
-	}
-	if opts.IAMDatabaseAuthenticationEnabled {
-		inst.IAMDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
-	}
-	if opts.DeletionProtection {
-		inst.DeletionProtection = opts.DeletionProtection
-	}
-	if opts.DBParameterGroupName != "" {
-		// Validate the parameter group exists if it was specified.
-		if _, pgExists := b.parameterGroups[opts.DBParameterGroupName]; !pgExists {
-			return nil, fmt.Errorf(
-				"%w: parameter group %s not found",
-				ErrParameterGroupNotFound,
-				opts.DBParameterGroupName,
-			)
-		}
-		inst.DBParameterGroupName = opts.DBParameterGroupName
-	}
-
 	inst.DBInstanceStatus = instanceStatusModifying
 	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
 	b.publishInstanceEventLocked(id, "DB instance modification started")
@@ -912,6 +1184,11 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 		Port:                 inst.Port,
 		StorageType:          inst.StorageType,
 		StorageEncrypted:     inst.StorageEncrypted,
+		SnapshotType:         "manual",
+		OptionGroupName:      inst.OptionGroupName,
+	}
+	if inst.StorageEncrypted {
+		snap.KmsKeyID = inst.KmsKeyID
 	}
 	b.snapshots[snapshotID] = snap
 
@@ -960,7 +1237,10 @@ func (b *InMemoryBackend) DeleteDBSnapshot(snapshotID string) (*DBSnapshot, erro
 }
 
 // CopyDBSnapshot creates a copy of the given snapshot with a new identifier.
-func (b *InMemoryBackend) CopyDBSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBSnapshot, error) {
+func (b *InMemoryBackend) CopyDBSnapshot(
+	sourceSnapshotID, targetSnapshotID string,
+	opts CopyDBSnapshotOptions,
+) (*DBSnapshot, error) {
 	if sourceSnapshotID == "" {
 		return nil, fmt.Errorf("%w: SourceDBSnapshotIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -979,6 +1259,11 @@ func (b *InMemoryBackend) CopyDBSnapshot(sourceSnapshotID, targetSnapshotID stri
 		return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, targetSnapshotID)
 	}
 
+	kmsKeyID := opts.KmsKeyID
+	if kmsKeyID == "" && src.StorageEncrypted {
+		kmsKeyID = src.KmsKeyID
+	}
+
 	snap := &DBSnapshot{
 		DBSnapshotIdentifier: targetSnapshotID,
 		DBInstanceIdentifier: src.DBInstanceIdentifier,
@@ -989,6 +1274,9 @@ func (b *InMemoryBackend) CopyDBSnapshot(sourceSnapshotID, targetSnapshotID stri
 		Port:                 src.Port,
 		StorageType:          src.StorageType,
 		StorageEncrypted:     src.StorageEncrypted,
+		KmsKeyID:             kmsKeyID,
+		SourceRegion:         opts.SourceRegion,
+		OptionGroupName:      src.OptionGroupName,
 	}
 	b.snapshots[targetSnapshotID] = snap
 	cp := *snap
@@ -1546,6 +1834,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	id, engine, masterUser, dbName, paramGroupName string,
 	port int,
 	serverlessV2Cfg *ServerlessV2ScalingConfiguration,
+	opts DBClusterOptions,
 ) (*DBCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
@@ -1566,15 +1855,29 @@ func (b *InMemoryBackend) CreateDBCluster(
 	}
 	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 	cluster := &DBCluster{
-		DBClusterIdentifier:         id,
-		Engine:                      engine,
-		Status:                      instanceStatusAvailable,
-		MasterUsername:              masterUser,
-		DatabaseName:                dbName,
-		DBClusterParameterGroupName: paramGroupName,
-		Endpoint:                    endpoint,
-		Port:                        port,
-		ServerlessV2ScalingConfig:   serverlessV2Cfg,
+		DBClusterIdentifier:          id,
+		Engine:                       engine,
+		EngineVersion:                opts.EngineVersion,
+		Status:                       instanceStatusAvailable,
+		MasterUsername:               masterUser,
+		DatabaseName:                 dbName,
+		DBClusterParameterGroupName:  paramGroupName,
+		Endpoint:                     endpoint,
+		Port:                         port,
+		ServerlessV2ScalingConfig:    serverlessV2Cfg,
+		KmsKeyID:                     opts.KmsKeyID,
+		PreferredBackupWindow:        opts.PreferredBackupWindow,
+		PreferredMaintenanceWindow:   opts.PreferredMaintenanceWindow,
+		MonitoringRoleArn:            opts.MonitoringRoleArn,
+		EnabledCloudwatchLogsExports: opts.EnabledCloudwatchLogsExports,
+		AvailabilityZones:            opts.AvailabilityZones,
+		BacktrackWindow:              opts.BacktrackWindow,
+		MonitoringInterval:           opts.MonitoringInterval,
+		MultiAZ:                      opts.MultiAZ,
+		StorageEncrypted:             opts.StorageEncrypted,
+		CopyTagsToSnapshot:           opts.CopyTagsToSnapshot,
+		DeletionProtection:           opts.DeletionProtection,
+		DBClusterMembers:             []DBClusterMember{},
 	}
 	b.clusters[id] = cluster
 	cp := *cluster
@@ -1621,7 +1924,7 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 }
 
 // ModifyDBCluster modifies a DB cluster.
-func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string) (*DBCluster, error) {
+func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string, opts DBClusterOptions) (*DBCluster, error) {
 	b.mu.Lock("ModifyDBCluster")
 	defer b.mu.Unlock()
 	cluster, exists := b.clusters[id]
@@ -1631,6 +1934,43 @@ func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string) (*DBCluster
 	if paramGroupName != "" {
 		cluster.DBClusterParameterGroupName = paramGroupName
 	}
+	if opts.EngineVersion != "" {
+		cluster.EngineVersion = opts.EngineVersion
+	}
+	if opts.KmsKeyID != "" {
+		cluster.KmsKeyID = opts.KmsKeyID
+	}
+	if opts.PreferredBackupWindow != "" {
+		cluster.PreferredBackupWindow = opts.PreferredBackupWindow
+	}
+	if opts.PreferredMaintenanceWindow != "" {
+		cluster.PreferredMaintenanceWindow = opts.PreferredMaintenanceWindow
+	}
+	if opts.MonitoringRoleArn != "" {
+		cluster.MonitoringRoleArn = opts.MonitoringRoleArn
+	}
+	if opts.BacktrackWindow > 0 {
+		cluster.BacktrackWindow = opts.BacktrackWindow
+	}
+	if opts.MonitoringInterval >= 0 {
+		cluster.MonitoringInterval = opts.MonitoringInterval
+	}
+	if opts.MultiAZ {
+		cluster.MultiAZ = opts.MultiAZ
+	}
+	if opts.StorageEncryptedChanged {
+		cluster.StorageEncrypted = opts.StorageEncrypted
+	}
+	if opts.CopyTagsToSnapshot {
+		cluster.CopyTagsToSnapshot = opts.CopyTagsToSnapshot
+	}
+	if opts.DeletionProtection {
+		cluster.DeletionProtection = opts.DeletionProtection
+	}
+	if len(opts.EnabledCloudwatchLogsExports) > 0 {
+		cluster.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
+	}
+
 	cp := *cluster
 
 	return &cp, nil
@@ -1745,6 +2085,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID, sourceRegion
 	var (
 		instanceClass    string
 		engine           string
+		engineVersion    string
 		masterUser       string
 		port             int
 		allocatedStorage int
@@ -1755,6 +2096,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID, sourceRegion
 	case sourceExists:
 		instanceClass = source.DBInstanceClass
 		engine = source.Engine
+		engineVersion = source.EngineVersion
 		masterUser = source.MasterUsername
 		port = source.Port
 		allocatedStorage = source.AllocatedStorage
@@ -1774,6 +2116,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID, sourceRegion
 		DbiResourceID:                     id,
 		DBInstanceClass:                   instanceClass,
 		Engine:                            engine,
+		EngineVersion:                     engineVersion,
 		DBInstanceStatus:                  instanceStatusAvailable,
 		MasterUsername:                    masterUser,
 		Endpoint:                          endpoint,
@@ -1783,9 +2126,16 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID, sourceRegion
 	}
 	b.instances[id] = replica
 	b.publishInstanceEventLocked(id, "DB read replica created")
+
+	// Track reverse read replica reference on source instance.
+	if source != nil {
+		source.ReadReplicaIdentifiers = append(source.ReadReplicaIdentifiers, id)
+	}
+
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
 	}
+
 	cp := *replica
 
 	return &cp, nil
@@ -1817,6 +2167,16 @@ func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
+
+	// Remove promoted instance from source's ReadReplicaIdentifiers.
+	if inst.ReplicaSourceDBInstanceIdentifier != "" {
+		if src, srcExists := b.instances[inst.ReplicaSourceDBInstanceIdentifier]; srcExists {
+			src.ReadReplicaIdentifiers = slices.DeleteFunc(src.ReadReplicaIdentifiers, func(s string) bool {
+				return s == id
+			})
+		}
+	}
+
 	inst.ReplicaSourceDBInstanceIdentifier = ""
 	cp := *inst
 
@@ -1836,6 +2196,85 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	delete(b.instanceReadyAt, id)
 	b.publishInstanceEventLocked(id, "DB instance reboot completed")
 	cp := *inst
+
+	return &cp, nil
+}
+
+// CreateCustomDBEngineVersion creates a custom DB engine version.
+func (b *InMemoryBackend) CreateCustomDBEngineVersion(
+	engine, engineVersion, description string,
+) (*CustomDBEngineVersion, error) {
+	if engine == "" {
+		return nil, fmt.Errorf("%w: Engine is required", ErrInvalidParameter)
+	}
+	if engineVersion == "" {
+		return nil, fmt.Errorf("%w: EngineVersion is required", ErrInvalidParameter)
+	}
+
+	key := engine + ":" + engineVersion
+	b.mu.Lock("CreateCustomDBEngineVersion")
+	defer b.mu.Unlock()
+
+	if _, exists := b.customEngineVersions[key]; exists {
+		return nil, fmt.Errorf(
+			"%w: custom engine version %s/%s already exists",
+			ErrInstanceAlreadyExists,
+			engine,
+			engineVersion,
+		)
+	}
+
+	cev := &CustomDBEngineVersion{
+		Engine:        engine,
+		EngineVersion: engineVersion,
+		Status:        instanceStatusAvailable,
+		Description:   description,
+	}
+	b.customEngineVersions[key] = cev
+	cp := *cev
+
+	return &cp, nil
+}
+
+// DeleteCustomDBEngineVersion deletes a custom DB engine version.
+func (b *InMemoryBackend) DeleteCustomDBEngineVersion(engine, engineVersion string) (*CustomDBEngineVersion, error) {
+	key := engine + ":" + engineVersion
+	b.mu.Lock("DeleteCustomDBEngineVersion")
+	defer b.mu.Unlock()
+
+	cev, exists := b.customEngineVersions[key]
+	if !exists {
+		return nil, fmt.Errorf("%w: custom engine version %s/%s not found", ErrInstanceNotFound, engine, engineVersion)
+	}
+
+	cp := *cev
+	cp.Status = instanceStatusDeleting
+	delete(b.customEngineVersions, key)
+
+	return &cp, nil
+}
+
+// ModifyCustomDBEngineVersion modifies a custom DB engine version.
+func (b *InMemoryBackend) ModifyCustomDBEngineVersion(
+	engine, engineVersion, description, status string,
+) (*CustomDBEngineVersion, error) {
+	key := engine + ":" + engineVersion
+	b.mu.Lock("ModifyCustomDBEngineVersion")
+	defer b.mu.Unlock()
+
+	cev, exists := b.customEngineVersions[key]
+	if !exists {
+		return nil, fmt.Errorf("%w: custom engine version %s/%s not found", ErrInstanceNotFound, engine, engineVersion)
+	}
+
+	if description != "" {
+		cev.Description = description
+	}
+	if status != "" {
+		cev.Status = status
+	}
+
+	cp := *cev
 
 	return &cp, nil
 }

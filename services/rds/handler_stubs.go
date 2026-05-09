@@ -161,6 +161,7 @@ type xmlCustomDBEngineVersion struct {
 	Engine                 string `xml:"Engine"`
 	EngineVersion          string `xml:"EngineVersion"`
 	Status                 string `xml:"Status,omitempty"`
+	Description            string `xml:"DatabaseInstallationFilesS3BucketName,omitempty"`
 	DBParameterGroupFamily string `xml:"DBParameterGroupFamily,omitempty"`
 }
 
@@ -366,13 +367,20 @@ type describeDBSnapshotTenantDatabasesResponse struct {
 func (h *Handler) handleCreateCustomDBEngineVersion(vals url.Values) (any, error) {
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
+	description := vals.Get("Description")
+
+	cev, err := h.Backend.CreateCustomDBEngineVersion(engine, engineVersion, description)
+	if err != nil {
+		return nil, err
+	}
 
 	return &createCustomDBEngineVersionResponse{
 		Xmlns: rdsXMLNS,
 		CustomDBEngineVersion: xmlCustomDBEngineVersion{
-			Engine:        engine,
-			EngineVersion: engineVersion,
-			Status:        instanceStatusAvailable,
+			Engine:        cev.Engine,
+			EngineVersion: cev.EngineVersion,
+			Status:        cev.Status,
+			Description:   cev.Description,
 		},
 	}, nil
 }
@@ -381,12 +389,17 @@ func (h *Handler) handleDeleteCustomDBEngineVersion(vals url.Values) (any, error
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
 
+	cev, err := h.Backend.DeleteCustomDBEngineVersion(engine, engineVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	return &deleteCustomDBEngineVersionResponse{
 		Xmlns: rdsXMLNS,
 		CustomDBEngineVersion: xmlCustomDBEngineVersion{
-			Engine:        engine,
-			EngineVersion: engineVersion,
-			Status:        instanceStatusDeleting,
+			Engine:        cev.Engine,
+			EngineVersion: cev.EngineVersion,
+			Status:        cev.Status,
 		},
 	}, nil
 }
@@ -394,13 +407,21 @@ func (h *Handler) handleDeleteCustomDBEngineVersion(vals url.Values) (any, error
 func (h *Handler) handleModifyCustomDBEngineVersion(vals url.Values) (any, error) {
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
+	description := vals.Get("Description")
+	status := vals.Get("Status")
+
+	cev, err := h.Backend.ModifyCustomDBEngineVersion(engine, engineVersion, description, status)
+	if err != nil {
+		return nil, err
+	}
 
 	return &modifyCustomDBEngineVersionResponse{
 		Xmlns: rdsXMLNS,
 		CustomDBEngineVersion: xmlCustomDBEngineVersion{
-			Engine:        engine,
-			EngineVersion: engineVersion,
-			Status:        instanceStatusAvailable,
+			Engine:        cev.Engine,
+			EngineVersion: cev.EngineVersion,
+			Status:        cev.Status,
+			Description:   cev.Description,
 		},
 	}, nil
 }
