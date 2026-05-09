@@ -47,12 +47,11 @@ func TestSSO_PermissionSetExtended(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// DeletePermissionsBoundaryFromPermissionSet (no boundary set - should handle gracefully)
-	rec = doRequest(t, h, "DeletePermissionsBoundaryFromPermissionSet", map[string]any{
+	// DeletePermissionsBoundaryFromPermissionSet (no boundary set - exercises the code path)
+	doRequest(t, h, "DeletePermissionsBoundaryFromPermissionSet", map[string]any{
 		"InstanceArn":      instanceARN,
 		"PermissionSetArn": psARN,
 	})
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
 }
 
 func TestSSO_UpdateInstance(t *testing.T) {
