@@ -138,7 +138,8 @@ func TestIoTW_FuotaTasks(t *testing.T) {
 		h,
 		http.MethodPost,
 		"/fuota-tasks",
-		`{"Name":"test-fuota","FirmwareUpdateImage":"s3://bucket/firmware.bin","FirmwareUpdateRole":"arn:aws:iam::000000000000:role/fuota-role"}`,
+		`{"Name":"test-fuota","FirmwareUpdateImage":"s3://bucket/firmware.bin",`+
+		`"FirmwareUpdateRole":"arn:aws:iam::000000000000:role/fuota-role"}`,
 	)
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
@@ -193,7 +194,8 @@ func TestIoTW_WirelessGatewayUpdates(t *testing.T) {
 		h,
 		http.MethodPost,
 		"/destinations",
-		`{"Name":"test-dest","ExpressionType":"RuleName","Expression":"test-rule","RoleArn":"arn:aws:iam::000000000000:role/test-role"}`,
+		`{"Name":"test-dest","ExpressionType":"RuleName",`+
+		`"Expression":"test-rule","RoleArn":"arn:aws:iam::000000000000:role/test-role"}`,
 	)
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 

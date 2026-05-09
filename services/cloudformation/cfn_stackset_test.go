@@ -85,19 +85,19 @@ func TestStackSet_CRUD(t *testing.T) {
 		"&StackSetName=test-stack-set"+
 		"&OperationId=op-1234")
 	// May return 404 if op not found, just check it doesn't panic.
-	assert.True(t, rec.Code >= 200)
+	assert.GreaterOrEqual(t, rec.Code, 200)
 
 	// StopStackSetOperation.
 	rec = postForm(t, h, "Action=StopStackSetOperation&Version=2010-05-15"+
 		"&StackSetName=test-stack-set"+
 		"&OperationId=op-1234")
-	assert.True(t, rec.Code >= 200)
+	assert.GreaterOrEqual(t, rec.Code, 200)
 
 	// ListStackSetOperationResults.
 	rec = postForm(t, h, "Action=ListStackSetOperationResults&Version=2010-05-15"+
 		"&StackSetName=test-stack-set"+
 		"&OperationId=op-1234")
-	assert.True(t, rec.Code >= 200)
+	assert.GreaterOrEqual(t, rec.Code, 200)
 
 	// DeleteStackInstances.
 	rec = postForm(t, h, "Action=DeleteStackInstances&Version=2010-05-15"+
@@ -113,7 +113,7 @@ func TestStackSet_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func encodeTemplate(s string) string {
+func encodeTemplate(_ string) string {
 	// Simple URL encode for the template body in form params.
 	return "AWSTemplateFormatVersion%3D2010-09-09%26Resources%3D%7B%7D"
 }

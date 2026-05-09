@@ -19,7 +19,12 @@ func newServerlessHandler() *redshift.ServerlessHandler {
 	return redshift.NewServerlessHandler(redshift.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
-func doServerlessRequest(t *testing.T, h *redshift.ServerlessHandler, method, path string, body any) *httptest.ResponseRecorder {
+func doServerlessRequest(
+	t *testing.T,
+	h *redshift.ServerlessHandler,
+	method, path string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyReader *bytes.Reader
@@ -181,10 +186,10 @@ func TestServerless_UsageLimitsCRUD(t *testing.T) {
 	// CreateUsageLimit.
 	rec := doServerlessRequest(t, h, http.MethodPost, "/redshift-serverless/usagelimits",
 		map[string]any{
-			"resourceArn":   "arn:aws:redshift-serverless:us-east-1:000000000000:workgroup/ul-wg",
-			"usageType":     "serverless-compute",
-			"amount":        100,
-			"breachAction":  "log",
+			"resourceArn":  "arn:aws:redshift-serverless:us-east-1:000000000000:workgroup/ul-wg",
+			"usageType":    "serverless-compute",
+			"amount":       100,
+			"breachAction": "log",
 		})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -248,7 +253,7 @@ func TestServerless_ModifyUsageLimit(t *testing.T) {
 // extractXMLVal is a simple XML value extractor for testing.
 func extractXMLVal(body, tag string) string {
 	open := "<" + tag + ">"
-	close := "</" + tag + ">"
+	closeTag := "</" + tag + ">"
 
 	start := strings.Index(body, open)
 	if start < 0 {
@@ -256,7 +261,7 @@ func extractXMLVal(body, tag string) string {
 	}
 
 	start += len(open)
-	end := strings.Index(body[start:], close)
+	end := strings.Index(body[start:], closeTag)
 
 	if end < 0 {
 		return ""

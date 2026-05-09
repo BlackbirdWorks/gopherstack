@@ -10,7 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 )
 
-func createKAV2App(t *testing.T, h *kinesisanalyticsv2.Handler, name string) string {
+func createKAV2App(t *testing.T, h *kinesisanalyticsv2.Handler, name string) {
 	t.Helper()
 
 	rec := doKAV2Request(t, h, "CreateApplication", map[string]any{
@@ -21,7 +21,6 @@ func createKAV2App(t *testing.T, h *kinesisanalyticsv2.Handler, name string) str
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	return name
 }
 
 func TestKAV2_TagOperations(t *testing.T) {

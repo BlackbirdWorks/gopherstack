@@ -25,7 +25,6 @@ func TestASGCoverage_DescribeOps(t *testing.T) {
 	}
 
 	for _, action := range describeOps {
-		action := action
 		t.Run(action, func(t *testing.T) {
 			t.Parallel()
 			rec := postAutoscalingForm(t, h, "Action="+action+"&Version=2011-01-01")

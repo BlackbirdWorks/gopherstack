@@ -226,7 +226,6 @@ func TestGlueStubOperations(t *testing.T) {
 	h := newTestHandler(t)
 
 	for _, action := range stubOps {
-		action := action
 		t.Run(action, func(t *testing.T) {
 			t.Parallel()
 			rec := doGlueRequest(t, h, action, map[string]any{})

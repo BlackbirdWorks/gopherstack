@@ -77,40 +77,40 @@ func TestKafkaCoverage2_UpdateOps(t *testing.T) {
 	clusterArn := createKafkaTestCluster(t, h, "update-ops-cluster")
 	encoded := url.PathEscape(clusterArn)
 
-	updateOps := []struct {
+	type updateOp struct {
+		body map[string]any
 		name string
 		path string
-		body map[string]any
-	}{
-		{"UpdateBrokerStorage", "/v1/clusters/" + encoded + "/nodes/storage",
-			map[string]any{
+	}
+	updateOps := []updateOp{
+		{name: "UpdateBrokerStorage", path: "/v1/clusters/" + encoded + "/nodes/storage",
+			body: map[string]any{
 				"currentVersion":            "1",
 				"targetBrokerEBSVolumeInfo": []map[string]any{{"volumeSizeGB": 100}},
 			}},
-		{"UpdateBrokerType", "/v1/clusters/" + encoded + "/nodes/type",
-			map[string]any{"currentVersion": "1", "targetInstanceType": "kafka.m5.xlarge"}},
-		{"UpdateClusterConfiguration", "/v1/clusters/" + encoded + "/configuration",
-			map[string]any{
+		{name: "UpdateBrokerType", path: "/v1/clusters/" + encoded + "/nodes/type",
+			body: map[string]any{"currentVersion": "1", "targetInstanceType": "kafka.m5.xlarge"}},
+		{name: "UpdateClusterConfiguration", path: "/v1/clusters/" + encoded + "/configuration",
+			body: map[string]any{
 				"currentVersion":        "1",
 				"configurationArn":      "arn:aws:kafka:us-east-1:000:configuration/test/1",
 				"configurationRevision": 1,
 			}},
-		{"UpdateClusterKafkaVersion", "/v1/clusters/" + encoded + "/version",
-			map[string]any{"currentVersion": "1", "targetKafkaVersion": "3.0.0"}},
-		{"UpdateConnectivity", "/v1/clusters/" + encoded + "/connectivity",
-			map[string]any{"currentVersion": "1", "connectivityInfo": map[string]any{}}},
-		{"UpdateMonitoring", "/v1/clusters/" + encoded + "/monitoring",
-			map[string]any{"currentVersion": "1", "openMonitoring": map[string]any{}}},
-		{"UpdateSecurity", "/v1/clusters/" + encoded + "/security",
-			map[string]any{"currentVersion": "1"}},
+		{name: "UpdateClusterKafkaVersion", path: "/v1/clusters/" + encoded + "/version",
+			body: map[string]any{"currentVersion": "1", "targetKafkaVersion": "3.0.0"}},
+		{name: "UpdateConnectivity", path: "/v1/clusters/" + encoded + "/connectivity",
+			body: map[string]any{"currentVersion": "1", "connectivityInfo": map[string]any{}}},
+		{name: "UpdateMonitoring", path: "/v1/clusters/" + encoded + "/monitoring",
+			body: map[string]any{"currentVersion": "1", "openMonitoring": map[string]any{}}},
+		{name: "UpdateSecurity", path: "/v1/clusters/" + encoded + "/security",
+			body: map[string]any{"currentVersion": "1"}},
 	}
 
 	for _, op := range updateOps {
-		op := op
 		t.Run(op.name, func(t *testing.T) {
 			t.Parallel()
 			rec := doKafkaRequest(t, h, http.MethodPut, op.path, op.body)
-			assert.True(t, rec.Code >= 200, "op %s should not panic", op.name)
+			assert.GreaterOrEqual(t, rec.Code, 200, "op %s should not panic", op.name)
 		})
 	}
 }

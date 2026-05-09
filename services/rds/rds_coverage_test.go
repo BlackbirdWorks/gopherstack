@@ -25,7 +25,9 @@ func TestRDSCoverage_StubOps(t *testing.T) {
 		{"RebootDBShardGroup", "DBShardGroupIdentifier=test-shard"},
 		{
 			"CreateIntegration",
-			"IntegrationName=test-integration&SourceArn=arn:aws:rds:us-east-1:000000000000:db:test&TargetArn=arn:aws:redshift:us-east-1:000000000000:namespace:test",
+			"IntegrationName=test-integration" +
+			"&SourceArn=arn:aws:rds:us-east-1:000000000000:db:test" +
+			"&TargetArn=arn:aws:redshift:us-east-1:000000000000:namespace:test",
 		},
 		{"DeleteIntegration", "IntegrationIdentifier=test-integration"},
 		{"DescribeIntegrations", ""},
@@ -53,7 +55,6 @@ func TestRDSCoverage_StubOps(t *testing.T) {
 	h := newRDSHandler()
 
 	for _, op := range stubOps {
-		op := op
 		t.Run(op.action, func(t *testing.T) {
 			t.Parallel()
 			body := "Action=" + op.action + "&Version=2014-10-31"
