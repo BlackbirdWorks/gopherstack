@@ -83,11 +83,18 @@ func TestKafkaCoverage2_UpdateOps(t *testing.T) {
 		body map[string]any
 	}{
 		{"UpdateBrokerStorage", "/v1/clusters/" + encoded + "/nodes/storage",
-			map[string]any{"currentVersion": "1", "targetBrokerEBSVolumeInfo": []map[string]any{{"volumeSizeGB": 100}}}},
+			map[string]any{
+				"currentVersion":            "1",
+				"targetBrokerEBSVolumeInfo": []map[string]any{{"volumeSizeGB": 100}},
+			}},
 		{"UpdateBrokerType", "/v1/clusters/" + encoded + "/nodes/type",
 			map[string]any{"currentVersion": "1", "targetInstanceType": "kafka.m5.xlarge"}},
 		{"UpdateClusterConfiguration", "/v1/clusters/" + encoded + "/configuration",
-			map[string]any{"currentVersion": "1", "configurationArn": "arn:aws:kafka:us-east-1:000:configuration/test/1", "configurationRevision": 1}},
+			map[string]any{
+				"currentVersion":        "1",
+				"configurationArn":      "arn:aws:kafka:us-east-1:000:configuration/test/1",
+				"configurationRevision": 1,
+			}},
 		{"UpdateClusterKafkaVersion", "/v1/clusters/" + encoded + "/version",
 			map[string]any{"currentVersion": "1", "targetKafkaVersion": "3.0.0"}},
 		{"UpdateConnectivity", "/v1/clusters/" + encoded + "/connectivity",
@@ -149,10 +156,10 @@ func TestKafkaCoverage2_UpdateReplicationInfo(t *testing.T) {
 	// UpdateReplicationInfo.
 	rec = doKafkaRequest(t, h, http.MethodPut, "/replication/v1/replicators/"+encoded+"/replication-info",
 		map[string]any{
-			"currentVersion":        "1",
-			"sourceKafkaClusterArn": "arn:aws:kafka:us-east-1:000000000000:cluster/source/abc",
-			"targetKafkaClusterArn": "arn:aws:kafka:us-east-1:000000000000:cluster/target/def",
-			"topicReplication":      map[string]any{"replicateSourceTopicTags": false},
+			"currentVersion":           "1",
+			"sourceKafkaClusterArn":    "arn:aws:kafka:us-east-1:000000000000:cluster/source/abc",
+			"targetKafkaClusterArn":    "arn:aws:kafka:us-east-1:000000000000:cluster/target/def",
+			"topicReplication":         map[string]any{"replicateSourceTopicTags": false},
 			"consumerGroupReplication": map[string]any{"synchroniseConsumerGroupOffsets": false},
 		})
 	assert.Positive(t, rec.Code)

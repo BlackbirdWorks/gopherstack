@@ -29,6 +29,7 @@ func createZone(t *testing.T, h *route53.Handler, name string) string {
 	for i := range body {
 		if body[i:min53(i+12, len(body))] == `/hostedzone/` {
 			idx = i + 12
+
 			break
 		}
 	}
@@ -59,11 +60,13 @@ func TestRoute53_QueryLoggingConfig(t *testing.T) {
 	require.NotEmpty(t, zoneID)
 
 	// CreateQueryLoggingConfig
+	const cwLogGroup = "arn:aws:logs:us-east-1:123456789012:log-group:/aws/route53/query-log"
 	rec := send(t, h, http.MethodPost, "/2013-04-01/queryloggingconfig",
-		`<CreateQueryLoggingConfigRequest>
-<HostedZoneId>`+zoneID+`</HostedZoneId>
-<CloudWatchLogsLogGroupArn>arn:aws:logs:us-east-1:123456789012:log-group:/aws/route53/query-log</CloudWatchLogsLogGroupArn>
-</CreateQueryLoggingConfigRequest>`)
+		`<CreateQueryLoggingConfigRequest>`+
+			`<HostedZoneId>`+zoneID+`</HostedZoneId>`+
+			`<CloudWatchLogsLogGroupArn>`+cwLogGroup+`</CloudWatchLogsLogGroupArn>`+
+			`</CreateQueryLoggingConfigRequest>`,
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	// ListQueryLoggingConfigs
@@ -82,7 +85,9 @@ func TestRoute53_ReusableDelegationSets(t *testing.T) {
 		h,
 		http.MethodPost,
 		"/2013-04-01/delegationset",
-		`<CreateReusableDelegationSetRequest><CallerReference>ref-ds-1</CallerReference></CreateReusableDelegationSetRequest>`,
+		`<CreateReusableDelegationSetRequest>`+
+			`<CallerReference>ref-ds-1</CallerReference>`+
+			`</CreateReusableDelegationSetRequest>`,
 	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
