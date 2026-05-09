@@ -16,7 +16,7 @@ func createSWFDomain(t *testing.T, h *swf.Handler, name string) {
 	t.Helper()
 
 	rec := doSWFRequest(t, h, "RegisterDomain", map[string]any{
-		"name":                   name,
+		"name":                                   name,
 		"workflowExecutionRetentionPeriodInDays": "10",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

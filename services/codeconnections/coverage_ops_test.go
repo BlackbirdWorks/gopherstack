@@ -73,12 +73,12 @@ func TestCC_SyncConfiguration_CRUD(t *testing.T) {
 
 	// CreateSyncConfiguration
 	rec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
-		"Branch":              "main",
-		"ConfigFile":          ".aws/sync.yaml",
-		"RepositoryLinkId":    linkID,
-		"ResourceName":        "my-resource",
-		"RoleArn":             "arn:aws:iam::123456789012:role/SyncRole",
-		"SyncType":            "CFN_STACK_SYNC",
+		"Branch":           "main",
+		"ConfigFile":       ".aws/sync.yaml",
+		"RepositoryLinkId": linkID,
+		"ResourceName":     "my-resource",
+		"RoleArn":          "arn:aws:iam::123456789012:role/SyncRole",
+		"SyncType":         "CFN_STACK_SYNC",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
